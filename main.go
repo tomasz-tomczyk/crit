@@ -82,6 +82,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	watchStop := make(chan struct{})
+	go doc.WatchFile(watchStop)
+
 	go func() {
 		if err := httpServer.Serve(listener); err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
@@ -89,6 +92,7 @@ func main() {
 	}()
 
 	<-ctx.Done()
+	close(watchStop)
 	fmt.Println("\nShutting down...")
 
 	doc.WriteFiles()

@@ -27,6 +27,12 @@ type CommentsFile struct {
 	Comments  []Comment `json:"comments"`
 }
 
+type SSEEvent struct {
+	Type     string `json:"type"`
+	Filename string `json:"filename"`
+	Content  string `json:"content"`
+}
+
 type Document struct {
 	FilePath    string
 	FileName    string
@@ -39,6 +45,8 @@ type Document struct {
 	nextID      int
 	writeTimer  *time.Timer
 	staleNotice string
+	subscribers map[chan SSEEvent]struct{}
+	subMu       sync.Mutex
 }
 
 func NewDocument(filePath, outputDir string) (*Document, error) {
@@ -51,14 +59,15 @@ func NewDocument(filePath, outputDir string) (*Document, error) {
 	hash := fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 
 	doc := &Document{
-		FilePath:  filePath,
-		FileName:  filepath.Base(filePath),
-		FileDir:   filepath.Dir(filePath),
-		Content:   content,
-		FileHash:  hash,
-		OutputDir: outputDir,
-		Comments:  []Comment{},
-		nextID:    1,
+		FilePath:    filePath,
+		FileName:    filepath.Base(filePath),
+		FileDir:     filepath.Dir(filePath),
+		Content:     content,
+		FileHash:    hash,
+		OutputDir:   outputDir,
+		Comments:    []Comment{},
+		nextID:      1,
+		subscribers: make(map[chan SSEEvent]struct{}),
 	}
 
 	doc.loadComments()
@@ -217,5 +226,97 @@ func (d *Document) writeReviewMD(comments []Comment) {
 
 	if err := os.WriteFile(d.reviewFilePath(), []byte(reviewContent), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing review file: %v\n", err)
+	}
+}
+
+// SSE subscriber management
+
+func (d *Document) Subscribe() chan SSEEvent {
+	ch := make(chan SSEEvent, 4)
+	d.subMu.Lock()
+	d.subscribers[ch] = struct{}{}
+	d.subMu.Unlock()
+	return ch
+}
+
+func (d *Document) Unsubscribe(ch chan SSEEvent) {
+	d.subMu.Lock()
+	delete(d.subscribers, ch)
+	d.subMu.Unlock()
+	close(ch)
+}
+
+func (d *Document) notify(event SSEEvent) {
+	d.subMu.Lock()
+	defer d.subMu.Unlock()
+	for ch := range d.subscribers {
+		select {
+		case ch <- event:
+		default:
+			// drop if subscriber is slow
+		}
+	}
+}
+
+// ReloadFile re-reads the source file and clears in-memory comments.
+// The .review.md file is kept so the agent can still reference it while editing.
+func (d *Document) ReloadFile() error {
+	data, err := os.ReadFile(d.FilePath)
+	if err != nil {
+		return fmt.Errorf("reading file: %w", err)
+	}
+
+	d.mu.Lock()
+	d.Content = string(data)
+	d.FileHash = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+	d.Comments = []Comment{}
+	d.nextID = 1
+	d.staleNotice = ""
+	d.mu.Unlock()
+
+	os.Remove(d.commentsFilePath())
+
+	return nil
+}
+
+// WatchFile polls the source file for changes every second.
+// On change, it reloads and notifies SSE subscribers.
+func (d *Document) WatchFile(stop <-chan struct{}) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			data, err := os.ReadFile(d.FilePath)
+			if err != nil {
+				continue
+			}
+			hash := fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+
+			d.mu.RLock()
+			changed := hash != d.FileHash
+			d.mu.RUnlock()
+
+			if changed {
+				if err := d.ReloadFile(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error reloading file: %v\n", err)
+					continue
+				}
+
+				d.mu.RLock()
+				event := SSEEvent{
+					Type:     "file-changed",
+					Filename: d.FileName,
+					Content:  d.Content,
+				}
+				d.mu.RUnlock()
+
+				d.notify(event)
+				fmt.Printf("File changed: %s — notified %d client(s)\n", d.FileName, len(d.subscribers))
+			}
+		}
 	}
 }

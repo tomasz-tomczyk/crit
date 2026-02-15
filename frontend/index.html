@@ -689,60 +689,85 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   border-top: 1px solid var(--border);
 }
 
-/* ===== Finish Overlay ===== */
-.overlay {
+
+/* ===== Waiting Overlay ===== */
+.waiting-overlay {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.6);
-  z-index: 200;
-  align-items: center;
-  justify-content: center;
-}
-.overlay.active { display: flex; }
-
-.overlay-dialog {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 28px;
-  max-width: 420px;
-  text-align: center;
-  box-shadow: var(--shadow);
-}
-
-.overlay-dialog h3 {
-  margin-bottom: 10px;
-  font-size: 1.1rem;
-}
-
-.overlay-dialog p {
-  color: var(--fg-secondary);
-  font-size: 14px;
-  margin-bottom: 20px;
-}
-
-.overlay-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-}
-
-/* ===== Finished Message ===== */
-.finished-message {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: var(--bg-primary);
+  background: rgba(0,0,0,0.5);
   z-index: 300;
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
+  backdrop-filter: blur(2px);
 }
-.finished-message.active { display: flex; }
-.finished-message h2 { color: var(--green); }
-.finished-message p { color: var(--fg-secondary); font-size: 15px; }
+.waiting-overlay.active { display: flex; }
+
+.waiting-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  max-width: 480px;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+.waiting-dialog h3 { color: var(--green); margin-bottom: 12px; }
+.waiting-dialog p { color: var(--fg-secondary); font-size: 14px; margin-bottom: 8px; }
+
+.waiting-spinner {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.waiting-prompt {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-primary);
+  margin-top: 12px;
+  cursor: pointer;
+  user-select: all;
+  word-break: break-word;
+}
+
+/* ===== Updated Banner ===== */
+.updated-banner {
+  display: none;
+  position: fixed;
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 250;
+  background: var(--accent);
+  color: #fff;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  transition: opacity 0.2s;
+  animation: slideDown 0.3s ease-out;
+}
+.updated-banner.active { display: block; }
+.updated-banner:hover { opacity: 0.9; }
+@keyframes slideDown {
+  from { transform: translateX(-50%) translateY(-20px); opacity: 0; }
+  to { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
 
 /* ===== Loading State ===== */
 .loading {
@@ -816,33 +841,18 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   <div class="loading">Loading document...</div>
 </div>
 
-<div class="overlay" id="finishOverlay">
-  <div class="overlay-dialog">
-    <h3>Finish Review</h3>
-    <p>This will save all comments and shut down the server. The review file is ready to hand off.</p>
-    <div class="overlay-actions">
-      <button class="btn" id="finishCancel">Cancel</button>
-      <button class="btn btn-primary" id="finishConfirm">Finish &amp; Exit</button>
-    </div>
+<div class="waiting-overlay" id="waitingOverlay">
+  <div class="waiting-dialog">
+    <div class="waiting-spinner"></div>
+    <h3>Review Complete</h3>
+    <p>Paste the prompt below to your agent, then wait for <strong id="waitingFilename"></strong> to be updated.</p>
+    <div class="waiting-prompt" id="waitingPrompt"></div>
+    <p style="font-size: 12px; color: var(--fg-muted); margin-top: 8px;">Copied to clipboard</p>
+    <button class="btn btn-sm" id="backToEditing" style="margin-top: 16px;">Back to editing</button>
   </div>
 </div>
 
-<div class="finished-message" id="finishedMessage">
-  <h2>Review Complete</h2>
-  <p id="finishedPrompt" style="
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 12px 16px;
-    font-family: var(--font-mono);
-    font-size: 13px;
-    max-width: 600px;
-    color: var(--fg-primary);
-    cursor: pointer;
-    user-select: all;
-  "></p>
-  <p style="font-size: 13px; color: var(--fg-muted);">Copied to clipboard. You can close this tab.</p>
-</div>
+<div class="updated-banner" id="updatedBanner"></div>
 
 <script src="markdown-it.min.js"></script>
 <script src="highlight.min.js"></script>
@@ -875,6 +885,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   let selectionStart = null;
   let selectionEnd = null;
   let activeForm = null; // { afterBlockIndex, startLine, endLine, editingId }
+  let uiState = 'reviewing'; // 'reviewing' | 'waiting' | 'updated'
 
   // ===== Mermaid =====
   let mermaidCounter = 0;
@@ -1841,43 +1852,107 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     el.innerHTML = n === 0 ? '' : `<strong>${n}</strong> comment${n === 1 ? '' : 's'}`;
   }
 
+  // ===== UI State Management =====
+  function setUIState(state) {
+    uiState = state;
+    const finishBtn = document.getElementById('finishBtn');
+    const waitingOverlay = document.getElementById('waitingOverlay');
+    const updatedBanner = document.getElementById('updatedBanner');
+
+    switch (state) {
+      case 'reviewing':
+        finishBtn.textContent = 'Finish Review';
+        finishBtn.disabled = false;
+        finishBtn.classList.remove('btn-danger');
+        finishBtn.classList.add('btn-primary');
+        waitingOverlay.classList.remove('active');
+        updatedBanner.classList.remove('active');
+        break;
+      case 'waiting':
+        finishBtn.textContent = 'Waiting...';
+        finishBtn.disabled = true;
+        finishBtn.classList.remove('btn-primary');
+        waitingOverlay.classList.add('active');
+        updatedBanner.classList.remove('active');
+        break;
+      case 'updated':
+        finishBtn.textContent = 'Finish Review';
+        finishBtn.disabled = false;
+        finishBtn.classList.remove('btn-danger');
+        finishBtn.classList.add('btn-primary');
+        waitingOverlay.classList.remove('active');
+        updatedBanner.classList.add('active');
+        updatedBanner.textContent = fileName + ' was updated — click here to start a new review';
+        break;
+    }
+  }
+
   // ===== Finish Review =====
-  document.getElementById('finishBtn').addEventListener('click', function() {
-    document.getElementById('finishOverlay').classList.add('active');
-  });
+  document.getElementById('finishBtn').addEventListener('click', async function() {
+    if (uiState !== 'reviewing') return;
 
-  document.getElementById('finishCancel').addEventListener('click', function() {
-    document.getElementById('finishOverlay').classList.remove('active');
-  });
-
-  document.getElementById('finishConfirm').addEventListener('click', async function() {
-    document.getElementById('finishOverlay').classList.remove('active');
-    let reviewFile = '';
     try {
       const resp = await fetch('/api/finish', { method: 'POST' });
       const data = await resp.json();
-      reviewFile = data.review_file || '';
+      const prompt = data.prompt || 'Review complete — no comments were left.';
+
+      document.getElementById('waitingFilename').textContent = fileName;
+      document.getElementById('waitingPrompt').textContent = prompt;
+
+      try { await navigator.clipboard.writeText(prompt); } catch (_) {}
     } catch (_) {}
 
-    const prompt = reviewFile
-      ? `I've left review comments in ${reviewFile} — please address each comment and update the plan accordingly.`
-      : 'Review complete — no comments were left.';
-    document.getElementById('finishedPrompt').textContent = prompt;
-
-    try { await navigator.clipboard.writeText(prompt); } catch (_) {}
-
-    document.getElementById('finishedMessage').classList.add('active');
+    setUIState('waiting');
   });
 
-  // Close overlay on escape
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      document.getElementById('finishOverlay').classList.remove('active');
-    }
+  // Back to editing from waiting state
+  document.getElementById('backToEditing').addEventListener('click', function() {
+    setUIState('reviewing');
   });
+
+  // Updated banner click — start new review round
+  document.getElementById('updatedBanner').addEventListener('click', function() {
+    setUIState('reviewing');
+  });
+
+  // ===== SSE Client =====
+  function connectSSE() {
+    const source = new EventSource('/api/events');
+
+    source.addEventListener('file-changed', function(e) {
+      try {
+        const data = JSON.parse(e.data);
+        rawContent = data.content;
+        fileName = data.filename;
+
+        // Clear comments and re-render
+        comments = [];
+        activeForm = null;
+        selectionStart = null;
+        selectionEnd = null;
+        parseAndRender();
+        updateCommentCount();
+
+        document.getElementById('filename').textContent = fileName;
+        document.title = 'PlanReview — ' + fileName;
+
+        if (uiState === 'waiting' || uiState === 'reviewing') {
+          setUIState('updated');
+        }
+        // If already 'updated', content was re-rendered above, banner stays visible
+      } catch (err) {
+        console.error('Error handling file-changed event:', err);
+      }
+    });
+
+    source.onerror = function() {
+      // EventSource auto-reconnects, nothing to do
+    };
+  }
 
   // ===== Start =====
   init();
+  connectSSE();
 
 })();
 </script>

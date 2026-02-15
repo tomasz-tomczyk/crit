@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
-	"os"
 	"strings"
-	"syscall"
 )
 
 type Server struct {
@@ -28,6 +26,7 @@ func NewServer(doc *Document, frontendFS embed.FS) *Server {
 	mux.HandleFunc("/api/comments", s.handleComments)
 	mux.HandleFunc("/api/comments/", s.handleCommentByID)
 	mux.HandleFunc("/api/finish", s.handleFinish)
+	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/stale", s.handleStale)
 	mux.Handle("/files/", http.StripPrefix("/files/", http.FileServer(http.Dir(doc.FileDir))))
 	mux.Handle("/", http.FileServer(http.FS(assets)))
@@ -147,19 +146,54 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 
 	s.doc.WriteFiles()
 
+	reviewFile := s.doc.reviewFilePath()
+	prompt := ""
+	if len(s.doc.GetComments()) > 0 {
+		prompt = fmt.Sprintf("I've left review comments in %s — please address each comment and update the plan accordingly.", reviewFile)
+	}
+
 	writeJSON(w, map[string]string{
 		"status":      "finished",
-		"review_file": s.doc.reviewFilePath(),
+		"review_file": reviewFile,
+		"prompt":      prompt,
 	})
 
-	go func() {
-		fmt.Println("\nFinish review requested. Shutting down...")
-		// Give time for the response to be sent
-		<-r.Context().Done()
-		// Use process signal to trigger graceful shutdown
-		p, _ := os.FindProcess(os.Getpid())
-		p.Signal(syscall.SIGTERM)
-	}()
+	fmt.Printf("\nReview finished. Waiting for %s to be updated...\n", s.doc.FileName)
+}
+
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher.Flush()
+
+	ch := s.doc.Subscribe()
+	defer s.doc.Unsubscribe(ch)
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, _ := json.Marshal(event)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
+			flusher.Flush()
+		}
+	}
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

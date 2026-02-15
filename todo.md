@@ -1,11 +1,5 @@
 # PlanReview — TODO
 
-## Bugs / Polish (High Priority)
-
-- [ ] **Table visual polish**: Per-row tables work but have visual gaps between rows. Need tighter CSS — remove spacing between consecutive `.line-block` elements containing table rows. Alternating row stripes use manual `.table-even` class since each row is its own `<table>`.
-- [ ] **Verify empty line rendering broadly**: Fixed for the checklist→heading gap (line 96), but should audit all block types to ensure trailing blank lines within container blocks (lists, blockquotes) are not swallowed.
-- [ ] **Code block trailing blank line**: Similar to the list issue — verify that blank lines after code blocks are rendered.
-
 ## Features (From Spec, Not Yet Implemented)
 
 - [ ] **Comment collapse/expand**: Comments can be collapsed/expanded (spec section "Displayed comments"). Currently all comments are always expanded.
