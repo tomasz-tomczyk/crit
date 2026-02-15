@@ -597,8 +597,30 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   padding: 10px 14px;
   font-size: 14px;
   line-height: 1.6;
-  white-space: pre-wrap;
   word-break: break-word;
+}
+.comment-body p { margin: 0 0 0.5em 0; }
+.comment-body p:last-child { margin-bottom: 0; }
+.comment-body code {
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+.comment-body pre {
+  background: var(--bg-tertiary);
+  padding: 8px 10px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.comment-body pre code { background: none; padding: 0; }
+.comment-body ul, .comment-body ol { margin: 0.3em 0; padding-left: 1.5em; }
+.comment-body blockquote {
+  border-left: 3px solid var(--border);
+  margin: 0.5em 0;
+  padding-left: 10px;
+  color: var(--fg-secondary);
 }
 
 .comment-time {
@@ -833,6 +855,9 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 <script>
 (function() {
   'use strict';
+
+  // ===== Comment Markdown Renderer =====
+  const commentMd = window.markdownit({ html: false, linkify: true, typographer: true });
 
   // ===== State =====
   let comments = [];
@@ -1705,7 +1730,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 
     const body = document.createElement('div');
     body.className = 'comment-body';
-    body.textContent = comment.body;
+    body.innerHTML = commentMd.render(comment.body);
 
     card.appendChild(header);
     card.appendChild(body);
