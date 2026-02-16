@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+echo "Running pre-commit checks..."
+
+# Check formatting
+echo "  Checking gofmt..."
+UNFORMATTED=$(gofmt -l . 2>&1)
+if [ -n "$UNFORMATTED" ]; then
+    echo "  FAIL: Files need formatting:"
+    echo "$UNFORMATTED" | sed 's/^/    /'
+    echo "  Run: gofmt -w ."
+    exit 1
+fi
+
+# Run tests
+echo "  Running tests..."
+if ! go test ./... 2>&1; then
+    echo "  FAIL: Tests failed"
+    exit 1
+fi
+
+echo "Pre-commit checks passed."

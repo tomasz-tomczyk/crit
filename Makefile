@@ -15,8 +15,14 @@ update-deps:
 	bun install
 	bun run update-deps
 
+test:
+	go test ./...
+
+setup-hooks:
+	git config core.hooksPath .githooks
+
 clean:
 	rm -f crit
 	rm -rf dist
 
-.PHONY: build build-all update-deps clean
+.PHONY: build build-all update-deps test setup-hooks clean
