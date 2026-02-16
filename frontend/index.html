@@ -805,11 +805,77 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 [data-theme="light"] .hljs-addition{color:#22863a;background-color:#f0fff4}
 [data-theme="light"] .hljs-deletion{color:#b31d28;background-color:#ffeef0}
 
+/* ===== Per-line code scrollbar hiding =====
+   Each code line is a separate scrollable element due to per-line commenting.
+   Hide individual scrollbars — users scroll via touch/trackpad. */
+.line-content.code-line {
+  scrollbar-width: none;
+}
+.line-content.code-line::-webkit-scrollbar {
+  height: 0;
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
   .document-wrapper { padding-left: 8px; padding-right: 8px; }
   .comment-block, .comment-form-wrapper { padding-left: 8px; }
   .line-gutter { min-width: 36px; }
+}
+@media (max-width: 600px) {
+  /* Header: 2-row grid layout
+     Row 1: Crit  <theme-toggle>  Finish Review
+     Row 2: filename.md           N comments */
+  .header {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 4px 8px;
+    padding: 8px 12px;
+    align-items: center;
+  }
+  .header-left, .header-right {
+    display: contents;
+  }
+  .header-title {
+    grid-row: 1;
+    grid-column: 1;
+  }
+  .theme-toggle {
+    grid-row: 1;
+    grid-column: 3;
+    justify-self: end;
+  }
+  #finishBtn {
+    grid-row: 1;
+    grid-column: 4;
+    justify-self: end;
+  }
+  .header-filename {
+    grid-row: 2;
+    grid-column: 1 / 3;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: fit-content;
+  }
+  .comment-count {
+    grid-row: 2;
+    grid-column: 3 / -1;
+    justify-self: end;
+  }
+  .header-notify:empty {
+    display: none;
+  }
+  .header-notify {
+    grid-row: 3;
+    grid-column: 1 / -1;
+  }
+
+  /* Wrap long code lines on mobile instead of per-line scrolling */
+  .line-content.code-line {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 }
 </style>
 </head>
