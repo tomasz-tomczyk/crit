@@ -17,6 +17,22 @@ brew install crit
 
 Grab the latest binary for your platform from [Releases](https://github.com/tomasz-tomczyk/crit/releases).
 
+## Usage
+
+```bash
+# Review a markdown file (opens browser automatically)
+crit plan.md
+
+# Specify a port
+crit -p 3000 plan.md
+
+# Don't auto-open browser
+crit --no-open plan.md
+
+# Custom output directory for .review.md
+crit -o /tmp plan.md
+```
+
 ## Features
 
 ### Comments for single lines and blocks
@@ -80,22 +96,6 @@ make build-all
 #   crit-darwin-amd64
 #   crit-linux-amd64
 #   crit-linux-arm64
-```
-
-## Usage
-
-```bash
-# Review a markdown file (opens browser automatically)
-crit plan.md
-
-# Specify a port
-crit -p 3000 plan.md
-
-# Don't auto-open browser
-crit --no-open plan.md
-
-# Custom output directory for .review.md
-crit -o /tmp plan.md
 ```
 
 ## Workflow
