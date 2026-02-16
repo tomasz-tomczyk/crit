@@ -4,6 +4,19 @@ A lightweight CLI tool for reviewing markdown plans with GitHub PR-style inline 
 
 You write a plan in markdown. You run `crit` against it. You leave inline comments — single-line or multi-line ranges, just like a GitHub PR review. The tool writes a `.review.md` file in real-time with your comments interleaved, ready to hand back to your AI agent.
 
+## Install
+
+### Homebrew (macOS / Linux)
+
+```bash
+brew tap tomasz-tomczyk/tap
+brew install crit
+```
+
+### Download Binary
+
+Grab the latest binary for your platform from [Releases](https://github.com/tomasz-tomczyk/crit/releases).
+
 ## Features
 
 ### Comments for single lines and blocks
@@ -40,20 +53,11 @@ Copies the selected lines for you to easily edit
 
 ![Mermaid diagram](images/mermaid.png)
 
-## Install
+### Prompt agent when you're finished
 
-### Homebrew (macOS / Linux)
+![Agent prompt](images/prompt.png)
 
-```bash
-brew tap tomasz-tomczyk/tap
-brew install crit
-```
-
-### Download Binary
-
-Grab the latest binary for your platform from [Releases](https://github.com/tomasz-tomczyk/crit/releases).
-
-### Build from Source
+## Build from Source
 
 Requires Go 1.25+ (install via [asdf](https://asdf-vm.com/), Homebrew, or [go.dev](https://go.dev/dl/)):
 
