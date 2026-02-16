@@ -679,7 +679,8 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   font-family: var(--font-body);
   font-size: 14px;
   line-height: 1.6;
-  resize: vertical;
+  resize: none;
+  field-sizing: content;
   outline: none;
 }
 
@@ -716,7 +717,8 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 32px;
-  max-width: 480px;
+  max-width: 640px;
+  width: 90vw;
   text-align: center;
   box-shadow: var(--shadow);
 }
@@ -747,8 +749,17 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   cursor: pointer;
   user-select: all;
   word-break: break-word;
+  text-align: left;
 }
 
+
+.clipboard-confirm {
+  animation: clipboard-fade 2s ease-out forwards;
+}
+@keyframes clipboard-fade {
+  0% { color: var(--green); }
+  100% { color: var(--fg-dimmed); }
+}
 
 /* ===== Loading State ===== */
 .loading {
@@ -1622,6 +1633,13 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     const actions = document.createElement('div');
     actions.className = 'comment-form-actions';
 
+    const suggestBtn = document.createElement('button');
+    suggestBtn.className = 'btn btn-sm';
+    suggestBtn.textContent = '\u00B1 Suggest';
+    suggestBtn.title = 'Insert the selected lines as a suggestion';
+    suggestBtn.style.marginRight = 'auto';
+    suggestBtn.addEventListener('click', () => insertSuggestion(textarea));
+
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-sm';
     cancelBtn.textContent = 'Cancel';
@@ -1632,6 +1650,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     submitBtn.textContent = activeForm.editingId ? 'Update Comment' : 'Add Comment';
     submitBtn.addEventListener('click', () => submitComment(textarea.value));
 
+    actions.appendChild(suggestBtn);
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
@@ -1684,6 +1703,19 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     selectionStart = null;
     selectionEnd = null;
     renderDocument();
+  }
+
+  function insertSuggestion(textarea) {
+    const lines = rawContent.split('\n').slice(activeForm.startLine - 1, activeForm.endLine);
+    const suggestion = '```suggestion\n' + lines.join('\n') + '\n```';
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    textarea.value = textarea.value.substring(0, start) + suggestion + textarea.value.substring(end);
+    // Place cursor inside the code block for editing
+    const cursorPos = start + '```suggestion\n'.length;
+    textarea.selectionStart = cursorPos;
+    textarea.selectionEnd = cursorPos + lines.join('\n').length;
+    textarea.focus();
   }
 
   // ===== Comment Display =====
@@ -1778,6 +1810,13 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     const actions = document.createElement('div');
     actions.className = 'comment-form-actions';
 
+    const suggestBtn = document.createElement('button');
+    suggestBtn.className = 'btn btn-sm';
+    suggestBtn.textContent = '\u00B1 Suggest';
+    suggestBtn.title = 'Insert the selected lines as a suggestion';
+    suggestBtn.style.marginRight = 'auto';
+    suggestBtn.addEventListener('click', () => insertSuggestion(textarea));
+
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-sm';
     cancelBtn.textContent = 'Cancel';
@@ -1788,6 +1827,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     submitBtn.textContent = 'Update Comment';
     submitBtn.addEventListener('click', () => submitComment(textarea.value));
 
+    actions.appendChild(suggestBtn);
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
@@ -1875,7 +1915,11 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       if (hasComments) {
         document.getElementById('waitingMessage').innerHTML =
           'Paste the prompt below to your agent, then wait for <strong>' + escapeHtml(fileName) + '</strong> to be updated.';
-        document.getElementById('waitingClipboard').textContent = 'Copied to clipboard';
+        const clipEl = document.getElementById('waitingClipboard');
+        clipEl.textContent = '\u2713 Copied to clipboard';
+        clipEl.classList.remove('clipboard-confirm');
+        void clipEl.offsetWidth;
+        clipEl.classList.add('clipboard-confirm');
       } else {
         document.getElementById('waitingMessage').textContent =
           'You can close this browser tab, or leave it open for another round.';
