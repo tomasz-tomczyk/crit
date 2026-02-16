@@ -13,7 +13,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -122,25 +121,8 @@ func main() {
 		fmt.Println()
 		fmt.Println(prompt)
 		fmt.Println()
-		copyToClipboard(prompt)
 	} else {
 		fmt.Println("No comments. Goodbye!")
-	}
-}
-
-func copyToClipboard(text string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("pbcopy")
-	case "linux":
-		cmd = exec.Command("xclip", "-selection", "clipboard")
-	default:
-		return
-	}
-	cmd.Stdin = strings.NewReader(text)
-	if err := cmd.Run(); err == nil {
-		fmt.Println("(Copied to clipboard)")
 	}
 }
 

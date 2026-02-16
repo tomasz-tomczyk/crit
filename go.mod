@@ -1,3 +1,3 @@
-module github.com/tomcruise/crit
+module github.com/tomasz-tomczyk/crit
 
 go 1.26.0
