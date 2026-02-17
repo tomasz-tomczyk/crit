@@ -50,6 +50,7 @@ jobs:
 
           BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/${TAG}"
 
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/tomasz-tomczyk/homebrew-tap.git" homebrew-tap
           mkdir -p homebrew-tap/Formula
 
           cat > homebrew-tap/Formula/crit.rb <<FORMULA
@@ -93,9 +94,6 @@ jobs:
           FORMULA
 
           cd homebrew-tap
-          git init
-          git remote add origin "https://x-access-token:${TAP_TOKEN}@github.com/tomasz-tomczyk/homebrew-tap.git"
-          git fetch origin main && git checkout main || git checkout -b main
           git add Formula/crit.rb
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
