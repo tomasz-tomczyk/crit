@@ -391,11 +391,65 @@ func TestPostShareURL(t *testing.T) {
 
 func TestPostShareURL_MethodNotAllowed(t *testing.T) {
 	s, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/share-url", nil)
+	req := httptest.NewRequest("PUT", "/api/share-url", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	if w.Code != 405 {
 		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestGetConfig_IncludesDeleteToken(t *testing.T) {
+	s, doc := newTestServer(t)
+	doc.SetDeleteToken("mydeletetoken1234567890")
+
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["delete_token"] != "mydeletetoken1234567890" {
+		t.Errorf("delete_token = %q", resp["delete_token"])
+	}
+}
+
+func TestPostShareURL_SavesDeleteToken(t *testing.T) {
+	s, doc := newTestServer(t)
+
+	body := `{"url":"https://crit.live/r/abc","delete_token":"deletetoken1234567890x"}`
+	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if doc.GetDeleteToken() != "deletetoken1234567890x" {
+		t.Errorf("delete token = %q", doc.GetDeleteToken())
+	}
+}
+
+func TestDeleteShareURL(t *testing.T) {
+	s, doc := newTestServer(t)
+	doc.SetSharedURL("https://crit.live/r/abc")
+	doc.SetDeleteToken("sometoken1234567890123")
+
+	req := httptest.NewRequest("DELETE", "/api/share-url", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 204 {
+		t.Errorf("status = %d, want 204", w.Code)
+	}
+	if doc.GetSharedURL() != "" {
+		t.Errorf("hostedURL should be cleared")
+	}
+	if doc.GetDeleteToken() != "" {
+		t.Errorf("deleteToken should be cleared")
 	}
 }
 

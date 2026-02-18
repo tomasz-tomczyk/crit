@@ -45,25 +45,37 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{
-		"share_url":  s.shareURL,
-		"hosted_url": s.doc.GetSharedURL(),
+		"share_url":    s.shareURL,
+		"hosted_url":   s.doc.GetSharedURL(),
+		"delete_token": s.doc.GetDeleteToken(),
 	})
 }
 
 func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+	switch r.Method {
+	case http.MethodPost:
+		var body struct {
+			URL         string `json:"url"`
+			DeleteToken string `json:"delete_token"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.URL == "" {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+		s.doc.SetSharedURL(body.URL)
+		if body.DeleteToken != "" {
+			s.doc.SetDeleteToken(body.DeleteToken)
+		}
+		writeJSON(w, map[string]string{"ok": "true"})
+
+	case http.MethodDelete:
+		s.doc.SetSharedURL("")
+		s.doc.SetDeleteToken("")
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
-	var body struct {
-		URL string `json:"url"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.URL == "" {
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-	s.doc.SetSharedURL(body.URL)
-	writeJSON(w, map[string]string{"ok": "true"})
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
