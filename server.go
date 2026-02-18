@@ -62,10 +62,7 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
-		s.doc.SetSharedURL(body.URL)
-		if body.DeleteToken != "" {
-			s.doc.SetDeleteToken(body.DeleteToken)
-		}
+		s.doc.SetSharedURLAndToken(body.URL, body.DeleteToken)
 		writeJSON(w, map[string]string{"ok": "true"})
 
 	case http.MethodDelete:

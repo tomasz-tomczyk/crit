@@ -212,6 +212,15 @@ func (d *Document) SetDeleteToken(token string) {
 	d.scheduleWrite()
 }
 
+// SetSharedURLAndToken atomically updates both the shared URL and delete token.
+func (d *Document) SetSharedURLAndToken(url, token string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.sharedURL = url
+	d.deleteToken = token
+	d.scheduleWrite()
+}
+
 func (d *Document) scheduleWrite() {
 	if d.writeTimer != nil {
 		d.writeTimer.Stop()
