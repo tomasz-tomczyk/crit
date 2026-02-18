@@ -264,6 +264,48 @@ body {
 }
 .theme-toggle:hover { color: var(--fg-primary); background: var(--bg-tertiary); }
 
+/* Three-button theme pill (system / light / dark) */
+.theme-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  border-radius: 9999px;
+}
+.theme-pill-indicator {
+  position: absolute;
+  width: 33.333%;
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  left: 0;
+  transition: left 0.15s ease;
+  pointer-events: none;
+}
+html[data-theme="light"] .theme-pill-indicator { left: 33.333%; }
+html[data-theme="dark"]  .theme-pill-indicator { left: 66.666%; }
+.theme-pill-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  padding: 5px 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  position: relative;
+  z-index: 1;
+  transition: color 0.15s;
+}
+.theme-pill-btn:hover { color: var(--fg-primary); }
+html:not([data-theme])  .theme-pill-btn[data-for-theme="system"],
+html[data-theme="light"] .theme-pill-btn[data-for-theme="light"],
+html[data-theme="dark"]  .theme-pill-btn[data-for-theme="dark"] { color: var(--accent); }
+.theme-pill-btn svg { width: 14px; height: 14px; display: block; }
+
 /* ===== Stale Notice ===== */
 .stale-notice {
   max-width: 840px;
@@ -1067,7 +1109,18 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   <div class="header-right">
     <span class="comment-count" id="commentCount"></span>
     <button class="theme-toggle" id="tocToggle" title="Table of contents">&#9776;</button>
-    <button class="theme-toggle" id="themeToggle" title="Toggle theme">&#9789;</button>
+    <div class="theme-pill" role="group" aria-label="Theme">
+      <div class="theme-pill-indicator"></div>
+      <button class="theme-pill-btn" data-for-theme="system" title="System theme">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v5.5A2.25 2.25 0 0 1 11.75 12h-1.312c.1.128.21.248.328.36a.75.75 0 0 1 .234.545v.345a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-.345a.75.75 0 0 1 .234-.545c.118-.111.228-.232.328-.36H4.25A2.25 2.25 0 0 1 2 9.75v-5.5Zm2.25-.75a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h7.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75h-7.5Z" clip-rule="evenodd"/></svg>
+      </button>
+      <button class="theme-pill-btn" data-for-theme="light" title="Light theme">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z"/></svg>
+      </button>
+      <button class="theme-pill-btn" data-for-theme="dark" title="Dark theme">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14.438 10.148c.19-.425-.321-.787-.748-.601A5.5 5.5 0 0 1 6.453 2.31c.186-.427-.176-.938-.6-.748a6.501 6.501 0 1 0 8.585 8.586Z"/></svg>
+      </button>
+    </div>
     <button class="btn" id="shareBtn" style="display:none">Share</button>
     <button class="btn btn-primary" id="finishBtn">Finish Review</button>
   </div>
@@ -1170,12 +1223,6 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   }
 
   // ===== Theme =====
-  // Three states: 'system' (follows OS), 'dark', 'light'.
-  // Cycles: system → dark → light → system.
-  const THEME_CYCLE = ['system', 'dark', 'light'];
-  const THEME_ICONS = { system: '&#9680;', dark: '&#9789;', light: '&#9788;' };
-  const THEME_LABELS = { system: 'System theme', dark: 'Dark theme', light: 'Light theme' };
-
   function applyTheme(theme) {
     if (theme === 'system') {
       localStorage.removeItem('crit-theme');
@@ -1184,19 +1231,15 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       localStorage.setItem('crit-theme', theme);
       document.documentElement.setAttribute('data-theme', theme);
     }
-    const btn = document.getElementById('themeToggle');
-    btn.innerHTML = THEME_ICONS[theme];
-    btn.title = THEME_LABELS[theme];
   }
 
-  const savedTheme = localStorage.getItem('crit-theme') || 'system';
-  applyTheme(savedTheme);
+  applyTheme(localStorage.getItem('crit-theme') || 'system');
 
-  document.getElementById('themeToggle').addEventListener('click', function() {
-    const current = localStorage.getItem('crit-theme') || 'system';
-    const next = THEME_CYCLE[(THEME_CYCLE.indexOf(current) + 1) % THEME_CYCLE.length];
-    applyTheme(next);
-    reapplyHighlightTheme();
+  document.querySelectorAll('.theme-pill-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      applyTheme(this.dataset.forTheme);
+      reapplyHighlightTheme();
+    });
   });
 
   function reapplyHighlightTheme() {
