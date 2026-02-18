@@ -80,6 +80,9 @@ func main() {
 	if *shareURL == "" {
 		*shareURL = os.Getenv("CRIT_SHARE_URL")
 	}
+	if *shareURL == "" {
+		*shareURL = "https://crit.live"
+	}
 
 	srv := NewServer(doc, frontendFS, *shareURL)
 	httpServer := &http.Server{

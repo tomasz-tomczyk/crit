@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,6 +14,69 @@
 :root {
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  /* Dark values in :root = fallback when prefers-color-scheme is unsupported */
+  --bg-primary: #1a1b26;
+  --bg-secondary: #1e2030;
+  --bg-tertiary: #24283b;
+  --bg-hover: #292e42;
+  --bg-gutter: #16171f;
+  --fg-primary: #c0caf5;
+  --fg-secondary: #a9b1d6;
+  --fg-muted: #565f89;
+  --fg-dimmed: #3b4261;
+  --accent: #7aa2f7;
+  --accent-hover: #89b4fa;
+  --accent-subtle: rgba(122, 162, 247, 0.1);
+  --accent-bg: rgba(122, 162, 247, 0.15);
+  --green: #9ece6a;
+  --red: #f7768e;
+  --orange: #ff9e64;
+  --yellow: #e0af68;
+  --border: #292e42;
+  --border-comment: #3d59a1;
+  --comment-bg: #1a1f36;
+  --selection-bg: rgba(122, 162, 247, 0.08);
+  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+  --code-bg: #1e2030;
+  --table-stripe: rgba(122, 162, 247, 0.04);
+  --blockquote-border: #3d59a1;
+  --blockquote-bg: rgba(61, 89, 161, 0.08);
+  --scrollbar-bg: #1a1b26;
+  --scrollbar-thumb: #3b4261;
+}
+
+/* System preference: light — overrides dark :root defaults when OS is light */
+@media (prefers-color-scheme: light) {
+  html:not([data-theme]) {
+    --bg-primary: #fafafa;
+    --bg-secondary: #f5f5f5;
+    --bg-tertiary: #eeeeee;
+    --bg-hover: #e8e8e8;
+    --bg-gutter: #f0f0f0;
+    --fg-primary: #24292f;
+    --fg-secondary: #57606a;
+    --fg-muted: #8b949e;
+    --fg-dimmed: #c0c8d0;
+    --accent: #0969da;
+    --accent-hover: #0550ae;
+    --accent-subtle: rgba(9, 105, 218, 0.08);
+    --accent-bg: rgba(9, 105, 218, 0.12);
+    --green: #1a7f37;
+    --red: #cf222e;
+    --orange: #bc4c00;
+    --yellow: #9a6700;
+    --border: #d8dee4;
+    --border-comment: #0969da;
+    --comment-bg: #f0f6ff;
+    --selection-bg: rgba(9, 105, 218, 0.06);
+    --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    --code-bg: #f5f5f5;
+    --table-stripe: rgba(0, 0, 0, 0.02);
+    --blockquote-border: #0969da;
+    --blockquote-bg: rgba(9, 105, 218, 0.04);
+    --scrollbar-bg: #fafafa;
+    --scrollbar-thumb: #d0d0d0;
+  }
 }
 
 [data-theme="dark"] {
@@ -1077,7 +1140,10 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   let mermaidCounter = 0;
   const mermaidSources = {}; // id -> source text
   function getMermaidTheme() {
-    return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default';
+    const explicit = document.documentElement.getAttribute('data-theme');
+    if (explicit === 'dark') return 'dark';
+    if (explicit === 'light') return 'default';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default';
   }
   mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme() });
 
@@ -1104,24 +1170,34 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   }
 
   // ===== Theme =====
-  const savedTheme = localStorage.getItem('crit-theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', savedTheme);
-  updateThemeIcon();
+  // Three states: 'system' (follows OS), 'dark', 'light'.
+  // Cycles: system → dark → light → system.
+  const THEME_CYCLE = ['system', 'dark', 'light'];
+  const THEME_ICONS = { system: '&#9680;', dark: '&#9789;', light: '&#9788;' };
+  const THEME_LABELS = { system: 'System theme', dark: 'Dark theme', light: 'Light theme' };
+
+  function applyTheme(theme) {
+    if (theme === 'system') {
+      localStorage.removeItem('crit-theme');
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      localStorage.setItem('crit-theme', theme);
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+    const btn = document.getElementById('themeToggle');
+    btn.innerHTML = THEME_ICONS[theme];
+    btn.title = THEME_LABELS[theme];
+  }
+
+  const savedTheme = localStorage.getItem('crit-theme') || 'system';
+  applyTheme(savedTheme);
 
   document.getElementById('themeToggle').addEventListener('click', function() {
-    const current = document.documentElement.getAttribute('data-theme');
-    const next = current === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('crit-theme', next);
-    updateThemeIcon();
-    // Re-highlight code blocks with appropriate theme
+    const current = localStorage.getItem('crit-theme') || 'system';
+    const next = THEME_CYCLE[(THEME_CYCLE.indexOf(current) + 1) % THEME_CYCLE.length];
+    applyTheme(next);
     reapplyHighlightTheme();
   });
-
-  function updateThemeIcon() {
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    document.getElementById('themeToggle').innerHTML = isDark ? '&#9789;' : '&#9788;';
-  }
 
   function reapplyHighlightTheme() {
     // highlight.js themes are applied via CSS, which is handled by the data-theme attribute
