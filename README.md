@@ -138,6 +138,34 @@ Crit watches the source file for changes. After you click "Finish Review" and yo
 | `plan.review.md`      | Original plan + comments as blockquotes — hand to your AI agent |
 | `.plan.comments.json` | Hidden file for session resume (auto-managed)                   |
 
+## Claude Code Integration
+
+Crit ships with a built-in [Claude Code](https://docs.anthropic.com/en/docs/claude-code) slash command that automates the review loop.
+
+### Usage
+
+In Claude Code, while working with a plan:
+
+```
+/review-plan              # Auto-detects the current plan file
+/review-plan my-plan.md   # Review a specific file
+```
+
+### What it does
+
+1. Finds the plan file (from session context, argument, `~/.claude/plans/`, or current directory)
+2. Launches `crit` in the background
+3. Waits for you to leave comments in the browser
+4. Reads the review output and addresses each comment by editing the plan
+5. The file change triggers crit's live reload for another round
+
+This turns plan review into a tight loop: comment in the browser, Claude addresses feedback, review again.
+
+### Requirements
+
+- `crit` must be installed and on your `PATH`
+- Claude Code v1.0+
+
 ## Acknowledgments
 
 Crit embeds the following open-source libraries:
