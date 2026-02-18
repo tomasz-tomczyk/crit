@@ -338,9 +338,9 @@ html[data-theme="dark"]  .theme-pill-btn[data-for-theme="dark"] { color: var(--a
   gap: 12px;
 }
 .share-notice.success {
-  background: rgba(158, 206, 106, 0.1);
-  border: 1px solid var(--green);
-  color: var(--green);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--fg-secondary);
 }
 .share-notice.error {
   background: rgba(247, 118, 142, 0.1);
@@ -351,8 +351,19 @@ html[data-theme="dark"]  .theme-pill-btn[data-for-theme="dark"] { color: var(--a
   font-family: var(--font-mono);
   font-size: 13px;
   word-break: break-all;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: 4px;
 }
 .share-notice-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.btn-success {
+  color: var(--green);
+  border-color: var(--green);
+  background: transparent;
+}
+.btn-success:hover { background: rgba(158, 206, 106, 0.1); }
 
 /* ===== Document Container ===== */
 .document-wrapper {
@@ -2367,7 +2378,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     el.innerHTML = `<div class="share-notice success">
       <span>Shared! <span class="share-notice-url">${escapeHtml(url)}</span></span>
       <div class="share-notice-actions">
-        <button class="btn btn-sm" id="shareCopyBtn">Copy link</button>
+        <button class="btn btn-sm btn-success" id="shareCopyBtn">Copy link</button>
         ${unpublishBtn}
         <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
       </div>
