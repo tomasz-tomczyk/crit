@@ -1184,6 +1184,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   let fileName = '';
   let shareURL = '';
   let hostedURL = '';
+  let deleteToken = '';
   let lineBlocks = []; // { startLine, endLine, html }
   let tocItems = []; // { level, text, startLine }
   let selectionStart = null;
@@ -1298,6 +1299,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       comments = commentsRes || [];
       shareURL = configRes.share_url || '';
       hostedURL = configRes.hosted_url || '';
+      deleteToken = configRes.delete_token || '';
       if (shareURL) document.getElementById('shareBtn').style.display = '';
       if (hostedURL) showSharedNotice(hostedURL);
 
@@ -2359,10 +2361,14 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   // ===== Share =====
   function showSharedNotice(url) {
     const el = document.getElementById('shareNotice');
+    const unpublishBtn = deleteToken
+      ? `<button class="btn btn-sm btn-danger" id="shareUnpublishBtn">Unpublish</button>`
+      : '';
     el.innerHTML = `<div class="share-notice success">
       <span>Shared! <span class="share-notice-url">${escapeHtml(url)}</span></span>
       <div class="share-notice-actions">
         <button class="btn btn-sm" id="shareCopyBtn">Copy link</button>
+        ${unpublishBtn}
         <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
       </div>
     </div>`;
@@ -2371,6 +2377,56 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       this.textContent = '✓ Copied';
       setTimeout(() => { this.textContent = 'Copy link'; }, 2000);
     });
+    if (deleteToken) {
+      document.getElementById('shareUnpublishBtn').addEventListener('click', handleUnpublish);
+    }
+  }
+
+  async function handleUnpublish() {
+    const btn = document.getElementById('shareUnpublishBtn');
+    if (btn) { btn.textContent = 'Unpublishing…'; btn.disabled = true; }
+
+    try {
+      const resp = await fetch(shareURL + '/api/reviews', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delete_token: deleteToken }),
+      });
+
+      if (resp.status === 404) {
+        // Already gone — treat as success
+      } else if (!resp.ok) {
+        throw new Error('Server error ' + resp.status);
+      }
+
+      // Clear local state
+      hostedURL = '';
+      deleteToken = '';
+      fetch('/api/share-url', { method: 'DELETE' }).catch(() => {});
+
+      const el = document.getElementById('shareNotice');
+      el.innerHTML = `<div class="share-notice success">
+        <span>Review unpublished.</span>
+        <div class="share-notice-actions">
+          <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+        </div>
+      </div>`;
+    } catch (err) {
+      const btn2 = document.getElementById('shareUnpublishBtn');
+      if (btn2) { btn2.textContent = 'Unpublish'; btn2.disabled = false; }
+      const el = document.getElementById('shareNotice');
+      el.innerHTML = `<div class="share-notice error">
+        <span>Unpublish failed: ${escapeHtml(err.message)}</span>
+        <div class="share-notice-actions">
+          <button class="btn btn-sm" id="shareUnpublishRetryBtn">Retry</button>
+          <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+        </div>
+      </div>`;
+      document.getElementById('shareUnpublishRetryBtn').addEventListener('click', () => {
+        document.getElementById('shareNotice').innerHTML = '';
+        handleUnpublish();
+      });
+    }
   }
 
   document.getElementById('shareBtn').addEventListener('click', async function() {
@@ -2407,13 +2463,14 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         throw new Error(err.error || 'Server error ' + resp.status);
       }
 
-      const { url } = await resp.json();
+      const { url, delete_token } = await resp.json();
       hostedURL = url;
+      deleteToken = delete_token || '';
       showSharedNotice(url);
       fetch('/api/share-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, delete_token: deleteToken }),
       }).catch(() => {});
     } catch (err) {
       const el = document.getElementById('shareNotice');
