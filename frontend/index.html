@@ -2393,20 +2393,20 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         body: JSON.stringify({ delete_token: deleteToken }),
       });
 
-      if (resp.status === 404) {
-        // Already gone — treat as success
-      } else if (!resp.ok) {
+      const alreadyDeleted = resp.status === 404;
+      if (!alreadyDeleted && !resp.ok) {
         throw new Error('Server error ' + resp.status);
       }
 
-      // Clear local state
+      // Clear local state for both 204 and 404
       hostedURL = '';
       deleteToken = '';
       fetch('/api/share-url', { method: 'DELETE' }).catch(() => {});
 
       const el = document.getElementById('shareNotice');
+      const message = alreadyDeleted ? 'Already deleted.' : 'Review unpublished.';
       el.innerHTML = `<div class="share-notice success">
-        <span>Review unpublished.</span>
+        <span>${message}</span>
         <div class="share-notice-actions">
           <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
         </div>
