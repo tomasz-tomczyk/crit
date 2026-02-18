@@ -2412,8 +2412,6 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         </div>
       </div>`;
     } catch (err) {
-      const btn2 = document.getElementById('shareUnpublishBtn');
-      if (btn2) { btn2.textContent = 'Unpublish'; btn2.disabled = false; }
       const el = document.getElementById('shareNotice');
       el.innerHTML = `<div class="share-notice error">
         <span>Unpublish failed: ${escapeHtml(err.message)}</span>
