@@ -221,6 +221,34 @@ body {
   white-space: nowrap;
 }
 
+.share-notice {
+  max-width: 840px;
+  margin: 16px auto;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.share-notice.success {
+  background: rgba(158, 206, 106, 0.1);
+  border: 1px solid var(--green);
+  color: var(--green);
+}
+.share-notice.error {
+  background: rgba(247, 118, 142, 0.1);
+  border: 1px solid var(--red);
+  color: var(--red);
+}
+.share-notice-url {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  word-break: break-all;
+}
+.share-notice-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
 /* ===== Document Container ===== */
 .document-wrapper {
   max-width: 840px;
@@ -977,6 +1005,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     <span class="comment-count" id="commentCount"></span>
     <button class="theme-toggle" id="tocToggle" title="Table of contents">&#9776;</button>
     <button class="theme-toggle" id="themeToggle" title="Toggle theme">&#9789;</button>
+    <button class="btn" id="shareBtn" style="display:none">Share</button>
     <button class="btn btn-primary" id="finishBtn">Finish Review</button>
   </div>
 </div>
@@ -990,6 +1019,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 </div>
 
 <div id="staleNotice"></div>
+<div id="shareNotice"></div>
 
 <div class="document-wrapper" id="document">
   <div class="loading">Loading document...</div>
@@ -1034,6 +1064,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   let comments = [];
   let rawContent = '';
   let fileName = '';
+  let shareURL = '';
   let lineBlocks = []; // { startLine, endLine, html }
   let tocItems = []; // { level, text, startLine }
   let selectionStart = null;
@@ -1133,15 +1164,18 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   // ===== Init =====
   async function init() {
     try {
-      const [docRes, commentsRes, staleRes] = await Promise.all([
+      const [docRes, commentsRes, staleRes, configRes] = await Promise.all([
         fetch('/api/document').then(r => r.json()),
         fetch('/api/comments').then(r => r.json()),
-        fetch('/api/stale').then(r => r.json())
+        fetch('/api/stale').then(r => r.json()),
+        fetch('/api/config').then(r => r.json()),
       ]);
 
       rawContent = docRes.content;
       fileName = docRes.filename;
       comments = commentsRes || [];
+      shareURL = configRes.share_url || '';
+      if (shareURL) document.getElementById('shareBtn').style.display = '';
 
       document.getElementById('filename').textContent = fileName;
       document.title = `Crit — ${fileName}`;
@@ -2196,6 +2230,68 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   // Back to editing from waiting state
   document.getElementById('backToEditing').addEventListener('click', function() {
     setUIState('reviewing');
+  });
+
+  // ===== Share =====
+  document.getElementById('shareBtn').addEventListener('click', async function() {
+    const btn = this;
+    btn.textContent = 'Sharing…';
+    btn.disabled = true;
+    document.getElementById('shareNotice').innerHTML = '';
+
+    const payload = {
+      content: rawContent,
+      filename: fileName,
+      comments: comments.map(c => ({
+        start_line: c.start_line,
+        end_line: c.end_line,
+        body: c.body,
+      })),
+    };
+
+    try {
+      const resp = await fetch(shareURL + '/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || 'Server error ' + resp.status);
+      }
+
+      const { url } = await resp.json();
+      const el = document.getElementById('shareNotice');
+      el.innerHTML = `<div class="share-notice success">
+        <span>Shared! <span class="share-notice-url">${escapeHtml(url)}</span></span>
+        <div class="share-notice-actions">
+          <button class="btn btn-sm" id="shareCopyBtn">Copy link</button>
+          <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+        </div>
+      </div>`;
+      document.getElementById('shareCopyBtn').addEventListener('click', async function() {
+        await navigator.clipboard.writeText(url).catch(() => {});
+        this.textContent = '✓ Copied';
+        setTimeout(() => { this.textContent = 'Copy link'; }, 2000);
+      });
+    } catch (err) {
+      const el = document.getElementById('shareNotice');
+      el.innerHTML = `<div class="share-notice error">
+        <span>Share failed: ${escapeHtml(err.message)}</span>
+        <div class="share-notice-actions">
+          <button class="btn btn-sm" id="shareRetryBtn">Retry</button>
+          <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+        </div>
+      </div>`;
+      document.getElementById('shareRetryBtn').addEventListener('click', () => {
+        document.getElementById('shareNotice').innerHTML = '';
+        document.getElementById('shareBtn').click();
+      });
+    } finally {
+      btn.textContent = 'Share';
+      btn.disabled = false;
+    }
   });
 
 

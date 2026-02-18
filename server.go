@@ -11,18 +11,20 @@ import (
 )
 
 type Server struct {
-	doc    *Document
-	mux    *http.ServeMux
-	assets fs.FS
+	doc      *Document
+	mux      *http.ServeMux
+	assets   fs.FS
+	shareURL string
 }
 
-func NewServer(doc *Document, frontendFS embed.FS) *Server {
-	s := &Server{doc: doc}
+func NewServer(doc *Document, frontendFS embed.FS, shareURL string) *Server {
+	s := &Server{doc: doc, shareURL: shareURL}
 
 	assets, _ := fs.Sub(frontendFS, "frontend")
 	s.assets = assets
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/document", s.handleDocument)
 	mux.HandleFunc("/api/comments", s.handleComments)
 	mux.HandleFunc("/api/comments/", s.handleCommentByID)
@@ -34,6 +36,14 @@ func NewServer(doc *Document, frontendFS embed.FS) *Server {
 
 	s.mux = mux
 	return s
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, map[string]string{"share_url": s.shareURL})
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +83,7 @@ func (s *Server) handleComments(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, comments)
 
 	case http.MethodPost:
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
 		var req struct {
 			StartLine int    `json:"start_line"`
 			EndLine   int    `json:"end_line"`
@@ -110,7 +120,7 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPut:
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
 		var req struct {
 			Body string `json:"body"`
 		}
