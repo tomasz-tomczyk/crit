@@ -21,11 +21,12 @@ type Comment struct {
 }
 
 type CommentsFile struct {
-	File      string    `json:"file"`
-	FileHash  string    `json:"file_hash"`
-	UpdatedAt string    `json:"updated_at"`
-	ShareURL  string    `json:"share_url,omitempty"`
-	Comments  []Comment `json:"comments"`
+	File        string    `json:"file"`
+	FileHash    string    `json:"file_hash"`
+	UpdatedAt   string    `json:"updated_at"`
+	ShareURL    string    `json:"share_url,omitempty"`
+	DeleteToken string    `json:"delete_token,omitempty"`
+	Comments    []Comment `json:"comments"`
 }
 
 type SSEEvent struct {
@@ -47,6 +48,7 @@ type Document struct {
 	writeTimer  *time.Timer
 	staleNotice string
 	sharedURL   string
+	deleteToken string
 	subscribers map[chan SSEEvent]struct{}
 	subMu       sync.Mutex
 }
@@ -99,6 +101,7 @@ func (d *Document) loadComments() {
 
 	// Load share URL regardless of file hash so it persists even after file changes.
 	d.sharedURL = cf.ShareURL
+	d.deleteToken = cf.DeleteToken
 
 	if cf.FileHash != d.FileHash {
 		d.staleNotice = "The source file has changed since the last review session. Previous comments may not align with the current content."
@@ -196,6 +199,19 @@ func (d *Document) SetSharedURL(url string) {
 	d.scheduleWrite()
 }
 
+func (d *Document) GetDeleteToken() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.deleteToken
+}
+
+func (d *Document) SetDeleteToken(token string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.deleteToken = token
+	d.scheduleWrite()
+}
+
 func (d *Document) scheduleWrite() {
 	if d.writeTimer != nil {
 		d.writeTimer.Stop()
@@ -210,24 +226,26 @@ func (d *Document) WriteFiles() {
 	comments := make([]Comment, len(d.Comments))
 	copy(comments, d.Comments)
 	sharedURL := d.sharedURL
+	deleteToken := d.deleteToken
 	d.mu.RUnlock()
 
-	d.writeCommentsJSON(comments, sharedURL)
+	d.writeCommentsJSON(comments, sharedURL, deleteToken)
 	d.writeReviewMD(comments)
 }
 
-func (d *Document) writeCommentsJSON(comments []Comment, sharedURL string) {
-	if len(comments) == 0 && sharedURL == "" {
+func (d *Document) writeCommentsJSON(comments []Comment, sharedURL, deleteToken string) {
+	if len(comments) == 0 && sharedURL == "" && deleteToken == "" {
 		os.Remove(d.commentsFilePath())
 		return
 	}
 
 	cf := CommentsFile{
-		File:      d.FileName,
-		FileHash:  d.FileHash,
-		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
-		ShareURL:  sharedURL,
-		Comments:  comments,
+		File:        d.FileName,
+		FileHash:    d.FileHash,
+		UpdatedAt:   time.Now().UTC().Format(time.RFC3339),
+		ShareURL:    sharedURL,
+		DeleteToken: deleteToken,
+		Comments:    comments,
 	}
 
 	data, err := json.MarshalIndent(cf, "", "  ")

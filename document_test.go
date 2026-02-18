@@ -321,3 +321,47 @@ func TestWriteFiles_SharedURLOnlyCreatesFile(t *testing.T) {
 		t.Errorf("share_url in file = %q, want https://crit.live/r/urlonly", cf.ShareURL)
 	}
 }
+
+func TestSetGetDeleteToken(t *testing.T) {
+	doc := newTestDoc(t, "line1")
+	if doc.GetDeleteToken() != "" {
+		t.Error("expected empty delete token initially")
+	}
+	doc.SetDeleteToken("abc123deletetoken1234")
+	if doc.GetDeleteToken() != "abc123deletetoken1234" {
+		t.Errorf("delete token = %q, want abc123deletetoken1234", doc.GetDeleteToken())
+	}
+}
+
+func TestDeleteToken_PersistedAndLoaded(t *testing.T) {
+	doc := newTestDoc(t, "line1\nline2")
+	doc.AddComment(1, 1, "note")
+	doc.SetDeleteToken("persisttoken12345678901")
+	writeAndStop(doc)
+
+	doc2, err := NewDocument(doc.FilePath, doc.OutputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc2.GetDeleteToken() != "persisttoken12345678901" {
+		t.Errorf("delete token after reload = %q", doc2.GetDeleteToken())
+	}
+}
+
+func TestDeleteToken_PersistsWhenStale(t *testing.T) {
+	doc := newTestDoc(t, "original")
+	doc.AddComment(1, 1, "note")
+	doc.SetDeleteToken("staletoken123456789012")
+	writeAndStop(doc)
+
+	if err := os.WriteFile(doc.FilePath, []byte("modified"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := NewDocument(doc.FilePath, doc.OutputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc2.GetDeleteToken() != "staletoken123456789012" {
+		t.Errorf("delete token after stale reload = %q", doc2.GetDeleteToken())
+	}
+}
