@@ -630,6 +630,16 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 }
 .comment-body pre code { background: none; padding: 0; }
 .comment-body ul, .comment-body ol { margin: 0.3em 0; padding-left: 1.5em; }
+.comment-body a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent-subtle);
+  transition: color 0.15s, border-color 0.15s;
+}
+.comment-body a:hover {
+  color: var(--accent-hover);
+  border-bottom-color: var(--accent-hover);
+}
 .comment-body blockquote {
   border-left: 3px solid var(--border);
   margin: 0.5em 0;
