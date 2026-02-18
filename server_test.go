@@ -24,6 +24,8 @@ func newTestServer(t *testing.T) (*Server, *Document) {
 	// Create server without embed.FS — directly set up mux
 	s := &Server{doc: doc}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/share-url", s.handleShareURL)
 	mux.HandleFunc("/api/document", s.handleDocument)
 	mux.HandleFunc("/api/comments", s.handleComments)
 	mux.HandleFunc("/api/comments/", s.handleCommentByID)
@@ -322,5 +324,97 @@ func TestHandleFiles_MethodNotAllowed(t *testing.T) {
 	s.ServeHTTP(w, req)
 	if w.Code != 405 {
 		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestGetConfig(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.shareURL = "https://crit.live"
+
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["share_url"] != "https://crit.live" {
+		t.Errorf("share_url = %q, want https://crit.live", resp["share_url"])
+	}
+	if resp["hosted_url"] != "" {
+		t.Errorf("hosted_url should be empty initially, got %q", resp["hosted_url"])
+	}
+}
+
+func TestGetConfig_MethodNotAllowed(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestPostShareURL(t *testing.T) {
+	s, doc := newTestServer(t)
+
+	body := `{"url":"https://crit.live/r/abc123"}`
+	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if doc.GetSharedURL() != "https://crit.live/r/abc123" {
+		t.Errorf("shared URL = %q, want https://crit.live/r/abc123", doc.GetSharedURL())
+	}
+
+	// Verify config now reflects the stored URL
+	req2 := httptest.NewRequest("GET", "/api/config", nil)
+	w2 := httptest.NewRecorder()
+	s.ServeHTTP(w2, req2)
+	var resp map[string]string
+	if err := json.Unmarshal(w2.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["hosted_url"] != "https://crit.live/r/abc123" {
+		t.Errorf("hosted_url = %q, want https://crit.live/r/abc123", resp["hosted_url"])
+	}
+}
+
+func TestPostShareURL_MethodNotAllowed(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/share-url", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestPostShareURL_EmptyURL(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(`{"url":""}`))
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestPostShareURL_InvalidJSON(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader("not json"))
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
