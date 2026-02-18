@@ -25,6 +25,7 @@ func NewServer(doc *Document, frontendFS embed.FS, shareURL string) *Server {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/share-url", s.handleShareURL)
 	mux.HandleFunc("/api/document", s.handleDocument)
 	mux.HandleFunc("/api/comments", s.handleComments)
 	mux.HandleFunc("/api/comments/", s.handleCommentByID)
@@ -43,7 +44,26 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(w, map[string]string{"share_url": s.shareURL})
+	writeJSON(w, map[string]string{
+		"share_url":  s.shareURL,
+		"hosted_url": s.doc.GetSharedURL(),
+	})
+}
+
+func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.URL == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	s.doc.SetSharedURL(body.URL)
+	writeJSON(w, map[string]string{"ok": "true"})
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

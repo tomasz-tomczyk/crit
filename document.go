@@ -24,6 +24,7 @@ type CommentsFile struct {
 	File      string    `json:"file"`
 	FileHash  string    `json:"file_hash"`
 	UpdatedAt string    `json:"updated_at"`
+	ShareURL  string    `json:"share_url,omitempty"`
 	Comments  []Comment `json:"comments"`
 }
 
@@ -45,6 +46,7 @@ type Document struct {
 	nextID      int
 	writeTimer  *time.Timer
 	staleNotice string
+	sharedURL   string
 	subscribers map[chan SSEEvent]struct{}
 	subMu       sync.Mutex
 }
@@ -94,6 +96,9 @@ func (d *Document) loadComments() {
 	if err := json.Unmarshal(data, &cf); err != nil {
 		return
 	}
+
+	// Load share URL regardless of file hash so it persists even after file changes.
+	d.sharedURL = cf.ShareURL
 
 	if cf.FileHash != d.FileHash {
 		d.staleNotice = "The source file has changed since the last review session. Previous comments may not align with the current content."
@@ -178,6 +183,19 @@ func (d *Document) ClearStaleNotice() {
 	d.staleNotice = ""
 }
 
+func (d *Document) GetSharedURL() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.sharedURL
+}
+
+func (d *Document) SetSharedURL(url string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.sharedURL = url
+	d.scheduleWrite()
+}
+
 func (d *Document) scheduleWrite() {
 	if d.writeTimer != nil {
 		d.writeTimer.Stop()
@@ -191,14 +209,15 @@ func (d *Document) WriteFiles() {
 	d.mu.RLock()
 	comments := make([]Comment, len(d.Comments))
 	copy(comments, d.Comments)
+	sharedURL := d.sharedURL
 	d.mu.RUnlock()
 
-	d.writeCommentsJSON(comments)
+	d.writeCommentsJSON(comments, sharedURL)
 	d.writeReviewMD(comments)
 }
 
-func (d *Document) writeCommentsJSON(comments []Comment) {
-	if len(comments) == 0 {
+func (d *Document) writeCommentsJSON(comments []Comment, sharedURL string) {
+	if len(comments) == 0 && sharedURL == "" {
 		os.Remove(d.commentsFilePath())
 		return
 	}
@@ -207,6 +226,7 @@ func (d *Document) writeCommentsJSON(comments []Comment) {
 		File:      d.FileName,
 		FileHash:  d.FileHash,
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		ShareURL:  sharedURL,
 		Comments:  comments,
 	}
 

@@ -1058,10 +1058,12 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     grid-row: 1;
     grid-column: 1;
   }
-  .theme-toggle {
+  .theme-pill {
     grid-row: 1;
     grid-column: 3;
     justify-self: end;
+    align-self: center;
+    width: fit-content;
   }
   #finishBtn {
     grid-row: 1;
@@ -1181,6 +1183,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   let rawContent = '';
   let fileName = '';
   let shareURL = '';
+  let hostedURL = '';
   let lineBlocks = []; // { startLine, endLine, html }
   let tocItems = []; // { level, text, startLine }
   let selectionStart = null;
@@ -1294,7 +1297,9 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       fileName = docRes.filename;
       comments = commentsRes || [];
       shareURL = configRes.share_url || '';
+      hostedURL = configRes.hosted_url || '';
       if (shareURL) document.getElementById('shareBtn').style.display = '';
+      if (hostedURL) showSharedNotice(hostedURL);
 
       document.getElementById('filename').textContent = fileName;
       document.title = `Crit — ${fileName}`;
@@ -2352,7 +2357,29 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   });
 
   // ===== Share =====
+  function showSharedNotice(url) {
+    const el = document.getElementById('shareNotice');
+    el.innerHTML = `<div class="share-notice success">
+      <span>Shared! <span class="share-notice-url">${escapeHtml(url)}</span></span>
+      <div class="share-notice-actions">
+        <button class="btn btn-sm" id="shareCopyBtn">Copy link</button>
+        <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+      </div>
+    </div>`;
+    document.getElementById('shareCopyBtn').addEventListener('click', async function() {
+      await navigator.clipboard.writeText(url).catch(() => {});
+      this.textContent = '✓ Copied';
+      setTimeout(() => { this.textContent = 'Copy link'; }, 2000);
+    });
+  }
+
   document.getElementById('shareBtn').addEventListener('click', async function() {
+    // Already shared — show existing URL instead of re-posting.
+    if (hostedURL) {
+      showSharedNotice(hostedURL);
+      return;
+    }
+
     const btn = this;
     btn.textContent = 'Sharing…';
     btn.disabled = true;
@@ -2381,19 +2408,13 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       }
 
       const { url } = await resp.json();
-      const el = document.getElementById('shareNotice');
-      el.innerHTML = `<div class="share-notice success">
-        <span>Shared! <span class="share-notice-url">${escapeHtml(url)}</span></span>
-        <div class="share-notice-actions">
-          <button class="btn btn-sm" id="shareCopyBtn">Copy link</button>
-          <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
-        </div>
-      </div>`;
-      document.getElementById('shareCopyBtn').addEventListener('click', async function() {
-        await navigator.clipboard.writeText(url).catch(() => {});
-        this.textContent = '✓ Copied';
-        setTimeout(() => { this.textContent = 'Copy link'; }, 2000);
-      });
+      hostedURL = url;
+      showSharedNotice(url);
+      fetch('/api/share-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      }).catch(() => {});
     } catch (err) {
       const el = document.getElementById('shareNotice');
       el.innerHTML = `<div class="share-notice error">
