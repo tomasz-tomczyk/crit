@@ -30,6 +30,7 @@ func main() {
 	noOpen := flag.Bool("no-open", false, "Don't auto-open browser")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.BoolVar(showVersion, "v", false, "Print version and exit (shorthand)")
+	shareURL := flag.String("share-url", "", "Base URL of hosted Crit service for sharing reviews (overrides CRIT_SHARE_URL env var)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: crit [options] <file.md>\n\nOptions:\n")
 		flag.PrintDefaults()
@@ -76,7 +77,14 @@ func main() {
 	}
 	addr := listener.Addr().(*net.TCPAddr)
 
-	srv := NewServer(doc, frontendFS)
+	if *shareURL == "" {
+		*shareURL = os.Getenv("CRIT_SHARE_URL")
+	}
+	if *shareURL == "" {
+		*shareURL = "https://crit.live"
+	}
+
+	srv := NewServer(doc, frontendFS, *shareURL)
 	httpServer := &http.Server{
 		Handler:     srv,
 		ReadTimeout: 15 * time.Second,

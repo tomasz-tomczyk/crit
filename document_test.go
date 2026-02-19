@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -237,5 +238,130 @@ func TestWriteFiles(t *testing.T) {
 	}
 	if len(data) == 0 {
 		t.Error("review file is empty")
+	}
+}
+
+func TestSetGetSharedURL(t *testing.T) {
+	doc := newTestDoc(t, "line1")
+	if doc.GetSharedURL() != "" {
+		t.Error("expected empty shared URL initially")
+	}
+	doc.SetSharedURL("https://crit.live/r/abc123")
+	if doc.GetSharedURL() != "https://crit.live/r/abc123" {
+		t.Errorf("shared URL = %q, want https://crit.live/r/abc123", doc.GetSharedURL())
+	}
+}
+
+func writeAndStop(doc *Document) {
+	doc.mu.Lock()
+	if doc.writeTimer != nil {
+		doc.writeTimer.Stop()
+	}
+	doc.mu.Unlock()
+	doc.WriteFiles()
+}
+
+func TestSharedURL_PersistedAndLoaded(t *testing.T) {
+	doc := newTestDoc(t, "line1\nline2")
+	doc.AddComment(1, 1, "note")
+	doc.SetSharedURL("https://crit.live/r/persisted")
+	writeAndStop(doc)
+
+	// Reload from same path/dir — should restore shared URL
+	doc2, err := NewDocument(doc.FilePath, doc.OutputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc2.GetSharedURL() != "https://crit.live/r/persisted" {
+		t.Errorf("shared URL after reload = %q, want https://crit.live/r/persisted", doc2.GetSharedURL())
+	}
+}
+
+func TestSharedURL_PersistsWhenStale(t *testing.T) {
+	doc := newTestDoc(t, "original")
+	doc.AddComment(1, 1, "note")
+	doc.SetSharedURL("https://crit.live/r/stale-test")
+	writeAndStop(doc)
+
+	// Change the file so the hash won't match on next load
+	if err := os.WriteFile(doc.FilePath, []byte("modified content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	doc2, err := NewDocument(doc.FilePath, doc.OutputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Even though file changed (stale), shared URL should still be loaded
+	if doc2.GetSharedURL() != "https://crit.live/r/stale-test" {
+		t.Errorf("shared URL after stale reload = %q, want https://crit.live/r/stale-test", doc2.GetSharedURL())
+	}
+	// Comments should NOT be loaded (stale)
+	if len(doc2.GetComments()) != 0 {
+		t.Error("comments should not be loaded when file is stale")
+	}
+}
+
+func TestWriteFiles_SharedURLOnlyCreatesFile(t *testing.T) {
+	doc := newTestDoc(t, "line1")
+	// No comments — only a shared URL
+	doc.SetSharedURL("https://crit.live/r/urlonly")
+	writeAndStop(doc)
+
+	// Comments file should exist even though there are no comments
+	data, err := os.ReadFile(doc.commentsFilePath())
+	if err != nil {
+		t.Fatalf("comments file not written: %v", err)
+	}
+	var cf CommentsFile
+	if err := json.Unmarshal(data, &cf); err != nil {
+		t.Fatal(err)
+	}
+	if cf.ShareURL != "https://crit.live/r/urlonly" {
+		t.Errorf("share_url in file = %q, want https://crit.live/r/urlonly", cf.ShareURL)
+	}
+}
+
+func TestSetGetDeleteToken(t *testing.T) {
+	doc := newTestDoc(t, "line1")
+	if doc.GetDeleteToken() != "" {
+		t.Error("expected empty delete token initially")
+	}
+	doc.SetDeleteToken("abc123deletetoken1234")
+	if doc.GetDeleteToken() != "abc123deletetoken1234" {
+		t.Errorf("delete token = %q, want abc123deletetoken1234", doc.GetDeleteToken())
+	}
+}
+
+func TestDeleteToken_PersistedAndLoaded(t *testing.T) {
+	doc := newTestDoc(t, "line1\nline2")
+	doc.AddComment(1, 1, "note")
+	doc.SetDeleteToken("persisttoken12345678901")
+	writeAndStop(doc)
+
+	doc2, err := NewDocument(doc.FilePath, doc.OutputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc2.GetDeleteToken() != "persisttoken12345678901" {
+		t.Errorf("delete token after reload = %q", doc2.GetDeleteToken())
+	}
+}
+
+func TestDeleteToken_PersistsWhenStale(t *testing.T) {
+	doc := newTestDoc(t, "original")
+	doc.AddComment(1, 1, "note")
+	doc.SetDeleteToken("staletoken123456789012")
+	writeAndStop(doc)
+
+	if err := os.WriteFile(doc.FilePath, []byte("modified"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := NewDocument(doc.FilePath, doc.OutputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc2.GetDeleteToken() != "staletoken123456789012" {
+		t.Errorf("delete token after stale reload = %q", doc2.GetDeleteToken())
 	}
 }

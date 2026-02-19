@@ -5,7 +5,9 @@
       "Bash(go test:*)",
       "Bash(make build:*)",
       "Bash(./crit:*)",
-      "Bash(gh run view:*)"
+      "Bash(gh run view:*)",
+      "Bash(gh pr comments:*)",
+      "Bash(gh api:*)"
     ]
   }
 }

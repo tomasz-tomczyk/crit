@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,6 +14,69 @@
 :root {
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  /* Dark values in :root = fallback when prefers-color-scheme is unsupported */
+  --bg-primary: #1a1b26;
+  --bg-secondary: #1e2030;
+  --bg-tertiary: #24283b;
+  --bg-hover: #292e42;
+  --bg-gutter: #16171f;
+  --fg-primary: #c0caf5;
+  --fg-secondary: #a9b1d6;
+  --fg-muted: #565f89;
+  --fg-dimmed: #3b4261;
+  --accent: #7aa2f7;
+  --accent-hover: #89b4fa;
+  --accent-subtle: rgba(122, 162, 247, 0.1);
+  --accent-bg: rgba(122, 162, 247, 0.15);
+  --green: #9ece6a;
+  --red: #f7768e;
+  --orange: #ff9e64;
+  --yellow: #e0af68;
+  --border: #292e42;
+  --border-comment: #3d59a1;
+  --comment-bg: #1a1f36;
+  --selection-bg: rgba(122, 162, 247, 0.08);
+  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+  --code-bg: #1e2030;
+  --table-stripe: rgba(122, 162, 247, 0.04);
+  --blockquote-border: #3d59a1;
+  --blockquote-bg: rgba(61, 89, 161, 0.08);
+  --scrollbar-bg: #1a1b26;
+  --scrollbar-thumb: #3b4261;
+}
+
+/* System preference: light — overrides dark :root defaults when OS is light */
+@media (prefers-color-scheme: light) {
+  html:not([data-theme]) {
+    --bg-primary: #fafafa;
+    --bg-secondary: #f5f5f5;
+    --bg-tertiary: #eeeeee;
+    --bg-hover: #e8e8e8;
+    --bg-gutter: #f0f0f0;
+    --fg-primary: #24292f;
+    --fg-secondary: #57606a;
+    --fg-muted: #8b949e;
+    --fg-dimmed: #c0c8d0;
+    --accent: #0969da;
+    --accent-hover: #0550ae;
+    --accent-subtle: rgba(9, 105, 218, 0.08);
+    --accent-bg: rgba(9, 105, 218, 0.12);
+    --green: #1a7f37;
+    --red: #cf222e;
+    --orange: #bc4c00;
+    --yellow: #9a6700;
+    --border: #d8dee4;
+    --border-comment: #0969da;
+    --comment-bg: #f0f6ff;
+    --selection-bg: rgba(9, 105, 218, 0.06);
+    --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    --code-bg: #f5f5f5;
+    --table-stripe: rgba(0, 0, 0, 0.02);
+    --blockquote-border: #0969da;
+    --blockquote-bg: rgba(9, 105, 218, 0.04);
+    --scrollbar-bg: #fafafa;
+    --scrollbar-thumb: #d0d0d0;
+  }
 }
 
 [data-theme="dark"] {
@@ -201,6 +264,48 @@ body {
 }
 .theme-toggle:hover { color: var(--fg-primary); background: var(--bg-tertiary); }
 
+/* Three-button theme pill (system / light / dark) */
+.theme-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  border-radius: 9999px;
+}
+.theme-pill-indicator {
+  position: absolute;
+  width: 33.333%;
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  left: 0;
+  transition: left 0.15s ease;
+  pointer-events: none;
+}
+html[data-theme="light"] .theme-pill-indicator { left: 33.333%; }
+html[data-theme="dark"]  .theme-pill-indicator { left: 66.666%; }
+.theme-pill-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  padding: 5px 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  position: relative;
+  z-index: 1;
+  transition: color 0.15s;
+}
+.theme-pill-btn:hover { color: var(--fg-primary); }
+html:not([data-theme])  .theme-pill-btn[data-for-theme="system"],
+html[data-theme="light"] .theme-pill-btn[data-for-theme="light"],
+html[data-theme="dark"]  .theme-pill-btn[data-for-theme="dark"] { color: var(--accent); }
+.theme-pill-btn svg { width: 14px; height: 14px; display: block; }
+
 /* ===== Stale Notice ===== */
 .stale-notice {
   max-width: 840px;
@@ -220,6 +325,45 @@ body {
   font-size: 12px;
   white-space: nowrap;
 }
+
+.share-notice {
+  max-width: 840px;
+  margin: 16px auto;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.share-notice.success {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--fg-secondary);
+}
+.share-notice.error {
+  background: rgba(247, 118, 142, 0.1);
+  border: 1px solid var(--red);
+  color: var(--red);
+}
+.share-notice-url {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  word-break: break-all;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+.share-notice-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.btn-success {
+  color: var(--green);
+  border-color: var(--green);
+  background: transparent;
+}
+.btn-success:hover { background: rgba(158, 206, 106, 0.1); }
 
 /* ===== Document Container ===== */
 .document-wrapper {
@@ -925,10 +1069,12 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     grid-row: 1;
     grid-column: 1;
   }
-  .theme-toggle {
+  .theme-pill {
     grid-row: 1;
     grid-column: 3;
     justify-self: end;
+    align-self: center;
+    width: fit-content;
   }
   #finishBtn {
     grid-row: 1;
@@ -976,7 +1122,19 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   <div class="header-right">
     <span class="comment-count" id="commentCount"></span>
     <button class="theme-toggle" id="tocToggle" title="Table of contents">&#9776;</button>
-    <button class="theme-toggle" id="themeToggle" title="Toggle theme">&#9789;</button>
+    <div class="theme-pill" role="group" aria-label="Theme">
+      <div class="theme-pill-indicator"></div>
+      <button class="theme-pill-btn" data-for-theme="system" title="System theme">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v5.5A2.25 2.25 0 0 1 11.75 12h-1.312c.1.128.21.248.328.36a.75.75 0 0 1 .234.545v.345a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-.345a.75.75 0 0 1 .234-.545c.118-.111.228-.232.328-.36H4.25A2.25 2.25 0 0 1 2 9.75v-5.5Zm2.25-.75a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h7.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75h-7.5Z" clip-rule="evenodd"/></svg>
+      </button>
+      <button class="theme-pill-btn" data-for-theme="light" title="Light theme">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z"/></svg>
+      </button>
+      <button class="theme-pill-btn" data-for-theme="dark" title="Dark theme">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14.438 10.148c.19-.425-.321-.787-.748-.601A5.5 5.5 0 0 1 6.453 2.31c.186-.427-.176-.938-.6-.748a6.501 6.501 0 1 0 8.585 8.586Z"/></svg>
+      </button>
+    </div>
+    <button class="btn" id="shareBtn" style="display:none">Share</button>
     <button class="btn btn-primary" id="finishBtn">Finish Review</button>
   </div>
 </div>
@@ -990,6 +1148,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 </div>
 
 <div id="staleNotice"></div>
+<div id="shareNotice"></div>
 
 <div class="document-wrapper" id="document">
   <div class="loading">Loading document...</div>
@@ -1034,6 +1193,9 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   let comments = [];
   let rawContent = '';
   let fileName = '';
+  let shareURL = '';
+  let hostedURL = '';
+  let deleteToken = '';
   let lineBlocks = []; // { startLine, endLine, html }
   let tocItems = []; // { level, text, startLine }
   let selectionStart = null;
@@ -1046,7 +1208,10 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   let mermaidCounter = 0;
   const mermaidSources = {}; // id -> source text
   function getMermaidTheme() {
-    return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default';
+    const explicit = document.documentElement.getAttribute('data-theme');
+    if (explicit === 'dark') return 'dark';
+    if (explicit === 'light') return 'default';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default';
   }
   mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme() });
 
@@ -1073,24 +1238,24 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   }
 
   // ===== Theme =====
-  const savedTheme = localStorage.getItem('crit-theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', savedTheme);
-  updateThemeIcon();
-
-  document.getElementById('themeToggle').addEventListener('click', function() {
-    const current = document.documentElement.getAttribute('data-theme');
-    const next = current === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('crit-theme', next);
-    updateThemeIcon();
-    // Re-highlight code blocks with appropriate theme
-    reapplyHighlightTheme();
-  });
-
-  function updateThemeIcon() {
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    document.getElementById('themeToggle').innerHTML = isDark ? '&#9789;' : '&#9788;';
+  function applyTheme(theme) {
+    if (theme === 'system') {
+      localStorage.removeItem('crit-theme');
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      localStorage.setItem('crit-theme', theme);
+      document.documentElement.setAttribute('data-theme', theme);
+    }
   }
+
+  applyTheme(localStorage.getItem('crit-theme') || 'system');
+
+  document.querySelectorAll('.theme-pill-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      applyTheme(this.dataset.forTheme);
+      reapplyHighlightTheme();
+    });
+  });
 
   function reapplyHighlightTheme() {
     // highlight.js themes are applied via CSS, which is handled by the data-theme attribute
@@ -1133,15 +1298,21 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   // ===== Init =====
   async function init() {
     try {
-      const [docRes, commentsRes, staleRes] = await Promise.all([
+      const [docRes, commentsRes, staleRes, configRes] = await Promise.all([
         fetch('/api/document').then(r => r.json()),
         fetch('/api/comments').then(r => r.json()),
-        fetch('/api/stale').then(r => r.json())
+        fetch('/api/stale').then(r => r.json()),
+        fetch('/api/config').then(r => r.json()),
       ]);
 
       rawContent = docRes.content;
       fileName = docRes.filename;
       comments = commentsRes || [];
+      shareURL = configRes.share_url || '';
+      hostedURL = configRes.hosted_url || '';
+      deleteToken = configRes.delete_token || '';
+      if (shareURL) document.getElementById('shareBtn').style.display = '';
+      if (hostedURL) showSharedNotice(hostedURL);
 
       document.getElementById('filename').textContent = fileName;
       document.title = `Crit — ${fileName}`;
@@ -2196,6 +2367,137 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   // Back to editing from waiting state
   document.getElementById('backToEditing').addEventListener('click', function() {
     setUIState('reviewing');
+  });
+
+  // ===== Share =====
+  function showSharedNotice(url) {
+    const el = document.getElementById('shareNotice');
+    const unpublishBtn = deleteToken
+      ? `<button class="btn btn-sm btn-danger" id="shareUnpublishBtn">Unpublish</button>`
+      : '';
+    el.innerHTML = `<div class="share-notice success">
+      <span>Shared! <span class="share-notice-url">${escapeHtml(url)}</span></span>
+      <div class="share-notice-actions">
+        <button class="btn btn-sm btn-success" id="shareCopyBtn">Copy link</button>
+        ${unpublishBtn}
+        <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+      </div>
+    </div>`;
+    document.getElementById('shareCopyBtn').addEventListener('click', async function() {
+      await navigator.clipboard.writeText(url).catch(() => {});
+      this.textContent = '✓ Copied';
+      setTimeout(() => { this.textContent = 'Copy link'; }, 2000);
+    });
+    if (deleteToken) {
+      document.getElementById('shareUnpublishBtn').addEventListener('click', handleUnpublish);
+    }
+  }
+
+  async function handleUnpublish() {
+    const btn = document.getElementById('shareUnpublishBtn');
+    if (btn) { btn.textContent = 'Unpublishing…'; btn.disabled = true; }
+
+    try {
+      const resp = await fetch(shareURL + '/api/reviews', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delete_token: deleteToken }),
+      });
+
+      const alreadyDeleted = resp.status === 404;
+      if (!alreadyDeleted && !resp.ok) {
+        throw new Error('Server error ' + resp.status);
+      }
+
+      // Clear local state for both 204 and 404
+      hostedURL = '';
+      deleteToken = '';
+      fetch('/api/share-url', { method: 'DELETE' }).catch(() => {});
+
+      const el = document.getElementById('shareNotice');
+      const message = alreadyDeleted ? 'Already deleted.' : 'Review unpublished.';
+      el.innerHTML = `<div class="share-notice success">
+        <span>${message}</span>
+        <div class="share-notice-actions">
+          <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+        </div>
+      </div>`;
+    } catch (err) {
+      const el = document.getElementById('shareNotice');
+      el.innerHTML = `<div class="share-notice error">
+        <span>Unpublish failed: ${escapeHtml(err.message)}</span>
+        <div class="share-notice-actions">
+          <button class="btn btn-sm" id="shareUnpublishRetryBtn">Retry</button>
+          <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+        </div>
+      </div>`;
+      document.getElementById('shareUnpublishRetryBtn').addEventListener('click', () => {
+        document.getElementById('shareNotice').innerHTML = '';
+        handleUnpublish();
+      });
+    }
+  }
+
+  document.getElementById('shareBtn').addEventListener('click', async function() {
+    // Already shared — show existing URL instead of re-posting.
+    if (hostedURL) {
+      showSharedNotice(hostedURL);
+      return;
+    }
+
+    const btn = this;
+    btn.textContent = 'Sharing…';
+    btn.disabled = true;
+    document.getElementById('shareNotice').innerHTML = '';
+
+    const payload = {
+      content: rawContent,
+      filename: fileName,
+      comments: comments.map(c => ({
+        start_line: c.start_line,
+        end_line: c.end_line,
+        body: c.body,
+      })),
+    };
+
+    try {
+      const resp = await fetch(shareURL + '/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || 'Server error ' + resp.status);
+      }
+
+      const { url, delete_token } = await resp.json();
+      hostedURL = url;
+      deleteToken = delete_token || '';
+      showSharedNotice(url);
+      fetch('/api/share-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, delete_token: deleteToken }),
+      }).catch(() => {});
+    } catch (err) {
+      const el = document.getElementById('shareNotice');
+      el.innerHTML = `<div class="share-notice error">
+        <span>Share failed: ${escapeHtml(err.message)}</span>
+        <div class="share-notice-actions">
+          <button class="btn btn-sm" id="shareRetryBtn">Retry</button>
+          <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+        </div>
+      </div>`;
+      document.getElementById('shareRetryBtn').addEventListener('click', () => {
+        document.getElementById('shareNotice').innerHTML = '';
+        document.getElementById('shareBtn').click();
+      });
+    } finally {
+      btn.textContent = 'Share';
+      btn.disabled = false;
+    }
   });
 
 

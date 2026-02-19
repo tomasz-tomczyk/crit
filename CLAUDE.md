@@ -8,8 +8,8 @@ A single-binary Go CLI tool that opens a browser-based UI for reviewing markdown
 
 ```
 crit/
-├── main.go              # Entry point: CLI parsing, server setup, graceful shutdown, browser open
-├── server.go            # HTTP handlers: REST API (comments CRUD, document, finish, stale, files)
+├── main.go              # Entry point: CLI parsing (--share-url/CRIT_SHARE_URL), server setup, graceful shutdown, browser open
+├── server.go            # HTTP handlers: REST API (comments CRUD, document, finish, stale, share, config, files)
 ├── document.go          # Core state: file loading, comment storage, JSON/review file persistence
 ├── output.go            # Generates .review.md (original markdown + interleaved comment blockquotes)
 ├── server_test.go       # API handler tests (CRUD, validation, path traversal prevention)
@@ -45,11 +45,13 @@ crit/
 ## Build & Run
 
 ```bash
-go build -o crit .          # Build
-go test ./...                     # Run all tests (37 tests)
-./crit test-plan.md         # Run (opens browser)
-./crit --no-open --port 3000 test-plan.md  # Headless on fixed port
-make build-all                    # Cross-compile to dist/
+go build -o crit .                                    # Build
+go test ./...                                         # Run all tests
+./crit test-plan.md                                   # Run (opens browser)
+./crit --no-open --port 3000 test-plan.md             # Headless on fixed port
+./crit --share-url https://crit.live test-plan.md     # Enable Share button
+CRIT_SHARE_URL=https://crit.live ./crit test-plan.md  # Same via env var
+make build-all                                        # Cross-compile to dist/
 ```
 
 ## Linting
@@ -70,6 +72,9 @@ golangci-lint run ./...           # Lint (should be clean)
 - `GET  /api/events` — SSE stream for file-changed events
 - `GET  /api/stale` — check if file changed since last session
 - `DELETE /api/stale` — dismiss stale notice
+- `GET  /api/config` — returns `{share_url, hosted_url, delete_token}` for the Share button
+- `POST /api/share-url` — persist `{url, delete_token}` to `.comments.json` after upload
+- `DELETE /api/share-url` — unpublish: calls crit-web DELETE and clears local persisted URL
 - `GET  /files/<path>` — serve files from document directory (path traversal protected)
 
 ## Security
@@ -100,9 +105,27 @@ The trickiest part is **source line mapping**. The approach:
 - **Per-row tables**: Each row wrapped in its own `<table>` with `table-layout: fixed` + `<colgroup>` for column alignment.
 - **Highlighted code splitting**: `splitHighlightedCode()` tracks open `<span>` tags across lines to properly close/reopen them.
 
+## Theme System
+
+The header has a 3-button theme pill (System / Light / Dark) replacing the old single toggle:
+- No `data-theme` attribute → system preference via `prefers-color-scheme`
+- `data-theme="light"` / `data-theme="dark"` → explicit override
+- CSS vars are set in `:root` (dark fallback), `@media (prefers-color-scheme: light) html:not([data-theme])`, `[data-theme="dark"]`, and `[data-theme="light"]` blocks.
+- Theme choice persisted to `localStorage` as `crit-theme` (`"system"` | `"light"` | `"dark"`).
+
+## Share Feature
+
+When `--share-url` (or `CRIT_SHARE_URL`) is set:
+- The Share button appears in the header.
+- Clicking it POSTs the current document + comments to `{share_url}/api/reviews` (crit-web API).
+- The response `{url, delete_token}` is persisted to `.comments.json` via `POST /api/share-url`.
+- A share-notice banner shows the URL with Copy / Unpublish actions.
+- Unpublish calls `DELETE {share_url}/api/reviews?delete_token=...` then clears local state.
+- Share URL and delete token survive file-hash changes (loaded unconditionally from `.comments.json`).
+
 ## Output Files
 
 | File | Description |
 |------|-------------|
 | `plan.review.md` | Original markdown + comments as blockquotes — hand to your AI agent |
-| `.plan.comments.json` | Hidden dotfile for resume support (stores file hash) |
+| `.plan.comments.json` | Hidden dotfile for resume support (stores file hash, share_url, delete_token) |
