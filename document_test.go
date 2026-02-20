@@ -371,6 +371,19 @@ func TestReloadFile_PreservesPreviousContent(t *testing.T) {
 	}
 }
 
+func TestEditCounting(t *testing.T) {
+	doc := newTestDoc(t, "original")
+	doc.IncrementEdits()
+	doc.IncrementEdits()
+	if doc.GetPendingEdits() != 2 {
+		t.Errorf("pending edits = %d, want 2", doc.GetPendingEdits())
+	}
+	doc.SignalRoundComplete()
+	if doc.GetPendingEdits() != 0 {
+		t.Errorf("pending edits after round-complete = %d, want 0", doc.GetPendingEdits())
+	}
+}
+
 func TestDeleteToken_PersistsWhenStale(t *testing.T) {
 	doc := newTestDoc(t, "original")
 	doc.AddComment(1, 1, "note")

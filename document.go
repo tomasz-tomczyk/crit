@@ -374,7 +374,9 @@ func (d *Document) ReloadFile() error {
 }
 
 // WatchFile polls the source file for changes every second.
-// On change, it reloads and notifies SSE subscribers.
+// On change, it reloads the file, increments the edit counter, and sends an
+// "edit-detected" SSE event. The full "file-changed" event is deferred until
+// the agent signals round completion via the roundComplete channel.
 func (d *Document) WatchFile(stop <-chan struct{}) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -399,17 +401,26 @@ func (d *Document) WatchFile(stop <-chan struct{}) {
 					fmt.Fprintf(os.Stderr, "Error reloading file: %v\n", err)
 					continue
 				}
+				d.IncrementEdits()
 
-				d.mu.RLock()
-				event := SSEEvent{
-					Type:     "file-changed",
+				// Notify frontend of edit detection (for counter in waiting modal)
+				d.notify(SSEEvent{
+					Type:     "edit-detected",
 					Filename: d.FileName,
-					Content:  d.Content,
-				}
-				d.mu.RUnlock()
-
-				d.notify(event)
+					Content:  fmt.Sprintf("%d", d.GetPendingEdits()),
+				})
 			}
+		case <-d.roundComplete:
+			// Agent signaled round complete — send the full file-changed event
+			d.mu.RLock()
+			event := SSEEvent{
+				Type:     "file-changed",
+				Filename: d.FileName,
+				Content:  d.Content,
+			}
+			d.mu.RUnlock()
+
+			d.notify(event)
 		}
 	}
 }
