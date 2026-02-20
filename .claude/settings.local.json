@@ -9,7 +9,11 @@
       "Bash(gh pr comments:*)",
       "Bash(gh api:*)",
       "Bash(git checkout:*)",
-      "Bash(gofmt:*)"
+      "Bash(gofmt:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(crit go:*)"
     ]
   }
 }
