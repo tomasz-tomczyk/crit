@@ -1367,6 +1367,52 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+/* ===== Section Collapse ===== */
+.section-chevron {
+  position: absolute;
+  left: -24px;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--fg-muted);
+  user-select: none;
+  border-radius: 3px 0 0 3px;
+  transition: color 0.15s ease;
+  z-index: 2;
+}
+.section-chevron:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+.section-chevron svg {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.15s ease;
+}
+.section-chevron.collapsed svg {
+  transform: rotate(-90deg);
+}
+.collapsed-summary {
+  color: var(--fg-muted);
+  font-size: 12px;
+  padding: 4px 0 4px 75px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px dashed var(--border);
+}
+.collapsed-summary:hover {
+  color: var(--accent);
+}
+.collapsed-badge {
+  color: var(--fg-muted);
+  font-size: 11px;
+  margin-left: 8px;
+  font-weight: normal;
+}
 </style>
 </head>
 <body>
@@ -1388,6 +1434,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       <button class="btn btn-sm" id="diffModeSplit" title="Split view">Split</button>
       <button class="btn btn-sm" id="diffModeUnified" title="Unified view">Unified</button>
     </div>
+    <button class="btn btn-sm" id="collapseAllBtn" style="display:none" title="Collapse or expand all sections">Collapse All</button>
     <button class="theme-toggle" id="shortcutsToggle" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
     <button class="theme-toggle" id="tocToggle" title="Table of contents" aria-label="Table of contents">&#9776;</button>
     <div class="theme-pill" role="group" aria-label="Theme">
@@ -1447,6 +1494,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       <tr><td><kbd>d</kbd></td><td>Delete comment on focused block</td></tr>
       <tr><td><kbd>f</kbd></td><td>Finish review</td></tr>
       <tr><td><kbd>t</kbd></td><td>Toggle table of contents</td></tr>
+      <tr><td><kbd>s</kbd></td><td>Collapse / expand all sections</td></tr>
       <tr><td><kbd>Esc</kbd></td><td>Cancel / clear focus</td></tr>
       <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Submit comment</td></tr>
       <tr><td><kbd>?</kbd></td><td>Toggle this help</td></tr>
@@ -1486,6 +1534,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   let deleteToken = '';
   let lineBlocks = []; // { startLine, endLine, html }
   let tocItems = []; // { level, text, startLine }
+  let sections = {}; // headingBlockIndex -> { startLine, endLine, level, collapsed }
   let selectionStart = null;
   let selectionEnd = null;
   let activeForm = null; // { afterBlockIndex, startLine, endLine, editingId }
@@ -1759,8 +1808,10 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     }
 
     lineBlocks = buildLineBlocks(tokens, md, rawContent);
+    buildSections();
     renderDocument();
     buildToc(tocItems);
+    updateCollapseAllButton();
   }
 
   // Split highlighted code HTML into per-line chunks,
@@ -2078,12 +2129,20 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         html = escapeHtml(blockTokens.map(t => t.content || '').join(''));
       }
 
-      blocks.push({
+      const blockObj = {
         startLine: blockStart + 1,
         endLine: blockEnd,
         html: html,
         isEmpty: false
-      });
+      };
+
+      // Tag heading blocks for section collapse
+      if (token.type === 'heading_open') {
+        blockObj.isHeading = true;
+        blockObj.headingLevel = parseInt(token.tag.slice(1));
+      }
+
+      blocks.push(blockObj);
 
       i = closeIdx + 1;
       coveredUpTo = blockEnd;
@@ -2150,12 +2209,173 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       a.style.paddingLeft = (12 + (item.level - minLevel) * 10) + 'px';
       a.addEventListener('click', function(e) {
         e.preventDefault();
+        expandSectionForLine(item.startLine);
+        renderDocument();
+        updateCollapseAllButton();
         scrollToLine(item.startLine);
       });
       li.appendChild(a);
       listEl.appendChild(li);
     }
     updateTocActive();
+  }
+
+  // ===== Section Collapse =====
+  function buildSections() {
+    sections = {};
+    if (tocItems.length === 0) return;
+
+    // Find heading block indices
+    const headingBlocks = [];
+    for (let bi = 0; bi < lineBlocks.length; bi++) {
+      if (lineBlocks[bi].isHeading) {
+        headingBlocks.push(bi);
+      }
+    }
+    if (headingBlocks.length <= 1) return; // single heading: nothing to collapse
+
+    // Load persisted collapsed state
+    const savedCollapsed = loadCollapsedState();
+
+    for (let hi = 0; hi < headingBlocks.length; hi++) {
+      const bi = headingBlocks[hi];
+      const block = lineBlocks[bi];
+      const level = block.headingLevel;
+
+      // Section ends at the next same-or-higher-level heading, or document end
+      let endLine = lineBlocks[lineBlocks.length - 1].endLine;
+      for (let nhi = hi + 1; nhi < headingBlocks.length; nhi++) {
+        const nextBlock = lineBlocks[headingBlocks[nhi]];
+        if (nextBlock.headingLevel <= level) {
+          // Section ends just before this heading's block
+          endLine = lineBlocks[headingBlocks[nhi] - 1].endLine;
+          break;
+        }
+      }
+
+      sections[bi] = {
+        startLine: block.startLine,
+        endLine: endLine,
+        level: level,
+        collapsed: savedCollapsed.indexOf(block.startLine) !== -1
+      };
+    }
+  }
+
+  function isBlockCollapsed(blockIndex) {
+    if (diffActive) return false; // no collapsing in diff view
+    const block = lineBlocks[blockIndex];
+    // Check all sections to see if this block falls within a collapsed one
+    for (const headingIdx in sections) {
+      const section = sections[headingIdx];
+      if (!section.collapsed) continue;
+      const hi = parseInt(headingIdx);
+      // Block is in this section if it's after the heading and within the section's range
+      if (blockIndex > hi && block.startLine <= section.endLine) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function getCollapsedLineCount(headingBlockIndex) {
+    const section = sections[headingBlockIndex];
+    if (!section || !section.collapsed) return 0;
+    const headingBlock = lineBlocks[headingBlockIndex];
+    return section.endLine - headingBlock.endLine;
+  }
+
+  function toggleSection(headingBlockIndex) {
+    if (sections[headingBlockIndex]) {
+      sections[headingBlockIndex].collapsed = !sections[headingBlockIndex].collapsed;
+      saveCollapsedState();
+      renderDocument();
+      updateCollapseAllButton();
+    }
+  }
+
+  function collapseAll() {
+    for (const idx in sections) {
+      sections[idx].collapsed = true;
+    }
+    saveCollapsedState();
+    renderDocument();
+    updateCollapseAllButton();
+  }
+
+  function expandAll() {
+    for (const idx in sections) {
+      sections[idx].collapsed = false;
+    }
+    saveCollapsedState();
+    renderDocument();
+    updateCollapseAllButton();
+  }
+
+  function hasAnySectionCollapsed() {
+    for (const idx in sections) {
+      if (sections[idx].collapsed) return true;
+    }
+    return false;
+  }
+
+  function hasSections() {
+    return Object.keys(sections).length > 0;
+  }
+
+  function loadCollapsedState() {
+    try {
+      const key = 'crit-collapsed-' + fileName;
+      const stored = localStorage.getItem(key);
+      return stored ? JSON.parse(stored) : [];
+    } catch(e) { return []; }
+  }
+
+  function saveCollapsedState() {
+    try {
+      const key = 'crit-collapsed-' + fileName;
+      const collapsed = [];
+      for (const idx in sections) {
+        if (sections[idx].collapsed) {
+          collapsed.push(sections[idx].startLine);
+        }
+      }
+      localStorage.setItem(key, JSON.stringify(collapsed));
+    } catch(e) { /* ignore */ }
+  }
+
+  function updateCollapseAllButton() {
+    const btn = document.getElementById('collapseAllBtn');
+    if (!btn) return;
+    if (!hasSections()) {
+      btn.style.display = 'none';
+      return;
+    }
+    btn.style.display = '';
+    btn.textContent = hasAnySectionCollapsed() ? 'Expand All' : 'Collapse All';
+  }
+
+  function getCommentsInSection(headingBlockIndex) {
+    const section = sections[headingBlockIndex];
+    if (!section) return 0;
+    const headingBlock = lineBlocks[headingBlockIndex];
+    let count = 0;
+    for (const c of comments) {
+      if (c.start_line > headingBlock.endLine && c.end_line <= section.endLine) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  function expandSectionForLine(line) {
+    for (const idx in sections) {
+      const section = sections[idx];
+      if (section.collapsed && line >= section.startLine && line <= section.endLine) {
+        section.collapsed = false;
+      }
+    }
+    saveCollapsedState();
   }
 
   function scrollToLine(line) {
@@ -2195,6 +2415,9 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 
     for (let bi = 0; bi < lineBlocks.length; bi++) {
       const block = lineBlocks[bi];
+
+      // Skip blocks inside collapsed sections
+      if (isBlockCollapsed(bi)) continue;
 
       // Create line block
       const lineBlockEl = document.createElement('div');
@@ -2254,7 +2477,48 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 
       lineBlockEl.appendChild(gutter);
       lineBlockEl.appendChild(content);
+
+      // Section collapse chevron — absolutely positioned to the left of the block
+      if (block.isHeading && sections[bi] && !diffActive) {
+        const chevron = document.createElement('span');
+        chevron.className = 'section-chevron' + (sections[bi].collapsed ? ' collapsed' : '');
+        chevron.innerHTML = '<svg viewBox="0 0 10 10" fill="currentColor"><path d="M2 3l3 4 3-4z"/></svg>';
+        chevron.addEventListener('click', function(e) {
+          e.stopPropagation();
+          e.preventDefault();
+          toggleSection(bi);
+        });
+        chevron.addEventListener('mousedown', function(e) {
+          e.stopPropagation();
+        });
+        lineBlockEl.appendChild(chevron);
+      }
+
+      // Add comment badge to collapsed heading
+      if (block.isHeading && sections[bi] && sections[bi].collapsed && !diffActive) {
+        const commentCount = getCommentsInSection(bi);
+        if (commentCount > 0) {
+          const badge = document.createElement('span');
+          badge.className = 'collapsed-badge';
+          badge.textContent = '(' + commentCount + ' comment' + (commentCount !== 1 ? 's' : '') + ')';
+          content.querySelector('h1, h2, h3, h4, h5, h6').appendChild(badge);
+        }
+      }
+
       container.appendChild(lineBlockEl);
+
+      // Render collapsed summary after heading
+      if (block.isHeading && sections[bi] && sections[bi].collapsed && !diffActive) {
+        const collapsedLines = getCollapsedLineCount(bi);
+        if (collapsedLines > 0) {
+          const summary = document.createElement('div');
+          summary.className = 'collapsed-summary';
+          summary.textContent = collapsedLines + ' line' + (collapsedLines !== 1 ? 's' : '') + ' collapsed';
+          summary.addEventListener('click', function() { toggleSection(bi); });
+          container.appendChild(summary);
+        }
+        continue; // skip rendering comments/form for collapsed sections
+      }
 
       // Render comments attached to this block
       for (const comment of blockComments) {
@@ -3329,6 +3593,14 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     document.getElementById('shortcutsOverlay').classList.toggle('active');
   }
 
+  document.getElementById('collapseAllBtn').addEventListener('click', function() {
+    if (hasAnySectionCollapsed()) {
+      expandAll();
+    } else {
+      collapseAll();
+    }
+  });
+
   document.getElementById('shortcutsToggle').addEventListener('click', toggleShortcutsOverlay);
   document.getElementById('shortcutsOverlay').addEventListener('click', function(e) {
     if (e.target === this) toggleShortcutsOverlay();
@@ -3376,8 +3648,10 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         if (lineBlocks.length === 0) return;
         if (focusedBlockIndex === null) {
           focusedBlockIndex = 0;
-        } else if (focusedBlockIndex < lineBlocks.length - 1) {
-          focusedBlockIndex++;
+        } else {
+          let next = focusedBlockIndex + 1;
+          while (next < lineBlocks.length && isBlockCollapsed(next)) next++;
+          if (next < lineBlocks.length) focusedBlockIndex = next;
         }
         renderDocument();
         scrollFocusedBlockIntoView();
@@ -3388,8 +3662,10 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         if (lineBlocks.length === 0) return;
         if (focusedBlockIndex === null) {
           focusedBlockIndex = 0;
-        } else if (focusedBlockIndex > 0) {
-          focusedBlockIndex--;
+        } else {
+          let prev = focusedBlockIndex - 1;
+          while (prev >= 0 && isBlockCollapsed(prev)) prev--;
+          if (prev >= 0) focusedBlockIndex = prev;
         }
         renderDocument();
         scrollFocusedBlockIntoView();
@@ -3453,6 +3729,16 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       case 't': {
         e.preventDefault();
         document.getElementById('tocToggle').click();
+        break;
+      }
+      case 's': {
+        e.preventDefault();
+        if (!hasSections()) return;
+        if (hasAnySectionCollapsed()) {
+          expandAll();
+        } else {
+          collapseAll();
+        }
         break;
       }
       case '?': {
