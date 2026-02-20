@@ -278,9 +278,9 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	prompt := ""
 	if len(s.doc.GetComments()) > 0 {
 		prompt = fmt.Sprintf(
-			"I've left review comments in %s — please address each comment and update the plan accordingly. "+
-				"Mark each resolved comment in %s by setting \"resolved\": true (optionally add \"resolution_note\" and \"resolution_lines\" pointing to relevant lines in the updated file). "+
-				"When done, run: crit go %d",
+			"Address review comments in %s. "+
+				"Mark resolved in %s (set \"resolved\": true, optionally \"resolution_note\" and \"resolution_lines\"). "+
+				"When done run: `crit go %d`",
 			reviewFile, s.doc.commentsFilePath(), s.port)
 	}
 

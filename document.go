@@ -313,7 +313,7 @@ func (d *Document) writeReviewMD(comments []Comment) {
 		return
 	}
 
-	reviewContent := GenerateReviewMD(d.Content, comments, d.commentsFilePath())
+	reviewContent := GenerateReviewMD(d.Content, comments)
 
 	if err := os.WriteFile(d.reviewFilePath(), []byte(reviewContent), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing review file: %v\n", err)

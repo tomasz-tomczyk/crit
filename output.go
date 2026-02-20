@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func GenerateReviewMD(content string, comments []Comment, commentsJSONPath string) string {
+func GenerateReviewMD(content string, comments []Comment) string {
 	// Filter out resolved comments
 	var activeComments []Comment
 	for _, c := range comments {
@@ -57,13 +57,6 @@ func GenerateReviewMD(content string, comments []Comment, commentsJSONPath strin
 		}
 	}
 
-	// Agent instructions footer
-	result.WriteString("\n\n---\n\n")
-	result.WriteString("## Agent Instructions\n\n")
-	result.WriteString(fmt.Sprintf("After addressing the comments above, mark each as resolved in `%s` by setting `\"resolved\": true` on the comment object. ", commentsJSONPath))
-	result.WriteString("You may also add `\"resolution_note\": \"description\"` and `\"resolution_lines\": [line numbers]` pointing to the new/changed lines in the updated file. ")
-	result.WriteString("When all edits are complete, signal the reviewer by running:\n\n")
-	result.WriteString("```bash\ncrit go $PORT\n```\n")
 
 	return result.String()
 }
