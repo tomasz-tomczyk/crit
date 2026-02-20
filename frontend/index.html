@@ -1286,6 +1286,26 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     overflow-wrap: anywhere;
   }
 }
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.3s, transform 0.3s;
+  z-index: 1000;
+  pointer-events: none;
+}
+.toast-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
 </style>
 </head>
 <body>
@@ -1544,6 +1564,8 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
           }
         }
       } catch (_) {}
+
+      restoreDraft();
     } catch (err) {
       document.getElementById('document').innerHTML =
         `<div class="loading" style="color:var(--red)">Error loading document: ${err.message}</div>`;
@@ -2372,6 +2394,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         cancelComment();
       }
     });
+    textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value); });
 
     const actions = document.createElement('div');
     actions.className = 'comment-form-actions';
@@ -2406,6 +2429,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 
   async function submitComment(body) {
     if (!body.trim()) return;
+    clearDraft();
 
     try {
       if (activeForm.editingId) {
@@ -2442,10 +2466,111 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   }
 
   function cancelComment() {
+    clearDraft();
     activeForm = null;
     selectionStart = null;
     selectionEnd = null;
     renderDocument();
+  }
+
+  // ===== Draft Autosave =====
+  let draftTimer = null;
+
+  function getDraftKey() {
+    return 'crit-draft-' + fileName;
+  }
+
+  function saveDraft(body) {
+    if (!activeForm) return;
+    try {
+      localStorage.setItem(getDraftKey(), JSON.stringify({
+        startLine: activeForm.startLine,
+        endLine: activeForm.endLine,
+        afterBlockIndex: activeForm.afterBlockIndex,
+        editingId: activeForm.editingId,
+        body: body,
+        savedAt: Date.now()
+      }));
+    } catch (_) {}
+  }
+
+  function debouncedSaveDraft(body) {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(function() { saveDraft(body); }, 500);
+  }
+
+  function clearDraft() {
+    clearTimeout(draftTimer);
+    try { localStorage.removeItem(getDraftKey()); } catch (_) {}
+  }
+
+  window.addEventListener('beforeunload', function() {
+    if (!activeForm) return;
+    const ta = document.querySelector('.comment-form textarea, .comment-form-wrapper textarea');
+    if (ta) saveDraft(ta.value);
+  });
+
+  function restoreDraft() {
+    try {
+      var raw = localStorage.getItem(getDraftKey());
+      if (!raw) return;
+      var draft = JSON.parse(raw);
+
+      // Discard drafts older than 24 hours
+      if (Date.now() - draft.savedAt > 24 * 60 * 60 * 1000) {
+        localStorage.removeItem(getDraftKey());
+        return;
+      }
+
+      // Verify line range exists in current document
+      var totalLines = rawContent.split('\n').length;
+      if (draft.startLine < 1 || draft.endLine > totalLines) {
+        localStorage.removeItem(getDraftKey());
+        return;
+      }
+
+      // If editing, verify comment still exists
+      if (draft.editingId) {
+        if (!comments.find(function(c) { return c.id === draft.editingId; })) {
+          localStorage.removeItem(getDraftKey());
+          return;
+        }
+      }
+
+      // Restore activeForm and re-render
+      activeForm = {
+        afterBlockIndex: draft.afterBlockIndex,
+        startLine: draft.startLine,
+        endLine: draft.endLine,
+        editingId: draft.editingId
+      };
+      selectionStart = draft.startLine;
+      selectionEnd = draft.endLine;
+      renderDocument();
+
+      // Populate textarea with saved body
+      requestAnimationFrame(function() {
+        var ta = document.querySelector('.comment-form textarea, .comment-form-wrapper textarea');
+        if (ta && draft.body) {
+          ta.value = draft.body;
+          ta.focus();
+        }
+      });
+
+      showToast('Draft restored');
+    } catch (_) {}
+  }
+
+  function showToast(message) {
+    var toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    requestAnimationFrame(function() { toast.classList.add('toast-visible'); });
+    setTimeout(function() {
+      toast.classList.remove('toast-visible');
+      setTimeout(function() { toast.remove(); }, 300);
+    }, 3000);
   }
 
   function insertSuggestion(textarea) {
@@ -2549,6 +2674,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         cancelComment();
       }
     });
+    textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value); });
 
     const actions = document.createElement('div');
     actions.className = 'comment-form-actions';
