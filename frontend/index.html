@@ -918,6 +918,12 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.waiting-edits {
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin-top: 8px;
+}
+
 .waiting-prompt {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -1207,6 +1213,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     <div class="waiting-spinner"></div>
     <h3>Review Complete</h3>
     <p id="waitingMessage"></p>
+    <p class="waiting-edits" id="waitingEdits"></p>
     <div class="waiting-prompt" id="waitingPrompt"></div>
     <p style="font-size: 12px; color: var(--fg-muted); margin-top: 8px;" id="waitingClipboard"></p>
     <button class="btn btn-sm" id="backToEditing" style="margin-top: 16px;">Back to editing</button>
@@ -2400,12 +2407,14 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         finishBtn.textContent = 'Finish Review';
         finishBtn.disabled = false;
         finishBtn.classList.add('btn-primary');
+        document.getElementById('waitingEdits').textContent = '';
         waitingOverlay.classList.remove('active');
         break;
       case 'waiting':
         finishBtn.textContent = 'Waiting...';
         finishBtn.disabled = true;
         finishBtn.classList.remove('btn-primary');
+        document.getElementById('waitingEdits').textContent = '';
         waitingOverlay.classList.add('active');
         break;
     }
@@ -2607,6 +2616,19 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         setUIState('reviewing');
       } catch (err) {
         console.error('Error handling file-changed event:', err);
+      }
+    });
+
+    source.addEventListener('edit-detected', function(e) {
+      try {
+        const data = JSON.parse(e.data);
+        const count = parseInt(data.content, 10);
+        const el = document.getElementById('waitingEdits');
+        if (el && uiState === 'waiting') {
+          el.textContent = 'Your agent made ' + count + ' edit' + (count === 1 ? '' : 's');
+        }
+      } catch (err) {
+        console.error('Error handling edit-detected:', err);
       }
     });
 
