@@ -423,6 +423,13 @@ html[data-theme="dark"]  .theme-pill-btn[data-for-theme="dark"] { color: var(--a
   background: var(--accent-subtle);
 }
 
+.line-block.focused {
+  border-left-color: var(--accent);
+}
+.line-block.focused .line-gutter {
+  background: var(--accent-subtle);
+}
+
 /* ===== Gutter ===== */
 .line-gutter {
   position: relative;
@@ -1003,6 +1010,60 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   100% { color: var(--fg-dimmed); }
 }
 
+/* ===== Keyboard Shortcuts Help Overlay ===== */
+.shortcuts-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 400;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.shortcuts-overlay.active { display: flex; }
+.shortcuts-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px 32px;
+  max-width: 480px;
+  width: 90vw;
+  box-shadow: var(--shadow);
+}
+.shortcuts-dialog h3 {
+  color: var(--fg-primary);
+  margin-bottom: 16px;
+  font-size: 16px;
+}
+.shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.shortcuts-table td {
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--fg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.shortcuts-table tr:last-child td { border-bottom: none; }
+.shortcuts-table kbd {
+  display: inline-block;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-primary);
+  min-width: 24px;
+  text-align: center;
+}
+.shortcuts-table td:first-child {
+  width: 120px;
+  white-space: nowrap;
+}
+
 /* ===== Loading State ===== */
 .loading {
   display: flex;
@@ -1327,6 +1388,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       <button class="btn btn-sm" id="diffModeSplit" title="Split view">Split</button>
       <button class="btn btn-sm" id="diffModeUnified" title="Unified view">Unified</button>
     </div>
+    <button class="theme-toggle" id="shortcutsToggle" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
     <button class="theme-toggle" id="tocToggle" title="Table of contents" aria-label="Table of contents">&#9776;</button>
     <div class="theme-pill" role="group" aria-label="Theme">
       <div class="theme-pill-indicator"></div>
@@ -1374,6 +1436,23 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   </div>
 </div>
 
+<div class="shortcuts-overlay" id="shortcutsOverlay">
+  <div class="shortcuts-dialog">
+    <h3>Keyboard Shortcuts</h3>
+    <table class="shortcuts-table">
+      <tr><td><kbd>j</kbd></td><td>Next block</td></tr>
+      <tr><td><kbd>k</kbd></td><td>Previous block</td></tr>
+      <tr><td><kbd>c</kbd></td><td>Comment on focused block</td></tr>
+      <tr><td><kbd>e</kbd></td><td>Edit comment on focused block</td></tr>
+      <tr><td><kbd>d</kbd></td><td>Delete comment on focused block</td></tr>
+      <tr><td><kbd>f</kbd></td><td>Finish review</td></tr>
+      <tr><td><kbd>t</kbd></td><td>Toggle table of contents</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Cancel / clear focus</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Submit comment</td></tr>
+      <tr><td><kbd>?</kbd></td><td>Toggle this help</td></tr>
+    </table>
+  </div>
+</div>
 
 <script src="markdown-it.min.js"></script>
 <script src="highlight.min.js"></script>
@@ -1418,6 +1497,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   let diffEntries = []; // cached from /api/diff
   let diffActive = false; // true when diff view is shown
   let diffMode = 'split'; // 'split' | 'unified'
+  let focusedBlockIndex = null; // index into lineBlocks for keyboard nav
 
   // ===== Mermaid =====
   let mermaidCounter = 0;
@@ -2134,6 +2214,11 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         if (block.startLine >= selectionStart && block.endLine <= selectionEnd) {
           lineBlockEl.classList.add('selected');
         }
+      }
+
+      // Keyboard focus
+      if (focusedBlockIndex === bi) {
+        lineBlockEl.classList.add('focused');
       }
 
       // Gutter
@@ -2956,6 +3041,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         activeForm = null;
         selectionStart = null;
         selectionEnd = null;
+        focusedBlockIndex = null;
         parseAndRender();
         updateCommentCount();
 
@@ -3237,6 +3323,159 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       setDiffMode(window.innerWidth < 1200 ? 'unified' : 'split');
     }
   })();
+
+  // ===== Keyboard Shortcuts =====
+  function toggleShortcutsOverlay() {
+    document.getElementById('shortcutsOverlay').classList.toggle('active');
+  }
+
+  document.getElementById('shortcutsToggle').addEventListener('click', toggleShortcutsOverlay);
+  document.getElementById('shortcutsOverlay').addEventListener('click', function(e) {
+    if (e.target === this) toggleShortcutsOverlay();
+  });
+
+  function getCommentsForFocusedBlock() {
+    if (focusedBlockIndex === null || focusedBlockIndex >= lineBlocks.length) return [];
+    const block = lineBlocks[focusedBlockIndex];
+    return comments.filter(function(c) {
+      return c.end_line >= block.startLine && c.end_line <= block.endLine;
+    });
+  }
+
+  function scrollFocusedBlockIntoView() {
+    const el = document.querySelector('.line-block.focused');
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  document.addEventListener('keydown', function(e) {
+    // Don't fire shortcuts when typing in inputs
+    const tag = document.activeElement.tagName;
+    if (tag === 'TEXTAREA' || tag === 'INPUT' || document.activeElement.isContentEditable) {
+      // But still handle Escape to cancel comment form
+      if (e.key === 'Escape') {
+        if (activeForm) {
+          e.preventDefault();
+          cancelComment();
+        }
+      }
+      return;
+    }
+
+    // Handle shortcuts overlay dismiss
+    if (document.getElementById('shortcutsOverlay').classList.contains('active')) {
+      if (e.key === 'Escape' || e.key === '?') {
+        e.preventDefault();
+        toggleShortcutsOverlay();
+      }
+      return;
+    }
+
+    switch (e.key) {
+      case 'j': {
+        e.preventDefault();
+        if (lineBlocks.length === 0) return;
+        if (focusedBlockIndex === null) {
+          focusedBlockIndex = 0;
+        } else if (focusedBlockIndex < lineBlocks.length - 1) {
+          focusedBlockIndex++;
+        }
+        renderDocument();
+        scrollFocusedBlockIntoView();
+        break;
+      }
+      case 'k': {
+        e.preventDefault();
+        if (lineBlocks.length === 0) return;
+        if (focusedBlockIndex === null) {
+          focusedBlockIndex = 0;
+        } else if (focusedBlockIndex > 0) {
+          focusedBlockIndex--;
+        }
+        renderDocument();
+        scrollFocusedBlockIntoView();
+        break;
+      }
+      case 'c': {
+        e.preventDefault();
+        if (focusedBlockIndex === null) return;
+        const block = lineBlocks[focusedBlockIndex];
+        selectionStart = block.startLine;
+        selectionEnd = block.endLine;
+        activeForm = {
+          afterBlockIndex: focusedBlockIndex,
+          startLine: block.startLine,
+          endLine: block.endLine,
+          editingId: null
+        };
+        renderDocument();
+        focusCommentTextarea();
+        break;
+      }
+      case 'e': {
+        e.preventDefault();
+        const eComments = getCommentsForFocusedBlock();
+        if (eComments.length === 0) return;
+        editComment(eComments[0]);
+        break;
+      }
+      case 'd': {
+        e.preventDefault();
+        const dComments = getCommentsForFocusedBlock();
+        if (dComments.length === 0) return;
+        // Show inline delete confirmation on the focused block
+        const focusedEl = document.querySelector('.line-block.focused');
+        if (!focusedEl || focusedEl.querySelector('.delete-confirm')) return;
+        const confirm = document.createElement('div');
+        confirm.className = 'delete-confirm';
+        confirm.style.cssText = 'position:absolute;top:0;right:8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px;color:var(--fg-secondary);z-index:10;display:flex;align-items:center;gap:6px;';
+        confirm.innerHTML = 'Delete? <kbd style="background:var(--bg-hover);border:1px solid var(--border);border-radius:3px;padding:0 4px;font-family:var(--font-mono);font-size:11px;cursor:pointer;">y</kbd> <kbd style="background:var(--bg-hover);border:1px solid var(--border);border-radius:3px;padding:0 4px;font-family:var(--font-mono);font-size:11px;cursor:pointer;">n</kbd>';
+        focusedEl.appendChild(confirm);
+        function handleDeleteConfirm(ev) {
+          if (ev.key === 'y') {
+            ev.preventDefault();
+            deleteComment(dComments[0].id);
+          }
+          if (ev.key === 'y' || ev.key === 'n' || ev.key === 'Escape') {
+            ev.preventDefault();
+            confirm.remove();
+            document.removeEventListener('keydown', handleDeleteConfirm, true);
+          }
+        }
+        document.addEventListener('keydown', handleDeleteConfirm, true);
+        break;
+      }
+      case 'f': {
+        e.preventDefault();
+        if (uiState !== 'reviewing') return;
+        document.getElementById('finishBtn').click();
+        break;
+      }
+      case 't': {
+        e.preventDefault();
+        document.getElementById('tocToggle').click();
+        break;
+      }
+      case '?': {
+        e.preventDefault();
+        toggleShortcutsOverlay();
+        break;
+      }
+      case 'Escape': {
+        e.preventDefault();
+        if (activeForm) {
+          cancelComment();
+        } else if (selectionStart !== null) {
+          selectionStart = null;
+          selectionEnd = null;
+          renderDocument();
+        } else if (focusedBlockIndex !== null) {
+          focusedBlockIndex = null;
+          renderDocument();
+        }
+        break;
+      }
+    }
+  });
 
   // ===== Start =====
   init();
