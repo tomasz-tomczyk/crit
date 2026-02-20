@@ -105,7 +105,7 @@ func main() {
 		*shareURL = "https://crit.live"
 	}
 
-	srv := NewServer(doc, frontendFS, *shareURL, version)
+	srv := NewServer(doc, frontendFS, *shareURL, version, addr.Port)
 	if os.Getenv("CRIT_NO_UPDATE_CHECK") == "" {
 		go srv.checkForUpdates()
 	}
@@ -149,7 +149,11 @@ func main() {
 
 	reviewPath := doc.reviewFilePath()
 	if len(doc.GetComments()) > 0 {
-		prompt := fmt.Sprintf("I've left review comments in %s — please address each comment and update the plan accordingly.", reviewPath)
+		prompt := fmt.Sprintf(
+			"I've left review comments in %s — please address each comment and update the plan accordingly. "+
+				"Mark each resolved comment in %s by setting \"resolved\": true (optionally add \"resolution_note\" and \"resolution_lines\" pointing to relevant lines in the updated file). "+
+				"When done, run: crit go %d",
+			reviewPath, doc.commentsFilePath(), addr.Port)
 		fmt.Println()
 		fmt.Println(prompt)
 		fmt.Println()

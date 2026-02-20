@@ -75,6 +75,9 @@ golangci-lint run ./...           # Lint (should be clean)
 - `GET  /api/config` — returns `{share_url, hosted_url, delete_token}` for the Share button
 - `POST /api/share-url` — persist `{url, delete_token}` to `.comments.json` after upload
 - `DELETE /api/share-url` — unpublish: calls crit-web DELETE and clears local persisted URL
+- `POST /api/round-complete` — agent signals all edits are done; triggers new round in the browser
+- `GET  /api/previous-round` — returns previous round's content and comments for diff rendering
+- `GET  /api/diff` — returns line-level diff between previous and current round content
 - `GET  /files/<path>` — serve files from document directory (path traversal protected)
 
 ## Security
@@ -122,6 +125,13 @@ When `--share-url` (or `CRIT_SHARE_URL`) is set:
 - A share-notice banner shows the URL with Copy / Unpublish actions.
 - Unpublish calls `DELETE {share_url}/api/reviews?delete_token=...` then clears local state.
 - Share URL and delete token survive file-hash changes (loaded unconditionally from `.comments.json`).
+
+## Multi-Round Review
+
+When the agent runs `crit go <PORT>` (or calls `POST /api/round-complete`), the browser transitions to a new review round:
+- A side-by-side diff panel (toggle in header) shows what changed since the previous round
+- Previous comments marked as `resolved: true` in `.comments.json` appear as collapsed green cards at their `resolution_lines` positions
+- The waiting modal shows a live count of file edits while the agent is working
 
 ## Releasing
 

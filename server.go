@@ -20,10 +20,11 @@ type Server struct {
 	currentVersion string
 	latestVersion  string
 	versionMu      sync.RWMutex
+	port           int
 }
 
-func NewServer(doc *Document, frontendFS embed.FS, shareURL string, currentVersion string) *Server {
-	s := &Server{doc: doc, shareURL: shareURL, currentVersion: currentVersion}
+func NewServer(doc *Document, frontendFS embed.FS, shareURL string, currentVersion string, port int) *Server {
+	s := &Server{doc: doc, shareURL: shareURL, currentVersion: currentVersion, port: port}
 
 	assets, _ := fs.Sub(frontendFS, "frontend")
 	s.assets = assets
@@ -275,7 +276,11 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	reviewFile := s.doc.reviewFilePath()
 	prompt := ""
 	if len(s.doc.GetComments()) > 0 {
-		prompt = fmt.Sprintf("I've left review comments in %s — please address each comment and update the plan accordingly.", reviewFile)
+		prompt = fmt.Sprintf(
+			"I've left review comments in %s — please address each comment and update the plan accordingly. "+
+				"Mark each resolved comment in %s by setting \"resolved\": true (optionally add \"resolution_note\" and \"resolution_lines\" pointing to relevant lines in the updated file). "+
+				"When done, run: crit go %d",
+			reviewFile, s.doc.commentsFilePath(), s.port)
 	}
 
 	writeJSON(w, map[string]string{
