@@ -4,6 +4,10 @@ A lightweight CLI tool for reviewing markdown plans with GitHub PR-style inline 
 
 You write a plan in markdown. You run `crit` against it. You leave inline comments — single-line or multi-line ranges, just like a GitHub PR review. The tool writes a `.review.md` file in real-time with your comments interleaved, ready to hand back to your AI agent.
 
+## Demo
+
+[![Crit demo](https://github.com/user-attachments/assets/dec9c069-9a99-4254-9b05-6d8db30820ed)](https://www.youtube.com/watch?v=w_Dswm2Ft-o)
+
 ## Install
 
 ### Homebrew (macOS / Linux)
@@ -35,10 +39,10 @@ crit -o /tmp plan.md
 
 ## Environment Variables
 
-| Variable | Description |
-| --- | --- |
-| `CRIT_SHARE_URL` | Base URL of a hosted Crit instance for the Share button (alternative to `--share-url`) |
-| `CRIT_NO_UPDATE_CHECK` | Set to any value to disable the update check on startup |
+| Variable               | Description                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| `CRIT_SHARE_URL`       | Base URL of a hosted Crit instance for the Share button (alternative to `--share-url`) |
+| `CRIT_NO_UPDATE_CHECK` | Set to any value to disable the update check on startup                                |
 
 ## Features
 
