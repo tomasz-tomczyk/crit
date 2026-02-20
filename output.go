@@ -57,7 +57,6 @@ func GenerateReviewMD(content string, comments []Comment) string {
 		}
 	}
 
-
 	return result.String()
 }
 
