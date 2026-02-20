@@ -823,6 +823,47 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   color: var(--fg-dimmed);
 }
 
+/* ===== Resolved Comments ===== */
+.resolved-comment {
+  max-width: 840px;
+  margin: 4px auto 4px 48px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border-left: 3px solid var(--green);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.resolved-comment:hover {
+  background: var(--bg-hover);
+}
+.resolved-comment .resolved-check {
+  color: var(--green);
+  font-weight: 600;
+}
+.resolved-comment .resolved-body {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.resolved-comment .resolved-note {
+  font-style: italic;
+  color: var(--fg-dimmed);
+}
+.resolved-comment.expanded {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.resolved-comment.expanded .resolved-body {
+  white-space: normal;
+  overflow: visible;
+}
+
 /* ===== Comment Input Form ===== */
 .comment-form-wrapper {
   max-width: 840px;
@@ -2007,6 +2048,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     container.innerHTML = '';
 
     const commentsMap = buildCommentsMap();
+    const resolvedMap = buildResolvedMap();
 
     for (let bi = 0; bi < lineBlocks.length; bi++) {
       const block = lineBlocks[bi];
@@ -2071,6 +2113,12 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         container.appendChild(createCommentElement(comment));
       }
 
+      // Render resolved comments from previous round
+      const blockResolved = getResolvedForBlock(block, resolvedMap);
+      for (const rc of blockResolved) {
+        container.appendChild(createResolvedElement(rc));
+      }
+
       // Render comment form if it's after this block
       if (activeForm && !activeForm.editingId && activeForm.afterBlockIndex === bi) {
         container.appendChild(createCommentForm());
@@ -2100,6 +2148,41 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       }
     }
     return result;
+  }
+
+  function buildResolvedMap() {
+    const map = {};
+    for (const c of previousComments) {
+      if (!c.resolved || !c.resolution_lines || c.resolution_lines.length === 0) continue;
+      // Place the resolved comment after the last resolution line
+      const targetLine = Math.max(...c.resolution_lines);
+      if (!map[targetLine]) map[targetLine] = [];
+      map[targetLine].push(c);
+    }
+    return map;
+  }
+
+  function getResolvedForBlock(block, resolvedMap) {
+    const result = [];
+    for (let ln = block.startLine; ln <= block.endLine; ln++) {
+      if (resolvedMap[ln]) {
+        result.push(...resolvedMap[ln]);
+      }
+    }
+    return result;
+  }
+
+  function createResolvedElement(comment) {
+    const el = document.createElement('div');
+    el.className = 'resolved-comment';
+    el.innerHTML =
+      '<span class="resolved-check">\u2713</span>' +
+      '<span class="resolved-body">' + escapeHtml(comment.body) + '</span>' +
+      (comment.resolution_note ? '<span class="resolved-note">' + escapeHtml(comment.resolution_note) + '</span>' : '');
+    el.addEventListener('click', function() {
+      el.classList.toggle('expanded');
+    });
+    return el;
   }
 
   // ===== Gutter Drag Selection (GitHub-style) =====
