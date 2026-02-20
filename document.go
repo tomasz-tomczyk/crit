@@ -53,6 +53,8 @@ type Document struct {
 	deleteToken      string
 	subscribers      map[chan SSEEvent]struct{}
 	subMu            sync.Mutex
+	pendingEdits     int           // number of file changes detected since last round-complete
+	roundComplete    chan struct{} // signaled when agent calls round-complete
 }
 
 func NewDocument(filePath, outputDir string) (*Document, error) {
@@ -65,15 +67,16 @@ func NewDocument(filePath, outputDir string) (*Document, error) {
 	hash := fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 
 	doc := &Document{
-		FilePath:    filePath,
-		FileName:    filepath.Base(filePath),
-		FileDir:     filepath.Dir(filePath),
-		Content:     content,
-		FileHash:    hash,
-		OutputDir:   outputDir,
-		Comments:    []Comment{},
-		nextID:      1,
-		subscribers: make(map[chan SSEEvent]struct{}),
+		FilePath:      filePath,
+		FileName:      filepath.Base(filePath),
+		FileDir:       filepath.Dir(filePath),
+		Content:       content,
+		FileHash:      hash,
+		OutputDir:     outputDir,
+		Comments:      []Comment{},
+		nextID:        1,
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
 	}
 
 	doc.loadComments()
@@ -221,6 +224,32 @@ func (d *Document) SetSharedURLAndToken(url, token string) {
 	d.sharedURL = url
 	d.deleteToken = token
 	d.scheduleWrite()
+}
+
+func (d *Document) IncrementEdits() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.pendingEdits++
+}
+
+func (d *Document) GetPendingEdits() int {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.pendingEdits
+}
+
+func (d *Document) SignalRoundComplete() {
+	d.mu.Lock()
+	d.pendingEdits = 0
+	d.mu.Unlock()
+	select {
+	case d.roundComplete <- struct{}{}:
+	default:
+	}
+}
+
+func (d *Document) RoundCompleteChan() <-chan struct{} {
+	return d.roundComplete
 }
 
 func (d *Document) scheduleWrite() {

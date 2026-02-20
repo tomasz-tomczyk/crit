@@ -32,6 +32,7 @@ func newTestServer(t *testing.T) (*Server, *Document) {
 	mux.HandleFunc("/api/comments/", s.handleCommentByID)
 	mux.HandleFunc("/api/finish", s.handleFinish)
 	mux.HandleFunc("/api/stale", s.handleStale)
+	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
 	mux.HandleFunc("/files/", s.handleFiles)
 	s.mux = mux
 	return s, doc
@@ -533,5 +534,34 @@ func TestPostShareURL_InvalidJSON(t *testing.T) {
 	s.ServeHTTP(w, req)
 	if w.Code != 400 {
 		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestRoundComplete(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	req := httptest.NewRequest("POST", "/api/round-complete", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("status = %q, want ok", resp["status"])
+	}
+}
+
+func TestRoundComplete_MethodNotAllowed(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/round-complete", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
 	}
 }

@@ -37,6 +37,7 @@ func NewServer(doc *Document, frontendFS embed.FS, shareURL string, currentVersi
 	mux.HandleFunc("/api/finish", s.handleFinish)
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/stale", s.handleStale)
+	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
 	mux.HandleFunc("/files/", s.handleFiles)
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 
@@ -139,6 +140,15 @@ func (s *Server) handleStale(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleRoundComplete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.doc.SignalRoundComplete()
+	writeJSON(w, map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleComments(w http.ResponseWriter, r *http.Request) {

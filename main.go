@@ -23,6 +23,27 @@ var frontendFS embed.FS
 var version = "dev"
 
 func main() {
+	// Handle "crit go [port]" subcommand — signals round-complete to a running crit server
+	if len(os.Args) >= 2 && os.Args[1] == "go" {
+		port := "3000" // default
+		if len(os.Args) >= 3 {
+			port = os.Args[2]
+		}
+		resp, err := http.Post("http://localhost:"+port+"/api/round-complete", "application/json", nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: could not reach crit on port %s: %v\n", port, err)
+			os.Exit(1)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			fmt.Println("Round complete — crit will reload.")
+		} else {
+			fmt.Fprintf(os.Stderr, "Unexpected status: %d\n", resp.StatusCode)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	port := flag.Int("port", 0, "Port to listen on (default: random available port)")
 	flag.IntVar(port, "p", 0, "Port to listen on (shorthand)")
 	outputDir := flag.String("output", "", "Output directory for review files (default: same dir as input file)")
