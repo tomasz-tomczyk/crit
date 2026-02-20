@@ -348,6 +348,29 @@ func TestDeleteToken_PersistedAndLoaded(t *testing.T) {
 	}
 }
 
+func TestReloadFile_PreservesPreviousContent(t *testing.T) {
+	doc := newTestDoc(t, "original line 1\noriginal line 2")
+	doc.AddComment(1, 1, "fix this")
+
+	// Modify the file
+	if err := os.WriteFile(doc.FilePath, []byte("modified line 1\nnew line 2\nnew line 3"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.ReloadFile(); err != nil {
+		t.Fatal(err)
+	}
+
+	if doc.PreviousContent != "original line 1\noriginal line 2" {
+		t.Errorf("PreviousContent = %q, want original content", doc.PreviousContent)
+	}
+	if len(doc.PreviousComments) != 1 {
+		t.Errorf("PreviousComments len = %d, want 1", len(doc.PreviousComments))
+	}
+	if doc.PreviousComments[0].Body != "fix this" {
+		t.Errorf("PreviousComments[0].Body = %q, want 'fix this'", doc.PreviousComments[0].Body)
+	}
+}
+
 func TestDeleteToken_PersistsWhenStale(t *testing.T) {
 	doc := newTestDoc(t, "original")
 	doc.AddComment(1, 1, "note")

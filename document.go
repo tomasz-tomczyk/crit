@@ -36,21 +36,23 @@ type SSEEvent struct {
 }
 
 type Document struct {
-	FilePath    string
-	FileName    string
-	FileDir     string
-	Content     string
-	FileHash    string
-	OutputDir   string
-	Comments    []Comment
-	mu          sync.RWMutex
-	nextID      int
-	writeTimer  *time.Timer
-	staleNotice string
-	sharedURL   string
-	deleteToken string
-	subscribers map[chan SSEEvent]struct{}
-	subMu       sync.Mutex
+	FilePath         string
+	FileName         string
+	FileDir          string
+	Content          string
+	FileHash         string
+	OutputDir        string
+	Comments         []Comment
+	PreviousContent  string    // content from the previous round (empty on first round)
+	PreviousComments []Comment // comments from the previous round
+	mu               sync.RWMutex
+	nextID           int
+	writeTimer       *time.Timer
+	staleNotice      string
+	sharedURL        string
+	deleteToken      string
+	subscribers      map[chan SSEEvent]struct{}
+	subMu            sync.Mutex
 }
 
 func NewDocument(filePath, outputDir string) (*Document, error) {
@@ -325,6 +327,11 @@ func (d *Document) ReloadFile() error {
 	}
 
 	d.mu.Lock()
+	// Save previous round state before overwriting
+	d.PreviousContent = d.Content
+	d.PreviousComments = make([]Comment, len(d.Comments))
+	copy(d.PreviousComments, d.Comments)
+
 	d.Content = string(data)
 	d.FileHash = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 	d.Comments = []Comment{}
