@@ -1262,7 +1262,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   <div class="header-right">
     <span class="comment-count" id="commentCount"></span>
     <span class="header-notify" id="headerNotify"></span>
-    <button class="btn btn-sm" id="diffToggle" style="display:none">Show Diff</button>
+    <button class="btn btn-sm" id="diffToggle" style="display:none">Toggle Diff</button>
     <button class="theme-toggle" id="tocToggle" title="Table of contents">&#9776;</button>
     <div class="theme-pill" role="group" aria-label="Theme">
       <div class="theme-pill-indicator"></div>
@@ -2948,16 +2948,13 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     diffActive = active;
     const diffEl = document.getElementById('diffView');
     const docEl = document.getElementById('document');
-    const btn = document.getElementById('diffToggle');
     if (active) {
       renderDiffView();
       diffEl.style.display = '';
       docEl.style.display = 'none';
-      btn.textContent = 'Show Review';
     } else {
       diffEl.style.display = 'none';
       docEl.style.display = '';
-      btn.textContent = 'Show Diff';
     }
   }
 
