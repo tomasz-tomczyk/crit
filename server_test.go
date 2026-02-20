@@ -600,8 +600,9 @@ func TestGetPreviousRound_AfterReload(t *testing.T) {
 	s.ServeHTTP(w, req)
 
 	var resp struct {
-		Content  string    `json:"content"`
-		Comments []Comment `json:"comments"`
+		Content     string    `json:"content"`
+		Comments    []Comment `json:"comments"`
+		ReviewRound int       `json:"review_round"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &resp)
 
@@ -610,6 +611,37 @@ func TestGetPreviousRound_AfterReload(t *testing.T) {
 	}
 	if len(resp.Comments) != 1 || resp.Comments[0].Body != "fix this" {
 		t.Errorf("previous comments = %+v", resp.Comments)
+	}
+	if resp.ReviewRound != 1 {
+		t.Errorf("review_round = %d, want 1 (no round-complete yet)", resp.ReviewRound)
+	}
+}
+
+func TestGetPreviousRound_ReviewRoundIncrementsAfterRoundComplete(t *testing.T) {
+	s, doc := newTestServer(t)
+	doc.AddComment(1, 1, "fix this")
+
+	// Simulate file change + round complete
+	os.WriteFile(doc.FilePath, []byte("modified content"), 0644)
+	doc.ReloadFile()
+	doc.SignalRoundComplete()
+	// Drain the channel so it doesn't block
+	select {
+	case <-doc.RoundCompleteChan():
+	default:
+	}
+
+	req := httptest.NewRequest("GET", "/api/previous-round", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp struct {
+		ReviewRound int `json:"review_round"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp.ReviewRound != 2 {
+		t.Errorf("review_round = %d, want 2 after one round-complete", resp.ReviewRound)
 	}
 }
 

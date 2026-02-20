@@ -58,6 +58,7 @@ type Document struct {
 	subMu            sync.Mutex
 	pendingEdits     int           // number of file changes detected since last round-complete
 	roundComplete    chan struct{} // signaled when agent calls round-complete
+	reviewRound      int           // current review round (1-based)
 }
 
 func NewDocument(filePath, outputDir string) (*Document, error) {
@@ -78,6 +79,7 @@ func NewDocument(filePath, outputDir string) (*Document, error) {
 		OutputDir:     outputDir,
 		Comments:      []Comment{},
 		nextID:        1,
+		reviewRound:   1,
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 	}
@@ -244,6 +246,9 @@ func (d *Document) GetPendingEdits() int {
 func (d *Document) SignalRoundComplete() {
 	d.mu.Lock()
 	d.pendingEdits = 0
+	d.reviewRound++
+	d.Comments = []Comment{}
+	d.nextID = 1
 	d.mu.Unlock()
 	select {
 	case d.roundComplete <- struct{}{}:
@@ -436,6 +441,7 @@ func (d *Document) WatchFile(stop <-chan struct{}) {
 			// Load agent's resolved comments from .comments.json before cleanup
 			d.loadResolvedComments()
 			os.Remove(d.commentsFilePath())
+			os.Remove(d.reviewFilePath())
 
 			// Agent signaled round complete — send the full file-changed event
 			d.mu.RLock()

@@ -1116,73 +1116,49 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   background: var(--accent-subtle);
 }
 
-/* ===== Diff Panel ===== */
-.diff-panel {
-  max-width: 1200px;
-  margin: 16px auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--bg-primary);
-}
-.diff-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 16px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--fg-secondary);
-}
-.diff-content {
+/* ===== Diff View ===== */
+.diff-view {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.5;
+  gap: 0;
+  max-width: 100%;
+  padding: 0 16px;
+}
+.diff-view-side {
+  min-width: 0;
   overflow-x: auto;
-}
-.diff-line {
-  padding: 1px 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.diff-line-num {
-  display: inline-block;
-  width: 3em;
-  text-align: right;
-  margin-right: 8px;
-  color: var(--fg-dimmed);
-  user-select: none;
-}
-.diff-line.added {
-  background: rgba(158, 206, 106, 0.1);
-  color: var(--green);
-}
-.diff-line.removed {
-  background: rgba(247, 118, 142, 0.1);
-  color: var(--red);
-  text-decoration: line-through;
-}
-.diff-line.unchanged {
-  color: var(--fg-muted);
-}
-.diff-side {
   border-right: 1px solid var(--border);
-  overflow-x: auto;
 }
-.diff-side:last-child {
+.diff-view-side:last-child {
   border-right: none;
 }
-.diff-side-header {
-  padding: 6px 12px;
-  font-size: 11px;
+.diff-view-side-label {
+  padding: 8px 12px;
+  font-size: 12px;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: var(--fg-muted);
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
+}
+.diff-view .line-block {
+  grid-template-columns: 32px 1fr;
+}
+.diff-view .line-gutter {
+  min-width: 32px;
+  cursor: default;
+}
+.diff-view .line-gutter .line-add { display: none; }
+.diff-view .line-block.diff-added .line-content {
+  background: rgba(158, 206, 106, 0.12);
+}
+.diff-view .line-block.diff-removed .line-content {
+  background: rgba(247, 118, 142, 0.12);
+  opacity: 0.7;
+}
+.diff-view .line-block.diff-removed .line-content * {
+  text-decoration: line-through;
 }
 
 /* ===== Responsive ===== */
@@ -1193,7 +1169,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 }
 @media (max-width: 600px) {
   .toc, #tocToggle { display: none !important; }
-  #diffToggle, #diffPanel { display: none !important; }
+  #diffToggle, #diffView { display: none !important; }
 }
 @media (max-width: 600px) {
   /* Header: 3-row grid layout
@@ -1278,7 +1254,6 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   <div class="header-left">
     <span class="header-title">Crit</span>
     <span class="header-filename" id="filename"></span>
-    <span class="header-notify" id="headerNotify"></span>
     <span class="header-update" id="headerUpdate" style="display:none">
       <a id="updateLink" href="https://github.com/tomasz-tomczyk/crit/releases/latest" target="_blank" rel="noopener noreferrer"></a>
       <button class="header-update-dismiss" onclick="dismissUpdate()" title="Dismiss">&#x2715;</button>
@@ -1286,7 +1261,8 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   </div>
   <div class="header-right">
     <span class="comment-count" id="commentCount"></span>
-    <button class="btn btn-sm" id="diffToggle" style="display:none">Diff</button>
+    <span class="header-notify" id="headerNotify"></span>
+    <button class="btn btn-sm" id="diffToggle" style="display:none">Show Diff</button>
     <button class="theme-toggle" id="tocToggle" title="Table of contents">&#9776;</button>
     <div class="theme-pill" role="group" aria-label="Theme">
       <div class="theme-pill-indicator"></div>
@@ -1316,13 +1292,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 <div id="staleNotice"></div>
 <div id="shareNotice"></div>
 
-<div id="diffPanel" class="diff-panel" style="display:none">
-  <div class="diff-header">
-    <span>Changes from previous round</span>
-    <button class="btn btn-sm" id="diffClose">Close</button>
-  </div>
-  <div class="diff-content" id="diffContent"></div>
-</div>
+<div id="diffView" class="diff-view" style="display:none"></div>
 
 <div class="document-wrapper" id="document">
   <div class="loading">Loading document...</div>
@@ -1380,7 +1350,9 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   let reviewRound = 1;
   let latestAvailableVersion = '';
   let previousComments = [];
+  let previousRoundContent = ''; // raw markdown from previous round
   let diffEntries = []; // cached from /api/diff
+  let diffActive = false; // true when diff view is shown
 
   // ===== Mermaid =====
   let mermaidCounter = 0;
@@ -1503,6 +1475,27 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 
       parseAndRender();
       updateCommentCount();
+
+      // Restore round state on refresh — if previous round data exists, we're in round 2+
+      try {
+        const [diffResp, prevResp] = await Promise.all([
+          fetch('/api/diff').then(r => r.json()),
+          fetch('/api/previous-round').then(r => r.json()),
+        ]);
+        if (prevResp.content) {
+          diffEntries = diffResp.entries || [];
+          previousComments = prevResp.comments || [];
+          previousRoundContent = prevResp.content || '';
+          reviewRound = prevResp.review_round || 2;
+          updateHeaderRound();
+          if (diffEntries.length && previousRoundContent) {
+            document.getElementById('diffToggle').style.display = '';
+            parseAndRender(); // re-render with resolved comments
+          } else if (previousComments.some(function(c) { return c.resolved; })) {
+            parseAndRender();
+          }
+        }
+      } catch (_) {}
     } catch (err) {
       document.getElementById('document').innerHTML =
         `<div class="loading" style="color:var(--red)">Error loading document: ${err.message}</div>`;
@@ -2787,12 +2780,13 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
           ]);
           diffEntries = diffResp.entries || [];
           previousComments = prevResp.comments || [];
-          if (diffEntries.length) {
+          previousRoundContent = prevResp.content || '';
+          if (diffEntries.length && previousRoundContent) {
             document.getElementById('diffToggle').style.display = '';
-          }
-          // Re-render now that previousComments are available
-          // so resolved comment cards appear at their mapped positions
-          if (previousComments.some(c => c.resolved)) {
+            // Re-render to pick up resolved comments
+            parseAndRender();
+            setDiffActive(false);
+          } else if (previousComments.some(function(c) { return c.resolved; })) {
             parseAndRender();
           }
         } catch (_) {}
@@ -2834,49 +2828,141 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     document.body.appendChild(overlay);
   }
 
-  // ===== Diff Panel =====
-  function renderDiffPanel() {
-    if (!diffEntries.length) return;
+  // ===== Diff View (rendered markdown) =====
+  function buildDiffLineSet(entries, side) {
+    // Build sets of line numbers that are added/removed
+    const added = new Set();
+    const removed = new Set();
+    for (const e of entries) {
+      if (e.type === 'added') added.add(e.new_line);
+      if (e.type === 'removed') removed.add(e.old_line);
+    }
+    return { added: added, removed: removed };
+  }
 
-    const leftHtml = ['<div class="diff-side"><div class="diff-side-header">Previous</div>'];
-    const rightHtml = ['<div class="diff-side"><div class="diff-side-header">Current</div>'];
+  function classifyBlock(block, addedLines, removedLines, side) {
+    // Check if any source line in this block overlaps with changed lines
+    for (let ln = block.startLine; ln <= block.endLine; ln++) {
+      if (side === 'new' && addedLines.has(ln)) return 'diff-added';
+      if (side === 'old' && removedLines.has(ln)) return 'diff-removed';
+    }
+    return '';
+  }
 
-    for (const entry of diffEntries) {
-      const escaped = escapeHtml(entry.text);
-      switch (entry.type) {
-        case 'removed':
-          leftHtml.push('<div class="diff-line removed"><span class="diff-line-num">' + entry.old_line + '</span>' + escaped + '</div>');
-          rightHtml.push('<div class="diff-line">&nbsp;</div>');
-          break;
-        case 'added':
-          leftHtml.push('<div class="diff-line">&nbsp;</div>');
-          rightHtml.push('<div class="diff-line added"><span class="diff-line-num">' + entry.new_line + '</span>' + escaped + '</div>');
-          break;
-        case 'unchanged':
-          leftHtml.push('<div class="diff-line unchanged"><span class="diff-line-num">' + entry.old_line + '</span>' + escaped + '</div>');
-          rightHtml.push('<div class="diff-line unchanged"><span class="diff-line-num">' + entry.new_line + '</span>' + escaped + '</div>');
-          break;
+  function renderDiffSide(content, blocks, diffClass, resolvedMap) {
+    const container = document.createElement('div');
+    for (let bi = 0; bi < blocks.length; bi++) {
+      const block = blocks[bi];
+      const lineBlockEl = document.createElement('div');
+      lineBlockEl.className = 'line-block';
+      if (diffClass) {
+        const cls = diffClass(block);
+        if (cls) lineBlockEl.classList.add(cls);
+      }
+
+      const gutter = document.createElement('div');
+      gutter.className = 'line-gutter';
+      const lineNum = document.createElement('span');
+      lineNum.className = 'line-num';
+      lineNum.textContent = block.startLine;
+      gutter.appendChild(lineNum);
+
+      const contentEl = document.createElement('div');
+      let contentClasses = 'line-content';
+      if (block.isEmpty) contentClasses += ' empty-line';
+      if (block.cssClass) contentClasses += ' ' + block.cssClass;
+      contentEl.className = contentClasses;
+      let html = block.html;
+      html = processTaskLists(html);
+      html = rewriteImageSrcs(html);
+      contentEl.innerHTML = html;
+
+      lineBlockEl.appendChild(gutter);
+      lineBlockEl.appendChild(contentEl);
+      container.appendChild(lineBlockEl);
+
+      // Resolved comments on the right (new) side
+      if (resolvedMap) {
+        const blockResolved = getResolvedForBlock(block, resolvedMap);
+        for (const rc of blockResolved) {
+          container.appendChild(createResolvedElement(rc));
+        }
       }
     }
+    return container;
+  }
 
-    leftHtml.push('</div>');
-    rightHtml.push('</div>');
+  function renderDiffView() {
+    if (!diffEntries.length || !previousRoundContent) return;
 
-    document.getElementById('diffContent').innerHTML = leftHtml.join('') + rightHtml.join('');
+    const diffEl = document.getElementById('diffView');
+    diffEl.innerHTML = '';
+
+    const sets = buildDiffLineSet(diffEntries);
+
+    // Parse and build blocks for previous round
+    const md = window.markdownit({ html: true, typographer: true, linkify: true,
+      highlight: function(str, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          try { return hljs.highlight(str, { language: lang }).value; } catch (_) {}
+        }
+        try { return hljs.highlightAuto(str).value; } catch (_) {}
+        return '';
+      }
+    });
+    const oldTokens = md.parse(previousRoundContent, {});
+    const oldBlocks = buildLineBlocks(oldTokens, md, previousRoundContent);
+
+    // Use the current lineBlocks (already parsed)
+    const newBlocks = lineBlocks;
+
+    const resolvedMap = buildResolvedMap();
+
+    // Left side (previous)
+    const leftSide = document.createElement('div');
+    leftSide.className = 'diff-view-side';
+    const leftLabel = document.createElement('div');
+    leftLabel.className = 'diff-view-side-label';
+    leftLabel.textContent = 'Previous round';
+    leftSide.appendChild(leftLabel);
+    leftSide.appendChild(renderDiffSide(previousRoundContent, oldBlocks, function(block) {
+      return classifyBlock(block, sets.added, sets.removed, 'old');
+    }, null));
+
+    // Right side (current)
+    const rightSide = document.createElement('div');
+    rightSide.className = 'diff-view-side';
+    const rightLabel = document.createElement('div');
+    rightLabel.className = 'diff-view-side-label';
+    rightLabel.textContent = 'Current round';
+    rightSide.appendChild(rightLabel);
+    rightSide.appendChild(renderDiffSide(rawContent, newBlocks, function(block) {
+      return classifyBlock(block, sets.added, sets.removed, 'new');
+    }, resolvedMap));
+
+    diffEl.appendChild(leftSide);
+    diffEl.appendChild(rightSide);
+  }
+
+  function setDiffActive(active) {
+    diffActive = active;
+    const diffEl = document.getElementById('diffView');
+    const docEl = document.getElementById('document');
+    const btn = document.getElementById('diffToggle');
+    if (active) {
+      renderDiffView();
+      diffEl.style.display = '';
+      docEl.style.display = 'none';
+      btn.textContent = 'Show Review';
+    } else {
+      diffEl.style.display = 'none';
+      docEl.style.display = '';
+      btn.textContent = 'Show Diff';
+    }
   }
 
   document.getElementById('diffToggle').addEventListener('click', function() {
-    const panel = document.getElementById('diffPanel');
-    if (panel.style.display === 'none') {
-      renderDiffPanel();
-      panel.style.display = '';
-    } else {
-      panel.style.display = 'none';
-    }
-  });
-
-  document.getElementById('diffClose').addEventListener('click', function() {
-    document.getElementById('diffPanel').style.display = 'none';
+    setDiffActive(!diffActive);
   });
 
   // ===== Start =====

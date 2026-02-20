@@ -161,8 +161,9 @@ func (s *Server) handlePreviousRound(w http.ResponseWriter, r *http.Request) {
 	}
 	s.doc.mu.RLock()
 	resp := map[string]interface{}{
-		"content":  s.doc.PreviousContent,
-		"comments": s.doc.PreviousComments,
+		"content":      s.doc.PreviousContent,
+		"comments":     s.doc.PreviousComments,
+		"review_round": s.doc.reviewRound,
 	}
 	s.doc.mu.RUnlock()
 	writeJSON(w, resp)

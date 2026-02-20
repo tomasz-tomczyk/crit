@@ -384,6 +384,41 @@ func TestEditCounting(t *testing.T) {
 	}
 }
 
+func TestSignalRoundComplete_IncrementsRound(t *testing.T) {
+	doc := newTestDoc(t, "original")
+	if doc.reviewRound != 1 {
+		t.Errorf("initial reviewRound = %d, want 1", doc.reviewRound)
+	}
+	doc.SignalRoundComplete()
+	if doc.reviewRound != 2 {
+		t.Errorf("reviewRound after first round-complete = %d, want 2", doc.reviewRound)
+	}
+	doc.SignalRoundComplete()
+	if doc.reviewRound != 3 {
+		t.Errorf("reviewRound after second round-complete = %d, want 3", doc.reviewRound)
+	}
+}
+
+func TestSignalRoundComplete_ClearsComments(t *testing.T) {
+	doc := newTestDoc(t, "line1\nline2")
+	doc.AddComment(1, 1, "fix this")
+	doc.AddComment(2, 2, "and this")
+	if len(doc.GetComments()) != 2 {
+		t.Fatalf("expected 2 comments before round-complete, got %d", len(doc.GetComments()))
+	}
+
+	doc.SignalRoundComplete()
+
+	if len(doc.GetComments()) != 0 {
+		t.Errorf("expected 0 comments after round-complete, got %d", len(doc.GetComments()))
+	}
+	// Verify nextID resets so new comments start at c1
+	c := doc.AddComment(1, 1, "new round comment")
+	if c.ID != "c1" {
+		t.Errorf("new comment ID = %q, want c1 (nextID should reset)", c.ID)
+	}
+}
+
 func TestDeleteToken_PersistsWhenStale(t *testing.T) {
 	doc := newTestDoc(t, "original")
 	doc.AddComment(1, 1, "note")
