@@ -401,3 +401,46 @@ func TestDeleteToken_PersistsWhenStale(t *testing.T) {
 		t.Errorf("delete token after stale reload = %q", doc2.GetDeleteToken())
 	}
 }
+
+func TestLoadComments_WithResolved(t *testing.T) {
+	doc := newTestDoc(t, "line1\nline2")
+	doc.AddComment(1, 1, "fix this")
+
+	// Manually write a comments file with resolved fields
+	cf := CommentsFile{
+		File:     doc.FileName,
+		FileHash: doc.FileHash,
+		Comments: []Comment{
+			{
+				ID:              "c1",
+				StartLine:       1,
+				EndLine:         1,
+				Body:            "fix this",
+				Resolved:        true,
+				ResolutionNote:  "Refactored the function",
+				ResolutionLines: []int{3, 4, 5},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cf, "", "  ")
+	os.WriteFile(doc.commentsFilePath(), data, 0644)
+
+	// Reload document
+	doc2, err := NewDocument(doc.FilePath, doc.OutputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comments := doc2.GetComments()
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if !comments[0].Resolved {
+		t.Error("expected comment to be resolved")
+	}
+	if comments[0].ResolutionNote != "Refactored the function" {
+		t.Errorf("resolution note = %q", comments[0].ResolutionNote)
+	}
+	if len(comments[0].ResolutionLines) != 3 {
+		t.Errorf("resolution lines = %v", comments[0].ResolutionLines)
+	}
+}

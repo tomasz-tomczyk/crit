@@ -12,12 +12,15 @@ import (
 )
 
 type Comment struct {
-	ID        string `json:"id"`
-	StartLine int    `json:"start_line"`
-	EndLine   int    `json:"end_line"`
-	Body      string `json:"body"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID              string `json:"id"`
+	StartLine       int    `json:"start_line"`
+	EndLine         int    `json:"end_line"`
+	Body            string `json:"body"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+	Resolved        bool   `json:"resolved,omitempty"`
+	ResolutionNote  string `json:"resolution_note,omitempty"`
+	ResolutionLines []int  `json:"resolution_lines,omitempty"`
 }
 
 type CommentsFile struct {
