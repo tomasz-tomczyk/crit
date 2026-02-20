@@ -1075,6 +1075,75 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   background: var(--accent-subtle);
 }
 
+/* ===== Diff Panel ===== */
+.diff-panel {
+  max-width: 1200px;
+  margin: 16px auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+.diff-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+}
+.diff-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+.diff-line {
+  padding: 1px 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.diff-line-num {
+  display: inline-block;
+  width: 3em;
+  text-align: right;
+  margin-right: 8px;
+  color: var(--fg-dimmed);
+  user-select: none;
+}
+.diff-line.added {
+  background: rgba(158, 206, 106, 0.1);
+  color: var(--green);
+}
+.diff-line.removed {
+  background: rgba(247, 118, 142, 0.1);
+  color: var(--red);
+  text-decoration: line-through;
+}
+.diff-line.unchanged {
+  color: var(--fg-muted);
+}
+.diff-side {
+  border-right: 1px solid var(--border);
+  overflow-x: auto;
+}
+.diff-side:last-child {
+  border-right: none;
+}
+.diff-side-header {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
   .document-wrapper { padding-left: 8px; padding-right: 8px; }
@@ -1083,6 +1152,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 }
 @media (max-width: 600px) {
   .toc, #tocToggle { display: none !important; }
+  #diffToggle, #diffPanel { display: none !important; }
 }
 @media (max-width: 600px) {
   /* Header: 3-row grid layout
@@ -1175,6 +1245,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   </div>
   <div class="header-right">
     <span class="comment-count" id="commentCount"></span>
+    <button class="btn btn-sm" id="diffToggle" style="display:none">Diff</button>
     <button class="theme-toggle" id="tocToggle" title="Table of contents">&#9776;</button>
     <div class="theme-pill" role="group" aria-label="Theme">
       <div class="theme-pill-indicator"></div>
@@ -1203,6 +1274,14 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 
 <div id="staleNotice"></div>
 <div id="shareNotice"></div>
+
+<div id="diffPanel" class="diff-panel" style="display:none">
+  <div class="diff-header">
+    <span>Changes from previous round</span>
+    <button class="btn btn-sm" id="diffClose">Close</button>
+  </div>
+  <div class="diff-content" id="diffContent"></div>
+</div>
 
 <div class="document-wrapper" id="document">
   <div class="loading">Loading document...</div>
@@ -1259,6 +1338,8 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   let uiState = 'reviewing'; // 'reviewing' | 'waiting'
   let reviewRound = 1;
   let latestAvailableVersion = '';
+  let previousComments = [];
+  let diffEntries = []; // cached from /api/diff
 
   // ===== Mermaid =====
   let mermaidCounter = 0;
@@ -2594,7 +2675,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   function connectSSE() {
     const source = new EventSource('/api/events');
 
-    source.addEventListener('file-changed', function(e) {
+    source.addEventListener('file-changed', async function(e) {
       try {
         const data = JSON.parse(e.data);
         rawContent = data.content;
@@ -2614,6 +2695,19 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         reviewRound++;
         updateHeaderRound();
         setUIState('reviewing');
+
+        // Fetch diff and previous round data
+        try {
+          const [diffResp, prevResp] = await Promise.all([
+            fetch('/api/diff').then(r => r.json()),
+            fetch('/api/previous-round').then(r => r.json()),
+          ]);
+          diffEntries = diffResp.entries || [];
+          previousComments = prevResp.comments || [];
+          if (diffEntries.length) {
+            document.getElementById('diffToggle').style.display = '';
+          }
+        } catch (_) {}
       } catch (err) {
         console.error('Error handling file-changed event:', err);
       }
@@ -2651,6 +2745,51 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     overlay.appendChild(box);
     document.body.appendChild(overlay);
   }
+
+  // ===== Diff Panel =====
+  function renderDiffPanel() {
+    if (!diffEntries.length) return;
+
+    const leftHtml = ['<div class="diff-side"><div class="diff-side-header">Previous</div>'];
+    const rightHtml = ['<div class="diff-side"><div class="diff-side-header">Current</div>'];
+
+    for (const entry of diffEntries) {
+      const escaped = escapeHtml(entry.text);
+      switch (entry.type) {
+        case 'removed':
+          leftHtml.push('<div class="diff-line removed"><span class="diff-line-num">' + entry.old_line + '</span>' + escaped + '</div>');
+          rightHtml.push('<div class="diff-line">&nbsp;</div>');
+          break;
+        case 'added':
+          leftHtml.push('<div class="diff-line">&nbsp;</div>');
+          rightHtml.push('<div class="diff-line added"><span class="diff-line-num">' + entry.new_line + '</span>' + escaped + '</div>');
+          break;
+        case 'unchanged':
+          leftHtml.push('<div class="diff-line unchanged"><span class="diff-line-num">' + entry.old_line + '</span>' + escaped + '</div>');
+          rightHtml.push('<div class="diff-line unchanged"><span class="diff-line-num">' + entry.new_line + '</span>' + escaped + '</div>');
+          break;
+      }
+    }
+
+    leftHtml.push('</div>');
+    rightHtml.push('</div>');
+
+    document.getElementById('diffContent').innerHTML = leftHtml.join('') + rightHtml.join('');
+  }
+
+  document.getElementById('diffToggle').addEventListener('click', function() {
+    const panel = document.getElementById('diffPanel');
+    if (panel.style.display === 'none') {
+      renderDiffPanel();
+      panel.style.display = '';
+    } else {
+      panel.style.display = 'none';
+    }
+  });
+
+  document.getElementById('diffClose').addEventListener('click', function() {
+    document.getElementById('diffPanel').style.display = 'none';
+  });
 
   // ===== Start =====
   init();
