@@ -6,8 +6,16 @@ import (
 	"strings"
 )
 
-func GenerateReviewMD(content string, comments []Comment) string {
-	if len(comments) == 0 {
+func GenerateReviewMD(content string, comments []Comment, commentsJSONPath string) string {
+	// Filter out resolved comments
+	var activeComments []Comment
+	for _, c := range comments {
+		if !c.Resolved {
+			activeComments = append(activeComments, c)
+		}
+	}
+
+	if len(activeComments) == 0 {
 		return content
 	}
 
@@ -17,8 +25,8 @@ func GenerateReviewMD(content string, comments []Comment) string {
 	// Comments are inserted after their end_line.
 	// We need to find the end of the block that contains end_line.
 	// For simplicity, insert after end_line.
-	sorted := make([]Comment, len(comments))
-	copy(sorted, comments)
+	sorted := make([]Comment, len(activeComments))
+	copy(sorted, activeComments)
 	sort.Slice(sorted, func(i, j int) bool {
 		if sorted[i].EndLine == sorted[j].EndLine {
 			return sorted[i].StartLine < sorted[j].StartLine
@@ -48,6 +56,14 @@ func GenerateReviewMD(content string, comments []Comment) string {
 			}
 		}
 	}
+
+	// Agent instructions footer
+	result.WriteString("\n\n---\n\n")
+	result.WriteString("## Agent Instructions\n\n")
+	result.WriteString(fmt.Sprintf("After addressing the comments above, mark each as resolved in `%s` by setting `\"resolved\": true` on the comment object. ", commentsJSONPath))
+	result.WriteString("You may also add `\"resolution_note\": \"description\"` and `\"resolution_lines\": [line numbers]` pointing to the new/changed lines in the updated file. ")
+	result.WriteString("When all edits are complete, signal the reviewer by running:\n\n")
+	result.WriteString("```bash\ncrit go $PORT\n```\n")
 
 	return result.String()
 }

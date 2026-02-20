@@ -7,7 +7,7 @@ import (
 
 func TestGenerateReviewMD_NoComments(t *testing.T) {
 	content := "# Title\n\nSome text"
-	result := GenerateReviewMD(content, nil)
+	result := GenerateReviewMD(content, nil, "")
 	if result != content {
 		t.Errorf("expected original content, got %q", result)
 	}
@@ -18,7 +18,7 @@ func TestGenerateReviewMD_SingleComment(t *testing.T) {
 	comments := []Comment{
 		{ID: "c1", StartLine: 2, EndLine: 2, Body: "Fix this"},
 	}
-	result := GenerateReviewMD(content, comments)
+	result := GenerateReviewMD(content, comments, "")
 
 	if !strings.Contains(result, "line two") {
 		t.Error("missing original content")
@@ -40,7 +40,7 @@ func TestGenerateReviewMD_MultiLineRange(t *testing.T) {
 	comments := []Comment{
 		{ID: "c1", StartLine: 1, EndLine: 3, Body: "Range comment"},
 	}
-	result := GenerateReviewMD(content, comments)
+	result := GenerateReviewMD(content, comments, "")
 
 	if !strings.Contains(result, "Lines 1-3") {
 		t.Errorf("expected multi-line header, got:\n%s", result)
@@ -59,7 +59,7 @@ func TestGenerateReviewMD_MultipleCommentsSameEndLine(t *testing.T) {
 		{ID: "c1", StartLine: 2, EndLine: 2, Body: "First"},
 		{ID: "c2", StartLine: 1, EndLine: 2, Body: "Second"},
 	}
-	result := GenerateReviewMD(content, comments)
+	result := GenerateReviewMD(content, comments, "")
 
 	// Both should appear after line 2; sorted by StartLine so c2 (1-2) before c1 (2-2)
 	idxFirst := strings.Index(result, "Second")
@@ -74,10 +74,44 @@ func TestGenerateReviewMD_MultilineBody(t *testing.T) {
 	comments := []Comment{
 		{ID: "c1", StartLine: 1, EndLine: 1, Body: "line one\nline two"},
 	}
-	result := GenerateReviewMD(content, comments)
+	result := GenerateReviewMD(content, comments, "")
 
 	if !strings.Contains(result, "> line two") {
 		t.Errorf("multiline body should be blockquoted, got:\n%s", result)
+	}
+}
+
+func TestGenerateReviewMD_IncludesJSONReference(t *testing.T) {
+	content := "line one"
+	comments := []Comment{
+		{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix this"},
+	}
+	result := GenerateReviewMD(content, comments, ".test.md.comments.json")
+
+	if !strings.Contains(result, ".test.md.comments.json") {
+		t.Error("review MD should reference the comments JSON file")
+	}
+	if !strings.Contains(result, "resolution_lines") {
+		t.Error("review MD should explain the resolved fields")
+	}
+	if !strings.Contains(result, "crit go") {
+		t.Error("review MD should mention crit go command")
+	}
+}
+
+func TestGenerateReviewMD_SkipsResolvedComments(t *testing.T) {
+	content := "line one\nline two"
+	comments := []Comment{
+		{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix this", Resolved: true},
+		{ID: "c2", StartLine: 2, EndLine: 2, Body: "And this"},
+	}
+	result := GenerateReviewMD(content, comments, "")
+
+	if strings.Contains(result, "Fix this") {
+		t.Error("resolved comment should not appear in review MD")
+	}
+	if !strings.Contains(result, "And this") {
+		t.Error("unresolved comment should appear in review MD")
 	}
 }
 
