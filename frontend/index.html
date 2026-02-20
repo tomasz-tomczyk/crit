@@ -23,7 +23,7 @@
   --fg-primary: #c0caf5;
   --fg-secondary: #a9b1d6;
   --fg-muted: #565f89;
-  --fg-dimmed: #3b4261;
+  --fg-dimmed: #4a5275;
   --accent: #7aa2f7;
   --accent-hover: #89b4fa;
   --accent-subtle: rgba(122, 162, 247, 0.1);
@@ -88,7 +88,7 @@
   --fg-primary: #c0caf5;
   --fg-secondary: #a9b1d6;
   --fg-muted: #565f89;
-  --fg-dimmed: #3b4261;
+  --fg-dimmed: #4a5275;
   --accent: #7aa2f7;
   --accent-hover: #89b4fa;
   --accent-subtle: rgba(122, 162, 247, 0.1);
@@ -259,6 +259,7 @@ body {
   transition: all 0.15s;
 }
 .btn:hover { background: var(--bg-hover); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .btn-primary {
   background: var(--accent);
@@ -330,6 +331,7 @@ html[data-theme="dark"]  .theme-pill-indicator { left: 66.666%; }
   transition: color 0.15s;
 }
 .theme-pill-btn:hover { color: var(--fg-primary); }
+.theme-pill-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-radius: 9999px; }
 html:not([data-theme])  .theme-pill-btn[data-for-theme="system"],
 html[data-theme="light"] .theme-pill-btn[data-for-theme="light"],
 html[data-theme="dark"]  .theme-pill-btn[data-for-theme="dark"] { color: var(--accent); }
@@ -1305,16 +1307,16 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       <button class="btn btn-sm" id="diffModeSplit" title="Split view">Split</button>
       <button class="btn btn-sm" id="diffModeUnified" title="Unified view">Unified</button>
     </div>
-    <button class="theme-toggle" id="tocToggle" title="Table of contents">&#9776;</button>
+    <button class="theme-toggle" id="tocToggle" title="Table of contents" aria-label="Table of contents">&#9776;</button>
     <div class="theme-pill" role="group" aria-label="Theme">
       <div class="theme-pill-indicator"></div>
-      <button class="theme-pill-btn" data-for-theme="system" title="System theme">
+      <button class="theme-pill-btn" data-for-theme="system" title="System theme" role="radio" aria-label="System theme">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v5.5A2.25 2.25 0 0 1 11.75 12h-1.312c.1.128.21.248.328.36a.75.75 0 0 1 .234.545v.345a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-.345a.75.75 0 0 1 .234-.545c.118-.111.228-.232.328-.36H4.25A2.25 2.25 0 0 1 2 9.75v-5.5Zm2.25-.75a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h7.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75h-7.5Z" clip-rule="evenodd"/></svg>
       </button>
-      <button class="theme-pill-btn" data-for-theme="light" title="Light theme">
+      <button class="theme-pill-btn" data-for-theme="light" title="Light theme" role="radio" aria-label="Light theme">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z"/></svg>
       </button>
-      <button class="theme-pill-btn" data-for-theme="dark" title="Dark theme">
+      <button class="theme-pill-btn" data-for-theme="dark" title="Dark theme" role="radio" aria-label="Dark theme">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14.438 10.148c.19-.425-.321-.787-.748-.601A5.5 5.5 0 0 1 6.453 2.31c.186-.427-.176-.938-.6-.748a6.501 6.501 0 1 0 8.585 8.586Z"/></svg>
       </button>
     </div>
@@ -1326,7 +1328,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 <div id="toc" class="toc toc-hidden">
   <div class="toc-header">
     <span>Contents</span>
-    <button class="toc-close" title="Close">&#x2715;</button>
+    <button class="toc-close" title="Close table of contents" aria-label="Close table of contents">&#x2715;</button>
   </div>
   <ul class="toc-list"></ul>
 </div>
@@ -1439,6 +1441,9 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       localStorage.setItem('crit-theme', theme);
       document.documentElement.setAttribute('data-theme', theme);
     }
+    document.querySelectorAll('.theme-pill-btn').forEach(function(btn) {
+      btn.setAttribute('aria-checked', btn.dataset.forTheme === theme ? 'true' : 'false');
+    });
   }
 
   applyTheme(localStorage.getItem('crit-theme') || 'system');
@@ -2233,6 +2238,24 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     const endLine = parseInt(gutter.dataset.endLine);
     const blockEl = gutter.parentElement;
     const blockIndex = parseInt(blockEl.dataset.blockIndex);
+
+    // Shift+click: extend selection from previous anchor
+    if (e.shiftKey && selectionStart !== null) {
+      const rangeStart = Math.min(selectionStart, startLine);
+      const rangeEnd = Math.max(selectionEnd, endLine);
+      let lastBlockIndex = 0;
+      for (let i = 0; i < lineBlocks.length; i++) {
+        if (lineBlocks[i].startLine >= rangeStart && lineBlocks[i].endLine <= rangeEnd) {
+          lastBlockIndex = i;
+        }
+      }
+      activeForm = { afterBlockIndex: lastBlockIndex, startLine: rangeStart, endLine: rangeEnd, editingId: null };
+      selectionStart = rangeStart;
+      selectionEnd = rangeEnd;
+      renderDocument();
+      focusCommentTextarea();
+      return;
+    }
 
     // Start drag
     dragState = {
