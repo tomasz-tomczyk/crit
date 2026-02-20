@@ -21,8 +21,11 @@ test:
 setup-hooks:
 	git config core.hooksPath .githooks
 
+test-diff:
+	./test/test-diff.sh
+
 clean:
 	rm -f crit
 	rm -rf dist
 
-.PHONY: build build-all update-deps test setup-hooks clean
+.PHONY: build build-all update-deps test setup-hooks clean test-diff
