@@ -33,6 +33,7 @@ func newTestServer(t *testing.T) (*Server, *Document) {
 	mux.HandleFunc("/api/finish", s.handleFinish)
 	mux.HandleFunc("/api/stale", s.handleStale)
 	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
+	mux.HandleFunc("/api/previous-round", s.handlePreviousRound)
 	mux.HandleFunc("/files/", s.handleFiles)
 	s.mux = mux
 	return s, doc
@@ -559,6 +560,61 @@ func TestRoundComplete(t *testing.T) {
 func TestRoundComplete_MethodNotAllowed(t *testing.T) {
 	s, _ := newTestServer(t)
 	req := httptest.NewRequest("GET", "/api/round-complete", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestGetPreviousRound_Empty(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	req := httptest.NewRequest("GET", "/api/previous-round", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["content"] != "" {
+		t.Errorf("expected empty content for first round, got %q", resp["content"])
+	}
+}
+
+func TestGetPreviousRound_AfterReload(t *testing.T) {
+	s, doc := newTestServer(t)
+	doc.AddComment(1, 1, "fix this")
+
+	// Simulate file change
+	os.WriteFile(doc.FilePath, []byte("modified content"), 0644)
+	doc.ReloadFile()
+
+	req := httptest.NewRequest("GET", "/api/previous-round", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp struct {
+		Content  string    `json:"content"`
+		Comments []Comment `json:"comments"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp.Content != "line1\nline2\nline3\n" {
+		t.Errorf("previous content = %q", resp.Content)
+	}
+	if len(resp.Comments) != 1 || resp.Comments[0].Body != "fix this" {
+		t.Errorf("previous comments = %+v", resp.Comments)
+	}
+}
+
+func TestGetPreviousRound_MethodNotAllowed(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/previous-round", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	if w.Code != 405 {
