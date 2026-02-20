@@ -34,6 +34,7 @@ func newTestServer(t *testing.T) (*Server, *Document) {
 	mux.HandleFunc("/api/stale", s.handleStale)
 	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
 	mux.HandleFunc("/api/previous-round", s.handlePreviousRound)
+	mux.HandleFunc("/api/diff", s.handleDiff)
 	mux.HandleFunc("/files/", s.handleFiles)
 	s.mux = mux
 	return s, doc
@@ -615,6 +616,78 @@ func TestGetPreviousRound_AfterReload(t *testing.T) {
 func TestGetPreviousRound_MethodNotAllowed(t *testing.T) {
 	s, _ := newTestServer(t)
 	req := httptest.NewRequest("POST", "/api/previous-round", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestGetDiff_NoPreviousRound(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/diff", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp struct {
+		Entries []DiffEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Entries) != 0 {
+		t.Errorf("expected empty diff entries for first round, got %d", len(resp.Entries))
+	}
+}
+
+func TestGetDiff_AfterReload(t *testing.T) {
+	s, doc := newTestServer(t)
+
+	os.WriteFile(doc.FilePath, []byte("modified line 1\nnew line"), 0644)
+	doc.ReloadFile()
+
+	req := httptest.NewRequest("GET", "/api/diff", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp struct {
+		Entries []DiffEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Entries) == 0 {
+		t.Error("expected non-empty diff entries after reload")
+	}
+
+	// Verify diff contains expected types
+	hasAdded := false
+	hasRemoved := false
+	for _, e := range resp.Entries {
+		if e.Type == "added" {
+			hasAdded = true
+		}
+		if e.Type == "removed" {
+			hasRemoved = true
+		}
+	}
+	if !hasAdded {
+		t.Error("expected at least one added entry in diff")
+	}
+	if !hasRemoved {
+		t.Error("expected at least one removed entry in diff")
+	}
+}
+
+func TestGetDiff_MethodNotAllowed(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/diff", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	if w.Code != 405 {
