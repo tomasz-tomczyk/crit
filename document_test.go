@@ -402,6 +402,66 @@ func TestDeleteToken_PersistsWhenStale(t *testing.T) {
 	}
 }
 
+func TestReloadFile_SnapshotsOnlyOnFirstEdit(t *testing.T) {
+	doc := newTestDoc(t, "original")
+	doc.AddComment(1, 1, "fix this")
+
+	// First edit (pendingEdits == 0) — should snapshot
+	if err := os.WriteFile(doc.FilePath, []byte("edit 1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	doc.ReloadFile()
+	doc.IncrementEdits() // simulate WatchFile behavior
+
+	// Second edit (pendingEdits == 1) — should NOT overwrite snapshot
+	if err := os.WriteFile(doc.FilePath, []byte("edit 2"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	doc.ReloadFile()
+
+	if doc.PreviousContent != "original" {
+		t.Errorf("PreviousContent = %q, want 'original' (should not be overwritten by second edit)", doc.PreviousContent)
+	}
+	if len(doc.PreviousComments) != 1 || doc.PreviousComments[0].Body != "fix this" {
+		t.Errorf("PreviousComments should preserve round-start comments, got %+v", doc.PreviousComments)
+	}
+	if doc.Content != "edit 2" {
+		t.Errorf("Content = %q, want 'edit 2'", doc.Content)
+	}
+}
+
+func TestLoadResolvedComments(t *testing.T) {
+	doc := newTestDoc(t, "line1\nline2")
+	doc.AddComment(1, 1, "fix this")
+
+	// Write comments JSON with resolved fields (as agent would)
+	cf := CommentsFile{
+		File:     doc.FileName,
+		FileHash: doc.FileHash,
+		Comments: []Comment{
+			{
+				ID: "c1", StartLine: 1, EndLine: 1, Body: "fix this",
+				Resolved: true, ResolutionNote: "Fixed it",
+				ResolutionLines: []int{3, 4},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cf, "", "  ")
+	os.WriteFile(doc.commentsFilePath(), data, 0644)
+
+	doc.loadResolvedComments()
+
+	if len(doc.PreviousComments) != 1 {
+		t.Fatalf("expected 1 previous comment, got %d", len(doc.PreviousComments))
+	}
+	if !doc.PreviousComments[0].Resolved {
+		t.Error("expected comment to be resolved")
+	}
+	if doc.PreviousComments[0].ResolutionNote != "Fixed it" {
+		t.Errorf("resolution note = %q", doc.PreviousComments[0].ResolutionNote)
+	}
+}
+
 func TestLoadComments_WithResolved(t *testing.T) {
 	doc := newTestDoc(t, "line1\nline2")
 	doc.AddComment(1, 1, "fix this")

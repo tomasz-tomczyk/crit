@@ -2790,6 +2790,11 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
           if (diffEntries.length) {
             document.getElementById('diffToggle').style.display = '';
           }
+          // Re-render now that previousComments are available
+          // so resolved comment cards appear at their mapped positions
+          if (previousComments.some(c => c.resolved)) {
+            parseAndRender();
+          }
         } catch (_) {}
       } catch (err) {
         console.error('Error handling file-changed event:', err);

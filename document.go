@@ -351,7 +351,8 @@ func (d *Document) Shutdown() {
 }
 
 // ReloadFile re-reads the source file and clears in-memory comments.
-// The .review.md file is kept so the agent can still reference it while editing.
+// The .review.md and .comments.json files are kept so the agent can
+// reference and modify them while editing.
 func (d *Document) ReloadFile() error {
 	data, err := os.ReadFile(d.FilePath)
 	if err != nil {
@@ -359,10 +360,14 @@ func (d *Document) ReloadFile() error {
 	}
 
 	d.mu.Lock()
-	// Save previous round state before overwriting
-	d.PreviousContent = d.Content
-	d.PreviousComments = make([]Comment, len(d.Comments))
-	copy(d.PreviousComments, d.Comments)
+	// Only snapshot on the first edit of a round (pendingEdits == 0).
+	// Subsequent edits within the same round keep the original snapshot
+	// so the diff covers all changes since the round started.
+	if d.pendingEdits == 0 {
+		d.PreviousContent = d.Content
+		d.PreviousComments = make([]Comment, len(d.Comments))
+		copy(d.PreviousComments, d.Comments)
+	}
 
 	d.Content = string(data)
 	d.FileHash = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
@@ -371,9 +376,23 @@ func (d *Document) ReloadFile() error {
 	d.staleNotice = ""
 	d.mu.Unlock()
 
-	os.Remove(d.commentsFilePath())
-
 	return nil
+}
+
+// loadResolvedComments reads the .comments.json file to pick up any
+// resolved fields the agent wrote during the editing round.
+func (d *Document) loadResolvedComments() {
+	data, err := os.ReadFile(d.commentsFilePath())
+	if err != nil {
+		return
+	}
+	var cf CommentsFile
+	if err := json.Unmarshal(data, &cf); err != nil {
+		return
+	}
+	d.mu.Lock()
+	d.PreviousComments = cf.Comments
+	d.mu.Unlock()
 }
 
 // WatchFile polls the source file for changes every second.
@@ -414,6 +433,10 @@ func (d *Document) WatchFile(stop <-chan struct{}) {
 				})
 			}
 		case <-d.roundComplete:
+			// Load agent's resolved comments from .comments.json before cleanup
+			d.loadResolvedComments()
+			os.Remove(d.commentsFilePath())
+
 			// Agent signaled round complete — send the full file-changed event
 			d.mu.RLock()
 			event := SSEEvent{
