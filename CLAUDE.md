@@ -159,6 +159,30 @@ Pushing the tag triggers the workflow, which:
 
 The version string lives in `main.go` as `var version = "dev"` and is overridden at build time. There is no version constant to update manually — the tag is the single source of truth.
 
+### Release Notes
+
+After CI creates the release, update it with proper release notes using `gh release edit`. List each change as a bullet point:
+- PRs: link to the PR (e.g., `[#4](https://github.com/tomasz-tomczyk/crit/pull/4)`)
+- Direct commits: link to the commit with short SHA (e.g., `` [`e283708`](https://github.com/tomasz-tomczyk/crit/commit/<full-sha>) ``)
+- Exclude the version bump commit itself
+- End with a Full Changelog compare link
+
+To gather changes: `git log v<prev>..v<new> --oneline --no-merges` and `gh pr list --state merged` to match commits to PRs.
+
+Example:
+
+```bash
+gh release edit v0.x.y --notes "$(cat <<'EOF'
+## What's Changed
+
+- Description of change ([#N](https://github.com/tomasz-tomczyk/crit/pull/N))
+- Description of change ([`abcdef0`](https://github.com/tomasz-tomczyk/crit/commit/<full-sha>))
+
+**Full Changelog**: https://github.com/tomasz-tomczyk/crit/compare/v0.x.y-1...v0.x.y
+EOF
+)"
+```
+
 ## Output Files
 
 | File | Description |
