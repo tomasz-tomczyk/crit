@@ -337,57 +337,107 @@ html[data-theme="light"] .theme-pill-btn[data-for-theme="light"],
 html[data-theme="dark"]  .theme-pill-btn[data-for-theme="dark"] { color: var(--accent); }
 .theme-pill-btn svg { width: 14px; height: 14px; display: block; }
 
-/* ===== Stale Notice ===== */
-.stale-notice {
-  max-width: 840px;
-  margin: 16px auto;
-  padding: 12px 20px;
-  background: rgba(255, 158, 100, 0.1);
-  border: 1px solid var(--orange);
-  border-radius: 8px;
+/* ===== Toast Notifications ===== */
+.toast-container {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(720px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.toast {
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: auto;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255,255,255,0.04);
+  animation: toast-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.toast.toast-out {
+  animation: toast-out 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-8px) scale(0.98); }
+}
+.toast.warning {
+  background: rgba(255, 158, 100, 0.14);
+  border: 1px solid rgba(255, 158, 100, 0.3);
   color: var(--orange);
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
 }
-.stale-notice button {
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.share-notice {
-  max-width: 840px;
-  margin: 16px auto;
-  padding: 12px 20px;
-  border-radius: 8px;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.share-notice.success {
+.toast.success {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   color: var(--fg-secondary);
 }
-.share-notice.error {
-  background: rgba(247, 118, 142, 0.1);
-  border: 1px solid var(--red);
+.toast.error {
+  background: rgba(247, 118, 142, 0.14);
+  border: 1px solid rgba(247, 118, 142, 0.3);
   color: var(--red);
 }
-.share-notice-url {
+.toast-btn {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.toast-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.toast-btn-ghost {
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+}
+.toast-btn-ghost:hover { opacity: 1; background: rgba(255,255,255,0.06); }
+.toast-btn-filled {
+  color: var(--bg-primary);
+}
+.toast.warning .toast-btn-filled {
+  background: var(--orange);
+}
+.toast.warning .toast-btn-filled:hover { filter: brightness(1.1); }
+.toast.success .toast-btn-filled {
+  background: var(--green);
+}
+.toast.success .toast-btn-filled:hover { filter: brightness(1.1); }
+.toast.error .toast-btn-filled {
+  background: var(--red);
+}
+.toast.error .toast-btn-filled:hover { filter: brightness(1.1); }
+.toast-btn-danger {
+  background: transparent;
+  color: var(--red);
+}
+.toast-btn-danger:hover { background: rgba(247, 118, 142, 0.12); }
+.toast-url {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12px;
   word-break: break-all;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.15);
   padding: 2px 8px;
   border-radius: 4px;
   margin-left: 4px;
 }
-.share-notice-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.toast-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
 .btn-success {
   color: var(--green);
@@ -1357,7 +1407,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     overflow-wrap: anywhere;
   }
 }
-.toast {
+.mini-toast {
   position: fixed;
   bottom: 24px;
   left: 50%;
@@ -1373,7 +1423,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   z-index: 1000;
   pointer-events: none;
 }
-.toast-visible {
+.mini-toast-visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
@@ -1425,8 +1475,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   <ul class="toc-list"></ul>
 </div>
 
-<div id="staleNotice"></div>
-<div id="shareNotice"></div>
+<div class="toast-container" id="toastContainer"></div>
 
 <div id="diffView" class="diff-view" style="display:none"></div>
 
@@ -1690,31 +1739,49 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     localStorage.setItem('crit-dismissed-version', latestAvailableVersion);
   };
 
+  // ===== Toast Notifications =====
+  function showToast(id, type, html) {
+    dismissToast(id, true); // remove existing toast with same id instantly
+    const container = document.getElementById('toastContainer');
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.dataset.toastId = id;
+    el.innerHTML = html;
+    container.appendChild(el);
+    return el;
+  }
+
+  window.dismissToast = function(id, instant) {
+    const el = document.querySelector(`.toast[data-toast-id="${id}"]`);
+    if (!el) return;
+    if (instant) { el.remove(); return; }
+    el.classList.add('toast-out');
+    el.addEventListener('animationend', () => el.remove(), { once: true });
+  };
+
   // ===== Stale Notice =====
   function showStaleNotice(msg) {
-    const el = document.getElementById('staleNotice');
-    el.innerHTML = `<div class="stale-notice">
+    const el = showToast('stale', 'warning', `
       <span>${msg}</span>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-sm" onclick="dismissStale()">Keep Comments</button>
-        <button class="btn btn-sm btn-danger" onclick="discardComments()">Discard</button>
+      <div class="toast-actions">
+        <button class="toast-btn toast-btn-filled" onclick="dismissStale()">Keep Comments</button>
+        <button class="toast-btn toast-btn-ghost" onclick="discardComments()">Discard</button>
       </div>
-    </div>`;
+    `);
   }
 
   window.dismissStale = async function() {
     await fetch('/api/stale', { method: 'DELETE' });
-    document.getElementById('staleNotice').innerHTML = '';
+    dismissToast('stale');
   };
 
   window.discardComments = async function() {
-    // Delete all comments
     for (const c of [...comments]) {
       await fetch(`/api/comments/${c.id}`, { method: 'DELETE' });
     }
     comments = [];
     await fetch('/api/stale', { method: 'DELETE' });
-    document.getElementById('staleNotice').innerHTML = '';
+    dismissToast('stale');
     renderDocument();
     updateCommentCount();
   };
@@ -2652,19 +2719,19 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         }
       });
 
-      showToast('Draft restored');
+      showMiniToast('Draft restored');
     } catch (_) {}
   }
 
-  function showToast(message) {
-    var toast = document.createElement('div');
-    toast.className = 'toast';
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    requestAnimationFrame(function() { toast.classList.add('toast-visible'); });
+  function showMiniToast(message) {
+    var t = document.createElement('div');
+    t.className = 'mini-toast';
+    t.textContent = message;
+    document.body.appendChild(t);
+    requestAnimationFrame(function() { t.classList.add('mini-toast-visible'); });
     setTimeout(function() {
-      toast.classList.remove('toast-visible');
-      setTimeout(function() { toast.remove(); }, 300);
+      t.classList.remove('mini-toast-visible');
+      setTimeout(function() { t.remove(); }, 300);
     }, 3000);
   }
 
@@ -2911,25 +2978,24 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 
   // ===== Share =====
   function showSharedNotice(url) {
-    const el = document.getElementById('shareNotice');
     const unpublishBtn = deleteToken
-      ? `<button class="btn btn-sm btn-danger" id="shareUnpublishBtn">Unpublish</button>`
+      ? `<button class="toast-btn toast-btn-danger" id="shareUnpublishBtn">Unpublish</button>`
       : '';
-    el.innerHTML = `<div class="share-notice success">
-      <span>Shared! <span class="share-notice-url">${escapeHtml(url)}</span></span>
-      <div class="share-notice-actions">
-        <button class="btn btn-sm btn-success" id="shareCopyBtn">Copy link</button>
+    const el = showToast('share', 'success', `
+      <span>Shared! <span class="toast-url">${escapeHtml(url)}</span></span>
+      <div class="toast-actions">
+        <button class="toast-btn toast-btn-filled" id="shareCopyBtn">Copy link</button>
         ${unpublishBtn}
-        <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+        <button class="toast-btn toast-btn-ghost" onclick="dismissToast('share')">Dismiss</button>
       </div>
-    </div>`;
-    document.getElementById('shareCopyBtn').addEventListener('click', async function() {
+    `);
+    el.querySelector('#shareCopyBtn').addEventListener('click', async function() {
       await navigator.clipboard.writeText(url).catch(() => {});
-      this.textContent = '✓ Copied';
+      this.textContent = '\u2713 Copied';
       setTimeout(() => { this.textContent = 'Copy link'; }, 2000);
     });
     if (deleteToken) {
-      document.getElementById('shareUnpublishBtn').addEventListener('click', handleUnpublish);
+      el.querySelector('#shareUnpublishBtn').addEventListener('click', handleUnpublish);
     }
   }
 
@@ -2949,37 +3015,33 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         throw new Error('Server error ' + resp.status);
       }
 
-      // Clear local state for both 204 and 404
       hostedURL = '';
       deleteToken = '';
       fetch('/api/share-url', { method: 'DELETE' }).catch(() => {});
 
-      const el = document.getElementById('shareNotice');
       const message = alreadyDeleted ? 'Already deleted.' : 'Review unpublished.';
-      el.innerHTML = `<div class="share-notice success">
+      showToast('share', 'success', `
         <span>${message}</span>
-        <div class="share-notice-actions">
-          <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+        <div class="toast-actions">
+          <button class="toast-btn toast-btn-ghost" onclick="dismissToast('share')">Dismiss</button>
         </div>
-      </div>`;
+      `);
     } catch (err) {
-      const el = document.getElementById('shareNotice');
-      el.innerHTML = `<div class="share-notice error">
+      const el = showToast('share', 'error', `
         <span>Unpublish failed: ${escapeHtml(err.message)}</span>
-        <div class="share-notice-actions">
-          <button class="btn btn-sm" id="shareUnpublishRetryBtn">Retry</button>
-          <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+        <div class="toast-actions">
+          <button class="toast-btn toast-btn-filled" id="shareUnpublishRetryBtn">Retry</button>
+          <button class="toast-btn toast-btn-ghost" onclick="dismissToast('share')">Dismiss</button>
         </div>
-      </div>`;
-      document.getElementById('shareUnpublishRetryBtn').addEventListener('click', () => {
-        document.getElementById('shareNotice').innerHTML = '';
+      `);
+      el.querySelector('#shareUnpublishRetryBtn').addEventListener('click', () => {
+        dismissToast('share');
         handleUnpublish();
       });
     }
   }
 
   document.getElementById('shareBtn').addEventListener('click', async function() {
-    // Already shared — show existing URL instead of re-posting.
     if (hostedURL) {
       showSharedNotice(hostedURL);
       return;
@@ -2988,7 +3050,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     const btn = this;
     btn.textContent = 'Sharing…';
     btn.disabled = true;
-    document.getElementById('shareNotice').innerHTML = '';
+    dismissToast('share');
 
     const payload = {
       content: rawContent,
@@ -3022,16 +3084,15 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         body: JSON.stringify({ url, delete_token: deleteToken }),
       }).catch(() => {});
     } catch (err) {
-      const el = document.getElementById('shareNotice');
-      el.innerHTML = `<div class="share-notice error">
+      const el = showToast('share', 'error', `
         <span>Share failed: ${escapeHtml(err.message)}</span>
-        <div class="share-notice-actions">
-          <button class="btn btn-sm" id="shareRetryBtn">Retry</button>
-          <button class="btn btn-sm" onclick="document.getElementById('shareNotice').innerHTML=''">Dismiss</button>
+        <div class="toast-actions">
+          <button class="toast-btn toast-btn-filled" id="shareRetryBtn">Retry</button>
+          <button class="toast-btn toast-btn-ghost" onclick="dismissToast('share')">Dismiss</button>
         </div>
-      </div>`;
-      document.getElementById('shareRetryBtn').addEventListener('click', () => {
-        document.getElementById('shareNotice').innerHTML = '';
+      `);
+      el.querySelector('#shareRetryBtn').addEventListener('click', () => {
+        dismissToast('share');
         document.getElementById('shareBtn').click();
       });
     } finally {
