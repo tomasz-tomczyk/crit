@@ -110,11 +110,19 @@ The trickiest part is **source line mapping**. The approach:
 
 ## Theme System
 
-The header has a 3-button theme pill (System / Light / Dark) replacing the old single toggle:
+Two theme controls that stay in sync:
+- **Header pill** (System / Light / Dark) — quick toggle for base modes
+- **Footer dropdown** — full theme picker including community themes (Monokai, Dracula, Solarized Dark, Solarized Light, Nord)
+
+How it works:
 - No `data-theme` attribute → system preference via `prefers-color-scheme`
-- `data-theme="light"` / `data-theme="dark"` → explicit override
-- CSS vars are set in `:root` (dark fallback), `@media (prefers-color-scheme: light) html:not([data-theme])`, `[data-theme="dark"]`, and `[data-theme="light"]` blocks.
-- Theme choice persisted to `localStorage` as `crit-theme` (`"system"` | `"light"` | `"dark"`).
+- `data-theme="<name>"` → explicit theme (e.g. `"dark"`, `"monokai"`, `"solarized-light"`)
+- CSS vars defined per theme in `[data-theme="<name>"]` blocks, plus matching highlight.js syntax colors
+- Each community theme is categorized as light or dark — the header pill highlights the matching button
+- Theme choice persisted to `localStorage` as `crit-theme`
+- Mermaid diagrams use `LIGHT_THEMES` array to pick dark/light rendering
+
+See **[THEMES.md](THEMES.md)** for how to contribute a new theme.
 
 ## Share Feature
 
