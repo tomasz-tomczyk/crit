@@ -57,6 +57,8 @@ type Document struct {
 	subscribers      map[chan SSEEvent]struct{}
 	subMu            sync.Mutex
 	pendingEdits     int           // number of file changes detected since last round-complete
+	lastRoundEdits   int           // pendingEdits captured at last round-complete
+	status           *Status       // optional terminal status output
 	roundComplete    chan struct{} // signaled when agent calls round-complete
 	reviewRound      int           // current review round (1-based)
 }
@@ -243,8 +245,21 @@ func (d *Document) GetPendingEdits() int {
 	return d.pendingEdits
 }
 
+func (d *Document) GetLastRoundEdits() int {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.lastRoundEdits
+}
+
+func (d *Document) GetReviewRound() int {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.reviewRound
+}
+
 func (d *Document) SignalRoundComplete() {
 	d.mu.Lock()
+	d.lastRoundEdits = d.pendingEdits
 	d.pendingEdits = 0
 	d.reviewRound++
 	d.Comments = []Comment{}
