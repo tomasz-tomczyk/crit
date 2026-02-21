@@ -116,9 +116,12 @@ func main() {
 		// No WriteTimeout — SSE connections need to stay open
 	}
 
+	status := newStatus(os.Stdout)
+	srv.status = status
+	doc.status = status
+
 	url := fmt.Sprintf("http://localhost:%d", addr.Port)
-	fmt.Printf("Crit serving %s\n", filepath.Base(absPath))
-	fmt.Printf("Open %s in your browser\n", url)
+	status.Listening(url)
 
 	if !*noOpen {
 		go openBrowser(url)

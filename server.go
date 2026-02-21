@@ -21,6 +21,7 @@ type Server struct {
 	latestVersion  string
 	versionMu      sync.RWMutex
 	port           int
+	status         *Status
 }
 
 func NewServer(doc *Document, frontendFS embed.FS, shareURL string, currentVersion string, port int) *Server {
@@ -275,8 +276,9 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	s.doc.WriteFiles()
 
 	reviewFile := s.doc.reviewFilePath()
+	comments := s.doc.GetComments()
 	prompt := ""
-	if len(s.doc.GetComments()) > 0 {
+	if len(comments) > 0 {
 		prompt = fmt.Sprintf(
 			"Address review comments in %s. "+
 				"Mark resolved in %s (set \"resolved\": true, optionally \"resolution_note\" and \"resolution_lines\"). "+
@@ -290,7 +292,13 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		"prompt":      prompt,
 	})
 
-	fmt.Printf("\nReview finished. Waiting for %s to be updated...\n", s.doc.FileName)
+	if s.status != nil {
+		round := s.doc.GetReviewRound()
+		s.status.RoundFinished(round, len(comments), len(comments) > 0)
+		if len(comments) > 0 {
+			s.status.WaitingForAgent()
+		}
+	}
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
