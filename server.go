@@ -24,11 +24,13 @@ type Server struct {
 	status         *Status
 }
 
-func NewServer(doc *Document, frontendFS embed.FS, shareURL string, currentVersion string, port int) *Server {
-	s := &Server{doc: doc, shareURL: shareURL, currentVersion: currentVersion, port: port}
+func NewServer(doc *Document, frontendFS embed.FS, shareURL string, currentVersion string, port int) (*Server, error) {
+	assets, err := fs.Sub(frontendFS, "frontend")
+	if err != nil {
+		return nil, fmt.Errorf("loading frontend assets: %w", err)
+	}
 
-	assets, _ := fs.Sub(frontendFS, "frontend")
-	s.assets = assets
+	s := &Server{doc: doc, assets: assets, shareURL: shareURL, currentVersion: currentVersion, port: port}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/config", s.handleConfig)
@@ -46,7 +48,7 @@ func NewServer(doc *Document, frontendFS embed.FS, shareURL string, currentVersi
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 
 	s.mux = mux
-	return s
+	return s, nil
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +97,7 @@ func (s *Server) checkForUpdates() {
 func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
 		var body struct {
 			URL         string `json:"url"`
 			DeleteToken string `json:"delete_token"`
@@ -107,8 +110,7 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]string{"ok": "true"})
 
 	case http.MethodDelete:
-		s.doc.SetSharedURL("")
-		s.doc.SetDeleteToken("")
+		s.doc.SetSharedURLAndToken("", "")
 		w.WriteHeader(http.StatusNoContent)
 
 	default:
@@ -128,7 +130,7 @@ func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]string{
 		"filename": s.doc.FileName,
-		"content":  s.doc.Content,
+		"content":  s.doc.GetContent(),
 	}
 	writeJSON(w, resp)
 }
@@ -160,14 +162,12 @@ func (s *Server) handlePreviousRound(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	s.doc.mu.RLock()
-	resp := map[string]interface{}{
-		"content":      s.doc.PreviousContent,
-		"comments":     s.doc.PreviousComments,
-		"review_round": s.doc.reviewRound,
-	}
-	s.doc.mu.RUnlock()
-	writeJSON(w, resp)
+	content, comments, round := s.doc.GetPreviousRound()
+	writeJSON(w, map[string]any{
+		"content":      content,
+		"comments":     comments,
+		"review_round": round,
+	})
 }
 
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
@@ -175,10 +175,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	s.doc.mu.RLock()
-	prev := s.doc.PreviousContent
-	curr := s.doc.Content
-	s.doc.mu.RUnlock()
+	prev, curr := s.doc.GetPreviousAndCurrentContent()
 
 	var entries []DiffEntry
 	if prev != "" {
@@ -187,7 +184,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	if entries == nil {
 		entries = []DiffEntry{}
 	}
-	writeJSON(w, map[string]interface{}{
+	writeJSON(w, map[string]any{
 		"entries": entries,
 	})
 }
@@ -349,8 +346,17 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fullPath := filepath.Join(s.doc.FileDir, reqPath)
-	cleanPath, err := filepath.Abs(fullPath)
-	if err != nil || !strings.HasPrefix(cleanPath, s.doc.FileDir+string(filepath.Separator)) {
+	cleanPath, err := filepath.EvalSymlinks(fullPath)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	docDir, err := filepath.EvalSymlinks(s.doc.FileDir)
+	if err != nil {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+	if !strings.HasPrefix(cleanPath, docDir+string(filepath.Separator)) {
 		http.Error(w, "Access denied", http.StatusForbidden)
 		return
 	}
@@ -358,7 +364,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, cleanPath)
 }
 
-func writeJSON(w http.ResponseWriter, v interface{}) {
+func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
 }

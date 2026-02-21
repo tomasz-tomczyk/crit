@@ -36,23 +36,27 @@ func ComputeLineDiff(oldContent, newContent string) []DiffEntry {
 		}
 	}
 
-	// Backtrack to build diff
-	var result []DiffEntry
+	// Backtrack to build diff (collect in reverse, then flip)
+	var reversed []DiffEntry
 	i, j := m, n
 	for i > 0 || j > 0 {
 		if i > 0 && j > 0 && oldLines[i-1] == newLines[j-1] {
-			result = append([]DiffEntry{{Type: "unchanged", OldLine: i, NewLine: j, Text: newLines[j-1]}}, result...)
+			reversed = append(reversed, DiffEntry{Type: "unchanged", OldLine: i, NewLine: j, Text: newLines[j-1]})
 			i--
 			j--
 		} else if j > 0 && (i == 0 || dp[i][j-1] >= dp[i-1][j]) {
-			result = append([]DiffEntry{{Type: "added", NewLine: j, Text: newLines[j-1]}}, result...)
+			reversed = append(reversed, DiffEntry{Type: "added", NewLine: j, Text: newLines[j-1]})
 			j--
 		} else {
-			result = append([]DiffEntry{{Type: "removed", OldLine: i, Text: oldLines[i-1]}}, result...)
+			reversed = append(reversed, DiffEntry{Type: "removed", OldLine: i, Text: oldLines[i-1]})
 			i--
 		}
 	}
-	return result
+	// Reverse to get forward order
+	for left, right := 0, len(reversed)-1; left < right; left, right = left+1, right-1 {
+		reversed[left], reversed[right] = reversed[right], reversed[left]
+	}
+	return reversed
 }
 
 // MapOldLineToNew builds a mapping from old line numbers to new line numbers

@@ -105,7 +105,10 @@ func main() {
 		*shareURL = "https://crit.live"
 	}
 
-	srv := NewServer(doc, frontendFS, *shareURL, version, addr.Port)
+	srv, err := NewServer(doc, frontendFS, *shareURL, version, addr.Port)
+	if err != nil {
+		log.Fatalf("Error creating server: %v", err)
+	}
 	if os.Getenv("CRIT_NO_UPDATE_CHECK") == "" {
 		go srv.checkForUpdates()
 	}

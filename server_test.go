@@ -22,21 +22,10 @@ func newTestServer(t *testing.T) (*Server, *Document) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Create server without embed.FS — directly set up mux
-	s := &Server{doc: doc}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/config", s.handleConfig)
-	mux.HandleFunc("/api/share-url", s.handleShareURL)
-	mux.HandleFunc("/api/document", s.handleDocument)
-	mux.HandleFunc("/api/comments", s.handleComments)
-	mux.HandleFunc("/api/comments/", s.handleCommentByID)
-	mux.HandleFunc("/api/finish", s.handleFinish)
-	mux.HandleFunc("/api/stale", s.handleStale)
-	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
-	mux.HandleFunc("/api/previous-round", s.handlePreviousRound)
-	mux.HandleFunc("/api/diff", s.handleDiff)
-	mux.HandleFunc("/files/", s.handleFiles)
-	s.mux = mux
+	s, err := NewServer(doc, frontendFS, "", "test", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return s, doc
 }
 
@@ -297,6 +286,56 @@ func TestHandleFiles_PathTraversal(t *testing.T) {
 				t.Errorf("path %q should be blocked, got 200", tc.path)
 			}
 		})
+	}
+}
+
+func TestHandleFiles_SymlinkTraversal(t *testing.T) {
+	s, doc := newTestServer(t)
+
+	// Create a file outside the doc directory
+	outsideDir := t.TempDir()
+	secretPath := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(secretPath, []byte("secret data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a symlink inside doc dir pointing outside
+	linkPath := filepath.Join(doc.FileDir, "escape")
+	if err := os.Symlink(outsideDir, linkPath); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/files/escape/secret.txt", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code == 200 {
+		t.Errorf("symlink traversal should be blocked, got 200 with body: %s", w.Body.String())
+	}
+}
+
+func TestHandleFiles_Subdirectory(t *testing.T) {
+	s, doc := newTestServer(t)
+
+	// Create a subdirectory with a file
+	subdir := filepath.Join(doc.FileDir, "images")
+	if err := os.Mkdir(subdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	imgPath := filepath.Join(subdir, "diagram.png")
+	if err := os.WriteFile(imgPath, []byte("fake png"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/files/images/diagram.png", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	if w.Body.String() != "fake png" {
+		t.Errorf("body = %q", w.Body.String())
 	}
 }
 
@@ -578,7 +617,7 @@ func TestGetPreviousRound_Empty(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}

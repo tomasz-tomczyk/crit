@@ -187,6 +187,26 @@ func (d *Document) GetComments() []Comment {
 	return result
 }
 
+func (d *Document) GetContent() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.Content
+}
+
+func (d *Document) GetPreviousAndCurrentContent() (prev, curr string) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.PreviousContent, d.Content
+}
+
+func (d *Document) GetPreviousRound() (string, []Comment, int) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	comments := make([]Comment, len(d.PreviousComments))
+	copy(comments, d.PreviousComments)
+	return d.PreviousContent, comments, d.reviewRound
+}
+
 func (d *Document) GetStaleNotice() string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -502,11 +522,24 @@ func (d *Document) WatchFile(stop <-chan struct{}) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	var lastModTime time.Time
+
 	for {
 		select {
 		case <-stop:
 			return
 		case <-ticker.C:
+			info, err := os.Stat(d.FilePath)
+			if err != nil {
+				continue
+			}
+			modTime := info.ModTime()
+			if modTime.Equal(lastModTime) {
+				continue
+			}
+			lastModTime = modTime
+
+			// Mtime changed — read file and check hash to confirm actual change
 			data, err := os.ReadFile(d.FilePath)
 			if err != nil {
 				continue
@@ -517,20 +550,22 @@ func (d *Document) WatchFile(stop <-chan struct{}) {
 			changed := hash != d.FileHash
 			d.mu.RUnlock()
 
-			if changed {
-				if err := d.ReloadFile(); err != nil {
-					fmt.Fprintf(os.Stderr, "Error reloading file: %v\n", err)
-					continue
-				}
-				d.IncrementEdits()
-
-				// Notify frontend of edit detection (for counter in waiting modal)
-				d.notify(SSEEvent{
-					Type:     "edit-detected",
-					Filename: d.FileName,
-					Content:  fmt.Sprintf("%d", d.GetPendingEdits()),
-				})
+			if !changed {
+				continue
 			}
+
+			if err := d.ReloadFile(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error reloading file: %v\n", err)
+				continue
+			}
+			d.IncrementEdits()
+
+			// Notify frontend of edit detection (for counter in waiting modal)
+			d.notify(SSEEvent{
+				Type:     "edit-detected",
+				Filename: d.FileName,
+				Content:  fmt.Sprintf("%d", d.GetPendingEdits()),
+			})
 		case <-d.roundComplete:
 			// Read captured edit count (set by SignalRoundComplete before reset)
 			d.mu.RLock()
