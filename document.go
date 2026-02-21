@@ -21,6 +21,7 @@ type Comment struct {
 	Resolved        bool   `json:"resolved,omitempty"`
 	ResolutionNote  string `json:"resolution_note,omitempty"`
 	ResolutionLines []int  `json:"resolution_lines,omitempty"`
+	CarriedForward  bool   `json:"carried_forward,omitempty"`
 }
 
 type CommentsFile struct {
@@ -415,6 +416,84 @@ func (d *Document) loadResolvedComments() {
 	d.mu.Unlock()
 }
 
+// carryForwardUnresolved takes unresolved comments from PreviousComments,
+// maps their line numbers to the new document using the diff, and adds them
+// as editable comments in the current round.
+func (d *Document) carryForwardUnresolved() {
+	// Read state under lock, then release for expensive diff computation
+	d.mu.RLock()
+	prevContent := d.PreviousContent
+	currContent := d.Content
+	if prevContent == "" {
+		d.mu.RUnlock()
+		return
+	}
+	var unresolved []Comment
+	for _, c := range d.PreviousComments {
+		if !c.Resolved {
+			unresolved = append(unresolved, c)
+		}
+	}
+	d.mu.RUnlock()
+
+	if len(unresolved) == 0 {
+		return
+	}
+
+	// Compute line mapping without holding the lock (O(m*n) LCS)
+	entries := ComputeLineDiff(prevContent, currContent)
+	lineMap := MapOldLineToNew(entries)
+
+	newLineCount := len(splitLines(currContent))
+	if newLineCount == 0 {
+		newLineCount = 1
+	}
+
+	// Re-acquire write lock to append carried comments
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, c := range unresolved {
+		newStart := lineMap[c.StartLine]
+		newEnd := lineMap[c.EndLine]
+
+		// If mapping failed (line not found), use original positions
+		if newStart == 0 {
+			newStart = c.StartLine
+		}
+		if newEnd == 0 {
+			newEnd = c.EndLine
+		}
+
+		// Clamp to document bounds
+		if newStart > newLineCount {
+			newStart = newLineCount
+		}
+		if newEnd > newLineCount {
+			newEnd = newLineCount
+		}
+		if newStart < 1 {
+			newStart = 1
+		}
+		if newEnd < newStart {
+			newEnd = newStart
+		}
+
+		carried := Comment{
+			ID:             fmt.Sprintf("c%d", d.nextID),
+			StartLine:      newStart,
+			EndLine:        newEnd,
+			Body:           c.Body,
+			CreatedAt:      c.CreatedAt,
+			UpdatedAt:      now,
+			CarriedForward: true,
+		}
+		d.nextID++
+		d.Comments = append(d.Comments, carried)
+	}
+}
+
 // WatchFile polls the source file for changes every second.
 // On change, it reloads the file, increments the edit counter, and sends an
 // "edit-detected" SSE event. The full "file-changed" event is deferred until
@@ -460,6 +539,7 @@ func (d *Document) WatchFile(stop <-chan struct{}) {
 
 			// Load agent's resolved comments from .comments.json before cleanup
 			d.loadResolvedComments()
+			d.carryForwardUnresolved()
 			os.Remove(d.commentsFilePath())
 			os.Remove(d.reviewFilePath())
 

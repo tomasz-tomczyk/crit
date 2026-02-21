@@ -55,6 +55,52 @@ func ComputeLineDiff(oldContent, newContent string) []DiffEntry {
 	return result
 }
 
+// MapOldLineToNew builds a mapping from old line numbers to new line numbers
+// using the diff entries. For unchanged lines it maps directly. For removed
+// lines it maps to the nearest subsequent new line in the new document.
+// Returns a map[int]int where key=old line, value=new line.
+func MapOldLineToNew(entries []DiffEntry) map[int]int {
+	m := make(map[int]int)
+	// First pass: map all unchanged lines directly
+	for _, e := range entries {
+		if e.Type == "unchanged" {
+			m[e.OldLine] = e.NewLine
+		}
+	}
+	// Second pass (reverse): for removed lines, find the next new line after them.
+	// Walking backwards, we track the next new line we'll encounter going forward.
+	nextNewLine := 0
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		if e.NewLine > 0 {
+			nextNewLine = e.NewLine
+		}
+		if e.Type == "removed" {
+			if _, ok := m[e.OldLine]; !ok {
+				m[e.OldLine] = nextNewLine
+			}
+		}
+	}
+	// If nextNewLine is still 0 for some removed lines (all content was removed
+	// with no new lines at all), find the last new line as fallback.
+	if nextNewLine == 0 {
+		lastNewLine := 0
+		for _, e := range entries {
+			if e.NewLine > 0 {
+				lastNewLine = e.NewLine
+			}
+		}
+		if lastNewLine > 0 {
+			for _, e := range entries {
+				if e.Type == "removed" && m[e.OldLine] == 0 {
+					m[e.OldLine] = lastNewLine
+				}
+			}
+		}
+	}
+	return m
+}
+
 // splitLines splits content into lines, returning an empty slice for empty input.
 func splitLines(content string) []string {
 	if content == "" {

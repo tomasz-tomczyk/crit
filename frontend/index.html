@@ -754,6 +754,15 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
   overflow: hidden;
 }
 
+.comment-card.carried-forward {
+  border-color: var(--orange);
+}
+.carried-forward-label {
+  font-size: 11px;
+  color: var(--orange);
+  font-weight: 500;
+}
+
 .comment-header {
   display: flex;
   align-items: center;
@@ -2683,7 +2692,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     wrapper.className = 'comment-block';
 
     const card = document.createElement('div');
-    card.className = 'comment-card';
+    card.className = 'comment-card' + (comment.carried_forward ? ' carried-forward' : '');
 
     const header = document.createElement('div');
     header.className = 'comment-header';
@@ -2703,6 +2712,12 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     headerLeft.style.alignItems = 'center';
     headerLeft.style.gap = '10px';
     headerLeft.appendChild(lineRef);
+    if (comment.carried_forward) {
+      const label = document.createElement('span');
+      label.className = 'carried-forward-label';
+      label.textContent = 'Unresolved';
+      headerLeft.appendChild(label);
+    }
     headerLeft.appendChild(time);
 
     const actions = document.createElement('div');
@@ -3053,23 +3068,29 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         updateHeaderRound();
         setUIState('reviewing');
 
-        // Fetch diff and previous round data
+        // Fetch diff, previous round data, and carried-forward comments
         try {
-          const [diffResp, prevResp] = await Promise.all([
+          const [diffResp, prevResp, commentsResp] = await Promise.all([
             fetch('/api/diff').then(r => r.json()),
             fetch('/api/previous-round').then(r => r.json()),
+            fetch('/api/comments').then(r => r.json()),
           ]);
           diffEntries = diffResp.entries || [];
           previousComments = prevResp.comments || [];
           previousRoundContent = prevResp.content || '';
+
+          // Load carried-forward unresolved comments from previous round
+          if (Array.isArray(commentsResp)) {
+            comments = commentsResp;
+          }
+
           if (diffEntries.length && previousRoundContent) {
             document.getElementById('diffToggle').style.display = '';
-            // Re-render to pick up resolved comments
-            parseAndRender();
-            setDiffActive(false);
-          } else if (previousComments.some(function(c) { return c.resolved; })) {
-            parseAndRender();
           }
+          // Re-render to pick up resolved comments and carried-forward comments
+          parseAndRender();
+          updateCommentCount();
+          setDiffActive(false);
         } catch (_) {}
       } catch (err) {
         console.error('Error handling file-changed event:', err);

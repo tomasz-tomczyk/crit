@@ -107,3 +107,44 @@ func TestComputeLineDiff_CompleteReplacement(t *testing.T) {
 		t.Errorf("addedCount = %d, want 3", addedCount)
 	}
 }
+
+func TestMapOldLineToNew_UnchangedLines(t *testing.T) {
+	entries := ComputeLineDiff("a\nb\nc", "a\nb\nc")
+	m := MapOldLineToNew(entries)
+	for i := 1; i <= 3; i++ {
+		if m[i] != i {
+			t.Errorf("m[%d] = %d, want %d", i, m[i], i)
+		}
+	}
+}
+
+func TestMapOldLineToNew_WithInsertions(t *testing.T) {
+	// Old: a, b, c  →  New: a, x, b, c
+	entries := ComputeLineDiff("a\nb\nc", "a\nx\nb\nc")
+	m := MapOldLineToNew(entries)
+	if m[1] != 1 {
+		t.Errorf("m[1] = %d, want 1", m[1])
+	}
+	if m[2] != 3 {
+		t.Errorf("m[2] = %d, want 3", m[2])
+	}
+	if m[3] != 4 {
+		t.Errorf("m[3] = %d, want 4", m[3])
+	}
+}
+
+func TestMapOldLineToNew_WithRemovals(t *testing.T) {
+	// Old: a, b, c  →  New: a, c
+	entries := ComputeLineDiff("a\nb\nc", "a\nc")
+	m := MapOldLineToNew(entries)
+	if m[1] != 1 {
+		t.Errorf("m[1] = %d, want 1", m[1])
+	}
+	// Line 2 was removed; should map to next surviving new line (2, which is "c")
+	if m[2] != 2 {
+		t.Errorf("m[2] = %d, want 2 (next new line after removed content)", m[2])
+	}
+	if m[3] != 2 {
+		t.Errorf("m[3] = %d, want 2", m[3])
+	}
+}

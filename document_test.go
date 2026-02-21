@@ -560,3 +560,91 @@ func TestLoadComments_WithResolved(t *testing.T) {
 		t.Errorf("resolution lines = %v", comments[0].ResolutionLines)
 	}
 }
+
+func TestCarryForwardUnresolved_Basic(t *testing.T) {
+	doc := newTestDoc(t, "line1\nline2\nline3")
+
+	// Simulate a round: set previous content/comments, update content
+	doc.PreviousContent = "line1\nline2\nline3"
+	doc.PreviousComments = []Comment{
+		{ID: "1", StartLine: 2, EndLine: 2, Body: "Fix this", CreatedAt: "2026-01-01T00:00:00Z"},
+		{ID: "2", StartLine: 3, EndLine: 3, Body: "Resolved one", Resolved: true, ResolutionNote: "Done"},
+	}
+	doc.Content = "line1\nline2\nline3" // same content
+	doc.nextID = 1
+
+	doc.carryForwardUnresolved()
+
+	if len(doc.Comments) != 1 {
+		t.Fatalf("expected 1 carried-forward comment, got %d", len(doc.Comments))
+	}
+	c := doc.Comments[0]
+	if c.ID != "c1" {
+		t.Errorf("ID = %q, want %q (must use c-prefix format)", c.ID, "c1")
+	}
+	if c.Body != "Fix this" {
+		t.Errorf("body = %q, want %q", c.Body, "Fix this")
+	}
+	if c.StartLine != 2 || c.EndLine != 2 {
+		t.Errorf("lines = %d-%d, want 2-2", c.StartLine, c.EndLine)
+	}
+	if c.Resolved {
+		t.Error("carried-forward comment should not be resolved")
+	}
+}
+
+func TestCarryForwardUnresolved_RemappedLines(t *testing.T) {
+	doc := newTestDoc(t, "line1\nnew\nline2\nline3")
+
+	// Old content had comment on line 2, new content inserted a line before it
+	doc.PreviousContent = "line1\nline2\nline3"
+	doc.PreviousComments = []Comment{
+		{ID: "1", StartLine: 2, EndLine: 2, Body: "Check this", CreatedAt: "2026-01-01T00:00:00Z"},
+	}
+	doc.Content = "line1\nnew\nline2\nline3" // "new" inserted at line 2
+	doc.nextID = 1
+
+	doc.carryForwardUnresolved()
+
+	if len(doc.Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(doc.Comments))
+	}
+	c := doc.Comments[0]
+	// "line2" moved from old line 2 to new line 3
+	if c.StartLine != 3 {
+		t.Errorf("StartLine = %d, want 3", c.StartLine)
+	}
+	if c.EndLine != 3 {
+		t.Errorf("EndLine = %d, want 3", c.EndLine)
+	}
+}
+
+func TestCarryForwardUnresolved_NoPreviousContent(t *testing.T) {
+	doc := newTestDoc(t, "line1\nline2")
+	doc.PreviousContent = ""
+	doc.PreviousComments = []Comment{
+		{ID: "1", StartLine: 1, EndLine: 1, Body: "test"},
+	}
+	doc.nextID = 1
+
+	doc.carryForwardUnresolved()
+
+	if len(doc.Comments) != 0 {
+		t.Errorf("expected 0 comments when no previous content, got %d", len(doc.Comments))
+	}
+}
+
+func TestCarryForwardUnresolved_AllResolved(t *testing.T) {
+	doc := newTestDoc(t, "line1\nline2")
+	doc.PreviousContent = "line1\nline2"
+	doc.PreviousComments = []Comment{
+		{ID: "1", StartLine: 1, EndLine: 1, Body: "Done", Resolved: true},
+	}
+	doc.nextID = 1
+
+	doc.carryForwardUnresolved()
+
+	if len(doc.Comments) != 0 {
+		t.Errorf("expected 0 comments when all resolved, got %d", len(doc.Comments))
+	}
+}
