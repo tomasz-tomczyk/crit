@@ -12,7 +12,7 @@ Themes are defined entirely in `frontend/index.html` as CSS. Each theme needs:
 
 ## Step 1: CSS Custom Properties
 
-Add a `[data-theme="your-theme"]` block in `frontend/index.html` after the existing theme blocks (look for the `/* ===== Community Themes ===== */` comment). Every theme must define all 28 variables:
+Add a `[data-theme="your-theme"]` block in `frontend/index.html` after the existing theme blocks (look for the `/* ===== Community Themes ===== */` comment). Define these variables (all required except `--accent-fg`):
 
 ```css
 [data-theme="your-theme"] {
@@ -30,8 +30,9 @@ Add a `[data-theme="your-theme"]` block in `frontend/index.html` after the exist
   --fg-dimmed: ...;        /* Dimmest text (even less emphasis) */
 
   /* Accent */
-  --accent: ...;           /* Primary accent (links, active states, focus rings) */
+  --accent: ...;           /* Primary accent (links, active states, focus rings, primary buttons) */
   --accent-hover: ...;     /* Accent on hover */
+  --accent-fg: ...;        /* Text color ON accent backgrounds (buttons). Optional — defaults to #fff */
   --accent-subtle: ...;    /* Very transparent accent, e.g. rgba(..., 0.1) */
   --accent-bg: ...;        /* Slightly more opaque accent bg, e.g. rgba(..., 0.15) */
 
@@ -60,6 +61,7 @@ Add a `[data-theme="your-theme"]` block in `frontend/index.html` after the exist
 
 **Tips:**
 - `--bg-secondary` should be slightly darker (dark themes) or lighter (light themes) than `--bg-primary`
+- `--accent` is used for the primary button background ("Finish Review", comment submit) — pick a color that's readable as a button. If your accent is light (pastel purple, frost blue), set `--accent-fg` to a dark color from your palette (e.g. `--bg-primary`). If omitted, button text defaults to white.
 - `--accent-subtle` and `--accent-bg` are typically `rgba()` versions of `--accent` at 8-15% opacity
 - `--selection-bg` works best at very low opacity (6-10%) so text stays readable
 - `--shadow` should use higher opacity for dark themes (`0.3`) and lower for light themes (`0.08`)

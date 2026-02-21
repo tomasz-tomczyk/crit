@@ -152,23 +152,23 @@
   --fg-secondary: #cfcfc2;
   --fg-muted: #75715e;
   --fg-dimmed: #5b5a50;
-  --accent: #66d9ef;
-  --accent-hover: #78e2f4;
-  --accent-subtle: rgba(102, 217, 239, 0.1);
-  --accent-bg: rgba(102, 217, 239, 0.15);
+  --accent: #f92672;
+  --accent-hover: #fa4d8a;
+  --accent-subtle: rgba(249, 38, 114, 0.1);
+  --accent-bg: rgba(249, 38, 114, 0.15);
   --green: #a6e22e;
   --red: #f92672;
   --orange: #fd971f;
   --yellow: #e6db74;
   --border: #3e3d32;
-  --border-comment: #66d9ef;
+  --border-comment: #f92672;
   --comment-bg: #2c2d27;
-  --selection-bg: rgba(102, 217, 239, 0.08);
+  --selection-bg: rgba(249, 38, 114, 0.08);
   --shadow: 0 2px 8px rgba(0,0,0,0.3);
   --code-bg: #2c2d27;
-  --table-stripe: rgba(102, 217, 239, 0.04);
-  --blockquote-border: #66d9ef;
-  --blockquote-bg: rgba(102, 217, 239, 0.08);
+  --table-stripe: rgba(249, 38, 114, 0.04);
+  --blockquote-border: #f92672;
+  --blockquote-bg: rgba(249, 38, 114, 0.08);
   --scrollbar-bg: #272822;
   --scrollbar-thumb: #49483e;
 }
@@ -185,6 +185,7 @@
   --fg-dimmed: #505877;
   --accent: #bd93f9;
   --accent-hover: #caa4fb;
+  --accent-fg: #282a36;
   --accent-subtle: rgba(189, 147, 249, 0.1);
   --accent-bg: rgba(189, 147, 249, 0.15);
   --green: #50fa7b;
@@ -278,6 +279,7 @@
   --fg-dimmed: #4c566a;
   --accent: #88c0d0;
   --accent-hover: #8fbcbb;
+  --accent-fg: #2e3440;
   --accent-subtle: rgba(136, 192, 208, 0.1);
   --accent-bg: rgba(136, 192, 208, 0.15);
   --green: #a3be8c;
@@ -419,12 +421,12 @@ body {
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .btn-primary {
-  background: #5b8def;
-  color: #fff;
-  border-color: #5b8def;
+  background: var(--accent);
+  color: var(--accent-fg, #fff);
+  border-color: var(--accent);
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
-.btn-primary:hover { background: #6e9af2; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
 
 .btn-danger {
   color: var(--red);
