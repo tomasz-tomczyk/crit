@@ -497,6 +497,27 @@ func TestLoadResolvedComments(t *testing.T) {
 	}
 }
 
+func TestGetReviewRound(t *testing.T) {
+	doc := newTestDoc(t, "hello")
+	if got := doc.GetReviewRound(); got != 1 {
+		t.Errorf("initial round = %d, want 1", got)
+	}
+}
+
+func TestSignalRoundComplete_PreservesEditCount(t *testing.T) {
+	doc := newTestDoc(t, "hello")
+	doc.IncrementEdits()
+	doc.IncrementEdits()
+	doc.IncrementEdits()
+	doc.SignalRoundComplete()
+	if got := doc.GetLastRoundEdits(); got != 3 {
+		t.Errorf("lastRoundEdits = %d, want 3", got)
+	}
+	if got := doc.GetPendingEdits(); got != 0 {
+		t.Errorf("pendingEdits = %d, want 0 after round complete", got)
+	}
+}
+
 func TestLoadComments_WithResolved(t *testing.T) {
 	doc := newTestDoc(t, "line1\nline2")
 	doc.AddComment(1, 1, "fix this")

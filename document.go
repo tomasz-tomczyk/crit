@@ -57,6 +57,8 @@ type Document struct {
 	subscribers      map[chan SSEEvent]struct{}
 	subMu            sync.Mutex
 	pendingEdits     int           // number of file changes detected since last round-complete
+	lastRoundEdits   int           // pendingEdits captured at last round-complete
+	status           *Status       // optional terminal status output
 	roundComplete    chan struct{} // signaled when agent calls round-complete
 	reviewRound      int           // current review round (1-based)
 }
@@ -243,8 +245,21 @@ func (d *Document) GetPendingEdits() int {
 	return d.pendingEdits
 }
 
+func (d *Document) GetLastRoundEdits() int {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.lastRoundEdits
+}
+
+func (d *Document) GetReviewRound() int {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.reviewRound
+}
+
 func (d *Document) SignalRoundComplete() {
 	d.mu.Lock()
+	d.lastRoundEdits = d.pendingEdits
 	d.pendingEdits = 0
 	d.reviewRound++
 	d.Comments = []Comment{}
@@ -438,19 +453,39 @@ func (d *Document) WatchFile(stop <-chan struct{}) {
 				})
 			}
 		case <-d.roundComplete:
+			// Read captured edit count (set by SignalRoundComplete before reset)
+			d.mu.RLock()
+			edits := d.lastRoundEdits
+			d.mu.RUnlock()
+
 			// Load agent's resolved comments from .comments.json before cleanup
 			d.loadResolvedComments()
 			os.Remove(d.commentsFilePath())
 			os.Remove(d.reviewFilePath())
 
-			// Agent signaled round complete — send the full file-changed event
+			// Count resolved and open comments from previous round
 			d.mu.RLock()
+			resolved, open := 0, 0
+			for _, c := range d.PreviousComments {
+				if c.Resolved {
+					resolved++
+				} else {
+					open++
+				}
+			}
+			round := d.reviewRound
 			event := SSEEvent{
 				Type:     "file-changed",
 				Filename: d.FileName,
 				Content:  d.Content,
 			}
 			d.mu.RUnlock()
+
+			// Terminal status output
+			if d.status != nil {
+				d.status.FileUpdated(edits)
+				d.status.RoundReady(round, resolved, open)
+			}
 
 			d.notify(event)
 		}
