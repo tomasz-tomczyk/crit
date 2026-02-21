@@ -2235,8 +2235,18 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     updateTocActive();
   }
 
+  function getTocContainer() {
+    if (!diffActive) return document.getElementById('document');
+    if (diffMode === 'split') {
+      var sides = document.getElementById('diffView').querySelectorAll('.diff-view-side');
+      return sides.length > 1 ? sides[1] : document.getElementById('diffView');
+    }
+    return document.getElementById('diffView');
+  }
+
   function scrollToLine(line) {
-    const el = document.querySelector('.line-block[data-start-line="' + line + '"]');
+    const container = getTocContainer();
+    const el = container.querySelector('.line-block[data-start-line="' + line + '"]');
     if (!el) return;
     const headerEl = document.querySelector('.header');
     const offset = headerEl ? headerEl.offsetHeight + 8 : 60;
@@ -2248,10 +2258,11 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     if (tocItems.length === 0) return;
     const headerEl = document.querySelector('.header');
     const threshold = (headerEl ? headerEl.offsetHeight : 52) + 10;
+    const container = getTocContainer();
 
     let activeLine = null;
     for (const item of tocItems) {
-      const el = document.querySelector('.line-block[data-start-line="' + item.startLine + '"]');
+      const el = container.querySelector('.line-block[data-start-line="' + item.startLine + '"]');
       if (el && el.getBoundingClientRect().top <= threshold) {
         activeLine = item.startLine;
       }
@@ -3217,6 +3228,8 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 
     const lineBlockEl = document.createElement('div');
     lineBlockEl.className = 'line-block';
+    lineBlockEl.dataset.startLine = block.startLine;
+    lineBlockEl.dataset.endLine = block.endLine;
     if (diffClassFn) {
       const cls = diffClassFn(block);
       if (cls) lineBlockEl.classList.add(cls);
