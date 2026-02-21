@@ -141,7 +141,7 @@ func main() {
 
 	<-ctx.Done()
 	close(watchStop)
-	fmt.Println("\nShutting down...")
+	fmt.Println()
 
 	doc.Shutdown()
 	doc.WriteFiles()
@@ -149,20 +149,6 @@ func main() {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(shutCtx)
-
-	reviewPath := doc.reviewFilePath()
-	if len(doc.GetComments()) > 0 {
-		prompt := fmt.Sprintf(
-			"I've left review comments in %s — please address each comment and update the plan accordingly. "+
-				"Mark each resolved comment in %s by setting \"resolved\": true (optionally add \"resolution_note\" and \"resolution_lines\" pointing to relevant lines in the updated file). "+
-				"When done, run: crit go %d",
-			reviewPath, doc.commentsFilePath(), addr.Port)
-		fmt.Println()
-		fmt.Println(prompt)
-		fmt.Println()
-	} else {
-		fmt.Println("No comments. Goodbye!")
-	}
 }
 
 func openBrowser(url string) {
