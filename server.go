@@ -9,8 +9,15 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+// ReviewResult is sent from handleFinish to awaiting agents.
+type ReviewResult struct {
+	Prompt     string `json:"prompt"`
+	ReviewFile string `json:"review_file"`
+}
 
 type Server struct {
 	doc            *Document
@@ -22,6 +29,8 @@ type Server struct {
 	versionMu      sync.RWMutex
 	port           int
 	status         *Status
+	reviewDone     chan ReviewResult // signals await-review when finish is clicked
+	agentWaiting   atomic.Bool
 }
 
 func NewServer(doc *Document, frontendFS embed.FS, shareURL string, currentVersion string, port int) (*Server, error) {
@@ -30,7 +39,7 @@ func NewServer(doc *Document, frontendFS embed.FS, shareURL string, currentVersi
 		return nil, fmt.Errorf("loading frontend assets: %w", err)
 	}
 
-	s := &Server{doc: doc, assets: assets, shareURL: shareURL, currentVersion: currentVersion, port: port}
+	s := &Server{doc: doc, assets: assets, shareURL: shareURL, currentVersion: currentVersion, port: port, reviewDone: make(chan ReviewResult)}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/config", s.handleConfig)
@@ -39,6 +48,7 @@ func NewServer(doc *Document, frontendFS embed.FS, shareURL string, currentVersi
 	mux.HandleFunc("/api/comments", s.handleComments)
 	mux.HandleFunc("/api/comments/", s.handleCommentByID)
 	mux.HandleFunc("/api/finish", s.handleFinish)
+	mux.HandleFunc("/api/await-review", s.handleAwaitReview)
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/stale", s.handleStale)
 	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
@@ -59,12 +69,13 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	s.versionMu.RLock()
 	latestVersion := s.latestVersion
 	s.versionMu.RUnlock()
-	writeJSON(w, map[string]string{
+	writeJSON(w, map[string]interface{}{
 		"share_url":      s.shareURL,
 		"hosted_url":     s.doc.GetSharedURL(),
 		"delete_token":   s.doc.GetDeleteToken(),
 		"version":        s.currentVersion,
 		"latest_version": latestVersion,
+		"agent_waiting":  s.agentWaiting.Load(),
 	})
 }
 
@@ -279,14 +290,23 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		prompt = fmt.Sprintf(
 			"Address review comments in %s. "+
 				"Mark resolved in %s (set \"resolved\": true, optionally \"resolution_note\" and \"resolution_lines\"). "+
-				"When done run: `crit go %d`",
+				"When done run: `crit go --wait %d`",
 			reviewFile, s.doc.commentsFilePath(), s.port)
 	}
 
-	writeJSON(w, map[string]string{
-		"status":      "finished",
-		"review_file": reviewFile,
-		"prompt":      prompt,
+	// Notify waiting agent (non-blocking)
+	agentNotified := false
+	select {
+	case s.reviewDone <- ReviewResult{Prompt: prompt, ReviewFile: reviewFile}:
+		agentNotified = true
+	default:
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"status":         "finished",
+		"review_file":    reviewFile,
+		"prompt":         prompt,
+		"agent_notified": agentNotified,
 	})
 
 	if s.status != nil {
@@ -295,6 +315,24 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		if len(comments) > 0 {
 			s.status.WaitingForAgent()
 		}
+	}
+}
+
+func (s *Server) handleAwaitReview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.agentWaiting.Store(true)
+	defer s.agentWaiting.Store(false)
+
+	select {
+	case result := <-s.reviewDone:
+		writeJSON(w, result)
+	case <-r.Context().Done():
+		// Client disconnected
+		http.Error(w, "Client disconnected", http.StatusRequestTimeout)
 	}
 }
 

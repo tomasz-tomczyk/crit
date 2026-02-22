@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newTestServer(t *testing.T) (*Server, *Document) {
@@ -211,7 +213,7 @@ func TestFinish(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
-	var resp map[string]string
+	var resp map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +231,7 @@ func TestFinish_NoComments(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
-	var resp map[string]string
+	var resp map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +384,7 @@ func TestGetConfig(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
-	var resp map[string]string
+	var resp map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +448,7 @@ func TestCheckForUpdates(t *testing.T) {
 	req2 := httptest.NewRequest("GET", "/api/config", nil)
 	w2 := httptest.NewRecorder()
 	s.ServeHTTP(w2, req2)
-	var cfg map[string]string
+	var cfg map[string]interface{}
 	if err := json.Unmarshal(w2.Body.Bytes(), &cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +487,7 @@ func TestPostShareURL(t *testing.T) {
 	req2 := httptest.NewRequest("GET", "/api/config", nil)
 	w2 := httptest.NewRecorder()
 	s.ServeHTTP(w2, req2)
-	var resp map[string]string
+	var resp map[string]interface{}
 	if err := json.Unmarshal(w2.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +514,7 @@ func TestGetConfig_IncludesDeleteToken(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
-	var resp map[string]string
+	var resp map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
@@ -763,5 +765,184 @@ func TestGetDiff_MethodNotAllowed(t *testing.T) {
 	s.ServeHTTP(w, req)
 	if w.Code != 405 {
 		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestAwaitReview_ReturnsPromptWhenFinished(t *testing.T) {
+	s, doc := newTestServer(t)
+	doc.AddComment(1, 1, "fix this")
+
+	// Start await-review in background
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := httptest.NewRequest("GET", "/api/await-review", nil)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+		done <- w
+	}()
+
+	// Give goroutine time to connect
+	time.Sleep(50 * time.Millisecond)
+
+	// Finish the review
+	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
+	finishW := httptest.NewRecorder()
+	s.ServeHTTP(finishW, finishReq)
+
+	// Check finish response has agent_notified
+	var finishResp map[string]interface{}
+	json.Unmarshal(finishW.Body.Bytes(), &finishResp)
+	if finishResp["agent_notified"] != true {
+		t.Errorf("expected agent_notified=true, got %v", finishResp["agent_notified"])
+	}
+
+	// Check await-review returns the prompt
+	w := <-done
+	if w.Code != 200 {
+		t.Fatalf("await-review status = %d", w.Code)
+	}
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["prompt"] == "" {
+		t.Error("expected non-empty prompt from await-review")
+	}
+	if resp["review_file"] == "" {
+		t.Error("expected non-empty review_file from await-review")
+	}
+}
+
+func TestAwaitReview_NoComments(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := httptest.NewRequest("GET", "/api/await-review", nil)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+		done <- w
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
+	finishW := httptest.NewRecorder()
+	s.ServeHTTP(finishW, finishReq)
+
+	var finishResp map[string]interface{}
+	json.Unmarshal(finishW.Body.Bytes(), &finishResp)
+	if finishResp["agent_notified"] != true {
+		t.Errorf("expected agent_notified=true even with no comments")
+	}
+
+	w := <-done
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["prompt"] != "" {
+		t.Errorf("expected empty prompt with no comments, got %q", resp["prompt"])
+	}
+}
+
+func TestFinish_NoAgentWaiting(t *testing.T) {
+	s, doc := newTestServer(t)
+	doc.AddComment(1, 1, "fix")
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["agent_notified"] != false {
+		t.Errorf("expected agent_notified=false when no agent waiting")
+	}
+}
+
+func TestAwaitReview_ClientDisconnect(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest("GET", "/api/await-review", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		s.ServeHTTP(w, req)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel() // simulate disconnect
+
+	select {
+	case <-done:
+		// Handler returned after cancel — good
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not return after context cancel")
+	}
+}
+
+func TestAwaitReview_MethodNotAllowed(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/await-review", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestConfig_ShowsAgentWaiting(t *testing.T) {
+	s, doc := newTestServer(t)
+	doc.AddComment(1, 1, "fix")
+
+	// Before agent connects: agent_waiting should be false
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["agent_waiting"] != false {
+		t.Errorf("expected agent_waiting=false initially")
+	}
+
+	// Start await-review (agent connects)
+	go func() {
+		awaitReq := httptest.NewRequest("GET", "/api/await-review", nil)
+		awaitW := httptest.NewRecorder()
+		s.ServeHTTP(awaitW, awaitReq)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// After agent connects: agent_waiting should be true
+	req2 := httptest.NewRequest("GET", "/api/config", nil)
+	w2 := httptest.NewRecorder()
+	s.ServeHTTP(w2, req2)
+	var resp2 map[string]interface{}
+	json.Unmarshal(w2.Body.Bytes(), &resp2)
+	if resp2["agent_waiting"] != true {
+		t.Errorf("expected agent_waiting=true after agent connects")
+	}
+
+	// Finish to unblock the awaiting goroutine
+	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
+	s.ServeHTTP(httptest.NewRecorder(), finishReq)
+}
+
+func TestFinish_PromptIncludesWaitFlag(t *testing.T) {
+	s, doc := newTestServer(t)
+	doc.AddComment(1, 1, "fix this")
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if !strings.Contains(resp["prompt"], "--wait") {
+		t.Errorf("prompt should include --wait flag, got: %s", resp["prompt"])
 	}
 }
