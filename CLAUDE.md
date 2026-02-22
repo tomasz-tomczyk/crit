@@ -48,10 +48,12 @@ crit/
 go build -o crit .                                    # Build
 go test ./...                                         # Run all tests
 ./crit test-plan.md                                   # Run (opens browser)
+./crit test-plan.md --wait                            # Run + block until Finish, print prompt to stdout
 ./crit --no-open --port 3000 test-plan.md             # Headless on fixed port
 ./crit --share-url https://crit.live test-plan.md     # Enable Share button
 CRIT_SHARE_URL=https://crit.live ./crit test-plan.md  # Same via env var
 make build-all                                        # Cross-compile to dist/
+./crit go --wait 3000                                 # Signal round complete + wait for review, print prompt to stdout
 ```
 
 ## Linting
@@ -72,7 +74,8 @@ golangci-lint run ./...           # Lint (should be clean)
 - `GET  /api/events` — SSE stream for file-changed events
 - `GET  /api/stale` — check if file changed since last session
 - `DELETE /api/stale` — dismiss stale notice
-- `GET  /api/config` — returns `{share_url, hosted_url, delete_token}` for the Share button
+- `GET  /api/config` — returns `{share_url, hosted_url, delete_token, agent_waiting}` for the Share button
+- `GET  /api/await-review` — long-polls until review is finished, returns `{prompt, review_file}` (used by `crit go --wait`)
 - `POST /api/share-url` — persist `{url, delete_token}` to `.comments.json` after upload
 - `DELETE /api/share-url` — unpublish: calls crit-web DELETE and clears local persisted URL
 - `POST /api/round-complete` — agent signals all edits are done; triggers new round in the browser
@@ -132,6 +135,17 @@ When the agent runs `crit go <PORT>` (or calls `POST /api/round-complete`), the 
 - A side-by-side diff panel (toggle in header) shows what changed since the previous round
 - Previous comments marked as `resolved: true` in `.comments.json` appear as collapsed green cards at their `resolution_lines` positions
 - The waiting modal shows a live count of file edits while the agent is working
+
+## Agent Auto-Notification
+
+When `crit go --wait <port>` is used instead of `crit go <port>`, the CLI blocks after signaling round-complete and waits for the reviewer to click Finish. The review prompt is then printed to stdout, allowing the agent to read it directly without manual copy-paste.
+
+- Status messages go to stderr, prompt goes to stdout
+- If there are no comments, stdout is empty (agent should continue normally)
+- The frontend shows "Review feedback sent to your agent" instead of "Paste to clipboard" when an agent is waiting
+- `GET /api/config` includes `agent_waiting: true/false` to indicate whether an agent is connected
+- Works with any agent that can run shell commands: Claude Code, Cline, OpenCode, Cursor, etc.
+- `crit <file> --wait` enables automatic notification for the first round too
 
 ## Releasing
 

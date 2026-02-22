@@ -46,10 +46,10 @@ Editing the plan file triggers Crit's live reload - the user sees changes in the
 After all comments are addressed, signal to crit that edits are done:
 
 ```bash
-crit go <port>
+crit go --wait <port>
 ```
 
-The port is shown in crit's startup output. This triggers a new review round in the browser with a diff of what changed.
+The port is shown in crit's startup output. This signals a new review round in the browser (with a diff of what changed) and blocks until the reviewer clicks Finish — the prompt is printed to stdout automatically.
 
 ## Step 6: Summary
 

@@ -14,4 +14,4 @@ Do NOT begin implementation until the user has reviewed and approved the plan.
 
 After review, read the `.review.md` file to see the user's inline comments. Address each comment by revising the original plan file. The file change triggers Crit's live reload so the user can review again.
 
-When `crit go <port>` is called (or the user says the plan is approved), proceed with implementation.
+When `crit go --wait <port>` is called (or the user says the plan is approved), proceed with implementation.
