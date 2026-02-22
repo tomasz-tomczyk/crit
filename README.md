@@ -6,39 +6,36 @@ Crit opens any markdown file in your browser as a reviewable document. Click to 
 
 ## Workflow
 
-Crit fits into the plan-then-implement cycle that AI coding agents work best with. The review stays local. No account, no upload, no waiting for a build.
-
 ```bash
-# 1. Ask your agent to write a plan (example using Claude Code)
-claude "Write an implementation plan for the auth service" > auth-plan.md
-
-# 2. Review it
-crit auth-plan.md
+# 1. Open a plan for review
+crit plan.md
 # → Browser opens with the plan rendered and commentable
-# → Drag to select lines, leave comments
-# → Click "Finish Review". A ready-made agent prompt is copied to clipboard
+# → Select lines, leave inline comments
 
-# 3. Hand the review back
-# Paste the clipboard into your agent, or:
-claude "I've reviewed auth-plan.md. See auth-plan.review.md for comments."
+# 2. Click "Finish Review"
+# → Crit writes plan.review.md and .plan.comments.json
+# → A prompt is copied to your clipboard telling the agent what to do
 
-# 4. Your agent edits the file and signals it's done
-# → crit go $PORT triggers a new round with a diff of what changed
-# → Review the diff, leave more comments, repeat
+# 3. Paste the prompt into your agent
+# → The prompt points the agent to the review file, the comments file,
+#   and tells it to run `crit go <port>` when done
+
+# 4. Agent edits the plan and runs `crit go <port>`
+# → Crit starts a new round with a diff of what changed
+# → Previous comments show as resolved or still open
+# → Leave more comments, repeat until the plan is right
 ```
 
-One command. Browser opens. You review. Your agent gets structured feedback. When it's done editing, it runs `crit go <port>` to signal completion. Crit starts a new round and shows a diff of what changed.
-
-Works with Claude Code, Cursor, GitHub Copilot, Aider, or any agent that reads files. There's nothing to configure. Your agent gets a markdown file with your comments in it.
+Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf, or any agent that reads files.
 
 ### Output
 
-Crit generates a structured `.review.md` file with your comments interleaved as blockquotes at the exact lines they reference.
+When you finish a review, Crit generates two files:
 
-| File                  | Purpose                                                                         |
-| --------------------- | ------------------------------------------------------------------------------- |
-| `plan.review.md`      | Original plan + comments as blockquotes. Hand to your AI agent                  |
-| `.plan.comments.json` | Comment state and session data. Your agent marks comments resolved in this file |
+| File                  | Purpose                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| `plan.review.md`      | Original plan with your comments interleaved as blockquotes at the exact lines they reference |
+| `.plan.comments.json` | Comment state and session data. The agent marks comments resolved here                      |
 
 ## Demo
 
