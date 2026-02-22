@@ -141,6 +141,32 @@ Want a second opinion before handing off to the agent? The Share button uploads 
 - Single binary. No daemon, no dependencies, no install friction
 - Runs on `127.0.0.1`. Your files stay local unless you explicitly share
 
+## Agent Integrations
+
+Crit ships with drop-in configuration files for popular AI coding tools. Each one teaches your agent to write a plan, launch `crit` for review, and wait for your feedback before implementing.
+
+| Tool | Setup |
+|------|-------|
+| **Claude Code** | Copy `integrations/claude-code/crit.md` to `.claude/commands/crit.md` for the `/crit` slash command. Optionally append the `CLAUDE.md` snippet to your project's `CLAUDE.md` |
+| **Cursor** | Copy `integrations/cursor/crit.mdc` to `.cursor/rules/crit.mdc` |
+| **Windsurf** | Copy `integrations/windsurf/crit.md` to `.windsurf/rules/crit.md` |
+| **GitHub Copilot** | Append `integrations/github-copilot/copilot-instructions.md` to `.github/copilot-instructions.md` |
+| **Aider** | Append `integrations/aider/CONVENTIONS.md` to your `CONVENTIONS.md` |
+| **Cline** | Copy `integrations/cline/crit.md` to `.clinerules/crit.md` |
+
+See [`integrations/`](integrations/) for the full files and details.
+
+### Claude Code `/crit` command
+
+The Claude Code integration includes a slash command that automates the full loop:
+
+```
+/crit              # Auto-detects the current plan file
+/crit my-plan.md   # Review a specific file
+```
+
+It launches Crit, waits for your review, reads your comments, revises the plan, and signals Crit for another round.
+
 ## Usage
 
 ```bash
