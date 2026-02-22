@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -23,13 +24,33 @@ var frontendFS embed.FS
 var version = "dev"
 
 func main() {
-	// Handle "crit go [port]" subcommand — signals round-complete to a running crit server
+	// Handle "crit go [--wait] [port]" subcommand — signals round-complete to a running crit server
 	if len(os.Args) >= 2 && os.Args[1] == "go" {
-		port := "3000" // default
-		if len(os.Args) >= 3 {
-			port = os.Args[2]
+		goFlags := flag.NewFlagSet("go", flag.ExitOnError)
+		wait := goFlags.Bool("wait", false, "Wait for review to finish and print prompt")
+		goFlags.BoolVar(wait, "w", false, "Wait for review to finish and print prompt")
+		goFlags.Parse(os.Args[2:])
+
+		port := "3000"
+		if goFlags.NArg() > 0 {
+			port = goFlags.Arg(0)
 		}
-		resp, err := http.Post("http://localhost:"+port+"/api/round-complete", "application/json", nil)
+		baseURL := "http://localhost:" + port
+
+		if *wait {
+			result, err := doGoWait(baseURL)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			if result.Prompt != "" {
+				fmt.Println(result.Prompt)
+			}
+			os.Exit(0)
+		}
+
+		// Original non-wait behavior
+		resp, err := http.Post(baseURL+"/api/round-complete", "application/json", nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: could not reach crit on port %s: %v\n", port, err)
 			os.Exit(1)
@@ -52,6 +73,8 @@ func main() {
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.BoolVar(showVersion, "v", false, "Print version and exit (shorthand)")
 	shareURL := flag.String("share-url", "", "Base URL of hosted Crit service for sharing reviews (overrides CRIT_SHARE_URL env var)")
+	waitFlag := flag.Bool("wait", false, "Block until reviewer clicks Finish, then print prompt to stdout")
+	flag.BoolVar(waitFlag, "w", false, "Block until reviewer clicks Finish (shorthand)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: crit [options] <file.md>\n\nOptions:\n")
 		flag.PrintDefaults()
@@ -130,6 +153,22 @@ func main() {
 		go openBrowser(url)
 	}
 
+	if *waitFlag {
+		go func() {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/await-review", addr.Port))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error waiting for review: %v\n", err)
+				return
+			}
+			defer resp.Body.Close()
+			var result ReviewResult
+			json.NewDecoder(resp.Body).Decode(&result)
+			if result.Prompt != "" {
+				fmt.Println(result.Prompt)
+			}
+		}()
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -152,6 +191,32 @@ func main() {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(shutCtx)
+}
+
+// doGoWait signals round-complete and waits for the review to finish.
+// Returns the review result with the prompt for the agent.
+func doGoWait(baseURL string) (ReviewResult, error) {
+	resp, err := http.Post(baseURL+"/api/round-complete", "application/json", nil)
+	if err != nil {
+		return ReviewResult{}, fmt.Errorf("could not reach crit: %w", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return ReviewResult{}, fmt.Errorf("round-complete returned status %d", resp.StatusCode)
+	}
+	fmt.Fprintln(os.Stderr, "Round complete — waiting for review…")
+
+	resp, err = http.Get(baseURL + "/api/await-review")
+	if err != nil {
+		return ReviewResult{}, fmt.Errorf("error waiting for review: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result ReviewResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ReviewResult{}, fmt.Errorf("error reading review result: %w", err)
+	}
+	return result, nil
 }
 
 func openBrowser(url string) {
