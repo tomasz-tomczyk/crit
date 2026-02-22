@@ -239,7 +239,7 @@ func doGoWait(baseURL string) (ReviewResult, error) {
 	if resp.StatusCode != 200 {
 		return ReviewResult{}, fmt.Errorf("round-complete returned status %d", resp.StatusCode)
 	}
-	fmt.Fprintln(os.Stderr, "Round complete — waiting for review…")
+	fmt.Fprintln(os.Stderr, "Round complete — review the changes in your browser, then click Finish.")
 
 	resp, err = http.Get(baseURL + "/api/await-review")
 	if err != nil {
