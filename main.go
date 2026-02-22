@@ -24,6 +24,25 @@ var frontendFS embed.FS
 var version = "dev"
 
 func main() {
+	// Handle "crit wait [port]" subcommand — long-polls until review is done, prints prompt, exits
+	if len(os.Args) >= 2 && os.Args[1] == "wait" {
+		port := "3000"
+		if len(os.Args) >= 3 {
+			port = os.Args[2]
+		}
+		baseURL := "http://127.0.0.1:" + port
+
+		result, err := doWait(baseURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if result.Prompt != "" {
+			fmt.Println(result.Prompt)
+		}
+		os.Exit(0)
+	}
+
 	// Handle "crit go [--wait] [port]" subcommand — signals round-complete to a running crit server
 	if len(os.Args) >= 2 && os.Args[1] == "go" {
 		goFlags := flag.NewFlagSet("go", flag.ExitOnError)
@@ -35,7 +54,7 @@ func main() {
 		if goFlags.NArg() > 0 {
 			port = goFlags.Arg(0)
 		}
-		baseURL := "http://localhost:" + port
+		baseURL := "http://127.0.0.1:" + port
 
 		if *wait {
 			result, err := doGoWait(baseURL)
@@ -155,7 +174,7 @@ func main() {
 
 	if *waitFlag {
 		go func() {
-			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/await-review", addr.Port))
+			resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/await-review", addr.Port))
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error waiting for review: %v\n", err)
 				return
@@ -191,6 +210,22 @@ func main() {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(shutCtx)
+}
+
+// doWait long-polls /api/await-review until the review is finished.
+// Returns the review result with the prompt for the agent.
+func doWait(baseURL string) (ReviewResult, error) {
+	resp, err := http.Get(baseURL + "/api/await-review")
+	if err != nil {
+		return ReviewResult{}, fmt.Errorf("error waiting for review: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result ReviewResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ReviewResult{}, fmt.Errorf("error reading review result: %w", err)
+	}
+	return result, nil
 }
 
 // doGoWait signals round-complete and waits for the review to finish.

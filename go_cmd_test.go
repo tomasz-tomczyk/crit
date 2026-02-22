@@ -41,6 +41,50 @@ func TestGoWait_ReceivesPrompt(t *testing.T) {
 	}
 }
 
+func TestWait_ReceivesPrompt(t *testing.T) {
+	prompt := "Address review comments in plan.review.md."
+	reviewFile := "plan.review.md"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/await-review" {
+			json.NewEncoder(w).Encode(ReviewResult{Prompt: prompt, ReviewFile: reviewFile})
+		} else {
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	result, err := doWait(srv.URL)
+	if err != nil {
+		t.Fatalf("doWait error: %v", err)
+	}
+	if result.Prompt != prompt {
+		t.Errorf("prompt = %q, want %q", result.Prompt, prompt)
+	}
+	if result.ReviewFile != reviewFile {
+		t.Errorf("review_file = %q, want %q", result.ReviewFile, reviewFile)
+	}
+}
+
+func TestWait_NoComments(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/await-review" {
+			json.NewEncoder(w).Encode(ReviewResult{Prompt: "", ReviewFile: "plan.review.md"})
+		} else {
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	result, err := doWait(srv.URL)
+	if err != nil {
+		t.Fatalf("doWait error: %v", err)
+	}
+	if result.Prompt != "" {
+		t.Errorf("expected empty prompt, got %q", result.Prompt)
+	}
+}
+
 func TestGoWait_NoComments(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
