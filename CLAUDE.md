@@ -54,6 +54,7 @@ go test ./...                                         # Run all tests
 CRIT_SHARE_URL=https://crit.live ./crit test-plan.md  # Same via env var
 make build-all                                        # Cross-compile to dist/
 ./crit go --wait 3000                                 # Signal round complete + wait for review, print prompt to stdout
+./crit wait 3000                                      # Wait for review (no round-complete signal), print prompt to stdout, exit
 ```
 
 ## Linting
@@ -75,7 +76,7 @@ golangci-lint run ./...           # Lint (should be clean)
 - `GET  /api/stale` — check if file changed since last session
 - `DELETE /api/stale` — dismiss stale notice
 - `GET  /api/config` — returns `{share_url, hosted_url, delete_token, agent_waiting}` for the Share button
-- `GET  /api/await-review` — long-polls until review is finished, returns `{prompt, review_file}` (used by `crit go --wait`)
+- `GET  /api/await-review` — long-polls until review is finished, returns `{prompt, review_file}` (used by `crit go --wait` and `crit wait`)
 - `POST /api/share-url` — persist `{url, delete_token}` to `.comments.json` after upload
 - `DELETE /api/share-url` — unpublish: calls crit-web DELETE and clears local persisted URL
 - `POST /api/round-complete` — agent signals all edits are done; triggers new round in the browser
@@ -138,14 +139,29 @@ When the agent runs `crit go <PORT>` (or calls `POST /api/round-complete`), the 
 
 ## Agent Auto-Notification
 
-When `crit go --wait <port>` is used instead of `crit go <port>`, the CLI blocks after signaling round-complete and waits for the reviewer to click Finish. The review prompt is then printed to stdout, allowing the agent to read it directly without manual copy-paste.
+Both `crit wait <port>` and `crit go --wait <port>` block until the reviewer clicks Finish, then print the review prompt to stdout. The agent reads it directly — no manual copy-paste needed.
+
+**Two commands, two use cases:**
+
+- **`crit wait <port>`** — Round 1. Just the long-poll; no round-complete signal. Start crit in the background separately, then call `crit wait` to block. Exits cleanly when Finish is clicked.
+- **`crit go --wait <port>`** — Round 2+. Signals round-complete (browser transitions to new round with diff), then blocks waiting for the next Finish click.
+
+**Why not `crit <file> --wait`?** That flag starts the server AND a goroutine that polls await-review. When Finish is clicked the goroutine prints the prompt, but the server keeps running — the process never exits. Agents using blocking shell execution (e.g. Claude Code's Bash tool) would hang indefinitely. Use `crit wait` instead.
+
+**Typical agent flow:**
+```
+# Round 1 (background start + wait):
+crit plan.md --no-open --port 3001 &
+crit wait 3001          # blocks, prints prompt on Finish, exits
+
+# Round 2+ (signal + wait):
+crit go --wait 3001     # signals round-complete, blocks, prints prompt, exits
+```
 
 - Status messages go to stderr, prompt goes to stdout
 - If there are no comments, stdout is empty (agent should continue normally)
 - The frontend shows "Review feedback sent to your agent" instead of "Paste to clipboard" when an agent is waiting
 - `GET /api/config` includes `agent_waiting: true/false` to indicate whether an agent is connected
-- Works with any agent that can run shell commands: Claude Code, Cline, OpenCode, Cursor, etc.
-- `crit <file> --wait` enables automatic notification for the first round too
 
 ## Releasing
 

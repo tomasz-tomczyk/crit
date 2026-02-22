@@ -20,21 +20,27 @@ Determine which plan file to review, using this priority:
 
 Show the selected plan file to the user and ask for confirmation before proceeding.
 
-## Step 2: Run crit for review
+## Step 2: Run crit in background and wait for review
 
 Run `crit` **in the background** using `run_in_background: true`:
 
 ```bash
-crit <plan-file>
+crit <plan-file> --no-open
 ```
 
-Tell the user: **"Crit is open in your browser. Leave inline comments on the plan, then click 'Finish Review'. Type 'go' here when you're done."**
+Parse the port from the startup output (e.g. `Listening on http://localhost:PORT`).
 
-Wait for the user to respond before proceeding.
+Then block until the reviewer finishes — run this as a regular Bash call (not background):
+
+```bash
+crit wait <port>
+```
+
+This blocks until the user clicks 'Finish Review', then prints the review prompt to stdout and exits. No need to tell the user to type 'go' — this is fully automatic.
 
 ## Step 3: Read the review output
 
-After the user confirms, read the review file at `<plan-file-stem>.review.md` using the Read tool.
+After `crit wait` returns, read the review file at `<plan-file-stem>.review.md` using the Read tool.
 
 Identify all `> **[REVIEW COMMENT` blocks. Each block contains feedback about the section above it.
 

@@ -12,18 +12,24 @@ When asked to implement a feature, first create a plan file that covers:
 
 ## Review with Crit
 
-After writing the plan, launch Crit to open it for review:
+After writing the plan, start crit in the background and wait for the review:
 
 ```bash
-crit $PLAN_FILE
+crit $PLAN_FILE --no-open --port 3001 & crit wait 3001
 ```
 
-Tell the user: "I've opened the plan in Crit for review. Leave inline comments, then click Finish Review. Let me know when you're done."
+This starts crit on port 3001, then blocks until the reviewer clicks Finish Review. The review prompt is printed to stdout automatically — no user interaction needed.
 
-Do NOT begin implementation until the user confirms the plan is approved.
+Do NOT begin implementation until `crit wait` exits (indicating the review is done).
 
 ## After review
 
-If the user provides a `.review.md` file, read it to find inline comments marked with `> **[REVIEW COMMENT - Lines X-Y]**:`. Address each comment by revising the original plan file.
+Read the `.review.md` file to find inline comments marked with `> **[REVIEW COMMENT - Lines X-Y]**:`. Address each comment by revising the original plan file.
+
+For subsequent rounds, signal completion and wait for the next review:
+
+```bash
+crit go --wait 3001
+```
 
 Only proceed with implementation after the user approves the final plan.

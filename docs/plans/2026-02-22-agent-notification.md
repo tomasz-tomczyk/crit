@@ -918,3 +918,54 @@ echo "# edited" >> test-plan.md
 Repeat step 5 but don't add any comments before clicking Finish.
 - Browser should show "You can close this browser tab..."
 - Terminal should exit with no stdout output
+
+---
+
+### Task 11: Add `crit wait <port>` subcommand
+
+> **Note:** This task was added after end-to-end testing revealed a fundamental limitation in the `crit <file> --wait` approach.
+
+**Background — why `crit <file> --wait` doesn't work cleanly:**
+
+When `crit <file> --wait` is used, the process starts the HTTP server AND launches a background goroutine that long-polls `/api/await-review`. When the reviewer clicks Finish, the goroutine prints the prompt to stdout — but the **server keeps running**. The process never exits on its own.
+
+This is a problem for agents that use blocking shell execution (e.g. Claude Code's Bash tool, which waits for the subprocess to exit before returning). If the agent runs `crit plan.md --wait` as a foreground Bash call, it blocks indefinitely — the shell call never returns.
+
+**Solution: `crit wait <port>`**
+
+A new `crit wait <port>` subcommand that:
+- Only does the long-poll (`GET /api/await-review`)
+- Prints the prompt to stdout when review is done
+- Exits cleanly with code 0
+
+No server, no round-complete signal. The agent starts crit in the background separately, then uses `crit wait` to block until the first review is done.
+
+**Updated UX for round 1:**
+
+```
+# Agent starts crit in background, then waits for first review:
+crit plan.md --no-open --port 3001 &    # start server in background
+crit wait 3001                          # block until Finish clicked, print prompt, exit
+```
+
+For Claude Code (which has run_in_background):
+```
+# Start crit with run_in_background: true, parse port from output
+# Then run `crit wait <port>` as a regular blocking Bash call
+```
+
+Round 2+ is unchanged — `crit go --wait <port>` still handles those.
+
+**Files to create/modify:**
+- Modify: `crit/main.go` — add `crit wait` subcommand before main flag parsing
+- Modify: `crit/go_cmd_test.go` — add `TestWait_ReceivesPrompt` test
+- Modify: `crit/CLAUDE.md` — document `crit wait`
+- Modify: `crit/integrations/claude-code/crit.md` — use run_in_background + crit wait
+- Modify: `crit/integrations/claude-code/CLAUDE.md` — update round 1 flow
+- Modify: `crit/integrations/cursor/crit-command.md` — use & + crit wait
+- Modify: `crit/integrations/cursor/crit.mdc` — same
+- Modify: `crit/integrations/github-copilot/crit.prompt.md` — use & + crit wait
+- Modify: `crit/integrations/github-copilot/copilot-instructions.md` — same
+- Modify: `crit/integrations/cline/crit.md` — use & + crit wait
+- Modify: `crit/integrations/windsurf/crit.md` — use & + crit wait
+- Modify: `crit/integrations/aider/CONVENTIONS.md` — use & + crit wait
