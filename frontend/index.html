@@ -2962,7 +2962,11 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 
       document.getElementById('waitingPrompt').textContent = prompt;
 
-      if (hasComments) {
+      if (data.agent_notified) {
+        document.getElementById('waitingMessage').innerHTML =
+          'Review feedback sent to your agent.';
+        document.getElementById('waitingClipboard').textContent = '';
+      } else if (hasComments) {
         document.getElementById('waitingMessage').innerHTML =
           'Paste the prompt below to your agent, then wait for <strong>' + escapeHtml(fileName) + '</strong> to be updated.';
         const clipEl = document.getElementById('waitingClipboard');
@@ -2976,7 +2980,9 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         document.getElementById('waitingClipboard').textContent = '';
       }
 
-      try { await navigator.clipboard.writeText(prompt); } catch (_) {}
+      if (!data.agent_notified) {
+        try { await navigator.clipboard.writeText(prompt); } catch (_) {}
+      }
     } catch (_) {}
 
     setUIState('waiting');
