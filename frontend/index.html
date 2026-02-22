@@ -2960,13 +2960,17 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       const hasComments = !!data.prompt;
       const prompt = data.prompt || 'I reviewed the plan, no feedback, good to go!';
 
-      document.getElementById('waitingPrompt').textContent = prompt;
+      const promptEl = document.getElementById('waitingPrompt');
 
       if (data.agent_notified) {
+        promptEl.textContent = '';
+        promptEl.style.display = 'none';
         document.getElementById('waitingMessage').innerHTML =
           'Review feedback sent to your agent.';
         document.getElementById('waitingClipboard').textContent = '';
       } else if (hasComments) {
+        promptEl.textContent = prompt;
+        promptEl.style.display = '';
         document.getElementById('waitingMessage').innerHTML =
           'Paste the prompt below to your agent, then wait for <strong>' + escapeHtml(fileName) + '</strong> to be updated.';
         const clipEl = document.getElementById('waitingClipboard');
@@ -2975,6 +2979,8 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
         void clipEl.offsetWidth;
         clipEl.classList.add('clipboard-confirm');
       } else {
+        promptEl.textContent = prompt;
+        promptEl.style.display = '';
         document.getElementById('waitingMessage').textContent =
           'You can close this browser tab, or leave it open for another round.';
         document.getElementById('waitingClipboard').textContent = '';
