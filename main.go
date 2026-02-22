@@ -93,8 +93,6 @@ func main() {
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.BoolVar(showVersion, "v", false, "Print version and exit (shorthand)")
 	shareURL := flag.String("share-url", "", "Base URL of hosted Crit service for sharing reviews (overrides CRIT_SHARE_URL env var)")
-	waitFlag := flag.Bool("wait", false, "Block until reviewer clicks Finish, then print prompt to stdout")
-	flag.BoolVar(waitFlag, "w", false, "Block until reviewer clicks Finish (shorthand)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: crit [options] <file.md>\n\nOptions:\n")
 		flag.PrintDefaults()
@@ -173,22 +171,6 @@ func main() {
 		go openBrowser(url)
 	}
 
-	if *waitFlag {
-		go func() {
-			resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/await-review", addr.Port))
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error waiting for review: %v\n", err)
-				return
-			}
-			defer resp.Body.Close()
-			var result ReviewResult
-			json.NewDecoder(resp.Body).Decode(&result)
-			if result.Prompt != "" {
-				fmt.Println(result.Prompt)
-			}
-		}()
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -214,13 +196,23 @@ func main() {
 }
 
 // doWait long-polls /api/await-review until the review is finished.
-// Returns the review result with the prompt for the agent.
+// Retries the initial connection in case the server isn't listening yet
+// (e.g. when started with & in the same shell command).
 func doWait(baseURL string) (ReviewResult, error) {
 	displayURL := strings.Replace(baseURL, "127.0.0.1", "localhost", 1)
 	fmt.Fprintf(os.Stderr, "Waiting for review at %s — click Finish when done.\n", displayURL)
-	resp, err := http.Get(baseURL + "/api/await-review")
-	if err != nil {
-		return ReviewResult{}, fmt.Errorf("error waiting for review: %w", err)
+
+	var resp *http.Response
+	var err error
+	for attempt := 0; attempt < 50; attempt++ {
+		resp, err = http.Get(baseURL + "/api/await-review")
+		if err == nil {
+			break
+		}
+		if attempt == 49 {
+			return ReviewResult{}, fmt.Errorf("could not reach crit at %s: %w", displayURL, err)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	defer resp.Body.Close()
 

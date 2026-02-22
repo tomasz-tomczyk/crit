@@ -48,7 +48,6 @@ crit/
 go build -o crit .                                    # Build
 go test ./...                                         # Run all tests
 ./crit test-plan.md                                   # Run (opens browser)
-./crit test-plan.md --wait                            # Run + block until Finish, print prompt to stdout
 ./crit --no-open --port 3000 test-plan.md             # Headless on fixed port
 ./crit --share-url https://crit.live test-plan.md     # Enable Share button
 CRIT_SHARE_URL=https://crit.live ./crit test-plan.md  # Same via env var
@@ -145,8 +144,6 @@ Both `crit wait <port>` and `crit go --wait <port>` block until the reviewer cli
 
 - **`crit wait <port>`** — Round 1. Just the long-poll; no round-complete signal. Start crit in the background separately, then call `crit wait` to block. Exits cleanly when Finish is clicked.
 - **`crit go --wait <port>`** — Round 2+. Signals round-complete (browser transitions to new round with diff), then blocks waiting for the next Finish click.
-
-**Why not `crit <file> --wait`?** That flag starts the server AND a goroutine that polls await-review. When Finish is clicked the goroutine prints the prompt, but the server keeps running — the process never exits. Agents using blocking shell execution (e.g. Claude Code's Bash tool) would hang indefinitely. Use `crit wait` instead.
 
 **Typical agent flow:**
 ```
