@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -215,6 +216,8 @@ func main() {
 // doWait long-polls /api/await-review until the review is finished.
 // Returns the review result with the prompt for the agent.
 func doWait(baseURL string) (ReviewResult, error) {
+	displayURL := strings.Replace(baseURL, "127.0.0.1", "localhost", 1)
+	fmt.Fprintf(os.Stderr, "Waiting for review at %s — click Finish when done.\n", displayURL)
 	resp, err := http.Get(baseURL + "/api/await-review")
 	if err != nil {
 		return ReviewResult{}, fmt.Errorf("error waiting for review: %w", err)
@@ -239,7 +242,8 @@ func doGoWait(baseURL string) (ReviewResult, error) {
 	if resp.StatusCode != 200 {
 		return ReviewResult{}, fmt.Errorf("round-complete returned status %d", resp.StatusCode)
 	}
-	fmt.Fprintln(os.Stderr, "Round complete — review the changes in your browser, then click Finish.")
+	displayURL := strings.Replace(baseURL, "127.0.0.1", "localhost", 1)
+	fmt.Fprintf(os.Stderr, "Round complete — open %s to review the changes, then click Finish.\n", displayURL)
 
 	resp, err = http.Get(baseURL + "/api/await-review")
 	if err != nil {
