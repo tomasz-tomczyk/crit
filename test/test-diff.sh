@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-diff.sh — Simulate a multi-round diff view with resolved comments.
 #
-# Usage: ./test-diff.sh [port]
+# Usage: ./test/test-diff.sh [port]
 #
 # What this does:
 #   1. Resets test-plan-copy.md to v1 and seeds it with review comments
@@ -40,33 +40,33 @@ cat > "$COMMENTS_FILE" <<'EOF'
   "comments": [
     {
       "id": "1",
-      "start_line": 5,
-      "end_line": 6,
-      "body": "SAML is mentioned here but I thought we agreed to drop it. Confirm with product before this ships.",
+      "start_line": 20,
+      "end_line": 20,
+      "body": "Redis Streams will lose the queue on restart if AOF isn't enabled. Worth checking before we commit. We're already on AWS — SQS gives us durable delivery without needing to think about Redis persistence config.",
       "created_at": "2026-01-01T10:00:00Z",
       "updated_at": "2026-01-01T10:00:00Z"
     },
     {
       "id": "2",
-      "start_line": 71,
-      "end_line": 71,
-      "body": "5 attempts per minute is too restrictive — mobile users on flaky connections retry fast. Consider 10-20.",
+      "start_line": 61,
+      "end_line": 62,
+      "body": "Even on the internal network we should have some protection on this endpoint. A buggy upstream service could spam /send and flood user inboxes with no rate limiting in place. At minimum a shared secret header, and rate limiting per caller should be in the MVP checklist.",
       "created_at": "2026-01-01T10:01:00Z",
       "updated_at": "2026-01-01T10:01:00Z"
     },
     {
       "id": "3",
-      "start_line": 97,
-      "end_line": 98,
-      "body": "Login was merged last week and refresh is done too — these should be checked off.",
+      "start_line": 121,
+      "end_line": 121,
+      "body": "2 hours is a long tail for webhook consumers. If my endpoint is down I'd want a failure signal faster so I can investigate. Most webhook systems cap at 30-60 minutes. Recommend dropping this to 30 minutes max.",
       "created_at": "2026-01-01T10:02:00Z",
       "updated_at": "2026-01-01T10:02:00Z"
     },
     {
       "id": "4",
-      "start_line": 135,
-      "end_line": 135,
-      "body": "We need a decision on session TTL before writing the migration. This is blocking.",
+      "start_line": 158,
+      "end_line": 159,
+      "body": "This is blocking the migration. metadata JSONB is currently unbounded — someone will try to store a 10MB blob in it. We need a cap in the schema before migrations run. Suggest 64KB and enforce with a CHECK constraint.",
       "created_at": "2026-01-01T10:03:00Z",
       "updated_at": "2026-01-01T10:03:00Z"
     }
@@ -117,42 +117,42 @@ cat > "$COMMENTS_FILE" <<'EOF'
   "comments": [
     {
       "id": "1",
-      "start_line": 5,
-      "end_line": 6,
-      "body": "SAML is mentioned here but I thought we agreed to drop it. Confirm with product before this ships.",
+      "start_line": 20,
+      "end_line": 20,
+      "body": "Redis Streams will lose the queue on restart if AOF isn't enabled. Worth checking before we commit. We're already on AWS — SQS gives us durable delivery without needing to think about Redis persistence config.",
       "created_at": "2026-01-01T10:00:00Z",
       "updated_at": "2026-01-01T10:00:00Z",
       "resolved": true,
-      "resolution_note": "Confirmed with product — SAML dropped from scope entirely, moved to Phase 3.",
-      "resolution_lines": [6]
+      "resolution_note": "Switched to SQS. Durability is handled by AWS, no AOF config needed, and we're already paying for it.",
+      "resolution_lines": [20]
     },
     {
       "id": "2",
-      "start_line": 71,
-      "end_line": 71,
-      "body": "5 attempts per minute is too restrictive — mobile users on flaky connections retry fast. Consider 10-20.",
+      "start_line": 61,
+      "end_line": 62,
+      "body": "Even on the internal network we should have some protection on this endpoint. A buggy upstream service could spam /send and flood user inboxes with no rate limiting in place. At minimum a shared secret header, and rate limiting per caller should be in the MVP checklist.",
       "created_at": "2026-01-01T10:01:00Z",
       "updated_at": "2026-01-01T10:01:00Z",
       "resolved": true,
-      "resolution_note": "Bumped to 10 per minute.",
-      "resolution_lines": [73]
+      "resolution_note": "Added X-Internal-Token requirement to the endpoint description and a rate limiting checklist item.",
+      "resolution_lines": [62, 140]
     },
     {
       "id": "3",
-      "start_line": 97,
-      "end_line": 98,
-      "body": "Login was merged last week and refresh is done too — these should be checked off.",
+      "start_line": 121,
+      "end_line": 121,
+      "body": "2 hours is a long tail for webhook consumers. If my endpoint is down I'd want a failure signal faster so I can investigate. Most webhook systems cap at 30-60 minutes. Recommend dropping this to 30 minutes max.",
       "created_at": "2026-01-01T10:02:00Z",
       "updated_at": "2026-01-01T10:02:00Z",
       "resolved": true,
-      "resolution_note": "Marked login and token refresh as complete in the checklist.",
-      "resolution_lines": [101, 102]
+      "resolution_note": "Capped at 30 minutes. Both attempts 4 and 5 now use the same interval.",
+      "resolution_lines": [122]
     },
     {
       "id": "4",
-      "start_line": 135,
-      "end_line": 135,
-      "body": "We need a decision on session TTL before writing the migration. This is blocking.",
+      "start_line": 158,
+      "end_line": 159,
+      "body": "This is blocking the migration. metadata JSONB is currently unbounded — someone will try to store a 10MB blob in it. We need a cap in the schema before migrations run. Suggest 64KB and enforce with a CHECK constraint.",
       "created_at": "2026-01-01T10:03:00Z",
       "updated_at": "2026-01-01T10:03:00Z"
     }
@@ -165,7 +165,7 @@ curl -s -X POST "http://127.0.0.1:$PORT/api/round-complete" > /dev/null
 
 echo ""
 echo "Done — check the browser for the diff view with resolved comments."
-echo "Comment #4 (session TTL) is intentionally left unresolved."
+echo "Comment #4 (metadata size cap) is intentionally left unresolved."
 echo ""
 echo "Press Enter to stop the server."
 read -r

@@ -1,8 +1,12 @@
 # Crit
 
-Your AI agent just generated a plan. Before you let it write 2,000 lines of code, you should review that plan.
+Don't let your agent build the wrong thing.
 
-Crit opens any markdown file in your browser as a reviewable document. Click to select lines, leave inline comments, then hand the annotated result back to your agent. Repeat until the plan is right.
+Your agent wrote a plan. Before it starts rewriting your codebase, review that plan. Crit opens any markdown file as a reviewable document - leave inline comments, finish the review, and a prompt goes to your clipboard telling the agent what to fix.
+
+Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf, or any agent that reads files.
+
+![Crit review UI](images/demo-overview.png)
 
 ## Workflow
 
@@ -26,20 +30,18 @@ crit plan.md
 # → Leave more comments, repeat until the plan is right
 ```
 
-Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf, or any agent that reads files.
-
 ### Output
 
 When you finish a review, Crit generates two files:
 
-| File                  | Purpose                                                                                    |
-| --------------------- | ------------------------------------------------------------------------------------------ |
+| File                  | Purpose                                                                                       |
+| --------------------- | --------------------------------------------------------------------------------------------- |
 | `plan.review.md`      | Original plan with your comments interleaved as blockquotes at the exact lines they reference |
-| `.plan.comments.json` | Comment state and session data. The agent marks comments resolved here                      |
+| `.plan.comments.json` | Comment state and session data. The agent marks comments resolved here                        |
 
 ## Demo
 
-A 2-minute walkthrough: reviewing a plan, leaving inline comments, handing off to an agent.
+A 2-minute walkthrough: reviewing a plan, leaving inline comments, handing off to an agent. Note: slightly outdated as we're moving fast :D
 
 [![Crit demo](https://github.com/user-attachments/assets/dec9c069-9a99-4254-9b05-6d8db30820ed)](https://www.youtube.com/watch?v=w_Dswm2Ft-o)
 
@@ -75,31 +77,23 @@ Grab the latest binary for your platform from [Releases](https://github.com/toma
 
 ## Features
 
+### Round-to-round diff
+
+After your agent edits the file, Crit shows a split or unified diff of what changed - toggle it in the header.
+
+#### Split view
+
+![Round-to-round diff - split view](images/diff-split.png)
+
+#### Unified view
+
+![Round-to-round diff - unified view](images/diff-unified.png)
+
 ### Inline comments: single lines and ranges
 
 Click a line number to comment. Drag to select a range. Comments are rendered inline after their referenced lines, just like a GitHub PR review.
 
 ![Simple comments](images/simple-comments.gif)
-
-The generated `.review.md` places each comment as a blockquote immediately after the referenced lines:
-
-```markdown
-> **Note**: This plan covers the MVP scope. SAML integration is deferred to Phase 2
-> unless the enterprise sales team escalates priority.
-
-> **[REVIEW COMMENT — Lines 8-9]**: We should definitely defer SAML!
-
-...
-
-### Components
-
-1. **Auth API** — handles login, logout, token refresh
-2. **Token Service** — JWT issuance and validation
-3. **Provider Adapters** — pluggable OAuth2/SAML providers
-4. **Session Store** — Redis-backed session management
-
-> **[REVIEW COMMENT — Lines 16-21]**: Can you be more specific here?
-```
 
 ### Suggestion mode
 
@@ -107,9 +101,15 @@ Select lines and use "Insert suggestion" to pre-fill the comment with the origin
 
 ![Insert suggestion](images/suggestion.gif)
 
-### Round-to-round diff
+### Share for async review
 
-After your agent edits the file, Crit shows a split or unified diff between the previous and current version. Resolved comments are marked. Open ones stay visible so you can verify nothing was skipped.
+Want a second opinion before handing off to the agent? The Share button uploads your review to [crit.live](https://crit.live) and gives you a public URL anyone can open in a browser, no install needed. Each reviewer's comments are color-coded by author. Unpublish anytime.
+
+### Finish review: prompt copied to clipboard
+
+When you click "Finish Review", Crit collects your comments, formats them into a prompt, and copies it to your clipboard. Paste directly into your agent.
+
+![Agent prompt](images/prompt.png)
 
 ### Mermaid diagrams
 
@@ -117,27 +117,17 @@ Architecture diagrams in fenced ` ```mermaid ` blocks render inline. You can com
 
 ![Mermaid diagram](images/mermaid.png)
 
-### Finish review: prompt copied to clipboard
-
-When you click "Finish Review", Crit collects all your comments, formats them into a structured prompt, and copies it to your clipboard. Paste directly into your agent.
-
-![Agent prompt](images/prompt.png)
-
-### Share for async review
-
-Want a second opinion before handing off to the agent? The Share button uploads your review to [crit.live](https://crit.live) and gives you a public URL anyone can open in a browser, no install needed. Each reviewer's comments are color-coded by author. Unpublish anytime.
-
 ### Everything else
 
-- Real-time `.review.md` written on every keystroke (200ms debounce)
-- Live file watching via SSE. Browser reloads when the source changes
-- Syntax highlighting inside code blocks, per-line commentable
-- Dark/light/system theme with persistence
-- Draft autosave. Close your browser mid-review and pick up where you left off
-- Vim keybindings (`j`/`k` navigate, `c` comment, `Shift+F` finish, `?` for full reference)
-- Single binary. No daemon, no dependencies, no install friction
-- Concurrent reviews. Each instance runs on its own port, so you can review multiple plans at once
-- Runs on `127.0.0.1`. Your files stay local unless you explicitly share
+- **Single binary.** No daemon, no Docker, no dependencies. `brew install` and you're done.
+- **Draft autosave.** Close your browser mid-review and pick up exactly where you left off.
+- **Vim keybindings.** `j`/`k` to navigate, `c` to comment, `Shift+F` to finish. `?` for the full reference.
+- **Concurrent reviews.** Each instance runs on its own port - review multiple plans at once.
+- **Syntax highlighting.** Code blocks are highlighted and split per-line, so you can comment on individual lines inside a fence.
+- **Live file watching.** The browser reloads automatically when the source file changes.
+- **Real-time output.** `.review.md` is written on every keystroke (200ms debounce), so your agent always has the latest state.
+- **Dark/light/system theme.** Three-button pill in the header, persisted to localStorage.
+- **Local by default.** Server binds to `127.0.0.1`. Your files stay on your machine unless you explicitly share.
 
 ## Agent Integrations
 
@@ -150,18 +140,18 @@ crit install claude-code   # or: cursor, windsurf, github-copilot, cline
 crit install all           # install all integrations at once
 ```
 
-This copies the right files to the right places in your project. Safe to re-run — existing files are skipped (use `--force` to overwrite).
+This copies the right files to the right places in your project. Safe to re-run - existing files are skipped (use `--force` to overwrite).
 
 Or set up manually:
 
-| Tool | Setup |
-|------|-------|
-| **Claude Code** | Copy `integrations/claude-code/crit.md` to `.claude/commands/crit.md` |
-| **Cursor** | Copy `integrations/cursor/crit-command.md` to `.cursor/commands/crit.md` |
+| Tool               | Setup                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------- |
+| **Claude Code**    | Copy `integrations/claude-code/crit.md` to `.claude/commands/crit.md`                 |
+| **Cursor**         | Copy `integrations/cursor/crit-command.md` to `.cursor/commands/crit.md`              |
 | **GitHub Copilot** | Copy `integrations/github-copilot/crit.prompt.md` to `.github/prompts/crit.prompt.md` |
-| **Windsurf** | Copy `integrations/windsurf/crit.md` to `.windsurf/rules/crit.md` |
-| **Aider** | Append `integrations/aider/CONVENTIONS.md` to your `CONVENTIONS.md` |
-| **Cline** | Copy `integrations/cline/crit.md` to `.clinerules/crit.md` |
+| **Windsurf**       | Copy `integrations/windsurf/crit.md` to `.windsurf/rules/crit.md`                     |
+| **Aider**          | Append `integrations/aider/CONVENTIONS.md` to your `CONVENTIONS.md`                   |
+| **Cline**          | Copy `integrations/cline/crit.md` to `.clinerules/crit.md`                            |
 
 See [`integrations/`](integrations/) for the full files and details.
 
