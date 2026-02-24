@@ -520,13 +520,13 @@ html[data-theme="dark"]  .theme-pill-btn[data-for-theme="dark"] { color: var(--a
   justify-content: flex-end;
 }
 
-.line-gutter:hover .line-num { display: none; }
-.line-gutter:hover .line-add { display: flex; }
+.line-gutter:hover .line-num { opacity: 0; }
+.line-gutter:hover .line-add { opacity: 1; pointer-events: auto; }
 
 /* During drag, show + on all gutters in range */
 body.dragging { user-select: none; cursor: grabbing; }
-body.dragging .line-block.selected .line-gutter .line-num { display: none; }
-body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
+body.dragging .line-block.selected .line-gutter .line-num { opacity: 0; }
+body.dragging .line-block.selected .line-gutter .line-add { opacity: 1; pointer-events: auto; }
 
 .line-num {
   padding-top: 1px;
@@ -534,18 +534,22 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 }
 
 .line-add {
-  display: none;
+  position: absolute;
+  top: 1px;
+  right: 8px;
+  display: flex;
   align-items: center;
   justify-content: center;
   width: 20px;
   height: 20px;
-  margin-top: 1px;
   border-radius: 4px;
   background: var(--accent);
   color: #fff;
   font-size: 14px;
   font-weight: 700;
   line-height: 1;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ===== Line Content (rendered markdown) ===== */
@@ -1312,9 +1316,10 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
 }
 .diff-view .line-gutter {
   min-width: 32px;
-  cursor: default;
 }
-.diff-view .line-gutter .line-add { display: none; }
+.line-gutter.diff-no-comment { cursor: default; }
+.line-gutter.diff-no-comment:hover .line-num { opacity: 1; }
+.line-gutter.diff-no-comment:hover .line-add { opacity: 0; pointer-events: none; }
 .diff-view .line-block.diff-added .line-content {
   background: rgba(158, 206, 106, 0.12);
 }
@@ -2498,6 +2503,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       selectionStart = rangeStart;
       selectionEnd = rangeEnd;
       renderDocument();
+      if (diffActive) renderActiveDiffView();
       focusCommentTextarea();
       return;
     }
@@ -2517,6 +2523,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     selectionEnd = endLine;
     activeForm = null;
     renderDocument();
+    if (diffActive) renderActiveDiffView();
 
     document.body.classList.add('dragging');
     document.addEventListener('mousemove', handleDragMove);
@@ -2545,6 +2552,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     selectionStart = Math.min(dragState.anchorStartLine, hoverStartLine);
     selectionEnd = Math.max(dragState.anchorEndLine, hoverEndLine);
     renderDocument();
+    if (diffActive) renderActiveDiffView();
   }
 
   function handleDragEnd(e) {
@@ -2576,6 +2584,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     selectionEnd = rangeEnd;
     dragState = null;
     renderDocument();
+    if (diffActive) renderActiveDiffView();
     focusCommentTextarea();
   }
 
@@ -2685,6 +2694,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     selectionStart = null;
     selectionEnd = null;
     renderDocument();
+    if (diffActive) renderActiveDiffView();
     updateCommentCount();
   }
 
@@ -2694,6 +2704,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     selectionStart = null;
     selectionEnd = null;
     renderDocument();
+    if (diffActive) renderActiveDiffView();
   }
 
   // ===== Draft Autosave =====
@@ -3273,24 +3284,53 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     return '';
   }
 
-  function renderBlock(block, diffClassFn, resolvedMap) {
+  function renderActiveDiffView() {
+    if (diffMode === 'split') renderDiffView();
+    else renderUnifiedDiffView();
+  }
+
+
+  function renderBlock(block, diffClassFn, resolvedMap, options) {
+    options = options || {};
     const frag = document.createDocumentFragment();
 
     const lineBlockEl = document.createElement('div');
     lineBlockEl.className = 'line-block';
     lineBlockEl.dataset.startLine = block.startLine;
     lineBlockEl.dataset.endLine = block.endLine;
+    if (options.blockIndex !== undefined) lineBlockEl.dataset.blockIndex = options.blockIndex;
     if (diffClassFn) {
       const cls = diffClassFn(block);
       if (cls) lineBlockEl.classList.add(cls);
     }
 
+    // Selection/focused highlighting for commentable blocks
+    if (options.commentable) {
+      if (selectionStart !== null && block.endLine >= selectionStart && block.startLine <= selectionEnd) {
+        lineBlockEl.classList.add('selected');
+      }
+      if (activeForm && !activeForm.editingId && block.endLine >= activeForm.startLine && block.startLine <= activeForm.endLine) {
+        lineBlockEl.classList.add('focused');
+      }
+    }
+
     const gutter = document.createElement('div');
     gutter.className = 'line-gutter';
+    if (!options.commentable) gutter.classList.add('diff-no-comment');
+    gutter.dataset.startLine = block.startLine;
+    gutter.dataset.endLine = block.endLine;
     const lineNum = document.createElement('span');
     lineNum.className = 'line-num';
     lineNum.textContent = block.startLine;
     gutter.appendChild(lineNum);
+
+    if (options.commentable) {
+      const lineAdd = document.createElement('span');
+      lineAdd.className = 'line-add';
+      lineAdd.textContent = '+';
+      gutter.appendChild(lineAdd);
+      gutter.addEventListener('mousedown', handleGutterMouseDown);
+    }
 
     const contentEl = document.createElement('div');
     let contentClasses = 'line-content';
@@ -3302,9 +3342,23 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     html = rewriteImageSrcs(html);
     contentEl.innerHTML = html;
 
+    // Check if this block has comments
+    if (options.commentsMap) {
+      const blockComments = getCommentsForBlock(block, options.commentsMap);
+      if (blockComments.length > 0) lineBlockEl.classList.add('has-comment');
+    }
+
     lineBlockEl.appendChild(gutter);
     lineBlockEl.appendChild(contentEl);
     frag.appendChild(lineBlockEl);
+
+    // Render active comments for commentable blocks
+    if (options.commentsMap) {
+      const blockComments = getCommentsForBlock(block, options.commentsMap);
+      for (const comment of blockComments) {
+        frag.appendChild(createCommentElement(comment));
+      }
+    }
 
     // Resolved comments after the line-block
     if (resolvedMap) {
@@ -3314,13 +3368,20 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
       }
     }
 
+    // Comment form after the matching block
+    if (options.commentable && activeForm && !activeForm.editingId && options.blockIndex === activeForm.afterBlockIndex) {
+      frag.appendChild(createCommentForm());
+    }
+
     return frag;
   }
 
-  function renderDiffSide(blocks, diffClass, resolvedMap) {
+  function renderDiffSide(blocks, diffClass, resolvedMap, commentable) {
+    const commentsMap = commentable ? buildCommentsMap() : null;
     const container = document.createElement('div');
     for (let bi = 0; bi < blocks.length; bi++) {
-      container.appendChild(renderBlock(blocks[bi], diffClass, resolvedMap));
+      container.appendChild(renderBlock(blocks[bi], diffClass, resolvedMap,
+        { commentable: commentable, blockIndex: bi, commentsMap: commentsMap }));
     }
     return container;
   }
@@ -3364,7 +3425,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     leftSide.appendChild(leftLabel);
     leftSide.appendChild(renderDiffSide(oldBlocks, function(block) {
       return classifyBlock(block, sets.added, sets.removed, 'old');
-    }, null));
+    }, null, false));
 
     // Right side (current)
     const rightSide = document.createElement('div');
@@ -3375,7 +3436,7 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     rightSide.appendChild(rightLabel);
     rightSide.appendChild(renderDiffSide(newBlocks, function(block) {
       return classifyBlock(block, sets.added, sets.removed, 'new');
-    }, resolvedMap));
+    }, resolvedMap, true));
 
     diffEl.appendChild(leftSide);
     diffEl.appendChild(rightSide);
@@ -3397,25 +3458,31 @@ body.dragging .line-block.selected .line-gutter .line-add { display: flex; }
     const container = document.createElement('div');
     container.className = 'diff-view-unified';
 
+    const commentsMap = buildCommentsMap();
     let oldIdx = 0;
     let newIdx = 0;
 
     while (oldIdx < oldBlocks.length || newIdx < newBlocks.length) {
       if (oldIdx >= oldBlocks.length) {
-        container.appendChild(renderBlock(newBlocks[newIdx], function() { return 'diff-added'; }, resolvedMap));
+        container.appendChild(renderBlock(newBlocks[newIdx], function() { return 'diff-added'; }, resolvedMap,
+          { commentable: true, blockIndex: newIdx, commentsMap: commentsMap }));
         newIdx++;
       } else if (newIdx >= newBlocks.length) {
-        container.appendChild(renderBlock(oldBlocks[oldIdx], function() { return 'diff-removed'; }, null));
+        container.appendChild(renderBlock(oldBlocks[oldIdx], function() { return 'diff-removed'; }, null,
+          { commentable: false, blockIndex: oldIdx }));
         oldIdx++;
       } else if (classifyBlock(oldBlocks[oldIdx], sets.added, sets.removed, 'old') === 'diff-removed') {
-        container.appendChild(renderBlock(oldBlocks[oldIdx], function() { return 'diff-removed'; }, null));
+        container.appendChild(renderBlock(oldBlocks[oldIdx], function() { return 'diff-removed'; }, null,
+          { commentable: false, blockIndex: oldIdx }));
         oldIdx++;
       } else if (classifyBlock(newBlocks[newIdx], sets.added, sets.removed, 'new') === 'diff-added') {
-        container.appendChild(renderBlock(newBlocks[newIdx], function() { return 'diff-added'; }, resolvedMap));
+        container.appendChild(renderBlock(newBlocks[newIdx], function() { return 'diff-added'; }, resolvedMap,
+          { commentable: true, blockIndex: newIdx, commentsMap: commentsMap }));
         newIdx++;
       } else {
         // Both unchanged — emit newBlock once (no diff class), advance both
-        container.appendChild(renderBlock(newBlocks[newIdx], null, resolvedMap));
+        container.appendChild(renderBlock(newBlocks[newIdx], null, resolvedMap,
+          { commentable: true, blockIndex: newIdx, commentsMap: commentsMap }));
         newIdx++;
         oldIdx++;
       }
