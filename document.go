@@ -59,6 +59,7 @@ type Document struct {
 	subMu            sync.Mutex
 	pendingEdits     int           // number of file changes detected since last round-complete
 	lastRoundEdits   int           // pendingEdits captured at last round-complete
+	writeGeneration  int           // incremented on round-complete; stale timer callbacks check this
 	status           *Status       // optional terminal status output
 	roundComplete    chan struct{} // signaled when agent calls round-complete
 	reviewRound      int           // current review round (1-based)
@@ -280,6 +281,10 @@ func (d *Document) GetReviewRound() int {
 
 func (d *Document) SignalRoundComplete() {
 	d.mu.Lock()
+	if d.writeTimer != nil {
+		d.writeTimer.Stop()
+	}
+	d.writeGeneration++
 	d.lastRoundEdits = d.pendingEdits
 	d.pendingEdits = 0
 	d.reviewRound++
@@ -300,7 +305,14 @@ func (d *Document) scheduleWrite() {
 	if d.writeTimer != nil {
 		d.writeTimer.Stop()
 	}
+	gen := d.writeGeneration
 	d.writeTimer = time.AfterFunc(200*time.Millisecond, func() {
+		d.mu.RLock()
+		if d.writeGeneration != gen {
+			d.mu.RUnlock()
+			return
+		}
+		d.mu.RUnlock()
 		d.WriteFiles()
 	})
 }
@@ -319,7 +331,6 @@ func (d *Document) WriteFiles() {
 
 func (d *Document) writeCommentsJSON(comments []Comment, sharedURL, deleteToken string) {
 	if len(comments) == 0 && sharedURL == "" && deleteToken == "" {
-		os.Remove(d.commentsFilePath())
 		return
 	}
 
@@ -572,10 +583,24 @@ func (d *Document) WatchFile(stop <-chan struct{}) {
 			edits := d.lastRoundEdits
 			d.mu.RUnlock()
 
-			// Load agent's resolved comments from .comments.json before cleanup
+			// Load agent's resolved comments from .comments.json
 			d.loadResolvedComments()
 			d.carryForwardUnresolved()
-			os.Remove(d.commentsFilePath())
+
+			// Re-read source file so Content/FileHash reflect the agent's
+			// latest edits. Without this the next ticker tick would detect a
+			// stale hash, call ReloadFile with pendingEdits==0, and
+			// overwrite PreviousComments / clear carried-forward Comments.
+			if data, err := os.ReadFile(d.FilePath); err == nil {
+				content := string(data)
+				hash := fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+				d.mu.Lock()
+				d.Content = content
+				d.FileHash = hash
+				d.mu.Unlock()
+			}
+
+			// .review.md is a rendered output the agent already consumed.
 			os.Remove(d.reviewFilePath())
 
 			// Count resolved and open comments from previous round

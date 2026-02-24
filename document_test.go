@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 func newTestDoc(t *testing.T, content string) *Document {
@@ -646,5 +647,65 @@ func TestCarryForwardUnresolved_AllResolved(t *testing.T) {
 
 	if len(doc.Comments) != 0 {
 		t.Errorf("expected 0 comments when all resolved, got %d", len(doc.Comments))
+	}
+}
+
+func TestWriteCommentsJSON_DoesNotDeleteFile(t *testing.T) {
+	doc := newTestDoc(t, "line1\nline2")
+	doc.AddComment(1, 1, "a comment")
+	writeAndStop(doc)
+
+	// File should exist after normal write
+	if _, err := os.Stat(doc.commentsFilePath()); err != nil {
+		t.Fatalf("comments file should exist after write: %v", err)
+	}
+
+	// Now write with empty comments (simulates what happens when
+	// ReloadFile clears d.Comments and a stale timer fires WriteFiles).
+	doc.writeCommentsJSON(nil, "", "")
+
+	// File must still exist — we no longer delete it.
+	if _, err := os.Stat(doc.commentsFilePath()); err != nil {
+		t.Fatal("comments file was deleted by writeCommentsJSON with empty args")
+	}
+}
+
+func TestSignalRoundComplete_InvalidatesStaleWrite(t *testing.T) {
+	doc := newTestDoc(t, "line1\nline2")
+	doc.AddComment(1, 1, "review comment")
+	writeAndStop(doc)
+
+	// Confirm file has the comment
+	data, err := os.ReadFile(doc.commentsFilePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cf CommentsFile
+	json.Unmarshal(data, &cf)
+	if len(cf.Comments) != 1 {
+		t.Fatalf("expected 1 comment on disk, got %d", len(cf.Comments))
+	}
+
+	// Schedule a write, then immediately signal round-complete.
+	// The round-complete clears comments and bumps the generation,
+	// so the pending write should be invalidated.
+	doc.mu.Lock()
+	doc.scheduleWrite()
+	doc.mu.Unlock()
+	doc.SignalRoundComplete()
+
+	// Wait for the timer to fire (200ms + buffer)
+	<-doc.RoundCompleteChan()
+	time.Sleep(350 * time.Millisecond)
+
+	// The file should still have the original comment — the stale
+	// timer should have been invalidated by the generation counter.
+	data, err = os.ReadFile(doc.commentsFilePath())
+	if err != nil {
+		t.Fatalf("comments file should still exist: %v", err)
+	}
+	json.Unmarshal(data, &cf)
+	if len(cf.Comments) != 1 {
+		t.Errorf("stale write overwrote file: expected 1 comment, got %d", len(cf.Comments))
 	}
 }
