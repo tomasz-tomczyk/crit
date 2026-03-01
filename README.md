@@ -214,6 +214,19 @@ make build-all
 #   crit-linux-arm64
 ```
 
+### E2E Tests
+
+The `e2e/` directory has a Playwright test suite that runs the full frontend against a real Crit server. Requires Node.js (listed in `mise.toml`).
+
+```bash
+cd e2e && npm install && npx playwright install chromium
+
+make e2e                                              # Run full suite
+cd e2e && npx playwright test tests/comments.spec.ts  # Run one test file
+cd e2e && npx playwright test --headed                # Run with visible browser
+make e2e-report                                       # View HTML report
+```
+
 ## Acknowledgments
 
 Crit embeds the following open-source libraries:
