@@ -11,48 +11,69 @@ import (
 	"testing"
 )
 
-func newTestServer(t *testing.T) (*Server, *Document) {
+func newTestServer(t *testing.T) (*Server, *Session) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.md")
 	if err := os.WriteFile(path, []byte("line1\nline2\nline3\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := NewDocument(path, dir)
+
+	session := &Session{
+		Mode:          "files",
+		RepoRoot:      dir,
+		OutputDir:     dir,
+		ReviewRound:   1,
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+		Files: []*FileEntry{
+			{
+				Path:     "test.md",
+				AbsPath:  path,
+				Status:   "added",
+				FileType: "markdown",
+				Content:  "line1\nline2\nline3\n",
+				FileHash: "sha256:testhash",
+				Comments: []Comment{},
+				nextID:   1,
+			},
+		},
+	}
+
+	s, err := NewServer(session, frontendFS, "", "test", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := NewServer(doc, frontendFS, "", "test", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s, doc
+	return s, session
 }
 
-func TestGetDocument(t *testing.T) {
+func TestGetSession(t *testing.T) {
 	s, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/document", nil)
+	req := httptest.NewRequest("GET", "/api/session", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
-	var resp map[string]string
+	var resp SessionInfo
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["filename"] != "test.md" {
-		t.Errorf("filename = %q", resp["filename"])
+	if resp.Mode != "files" {
+		t.Errorf("mode = %q, want files", resp.Mode)
 	}
-	if !strings.Contains(resp["content"], "line1") {
-		t.Error("content missing")
+	if len(resp.Files) != 1 {
+		t.Errorf("expected 1 file, got %d", len(resp.Files))
+	}
+	if resp.Files[0].Path != "test.md" {
+		t.Errorf("file path = %q", resp.Files[0].Path)
 	}
 }
 
-func TestGetDocument_MethodNotAllowed(t *testing.T) {
+func TestGetSession_MethodNotAllowed(t *testing.T) {
 	s, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/document", nil)
+	req := httptest.NewRequest("POST", "/api/session", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	if w.Code != 405 {
@@ -60,10 +81,51 @@ func TestGetDocument_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-func TestPostComment(t *testing.T) {
-	s, doc := newTestServer(t)
+func TestGetFile(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/file?path=test.md", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["path"] != "test.md" {
+		t.Errorf("path = %q", resp["path"])
+	}
+	if !strings.Contains(resp["content"].(string), "line1") {
+		t.Error("content missing")
+	}
+}
+
+func TestGetFile_NotFound(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/file?path=nonexistent.go", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestGetFile_MissingPath(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/file", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestPostFileComment(t *testing.T) {
+	s, session := newTestServer(t)
 	body := `{"start_line":1,"end_line":2,"body":"Fix this"}`
-	req := httptest.NewRequest("POST", "/api/comments", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -78,15 +140,15 @@ func TestPostComment(t *testing.T) {
 	if c.Body != "Fix this" || c.StartLine != 1 || c.EndLine != 2 {
 		t.Errorf("unexpected comment: %+v", c)
 	}
-	if len(doc.GetComments()) != 1 {
+	if len(session.GetComments("test.md")) != 1 {
 		t.Error("comment not persisted")
 	}
 }
 
-func TestPostComment_EmptyBody(t *testing.T) {
+func TestPostFileComment_EmptyBody(t *testing.T) {
 	s, _ := newTestServer(t)
 	body := `{"start_line":1,"end_line":1,"body":""}`
-	req := httptest.NewRequest("POST", "/api/comments", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	if w.Code != 400 {
@@ -94,7 +156,7 @@ func TestPostComment_EmptyBody(t *testing.T) {
 	}
 }
 
-func TestPostComment_InvalidLineRange(t *testing.T) {
+func TestPostFileComment_InvalidLineRange(t *testing.T) {
 	s, _ := newTestServer(t)
 	tests := []struct {
 		name string
@@ -105,7 +167,7 @@ func TestPostComment_InvalidLineRange(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest("POST", "/api/comments", strings.NewReader(tc.body))
+			req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", strings.NewReader(tc.body))
 			w := httptest.NewRecorder()
 			s.ServeHTTP(w, req)
 			if w.Code != 400 {
@@ -115,9 +177,9 @@ func TestPostComment_InvalidLineRange(t *testing.T) {
 	}
 }
 
-func TestPostComment_InvalidJSON(t *testing.T) {
+func TestPostFileComment_InvalidJSON(t *testing.T) {
 	s, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/comments", strings.NewReader("not json"))
+	req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", strings.NewReader("not json"))
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	if w.Code != 400 {
@@ -125,12 +187,23 @@ func TestPostComment_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestGetComments(t *testing.T) {
-	s, doc := newTestServer(t)
-	doc.AddComment(1, 1, "one")
-	doc.AddComment(2, 2, "two")
+func TestPostFileComment_FileNotFound(t *testing.T) {
+	s, _ := newTestServer(t)
+	body := `{"start_line":1,"end_line":1,"body":"test"}`
+	req := httptest.NewRequest("POST", "/api/file/comments?path=nonexistent.go", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
 
-	req := httptest.NewRequest("GET", "/api/comments", nil)
+func TestGetFileComments(t *testing.T) {
+	s, session := newTestServer(t)
+	session.AddComment("test.md", 1, 1, "", "one")
+	session.AddComment("test.md", 2, 2, "", "two")
+
+	req := httptest.NewRequest("GET", "/api/file/comments?path=test.md", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
@@ -147,18 +220,18 @@ func TestGetComments(t *testing.T) {
 }
 
 func TestAPIUpdateComment(t *testing.T) {
-	s, doc := newTestServer(t)
-	c := doc.AddComment(1, 1, "original")
+	s, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "original")
 
 	body := `{"body":"updated"}`
-	req := httptest.NewRequest("PUT", "/api/comments/"+c.ID, strings.NewReader(body))
+	req := httptest.NewRequest("PUT", "/api/comment/"+c.ID+"?path=test.md", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
 	if w.Code != 200 {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
-	if doc.GetComments()[0].Body != "updated" {
+	if session.GetComments("test.md")[0].Body != "updated" {
 		t.Error("comment not updated")
 	}
 }
@@ -166,7 +239,7 @@ func TestAPIUpdateComment(t *testing.T) {
 func TestAPIUpdateComment_NotFound(t *testing.T) {
 	s, _ := newTestServer(t)
 	body := `{"body":"x"}`
-	req := httptest.NewRequest("PUT", "/api/comments/nonexistent", strings.NewReader(body))
+	req := httptest.NewRequest("PUT", "/api/comment/nonexistent?path=test.md", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	if w.Code != 404 {
@@ -175,24 +248,24 @@ func TestAPIUpdateComment_NotFound(t *testing.T) {
 }
 
 func TestAPIDeleteComment(t *testing.T) {
-	s, doc := newTestServer(t)
-	c := doc.AddComment(1, 1, "to delete")
+	s, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "to delete")
 
-	req := httptest.NewRequest("DELETE", "/api/comments/"+c.ID, nil)
+	req := httptest.NewRequest("DELETE", "/api/comment/"+c.ID+"?path=test.md", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
-	if len(doc.GetComments()) != 0 {
+	if len(session.GetComments("test.md")) != 0 {
 		t.Error("comment not deleted")
 	}
 }
 
 func TestAPIDeleteComment_NotFound(t *testing.T) {
 	s, _ := newTestServer(t)
-	req := httptest.NewRequest("DELETE", "/api/comments/nonexistent", nil)
+	req := httptest.NewRequest("DELETE", "/api/comment/nonexistent?path=test.md", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	if w.Code != 404 {
@@ -201,8 +274,8 @@ func TestAPIDeleteComment_NotFound(t *testing.T) {
 }
 
 func TestFinish(t *testing.T) {
-	s, doc := newTestServer(t)
-	doc.AddComment(1, 1, "note")
+	s, session := newTestServer(t)
+	session.AddComment("test.md", 1, 1, "", "note")
 
 	req := httptest.NewRequest("POST", "/api/finish", nil)
 	w := httptest.NewRecorder()
@@ -238,32 +311,6 @@ func TestFinish_NoComments(t *testing.T) {
 	}
 }
 
-func TestStale(t *testing.T) {
-	s, doc := newTestServer(t)
-
-	// No stale notice initially
-	req := httptest.NewRequest("GET", "/api/stale", nil)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-	var resp map[string]string
-	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["notice"] != "" {
-		t.Error("expected no stale notice")
-	}
-
-	// Set and clear
-	doc.mu.Lock()
-	doc.staleNotice = "stale!"
-	doc.mu.Unlock()
-
-	req = httptest.NewRequest("DELETE", "/api/stale", nil)
-	w = httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-	if doc.GetStaleNotice() != "" {
-		t.Error("stale notice not cleared")
-	}
-}
-
 // ===== Path Traversal Tests =====
 
 func TestHandleFiles_PathTraversal(t *testing.T) {
@@ -290,17 +337,17 @@ func TestHandleFiles_PathTraversal(t *testing.T) {
 }
 
 func TestHandleFiles_SymlinkTraversal(t *testing.T) {
-	s, doc := newTestServer(t)
+	s, session := newTestServer(t)
 
-	// Create a file outside the doc directory
+	// Create a file outside the repo root
 	outsideDir := t.TempDir()
 	secretPath := filepath.Join(outsideDir, "secret.txt")
 	if err := os.WriteFile(secretPath, []byte("secret data"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create a symlink inside doc dir pointing outside
-	linkPath := filepath.Join(doc.FileDir, "escape")
+	// Create a symlink inside repo root pointing outside
+	linkPath := filepath.Join(session.RepoRoot, "escape")
 	if err := os.Symlink(outsideDir, linkPath); err != nil {
 		t.Skipf("symlinks not supported: %v", err)
 	}
@@ -315,10 +362,9 @@ func TestHandleFiles_SymlinkTraversal(t *testing.T) {
 }
 
 func TestHandleFiles_Subdirectory(t *testing.T) {
-	s, doc := newTestServer(t)
+	s, session := newTestServer(t)
 
-	// Create a subdirectory with a file
-	subdir := filepath.Join(doc.FileDir, "images")
+	subdir := filepath.Join(session.RepoRoot, "images")
 	if err := os.Mkdir(subdir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -340,10 +386,9 @@ func TestHandleFiles_Subdirectory(t *testing.T) {
 }
 
 func TestHandleFiles_ValidFile(t *testing.T) {
-	s, doc := newTestServer(t)
+	s, session := newTestServer(t)
 
-	// Create a file in the doc directory
-	imgPath := filepath.Join(doc.FileDir, "image.png")
+	imgPath := filepath.Join(session.RepoRoot, "image.png")
 	if err := os.WriteFile(imgPath, []byte("fake png"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -414,10 +459,7 @@ func TestCheckForUpdates(t *testing.T) {
 	s, _ := newTestServer(t)
 	s.currentVersion = "v1.0.0"
 
-	// Swap the GitHub URL for the mock server
-	origURL := "https://api.github.com/repos/tomasz-tomczyk/crit/releases/latest"
-	_ = origURL // not used directly — checkForUpdates has it hardcoded, so we test via integration
-	// Instead, call the handler directly with our mock to test the parsing logic
+	// Test the parsing logic via our mock
 	req, _ := http.NewRequest("GET", gh.URL+"/repos/tomasz-tomczyk/crit/releases/latest", nil)
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -466,7 +508,7 @@ func TestGetConfig_MethodNotAllowed(t *testing.T) {
 }
 
 func TestPostShareURL(t *testing.T) {
-	s, doc := newTestServer(t)
+	s, session := newTestServer(t)
 
 	body := `{"url":"https://crit.live/r/abc123"}`
 	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
@@ -477,8 +519,8 @@ func TestPostShareURL(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
-	if doc.GetSharedURL() != "https://crit.live/r/abc123" {
-		t.Errorf("shared URL = %q, want https://crit.live/r/abc123", doc.GetSharedURL())
+	if session.GetSharedURL() != "https://crit.live/r/abc123" {
+		t.Errorf("shared URL = %q, want https://crit.live/r/abc123", session.GetSharedURL())
 	}
 
 	// Verify config now reflects the stored URL
@@ -505,8 +547,8 @@ func TestPostShareURL_MethodNotAllowed(t *testing.T) {
 }
 
 func TestGetConfig_IncludesDeleteToken(t *testing.T) {
-	s, doc := newTestServer(t)
-	doc.SetDeleteToken("mydeletetoken1234567890")
+	s, session := newTestServer(t)
+	session.SetSharedURLAndToken("", "mydeletetoken1234567890")
 
 	req := httptest.NewRequest("GET", "/api/config", nil)
 	w := httptest.NewRecorder()
@@ -522,7 +564,7 @@ func TestGetConfig_IncludesDeleteToken(t *testing.T) {
 }
 
 func TestPostShareURL_SavesDeleteToken(t *testing.T) {
-	s, doc := newTestServer(t)
+	s, session := newTestServer(t)
 
 	body := `{"url":"https://crit.live/r/abc","delete_token":"deletetoken1234567890x"}`
 	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
@@ -533,15 +575,14 @@ func TestPostShareURL_SavesDeleteToken(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
-	if doc.GetDeleteToken() != "deletetoken1234567890x" {
-		t.Errorf("delete token = %q", doc.GetDeleteToken())
+	if session.GetDeleteToken() != "deletetoken1234567890x" {
+		t.Errorf("delete token = %q", session.GetDeleteToken())
 	}
 }
 
 func TestDeleteShareURL(t *testing.T) {
-	s, doc := newTestServer(t)
-	doc.SetSharedURL("https://crit.live/r/abc")
-	doc.SetDeleteToken("sometoken1234567890123")
+	s, session := newTestServer(t)
+	session.SetSharedURLAndToken("https://crit.live/r/abc", "sometoken1234567890123")
 
 	req := httptest.NewRequest("DELETE", "/api/share-url", nil)
 	w := httptest.NewRecorder()
@@ -550,10 +591,10 @@ func TestDeleteShareURL(t *testing.T) {
 	if w.Code != 204 {
 		t.Errorf("status = %d, want 204", w.Code)
 	}
-	if doc.GetSharedURL() != "" {
+	if session.GetSharedURL() != "" {
 		t.Errorf("hostedURL should be cleared")
 	}
-	if doc.GetDeleteToken() != "" {
+	if session.GetDeleteToken() != "" {
 		t.Errorf("deleteToken should be cleared")
 	}
 }
@@ -607,96 +648,25 @@ func TestRoundComplete_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-func TestGetPreviousRound_Empty(t *testing.T) {
-	s, _ := newTestServer(t)
+func TestGetFileDiff_CodeFile(t *testing.T) {
+	s, session := newTestServer(t)
+	// Add a code file with diff hunks
+	session.mu.Lock()
+	session.Files = append(session.Files, &FileEntry{
+		Path:     "main.go",
+		AbsPath:  "/tmp/main.go",
+		Status:   "modified",
+		FileType: "code",
+		Content:  "package main",
+		Comments: []Comment{},
+		nextID:   1,
+		DiffHunks: []DiffHunk{
+			{OldStart: 1, OldCount: 3, NewStart: 1, NewCount: 4, Header: "@@ -1,3 +1,4 @@"},
+		},
+	})
+	session.mu.Unlock()
 
-	req := httptest.NewRequest("GET", "/api/previous-round", nil)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-
-	if w.Code != 200 {
-		t.Fatalf("status = %d", w.Code)
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp["content"] != "" {
-		t.Errorf("expected empty content for first round, got %q", resp["content"])
-	}
-}
-
-func TestGetPreviousRound_AfterReload(t *testing.T) {
-	s, doc := newTestServer(t)
-	doc.AddComment(1, 1, "fix this")
-
-	// Simulate file change
-	os.WriteFile(doc.FilePath, []byte("modified content"), 0644)
-	doc.ReloadFile()
-
-	req := httptest.NewRequest("GET", "/api/previous-round", nil)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-
-	var resp struct {
-		Content     string    `json:"content"`
-		Comments    []Comment `json:"comments"`
-		ReviewRound int       `json:"review_round"`
-	}
-	json.Unmarshal(w.Body.Bytes(), &resp)
-
-	if resp.Content != "line1\nline2\nline3\n" {
-		t.Errorf("previous content = %q", resp.Content)
-	}
-	if len(resp.Comments) != 1 || resp.Comments[0].Body != "fix this" {
-		t.Errorf("previous comments = %+v", resp.Comments)
-	}
-	if resp.ReviewRound != 1 {
-		t.Errorf("review_round = %d, want 1 (no round-complete yet)", resp.ReviewRound)
-	}
-}
-
-func TestGetPreviousRound_ReviewRoundIncrementsAfterRoundComplete(t *testing.T) {
-	s, doc := newTestServer(t)
-	doc.AddComment(1, 1, "fix this")
-
-	// Simulate file change + round complete
-	os.WriteFile(doc.FilePath, []byte("modified content"), 0644)
-	doc.ReloadFile()
-	doc.SignalRoundComplete()
-	// Drain the channel so it doesn't block
-	select {
-	case <-doc.RoundCompleteChan():
-	default:
-	}
-
-	req := httptest.NewRequest("GET", "/api/previous-round", nil)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-
-	var resp struct {
-		ReviewRound int `json:"review_round"`
-	}
-	json.Unmarshal(w.Body.Bytes(), &resp)
-
-	if resp.ReviewRound != 2 {
-		t.Errorf("review_round = %d, want 2 after one round-complete", resp.ReviewRound)
-	}
-}
-
-func TestGetPreviousRound_MethodNotAllowed(t *testing.T) {
-	s, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/previous-round", nil)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-	if w.Code != 405 {
-		t.Errorf("status = %d, want 405", w.Code)
-	}
-}
-
-func TestGetDiff_NoPreviousRound(t *testing.T) {
-	s, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/diff", nil)
+	req := httptest.NewRequest("GET", "/api/file/diff?path=main.go", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
@@ -704,23 +674,25 @@ func TestGetDiff_NoPreviousRound(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 	var resp struct {
-		Entries []DiffEntry `json:"entries"`
+		Hunks []DiffHunk `json:"hunks"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if len(resp.Entries) != 0 {
-		t.Errorf("expected empty diff entries for first round, got %d", len(resp.Entries))
+	if len(resp.Hunks) != 1 {
+		t.Errorf("expected 1 hunk, got %d", len(resp.Hunks))
 	}
 }
 
-func TestGetDiff_AfterReload(t *testing.T) {
-	s, doc := newTestServer(t)
+func TestGetFileDiff_MarkdownFilesMode(t *testing.T) {
+	s, session := newTestServer(t)
+	// Set previous content for the markdown file
+	session.mu.Lock()
+	session.Files[0].PreviousContent = "old content"
+	session.Files[0].Content = "new content"
+	session.mu.Unlock()
 
-	os.WriteFile(doc.FilePath, []byte("modified line 1\nnew line"), 0644)
-	doc.ReloadFile()
-
-	req := httptest.NewRequest("GET", "/api/diff", nil)
+	req := httptest.NewRequest("GET", "/api/file/diff?path=test.md", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
@@ -728,40 +700,42 @@ func TestGetDiff_AfterReload(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 	var resp struct {
-		Entries []DiffEntry `json:"entries"`
+		Hunks []DiffHunk `json:"hunks"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if len(resp.Entries) == 0 {
-		t.Error("expected non-empty diff entries after reload")
-	}
-
-	// Verify diff contains expected types
-	hasAdded := false
-	hasRemoved := false
-	for _, e := range resp.Entries {
-		if e.Type == "added" {
-			hasAdded = true
-		}
-		if e.Type == "removed" {
-			hasRemoved = true
-		}
-	}
-	if !hasAdded {
-		t.Error("expected at least one added entry in diff")
-	}
-	if !hasRemoved {
-		t.Error("expected at least one removed entry in diff")
+	if len(resp.Hunks) == 0 {
+		t.Error("expected non-empty diff hunks")
 	}
 }
 
-func TestGetDiff_MethodNotAllowed(t *testing.T) {
+func TestGetFileDiff_NotFound(t *testing.T) {
 	s, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/diff", nil)
+	req := httptest.NewRequest("GET", "/api/file/diff?path=nonexistent.go", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
-	if w.Code != 405 {
-		t.Errorf("status = %d, want 405", w.Code)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestGetFileDiff_MissingPath(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/file/diff", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestCommentByID_MissingPath(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("PUT", "/api/comment/c1", strings.NewReader(`{"body":"x"}`))
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
