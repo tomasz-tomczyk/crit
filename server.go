@@ -298,8 +298,9 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	prompt := ""
 	if totalComments > 0 {
 		prompt = fmt.Sprintf(
-			"Address review comments in %s. "+
-				"Mark resolved (set \"resolved\": true, optionally \"resolution_note\" and \"resolution_lines\"). "+
+			"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
+				"Read the file, address each comment in the relevant file and location, "+
+				"then mark it resolved (set \"resolved\": true, optionally \"resolution_note\" and \"resolution_lines\"). "+
 				"When done run: `crit go %d`",
 			critJSON, s.port)
 	}
