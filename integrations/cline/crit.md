@@ -24,6 +24,6 @@ Do NOT begin implementation until the user confirms the plan is approved.
 
 ## After review
 
-If the user provides a `.review.md` file, read it to find inline comments marked with `> **[REVIEW COMMENT - Lines X-Y]**:`. Address each comment by revising the original plan file.
+Read `.crit.json` to find the user's inline comments. Each file's comments are in a structured JSON format with `start_line`, `end_line`, `body`, and `resolved` fields. Address each unresolved comment by revising the original plan file.
 
 Only proceed with implementation after the user approves the final plan.

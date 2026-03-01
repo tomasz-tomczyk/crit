@@ -12,9 +12,9 @@ Review and revise the current plan using `crit` for inline comment review.
 Determine which plan file to review, using this priority:
 
 1. **User argument** - if the user provided `$ARGUMENTS` (e.g., `/crit my-plan.md`), use that file path
-2. **Recent plans** - check for `.md` files in `~/.claude/plans/`, excluding `*-agent-*.md` and `*.review.md`:
+2. **Recent plans** - check for `.md` files in `~/.claude/plans/`, excluding `*-agent-*.md`:
    ```bash
-   command ls -t ~/.claude/plans/*.md 2>/dev/null | grep -v -E '(-agent-|\.review\.md$)' | head -5
+   command ls -t ~/.claude/plans/*.md 2>/dev/null | grep -v -E '(-agent-)' | head -5
    ```
 3. **Current directory** - search for plan-like `.md` files in the working directory
 
@@ -34,17 +34,31 @@ Wait for the user to respond before proceeding.
 
 ## Step 3: Read the review output
 
-After the user confirms, read the review file at `<plan-file-stem>.review.md` using the Read tool.
+After the user confirms, read the `.crit.json` file in the repo root (or working directory) using the Read tool.
 
-Identify all `> **[REVIEW COMMENT` blocks. Each block contains feedback about the section above it.
+The file contains structured JSON with comments per file:
+
+```json
+{
+  "files": {
+    "plan.md": {
+      "comments": [
+        { "id": "c1", "start_line": 5, "end_line": 10, "body": "Clarify this step", "resolved": false }
+      ]
+    }
+  }
+}
+```
+
+Identify all comments where `"resolved": false`.
 
 ## Step 4: Address each review comment
 
-For each review comment:
+For each unresolved comment:
 
 1. Understand what the comment asks for (clarification, change, addition, removal)
-2. If a comment contains a suggestion block (indented original text with edits), apply that specific change
-3. Revise the **original plan file** (not the review file) to address the feedback
+2. If a comment contains a suggestion block, apply that specific change
+3. Revise the **original plan file** to address the feedback
 4. Use the Edit tool to make targeted changes
 
 Editing the plan file triggers Crit's live reload - the user sees changes in the browser immediately.
