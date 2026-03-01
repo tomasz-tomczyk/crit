@@ -1,4 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import * as fs from 'fs';
 
 async function loadPage(page: Page) {
   await page.goto('/');
@@ -81,26 +82,60 @@ test.describe('Multi-Round — API', () => {
     expect(session.review_round).toBe(startRound + 1);
   });
 
-  test('round-complete clears comments', async ({ request }) => {
+  test('round-complete carries forward unresolved comments', async ({ request }) => {
+    // Add a comment (unresolved by default)
+    const sessionRes = await request.get('/api/session');
+    const session = await sessionRes.json();
+    const filePath = session.files[0].path;
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Unresolved comment' },
+    });
+
+    // Finish to write .crit.json
+    await request.post('/api/finish');
+
+    // Signal round complete
+    await request.post('/api/round-complete');
+    await new Promise(r => setTimeout(r, 500));
+
+    // Unresolved comment should be carried forward
+    const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
+    expect(comments.length).toBe(1);
+    expect(comments[0].body).toBe('Unresolved comment');
+    expect(comments[0].carried_forward).toBe(true);
+  });
+
+  test('round-complete does not carry forward resolved comments', async ({ request }) => {
     // Add a comment
     const sessionRes = await request.get('/api/session');
     const session = await sessionRes.json();
     const filePath = session.files[0].path;
 
     await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: 1, end_line: 1, body: 'Will be cleared' },
+      data: { start_line: 1, end_line: 1, body: 'Will be resolved' },
     });
 
-    // Verify comment exists
-    let comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
-    expect(comments.length).toBe(1);
+    // Finish to write .crit.json (get the path from response)
+    const finishRes = await request.post('/api/finish');
+    const finishData = await finishRes.json();
+    const critJsonPath = finishData.review_file;
+
+    // Simulate agent marking comment as resolved by editing .crit.json
+    const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
+    for (const fileKey of Object.keys(critJson.files)) {
+      for (const comment of critJson.files[fileKey].comments) {
+        comment.resolved = true;
+      }
+    }
+    fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
 
     // Signal round complete
     await request.post('/api/round-complete');
     await new Promise(r => setTimeout(r, 500));
 
-    // Comments should be cleared
-    comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
+    // Resolved comment should NOT be carried forward
+    const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
     expect(comments.length).toBe(0);
   });
 
@@ -189,7 +224,7 @@ test.describe('Multi-Round — Frontend', () => {
     await expect(finishBtn).toBeEnabled();
   });
 
-  test('comments are cleared in UI after round-complete', async ({ page, request }) => {
+  test('unresolved comments persist in UI after round-complete', async ({ page, request }) => {
     // Switch plan.md to document view for commenting
     const mdSection = page.locator('.file-section').filter({ hasText: 'plan.md' });
     const docBtn = mdSection.locator('.file-header-toggle .toggle-btn[data-mode="document"]');
@@ -200,7 +235,7 @@ test.describe('Multi-Round — Frontend', () => {
     const lineBlock = mdSection.locator('.line-block').first();
     await lineBlock.hover();
     await mdSection.locator('.line-comment-gutter').first().click();
-    await page.locator('.comment-form textarea').fill('Will disappear after round');
+    await page.locator('.comment-form textarea').fill('Unresolved survives round');
     await page.locator('.comment-form .btn-primary').click();
     await expect(mdSection.locator('.comment-card')).toBeVisible();
 
@@ -216,9 +251,9 @@ test.describe('Multi-Round — Frontend', () => {
     // Wait for UI to refresh
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Comments should be gone
-    await expect(page.locator('.comment-card')).toHaveCount(0);
-    await expect(countEl).toHaveText('');
+    // Unresolved comment should still be visible (carried forward)
+    await expect(page.locator('.comment-card')).toHaveCount(1);
+    await expect(countEl).toContainText('1');
   });
 
   test('file sections are re-rendered after round-complete', async ({ page, request }) => {

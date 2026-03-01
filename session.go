@@ -924,6 +924,25 @@ func (s *Session) handleRoundCompleteGit() {
 			f.FileHash = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 		}
 	}
+	// Carry forward unresolved comments at original positions
+	for _, f := range s.Files {
+		for _, c := range f.PreviousComments {
+			if !c.Resolved {
+				carried := Comment{
+					ID:             fmt.Sprintf("c%d", f.nextID),
+					StartLine:      c.StartLine,
+					EndLine:        c.EndLine,
+					Side:           c.Side,
+					Body:           c.Body,
+					CreatedAt:      c.CreatedAt,
+					UpdatedAt:      time.Now().UTC().Format(time.RFC3339),
+					CarriedForward: true,
+				}
+				f.nextID++
+				f.Comments = append(f.Comments, carried)
+			}
+		}
+	}
 	s.mu.Unlock()
 
 	// Refresh diffs for all files
