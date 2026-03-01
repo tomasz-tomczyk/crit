@@ -28,6 +28,7 @@
   --border-comment: #3d59a1;
   --comment-bg: #1a1f36;
   --selection-bg: rgba(210, 153, 34, 0.13);
+  --comment-range-bg: rgba(210, 153, 34, 0.08);
   --shadow: 0 2px 8px rgba(0,0,0,0.3);
   --code-bg: #1e2030;
   --table-stripe: rgba(122, 162, 247, 0.04);
@@ -67,6 +68,7 @@
     --border-comment: #0969da;
     --comment-bg: #f0f6ff;
     --selection-bg: rgba(210, 153, 34, 0.15);
+    --comment-range-bg: rgba(210, 153, 34, 0.1);
     --shadow: 0 2px 8px rgba(0,0,0,0.08);
     --code-bg: #f5f5f5;
     --table-stripe: rgba(0, 0, 0, 0.02);
@@ -106,6 +108,7 @@
   --border-comment: #3d59a1;
   --comment-bg: #1a1f36;
   --selection-bg: rgba(210, 153, 34, 0.13);
+  --comment-range-bg: rgba(210, 153, 34, 0.08);
   --shadow: 0 2px 8px rgba(0,0,0,0.3);
   --code-bg: #1e2030;
   --table-stripe: rgba(122, 162, 247, 0.04);

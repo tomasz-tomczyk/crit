@@ -1133,6 +1133,12 @@
     const commentsMap = buildCommentsMap(file.comments);
     const resolvedMap = buildResolvedMap(file);
 
+    // Build set of all lines covered by any comment (for range highlighting)
+    const commentedLines = new Set();
+    for (const c of file.comments) {
+      for (let ln = c.start_line; ln <= c.end_line; ln++) commentedLines.add(ln);
+    }
+
     for (let bi = 0; bi < file.lineBlocks.length; bi++) {
       const block = file.lineBlocks[bi];
 
@@ -1144,7 +1150,12 @@
       lineBlockEl.dataset.filePath = file.path;
 
       const blockComments = getCommentsForBlock(block, commentsMap);
-      if (blockComments.length > 0) lineBlockEl.classList.add('has-comment');
+      // Highlight all blocks in the comment's line range
+      var blockInCommentRange = false;
+      for (let ln = block.startLine; ln <= block.endLine; ln++) {
+        if (commentedLines.has(ln)) { blockInCommentRange = true; break; }
+      }
+      if (blockInCommentRange) lineBlockEl.classList.add('has-comment');
 
       // Selection highlight (during drag or when form is open)
       if (activeFilePath === file.path && selectionStart !== null && selectionEnd !== null) {

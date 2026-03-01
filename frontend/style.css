@@ -329,13 +329,10 @@ body {
 .line-block {
   position: relative;
   display: flex;
-  border-left: 3px solid transparent;
-  transition: border-color 0.15s;
 }
 
-
 .line-block.has-comment {
-  border-left-color: var(--accent);
+  background: var(--comment-range-bg);
 }
 
 .line-block.selected {
@@ -344,7 +341,6 @@ body {
 
 .line-block.focused {
   background: var(--accent-subtle);
-  border-left-color: var(--accent);
 }
 .diff-line.focused, .diff-split-row.focused {
   background: var(--selection-bg);
@@ -1664,7 +1660,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .diff-container.unified .diff-line.addition { background: var(--diff-add-bg); }
 .diff-container.unified .diff-line.deletion { background: var(--diff-del-bg); }
-.diff-container.unified .diff-line.has-comment { border-left-color: var(--accent); }
+.diff-container.unified .diff-line.has-comment { background: var(--comment-range-bg); }
 .diff-container.unified .diff-line.selected { background: var(--selection-bg); }
 .diff-container.unified .diff-gutter {
   display: flex;
@@ -1699,7 +1695,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .diff-split-side.left { border-right: 1px solid var(--border); }
 .diff-split-side.deletion { background: var(--diff-del-bg); }
 .diff-split-side.addition { background: var(--diff-add-bg); }
-.diff-split-side.has-comment { border-left-color: var(--accent); }
+.diff-split-side.has-comment { background: var(--comment-range-bg); }
 .diff-split-side.empty { background: var(--bg-secondary); }
 .diff-split-side.selected { background: var(--selection-bg); }
 .diff-split-side .diff-gutter-num { min-width: 44px; }
