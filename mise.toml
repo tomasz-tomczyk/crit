@@ -1,5 +1,6 @@
 [tools]
 go = "1.26.0"
+node = "22"
 
 [env]
 PORT = "8080"
