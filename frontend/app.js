@@ -18,6 +18,15 @@
     }
   });
 
+  // ===== Cookie helpers (persist across random ports on 127.0.0.1) =====
+  function setCookie(name, value) {
+    document.cookie = name + '=' + encodeURIComponent(value) + '; path=/; max-age=31536000; SameSite=Strict';
+  }
+  function getCookie(name) {
+    var match = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
   // ===== State =====
   let session = {};       // { mode, branch, base_ref, review_round, files: [...] }
   let files = [];         // [{ path, status, fileType, content, diffHunks, comments, lineBlocks, tocItems, collapsed, viewMode }]
@@ -27,7 +36,7 @@
   let uiState = 'reviewing';
   let reviewRound = 1;
 
-  let diffMode = localStorage.getItem('crit-diff-mode') || 'split'; // 'split' or 'unified'
+  let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
 
   // Per-file active form state
   let activeFilePath = null;
@@ -2909,12 +2918,12 @@
 
   // ===== Theme =====
   function initTheme() {
-    const saved = localStorage.getItem('crit-theme') || 'system';
+    const saved = getCookie('crit-theme') || 'system';
     applyTheme(saved);
   }
 
   window.applyTheme = function(choice) {
-    localStorage.setItem('crit-theme', choice);
+    setCookie('crit-theme', choice);
     if (choice === 'light') document.documentElement.setAttribute('data-theme', 'light');
     else if (choice === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
     else document.documentElement.removeAttribute('data-theme');
@@ -2949,7 +2958,7 @@
       const mode = btn.dataset.mode;
       if (mode === diffMode) return;
       diffMode = mode;
-      localStorage.setItem('crit-diff-mode', mode);
+      setCookie('crit-diff-mode', mode);
       document.querySelectorAll('#diffModeToggle .toggle-btn').forEach(function(b) {
         b.classList.toggle('active', b.dataset.mode === mode);
       });

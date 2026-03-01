@@ -9,10 +9,9 @@ async function loadPage(page: Page) {
 // Theme Tests (file mode)
 // ============================================================
 test.describe('Theme — File Mode', () => {
-  test.beforeEach(async ({ page }) => {
-    // Clear theme state before each test
-    await page.goto('/');
-    await page.evaluate(() => localStorage.removeItem('crit-theme'));
+  test.beforeEach(async ({ page, context }) => {
+    // Clear theme cookie before each test
+    await context.clearCookies();
     await loadPage(page);
   });
 

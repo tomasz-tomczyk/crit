@@ -168,10 +168,9 @@ test.describe('Diff Mode Toggle', () => {
     await expect(sign).toHaveText('+');
   });
 
-  test('diff mode persists across reload', async ({ page }) => {
-    // Clear localStorage first to start fresh
-    await page.goto('/');
-    await page.evaluate(() => localStorage.removeItem('crit-diff-mode'));
+  test('diff mode persists across reload', async ({ page, context }) => {
+    // Clear cookie first to start fresh
+    await context.clearCookies();
 
     await loadPage(page);
 
