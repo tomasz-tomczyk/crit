@@ -96,7 +96,7 @@ test.describe('Comments — File Mode', () => {
     await expect(section.locator('.comment-card')).toBeVisible();
 
     // Edit
-    const editBtn = section.locator('.comment-actions button').filter({ hasText: 'Edit' });
+    const editBtn = section.locator('.comment-actions button[title="Edit"]');
     await editBtn.click();
 
     const textarea = page.locator('.comment-form textarea');

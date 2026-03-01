@@ -122,7 +122,7 @@ test.describe('Expanded Context Comments — Split Mode (New Side)', () => {
     await expect(section.locator('.comment-card')).toBeVisible();
 
     // Click Edit
-    const editBtn = section.locator('.comment-actions button').filter({ hasText: 'Edit' });
+    const editBtn = section.locator('.comment-actions button[title="Edit"]');
     await editBtn.click();
 
     const textarea = page.locator('.comment-form textarea');
@@ -199,7 +199,7 @@ test.describe('Expanded Context Comments — Split Mode (Old Side)', () => {
     await page.locator('.comment-form .btn-primary').click();
     await expect(section.locator('.comment-card')).toBeVisible();
 
-    const editBtn = section.locator('.comment-actions button').filter({ hasText: 'Edit' });
+    const editBtn = section.locator('.comment-actions button[title="Edit"]');
     await editBtn.click();
 
     const textarea = page.locator('.comment-form textarea');
@@ -284,7 +284,7 @@ test.describe('Expanded Context Comments — Unified Mode', () => {
     await page.locator('.comment-form .btn-primary').click();
     await expect(section.locator('.comment-card')).toBeVisible();
 
-    const editBtn = section.locator('.comment-actions button').filter({ hasText: 'Edit' });
+    const editBtn = section.locator('.comment-actions button[title="Edit"]');
     await editBtn.click();
 
     const textarea = page.locator('.comment-form textarea');

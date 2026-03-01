@@ -689,7 +689,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 /* ===== Comment Inline Box (displayed after submission) ===== */
 .comment-block {
-  padding: 0 0 0 68px;
+  padding: 0 0 0 56px;
 }
 
 .comment-card {
@@ -729,20 +729,24 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 .comment-actions {
   display: flex;
-  gap: 6px;
+  gap: 2px;
 }
 
 .comment-actions button {
   background: none;
   border: none;
-  color: var(--fg-muted);
+  color: var(--fg-dimmed);
   cursor: pointer;
-  font-size: 12px;
-  padding: 2px 6px;
-  border-radius: 3px;
+  padding: 4px;
+  border-radius: 4px;
   transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.comment-actions button:hover { color: var(--fg-primary); background: var(--bg-hover); }
+.comment-actions button svg { width: 13px; height: 13px; stroke-width: 1.5; opacity: 0.5; }
+.comment-actions button:hover svg { opacity: 1; }
+.comment-actions button:hover { color: var(--fg-primary); }
 .comment-actions .delete-btn:hover { color: var(--red); }
 
 .comment-body {
@@ -843,7 +847,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 /* ===== Comment Input Form ===== */
 .comment-form-wrapper {
-  padding: 0 0 0 68px;
+  padding: 0 0 0 56px;
 }
 
 .comment-form {
@@ -1051,10 +1055,10 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 /* ===== Table of Contents ===== */
 .toc {
   position: fixed;
-  top: 96px;
+  top: 108px;
   right: 16px;
   width: 210px;
-  max-height: calc(100vh - 112px);
+  max-height: calc(100vh - 124px);
   overflow-y: auto;
   z-index: 90;
   background: var(--bg-secondary);
@@ -1465,47 +1469,61 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .file-header-toggle {
   display: inline-flex;
+  background: var(--bg-primary);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 1px;
   margin-left: 4px;
 }
 .file-header-toggle .toggle-btn {
   font-size: 10px;
-  padding: 1px 6px;
+  padding: 2px 8px;
   background: transparent;
   border: none;
+  border-radius: 0;
   color: var(--fg-muted);
   cursor: pointer;
   font-family: var(--font-body);
+  transition: all 0.15s;
 }
+.file-header-toggle .toggle-btn:first-child { border-radius: 4px 0 0 4px; }
+.file-header-toggle .toggle-btn:last-child { border-radius: 0 4px 4px 0; }
 .file-header-toggle .toggle-btn.active {
   background: var(--accent-subtle);
   color: var(--accent);
   font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 .file-header-toggle .toggle-btn:hover:not(.active) { background: var(--bg-hover); }
 
 /* Diff mode toggle in header (split/unified) */
 .diff-mode-toggle {
   display: inline-flex;
+  background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 1px;
 }
 .diff-mode-toggle .toggle-btn {
   font-size: 11px;
-  padding: 3px 8px;
+  padding: 3px 10px;
   background: transparent;
   border: none;
+  border-radius: 0;
   color: var(--fg-muted);
   cursor: pointer;
   font-family: var(--font-body);
+  transition: all 0.15s;
 }
+.diff-mode-toggle .toggle-btn:first-child { border-radius: 4px 0 0 4px; }
+.diff-mode-toggle .toggle-btn:last-child { border-radius: 0 4px 4px 0; }
 .diff-mode-toggle .toggle-btn.active {
   background: var(--accent-subtle);
   color: var(--accent);
   font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 .diff-mode-toggle .toggle-btn:hover:not(.active) { background: var(--bg-hover); }
 

@@ -152,7 +152,7 @@ test.describe('Markdown Comments — Git Mode', () => {
     await expect(section.locator('.comment-card')).toBeVisible();
 
     // Click Edit
-    const editBtn = section.locator('.comment-actions button').filter({ hasText: 'Edit' });
+    const editBtn = section.locator('.comment-actions button[title="Edit"]');
     await editBtn.click();
 
     // Editor should open with existing text
