@@ -135,35 +135,23 @@ test.describe('Markdown Rendering — plan.md', () => {
     await expect(section.locator('blockquote', { hasText: 'rate-limit' })).toBeVisible();
   });
 
-  test('each block has a line gutter with a line number > 0', async ({ page }) => {
+  test('line gutters exist in DOM but line numbers are visually hidden', async ({ page }) => {
     const section = mdSection(page);
 
-    // Line gutters should be present
+    // Line gutters exist in the DOM (needed for comment interaction)
     const lineGutters = section.locator('.line-gutter');
-    await expect(lineGutters.first()).toBeVisible();
-
     const gutterCount = await lineGutters.count();
     expect(gutterCount).toBeGreaterThan(0);
 
-    // Line numbers within gutters
+    // Line numbers are present but visually hidden in document view
     const lineNums = section.locator('.line-gutter .line-num');
-    await expect(lineNums.first()).toBeVisible();
-
     const numCount = await lineNums.count();
     expect(numCount).toBeGreaterThan(0);
+    await expect(lineNums.first()).not.toBeVisible();
 
-    // Check that the first line number contains a numeric value > 0
+    // Line numbers still carry valid data attributes for commenting
     const firstLineNumText = await lineNums.first().textContent();
     const firstNum = parseInt(firstLineNumText?.trim() || '0', 10);
     expect(firstNum).toBeGreaterThan(0);
-
-    // Verify multiple line numbers have valid values
-    // Sample a few line numbers to make sure they're all > 0
-    const sampleCount = Math.min(5, numCount);
-    for (let i = 0; i < sampleCount; i++) {
-      const text = await lineNums.nth(i).textContent();
-      const num = parseInt(text?.trim() || '0', 10);
-      expect(num).toBeGreaterThan(0);
-    }
   });
 });

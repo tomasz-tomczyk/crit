@@ -65,13 +65,14 @@ test.describe('File Mode — Markdown Rendering', () => {
     await expect(mdSection.locator('h2', { hasText: 'Overview' })).toBeVisible();
   });
 
-  test('markdown blocks have line gutters', async ({ page }) => {
+  test('markdown blocks have line gutters in DOM (visually hidden)', async ({ page }) => {
     await loadPage(page);
     const mdSection = page.locator('.file-section').filter({ hasText: 'plan.md' });
     const gutters = mdSection.locator('.line-gutter');
-    await expect(gutters.first()).toBeVisible();
     const count = await gutters.count();
     expect(count).toBeGreaterThan(0);
+    // Gutters exist but are visually hidden in document view
+    await expect(gutters.first()).not.toBeVisible();
   });
 });
 

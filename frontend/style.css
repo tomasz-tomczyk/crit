@@ -365,6 +365,18 @@ body {
   align-items: flex-start;
   justify-content: flex-end;
 }
+/* Hide line numbers in document view — keep gutter for comment interaction */
+.document-wrapper .line-gutter {
+  min-width: 0;
+  width: 0;
+  padding: 0;
+}
+.document-wrapper .line-num {
+  display: none;
+}
+.document-wrapper .line-comment-gutter {
+  margin-left: 0;
+}
 
 /* Comment gutter — separate column between line numbers and content */
 .line-comment-gutter {
@@ -691,6 +703,9 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .comment-block {
   padding: 0 0 0 56px;
 }
+.document-wrapper .comment-block {
+  padding-left: 12px;
+}
 
 .comment-card {
   margin: 6px 0;
@@ -809,6 +824,9 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   flex-direction: column;
   gap: 2px;
 }
+.document-wrapper .resolved-comment {
+  margin-left: 12px;
+}
 .resolved-comment:hover {
   background: var(--bg-hover);
 }
@@ -848,6 +866,9 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 /* ===== Comment Input Form ===== */
 .comment-form-wrapper {
   padding: 0 0 0 56px;
+}
+.document-wrapper .comment-form-wrapper {
+  padding-left: 12px;
 }
 
 .comment-form {
