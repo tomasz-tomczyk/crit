@@ -1670,6 +1670,8 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .diff-container.unified .diff-gutter-num:first-child { border-right: 1px solid var(--border); }
 .diff-container.unified .addition .diff-gutter-num:last-child { background: var(--diff-add-gutter); }
 .diff-container.unified .deletion .diff-gutter-num:first-child { background: var(--diff-del-gutter); }
+.diff-container.unified .has-comment .diff-gutter-num:first-child,
+.diff-container.unified .has-comment .diff-gutter-num:last-child { background: transparent; }
 .diff-container.unified .diff-gutter-sign {
   min-width: 20px;
   text-align: center;
@@ -1701,6 +1703,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .diff-split-side .diff-gutter-num { min-width: 44px; }
 .diff-split-side.deletion .diff-gutter-num { background: var(--diff-del-gutter); }
 .diff-split-side.addition .diff-gutter-num { background: var(--diff-add-gutter); }
+.diff-split-side.has-comment .diff-gutter-num { background: transparent; }
 .diff-container.split .comment-block { padding-left: 48px; width: 50%; max-width: none; margin: 0; box-sizing: border-box; }
 .diff-container.split .comment-form-wrapper { padding-left: 48px; width: 50%; max-width: none; margin: 0; box-sizing: border-box; }
 .diff-container.split .comment-block.diff-comment-right,

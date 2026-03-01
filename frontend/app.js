@@ -1133,11 +1133,7 @@
     const commentsMap = buildCommentsMap(file.comments);
     const resolvedMap = buildResolvedMap(file);
 
-    // Build set of all lines covered by any comment (for range highlighting)
-    const commentedLines = new Set();
-    for (const c of file.comments) {
-      for (let ln = c.start_line; ln <= c.end_line; ln++) commentedLines.add(ln);
-    }
+    const commentRangeSet = buildCommentedRangeSet(file.comments);
 
     for (let bi = 0; bi < file.lineBlocks.length; bi++) {
       const block = file.lineBlocks[bi];
@@ -1153,7 +1149,7 @@
       // Highlight all blocks in the comment's line range
       var blockInCommentRange = false;
       for (let ln = block.startLine; ln <= block.endLine; ln++) {
-        if (commentedLines.has(ln)) { blockInCommentRange = true; break; }
+        if (commentRangeSet.has(ln + ':')) { blockInCommentRange = true; break; }
       }
       if (blockInCommentRange) lineBlockEl.classList.add('has-comment');
 
@@ -1494,6 +1490,7 @@
     }
 
     const commentsMap = buildDiffCommentsMap(file.comments);
+    const commentVisualSet = buildUnifiedCommentVisualSet(hunks, file.comments);
     var visualIdx = 0; // sequential index for unified drag (old/new nums are different spaces)
 
     for (let hi = 0; hi < hunks.length; hi++) {
@@ -1517,7 +1514,7 @@
         var lineSide = line.Type === 'del' ? 'old' : '';
         var commentKey = commentLineNum + ':' + lineSide;
         const lineComments = commentsMap[commentKey] || [];
-        if (lineComments.length > 0) lineEl.classList.add('has-comment');
+        if (commentVisualSet.has(visualIdx)) lineEl.classList.add('has-comment');
 
         // Tag for drag detection and selection highlighting
         if (commentLineNum) {
@@ -1590,6 +1587,7 @@
     }
 
     const commentsMap = buildDiffCommentsMap(file.comments);
+    const commentRangeSet = buildCommentedRangeSet(file.comments);
 
     for (let hi = 0; hi < hunks.length; hi++) {
       const hunk = hunks[hi];
@@ -1625,7 +1623,7 @@
           const row = makeSplitRow(
             { num: line.OldNum, content: line.Content, type: 'context' },
             { num: line.NewNum, content: line.Content, type: 'context' },
-            file, commentsMap
+            file, commentRangeSet
           );
           container.appendChild(row.el);
           // Context lines: form appears where clicked (left or right),
@@ -1649,7 +1647,7 @@
             const row = makeSplitRow(
               del ? { num: del.OldNum, content: del.Content, type: 'del' } : null,
               add ? { num: add.NewNum, content: add.Content, type: 'add' } : null,
-              file, commentsMap
+              file, commentRangeSet
             );
             container.appendChild(row.el);
             // Comments for both sides (different keys)
@@ -1668,7 +1666,7 @@
 
   // Build one split row: left (old) side + right (new) side
   // left/right: { num, content, type } or null for empty
-  function makeSplitRow(left, right, file, commentsMap) {
+  function makeSplitRow(left, right, file, commentRangeSet) {
     const row = document.createElement('div');
     row.className = 'diff-split-row';
 
@@ -1685,8 +1683,7 @@
     if (left && left.num) {
       leftCommentGutter = makeDiffCommentGutter(file.path, left.num, 'old');
       tagDiffLine(leftEl, file.path, left.num, 'old', row);
-      const lComments = commentsMap[left.num + ':old'] || [];
-      if (lComments.length > 0) leftEl.classList.add('has-comment');
+      if (commentRangeSet.has(left.num + ':old')) leftEl.classList.add('has-comment');
       var selSide = diffDragState ? diffDragState.side : (activeForm ? activeForm.side : null);
       if (activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
           left.num >= selectionStart && left.num <= selectionEnd && selSide === 'old') {
@@ -1724,8 +1721,7 @@
         rightCommentGutter = makeDiffCommentGutter(file.path, 0, '');
       }
       tagDiffLine(rightEl, file.path, right.num, '', row);
-      const rComments = commentsMap[right.num + ':'] || [];
-      if (rComments.length > 0) rightEl.classList.add('has-comment');
+      if (commentRangeSet.has(right.num + ':')) rightEl.classList.add('has-comment');
       var selSideR = diffDragState ? diffDragState.side : (activeForm ? activeForm.side : null);
       if (activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
           right.num >= selectionStart && right.num <= selectionEnd && (selSideR || '') === '') {
@@ -1772,6 +1768,47 @@
       map[key].push(c);
     }
     return map;
+  }
+
+  function buildCommentedRangeSet(comments) {
+    const set = new Set();
+    for (const c of comments) {
+      const side = c.side || '';
+      for (let ln = c.start_line; ln <= c.end_line; ln++) set.add(ln + ':' + side);
+    }
+    return set;
+  }
+
+  // For unified diff: build a Set of visual indices that should have has-comment.
+  // This handles interleaved add/del lines correctly by using sequential position.
+  function buildUnifiedCommentVisualSet(hunks, comments) {
+    if (!comments.length) return new Set();
+    // Flatten all hunk lines with their line numbers
+    const lines = [];
+    for (const hunk of hunks) {
+      for (const line of hunk.Lines) {
+        lines.push({ oldNum: line.OldNum, newNum: line.NewNum });
+      }
+    }
+    const set = new Set();
+    for (const c of comments) {
+      const side = c.side || '';
+      let startIdx = -1, endIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        // startIdx: match either OldNum or NewNum so deletions adjacent to
+        // the comment boundary are included in the visual range
+        if (startIdx === -1 && (lines[i].oldNum === c.start_line || lines[i].newNum === c.start_line)) {
+          startIdx = i;
+        }
+        // endIdx: match only the comment's side to avoid overshooting
+        const endNum = side === 'old' ? lines[i].oldNum : lines[i].newNum;
+        if (endNum === c.end_line) endIdx = i;
+      }
+      if (startIdx !== -1 && endIdx !== -1) {
+        for (let i = startIdx; i <= endIdx; i++) set.add(i);
+      }
+    }
+    return set;
   }
 
   function getCommentsForBlock(block, commentsMap) {
