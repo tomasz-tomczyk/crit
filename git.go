@@ -126,6 +126,94 @@ func ChangedFiles() ([]FileChange, error) {
 	return changedFilesOnFeature()
 }
 
+// ChangedFilesScoped returns changed files for a specific scope.
+// Supported scopes: "branch", "staged", "unstaged". Any other value falls back to ChangedFiles.
+func ChangedFilesScoped(scope, baseRef string) ([]FileChange, error) {
+	switch scope {
+	case "branch":
+		return changedFilesBranch(baseRef)
+	case "staged":
+		return changedFilesStaged()
+	case "unstaged":
+		return changedFilesUnstaged()
+	default:
+		return ChangedFiles()
+	}
+}
+
+// changedFilesStaged returns only staged (cached) changes.
+func changedFilesStaged() ([]FileChange, error) {
+	cmd := exec.Command("git", "diff", "--cached", "--name-status")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff --cached failed: %w", err)
+	}
+	return parseNameStatus(string(out)), nil
+}
+
+// changedFilesUnstaged returns unstaged modifications plus untracked files.
+func changedFilesUnstaged() ([]FileChange, error) {
+	cmd := exec.Command("git", "diff", "--name-status")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff failed: %w", err)
+	}
+
+	changes := parseNameStatus(string(out))
+
+	untracked, err := untrackedFiles()
+	if err != nil {
+		return nil, err
+	}
+	changes = append(changes, untracked...)
+
+	return dedup(changes), nil
+}
+
+// changedFilesBranch returns files changed between baseRef and HEAD.
+// Returns nil if baseRef is empty.
+func changedFilesBranch(baseRef string) ([]FileChange, error) {
+	if baseRef == "" {
+		return nil, nil
+	}
+	cmd := exec.Command("git", "diff", baseRef+"..HEAD", "--name-status")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff %s..HEAD failed: %w", baseRef, err)
+	}
+	return parseNameStatus(string(out)), nil
+}
+
+// FileDiffScoped returns parsed diff hunks for a file using a scope-appropriate git diff command.
+// Supported scopes: "branch", "staged", "unstaged". Any other value delegates to FileDiffUnified.
+func FileDiffScoped(path, scope, baseRef string) ([]DiffHunk, error) {
+	var cmd *exec.Cmd
+	switch scope {
+	case "branch":
+		if baseRef == "" {
+			return nil, nil
+		}
+		cmd = exec.Command("git", "diff", baseRef+"..HEAD", "--", path)
+	case "staged":
+		cmd = exec.Command("git", "diff", "--cached", "--", path)
+	case "unstaged":
+		cmd = exec.Command("git", "diff", "--", path)
+	default:
+		return FileDiffUnified(path, baseRef)
+	}
+
+	out, err := cmd.Output()
+	if err != nil {
+		// Exit code 1 means diff found changes (normal), check for actual errors
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			// git diff exits 1 when there are differences
+		} else {
+			return nil, fmt.Errorf("git diff failed: %w", err)
+		}
+	}
+	return ParseUnifiedDiff(string(out)), nil
+}
+
 func changedFilesOnDefault() ([]FileChange, error) {
 	// Staged + unstaged changes vs HEAD
 	cmd := exec.Command("git", "diff", "HEAD", "--name-status")

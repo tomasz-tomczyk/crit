@@ -371,3 +371,383 @@ func TestRepoRoot_RealRepo(t *testing.T) {
 		t.Errorf("RepoRoot = %q, want %q", actualRoot, expectedDir)
 	}
 }
+
+func TestChangedFilesBranch(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Record the main branch commit as base ref
+	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+
+	// Create a feature branch and commit a change
+	runGit(t, dir, "checkout", "-b", "feature/scoped")
+	writeFile(t, filepath.Join(dir, "feature.go"), "package main\n\nfunc Feature() {}\n")
+	runGit(t, dir, "add", "feature.go")
+	runGit(t, dir, "commit", "-m", "add feature")
+
+	changes, err := changedFilesBranch(baseRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change, got %d: %+v", len(changes), changes)
+	}
+	if changes[0].Path != "feature.go" || changes[0].Status != "added" {
+		t.Errorf("change = %+v, want {Path:feature.go Status:added}", changes[0])
+	}
+}
+
+func TestChangedFilesBranch_EmptyBaseRef(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	changes, err := changedFilesBranch("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changes != nil {
+		t.Errorf("expected nil for empty baseRef, got %+v", changes)
+	}
+}
+
+func TestChangedFilesStaged(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Stage a modification without committing
+	writeFile(t, filepath.Join(dir, "README.md"), "# Staged change")
+	runGit(t, dir, "add", "README.md")
+
+	staged, err := changedFilesStaged()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	paths := map[string]string{}
+	for _, c := range staged {
+		paths[c.Path] = c.Status
+	}
+	if paths["README.md"] != "modified" {
+		t.Errorf("expected README.md as modified in staged, got %+v", staged)
+	}
+
+	// Unstaged should NOT contain the staged file
+	unstaged, err := changedFilesUnstaged()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range unstaged {
+		if c.Path == "README.md" {
+			t.Error("README.md should not appear in unstaged after being staged")
+		}
+	}
+}
+
+func TestChangedFilesUnstaged(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Modify a tracked file without staging
+	writeFile(t, filepath.Join(dir, "README.md"), "# Unstaged change")
+
+	unstaged, err := changedFilesUnstaged()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	paths := map[string]string{}
+	for _, c := range unstaged {
+		paths[c.Path] = c.Status
+	}
+	if paths["README.md"] != "modified" {
+		t.Errorf("expected README.md as modified in unstaged, got %+v", unstaged)
+	}
+
+	// Staged should NOT contain the unstaged file
+	staged, err := changedFilesStaged()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range staged {
+		if c.Path == "README.md" {
+			t.Error("README.md should not appear in staged when only unstaged")
+		}
+	}
+}
+
+func TestChangedFilesUnstaged_IncludesUntracked(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Create an untracked file
+	writeFile(t, filepath.Join(dir, "untracked.go"), "package main")
+
+	unstaged, err := changedFilesUnstaged()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, c := range unstaged {
+		if c.Path == "untracked.go" && c.Status == "added" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected untracked.go in unstaged changes, got %+v", unstaged)
+	}
+}
+
+func TestChangedFilesScoped_Dispatcher(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+
+	// Create a feature branch with a committed change
+	runGit(t, dir, "checkout", "-b", "feature/dispatch")
+	writeFile(t, filepath.Join(dir, "branch.go"), "package main")
+	runGit(t, dir, "add", "branch.go")
+	runGit(t, dir, "commit", "-m", "branch change")
+
+	// Stage a file
+	writeFile(t, filepath.Join(dir, "staged.go"), "package main")
+	runGit(t, dir, "add", "staged.go")
+
+	// Leave a file unstaged
+	writeFile(t, filepath.Join(dir, "README.md"), "# Unstaged")
+
+	// Test "branch" scope
+	branchChanges, err := ChangedFilesScoped("branch", baseRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branchPaths := map[string]bool{}
+	for _, c := range branchChanges {
+		branchPaths[c.Path] = true
+	}
+	if !branchPaths["branch.go"] {
+		t.Error("branch scope should include branch.go")
+	}
+
+	// Test "staged" scope
+	stagedChanges, err := ChangedFilesScoped("staged", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stagedPaths := map[string]bool{}
+	for _, c := range stagedChanges {
+		stagedPaths[c.Path] = true
+	}
+	if !stagedPaths["staged.go"] {
+		t.Error("staged scope should include staged.go")
+	}
+
+	// Test "unstaged" scope
+	unstagedChanges, err := ChangedFilesScoped("unstaged", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unstagedPaths := map[string]bool{}
+	for _, c := range unstagedChanges {
+		unstagedPaths[c.Path] = true
+	}
+	if !unstagedPaths["README.md"] {
+		t.Error("unstaged scope should include README.md")
+	}
+
+	// Test default scope (falls back to ChangedFiles)
+	defaultChanges, err := ChangedFilesScoped("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(defaultChanges) == 0 {
+		t.Error("default scope should return changes via ChangedFiles()")
+	}
+}
+
+func TestFileDiffScoped_Branch(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+
+	// Create feature branch with a change to README.md
+	runGit(t, dir, "checkout", "-b", "feature/diff-scope")
+	writeFile(t, filepath.Join(dir, "README.md"), "# Modified on branch\n\nNew content\n")
+	runGit(t, dir, "add", "README.md")
+	runGit(t, dir, "commit", "-m", "modify readme")
+
+	hunks, err := FileDiffScoped("README.md", "branch", baseRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hunks) == 0 {
+		t.Error("expected diff hunks for branch scope")
+	}
+}
+
+func TestFileDiffScoped_Staged(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Stage a change
+	writeFile(t, filepath.Join(dir, "README.md"), "# Staged content\n")
+	runGit(t, dir, "add", "README.md")
+
+	hunks, err := FileDiffScoped("README.md", "staged", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hunks) == 0 {
+		t.Error("expected diff hunks for staged scope")
+	}
+}
+
+func TestFileDiffScoped_Unstaged(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Modify without staging
+	writeFile(t, filepath.Join(dir, "README.md"), "# Unstaged content\n")
+
+	hunks, err := FileDiffScoped("README.md", "unstaged", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hunks) == 0 {
+		t.Error("expected diff hunks for unstaged scope")
+	}
+}
+
+func TestFileDiffScoped_Default(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Modify and stage a change
+	writeFile(t, filepath.Join(dir, "README.md"), "# Default scope\n")
+	runGit(t, dir, "add", "README.md")
+
+	hunks, err := FileDiffScoped("README.md", "", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hunks) == 0 {
+		t.Error("expected diff hunks for default scope (delegates to FileDiffUnified)")
+	}
+}
+
+func TestFileDiffScoped_BranchEmptyBaseRef(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	hunks, err := FileDiffScoped("README.md", "branch", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hunks != nil {
+		t.Errorf("expected nil for branch scope with empty baseRef, got %+v", hunks)
+	}
+}
+
+func TestFileDiffScoped_DifferentHunksPerScope(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+
+	// Commit a change on a branch
+	runGit(t, dir, "checkout", "-b", "feature/multi-scope")
+	writeFile(t, filepath.Join(dir, "README.md"), "# Branch change\n")
+	runGit(t, dir, "add", "README.md")
+	runGit(t, dir, "commit", "-m", "branch edit")
+
+	// Stage a further change
+	writeFile(t, filepath.Join(dir, "README.md"), "# Branch change\n\nStaged line\n")
+	runGit(t, dir, "add", "README.md")
+
+	// Make an unstaged change on top
+	writeFile(t, filepath.Join(dir, "README.md"), "# Branch change\n\nStaged line\nUnstaged line\n")
+
+	branchHunks, err := FileDiffScoped("README.md", "branch", baseRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stagedHunks, err := FileDiffScoped("README.md", "staged", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unstagedHunks, err := FileDiffScoped("README.md", "unstaged", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// All three scopes should return hunks
+	if len(branchHunks) == 0 {
+		t.Error("expected branch hunks")
+	}
+	if len(stagedHunks) == 0 {
+		t.Error("expected staged hunks")
+	}
+	if len(unstagedHunks) == 0 {
+		t.Error("expected unstaged hunks")
+	}
+
+	// The hunks should differ because each scope sees a different diff.
+	// Branch scope: "# Test" -> "# Branch change\n\nStaged line\n" (committed content vs base)
+	// Wait — branch is baseRef..HEAD so it only sees committed changes, not staged/unstaged.
+	// Staged scope: committed content -> staged content (adding "Staged line")
+	// Unstaged scope: staged content -> working tree (adding "Unstaged line")
+
+	// Count total add lines per scope to verify they differ
+	countAdds := func(hunks []DiffHunk) int {
+		n := 0
+		for _, h := range hunks {
+			for _, l := range h.Lines {
+				if l.Type == "add" {
+					n++
+				}
+			}
+		}
+		return n
+	}
+
+	branchAdds := countAdds(branchHunks)
+	stagedAdds := countAdds(stagedHunks)
+	unstagedAdds := countAdds(unstagedHunks)
+
+	// Branch sees: "# Test" -> "# Branch change" (the committed state)
+	// Staged sees: "# Branch change" -> "# Branch change\n\nStaged line"
+	// Unstaged sees: "# Branch change\n\nStaged line" -> "# Branch change\n\nStaged line\nUnstaged line"
+	// So each scope should have different add counts.
+	if branchAdds == stagedAdds && stagedAdds == unstagedAdds {
+		t.Errorf("expected different add counts per scope, all were %d", branchAdds)
+	}
+}
