@@ -193,7 +193,7 @@
     hostedURL = configRes.hosted_url || '';
     deleteToken = configRes.delete_token || '';
 
-    if (shareURL) document.getElementById('shareBtn').style.display = '';
+    if (shareURL && session.mode !== 'git') document.getElementById('shareBtn').style.display = '';
     if (hostedURL) showSharedNotice(hostedURL);
 
     // Version check
