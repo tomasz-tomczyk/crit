@@ -10,7 +10,12 @@ trap 'rm -rf "$DIR" "$BIN_DIR"' EXIT
 
 cd "$DIR"
 
-# === Create files directly (no git) — this is "file mode" ===
+# === Init a git repo so the fixture mirrors real usage ===
+# People almost always run `crit file.md` inside a git repo.
+# File mode means explicit file args, not "no git".
+git init -q
+git config user.email "test@test.com"
+git config user.name "Test"
 
 cat > plan.md << 'MDFILE'
 # Authentication Plan
@@ -155,11 +160,13 @@ export function handleNotification(req, res) {
 }
 JSFILE
 
+git add -A && git commit -q -m "initial commit"
+
 # Build crit binary outside the fixture dir (skip if CRIT_BIN is set)
 if [ -z "${CRIT_BIN:-}" ]; then
   CRIT_BIN="$BIN_DIR/crit"
   (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
 fi
 
-# Run crit in file mode (explicit files, no git detection)
+# Run crit in file mode (explicit file args, inside a git repo)
 exec "$CRIT_BIN" --no-open --port "$PORT" plan.md server.go handler.js

@@ -36,16 +36,11 @@ test.describe('File Mode — Page Loading', () => {
     await expect(sections).toHaveCount(3);
   });
 
-  test('files show modified status badge in file mode', async ({ page }) => {
+  test('file headers do not show status badge in file mode', async ({ page }) => {
     await loadPage(page);
-    // In file mode, all files get "modified" status
+    // In file mode, status badges are hidden (they only make sense in git mode)
     const badges = page.locator('.file-header-badge');
-    const count = await badges.count();
-    expect(count).toBeGreaterThan(0);
-    // All badges should say "Modified"
-    for (let i = 0; i < count; i++) {
-      await expect(badges.nth(i)).toHaveText('Modified');
-    }
+    await expect(badges).toHaveCount(0);
   });
 });
 
