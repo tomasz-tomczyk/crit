@@ -36,7 +36,6 @@ crit/
 ├── Makefile             # build / build-all (cross-compile) / update-deps / clean / e2e
 ├── package.json         # Frontend dependency management (markdown-it, highlight.js, mermaid)
 ├── copy-deps.js         # Copies npm deps to frontend/ for embedding
-├── test-plan.md         # Sample file for development testing
 ├── LICENSE              # MIT
 └── README.md
 ```
@@ -101,29 +100,29 @@ make e2e-report                                       # View HTML report with sc
 
 ### Test organization
 
-| File | Mode | What it covers |
-|------|------|---------------|
-| `smoke.spec.ts` | git | Basic page load |
-| `loading.spec.ts` | git | Branch name, title, file tree, status icons, stats |
-| `loading.filemode.spec.ts` | file | Title, no branch, no diff toggle, document view defaults |
-| `diff-rendering.spec.ts` | git | Split/unified diffs, hunk headers, spacer expand, mode persistence |
-| `markdown.spec.ts` | git | Headings, tables, code blocks, lists, blockquotes, line gutters |
-| `comments.spec.ts` | git | Add/edit/delete comments on markdown and diff lines, cross-file |
-| `comments.filemode.spec.ts` | file | Comment CRUD on markdown in file mode |
-| `keyboard.spec.ts` | git | j/k navigation, c/e/d shortcuts, ?, t, Shift+F, Escape |
-| `keyboard.filemode.spec.ts` | file | Same keyboard shortcuts in file mode |
-| `theme.spec.ts` | git | Light/dark/system toggle, persistence, file sections, finish review |
-| `theme.filemode.spec.ts` | file | Theme, TOC, file sections, finish review in file mode |
-| `drag-selection.spec.ts` | git | Gutter drag on markdown and diff (split + unified) |
-| `drag-selection.filemode.spec.ts` | file | Gutter drag on markdown in file mode |
-| `md-toggle.spec.ts` | git | Document/diff toggle for markdown, cross-view comment persistence |
-| `syntax-highlighting.spec.ts` | git | Syntax highlighting in diff code blocks |
-| `expanded-comments.spec.ts` | git | Comments on spacer-expanded context lines |
-| `draft-autosave.spec.ts` | git | Draft persistence to localStorage, toast notification |
-| `file-tree.spec.ts` | git | File tree panel, status icons, active state, comment badges |
-| `file-tree.filemode.spec.ts` | file | File tree panel, clicking, comment badges in file mode |
-| `round-complete.spec.ts` | git | Multi-round API (finish, round-complete), SSE refresh, UI state |
-| `share.spec.ts` | git | Share button visibility, config API defaults |
+| File                              | Mode | What it covers                                                      |
+| --------------------------------- | ---- | ------------------------------------------------------------------- |
+| `smoke.spec.ts`                   | git  | Basic page load                                                     |
+| `loading.spec.ts`                 | git  | Branch name, title, file tree, status icons, stats                  |
+| `loading.filemode.spec.ts`        | file | Title, no branch, no diff toggle, document view defaults            |
+| `diff-rendering.spec.ts`          | git  | Split/unified diffs, hunk headers, spacer expand, mode persistence  |
+| `markdown.spec.ts`                | git  | Headings, tables, code blocks, lists, blockquotes, line gutters     |
+| `comments.spec.ts`                | git  | Add/edit/delete comments on markdown and diff lines, cross-file     |
+| `comments.filemode.spec.ts`       | file | Comment CRUD on markdown in file mode                               |
+| `keyboard.spec.ts`                | git  | j/k navigation, c/e/d shortcuts, ?, t, Shift+F, Escape              |
+| `keyboard.filemode.spec.ts`       | file | Same keyboard shortcuts in file mode                                |
+| `theme.spec.ts`                   | git  | Light/dark/system toggle, persistence, file sections, finish review |
+| `theme.filemode.spec.ts`          | file | Theme, TOC, file sections, finish review in file mode               |
+| `drag-selection.spec.ts`          | git  | Gutter drag on markdown and diff (split + unified)                  |
+| `drag-selection.filemode.spec.ts` | file | Gutter drag on markdown in file mode                                |
+| `md-toggle.spec.ts`               | git  | Document/diff toggle for markdown, cross-view comment persistence   |
+| `syntax-highlighting.spec.ts`     | git  | Syntax highlighting in diff code blocks                             |
+| `expanded-comments.spec.ts`       | git  | Comments on spacer-expanded context lines                           |
+| `draft-autosave.spec.ts`          | git  | Draft persistence to localStorage, toast notification               |
+| `file-tree.spec.ts`               | git  | File tree panel, status icons, active state, comment badges         |
+| `file-tree.filemode.spec.ts`      | file | File tree panel, clicking, comment badges in file mode              |
+| `round-complete.spec.ts`          | git  | Multi-round API (finish, round-complete), SSE refresh, UI state     |
+| `share.spec.ts`                   | git  | Share button visibility, config API defaults                        |
 
 ### Writing new tests
 
@@ -136,6 +135,7 @@ make e2e-report                                       # View HTML report with sc
 ## API Endpoints
 
 Session-scoped:
+
 - `GET  /api/session` — session metadata: mode, branch, baseRef, reviewRound, file list with stats
 - `GET  /api/config` — returns `{share_url, hosted_url, delete_token, version, latest_version}`
 - `POST /api/finish` — write `.crit.json`, return prompt for agent
@@ -145,6 +145,7 @@ Session-scoped:
 - `DELETE /api/share-url` — unpublish: calls crit-web DELETE and clears local persisted URL
 
 File-scoped (use `?path=` query param):
+
 - `GET  /api/file?path=X` — file content + metadata
 - `GET  /api/file/diff?path=X` — diff hunks (git diff for code; inter-round diff for markdown)
 - `GET  /api/file/comments?path=X` — comments for one file
@@ -153,6 +154,7 @@ File-scoped (use `?path=` query param):
 - `DELETE /api/comment/{id}?path=X` — delete comment
 
 Static:
+
 - `GET  /files/<path>` — serve files from repo root (path traversal protected)
 
 ## Security
@@ -171,10 +173,10 @@ Frontend is split into three files: `index.html` (HTML shell), `style.css` (all 
 ### Multi-File State Model
 
 ```javascript
-let session = {};      // { mode, branch, base_ref, review_round, files: [...] }
-let files = [];        // [{ path, status, fileType, content, diffHunks, comments, lineBlocks, ... }]
-let activeFilePath;    // which file has the open comment form
-let activeForm;        // { filePath, afterBlockIndex, startLine, endLine, editingId }
+let session = {}; // { mode, branch, base_ref, review_round, files: [...] }
+let files = []; // [{ path, status, fileType, content, diffHunks, comments, lineBlocks, ... }]
+let activeFilePath; // which file has the open comment form
+let activeForm; // { filePath, afterBlockIndex, startLine, endLine, editingId }
 ```
 
 ### Source Line Mapping (Markdown Files)
@@ -189,6 +191,7 @@ let activeForm;        // { filePath, afterBlockIndex, startLine, endLine, editi
 ### Diff Hunk Rendering (Code Files)
 
 Code files display as git diffs with:
+
 - Hunk headers (`@@ -27,6 +31,23 @@`)
 - Dual-gutter (old line / new line numbers)
 - Colored backgrounds for additions/deletions
@@ -205,6 +208,7 @@ Code files display as git diffs with:
 ## Theme System
 
 The header has a 3-button theme pill (System / Light / Dark):
+
 - No `data-theme` attribute → system preference via `prefers-color-scheme`
 - `data-theme="light"` / `data-theme="dark"` → explicit override
 - CSS vars are set in `:root` (dark fallback), `@media (prefers-color-scheme: light) html:not([data-theme])`, `[data-theme="dark"]`, and `[data-theme="light"]` blocks.
@@ -213,6 +217,7 @@ The header has a 3-button theme pill (System / Light / Dark):
 ## Share Feature
 
 When `--share-url` (or `CRIT_SHARE_URL`) is set:
+
 - The Share button appears in the header.
 - Clicking it POSTs the current document + comments to `{share_url}/api/reviews` (crit-web API).
 - The response `{url, delete_token}` is persisted to `.crit.json` via `POST /api/share-url`.
@@ -222,6 +227,7 @@ When `--share-url` (or `CRIT_SHARE_URL`) is set:
 ## Multi-Round Review
 
 When the agent runs `crit go <PORT>` (or calls `POST /api/round-complete`):
+
 - **Markdown files**: Snapshot content, carry forward unresolved comments, re-read from disk
 - **Code files**: Re-run git diff against base ref to get updated hunks
 - **File list**: Re-run `ChangedFiles()` to detect new/removed files
@@ -246,6 +252,7 @@ git tag v0.x.y && git push origin main v0.x.y
 ```
 
 Pushing the tag triggers the workflow, which:
+
 1. Runs tests
 2. Cross-compiles binaries for darwin/linux (arm64/amd64) with the version injected via ldflags
 3. Generates SHA256 checksums
@@ -257,8 +264,9 @@ The version string lives in `main.go` as `var version = "dev"` and is overridden
 ### Release Notes
 
 After CI creates the release, update it with proper release notes using `gh release edit`. List each change as a bullet point:
+
 - PRs: link to the PR (e.g., `[#4](https://github.com/tomasz-tomczyk/crit/pull/4)`)
-- Direct commits: link to the commit with short SHA (e.g., `` [`e283708`](https://github.com/tomasz-tomczyk/crit/commit/<full-sha>) ``)
+- Direct commits: link to the commit with short SHA (e.g., ``[`e283708`](https://github.com/tomasz-tomczyk/crit/commit/<full-sha>)``)
 - Exclude the version bump commit itself
 - End with a Full Changelog compare link
 
@@ -280,6 +288,6 @@ EOF
 
 ## Output Files
 
-| File | Description |
-|------|-------------|
+| File         | Description                                                |
+| ------------ | ---------------------------------------------------------- |
 | `.crit.json` | Structured JSON with per-file comments — read by AI agents |

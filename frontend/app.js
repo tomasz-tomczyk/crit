@@ -208,10 +208,14 @@
       document.getElementById('updateLink').textContent = configRes.latest_version + ' available';
     }
 
-    // Branch context
-    if (session.branch) {
+    // Header context: branch name in git mode, filename in single-file file mode
+    if (session.mode === 'git' && session.branch) {
       document.getElementById('branchContext').style.display = '';
       document.getElementById('branchName').textContent = session.branch;
+    } else if (session.mode !== 'git' && session.files && session.files.length === 1) {
+      document.getElementById('branchContext').style.display = '';
+      document.querySelector('.branch-icon').innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>';
+      document.getElementById('branchName').textContent = session.files[0].path.split('/').pop();
     }
 
     // Show diff mode toggle in git mode (has diffs to show)
@@ -847,8 +851,10 @@
       fileEl.dataset.treePath = f.path;
       fileEl.style.paddingLeft = (24 + depth * 16) + 'px';
 
+      // In file mode, show plain file icon (no git status badge)
+      var iconHtml = session.mode === 'git' ? fileStatusIcon(f.status) : fileStatusIcon('');
       var innerHtml =
-        '<span class="tree-file-icon">' + fileStatusIcon(f.status) + '</span>' +
+        '<span class="tree-file-icon">' + iconHtml + '</span>' +
         '<span class="tree-file-name">' + escapeHtml(fileName) + '</span>';
 
       if (f.viewed) {
@@ -1054,15 +1060,21 @@
     const fileName = dirParts.pop();
     const dirPath = dirParts.length > 0 ? dirParts.join('/') + '/' : '';
 
+    // In file mode, hide the badge (status like "modified" is only meaningful in git mode)
+    var showBadge = session.mode === 'git';
     let badgeLabel = file.status.charAt(0).toUpperCase() + file.status.slice(1);
     if (file.status === 'untracked') badgeLabel = 'New';
     if (file.status === 'added') badgeLabel = 'New File';
+
+    // In single-file file mode, hide the file header (filename is shown in the header bar)
+    var singleFileMode = session.mode !== 'git' && files.length === 1;
+    if (singleFileMode) header.style.display = 'none';
 
     header.innerHTML =
       '<div class="file-header-chevron"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z"/></svg></div>' +
       '<svg class="file-header-icon" viewBox="0 0 16 16" fill="var(--fg-dimmed)"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>' +
       '<span class="file-header-name"><span class="dir">' + escapeHtml(dirPath) + '</span>' + escapeHtml(fileName) + '</span>' +
-      '<span class="file-header-badge ' + escapeHtml(file.status) + '">' + escapeHtml(badgeLabel) + '</span>' +
+      (showBadge ? '<span class="file-header-badge ' + escapeHtml(file.status) + '">' + escapeHtml(badgeLabel) + '</span>' : '') +
       (file.additions || file.deletions ? '<span class="file-header-stats">' +
         (file.additions ? '<span class="add">+' + file.additions + '</span>' : '') +
         (file.deletions ? '<span class="del">-' + file.deletions + '</span>' : '') +

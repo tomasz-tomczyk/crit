@@ -7,5 +7,5 @@ PORT = "8080"
 
 [tasks.up]
 description = "Build and run crit"
-run = "make build && ./crit test-plan.md"
+run = "make build && ./crit test/notification-plan.md"
 raw = true
