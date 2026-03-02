@@ -1704,10 +1704,11 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .diff-split-side.deletion .diff-gutter-num { background: var(--diff-del-gutter); }
 .diff-split-side.addition .diff-gutter-num { background: var(--diff-add-gutter); }
 .diff-split-side.has-comment .diff-gutter-num { background: transparent; }
-.diff-container.split .comment-block { padding-left: 48px; width: 50%; max-width: none; margin: 0; box-sizing: border-box; }
+.diff-container.split .comment-block, .diff-container.split .resolved-comment { padding-left: 48px; width: 50%; max-width: none; margin: 0; box-sizing: border-box; }
 .diff-container.split .comment-form-wrapper { padding-left: 48px; width: 50%; max-width: none; margin: 0; box-sizing: border-box; }
 .diff-container.split .comment-block.diff-comment-right,
-.diff-container.split .comment-form-wrapper.diff-comment-right { margin-left: 50%; }
+.diff-container.split .comment-form-wrapper.diff-comment-right,
+.diff-container.split .resolved-comment.diff-comment-right { margin-left: 50%; }
 
 /* Large diff placeholder */
 .diff-deleted-placeholder {

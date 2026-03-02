@@ -841,8 +841,9 @@
       if (f.viewed) {
         innerHtml += '<span class="tree-viewed-check" title="Viewed">&#10003;</span>';
       }
-      if (f.comments.length > 0) {
-        innerHtml += '<span class="tree-comment-badge">' + f.comments.length + '</span>';
+      var unresolvedCount = f.comments.filter(function(c) { return !c.resolved; }).length;
+      if (unresolvedCount > 0) {
+        innerHtml += '<span class="tree-comment-badge">' + unresolvedCount + '</span>';
       }
 
       fileEl.innerHTML = innerHtml;
@@ -884,13 +885,14 @@
       var file = getFileByPath(path);
       if (!file) continue;
       var badge = el.querySelector('.tree-comment-badge');
-      if (file.comments.length > 0) {
+      var count = file.comments.filter(function(c) { return !c.resolved; }).length;
+      if (count > 0) {
         if (badge) {
-          badge.textContent = file.comments.length;
+          badge.textContent = count;
         } else {
           badge = document.createElement('span');
           badge.className = 'tree-comment-badge';
-          badge.textContent = file.comments.length;
+          badge.textContent = count;
           el.appendChild(badge);
         }
       } else if (badge) {
@@ -1034,6 +1036,7 @@
       file.collapsed = !section.open;
     });
 
+    const fileUnresolvedCount = file.comments.filter(function(c) { return !c.resolved; }).length;
     const dirParts = file.path.split('/');
     const fileName = dirParts.pop();
     const dirPath = dirParts.length > 0 ? dirParts.join('/') + '/' : '';
@@ -1051,9 +1054,9 @@
         (file.additions ? '<span class="add">+' + file.additions + '</span>' : '') +
         (file.deletions ? '<span class="del">-' + file.deletions + '</span>' : '') +
       '</span>' : '') +
-      (file.comments.length > 0 ? '<span class="file-header-comment-count">' +
+      (fileUnresolvedCount > 0 ? '<span class="file-header-comment-count">' +
         '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>' +
-        file.comments.length + '</span>' : '');
+        fileUnresolvedCount + '</span>' : '');
 
     // Add document/diff toggle for markdown files that have diff hunks
     if (file.fileType === 'markdown' && file.diffHunks && file.diffHunks.length > 0) {
@@ -1140,7 +1143,6 @@
     if (!file.lineBlocks) return container;
 
     const commentsMap = buildCommentsMap(file.comments);
-    const resolvedMap = buildResolvedMap(file);
 
     const commentRangeSet = buildCommentedRangeSet(file.comments);
 
@@ -1236,13 +1238,11 @@
 
       // Comments after block
       for (const comment of blockComments) {
-        container.appendChild(createCommentElement(comment, file.path));
-      }
-
-      // Resolved comments
-      const blockResolved = getResolvedForBlock(block, resolvedMap);
-      for (const rc of blockResolved) {
-        container.appendChild(createResolvedElement(rc));
+        if (comment.resolved) {
+          container.appendChild(createResolvedElement(comment));
+        } else {
+          container.appendChild(createCommentElement(comment, file.path));
+        }
       }
 
       // Comment form
@@ -1468,7 +1468,9 @@
     const key = lineNum + ':' + (side || '');
     const lineComments = commentsMap[key] || [];
     for (const comment of lineComments) {
-      var el = createCommentElement(comment, filePath);
+      var el = comment.resolved
+        ? createResolvedElement(comment)
+        : createCommentElement(comment, filePath);
       if (side === 'old') el.classList.add('diff-comment-left');
       else el.classList.add('diff-comment-right');
       container.appendChild(el);
@@ -1642,7 +1644,9 @@
             ...(commentsMap[line.NewNum + ':'] || [])
           ];
           for (var ci = 0; ci < ctxComments.length; ci++) {
-            var el = createCommentElement(ctxComments[ci], file.path);
+            var el = ctxComments[ci].resolved
+              ? createResolvedElement(ctxComments[ci])
+              : createCommentElement(ctxComments[ci], file.path);
             el.classList.add('diff-comment-right');
             container.appendChild(el);
           }
@@ -1782,6 +1786,7 @@
   function buildCommentedRangeSet(comments) {
     const set = new Set();
     for (const c of comments) {
+      if (c.resolved) continue;
       const side = c.side || '';
       for (let ln = c.start_line; ln <= c.end_line; ln++) set.add(ln + ':' + side);
     }
@@ -1824,26 +1829,6 @@
     const result = [];
     for (let ln = block.startLine; ln <= block.endLine; ln++) {
       if (commentsMap[ln]) result.push(...commentsMap[ln]);
-    }
-    return result;
-  }
-
-  function buildResolvedMap(file) {
-    const map = {};
-    const prev = file.PreviousComments || [];
-    for (const c of prev) {
-      if (!c.resolved || !c.resolution_lines || c.resolution_lines.length === 0) continue;
-      const targetLine = Math.max(...c.resolution_lines);
-      if (!map[targetLine]) map[targetLine] = [];
-      map[targetLine].push(c);
-    }
-    return map;
-  }
-
-  function getResolvedForBlock(block, resolvedMap) {
-    const result = [];
-    for (let ln = block.startLine; ln <= block.endLine; ln++) {
-      if (resolvedMap[ln]) result.push(...resolvedMap[ln]);
     }
     return result;
   }
@@ -2496,7 +2481,11 @@
   // ===== Comment Count =====
   function updateCommentCount() {
     let total = 0;
-    for (const f of files) total += f.comments.length;
+    for (const f of files) {
+      for (const c of f.comments) {
+        if (!c.resolved) total++;
+      }
+    }
     const el = document.getElementById('commentCount');
     el.innerHTML = total === 0 ? '' : '<strong>' + total + '</strong> comment' + (total === 1 ? '' : 's');
   }

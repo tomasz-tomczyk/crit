@@ -32,12 +32,11 @@ crit plan.md
 
 ### Output
 
-When you finish a review, Crit generates two files:
+When you finish a review, Crit generates `.crit.json` — structured comment data that your agent reads and acts on. Add it to your `.gitignore`:
 
-| File                  | Purpose                                                                                       |
-| --------------------- | --------------------------------------------------------------------------------------------- |
-| `plan.review.md`      | Original plan with your comments interleaved as blockquotes at the exact lines they reference |
-| `.plan.comments.json` | Comment state and session data. The agent marks comments resolved here                        |
+```bash
+echo '.crit.json' >> .gitignore
+```
 
 ## Demo
 

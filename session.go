@@ -584,6 +584,9 @@ func (s *Session) WriteFiles() {
 		Files:       make(map[string]CritJSONFile),
 	}
 	for _, f := range s.Files {
+		if len(f.Comments) == 0 {
+			continue
+		}
 		comments := make([]Comment, len(f.Comments))
 		copy(comments, f.Comments)
 		cj.Files[f.Path] = CritJSONFile{
@@ -594,15 +597,9 @@ func (s *Session) WriteFiles() {
 	}
 	s.mu.RUnlock()
 
-	// Only write if there's meaningful content
-	hasContent := cj.ShareURL != "" || cj.DeleteToken != ""
-	for _, f := range cj.Files {
-		if len(f.Comments) > 0 {
-			hasContent = true
-			break
-		}
-	}
-	if !hasContent {
+	// Only write if there's meaningful content; remove stale file otherwise
+	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" {
+		os.Remove(s.critJSONPath())
 		return
 	}
 
@@ -924,23 +921,25 @@ func (s *Session) handleRoundCompleteGit() {
 			f.FileHash = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 		}
 	}
-	// Carry forward unresolved comments at original positions
+	// Carry forward all comments at original positions
 	for _, f := range s.Files {
+		now := time.Now().UTC().Format(time.RFC3339)
 		for _, c := range f.PreviousComments {
-			if !c.Resolved {
-				carried := Comment{
-					ID:             fmt.Sprintf("c%d", f.nextID),
-					StartLine:      c.StartLine,
-					EndLine:        c.EndLine,
-					Side:           c.Side,
-					Body:           c.Body,
-					CreatedAt:      c.CreatedAt,
-					UpdatedAt:      time.Now().UTC().Format(time.RFC3339),
-					CarriedForward: true,
-				}
-				f.nextID++
-				f.Comments = append(f.Comments, carried)
+			carried := Comment{
+				ID:              fmt.Sprintf("c%d", f.nextID),
+				StartLine:       c.StartLine,
+				EndLine:         c.EndLine,
+				Side:            c.Side,
+				Body:            c.Body,
+				CreatedAt:       c.CreatedAt,
+				UpdatedAt:       now,
+				Resolved:        c.Resolved,
+				ResolutionNote:  c.ResolutionNote,
+				ResolutionLines: c.ResolutionLines,
+				CarriedForward:  true,
 			}
+			f.nextID++
+			f.Comments = append(f.Comments, carried)
 		}
 	}
 	s.mu.Unlock()
@@ -964,7 +963,7 @@ func (s *Session) handleRoundCompleteFiles() {
 
 	// Load resolved comments from .crit.json
 	s.loadResolvedComments()
-	s.carryForwardUnresolved()
+	s.carryForwardComments()
 
 	// Re-read all file contents and update hashes
 	s.mu.Lock()
@@ -1009,6 +1008,12 @@ func (s *Session) emitRoundStatus(edits int) {
 func (s *Session) loadResolvedComments() {
 	data, err := os.ReadFile(s.critJSONPath())
 	if err != nil {
+		// No .crit.json — clear all PreviousComments
+		s.mu.Lock()
+		for _, f := range s.Files {
+			f.PreviousComments = nil
+		}
+		s.mu.Unlock()
 		return
 	}
 	var cj CritJSON
@@ -1020,13 +1025,15 @@ func (s *Session) loadResolvedComments() {
 	for _, f := range s.Files {
 		if cf, ok := cj.Files[f.Path]; ok {
 			f.PreviousComments = cf.Comments
+		} else {
+			f.PreviousComments = nil
 		}
 	}
 }
 
-// carryForwardUnresolved maps unresolved comments from the previous round
+// carryForwardComments maps comments from the previous round
 // to the new document positions for markdown files.
-func (s *Session) carryForwardUnresolved() {
+func (s *Session) carryForwardComments() {
 	s.mu.RLock()
 	var toProcess []*FileEntry
 	for _, f := range s.Files {
@@ -1040,15 +1047,11 @@ func (s *Session) carryForwardUnresolved() {
 		s.mu.RLock()
 		prevContent := f.PreviousContent
 		currContent := f.Content
-		var unresolved []Comment
-		for _, c := range f.PreviousComments {
-			if !c.Resolved {
-				unresolved = append(unresolved, c)
-			}
-		}
+		prevComments := make([]Comment, len(f.PreviousComments))
+		copy(prevComments, f.PreviousComments)
 		s.mu.RUnlock()
 
-		if len(unresolved) == 0 {
+		if len(prevComments) == 0 {
 			continue
 		}
 
@@ -1062,7 +1065,7 @@ func (s *Session) carryForwardUnresolved() {
 
 		s.mu.Lock()
 		now := time.Now().UTC().Format(time.RFC3339)
-		for _, c := range unresolved {
+		for _, c := range prevComments {
 			newStart := lineMap[c.StartLine]
 			newEnd := lineMap[c.EndLine]
 			if newStart == 0 {
@@ -1084,13 +1087,16 @@ func (s *Session) carryForwardUnresolved() {
 				newEnd = newStart
 			}
 			carried := Comment{
-				ID:             fmt.Sprintf("c%d", f.nextID),
-				StartLine:      newStart,
-				EndLine:        newEnd,
-				Body:           c.Body,
-				CreatedAt:      c.CreatedAt,
-				UpdatedAt:      now,
-				CarriedForward: true,
+				ID:              fmt.Sprintf("c%d", f.nextID),
+				StartLine:       newStart,
+				EndLine:         newEnd,
+				Body:            c.Body,
+				CreatedAt:       c.CreatedAt,
+				UpdatedAt:       now,
+				Resolved:        c.Resolved,
+				ResolutionNote:  c.ResolutionNote,
+				ResolutionLines: c.ResolutionLines,
+				CarriedForward:  true,
 			}
 			f.nextID++
 			f.Comments = append(f.Comments, carried)
@@ -1164,19 +1170,6 @@ func (s *Session) GetFileDiffHunks(path string) ([]DiffHunk, bool) {
 		return nil, false
 	}
 	return f.DiffHunks, true
-}
-
-// GetFilePreviousRound returns the previous round data for a markdown file.
-func (s *Session) GetFilePreviousRound(path string) (string, []Comment, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	f := s.fileByPathLocked(path)
-	if f == nil {
-		return "", nil, false
-	}
-	comments := make([]Comment, len(f.PreviousComments))
-	copy(comments, f.PreviousComments)
-	return f.PreviousContent, comments, true
 }
 
 // SessionInfo returns metadata about the session for the API.

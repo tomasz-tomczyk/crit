@@ -185,8 +185,8 @@ func TestSession_WriteFiles(t *testing.T) {
 	if cj.ReviewRound != 1 {
 		t.Errorf("review_round = %d, want 1", cj.ReviewRound)
 	}
-	if len(cj.Files) != 2 {
-		t.Errorf("expected 2 files, got %d", len(cj.Files))
+	if len(cj.Files) != 1 {
+		t.Errorf("expected 1 file (only files with comments), got %d", len(cj.Files))
 	}
 	if len(cj.Files["plan.md"].Comments) != 1 {
 		t.Errorf("plan.md comments = %d, want 1", len(cj.Files["plan.md"].Comments))
