@@ -5,6 +5,9 @@ node = "22"
 [env]
 PORT = "8080"
 
+# Worktree config (read by `dev wt` commands)
+WT_COPY_DIRS = "e2e/node_modules"
+
 [tasks.up]
 description = "Build and run crit"
 run = "make build && ./crit test/notification-plan.md"
