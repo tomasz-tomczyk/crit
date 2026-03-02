@@ -981,6 +981,36 @@ func (s *Session) handleRoundCompleteFiles() {
 	s.loadResolvedComments()
 	s.carryForwardComments()
 
+	// Carry forward comments for files that weren't edited in this round
+	// (carryForwardComments only handles markdown files with PreviousContent)
+	s.mu.Lock()
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, f := range s.Files {
+		// Skip if comments were already carried forward (file was edited)
+		if len(f.Comments) > 0 {
+			continue
+		}
+		// Carry forward all remaining comments from PreviousComments
+		for _, c := range f.PreviousComments {
+			carried := Comment{
+				ID:              fmt.Sprintf("c%d", f.nextID),
+				StartLine:       c.StartLine,
+				EndLine:         c.EndLine,
+				Side:            c.Side,
+				Body:            c.Body,
+				CreatedAt:       c.CreatedAt,
+				UpdatedAt:       now,
+				Resolved:        c.Resolved,
+				ResolutionNote:  c.ResolutionNote,
+				ResolutionLines: c.ResolutionLines,
+				CarriedForward:  true,
+			}
+			f.nextID++
+			f.Comments = append(f.Comments, carried)
+		}
+	}
+	s.mu.Unlock()
+
 	// Re-read all file contents and update hashes
 	s.mu.Lock()
 	for _, f := range s.Files {
