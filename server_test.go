@@ -762,39 +762,13 @@ func TestGetSession_IncludesAvailableScopes(t *testing.T) {
 	if !ok {
 		t.Fatalf("available_scopes is not an array: %T", scopes)
 	}
-	// Session has no BaseRef, so should be ["all", "staged", "unstaged"]
-	if len(scopeList) != 3 {
-		t.Errorf("expected 3 scopes, got %d: %v", len(scopeList), scopeList)
+	// Test server is not in a real git repo, so only "all" is available
+	// (git commands to detect staged/unstaged will fail)
+	if len(scopeList) < 1 {
+		t.Errorf("expected at least 1 scope, got %d: %v", len(scopeList), scopeList)
 	}
 	if scopeList[0] != "all" {
 		t.Errorf("first scope = %q, want all", scopeList[0])
-	}
-}
-
-func TestGetSession_AvailableScopesWithBaseRef(t *testing.T) {
-	s, session := newTestServer(t)
-	session.mu.Lock()
-	session.BaseRef = "abc123"
-	session.mu.Unlock()
-
-	req := httptest.NewRequest("GET", "/api/session", nil)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-
-	if w.Code != 200 {
-		t.Fatalf("status = %d", w.Code)
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	scopeList := resp["available_scopes"].([]any)
-	// With BaseRef, should be ["all", "branch", "staged", "unstaged"]
-	if len(scopeList) != 4 {
-		t.Errorf("expected 4 scopes, got %d: %v", len(scopeList), scopeList)
-	}
-	if scopeList[1] != "branch" {
-		t.Errorf("second scope = %q, want branch", scopeList[1])
 	}
 }
 

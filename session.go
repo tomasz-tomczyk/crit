@@ -1250,12 +1250,22 @@ func (s *Session) GetSessionInfo() SessionInfo {
 	return info
 }
 
-// availableScopes returns the list of scopes for the session.
+// availableScopes returns the list of scopes that have files.
+// Only includes a scope if git reports changes for it.
 func availableScopes(baseRef string) []string {
+	scopes := []string{"all"}
 	if baseRef != "" {
-		return []string{"all", "branch", "staged", "unstaged"}
+		if files, err := changedFilesBranch(baseRef); err == nil && len(files) > 0 {
+			scopes = append(scopes, "branch")
+		}
 	}
-	return []string{"all", "staged", "unstaged"}
+	if files, err := changedFilesStaged(); err == nil && len(files) > 0 {
+		scopes = append(scopes, "staged")
+	}
+	if files, err := changedFilesUnstaged(); err == nil && len(files) > 0 {
+		scopes = append(scopes, "unstaged")
+	}
+	return scopes
 }
 
 // GetSessionInfoScoped returns session metadata filtered to a specific diff scope.
