@@ -2834,6 +2834,11 @@
     }
     toggleBtn.style.display = '';
 
+    // Restore TOC open/closed state from cookie
+    if (getCookie('crit-toc') === 'open') {
+      tocEl.classList.remove('toc-hidden');
+    }
+
     const minLevel = Math.min(...allItems.map(i => i.level));
     for (const item of allItems) {
       const li = document.createElement('li');
@@ -2845,7 +2850,23 @@
       a.style.paddingLeft = (12 + (item.level - minLevel) * 10) + 'px';
       a.addEventListener('click', function(e) {
         e.preventDefault();
-        scrollToFile(item.filePath);
+        // Uncollapse the file section first
+        var sectionEl = document.getElementById('file-section-' + item.filePath);
+        if (sectionEl) {
+          var file = getFileByPath(item.filePath);
+          if (file) file.collapsed = false;
+          sectionEl.open = true;
+        }
+        // Find the line block matching this heading's start line
+        var target = sectionEl && sectionEl.querySelector('.line-block[data-start-line="' + item.startLine + '"]');
+        if (target) {
+          var mainHeader = document.querySelector('.header');
+          var offset = (mainHeader ? mainHeader.offsetHeight : 49) + 8;
+          var y = target.getBoundingClientRect().top + window.scrollY - offset;
+          window.scrollTo({ top: y, behavior: 'smooth' });
+        } else {
+          scrollToFile(item.filePath);
+        }
       });
       li.appendChild(a);
       listEl.appendChild(li);
@@ -2960,12 +2981,15 @@
 
   // ===== TOC Toggle =====
   document.getElementById('tocToggle').addEventListener('click', function() {
-    document.getElementById('toc').classList.toggle('toc-hidden');
+    var tocEl = document.getElementById('toc');
+    tocEl.classList.toggle('toc-hidden');
+    setCookie('crit-toc', tocEl.classList.contains('toc-hidden') ? 'closed' : 'open');
     buildToc();
   });
 
   document.querySelector('.toc-close').addEventListener('click', function() {
     document.getElementById('toc').classList.add('toc-hidden');
+    setCookie('crit-toc', 'closed');
   });
 
   // ===== Keyboard Shortcuts =====

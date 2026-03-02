@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 GIT_PORT="${CRIT_TEST_PORT:-3123}"
 FILE_PORT="${CRIT_TEST_FILE_PORT:-3124}"
+SINGLE_PORT="${CRIT_TEST_SINGLE_PORT:-3125}"
 
 # Build crit once
 BIN_DIR=$(mktemp -d)
@@ -18,16 +19,18 @@ bash setup-fixtures.sh "$GIT_PORT" &
 GIT_PID=$!
 bash setup-fixtures-filemode.sh "$FILE_PORT" &
 FILE_PID=$!
+bash setup-fixtures-singlefile.sh "$SINGLE_PORT" &
+SINGLE_PID=$!
 
 cleanup() {
-  kill "$GIT_PID" "$FILE_PID" 2>/dev/null || true
-  wait "$GIT_PID" "$FILE_PID" 2>/dev/null || true
+  kill "$GIT_PID" "$FILE_PID" "$SINGLE_PID" 2>/dev/null || true
+  wait "$GIT_PID" "$FILE_PID" "$SINGLE_PID" 2>/dev/null || true
   rm -rf "$BIN_DIR"
 }
 trap cleanup EXIT
 
 # Wait for servers to be ready
-for port in "$GIT_PORT" "$FILE_PORT"; do
+for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT"; do
   while ! curl -sf "http://localhost:$port/api/session" >/dev/null 2>&1; do
     sleep 0.1
   done
