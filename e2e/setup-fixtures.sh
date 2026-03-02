@@ -252,6 +252,41 @@ JSFILE
 git add -A
 git commit -q -m "feat: add auth middleware and plan"
 
+# === Staged changes (not committed) ===
+# Stage a modification to utils.go (adds a Reverse function)
+cat > utils.go << 'GOFILE'
+package main
+
+import "strings"
+
+func Capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// Reverse returns the reverse of a string.
+func Reverse(s string) string {
+	runes := []rune(s)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes)
+}
+GOFILE
+git add utils.go
+
+# === Unstaged changes (working tree only) ===
+# Create an untracked file
+cat > config.yaml << 'EOF'
+server:
+  port: 8080
+  host: localhost
+auth:
+  enabled: true
+EOF
+
 # Build crit binary outside the repo (skip if CRIT_BIN is set)
 if [ -z "${CRIT_BIN:-}" ]; then
   CRIT_BIN="$BIN_DIR/crit"

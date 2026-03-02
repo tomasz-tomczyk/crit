@@ -39,17 +39,17 @@ test.describe('File Tree', () => {
     await page.goto('/');
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    // Added files: plan.md and handler.js
+    // Added files: plan.md, handler.js, and config.yaml (untracked)
     const addedIcons = page.locator('.tree-file-status-icon.added');
-    await expect(addedIcons).toHaveCount(2);
+    await expect(addedIcons).toHaveCount(3);
 
     // Deleted file: deleted.txt
     const deletedIcons = page.locator('.tree-file-status-icon.deleted');
     await expect(deletedIcons).toHaveCount(1);
 
-    // Modified file: server.go
+    // Modified files: server.go and utils.go (staged modification)
     const modifiedIcons = page.locator('.tree-file-status-icon.modified');
-    await expect(modifiedIcons).toHaveCount(1);
+    await expect(modifiedIcons).toHaveCount(2);
   });
 
   test('clicking a file in the tree scrolls to its section', async ({ page }) => {
