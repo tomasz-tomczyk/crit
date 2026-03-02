@@ -455,6 +455,21 @@ func (s *Session) TotalCommentCount() int {
 	return total
 }
 
+// NewCommentCount returns the number of new (non-carried-forward) comments across all files.
+func (s *Session) NewCommentCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	total := 0
+	for _, f := range s.Files {
+		for _, c := range f.Comments {
+			if !c.CarriedForward {
+				total++
+			}
+		}
+	}
+	return total
+}
+
 func (s *Session) fileByPathLocked(path string) *FileEntry {
 	for _, f := range s.Files {
 		if f.Path == path {

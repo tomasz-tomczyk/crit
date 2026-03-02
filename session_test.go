@@ -161,6 +161,49 @@ func TestSession_TotalCommentCount(t *testing.T) {
 	}
 }
 
+func TestSession_NewCommentCount(t *testing.T) {
+	s := newTestSession(t)
+	s.AddComment("plan.md", 1, 1, "", "new one")
+	s.AddComment("plan.md", 2, 2, "", "new two")
+
+	// Simulate carried-forward comments (as happens after round complete)
+	s.mu.Lock()
+	f := s.fileByPathLocked("main.go")
+	f.Comments = append(f.Comments, Comment{
+		ID:             "c1",
+		StartLine:      1,
+		EndLine:        1,
+		Body:           "carried",
+		CarriedForward: true,
+	})
+	s.mu.Unlock()
+
+	if got := s.TotalCommentCount(); got != 3 {
+		t.Errorf("TotalCommentCount = %d, want 3", got)
+	}
+	if got := s.NewCommentCount(); got != 2 {
+		t.Errorf("NewCommentCount = %d, want 2", got)
+	}
+}
+
+func TestSession_NewCommentCount_AllCarriedForward(t *testing.T) {
+	s := newTestSession(t)
+	s.mu.Lock()
+	f := s.fileByPathLocked("plan.md")
+	f.Comments = []Comment{
+		{ID: "c1", StartLine: 1, EndLine: 1, Body: "resolved", CarriedForward: true, Resolved: true},
+		{ID: "c2", StartLine: 2, EndLine: 2, Body: "open", CarriedForward: true},
+	}
+	s.mu.Unlock()
+
+	if got := s.TotalCommentCount(); got != 2 {
+		t.Errorf("TotalCommentCount = %d, want 2", got)
+	}
+	if got := s.NewCommentCount(); got != 0 {
+		t.Errorf("NewCommentCount = %d, want 0", got)
+	}
+}
+
 func TestSession_WriteFiles(t *testing.T) {
 	s := newTestSession(t)
 	s.AddComment("plan.md", 1, 1, "", "fix")

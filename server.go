@@ -290,6 +290,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	s.session.WriteFiles()
 
 	totalComments := s.session.TotalCommentCount()
+	newComments := s.session.NewCommentCount()
 	critJSON := s.session.critJSONPath()
 	prompt := ""
 	if totalComments > 0 {
@@ -309,7 +310,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 
 	if s.status != nil {
 		round := s.session.GetReviewRound()
-		s.status.RoundFinished(round, totalComments, totalComments > 0)
+		s.status.RoundFinished(round, newComments, totalComments > 0)
 		if totalComments > 0 {
 			s.status.WaitingForAgent()
 		}
