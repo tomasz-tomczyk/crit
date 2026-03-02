@@ -28,7 +28,7 @@ if [ ! -f "$BINARY" ]; then
 fi
 
 # Reset the copy to v1 and remove any stale .crit.json
-cp test-plan.md "$FILE"
+cp test/notification-plan.md "$FILE"
 rm -f .crit.json
 
 echo "Starting crit on $FILE (port $PORT)..."
