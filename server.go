@@ -185,10 +185,6 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path query parameter required", http.StatusBadRequest)
 		return
 	}
-	if s.session.FileByPath(path) == nil {
-		http.Error(w, "File not found", http.StatusNotFound)
-		return
-	}
 
 	switch r.Method {
 	case http.MethodGet:

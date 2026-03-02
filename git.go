@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -375,17 +374,4 @@ func WorkingTreeFingerprint() string {
 		return ""
 	}
 	return string(out)
-}
-
-// FileRelativePath converts an absolute path to a path relative to the repo root.
-func FileRelativePath(absPath string) (string, error) {
-	root, err := RepoRoot()
-	if err != nil {
-		return "", err
-	}
-	rel, err := filepath.Rel(root, absPath)
-	if err != nil {
-		return "", fmt.Errorf("computing relative path: %w", err)
-	}
-	return rel, nil
 }

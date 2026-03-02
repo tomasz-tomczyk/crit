@@ -34,7 +34,6 @@
   let hostedURL = '';
   let deleteToken = '';
   let uiState = 'reviewing';
-  let reviewRound = 1;
 
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
 
@@ -51,6 +50,66 @@
   let navElements = []; // cached .kb-nav list, rebuilt on render
 
   const enc = encodeURIComponent;
+
+  // Sort comparator: directories before files at each depth, then alphabetical
+  function fileSortComparator(a, b) {
+    var pa = a.path.split('/'), pb = b.path.split('/');
+    var min = Math.min(pa.length, pb.length);
+    for (var i = 0; i < min - 1; i++) {
+      if (pa[i] !== pb[i]) return pa[i].localeCompare(pb[i]);
+    }
+    if (pa.length !== pb.length) return pb.length - pa.length;
+    return pa[pa.length - 1].localeCompare(pb[pa.length - 1]);
+  }
+
+  // Fetch and build file objects from the API for a list of file infos.
+  async function loadAllFileData(fileInfos) {
+    return Promise.all(fileInfos.map(async (fi) => {
+      const [fileRes, commentsRes, diffRes] = await Promise.all([
+        fetch('/api/file?path=' + enc(fi.path)).then(r => r.json()),
+        fetch('/api/file/comments?path=' + enc(fi.path)).then(r => r.json()),
+        fetch('/api/file/diff?path=' + enc(fi.path)).then(r => r.json()).catch(function() { return { hunks: [] }; }),
+      ]);
+
+      const f = {
+        path: fi.path,
+        status: fi.status,
+        fileType: fi.file_type,
+        content: fileRes.content || '',
+        comments: Array.isArray(commentsRes) ? commentsRes : [],
+        diffHunks: diffRes.hunks || [],
+        lineBlocks: null,
+        tocItems: [],
+        collapsed: fi.status === 'deleted',
+        viewMode: (session.mode === 'git') ? 'diff' : 'document',
+        additions: fi.additions || 0,
+        deletions: fi.deletions || 0,
+      };
+
+      // Mark large diffs for deferred rendering
+      var diffLineCount = 0;
+      for (var h = 0; h < f.diffHunks.length; h++) {
+        diffLineCount += (f.diffHunks[h].Lines || []).length;
+      }
+      f.diffTooLarge = diffLineCount > 1000;
+      f.diffLoaded = !f.diffTooLarge;
+
+      // Pre-highlight code files for diff rendering
+      if (f.fileType === 'code') {
+        f.highlightCache = preHighlightFile(f);
+        f.lang = langFromPath(f.path);
+      }
+
+      // Parse markdown content into line blocks
+      if (f.fileType === 'markdown') {
+        const parsed = parseMarkdown(f.content);
+        f.lineBlocks = parsed.blocks;
+        f.tocItems = parsed.tocItems;
+      }
+
+      return f;
+    }));
+  }
 
   // ===== Viewed State =====
   function viewedStorageKey() {
@@ -128,7 +187,6 @@
     ]);
 
     session = sessionRes;
-    reviewRound = session.review_round || 1;
 
     // Config
     shareURL = configRes.share_url || '';
@@ -166,77 +224,9 @@
       ? 'Crit — ' + (session.branch || 'review')
       : 'Crit — ' + (session.files || []).map(f => f.path).join(', ');
 
-    // Load all files in parallel
-    const fileInfos = session.files || [];
-    const filePromises = fileInfos.map(async (fi) => {
-      const [fileRes, commentsRes] = await Promise.all([
-        fetch('/api/file?path=' + enc(fi.path)).then(r => r.json()),
-        fetch('/api/file/comments?path=' + enc(fi.path)).then(r => r.json()),
-      ]);
+    files = await loadAllFileData(session.files || []);
 
-      const f = {
-        path: fi.path,
-        status: fi.status,
-        fileType: fi.file_type,
-        content: fileRes.content || '',
-        comments: Array.isArray(commentsRes) ? commentsRes : [],
-        diffHunks: null,
-        lineBlocks: null,
-        tocItems: [],
-        collapsed: fi.status === 'deleted',
-        viewMode: (session.mode === 'git') ? 'diff' : 'document',
-        additions: fi.additions || 0,
-        deletions: fi.deletions || 0,
-      };
-
-      // Load diff hunks (always — code files get git diff, markdown may get inter-round diff)
-      {
-        try {
-          const diffRes = await fetch('/api/file/diff?path=' + enc(fi.path)).then(r => r.json());
-          f.diffHunks = diffRes.hunks || [];
-        } catch (_) {
-          f.diffHunks = [];
-        }
-      }
-
-      // Mark large diffs for deferred rendering
-      var diffLineCount = 0;
-      if (f.diffHunks) {
-        for (var h = 0; h < f.diffHunks.length; h++) {
-          diffLineCount += (f.diffHunks[h].Lines || []).length;
-        }
-      }
-      f.diffTooLarge = diffLineCount > 1000;
-      f.diffLoaded = !f.diffTooLarge;
-
-      // Pre-highlight code files for diff rendering
-      if (f.fileType === 'code') {
-        f.highlightCache = preHighlightFile(f);
-        f.lang = langFromPath(f.path);
-      }
-
-      // Parse markdown content into line blocks
-      if (f.fileType === 'markdown') {
-        const parsed = parseMarkdown(f.content);
-        f.lineBlocks = parsed.blocks;
-        f.tocItems = parsed.tocItems;
-      }
-
-      return f;
-    });
-
-    files = await Promise.all(filePromises);
-
-    // Sort files to match tree order: directories before files, then alphabetical
-    files.sort(function(a, b) {
-      var pa = a.path.split('/'), pb = b.path.split('/');
-      var min = Math.min(pa.length, pb.length);
-      for (var i = 0; i < min - 1; i++) {
-        if (pa[i] !== pb[i]) return pa[i].localeCompare(pb[i]);
-      }
-      if (pa.length !== pb.length) return pb.length - pa.length;
-      return pa[pa.length - 1].localeCompare(pb[pa.length - 1]);
-    });
+    files.sort(fileSortComparator);
 
     restoreViewedState();
     renderFileTree();
@@ -2504,8 +2494,8 @@
   // ===== UI State =====
   function updateHeaderRound() {
     const el = document.getElementById('headerNotify');
-    if (reviewRound > 1) {
-      el.textContent = 'Round #' + reviewRound;
+    if (session.review_round > 1) {
+      el.textContent = 'Round #' + session.review_round;
     }
   }
 
@@ -2587,83 +2577,21 @@
         // Re-fetch everything on file-changed (round complete)
         const sessionRes = await fetch('/api/session').then(r => r.json());
         session = sessionRes;
-        reviewRound = session.review_round || reviewRound + 1;
 
         // Reload all files
-        const fileInfos = session.files || [];
-        const filePromises = fileInfos.map(async (fi) => {
-          const [fileRes, commentsRes] = await Promise.all([
-            fetch('/api/file?path=' + enc(fi.path)).then(r => r.json()),
-            fetch('/api/file/comments?path=' + enc(fi.path)).then(r => r.json()),
-          ]);
+        files = await loadAllFileData(session.files || []);
 
-          const f = {
-            path: fi.path,
-            status: fi.status,
-            fileType: fi.file_type,
-            content: fileRes.content || '',
-            comments: Array.isArray(commentsRes) ? commentsRes : [],
-            diffHunks: null,
-            lineBlocks: null,
-            tocItems: [],
-            collapsed: fi.status === 'deleted',
-            viewMode: (session.mode === 'git') ? 'diff' : 'document',
-            additions: fi.additions || 0,
-            deletions: fi.deletions || 0,
-          };
-
-          // Load diff hunks (always — code files get git diff, markdown may get inter-round diff)
-          {
-            try {
-              const diffRes = await fetch('/api/file/diff?path=' + enc(fi.path)).then(r => r.json());
-              f.diffHunks = diffRes.hunks || [];
-            } catch (_) { f.diffHunks = []; }
-          }
-
-          // Mark large diffs for deferred rendering
-          var diffLineCount = 0;
-          if (f.diffHunks) {
-            for (var h = 0; h < f.diffHunks.length; h++) {
-              diffLineCount += (f.diffHunks[h].Lines || []).length;
-            }
-          }
-          f.diffTooLarge = diffLineCount > 1000;
-          f.diffLoaded = !f.diffTooLarge;
-
-          // Pre-highlight code files for diff rendering
-          if (f.fileType === 'code') {
-            f.highlightCache = preHighlightFile(f);
-            f.lang = langFromPath(f.path);
-          }
-
-          if (f.fileType === 'markdown') {
-            const parsed = parseMarkdown(f.content);
-            f.lineBlocks = parsed.blocks;
-            f.tocItems = parsed.tocItems;
-          }
-
-          // Restore user state from previous round
-          var prev = prevState[fi.path];
+        // Restore per-file user state from previous round
+        for (var fi = 0; fi < files.length; fi++) {
+          var prev = prevState[files[fi].path];
           if (prev) {
-            f.viewMode = prev.viewMode;
-            f.collapsed = prev.collapsed;
-            if (prev.diffLoaded) f.diffLoaded = prev.diffLoaded;
+            files[fi].viewMode = prev.viewMode;
+            files[fi].collapsed = prev.collapsed;
+            if (prev.diffLoaded) files[fi].diffLoaded = prev.diffLoaded;
           }
+        }
 
-          return f;
-        });
-
-        files = await Promise.all(filePromises);
-
-        files.sort(function(a, b) {
-          var pa = a.path.split('/'), pb = b.path.split('/');
-          var min = Math.min(pa.length, pb.length);
-          for (var i = 0; i < min - 1; i++) {
-            if (pa[i] !== pb[i]) return pa[i].localeCompare(pb[i]);
-          }
-          if (pa.length !== pb.length) return pb.length - pa.length;
-          return pa[pa.length - 1].localeCompare(pb[pa.length - 1]);
-        });
+        files.sort(fileSortComparator);
 
         activeForm = null;
         activeFilePath = null;

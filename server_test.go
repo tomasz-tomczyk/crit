@@ -22,7 +22,6 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 	session := &Session{
 		Mode:          "files",
 		RepoRoot:      dir,
-		OutputDir:     dir,
 		ReviewRound:   1,
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),

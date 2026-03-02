@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+// fileHash returns a stable hash string for file content.
+func fileHash(data []byte) string {
+	return fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+}
+
 // Comment represents a single inline review comment.
 type Comment struct {
 	ID              string `json:"id"`
@@ -59,7 +64,6 @@ type Session struct {
 	Branch      string
 	BaseRef     string
 	RepoRoot    string
-	OutputDir   string // directory for .crit.json
 	ReviewRound int
 
 	mu             sync.RWMutex
@@ -119,7 +123,6 @@ func NewSessionFromGit() (*Session, error) {
 		Branch:        branch,
 		BaseRef:       baseRef,
 		RepoRoot:      root,
-		OutputDir:     root,
 		ReviewRound:   1,
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
@@ -142,20 +145,15 @@ func NewSessionFromGit() (*Session, error) {
 				continue // skip files that can't be read
 			}
 			fe.Content = string(data)
-			fe.FileHash = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+			fe.FileHash = fileHash(data)
 		}
 
 		// Load diff hunks for all files in git mode
 		if fc.Status != "deleted" {
 			if fc.Status == "added" || fc.Status == "untracked" {
-				// Untracked/added files: show entire content as added
 				fe.DiffHunks = FileDiffUnifiedNewFile(fe.Content)
 			} else {
-				ref := baseRef
-				if ref == "" {
-					ref = "HEAD"
-				}
-				hunks, err := FileDiffUnified(fc.Path, ref)
+				hunks, err := FileDiffUnified(fc.Path, baseRef)
 				if err == nil {
 					fe.DiffHunks = hunks
 				}
@@ -236,7 +234,6 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 		Branch:        branch,
 		BaseRef:       baseRef,
 		RepoRoot:      root,
-		OutputDir:     root,
 		ReviewRound:   1,
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
@@ -261,18 +258,14 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 			Status:   "modified",
 			FileType: detectFileType(absPath),
 			Content:  string(data),
-			FileHash: fmt.Sprintf("sha256:%x", sha256.Sum256(data)),
+			FileHash: fileHash(data),
 			Comments: []Comment{},
 			nextID:   1,
 		}
 
 		// Load diff hunks in a git repo
 		if IsGitRepo() {
-			ref := baseRef
-			if ref == "" {
-				ref = "HEAD"
-			}
-			hunks, err := FileDiffUnified(relPath, ref)
+			hunks, err := FileDiffUnified(relPath, baseRef)
 			if err == nil {
 				fe.DiffHunks = hunks
 			}
@@ -568,7 +561,7 @@ func (s *Session) scheduleWrite() {
 
 // critJSONPath returns the path to the .crit.json file.
 func (s *Session) critJSONPath() string {
-	return filepath.Join(s.OutputDir, ".crit.json")
+	return filepath.Join(s.RepoRoot, ".crit.json")
 }
 
 // WriteFiles writes the .crit.json file to disk.
@@ -715,11 +708,7 @@ func (s *Session) RefreshDiffs() {
 		if snap.status == "added" || snap.status == "untracked" {
 			hunks = FileDiffUnifiedNewFile(snap.content)
 		} else {
-			ref := baseRef
-			if ref == "" {
-				ref = "HEAD"
-			}
-			h, err := FileDiffUnified(snap.path, ref)
+			h, err := FileDiffUnified(snap.path, baseRef)
 			if err == nil {
 				hunks = h
 			}
@@ -753,11 +742,18 @@ func (s *Session) RefreshFileList() {
 	repoRoot := s.RepoRoot
 	s.mu.RUnlock()
 
-	// Build new file list, doing I/O (os.ReadFile, sha256) without holding the lock
+	// Build new file list, doing I/O (os.ReadFile, sha256) without holding the lock.
+	// Status updates for existing entries are deferred to the write-lock section
+	// to avoid racing with concurrent readers.
+	type existingUpdate struct {
+		entry  *FileEntry
+		status string
+	}
 	var newFiles []*FileEntry
+	var updates []existingUpdate
 	for _, fc := range changes {
 		if f, ok := existing[fc.Path]; ok {
-			f.Status = fc.Status
+			updates = append(updates, existingUpdate{f, fc.Status})
 			newFiles = append(newFiles, f)
 		} else {
 			absPath := filepath.Join(repoRoot, fc.Path)
@@ -772,7 +768,7 @@ func (s *Session) RefreshFileList() {
 			if fc.Status != "deleted" {
 				if data, err := os.ReadFile(absPath); err == nil {
 					fe.Content = string(data)
-					fe.FileHash = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+					fe.FileHash = fileHash(data)
 				}
 			}
 			newFiles = append(newFiles, fe)
@@ -781,6 +777,9 @@ func (s *Session) RefreshFileList() {
 
 	// Assign under write lock
 	s.mu.Lock()
+	for _, u := range updates {
+		u.entry.Status = u.status
+	}
 	s.Files = newFiles
 	s.mu.Unlock()
 }
@@ -859,7 +858,7 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 				if err != nil {
 					continue
 				}
-				hash := fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+				hash := fileHash(data)
 
 				s.mu.RLock()
 				same := hash == f.FileHash
@@ -899,6 +898,7 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 
 // handleRoundCompleteGit handles round completion in git mode.
 // Re-runs ChangedFiles, re-computes diffs, refreshes file list.
+// Must only be called from the single watcher goroutine (watchGit).
 func (s *Session) handleRoundCompleteGit() {
 	s.mu.RLock()
 	edits := s.lastRoundEdits
@@ -918,7 +918,7 @@ func (s *Session) handleRoundCompleteGit() {
 		}
 		if data, err := os.ReadFile(f.AbsPath); err == nil {
 			f.Content = string(data)
-			f.FileHash = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+			f.FileHash = fileHash(data)
 		}
 	}
 	// Carry forward all comments at original positions
@@ -956,6 +956,7 @@ func (s *Session) handleRoundCompleteGit() {
 
 // handleRoundCompleteFiles handles round completion in files mode.
 // Re-reads files, carries forward unresolved comments.
+// Must only be called from the single watcher goroutine (watchFileMtimes).
 func (s *Session) handleRoundCompleteFiles() {
 	s.mu.RLock()
 	edits := s.lastRoundEdits
@@ -970,7 +971,7 @@ func (s *Session) handleRoundCompleteFiles() {
 	for _, f := range s.Files {
 		if data, err := os.ReadFile(f.AbsPath); err == nil {
 			f.Content = string(data)
-			f.FileHash = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+			f.FileHash = fileHash(data)
 		}
 	}
 	s.mu.Unlock()
@@ -1090,6 +1091,7 @@ func (s *Session) carryForwardComments() {
 				ID:              fmt.Sprintf("c%d", f.nextID),
 				StartLine:       newStart,
 				EndLine:         newEnd,
+				Side:            c.Side,
 				Body:            c.Body,
 				CreatedAt:       c.CreatedAt,
 				UpdatedAt:       now,
@@ -1124,24 +1126,29 @@ func (s *Session) GetFileSnapshot(path string) (map[string]any, bool) {
 // GetFileDiffSnapshot returns diff data for the /api/file/diff endpoint.
 func (s *Session) GetFileDiffSnapshot(path string) (map[string]any, bool) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	f := s.fileByPathLocked(path)
 	if f == nil {
+		s.mu.RUnlock()
 		return nil, false
 	}
 
 	if f.FileType == "code" || s.Mode == "git" {
 		hunks := f.DiffHunks
+		s.mu.RUnlock()
 		if hunks == nil {
 			hunks = []DiffHunk{}
 		}
 		return map[string]any{"hunks": hunks}, true
 	}
 
-	// Markdown in files mode: inter-round LCS diff
+	// Markdown in files mode: snapshot content, then compute LCS diff outside the lock
+	prevContent := f.PreviousContent
+	currContent := f.Content
+	s.mu.RUnlock()
+
 	var hunks []DiffHunk
-	if f.PreviousContent != "" {
-		entries := ComputeLineDiff(f.PreviousContent, f.Content)
+	if prevContent != "" {
+		entries := ComputeLineDiff(prevContent, currContent)
 		hunks = DiffEntriesToHunks(entries)
 	}
 	if hunks == nil {

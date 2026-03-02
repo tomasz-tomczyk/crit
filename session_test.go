@@ -18,7 +18,6 @@ func newTestSession(t *testing.T) *Session {
 
 	s := &Session{
 		RepoRoot:      dir,
-		OutputDir:     dir,
 		ReviewRound:   1,
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
@@ -237,7 +236,7 @@ func TestSession_LoadCritJSON(t *testing.T) {
 
 	// Create a new session pointing to same dir
 	s2 := newTestSession(t)
-	s2.OutputDir = s.OutputDir
+	s2.RepoRoot = s.RepoRoot
 	s2.Files[0].FileHash = s.Files[0].FileHash // match hash
 	s2.loadCritJSON()
 
