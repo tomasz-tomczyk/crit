@@ -105,15 +105,16 @@ cp test/test-plan-v2.md "$FILE"
 sleep 1.5
 
 # Mark 3 of 4 comments as resolved in .crit.json (comment #4 stays open)
-python3 -c "
-import json
-with open('$REVIEW_FILE') as f:
+python3 - "$REVIEW_FILE" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+with open(path) as f:
     cj = json.load(f)
 for fk in cj['files']:
     comments = cj['files'][fk]['comments']
     if len(comments) >= 3:
         comments[0]['resolved'] = True
-        comments[0]['resolution_note'] = 'Switched to SQS. Durability is handled by AWS, no AOF config needed, and we'\''re already paying for it.'
+        comments[0]['resolution_note'] = "Switched to SQS. Durability is handled by AWS, no AOF config needed, and we're already paying for it."
         comments[0]['resolution_lines'] = [20]
         comments[1]['resolved'] = True
         comments[1]['resolution_note'] = 'Added X-Internal-Token requirement to the endpoint description and a rate limiting checklist item.'
@@ -121,9 +122,9 @@ for fk in cj['files']:
         comments[2]['resolved'] = True
         comments[2]['resolution_note'] = 'Capped at 30 minutes. Both attempts 4 and 5 now use the same interval.'
         comments[2]['resolution_lines'] = [122]
-with open('$REVIEW_FILE', 'w') as f:
+with open(path, 'w') as f:
     json.dump(cj, f, indent=2)
-"
+PYEOF
 
 echo "Signalling round-complete..."
 curl -sf -X POST "http://127.0.0.1:$PORT/api/round-complete" > /dev/null
