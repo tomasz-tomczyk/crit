@@ -11,33 +11,34 @@ Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf, or any a
 ## Workflow
 
 ```bash
-# 1. Open a plan for review
-crit plan.md
-# → Browser opens with the plan rendered and commentable
+# 1. Open files for review
+crit                           # Git mode: auto-detect changed files
+crit plan.md                   # Review a specific file
+crit plan.md api-spec.md       # Review multiple files
+# → Browser opens with files rendered and commentable
 # → Select lines, leave inline comments
 
 # 2. Click "Finish Review"
-# → Crit writes plan.review.md and .plan.comments.json
-# → A prompt is copied to your clipboard telling the agent what to do
+# → Crit writes .crit.json with your structured comments
+# → A prompt is copied to your clipboard telling the agent what to fix
 
 # 3. Paste the prompt into your agent
-# → The prompt points the agent to the review file, the comments file,
-#   and tells it to run `crit go <port>` when done
+# → The agent reads .crit.json, addresses your comments,
+#   and runs `crit go <port>` when done
 
-# 4. Agent edits the plan and runs `crit go <port>`
+# 4. New round
 # → Crit starts a new round with a diff of what changed
 # → Previous comments show as resolved or still open
-# → Leave more comments, repeat until the plan is right
+# → Leave more comments, repeat until it's right
 ```
 
 ### Output
 
-When you finish a review, Crit generates two files:
+When you finish a review, Crit generates `.crit.json` — structured comment data that your agent reads and acts on. Add it to your `.gitignore`:
 
-| File                  | Purpose                                                                                       |
-| --------------------- | --------------------------------------------------------------------------------------------- |
-| `plan.review.md`      | Original plan with your comments interleaved as blockquotes at the exact lines they reference |
-| `.plan.comments.json` | Comment state and session data. The agent marks comments resolved here                        |
+```bash
+echo '.crit.json' >> .gitignore
+```
 
 ## Demo
 
@@ -76,6 +77,12 @@ inputs.crit.url = "github:tomasz-tomczyk/crit";
 Grab the latest binary for your platform from [Releases](https://github.com/tomasz-tomczyk/crit/releases).
 
 ## Features
+
+### Multi-file review
+
+Run `crit` with no arguments to review all changed files in your git repo. A file tree on the left shows each file with its status (added, modified, deleted) and comment counts. Code files render as git diffs with syntax highlighting; markdown files render as formatted documents.
+
+You can also pass specific files: `crit plan.md api-spec.md`.
 
 ### Round-to-round diff
 
@@ -169,17 +176,18 @@ It launches Crit, waits for your review, reads your comments, revises the plan, 
 ## Usage
 
 ```bash
-# Review a markdown file (opens browser automatically)
+# Git mode: review all changed files (auto-detected)
+crit
+
+# Review specific files
 crit plan.md
+crit plan.md api-spec.md
 
 # Specify a port
 crit -p 3000 plan.md
 
 # Don't auto-open browser
 crit --no-open plan.md
-
-# Custom output directory for .review.md
-crit -o /tmp plan.md
 ```
 
 ## Environment Variables
@@ -212,6 +220,19 @@ make build-all
 #   crit-darwin-amd64
 #   crit-linux-amd64
 #   crit-linux-arm64
+```
+
+### E2E Tests
+
+The `e2e/` directory has a Playwright test suite that runs the full frontend against a real Crit server. Requires Node.js (listed in `mise.toml`).
+
+```bash
+cd e2e && npm install && npx playwright install chromium
+
+make e2e                                              # Run full suite
+cd e2e && npx playwright test tests/comments.spec.ts  # Run one test file
+cd e2e && npx playwright test --headed                # Run with visible browser
+make e2e-report                                       # View HTML report
 ```
 
 ## Acknowledgments

@@ -13,7 +13,7 @@ import (
 )
 
 type Server struct {
-	doc            *Document
+	session        *Session
 	mux            *http.ServeMux
 	assets         fs.FS
 	shareURL       string
@@ -24,31 +24,40 @@ type Server struct {
 	status         *Status
 }
 
-func NewServer(doc *Document, frontendFS embed.FS, shareURL string, currentVersion string, port int) (*Server, error) {
+func NewServer(session *Session, frontendFS embed.FS, shareURL string, currentVersion string, port int) (*Server, error) {
 	assets, err := fs.Sub(frontendFS, "frontend")
 	if err != nil {
 		return nil, fmt.Errorf("loading frontend assets: %w", err)
 	}
 
-	s := &Server{doc: doc, assets: assets, shareURL: shareURL, currentVersion: currentVersion, port: port}
+	s := &Server{session: session, assets: assets, shareURL: shareURL, currentVersion: currentVersion, port: port}
 
 	mux := http.NewServeMux()
+
+	// Session-scoped endpoints
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/session", s.handleSession)
 	mux.HandleFunc("/api/share-url", s.handleShareURL)
-	mux.HandleFunc("/api/document", s.handleDocument)
-	mux.HandleFunc("/api/comments", s.handleComments)
-	mux.HandleFunc("/api/comments/", s.handleCommentByID)
 	mux.HandleFunc("/api/finish", s.handleFinish)
 	mux.HandleFunc("/api/events", s.handleEvents)
-	mux.HandleFunc("/api/stale", s.handleStale)
 	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
-	mux.HandleFunc("/api/previous-round", s.handlePreviousRound)
-	mux.HandleFunc("/api/diff", s.handleDiff)
+
+	// File-scoped endpoints (use ?path= query param)
+	mux.HandleFunc("/api/file", s.handleFile)
+	mux.HandleFunc("/api/file/diff", s.handleFileDiff)
+	mux.HandleFunc("/api/file/comments", s.handleFileComments)
+	mux.HandleFunc("/api/comment/", s.handleCommentByID)
+
+	// Static file serving
 	mux.HandleFunc("/files/", s.handleFiles)
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 
 	s.mux = mux
 	return s, nil
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mux.ServeHTTP(w, r)
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
@@ -61,8 +70,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	s.versionMu.RUnlock()
 	writeJSON(w, map[string]string{
 		"share_url":      s.shareURL,
-		"hosted_url":     s.doc.GetSharedURL(),
-		"delete_token":   s.doc.GetDeleteToken(),
+		"hosted_url":     s.session.GetSharedURL(),
+		"delete_token":   s.session.GetDeleteToken(),
 		"version":        s.currentVersion,
 		"latest_version": latestVersion,
 	})
@@ -94,6 +103,15 @@ func (s *Server) checkForUpdates() {
 	s.versionMu.Unlock()
 }
 
+// handleSession returns session metadata: mode, branch, file list with stats.
+func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, s.session.GetSessionInfo())
+}
+
 func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -106,11 +124,11 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
-		s.doc.SetSharedURLAndToken(body.URL, body.DeleteToken)
+		s.session.SetSharedURLAndToken(body.URL, body.DeleteToken)
 		writeJSON(w, map[string]string{"ok": "true"})
 
 	case http.MethodDelete:
-		s.doc.SetSharedURLAndToken("", "")
+		s.session.SetSharedURLAndToken("", "")
 		w.WriteHeader(http.StatusNoContent)
 
 	default:
@@ -118,81 +136,59 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
-}
-
-func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
+// handleFile returns file content + metadata for a single file.
+// GET /api/file?path=server.go
+func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	resp := map[string]string{
-		"filename": s.doc.FileName,
-		"content":  s.doc.GetContent(),
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "path query parameter required", http.StatusBadRequest)
+		return
 	}
-	writeJSON(w, resp)
+	snapshot, ok := s.session.GetFileSnapshot(path)
+	if !ok {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, snapshot)
 }
 
-func (s *Server) handleStale(w http.ResponseWriter, r *http.Request) {
+// handleFileDiff returns diff hunks for a file.
+// For code files: git diff hunks. For markdown files: inter-round LCS diff.
+// GET /api/file/diff?path=server.go
+func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "path query parameter required", http.StatusBadRequest)
+		return
+	}
+	snapshot, ok := s.session.GetFileDiffSnapshot(path)
+	if !ok {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, snapshot)
+}
+
+// handleFileComments handles GET (list) and POST (create) for file-scoped comments.
+// GET/POST /api/file/comments?path=server.go
+func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "path query parameter required", http.StatusBadRequest)
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
-		notice := s.doc.GetStaleNotice()
-		writeJSON(w, map[string]string{"notice": notice})
-	case http.MethodDelete:
-		s.doc.ClearStaleNotice()
-		writeJSON(w, map[string]string{"status": "ok"})
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-func (s *Server) handleRoundComplete(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	s.doc.SignalRoundComplete()
-	writeJSON(w, map[string]string{"status": "ok"})
-}
-
-func (s *Server) handlePreviousRound(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	content, comments, round := s.doc.GetPreviousRound()
-	writeJSON(w, map[string]any{
-		"content":      content,
-		"comments":     comments,
-		"review_round": round,
-	})
-}
-
-func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	prev, curr := s.doc.GetPreviousAndCurrentContent()
-
-	var entries []DiffEntry
-	if prev != "" {
-		entries = ComputeLineDiff(prev, curr)
-	}
-	if entries == nil {
-		entries = []DiffEntry{}
-	}
-	writeJSON(w, map[string]any{
-		"entries": entries,
-	})
-}
-
-func (s *Server) handleComments(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		comments := s.doc.GetComments()
+		comments := s.session.GetComments(path)
 		writeJSON(w, comments)
 
 	case http.MethodPost:
@@ -200,6 +196,7 @@ func (s *Server) handleComments(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			StartLine int    `json:"start_line"`
 			EndLine   int    `json:"end_line"`
+			Side      string `json:"side"`
 			Body      string `json:"body"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -215,7 +212,11 @@ func (s *Server) handleComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		c := s.doc.AddComment(req.StartLine, req.EndLine, req.Body)
+		c, ok := s.session.AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body)
+		if !ok {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
 		w.WriteHeader(http.StatusCreated)
 		writeJSON(w, c)
 
@@ -224,10 +225,17 @@ func (s *Server) handleComments(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleCommentByID handles PUT and DELETE for individual comments.
+// PUT/DELETE /api/comment/{id}?path=server.go
 func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/comments/")
+	id := strings.TrimPrefix(r.URL.Path, "/api/comment/")
 	if id == "" {
 		http.Error(w, "Comment ID required", http.StatusBadRequest)
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "path query parameter required", http.StatusBadRequest)
 		return
 	}
 
@@ -245,7 +253,7 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Comment body is required", http.StatusBadRequest)
 			return
 		}
-		c, ok := s.doc.UpdateComment(id, req.Body)
+		c, ok := s.session.UpdateComment(path, id, req.Body)
 		if !ok {
 			http.Error(w, "Comment not found", http.StatusNotFound)
 			return
@@ -253,7 +261,7 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, c)
 
 	case http.MethodDelete:
-		if !s.doc.DeleteComment(id) {
+		if !s.session.DeleteComment(path, id) {
 			http.Error(w, "Comment not found", http.StatusNotFound)
 			return
 		}
@@ -264,35 +272,45 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleRoundComplete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.session.SignalRoundComplete()
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
 func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	s.doc.WriteFiles()
+	s.session.WriteFiles()
 
-	reviewFile := s.doc.reviewFilePath()
-	comments := s.doc.GetComments()
+	totalComments := s.session.TotalCommentCount()
+	critJSON := s.session.critJSONPath()
 	prompt := ""
-	if len(comments) > 0 {
+	if totalComments > 0 {
 		prompt = fmt.Sprintf(
-			"Address review comments in %s. "+
-				"Mark resolved in %s (set \"resolved\": true, optionally \"resolution_note\" and \"resolution_lines\"). "+
+			"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
+				"Read the file, address each comment in the relevant file and location, "+
+				"then mark it resolved (set \"resolved\": true, optionally \"resolution_note\" and \"resolution_lines\"). "+
 				"When done run: `crit go %d`",
-			reviewFile, s.doc.commentsFilePath(), s.port)
+			critJSON, s.port)
 	}
 
 	writeJSON(w, map[string]string{
 		"status":      "finished",
-		"review_file": reviewFile,
+		"review_file": critJSON,
 		"prompt":      prompt,
 	})
 
 	if s.status != nil {
-		round := s.doc.GetReviewRound()
-		s.status.RoundFinished(round, len(comments), len(comments) > 0)
-		if len(comments) > 0 {
+		round := s.session.GetReviewRound()
+		s.status.RoundFinished(round, totalComments, totalComments > 0)
+		if totalComments > 0 {
 			s.status.WaitingForAgent()
 		}
 	}
@@ -315,8 +333,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	flusher.Flush()
 
-	ch := s.doc.Subscribe()
-	defer s.doc.Unsubscribe(ch)
+	ch := s.session.Subscribe()
+	defer s.session.Unsubscribe(ch)
 
 	for {
 		select {
@@ -345,18 +363,19 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fullPath := filepath.Join(s.doc.FileDir, reqPath)
+	baseDir := s.session.RepoRoot
+	fullPath := filepath.Join(baseDir, reqPath)
 	cleanPath, err := filepath.EvalSymlinks(fullPath)
 	if err != nil {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
 	}
-	docDir, err := filepath.EvalSymlinks(s.doc.FileDir)
+	resolvedBase, err := filepath.EvalSymlinks(baseDir)
 	if err != nil {
 		http.Error(w, "Access denied", http.StatusForbidden)
 		return
 	}
-	if !strings.HasPrefix(cleanPath, docDir+string(filepath.Separator)) {
+	if !strings.HasPrefix(cleanPath, resolvedBase+string(filepath.Separator)) {
 		http.Error(w, "Access denied", http.StatusForbidden)
 		return
 	}

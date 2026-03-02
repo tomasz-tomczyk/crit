@@ -30,4 +30,10 @@ clean:
 	rm -f crit
 	rm -rf dist
 
-.PHONY: build build-all update-deps test setup-hooks clean test-diff
+e2e:
+	cd e2e && bash run.sh
+
+e2e-report:
+	cd e2e && npx playwright show-report
+
+.PHONY: build build-all update-deps test setup-hooks clean test-diff e2e e2e-report

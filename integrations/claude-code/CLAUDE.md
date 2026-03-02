@@ -12,6 +12,6 @@ Tell the user: "I've opened the plan in Crit for review. Leave inline comments, 
 
 Do NOT begin implementation until the user has reviewed and approved the plan.
 
-After review, read the `.review.md` file to see the user's inline comments. Address each comment by revising the original plan file. The file change triggers Crit's live reload so the user can review again.
+After review, read `.crit.json` to see the user's inline comments. Each comment has `start_line`, `end_line`, `body`, and `resolved` fields. Address each unresolved comment by revising the original plan file. The file change triggers Crit's live reload so the user can review again.
 
 When `crit go <port>` is called (or the user says the plan is approved), proceed with implementation.

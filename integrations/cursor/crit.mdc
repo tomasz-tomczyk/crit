@@ -29,6 +29,28 @@ Do NOT begin implementation until the user confirms the plan is approved.
 
 ## After review
 
-If the user provides a `.review.md` file, read it to find inline comments marked with `> **[REVIEW COMMENT - Lines X-Y]**:`. Address each comment by revising the original plan file.
+Read the `.crit.json` file in the repo root. It contains structured JSON with per-file comments:
+
+```json
+{
+  "files": {
+    "plan.md": {
+      "comments": [
+        { "id": "c1", "start_line": 5, "end_line": 10, "body": "Clarify this step", "resolved": false }
+      ]
+    }
+  }
+}
+```
+
+Address each unresolved comment (`"resolved": false`) by revising the original plan file.
+
+After addressing all comments, signal completion:
+
+```bash
+crit go <port>
+```
+
+The port is shown in crit's startup output. This triggers a new review round with a diff of changes.
 
 Only proceed with implementation after the user approves the final plan.

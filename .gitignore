@@ -5,6 +5,7 @@ crit.exe
 # Review session files (generated at runtime)
 *.comments.json
 *.review.md
+.crit.json
 
 # Dependencies
 node_modules/
