@@ -36,6 +36,7 @@
   let uiState = 'reviewing';
 
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
+  let diffScope = getCookie('crit-diff-scope') || 'all'; // 'all', 'branch', 'staged', or 'unstaged'
 
   // Per-file active form state
   let activeFilePath = null;
@@ -63,12 +64,16 @@
   }
 
   // Fetch and build file objects from the API for a list of file infos.
-  async function loadAllFileData(fileInfos) {
+  async function loadAllFileData(fileInfos, scope) {
     return Promise.all(fileInfos.map(async (fi) => {
+      var diffUrl = '/api/file/diff?path=' + enc(fi.path);
+      if (scope && scope !== 'all') {
+        diffUrl += '&scope=' + enc(scope);
+      }
       const [fileRes, commentsRes, diffRes] = await Promise.all([
         fetch('/api/file?path=' + enc(fi.path)).then(r => r.json()),
         fetch('/api/file/comments?path=' + enc(fi.path)).then(r => r.json()),
-        fetch('/api/file/diff?path=' + enc(fi.path)).then(r => r.json()).catch(function() { return { hunks: [] }; }),
+        fetch(diffUrl).then(r => r.json()).catch(function() { return { hunks: [] }; }),
       ]);
 
       const f = {
@@ -182,7 +187,7 @@
     window.addEventListener('resize', updateHeaderHeight);
 
     const [sessionRes, configRes] = await Promise.all([
-      fetch('/api/session').then(r => r.json()),
+      fetch('/api/session?scope=' + enc(diffScope)).then(r => r.json()),
       fetch('/api/config').then(r => r.json()),
     ]);
 
@@ -217,6 +222,23 @@
         b.classList.toggle('active', b.dataset.mode === diffMode);
       });
       document.getElementById('tocToggle').style.display = 'none';
+
+      // Show scope toggle and hide unavailable scopes
+      var scopeToggle = document.getElementById('scopeToggle');
+      scopeToggle.style.display = '';
+      var scopes = session.available_scopes || ['all', 'staged', 'unstaged'];
+      scopeToggle.querySelectorAll('.toggle-btn').forEach(function(b) {
+        if (scopes.indexOf(b.dataset.scope) === -1) {
+          b.style.display = 'none';
+        }
+      });
+      if (scopes.indexOf(diffScope) === -1) {
+        diffScope = 'all';
+        setCookie('crit-diff-scope', 'all');
+      }
+      scopeToggle.querySelectorAll('.toggle-btn').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.scope === diffScope);
+      });
     }
 
     updateHeaderRound();
@@ -224,7 +246,7 @@
       ? 'Crit — ' + (session.branch || 'review')
       : 'Crit — ' + (session.files || []).map(f => f.path).join(', ');
 
-    files = await loadAllFileData(session.files || []);
+    files = await loadAllFileData(session.files || [], diffScope);
 
     files.sort(fileSortComparator);
 
@@ -2575,11 +2597,11 @@
         }
 
         // Re-fetch everything on file-changed (round complete)
-        const sessionRes = await fetch('/api/session').then(r => r.json());
+        const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(r => r.json());
         session = sessionRes;
 
         // Reload all files
-        files = await loadAllFileData(session.files || []);
+        files = await loadAllFileData(session.files || [], diffScope);
 
         // Restore per-file user state from previous round
         for (var fi = 0; fi < files.length; fi++) {
@@ -2882,6 +2904,46 @@
       renderAllFiles();
     });
   });
+
+  // ===== Scope Toggle (All / Branch / Staged / Unstaged) =====
+  document.getElementById('scopeToggle').addEventListener('click', async function(e) {
+    var btn = e.target.closest('.toggle-btn');
+    if (!btn || btn.classList.contains('active')) return;
+    var scope = btn.dataset.scope;
+    diffScope = scope;
+    setCookie('crit-diff-scope', scope);
+    document.querySelectorAll('#scopeToggle .toggle-btn').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.scope === scope);
+    });
+    await reloadForScope();
+  });
+
+  async function reloadForScope() {
+    document.getElementById('filesContainer').innerHTML =
+      '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">Loading...</div>';
+
+    const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(function(r) { return r.json(); });
+    session = sessionRes;
+
+    if (!session.files || session.files.length === 0) {
+      document.getElementById('filesContainer').innerHTML =
+        '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">No ' + diffScope + ' changes</div>';
+      files = [];
+      renderFileTree();
+      updateCommentCount();
+      updateViewedCount();
+      return;
+    }
+
+    files = await loadAllFileData(session.files, diffScope);
+    files.sort(fileSortComparator);
+    restoreViewedState();
+    renderFileTree();
+    renderAllFiles();
+    buildToc();
+    updateCommentCount();
+    updateViewedCount();
+  }
 
   // ===== TOC Toggle =====
   document.getElementById('tocToggle').addEventListener('click', function() {

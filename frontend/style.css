@@ -1163,6 +1163,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   #headerUpdate { display: none !important; }
   .file-header { padding: 8px 12px; }
   .file-header-toggle { display: none; }
+  .scope-toggle { display: none !important; }
   .diff-mode-toggle { display: none !important; }
 
   /* Force split rows to stack vertically on mobile */
@@ -1513,6 +1514,37 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 .file-header-toggle .toggle-btn:hover:not(.active) { background: var(--bg-hover); }
+
+/* Scope toggle in header (all/branch/staged/unstaged) */
+.scope-toggle {
+  display: inline-flex;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 1px;
+}
+.scope-toggle .toggle-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: all 0.15s;
+}
+.scope-toggle .toggle-btn:first-child { border-radius: 4px 0 0 4px; }
+.scope-toggle .toggle-btn:last-child:not([style*="display: none"]),
+.scope-toggle .toggle-btn:last-child:not([style*="display:none"]) { border-radius: 0 4px 4px 0; }
+.scope-toggle .toggle-btn.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+.scope-toggle .toggle-btn:hover:not(.active) { background: var(--bg-hover); }
 
 /* Diff mode toggle in header (split/unified) */
 .diff-mode-toggle {

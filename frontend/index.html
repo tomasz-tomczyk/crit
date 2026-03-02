@@ -30,6 +30,12 @@
   <div class="header-right">
     <span class="viewed-count" id="viewedCount"></span>
     <span class="comment-count" id="commentCount"></span>
+    <div class="scope-toggle" id="scopeToggle" style="display:none">
+      <button class="toggle-btn active" data-scope="all" title="All changes">All</button>
+      <button class="toggle-btn" data-scope="branch" title="Committed changes">Branch</button>
+      <button class="toggle-btn" data-scope="staged" title="Staged changes">Staged</button>
+      <button class="toggle-btn" data-scope="unstaged" title="Unstaged changes">Unstaged</button>
+    </div>
     <div class="diff-mode-toggle" id="diffModeToggle" style="display:none">
       <button class="toggle-btn active" data-mode="split" title="Split diff">Split</button>
       <button class="toggle-btn" data-mode="unified" title="Unified diff">Unified</button>
