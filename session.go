@@ -1015,6 +1015,12 @@ func (s *Session) handleRoundCompleteFiles() {
 	s.mu.Lock()
 	for _, f := range s.Files {
 		if data, err := os.ReadFile(f.AbsPath); err == nil {
+			// Snapshot PreviousContent for markdown files before overwriting.
+			// The file watcher normally does this on first edit, but if
+			// round-complete fires before the watcher polls, ensure it's set.
+			if f.FileType == "markdown" && f.PreviousContent == "" {
+				f.PreviousContent = f.Content
+			}
 			f.Content = string(data)
 			f.FileHash = fileHash(data)
 		}
@@ -1199,7 +1205,7 @@ func (s *Session) GetFileDiffSnapshot(path string) (map[string]any, bool) {
 	if hunks == nil {
 		hunks = []DiffHunk{}
 	}
-	return map[string]any{"hunks": hunks}, true
+	return map[string]any{"hunks": hunks, "previous_content": prevContent}, true
 }
 
 // GetFileContent returns the content for a specific file path.

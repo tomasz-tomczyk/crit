@@ -498,6 +498,19 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   font-size: 0.875rem;
 }
 
+/* === Mermaid diagrams === */
+.line-content.mermaid-block {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 6px 0;
+  text-align: center;
+  min-height: 60px;
+}
+.line-content.mermaid-block pre { margin: 0; }
+.mermaid svg { max-width: 100%; height: auto; }
+
 /* === Per-line code blocks === */
 .line-content.code-line {
   background: var(--code-bg);
@@ -1784,4 +1797,77 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .mini-toast-visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+/* ===== Rendered Diff View (file mode) ===== */
+.diff-view {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.diff-view-side {
+  overflow-x: auto;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+}
+.diff-view-side:last-child {
+  border-right: none;
+}
+.diff-view-side-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+.diff-view .line-gutter,
+.diff-view-unified .line-gutter {
+  min-width: 32px;
+  width: auto;
+  padding: 0;
+}
+.diff-view .line-num,
+.diff-view-unified .line-num {
+  display: inline;
+}
+.diff-view .line-comment-gutter,
+.diff-view-unified .line-comment-gutter {
+  margin-left: 0;
+}
+.line-comment-gutter.diff-no-comment {
+  cursor: default;
+}
+.line-comment-gutter.diff-no-comment:hover .line-add {
+  opacity: 0;
+  pointer-events: none;
+}
+.diff-view .line-block.diff-added .line-content {
+  background: var(--diff-add-bg);
+}
+.diff-view .line-block.diff-removed .line-content {
+  background: var(--diff-del-bg);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.diff-view-unified {
+  max-width: 840px;
+  margin: 0 auto;
+}
+.diff-view-unified .line-block.diff-added .line-content {
+  background: var(--diff-add-bg);
+}
+.diff-view-unified .line-block.diff-removed .line-content {
+  background: var(--diff-del-bg);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+#diffToggle.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }

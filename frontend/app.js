@@ -37,6 +37,7 @@
 
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
   let diffScope = getCookie('crit-diff-scope') || 'all'; // 'all', 'branch', 'staged', or 'unstaged'
+  let diffActive = false; // rendered diff view toggle for file mode
 
   // Per-file active form state
   let activeFilePath = null;
@@ -81,9 +82,11 @@
         status: fi.status,
         fileType: fi.file_type,
         content: fileRes.content || '',
+        previousContent: diffRes.previous_content || '',
         comments: Array.isArray(commentsRes) ? commentsRes : [],
         diffHunks: diffRes.hunks || [],
         lineBlocks: null,
+        previousLineBlocks: null,
         tocItems: [],
         collapsed: fi.status === 'deleted',
         viewMode: (session.mode === 'git') ? 'diff' : 'document',
@@ -110,6 +113,9 @@
         const parsed = parseMarkdown(f.content);
         f.lineBlocks = parsed.blocks;
         f.tocItems = parsed.tocItems;
+        if (f.previousContent) {
+          f.previousLineBlocks = parseMarkdown(f.previousContent).blocks;
+        }
       }
 
       return f;
@@ -218,10 +224,10 @@
       document.getElementById('branchName').textContent = session.files[0].path.split('/').pop();
     }
 
-    // Show diff mode toggle in git mode (has diffs to show)
+    // Show diff mode toggle in git mode (always has diffs)
+    // In file mode, it gets shown later via updateDiffModeToggle() once diffs exist
     if (session.mode === 'git') {
       document.getElementById('diffModeToggle').style.display = '';
-      // Sync toggle buttons with persisted diffMode
       document.querySelectorAll('#diffModeToggle .toggle-btn').forEach(function(b) {
         b.classList.toggle('active', b.dataset.mode === diffMode);
       });
@@ -256,12 +262,33 @@
     files.sort(fileSortComparator);
 
     restoreViewedState();
+    updateDiffModeToggle();
     renderFileTree();
     renderAllFiles();
     buildToc();
     updateCommentCount();
     updateViewedCount();
     restoreDrafts();
+  }
+
+  // Show/hide the Toggle Diff button and Split/Unified toggle in file mode
+  function updateDiffModeToggle() {
+    if (session.mode === 'git') return; // git mode handles this in init
+    var hasDiffs = files.some(function(f) {
+      return f.fileType === 'markdown' && f.previousLineBlocks && f.previousLineBlocks.length > 0;
+    });
+    var diffToggleBtn = document.getElementById('diffToggle');
+    if (diffToggleBtn) {
+      diffToggleBtn.style.display = hasDiffs ? '' : 'none';
+      diffToggleBtn.classList.toggle('active', diffActive);
+    }
+    // Show Split/Unified toggle only when diff view is active
+    document.getElementById('diffModeToggle').style.display = (hasDiffs && diffActive) ? '' : 'none';
+    if (hasDiffs && diffActive) {
+      document.querySelectorAll('#diffModeToggle .toggle-btn').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.mode === diffMode);
+      });
+    }
   }
 
   // ===== Syntax Highlighting for Diffs =====
@@ -408,6 +435,20 @@
       // === Code blocks (fence): split into per-line blocks ===
       if (token.type === 'fence') {
         const lang = token.info.trim().split(/\s+/)[0] || '';
+
+        // Mermaid diagrams: render as a single block (not split per-line)
+        if (lang === 'mermaid') {
+          blocks.push({
+            startLine: blockStart + 1, endLine: blockEnd,
+            html: '<pre><code class="language-mermaid">' + escapeHtml(token.content) + '</code></pre>',
+            isEmpty: false, cssClass: 'mermaid-block'
+          });
+          i++;
+          coveredUpTo = blockEnd;
+          addGapLines(blockEnd);
+          continue;
+        }
+
         let highlighted = '';
         if (lang && hljs.getLanguage(lang)) {
           try { highlighted = hljs.highlight(token.content, { language: lang }).value; } catch (_) {}
@@ -1020,6 +1061,7 @@
     const oldSection = document.getElementById('file-section-' + file.path);
     if (!oldSection) { renderAllFiles(); return; }
     oldSection.replaceWith(renderFileSection(file));
+    renderMermaidBlocks();
     rebuildNavList();
   }
 
@@ -1084,7 +1126,8 @@
         fileUnresolvedCount + '</span>' : '');
 
     // Add document/diff toggle for markdown files that have diff hunks
-    if (file.fileType === 'markdown' && file.diffHunks && file.diffHunks.length > 0) {
+    // Hide when diffActive is on (header-level rendered diff overrides per-file toggle)
+    if (file.fileType === 'markdown' && file.diffHunks && file.diffHunks.length > 0 && !diffActive) {
       const toggle = document.createElement('div');
       toggle.className = 'file-header-toggle';
       toggle.innerHTML =
@@ -1153,12 +1196,326 @@
       body.appendChild(placeholder);
     } else if (showDiff) {
       body.appendChild(renderDiffHunks(file));
+    } else if (diffActive && file.previousLineBlocks && file.previousLineBlocks.length > 0) {
+      body.appendChild(diffMode === 'split' ? renderRenderedDiffSplit(file) : renderRenderedDiffUnified(file));
     } else {
       body.appendChild(renderDocumentView(file));
     }
 
     section.appendChild(body);
     return section;
+  }
+
+  // ===== Rendered Diff View (Markdown, file mode) =====
+
+  // Build sets of added/removed line numbers from diff hunks
+  function buildDiffLineSetFromHunks(hunks) {
+    var added = new Set();
+    var removed = new Set();
+    for (var h = 0; h < hunks.length; h++) {
+      var lines = hunks[h].Lines || [];
+      for (var l = 0; l < lines.length; l++) {
+        if (lines[l].Type === 'add' && lines[l].NewNum) added.add(lines[l].NewNum);
+        if (lines[l].Type === 'del' && lines[l].OldNum) removed.add(lines[l].OldNum);
+      }
+    }
+    return { added: added, removed: removed };
+  }
+
+  // Classify a block as diff-added, diff-removed, or unchanged
+  function classifyBlock(block, changedLines) {
+    for (var ln = block.startLine; ln <= block.endLine; ln++) {
+      if (changedLines.has(ln)) return true;
+    }
+    return false;
+  }
+
+  // Render a single side of the rendered diff (reuses document view block pattern)
+  function renderRenderedDiffBlocks(blocks, diffClass, file, enableComments) {
+    var container = document.createElement('div');
+    container.className = 'diff-view-blocks';
+
+    var commentsMap = enableComments ? buildCommentsMap(file.comments) : {};
+    var commentRangeSet = enableComments ? buildCommentedRangeSet(file.comments) : new Set();
+
+    for (var bi = 0; bi < blocks.length; bi++) {
+      var block = blocks[bi];
+
+      var lineBlockEl = document.createElement('div');
+      lineBlockEl.className = 'line-block';
+      if (enableComments) {
+        lineBlockEl.classList.add('kb-nav');
+        lineBlockEl.dataset.blockIndex = bi;
+        lineBlockEl.dataset.startLine = block.startLine;
+        lineBlockEl.dataset.endLine = block.endLine;
+        lineBlockEl.dataset.filePath = file.path;
+      }
+
+      if (block.isDiff) lineBlockEl.classList.add(diffClass);
+
+      if (enableComments) {
+        var blockComments = getCommentsForBlock(block, commentsMap);
+        var blockInCommentRange = false;
+        for (var ln = block.startLine; ln <= block.endLine; ln++) {
+          if (commentRangeSet.has(ln + ':')) { blockInCommentRange = true; break; }
+        }
+        if (blockInCommentRange) lineBlockEl.classList.add('has-comment');
+
+        if (activeFilePath === file.path && selectionStart !== null && selectionEnd !== null) {
+          if (block.startLine >= selectionStart && block.endLine <= selectionEnd) {
+            lineBlockEl.classList.add('selected');
+          }
+        }
+
+        (function(fp, idx, el) {
+          lineBlockEl.addEventListener('mouseenter', function() {
+            focusedFilePath = fp;
+            focusedBlockIndex = idx;
+            focusedElement = el;
+          });
+        })(file.path, bi, lineBlockEl);
+
+        if (focusedFilePath === file.path && focusedBlockIndex === bi) {
+          lineBlockEl.classList.add('focused');
+        }
+      }
+
+      // Line number gutter
+      var gutter = document.createElement('div');
+      gutter.className = 'line-gutter';
+      var lineNum = document.createElement('span');
+      lineNum.className = 'line-num';
+      lineNum.textContent = block.startLine;
+      gutter.appendChild(lineNum);
+      lineBlockEl.appendChild(gutter);
+
+      // Comment gutter
+      var commentGutter = document.createElement('div');
+      commentGutter.className = 'line-comment-gutter';
+      if (enableComments) {
+        commentGutter.dataset.startLine = block.startLine;
+        commentGutter.dataset.endLine = block.endLine;
+        commentGutter.dataset.filePath = file.path;
+        var lineAdd = document.createElement('span');
+        lineAdd.className = 'line-add';
+        lineAdd.textContent = '+';
+        commentGutter.appendChild(lineAdd);
+        commentGutter.addEventListener('mousedown', handleGutterMouseDown);
+      } else {
+        commentGutter.classList.add('diff-no-comment');
+      }
+      lineBlockEl.appendChild(commentGutter);
+
+      // Content
+      var content = document.createElement('div');
+      var contentClasses = 'line-content';
+      if (block.isEmpty) contentClasses += ' empty-line';
+      if (block.cssClass) contentClasses += ' ' + block.cssClass;
+      content.className = contentClasses;
+      var html = block.html;
+      html = processTaskLists(html);
+      html = rewriteImageSrcs(html);
+      content.innerHTML = html;
+
+      lineBlockEl.appendChild(content);
+      container.appendChild(lineBlockEl);
+
+      // Comments after block (only on current/right side)
+      if (enableComments && blockComments) {
+        for (var ci = 0; ci < blockComments.length; ci++) {
+          if (blockComments[ci].resolved) {
+            container.appendChild(createResolvedElement(blockComments[ci]));
+          } else {
+            container.appendChild(createCommentElement(blockComments[ci], file.path));
+          }
+        }
+        if (activeForm && activeForm.filePath === file.path && !activeForm.editingId && activeForm.afterBlockIndex === bi) {
+          container.appendChild(createCommentForm());
+        }
+      }
+    }
+    return container;
+  }
+
+  // Annotate blocks with isDiff flag based on changed line numbers
+  function annotateBlocks(blocks, changedLines) {
+    return blocks.map(function(b) {
+      return Object.assign({}, b, { isDiff: classifyBlock(b, changedLines) });
+    });
+  }
+
+  function renderRenderedDiffSplit(file) {
+    var container = document.createElement('div');
+    container.className = 'diff-view';
+
+    var lineSets = buildDiffLineSetFromHunks(file.diffHunks);
+    var prevBlocks = annotateBlocks(file.previousLineBlocks, lineSets.removed);
+    var currBlocks = annotateBlocks(file.lineBlocks, lineSets.added);
+
+    // Left side (previous round — removed highlighting, no comments)
+    var leftSide = document.createElement('div');
+    leftSide.className = 'diff-view-side';
+    var leftLabel = document.createElement('div');
+    leftLabel.className = 'diff-view-side-label';
+    leftLabel.textContent = 'Previous round';
+    leftSide.appendChild(leftLabel);
+    leftSide.appendChild(renderRenderedDiffBlocks(prevBlocks, 'diff-removed', file, false));
+
+    // Right side (current round — added highlighting, comments enabled)
+    var rightSide = document.createElement('div');
+    rightSide.className = 'diff-view-side';
+    var rightLabel = document.createElement('div');
+    rightLabel.className = 'diff-view-side-label';
+    rightLabel.textContent = 'Current round';
+    rightSide.appendChild(rightLabel);
+    rightSide.appendChild(renderRenderedDiffBlocks(currBlocks, 'diff-added', file, true));
+
+    container.appendChild(leftSide);
+    container.appendChild(rightSide);
+    return container;
+  }
+
+  // Render a single block for the unified diff view.
+  // When commentable=true, includes gutter, keyboard nav, comments. Otherwise read-only.
+  function renderUnifiedBlock(block, diffClass, file, commentable, blockIndex, commentsMap, commentRangeSet) {
+    var frag = document.createDocumentFragment();
+
+    var lineBlockEl = document.createElement('div');
+    lineBlockEl.className = 'line-block';
+    if (commentable) {
+      lineBlockEl.classList.add('kb-nav');
+      lineBlockEl.dataset.blockIndex = blockIndex;
+      lineBlockEl.dataset.startLine = block.startLine;
+      lineBlockEl.dataset.endLine = block.endLine;
+      lineBlockEl.dataset.filePath = file.path;
+    }
+    if (diffClass) lineBlockEl.classList.add(diffClass);
+
+    var blockComments = null;
+    if (commentable) {
+      blockComments = getCommentsForBlock(block, commentsMap);
+      var blockInCommentRange = false;
+      for (var ln = block.startLine; ln <= block.endLine; ln++) {
+        if (commentRangeSet.has(ln + ':')) { blockInCommentRange = true; break; }
+      }
+      if (blockInCommentRange) lineBlockEl.classList.add('has-comment');
+
+      if (activeFilePath === file.path && selectionStart !== null && selectionEnd !== null) {
+        if (block.startLine >= selectionStart && block.endLine <= selectionEnd) {
+          lineBlockEl.classList.add('selected');
+        }
+      }
+
+      (function(fp, idx, el) {
+        lineBlockEl.addEventListener('mouseenter', function() {
+          focusedFilePath = fp;
+          focusedBlockIndex = idx;
+          focusedElement = el;
+        });
+      })(file.path, blockIndex, lineBlockEl);
+
+      if (focusedFilePath === file.path && focusedBlockIndex === blockIndex) {
+        lineBlockEl.classList.add('focused');
+      }
+
+      var commentGutter = document.createElement('div');
+      commentGutter.className = 'line-comment-gutter';
+      commentGutter.dataset.startLine = block.startLine;
+      commentGutter.dataset.endLine = block.endLine;
+      commentGutter.dataset.filePath = file.path;
+      var lineAdd = document.createElement('span');
+      lineAdd.className = 'line-add';
+      lineAdd.textContent = '+';
+      commentGutter.appendChild(lineAdd);
+      commentGutter.addEventListener('mousedown', handleGutterMouseDown);
+      lineBlockEl.appendChild(commentGutter);
+    } else {
+      // Non-commentable block: still add gutter but mark as read-only
+      var roGutter = document.createElement('div');
+      roGutter.className = 'line-comment-gutter diff-no-comment';
+      lineBlockEl.appendChild(roGutter);
+    }
+
+    // Line number gutter
+    var gutter = document.createElement('div');
+    gutter.className = 'line-gutter';
+    var lineNum = document.createElement('span');
+    lineNum.className = 'line-num';
+    lineNum.textContent = block.startLine;
+    gutter.appendChild(lineNum);
+    lineBlockEl.insertBefore(gutter, lineBlockEl.firstChild);
+
+    var contentEl = document.createElement('div');
+    var contentClasses = 'line-content';
+    if (block.isEmpty) contentClasses += ' empty-line';
+    if (block.cssClass) contentClasses += ' ' + block.cssClass;
+    contentEl.className = contentClasses;
+    var html = block.html;
+    html = processTaskLists(html);
+    html = rewriteImageSrcs(html);
+    contentEl.innerHTML = html;
+    lineBlockEl.appendChild(contentEl);
+
+    frag.appendChild(lineBlockEl);
+
+    // Comments after block (only on commentable/new side)
+    if (commentable && blockComments) {
+      for (var ci = 0; ci < blockComments.length; ci++) {
+        if (blockComments[ci].resolved) {
+          frag.appendChild(createResolvedElement(blockComments[ci]));
+        } else {
+          frag.appendChild(createCommentElement(blockComments[ci], file.path));
+        }
+      }
+      if (activeForm && activeForm.filePath === file.path && !activeForm.editingId && activeForm.afterBlockIndex === blockIndex) {
+        frag.appendChild(createCommentForm());
+      }
+    }
+
+    return frag;
+  }
+
+  function renderRenderedDiffUnified(file) {
+    var container = document.createElement('div');
+    container.className = 'diff-view-unified';
+
+    var lineSets = buildDiffLineSetFromHunks(file.diffHunks);
+    var oldBlocks = file.previousLineBlocks;
+    var newBlocks = file.lineBlocks;
+
+    var commentsMap = buildCommentsMap(file.comments);
+    var commentRangeSet = buildCommentedRangeSet(file.comments);
+
+    // Two-pointer merge: walk both block lists simultaneously
+    var oldIdx = 0;
+    var newIdx = 0;
+
+    while (oldIdx < oldBlocks.length || newIdx < newBlocks.length) {
+      if (oldIdx >= oldBlocks.length) {
+        // Old exhausted — remaining new blocks are additions
+        container.appendChild(renderUnifiedBlock(newBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet));
+        newIdx++;
+      } else if (newIdx >= newBlocks.length) {
+        // New exhausted — remaining old blocks are deletions
+        container.appendChild(renderUnifiedBlock(oldBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null));
+        oldIdx++;
+      } else if (classifyBlock(oldBlocks[oldIdx], lineSets.removed)) {
+        // Old block is removed — emit with strikethrough
+        container.appendChild(renderUnifiedBlock(oldBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null));
+        oldIdx++;
+      } else if (classifyBlock(newBlocks[newIdx], lineSets.added)) {
+        // New block is added — emit with green highlight + comments
+        container.appendChild(renderUnifiedBlock(newBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet));
+        newIdx++;
+      } else {
+        // Both unchanged — emit new block once (with comments), advance both
+        container.appendChild(renderUnifiedBlock(newBlocks[newIdx], null, file, true, newIdx, commentsMap, commentRangeSet));
+        newIdx++;
+        oldIdx++;
+      }
+    }
+
+    return container;
   }
 
   // ===== Document View (Markdown) =====
@@ -2635,9 +2992,11 @@
         focusedBlockIndex = null;
         focusedFilePath = null;
         focusedElement = null;
+        diffActive = false;
 
         clearViewedState();
         updateHeaderRound();
+        updateDiffModeToggle();
         renderFileTree();
         renderAllFiles();
         updateCommentCount();
@@ -2937,6 +3296,13 @@
       });
       renderAllFiles();
     });
+  });
+
+  // ===== Toggle Diff (rendered diff view for file mode) =====
+  document.getElementById('diffToggle').addEventListener('click', function() {
+    diffActive = !diffActive;
+    updateDiffModeToggle();
+    renderAllFiles();
   });
 
   // ===== Scope Toggle (All / Branch / Staged / Unstaged) =====
