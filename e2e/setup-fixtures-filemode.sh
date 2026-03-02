@@ -4,7 +4,9 @@ set -euo pipefail
 PORT="${1:-3124}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
-DIR=$(mktemp -d)
+# Resolve symlinks in temp paths (macOS: /var -> /private/var) so that
+# filepath.Abs and git rev-parse --show-toplevel agree on the root.
+DIR=$(realpath "$(mktemp -d)")
 BIN_DIR=$(mktemp -d)
 trap 'rm -rf "$DIR" "$BIN_DIR"' EXIT
 
