@@ -2,7 +2,12 @@
 
 Don't let your agent build the wrong thing.
 
-Your agent wrote a plan. Before it starts rewriting your codebase, review that plan. Crit opens any markdown file as a reviewable document - leave inline comments, finish the review, and a prompt goes to your clipboard telling the agent what to fix.
+Your agent writes plans and code. Before any of it lands, review it. Crit opens a browser-based UI where you leave inline comments on any file: plans, code diffs, specs, whatever your agent produced. Click "Finish Review" and a structured prompt goes to your clipboard. Paste it back, the agent iterates, Crit shows you the diff. Repeat until it's right.
+
+```bash
+crit              # auto-detect changed files in your repo
+crit plan.md      # review specific files
+```
 
 Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf, or any agent that reads files.
 
@@ -11,30 +16,30 @@ Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf, or any a
 ## Workflow
 
 ```bash
-# 1. Open files for review
-crit                           # Git mode: auto-detect changed files
-crit plan.md                   # Review a specific file
-crit plan.md api-spec.md       # Review multiple files
-# → Browser opens with files rendered and commentable
+# Review changed files in your repo
+crit
+# → Browser opens with all changed files as diffs
+# → File tree shows added/modified/deleted files
+
+# Review a specific file (plan, spec, any markdown)
+crit plan.md
+
+# Review multiple files
+crit plan.md api-spec.md
+
+# In all cases:
 # → Select lines, leave inline comments
-
-# 2. Click "Finish Review"
-# → Crit writes .crit.json with your structured comments
-# → A prompt is copied to your clipboard telling the agent what to fix
-
-# 3. Paste the prompt into your agent
-# → The agent reads .crit.json, addresses your comments,
-#   and runs `crit go <port>` when done
-
-# 4. New round
-# → Crit starts a new round with a diff of what changed
+# → Click "Finish Review", prompt copied to clipboard
+# → Paste into your agent
+# → Agent reads .crit.json, addresses comments, runs `crit go <port>`
+# → New round starts with a diff of what changed
 # → Previous comments show as resolved or still open
-# → Leave more comments, repeat until it's right
+# → Repeat until it's right
 ```
 
 ### Output
 
-When you finish a review, Crit generates `.crit.json` — structured comment data that your agent reads and acts on. Add it to your `.gitignore`:
+When you finish a review, Crit generates `.crit.json`, structured comment data that your agent reads and acts on. Add it to your `.gitignore`:
 
 ```bash
 echo '.crit.json' >> .gitignore
@@ -42,7 +47,7 @@ echo '.crit.json' >> .gitignore
 
 ## Demo
 
-A 2-minute walkthrough: reviewing a plan, leaving inline comments, handing off to an agent. Note: slightly outdated as we're moving fast :D
+A 2-minute walkthrough of plan review: leaving inline comments and handing off to an agent. Branch review (`crit` with no args) uses the same UI with git diffs instead of rendered markdown.
 
 [![Crit demo](https://github.com/user-attachments/assets/dec9c069-9a99-4254-9b05-6d8db30820ed)](https://www.youtube.com/watch?v=w_Dswm2Ft-o)
 
@@ -78,11 +83,13 @@ Grab the latest binary for your platform from [Releases](https://github.com/toma
 
 ## Features
 
-### Multi-file review
+### Git review
 
-Run `crit` with no arguments to review all changed files in your git repo. A file tree on the left shows each file with its status (added, modified, deleted) and comment counts. Code files render as git diffs with syntax highlighting; markdown files render as formatted documents.
+Run `crit` with no arguments. Crit auto-detects changed files in your repo and opens them as syntax-highlighted git diffs. On a feature branch, it shows everything that changed since the branch diverged from main. On the default branch, it shows staged, unstaged, and untracked changes. A file tree on the left shows every file with its status (added, modified, deleted) and comment counts. Toggle between split and unified diff views.
 
-You can also pass specific files: `crit plan.md api-spec.md`.
+### File review
+
+Pass specific files to review them directly: `crit plan.md api-spec.md`. Markdown files render as formatted documents with per-line commenting. Code files show as syntax-highlighted source. Both support the same inline comment workflow and multi-round iteration.
 
 ### Round-to-round diff
 

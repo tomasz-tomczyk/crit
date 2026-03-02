@@ -1,17 +1,23 @@
-# Crit - Plan Review
+# Crit - Review Agent Output
 
-Before implementing any non-trivial feature, write an implementation plan as a markdown file.
+Before accepting any non-trivial changes, review them with Crit.
 
-After writing the plan, launch Crit to open it for review:
+Two workflows:
+
+**Reviewing a plan** - after writing an implementation plan - launch Crit to open it for review:
 
 ```bash
 crit $PLAN_FILE
 ```
 
-Tell the user: "I've opened the plan in Crit for review. Leave inline comments, then click Finish Review. Type 'go' here when you're done."
+**Reviewing code changes** - after writing code, launch Crit to review all changed files:
 
-Do NOT begin implementation until the user has reviewed and approved the plan.
+```bash
+crit
+```
 
-After review, read `.crit.json` to see the user's inline comments. Each comment has `start_line`, `end_line`, `body`, and `resolved` fields. Address each unresolved comment by revising the original plan file. The file change triggers Crit's live reload so the user can review again.
+Tell the user: "I've opened your changes in Crit for review. Leave inline comments, then click Finish Review. Type 'go' here when you're done."
 
-When `crit go <port>` is called (or the user says the plan is approved), proceed with implementation.
+Do NOT continue until the user has reviewed.
+
+After review, read `.crit.json` to see the user's inline comments. Each comment has `start_line`, `end_line`, `body`, and `resolved` fields. Address each unresolved comment by revising the referenced file. When done, run `crit go <port>` to trigger a new round.

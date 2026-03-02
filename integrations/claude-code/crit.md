@@ -1,31 +1,40 @@
 ---
-description: "Review the current plan with crit inline comments"
+description: "Review code changes or a plan with crit inline comments"
 allowed-tools: Bash(crit:*), Bash(command ls:*), Read, Edit, Glob
 ---
 
-# Review Plan with Crit
+# Review with Crit
 
-Review and revise the current plan using `crit` for inline comment review.
+Review and revise code changes or a plan using `crit` for inline comment review.
 
-## Step 1: Find the plan file
+## Step 1: Determine review mode
 
-Determine which plan file to review, using this priority:
+Choose what to review based on context:
 
-1. **User argument** - if the user provided `$ARGUMENTS` (e.g., `/crit my-plan.md`), use that file path
-2. **Recent plans** - check for `.md` files in `~/.claude/plans/`, excluding `*-agent-*.md`:
+1. **User argument** - if the user provided `$ARGUMENTS` (e.g., `/crit my-plan.md`), review that file
+2. **Git changes** - if no argument, check for uncommitted changes:
+   ```bash
+   git status --porcelain 2>/dev/null | head -1
+   ```
+   If there are changes, run `crit` with no arguments (git mode) - it auto-detects changed files
+3. **Find a plan** - if no changes, search for recent plan files:
    ```bash
    command ls -t ~/.claude/plans/*.md 2>/dev/null | grep -v -E '(-agent-)' | head -5
    ```
-3. **Current directory** - search for plan-like `.md` files in the working directory
+   Or search the working directory for plan-like `.md` files
 
-Show the selected plan file to the user and ask for confirmation before proceeding.
+Show the selected mode/file to the user and ask for confirmation.
 
 ## Step 2: Run crit for review
 
 Run `crit` **in the background** using `run_in_background: true`:
 
 ```bash
+# For a specific file:
 crit <plan-file>
+
+# For git mode (no args):
+crit
 ```
 
 Tell the user: **"Crit is open in your browser. Leave inline comments on the plan, then click 'Finish Review'. Type 'go' here when you're done."**
@@ -58,7 +67,7 @@ For each unresolved comment:
 
 1. Understand what the comment asks for (clarification, change, addition, removal)
 2. If a comment contains a suggestion block, apply that specific change
-3. Revise the **original plan file** to address the feedback
+3. Revise the **referenced file** to address the feedback - this could be the plan file or any code file from the git diff
 4. Use the Edit tool to make targeted changes
 
 Editing the plan file triggers Crit's live reload - the user sees changes in the browser immediately.
