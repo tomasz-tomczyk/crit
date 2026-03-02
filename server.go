@@ -109,7 +109,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(w, s.session.GetSessionInfo())
+	scope := r.URL.Query().Get("scope")
+	writeJSON(w, s.session.GetSessionInfoScoped(scope))
 }
 
 func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +170,8 @@ func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path query parameter required", http.StatusBadRequest)
 		return
 	}
-	snapshot, ok := s.session.GetFileDiffSnapshot(path)
+	scope := r.URL.Query().Get("scope")
+	snapshot, ok := s.session.GetFileDiffSnapshotScoped(path, scope)
 	if !ok {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return

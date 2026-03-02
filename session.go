@@ -1196,11 +1196,12 @@ func (s *Session) GetFileDiffHunks(path string) ([]DiffHunk, bool) {
 
 // SessionInfo returns metadata about the session for the API.
 type SessionInfo struct {
-	Mode        string            `json:"mode"` // "files" or "git"
-	Branch      string            `json:"branch"`
-	BaseRef     string            `json:"base_ref"`
-	ReviewRound int               `json:"review_round"`
-	Files       []SessionFileInfo `json:"files"`
+	Mode            string            `json:"mode"` // "files" or "git"
+	Branch          string            `json:"branch"`
+	BaseRef         string            `json:"base_ref"`
+	ReviewRound     int               `json:"review_round"`
+	AvailableScopes []string          `json:"available_scopes"`
+	Files           []SessionFileInfo `json:"files"`
 }
 
 // SessionFileInfo is a summary of a file for the session API response.
@@ -1219,10 +1220,11 @@ func (s *Session) GetSessionInfo() SessionInfo {
 	defer s.mu.RUnlock()
 
 	info := SessionInfo{
-		Mode:        s.Mode,
-		Branch:      s.Branch,
-		BaseRef:     s.BaseRef,
-		ReviewRound: s.ReviewRound,
+		Mode:            s.Mode,
+		Branch:          s.Branch,
+		BaseRef:         s.BaseRef,
+		ReviewRound:     s.ReviewRound,
+		AvailableScopes: availableScopes(s.BaseRef),
 	}
 
 	for _, f := range s.Files {
@@ -1246,4 +1248,117 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		info.Files = append(info.Files, fi)
 	}
 	return info
+}
+
+// availableScopes returns the list of scopes for the session.
+func availableScopes(baseRef string) []string {
+	if baseRef != "" {
+		return []string{"all", "branch", "staged", "unstaged"}
+	}
+	return []string{"all", "staged", "unstaged"}
+}
+
+// GetSessionInfoScoped returns session metadata filtered to a specific diff scope.
+// When scope is "" or "all", delegates to GetSessionInfo.
+func (s *Session) GetSessionInfoScoped(scope string) SessionInfo {
+	if scope == "" || scope == "all" {
+		return s.GetSessionInfo()
+	}
+
+	// Read session fields under lock, then release before shelling out to git.
+	s.mu.RLock()
+	baseRef := s.BaseRef
+	repoRoot := s.RepoRoot
+	mode := s.Mode
+	branch := s.Branch
+	reviewRound := s.ReviewRound
+	// Build a map of comment counts (comments are scope-independent)
+	commentCounts := make(map[string]int, len(s.Files))
+	for _, f := range s.Files {
+		commentCounts[f.Path] = len(f.Comments)
+	}
+	s.mu.RUnlock()
+
+	info := SessionInfo{
+		Mode:            mode,
+		Branch:          branch,
+		BaseRef:         baseRef,
+		ReviewRound:     reviewRound,
+		AvailableScopes: availableScopes(baseRef),
+	}
+
+	changes, err := ChangedFilesScoped(scope, baseRef)
+	if err != nil || len(changes) == 0 {
+		return info
+	}
+
+	for _, fc := range changes {
+		fi := SessionFileInfo{
+			Path:         fc.Path,
+			Status:       fc.Status,
+			FileType:     detectFileType(fc.Path),
+			CommentCount: commentCounts[fc.Path],
+		}
+
+		// Compute diff stats for the scoped view
+		var hunks []DiffHunk
+		if fc.Status == "added" || fc.Status == "untracked" {
+			absPath := filepath.Join(repoRoot, fc.Path)
+			if data, err := os.ReadFile(absPath); err == nil {
+				hunks = FileDiffUnifiedNewFile(string(data))
+			}
+		} else {
+			h, err := FileDiffScoped(fc.Path, scope, baseRef)
+			if err == nil {
+				hunks = h
+			}
+		}
+		for _, h := range hunks {
+			for _, l := range h.Lines {
+				switch l.Type {
+				case "add":
+					fi.Additions++
+				case "del":
+					fi.Deletions++
+				}
+			}
+		}
+
+		info.Files = append(info.Files, fi)
+	}
+
+	return info
+}
+
+// GetFileDiffSnapshotScoped returns diff data for a file filtered by scope.
+// When scope is "" or "all", delegates to GetFileDiffSnapshot.
+func (s *Session) GetFileDiffSnapshotScoped(path, scope string) (map[string]any, bool) {
+	if scope == "" || scope == "all" {
+		return s.GetFileDiffSnapshot(path)
+	}
+
+	s.mu.RLock()
+	f := s.fileByPathLocked(path)
+	if f == nil {
+		s.mu.RUnlock()
+		return nil, false
+	}
+	baseRef := s.BaseRef
+	status := f.Status
+	content := f.Content
+	s.mu.RUnlock()
+
+	var hunks []DiffHunk
+	if (status == "added" || status == "untracked") && scope == "unstaged" {
+		hunks = FileDiffUnifiedNewFile(content)
+	} else {
+		h, err := FileDiffScoped(path, scope, baseRef)
+		if err == nil {
+			hunks = h
+		}
+	}
+	if hunks == nil {
+		hunks = []DiffHunk{}
+	}
+	return map[string]any{"hunks": hunks}, true
 }

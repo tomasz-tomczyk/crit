@@ -738,3 +738,179 @@ func TestCommentByID_MissingPath(t *testing.T) {
 		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
+
+// ===== Scope Query Parameter Tests =====
+
+func TestGetSession_IncludesAvailableScopes(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/session", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	scopes, ok := resp["available_scopes"]
+	if !ok {
+		t.Fatal("response missing available_scopes field")
+	}
+	scopeList, ok := scopes.([]any)
+	if !ok {
+		t.Fatalf("available_scopes is not an array: %T", scopes)
+	}
+	// Session has no BaseRef, so should be ["all", "staged", "unstaged"]
+	if len(scopeList) != 3 {
+		t.Errorf("expected 3 scopes, got %d: %v", len(scopeList), scopeList)
+	}
+	if scopeList[0] != "all" {
+		t.Errorf("first scope = %q, want all", scopeList[0])
+	}
+}
+
+func TestGetSession_AvailableScopesWithBaseRef(t *testing.T) {
+	s, session := newTestServer(t)
+	session.mu.Lock()
+	session.BaseRef = "abc123"
+	session.mu.Unlock()
+
+	req := httptest.NewRequest("GET", "/api/session", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	scopeList := resp["available_scopes"].([]any)
+	// With BaseRef, should be ["all", "branch", "staged", "unstaged"]
+	if len(scopeList) != 4 {
+		t.Errorf("expected 4 scopes, got %d: %v", len(scopeList), scopeList)
+	}
+	if scopeList[1] != "branch" {
+		t.Errorf("second scope = %q, want branch", scopeList[1])
+	}
+}
+
+func TestGetSession_ScopeAll_SameAsNoScope(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	// No scope
+	req1 := httptest.NewRequest("GET", "/api/session", nil)
+	w1 := httptest.NewRecorder()
+	s.ServeHTTP(w1, req1)
+
+	// scope=all
+	req2 := httptest.NewRequest("GET", "/api/session?scope=all", nil)
+	w2 := httptest.NewRecorder()
+	s.ServeHTTP(w2, req2)
+
+	if w1.Code != 200 || w2.Code != 200 {
+		t.Fatalf("status codes: %d, %d", w1.Code, w2.Code)
+	}
+
+	var resp1, resp2 SessionInfo
+	if err := json.Unmarshal(w1.Body.Bytes(), &resp1); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(w2.Body.Bytes(), &resp2); err != nil {
+		t.Fatal(err)
+	}
+	if resp1.Mode != resp2.Mode {
+		t.Errorf("mode mismatch: %q vs %q", resp1.Mode, resp2.Mode)
+	}
+	if len(resp1.Files) != len(resp2.Files) {
+		t.Errorf("file count mismatch: %d vs %d", len(resp1.Files), len(resp2.Files))
+	}
+}
+
+func TestGetFileDiff_ScopeAll_SameAsNoScope(t *testing.T) {
+	s, session := newTestServer(t)
+	// Add a code file with diff hunks
+	session.mu.Lock()
+	session.Files = append(session.Files, &FileEntry{
+		Path:     "main.go",
+		AbsPath:  "/tmp/main.go",
+		Status:   "modified",
+		FileType: "code",
+		Content:  "package main",
+		Comments: []Comment{},
+		nextID:   1,
+		DiffHunks: []DiffHunk{
+			{OldStart: 1, OldCount: 3, NewStart: 1, NewCount: 4, Header: "@@ -1,3 +1,4 @@"},
+		},
+	})
+	session.mu.Unlock()
+
+	// No scope
+	req1 := httptest.NewRequest("GET", "/api/file/diff?path=main.go", nil)
+	w1 := httptest.NewRecorder()
+	s.ServeHTTP(w1, req1)
+
+	// scope=all
+	req2 := httptest.NewRequest("GET", "/api/file/diff?path=main.go&scope=all", nil)
+	w2 := httptest.NewRecorder()
+	s.ServeHTTP(w2, req2)
+
+	if w1.Code != 200 || w2.Code != 200 {
+		t.Fatalf("status codes: %d, %d", w1.Code, w2.Code)
+	}
+	if w1.Body.String() != w2.Body.String() {
+		t.Errorf("scope=all response differs from no-scope response")
+	}
+}
+
+func TestGetFileDiff_ScopeStaged_ValidResponse(t *testing.T) {
+	s, session := newTestServer(t)
+	// Add a code file with diff hunks to the session
+	session.mu.Lock()
+	session.Files = append(session.Files, &FileEntry{
+		Path:     "app.go",
+		AbsPath:  "/tmp/app.go",
+		Status:   "modified",
+		FileType: "code",
+		Content:  "package main",
+		Comments: []Comment{},
+		nextID:   1,
+		DiffHunks: []DiffHunk{
+			{OldStart: 1, OldCount: 3, NewStart: 1, NewCount: 4, Header: "@@ -1,3 +1,4 @@"},
+		},
+	})
+	session.mu.Unlock()
+
+	// scope=staged — even though this is not a real git repo,
+	// the handler should return a valid response (empty hunks from failed git call)
+	req := httptest.NewRequest("GET", "/api/file/diff?path=app.go&scope=staged", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Hunks []DiffHunk `json:"hunks"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	// Should parse as valid JSON with a hunks field (may be empty without real git)
+	if resp.Hunks == nil {
+		t.Error("hunks should not be nil (should be empty array)")
+	}
+}
+
+func TestGetFileDiff_ScopeNotFound(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/file/diff?path=nonexistent.go&scope=staged", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
