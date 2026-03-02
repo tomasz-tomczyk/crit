@@ -228,8 +228,9 @@
       scopeToggle.style.display = '';
       var scopes = session.available_scopes || ['all', 'staged', 'unstaged'];
       scopeToggle.querySelectorAll('.toggle-btn').forEach(function(b) {
-        if (scopes.indexOf(b.dataset.scope) === -1) {
-          b.style.display = 'none';
+        if (b.dataset.scope !== 'all' && scopes.indexOf(b.dataset.scope) === -1) {
+          b.disabled = true;
+          b.classList.add('disabled');
         }
       });
       if (scopes.indexOf(diffScope) === -1) {
@@ -2908,7 +2909,7 @@
   // ===== Scope Toggle (All / Branch / Staged / Unstaged) =====
   document.getElementById('scopeToggle').addEventListener('click', async function(e) {
     var btn = e.target.closest('.toggle-btn');
-    if (!btn || btn.classList.contains('active')) return;
+    if (!btn || btn.disabled || btn.classList.contains('active')) return;
     var scope = btn.dataset.scope;
     diffScope = scope;
     setCookie('crit-diff-scope', scope);
