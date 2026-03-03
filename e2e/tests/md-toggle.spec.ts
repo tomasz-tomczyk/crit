@@ -147,6 +147,35 @@ test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
     await expect(page.locator('.comment-form')).toHaveCount(0);
   });
 
+  test('document view does not show change indicators in git mode', async ({ page }) => {
+    await loadPage(page);
+    const section = mdSection(page);
+
+    // Switch to document view
+    await section.locator('.file-header-toggle .toggle-btn[data-mode="document"]').click();
+    await expect(section.locator('.document-wrapper')).toBeVisible();
+
+    // Line blocks should exist but none should have the changed indicator
+    await expect(section.locator('.line-block').first()).toBeVisible();
+    await expect(section.locator('.line-block-changed')).toHaveCount(0);
+
+    // Change navigation widget should not be visible
+    await expect(section.locator('.change-nav')).not.toBeVisible();
+  });
+
+  test('document view does not show line numbers in git mode', async ({ page }) => {
+    await loadPage(page);
+    const section = mdSection(page);
+
+    // Switch to document view
+    await section.locator('.file-header-toggle .toggle-btn[data-mode="document"]').click();
+    await expect(section.locator('.document-wrapper')).toBeVisible();
+
+    // Gutters should exist but contain no line number text
+    await expect(section.locator('.line-gutter').first()).toBeVisible();
+    await expect(section.locator('.line-num')).toHaveCount(0);
+  });
+
   test('switching view clears line selection highlight', async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
