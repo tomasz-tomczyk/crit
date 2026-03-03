@@ -470,6 +470,21 @@ func (s *Session) NewCommentCount() int {
 	return total
 }
 
+// UnresolvedCommentCount returns the number of unresolved comments across all files.
+func (s *Session) UnresolvedCommentCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	total := 0
+	for _, f := range s.Files {
+		for _, c := range f.Comments {
+			if !c.Resolved {
+				total++
+			}
+		}
+	}
+	return total
+}
+
 func (s *Session) fileByPathLocked(path string) *FileEntry {
 	for _, f := range s.Files {
 		if f.Path == path {

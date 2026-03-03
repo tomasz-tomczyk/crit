@@ -293,15 +293,18 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 
 	totalComments := s.session.TotalCommentCount()
 	newComments := s.session.NewCommentCount()
+	unresolvedComments := s.session.UnresolvedCommentCount()
 	critJSON := s.session.critJSONPath()
 	prompt := ""
-	if totalComments > 0 {
+	if totalComments > 0 && unresolvedComments > 0 {
 		prompt = fmt.Sprintf(
 			"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
 				"Read the file, address each comment in the relevant file and location, "+
 				"then mark it resolved (set \"resolved\": true, optionally \"resolution_note\" and \"resolution_lines\"). "+
 				"When done run: `crit go %d`",
 			critJSON, s.port)
+	} else if totalComments > 0 && unresolvedComments == 0 {
+		prompt = "All comments are resolved — no changes needed, please proceed."
 	}
 
 	writeJSON(w, map[string]string{
@@ -312,8 +315,8 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 
 	if s.status != nil {
 		round := s.session.GetReviewRound()
-		s.status.RoundFinished(round, newComments, totalComments > 0)
-		if totalComments > 0 {
+		s.status.RoundFinished(round, newComments, unresolvedComments > 0)
+		if unresolvedComments > 0 {
 			s.status.WaitingForAgent()
 		}
 	}

@@ -204,6 +204,47 @@ func TestSession_NewCommentCount_AllCarriedForward(t *testing.T) {
 	}
 }
 
+func TestSession_UnresolvedCommentCount(t *testing.T) {
+	s := newTestSession(t)
+	s.mu.Lock()
+	f := s.fileByPathLocked("plan.md")
+	f.Comments = []Comment{
+		{ID: "c1", StartLine: 1, EndLine: 1, Body: "resolved one", Resolved: true},
+		{ID: "c2", StartLine: 2, EndLine: 2, Body: "open one"},
+		{ID: "c3", StartLine: 3, EndLine: 3, Body: "resolved two", Resolved: true},
+	}
+	g := s.fileByPathLocked("main.go")
+	g.Comments = []Comment{
+		{ID: "c4", StartLine: 1, EndLine: 1, Body: "open two"},
+	}
+	s.mu.Unlock()
+
+	if got := s.UnresolvedCommentCount(); got != 2 {
+		t.Errorf("UnresolvedCommentCount = %d, want 2", got)
+	}
+	if got := s.TotalCommentCount(); got != 4 {
+		t.Errorf("TotalCommentCount = %d, want 4", got)
+	}
+}
+
+func TestSession_UnresolvedCommentCount_AllResolved(t *testing.T) {
+	s := newTestSession(t)
+	s.mu.Lock()
+	f := s.fileByPathLocked("plan.md")
+	f.Comments = []Comment{
+		{ID: "c1", StartLine: 1, EndLine: 1, Body: "done", Resolved: true},
+		{ID: "c2", StartLine: 2, EndLine: 2, Body: "done too", Resolved: true},
+	}
+	s.mu.Unlock()
+
+	if got := s.UnresolvedCommentCount(); got != 0 {
+		t.Errorf("UnresolvedCommentCount = %d, want 0", got)
+	}
+	if got := s.TotalCommentCount(); got != 2 {
+		t.Errorf("TotalCommentCount = %d, want 2", got)
+	}
+}
+
 func TestSession_WriteFiles(t *testing.T) {
 	s := newTestSession(t)
 	s.AddComment("plan.md", 1, 1, "", "fix")
