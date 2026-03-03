@@ -3373,6 +3373,44 @@
       li.appendChild(a);
       listEl.appendChild(li);
     }
+
+    // Scrollspy: highlight current heading in TOC
+    setupTocScrollspy(allItems);
+  }
+
+  let tocScrollHandler = null;
+  function setupTocScrollspy(items) {
+    if (tocScrollHandler) {
+      window.removeEventListener('scroll', tocScrollHandler);
+      tocScrollHandler = null;
+    }
+    if (!items || items.length === 0) return;
+
+    tocScrollHandler = function() {
+      const headerHeight = (document.querySelector('.header')?.offsetHeight || 49) + 16;
+      let activeItem = null;
+
+      for (const item of items) {
+        var sectionEl = document.getElementById('file-section-' + item.filePath);
+        var block = sectionEl && sectionEl.querySelector('.line-block[data-start-line="' + item.startLine + '"]');
+        if (!block) continue;
+        var rect = block.getBoundingClientRect();
+        if (rect.top <= headerHeight) {
+          activeItem = item;
+        }
+      }
+
+      const tocLinks = document.querySelectorAll('.toc-list a');
+      for (const link of tocLinks) {
+        var isActive = activeItem &&
+          link.dataset.startLine === String(activeItem.startLine) &&
+          link.dataset.filePath === activeItem.filePath;
+        link.classList.toggle('toc-active', !!isActive);
+      }
+    };
+
+    window.addEventListener('scroll', tocScrollHandler, { passive: true });
+    tocScrollHandler();
   }
 
   // ===== Mermaid =====
