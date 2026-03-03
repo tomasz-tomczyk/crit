@@ -3680,13 +3680,6 @@
         document.getElementById('tocToggle').click();
         break;
       }
-      case 'v': {
-        e.preventDefault();
-        // Toggle viewed on the file that owns the focused element
-        var vfp = focusedElement && (focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath);
-        if (vfp) toggleViewed(vfp);
-        break;
-      }
       case 'n': {
         if (session.mode === 'git') break;
         e.preventDefault();
