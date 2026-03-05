@@ -919,3 +919,78 @@ func TestGetFileDiff_ScopeNotFound(t *testing.T) {
 		t.Errorf("status = %d, want 404", w.Code)
 	}
 }
+
+// TestGetFile_NotInSession_FallbackToDisk tests the scenario where switching
+// scopes (e.g. from "all" to "unstaged") returns files that weren't in the
+// session's original file list. The /api/file endpoint should fall back to
+// reading from disk instead of returning 404 (which caused the frontend to hang).
+func TestGetFile_NotInSession_FallbackToDisk(t *testing.T) {
+	s, session := newTestServer(t)
+
+	// Create a file on disk that is NOT in session.Files
+	extraPath := filepath.Join(session.RepoRoot, "extra.go")
+	if err := os.WriteFile(extraPath, []byte("package main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify it's not in the session's file list
+	session.mu.RLock()
+	found := session.fileByPathLocked("extra.go")
+	session.mu.RUnlock()
+	if found != nil {
+		t.Fatal("extra.go should NOT be in session files for this test")
+	}
+
+	// Request it via /api/file — before the fix this returned 404
+	req := httptest.NewRequest("GET", "/api/file?path=extra.go", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200 (file exists on disk but not in session)", w.Code)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["path"] != "extra.go" {
+		t.Errorf("path = %q, want extra.go", resp["path"])
+	}
+	if resp["content"] != "package main\n" {
+		t.Errorf("content = %q, want file content from disk", resp["content"])
+	}
+	if resp["file_type"] != "code" {
+		t.Errorf("file_type = %q, want code", resp["file_type"])
+	}
+}
+
+// TestGetFile_NotInSession_PathTraversal verifies the disk fallback
+// still blocks path traversal attempts.
+func TestGetFile_NotInSession_PathTraversal(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	for _, path := range []string{"../etc/passwd", "foo/../../etc/passwd"} {
+		req := httptest.NewRequest("GET", "/api/file?path="+path, nil)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+
+		if w.Code != 404 {
+			t.Errorf("path %q: status = %d, want 404", path, w.Code)
+		}
+	}
+}
+
+// TestGetFile_NotInSession_NotOnDisk verifies that files not in session
+// AND not on disk still return 404.
+func TestGetFile_NotInSession_NotOnDisk(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	req := httptest.NewRequest("GET", "/api/file?path=doesnotexist.go", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}

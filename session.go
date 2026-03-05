@@ -1205,6 +1205,34 @@ func (s *Session) GetFileSnapshot(path string) (map[string]any, bool) {
 	}, true
 }
 
+// GetFileSnapshotFromDisk reads a file directly from the repo root.
+// Used as a fallback when a scoped view references a file not in the session's file list
+// (e.g. a file changed after crit started).
+func (s *Session) GetFileSnapshotFromDisk(path string) (map[string]any, bool) {
+	s.mu.RLock()
+	repoRoot := s.RepoRoot
+	s.mu.RUnlock()
+
+	if repoRoot == "" {
+		return nil, false
+	}
+	// Prevent path traversal
+	absPath := filepath.Join(repoRoot, path)
+	if !strings.HasPrefix(absPath, repoRoot+string(filepath.Separator)) && absPath != repoRoot {
+		return nil, false
+	}
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, false
+	}
+	return map[string]any{
+		"path":      path,
+		"status":    "modified",
+		"file_type": detectFileType(path),
+		"content":   string(data),
+	}, true
+}
+
 // GetFileDiffSnapshot returns diff data for the /api/file/diff endpoint.
 func (s *Session) GetFileDiffSnapshot(path string) (map[string]any, bool) {
 	s.mu.RLock()
@@ -1416,13 +1444,14 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope string) (map[string]any,
 
 	s.mu.RLock()
 	f := s.fileByPathLocked(path)
-	if f == nil {
-		s.mu.RUnlock()
-		return nil, false
+	var baseRef, status, content string
+	if f != nil {
+		baseRef = s.BaseRef
+		status = f.Status
+		content = f.Content
+	} else {
+		baseRef = s.BaseRef
 	}
-	baseRef := s.BaseRef
-	status := f.Status
-	content := f.Content
 	s.mu.RUnlock()
 
 	var hunks []DiffHunk

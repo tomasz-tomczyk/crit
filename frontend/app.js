@@ -74,9 +74,9 @@
         diffUrl += '&scope=' + enc(scope);
       }
       const [fileRes, commentsRes, diffRes] = await Promise.all([
-        fetch('/api/file?path=' + enc(fi.path)).then(r => r.json()),
-        fetch('/api/file/comments?path=' + enc(fi.path)).then(r => r.json()),
-        fetch(diffUrl).then(r => r.json()).catch(function() { return { hunks: [] }; }),
+        fetch('/api/file?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : { content: '' }; }).catch(function() { return { content: '' }; }),
+        fetch('/api/file/comments?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
+        fetch(diffUrl).then(function(r) { return r.ok ? r.json() : { hunks: [] }; }).catch(function() { return { hunks: [] }; }),
       ]);
 
       const f = {

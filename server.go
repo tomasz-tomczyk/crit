@@ -153,8 +153,13 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	}
 	snapshot, ok := s.session.GetFileSnapshot(path)
 	if !ok {
-		http.Error(w, "File not found", http.StatusNotFound)
-		return
+		// File not in session (e.g. scoped view showing a file added after startup).
+		// Try to serve it directly from disk.
+		snapshot, ok = s.session.GetFileSnapshotFromDisk(path)
+		if !ok {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
 	}
 	writeJSON(w, snapshot)
 }
