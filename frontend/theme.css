@@ -42,6 +42,8 @@
   --diff-del-line-bg: rgba(247, 118, 142, 0.14);
   --diff-add-gutter: rgba(158, 206, 106, 0.12);
   --diff-del-gutter: rgba(247, 118, 142, 0.08);
+  --badge-resolved-bg: rgba(158, 206, 106, 0.12);
+  --badge-unresolved-bg: rgba(255, 158, 100, 0.14);
 }
 
 /* ===== System preference: light ===== */
@@ -82,6 +84,8 @@
     --diff-del-line-bg: rgba(207, 34, 46, 0.1);
     --diff-add-gutter: rgba(26, 127, 55, 0.1);
     --diff-del-gutter: rgba(207, 34, 46, 0.06);
+    --badge-resolved-bg: rgba(26, 127, 55, 0.1);
+    --badge-unresolved-bg: rgba(188, 76, 0, 0.1);
   }
 }
 
@@ -122,6 +126,8 @@
   --diff-del-line-bg: rgba(247, 118, 142, 0.14);
   --diff-add-gutter: rgba(158, 206, 106, 0.12);
   --diff-del-gutter: rgba(247, 118, 142, 0.08);
+  --badge-resolved-bg: rgba(158, 206, 106, 0.12);
+  --badge-unresolved-bg: rgba(255, 158, 100, 0.14);
 }
 
 /* ===== Light (explicit) ===== */
@@ -161,6 +167,8 @@
   --diff-del-line-bg: rgba(207, 34, 46, 0.1);
   --diff-add-gutter: rgba(26, 127, 55, 0.1);
   --diff-del-gutter: rgba(207, 34, 46, 0.06);
+  --badge-resolved-bg: rgba(26, 127, 55, 0.1);
+  --badge-unresolved-bg: rgba(188, 76, 0, 0.1);
 }
 
 /* ===== Theme Pill (system / light / dark toggle) ===== */

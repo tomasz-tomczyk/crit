@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import * as fs from 'fs';
 import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath } from './helpers';
 
 function commentsPanel(page: Page) {
@@ -7,6 +8,13 @@ function commentsPanel(page: Page) {
 
 function panelCards(page: Page) {
   return page.locator('.comments-panel-card');
+}
+
+async function waitForRound(request: APIRequestContext, previousRound: number) {
+  await expect(async () => {
+    const session = await request.get('/api/session').then(r => r.json());
+    expect(session.review_round).toBeGreaterThan(previousRound);
+  }).toPass({ timeout: 5000 });
 }
 
 // ============================================================
@@ -192,5 +200,120 @@ test.describe('Comments Panel — Git Mode', () => {
     const overlay = page.locator('.shortcuts-overlay.active');
     await expect(overlay).toBeVisible();
     await expect(overlay).toContainText('Toggle comments panel');
+  });
+
+  // --- Resolved / carried-forward comment tests ---
+
+  test('resolved carried-forward comment shows Resolved badge, not Unresolved', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Will be resolved');
+
+    // Finish to write .crit.json
+    const finishRes = await request.post('/api/finish');
+    const finishData = await finishRes.json();
+    const critJsonPath = finishData.review_file;
+
+    // Mark comment as resolved in .crit.json
+    const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
+    for (const fileKey of Object.keys(critJson.files)) {
+      for (const comment of critJson.files[fileKey].comments) {
+        comment.resolved = true;
+        comment.resolution_note = 'Fixed';
+      }
+    }
+    fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
+
+    // Round-complete to carry forward
+    const round = (await request.get('/api/session').then(r => r.json())).review_round;
+    await request.post('/api/round-complete');
+    await waitForRound(request, round);
+
+    await loadPage(page);
+    await page.keyboard.press('Shift+C');
+
+    // Toggle show resolved
+    await page.locator('.comments-panel-switch-track').click();
+
+    const card = panelCards(page).first();
+    await expect(card).toBeVisible();
+    await expect(card.locator('.comments-panel-badge-resolved')).toContainText('Resolved');
+    // Should NOT have an unresolved badge
+    await expect(card.locator('.comments-panel-badge-unresolved')).toHaveCount(0);
+  });
+
+  test('unresolved carried-forward comment shows Unresolved badge', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Still unresolved');
+
+    // Finish + round-complete to carry forward
+    await request.post('/api/finish');
+    const round = (await request.get('/api/session').then(r => r.json())).review_round;
+    await request.post('/api/round-complete');
+    await waitForRound(request, round);
+
+    await loadPage(page);
+    await page.keyboard.press('Shift+C');
+
+    const card = panelCards(page).first();
+    await expect(card).toBeVisible();
+    await expect(card.locator('.comments-panel-badge-unresolved')).toContainText('Unresolved');
+    // Should NOT have a resolved badge
+    await expect(card.locator('.comments-panel-badge-resolved')).toHaveCount(0);
+  });
+
+  test('clicking resolved comment in panel scrolls to inline resolved comment', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Resolve and scroll');
+
+    const finishRes = await request.post('/api/finish');
+    const finishData = await finishRes.json();
+    const critJsonPath = finishData.review_file;
+
+    const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
+    for (const fileKey of Object.keys(critJson.files)) {
+      for (const comment of critJson.files[fileKey].comments) {
+        comment.resolved = true;
+      }
+    }
+    fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
+
+    const round = (await request.get('/api/session').then(r => r.json())).review_round;
+    await request.post('/api/round-complete');
+    await waitForRound(request, round);
+
+    await loadPage(page);
+
+    // After round-complete, .crit.json appears in session, so mdSection helper
+    // can match multiple sections. Use the plan.md section by ID directly.
+    const mdSectionById = page.locator('#file-section-plan\\.md');
+    const docBtn = mdSectionById.locator('.file-header-toggle .toggle-btn[data-mode="document"]');
+    await expect(docBtn).toBeVisible();
+    await docBtn.click();
+    await expect(mdSectionById.locator('.document-wrapper')).toBeVisible();
+
+    await page.keyboard.press('Shift+C');
+
+    // Show resolved comments
+    await page.locator('.comments-panel-switch-track').click();
+    await expect(panelCards(page)).toHaveCount(1);
+
+    // Click the resolved card
+    await panelCards(page).first().click();
+
+    // The resolved inline comment should be visible and highlighted
+    const inlineResolved = mdSectionById.locator('.resolved-comment[data-comment-id]').first();
+    await expect(inlineResolved).toBeVisible();
+    await expect(inlineResolved).toHaveClass(/comment-card-highlight/);
+  });
+
+  test('new comments do not show carried-forward badges', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Fresh comment');
+    await loadPage(page);
+    await page.keyboard.press('Shift+C');
+
+    const card = panelCards(page).first();
+    await expect(card).toBeVisible();
+    await expect(card.locator('.comments-panel-badge')).toHaveCount(0);
   });
 });

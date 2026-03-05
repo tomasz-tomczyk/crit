@@ -3119,6 +3119,7 @@
   function createResolvedElement(comment) {
     const el = document.createElement('div');
     el.className = 'resolved-comment';
+    el.dataset.commentId = comment.id;
     el.innerHTML =
       '<div class="resolved-comment-header">' +
         '<span class="resolved-check">\u2713</span>' +
@@ -3210,7 +3211,15 @@
           ? 'Line ' + comment.start_line
           : 'Lines ' + comment.start_line + '-' + comment.end_line;
         if (comment.carried_forward) {
-          lineRef.textContent += ' \u00b7 Unresolved';
+          var badge = document.createElement('span');
+          if (comment.resolved) {
+            badge.className = 'comments-panel-badge comments-panel-badge-resolved';
+            badge.textContent = 'Resolved';
+          } else {
+            badge.className = 'comments-panel-badge comments-panel-badge-unresolved';
+            badge.textContent = 'Unresolved';
+          }
+          lineRef.appendChild(badge);
         }
 
         var bodyEl = document.createElement('div');
@@ -3219,11 +3228,9 @@
 
         card.appendChild(lineRef);
         card.appendChild(bodyEl);
-        if (!comment.resolved) {
-          card.addEventListener('click', (function(commentId, filePath) {
-            return function() { scrollToComment(commentId, filePath); };
-          })(comment.id, file.path));
-        }
+        card.addEventListener('click', (function(commentId, filePath) {
+          return function() { scrollToComment(commentId, filePath); };
+        })(comment.id, file.path));
 
         group.appendChild(card);
       }
@@ -3246,7 +3253,8 @@
     if (!section.open) section.open = true;
 
     // 2. Find the inline comment card by comment ID
-    var commentCard = section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
+    var commentCard = section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]')
+      || section.querySelector('.resolved-comment[data-comment-id="' + CSS.escape(commentId) + '"]');
     if (!commentCard) return;
 
     // 3. Scroll into view

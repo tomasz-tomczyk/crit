@@ -1611,23 +1611,27 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 /* Resolved state */
 .comments-panel-card-resolved {
   opacity: 0.5;
-  cursor: default;
 }
-.comments-panel-card-resolved:hover {
-  background: transparent;
-  border-left-color: transparent;
-}
-.comments-panel-card-resolved .comments-panel-card-line::after {
-  content: 'Resolved';
+
+/* Carried-forward badges */
+.comments-panel-badge {
   font-family: var(--font-body);
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.3px;
   text-transform: uppercase;
-  color: var(--fg-success, #2ea043);
-  background: rgba(46, 160, 67, 0.1);
-  padding: 1px 6px;
+  padding: 2px 6px;
   border-radius: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.comments-panel-badge-resolved {
+  color: var(--green);
+  background: var(--badge-resolved-bg);
+}
+.comments-panel-badge-unresolved {
+  color: var(--orange);
+  background: var(--badge-unresolved-bg);
 }
 
 .comments-panel-card-highlight {
