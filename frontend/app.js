@@ -2692,6 +2692,55 @@
     });
   }
 
+  // ===== Comment Templates =====
+  var defaultTemplates = [
+    'Consider using … instead',
+    'This will fail when …',
+    'Missing error handling for …',
+    'This duplicates logic in …',
+    'Needs a test for …'
+  ];
+
+  function getTemplates() {
+    try {
+      var raw = localStorage.getItem('crit-templates');
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (_) {}
+    return defaultTemplates.slice();
+  }
+
+  function saveTemplates(templates) {
+    try { localStorage.setItem('crit-templates', JSON.stringify(templates)); } catch (_) {}
+  }
+
+  function createTemplateBar(textarea) {
+    var bar = document.createElement('div');
+    bar.className = 'comment-template-bar';
+
+    var templates = getTemplates();
+    templates.forEach(function(tmpl) {
+      var chip = document.createElement('button');
+      chip.className = 'template-chip';
+      chip.textContent = tmpl;
+      chip.title = 'Insert: ' + tmpl;
+      chip.addEventListener('click', function(e) {
+        e.preventDefault();
+        var start = textarea.selectionStart;
+        var end = textarea.selectionEnd;
+        textarea.value = textarea.value.substring(0, start) + tmpl + textarea.value.substring(end);
+        textarea.selectionStart = textarea.selectionEnd = start + tmpl.length;
+        textarea.focus();
+        textarea.dispatchEvent(new Event('input'));
+      });
+      bar.appendChild(chip);
+    });
+
+    return bar;
+  }
+
   // ===== Comment Form =====
   function createCommentForm() {
     const wrapper = document.createElement('div');
@@ -2753,7 +2802,10 @@
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
+    var templateBar = createTemplateBar(textarea);
+
     form.appendChild(header);
+    form.appendChild(templateBar);
     form.appendChild(textarea);
     form.appendChild(actions);
     wrapper.appendChild(form);
@@ -3080,7 +3132,10 @@
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
+    var templateBar = createTemplateBar(textarea);
+
     form.appendChild(header);
+    form.appendChild(templateBar);
     form.appendChild(textarea);
     form.appendChild(actions);
     wrapper.appendChild(form);
