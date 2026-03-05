@@ -186,20 +186,24 @@ func changedFilesBranch(baseRef string) ([]FileChange, error) {
 
 // FileDiffScoped returns parsed diff hunks for a file using a scope-appropriate git diff command.
 // Supported scopes: "branch", "staged", "unstaged". Any other value delegates to FileDiffUnified.
-func FileDiffScoped(path, scope, baseRef string) ([]DiffHunk, error) {
+// The dir parameter sets the working directory for git commands (use repo root for correct path resolution).
+func FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHunk, error) {
 	var cmd *exec.Cmd
 	switch scope {
 	case "branch":
 		if baseRef == "" {
 			return nil, nil
 		}
-		cmd = exec.Command("git", "diff", baseRef+"..HEAD", "--", path)
+		cmd = exec.Command("git", "diff", "--no-color", baseRef+"..HEAD", "--", path)
 	case "staged":
-		cmd = exec.Command("git", "diff", "--cached", "--", path)
+		cmd = exec.Command("git", "diff", "--no-color", "--cached", "--", path)
 	case "unstaged":
-		cmd = exec.Command("git", "diff", "--", path)
+		cmd = exec.Command("git", "diff", "--no-color", "--", path)
 	default:
-		return FileDiffUnified(path, baseRef)
+		return fileDiffUnified(path, baseRef, dir)
+	}
+	if dir != "" {
+		cmd.Dir = dir
 	}
 
 	out, err := cmd.Output()
@@ -215,12 +219,22 @@ func FileDiffScoped(path, scope, baseRef string) ([]DiffHunk, error) {
 }
 
 func changedFilesOnDefault() ([]FileChange, error) {
+	return changedFilesOnDefaultInDir("")
+}
+
+func changedFilesOnDefaultInDir(dir string) ([]FileChange, error) {
 	// Staged + unstaged changes vs HEAD
 	cmd := exec.Command("git", "diff", "HEAD", "--name-status")
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		// If there's no HEAD (empty repo), try diff --cached + working tree
 		cmd = exec.Command("git", "diff", "--name-status")
+		if dir != "" {
+			cmd.Dir = dir
+		}
 		out, err = cmd.Output()
 		if err != nil {
 			return nil, fmt.Errorf("git diff failed: %w", err)
@@ -230,7 +244,7 @@ func changedFilesOnDefault() ([]FileChange, error) {
 	changes := parseNameStatus(string(out))
 
 	// Add untracked files
-	untracked, err := untrackedFiles()
+	untracked, err := untrackedFilesInDir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -247,8 +261,21 @@ func changedFilesOnFeature() ([]FileChange, error) {
 		return changedFilesOnDefault()
 	}
 
-	// All changes from merge base to working tree
-	cmd := exec.Command("git", "diff", mergeBase, "--name-status")
+	return changedFilesFromBase(mergeBase)
+}
+
+// changedFilesFromBase returns files changed between a base ref and the working tree, plus untracked files.
+func changedFilesFromBase(baseRef string) ([]FileChange, error) {
+	return changedFilesFromBaseInDir(baseRef, "")
+}
+
+// changedFilesFromBaseInDir is like changedFilesFromBase but runs git from the specified directory.
+func changedFilesFromBaseInDir(baseRef, dir string) ([]FileChange, error) {
+	// All changes from base ref to working tree
+	cmd := exec.Command("git", "diff", baseRef, "--name-status")
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git diff failed: %w", err)
@@ -257,7 +284,7 @@ func changedFilesOnFeature() ([]FileChange, error) {
 	changes := parseNameStatus(string(out))
 
 	// Add untracked files
-	untracked, err := untrackedFiles()
+	untracked, err := untrackedFilesInDir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +294,17 @@ func changedFilesOnFeature() ([]FileChange, error) {
 }
 
 func untrackedFiles() ([]FileChange, error) {
+	return untrackedFilesInDir("")
+}
+
+// untrackedFilesInDir returns untracked files, running from the specified directory.
+// git ls-files returns paths relative to cwd, so dir should be the repo root
+// to get repo-root-relative paths.
+func untrackedFilesInDir(dir string) ([]FileChange, error) {
 	cmd := exec.Command("git", "ls-files", "--others", "--exclude-standard")
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("ls-files failed: %w", err)
@@ -330,11 +367,19 @@ func dedup(changes []FileChange) []FileChange {
 // FileDiffUnified returns the parsed diff hunks for a file against a base ref.
 // If baseRef is empty, diffs against HEAD.
 func FileDiffUnified(path, baseRef string) ([]DiffHunk, error) {
+	return fileDiffUnified(path, baseRef, "")
+}
+
+// fileDiffUnified is the internal implementation that accepts an optional working directory.
+func fileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
 	var cmd *exec.Cmd
 	if baseRef == "" {
-		cmd = exec.Command("git", "diff", "HEAD", "--", path)
+		cmd = exec.Command("git", "diff", "--no-color", "HEAD", "--", path)
 	} else {
-		cmd = exec.Command("git", "diff", baseRef, "--", path)
+		cmd = exec.Command("git", "diff", "--no-color", baseRef, "--", path)
+	}
+	if dir != "" {
+		cmd.Dir = dir
 	}
 	out, err := cmd.Output()
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -551,5 +552,157 @@ func TestSession_PerFileCommentIDs(t *testing.T) {
 	}
 	if c2.ID != "c1" {
 		t.Errorf("main.go first comment ID = %q, want c1", c2.ID)
+	}
+}
+
+// TestNewSessionFromGit_SubdirectoryCwd verifies that diff hunks are correctly
+// populated when crit's working directory is a subdirectory of the git repo.
+//
+// This reproduces GitHub issue #24: `git diff --name-status` returns paths
+// relative to the repo root (e.g. "src/main.go"), but `git diff HEAD -- src/main.go`
+// interprets the pathspec relative to cwd. From src/, git looks for src/src/main.go
+// which doesn't exist, producing empty diff output. The fix sets cmd.Dir to the
+// repo root so pathspecs resolve correctly.
+func TestNewSessionFromGit_SubdirectoryCwd(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Reset DefaultBranch cache so it detects the test repo's branch
+	defaultBranchOnce = sync.Once{}
+
+	// Create a file in a subdirectory and commit it
+	writeFile(t, filepath.Join(dir, "src", "main.go"), "package main\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add src/main.go")
+
+	// Make an unstaged modification (the kind that shows in git diff HEAD)
+	writeFile(t, filepath.Join(dir, "src", "main.go"), "package main\n\nfunc main() {}\n")
+
+	// Change process cwd to the subdirectory — this is the key trigger.
+	// Claude Code or other tools may run crit from a subdirectory of the repo.
+	origDir, _ := os.Getwd()
+	os.Chdir(filepath.Join(dir, "src"))
+	defer os.Chdir(origDir)
+
+	session, err := NewSessionFromGit()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Find the file and verify it has non-empty diff hunks
+	for _, f := range session.Files {
+		if strings.HasSuffix(f.Path, "main.go") {
+			if len(f.DiffHunks) == 0 {
+				t.Errorf("file %s has empty diff hunks — git diff pathspec likely failed to resolve from subdirectory cwd", f.Path)
+			}
+			return
+		}
+	}
+	t.Error("expected to find main.go in session files")
+}
+
+// TestNewSessionFromGit_SubdirectoryCwd_UntrackedFiles verifies that untracked files
+// are correctly detected with repo-root-relative paths when cwd is a subdirectory.
+// git ls-files returns paths relative to cwd, so without cmd.Dir set to the repo root,
+// untracked files would get cwd-relative paths that don't match the expected repo layout.
+func TestNewSessionFromGit_SubdirectoryCwd_UntrackedFiles(t *testing.T) {
+	dir := initTestRepo(t)
+
+	defaultBranchOnce = sync.Once{}
+
+	// Create a subdirectory with an untracked file
+	writeFile(t, filepath.Join(dir, "src", "new.go"), "package main\n\nfunc New() {}\n")
+
+	// Also make a tracked change so NewSessionFromGit doesn't fail with "no changed files"
+	writeFile(t, filepath.Join(dir, "README.md"), "# Modified\n")
+
+	origDir, _ := os.Getwd()
+	os.Chdir(filepath.Join(dir, "src"))
+	defer os.Chdir(origDir)
+
+	session, err := NewSessionFromGit()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The untracked file should have a repo-root-relative path (src/new.go), not just "new.go"
+	for _, f := range session.Files {
+		if f.Path == "src/new.go" {
+			if len(f.DiffHunks) == 0 {
+				t.Error("expected diff hunks for untracked file src/new.go")
+			}
+			return
+		}
+	}
+
+	// Show what paths we got for debugging
+	var paths []string
+	for _, f := range session.Files {
+		paths = append(paths, f.Path)
+	}
+	t.Errorf("expected to find src/new.go in session files, got: %v", paths)
+}
+
+// TestParseUnifiedDiff_WithANSIColors verifies that ANSI color codes in git diff
+// output break ParseUnifiedDiff. This motivates the --no-color flag on git commands.
+func TestParseUnifiedDiff_WithANSIColors(t *testing.T) {
+	// Simulate git diff output with color.diff=always — ANSI codes wrap the @@ header and +/- lines
+	coloredDiff := "" +
+		"\033[1mdiff --git a/file.go b/file.go\033[m\n" +
+		"\033[1mindex abc..def 100644\033[m\n" +
+		"\033[1m--- a/file.go\033[m\n" +
+		"\033[1m+++ b/file.go\033[m\n" +
+		"\033[36m@@ -1,3 +1,3 @@\033[m\n" +
+		" line1\n" +
+		"\033[31m-old line\033[m\n" +
+		"\033[32m+new line\033[m\n" +
+		" line3\n"
+
+	hunks := ParseUnifiedDiff(coloredDiff)
+
+	// With ANSI codes wrapping the @@ header, the regex won't match and
+	// ParseUnifiedDiff returns no hunks — this is the bug that --no-color prevents.
+	if len(hunks) != 0 {
+		t.Skip("ANSI-colored @@ headers parsed successfully (unexpected) — --no-color is still good defense")
+	}
+
+	// Verify that clean (no-color) output parses correctly
+	cleanDiff := "" +
+		"diff --git a/file.go b/file.go\n" +
+		"index abc..def 100644\n" +
+		"--- a/file.go\n" +
+		"+++ b/file.go\n" +
+		"@@ -1,3 +1,3 @@\n" +
+		" line1\n" +
+		"-old line\n" +
+		"+new line\n" +
+		" line3\n"
+
+	hunks = ParseUnifiedDiff(cleanDiff)
+	if len(hunks) != 1 {
+		t.Errorf("clean diff: expected 1 hunk, got %d", len(hunks))
+	}
+}
+
+// TestFileDiffUnified_ColorConfigDoesNotBreakParsing verifies that even with
+// color.diff=always in gitconfig, the --no-color flag produces parseable output.
+func TestFileDiffUnified_ColorConfigDoesNotBreakParsing(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Set color.diff=always in the repo config (simulates a user's gitconfig)
+	runGit(t, dir, "config", "color.diff", "always")
+
+	// Modify a file to create a diff
+	writeFile(t, filepath.Join(dir, "README.md"), "# Modified\n\nNew content\n")
+
+	// fileDiffUnified uses --no-color, so it should parse correctly despite the config
+	hunks, err := fileDiffUnified("README.md", "HEAD", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hunks) == 0 {
+		t.Error("expected non-empty diff hunks even with color.diff=always configured")
 	}
 }

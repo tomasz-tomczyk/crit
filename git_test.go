@@ -593,7 +593,7 @@ func TestFileDiffScoped_Branch(t *testing.T) {
 	runGit(t, dir, "add", "README.md")
 	runGit(t, dir, "commit", "-m", "modify readme")
 
-	hunks, err := FileDiffScoped("README.md", "branch", baseRef)
+	hunks, err := FileDiffScoped("README.md", "branch", baseRef, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -612,7 +612,7 @@ func TestFileDiffScoped_Staged(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "README.md"), "# Staged content\n")
 	runGit(t, dir, "add", "README.md")
 
-	hunks, err := FileDiffScoped("README.md", "staged", "")
+	hunks, err := FileDiffScoped("README.md", "staged", "", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -630,7 +630,7 @@ func TestFileDiffScoped_Unstaged(t *testing.T) {
 	// Modify without staging
 	writeFile(t, filepath.Join(dir, "README.md"), "# Unstaged content\n")
 
-	hunks, err := FileDiffScoped("README.md", "unstaged", "")
+	hunks, err := FileDiffScoped("README.md", "unstaged", "", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +649,7 @@ func TestFileDiffScoped_Default(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "README.md"), "# Default scope\n")
 	runGit(t, dir, "add", "README.md")
 
-	hunks, err := FileDiffScoped("README.md", "", "HEAD")
+	hunks, err := FileDiffScoped("README.md", "", "HEAD", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,7 +664,7 @@ func TestFileDiffScoped_BranchEmptyBaseRef(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	hunks, err := FileDiffScoped("README.md", "branch", "")
+	hunks, err := FileDiffScoped("README.md", "branch", "", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -694,17 +694,17 @@ func TestFileDiffScoped_DifferentHunksPerScope(t *testing.T) {
 	// Make an unstaged change on top
 	writeFile(t, filepath.Join(dir, "README.md"), "# Branch change\n\nStaged line\nUnstaged line\n")
 
-	branchHunks, err := FileDiffScoped("README.md", "branch", baseRef)
+	branchHunks, err := FileDiffScoped("README.md", "branch", baseRef, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	stagedHunks, err := FileDiffScoped("README.md", "staged", "")
+	stagedHunks, err := FileDiffScoped("README.md", "staged", "", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	unstagedHunks, err := FileDiffScoped("README.md", "unstaged", "")
+	unstagedHunks, err := FileDiffScoped("README.md", "unstaged", "", dir)
 	if err != nil {
 		t.Fatal(err)
 	}

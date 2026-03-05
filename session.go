@@ -105,18 +105,27 @@ func NewSessionFromGit() (*Session, error) {
 		return nil, fmt.Errorf("not a git repository: %w", err)
 	}
 
-	changes, err := ChangedFiles()
+	// Compute baseRef FIRST so we use the same value for both file detection and diffs.
+	// Previously these were computed independently which could lead to inconsistencies.
+	branch := CurrentBranch()
+	baseRef := ""
+	if !IsOnDefaultBranch() {
+		baseRef, _ = MergeBase(DefaultBranch())
+	}
+
+	var changes []FileChange
+	if baseRef != "" {
+		// Feature branch with valid merge base: diff against it
+		changes, err = changedFilesFromBaseInDir(baseRef, root)
+	} else {
+		// Default branch or merge-base unavailable: diff against HEAD
+		changes, err = changedFilesOnDefaultInDir(root)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("detecting changes: %w", err)
 	}
 	if len(changes) == 0 {
 		return nil, fmt.Errorf("no changed files detected")
-	}
-
-	branch := CurrentBranch()
-	baseRef := ""
-	if !IsOnDefaultBranch() {
-		baseRef, _ = MergeBase(DefaultBranch())
 	}
 
 	s := &Session{
@@ -149,13 +158,16 @@ func NewSessionFromGit() (*Session, error) {
 			fe.FileHash = fileHash(data)
 		}
 
-		// Load diff hunks for all files in git mode
+		// Load diff hunks for all files in git mode.
+		// Run git diff from the repo root to ensure path consistency.
 		if fc.Status != "deleted" {
 			if fc.Status == "added" || fc.Status == "untracked" {
 				fe.DiffHunks = FileDiffUnifiedNewFile(fe.Content)
 			} else {
-				hunks, err := FileDiffUnified(fc.Path, baseRef)
-				if err == nil {
+				hunks, err := fileDiffUnified(fc.Path, baseRef, root)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", fc.Path, err)
+				} else {
 					fe.DiffHunks = hunks
 				}
 			}
@@ -266,8 +278,10 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 
 		// Load diff hunks in a git repo
 		if IsGitRepo() {
-			hunks, err := FileDiffUnified(relPath, baseRef)
-			if err == nil {
+			hunks, err := fileDiffUnified(relPath, baseRef, root)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", relPath, err)
+			} else {
 				fe.DiffHunks = hunks
 			}
 		}
@@ -741,6 +755,7 @@ func (s *Session) RefreshDiffs() {
 		})
 	}
 	baseRef := s.BaseRef
+	repoRoot := s.RepoRoot
 	s.mu.RUnlock()
 
 	// Compute diffs without holding any lock
@@ -754,8 +769,10 @@ func (s *Session) RefreshDiffs() {
 		if snap.status == "added" || snap.status == "untracked" {
 			hunks = FileDiffUnifiedNewFile(snap.content)
 		} else {
-			h, err := FileDiffUnified(snap.path, baseRef)
-			if err == nil {
+			h, err := fileDiffUnified(snap.path, baseRef, repoRoot)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", snap.path, err)
+			} else {
 				hunks = h
 			}
 		}
@@ -1413,7 +1430,7 @@ func (s *Session) GetSessionInfoScoped(scope string) SessionInfo {
 				hunks = FileDiffUnifiedNewFile(string(data))
 			}
 		} else {
-			h, err := FileDiffScoped(fc.Path, scope, baseRef)
+			h, err := FileDiffScoped(fc.Path, scope, baseRef, repoRoot)
 			if err == nil {
 				hunks = h
 			}
@@ -1444,7 +1461,7 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope string) (map[string]any,
 
 	s.mu.RLock()
 	f := s.fileByPathLocked(path)
-	var baseRef, status, content string
+	var baseRef, repoRoot, status, content string
 	if f != nil {
 		baseRef = s.BaseRef
 		status = f.Status
@@ -1452,13 +1469,14 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope string) (map[string]any,
 	} else {
 		baseRef = s.BaseRef
 	}
+	repoRoot = s.RepoRoot
 	s.mu.RUnlock()
 
 	var hunks []DiffHunk
 	if (status == "added" || status == "untracked") && scope == "unstaged" {
 		hunks = FileDiffUnifiedNewFile(content)
 	} else {
-		h, err := FileDiffScoped(path, scope, baseRef)
+		h, err := FileDiffScoped(path, scope, baseRef, repoRoot)
 		if err == nil {
 			hunks = h
 		}
