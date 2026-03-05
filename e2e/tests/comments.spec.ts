@@ -62,7 +62,7 @@ test.describe('Markdown Comments — Git Mode', () => {
 
     // Initially no comments
     const countEl = page.locator('#commentCount');
-    await expect(countEl).toHaveText('');
+    await expect(countEl).toBeHidden();
 
     // Add a comment
     const lineBlock = section.locator('.line-block').first();
@@ -71,9 +71,9 @@ test.describe('Markdown Comments — Git Mode', () => {
     await page.locator('.comment-form textarea').fill('Count test');
     await page.locator('.comment-form .btn-primary').click();
 
-    // Comment count should show 1
-    await expect(countEl).toContainText('1');
-    await expect(countEl).toContainText('comment');
+    // Comment count icon should appear
+    await expect(countEl).toBeVisible();
+    await expect(countEl).toHaveAttribute('title', /1 unresolved/);
   });
 
   test('Ctrl+Enter submits comment', async ({ page }) => {
@@ -134,7 +134,7 @@ test.describe('Markdown Comments — Git Mode', () => {
     await page.locator('.comment-form textarea').fill('Delete me');
     await page.locator('.comment-form .btn-primary').click();
     await expect(section.locator('.comment-card')).toBeVisible();
-    await expect(countEl).toContainText('1');
+    await expect(countEl).toBeVisible();
 
     // Delete it
     const deleteBtn = section.locator('.comment-actions .delete-btn');
@@ -142,7 +142,7 @@ test.describe('Markdown Comments — Git Mode', () => {
 
     // Comment card should be gone
     await expect(section.locator('.comment-card')).toHaveCount(0);
-    await expect(countEl).toHaveText('');
+    await expect(countEl).toBeHidden();
   });
 
   test('pressing Escape closes the comment form', async ({ page }) => {

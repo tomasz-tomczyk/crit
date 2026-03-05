@@ -234,9 +234,9 @@ test.describe('Multi-Round — Frontend', () => {
     await page.locator('.comment-form .btn-primary').click();
     await expect(mdSection.locator('.comment-card')).toBeVisible();
 
-    // Verify comment count
+    // Verify comment count icon is visible
     const countEl = page.locator('#commentCount');
-    await expect(countEl).toContainText('1');
+    await expect(countEl).toBeVisible();
 
     // Finish and trigger round-complete
     await page.locator('#finishBtn').click();
@@ -248,7 +248,7 @@ test.describe('Multi-Round — Frontend', () => {
 
     // Unresolved comment should still be visible (carried forward)
     await expect(page.locator('.comment-card')).toHaveCount(1);
-    await expect(countEl).toContainText('1');
+    await expect(countEl).toBeVisible();
   });
 
   test('resolved comments render with green checkmark after round-complete', async ({ page, request }) => {
@@ -329,9 +329,10 @@ test.describe('Multi-Round — Frontend', () => {
     await request.post('/api/round-complete');
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Only unresolved comment counts
+    // Only unresolved comment counts — icon visible, resolved-only would be dimmed
     const countEl = page.locator('#commentCount');
-    await expect(countEl).toContainText('1');
+    await expect(countEl).toBeVisible();
+    await expect(countEl).not.toHaveClass(/comment-count-resolved/);
 
     // Both should render: 1 resolved + 1 unresolved
     await expect(page.locator('.resolved-comment')).toHaveCount(1);

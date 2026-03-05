@@ -107,7 +107,7 @@ test.describe('Comments — File Mode', () => {
     const countEl = page.locator('#commentCount');
 
     // Initially no comments
-    await expect(countEl).toHaveText('');
+    await expect(countEl).toBeHidden();
 
     // Add comment
     const lineBlock = section.locator('.line-block').first();
@@ -115,10 +115,10 @@ test.describe('Comments — File Mode', () => {
     await section.locator('.line-comment-gutter').first().click();
     await page.locator('.comment-form textarea').fill('Count check');
     await page.locator('.comment-form .btn-primary').click();
-    await expect(countEl).toContainText('1');
+    await expect(countEl).toBeVisible();
 
     // Delete comment
     await section.locator('.comment-actions .delete-btn').click();
-    await expect(countEl).toHaveText('');
+    await expect(countEl).toBeHidden();
   });
 });

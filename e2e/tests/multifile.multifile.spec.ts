@@ -160,7 +160,8 @@ test.describe('Multi-File Mode — Comments on Code Files', () => {
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
     const countEl = page.locator('#commentCount');
-    await expect(countEl).toContainText('3');
+    await expect(countEl).toBeVisible();
+    await expect(countEl).toHaveAttribute('title', /3 unresolved/);
   });
 });
 
