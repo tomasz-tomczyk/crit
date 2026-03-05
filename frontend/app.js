@@ -281,10 +281,6 @@
     updateCommentCount();
     updateViewedCount();
     restoreDrafts();
-    if (getCookie('crit-comments-panel') === 'open') {
-      document.getElementById('commentsPanel').classList.remove('comments-panel-hidden');
-      renderCommentsPanel();
-    }
   }
 
   // Show/hide the Toggle Diff button and Split/Unified toggle in file mode
@@ -3146,33 +3142,48 @@
     renderCommentsPanel();
   }
 
+  function updateTocPosition() {
+    var toc = document.getElementById('toc');
+    var panel = document.getElementById('commentsPanel');
+    if (!toc || !panel) return;
+    var panelOpen = !panel.classList.contains('comments-panel-hidden');
+    toc.style.right = panelOpen ? (panel.offsetWidth + 16) + 'px' : '';
+  }
+
   function toggleCommentsPanel() {
     var panel = document.getElementById('commentsPanel');
     var isHidden = panel.classList.contains('comments-panel-hidden');
     panel.classList.toggle('comments-panel-hidden');
-    setCookie('crit-comments-panel', isHidden ? 'open' : 'closed');
     if (isHidden) {
       renderCommentsPanel();
     }
+    updateTocPosition();
   }
 
   function renderCommentsPanel() {
     var panel = document.getElementById('commentsPanel');
     if (panel.classList.contains('comments-panel-hidden')) return;
 
+    var showResolved = document.getElementById('showResolvedToggle').checked;
     var body = document.getElementById('commentsPanelBody');
     body.innerHTML = '';
+
+    // Show/hide the filter bar only when resolved comments exist
+    var hasResolved = files.some(function(f) { return f.comments.some(function(c) { return c.resolved; }); });
+    document.getElementById('commentsPanelFilter').style.display = hasResolved ? '' : 'none';
 
     var hasComments = false;
 
     for (var i = 0; i < files.length; i++) {
       var file = files[i];
-      var unresolvedComments = file.comments.filter(function(c) { return !c.resolved; });
-      if (unresolvedComments.length === 0) continue;
+      var visibleComments = file.comments.filter(function(c) {
+        return showResolved ? true : !c.resolved;
+      });
+      if (visibleComments.length === 0) continue;
       hasComments = true;
 
       // Sort by start_line
-      unresolvedComments.sort(function(a, b) { return a.start_line - b.start_line; });
+      visibleComments.sort(function(a, b) { return a.start_line - b.start_line; });
 
       var group = document.createElement('div');
       group.className = 'comments-panel-file-group';
@@ -3186,10 +3197,10 @@
         group.appendChild(fileName);
       }
 
-      for (var j = 0; j < unresolvedComments.length; j++) {
-        var comment = unresolvedComments[j];
+      for (var j = 0; j < visibleComments.length; j++) {
+        var comment = visibleComments[j];
         var card = document.createElement('div');
-        card.className = 'comments-panel-card';
+        card.className = 'comments-panel-card' + (comment.resolved ? ' comments-panel-card-resolved' : '');
         card.dataset.commentId = comment.id;
         card.dataset.filePath = file.path;
 
@@ -3208,9 +3219,11 @@
 
         card.appendChild(lineRef);
         card.appendChild(bodyEl);
-        card.addEventListener('click', (function(commentId, filePath) {
-          return function() { scrollToComment(commentId, filePath); };
-        })(comment.id, file.path));
+        if (!comment.resolved) {
+          card.addEventListener('click', (function(commentId, filePath) {
+            return function() { scrollToComment(commentId, filePath); };
+          })(comment.id, file.path));
+        }
 
         group.appendChild(card);
       }
@@ -3221,19 +3234,19 @@
     if (!hasComments) {
       var empty = document.createElement('div');
       empty.className = 'comments-panel-empty';
-      empty.textContent = 'No comments yet';
+      empty.textContent = showResolved ? 'No comments yet' : 'No unresolved comments';
       body.appendChild(empty);
     }
   }
 
   function scrollToComment(commentId, filePath) {
     // 1. Find the file section and expand if collapsed
-    var section = document.querySelector('.file-section[data-path="' + CSS.escape(filePath) + '"]');
+    var section = document.getElementById('file-section-' + filePath);
     if (!section) return;
     if (!section.open) section.open = true;
 
     // 2. Find the inline comment card by comment ID
-    var commentCard = section.querySelector('.comment-card[data-comment-id="' + commentId + '"]');
+    var commentCard = section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
     if (!commentCard) return;
 
     // 3. Scroll into view
@@ -3794,7 +3807,11 @@
 
   document.querySelector('.comments-panel-close').addEventListener('click', function() {
     document.getElementById('commentsPanel').classList.add('comments-panel-hidden');
-    setCookie('crit-comments-panel', 'closed');
+    updateTocPosition();
+  });
+
+  document.getElementById('showResolvedToggle').addEventListener('change', function() {
+    renderCommentsPanel();
   });
 
   // ===== Keyboard Shortcuts =====
