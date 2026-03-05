@@ -12,7 +12,7 @@ import (
 // FileChange represents a single file change detected by git.
 type FileChange struct {
 	Path   string // relative to repo root
-	Status string // "added", "modified", "deleted", "renamed"
+	Status string // "added", "modified", "deleted", "renamed", "untracked"
 }
 
 // DiffHunk represents a single hunk in a unified diff.
@@ -277,7 +277,7 @@ func untrackedFiles() ([]FileChange, error) {
 		if line == "" {
 			continue
 		}
-		changes = append(changes, FileChange{Path: line, Status: "added"})
+		changes = append(changes, FileChange{Path: line, Status: "untracked"})
 	}
 	return changes, nil
 }

@@ -540,6 +540,60 @@ func TestSession_LoadCritJSON_OutputDir(t *testing.T) {
 	}
 }
 
+func TestGetFileDiffSnapshotScoped_AddedFileUnstagedScope(t *testing.T) {
+	// Issue #25: When a file has status "added" (committed on branch, new relative
+	// to merge-base) and the user switches to "unstaged" scope, we should NOT show
+	// the entire file as a diff. Only truly untracked files should get that treatment.
+	s := newTestSession(t)
+	// Simulate a file that is "added" relative to merge-base (committed on branch)
+	s.Files[1].Status = "added"
+	s.Files[1].Content = "package main\n\nfunc main() {}\n"
+
+	result, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	hunks := result["hunks"].([]DiffHunk)
+
+	// With "added" status + "unstaged" scope, the bug would show the entire file
+	// as added lines (3 lines). The fix should return empty hunks because there
+	// are no actual unstaged changes.
+	if len(hunks) != 0 {
+		totalLines := 0
+		for _, h := range hunks {
+			totalLines += len(h.Lines)
+		}
+		t.Errorf("expected 0 hunks for committed 'added' file in unstaged scope, got %d hunks with %d lines", len(hunks), totalLines)
+	}
+}
+
+func TestGetFileDiffSnapshotScoped_UntrackedFileUnstagedScope(t *testing.T) {
+	// Truly untracked files should still show the full file as added in unstaged scope
+	s := newTestSession(t)
+	s.Files[1].Status = "untracked"
+	s.Files[1].Content = "package main\n\nfunc main() {}\n"
+
+	result, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	hunks := result["hunks"].([]DiffHunk)
+
+	// Untracked files should show full content as added
+	if len(hunks) != 1 {
+		t.Fatalf("expected 1 hunk for untracked file, got %d", len(hunks))
+	}
+	addCount := 0
+	for _, l := range hunks[0].Lines {
+		if l.Type == "add" {
+			addCount++
+		}
+	}
+	if addCount != 3 {
+		t.Errorf("expected 3 added lines, got %d", addCount)
+	}
+}
+
 func TestSession_PerFileCommentIDs(t *testing.T) {
 	s := newTestSession(t)
 	c1, _ := s.AddComment("plan.md", 1, 1, "", "md comment")

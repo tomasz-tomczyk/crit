@@ -1455,7 +1455,7 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope string) (map[string]any,
 	s.mu.RUnlock()
 
 	var hunks []DiffHunk
-	if (status == "added" || status == "untracked") && scope == "unstaged" {
+	if status == "untracked" && scope == "unstaged" {
 		hunks = FileDiffUnifiedNewFile(content)
 	} else {
 		h, err := FileDiffScoped(path, scope, baseRef)

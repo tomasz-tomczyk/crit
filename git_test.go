@@ -264,8 +264,8 @@ func TestChangedFiles_RealRepo(t *testing.T) {
 	if paths["README.md"] != "modified" {
 		t.Errorf("README.md status = %q, want modified", paths["README.md"])
 	}
-	if paths["new.go"] != "added" {
-		t.Errorf("new.go status = %q, want added", paths["new.go"])
+	if paths["new.go"] != "untracked" {
+		t.Errorf("new.go status = %q, want untracked", paths["new.go"])
 	}
 }
 
@@ -500,7 +500,7 @@ func TestChangedFilesUnstaged_IncludesUntracked(t *testing.T) {
 
 	found := false
 	for _, c := range unstaged {
-		if c.Path == "untracked.go" && c.Status == "added" {
+		if c.Path == "untracked.go" && c.Status == "untracked" {
 			found = true
 		}
 	}
