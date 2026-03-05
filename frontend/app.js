@@ -3132,14 +3132,24 @@
 
   // ===== Comment Count =====
   function updateCommentCount() {
-    let total = 0;
+    let unresolved = 0, resolved = 0;
     for (const f of files) {
       for (const c of f.comments) {
-        if (!c.resolved) total++;
+        if (c.resolved) resolved++; else unresolved++;
       }
     }
+    const total = unresolved + resolved;
     const el = document.getElementById('commentCount');
-    el.innerHTML = total === 0 ? '' : '<strong>' + total + '</strong> comment' + (total === 1 ? '' : 's');
+    if (total === 0) {
+      el.innerHTML = '';
+    } else if (unresolved > 0) {
+      el.innerHTML = '<strong>' + unresolved + '</strong> comment' + (unresolved === 1 ? '' : 's');
+      el.classList.remove('comment-count-all-resolved');
+    } else {
+      // All resolved — show total so user can still open the panel
+      el.innerHTML = '<strong>' + total + '</strong> comment' + (total === 1 ? '' : 's') + ' resolved';
+      el.classList.add('comment-count-all-resolved');
+    }
     renderCommentsPanel();
   }
 
@@ -3148,7 +3158,8 @@
     var panel = document.getElementById('commentsPanel');
     if (!toc || !panel) return;
     var panelOpen = !panel.classList.contains('comments-panel-hidden');
-    toc.style.right = panelOpen ? (panel.offsetWidth + 16) + 'px' : '';
+    var tocBaseRight = 16; // matches the default right: 16px in CSS
+    toc.style.right = panelOpen ? (panel.offsetWidth + tocBaseRight) + 'px' : '';
   }
 
   function toggleCommentsPanel() {
@@ -3811,6 +3822,9 @@
   // ===== Comments Panel Toggle =====
   document.getElementById('commentCount').addEventListener('click', function() {
     toggleCommentsPanel();
+  });
+  document.getElementById('commentCount').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCommentsPanel(); }
   });
 
   document.querySelector('.comments-panel-close').addEventListener('click', function() {

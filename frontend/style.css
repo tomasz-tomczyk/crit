@@ -120,6 +120,12 @@ body {
   align-items: center;
   gap: 10px;
 }
+/* Separator between text stats and control pill groups — only visible when comment count has content */
+.comment-count:not(:empty) {
+  padding-right: 14px;
+  border-right: 1px solid var(--border);
+  margin-right: 2px;
+}
 
 .viewed-count {
   font-size: 12px;
@@ -137,6 +143,9 @@ body {
 }
 .comment-count strong {
   color: var(--accent);
+}
+.comment-count-all-resolved strong {
+  color: var(--green);
 }
 
 .btn {
@@ -1222,11 +1231,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   .toc, #tocToggle { display: none !important; }
   #shortcutsToggle { display: none !important; }
   .comments-panel { display: none !important; }
-}
-@media (max-width: 600px) {
-  .header {
-    padding: 10px 14px;
-  }
+  .header { padding: 10px 14px; }
   .header-context { display: none; }
   .file-tree-panel { display: none; }
   #headerUpdate { display: none !important; }
@@ -1438,7 +1443,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   position: sticky;
   top: var(--header-height, 49px);
   height: calc(100vh - var(--header-height, 49px));
-  overflow-y: auto;
+  overflow-y: hidden;
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
@@ -1632,14 +1637,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .comments-panel-badge-unresolved {
   color: var(--orange);
   background: var(--badge-unresolved-bg);
-}
-
-.comments-panel-card-highlight {
-  animation: comment-panel-flash 1s ease-out;
-}
-@keyframes comment-panel-flash {
-  0% { background: var(--accent-bg, rgba(59, 130, 246, 0.15)); }
-  100% { background: transparent; }
 }
 
 .comment-card-highlight {

@@ -29,7 +29,7 @@
   </div>
   <div class="header-right">
     <span class="viewed-count" id="viewedCount"></span>
-    <span class="comment-count" id="commentCount"></span>
+    <span class="comment-count" id="commentCount" role="button" tabindex="0" title="Toggle comments panel"></span>
     <div class="scope-toggle" id="scopeToggle" style="display:none">
       <button class="toggle-btn active" data-scope="all" title="All changes">All</button>
       <button class="toggle-btn" data-scope="branch" title="Committed changes">Branch</button>
@@ -98,7 +98,7 @@
         <span class="comments-panel-switch-text">Show resolved</span>
       </label>
     </div>
-    <div class="comments-panel-body" id="commentsPanelBody"></div>
+    <div class="comments-panel-body" id="commentsPanelBody" aria-live="polite" aria-label="Comments list"></div>
   </div>
 </div>
 
