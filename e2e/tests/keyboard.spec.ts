@@ -413,24 +413,13 @@ test.describe('Keyboard UI Toggles', () => {
     await expect(waitingOverlay).toHaveClass(/active/);
   });
 
-  test('t toggles table of contents (hidden in git mode, but toggles)', async ({ page }) => {
-    // In git mode, the tocToggle button is hidden (display: none), so pressing t clicks a hidden button.
-    // The toc starts with toc-hidden. Pressing t clicks the toggle button.
-    // Since the button is display:none in git mode, the click via keyboard shortcut
-    // still fires the click handler. Let's verify toc state changes.
+  test('t does nothing in git mode (TOC is disabled)', async ({ page }) => {
     const toc = page.locator('#toc');
 
     // Initially has toc-hidden
     await expect(toc).toHaveClass(/toc-hidden/);
 
-    // Press t
-    await page.keyboard.press('t');
-
-    // In git mode, the toggle button is hidden, but the 't' shortcut calls .click() on it,
-    // which should still toggle the class
-    await expect(toc).not.toHaveClass(/toc-hidden/);
-
-    // Press t again to close
+    // Press t — should be a no-op since TOC is hidden in git mode
     await page.keyboard.press('t');
     await expect(toc).toHaveClass(/toc-hidden/);
   });

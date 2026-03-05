@@ -3445,11 +3445,17 @@
     const tocEl = document.getElementById('toc');
     const listEl = tocEl.querySelector('.toc-list');
     const toggleBtn = document.getElementById('tocToggle');
+    const tocShortcut = document.querySelector('.shortcut-toc-only');
     listEl.innerHTML = '';
+
+    function hideToc() {
+      toggleBtn.style.display = 'none';
+      if (tocShortcut) tocShortcut.style.display = 'none';
+    }
 
     // TOC only for single-file markdown reviews
     if (session.mode === 'git' || files.length > 1) {
-      toggleBtn.style.display = 'none';
+      hideToc();
       return;
     }
 
@@ -3464,10 +3470,11 @@
     }
 
     if (allItems.length === 0) {
-      toggleBtn.style.display = 'none';
+      hideToc();
       return;
     }
     toggleBtn.style.display = '';
+    if (tocShortcut) tocShortcut.style.display = '';
 
     // Restore TOC open/closed state from cookie
     if (getCookie('crit-toc') === 'open') {
@@ -3802,8 +3809,10 @@
         break;
       }
       case 't': {
+        var tocBtn = document.getElementById('tocToggle');
+        if (tocBtn.style.display === 'none') return;
         e.preventDefault();
-        document.getElementById('tocToggle').click();
+        tocBtn.click();
         break;
       }
       case 'n': {
