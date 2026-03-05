@@ -1,22 +1,5 @@
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection } from './helpers';
-
-// Helper: add a comment via API and return the created comment object.
-async function addComment(request: APIRequestContext, path: string, line: number, body: string) {
-  const resp = await request.post(`/api/file/comments?path=${encodeURIComponent(path)}`, {
-    data: { start_line: line, end_line: line, body },
-  });
-  expect(resp.ok()).toBeTruthy();
-  return resp.json();
-}
-
-// Helper: get the markdown file path from the session.
-async function getMdPath(request: APIRequestContext): Promise<string> {
-  const session = await (await request.get('/api/session')).json();
-  const mdFile = session.files.find((f: { path: string }) => f.path.endsWith('.md'));
-  expect(mdFile).toBeTruthy();
-  return mdFile.path;
-}
+import { test, expect, type Page } from '@playwright/test';
+import { clearAllComments, loadPage, mdSection, addComment, getMdPath } from './helpers';
 
 function commentsPanel(page: Page) {
   return page.locator('#commentsPanel');
@@ -130,7 +113,6 @@ test.describe('Comments Panel — File Mode', () => {
     await page.keyboard.press('Shift+C');
     await expect(commentsPanel(page)).not.toHaveClass(/comments-panel-hidden/);
 
-    await page.reload();
     await loadPage(page);
     await expect(commentsPanel(page)).toHaveClass(/comments-panel-hidden/);
   });

@@ -56,3 +56,20 @@ export async function dragBetween(page: Page, startEl: ReturnType<Page['locator'
 export async function clearFocus(page: Page) {
   await page.locator('body').click({ position: { x: 0, y: 0 } });
 }
+
+// Add a comment via API and return the created comment object.
+export async function addComment(request: APIRequestContext, path: string, line: number, body: string) {
+  const resp = await request.post(`/api/file/comments?path=${encodeURIComponent(path)}`, {
+    data: { start_line: line, end_line: line, body },
+  });
+  expect(resp.ok()).toBeTruthy();
+  return resp.json();
+}
+
+// Get the markdown file path from the session.
+export async function getMdPath(request: APIRequestContext): Promise<string> {
+  const session = await (await request.get('/api/session')).json();
+  const mdFile = session.files.find((f: { path: string }) => f.path.endsWith('.md'));
+  expect(mdFile).toBeTruthy();
+  return mdFile.path;
+}

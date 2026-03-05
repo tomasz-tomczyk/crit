@@ -1,22 +1,5 @@
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView } from './helpers';
-
-// Helper: add a comment via API and return the created comment object.
-async function addComment(request: APIRequestContext, path: string, line: number, body: string) {
-  const resp = await request.post(`/api/file/comments?path=${encodeURIComponent(path)}`, {
-    data: { start_line: line, end_line: line, body },
-  });
-  expect(resp.ok()).toBeTruthy();
-  return resp.json();
-}
-
-// Helper: get the markdown file path from the session.
-async function getMdPath(request: APIRequestContext): Promise<string> {
-  const session = await (await request.get('/api/session')).json();
-  const mdFile = session.files.find((f: { path: string }) => f.path.endsWith('.md'));
-  expect(mdFile).toBeTruthy();
-  return mdFile.path;
-}
+import { test, expect, type Page } from '@playwright/test';
+import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath } from './helpers';
 
 function commentsPanel(page: Page) {
   return page.locator('#commentsPanel');
@@ -172,43 +155,35 @@ test.describe('Comments Panel — Git Mode', () => {
     await page.keyboard.press('Shift+C');
     await expect(commentsPanel(page)).not.toHaveClass(/comments-panel-hidden/);
 
-    await page.reload();
     await loadPage(page);
     await expect(commentsPanel(page)).toHaveClass(/comments-panel-hidden/);
   });
 
-  test('show resolved toggle appears when resolved comments exist', async ({ page, request }) => {
+  test('resolved filter is hidden when no resolved comments exist', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    // Add comment, then do a round-complete to get carried_forward comments
-    await addComment(request, mdPath, 1, 'Will be resolved');
-
-    // Simulate resolution by writing .crit.json with resolved flag
-    // Instead, just check that the filter is hidden when there are no resolved comments
+    await addComment(request, mdPath, 1, 'Active comment');
     await loadPage(page);
     await page.keyboard.press('Shift+C');
 
-    // No resolved comments — filter should be hidden
     await expect(page.locator('#commentsPanelFilter')).toBeHidden();
   });
 
   test('panel shows file name headers in multi-file mode', async ({ page, request }) => {
     const session = await (await request.get('/api/session')).json();
-    // Git mode has multiple files — add comments to two different files
     const mdPath = session.files.find((f: { path: string }) => f.path.endsWith('.md'))?.path;
     const goPath = session.files.find((f: { path: string }) => f.path.endsWith('.go'))?.path;
+    expect(mdPath).toBeTruthy();
+    expect(goPath).toBeTruthy();
 
-    if (mdPath && goPath) {
-      await addComment(request, mdPath, 1, 'MD comment');
-      await addComment(request, goPath, 1, 'Go comment');
-      await loadPage(page);
+    await addComment(request, mdPath!, 1, 'MD comment');
+    await addComment(request, goPath!, 1, 'Go comment');
+    await loadPage(page);
 
-      await page.keyboard.press('Shift+C');
-      await expect(panelCards(page)).toHaveCount(2);
+    await page.keyboard.press('Shift+C');
+    await expect(panelCards(page)).toHaveCount(2);
 
-      // File name headers should be visible
-      const fileNames = page.locator('.comments-panel-file-name');
-      await expect(fileNames).toHaveCount(2);
-    }
+    const fileNames = page.locator('.comments-panel-file-name');
+    await expect(fileNames).toHaveCount(2);
   });
 
   test('keyboard shortcut in shortcuts overlay', async ({ page }) => {
