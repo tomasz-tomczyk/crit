@@ -112,10 +112,10 @@ test.describe('File Mode — Code Files', () => {
   test('code files have syntax-highlighted content', async ({ page }) => {
     await loadPage(page);
     const jsSection = page.locator('.file-section').filter({ hasText: 'handler.js' });
-    // Code lines should contain hljs-highlighted code
+    // Code lines should contain Chroma-highlighted code
     const codeLine = jsSection.locator('.line-content.code-line').first();
     await expect(codeLine).toBeVisible();
-    await expect(codeLine.locator('code.hljs')).toBeVisible();
+    await expect(codeLine.locator('code.chroma')).toBeVisible();
   });
 
   test('code files have commentable line gutters', async ({ page }) => {

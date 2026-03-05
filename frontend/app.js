@@ -5,17 +5,12 @@
   const commentMd = window.markdownit({ html: false, linkify: true, typographer: true });
 
   // ===== Document Markdown Renderer =====
+  // Note: fenced code blocks are handled by buildLineBlocks (server-side Chroma),
+  // not by markdown-it's highlight callback.
   const documentMd = window.markdownit({
     html: true,
     typographer: true,
     linkify: true,
-    highlight: function(str, lang) {
-      if (lang && hljs.getLanguage(lang)) {
-        try { return hljs.highlight(str, { language: lang }).value; } catch (_) {}
-      }
-      try { return hljs.highlightAuto(str).value; } catch (_) {}
-      return '';
-    }
   });
 
   // ===== Cookie helpers (persist across random ports on 127.0.0.1) =====
@@ -104,9 +99,9 @@
       f.diffTooLarge = diffLineCount > 1000;
       f.diffLoaded = !f.diffTooLarge;
 
-      // Pre-highlight code files for diff rendering
+      // Store server-side highlighted lines for code files
       if (f.fileType === 'code') {
-        f.highlightCache = preHighlightFile(f);
+        f.highlightedLines = fileRes.highlighted_lines || null;
         f.lang = langFromPath(f.path);
 
         // In file mode, build line blocks so code files render as document view
@@ -117,11 +112,12 @@
 
       // Parse markdown content into line blocks
       if (f.fileType === 'markdown') {
-        const parsed = parseMarkdown(f.content);
+        f.highlightedBlocks = fileRes.highlighted_blocks || null;
+        const parsed = parseMarkdown(f.content, f.highlightedBlocks);
         f.lineBlocks = parsed.blocks;
         f.tocItems = parsed.tocItems;
         if (f.previousContent) {
-          f.previousLineBlocks = parseMarkdown(f.previousContent).blocks;
+          f.previousLineBlocks = parseMarkdown(f.previousContent, f.highlightedBlocks).blocks;
         }
       }
 
@@ -324,46 +320,10 @@
     return map[ext] || null;
   }
 
-  // Pre-highlight file content and return array of highlighted lines (1-indexed).
-  // highlightedLines[lineNum] = highlighted HTML for that line.
-  function preHighlightFile(file) {
-    if (!file.content || file.fileType !== 'code') return null;
-    const lang = langFromPath(file.path);
-    if (!lang || !hljs.getLanguage(lang)) return null;
-    try {
-      const highlighted = hljs.highlight(file.content, { language: lang, ignoreIllegals: true }).value;
-      const lines = splitHighlightedCode(highlighted);
-      // Return 1-indexed: lines[1] = first line
-      const result = [null]; // index 0 unused
-      for (let i = 0; i < lines.length; i++) {
-        result.push(lines[i]);
-      }
-      return result;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  // Get highlighted HTML for a single diff line.
-  // Uses pre-highlighted cache for new-side lines, falls back to per-line for old-side.
-  function highlightDiffLine(content, lineNum, side, highlightCache, lang) {
-    // Try cache first (new-side lines: context and additions have NewNum mapped to file.content)
-    if (highlightCache && lineNum > 0 && side !== 'old' && highlightCache[lineNum]) {
-      return highlightCache[lineNum];
-    }
-    // Fallback: highlight individual line
-    if (lang && hljs.getLanguage(lang)) {
-      try {
-        return hljs.highlight(content, { language: lang, ignoreIllegals: true }).value;
-      } catch (_) {}
-    }
-    return escapeHtml(content);
-  }
-
   // ===== Markdown Parsing =====
-  function parseMarkdown(content) {
+  function parseMarkdown(content, highlightedBlocks) {
     const tokens = documentMd.parse(content, {});
-    const blocks = buildLineBlocks(tokens, documentMd, content);
+    const blocks = buildLineBlocks(tokens, documentMd, content, highlightedBlocks);
     const tocItems = extractTocItems(tokens);
     return { blocks, tocItems };
   }
@@ -411,10 +371,10 @@
     for (let i = 0; i < lines.length; i++) {
       const lineNum = i + 1;
       let html;
-      if (file.highlightCache && file.highlightCache[lineNum]) {
-        html = '<code class="hljs">' + file.highlightCache[lineNum] + '</code>';
+      if (file.highlightedLines && file.highlightedLines[lineNum]) {
+        html = '<code class="chroma">' + file.highlightedLines[lineNum] + '</code>';
       } else {
-        html = '<code class="hljs">' + escapeHtml(lines[i] || '') + '</code>';
+        html = '<code>' + escapeHtml(lines[i] || '') + '</code>';
       }
       blocks.push({
         startLine: lineNum,
@@ -427,7 +387,7 @@
     return blocks;
   }
 
-  function buildLineBlocks(tokens, md, content) {
+  function buildLineBlocks(tokens, md, content, highlightedBlocks) {
     const sourceLines = content.split('\n');
     const totalLines = sourceLines.length;
     const blocks = [];
@@ -484,12 +444,11 @@
           continue;
         }
 
+        // Look up server-side Chroma highlighting, fall back to escapeHtml
         let highlighted = '';
-        if (lang && hljs.getLanguage(lang)) {
-          try { highlighted = hljs.highlight(token.content, { language: lang }).value; } catch (_) {}
-        }
-        if (!highlighted) {
-          try { highlighted = hljs.highlightAuto(token.content).value; } catch (_) {}
+        if (highlightedBlocks && lang) {
+          var key = lang + '\n' + token.content;
+          highlighted = highlightedBlocks[key] || '';
         }
         if (!highlighted) highlighted = escapeHtml(token.content);
 
@@ -512,7 +471,7 @@
           var isLast = (ci === codeLines.length - 1 && blockEnd <= ln);
           blocks.push({
             startLine: ln, endLine: ln,
-            html: '<code class="hljs">' + (codeLines[ci] || '&nbsp;') + '</code>',
+            html: '<code class="chroma">' + (codeLines[ci] || '&nbsp;') + '</code>',
             isEmpty: false, cssClass: 'code-line' + (isLast ? ' code-last' : '')
           });
           coveredUpTo = ln;
@@ -2075,7 +2034,8 @@
         var newLineNum = prevNewEnd + i;
         var oldLineNum = prevOldEnd + i;
         var text = newLineNum <= contentLines.length ? contentLines[newLineNum - 1] : '';
-        contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
+        var hlHtml = (file.highlightedLines && file.highlightedLines[newLineNum]) || null;
+        contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum, HTML: hlHtml });
       }
 
       // Merge: prev hunk + context lines + next hunk → single hunk
@@ -2212,8 +2172,7 @@
 
         const contentEl = document.createElement('div');
         contentEl.className = 'diff-content';
-        const hlLine = highlightDiffLine(line.Content, line.Type === 'del' ? line.OldNum : line.NewNum, line.Type === 'del' ? 'old' : '', file.highlightCache, file.lang);
-        contentEl.innerHTML = hlLine;
+        contentEl.innerHTML = line.HTML || escapeHtml(line.Content);
 
         lineEl.appendChild(gutter);
         lineEl.appendChild(commentGutter);
@@ -2276,8 +2235,8 @@
         if (seg.type === 'context') {
           const line = seg.lines[0];
           const row = makeSplitRow(
-            { num: line.OldNum, content: line.Content, type: 'context' },
-            { num: line.NewNum, content: line.Content, type: 'context' },
+            { num: line.OldNum, content: line.Content, type: 'context', html: line.HTML },
+            { num: line.NewNum, content: line.Content, type: 'context', html: line.HTML },
             file, commentRangeSet
           );
           container.appendChild(row.el);
@@ -2302,8 +2261,8 @@
             const del = seg.dels[j] || null;
             const add = seg.adds[j] || null;
             const row = makeSplitRow(
-              del ? { num: del.OldNum, content: del.Content, type: 'del' } : null,
-              add ? { num: add.NewNum, content: add.Content, type: 'add' } : null,
+              del ? { num: del.OldNum, content: del.Content, type: 'del', html: del.HTML } : null,
+              add ? { num: add.NewNum, content: add.Content, type: 'add', html: add.HTML } : null,
               file, commentRangeSet
             );
             container.appendChild(row.el);
@@ -2353,7 +2312,7 @@
     const leftContent = document.createElement('div');
     leftContent.className = 'diff-content';
     if (left) {
-      leftContent.innerHTML = highlightDiffLine(left.content, left.num, 'old', file.highlightCache, file.lang);
+      leftContent.innerHTML = left.html || escapeHtml(left.content);
     }
     if (!left) leftEl.classList.add('empty');
 
@@ -2391,7 +2350,7 @@
     const rightContent = document.createElement('div');
     rightContent.className = 'diff-content';
     if (right) {
-      rightContent.innerHTML = highlightDiffLine(right.content, right.num, right.type === 'del' ? 'old' : '', file.highlightCache, file.lang);
+      rightContent.innerHTML = right.html || escapeHtml(right.content);
     }
     if (!right) rightEl.classList.add('empty');
 

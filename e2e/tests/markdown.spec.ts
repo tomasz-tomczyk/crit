@@ -62,9 +62,9 @@ test.describe('Markdown Rendering — plan.md', () => {
     const count = await codeLines.count();
     expect(count).toBeGreaterThanOrEqual(5);
 
-    // Syntax highlighting: hljs-* spans should be present within code elements
-    const hljsSpans = section.locator('.line-content.code-line [class^="hljs-"]');
-    await expect(hljsSpans.first()).toBeVisible();
+    // Syntax highlighting: Chroma token spans should be present within code elements
+    const chromaSpans = section.locator('.line-content.code-line code.chroma span');
+    await expect(chromaSpans.first()).toBeVisible();
   });
 
   test('renders ordered lists', async ({ page }) => {

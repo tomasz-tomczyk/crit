@@ -29,8 +29,9 @@ type DiffHunk struct {
 type DiffLine struct {
 	Type    string // "context", "add", "del"
 	Content string
-	OldNum  int // 0 if add
-	NewNum  int // 0 if del
+	OldNum  int    // 0 if add
+	NewNum  int    // 0 if del
+	HTML    string // pre-highlighted HTML from Chroma (omitted if empty)
 }
 
 // IsGitRepo returns true if the current directory is inside a git repository.
