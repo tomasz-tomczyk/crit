@@ -584,15 +584,33 @@ func (s *Session) SignalRoundComplete() {
 
 // ClearAllComments removes all comments from all files and resets comment IDs and review round.
 // Used by the E2E test cleanup endpoint to return the server to a clean initial state.
+// It also removes .crit.json from s.Files and deletes it from disk so it does not appear
+// as an untracked git file in subsequent requests.
 func (s *Session) ClearAllComments() {
 	s.mu.Lock()
+	// Cancel any pending debounced write so it cannot recreate .crit.json after we delete it.
+	if s.writeTimer != nil {
+		s.writeTimer.Stop()
+	}
+	s.writeGen++
+	// Reset all file state and drop the .crit.json entry from the file list.
+	filtered := make([]*FileEntry, 0, len(s.Files))
 	for _, f := range s.Files {
+		if filepath.Base(f.Path) == ".crit.json" {
+			continue
+		}
 		f.Comments = []Comment{}
 		f.nextID = 1
+		f.PreviousComments = nil
+		f.PreviousContent = ""
+		filtered = append(filtered, f)
 	}
+	s.Files = filtered
 	s.ReviewRound = 1
+	critPath := s.critJSONPath()
 	s.mu.Unlock()
-	s.scheduleWrite()
+	// Delete .crit.json from disk so it is no longer listed as an untracked git file.
+	os.Remove(critPath) //nolint:errcheck
 }
 
 // RoundCompleteChan returns the channel signaled on round completion.
