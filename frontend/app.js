@@ -3307,8 +3307,8 @@
     var overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:10000';
     var box = document.createElement('div');
-    box.style.cssText = 'background:var(--bg-primary,#1e1e2e);border:1px solid var(--border-color,#45475a);border-radius:12px;padding:32px 40px;text-align:center;color:var(--text-primary,#cdd6f4);font-family:inherit';
-    box.innerHTML = '<div style="font-size:20px;font-weight:600;margin-bottom:8px">Server stopped</div><div style="color:var(--text-secondary,#a6adc8)">You can close this tab.</div>';
+    box.style.cssText = 'background:var(--bg-primary,#1e1e2e);border:1px solid var(--border,#292e42);border-radius:12px;padding:32px 40px;text-align:center;color:var(--fg-primary,#c0caf5);font-family:inherit';
+    box.innerHTML = '<div style="font-size:20px;font-weight:600;margin-bottom:8px">Server stopped</div><div style="color:var(--fg-secondary,#a9b1d6)">You can close this tab.</div>';
     overlay.appendChild(box);
     document.body.appendChild(overlay);
   }
