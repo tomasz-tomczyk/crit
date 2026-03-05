@@ -10,11 +10,11 @@ test.describe('Syntax Highlighting — Split Mode', () => {
     const section = goSection(page);
     await expect(section).toBeVisible();
 
-    // Addition side should have hljs spans for Go keywords/strings
+    // Addition side should have Chroma spans for Go keywords/strings
     const rightSide = section.locator('.diff-split-side.addition .diff-content').first();
     await expect(rightSide).toBeVisible();
 
-    // Check that the content contains <span> elements (hljs highlighting)
+    // Check that the content contains <span> elements (Chroma highlighting)
     const spanCount = await rightSide.locator('span').count();
     expect(spanCount).toBeGreaterThan(0);
   });

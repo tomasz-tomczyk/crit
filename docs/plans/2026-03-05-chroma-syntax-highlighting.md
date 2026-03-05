@@ -583,23 +583,8 @@ Check:
 
 ---
 
-### Task 8: Port Chroma CSS to crit-web (parity requirement)
+### ~~Task 8: Port Chroma CSS to crit-web~~ — SKIPPED
 
-**Files:**
-- Modify: `../crit-web/assets/css/app.css`
+Sharing is only supported in file mode (markdown files), not git mode (code diffs). Since Chroma highlighting applies to code file diffs, shared reviews won't contain Chroma-highlighted HTML. No crit-web CSS changes needed for now.
 
-Per the monorepo CLAUDE.md, review page CSS must stay in sync between crit and crit-web. Port the new Chroma CSS classes to `crit-web/assets/css/app.css`, replacing the hljs theme rules there as well.
-
-Note: crit-web's `document-renderer.js` still uses hljs on the client side — that's a separate migration. For now, just port the CSS so both have the Chroma classes available. The crit-web diff rendering is done server-side differently (it receives pre-rendered HTML from the crit upload), so the CSS classes need to match.
-
-**Step 1: Copy the Chroma CSS theme rules from crit's theme.css to crit-web's app.css**
-
-Replace the `.hljs*` rules in crit-web with the same Chroma rules.
-
-**Step 2: Commit**
-
-```bash
-cd ../crit-web
-git add assets/css/app.css
-git commit -m "feat: port Chroma CSS theme from crit local"
-```
+If/when sharing is extended to git mode, crit-web will need the Chroma CSS classes added to `app.css`.

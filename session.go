@@ -52,6 +52,9 @@ type FileEntry struct {
 	// Diff hunks for code files (from git diff)
 	DiffHunks []DiffHunk `json:"-"`
 
+	// Pre-highlighted lines for syntax highlighting (1-indexed, [0] = nil)
+	HighlightedLines []*string `json:"-"`
+
 	// Multi-round (markdown files only)
 	PreviousContent  string    `json:"-"`
 	PreviousComments []Comment `json:"-"`
@@ -171,6 +174,10 @@ func NewSessionFromGit() (*Session, error) {
 					fe.DiffHunks = hunks
 				}
 			}
+			if fe.FileType == "code" {
+				fe.HighlightedLines = HighlightLines(fe.Content, fe.Path)
+				HighlightDiffHunks(fe.DiffHunks, fe.HighlightedLines, fe.Path)
+			}
 		}
 
 		fe.Comments = []Comment{}
@@ -283,6 +290,13 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 				fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", relPath, err)
 			} else {
 				fe.DiffHunks = hunks
+			}
+		}
+
+		if fe.FileType == "code" {
+			fe.HighlightedLines = HighlightLines(fe.Content, fe.Path)
+			if fe.DiffHunks != nil {
+				HighlightDiffHunks(fe.DiffHunks, fe.HighlightedLines, fe.Path)
 			}
 		}
 
@@ -783,6 +797,10 @@ func (s *Session) RefreshDiffs() {
 	s.mu.Lock()
 	for _, r := range results {
 		r.entry.DiffHunks = r.hunks
+		if r.entry.FileType == "code" {
+			r.entry.HighlightedLines = HighlightLines(r.entry.Content, r.entry.Path)
+			HighlightDiffHunks(r.entry.DiffHunks, r.entry.HighlightedLines, r.entry.Path)
+		}
 	}
 	s.mu.Unlock()
 }
@@ -1214,12 +1232,21 @@ func (s *Session) GetFileSnapshot(path string) (map[string]any, bool) {
 	if f == nil {
 		return nil, false
 	}
-	return map[string]any{
+	result := map[string]any{
 		"path":      f.Path,
 		"status":    f.Status,
 		"file_type": f.FileType,
 		"content":   f.Content,
-	}, true
+	}
+	if f.HighlightedLines != nil {
+		result["highlighted_lines"] = f.HighlightedLines
+	}
+	if f.FileType == "markdown" && f.Content != "" {
+		if blocks := HighlightCodeBlocks(f.Content); blocks != nil {
+			result["highlighted_blocks"] = blocks
+		}
+	}
+	return result, true
 }
 
 // GetFileSnapshotFromDisk reads a file directly from the repo root.
