@@ -582,13 +582,15 @@ func (s *Session) SignalRoundComplete() {
 	}
 }
 
-// ClearAllComments removes all comments from all files and resets comment IDs.
+// ClearAllComments removes all comments from all files and resets comment IDs and review round.
+// Used by the E2E test cleanup endpoint to return the server to a clean initial state.
 func (s *Session) ClearAllComments() {
 	s.mu.Lock()
 	for _, f := range s.Files {
 		f.Comments = []Comment{}
 		f.nextID = 1
 	}
+	s.ReviewRound = 1
 	s.mu.Unlock()
 	s.scheduleWrite()
 }
