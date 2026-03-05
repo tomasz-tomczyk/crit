@@ -120,12 +120,6 @@ body {
   align-items: center;
   gap: 10px;
 }
-/* Separator between text stats and control pill groups — only visible when comment count has content */
-.comment-count:not(:empty) {
-  padding-right: 14px;
-  border-right: 1px solid var(--border);
-  margin-right: 2px;
-}
 
 .viewed-count {
   font-size: 12px;
@@ -136,17 +130,23 @@ body {
   color: var(--green);
 }
 
-.comment-count {
-  font-size: 13px;
-  color: var(--fg-muted);
-  font-weight: 500;
-}
-.comment-count strong {
+.comment-count-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
   color: var(--accent);
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
 }
-.comment-count-all-resolved strong {
-  color: var(--green);
-}
+.comment-count-btn:hover { background: var(--accent-subtle); }
+.comment-count-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.comment-count-resolved { color: var(--fg-muted); opacity: 0.45; }
+.comment-count-resolved:hover { opacity: 1; background: var(--bg-tertiary); }
+.comment-count-icon { width: 16px; height: 16px; display: block; }
 
 .btn {
   font-family: var(--font-body);
@@ -1647,8 +1647,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   100% { box-shadow: none; }
 }
 
-.comment-count { cursor: pointer; }
-.comment-count:hover { text-decoration: underline; }
 
 /* ===== File Sections ===== */
 .file-section {

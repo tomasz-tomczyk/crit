@@ -3141,14 +3141,16 @@
     const total = unresolved + resolved;
     const el = document.getElementById('commentCount');
     if (total === 0) {
-      el.innerHTML = '';
+      el.style.display = 'none';
+      el.title = 'Toggle comments panel';
     } else if (unresolved > 0) {
-      el.innerHTML = '<strong>' + unresolved + '</strong> comment' + (unresolved === 1 ? '' : 's');
-      el.classList.remove('comment-count-all-resolved');
+      el.style.display = '';
+      el.classList.remove('comment-count-resolved');
+      el.title = unresolved + ' unresolved comment' + (unresolved === 1 ? '' : 's') + ' — toggle panel';
     } else {
-      // All resolved — show total so user can still open the panel
-      el.innerHTML = '<strong>' + total + '</strong> comment' + (total === 1 ? '' : 's') + ' resolved';
-      el.classList.add('comment-count-all-resolved');
+      el.style.display = '';
+      el.classList.add('comment-count-resolved');
+      el.title = total + ' resolved comment' + (total === 1 ? '' : 's') + ' — toggle panel';
     }
     renderCommentsPanel();
   }

@@ -38,7 +38,7 @@ test.describe('Comments Panel — File Mode', () => {
     await loadPage(page);
 
     const countEl = page.locator('#commentCount');
-    await expect(countEl).toContainText('1');
+    await expect(countEl).toBeVisible();
     await countEl.click();
 
     await expect(commentsPanel(page)).not.toHaveClass(/comments-panel-hidden/);
