@@ -84,6 +84,13 @@
       <div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">Loading...</div>
     </div>
   </div>
+  <div class="comments-panel comments-panel-hidden" id="commentsPanel">
+    <div class="comments-panel-header">
+      <span class="comments-panel-title">Comments</span>
+      <button class="comments-panel-close" title="Close comments panel" aria-label="Close comments panel">&#x2715;</button>
+    </div>
+    <div class="comments-panel-body" id="commentsPanelBody"></div>
+  </div>
 </div>
 
 <div class="waiting-overlay" id="waitingOverlay">
@@ -110,6 +117,7 @@
       <tr class="shortcut-filemode-only"><td><kbd>n</kbd></td><td>Next change</td></tr>
       <tr class="shortcut-filemode-only"><td><kbd>N</kbd></td><td>Previous change</td></tr>
       <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>Finish review</td></tr>
+      <tr><td><kbd>Shift</kbd>+<kbd>C</kbd></td><td>Toggle comments panel</td></tr>
       <tr class="shortcut-toc-only"><td><kbd>t</kbd></td><td>Toggle table of contents</td></tr>
       <tr><td><kbd>Esc</kbd></td><td>Cancel / clear focus</td></tr>
       <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Submit comment</td></tr>
