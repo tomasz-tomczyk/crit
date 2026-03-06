@@ -5,6 +5,7 @@ import (
 	"embed"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -89,12 +90,14 @@ func main() {
 
 	port := flag.Int("port", 0, "Port to listen on (default: random available port)")
 	flag.IntVar(port, "p", 0, "Port to listen on (shorthand)")
-	outputDir := flag.String("output", "", "Output directory for review files (default: same dir as input file)")
-	flag.StringVar(outputDir, "o", "", "Output directory (shorthand)")
 	noOpen := flag.Bool("no-open", false, "Don't auto-open browser")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.BoolVar(showVersion, "v", false, "Print version and exit (shorthand)")
 	shareURL := flag.String("share-url", "", "Base URL of hosted Crit service for sharing reviews (overrides CRIT_SHARE_URL env var)")
+	outputDir := flag.String("output", "", "Output directory for .crit.json (default: repo root or file directory)")
+	flag.StringVar(outputDir, "o", "", "Output directory for .crit.json (shorthand)")
+	quiet := flag.Bool("quiet", false, "Suppress status output")
+	flag.BoolVar(quiet, "q", false, "Suppress status output (shorthand)")
 	flag.Usage = func() {
 		printHelp()
 	}
@@ -105,33 +108,35 @@ func main() {
 		return
 	}
 
-	if flag.NArg() < 1 {
-		flag.Usage()
-		os.Exit(1)
+	var session *Session
+	var err error
+
+	if flag.NArg() == 0 {
+		// No-args: git mode — auto-detect changed files
+		if !IsGitRepo() {
+			fmt.Fprintln(os.Stderr, "Error: not in a git repository and no files specified")
+			fmt.Fprintln(os.Stderr, "")
+			printHelp()
+			os.Exit(1)
+		}
+		session, err = NewSessionFromGit()
+		if err != nil {
+			log.Fatalf("Error: %v", err)
+		}
+	} else {
+		// Explicit files
+		session, err = NewSessionFromFiles(flag.Args())
+		if err != nil {
+			log.Fatalf("Error: %v", err)
+		}
 	}
 
-	filePath := flag.Arg(0)
-	absPath, err := filepath.Abs(filePath)
-	if err != nil {
-		log.Fatalf("Error resolving path: %v", err)
-	}
-
-	info, err := os.Stat(absPath)
-	if err != nil {
-		log.Fatalf("Error: %v", err)
-	}
-	if info.IsDir() {
-		log.Fatalf("Error: %s is a directory, not a file", absPath)
-	}
-
-	outDir := *outputDir
-	if outDir == "" {
-		outDir = filepath.Dir(absPath)
-	}
-
-	doc, err := NewDocument(absPath, outDir)
-	if err != nil {
-		log.Fatalf("Error loading document: %v", err)
+	if *outputDir != "" {
+		abs, err := filepath.Abs(*outputDir)
+		if err != nil {
+			log.Fatalf("Error resolving output directory: %v", err)
+		}
+		session.OutputDir = abs
 	}
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
@@ -143,7 +148,8 @@ func main() {
 	if *shareURL == "" {
 		*shareURL = os.Getenv("CRIT_SHARE_URL")
 	}
-	srv, err := NewServer(doc, frontendFS, *shareURL, version, addr.Port)
+
+	srv, err := NewServer(session, frontendFS, *shareURL, version, addr.Port)
 	if err != nil {
 		log.Fatalf("Error creating server: %v", err)
 	}
@@ -157,9 +163,13 @@ func main() {
 		// No WriteTimeout — SSE connections need to stay open
 	}
 
-	status := newStatus(os.Stdout)
+	var statusWriter io.Writer = os.Stdout
+	if *quiet {
+		statusWriter = io.Discard
+	}
+	status := newStatus(statusWriter)
 	srv.status = status
-	doc.status = status
+	session.status = status
 
 	url := fmt.Sprintf("http://localhost:%d", addr.Port)
 	status.Listening(url)
@@ -172,7 +182,7 @@ func main() {
 	defer stop()
 
 	watchStop := make(chan struct{})
-	go doc.WatchFile(watchStop)
+	go session.Watch(watchStop)
 
 	go func() {
 		if err := httpServer.Serve(listener); err != http.ErrServerClosed {
@@ -184,8 +194,8 @@ func main() {
 	close(watchStop)
 	fmt.Println()
 
-	doc.Shutdown()
-	doc.WriteFiles()
+	session.Shutdown()
+	session.WriteFiles()
 
 	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -196,7 +206,8 @@ func printHelp() {
 	fmt.Fprintf(os.Stderr, `crit — inline code review for AI agent workflows
 
 Usage:
-  crit <file.md>              Open a file for review in your browser
+  crit                        Auto-detect changed files via git
+  crit <file|dir> [...]       Review specific files or directories
   crit go [port]              Signal round-complete to a running crit instance
   crit install <agent>        Install integration files for an AI coding tool
   crit help                   Show this help message
@@ -206,8 +217,9 @@ Agents:
 
 Options:
   -p, --port <port>           Port to listen on (default: random)
-  -o, --output <dir>          Output directory for review files
+  -o, --output <dir>          Output directory for .crit.json
       --no-open               Don't auto-open browser
+  -q, --quiet                 Suppress status output
       --share-url <url>       Share service URL (no default)
   -v, --version               Print version
 

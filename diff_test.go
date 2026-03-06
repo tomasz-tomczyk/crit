@@ -148,3 +148,54 @@ func TestMapOldLineToNew_WithRemovals(t *testing.T) {
 		t.Errorf("m[3] = %d, want 2", m[3])
 	}
 }
+
+func TestDiffEntriesToHunks_BasicChange(t *testing.T) {
+	entries := ComputeLineDiff("a\nb\nc", "a\nx\nc")
+	hunks := DiffEntriesToHunks(entries)
+	if len(hunks) != 1 {
+		t.Fatalf("hunks = %d, want 1", len(hunks))
+	}
+	h := hunks[0]
+	// Should have context + del + add + context lines
+	var dels, adds, ctx int
+	for _, l := range h.Lines {
+		switch l.Type {
+		case "del":
+			dels++
+		case "add":
+			adds++
+		case "context":
+			ctx++
+		}
+	}
+	if dels != 1 {
+		t.Errorf("dels = %d, want 1", dels)
+	}
+	if adds != 1 {
+		t.Errorf("adds = %d, want 1", adds)
+	}
+	if ctx != 2 {
+		t.Errorf("context = %d, want 2", ctx)
+	}
+}
+
+func TestDiffEntriesToHunks_NoChanges(t *testing.T) {
+	entries := ComputeLineDiff("a\nb\nc", "a\nb\nc")
+	hunks := DiffEntriesToHunks(entries)
+	if len(hunks) != 0 {
+		t.Errorf("hunks = %d, want 0 for identical content", len(hunks))
+	}
+}
+
+func TestDiffEntriesToHunks_AllNew(t *testing.T) {
+	entries := ComputeLineDiff("", "a\nb\nc")
+	hunks := DiffEntriesToHunks(entries)
+	if len(hunks) != 1 {
+		t.Fatalf("hunks = %d, want 1", len(hunks))
+	}
+	for _, l := range hunks[0].Lines {
+		if l.Type != "add" {
+			t.Errorf("expected all add lines, got %s", l.Type)
+		}
+	}
+}

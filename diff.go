@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // DiffEntry represents a single line in the diff output.
 type DiffEntry struct {
@@ -103,6 +106,99 @@ func MapOldLineToNew(entries []DiffEntry) map[int]int {
 		}
 	}
 	return m
+}
+
+// DiffEntriesToHunks converts LCS diff entries into DiffHunk format (same as git diff),
+// so the frontend can use one unified renderer. Groups changes with 3 lines of context.
+func DiffEntriesToHunks(entries []DiffEntry) []DiffHunk {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	const contextLines = 3
+
+	// Find indices of changed (non-unchanged) entries
+	var changedIndices []int
+	for i, e := range entries {
+		if e.Type != "unchanged" {
+			changedIndices = append(changedIndices, i)
+		}
+	}
+	if len(changedIndices) == 0 {
+		return nil
+	}
+
+	// Group changed indices into ranges separated by more than 2*contextLines unchanged lines
+	type indexRange struct{ start, end int } // inclusive entry indices
+	var groups []indexRange
+	groupStart := changedIndices[0]
+	groupEnd := changedIndices[0]
+	for _, ci := range changedIndices[1:] {
+		if ci-groupEnd > 2*contextLines {
+			groups = append(groups, indexRange{groupStart, groupEnd})
+			groupStart = ci
+		}
+		groupEnd = ci
+	}
+	groups = append(groups, indexRange{groupStart, groupEnd})
+
+	// Build hunks from groups with context
+	var hunks []DiffHunk
+	for _, g := range groups {
+		start := g.start - contextLines
+		if start < 0 {
+			start = 0
+		}
+		end := g.end + contextLines
+		if end >= len(entries) {
+			end = len(entries) - 1
+		}
+
+		var lines []DiffLine
+		var oldStart, newStart int
+		var oldCount, newCount int
+		for i := start; i <= end; i++ {
+			e := entries[i]
+			var dl DiffLine
+			switch e.Type {
+			case "unchanged":
+				dl = DiffLine{Type: "context", Content: e.Text, OldNum: e.OldLine, NewNum: e.NewLine}
+				oldCount++
+				newCount++
+			case "removed":
+				dl = DiffLine{Type: "del", Content: e.Text, OldNum: e.OldLine}
+				oldCount++
+			case "added":
+				dl = DiffLine{Type: "add", Content: e.Text, NewNum: e.NewLine}
+				newCount++
+			}
+			if oldStart == 0 && dl.OldNum > 0 {
+				oldStart = dl.OldNum
+			}
+			if newStart == 0 && dl.NewNum > 0 {
+				newStart = dl.NewNum
+			}
+			lines = append(lines, dl)
+		}
+		if oldStart == 0 {
+			oldStart = 1
+		}
+		if newStart == 0 {
+			newStart = 1
+		}
+
+		header := fmt.Sprintf("@@ -%d,%d +%d,%d @@", oldStart, oldCount, newStart, newCount)
+		hunks = append(hunks, DiffHunk{
+			OldStart: oldStart,
+			OldCount: oldCount,
+			NewStart: newStart,
+			NewCount: newCount,
+			Header:   header,
+			Lines:    lines,
+		})
+	}
+
+	return hunks
 }
 
 // splitLines splits content into lines, returning an empty slice for empty input.

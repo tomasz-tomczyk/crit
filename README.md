@@ -1,10 +1,13 @@
 # Crit
 
-Don't let your agent build the wrong thing.
+Your agent writes plans and code. Before any of it lands, review it. Crit opens a browser-based UI where you leave inline comments on any file: plans, code diffs, specs, whatever your agent produced. Click "Finish Review" and a structured prompt goes to your clipboard. Paste it back, the agent iterates, Crit shows you the diff. Repeat until it's right.
 
-Your agent wrote a plan. Before it starts rewriting your codebase, review that plan. Crit opens any markdown file as a reviewable document - leave inline comments, finish the review, and a prompt goes to your clipboard telling the agent what to fix.
+```bash
+crit              # auto-detect changed files in your repo
+crit plan.md      # review specific files
+```
 
-Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf, or any agent that reads files.
+Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf - any agent that reads files.
 
 > **Note:** This is a fork of [tomasz-tomczyk/crit](https://github.com/tomasz-tomczyk/crit). The only difference is that the built-in sharing to crit.live is removed, so you don't accidentally upload your plans to a third-party service. Sharing still works if you self-host a crit-web instance and pass `--share-url`.
 
@@ -13,39 +16,40 @@ Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf, or any a
 ## Workflow
 
 ```bash
-# 1. Open a plan for review
+# Review changed files in your repo
+crit
+# → Browser opens with all changed files as diffs
+# → File tree shows added/modified/deleted files
+
+# Review a specific file (plan, spec, any markdown)
 crit plan.md
-# → Browser opens with the plan rendered and commentable
+
+# Review multiple files
+crit plan.md api-spec.md
+
+# In all cases:
 # → Select lines, leave inline comments
-
-# 2. Click "Finish Review"
-# → Crit writes plan.review.md and .plan.comments.json
-# → A prompt is copied to your clipboard telling the agent what to do
-
-# 3. Paste the prompt into your agent
-# → The prompt points the agent to the review file, the comments file,
-#   and tells it to run `crit go <port>` when done
-
-# 4. Agent edits the plan and runs `crit go <port>`
-# → Crit starts a new round with a diff of what changed
+# → Click "Finish Review", prompt copied to clipboard
+# → Paste into your agent
+# → Agent reads .crit.json, addresses comments, runs `crit go <port>`
+# → New round starts with a diff of what changed
 # → Previous comments show as resolved or still open
-# → Leave more comments, repeat until the plan is right
+# → Repeat until it's right
 ```
 
 ### Output
 
-When you finish a review, Crit generates two files:
+When you finish a review, Crit generates `.crit.json`, structured comment data that your agent reads and acts on. Add it to your `.gitignore`:
 
-| File                  | Purpose                                                                                       |
-| --------------------- | --------------------------------------------------------------------------------------------- |
-| `plan.review.md`      | Original plan with your comments interleaved as blockquotes at the exact lines they reference |
-| `.plan.comments.json` | Comment state and session data. The agent marks comments resolved here                        |
+```bash
+echo '.crit.json' >> .gitignore
+```
 
 ## Demo
 
-A 2-minute walkthrough: reviewing a plan, leaving inline comments, handing off to an agent. Note: slightly outdated as we're moving fast :D
+A 5-minute walkthrough: leaving inline comments on a plan, followed by branch review (`crit` with no args), wchih uses the same UI with git diffs instead of rendered markdown.
 
-[![Crit demo](https://github.com/user-attachments/assets/dec9c069-9a99-4254-9b05-6d8db30820ed)](https://www.youtube.com/watch?v=w_Dswm2Ft-o)
+[![Crit demo](https://github.com/user-attachments/assets/dec9c069-9a99-4254-9b05-6d8db30820ed)](https://www.youtube.com/watch?v=XRjkRpXuLJc)
 
 ## Install
 
@@ -78,6 +82,16 @@ go install github.com/JoshEllinger/crit@latest
 Or grab the latest binary for your platform from [Releases](https://github.com/JoshEllinger/crit/releases).
 
 ## Features
+
+### Git review
+
+Run `crit` with no arguments. Crit auto-detects changed files in your repo and opens them as syntax-highlighted git diffs. A file tree on the left shows every file with its status (added, modified, deleted) and comment counts. Toggle between split and unified diff views.
+
+![Crit review for your branch](images/git-mode.png)
+
+### File review
+
+Pass specific files to review them directly: `crit plan.md api-spec.md`. Markdown files render as formatted documents with per-line commenting. Code files show as syntax-highlighted source. Both support the same inline comment workflow and multi-round iteration.
 
 ### Round-to-round diff
 
@@ -172,17 +186,18 @@ It launches Crit, waits for your review, reads your comments, revises the plan, 
 ## Usage
 
 ```bash
-# Review a markdown file (opens browser automatically)
+# Git mode: review all changed files (auto-detected)
+crit
+
+# Review specific files
 crit plan.md
+crit plan.md api-spec.md
 
 # Specify a port
 crit -p 3000 plan.md
 
 # Don't auto-open browser
 crit --no-open plan.md
-
-# Custom output directory for .review.md
-crit -o /tmp plan.md
 ```
 
 ## Environment Variables
@@ -215,6 +230,19 @@ make build-all
 #   crit-darwin-amd64
 #   crit-linux-amd64
 #   crit-linux-arm64
+```
+
+### E2E Tests
+
+The `e2e/` directory has a Playwright test suite that runs the full frontend against a real Crit server. Requires Node.js (listed in `mise.toml`).
+
+```bash
+cd e2e && npm install && npx playwright install chromium
+
+make e2e                                              # Run full suite
+cd e2e && npx playwright test tests/comments.spec.ts  # Run one test file
+cd e2e && npx playwright test --headed                # Run with visible browser
+make e2e-report                                       # View HTML report
 ```
 
 ## Acknowledgments

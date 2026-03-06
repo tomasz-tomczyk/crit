@@ -1,31 +1,40 @@
 ---
-description: "Review the current plan with crit inline comments"
+description: "Review code changes or a plan with crit inline comments"
 allowed-tools: Bash(crit:*), Bash(command ls:*), Read, Edit, Glob
 ---
 
-# Review Plan with Crit
+# Review with Crit
 
-Review and revise the current plan using `crit` for inline comment review.
+Review and revise code changes or a plan using `crit` for inline comment review.
 
-## Step 1: Find the plan file
+## Step 1: Determine review mode
 
-Determine which plan file to review, using this priority:
+Choose what to review based on context:
 
-1. **User argument** - if the user provided `$ARGUMENTS` (e.g., `/crit my-plan.md`), use that file path
-2. **Recent plans** - check for `.md` files in `~/.claude/plans/`, excluding `*-agent-*.md` and `*.review.md`:
+1. **User argument** - if the user provided `$ARGUMENTS` (e.g., `/crit my-plan.md`), review that file
+2. **Git changes** - if no argument, check for uncommitted changes:
    ```bash
-   command ls -t ~/.claude/plans/*.md 2>/dev/null | grep -v -E '(-agent-|\.review\.md$)' | head -5
+   git status --porcelain 2>/dev/null | head -1
    ```
-3. **Current directory** - search for plan-like `.md` files in the working directory
+   If there are changes, run `crit` with no arguments (git mode) - it auto-detects changed files
+3. **Find a plan** - if no changes, search for recent plan files:
+   ```bash
+   command ls -t ~/.claude/plans/*.md 2>/dev/null | grep -v -E '(-agent-)' | head -5
+   ```
+   Or search the working directory for plan-like `.md` files
 
-Show the selected plan file to the user and ask for confirmation before proceeding.
+Show the selected mode/file to the user and ask for confirmation.
 
 ## Step 2: Run crit for review
 
 Run `crit` **in the background** using `run_in_background: true`:
 
 ```bash
+# For a specific file:
 crit <plan-file>
+
+# For git mode (no args):
+crit
 ```
 
 Tell the user: **"Crit is open in your browser. Leave inline comments on the plan, then click 'Finish Review'. Type 'go' here when you're done."**
@@ -34,17 +43,31 @@ Wait for the user to respond before proceeding.
 
 ## Step 3: Read the review output
 
-After the user confirms, read the review file at `<plan-file-stem>.review.md` using the Read tool.
+After the user confirms, read the `.crit.json` file in the repo root (or working directory) using the Read tool.
 
-Identify all `> **[REVIEW COMMENT` blocks. Each block contains feedback about the section above it.
+The file contains structured JSON with comments per file:
+
+```json
+{
+  "files": {
+    "plan.md": {
+      "comments": [
+        { "id": "c1", "start_line": 5, "end_line": 10, "body": "Clarify this step", "resolved": false }
+      ]
+    }
+  }
+}
+```
+
+Identify all comments where `"resolved": false`.
 
 ## Step 4: Address each review comment
 
-For each review comment:
+For each unresolved comment:
 
 1. Understand what the comment asks for (clarification, change, addition, removal)
-2. If a comment contains a suggestion block (indented original text with edits), apply that specific change
-3. Revise the **original plan file** (not the review file) to address the feedback
+2. If a comment contains a suggestion block, apply that specific change
+3. Revise the **referenced file** to address the feedback - this could be the plan file or any code file from the git diff
 4. Use the Edit tool to make targeted changes
 
 Editing the plan file triggers Crit's live reload - the user sees changes in the browser immediately.
