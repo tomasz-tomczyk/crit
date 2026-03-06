@@ -22,7 +22,7 @@ All integrations follow the same pattern:
 
 1. **Plan first** - the agent writes an implementation plan as a markdown file before writing any code
 2. **Launch Crit** - the agent runs `crit $PLAN_FILE` to open the plan for review in your browser
-3. **Address feedback** - after review, the agent reads the `.review.md` file and revises the plan
+3. **Address feedback** - after review, the agent reads `.crit.json` to find your inline comments and revises the plan
 4. **Implement after approval** - only after you approve does the agent write code
 
 Claude Code, Cursor, and GitHub Copilot all support a `/crit` slash command that automates the full loop: find the plan, launch Crit, read comments, revise, and signal for another round.

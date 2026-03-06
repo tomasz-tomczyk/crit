@@ -87,10 +87,6 @@ GET /notifications?limit=20&before=<cursor>
 
 Marks a single notification as read.
 
-### POST /notifications/read-all
-
-Marks all unread notifications as read. Rate limited to 10 requests per minute per user.
-
 ## Worker Design
 
 The delivery worker runs as a separate long-lived process. It reads from the SQS queue
@@ -145,6 +141,13 @@ signed with the user's webhook secret. Receivers should verify this before proce
 - [ ] Retry worker with exponential backoff
 - [ ] Integration tests for the delivery pipeline
 - [ ] Runbook: how to inspect and manually retry stuck deliveries
+
+## Monitoring
+
+The worker emits structured JSON logs for every delivery attempt. Key metrics to track:
+- Delivery latency p50/p95/p99 per channel
+- Retry rate per channel
+- Permanently failed delivery rate (should be < 0.1%)
 
 ## Out of Scope
 
