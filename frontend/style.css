@@ -999,6 +999,34 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border-top: 1px solid var(--border);
 }
 
+.comment-template-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.template-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--fg-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: var(--font-body);
+  line-height: 1.4;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.template-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 
 /* ===== Waiting Overlay ===== */
 .waiting-overlay {
