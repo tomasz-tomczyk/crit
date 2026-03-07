@@ -147,6 +147,7 @@ body {
 .comment-count-resolved { color: var(--fg-muted); opacity: 0.45; }
 .comment-count-resolved:hover { opacity: 1; background: var(--bg-tertiary); }
 .comment-count-icon { width: 16px; height: 16px; display: block; }
+.comment-count-number { font-size: 12px; font-weight: 600; margin-left: 2px; line-height: 1; }
 
 .btn {
   font-family: var(--font-body);

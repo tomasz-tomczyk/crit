@@ -3150,17 +3150,21 @@
     }
     const total = unresolved + resolved;
     const el = document.getElementById('commentCount');
+    const numEl = document.getElementById('commentCountNumber');
     if (total === 0) {
       el.style.display = 'none';
       el.title = 'Toggle comments panel';
+      numEl.textContent = '';
     } else if (unresolved > 0) {
       el.style.display = '';
       el.classList.remove('comment-count-resolved');
       el.title = unresolved + ' unresolved comment' + (unresolved === 1 ? '' : 's') + ' — toggle panel';
+      numEl.textContent = total;
     } else {
       el.style.display = '';
       el.classList.add('comment-count-resolved');
       el.title = total + ' resolved comment' + (total === 1 ? '' : 's') + ' — toggle panel';
+      numEl.textContent = total;
     }
     renderCommentsPanel();
   }
