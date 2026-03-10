@@ -78,6 +78,38 @@ Or in a `flake.nix`:
 inputs.crit.url = "github:tomasz-tomczyk/crit";
 ```
 
+If you want to use the package directly from that input, reference the named package:
+
+```nix
+inputs.crit.packages.${pkgs.stdenv.hostPlatform.system}.crit
+```
+
+If you prefer a local alias in one module, use a `let` binding:
+
+```nix
+let
+  crit = inputs.crit.packages.${pkgs.stdenv.hostPlatform.system}.crit;
+in {
+  environment.systemPackages = with pkgs; [
+    crit
+  ];
+}
+```
+
+If you want `pkgs.crit` everywhere, add an overlay:
+
+```nix
+# overlays/crit.nix
+inputs: final: _prev: {
+  crit = inputs.crit.packages.${final.stdenv.hostPlatform.system}.crit;
+}
+```
+
+```nix
+# then include it in your nixpkgs overlays
+(import ./overlays/crit.nix inputs)
+```
+
 ### Download Binary
 
 Grab the latest binary for your platform from [Releases](https://github.com/tomasz-tomczyk/crit/releases).
