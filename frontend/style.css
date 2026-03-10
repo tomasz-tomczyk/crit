@@ -999,6 +999,112 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border-top: 1px solid var(--border);
 }
 
+.comment-form-actions-left {
+  display: flex;
+  gap: 8px;
+}
+
+.comment-template-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.template-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-family: var(--font-body);
+  line-height: 1.4;
+  max-width: 220px;
+  transition: border-color 0.15s, color 0.15s;
+}
+.template-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.template-chip-delete {
+  display: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+  line-height: 1;
+}
+.template-chip:hover .template-chip-delete { display: inline; }
+.template-chip-delete:hover { color: var(--red, #e55); }
+
+.template-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ===== Save Template Dialog ===== */
+.save-template-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 500;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.save-template-overlay.active { display: flex; }
+
+.save-template-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 480px;
+  width: 90vw;
+  box-shadow: var(--shadow);
+}
+.save-template-dialog h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--fg-primary);
+}
+.save-template-dialog p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+.save-template-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--fg-primary);
+  resize: vertical;
+}
+.save-template-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.save-template-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 
 /* ===== Waiting Overlay ===== */
 .waiting-overlay {

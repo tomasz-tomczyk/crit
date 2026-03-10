@@ -2685,6 +2685,141 @@
     });
   }
 
+  // ===== Comment Templates =====
+  function getTemplates() {
+    try {
+      var raw = getCookie('crit-templates');
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  function saveTemplates(templates) {
+    setCookie('crit-templates', JSON.stringify(templates));
+  }
+
+  function populateTemplateBar(bar, textarea) {
+    bar.innerHTML = '';
+    var templates = getTemplates();
+    if (templates.length === 0) {
+      bar.style.display = 'none';
+      return;
+    }
+    bar.style.display = '';
+    templates.forEach(function(tmpl, i) {
+      var chip = document.createElement('button');
+      chip.className = 'template-chip';
+      chip.title = tmpl;
+      var label = document.createElement('span');
+      label.className = 'template-chip-label';
+      label.textContent = tmpl;
+      chip.appendChild(label);
+      var del = document.createElement('span');
+      del.className = 'template-chip-delete';
+      del.textContent = '\u00d7';
+      del.title = 'Remove template';
+      del.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var t = getTemplates();
+        t.splice(i, 1);
+        saveTemplates(t);
+        populateTemplateBar(bar, textarea);
+      });
+      chip.appendChild(del);
+      chip.addEventListener('click', function(e) {
+        e.preventDefault();
+        var start = textarea.selectionStart;
+        var end = textarea.selectionEnd;
+        textarea.value = textarea.value.substring(0, start) + tmpl + textarea.value.substring(end);
+        textarea.selectionStart = textarea.selectionEnd = start + tmpl.length;
+        textarea.focus();
+        textarea.dispatchEvent(new Event('input'));
+      });
+      bar.appendChild(chip);
+    });
+  }
+
+  function createTemplateBar(textarea) {
+    var bar = document.createElement('div');
+    bar.className = 'comment-template-bar';
+    populateTemplateBar(bar, textarea);
+    return bar;
+  }
+
+  function showSaveTemplateDialog(textarea, templateBar) {
+    var text = textarea.value.trim();
+    if (!text) {
+      textarea.focus();
+      return;
+    }
+    var overlay = document.createElement('div');
+    overlay.className = 'save-template-overlay active';
+
+    var dialog = document.createElement('div');
+    dialog.className = 'save-template-dialog';
+
+    var title = document.createElement('h3');
+    title.textContent = 'Save as template';
+    dialog.appendChild(title);
+
+    var desc = document.createElement('p');
+    desc.textContent = 'Edit the template text, then save.';
+    dialog.appendChild(desc);
+
+    var input = document.createElement('textarea');
+    input.className = 'save-template-input';
+    input.value = text;
+    input.rows = 3;
+    dialog.appendChild(input);
+
+    var btns = document.createElement('div');
+    btns.className = 'save-template-actions';
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-sm';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', function() { overlay.remove(); textarea.focus(); });
+
+    var saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-sm btn-primary';
+    saveBtn.textContent = 'Save';
+    saveBtn.addEventListener('click', function() {
+      var val = input.value.trim();
+      if (!val) return;
+      var t = getTemplates();
+      t.push(val);
+      saveTemplates(t);
+      overlay.remove();
+      populateTemplateBar(templateBar, textarea);
+      textarea.focus();
+    });
+
+    btns.appendChild(cancelBtn);
+    btns.appendChild(saveBtn);
+    dialog.appendChild(btns);
+
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        saveBtn.click();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelBtn.click();
+      }
+    });
+
+    overlay.appendChild(dialog);
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) { overlay.remove(); textarea.focus(); }
+    });
+    document.body.appendChild(overlay);
+    requestAnimationFrame(function() { input.focus(); input.select(); });
+  }
+
   // ===== Comment Form =====
   function createCommentForm() {
     const wrapper = document.createElement('div');
@@ -2729,8 +2864,24 @@
     suggestBtn.className = 'btn btn-sm';
     suggestBtn.textContent = '\u00B1 Suggest';
     suggestBtn.title = 'Insert the selected lines as a suggestion';
-    suggestBtn.style.marginRight = 'auto';
     suggestBtn.addEventListener('click', () => insertSuggestion(textarea));
+
+    var templateBar = createTemplateBar(textarea);
+
+    const saveTemplateBtn = document.createElement('button');
+    saveTemplateBtn.className = 'btn btn-sm';
+    saveTemplateBtn.textContent = '+ Save as template';
+    saveTemplateBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      showSaveTemplateDialog(textarea, templateBar);
+    });
+
+    // Left group: Suggest + Save as template, pushed left via marginRight:auto on wrapper
+    var leftGroup = document.createElement('div');
+    leftGroup.className = 'comment-form-actions-left';
+    leftGroup.appendChild(suggestBtn);
+    leftGroup.appendChild(saveTemplateBtn);
+    leftGroup.style.marginRight = 'auto';
 
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-sm';
@@ -2742,11 +2893,12 @@
     submitBtn.textContent = activeForm.editingId ? 'Update Comment' : 'Add Comment';
     submitBtn.addEventListener('click', () => submitComment(textarea.value));
 
-    actions.appendChild(suggestBtn);
+    actions.appendChild(leftGroup);
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
     form.appendChild(header);
+    form.appendChild(templateBar);
     form.appendChild(textarea);
     form.appendChild(actions);
     wrapper.appendChild(form);
@@ -3057,8 +3209,23 @@
     const suggestBtn = document.createElement('button');
     suggestBtn.className = 'btn btn-sm';
     suggestBtn.textContent = '\u00B1 Suggest';
-    suggestBtn.style.marginRight = 'auto';
     suggestBtn.addEventListener('click', () => insertSuggestion(textarea));
+
+    var templateBar = createTemplateBar(textarea);
+
+    const saveTemplateBtn = document.createElement('button');
+    saveTemplateBtn.className = 'btn btn-sm';
+    saveTemplateBtn.textContent = '+ Save as template';
+    saveTemplateBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      showSaveTemplateDialog(textarea, templateBar);
+    });
+
+    var leftGroup = document.createElement('div');
+    leftGroup.className = 'comment-form-actions-left';
+    leftGroup.appendChild(suggestBtn);
+    leftGroup.appendChild(saveTemplateBtn);
+    leftGroup.style.marginRight = 'auto';
 
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-sm';
@@ -3070,11 +3237,12 @@
     submitBtn.textContent = 'Update Comment';
     submitBtn.addEventListener('click', () => submitComment(textarea.value));
 
-    actions.appendChild(suggestBtn);
+    actions.appendChild(leftGroup);
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
     form.appendChild(header);
+    form.appendChild(templateBar);
     form.appendChild(textarea);
     form.appendChild(actions);
     wrapper.appendChild(form);
