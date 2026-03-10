@@ -66,13 +66,11 @@ go install github.com/tomasz-tomczyk/crit@latest
 ### Nix
 
 ```bash
-nix profile install github:tomasz-tomczyk/crit
-
 # Run without installing
 nix run github:tomasz-tomczyk/crit -- --help
 ```
 
-Or in a `flake.nix`:
+Or add it to a `flake.nix`:
 
 ```nix
 inputs.crit.url = "github:tomasz-tomczyk/crit";
