@@ -9,12 +9,16 @@
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in {
-      packages = forAllSystems (system: {
-        default = nixpkgs.legacyPackages.${system}.buildGoModule {
+      packages = forAllSystems (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in {
+          default = pkgs.buildGo126Module {
           pname = "crit";
           inherit version;
           src = self;
           vendorHash = null;
+          nativeCheckInputs = [ pkgs.git ];
           ldflags = [ "-s" "-w" "-X main.version=${version}" ];
           meta = with nixpkgs.lib; {
             description = "Browser-based markdown review tool with inline commenting";
@@ -22,7 +26,7 @@
             license = licenses.mit;
             mainProgram = "crit";
           };
-        };
-      });
+          };
+        });
     };
 }
