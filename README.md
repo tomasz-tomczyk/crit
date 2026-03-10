@@ -174,7 +174,7 @@ Architecture diagrams in fenced ` ```mermaid ` blocks render inline. You can com
 - **Concurrent reviews.** Each instance runs on its own port - review multiple plans at once.
 - **Syntax highlighting.** Code blocks are highlighted and split per-line, so you can comment on individual lines inside a fence.
 - **Live file watching.** The browser reloads automatically when the source file changes.
-- **Real-time output.** `.review.md` is written on every keystroke (200ms debounce), so your agent always has the latest state.
+- **Real-time output.** `.crit.json` is written on every comment change (200ms debounce), so your agent always has the latest review state.
 - **Dark/light/system theme.** Three-button pill in the header, persisted to localStorage.
 - **Local by default.** Server binds to `127.0.0.1`. Your files stay on your machine unless you explicitly share.
 
@@ -185,7 +185,7 @@ Crit ships with drop-in configuration files for popular AI coding tools. Each on
 The fastest way to set up an integration:
 
 ```bash
-crit install claude-code   # or: cursor, windsurf, github-copilot, cline
+crit install claude-code   # or: cursor, opencode, windsurf, github-copilot, cline
 crit install all           # install all integrations at once
 ```
 
@@ -197,6 +197,8 @@ Or set up manually:
 | ------------------ | ------------------------------------------------------------------------------------- |
 | **Claude Code**    | Copy `integrations/claude-code/crit.md` to `.claude/commands/crit.md`                 |
 | **Cursor**         | Copy `integrations/cursor/crit-command.md` to `.cursor/commands/crit.md`              |
+| **OpenCode**       | Copy `integrations/opencode/crit.md` to `.opencode/commands/crit.md`                  |
+| **OpenCode**       | Copy `integrations/opencode/SKILL.md` to `.opencode/skills/crit-review/SKILL.md`      |
 | **GitHub Copilot** | Copy `integrations/github-copilot/crit.prompt.md` to `.github/prompts/crit.prompt.md` |
 | **Windsurf**       | Copy `integrations/windsurf/crit.md` to `.windsurf/rules/crit.md`                     |
 | **Aider**          | Append `integrations/aider/CONVENTIONS.md` to your `CONVENTIONS.md`                   |
@@ -206,14 +208,14 @@ See [`integrations/`](integrations/) for the full files and details.
 
 ### `/crit` command
 
-Claude Code, Cursor, and GitHub Copilot support a `/crit` slash command that automates the full review loop:
+Claude Code, Cursor, OpenCode, and GitHub Copilot support a `/crit` slash command that automates the full review loop:
 
 ```
 /crit              # Auto-detects the current plan file
 /crit my-plan.md   # Review a specific file
 ```
 
-It launches Crit, waits for your review, reads your comments, revises the plan, and signals Crit for another round. Other tools use rules files that teach the agent to suggest Crit when writing plans.
+It launches Crit, waits for your review, reads your comments, revises the plan, and signals Crit for another round. OpenCode also ships with a `crit-review` skill that agents can load on demand. Other tools use rules files that teach the agent to suggest Crit when writing plans.
 
 ## Usage
 

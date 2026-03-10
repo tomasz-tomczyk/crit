@@ -206,8 +206,8 @@ Usage:
   crit install <agent>        Install integration files for an AI coding tool
   crit help                   Show this help message
 
-Agents:
-  claude-code, cursor, windsurf, github-copilot, cline, all
+  Agents:
+    claude-code, cursor, opencode, windsurf, github-copilot, cline, all
 
 Options:
   -p, --port <port>           Port to listen on (default: random)
@@ -258,6 +258,10 @@ var integrationMap = map[string][]integration{
 	"cursor": {
 		{source: "integrations/cursor/crit-command.md", dest: ".cursor/commands/crit.md", hint: "Run /crit in Cursor to start a review loop"},
 	},
+	"opencode": {
+		{source: "integrations/opencode/crit.md", dest: ".opencode/commands/crit.md", hint: "Run /crit in OpenCode to start a review loop"},
+		{source: "integrations/opencode/SKILL.md", dest: ".opencode/skills/crit-review/SKILL.md", hint: "The crit-review skill is available to OpenCode agents when needed"},
+	},
 	"windsurf": {
 		{source: "integrations/windsurf/crit.md", dest: ".windsurf/rules/crit.md", hint: "Windsurf will suggest Crit when writing plans"},
 	},
@@ -270,7 +274,7 @@ var integrationMap = map[string][]integration{
 }
 
 func availableIntegrations() []string {
-	return []string{"claude-code", "cursor", "windsurf", "github-copilot", "cline"}
+	return []string{"claude-code", "cursor", "opencode", "windsurf", "github-copilot", "cline"}
 }
 
 func installIntegration(name string) {
@@ -290,10 +294,14 @@ func installIntegration(name string) {
 		}
 	}
 
+	var hints []string
 	for _, f := range files {
 		if !force {
 			if _, err := os.Stat(f.dest); err == nil {
 				fmt.Printf("  Skipped:   %s (already exists, use --force to overwrite)\n", f.dest)
+				if f.hint != "" {
+					hints = append(hints, f.hint)
+				}
 				continue
 			}
 		}
@@ -316,9 +324,17 @@ func installIntegration(name string) {
 		}
 
 		fmt.Printf("  Installed: %s\n", f.dest)
+		if f.hint != "" {
+			hints = append(hints, f.hint)
+		}
 	}
-	if files[0].hint != "" {
-		fmt.Printf("  %s\n", files[0].hint)
+	seenHints := make(map[string]bool)
+	for _, hint := range hints {
+		if seenHints[hint] {
+			continue
+		}
+		seenHints[hint] = true
+		fmt.Printf("  %s\n", hint)
 	}
 	fmt.Println()
 }

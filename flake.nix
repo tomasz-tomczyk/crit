@@ -37,5 +37,19 @@
           program = "${packages.${system}.default}/bin/crit";
         };
       });
+
+      devShells = forAllSystems (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in {
+          default = pkgs.mkShell {
+            packages = with pkgs; [
+              go_1_26
+              gopls
+              golangci-lint
+              git
+            ];
+          };
+        });
     };
 }
