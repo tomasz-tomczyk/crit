@@ -67,6 +67,9 @@ go install github.com/tomasz-tomczyk/crit@latest
 
 ```bash
 nix profile install github:tomasz-tomczyk/crit
+
+# Run without installing
+nix run github:tomasz-tomczyk/crit -- --help
 ```
 
 Or in a `flake.nix`:
@@ -206,7 +209,7 @@ crit --no-open plan.md
 
 ## Build from Source
 
-Requires Go 1.25+ (install via [asdf](https://asdf-vm.com/), Homebrew, or [go.dev](https://go.dev/dl/)):
+Requires Go 1.26+ (install via [asdf](https://asdf-vm.com/), Homebrew, or [go.dev](https://go.dev/dl/)):
 
 ```bash
 # Clone and build
