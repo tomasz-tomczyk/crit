@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -79,6 +81,210 @@ func main() {
 		} else {
 			installIntegration(target)
 		}
+		os.Exit(0)
+	}
+
+	// Handle "crit pull [pr-number]" subcommand — fetch GitHub PR comments to .crit.json
+	if len(os.Args) >= 2 && os.Args[1] == "pull" {
+		if err := requireGH(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		prFlag := 0
+		if len(os.Args) >= 3 {
+			n, err := strconv.Atoi(os.Args[2])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Usage: crit pull [pr-number]\n")
+				os.Exit(1)
+			}
+			prFlag = n
+		}
+
+		prNumber, err := detectPR(prFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		ghComments, err := fetchPRComments(prNumber)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Load existing .crit.json or create new
+		root, err := RepoRoot()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: not in a git repository\n")
+			os.Exit(1)
+		}
+		var cj CritJSON
+		if data, err := os.ReadFile(root + "/.crit.json"); err == nil {
+			json.Unmarshal(data, &cj)
+		}
+		if cj.Files == nil {
+			cj.Files = make(map[string]CritJSONFile)
+			cj.Branch = CurrentBranch()
+			cj.BaseRef, _ = MergeBase(DefaultBranch())
+			cj.ReviewRound = 1
+		}
+
+		added := mergeGHComments(&cj, ghComments)
+
+		if added == 0 {
+			fmt.Printf("No new inline comments found on PR #%d\n", prNumber)
+			os.Exit(0)
+		}
+
+		if err := writeCritJSON(cj); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Pulled %d comments from PR #%d into .crit.json\n", added, prNumber)
+		fmt.Println("Run 'crit' to view them in the browser.")
+		os.Exit(0)
+	}
+
+	// Handle "crit push [--dry-run] [pr-number]" subcommand — post .crit.json comments to GitHub PR
+	if len(os.Args) >= 2 && os.Args[1] == "push" {
+		if err := requireGH(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		prFlag := 0
+		dryRun := false
+		for _, arg := range os.Args[2:] {
+			if arg == "--dry-run" {
+				dryRun = true
+				continue
+			}
+			n, err := strconv.Atoi(arg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [pr-number]\n")
+				os.Exit(1)
+			}
+			prFlag = n
+		}
+
+		prNumber, err := detectPR(prFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Read .crit.json
+		root, err := RepoRoot()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: not in a git repository\n")
+			os.Exit(1)
+		}
+		data, err := os.ReadFile(root + "/.crit.json")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: no .crit.json found. Run a crit review first.\n")
+			os.Exit(1)
+		}
+		var cj CritJSON
+		if err := json.Unmarshal(data, &cj); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid .crit.json: %v\n", err)
+			os.Exit(1)
+		}
+
+		ghComments := critJSONToGHComments(cj)
+		if len(ghComments) == 0 {
+			fmt.Println("No unresolved comments to push.")
+			os.Exit(0)
+		}
+
+		if dryRun {
+			fmt.Printf("Would post %d comments to PR #%d:\n\n", len(ghComments), prNumber)
+			for _, c := range ghComments {
+				path := c["path"].(string)
+				line := c["line"].(int)
+				body := c["body"].(string)
+				if sl, ok := c["start_line"]; ok {
+					fmt.Printf("  %s:%d-%d\n", path, sl.(int), line)
+				} else {
+					fmt.Printf("  %s:%d\n", path, line)
+				}
+				fmt.Printf("    %s\n\n", body)
+			}
+			os.Exit(0)
+		}
+
+		fmt.Printf("Pushing %d comments to PR #%d...\n", len(ghComments), prNumber)
+		if err := createGHReview(prNumber, ghComments); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Posted %d review comments to PR #%d\n", len(ghComments), prNumber)
+		os.Exit(0)
+	}
+
+	// Handle "crit comment <path>:<line[-end]> <body>" subcommand
+	if len(os.Args) >= 2 && os.Args[1] == "comment" {
+		// Handle --clear flag
+		if len(os.Args) >= 3 && os.Args[2] == "--clear" {
+			if err := clearCritJSON(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("Cleared .crit.json")
+			os.Exit(0)
+		}
+
+		if len(os.Args) < 4 {
+			fmt.Fprintln(os.Stderr, "Usage: crit comment <path>:<line[-end]> <body>")
+			fmt.Fprintln(os.Stderr, "       crit comment --clear")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "Examples:")
+			fmt.Fprintln(os.Stderr, "  crit comment main.go:42 'Fix this bug'")
+			fmt.Fprintln(os.Stderr, "  crit comment src/auth.go:10-25 'This block needs refactoring'")
+			os.Exit(1)
+		}
+
+		// Parse <path>:<line[-end]>
+		loc := os.Args[2]
+		colonIdx := strings.LastIndex(loc, ":")
+		if colonIdx < 0 {
+			fmt.Fprintf(os.Stderr, "Error: invalid location %q — expected <path>:<line[-end]>\n", loc)
+			os.Exit(1)
+		}
+		filePath := loc[:colonIdx]
+		lineSpec := loc[colonIdx+1:]
+
+		var startLine, endLine int
+		if dashIdx := strings.Index(lineSpec, "-"); dashIdx >= 0 {
+			s, err := strconv.Atoi(lineSpec[:dashIdx])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: invalid start line in %q\n", loc)
+				os.Exit(1)
+			}
+			e, err := strconv.Atoi(lineSpec[dashIdx+1:])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: invalid end line in %q\n", loc)
+				os.Exit(1)
+			}
+			startLine, endLine = s, e
+		} else {
+			n, err := strconv.Atoi(lineSpec)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: invalid line number in %q\n", loc)
+				os.Exit(1)
+			}
+			startLine, endLine = n, n
+		}
+
+		// Body is all remaining args joined
+		body := strings.Join(os.Args[3:], " ")
+
+		if err := addCommentToCritJSON(filePath, startLine, endLine, body); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
 		os.Exit(0)
 	}
 
@@ -200,11 +406,15 @@ func printHelp() {
 	fmt.Fprintf(os.Stderr, `crit — inline code review for AI agent workflows
 
 Usage:
-  crit                        Auto-detect changed files via git
-  crit <file|dir> [...]       Review specific files or directories
-  crit go [port]              Signal round-complete to a running crit instance
-  crit install <agent>        Install integration files for an AI coding tool
-  crit help                   Show this help message
+  crit                                       Auto-detect changed files via git
+  crit <file|dir> [...]                      Review specific files or directories
+  crit go [port]                             Signal round-complete to a running crit instance
+  crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
+  crit comment --clear                       Remove all comments from .crit.json
+  crit pull [pr-number]                      Fetch GitHub PR comments to .crit.json
+  crit push [--dry-run] [pr-number]          Post .crit.json comments to a GitHub PR
+  crit install <agent>                       Install integration files for an AI coding tool
+  crit help                                  Show this help message
 
   Agents:
     claude-code, cursor, opencode, windsurf, github-copilot, cline, all
