@@ -374,3 +374,56 @@ test.describe('Cross-File Comments', () => {
     await expect(handlerForm).toBeVisible();
   });
 });
+
+// ============================================================
+// Author Badge Rendering
+// ============================================================
+test.describe('Author Badges', () => {
+  test.beforeEach(async ({ request }) => {
+    await clearAllComments(request);
+  });
+
+  test('displays author badge when comment has author field', async ({ page, request }) => {
+    await request.post('/api/file/comments?path=plan.md', {
+      data: { start_line: 1, end_line: 1, body: 'Test comment', author: 'reviewer1' }
+    });
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const badge = page.locator('.comment-author-badge');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText('@reviewer1');
+  });
+
+  test('does not display author badge when comment has no author', async ({ page, request }) => {
+    await request.post('/api/file/comments?path=plan.md', {
+      data: { start_line: 1, end_line: 1, body: 'Local comment' }
+    });
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    await expect(page.locator('.comment-card')).toHaveCount(1);
+    await expect(page.locator('.comment-author-badge')).toHaveCount(0);
+  });
+
+  test('color-codes different authors distinctly', async ({ page, request }) => {
+    await request.post('/api/file/comments?path=plan.md', {
+      data: { start_line: 1, end_line: 1, body: 'Comment A', author: 'alice' }
+    });
+    await request.post('/api/file/comments?path=plan.md', {
+      data: { start_line: 2, end_line: 2, body: 'Comment B', author: 'bob' }
+    });
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const badges = page.locator('.comment-author-badge');
+    await expect(badges).toHaveCount(2);
+
+    // Both should have inline styles (color assignment works)
+    await expect(badges.nth(0)).toHaveAttribute('style', /background:/);
+    await expect(badges.nth(1)).toHaveAttribute('style', /background:/);
+  });
+});
