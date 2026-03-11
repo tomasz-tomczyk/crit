@@ -232,6 +232,18 @@ crit -p 3000 plan.md
 crit --no-open plan.md
 ```
 
+## Programmatic Comments
+
+AI agents can use `crit comment` to add inline review comments without opening the browser UI or constructing JSON manually:
+
+```bash
+crit comment src/auth.go:42 'Missing null check'
+crit comment src/handler.go:15-28 'Error handling issue'
+crit comment --clear   # remove .crit.json
+```
+
+Comments are appended to `.crit.json` — created automatically if it doesn't exist. Run `crit install <agent>` to install the integration, which includes a `crit-comment` skill file teaching your agent the syntax.
+
 ## GitHub PR Sync
 
 Crit can sync review comments bidirectionally with GitHub PRs. Requires the [GitHub CLI](https://cli.github.com) (`gh`) to be installed and authenticated.
@@ -250,16 +262,6 @@ crit push              # auto-detects PR from current branch
 crit push --dry-run    # preview without posting
 crit push 42           # explicit PR number
 ```
-
-### Adding comments programmatically
-
-```bash
-crit comment src/auth.go:42 'Missing null check'
-crit comment src/handler.go:15-28 'Error handling issue'
-crit comment --clear   # remove .crit.json
-```
-
-AI agents can use `crit comment` to add inline review comments without constructing JSON manually. Run `crit install <agent>` to install the integration, which includes a `crit-comment` skill file.
 
 ## Environment Variables
 
