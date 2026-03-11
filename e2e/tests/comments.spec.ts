@@ -384,9 +384,10 @@ test.describe('Author Badges', () => {
   });
 
   test('displays author badge when comment has author field', async ({ page, request }) => {
-    await request.post('/api/file/comments?path=plan.md', {
+    const resp = await request.post('/api/file/comments?path=plan.md', {
       data: { start_line: 1, end_line: 1, body: 'Test comment', author: 'reviewer1' }
     });
+    expect(resp.ok()).toBeTruthy();
 
     await loadPage(page);
     await switchToDocumentView(page);
@@ -397,9 +398,23 @@ test.describe('Author Badges', () => {
   });
 
   test('does not display author badge when comment has no author', async ({ page, request }) => {
-    await request.post('/api/file/comments?path=plan.md', {
+    const resp = await request.post('/api/file/comments?path=plan.md', {
       data: { start_line: 1, end_line: 1, body: 'Local comment' }
     });
+    expect(resp.ok()).toBeTruthy();
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    await expect(page.locator('.comment-card')).toHaveCount(1);
+    await expect(page.locator('.comment-author-badge')).toHaveCount(0);
+  });
+
+  test('does not display author badge when author is empty string', async ({ page, request }) => {
+    const resp = await request.post('/api/file/comments?path=plan.md', {
+      data: { start_line: 1, end_line: 1, body: 'Empty author comment', author: '' }
+    });
+    expect(resp.ok()).toBeTruthy();
 
     await loadPage(page);
     await switchToDocumentView(page);
@@ -409,12 +424,14 @@ test.describe('Author Badges', () => {
   });
 
   test('color-codes different authors distinctly', async ({ page, request }) => {
-    await request.post('/api/file/comments?path=plan.md', {
+    const resp1 = await request.post('/api/file/comments?path=plan.md', {
       data: { start_line: 1, end_line: 1, body: 'Comment A', author: 'alice' }
     });
-    await request.post('/api/file/comments?path=plan.md', {
+    expect(resp1.ok()).toBeTruthy();
+    const resp2 = await request.post('/api/file/comments?path=plan.md', {
       data: { start_line: 2, end_line: 2, body: 'Comment B', author: 'bob' }
     });
+    expect(resp2.ok()).toBeTruthy();
 
     await loadPage(page);
     await switchToDocumentView(page);
@@ -422,8 +439,26 @@ test.describe('Author Badges', () => {
     const badges = page.locator('.comment-author-badge');
     await expect(badges).toHaveCount(2);
 
-    // Both should have inline styles (color assignment works)
-    await expect(badges.nth(0)).toHaveAttribute('style', /background:/);
-    await expect(badges.nth(1)).toHaveAttribute('style', /background:/);
+    // Verify both have color styles and they are different from each other
+    const style0 = await badges.nth(0).getAttribute('style');
+    const style1 = await badges.nth(1).getAttribute('style');
+    expect(style0).toContain('background:');
+    expect(style1).toContain('background:');
+    expect(style0).not.toEqual(style1);
+  });
+
+  test('displays author badge on diff comments', async ({ page, request }) => {
+    // Add a comment with author on a code file (shown in diff view by default)
+    const resp = await request.post('/api/file/comments?path=server.go', {
+      data: { start_line: 1, end_line: 1, body: 'Diff comment', author: 'reviewer1' }
+    });
+    expect(resp.ok()).toBeTruthy();
+
+    await loadPage(page);
+
+    const section = goSection(page);
+    const badge = section.locator('.comment-author-badge');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText('@reviewer1');
   });
 });

@@ -120,8 +120,10 @@ func main() {
 			os.Exit(1)
 		}
 		var cj CritJSON
-		if data, err := os.ReadFile(root + "/.crit.json"); err == nil {
-			json.Unmarshal(data, &cj)
+		if data, err := os.ReadFile(filepath.Join(root, ".crit.json")); err == nil {
+			if err := json.Unmarshal(data, &cj); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: existing .crit.json is invalid, starting fresh: %v\n", err)
+			}
 		}
 		if cj.Files == nil {
 			cj.Files = make(map[string]CritJSONFile)
@@ -181,7 +183,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error: not in a git repository\n")
 			os.Exit(1)
 		}
-		data, err := os.ReadFile(root + "/.crit.json")
+		data, err := os.ReadFile(filepath.Join(root, ".crit.json"))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: no .crit.json found. Run a crit review first.\n")
 			os.Exit(1)

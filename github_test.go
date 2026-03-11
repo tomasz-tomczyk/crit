@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -216,6 +217,68 @@ func TestCritJSONToGHComments_BodyNotPrefixedWithAuthor(t *testing.T) {
 	}
 	if comments[0]["body"] != "fix this" {
 		t.Errorf("body = %q, want %q (should not include author prefix)", comments[0]["body"], "fix this")
+	}
+}
+
+func TestMergeGHComments_DeduplicatesOnRepeatedPull(t *testing.T) {
+	comments := []ghComment{
+		{ID: 1, Path: "main.go", Line: 10, Side: "RIGHT", Body: "Fix this",
+			User: struct {
+				Login string `json:"login"`
+			}{Login: "alice"},
+			CreatedAt: "2025-01-01T00:00:00Z"},
+	}
+
+	cj := CritJSON{Branch: "b", BaseRef: "r", ReviewRound: 1, Files: make(map[string]CritJSONFile)}
+
+	// First pull
+	added := mergeGHComments(&cj, comments)
+	if added != 1 {
+		t.Fatalf("first pull: added = %d, want 1", added)
+	}
+
+	// Second pull with same comments — should be deduplicated
+	added = mergeGHComments(&cj, comments)
+	if added != 0 {
+		t.Fatalf("second pull: added = %d, want 0 (duplicate)", added)
+	}
+
+	cf := cj.Files["main.go"]
+	if len(cf.Comments) != 1 {
+		t.Fatalf("expected 1 comment after dedup, got %d", len(cf.Comments))
+	}
+}
+
+func TestAddCommentToCritJSON_RejectsPathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	if err := exec.Command("git", "init", dir).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	err := addCommentToCritJSON("../../../etc/passwd", 1, 1, "bad")
+	if err == nil {
+		t.Fatal("expected error for path traversal, got nil")
+	}
+	if !strings.Contains(err.Error(), "must be relative and within the repository") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestAddCommentToCritJSON_RejectsAbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	if err := exec.Command("git", "init", dir).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	err := addCommentToCritJSON("/etc/passwd", 1, 1, "bad")
+	if err == nil {
+		t.Fatal("expected error for absolute path, got nil")
 	}
 }
 
