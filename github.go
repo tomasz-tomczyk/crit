@@ -156,11 +156,31 @@ func mergeGHComments(cj *CritJSON, comments []ghComment) int {
 	return added
 }
 
-// writeCritJSON writes a CritJSON to the repo root.
-func writeCritJSON(cj CritJSON) error {
+// resolveCritDir returns the directory where .crit.json should be read/written.
+// If outputDir is non-empty it is used directly. Otherwise falls back to repo root then CWD.
+func resolveCritDir(outputDir string) (string, error) {
+	if outputDir != "" {
+		abs, err := filepath.Abs(outputDir)
+		if err != nil {
+			return "", fmt.Errorf("resolving output directory: %w", err)
+		}
+		return abs, nil
+	}
 	root, err := RepoRoot()
 	if err != nil {
-		return fmt.Errorf("not in a git repository: %w", err)
+		root, err = os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("getting working directory: %w", err)
+		}
+	}
+	return root, nil
+}
+
+// writeCritJSON writes a CritJSON to the repo root or outputDir.
+func writeCritJSON(cj CritJSON, outputDir string) error {
+	root, err := resolveCritDir(outputDir)
+	if err != nil {
+		return err
 	}
 
 	data, err := json.MarshalIndent(cj, "", "  ")
@@ -239,22 +259,9 @@ func createGHReview(prNumber int, comments []map[string]any, message string) err
 // Works in both git repos and plain directories (file mode).
 // outputDir overrides the default location (repo root or CWD) when non-empty.
 func addCommentToCritJSON(filePath string, startLine, endLine int, body string, outputDir string) error {
-	var root string
-	if outputDir != "" {
-		abs, err := filepath.Abs(outputDir)
-		if err != nil {
-			return fmt.Errorf("resolving output directory: %w", err)
-		}
-		root = abs
-	} else {
-		var err error
-		root, err = RepoRoot()
-		if err != nil {
-			root, err = os.Getwd()
-			if err != nil {
-				return fmt.Errorf("getting working directory: %w", err)
-			}
-		}
+	root, err := resolveCritDir(outputDir)
+	if err != nil {
+		return err
 	}
 
 	// Validate path is relative and doesn't escape the working directory
@@ -313,22 +320,9 @@ func addCommentToCritJSON(filePath string, startLine, endLine int, body string, 
 
 // clearCritJSON removes .crit.json from the repo root, working directory, or outputDir.
 func clearCritJSON(outputDir string) error {
-	var root string
-	if outputDir != "" {
-		abs, err := filepath.Abs(outputDir)
-		if err != nil {
-			return fmt.Errorf("resolving output directory: %w", err)
-		}
-		root = abs
-	} else {
-		var err error
-		root, err = RepoRoot()
-		if err != nil {
-			root, err = os.Getwd()
-			if err != nil {
-				return fmt.Errorf("getting working directory: %w", err)
-			}
-		}
+	root, err := resolveCritDir(outputDir)
+	if err != nil {
+		return err
 	}
 	critPath := filepath.Join(root, ".crit.json")
 	if err := os.Remove(critPath); err != nil && !os.IsNotExist(err) {

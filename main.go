@@ -84,7 +84,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Handle "crit pull [pr-number]" subcommand — fetch GitHub PR comments to .crit.json
+	// Handle "crit pull [--output <dir>] [pr-number]" subcommand — fetch GitHub PR comments to .crit.json
 	if len(os.Args) >= 2 && os.Args[1] == "pull" {
 		if err := requireGH(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -92,10 +92,22 @@ func main() {
 		}
 
 		prFlag := 0
-		if len(os.Args) >= 3 {
-			n, err := strconv.Atoi(os.Args[2])
+		pullOutputDir := ""
+		pullArgs := os.Args[2:]
+		for i := 0; i < len(pullArgs); i++ {
+			arg := pullArgs[i]
+			if arg == "--output" || arg == "-o" {
+				if i+1 >= len(pullArgs) {
+					fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
+					os.Exit(1)
+				}
+				i++
+				pullOutputDir = pullArgs[i]
+				continue
+			}
+			n, err := strconv.Atoi(arg)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Usage: crit pull [pr-number]\n")
+				fmt.Fprintf(os.Stderr, "Usage: crit pull [--output <dir>] [pr-number]\n")
 				os.Exit(1)
 			}
 			prFlag = n
@@ -114,13 +126,13 @@ func main() {
 		}
 
 		// Load existing .crit.json or create new
-		root, err := RepoRoot()
+		critDir, err := resolveCritDir(pullOutputDir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: not in a git repository\n")
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 		var cj CritJSON
-		if data, err := os.ReadFile(filepath.Join(root, ".crit.json")); err == nil {
+		if data, err := os.ReadFile(filepath.Join(critDir, ".crit.json")); err == nil {
 			if err := json.Unmarshal(data, &cj); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: existing .crit.json is invalid, starting fresh: %v\n", err)
 			}
@@ -139,7 +151,7 @@ func main() {
 			os.Exit(0)
 		}
 
-		if err := writeCritJSON(cj); err != nil {
+		if err := writeCritJSON(cj, pullOutputDir); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -159,6 +171,7 @@ func main() {
 		prFlag := 0
 		dryRun := false
 		message := ""
+		pushOutputDir := ""
 		args := os.Args[2:]
 		for i := 0; i < len(args); i++ {
 			arg := args[i]
@@ -175,9 +188,18 @@ func main() {
 				message = args[i]
 				continue
 			}
+			if arg == "--output" || arg == "-o" {
+				if i+1 >= len(args) {
+					fmt.Fprintf(os.Stderr, "Error: --output requires a value\n")
+					os.Exit(1)
+				}
+				i++
+				pushOutputDir = args[i]
+				continue
+			}
 			n, err := strconv.Atoi(arg)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [--message <msg>] [pr-number]\n")
+				fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [--message <msg>] [--output <dir>] [pr-number]\n")
 				os.Exit(1)
 			}
 			prFlag = n
@@ -190,12 +212,12 @@ func main() {
 		}
 
 		// Read .crit.json
-		root, err := RepoRoot()
+		critDir, err := resolveCritDir(pushOutputDir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: not in a git repository\n")
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		data, err := os.ReadFile(filepath.Join(root, ".crit.json"))
+		data, err := os.ReadFile(filepath.Join(critDir, ".crit.json"))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: no .crit.json found. Run a crit review first.\n")
 			os.Exit(1)
@@ -443,8 +465,8 @@ Usage:
   crit go [port]                             Signal round-complete to a running crit instance
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
   crit comment --clear                       Remove all comments from .crit.json
-  crit pull [pr-number]                      Fetch GitHub PR comments to .crit.json
-  crit push [--dry-run] [--message <msg>] [pr-number]  Post .crit.json comments to a GitHub PR
+  crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments to .crit.json
+  crit push [--dry-run] [--message <msg>] [--output <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
   crit install <agent>                       Install integration files for an AI coding tool
   crit help                                  Show this help message
 
