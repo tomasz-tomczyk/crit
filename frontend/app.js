@@ -55,6 +55,22 @@
 
   const enc = encodeURIComponent;
 
+  // Author color-coding for multi-reviewer comments
+  const AUTHOR_COLORS = [
+    { bg: 'rgba(74, 144, 217, 0.15)', border: 'rgba(74, 144, 217, 0.4)', text: '#4a90d9' },
+    { bg: 'rgba(217, 74, 74, 0.15)', border: 'rgba(217, 74, 74, 0.4)', text: '#d94a4a' },
+    { bg: 'rgba(74, 180, 100, 0.15)', border: 'rgba(74, 180, 100, 0.4)', text: '#4ab464' },
+    { bg: 'rgba(217, 166, 74, 0.15)', border: 'rgba(217, 166, 74, 0.4)', text: '#d9a64a' },
+    { bg: 'rgba(155, 74, 217, 0.15)', border: 'rgba(155, 74, 217, 0.4)', text: '#9b4ad9' },
+    { bg: 'rgba(74, 195, 195, 0.15)', border: 'rgba(74, 195, 195, 0.4)', text: '#4ac3c3' },
+  ];
+
+  function authorColor(name) {
+    let hash = 0;
+    for (const ch of name) hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
+    return AUTHOR_COLORS[Math.abs(hash) % AUTHOR_COLORS.length];
+  }
+
   // Sort comparator: directories before files at each depth, then alphabetical
   function fileSortComparator(a, b) {
     var pa = a.path.split('/'), pb = b.path.split('/');
@@ -3137,6 +3153,14 @@
 
     const headerLeft = document.createElement('div');
     headerLeft.style.cssText = 'display:flex;align-items:center;gap:10px';
+    if (comment.author) {
+      const authorBadge = document.createElement('span');
+      authorBadge.className = 'comment-author-badge';
+      const colors = authorColor(comment.author);
+      authorBadge.style.cssText = 'background:' + colors.bg + ';border-color:' + colors.border + ';color:' + colors.text;
+      authorBadge.textContent = '@' + comment.author;
+      headerLeft.appendChild(authorBadge);
+    }
     headerLeft.appendChild(lineRef);
     if (comment.carried_forward) {
       const label = document.createElement('span');
