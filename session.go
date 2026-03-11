@@ -700,17 +700,15 @@ func (s *Session) loadCritJSON() {
 	s.sharedURL = cj.ShareURL
 	s.deleteToken = cj.DeleteToken
 
-	// Restore comments for files that match by path and hash
+	// Restore comments for files that match by path
 	for _, f := range s.Files {
 		if cf, ok := cj.Files[f.Path]; ok {
-			if cf.FileHash == f.FileHash {
-				f.Comments = cf.Comments
-				for _, c := range f.Comments {
-					id := 0
-					_, _ = fmt.Sscanf(c.ID, "c%d", &id)
-					if id >= f.nextID {
-						f.nextID = id + 1
-					}
+			f.Comments = cf.Comments
+			for _, c := range f.Comments {
+				id := 0
+				_, _ = fmt.Sscanf(c.ID, "c%d", &id)
+				if id >= f.nextID {
+					f.nextID = id + 1
 				}
 			}
 		}
