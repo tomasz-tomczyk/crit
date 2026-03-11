@@ -1726,6 +1726,16 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   background: var(--bg-tertiary);
   border-radius: 3px;
 }
+.comments-panel-card-body a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent-subtle);
+  transition: color 0.15s, border-color 0.15s;
+}
+.comments-panel-card-body a:hover {
+  color: var(--accent-hover);
+  border-bottom-color: var(--accent-hover);
+}
 
 /* Resolved state */
 .comments-panel-card-resolved {

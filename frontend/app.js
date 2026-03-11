@@ -2,7 +2,18 @@
   'use strict';
 
   // ===== Comment Markdown Renderer =====
-  const commentMd = window.markdownit({ html: false, linkify: true, typographer: true });
+  const commentMd = window.markdownit({
+    html: false,
+    linkify: true,
+    typographer: true,
+    highlight: function(str, lang) {
+      if (lang && hljs.getLanguage(lang)) {
+        try { return hljs.highlight(str, { language: lang }).value; } catch (_) {}
+      }
+      try { return hljs.highlightAuto(str).value; } catch (_) {}
+      return '';
+    }
+  });
 
   // ===== Document Markdown Renderer =====
   const documentMd = window.markdownit({

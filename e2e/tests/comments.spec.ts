@@ -57,6 +57,43 @@ test.describe('Markdown Comments — Git Mode', () => {
     await expect(card.locator('.comment-body')).toContainText('This is a test comment on markdown');
   });
 
+  test('comment with fenced code block gets syntax highlighting', async ({ page }) => {
+    const section = mdSection(page);
+    const lineBlock = section.locator('.line-block').first();
+    await lineBlock.hover();
+    await section.locator('.line-comment-gutter').first().click();
+
+    const textarea = page.locator('.comment-form textarea');
+    await textarea.fill('Check this:\n```go\nfunc main() {\n\tfmt.Println("hello")\n}\n```');
+    await page.locator('.comment-form .btn-primary').click();
+
+    const body = section.locator('.comment-card .comment-body');
+    await expect(body).toBeVisible();
+    // hljs should produce spans with hljs-* classes inside the code block
+    const codeBlock = body.locator('pre code');
+    await expect(codeBlock).toBeVisible();
+    await expect(codeBlock.locator('span[class^="hljs-"]').first()).toBeVisible();
+  });
+
+  test('comment with URL renders styled link', async ({ page }) => {
+    const section = mdSection(page);
+    const lineBlock = section.locator('.line-block').first();
+    await lineBlock.hover();
+    await section.locator('.line-comment-gutter').first().click();
+
+    const textarea = page.locator('.comment-form textarea');
+    await textarea.fill('See https://example.com for details');
+    await page.locator('.comment-form .btn-primary').click();
+
+    const body = section.locator('.comment-card .comment-body');
+    const link = body.locator('a');
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute('href', 'https://example.com');
+    // Link should have accent color styling (not default browser blue)
+    const color = await link.evaluate(el => getComputedStyle(el).color);
+    expect(color).not.toBe('rgb(0, 0, 238)'); // not default blue
+  });
+
   test('comment count updates in header after adding a comment', async ({ page }) => {
     const section = mdSection(page);
 
