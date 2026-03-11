@@ -23,6 +23,7 @@ type Comment struct {
 	EndLine         int    `json:"end_line"`
 	Side            string `json:"side,omitempty"`
 	Body            string `json:"body"`
+	Author          string `json:"author,omitempty"`
 	CreatedAt       string `json:"created_at"`
 	UpdatedAt       string `json:"updated_at"`
 	Resolved        bool   `json:"resolved,omitempty"`
