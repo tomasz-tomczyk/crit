@@ -372,7 +372,7 @@ func (s *Session) FileByPath(path string) *FileEntry {
 }
 
 // AddComment adds a comment to a specific file.
-func (s *Session) AddComment(filePath string, startLine, endLine int, side, body string) (Comment, bool) {
+func (s *Session) AddComment(filePath string, startLine, endLine int, side, body, author string) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f := s.fileByPathLocked(filePath)
@@ -386,6 +386,7 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 		EndLine:   endLine,
 		Side:      side,
 		Body:      body,
+		Author:    author,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}

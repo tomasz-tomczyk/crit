@@ -207,6 +207,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			EndLine   int    `json:"end_line"`
 			Side      string `json:"side"`
 			Body      string `json:"body"`
+			Author    string `json:"author"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -221,7 +222,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		c, ok := s.session.AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body)
+		c, ok := s.session.AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body, req.Author)
 		if !ok {
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
