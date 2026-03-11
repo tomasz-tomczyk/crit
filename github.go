@@ -226,13 +226,17 @@ func createGHReview(prNumber int, comments []map[string]any) error {
 
 // addCommentToCritJSON appends a comment to .crit.json for the given file and line range.
 // Creates .crit.json if it doesn't exist. Appends to existing comments if it does.
+// Works in both git repos and plain directories (file mode).
 func addCommentToCritJSON(filePath string, startLine, endLine int, body string) error {
 	root, err := RepoRoot()
 	if err != nil {
-		return fmt.Errorf("not in a git repository: %w", err)
+		root, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting working directory: %w", err)
+		}
 	}
 
-	// Validate path doesn't escape repo root
+	// Validate path is relative and doesn't escape the working directory
 	cleaned := filepath.Clean(filePath)
 	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
 		return fmt.Errorf("path %q must be relative and within the repository", filePath)
@@ -286,11 +290,14 @@ func addCommentToCritJSON(filePath string, startLine, endLine int, body string) 
 	return os.WriteFile(critPath, data, 0644)
 }
 
-// clearCritJSON removes .crit.json from the repo root.
+// clearCritJSON removes .crit.json from the repo root or working directory.
 func clearCritJSON() error {
 	root, err := RepoRoot()
 	if err != nil {
-		return fmt.Errorf("not in a git repository: %w", err)
+		root, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting working directory: %w", err)
+		}
 	}
 	critPath := filepath.Join(root, ".crit.json")
 	if err := os.Remove(critPath); err != nil && !os.IsNotExist(err) {

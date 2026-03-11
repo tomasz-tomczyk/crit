@@ -380,3 +380,53 @@ func TestAddCommentToCritJSON_MultipleFiles(t *testing.T) {
 		t.Error("missing auth.go")
 	}
 }
+
+func TestAddCommentToCritJSON_FileMode_NoGitRepo(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	err := addCommentToCritJSON("main.go", 5, 5, "File mode comment")
+	if err != nil {
+		t.Fatalf("addCommentToCritJSON: %v", err)
+	}
+
+	data, err := os.ReadFile(dir + "/.crit.json")
+	if err != nil {
+		t.Fatalf("read .crit.json: %v", err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	cf, ok := cj.Files["main.go"]
+	if !ok {
+		t.Fatal("expected main.go in files")
+	}
+	if len(cf.Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(cf.Comments))
+	}
+	if cf.Comments[0].Body != "File mode comment" {
+		t.Errorf("body = %q", cf.Comments[0].Body)
+	}
+}
+
+func TestAddCommentToCritJSON_FileMode_PathRelativeToCWD(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Path should be stored as given (relative to CWD), not resolved to anything else
+	addCommentToCritJSON("src/auth.go", 10, 10, "comment")
+
+	data, _ := os.ReadFile(dir + "/.crit.json")
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+
+	if _, ok := cj.Files["src/auth.go"]; !ok {
+		t.Error("expected path stored as src/auth.go")
+	}
+}

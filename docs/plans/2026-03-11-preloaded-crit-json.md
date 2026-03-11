@@ -4,9 +4,11 @@
 
 **Goal:** Enable three new workflows: (1) AI agents generate `.crit.json` that crit loads on startup, (2) `crit pull` fetches GitHub PR review comments into `.crit.json`, (3) `crit push` posts `.crit.json` comments to a GitHub PR. Together these make crit a local-first review tool that syncs bidirectionally with GitHub.
 
-**Architecture:** Five changes: (1) relax `loadCritJSON()` hash check, (2) `crit pull` to fetch PR comments (new `github.go`), (3) `crit push` to post comments to PR, (4) `crit comment` CLI for agents to add comments without writing JSON, (5) AI review skill teaching agents to use `crit comment`. Pull/push shell out to `gh` CLI. Comment is pure Go, no dependencies.
+**Architecture:** Six changes: (1) relax `loadCritJSON()` hash check, (2) `crit pull` to fetch PR comments (new `github.go`), (3) `crit push` to post comments to PR, (4) `crit comment` CLI for agents to add comments without writing JSON, (5) AI review skill teaching agents to use `crit comment`, (6) author display and color-coding in the frontend. Pull/push shell out to `gh` CLI. Comment is pure Go, no dependencies.
 
 **Tech Stack:** Go (backend), `gh` CLI (GitHub API for pull/push only), Markdown (skill file)
+
+**Execution order:** Chunks 1 → 2 → 4 → 3 → 5 → 6 → 7 → 8. Build `crit comment` (Chunk 4) before `crit push` (Chunk 3) so we can dogfood: create a draft PR for this branch, use `crit comment` to add local comments, then test `crit push` by pushing them to our own PR. Similarly, test `crit pull` by posting comments on the draft PR in GitHub and pulling them down.
 
 ---
 
@@ -251,8 +253,9 @@ This adds `crit pull [--pr <number>]` which:
 **Design decisions:**
 - Shell out to `gh` via `exec.Command` — no GitHub API library needed, `gh` handles auth
 - GitHub review comments use `path`, `line` (end line), `start_line` (optional, for multi-line), and `side` ("RIGHT" for new code, "LEFT" for old code). We only import RIGHT-side comments since crit shows the current file state.
-- PR-level review body comments (not attached to a line) are skipped — crit only supports inline comments.
-- Each GitHub comment gets a `body` prefix with the reviewer's login: `**@username:** comment body`
+- PR-level review body comments (not attached to a line) are skipped — crit only supports inline comments. **Future improvement:** LEFT-side comments (on deleted lines) could be supported by mapping them to the nearest surviving line or displaying them as file-level comments.
+- Author is stored as a structured `author` field on Comment (not prefixed into body). This enables color-coding in the frontend.
+- **Prerequisite**: Add `Author string \`json:"author,omitempty"\`` field to the `Comment` struct in `session.go` (after `Body`). This is a backwards-compatible addition — existing `.crit.json` files without `author` will unmarshal with an empty string.
 
 - [ ] **Step 1: Create `github.go` with helper functions**
 
@@ -375,16 +378,12 @@ func mergeGHComments(cj *CritJSON, comments []ghComment) int {
 			}
 		}
 
-		body := gc.Body
-		if gc.User.Login != "" {
-			body = fmt.Sprintf("**@%s:** %s", gc.User.Login, gc.Body)
-		}
-
 		cf.Comments = append(cf.Comments, Comment{
 			ID:        fmt.Sprintf("c%d", nextID),
 			StartLine: startLine,
 			EndLine:   gc.Line,
-			Body:      body,
+			Body:      gc.Body,
+			Author:    gc.User.Login,
 			CreatedAt: gc.CreatedAt,
 			UpdatedAt: now,
 		})
@@ -664,18 +663,19 @@ current branch. Requires gh CLI."
 **Files:**
 - Modify: `main.go` (add subcommand dispatch)
 
-Adds `crit push [pr-number]` which:
+Adds `crit push [--dry-run] [pr-number]` which:
 1. Reads `.crit.json` from repo root
 2. Filters to unresolved comments only
-3. Creates a GitHub PR review with all comments attached as inline review comments
-4. Uses the GitHub "create review" API which posts all comments atomically as a single review
+3. With `--dry-run`: prints what would be posted without actually calling GitHub
+4. Without `--dry-run`: creates a GitHub PR review with all comments attached as inline review comments
+5. Uses the GitHub "create review" API which posts all comments atomically as a single review
 
 - [ ] **Step 1: Add `crit push` handler in main.go**
 
 Add this block after the `crit pull` handler:
 
 ```go
-// Handle "crit push [pr-number]" subcommand — post .crit.json comments to GitHub PR
+// Handle "crit push [--dry-run] [pr-number]" subcommand — post .crit.json comments to GitHub PR
 if len(os.Args) >= 2 && os.Args[1] == "push" {
 	if err := requireGH(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -683,10 +683,15 @@ if len(os.Args) >= 2 && os.Args[1] == "push" {
 	}
 
 	prFlag := 0
-	if len(os.Args) >= 3 {
-		n, err := strconv.Atoi(os.Args[2])
+	dryRun := false
+	for _, arg := range os.Args[2:] {
+		if arg == "--dry-run" {
+			dryRun = true
+			continue
+		}
+		n, err := strconv.Atoi(arg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Usage: crit push [pr-number]\n")
+			fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [pr-number]\n")
 			os.Exit(1)
 		}
 		prFlag = n
@@ -721,6 +726,22 @@ if len(os.Args) >= 2 && os.Args[1] == "push" {
 		os.Exit(0)
 	}
 
+	if dryRun {
+		fmt.Printf("Would post %d comments to PR #%d:\n\n", len(ghComments), prNumber)
+		for _, c := range ghComments {
+			path := c["path"].(string)
+			line := c["line"].(int)
+			body := c["body"].(string)
+			if sl, ok := c["start_line"]; ok {
+				fmt.Printf("  %s:%d-%d\n", path, sl.(int), line)
+			} else {
+				fmt.Printf("  %s:%d\n", path, line)
+			}
+			fmt.Printf("    %s\n\n", body)
+		}
+		os.Exit(0)
+	}
+
 	fmt.Printf("Pushing %d comments to PR #%d...\n", len(ghComments), prNumber)
 	if err := createGHReview(prNumber, ghComments); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -735,7 +756,7 @@ if len(os.Args) >= 2 && os.Args[1] == "push" {
 
 ```go
 // In the Usage section:
-crit push [pr-number]         Post .crit.json comments to a GitHub PR
+crit push [--dry-run] [pr-number]  Post .crit.json comments to a GitHub PR
 ```
 
 - [ ] **Step 3: Run tests and linters**
@@ -751,9 +772,9 @@ cd /Users/tomasztomczyk/Server/side/crit-mono/crit
 git add main.go
 git commit -m "feat: add 'crit push' subcommand to post comments to PR
 
-crit push [pr-number] reads .crit.json and posts all unresolved
-comments as a GitHub PR review. Comments are posted atomically as
-a single review. Requires gh CLI."
+crit push [--dry-run] [pr-number] reads .crit.json and posts all
+unresolved comments as a GitHub PR review. --dry-run previews what
+would be posted without calling GitHub. Requires gh CLI."
 ```
 
 ---
@@ -824,14 +845,20 @@ func TestMergeGHComments_BasicConversion(t *testing.T) {
 	if c1.StartLine != 10 || c1.EndLine != 10 {
 		t.Errorf("c1 lines = %d-%d, want 10-10", c1.StartLine, c1.EndLine)
 	}
-	if c1.Body != "**@reviewer1:** Fix this bug" {
-		t.Errorf("c1 body = %q", c1.Body)
+	if c1.Body != "Fix this bug" {
+		t.Errorf("c1 body = %q, want %q", c1.Body, "Fix this bug")
+	}
+	if c1.Author != "reviewer1" {
+		t.Errorf("c1 author = %q, want %q", c1.Author, "reviewer1")
 	}
 
 	// Multi-line comment: StartLine from GitHub
 	c2 := cf.Comments[1]
 	if c2.StartLine != 20 || c2.EndLine != 25 {
 		t.Errorf("c2 lines = %d-%d, want 20-25", c2.StartLine, c2.EndLine)
+	}
+	if c2.Author != "reviewer2" {
+		t.Errorf("c2 author = %q, want %q", c2.Author, "reviewer2")
 	}
 }
 
@@ -899,6 +926,53 @@ func TestCritJSONToGHComments_BasicConversion(t *testing.T) {
 	}
 }
 
+func TestMergeGHComments_PreservesExistingComments(t *testing.T) {
+	// Simulate an existing .crit.json with local comments
+	cj := CritJSON{
+		Branch: "feature", BaseRef: "abc", ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{ID: "c1", StartLine: 5, EndLine: 5, Body: "existing local comment", CreatedAt: "2025-01-01T00:00:00Z"},
+				},
+			},
+		},
+	}
+
+	// Pull adds a new GH comment to the same file
+	ghComments := []ghComment{
+		{ID: 100, Path: "main.go", Line: 20, Side: "RIGHT", Body: "new from GH",
+			User: struct{ Login string `json:"login"` }{Login: "reviewer"},
+			CreatedAt: "2025-01-02T00:00:00Z"},
+	}
+
+	added := mergeGHComments(&cj, ghComments)
+	if added != 1 {
+		t.Errorf("added = %d, want 1", added)
+	}
+
+	cf := cj.Files["main.go"]
+	if len(cf.Comments) != 2 {
+		t.Fatalf("expected 2 comments (1 existing + 1 new), got %d", len(cf.Comments))
+	}
+	// Existing comment preserved
+	if cf.Comments[0].Body != "existing local comment" {
+		t.Errorf("existing comment body = %q", cf.Comments[0].Body)
+	}
+	// New comment appended
+	if cf.Comments[1].Body != "new from GH" {
+		t.Errorf("new comment body = %q", cf.Comments[1].Body)
+	}
+	if cf.Comments[1].Author != "reviewer" {
+		t.Errorf("new comment author = %q", cf.Comments[1].Author)
+	}
+	// ID should be c2 (next after existing c1)
+	if cf.Comments[1].ID != "c2" {
+		t.Errorf("new comment ID = %q, want c2", cf.Comments[1].ID)
+	}
+}
+
 func TestCritJSONToGHComments_SkipsResolved(t *testing.T) {
 	cj := CritJSON{
 		Files: map[string]CritJSONFile{
@@ -913,6 +987,28 @@ func TestCritJSONToGHComments_SkipsResolved(t *testing.T) {
 	comments := critJSONToGHComments(cj)
 	if len(comments) != 0 {
 		t.Errorf("expected 0 comments, got %d", len(comments))
+	}
+}
+
+func TestCritJSONToGHComments_BodyNotPrefixedWithAuthor(t *testing.T) {
+	// When pushing, the body should be the raw comment text.
+	// Author info is NOT prepended — GitHub shows the poster's username natively.
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Comments: []Comment{
+					{ID: "c1", StartLine: 10, EndLine: 10, Body: "fix this", Author: "reviewer1"},
+				},
+			},
+		},
+	}
+
+	comments := critJSONToGHComments(cj)
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if comments[0]["body"] != "fix this" {
+		t.Errorf("body = %q, want %q (should not include author prefix)", comments[0]["body"], "fix this")
 	}
 }
 ```
@@ -1309,135 +1405,377 @@ multiple files. Uses temp git repos for RepoRoot() detection."
 
 ---
 
-## Chunk 5: AI Review skill for Claude Code
+## Chunk 5: Crit comment skill for AI agents
 
-### Task 11: Create the ai-review skill
+### Task 11: Add crit-comment instructions to each integration
 
 **Files:**
-- Create: `integrations/claude-code/ai-review.md`
+- Create: `integrations/claude-code/crit-comment.md` (skill with YAML frontmatter)
+- Create: `integrations/cursor/crit-comment.md` (plain markdown)
+- Create: `integrations/cline/crit-comment.md` (plain markdown)
+- Create: `integrations/aider/crit-comment.md` (plain markdown)
+- Create: `integrations/windsurf/crit-comment.md` (plain markdown)
+- Create: `integrations/github-copilot/crit-comment.md` (plain markdown)
 
-This skill teaches Claude Code how to review code and add comments via `crit comment`, then launch crit for the user to browse. Uses the CLI instead of writing JSON directly — no escaping issues.
+Each integration gets its own copy of the crit-comment instructions, following that integration's existing format conventions. The content is the same — just the comment API, not a full review workflow. Users compose this with their own review skills: "review this code and leave comments using crit comment."
 
-- [ ] **Step 1: Write the skill file**
+- [ ] **Step 1: Write the Claude Code skill file (with YAML frontmatter)**
 
-Create `integrations/claude-code/ai-review.md`:
+Create `integrations/claude-code/crit-comment.md`:
 
 ```markdown
 ---
-description: "Generate AI code review comments and display them in crit"
-allowed-tools: Bash(crit:*), Bash(command ls:*), Bash(git:*), Read, Glob, Grep
+description: "Leave inline review comments on code using crit comment CLI"
+allowed-tools: Bash(crit:*), Read
 ---
 
-# AI Code Review with Crit
+# Leaving Comments with Crit
 
-Review code changes and post inline comments using `crit comment`, then open crit for interactive browsing.
+Use `crit comment` to add inline review comments to `.crit.json`. Comments are displayed in crit's browser UI for interactive review.
 
-## Step 1: Identify files to review
-
-Determine which files to review based on context:
-
-1. **User argument** - if the user provided `$ARGUMENTS` (e.g., `/ai-review src/auth.go`), review those files
-2. **Git changes** - if no argument, detect changed files:
-   ```bash
-   git diff --name-only $(git merge-base main HEAD) HEAD 2>/dev/null
-   ```
-   If on the default branch, use unstaged/staged changes:
-   ```bash
-   git diff --name-status HEAD
-   ```
-
-Show the file list and ask the user to confirm before proceeding.
-
-## Step 2: Clear any previous review
-
-```bash
-crit comment --clear
-```
-
-## Step 3: Review the code
-
-For each file, read its contents and analyze for:
-
-- **Bugs and logic errors** - off-by-ones, nil/null dereferences, race conditions
-- **Security issues** - injection, IDOR, privilege escalation, silent failures
-- **Missing error handling** - swallowed errors, missing validation at boundaries
-- **Code quality** - unclear naming, missing docs on public APIs, convention violations
-
-**Important:** Line numbers must reference the file as it exists on disk right now (1-indexed), not diff line numbers.
-
-## Step 4: Post comments
-
-For each issue found, use `crit comment` to add it:
+## Syntax
 
 ```bash
 # Single line comment
-crit comment src/auth.go:42 '[CRITICAL] Missing null check on user.session — will panic if session expired'
+crit comment <path>:<line> '<body>'
 
 # Multi-line comment (range)
-crit comment src/handler.go:15-28 '[IMPORTANT] This error is swallowed silently. The catch block returns ok but the caller expects an error on failure.'
-
-# Comment with suggestion
-crit comment src/db.go:103 '[SUGGESTION] Consider using a prepared statement here to avoid SQL injection'
+crit comment <path>:<start>-<end> '<body>'
 ```
 
-**Severity tags:** Start each comment body with `[CRITICAL]`, `[IMPORTANT]`, or `[SUGGESTION]`.
+## Examples
 
-**Tips:**
-- Paths are relative to repo root
-- The body is everything after the location argument — quotes are optional for simple text but recommended for text with special characters
-- Comments are appended — you can call `crit comment` many times
-- Use single quotes around the body to avoid shell interpretation of special characters
+```bash
+crit comment src/auth.go:42 'Missing null check on user.session — will panic if session expired'
+crit comment src/handler.go:15-28 'This error is swallowed silently. The catch block returns ok but the caller expects an error on failure.'
+crit comment src/db.go:103 'Consider using a prepared statement here to avoid SQL injection'
+```
 
-## Step 5: Launch crit
+## Rules
 
-After all comments are posted, launch crit in the background:
+- **Paths** are relative to repo root
+- **Line numbers** reference the file as it exists on disk (1-indexed), not diff line numbers
+- **Body** is everything after the location argument — use single quotes to avoid shell interpretation
+- **Comments are appended** — calling `crit comment` multiple times adds to the list, never replaces
+- **No setup needed** — `crit comment` creates `.crit.json` automatically if it doesn't exist
+
+## After commenting
+
+Once all comments are posted, launch crit so the user can browse them:
 
 ```bash
 crit
 ```
 
-Tell the user: **"I've posted review comments and opened them in crit. Browse the inline comments, then click 'Finish Review' when done. Type 'go' here to continue."**
-
-## Step 6: Process user response
-
-After the user finishes reviewing in crit, read `.crit.json`:
-
-- Comments marked `"resolved": true` — the user accepted or dismissed these, skip them
-- Comments still `"resolved": false` — may need discussion or action
-- New comments the user added — address these as in the standard `/crit` workflow
-
-Summarize what was resolved and what remains open.
+Tell the user: **"Review comments are ready in crit. Browse them, then click 'Finish Review' when done."**
 ```
 
-- [ ] **Step 2: Verify the skill file is valid YAML frontmatter**
+- [ ] **Step 2: Write the plain markdown version for other integrations**
+
+Create the same content without YAML frontmatter for `integrations/cursor/crit-comment.md`, `integrations/cline/crit-comment.md`, `integrations/aider/crit-comment.md`, `integrations/windsurf/crit-comment.md`, and `integrations/github-copilot/crit-comment.md`. Same content, just drop the `---` frontmatter block:
+
+```markdown
+# Leaving Comments with Crit
+
+Use `crit comment` to add inline review comments to `.crit.json`. Comments are displayed in crit's browser UI for interactive review.
+
+[... same Syntax, Examples, Rules, After commenting sections as above ...]
+```
+
+- [ ] **Step 3: Verify the Claude Code skill file has valid YAML frontmatter**
 
 ```bash
-cd /Users/tomasztomczyk/Server/side/crit-mono/crit && head -4 integrations/claude-code/ai-review.md
+cd /Users/tomasztomczyk/Server/side/crit-mono/crit && head -4 integrations/claude-code/crit-comment.md
 ```
 
 Expected: Shows `---`, `description:`, `allowed-tools:`, `---`
+
+- [ ] **Step 4: Commit**
+
+```bash
+cd /Users/tomasztomczyk/Server/side/crit-mono/crit
+git add integrations/*/crit-comment.md
+git commit -m "feat: add crit-comment instructions to all integrations
+
+Teaches AI agents how to leave inline review comments via 'crit comment'
+CLI. Claude Code version includes YAML frontmatter (skill format),
+others use plain markdown. Composable with any review workflow."
+```
+
+---
+
+## Chunk 6: Author display and color-coding in frontend
+
+### Task 12: Add `author` field to Comment struct
+
+**Files:**
+- Modify: `session.go`
+
+- [ ] **Step 1: Add Author field to Comment struct**
+
+In `session.go`, add `Author` after `Body` in the `Comment` struct:
+
+```go
+type Comment struct {
+	ID              string `json:"id"`
+	StartLine       int    `json:"start_line"`
+	EndLine         int    `json:"end_line"`
+	Side            string `json:"side,omitempty"`
+	Body            string `json:"body"`
+	Author          string `json:"author,omitempty"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+	Resolved        bool   `json:"resolved,omitempty"`
+	ResolutionNote  string `json:"resolution_note,omitempty"`
+	ResolutionLines any    `json:"resolution_lines,omitempty"`
+	CarriedForward  bool   `json:"carried_forward,omitempty"`
+}
+```
+
+This is backwards-compatible — existing `.crit.json` files without `author` will unmarshal with an empty string and omit the field when marshaling.
+
+- [ ] **Step 2: Commit**
+
+```bash
+cd /Users/tomasztomczyk/Server/side/crit-mono/crit
+git add session.go
+git commit -m "feat: add optional author field to Comment struct
+
+Backwards-compatible addition — existing .crit.json files without
+author will work as before. Used by crit pull to store GitHub usernames."
+```
+
+---
+
+### Task 13: Display author name and color-code comments in frontend
+
+**Files:**
+- Modify: `frontend/app.js` — author badge rendering, color assignment
+- Modify: `frontend/style.css` — author badge styles
+
+**Design:**
+- When a comment has an `author` field, show an author badge/pill in the comment header (before the line reference)
+- Assign each unique author a deterministic color from a small palette using a string hash
+- Colors should work in both light and dark themes (use semi-transparent backgrounds with solid text)
+- No author = no badge (backwards-compatible with existing comments)
+
+- [ ] **Step 1: Add author color utility and update comment rendering in app.js**
+
+Add a color palette and hash function near the top of app.js (after the state variables):
+
+```javascript
+// Author color-coding for multi-reviewer comments
+const AUTHOR_COLORS = [
+  { bg: 'rgba(74, 144, 217, 0.15)', border: 'rgba(74, 144, 217, 0.4)', text: '#4a90d9' },
+  { bg: 'rgba(217, 74, 74, 0.15)', border: 'rgba(217, 74, 74, 0.4)', text: '#d94a4a' },
+  { bg: 'rgba(74, 180, 100, 0.15)', border: 'rgba(74, 180, 100, 0.4)', text: '#4ab464' },
+  { bg: 'rgba(217, 166, 74, 0.15)', border: 'rgba(217, 166, 74, 0.4)', text: '#d9a64a' },
+  { bg: 'rgba(155, 74, 217, 0.15)', border: 'rgba(155, 74, 217, 0.4)', text: '#9b4ad9' },
+  { bg: 'rgba(74, 195, 195, 0.15)', border: 'rgba(74, 195, 195, 0.4)', text: '#4ac3c3' },
+];
+
+function authorColor(name) {
+  let hash = 0;
+  for (const ch of name) hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
+  return AUTHOR_COLORS[Math.abs(hash) % AUTHOR_COLORS.length];
+}
+```
+
+Then in the comment rendering function (where `headerLeft` is built), add the author badge before the line reference:
+
+```javascript
+if (comment.author) {
+  const authorBadge = document.createElement('span');
+  authorBadge.className = 'comment-author-badge';
+  const colors = authorColor(comment.author);
+  authorBadge.style.cssText = `background:${colors.bg};border-color:${colors.border};color:${colors.text}`;
+  authorBadge.textContent = '@' + comment.author;
+  headerLeft.appendChild(authorBadge);
+}
+headerLeft.appendChild(lineRef);
+```
+
+The author badge goes before `lineRef` in `headerLeft` so the visual order is: `@username | Line 42 | 2m ago`.
+
+- [ ] **Step 2: Add author badge styles to style.css**
+
+```css
+.comment-author-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+```
 
 - [ ] **Step 3: Commit**
 
 ```bash
 cd /Users/tomasztomczyk/Server/side/crit-mono/crit
-git add integrations/claude-code/ai-review.md
-git commit -m "feat: add AI code review skill for Claude Code
+git add frontend/app.js frontend/style.css
+git commit -m "feat: display author name with color-coded badges on comments
 
-Teaches Claude how to review code and post comments via 'crit comment',
-then launch crit for interactive browsing. Uses the CLI instead of
-writing .crit.json directly — avoids JSON escaping issues."
+When a comment has an author field (set by crit pull from GitHub),
+show a colored @username badge in the comment header. Each unique
+author gets a deterministic color from a 6-color palette. Comments
+without an author (locally created) show no badge."
+```
+
+---
+
+## Chunk 7: E2E tests for multi-author comment rendering
+
+### Task 14: Add Playwright tests for author badges
+
+**Files:**
+- Modify: `e2e/tests/comments.spec.ts` (add author badge tests to existing comment tests)
+
+Tests use the existing git-mode fixture. We add comments with `author` field via the API, then verify the frontend renders author badges with correct text and color-coding.
+
+- [ ] **Step 1: Add author badge tests**
+
+Add to `comments.spec.ts`:
+
+```typescript
+test('displays author badge when comment has author field', async ({ page, request }) => {
+  // Add a comment with author via API
+  const resp = await request.post(`/api/file/comments?path=${testFilePath}`, {
+    data: { start_line: 1, end_line: 1, body: 'Test comment', author: 'reviewer1' }
+  });
+  expect(resp.ok()).toBeTruthy();
+
+  await loadPage(page);
+  // Verify author badge appears
+  const badge = page.locator('.comment-author-badge');
+  await expect(badge).toBeVisible();
+  await expect(badge).toHaveText('@reviewer1');
+});
+
+test('does not display author badge when comment has no author', async ({ page, request }) => {
+  const resp = await request.post(`/api/file/comments?path=${testFilePath}`, {
+    data: { start_line: 1, end_line: 1, body: 'Local comment' }
+  });
+  expect(resp.ok()).toBeTruthy();
+
+  await loadPage(page);
+  await expect(page.locator('.comment-author-badge')).toHaveCount(0);
+});
+
+test('color-codes different authors distinctly', async ({ page, request }) => {
+  // Add comments from two different authors
+  await request.post(`/api/file/comments?path=${testFilePath}`, {
+    data: { start_line: 1, end_line: 1, body: 'Comment A', author: 'alice' }
+  });
+  await request.post(`/api/file/comments?path=${testFilePath}`, {
+    data: { start_line: 2, end_line: 2, body: 'Comment B', author: 'bob' }
+  });
+
+  await loadPage(page);
+  const badges = page.locator('.comment-author-badge');
+  await expect(badges).toHaveCount(2);
+
+  // Same author should get same color, different authors may get different colors
+  // Just verify both have inline styles (color assignment works)
+  await expect(badges.nth(0)).toHaveAttribute('style', /background:/);
+  await expect(badges.nth(1)).toHaveAttribute('style', /background:/);
+});
+```
+
+**Note:** The `author` field must be accepted by the `POST /api/file/comments` endpoint. This requires the backend to pass through the `author` field from the request body to the Comment struct. Add this to Task 12 if not already handled — the server's `addComment` handler in `server.go` unmarshals the request body into a struct, so the field will flow through automatically since Comment already has `Author`.
+
+- [ ] **Step 2: Run E2E tests**
+
+Run: `cd /Users/tomasztomczyk/Server/side/crit-mono/crit/e2e && npx playwright test tests/comments.spec.ts`
+
+Expected: All pass including new author tests
+
+- [ ] **Step 3: Commit**
+
+```bash
+cd /Users/tomasztomczyk/Server/side/crit-mono/crit
+git add e2e/tests/comments.spec.ts
+git commit -m "test: add E2E tests for multi-author comment rendering
+
+Tests author badge visibility, absence when no author, and
+color-coding for different authors."
+```
+
+---
+
+## Chunk 8: README updates
+
+### Task 15: Update README with new features and gh dependency
+
+**Files:**
+- Modify: `README.md`
+
+Document the new subcommands (`crit pull`, `crit push`, `crit comment`), the `gh` CLI dependency for pull/push, and the author display feature.
+
+- [ ] **Step 1: Add new subcommands to CLI reference in README**
+
+Add to the CLI usage section:
+
+```
+crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
+crit comment --clear                       Remove all comments from .crit.json
+crit pull [pr-number]                      Fetch GitHub PR review comments to .crit.json
+crit push [--dry-run] [pr-number]          Post .crit.json comments to a GitHub PR
+```
+
+- [ ] **Step 2: Add GitHub sync section**
+
+Add a section explaining the GitHub sync workflow:
+
+```markdown
+## GitHub PR Sync
+
+Crit can sync review comments bidirectionally with GitHub PRs. Requires the [GitHub CLI](https://cli.github.com) (`gh`) to be installed and authenticated.
+
+### Pull comments from a PR
+
+```bash
+crit pull              # auto-detects PR from current branch
+crit pull 42           # explicit PR number
+```
+
+### Push comments to a PR
+
+```bash
+crit push              # auto-detects PR from current branch
+crit push --dry-run    # preview without posting
+crit push 42           # explicit PR number
+```
+
+### Adding comments programmatically
+
+```bash
+crit comment src/auth.go:42 'Missing null check'
+crit comment src/handler.go:15-28 'Error handling issue'
+```
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+cd /Users/tomasztomczyk/Server/side/crit-mono/crit
+git add README.md
+git commit -m "docs: add GitHub sync and crit comment to README
+
+Documents crit pull/push/comment subcommands, gh CLI dependency,
+and the GitHub PR sync workflow."
 ```
 
 ---
 
 ## Future: E2E test for pre-loaded .crit.json
 
-An E2E test for this feature would need its own Playwright project with a dedicated port and fixture, since:
-- Adding `.crit.json` to the shared git fixture pollutes other tests (`clearAllComments` deletes it from disk)
-- The preloaded comments would appear unexpectedly in other tests' `beforeEach` cleanup cycles
+An E2E test for pre-loaded `.crit.json` (Chunk 1) would need its own Playwright project with a dedicated port and fixture, since adding `.crit.json` to the shared git fixture pollutes other tests. The unit tests cover the `loadCritJSON` behavior. A dedicated E2E project can be added later if needed.
 
-This is out of scope for the initial implementation. The unit tests cover the `loadCritJSON` and GitHub conversion behavior. A dedicated E2E project can be added later if needed.
+## Future: LEFT-side comment support
+
+GitHub PR comments on deleted/old lines (`side: "LEFT"`) are currently skipped by `crit pull`. A future enhancement could map these to the nearest surviving line or display them as file-level annotations.
 
 ---
 
@@ -1449,24 +1787,32 @@ This is out of scope for the initial implementation. The unit tests cover the `l
 | 3 | Remove hash check in `loadCritJSON` | Low — strictly more permissive, existing tests still pass |
 | 4 | Create `github.go` with PR comment helpers | None — new file |
 | 5 | Wire `crit pull` subcommand | Low — new subcommand, no existing behavior changes |
-| 6 | Wire `crit push` subcommand | Low — new subcommand, no existing behavior changes |
+| 6 | Wire `crit push` subcommand (with `--dry-run`) | Low — new subcommand, no existing behavior changes |
 | 7 | Unit tests for GitHub conversion functions | None — tests only |
 | 8 | Add `addCommentToCritJSON` / `clearCritJSON` to github.go | None — new functions |
 | 9 | Wire `crit comment` subcommand | Low — new subcommand, no existing behavior changes |
 | 10 | Unit tests for `addCommentToCritJSON` | None — tests only |
-| 11 | AI review skill for Claude Code | None — new file, no code changes |
+| 11 | Crit comment instructions for all integrations | None — new files, no code changes |
+| 12 | Add `author` field to Comment struct | Low — backwards-compatible `omitempty` addition |
+| 13 | Author display + color-coding in frontend | Low — additive UI, no existing behavior changes |
+| 14 | E2E tests for multi-author comment rendering | None — tests only |
+| 15 | README updates for new features | None — docs only |
+
+**Execution order:** 1 → 2 → 3 → 4 → 5 → 7 → 8 → 9 → 10 → 12 → 13 → 6 → 11 → 14 → 15
+
+**Dogfooding:** After `crit comment` (Task 9) is built, create a draft PR for this branch. Use `crit comment` to add test comments locally, then test `crit push` (Task 6) by pushing them to the PR. Test `crit pull` by adding comments in GitHub's UI and pulling them down.
 
 **Dependencies:** `gh` CLI must be installed and authenticated (for `pull`/`push` only). `crit comment` has no external dependencies.
 
 **CLI surface after this plan:**
 ```
-crit                                   Auto-detect changed files via git
-crit <file|dir> [...]                  Review specific files or directories
-crit go [port]                         Signal round-complete to a running crit instance
-crit comment <path>:<line[-end]> <body>  Add a review comment to .crit.json
-crit comment --clear                   Remove all comments from .crit.json
-crit pull [pr-number]                  Fetch GitHub PR review comments to .crit.json
-crit push [pr-number]                  Post .crit.json comments to a GitHub PR
-crit install <agent>                   Install integration files for an AI coding tool
-crit help                              Show this help message
+crit                                       Auto-detect changed files via git
+crit <file|dir> [...]                      Review specific files or directories
+crit go [port]                             Signal round-complete to a running crit instance
+crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
+crit comment --clear                       Remove all comments from .crit.json
+crit pull [pr-number]                      Fetch GitHub PR review comments to .crit.json
+crit push [--dry-run] [pr-number]          Post .crit.json comments to a GitHub PR
+crit install <agent>                       Install integration files for an AI coding tool
+crit help                                  Show this help message
 ```

@@ -27,7 +27,7 @@ crit comment src/db.go:103 'Consider using a prepared statement here to avoid SQ
 
 ## Rules
 
-- **Paths** are relative to repo root
+- **Paths** are relative to your current working directory
 - **Line numbers** reference the file as it exists on disk (1-indexed), not diff line numbers
 - **Body** is everything after the location argument — use single quotes to avoid shell interpretation
 - **Comments are appended** — calling `crit comment` multiple times adds to the list, never replaces
