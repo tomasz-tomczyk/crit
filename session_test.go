@@ -907,6 +907,55 @@ func TestParseUnifiedDiff_WithANSIColors(t *testing.T) {
 	}
 }
 
+// TestSession_CarryForward_PreservesAuthor verifies that when comments are carried
+// forward from a previous round, the Author field is preserved.
+func TestSession_CarryForward_PreservesAuthor(t *testing.T) {
+	s := newTestSession(t)
+
+	// Write a .crit.json with a comment that has an author set (e.g. from crit pull)
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{
+						ID:        "c1",
+						StartLine: 2,
+						EndLine:   2,
+						Body:      "missing error check",
+						Author:    "reviewer-bot",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
+		t.Fatalf("writing .crit.json: %v", err)
+	}
+
+	// No active comments on main.go — simulate carry-forward by calling
+	// loadResolvedComments (populates PreviousComments) then handleRoundCompleteFiles.
+	s.loadResolvedComments()
+	s.handleRoundCompleteFiles()
+
+	comments := s.GetComments("main.go")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 carried comment, got %d", len(comments))
+	}
+	if comments[0].Author != "reviewer-bot" {
+		t.Errorf("Author = %q, want %q", comments[0].Author, "reviewer-bot")
+	}
+	if comments[0].Body != "missing error check" {
+		t.Errorf("Body = %q", comments[0].Body)
+	}
+	if !comments[0].CarriedForward {
+		t.Error("expected CarriedForward = true")
+	}
+}
+
 // TestFileDiffUnified_ColorConfigDoesNotBreakParsing verifies that even with
 // color.diff=always in gitconfig, the --no-color flag produces parseable output.
 func TestFileDiffUnified_ColorConfigDoesNotBreakParsing(t *testing.T) {
