@@ -48,7 +48,7 @@ func detectPR(prFlag int) (int, error) {
 	}
 	out, err := exec.Command("gh", "pr", "view", "--json", "number", "--jq", ".number").Output()
 	if err != nil {
-		return 0, fmt.Errorf("no PR found for current branch. Use --pr <number> or push your branch first")
+		return 0, fmt.Errorf("no PR found for current branch (try: crit pull <pr-number>)")
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
 	if err != nil {
@@ -59,8 +59,9 @@ func detectPR(prFlag int) (int, error) {
 
 // fetchPRComments fetches all review comments for a PR.
 func fetchPRComments(prNumber int) ([]ghComment, error) {
-	// Use --paginate --slurp to collect all pages into a single JSON array.
-	// Without --slurp, --paginate concatenates arrays ([...][...]) which is invalid JSON.
+	// Use --paginate --slurp to collect all pages into a single JSON structure.
+	// --slurp wraps each page into an outer array: [[page1...], [page2...], ...]
+	// So we unmarshal into [][]ghComment and flatten.
 	out, err := exec.Command("gh", "api",
 		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", prNumber),
 		"--paginate",
@@ -70,9 +71,13 @@ func fetchPRComments(prNumber int) ([]ghComment, error) {
 		return nil, fmt.Errorf("fetching PR comments: %w", err)
 	}
 
-	var comments []ghComment
-	if err := json.Unmarshal(out, &comments); err != nil {
+	var pages [][]ghComment
+	if err := json.Unmarshal(out, &pages); err != nil {
 		return nil, fmt.Errorf("parsing PR comments: %w", err)
+	}
+	var comments []ghComment
+	for _, page := range pages {
+		comments = append(comments, page...)
 	}
 	return comments, nil
 }
