@@ -258,9 +258,10 @@ crit pull 42           # explicit PR number
 ### Push comments to a PR
 
 ```bash
-crit push              # auto-detects PR from current branch
-crit push --dry-run    # preview without posting
-crit push 42           # explicit PR number
+crit push                          # auto-detects PR from current branch
+crit push --dry-run                # preview without posting
+crit push --message "Round 2"      # add a top-level review comment
+crit push 42                       # explicit PR number
 ```
 
 ## Environment Variables

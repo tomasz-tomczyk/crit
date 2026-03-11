@@ -105,6 +105,39 @@ func TestMergeGHComments_SkipsNoLineComments(t *testing.T) {
 	}
 }
 
+func TestBuildReviewPayload_EmptyMessageByDefault(t *testing.T) {
+	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "fix"}}
+	data, err := buildReviewPayload(comments, "")
+	if err != nil {
+		t.Fatalf("buildReviewPayload: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload["body"] != "" {
+		t.Errorf("body = %q, want empty string", payload["body"])
+	}
+	if payload["event"] != "COMMENT" {
+		t.Errorf("event = %q, want COMMENT", payload["event"])
+	}
+}
+
+func TestBuildReviewPayload_CustomMessage(t *testing.T) {
+	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "fix"}}
+	data, err := buildReviewPayload(comments, "Round 2 review")
+	if err != nil {
+		t.Fatalf("buildReviewPayload: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload["body"] != "Round 2 review" {
+		t.Errorf("body = %q, want %q", payload["body"], "Round 2 review")
+	}
+}
+
 func TestCritJSONToGHComments_BasicConversion(t *testing.T) {
 	cj := CritJSON{
 		Files: map[string]CritJSONFile{

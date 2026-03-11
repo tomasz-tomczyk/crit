@@ -158,14 +158,26 @@ func main() {
 
 		prFlag := 0
 		dryRun := false
-		for _, arg := range os.Args[2:] {
+		message := ""
+		args := os.Args[2:]
+		for i := 0; i < len(args); i++ {
+			arg := args[i]
 			if arg == "--dry-run" {
 				dryRun = true
 				continue
 			}
+			if arg == "--message" || arg == "-m" {
+				if i+1 >= len(args) {
+					fmt.Fprintf(os.Stderr, "Error: --message requires a value\n")
+					os.Exit(1)
+				}
+				i++
+				message = args[i]
+				continue
+			}
 			n, err := strconv.Atoi(arg)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [pr-number]\n")
+				fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [--message <msg>] [pr-number]\n")
 				os.Exit(1)
 			}
 			prFlag = n
@@ -217,7 +229,7 @@ func main() {
 		}
 
 		fmt.Printf("Pushing %d comments to PR #%d...\n", len(ghComments), prNumber)
-		if err := createGHReview(prNumber, ghComments); err != nil {
+		if err := createGHReview(prNumber, ghComments, message); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -414,7 +426,7 @@ Usage:
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
   crit comment --clear                       Remove all comments from .crit.json
   crit pull [pr-number]                      Fetch GitHub PR comments to .crit.json
-  crit push [--dry-run] [pr-number]          Post .crit.json comments to a GitHub PR
+  crit push [--dry-run] [--message <msg>] [pr-number]  Post .crit.json comments to a GitHub PR
   crit install <agent>                       Install integration files for an AI coding tool
   crit help                                  Show this help message
 
