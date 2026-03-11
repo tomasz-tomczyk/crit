@@ -427,7 +427,9 @@ var hunkHeaderRe = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? 
 // ParseUnifiedDiff parses a unified diff string into hunks.
 func ParseUnifiedDiff(diff string) []DiffHunk {
 	var hunks []DiffHunk
-	lines := strings.Split(diff, "\n")
+	// TrimRight removes the trailing newline so strings.Split doesn't produce
+	// a spurious empty element that could be confused with a blank context line.
+	lines := strings.Split(strings.TrimRight(diff, "\n"), "\n")
 
 	var current *DiffHunk
 	oldLine, newLine := 0, 0
@@ -481,6 +483,19 @@ func ParseUnifiedDiff(diff string) []DiffHunk {
 			current.Lines = append(current.Lines, DiffLine{
 				Type:    "context",
 				Content: strings.TrimPrefix(line, " "),
+				OldNum:  oldLine,
+				NewNum:  newLine,
+			})
+			oldLine++
+			newLine++
+		} else if line == "" && oldLine < current.OldStart+current.OldCount {
+			// Bare empty line within expected hunk bounds — treat as blank context line.
+			// Git outputs these when diff.suppressBlankEmpty is set, stripping the
+			// leading space from blank context lines. We check bounds to avoid treating
+			// the trailing empty string from strings.Split as a spurious context line.
+			current.Lines = append(current.Lines, DiffLine{
+				Type:    "context",
+				Content: "",
 				OldNum:  oldLine,
 				NewNum:  newLine,
 			})

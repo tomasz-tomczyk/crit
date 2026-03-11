@@ -132,8 +132,9 @@ index abc..def 100644
 	if dels != 1 {
 		t.Errorf("expected 1 del, got %d", dels)
 	}
-	if ctx != 3 {
-		t.Errorf("expected 3 context lines, got %d", ctx)
+	if ctx != 4 {
+		// 4 context lines: "package main", (blank line), "func main() {", "}"
+		t.Errorf("expected 4 context lines, got %d", ctx)
 	}
 }
 
@@ -750,4 +751,138 @@ func TestFileDiffScoped_DifferentHunksPerScope(t *testing.T) {
 	if branchAdds == stagedAdds && stagedAdds == unstagedAdds {
 		t.Errorf("expected different add counts per scope, all were %d", branchAdds)
 	}
+}
+
+// TestParseUnifiedDiff_BlankContextLines verifies that blank context lines
+// (empty lines in the source that appear as bare empty lines in diff output
+// without a leading space, e.g. when diff.suppressBlankEmpty is set) are
+// correctly treated as context lines and don't desync line numbers.
+func TestParseUnifiedDiff_BlankContextLines(t *testing.T) {
+	// Simulate a diff where blank context lines have no leading space.
+	// This happens when git's diff.suppressBlankEmpty config is true,
+	// or with some git versions that strip trailing whitespace from blank lines.
+	diff := "--- a/file.ex\n+++ b/file.ex\n@@ -1,5 +1,5 @@\n line1\n\n line3\n-old\n+new\n line5\n"
+	// The empty line between "line1" and "line3" has NO leading space.
+	// It should be treated as a context line.
+
+	hunks := ParseUnifiedDiff(diff)
+	if len(hunks) != 1 {
+		t.Fatalf("expected 1 hunk, got %d", len(hunks))
+	}
+
+	h := hunks[0]
+
+	// Count line types
+	adds, dels, ctx := 0, 0, 0
+	for _, l := range h.Lines {
+		switch l.Type {
+		case "add":
+			adds++
+		case "del":
+			dels++
+		case "context":
+			ctx++
+		}
+	}
+
+	// With the blank line properly handled as context:
+	// line1 (ctx), blank (ctx), line3 (ctx), old (del), new (add), line5 (ctx) = 4 ctx, 1 del, 1 add
+	if adds != 1 {
+		t.Errorf("expected 1 add, got %d", adds)
+	}
+	if dels != 1 {
+		t.Errorf("expected 1 del, got %d", dels)
+	}
+	if ctx != 4 {
+		t.Errorf("expected 4 context lines (including blank), got %d", ctx)
+	}
+
+	// Verify line numbers are correct (not desynced by the blank line)
+	// Expected: line1 (old=1,new=1), blank (old=2,new=2), line3 (old=3,new=3),
+	//           old (old=4), new (new=4), line5 (old=5,new=5)
+	if len(h.Lines) != 6 {
+		t.Fatalf("expected 6 lines, got %d", len(h.Lines))
+	}
+
+	// Check the del line has correct old line number
+	delLine := h.Lines[3]
+	if delLine.Type != "del" || delLine.OldNum != 4 {
+		t.Errorf("del line: type=%q oldNum=%d, want type=del oldNum=4", delLine.Type, delLine.OldNum)
+	}
+
+	// Check the add line has correct new line number
+	addLine := h.Lines[4]
+	if addLine.Type != "add" || addLine.NewNum != 4 {
+		t.Errorf("add line: type=%q newNum=%d, want type=add newNum=4", addLine.Type, addLine.NewNum)
+	}
+
+	// Check last context line has correct numbers
+	lastLine := h.Lines[5]
+	if lastLine.OldNum != 5 || lastLine.NewNum != 5 {
+		t.Errorf("last context: old=%d new=%d, want 5,5", lastLine.OldNum, lastLine.NewNum)
+	}
+}
+
+// TestFileDiff_SuppressBlankEmpty verifies correct parsing when
+// git's diff.suppressBlankEmpty config strips leading spaces from blank context lines.
+func TestFileDiff_SuppressBlankEmpty(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Enable suppressBlankEmpty
+	runGit(t, dir, "config", "diff.suppressBlankEmpty", "true")
+
+	// File with blank lines between code blocks
+	original := "func A() {\n}\n\nfunc B() {\n\treturn old\n}\n\nfunc C() {\n}\n"
+	modified := "func A() {\n}\n\nfunc B() {\n\treturn new\n}\n\nfunc C() {\n}\n"
+
+	writeFile(t, filepath.Join(dir, "code.go"), original)
+	runGit(t, dir, "add", "code.go")
+	runGit(t, dir, "commit", "-m", "add code")
+
+	writeFile(t, filepath.Join(dir, "code.go"), modified)
+
+	hunks, err := fileDiffUnified("code.go", "HEAD", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(hunks) == 0 {
+		t.Fatal("expected at least one hunk")
+	}
+
+	// Verify the del/add lines are correctly identified
+	var foundDel, foundAdd bool
+	for _, h := range hunks {
+		for _, l := range h.Lines {
+			if l.Type == "del" && strings.Contains(l.Content, "return old") {
+				foundDel = true
+			}
+			if l.Type == "add" && strings.Contains(l.Content, "return new") {
+				foundAdd = true
+			}
+		}
+	}
+	if !foundDel {
+		t.Error("missing del line with 'return old'")
+	}
+	if !foundAdd {
+		t.Error("missing add line with 'return new'")
+	}
+
+	// Verify blank lines are preserved as context (not dropped)
+	blankContextCount := 0
+	for _, h := range hunks {
+		for _, l := range h.Lines {
+			if l.Type == "context" && l.Content == "" {
+				blankContextCount++
+			}
+		}
+	}
+	if blankContextCount == 0 {
+		t.Error("blank context lines were dropped — suppressBlankEmpty handling broken")
+	}
+	t.Logf("blank context lines found: %d", blankContextCount)
 }
