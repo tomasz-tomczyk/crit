@@ -334,6 +334,87 @@ func TestSession_LoadCritJSON(t *testing.T) {
 	}
 }
 
+func TestSession_LoadCritJSON_NoHash(t *testing.T) {
+	s := newTestSession(t)
+
+	// Write a .crit.json without file_hash fields (simulating agent-generated review)
+	cj := `{
+		"branch": "test",
+		"base_ref": "",
+		"updated_at": "2025-01-01T00:00:00Z",
+		"review_round": 1,
+		"files": {
+			"plan.md": {
+				"status": "added",
+				"comments": [
+					{
+						"id": "c1",
+						"start_line": 1,
+						"end_line": 1,
+						"body": "agent review comment",
+						"created_at": "2025-01-01T00:00:00Z",
+						"resolved": false
+					}
+				]
+			}
+		}
+	}`
+	if err := os.WriteFile(s.critJSONPath(), []byte(cj), 0644); err != nil {
+		t.Fatalf("write .crit.json: %v", err)
+	}
+
+	s.loadCritJSON()
+
+	comments := s.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 loaded comment, got %d", len(comments))
+	}
+	if comments[0].Body != "agent review comment" {
+		t.Errorf("Body = %q, want %q", comments[0].Body, "agent review comment")
+	}
+}
+
+func TestSession_LoadCritJSON_MismatchedHash(t *testing.T) {
+	s := newTestSession(t)
+
+	// Write a .crit.json with a stale/wrong file_hash
+	cj := `{
+		"branch": "test",
+		"base_ref": "",
+		"updated_at": "2025-01-01T00:00:00Z",
+		"review_round": 1,
+		"files": {
+			"plan.md": {
+				"status": "added",
+				"file_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				"comments": [
+					{
+						"id": "c1",
+						"start_line": 1,
+						"end_line": 1,
+						"body": "stale hash comment",
+						"created_at": "2025-01-01T00:00:00Z",
+						"resolved": false
+					}
+				]
+			}
+		}
+	}`
+	if err := os.WriteFile(s.critJSONPath(), []byte(cj), 0644); err != nil {
+		t.Fatalf("write .crit.json: %v", err)
+	}
+
+	s.loadCritJSON()
+
+	comments := s.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 loaded comment, got %d", len(comments))
+	}
+	if comments[0].Body != "stale hash comment" {
+		t.Errorf("Body = %q, want %q", comments[0].Body, "stale hash comment")
+	}
+}
+
 func TestSession_LoadResolvedComments_StringResolutionLines(t *testing.T) {
 	s := newTestSession(t)
 	s.AddComment("plan.md", 1, 1, "", "fix this")
