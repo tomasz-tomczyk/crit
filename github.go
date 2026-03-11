@@ -237,12 +237,23 @@ func createGHReview(prNumber int, comments []map[string]any, message string) err
 // addCommentToCritJSON appends a comment to .crit.json for the given file and line range.
 // Creates .crit.json if it doesn't exist. Appends to existing comments if it does.
 // Works in both git repos and plain directories (file mode).
-func addCommentToCritJSON(filePath string, startLine, endLine int, body string) error {
-	root, err := RepoRoot()
-	if err != nil {
-		root, err = os.Getwd()
+// outputDir overrides the default location (repo root or CWD) when non-empty.
+func addCommentToCritJSON(filePath string, startLine, endLine int, body string, outputDir string) error {
+	var root string
+	if outputDir != "" {
+		abs, err := filepath.Abs(outputDir)
 		if err != nil {
-			return fmt.Errorf("getting working directory: %w", err)
+			return fmt.Errorf("resolving output directory: %w", err)
+		}
+		root = abs
+	} else {
+		var err error
+		root, err = RepoRoot()
+		if err != nil {
+			root, err = os.Getwd()
+			if err != nil {
+				return fmt.Errorf("getting working directory: %w", err)
+			}
 		}
 	}
 
@@ -300,13 +311,23 @@ func addCommentToCritJSON(filePath string, startLine, endLine int, body string) 
 	return os.WriteFile(critPath, data, 0644)
 }
 
-// clearCritJSON removes .crit.json from the repo root or working directory.
-func clearCritJSON() error {
-	root, err := RepoRoot()
-	if err != nil {
-		root, err = os.Getwd()
+// clearCritJSON removes .crit.json from the repo root, working directory, or outputDir.
+func clearCritJSON(outputDir string) error {
+	var root string
+	if outputDir != "" {
+		abs, err := filepath.Abs(outputDir)
 		if err != nil {
-			return fmt.Errorf("getting working directory: %w", err)
+			return fmt.Errorf("resolving output directory: %w", err)
+		}
+		root = abs
+	} else {
+		var err error
+		root, err = RepoRoot()
+		if err != nil {
+			root, err = os.Getwd()
+			if err != nil {
+				return fmt.Errorf("getting working directory: %w", err)
+			}
 		}
 	}
 	critPath := filepath.Join(root, ".crit.json")

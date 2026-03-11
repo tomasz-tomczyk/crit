@@ -239,9 +239,26 @@ func main() {
 
 	// Handle "crit comment <path>:<line[-end]> <body>" subcommand
 	if len(os.Args) >= 2 && os.Args[1] == "comment" {
+		// Parse flags before the location argument
+		commentOutputDir := ""
+		commentArgs := os.Args[2:]
+		for i := 0; i < len(commentArgs); i++ {
+			arg := commentArgs[i]
+			if arg == "--output" || arg == "-o" {
+				if i+1 >= len(commentArgs) {
+					fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
+					os.Exit(1)
+				}
+				i++
+				commentOutputDir = commentArgs[i]
+				commentArgs = append(commentArgs[:i-1], commentArgs[i+1:]...)
+				i -= 2
+			}
+		}
+
 		// Handle --clear flag
-		if len(os.Args) >= 3 && os.Args[2] == "--clear" {
-			if err := clearCritJSON(); err != nil {
+		if len(commentArgs) >= 1 && commentArgs[0] == "--clear" {
+			if err := clearCritJSON(commentOutputDir); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -249,18 +266,19 @@ func main() {
 			os.Exit(0)
 		}
 
-		if len(os.Args) < 4 {
-			fmt.Fprintln(os.Stderr, "Usage: crit comment <path>:<line[-end]> <body>")
-			fmt.Fprintln(os.Stderr, "       crit comment --clear")
+		if len(commentArgs) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: crit comment [--output <dir>] <path>:<line[-end]> <body>")
+			fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] --clear")
 			fmt.Fprintln(os.Stderr, "")
 			fmt.Fprintln(os.Stderr, "Examples:")
 			fmt.Fprintln(os.Stderr, "  crit comment main.go:42 'Fix this bug'")
 			fmt.Fprintln(os.Stderr, "  crit comment src/auth.go:10-25 'This block needs refactoring'")
+			fmt.Fprintln(os.Stderr, "  crit comment --output /tmp/reviews main.go:42 'Fix this bug'")
 			os.Exit(1)
 		}
 
 		// Parse <path>:<line[-end]>
-		loc := os.Args[2]
+		loc := commentArgs[0]
 		colonIdx := strings.LastIndex(loc, ":")
 		if colonIdx < 0 {
 			fmt.Fprintf(os.Stderr, "Error: invalid location %q — expected <path>:<line[-end]>\n", loc)
@@ -292,9 +310,9 @@ func main() {
 		}
 
 		// Body is all remaining args joined
-		body := strings.Join(os.Args[3:], " ")
+		body := strings.Join(commentArgs[1:], " ")
 
-		if err := addCommentToCritJSON(filePath, startLine, endLine, body); err != nil {
+		if err := addCommentToCritJSON(filePath, startLine, endLine, body, commentOutputDir); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}

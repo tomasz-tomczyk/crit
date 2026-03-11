@@ -239,6 +239,7 @@ AI agents can use `crit comment` to add inline review comments without opening t
 ```bash
 crit comment src/auth.go:42 'Missing null check'
 crit comment src/handler.go:15-28 'Error handling issue'
+crit comment --output /tmp/reviews src/auth.go:42 'comment'  # custom output dir
 crit comment --clear   # remove .crit.json
 ```
 
