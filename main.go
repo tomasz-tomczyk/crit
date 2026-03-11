@@ -261,20 +261,20 @@ func main() {
 
 	// Handle "crit comment <path>:<line[-end]> <body>" subcommand
 	if len(os.Args) >= 2 && os.Args[1] == "comment" {
-		// Parse flags before the location argument
+		// Parse flags, collecting non-flag args into commentArgs
 		commentOutputDir := ""
-		commentArgs := os.Args[2:]
-		for i := 0; i < len(commentArgs); i++ {
-			arg := commentArgs[i]
+		var commentArgs []string
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
 			if arg == "--output" || arg == "-o" {
-				if i+1 >= len(commentArgs) {
+				if i+1 >= len(os.Args) {
 					fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
 					os.Exit(1)
 				}
 				i++
-				commentOutputDir = commentArgs[i]
-				commentArgs = append(commentArgs[:i-1], commentArgs[i+1:]...)
-				i -= 2
+				commentOutputDir = os.Args[i]
+			} else {
+				commentArgs = append(commentArgs, arg)
 			}
 		}
 
