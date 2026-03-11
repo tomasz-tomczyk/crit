@@ -886,3 +886,119 @@ func TestFileDiff_SuppressBlankEmpty(t *testing.T) {
 	}
 	t.Logf("blank context lines found: %d", blankContextCount)
 }
+
+// TestParseUnifiedDiff_BlankContextAtEndOfHunk verifies that a bare blank
+// context line at the very end of a hunk is correctly consumed.
+func TestParseUnifiedDiff_BlankContextAtEndOfHunk(t *testing.T) {
+	// Hunk: line1 (ctx), old (del), new (add), blank-at-end (ctx).
+	// A second hunk follows so the blank line isn't the last thing in the
+	// diff string (TrimRight would eat it otherwise).
+	diff := "--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,3 @@\n line1\n-old\n+new\n\n@@ -10,2 +10,2 @@\n-x\n+y\n"
+
+	hunks := ParseUnifiedDiff(diff)
+	if len(hunks) != 2 {
+		t.Fatalf("expected 2 hunks, got %d", len(hunks))
+	}
+
+	h := hunks[0]
+	if len(h.Lines) != 4 {
+		t.Fatalf("expected 4 lines in first hunk, got %d", len(h.Lines))
+	}
+
+	last := h.Lines[3]
+	if last.Type != "context" {
+		t.Errorf("last line type=%q, want context", last.Type)
+	}
+	if last.Content != "" {
+		t.Errorf("last line content=%q, want empty string", last.Content)
+	}
+	if last.OldNum != 3 || last.NewNum != 3 {
+		t.Errorf("last line numbers: old=%d new=%d, want 3,3", last.OldNum, last.NewNum)
+	}
+}
+
+// TestParseUnifiedDiff_ConsecutiveBlankContextLines verifies that multiple
+// consecutive bare blank lines are each treated as context lines.
+func TestParseUnifiedDiff_ConsecutiveBlankContextLines(t *testing.T) {
+	// Hunk with two consecutive blank context lines between content.
+	// line1 (ctx), blank (ctx), blank (ctx), old (del), new (add), line5 (ctx)
+	diff := "--- a/f.txt\n+++ b/f.txt\n@@ -1,5 +1,5 @@\n line1\n\n\n-old\n+new\n line5\n"
+
+	hunks := ParseUnifiedDiff(diff)
+	if len(hunks) != 1 {
+		t.Fatalf("expected 1 hunk, got %d", len(hunks))
+	}
+
+	h := hunks[0]
+	if len(h.Lines) != 6 {
+		t.Fatalf("expected 6 lines, got %d", len(h.Lines))
+	}
+
+	// Lines[1] and Lines[2] should both be blank context lines
+	for _, i := range []int{1, 2} {
+		l := h.Lines[i]
+		if l.Type != "context" || l.Content != "" {
+			t.Errorf("line %d: type=%q content=%q, want context with empty content", i, l.Type, l.Content)
+		}
+	}
+
+	// Verify line numbers didn't desync
+	delLine := h.Lines[3]
+	if delLine.Type != "del" || delLine.OldNum != 4 {
+		t.Errorf("del line: type=%q oldNum=%d, want del at 4", delLine.Type, delLine.OldNum)
+	}
+	addLine := h.Lines[4]
+	if addLine.Type != "add" || addLine.NewNum != 4 {
+		t.Errorf("add line: type=%q newNum=%d, want add at 4", addLine.Type, addLine.NewNum)
+	}
+	lastLine := h.Lines[5]
+	if lastLine.OldNum != 5 || lastLine.NewNum != 5 {
+		t.Errorf("last context: old=%d new=%d, want 5,5", lastLine.OldNum, lastLine.NewNum)
+	}
+}
+
+// TestParseUnifiedDiff_MultipleHunksWithBlankLines verifies that blank context
+// lines in multiple hunks are each handled independently.
+func TestParseUnifiedDiff_MultipleHunksWithBlankLines(t *testing.T) {
+	// Two hunks, each containing a bare blank context line.
+	diff := "--- a/f.txt\n+++ b/f.txt\n" +
+		"@@ -1,4 +1,4 @@\n line1\n\n-old1\n+new1\n line4\n" +
+		"@@ -10,4 +10,4 @@\n line10\n\n-old2\n+new2\n line13\n"
+
+	hunks := ParseUnifiedDiff(diff)
+	if len(hunks) != 2 {
+		t.Fatalf("expected 2 hunks, got %d", len(hunks))
+	}
+
+	for i, h := range hunks {
+		// Each hunk: content (ctx), blank (ctx), old (del), new (add), content (ctx)
+		if len(h.Lines) != 5 {
+			t.Errorf("hunk %d: expected 5 lines, got %d", i, len(h.Lines))
+			continue
+		}
+
+		blank := h.Lines[1]
+		if blank.Type != "context" || blank.Content != "" {
+			t.Errorf("hunk %d blank line: type=%q content=%q, want context with empty", i, blank.Type, blank.Content)
+		}
+
+		del := h.Lines[2]
+		if del.Type != "del" {
+			t.Errorf("hunk %d: line 2 type=%q, want del", i, del.Type)
+		}
+
+		add := h.Lines[3]
+		if add.Type != "add" {
+			t.Errorf("hunk %d: line 3 type=%q, want add", i, add.Type)
+		}
+	}
+
+	// Verify line numbers in second hunk
+	h2 := hunks[1]
+	if h2.Lines[0].OldNum != 10 || h2.Lines[0].NewNum != 10 {
+		t.Errorf("hunk 2 first line: old=%d new=%d, want 10,10", h2.Lines[0].OldNum, h2.Lines[0].NewNum)
+	}
+	if h2.Lines[1].OldNum != 11 || h2.Lines[1].NewNum != 11 {
+		t.Errorf("hunk 2 blank line: old=%d new=%d, want 11,11", h2.Lines[1].OldNum, h2.Lines[1].NewNum)
+	}
+}
