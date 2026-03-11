@@ -374,6 +374,46 @@ func TestSession_LoadCritJSON_NoHash(t *testing.T) {
 	}
 }
 
+func TestSession_WriteFiles_PreservesNonSessionFiles(t *testing.T) {
+	s := newTestSession(t)
+
+	// Simulate `crit comment` having written a comment on a file not in the session
+	cj := `{
+		"branch": "test",
+		"base_ref": "",
+		"review_round": 1,
+		"files": {
+			"unrelated.go": {
+				"status": "modified",
+				"comments": [{"id": "c1", "start_line": 5, "end_line": 5, "body": "external comment", "resolved": false}]
+			}
+		}
+	}`
+	if err := os.WriteFile(s.critJSONPath(), []byte(cj), 0644); err != nil {
+		t.Fatalf("write .crit.json: %v", err)
+	}
+
+	// Add a comment on a session file (plan.md) and trigger a write
+	s.AddComment("plan.md", 1, 1, "", "session comment", "")
+	s.WriteFiles()
+
+	// Reload and verify both files are present
+	data, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		t.Fatalf("read .crit.json: %v", err)
+	}
+	var written CritJSON
+	if err := json.Unmarshal(data, &written); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := written.Files["unrelated.go"]; !ok {
+		t.Error("unrelated.go comments should be preserved after WriteFiles")
+	}
+	if _, ok := written.Files["plan.md"]; !ok {
+		t.Error("plan.md comments should be written")
+	}
+}
+
 func TestSession_LoadCritJSON_MismatchedHash(t *testing.T) {
 	s := newTestSession(t)
 

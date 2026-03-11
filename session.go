@@ -649,17 +649,27 @@ func (s *Session) critJSONPath() string {
 // WriteFiles writes the .crit.json file to disk.
 func (s *Session) WriteFiles() {
 	s.mu.RLock()
-	cj := CritJSON{
-		Branch:      s.Branch,
-		BaseRef:     s.BaseRef,
-		UpdatedAt:   time.Now().UTC().Format(time.RFC3339),
-		ReviewRound: s.ReviewRound,
-		ShareURL:    s.sharedURL,
-		DeleteToken: s.deleteToken,
-		Files:       make(map[string]CritJSONFile),
+
+	// Start from existing .crit.json to preserve comments for files not in this session
+	// (e.g. comments added via `crit comment` on files outside the current diff).
+	cj := CritJSON{Files: make(map[string]CritJSONFile)}
+	if data, err := os.ReadFile(s.critJSONPath()); err == nil {
+		_ = json.Unmarshal(data, &cj)
+		if cj.Files == nil {
+			cj.Files = make(map[string]CritJSONFile)
+		}
 	}
+	cj.Branch = s.Branch
+	cj.BaseRef = s.BaseRef
+	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	cj.ReviewRound = s.ReviewRound
+	cj.ShareURL = s.sharedURL
+	cj.DeleteToken = s.deleteToken
+
+	// Overlay session files: update entries that have comments, remove those that don't.
 	for _, f := range s.Files {
 		if len(f.Comments) == 0 {
+			delete(cj.Files, f.Path)
 			continue
 		}
 		comments := make([]Comment, len(f.Comments))
@@ -672,7 +682,7 @@ func (s *Session) WriteFiles() {
 	}
 	s.mu.RUnlock()
 
-	// Only write if there's meaningful content; remove stale file otherwise
+	// Only remove if nothing meaningful remains
 	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" {
 		os.Remove(s.critJSONPath())
 		return
