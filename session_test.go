@@ -957,6 +957,19 @@ func TestSession_CarryForward_PreservesAuthor(t *testing.T) {
 	}
 }
 
+func TestAddCommentSetsReviewRound(t *testing.T) {
+	s := newTestSession(t)
+	s.ReviewRound = 2
+
+	c, ok := s.AddComment("plan.md", 1, 1, "", "test body", "user")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	if c.ReviewRound != 2 {
+		t.Errorf("ReviewRound = %d, want 2", c.ReviewRound)
+	}
+}
+
 // TestFileDiffUnified_ColorConfigDoesNotBreakParsing verifies that even with
 // color.diff=always in gitconfig, the --no-color flag produces parseable output.
 func TestFileDiffUnified_ColorConfigDoesNotBreakParsing(t *testing.T) {

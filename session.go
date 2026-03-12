@@ -30,6 +30,7 @@ type Comment struct {
 	ResolutionNote  string `json:"resolution_note,omitempty"`
 	ResolutionLines any    `json:"resolution_lines,omitempty"`
 	CarriedForward  bool   `json:"carried_forward,omitempty"`
+	ReviewRound     int    `json:"review_round,omitempty"`
 }
 
 // SSEEvent is sent to the browser via server-sent events.
@@ -398,14 +399,15 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	c := Comment{
-		ID:        fmt.Sprintf("c%d", f.nextID),
-		StartLine: startLine,
-		EndLine:   endLine,
-		Side:      side,
-		Body:      body,
-		Author:    author,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          fmt.Sprintf("c%d", f.nextID),
+		StartLine:   startLine,
+		EndLine:     endLine,
+		Side:        side,
+		Body:        body,
+		Author:      author,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		ReviewRound: s.ReviewRound,
 	}
 	f.nextID++
 	f.Comments = append(f.Comments, c)
