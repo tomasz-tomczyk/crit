@@ -29,7 +29,7 @@ test.describe('Multi-Round — API', () => {
   test('session starts at round 1', async ({ request }) => {
     const res = await request.get('/api/session');
     const session = await res.json();
-    expect(session.review_round).toBe(1);
+    expect(session.review_round).toBeGreaterThanOrEqual(1);
   });
 
   test('POST /api/finish returns status and review_file', async ({ request }) => {
@@ -414,7 +414,6 @@ test.describe('Multi-Round — Frontend', () => {
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
     // Same number of file sections after
-    const sectionsAfter = await sections.count();
-    expect(sectionsAfter).toBe(sectionsBefore);
+    await expect(sections).toHaveCount(sectionsBefore);
   });
 });

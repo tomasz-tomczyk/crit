@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { loadPage } from './helpers';
+import { clearAllComments, loadPage } from './helpers';
 
 // ============================================================
 // Theme Tests (file mode)
 // ============================================================
 test.describe('Theme — File Mode', () => {
-  test.beforeEach(async ({ page, context }) => {
+  test.beforeEach(async ({ page, context, request }) => {
+    await clearAllComments(request);
     // Clear theme cookie before each test
     await context.clearCookies();
     await loadPage(page);

@@ -395,7 +395,6 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
     // Same number of file sections after
-    const sectionsAfter = await sections.count();
-    expect(sectionsAfter).toBe(sectionsBefore);
+    await expect(sections).toHaveCount(sectionsBefore);
   });
 });
