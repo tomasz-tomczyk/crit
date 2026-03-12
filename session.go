@@ -23,6 +23,7 @@ type Comment struct {
 	EndLine         int    `json:"end_line"`
 	Side            string `json:"side,omitempty"`
 	Body            string `json:"body"`
+	Author          string `json:"author,omitempty"`
 	CreatedAt       string `json:"created_at"`
 	UpdatedAt       string `json:"updated_at"`
 	Resolved        bool   `json:"resolved,omitempty"`
@@ -371,7 +372,7 @@ func (s *Session) FileByPath(path string) *FileEntry {
 }
 
 // AddComment adds a comment to a specific file.
-func (s *Session) AddComment(filePath string, startLine, endLine int, side, body string) (Comment, bool) {
+func (s *Session) AddComment(filePath string, startLine, endLine int, side, body, author string) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f := s.fileByPathLocked(filePath)
@@ -385,6 +386,7 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 		EndLine:   endLine,
 		Side:      side,
 		Body:      body,
+		Author:    author,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -647,17 +649,27 @@ func (s *Session) critJSONPath() string {
 // WriteFiles writes the .crit.json file to disk.
 func (s *Session) WriteFiles() {
 	s.mu.RLock()
-	cj := CritJSON{
-		Branch:      s.Branch,
-		BaseRef:     s.BaseRef,
-		UpdatedAt:   time.Now().UTC().Format(time.RFC3339),
-		ReviewRound: s.ReviewRound,
-		ShareURL:    s.sharedURL,
-		DeleteToken: s.deleteToken,
-		Files:       make(map[string]CritJSONFile),
+
+	// Start from existing .crit.json to preserve comments for files not in this session
+	// (e.g. comments added via `crit comment` on files outside the current diff).
+	cj := CritJSON{Files: make(map[string]CritJSONFile)}
+	if data, err := os.ReadFile(s.critJSONPath()); err == nil {
+		_ = json.Unmarshal(data, &cj)
+		if cj.Files == nil {
+			cj.Files = make(map[string]CritJSONFile)
+		}
 	}
+	cj.Branch = s.Branch
+	cj.BaseRef = s.BaseRef
+	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	cj.ReviewRound = s.ReviewRound
+	cj.ShareURL = s.sharedURL
+	cj.DeleteToken = s.deleteToken
+
+	// Overlay session files: update entries that have comments, remove those that don't.
 	for _, f := range s.Files {
 		if len(f.Comments) == 0 {
+			delete(cj.Files, f.Path)
 			continue
 		}
 		comments := make([]Comment, len(f.Comments))
@@ -670,7 +682,7 @@ func (s *Session) WriteFiles() {
 	}
 	s.mu.RUnlock()
 
-	// Only write if there's meaningful content; remove stale file otherwise
+	// Only remove if nothing meaningful remains
 	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" {
 		os.Remove(s.critJSONPath())
 		return
@@ -700,17 +712,15 @@ func (s *Session) loadCritJSON() {
 	s.sharedURL = cj.ShareURL
 	s.deleteToken = cj.DeleteToken
 
-	// Restore comments for files that match by path and hash
+	// Restore comments for files that match by path
 	for _, f := range s.Files {
 		if cf, ok := cj.Files[f.Path]; ok {
-			if cf.FileHash == f.FileHash {
-				f.Comments = cf.Comments
-				for _, c := range f.Comments {
-					id := 0
-					_, _ = fmt.Sscanf(c.ID, "c%d", &id)
-					if id >= f.nextID {
-						f.nextID = id + 1
-					}
+			f.Comments = cf.Comments
+			for _, c := range f.Comments {
+				id := 0
+				_, _ = fmt.Sscanf(c.ID, "c%d", &id)
+				if id >= f.nextID {
+					f.nextID = id + 1
 				}
 			}
 		}
@@ -1014,6 +1024,7 @@ func (s *Session) handleRoundCompleteGit() {
 				EndLine:         c.EndLine,
 				Side:            c.Side,
 				Body:            c.Body,
+				Author:          c.Author,
 				CreatedAt:       c.CreatedAt,
 				UpdatedAt:       now,
 				Resolved:        c.Resolved,
@@ -1066,6 +1077,7 @@ func (s *Session) handleRoundCompleteFiles() {
 				EndLine:         c.EndLine,
 				Side:            c.Side,
 				Body:            c.Body,
+				Author:          c.Author,
 				CreatedAt:       c.CreatedAt,
 				UpdatedAt:       now,
 				Resolved:        c.Resolved,
@@ -1212,6 +1224,7 @@ func (s *Session) carryForwardComments() {
 				EndLine:         newEnd,
 				Side:            c.Side,
 				Body:            c.Body,
+				Author:          c.Author,
 				CreatedAt:       c.CreatedAt,
 				UpdatedAt:       now,
 				Resolved:        c.Resolved,
