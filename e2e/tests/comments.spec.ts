@@ -448,9 +448,10 @@ test.describe('Author Badges', () => {
   });
 
   test('displays author badge on diff comments', async ({ page, request }) => {
-    // Add a comment with author on a code file (shown in diff view by default)
+    // Add a comment with author on a code file (shown in diff view by default).
+    // Line 5 is the added "log" import — guaranteed to be in the diff hunk.
     const resp = await request.post('/api/file/comments?path=server.go', {
-      data: { start_line: 1, end_line: 1, body: 'Diff comment', author: 'reviewer1' }
+      data: { start_line: 5, end_line: 5, body: 'Diff comment', author: 'reviewer1' }
     });
     expect(resp.ok()).toBeTruthy();
 
