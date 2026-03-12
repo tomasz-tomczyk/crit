@@ -605,6 +605,7 @@ Available keys:
   share_url         string    Share service URL
   quiet             bool      Suppress status output (default: false)
   output            string    Output directory for .crit.json
+  author            string    Your name for comments (default: git config user.name)
   ignore_patterns   []string  Gitignore-style patterns to exclude files from review
 
 Ignore pattern syntax:

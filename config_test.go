@@ -250,6 +250,41 @@ func writeFileForConfig(t *testing.T, path, content string) {
 	}
 }
 
+func TestLoadConfigAuthorFallsBackToGit(t *testing.T) {
+	// Isolated HOME so no global config interferes
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	// Set up a git repo with user.name configured
+	repoDir := t.TempDir()
+	runGitForConfig(t, repoDir, "init")
+	runGitForConfig(t, repoDir, "config", "user.email", "test@test.com")
+	runGitForConfig(t, repoDir, "config", "user.name", "Ada Lovelace")
+
+	// LoadConfig calls git without -C, so we must be inside the repo
+	origDir, _ := os.Getwd()
+	os.Chdir(repoDir)
+	defer os.Chdir(origDir)
+
+	cfg := LoadConfig(repoDir)
+	if cfg.Author != "Ada Lovelace" {
+		t.Errorf("Author = %q, want %q", cfg.Author, "Ada Lovelace")
+	}
+}
+
+func TestLoadConfigAuthorFromConfig(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	projectDir := t.TempDir()
+	os.WriteFile(filepath.Join(projectDir, ".crit.config.json"), []byte(`{"author": "Grace Hopper"}`), 0644)
+
+	cfg := LoadConfig(projectDir)
+	if cfg.Author != "Grace Hopper" {
+		t.Errorf("Author = %q, want %q", cfg.Author, "Grace Hopper")
+	}
+}
+
 func TestNewSessionFromGitWithIgnore(t *testing.T) {
 	dir := initTestRepoForConfig(t)
 
