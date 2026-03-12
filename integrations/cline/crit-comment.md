@@ -17,7 +17,7 @@ crit comment [--author '<name>'] <path>:<start>-<end> '<body>'
 ```bash
 crit comment src/auth.go:42 'Missing null check on user.session — will panic if session expired'
 crit comment src/handler.go:15-28 'This error is swallowed silently. The catch block returns ok but the caller expects an error on failure.'
-crit comment --author 'Claude' src/db.go:103 'Consider using a prepared statement here to avoid SQL injection'
+crit comment --author 'Cline' src/db.go:103 'Consider using a prepared statement here to avoid SQL injection'
 ```
 
 ## Rules
