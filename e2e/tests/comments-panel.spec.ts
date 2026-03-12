@@ -306,6 +306,35 @@ test.describe('Comments Panel — Git Mode', () => {
     await expect(inlineResolved).toHaveClass(/comment-card-highlight/);
   });
 
+  test('sidebar panel renders links with accent styling', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Check https://example.com for details');
+    await loadPage(page);
+    await page.keyboard.press('Shift+C');
+
+    const card = panelCards(page).first();
+    await expect(card).toBeVisible();
+    const link = card.locator('.comments-panel-card-body a');
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute('href', 'https://example.com');
+    // Link should have accent color, not default browser blue
+    const color = await link.evaluate(el => getComputedStyle(el).color);
+    expect(color).not.toBe('rgb(0, 0, 238)');
+  });
+
+  test('sidebar panel renders syntax-highlighted code blocks', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, '```go\nfunc main() {}\n```');
+    await loadPage(page);
+    await page.keyboard.press('Shift+C');
+
+    const card = panelCards(page).first();
+    await expect(card).toBeVisible();
+    const codeBlock = card.locator('.comments-panel-card-body pre code');
+    await expect(codeBlock).toBeVisible();
+    await expect(codeBlock.locator('span[class^="hljs-"]').first()).toBeVisible();
+  });
+
   test('new comments do not show carried-forward badges', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Fresh comment');

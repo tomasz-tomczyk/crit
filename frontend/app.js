@@ -2,7 +2,18 @@
   'use strict';
 
   // ===== Comment Markdown Renderer =====
-  const commentMd = window.markdownit({ html: false, linkify: true, typographer: true });
+  const commentMd = window.markdownit({
+    html: false,
+    linkify: true,
+    typographer: true,
+    highlight: function(str, lang) {
+      if (lang && hljs.getLanguage(lang)) {
+        try { return hljs.highlight(str, { language: lang }).value; } catch (_) {}
+      }
+      try { return hljs.highlightAuto(str).value; } catch (_) {}
+      return '';
+    }
+  });
 
   // ===== Document Markdown Renderer =====
   const documentMd = window.markdownit({
@@ -33,6 +44,7 @@
   let shareURL = '';
   let hostedURL = '';
   let deleteToken = '';
+  let configAuthor = '';
   let uiState = 'reviewing';
 
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
@@ -54,6 +66,22 @@
   let currentChangeIdx = -1;
 
   const enc = encodeURIComponent;
+
+  // Author color-coding for multi-reviewer comments
+  const AUTHOR_COLORS = [
+    { bg: 'rgba(74, 144, 217, 0.15)', border: 'rgba(74, 144, 217, 0.4)', text: '#4a90d9' },
+    { bg: 'rgba(217, 74, 74, 0.15)', border: 'rgba(217, 74, 74, 0.4)', text: '#d94a4a' },
+    { bg: 'rgba(74, 180, 100, 0.15)', border: 'rgba(74, 180, 100, 0.4)', text: '#4ab464' },
+    { bg: 'rgba(217, 166, 74, 0.15)', border: 'rgba(217, 166, 74, 0.4)', text: '#d9a64a' },
+    { bg: 'rgba(155, 74, 217, 0.15)', border: 'rgba(155, 74, 217, 0.4)', text: '#9b4ad9' },
+    { bg: 'rgba(74, 195, 195, 0.15)', border: 'rgba(74, 195, 195, 0.4)', text: '#4ac3c3' },
+  ];
+
+  function authorColor(name) {
+    let hash = 0;
+    for (const ch of name) hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
+    return AUTHOR_COLORS[Math.abs(hash) % AUTHOR_COLORS.length];
+  }
 
   // Sort comparator: directories before files at each depth, then alphabetical
   function fileSortComparator(a, b) {
@@ -203,6 +231,7 @@
     shareURL = configRes.share_url || '';
     hostedURL = configRes.hosted_url || '';
     deleteToken = configRes.delete_token || '';
+    configAuthor = configRes.author || '';
 
     if (shareURL && session.mode !== 'git') document.getElementById('shareBtn').style.display = '';
     if (hostedURL) showSharedNotice(hostedURL);
@@ -2685,6 +2714,168 @@
     });
   }
 
+  // ===== Comment Templates =====
+  function getTemplates() {
+    try {
+      var raw = getCookie('crit-templates');
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  function saveTemplates(templates) {
+    setCookie('crit-templates', JSON.stringify(templates));
+  }
+
+  function populateTemplateBar(bar, textarea) {
+    bar.innerHTML = '';
+    var templates = getTemplates();
+    if (templates.length === 0) {
+      bar.style.display = 'none';
+      return;
+    }
+    bar.style.display = '';
+    templates.forEach(function(tmpl, i) {
+      var chip = document.createElement('button');
+      chip.className = 'template-chip';
+      chip.title = tmpl;
+      var label = document.createElement('span');
+      label.className = 'template-chip-label';
+      label.textContent = tmpl;
+      chip.appendChild(label);
+      var del = document.createElement('span');
+      del.className = 'template-chip-delete';
+      del.textContent = '\u00d7';
+      del.title = 'Remove template';
+      del.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var t = getTemplates();
+        t.splice(i, 1);
+        saveTemplates(t);
+        populateTemplateBar(bar, textarea);
+      });
+      chip.appendChild(del);
+      chip.addEventListener('click', function(e) {
+        e.preventDefault();
+        var start = textarea.selectionStart;
+        var end = textarea.selectionEnd;
+        textarea.value = textarea.value.substring(0, start) + tmpl + textarea.value.substring(end);
+        textarea.selectionStart = textarea.selectionEnd = start + tmpl.length;
+        textarea.focus();
+        textarea.dispatchEvent(new Event('input'));
+      });
+      bar.appendChild(chip);
+    });
+  }
+
+  function createTemplateBar(textarea) {
+    var bar = document.createElement('div');
+    bar.className = 'comment-template-bar';
+    populateTemplateBar(bar, textarea);
+    return bar;
+  }
+
+  function attachTemplateUI(form, textarea, actions) {
+    var templateBar = createTemplateBar(textarea);
+
+    var saveTemplateBtn = document.createElement('button');
+    saveTemplateBtn.className = 'btn btn-sm';
+    saveTemplateBtn.textContent = '+ Save as template';
+    saveTemplateBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      showSaveTemplateDialog(textarea, templateBar);
+    });
+
+    var suggestBtn = document.createElement('button');
+    suggestBtn.className = 'btn btn-sm';
+    suggestBtn.textContent = '\u00B1 Suggest';
+    suggestBtn.title = 'Insert the selected lines as a suggestion';
+    suggestBtn.addEventListener('click', function() { insertSuggestion(textarea); });
+
+    var leftGroup = document.createElement('div');
+    leftGroup.className = 'comment-form-actions-left';
+    leftGroup.appendChild(suggestBtn);
+    leftGroup.appendChild(saveTemplateBtn);
+    leftGroup.style.marginRight = 'auto';
+
+    actions.insertBefore(leftGroup, actions.firstChild);
+    form.insertBefore(templateBar, form.querySelector('textarea'));
+  }
+
+  function showSaveTemplateDialog(textarea, templateBar) {
+    var text = textarea.value.trim();
+    if (!text) {
+      textarea.focus();
+      return;
+    }
+    var overlay = document.createElement('div');
+    overlay.className = 'save-template-overlay active';
+
+    var dialog = document.createElement('div');
+    dialog.className = 'save-template-dialog';
+
+    var title = document.createElement('h3');
+    title.textContent = 'Save as template';
+    dialog.appendChild(title);
+
+    var desc = document.createElement('p');
+    desc.textContent = 'Edit the template text, then save.';
+    dialog.appendChild(desc);
+
+    var input = document.createElement('textarea');
+    input.className = 'save-template-input';
+    input.value = text;
+    input.rows = 3;
+    dialog.appendChild(input);
+
+    var btns = document.createElement('div');
+    btns.className = 'save-template-actions';
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-sm';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', function() { overlay.remove(); textarea.focus(); });
+
+    var saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-sm btn-primary';
+    saveBtn.textContent = 'Save';
+    saveBtn.addEventListener('click', function() {
+      var val = input.value.trim();
+      if (!val) return;
+      var t = getTemplates();
+      t.push(val);
+      saveTemplates(t);
+      overlay.remove();
+      populateTemplateBar(templateBar, textarea);
+      textarea.focus();
+    });
+
+    btns.appendChild(cancelBtn);
+    btns.appendChild(saveBtn);
+    dialog.appendChild(btns);
+
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        saveBtn.click();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelBtn.click();
+      }
+    });
+
+    overlay.appendChild(dialog);
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) { overlay.remove(); textarea.focus(); }
+    });
+    document.body.appendChild(overlay);
+    requestAnimationFrame(function() { input.focus(); input.select(); });
+  }
+
   // ===== Comment Form =====
   function createCommentForm() {
     const wrapper = document.createElement('div');
@@ -2725,13 +2916,6 @@
     const actions = document.createElement('div');
     actions.className = 'comment-form-actions';
 
-    const suggestBtn = document.createElement('button');
-    suggestBtn.className = 'btn btn-sm';
-    suggestBtn.textContent = '\u00B1 Suggest';
-    suggestBtn.title = 'Insert the selected lines as a suggestion';
-    suggestBtn.style.marginRight = 'auto';
-    suggestBtn.addEventListener('click', () => insertSuggestion(textarea));
-
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-sm';
     cancelBtn.textContent = 'Cancel';
@@ -2742,13 +2926,13 @@
     submitBtn.textContent = activeForm.editingId ? 'Update Comment' : 'Add Comment';
     submitBtn.addEventListener('click', () => submitComment(textarea.value));
 
-    actions.appendChild(suggestBtn);
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
     form.appendChild(header);
     form.appendChild(textarea);
     form.appendChild(actions);
+    attachTemplateUI(form, textarea, actions);
     wrapper.appendChild(form);
     return wrapper;
   }
@@ -2792,6 +2976,7 @@
           body: body.trim()
         };
         if (activeForm.side) payload.side = activeForm.side;
+        if (configAuthor) payload.author = configAuthor;
         const res = await fetch('/api/file/comments?path=' + enc(filePath), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2982,6 +3167,14 @@
 
     const headerLeft = document.createElement('div');
     headerLeft.style.cssText = 'display:flex;align-items:center;gap:10px';
+    if (comment.author) {
+      const authorBadge = document.createElement('span');
+      authorBadge.className = 'comment-author-badge';
+      const colors = authorColor(comment.author);
+      authorBadge.style.cssText = 'background:' + colors.bg + ';border-color:' + colors.border + ';color:' + colors.text;
+      authorBadge.textContent = '@' + comment.author;
+      headerLeft.appendChild(authorBadge);
+    }
     headerLeft.appendChild(lineRef);
     if (comment.carried_forward) {
       const label = document.createElement('span');
@@ -3054,12 +3247,6 @@
     const actions = document.createElement('div');
     actions.className = 'comment-form-actions';
 
-    const suggestBtn = document.createElement('button');
-    suggestBtn.className = 'btn btn-sm';
-    suggestBtn.textContent = '\u00B1 Suggest';
-    suggestBtn.style.marginRight = 'auto';
-    suggestBtn.addEventListener('click', () => insertSuggestion(textarea));
-
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-sm';
     cancelBtn.textContent = 'Cancel';
@@ -3070,13 +3257,13 @@
     submitBtn.textContent = 'Update Comment';
     submitBtn.addEventListener('click', () => submitComment(textarea.value));
 
-    actions.appendChild(suggestBtn);
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
     form.appendChild(header);
     form.appendChild(textarea);
     form.appendChild(actions);
+    attachTemplateUI(form, textarea, actions);
     wrapper.appendChild(form);
 
     requestAnimationFrame(() => textarea.focus());
@@ -3536,7 +3723,9 @@
     };
     for (const f of files) {
       for (const c of f.comments) {
-        payload.comments.push({ file: f.path, start_line: c.start_line, end_line: c.end_line, body: c.body });
+        const shared = { file: f.path, start_line: c.start_line, end_line: c.end_line, body: c.body };
+        if (c.author) shared.author_display_name = c.author;
+        payload.comments.push(shared);
       }
     }
 

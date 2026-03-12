@@ -23,6 +23,7 @@ type Comment struct {
 	EndLine         int    `json:"end_line"`
 	Side            string `json:"side,omitempty"`
 	Body            string `json:"body"`
+	Author          string `json:"author,omitempty"`
 	CreatedAt       string `json:"created_at"`
 	UpdatedAt       string `json:"updated_at"`
 	Resolved        bool   `json:"resolved,omitempty"`
@@ -59,13 +60,14 @@ type FileEntry struct {
 
 // Session is the top-level state manager for a multi-file review.
 type Session struct {
-	Files       []*FileEntry
-	Mode        string // "files" (explicit markdown files) or "git" (auto-detected from git)
-	Branch      string
-	BaseRef     string
-	RepoRoot    string
-	OutputDir   string // custom output directory for .crit.json (empty = RepoRoot)
-	ReviewRound int
+	Files          []*FileEntry
+	Mode           string // "files" (explicit markdown files) or "git" (auto-detected from git)
+	Branch         string
+	BaseRef        string
+	RepoRoot       string
+	OutputDir      string // custom output directory for .crit.json (empty = RepoRoot)
+	ReviewRound    int
+	IgnorePatterns []string
 
 	mu             sync.RWMutex
 	subscribers    map[chan SSEEvent]struct{}
@@ -99,7 +101,7 @@ type CritJSONFile struct {
 }
 
 // NewSessionFromGit creates a session by auto-detecting changed files via git.
-func NewSessionFromGit() (*Session, error) {
+func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 	root, err := RepoRoot()
 	if err != nil {
 		return nil, fmt.Errorf("not a git repository: %w", err)
@@ -124,18 +126,22 @@ func NewSessionFromGit() (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("detecting changes: %w", err)
 	}
+	// Apply ignore patterns
+	changes = filterIgnored(changes, ignorePatterns)
+
 	if len(changes) == 0 {
-		return nil, fmt.Errorf("no changed files detected")
+		return nil, fmt.Errorf("no changed files detected (after applying ignore patterns)")
 	}
 
 	s := &Session{
-		Mode:          "git",
-		Branch:        branch,
-		BaseRef:       baseRef,
-		RepoRoot:      root,
-		ReviewRound:   1,
-		subscribers:   make(map[chan SSEEvent]struct{}),
-		roundComplete: make(chan struct{}, 1),
+		Mode:           "git",
+		Branch:         branch,
+		BaseRef:        baseRef,
+		RepoRoot:       root,
+		ReviewRound:    1,
+		IgnorePatterns: ignorePatterns,
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		roundComplete:  make(chan struct{}, 1),
 	}
 
 	for _, fc := range changes {
@@ -183,7 +189,7 @@ func NewSessionFromGit() (*Session, error) {
 
 // NewSessionFromFiles creates a session from explicitly provided file or directory paths.
 // When a directory is passed, all files within it are included recursively.
-func NewSessionFromFiles(paths []string) (*Session, error) {
+func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("no files provided")
 	}
@@ -200,12 +206,13 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 			return nil, fmt.Errorf("file not found: %s", p)
 		}
 		if info.IsDir() {
-			dirFiles, err := walkDirectory(absPath)
+			dirFiles, err := walkDirectory(absPath, ignorePatterns)
 			if err != nil {
 				return nil, fmt.Errorf("walking directory %s: %w", p, err)
 			}
 			expandedPaths = append(expandedPaths, dirFiles...)
 		} else {
+			// Explicit files are never filtered by ignore patterns
 			expandedPaths = append(expandedPaths, absPath)
 		}
 	}
@@ -243,13 +250,14 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 	}
 
 	s := &Session{
-		Mode:          "files",
-		Branch:        branch,
-		BaseRef:       baseRef,
-		RepoRoot:      root,
-		ReviewRound:   1,
-		subscribers:   make(map[chan SSEEvent]struct{}),
-		roundComplete: make(chan struct{}, 1),
+		Mode:           "files",
+		Branch:         branch,
+		BaseRef:        baseRef,
+		RepoRoot:       root,
+		ReviewRound:    1,
+		IgnorePatterns: ignorePatterns,
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		roundComplete:  make(chan struct{}, 1),
 	}
 
 	for _, absPath := range expandedPaths {
@@ -295,7 +303,7 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 
 // walkDirectory recursively walks a directory and returns all file paths,
 // skipping hidden directories and common non-text directories.
-func walkDirectory(dir string) ([]string, error) {
+func walkDirectory(dir string, ignorePatterns []string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -326,6 +334,15 @@ func walkDirectory(dir string) ([]string, error) {
 		ext := strings.ToLower(filepath.Ext(name))
 		if isBinaryExtension(ext) {
 			return nil
+		}
+
+		// Apply ignore patterns (use path relative to dir)
+		if relPath, relErr := filepath.Rel(dir, path); relErr == nil {
+			for _, pat := range ignorePatterns {
+				if matchPattern(pat, relPath) {
+					return nil
+				}
+			}
 		}
 
 		files = append(files, path)
@@ -371,7 +388,7 @@ func (s *Session) FileByPath(path string) *FileEntry {
 }
 
 // AddComment adds a comment to a specific file.
-func (s *Session) AddComment(filePath string, startLine, endLine int, side, body string) (Comment, bool) {
+func (s *Session) AddComment(filePath string, startLine, endLine int, side, body, author string) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f := s.fileByPathLocked(filePath)
@@ -385,6 +402,7 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 		EndLine:   endLine,
 		Side:      side,
 		Body:      body,
+		Author:    author,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -647,17 +665,27 @@ func (s *Session) critJSONPath() string {
 // WriteFiles writes the .crit.json file to disk.
 func (s *Session) WriteFiles() {
 	s.mu.RLock()
-	cj := CritJSON{
-		Branch:      s.Branch,
-		BaseRef:     s.BaseRef,
-		UpdatedAt:   time.Now().UTC().Format(time.RFC3339),
-		ReviewRound: s.ReviewRound,
-		ShareURL:    s.sharedURL,
-		DeleteToken: s.deleteToken,
-		Files:       make(map[string]CritJSONFile),
+
+	// Start from existing .crit.json to preserve comments for files not in this session
+	// (e.g. comments added via `crit comment` on files outside the current diff).
+	cj := CritJSON{Files: make(map[string]CritJSONFile)}
+	if data, err := os.ReadFile(s.critJSONPath()); err == nil {
+		_ = json.Unmarshal(data, &cj)
+		if cj.Files == nil {
+			cj.Files = make(map[string]CritJSONFile)
+		}
 	}
+	cj.Branch = s.Branch
+	cj.BaseRef = s.BaseRef
+	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	cj.ReviewRound = s.ReviewRound
+	cj.ShareURL = s.sharedURL
+	cj.DeleteToken = s.deleteToken
+
+	// Overlay session files: update entries that have comments, remove those that don't.
 	for _, f := range s.Files {
 		if len(f.Comments) == 0 {
+			delete(cj.Files, f.Path)
 			continue
 		}
 		comments := make([]Comment, len(f.Comments))
@@ -670,7 +698,7 @@ func (s *Session) WriteFiles() {
 	}
 	s.mu.RUnlock()
 
-	// Only write if there's meaningful content; remove stale file otherwise
+	// Only remove if nothing meaningful remains
 	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" {
 		os.Remove(s.critJSONPath())
 		return
@@ -700,17 +728,15 @@ func (s *Session) loadCritJSON() {
 	s.sharedURL = cj.ShareURL
 	s.deleteToken = cj.DeleteToken
 
-	// Restore comments for files that match by path and hash
+	// Restore comments for files that match by path
 	for _, f := range s.Files {
 		if cf, ok := cj.Files[f.Path]; ok {
-			if cf.FileHash == f.FileHash {
-				f.Comments = cf.Comments
-				for _, c := range f.Comments {
-					id := 0
-					_, _ = fmt.Sscanf(c.ID, "c%d", &id)
-					if id >= f.nextID {
-						f.nextID = id + 1
-					}
+			f.Comments = cf.Comments
+			for _, c := range f.Comments {
+				id := 0
+				_, _ = fmt.Sscanf(c.ID, "c%d", &id)
+				if id >= f.nextID {
+					f.nextID = id + 1
 				}
 			}
 		}
@@ -815,6 +841,9 @@ func (s *Session) RefreshFileList() {
 	if err != nil {
 		return
 	}
+
+	// Apply ignore patterns
+	changes = filterIgnored(changes, s.IgnorePatterns)
 
 	// Snapshot existing files under read lock
 	s.mu.RLock()
@@ -1014,6 +1043,7 @@ func (s *Session) handleRoundCompleteGit() {
 				EndLine:         c.EndLine,
 				Side:            c.Side,
 				Body:            c.Body,
+				Author:          c.Author,
 				CreatedAt:       c.CreatedAt,
 				UpdatedAt:       now,
 				Resolved:        c.Resolved,
@@ -1066,6 +1096,7 @@ func (s *Session) handleRoundCompleteFiles() {
 				EndLine:         c.EndLine,
 				Side:            c.Side,
 				Body:            c.Body,
+				Author:          c.Author,
 				CreatedAt:       c.CreatedAt,
 				UpdatedAt:       now,
 				Resolved:        c.Resolved,
@@ -1212,6 +1243,7 @@ func (s *Session) carryForwardComments() {
 				EndLine:         newEnd,
 				Side:            c.Side,
 				Body:            c.Body,
+				Author:          c.Author,
 				CreatedAt:       c.CreatedAt,
 				UpdatedAt:       now,
 				Resolved:        c.Resolved,

@@ -9,8 +9,6 @@ crit plan.md      # review specific files
 
 Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf - any agent that reads files.
 
-> **Note:** This is a fork of [tomasz-tomczyk/crit](https://github.com/tomasz-tomczyk/crit). The only difference is that the built-in sharing to crit.live is removed, so you don't accidentally upload your plans to a third-party service. Sharing still works if you self-host a crit-web instance and pass `--share-url`.
-
 ![Crit review UI](images/demo-overview.png)
 
 ## Workflow
@@ -53,33 +51,66 @@ A 5-minute walkthrough: leaving inline comments on a plan, followed by branch re
 
 ## Install
 
-### Quick install (macOS / Linux)
+### Homebrew (macOS / Linux)
 
 ```bash
-# macOS Apple Silicon
-curl -L https://github.com/JoshEllinger/crit/releases/latest/download/crit-darwin-arm64 -o ~/.local/bin/crit && chmod +x ~/.local/bin/crit
-
-# macOS Intel
-curl -L https://github.com/JoshEllinger/crit/releases/latest/download/crit-darwin-amd64 -o ~/.local/bin/crit && chmod +x ~/.local/bin/crit
-
-# Linux x86_64
-curl -L https://github.com/JoshEllinger/crit/releases/latest/download/crit-linux-amd64 -o ~/.local/bin/crit && chmod +x ~/.local/bin/crit
-
-# Linux ARM64
-curl -L https://github.com/JoshEllinger/crit/releases/latest/download/crit-linux-arm64 -o ~/.local/bin/crit && chmod +x ~/.local/bin/crit
+brew install tomasz-tomczyk/tap/crit
 ```
-
-Make sure `~/.local/bin` is on your `PATH`. To update, just re-run the same command.
 
 ### Go
 
 ```bash
-go install github.com/JoshEllinger/crit@latest
+go install github.com/tomasz-tomczyk/crit@latest
+```
+
+### Nix
+
+```bash
+# Run without installing
+nix run github:tomasz-tomczyk/crit -- --help
+```
+
+Or add it to a `flake.nix`:
+
+```nix
+inputs.crit.url = "github:tomasz-tomczyk/crit";
+```
+
+If you want to use the package directly from that input, reference the named package:
+
+```nix
+inputs.crit.packages.${pkgs.stdenv.hostPlatform.system}.crit
+```
+
+If you prefer a local alias in one module, use a `let` binding:
+
+```nix
+let
+  crit = inputs.crit.packages.${pkgs.stdenv.hostPlatform.system}.crit;
+in {
+  environment.systemPackages = with pkgs; [
+    crit
+  ];
+}
+```
+
+If you want `pkgs.crit` everywhere, add an overlay:
+
+```nix
+# overlays/crit.nix
+inputs: final: _prev: {
+  crit = inputs.crit.packages.${final.stdenv.hostPlatform.system}.crit;
+}
+```
+
+```nix
+# then include it in your nixpkgs overlays
+(import ./overlays/crit.nix inputs)
 ```
 
 ### Download Binary
 
-Or grab the latest binary for your platform from [Releases](https://github.com/JoshEllinger/crit/releases).
+Grab the latest binary for your platform from [Releases](https://github.com/tomasz-tomczyk/crit/releases).
 
 ## Features
 
@@ -119,7 +150,7 @@ Select lines and use "Insert suggestion" to pre-fill the comment with the origin
 
 ### Share for async review
 
-Share reviews with others by running with `--share-url` pointed at a self-hosted crit-web instance. The Share button uploads your review and gives you a URL anyone can open in a browser. Each reviewer's comments are color-coded by author. Unpublish anytime.
+Want a second opinion before handing off to the agent? Enable sharing by setting `CRIT_SHARE_URL=https://crit.live` (or pass `--share-url`), then click the Share button to upload your review and get a public URL anyone can open in a browser, no install needed. Each reviewer's comments are color-coded by author. Unpublish anytime.
 
 ### Finish review: prompt copied to clipboard
 
@@ -141,7 +172,7 @@ Architecture diagrams in fenced ` ```mermaid ` blocks render inline. You can com
 - **Concurrent reviews.** Each instance runs on its own port - review multiple plans at once.
 - **Syntax highlighting.** Code blocks are highlighted and split per-line, so you can comment on individual lines inside a fence.
 - **Live file watching.** The browser reloads automatically when the source file changes.
-- **Real-time output.** `.review.md` is written on every keystroke (200ms debounce), so your agent always has the latest state.
+- **Real-time output.** `.crit.json` is written on every comment change (200ms debounce), so your agent always has the latest review state.
 - **Dark/light/system theme.** Three-button pill in the header, persisted to localStorage.
 - **Local by default.** Server binds to `127.0.0.1`. Your files stay on your machine unless you explicitly share.
 
@@ -152,9 +183,8 @@ Crit ships with drop-in configuration files for popular AI coding tools. Each on
 The fastest way to set up an integration:
 
 ```bash
-crit install claude-code          # or: cursor, windsurf, github-copilot, cline
-crit install all                  # install all integrations at once
-crit install claude-code --global # install to ~/.claude/commands/ (available in all projects)
+crit install claude-code   # or: cursor, opencode, windsurf, github-copilot, cline
+crit install all           # install all integrations at once
 ```
 
 This copies the right files to the right places in your project. Safe to re-run - existing files are skipped (use `--force` to overwrite).
@@ -165,6 +195,8 @@ Or set up manually:
 | ------------------ | ------------------------------------------------------------------------------------- |
 | **Claude Code**    | Copy `integrations/claude-code/crit.md` to `.claude/commands/crit.md`                 |
 | **Cursor**         | Copy `integrations/cursor/crit-command.md` to `.cursor/commands/crit.md`              |
+| **OpenCode**       | Copy `integrations/opencode/crit.md` to `.opencode/commands/crit.md`                  |
+| **OpenCode**       | Copy `integrations/opencode/SKILL.md` to `.opencode/skills/crit-review/SKILL.md`      |
 | **GitHub Copilot** | Copy `integrations/github-copilot/crit.prompt.md` to `.github/prompts/crit.prompt.md` |
 | **Windsurf**       | Copy `integrations/windsurf/crit.md` to `.windsurf/rules/crit.md`                     |
 | **Aider**          | Append `integrations/aider/CONVENTIONS.md` to your `CONVENTIONS.md`                   |
@@ -174,14 +206,14 @@ See [`integrations/`](integrations/) for the full files and details.
 
 ### `/crit` command
 
-Claude Code, Cursor, and GitHub Copilot support a `/crit` slash command that automates the full review loop:
+Claude Code, Cursor, OpenCode, and GitHub Copilot support a `/crit` slash command that automates the full review loop:
 
 ```
 /crit              # Auto-detects the current plan file
 /crit my-plan.md   # Review a specific file
 ```
 
-It launches Crit, waits for your review, reads your comments, revises the plan, and signals Crit for another round. Other tools use rules files that teach the agent to suggest Crit when writing plans.
+It launches Crit, waits for your review, reads your comments, revises the plan, and signals Crit for another round. OpenCode also ships with a `crit-review` skill that agents can load on demand. Other tools use rules files that teach the agent to suggest Crit when writing plans.
 
 ## Usage
 
@@ -200,20 +232,113 @@ crit -p 3000 plan.md
 crit --no-open plan.md
 ```
 
+## Programmatic Comments
+
+AI agents can use `crit comment` to add inline review comments without opening the browser UI or constructing JSON manually:
+
+```bash
+crit comment src/auth.go:42 'Missing null check'
+crit comment src/handler.go:15-28 'Error handling issue'
+crit comment --output /tmp/reviews src/auth.go:42 'comment'  # custom output dir
+crit comment --clear   # remove .crit.json
+```
+
+Comments are appended to `.crit.json` — created automatically if it doesn't exist. Run `crit install <agent>` to install the integration, which includes a `crit-comment` skill file teaching your agent the syntax.
+
+## GitHub PR Sync
+
+Crit can sync review comments bidirectionally with GitHub PRs. Requires the [GitHub CLI](https://cli.github.com) (`gh`) to be installed and authenticated.
+
+### Pull comments from a PR
+
+```bash
+crit pull              # auto-detects PR from current branch
+crit pull 42           # explicit PR number
+```
+
+### Push comments to a PR
+
+```bash
+crit push                          # auto-detects PR from current branch
+crit push --dry-run                # preview without posting
+crit push --message "Round 2"      # add a top-level review comment
+crit push 42                       # explicit PR number
+```
+
+## Configuration
+
+Crit supports persistent configuration via JSON files so you don't have to pass the same flags every time.
+
+| File                    | Scope   | Location                          |
+| ----------------------- | ------- | --------------------------------- |
+| `~/.crit.config.json`   | Global  | Applies to all projects           |
+| `.crit.config.json`     | Project | Repo root (from `git rev-parse --show-toplevel`) |
+
+Project config overrides global. CLI flags and env vars override both.
+
+```bash
+# Generate a starter config with all available keys
+crit config --generate > .crit.config.json
+
+# View resolved config (merged global + project)
+crit config
+
+# See all available keys and pattern syntax
+crit config --help
+```
+
+### Example
+
+```json
+{
+  "port": 3456,
+  "no_open": false,
+  "share_url": "https://crit.live",
+  "quiet": false,
+  "output": "",
+  "ignore_patterns": [
+    "*.lock",
+    "*.min.js",
+    "vendor/",
+    "generated/*.pb.go"
+  ]
+}
+```
+
+All keys are optional — omit any you don't need.
+
+### Ignore patterns
+
+Patterns from global and project configs are merged (union). Supported syntax:
+
+| Pattern              | Matches                                          |
+| -------------------- | ------------------------------------------------ |
+| `*.lock`             | Files ending in `.lock` anywhere in tree         |
+| `vendor/`            | All files under `vendor/`                        |
+| `package-lock.json`  | Exact filename anywhere in tree                  |
+| `generated/*.pb.go`  | Path prefix with glob (`filepath.Match` syntax)  |
+
+Use `--no-ignore` to temporarily disable all ignore patterns:
+
+```bash
+crit --no-ignore   # review everything, including ignored files
+```
+
 ## Environment Variables
 
 | Variable               | Description                                                                                |
 | ---------------------- | ------------------------------------------------------------------------------------------ |
-| `CRIT_SHARE_URL`       | Share service URL for the Share button (requires a self-hosted crit-web instance) |
+| `CRIT_SHARE_URL`       | Enable the Share button (e.g. `https://crit.live` or a self-hosted instance) |
+| `CRIT_PORT`            | Override the default port (between config file and CLI flag in precedence)                  |
 | `CRIT_NO_UPDATE_CHECK` | Set to any value to disable the update check on startup                                    |
 
 ## Build from Source
 
-Requires Go 1.25+ (install via [asdf](https://asdf-vm.com/), Homebrew, or [go.dev](https://go.dev/dl/)):
+Requires Go 1.26+ (install via [asdf](https://asdf-vm.com/), Homebrew, or [go.dev](https://go.dev/dl/)):
 
 ```bash
 # Clone and build
-git clone https://github.com/JoshEllinger/crit.git
+git clone https://github.com/tomasz-tomczyk/crit.git
 cd crit
 go build -o crit .
 

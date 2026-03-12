@@ -57,6 +57,43 @@ test.describe('Markdown Comments — Git Mode', () => {
     await expect(card.locator('.comment-body')).toContainText('This is a test comment on markdown');
   });
 
+  test('comment with fenced code block gets syntax highlighting', async ({ page }) => {
+    const section = mdSection(page);
+    const lineBlock = section.locator('.line-block').first();
+    await lineBlock.hover();
+    await section.locator('.line-comment-gutter').first().click();
+
+    const textarea = page.locator('.comment-form textarea');
+    await textarea.fill('Check this:\n```go\nfunc main() {\n\tfmt.Println("hello")\n}\n```');
+    await page.locator('.comment-form .btn-primary').click();
+
+    const body = section.locator('.comment-card .comment-body');
+    await expect(body).toBeVisible();
+    // hljs should produce spans with hljs-* classes inside the code block
+    const codeBlock = body.locator('pre code');
+    await expect(codeBlock).toBeVisible();
+    await expect(codeBlock.locator('span[class^="hljs-"]').first()).toBeVisible();
+  });
+
+  test('comment with URL renders styled link', async ({ page }) => {
+    const section = mdSection(page);
+    const lineBlock = section.locator('.line-block').first();
+    await lineBlock.hover();
+    await section.locator('.line-comment-gutter').first().click();
+
+    const textarea = page.locator('.comment-form textarea');
+    await textarea.fill('See https://example.com for details');
+    await page.locator('.comment-form .btn-primary').click();
+
+    const body = section.locator('.comment-card .comment-body');
+    const link = body.locator('a');
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute('href', 'https://example.com');
+    // Link should have accent color styling (not default browser blue)
+    const color = await link.evaluate(el => getComputedStyle(el).color);
+    expect(color).not.toBe('rgb(0, 0, 238)'); // not default blue
+  });
+
   test('comment count updates in header after adding a comment', async ({ page }) => {
     const section = mdSection(page);
 
@@ -372,5 +409,94 @@ test.describe('Cross-File Comments', () => {
     // The form should be within the handler.js section
     const handlerForm = handlerSection.locator('.comment-form');
     await expect(handlerForm).toBeVisible();
+  });
+});
+
+// ============================================================
+// Author Badge Rendering
+// ============================================================
+test.describe('Author Badges', () => {
+  test.beforeEach(async ({ request }) => {
+    await clearAllComments(request);
+  });
+
+  test('displays author badge when comment has author field', async ({ page, request }) => {
+    const resp = await request.post('/api/file/comments?path=plan.md', {
+      data: { start_line: 1, end_line: 1, body: 'Test comment', author: 'reviewer1' }
+    });
+    expect(resp.ok()).toBeTruthy();
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const badge = page.locator('.comment-author-badge');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText('@reviewer1');
+  });
+
+  test('does not display author badge when comment has no author', async ({ page, request }) => {
+    const resp = await request.post('/api/file/comments?path=plan.md', {
+      data: { start_line: 1, end_line: 1, body: 'Local comment' }
+    });
+    expect(resp.ok()).toBeTruthy();
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    await expect(page.locator('.comment-card')).toHaveCount(1);
+    await expect(page.locator('.comment-author-badge')).toHaveCount(0);
+  });
+
+  test('does not display author badge when author is empty string', async ({ page, request }) => {
+    const resp = await request.post('/api/file/comments?path=plan.md', {
+      data: { start_line: 1, end_line: 1, body: 'Empty author comment', author: '' }
+    });
+    expect(resp.ok()).toBeTruthy();
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    await expect(page.locator('.comment-card')).toHaveCount(1);
+    await expect(page.locator('.comment-author-badge')).toHaveCount(0);
+  });
+
+  test('color-codes different authors distinctly', async ({ page, request }) => {
+    const resp1 = await request.post('/api/file/comments?path=plan.md', {
+      data: { start_line: 1, end_line: 1, body: 'Comment A', author: 'alice' }
+    });
+    expect(resp1.ok()).toBeTruthy();
+    const resp2 = await request.post('/api/file/comments?path=plan.md', {
+      data: { start_line: 2, end_line: 2, body: 'Comment B', author: 'bob' }
+    });
+    expect(resp2.ok()).toBeTruthy();
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const badges = page.locator('.comment-author-badge');
+    await expect(badges).toHaveCount(2);
+
+    // Verify both have color styles and they are different from each other
+    const style0 = await badges.nth(0).getAttribute('style');
+    const style1 = await badges.nth(1).getAttribute('style');
+    expect(style0).toContain('background:');
+    expect(style1).toContain('background:');
+    expect(style0).not.toEqual(style1);
+  });
+
+  test('displays author badge on diff comments', async ({ page, request }) => {
+    // Add a comment with author on a code file (shown in diff view by default).
+    // Line 5 is the added "log" import — guaranteed to be in the diff hunk.
+    const resp = await request.post('/api/file/comments?path=server.go', {
+      data: { start_line: 5, end_line: 5, body: 'Diff comment', author: 'reviewer1' }
+    });
+    expect(resp.ok()).toBeTruthy();
+
+    await loadPage(page);
+
+    const section = goSection(page);
+    const badge = section.locator('.comment-author-badge');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText('@reviewer1');
   });
 });

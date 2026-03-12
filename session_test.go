@@ -64,7 +64,7 @@ func TestSession_FileByPath(t *testing.T) {
 
 func TestSession_AddComment(t *testing.T) {
 	s := newTestSession(t)
-	c, ok := s.AddComment("plan.md", 1, 3, "", "Rethink this")
+	c, ok := s.AddComment("plan.md", 1, 3, "", "Rethink this", "")
 	if !ok {
 		t.Fatal("AddComment failed")
 	}
@@ -83,7 +83,7 @@ func TestSession_AddComment(t *testing.T) {
 
 func TestSession_AddComment_NonexistentFile(t *testing.T) {
 	s := newTestSession(t)
-	_, ok := s.AddComment("nonexistent.go", 1, 1, "", "test")
+	_, ok := s.AddComment("nonexistent.go", 1, 1, "", "test", "")
 	if ok {
 		t.Error("expected AddComment to fail for nonexistent file")
 	}
@@ -91,7 +91,7 @@ func TestSession_AddComment_NonexistentFile(t *testing.T) {
 
 func TestSession_UpdateComment(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "original")
+	s.AddComment("plan.md", 1, 1, "", "original", "")
 	updated, ok := s.UpdateComment("plan.md", "c1", "updated body")
 	if !ok {
 		t.Fatal("UpdateComment failed")
@@ -111,7 +111,7 @@ func TestSession_UpdateComment_NotFound(t *testing.T) {
 
 func TestSession_DeleteComment(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "to delete")
+	s.AddComment("plan.md", 1, 1, "", "to delete", "")
 	if !s.DeleteComment("plan.md", "c1") {
 		t.Fatal("DeleteComment failed")
 	}
@@ -129,7 +129,7 @@ func TestSession_DeleteComment_NotFound(t *testing.T) {
 
 func TestSession_GetComments_ReturnsCopy(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "test")
+	s.AddComment("plan.md", 1, 1, "", "test", "")
 	comments := s.GetComments("plan.md")
 	comments[0].Body = "mutated"
 	if s.GetComments("plan.md")[0].Body == "mutated" {
@@ -139,8 +139,8 @@ func TestSession_GetComments_ReturnsCopy(t *testing.T) {
 
 func TestSession_GetAllComments(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "md comment")
-	s.AddComment("main.go", 1, 1, "", "go comment")
+	s.AddComment("plan.md", 1, 1, "", "md comment", "")
+	s.AddComment("main.go", 1, 1, "", "go comment", "")
 
 	all := s.GetAllComments()
 	if len(all) != 2 {
@@ -153,9 +153,9 @@ func TestSession_GetAllComments(t *testing.T) {
 
 func TestSession_TotalCommentCount(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "one")
-	s.AddComment("plan.md", 2, 2, "", "two")
-	s.AddComment("main.go", 1, 1, "", "three")
+	s.AddComment("plan.md", 1, 1, "", "one", "")
+	s.AddComment("plan.md", 2, 2, "", "two", "")
+	s.AddComment("main.go", 1, 1, "", "three", "")
 
 	if s.TotalCommentCount() != 3 {
 		t.Errorf("TotalCommentCount = %d, want 3", s.TotalCommentCount())
@@ -164,8 +164,8 @@ func TestSession_TotalCommentCount(t *testing.T) {
 
 func TestSession_NewCommentCount(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "new one")
-	s.AddComment("plan.md", 2, 2, "", "new two")
+	s.AddComment("plan.md", 1, 1, "", "new one", "")
+	s.AddComment("plan.md", 2, 2, "", "new two", "")
 
 	// Simulate carried-forward comments (as happens after round complete)
 	s.mu.Lock()
@@ -248,7 +248,7 @@ func TestSession_UnresolvedCommentCount_AllResolved(t *testing.T) {
 
 func TestSession_WriteFiles(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "fix")
+	s.AddComment("plan.md", 1, 1, "", "fix", "")
 
 	s.mu.Lock()
 	if s.writeTimer != nil {
@@ -310,7 +310,7 @@ func TestSession_WriteFiles_SharedURLOnly(t *testing.T) {
 
 func TestSession_LoadCritJSON(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "persisted comment")
+	s.AddComment("plan.md", 1, 1, "", "persisted comment", "")
 
 	s.mu.Lock()
 	if s.writeTimer != nil {
@@ -334,9 +334,130 @@ func TestSession_LoadCritJSON(t *testing.T) {
 	}
 }
 
+func TestSession_LoadCritJSON_NoHash(t *testing.T) {
+	s := newTestSession(t)
+
+	// Write a .crit.json without file_hash fields (simulating agent-generated review)
+	cj := `{
+		"branch": "test",
+		"base_ref": "",
+		"updated_at": "2025-01-01T00:00:00Z",
+		"review_round": 1,
+		"files": {
+			"plan.md": {
+				"status": "added",
+				"comments": [
+					{
+						"id": "c1",
+						"start_line": 1,
+						"end_line": 1,
+						"body": "agent review comment",
+						"created_at": "2025-01-01T00:00:00Z",
+						"resolved": false
+					}
+				]
+			}
+		}
+	}`
+	if err := os.WriteFile(s.critJSONPath(), []byte(cj), 0644); err != nil {
+		t.Fatalf("write .crit.json: %v", err)
+	}
+
+	s.loadCritJSON()
+
+	comments := s.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 loaded comment, got %d", len(comments))
+	}
+	if comments[0].Body != "agent review comment" {
+		t.Errorf("Body = %q, want %q", comments[0].Body, "agent review comment")
+	}
+}
+
+func TestSession_WriteFiles_PreservesNonSessionFiles(t *testing.T) {
+	s := newTestSession(t)
+
+	// Simulate `crit comment` having written a comment on a file not in the session
+	cj := `{
+		"branch": "test",
+		"base_ref": "",
+		"review_round": 1,
+		"files": {
+			"unrelated.go": {
+				"status": "modified",
+				"comments": [{"id": "c1", "start_line": 5, "end_line": 5, "body": "external comment", "resolved": false}]
+			}
+		}
+	}`
+	if err := os.WriteFile(s.critJSONPath(), []byte(cj), 0644); err != nil {
+		t.Fatalf("write .crit.json: %v", err)
+	}
+
+	// Add a comment on a session file (plan.md) and trigger a write
+	s.AddComment("plan.md", 1, 1, "", "session comment", "")
+	s.WriteFiles()
+
+	// Reload and verify both files are present
+	data, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		t.Fatalf("read .crit.json: %v", err)
+	}
+	var written CritJSON
+	if err := json.Unmarshal(data, &written); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := written.Files["unrelated.go"]; !ok {
+		t.Error("unrelated.go comments should be preserved after WriteFiles")
+	}
+	if _, ok := written.Files["plan.md"]; !ok {
+		t.Error("plan.md comments should be written")
+	}
+}
+
+func TestSession_LoadCritJSON_MismatchedHash(t *testing.T) {
+	s := newTestSession(t)
+
+	// Write a .crit.json with a stale/wrong file_hash
+	cj := `{
+		"branch": "test",
+		"base_ref": "",
+		"updated_at": "2025-01-01T00:00:00Z",
+		"review_round": 1,
+		"files": {
+			"plan.md": {
+				"status": "added",
+				"file_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				"comments": [
+					{
+						"id": "c1",
+						"start_line": 1,
+						"end_line": 1,
+						"body": "stale hash comment",
+						"created_at": "2025-01-01T00:00:00Z",
+						"resolved": false
+					}
+				]
+			}
+		}
+	}`
+	if err := os.WriteFile(s.critJSONPath(), []byte(cj), 0644); err != nil {
+		t.Fatalf("write .crit.json: %v", err)
+	}
+
+	s.loadCritJSON()
+
+	comments := s.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 loaded comment, got %d", len(comments))
+	}
+	if comments[0].Body != "stale hash comment" {
+		t.Errorf("Body = %q, want %q", comments[0].Body, "stale hash comment")
+	}
+}
+
 func TestSession_LoadResolvedComments_StringResolutionLines(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "fix this")
+	s.AddComment("plan.md", 1, 1, "", "fix this", "")
 
 	s.mu.Lock()
 	if s.writeTimer != nil {
@@ -385,8 +506,8 @@ func TestSession_LoadResolvedComments_StringResolutionLines(t *testing.T) {
 
 func TestSession_SignalRoundComplete(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "fix this")
-	s.AddComment("main.go", 1, 1, "", "and this")
+	s.AddComment("plan.md", 1, 1, "", "fix this", "")
+	s.AddComment("main.go", 1, 1, "", "and this", "")
 	s.IncrementEdits()
 	s.IncrementEdits()
 
@@ -416,7 +537,7 @@ func TestSession_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c, _ := s.AddComment("plan.md", 1, 1, "", "concurrent")
+			c, _ := s.AddComment("plan.md", 1, 1, "", "concurrent", "")
 			s.UpdateComment("plan.md", c.ID, "updated")
 			s.GetComments("plan.md")
 			s.DeleteComment("plan.md", c.ID)
@@ -441,7 +562,7 @@ func TestSession_Subscribe(t *testing.T) {
 
 func TestSession_GetSessionInfo(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "note")
+	s.AddComment("plan.md", 1, 1, "", "note", "")
 	s.Files[1].DiffHunks = []DiffHunk{
 		{Lines: []DiffLine{
 			{Type: "add"},
@@ -533,7 +654,7 @@ func TestSession_WriteFiles_OutputDir(t *testing.T) {
 	outDir := t.TempDir()
 	s.OutputDir = outDir
 
-	s.AddComment("plan.md", 1, 1, "", "output dir comment")
+	s.AddComment("plan.md", 1, 1, "", "output dir comment", "")
 	s.mu.Lock()
 	if s.writeTimer != nil {
 		s.writeTimer.Stop()
@@ -567,7 +688,7 @@ func TestSession_LoadCritJSON_OutputDir(t *testing.T) {
 	outDir := t.TempDir()
 	s.OutputDir = outDir
 
-	s.AddComment("plan.md", 1, 1, "", "persisted in output dir")
+	s.AddComment("plan.md", 1, 1, "", "persisted in output dir", "")
 	s.mu.Lock()
 	if s.writeTimer != nil {
 		s.writeTimer.Stop()
@@ -646,8 +767,8 @@ func TestGetFileDiffSnapshotScoped_UntrackedFileUnstagedScope(t *testing.T) {
 
 func TestSession_PerFileCommentIDs(t *testing.T) {
 	s := newTestSession(t)
-	c1, _ := s.AddComment("plan.md", 1, 1, "", "md comment")
-	c2, _ := s.AddComment("main.go", 1, 1, "", "go comment")
+	c1, _ := s.AddComment("plan.md", 1, 1, "", "md comment", "")
+	c2, _ := s.AddComment("main.go", 1, 1, "", "go comment", "")
 
 	// Each file has independent ID sequences
 	if c1.ID != "c1" {
@@ -686,7 +807,7 @@ func TestNewSessionFromGit_SubdirectoryCwd(t *testing.T) {
 	os.Chdir(filepath.Join(dir, "src"))
 	defer os.Chdir(origDir)
 
-	session, err := NewSessionFromGit()
+	session, err := NewSessionFromGit(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -722,7 +843,7 @@ func TestNewSessionFromGit_SubdirectoryCwd_UntrackedFiles(t *testing.T) {
 	os.Chdir(filepath.Join(dir, "src"))
 	defer os.Chdir(origDir)
 
-	session, err := NewSessionFromGit()
+	session, err := NewSessionFromGit(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -783,6 +904,55 @@ func TestParseUnifiedDiff_WithANSIColors(t *testing.T) {
 	hunks = ParseUnifiedDiff(cleanDiff)
 	if len(hunks) != 1 {
 		t.Errorf("clean diff: expected 1 hunk, got %d", len(hunks))
+	}
+}
+
+// TestSession_CarryForward_PreservesAuthor verifies that when comments are carried
+// forward from a previous round, the Author field is preserved.
+func TestSession_CarryForward_PreservesAuthor(t *testing.T) {
+	s := newTestSession(t)
+
+	// Write a .crit.json with a comment that has an author set (e.g. from crit pull)
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{
+						ID:        "c1",
+						StartLine: 2,
+						EndLine:   2,
+						Body:      "missing error check",
+						Author:    "reviewer-bot",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
+		t.Fatalf("writing .crit.json: %v", err)
+	}
+
+	// No active comments on main.go — simulate carry-forward by calling
+	// loadResolvedComments (populates PreviousComments) then handleRoundCompleteFiles.
+	s.loadResolvedComments()
+	s.handleRoundCompleteFiles()
+
+	comments := s.GetComments("main.go")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 carried comment, got %d", len(comments))
+	}
+	if comments[0].Author != "reviewer-bot" {
+		t.Errorf("Author = %q, want %q", comments[0].Author, "reviewer-bot")
+	}
+	if comments[0].Body != "missing error check" {
+		t.Errorf("Body = %q", comments[0].Body)
+	}
+	if !comments[0].CarriedForward {
+		t.Error("expected CarriedForward = true")
 	}
 }
 
