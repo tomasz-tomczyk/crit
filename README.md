@@ -1,116 +1,39 @@
 # Crit
 
-Your agent writes plans and code. Before any of it lands, review it. Crit opens a browser-based UI where you leave inline comments on any file: plans, code diffs, specs, whatever your agent produced. Click "Finish Review" and a structured prompt goes to your clipboard. Paste it back, the agent iterates, Crit shows you the diff. Repeat until it's right.
+Reviewing agent output in a terminal is painful. You can't point at a specific line and say "change this." When your agent updates the file, you re-read the whole thing to figure out what changed.
 
-```bash
-crit              # auto-detect changed files in your repo
-crit plan.md      # review specific files
-```
+Crit opens your file in a browser with GitHub-style inline comments. Leave feedback, hit Finish, and a structured prompt goes to your clipboard. Paste it back. When the agent edits, Crit shows a diff between rounds — you see exactly what it addressed.
 
-Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf - any agent that reads files.
+Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf — any agent that reads files.
+
+## Why Crit
+
+- **Browser UI, not terminal.** A persistent tab with rendered markdown and visual diffs. No tmux, no TUI.
+- **Single binary, zero dependencies.** `brew install` and you're done. No daemon, no Docker, no MCP.
+- **Round-to-round diffs.** See exactly what your agent changed between iterations. Previous comments show as resolved or still open.
+- **Works with any agent.** Not locked to one editor or AI provider. Anything that reads files works.
 
 ![Crit review UI](images/demo-overview.png)
 
-## Workflow
-
-```bash
-# Review changed files in your repo
-crit
-# → Browser opens with all changed files as diffs
-# → File tree shows added/modified/deleted files
-
-# Review a specific file (plan, spec, any markdown)
-crit plan.md
-
-# Review multiple files
-crit plan.md api-spec.md
-
-# In all cases:
-# → Select lines, leave inline comments
-# → Click "Finish Review", prompt copied to clipboard
-# → Paste into your agent
-# → Agent reads .crit.json, addresses comments, runs `crit go <port>`
-# → New round starts with a diff of what changed
-# → Previous comments show as resolved or still open
-# → Repeat until it's right
-```
-
-### Output
-
-When you finish a review, Crit generates `.crit.json`, structured comment data that your agent reads and acts on. Add it to your `.gitignore`:
-
-```bash
-echo '.crit.json' >> .gitignore
-```
-
-## Demo
-
-A 5-minute walkthrough: leaving inline comments on a plan, followed by branch review (`crit` with no args), wchih uses the same UI with git diffs instead of rendered markdown.
-
-[![Crit demo](https://github.com/user-attachments/assets/dec9c069-9a99-4254-9b05-6d8db30820ed)](https://www.youtube.com/watch?v=XRjkRpXuLJc)
-
 ## Install
-
-### Homebrew (macOS / Linux)
 
 ```bash
 brew install tomasz-tomczyk/tap/crit
 ```
 
-### Go
+Also available via [Go, Nix, or binary download](#other-install-methods).
 
 ```bash
-go install github.com/tomasz-tomczyk/crit@latest
+crit                          # auto-detect changed files in your repo
+crit plan.md                  # review a specific file
+crit plan.md api-spec.md      # review multiple files
 ```
 
-### Nix
+## Demo
 
-```bash
-# Run without installing
-nix run github:tomasz-tomczyk/crit -- --help
-```
+A 5-minute walkthrough of plan review and branch review.
 
-Or add it to a `flake.nix`:
-
-```nix
-inputs.crit.url = "github:tomasz-tomczyk/crit";
-```
-
-If you want to use the package directly from that input, reference the named package:
-
-```nix
-inputs.crit.packages.${pkgs.stdenv.hostPlatform.system}.crit
-```
-
-If you prefer a local alias in one module, use a `let` binding:
-
-```nix
-let
-  crit = inputs.crit.packages.${pkgs.stdenv.hostPlatform.system}.crit;
-in {
-  environment.systemPackages = with pkgs; [
-    crit
-  ];
-}
-```
-
-If you want `pkgs.crit` everywhere, add an overlay:
-
-```nix
-# overlays/crit.nix
-inputs: final: _prev: {
-  crit = inputs.crit.packages.${final.stdenv.hostPlatform.system}.crit;
-}
-```
-
-```nix
-# then include it in your nixpkgs overlays
-(import ./overlays/crit.nix inputs)
-```
-
-### Download Binary
-
-Grab the latest binary for your platform from [Releases](https://github.com/tomasz-tomczyk/crit/releases).
+[![Crit demo](https://github.com/user-attachments/assets/dec9c069-9a99-4254-9b05-6d8db30820ed)](https://www.youtube.com/watch?v=XRjkRpXuLJc)
 
 ## Features
 
@@ -148,15 +71,44 @@ Select lines and use "Insert suggestion" to pre-fill the comment with the origin
 
 ![Insert suggestion](images/suggestion.gif)
 
-### Share for async review
-
-Want a second opinion before handing off to the agent? Enable sharing by setting `CRIT_SHARE_URL=https://crit.live` (or pass `--share-url`), then click the Share button to upload your review and get a public URL anyone can open in a browser, no install needed. Each reviewer's comments are color-coded by author. Unpublish anytime.
-
 ### Finish review: prompt copied to clipboard
 
 When you click "Finish Review", Crit collects your comments, formats them into a prompt, and copies it to your clipboard. Paste directly into your agent.
 
 ![Agent prompt](images/prompt.png)
+
+### GitHub PR Sync
+
+Crit can sync review comments bidirectionally with GitHub PRs. Requires the [GitHub CLI](https://cli.github.com) (`gh`) to be installed and authenticated.
+
+#### Pull comments from a PR
+
+```bash
+crit pull              # auto-detects PR from current branch
+crit pull 42           # explicit PR number
+```
+
+#### Push comments to a PR
+
+```bash
+crit push                          # auto-detects PR from current branch
+crit push --dry-run                # preview without posting
+crit push --message "Round 2"      # add a top-level review comment
+crit push 42                       # explicit PR number
+```
+
+### Programmatic comments
+
+AI agents can use `crit comment` to add inline review comments without opening the browser UI or constructing JSON manually:
+
+```bash
+crit comment src/auth.go:42 'Missing null check'
+crit comment src/handler.go:15-28 'Error handling issue'
+crit comment --output /tmp/reviews src/auth.go:42 'comment'  # custom output dir
+crit comment --clear   # remove .crit.json
+```
+
+Comments are appended to `.crit.json` — created automatically if it doesn't exist. Run `crit install <agent>` to install the integration, which includes a `crit-comment` skill file teaching your agent the syntax.
 
 ### Mermaid diagrams
 
@@ -166,7 +118,6 @@ Architecture diagrams in fenced ` ```mermaid ` blocks render inline. You can com
 
 ### Everything else
 
-- **Single binary.** No daemon, no Docker, no dependencies. `brew install` and you're done.
 - **Draft autosave.** Close your browser mid-review and pick up exactly where you left off.
 - **Vim keybindings.** `j`/`k` to navigate, `c` to comment, `Shift+F` to finish. `?` for the full reference.
 - **Concurrent reviews.** Each instance runs on its own port - review multiple plans at once.
@@ -215,105 +166,43 @@ Claude Code, Cursor, OpenCode, and GitHub Copilot support a `/crit` slash comman
 
 It launches Crit, waits for your review, reads your comments, revises the plan, and signals Crit for another round. OpenCode also ships with a `crit-review` skill that agents can load on demand. Other tools use rules files that teach the agent to suggest Crit when writing plans.
 
-## Usage
+## Share for Async Review
+
+Want a second opinion before handing off to the agent? Enable sharing by setting `CRIT_SHARE_URL=https://crit.live` (or pass `--share-url`), then click the Share button to upload your review and get a public URL anyone can open in a browser, no install needed. Each reviewer's comments are color-coded by author. Unpublish anytime.
+
+<details id="other-install-methods">
+<summary>Other install methods</summary>
+
+### Go
 
 ```bash
-# Git mode: review all changed files (auto-detected)
-crit
-
-# Review specific files
-crit plan.md
-crit plan.md api-spec.md
-
-# Specify a port
-crit -p 3000 plan.md
-
-# Don't auto-open browser
-crit --no-open plan.md
+go install github.com/tomasz-tomczyk/crit@latest
 ```
 
-## Programmatic Comments
-
-AI agents can use `crit comment` to add inline review comments without opening the browser UI or constructing JSON manually:
+### Nix
 
 ```bash
-crit comment src/auth.go:42 'Missing null check'
-crit comment src/handler.go:15-28 'Error handling issue'
-crit comment --output /tmp/reviews src/auth.go:42 'comment'  # custom output dir
-crit comment --clear   # remove .crit.json
+nix run github:tomasz-tomczyk/crit -- --help
 ```
 
-Comments are appended to `.crit.json` — created automatically if it doesn't exist. Run `crit install <agent>` to install the integration, which includes a `crit-comment` skill file teaching your agent the syntax.
+Or add it to a `flake.nix`:
 
-## GitHub PR Sync
-
-Crit can sync review comments bidirectionally with GitHub PRs. Requires the [GitHub CLI](https://cli.github.com) (`gh`) to be installed and authenticated.
-
-### Pull comments from a PR
-
-```bash
-crit pull              # auto-detects PR from current branch
-crit pull 42           # explicit PR number
+```nix
+inputs.crit.url = "github:tomasz-tomczyk/crit";
 ```
 
-### Push comments to a PR
+### Download Binary
 
-```bash
-crit push                          # auto-detects PR from current branch
-crit push --dry-run                # preview without posting
-crit push --message "Round 2"      # add a top-level review comment
-crit push 42                       # explicit PR number
-```
+Grab the latest binary for your platform from [Releases](https://github.com/tomasz-tomczyk/crit/releases).
 
-## Environment Variables
+</details>
+
+<details>
+<summary>Environment variables</summary>
 
 | Variable               | Description                                                                                |
 | ---------------------- | ------------------------------------------------------------------------------------------ |
 | `CRIT_SHARE_URL`       | Enable the Share button (e.g. `https://crit.live` or a self-hosted instance) |
 | `CRIT_NO_UPDATE_CHECK` | Set to any value to disable the update check on startup                                    |
 
-## Build from Source
-
-Requires Go 1.26+ (install via [asdf](https://asdf-vm.com/), Homebrew, or [go.dev](https://go.dev/dl/)):
-
-```bash
-# Clone and build
-git clone https://github.com/tomasz-tomczyk/crit.git
-cd crit
-go build -o crit .
-
-# Optionally move to your PATH
-mv crit /usr/local/bin/
-```
-
-### Cross-compile
-
-```bash
-make build-all
-# Outputs to dist/:
-#   crit-darwin-arm64
-#   crit-darwin-amd64
-#   crit-linux-amd64
-#   crit-linux-arm64
-```
-
-### E2E Tests
-
-The `e2e/` directory has a Playwright test suite that runs the full frontend against a real Crit server. Requires Node.js (listed in `mise.toml`).
-
-```bash
-cd e2e && npm install && npx playwright install chromium
-
-make e2e                                              # Run full suite
-cd e2e && npx playwright test tests/comments.spec.ts  # Run one test file
-cd e2e && npx playwright test --headed                # Run with visible browser
-make e2e-report                                       # View HTML report
-```
-
-## Acknowledgments
-
-Crit embeds the following open-source libraries:
-
-- [markdown-it](https://github.com/markdown-it/markdown-it): Markdown parser
-- [highlight.js](https://github.com/highlightjs/highlight.js): Syntax highlighting
-- [Mermaid](https://github.com/mermaid-js/mermaid): Diagram rendering
+</details>
