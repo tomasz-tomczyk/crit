@@ -60,13 +60,14 @@ type FileEntry struct {
 
 // Session is the top-level state manager for a multi-file review.
 type Session struct {
-	Files       []*FileEntry
-	Mode        string // "files" (explicit markdown files) or "git" (auto-detected from git)
-	Branch      string
-	BaseRef     string
-	RepoRoot    string
-	OutputDir   string // custom output directory for .crit.json (empty = RepoRoot)
-	ReviewRound int
+	Files          []*FileEntry
+	Mode           string // "files" (explicit markdown files) or "git" (auto-detected from git)
+	Branch         string
+	BaseRef        string
+	RepoRoot       string
+	OutputDir      string // custom output directory for .crit.json (empty = RepoRoot)
+	ReviewRound    int
+	IgnorePatterns []string
 
 	mu             sync.RWMutex
 	subscribers    map[chan SSEEvent]struct{}
@@ -100,7 +101,7 @@ type CritJSONFile struct {
 }
 
 // NewSessionFromGit creates a session by auto-detecting changed files via git.
-func NewSessionFromGit() (*Session, error) {
+func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 	root, err := RepoRoot()
 	if err != nil {
 		return nil, fmt.Errorf("not a git repository: %w", err)
@@ -125,18 +126,22 @@ func NewSessionFromGit() (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("detecting changes: %w", err)
 	}
+	// Apply ignore patterns
+	changes = filterIgnored(changes, ignorePatterns)
+
 	if len(changes) == 0 {
-		return nil, fmt.Errorf("no changed files detected")
+		return nil, fmt.Errorf("no changed files detected (after applying ignore patterns)")
 	}
 
 	s := &Session{
-		Mode:          "git",
-		Branch:        branch,
-		BaseRef:       baseRef,
-		RepoRoot:      root,
-		ReviewRound:   1,
-		subscribers:   make(map[chan SSEEvent]struct{}),
-		roundComplete: make(chan struct{}, 1),
+		Mode:           "git",
+		Branch:         branch,
+		BaseRef:        baseRef,
+		RepoRoot:       root,
+		ReviewRound:    1,
+		IgnorePatterns: ignorePatterns,
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		roundComplete:  make(chan struct{}, 1),
 	}
 
 	for _, fc := range changes {
@@ -184,7 +189,7 @@ func NewSessionFromGit() (*Session, error) {
 
 // NewSessionFromFiles creates a session from explicitly provided file or directory paths.
 // When a directory is passed, all files within it are included recursively.
-func NewSessionFromFiles(paths []string) (*Session, error) {
+func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("no files provided")
 	}
@@ -201,12 +206,13 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 			return nil, fmt.Errorf("file not found: %s", p)
 		}
 		if info.IsDir() {
-			dirFiles, err := walkDirectory(absPath)
+			dirFiles, err := walkDirectory(absPath, ignorePatterns)
 			if err != nil {
 				return nil, fmt.Errorf("walking directory %s: %w", p, err)
 			}
 			expandedPaths = append(expandedPaths, dirFiles...)
 		} else {
+			// Explicit files are never filtered by ignore patterns
 			expandedPaths = append(expandedPaths, absPath)
 		}
 	}
@@ -244,13 +250,14 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 	}
 
 	s := &Session{
-		Mode:          "files",
-		Branch:        branch,
-		BaseRef:       baseRef,
-		RepoRoot:      root,
-		ReviewRound:   1,
-		subscribers:   make(map[chan SSEEvent]struct{}),
-		roundComplete: make(chan struct{}, 1),
+		Mode:           "files",
+		Branch:         branch,
+		BaseRef:        baseRef,
+		RepoRoot:       root,
+		ReviewRound:    1,
+		IgnorePatterns: ignorePatterns,
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		roundComplete:  make(chan struct{}, 1),
 	}
 
 	for _, absPath := range expandedPaths {
@@ -296,7 +303,7 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 
 // walkDirectory recursively walks a directory and returns all file paths,
 // skipping hidden directories and common non-text directories.
-func walkDirectory(dir string) ([]string, error) {
+func walkDirectory(dir string, ignorePatterns []string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -327,6 +334,15 @@ func walkDirectory(dir string) ([]string, error) {
 		ext := strings.ToLower(filepath.Ext(name))
 		if isBinaryExtension(ext) {
 			return nil
+		}
+
+		// Apply ignore patterns (use path relative to dir)
+		if relPath, relErr := filepath.Rel(dir, path); relErr == nil {
+			for _, pat := range ignorePatterns {
+				if matchPattern(pat, relPath) {
+					return nil
+				}
+			}
 		}
 
 		files = append(files, path)
@@ -825,6 +841,9 @@ func (s *Session) RefreshFileList() {
 	if err != nil {
 		return
 	}
+
+	// Apply ignore patterns
+	changes = filterIgnored(changes, s.IgnorePatterns)
 
 	// Snapshot existing files under read lock
 	s.mu.RLock()

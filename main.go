@@ -84,6 +84,31 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Handle "crit config" subcommand — print resolved configuration
+	if len(os.Args) >= 2 && os.Args[1] == "config" {
+		// Check for flags
+		for _, arg := range os.Args[2:] {
+			if arg == "--help" || arg == "-h" || arg == "help" {
+				printConfigHelp()
+				os.Exit(0)
+			}
+			if arg == "--generate" || arg == "-g" {
+				fmt.Print(defaultConfig().String())
+				os.Exit(0)
+			}
+		}
+		configDir := ""
+		if IsGitRepo() {
+			configDir, _ = RepoRoot()
+		}
+		if configDir == "" {
+			configDir, _ = os.Getwd()
+		}
+		cfg := LoadConfig(configDir)
+		fmt.Print(cfg.String())
+		os.Exit(0)
+	}
+
 	// Handle "crit pull [--output <dir>] [pr-number]" subcommand — fetch GitHub PR comments to .crit.json
 	if len(os.Args) >= 2 && os.Args[1] == "pull" {
 		if err := requireGH(); err != nil {
@@ -352,6 +377,7 @@ func main() {
 	flag.StringVar(outputDir, "o", "", "Output directory for .crit.json (shorthand)")
 	quiet := flag.Bool("quiet", false, "Suppress status output")
 	flag.BoolVar(quiet, "q", false, "Suppress status output (shorthand)")
+	noIgnore := flag.Bool("no-ignore", false, "Disable all ignore patterns from config files")
 	flag.Usage = func() {
 		printHelp()
 	}
@@ -360,6 +386,47 @@ func main() {
 	if *showVersion {
 		printVersion()
 		return
+	}
+
+	// Load configuration
+	configDir := ""
+	if IsGitRepo() {
+		configDir, _ = RepoRoot()
+	}
+	if configDir == "" {
+		configDir, _ = os.Getwd()
+	}
+	cfg := LoadConfig(configDir)
+
+	// CRIT_PORT env var (precedence: CLI flag > env var > config > default)
+	if *port == 0 {
+		if envPort := os.Getenv("CRIT_PORT"); envPort != "" {
+			if p, err := strconv.Atoi(envPort); err == nil {
+				*port = p
+			}
+		}
+	}
+
+	// Apply config defaults (CLI flags and env vars override)
+	if *port == 0 && cfg.Port != 0 {
+		*port = cfg.Port
+	}
+	if !*noOpen && cfg.NoOpen {
+		*noOpen = true
+	}
+	if *shareURL == "" && cfg.ShareURL != "" {
+		*shareURL = cfg.ShareURL
+	}
+	if !*quiet && cfg.Quiet {
+		*quiet = true
+	}
+	if *outputDir == "" && cfg.Output != "" {
+		*outputDir = cfg.Output
+	}
+
+	var ignorePatterns []string
+	if !*noIgnore {
+		ignorePatterns = cfg.IgnorePatterns
 	}
 
 	var session *Session
@@ -373,13 +440,13 @@ func main() {
 			printHelp()
 			os.Exit(1)
 		}
-		session, err = NewSessionFromGit()
+		session, err = NewSessionFromGit(ignorePatterns)
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		}
 	} else {
 		// Explicit files
-		session, err = NewSessionFromFiles(flag.Args())
+		session, err = NewSessionFromFiles(flag.Args(), ignorePatterns)
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		}
@@ -468,6 +535,7 @@ Usage:
   crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments to .crit.json
   crit push [--dry-run] [--message <msg>] [--output <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
   crit install <agent>                       Install integration files for an AI coding tool
+  crit config [--generate]                    Show resolved configuration
   crit help                                  Show this help message
 
   Agents:
@@ -477,15 +545,61 @@ Options:
   -p, --port <port>           Port to listen on (default: random)
   -o, --output <dir>          Output directory for .crit.json
       --no-open               Don't auto-open browser
+      --no-ignore             Disable all file ignore patterns
   -q, --quiet                 Suppress status output
       --share-url <url>       Share service URL (e.g. https://crit.live)
   -v, --version               Print version
 
 Environment:
   CRIT_SHARE_URL              Override the share service URL
+  CRIT_PORT                   Override the default port
   CRIT_NO_UPDATE_CHECK        Disable update check on startup
 
+Configuration:
+  Global config:   ~/.crit.config.json
+  Project config:  .crit.config.json (in repo root)
+  Run 'crit config' to see resolved configuration.
+
 Learn more: https://crit.live
+`)
+}
+
+func printConfigHelp() {
+	fmt.Fprintf(os.Stderr, `crit config — show resolved configuration
+
+Prints the merged configuration from global and project config files as JSON.
+CLI flags and environment variables are not reflected in this output.
+
+Config files:
+  ~/.crit.config.json          Global config (applies to all projects)
+  .crit.config.json            Project config (in repo root)
+
+Precedence (highest to lowest):
+  1. CLI flags / env vars
+  2. Project config
+  3. Global config
+  4. Built-in defaults
+
+Available keys:
+  port              int       Port to listen on (default: random)
+  no_open           bool      Don't auto-open browser (default: false)
+  share_url         string    Share service URL
+  quiet             bool      Suppress status output (default: false)
+  output            string    Output directory for .crit.json
+  ignore_patterns   []string  Gitignore-style patterns to exclude files from review
+
+Ignore pattern syntax:
+  *.lock            Match files by extension (anywhere in tree)
+  vendor/           Match all files under a directory
+  package-lock.json Match exact filename (anywhere in tree)
+  generated/*.pb.go Match with path prefix (filepath.Match syntax)
+
+Example config:
+  {
+    "port": 3456,
+    "share_url": "https://crit.live",
+    "ignore_patterns": ["*.lock", "*.min.js", "vendor/", "generated/"]
+  }
 `)
 }
 

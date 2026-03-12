@@ -807,7 +807,7 @@ func TestNewSessionFromGit_SubdirectoryCwd(t *testing.T) {
 	os.Chdir(filepath.Join(dir, "src"))
 	defer os.Chdir(origDir)
 
-	session, err := NewSessionFromGit()
+	session, err := NewSessionFromGit(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -843,7 +843,7 @@ func TestNewSessionFromGit_SubdirectoryCwd_UntrackedFiles(t *testing.T) {
 	os.Chdir(filepath.Join(dir, "src"))
 	defer os.Chdir(origDir)
 
-	session, err := NewSessionFromGit()
+	session, err := NewSessionFromGit(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

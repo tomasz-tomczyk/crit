@@ -265,11 +265,71 @@ crit push --message "Round 2"      # add a top-level review comment
 crit push 42                       # explicit PR number
 ```
 
+## Configuration
+
+Crit supports persistent configuration via JSON files so you don't have to pass the same flags every time.
+
+| File                    | Scope   | Location                          |
+| ----------------------- | ------- | --------------------------------- |
+| `~/.crit.config.json`   | Global  | Applies to all projects           |
+| `.crit.config.json`     | Project | Repo root (from `git rev-parse --show-toplevel`) |
+
+Project config overrides global. CLI flags and env vars override both.
+
+```bash
+# Generate a starter config with all available keys
+crit config --generate > .crit.config.json
+
+# View resolved config (merged global + project)
+crit config
+
+# See all available keys and pattern syntax
+crit config --help
+```
+
+### Example
+
+```json
+{
+  "port": 3456,
+  "no_open": false,
+  "share_url": "https://crit.live",
+  "quiet": false,
+  "output": "",
+  "ignore_patterns": [
+    "*.lock",
+    "*.min.js",
+    "vendor/",
+    "generated/*.pb.go"
+  ]
+}
+```
+
+All keys are optional — omit any you don't need.
+
+### Ignore patterns
+
+Patterns from global and project configs are merged (union). Supported syntax:
+
+| Pattern              | Matches                                          |
+| -------------------- | ------------------------------------------------ |
+| `*.lock`             | Files ending in `.lock` anywhere in tree         |
+| `vendor/`            | All files under `vendor/`                        |
+| `package-lock.json`  | Exact filename anywhere in tree                  |
+| `generated/*.pb.go`  | Path prefix with glob (`filepath.Match` syntax)  |
+
+Use `--no-ignore` to temporarily disable all ignore patterns:
+
+```bash
+crit --no-ignore   # review everything, including ignored files
+```
+
 ## Environment Variables
 
 | Variable               | Description                                                                                |
 | ---------------------- | ------------------------------------------------------------------------------------------ |
 | `CRIT_SHARE_URL`       | Enable the Share button (e.g. `https://crit.live` or a self-hosted instance) |
+| `CRIT_PORT`            | Override the default port (between config file and CLI flag in precedence)                  |
 | `CRIT_NO_UPDATE_CHECK` | Set to any value to disable the update check on startup                                    |
 
 ## Build from Source
