@@ -293,5 +293,9 @@ if [ -z "${CRIT_BIN:-}" ]; then
   (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
 fi
 
+# Write fixture state for E2E tests that need to run CLI commands
+echo "CRIT_BIN=$CRIT_BIN" > "/tmp/crit-e2e-state-$PORT"
+echo "CRIT_FIXTURE_DIR=$DIR" >> "/tmp/crit-e2e-state-$PORT"
+
 # Run crit in the fixture repo
 exec "$CRIT_BIN" --no-open --quiet --port "$PORT"

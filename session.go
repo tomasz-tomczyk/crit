@@ -626,6 +626,7 @@ func (s *Session) ClearAllComments() {
 	}
 	s.Files = filtered
 	s.ReviewRound = 1
+	s.lastCritJSONMtime = time.Time{}
 	critPath := s.critJSONPath()
 	s.mu.Unlock()
 	// Delete .crit.json from disk so it is no longer listed as an untracked git file.
@@ -665,12 +666,39 @@ func (s *Session) critJSONPath() string {
 
 // WriteFiles writes the .crit.json file to disk.
 func (s *Session) WriteFiles() {
+	// If we previously wrote .crit.json but it no longer exists, an external tool
+	// (e.g. `crit comment --clear`) deleted it. Respect that: clear in-memory
+	// comments and notify the browser instead of recreating the file.
+	critPath := s.critJSONPath()
+	s.mu.RLock()
+	lastMtime := s.lastCritJSONMtime
+	s.mu.RUnlock()
+	if !lastMtime.IsZero() {
+		if _, statErr := os.Stat(critPath); os.IsNotExist(statErr) {
+			s.mu.Lock()
+			s.lastCritJSONMtime = time.Time{}
+			anyComments := false
+			for _, f := range s.Files {
+				if len(f.Comments) > 0 {
+					f.Comments = []Comment{}
+					f.nextID = 1
+					anyComments = true
+				}
+			}
+			s.mu.Unlock()
+			if anyComments {
+				s.notify(SSEEvent{Type: "comments-changed"})
+			}
+			return
+		}
+	}
+
 	s.mu.RLock()
 
 	// Start from existing .crit.json to preserve comments for files not in this session
 	// (e.g. comments added via `crit comment` on files outside the current diff).
 	cj := CritJSON{Files: make(map[string]CritJSONFile)}
-	if data, err := os.ReadFile(s.critJSONPath()); err == nil {
+	if data, err := os.ReadFile(critPath); err == nil {
 		_ = json.Unmarshal(data, &cj)
 		if cj.Files == nil {
 			cj.Files = make(map[string]CritJSONFile)
@@ -721,7 +749,7 @@ func (s *Session) WriteFiles() {
 
 	// Only remove if nothing meaningful remains
 	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" {
-		os.Remove(s.critJSONPath())
+		os.Remove(critPath)
 		s.mu.Lock()
 		s.lastCritJSONMtime = time.Time{}
 		s.mu.Unlock()
@@ -733,12 +761,12 @@ func (s *Session) WriteFiles() {
 		fmt.Fprintf(os.Stderr, "Error marshaling .crit.json: %v\n", err)
 		return
 	}
-	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
+	if err := os.WriteFile(critPath, data, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing .crit.json: %v\n", err)
 		return
 	}
 	// Record mtime so mergeExternalCritJSON can distinguish our writes from external ones.
-	if info, err := os.Stat(s.critJSONPath()); err == nil {
+	if info, err := os.Stat(critPath); err == nil {
 		s.mu.Lock()
 		s.lastCritJSONMtime = info.ModTime()
 		s.mu.Unlock()
@@ -752,13 +780,31 @@ func (s *Session) mergeExternalCritJSON() bool {
 	critPath := s.critJSONPath()
 
 	info, err := os.Stat(critPath)
-	if err != nil {
-		return false
-	}
 
 	s.mu.RLock()
 	lastMtime := s.lastCritJSONMtime
 	s.mu.RUnlock()
+
+	if err != nil {
+		// File doesn't exist. If we previously tracked it, it was externally deleted.
+		if !lastMtime.IsZero() {
+			s.mu.Lock()
+			s.lastCritJSONMtime = time.Time{}
+			anyComments := false
+			for _, f := range s.Files {
+				if len(f.Comments) > 0 {
+					f.Comments = []Comment{}
+					f.nextID = 1
+					anyComments = true
+				}
+			}
+			s.mu.Unlock()
+			if anyComments {
+				s.notify(SSEEvent{Type: "comments-changed"})
+			}
+		}
+		return !lastMtime.IsZero()
+	}
 
 	// If mtime matches our last write, this is our own change — skip.
 	if !lastMtime.IsZero() && info.ModTime().Equal(lastMtime) {
@@ -812,7 +858,8 @@ func (s *Session) mergeExternalCritJSON() bool {
 		}
 
 		// Check for comments removed on disk (e.g. crit comment --clear).
-		if len(diskFile.Comments) < len(f.Comments) {
+		// After the merge above, len(f.Comments) >= len(diskFile.Comments), so != means memory has disk-absent IDs.
+		if len(diskFile.Comments) != len(f.Comments) {
 			diskIDs := make(map[string]struct{}, len(diskFile.Comments))
 			for _, dc := range diskFile.Comments {
 				diskIDs[dc.ID] = struct{}{}
@@ -864,6 +911,11 @@ func (s *Session) loadCritJSON() {
 				}
 			}
 		}
+	}
+
+	// Record the mtime so the first ticker tick doesn't re-process our own file.
+	if info, err := os.Stat(s.critJSONPath()); err == nil {
+		s.lastCritJSONMtime = info.ModTime()
 	}
 }
 
