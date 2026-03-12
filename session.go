@@ -1234,6 +1234,7 @@ func (s *Session) handleRoundCompleteGit() {
 				ResolutionNote:  c.ResolutionNote,
 				ResolutionLines: c.ResolutionLines,
 				CarriedForward:  true,
+				ReviewRound:     c.ReviewRound,
 			}
 			f.nextID++
 			f.Comments = append(f.Comments, carried)
@@ -1287,6 +1288,7 @@ func (s *Session) handleRoundCompleteFiles() {
 				ResolutionNote:  c.ResolutionNote,
 				ResolutionLines: c.ResolutionLines,
 				CarriedForward:  true,
+				ReviewRound:     c.ReviewRound,
 			}
 			f.nextID++
 			f.Comments = append(f.Comments, carried)
@@ -1434,6 +1436,7 @@ func (s *Session) carryForwardComments() {
 				ResolutionNote:  c.ResolutionNote,
 				ResolutionLines: c.ResolutionLines,
 				CarriedForward:  true,
+				ReviewRound:     c.ReviewRound,
 			}
 			f.nextID++
 			f.Comments = append(f.Comments, carried)

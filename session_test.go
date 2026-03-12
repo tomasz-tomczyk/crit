@@ -970,6 +970,50 @@ func TestAddCommentSetsReviewRound(t *testing.T) {
 	}
 }
 
+func TestCarryForwardPreservesReviewRound(t *testing.T) {
+	s := newTestSession(t)
+
+	// Write a .crit.json with a comment that has ReviewRound set
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{
+						ID:          "c1",
+						StartLine:   2,
+						EndLine:     2,
+						Body:        "round 1 feedback",
+						Author:      "reviewer",
+						CreatedAt:   "2026-01-01T00:00:00Z",
+						UpdatedAt:   "2026-01-01T00:00:00Z",
+						ReviewRound: 1,
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
+		t.Fatalf("writing .crit.json: %v", err)
+	}
+
+	// Load previous comments and trigger carry-forward
+	s.loadResolvedComments()
+	s.handleRoundCompleteFiles()
+
+	comments := s.GetComments("main.go")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 carried comment, got %d", len(comments))
+	}
+	if comments[0].ReviewRound != 1 {
+		t.Errorf("ReviewRound = %d, want 1", comments[0].ReviewRound)
+	}
+	if !comments[0].CarriedForward {
+		t.Error("expected CarriedForward = true")
+	}
+}
+
 // TestFileDiffUnified_ColorConfigDoesNotBreakParsing verifies that even with
 // color.diff=always in gitconfig, the --no-color flag produces parseable output.
 func TestFileDiffUnified_ColorConfigDoesNotBreakParsing(t *testing.T) {
