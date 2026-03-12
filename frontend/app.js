@@ -3636,6 +3636,22 @@
       } catch (_) {}
     });
 
+    source.addEventListener('comments-changed', async function() {
+      try {
+        for (var i = 0; i < files.length; i++) {
+          var f = files[i];
+          var commentsRes = await fetch('/api/file/comments?path=' + enc(f.path))
+            .then(function(r) { return r.ok ? r.json() : []; })
+            .catch(function() { return []; });
+          f.comments = Array.isArray(commentsRes) ? commentsRes : [];
+        }
+        renderAllFiles();
+        updateTreeCommentBadges();
+      } catch (err) {
+        console.error('Error handling comments-changed:', err);
+      }
+    });
+
     source.addEventListener('server-shutdown', function() {
       source.close();
       showDisconnected();
