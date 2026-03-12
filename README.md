@@ -29,6 +29,20 @@ A 5-minute walkthrough of plan review and branch review.
 
 [![Crit demo](https://github.com/user-attachments/assets/dec9c069-9a99-4254-9b05-6d8db30820ed)](https://www.youtube.com/watch?v=XRjkRpXuLJc)
 
+## Usage
+
+```bash
+crit                          # auto-detect changed files in your repo
+crit plan.md                  # review a specific file
+crit plan.md api-spec.md      # review multiple files
+```
+
+When you finish a review, Crit writes `.crit.json` — structured comment data your agent reads and acts on. Add it to your `.gitignore`:
+
+```bash
+echo '.crit.json' >> .gitignore
+```
+
 ## Features
 
 ### Git review
@@ -139,13 +153,20 @@ Or set up manually:
 | Tool               | Setup                                                                                 |
 | ------------------ | ------------------------------------------------------------------------------------- |
 | **Claude Code**    | Copy `integrations/claude-code/crit.md` to `.claude/commands/crit.md`                 |
+| **Claude Code**    | Copy `integrations/claude-code/crit-comment.md` to `.claude/commands/crit-comment.md` |
 | **Cursor**         | Copy `integrations/cursor/crit-command.md` to `.cursor/commands/crit.md`              |
+| **Cursor**         | Copy `integrations/cursor/crit-comment.md` to `.cursor/commands/crit-comment.md`      |
 | **OpenCode**       | Copy `integrations/opencode/crit.md` to `.opencode/commands/crit.md`                  |
+| **OpenCode**       | Copy `integrations/opencode/crit-comment.md` to `.opencode/commands/crit-comment.md`  |
 | **OpenCode**       | Copy `integrations/opencode/SKILL.md` to `.opencode/skills/crit-review/SKILL.md`      |
 | **GitHub Copilot** | Copy `integrations/github-copilot/crit.prompt.md` to `.github/prompts/crit.prompt.md` |
+| **GitHub Copilot** | Copy `integrations/github-copilot/crit-comment.md` to `.github/prompts/crit-comment.prompt.md` |
 | **Windsurf**       | Copy `integrations/windsurf/crit.md` to `.windsurf/rules/crit.md`                     |
+| **Windsurf**       | Copy `integrations/windsurf/crit-comment.md` to `.windsurf/rules/crit-comment.md`     |
 | **Aider**          | Append `integrations/aider/CONVENTIONS.md` to your `CONVENTIONS.md`                   |
+| **Aider**          | Copy `integrations/aider/crit-comment.md` to your project root                        |
 | **Cline**          | Copy `integrations/cline/crit.md` to `.clinerules/crit.md`                            |
+| **Cline**          | Copy `integrations/cline/crit-comment.md` to `.clinerules/crit-comment.md`            |
 
 See [`integrations/`](integrations/) for the full files and details.
 
@@ -160,21 +181,9 @@ Claude Code, Cursor, OpenCode, and GitHub Copilot support a `/crit` slash comman
 
 It launches Crit, waits for your review, reads your comments, revises the plan, and signals Crit for another round. OpenCode also ships with a `crit-review` skill that agents can load on demand. Other tools use rules files that teach the agent to suggest Crit when writing plans.
 
-## Usage
+### `/crit-comment` command
 
-```bash
-crit                          # auto-detect changed files in your repo
-crit plan.md                  # review a specific file
-crit plan.md api-spec.md      # review multiple files
-crit -p 3000 plan.md          # specify a port
-crit --no-open plan.md        # don't auto-open browser
-```
-
-When you finish a review, Crit writes `.crit.json` — structured comment data your agent reads and acts on. Add it to your `.gitignore`:
-
-```bash
-echo '.crit.json' >> .gitignore
-```
+Each integration also includes a `crit-comment` skill that teaches your agent to use `crit comment` to add inline review comments programmatically — no browser needed. The agent learns the syntax and can leave comments on specific lines or ranges as part of its workflow.
 
 ## Share for Async Review
 
