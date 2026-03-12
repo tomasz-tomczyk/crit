@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -15,6 +16,7 @@ type Config struct {
 	ShareURL       string   `json:"share_url,omitempty"`
 	Quiet          bool     `json:"quiet,omitempty"`
 	Output         string   `json:"output,omitempty"`
+	Author         string   `json:"author,omitempty"`
 	IgnorePatterns []string `json:"ignore_patterns,omitempty"`
 }
 
@@ -37,6 +39,7 @@ func defaultConfig() generatedConfig {
 		ShareURL: "",
 		Quiet:    false,
 		Output:   "",
+		Author:   "",
 		IgnorePatterns: []string{
 			"*.lock",
 			"*.min.js",
@@ -52,6 +55,7 @@ type generatedConfig struct {
 	ShareURL       string   `json:"share_url"`
 	Quiet          bool     `json:"quiet"`
 	Output         string   `json:"output"`
+	Author         string   `json:"author"`
 	IgnorePatterns []string `json:"ignore_patterns"`
 }
 
@@ -99,6 +103,9 @@ func mergeConfigs(global, project Config) Config {
 	if project.Output != "" {
 		merged.Output = project.Output
 	}
+	if project.Author != "" {
+		merged.Author = project.Author
+	}
 	// Union ignore patterns
 	merged.IgnorePatterns = append(merged.IgnorePatterns, project.IgnorePatterns...)
 	return merged
@@ -121,7 +128,16 @@ func LoadConfig(projectDir string) Config {
 	}
 
 	// 3. Merge global + project
-	return mergeConfigs(global, project)
+	merged := mergeConfigs(global, project)
+
+	// 4. Fall back to git user.name if no author configured
+	if merged.Author == "" {
+		if out, err := exec.Command("git", "config", "user.name").Output(); err == nil {
+			merged.Author = strings.TrimSpace(string(out))
+		}
+	}
+
+	return merged
 }
 
 // globalConfigPath returns the path to the global config file.

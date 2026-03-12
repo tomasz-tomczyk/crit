@@ -258,7 +258,7 @@ func createGHReview(prNumber int, comments []map[string]any, message string) err
 // Creates .crit.json if it doesn't exist. Appends to existing comments if it does.
 // Works in both git repos and plain directories (file mode).
 // outputDir overrides the default location (repo root or CWD) when non-empty.
-func addCommentToCritJSON(filePath string, startLine, endLine int, body string, outputDir string) error {
+func addCommentToCritJSON(filePath string, startLine, endLine int, body string, author string, outputDir string) error {
 	root, err := resolveCritDir(outputDir)
 	if err != nil {
 		return err
@@ -306,6 +306,7 @@ func addCommentToCritJSON(filePath string, startLine, endLine int, body string, 
 		StartLine: startLine,
 		EndLine:   endLine,
 		Body:      body,
+		Author:    author,
 		CreatedAt: now,
 		UpdatedAt: now,
 	})

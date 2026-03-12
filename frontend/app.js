@@ -44,6 +44,7 @@
   let shareURL = '';
   let hostedURL = '';
   let deleteToken = '';
+  let configAuthor = '';
   let uiState = 'reviewing';
 
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
@@ -230,6 +231,7 @@
     shareURL = configRes.share_url || '';
     hostedURL = configRes.hosted_url || '';
     deleteToken = configRes.delete_token || '';
+    configAuthor = configRes.author || '';
 
     if (shareURL && session.mode !== 'git') document.getElementById('shareBtn').style.display = '';
     if (hostedURL) showSharedNotice(hostedURL);
@@ -2974,6 +2976,7 @@
           body: body.trim()
         };
         if (activeForm.side) payload.side = activeForm.side;
+        if (configAuthor) payload.author = configAuthor;
         const res = await fetch('/api/file/comments?path=' + enc(filePath), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -3720,7 +3723,9 @@
     };
     for (const f of files) {
       for (const c of f.comments) {
-        payload.comments.push({ file: f.path, start_line: c.start_line, end_line: c.end_line, body: c.body });
+        const shared = { file: f.path, start_line: c.start_line, end_line: c.end_line, body: c.body };
+        if (c.author) shared.author_display_name = c.author;
+        payload.comments.push(shared);
       }
     }
 

@@ -17,6 +17,7 @@ type Server struct {
 	mux            *http.ServeMux
 	assets         fs.FS
 	shareURL       string
+	author         string
 	currentVersion string
 	latestVersion  string
 	versionMu      sync.RWMutex
@@ -24,13 +25,13 @@ type Server struct {
 	status         *Status
 }
 
-func NewServer(session *Session, frontendFS embed.FS, shareURL string, currentVersion string, port int) (*Server, error) {
+func NewServer(session *Session, frontendFS embed.FS, shareURL string, author string, currentVersion string, port int) (*Server, error) {
 	assets, err := fs.Sub(frontendFS, "frontend")
 	if err != nil {
 		return nil, fmt.Errorf("loading frontend assets: %w", err)
 	}
 
-	s := &Server{session: session, assets: assets, shareURL: shareURL, currentVersion: currentVersion, port: port}
+	s := &Server{session: session, assets: assets, shareURL: shareURL, author: author, currentVersion: currentVersion, port: port}
 
 	mux := http.NewServeMux()
 
@@ -76,6 +77,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"delete_token":   s.session.GetDeleteToken(),
 		"version":        s.currentVersion,
 		"latest_version": latestVersion,
+		"author":         s.author,
 	})
 }
 
