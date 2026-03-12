@@ -6,10 +6,10 @@ Use `crit comment` to add inline review comments to `.crit.json`. Comments are d
 
 ```bash
 # Single line comment
-crit comment <path>:<line> '<body>'
+crit comment [--author '<name>'] <path>:<line> '<body>'
 
 # Multi-line comment (range)
-crit comment <path>:<start>-<end> '<body>'
+crit comment [--author '<name>'] <path>:<start>-<end> '<body>'
 ```
 
 ## Examples
@@ -17,7 +17,7 @@ crit comment <path>:<start>-<end> '<body>'
 ```bash
 crit comment src/auth.go:42 'Missing null check on user.session — will panic if session expired'
 crit comment src/handler.go:15-28 'This error is swallowed silently. The catch block returns ok but the caller expects an error on failure.'
-crit comment src/db.go:103 'Consider using a prepared statement here to avoid SQL injection'
+crit comment --author 'Windsurf' src/db.go:103 'Consider using a prepared statement here to avoid SQL injection'
 ```
 
 ## Rules
@@ -27,3 +27,4 @@ crit comment src/db.go:103 'Consider using a prepared statement here to avoid SQ
 - **Body** is everything after the location argument — use single quotes to avoid shell interpretation
 - **Comments are appended** — calling `crit comment` multiple times adds to the list, never replaces
 - **No setup needed** — `crit comment` creates `.crit.json` automatically if it doesn't exist
+- **Author** defaults to the `author` field in config (which falls back to `git config user.name`). Use `--author` to override per-comment (useful for agents identifying themselves)

@@ -39,7 +39,7 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 		},
 	}
 
-	s, err := NewServer(session, frontendFS, "", "test", 0)
+	s, err := NewServer(session, frontendFS, "", "", "test", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

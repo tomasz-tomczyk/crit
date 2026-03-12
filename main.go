@@ -288,6 +288,7 @@ func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "comment" {
 		// Parse flags, collecting non-flag args into commentArgs
 		commentOutputDir := ""
+		commentAuthor := ""
 		var commentArgs []string
 		for i := 2; i < len(os.Args); i++ {
 			arg := os.Args[i]
@@ -298,6 +299,13 @@ func main() {
 				}
 				i++
 				commentOutputDir = os.Args[i]
+			} else if arg == "--author" {
+				if i+1 >= len(os.Args) {
+					fmt.Fprintf(os.Stderr, "Error: --author requires a value\n")
+					os.Exit(1)
+				}
+				i++
+				commentAuthor = os.Args[i]
 			} else {
 				commentArgs = append(commentArgs, arg)
 			}
@@ -314,12 +322,13 @@ func main() {
 		}
 
 		if len(commentArgs) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: crit comment [--output <dir>] <path>:<line[-end]> <body>")
+			fmt.Fprintln(os.Stderr, "Usage: crit comment [--output <dir>] [--author <name>] <path>:<line[-end]> <body>")
 			fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] --clear")
 			fmt.Fprintln(os.Stderr, "")
 			fmt.Fprintln(os.Stderr, "Examples:")
 			fmt.Fprintln(os.Stderr, "  crit comment main.go:42 'Fix this bug'")
 			fmt.Fprintln(os.Stderr, "  crit comment src/auth.go:10-25 'This block needs refactoring'")
+			fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' main.go:42 'Fix this bug'")
 			fmt.Fprintln(os.Stderr, "  crit comment --output /tmp/reviews main.go:42 'Fix this bug'")
 			os.Exit(1)
 		}
@@ -359,7 +368,17 @@ func main() {
 		// Body is all remaining args joined
 		body := strings.Join(commentArgs[1:], " ")
 
-		if err := addCommentToCritJSON(filePath, startLine, endLine, body, commentOutputDir); err != nil {
+		// Resolve author: --author flag > config > git user.name
+		if commentAuthor == "" {
+			commentCfgDir, _ := os.Getwd()
+			if IsGitRepo() {
+				commentCfgDir, _ = RepoRoot()
+			}
+			commentCfg := LoadConfig(commentCfgDir)
+			commentAuthor = commentCfg.Author
+		}
+
+		if err := addCommentToCritJSON(filePath, startLine, endLine, body, commentAuthor, commentOutputDir); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -470,7 +489,7 @@ func main() {
 		*shareURL = os.Getenv("CRIT_SHARE_URL")
 	}
 
-	srv, err := NewServer(session, frontendFS, *shareURL, version, addr.Port)
+	srv, err := NewServer(session, frontendFS, *shareURL, cfg.Author, version, addr.Port)
 	if err != nil {
 		log.Fatalf("Error creating server: %v", err)
 	}
@@ -586,6 +605,7 @@ Available keys:
   share_url         string    Share service URL
   quiet             bool      Suppress status output (default: false)
   output            string    Output directory for .crit.json
+  author            string    Your name for comments (default: git config user.name)
   ignore_patterns   []string  Gitignore-style patterns to exclude files from review
 
 Ignore pattern syntax:
