@@ -682,18 +682,38 @@ func (s *Session) WriteFiles() {
 	cj.ShareURL = s.sharedURL
 	cj.DeleteToken = s.deleteToken
 
-	// Overlay session files: update entries that have comments, remove those that don't.
+	// Overlay session files: merge with disk comments, remove entries with no comments.
 	for _, f := range s.Files {
-		if len(f.Comments) == 0 {
+		diskFile, hasDisk := cj.Files[f.Path]
+
+		// Build set of in-memory comment IDs
+		memIDs := make(map[string]struct{}, len(f.Comments))
+		for _, c := range f.Comments {
+			memIDs[c.ID] = struct{}{}
+		}
+
+		// Start with in-memory comments
+		merged := make([]Comment, len(f.Comments))
+		copy(merged, f.Comments)
+
+		// Merge in any disk-only comments (added externally via crit comment, crit pull, etc.)
+		if hasDisk {
+			for _, dc := range diskFile.Comments {
+				if _, exists := memIDs[dc.ID]; !exists {
+					merged = append(merged, dc)
+				}
+			}
+		}
+
+		if len(merged) == 0 {
 			delete(cj.Files, f.Path)
 			continue
 		}
-		comments := make([]Comment, len(f.Comments))
-		copy(comments, f.Comments)
+
 		cj.Files[f.Path] = CritJSONFile{
 			Status:   f.Status,
 			FileHash: f.FileHash,
-			Comments: comments,
+			Comments: merged,
 		}
 	}
 	s.mu.RUnlock()

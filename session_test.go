@@ -979,3 +979,57 @@ func TestFileDiffUnified_ColorConfigDoesNotBreakParsing(t *testing.T) {
 		t.Error("expected non-empty diff hunks even with color.diff=always configured")
 	}
 }
+
+func TestSession_WriteFiles_MergesExternalComments(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		BaseRef:     "abc123",
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{Path: "main.go", Status: "modified", FileHash: "hash1", Comments: []Comment{
+				{ID: "c1", StartLine: 1, EndLine: 1, Body: "from browser", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+			}, nextID: 2},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Simulate an external tool writing a comment to .crit.json that the session doesn't know about
+	cj := CritJSON{
+		Branch: "main", BaseRef: "abc123", ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified", FileHash: "hash1",
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "from browser", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+					{ID: "c2", StartLine: 10, EndLine: 10, Body: "from CLI", Author: "Claude", CreatedAt: "2026-01-01T00:00:01Z", UpdatedAt: "2026-01-01T00:00:01Z"},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+
+	// WriteFiles should merge, not overwrite
+	s.WriteFiles()
+
+	// Read back .crit.json and verify both comments are present
+	result, _ := os.ReadFile(filepath.Join(dir, ".crit.json"))
+	var got CritJSON
+	json.Unmarshal(result, &got)
+
+	if len(got.Files["main.go"].Comments) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(got.Files["main.go"].Comments))
+	}
+
+	found := false
+	for _, c := range got.Files["main.go"].Comments {
+		if c.ID == "c2" && c.Body == "from CLI" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("external comment c2 was lost during WriteFiles")
+	}
+}
