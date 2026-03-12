@@ -3175,6 +3175,12 @@
       authorBadge.textContent = '@' + comment.author;
       headerLeft.appendChild(authorBadge);
     }
+    if (comment.review_round >= 1) {
+      const roundBadge = document.createElement('span');
+      roundBadge.className = 'comment-round-badge';
+      roundBadge.textContent = 'R' + comment.review_round;
+      headerLeft.appendChild(roundBadge);
+    }
     headerLeft.appendChild(lineRef);
     if (comment.carried_forward) {
       const label = document.createElement('span');

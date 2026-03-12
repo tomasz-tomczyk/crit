@@ -796,6 +796,15 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   color: var(--orange);
   font-weight: 500;
 }
+.comment-round-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--fg-dimmed);
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
 
 .comment-header {
   display: flex;
