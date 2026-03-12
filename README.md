@@ -23,12 +23,6 @@ brew install tomasz-tomczyk/tap/crit
 
 Also available via [Go, Nix, or binary download](#other-install-methods).
 
-```bash
-crit                          # auto-detect changed files in your repo
-crit plan.md                  # review a specific file
-crit plan.md api-spec.md      # review multiple files
-```
-
 ## Demo
 
 A 5-minute walkthrough of plan review and branch review.
@@ -165,6 +159,22 @@ Claude Code, Cursor, OpenCode, and GitHub Copilot support a `/crit` slash comman
 ```
 
 It launches Crit, waits for your review, reads your comments, revises the plan, and signals Crit for another round. OpenCode also ships with a `crit-review` skill that agents can load on demand. Other tools use rules files that teach the agent to suggest Crit when writing plans.
+
+## Usage
+
+```bash
+crit                          # auto-detect changed files in your repo
+crit plan.md                  # review a specific file
+crit plan.md api-spec.md      # review multiple files
+crit -p 3000 plan.md          # specify a port
+crit --no-open plan.md        # don't auto-open browser
+```
+
+When you finish a review, Crit writes `.crit.json` — structured comment data your agent reads and acts on. Add it to your `.gitignore`:
+
+```bash
+echo '.crit.json' >> .gitignore
+```
 
 ## Share for Async Review
 
