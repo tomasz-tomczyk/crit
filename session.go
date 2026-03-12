@@ -77,9 +77,10 @@ type Session struct {
 	sharedURL      string
 	deleteToken    string
 	status         *Status
-	roundComplete  chan struct{}
-	pendingEdits   int
-	lastRoundEdits int
+	roundComplete     chan struct{}
+	pendingEdits      int
+	lastRoundEdits    int
+	lastCritJSONMtime time.Time // mtime after our last WriteFiles(); used to detect external changes
 }
 
 // CritJSON is the on-disk format for .crit.json.
@@ -721,6 +722,9 @@ func (s *Session) WriteFiles() {
 	// Only remove if nothing meaningful remains
 	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" {
 		os.Remove(s.critJSONPath())
+		s.mu.Lock()
+		s.lastCritJSONMtime = time.Time{}
+		s.mu.Unlock()
 		return
 	}
 
@@ -731,7 +735,107 @@ func (s *Session) WriteFiles() {
 	}
 	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing .crit.json: %v\n", err)
+		return
 	}
+	// Record mtime so mergeExternalCritJSON can distinguish our writes from external ones.
+	if info, err := os.Stat(s.critJSONPath()); err == nil {
+		s.mu.Lock()
+		s.lastCritJSONMtime = info.ModTime()
+		s.mu.Unlock()
+	}
+}
+
+// mergeExternalCritJSON checks if .crit.json was modified externally (not by us)
+// and merges any new comments into the in-memory session.
+// Returns true if changes were detected and merged.
+func (s *Session) mergeExternalCritJSON() bool {
+	critPath := s.critJSONPath()
+
+	info, err := os.Stat(critPath)
+	if err != nil {
+		return false
+	}
+
+	s.mu.RLock()
+	lastMtime := s.lastCritJSONMtime
+	s.mu.RUnlock()
+
+	// If mtime matches our last write, this is our own change — skip.
+	if !lastMtime.IsZero() && info.ModTime().Equal(lastMtime) {
+		return false
+	}
+
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		return false
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return false
+	}
+
+	s.mu.Lock()
+	s.lastCritJSONMtime = info.ModTime()
+
+	changed := false
+
+	for _, f := range s.Files {
+		diskFile, hasDisk := cj.Files[f.Path]
+
+		if !hasDisk {
+			// File not in .crit.json — if we have comments, they were cleared externally.
+			if len(f.Comments) > 0 {
+				f.Comments = []Comment{}
+				f.nextID = 1
+				changed = true
+			}
+			continue
+		}
+
+		// Build set of in-memory comment IDs.
+		memIDs := make(map[string]struct{}, len(f.Comments))
+		for _, c := range f.Comments {
+			memIDs[c.ID] = struct{}{}
+		}
+
+		// Merge in new comments from disk.
+		for _, dc := range diskFile.Comments {
+			if _, exists := memIDs[dc.ID]; !exists {
+				f.Comments = append(f.Comments, dc)
+				id := 0
+				fmt.Sscanf(dc.ID, "c%d", &id)
+				if id >= f.nextID {
+					f.nextID = id + 1
+				}
+				changed = true
+			}
+		}
+
+		// Check for comments removed on disk (e.g. crit comment --clear).
+		if len(diskFile.Comments) < len(f.Comments) {
+			diskIDs := make(map[string]struct{}, len(diskFile.Comments))
+			for _, dc := range diskFile.Comments {
+				diskIDs[dc.ID] = struct{}{}
+			}
+			filtered := f.Comments[:0]
+			for _, c := range f.Comments {
+				if _, exists := diskIDs[c.ID]; exists {
+					filtered = append(filtered, c)
+				}
+			}
+			if len(filtered) != len(f.Comments) {
+				f.Comments = filtered
+				changed = true
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	if changed {
+		s.notify(SSEEvent{Type: "comments-changed"})
+	}
+
+	return changed
 }
 
 // loadCritJSON loads comments and share state from an existing .crit.json.
@@ -938,6 +1042,9 @@ func (s *Session) watchGit(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
+			// Check for external .crit.json changes (e.g. crit comment).
+			s.mergeExternalCritJSON()
+
 			fp := WorkingTreeFingerprint()
 			if fp == lastFP {
 				continue
@@ -969,6 +1076,9 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
+			// Check for external .crit.json changes (e.g. crit comment).
+			s.mergeExternalCritJSON()
+
 			s.mu.RLock()
 			files := make([]*FileEntry, len(s.Files))
 			copy(files, s.Files)
