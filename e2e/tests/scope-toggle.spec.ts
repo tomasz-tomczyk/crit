@@ -43,7 +43,9 @@ test.describe('Scope Toggle', () => {
     await loadPage(page);
     await switchScope(page, 'staged');
     // Staged: utils.go only
-    await expect(page.locator('.file-section')).toHaveCount(1);
+    await expect(async () => {
+      await expect(page.locator('.file-section')).toHaveCount(1);
+    }).toPass({ timeout: 5000 });
     await expect(page.locator('.file-section', { hasText: 'utils.go' })).toBeVisible();
   });
 
@@ -51,7 +53,9 @@ test.describe('Scope Toggle', () => {
     await loadPage(page);
     await switchScope(page, 'unstaged');
     // Unstaged: config.yaml only
-    await expect(page.locator('.file-section')).toHaveCount(1);
+    await expect(async () => {
+      await expect(page.locator('.file-section')).toHaveCount(1);
+    }).toPass({ timeout: 5000 });
     await expect(page.locator('.file-section', { hasText: 'config.yaml' })).toBeVisible();
   });
 
