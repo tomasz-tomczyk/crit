@@ -197,8 +197,8 @@ html[data-theme="dark"]  .theme-pill-indicator { left: 66.666%; }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  padding: 5px 0;
+  width: 32px;
+  padding: 8px 0;
   cursor: pointer;
   background: none;
   border: none;
@@ -212,7 +212,7 @@ html[data-theme="dark"]  .theme-pill-indicator { left: 66.666%; }
 html:not([data-theme])  .theme-pill-btn[data-for-theme="system"],
 html[data-theme="light"] .theme-pill-btn[data-for-theme="light"],
 html[data-theme="dark"]  .theme-pill-btn[data-for-theme="dark"] { color: var(--accent); }
-.theme-pill-btn svg { width: 14px; height: 14px; display: block; }
+.theme-pill-btn svg { width: 16px; height: 16px; display: block; }
 
 /* ===== highlight.js Dark Theme (GitHub Dark Dimmed) =====
    Default (system dark) — applies when no data-theme is set */

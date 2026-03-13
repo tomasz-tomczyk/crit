@@ -56,12 +56,16 @@ body {
 }
 
 .header-filename {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--fg-muted);
-  background: var(--bg-tertiary);
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent-bg);
   padding: 3px 10px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .header-context {
@@ -153,7 +157,7 @@ body {
   font-family: var(--font-body);
   font-size: 13px;
   font-weight: 500;
-  padding: 6px 14px;
+  padding: 8px 16px;
   border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
@@ -185,17 +189,19 @@ body {
 }
 
 .theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: none;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 6px;
-  padding: 5px 8px;
+  padding: 4px 7px;
   cursor: pointer;
   color: var(--fg-muted);
-  font-size: 16px;
-  line-height: 1;
   transition: all 0.15s;
 }
-.theme-toggle:hover { color: var(--fg-primary); background: var(--bg-tertiary); }
+.theme-toggle svg { width: 16px; height: 16px; display: block; }
+.theme-toggle:hover { color: var(--fg-primary); background: var(--bg-hover); }
 
 /* ===== Toast Notifications ===== */
 .toast-container {
@@ -782,7 +788,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 .comment-card {
   margin: 6px 0;
-  max-width: 780px;
   border: 1px solid var(--border-comment);
   border-radius: 8px;
   background: var(--comment-bg);

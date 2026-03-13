@@ -46,8 +46,12 @@
       <button class="toggle-btn active" data-mode="split" title="Split diff">Split</button>
       <button class="toggle-btn" data-mode="unified" title="Unified diff">Unified</button>
     </div>
-    <button class="theme-toggle" id="shortcutsToggle" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
-    <button class="theme-toggle" id="tocToggle" title="Table of contents" aria-label="Table of contents">&#9776;</button>
+    <button class="theme-toggle" id="shortcutsToggle" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M6.75 6.5a1.25 1.25 0 0 1 2.5 0c0 .69-.56 1.25-1.25 1.25V9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8" cy="11.25" r="0.625" fill="currentColor" stroke="none"/></svg>
+    </button>
+    <button class="theme-toggle" id="tocToggle" title="Table of contents" aria-label="Table of contents">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke-linecap="round"/></svg>
+    </button>
     <div class="theme-pill" role="group" aria-label="Theme">
       <div class="theme-pill-indicator"></div>
       <button class="theme-pill-btn" data-for-theme="system" title="System theme" role="radio" aria-label="System theme">
