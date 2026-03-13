@@ -2,7 +2,9 @@ import { test, expect } from '@playwright/test';
 import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath } from './helpers';
 
 // ============================================================
-// Comment Count Badge — header badge shows total comment count
+// Comment Count Badge — header badge shows comment count
+// Shows unresolved count when unresolved comments exist,
+// falls back to total count when all are resolved.
 // ============================================================
 test.describe('Comment Count Badge', () => {
   test.beforeEach(async ({ page, request }) => {
@@ -31,6 +33,28 @@ test.describe('Comment Count Badge', () => {
 
     await expect(page.locator('#commentCount')).toBeVisible();
     await expect(badgeEl).toHaveText('1');
+  });
+
+  test('badge shows unresolved count, not total', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    const countEl = page.locator('#commentCount');
+    const badgeEl = page.locator('#commentCountNumber');
+
+    // Add a comment, finish round to resolve it, then add a new unresolved one
+    await addComment(request, mdPath, 1, 'Will be resolved');
+    await request.post('/api/finish');
+    await request.post('/api/round-complete');
+
+    // Now add 2 new unresolved comments (round 2)
+    await addComment(request, mdPath, 1, 'Unresolved one');
+    await addComment(request, mdPath, 2, 'Unresolved two');
+
+    await loadPage(page);
+
+    // 1 resolved + 2 unresolved → badge should show 2 (unresolved only)
+    await expect(countEl).toBeVisible();
+    await expect(countEl).not.toHaveClass(/comment-count-resolved/);
+    await expect(badgeEl).toHaveText('2');
   });
 
   test('badge increments when adding multiple comments', async ({ page, request }) => {
@@ -115,7 +139,7 @@ test.describe('Comment Count Badge', () => {
     await expect(panel).toHaveClass(/comments-panel-hidden/);
   });
 
-  test('badge inherits resolved styling when only resolved comments exist', async ({ page, request }) => {
+  test('badge falls back to total count with resolved styling when only resolved comments exist', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     const countEl = page.locator('#commentCount');
     const badgeEl = page.locator('#commentCountNumber');
@@ -127,6 +151,7 @@ test.describe('Comment Count Badge', () => {
 
     await loadPage(page);
 
+    // 0 unresolved + 1 resolved → badge shows total (1) with muted styling
     await expect(countEl).toBeVisible();
     await expect(countEl).toHaveClass(/comment-count-resolved/);
     await expect(badgeEl).toHaveText('1');

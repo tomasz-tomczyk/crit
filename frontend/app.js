@@ -3159,7 +3159,7 @@
       el.style.display = '';
       el.classList.remove('comment-count-resolved');
       el.title = unresolved + ' unresolved comment' + (unresolved === 1 ? '' : 's') + ' — toggle panel';
-      numEl.textContent = total;
+      numEl.textContent = unresolved;
     } else {
       el.style.display = '';
       el.classList.add('comment-count-resolved');
