@@ -382,7 +382,7 @@ test.describe('Cross-File Comments', () => {
     await clearAllComments(request);
   });
 
-  test('opening a comment form on one file closes form on another file', async ({ page }) => {
+  test('opening a comment form on one file keeps form on another file open', async ({ page }) => {
     await loadPage(page);
 
     // Open comment form on server.go (diff file)
@@ -392,9 +392,8 @@ test.describe('Cross-File Comments', () => {
     await additionSide.locator('.diff-comment-btn').click();
 
     // Form should be open
-    let form = page.locator('.comment-form');
-    await expect(form).toBeVisible();
-    await expect(form).toHaveCount(1);
+    await expect(serverSection.locator('.comment-form')).toBeVisible();
+    await expect(page.locator('.comment-form')).toHaveCount(1);
 
     // Now open comment form on handler.js
     const handlerSection = jsSection(page);
@@ -402,13 +401,12 @@ test.describe('Cross-File Comments', () => {
     await jsAdditionSide.hover();
     await jsAdditionSide.locator('.diff-comment-btn').click();
 
-    // Only one form should be visible (the one on handler.js)
-    form = page.locator('.comment-form');
-    await expect(form).toHaveCount(1);
+    // Both forms should be visible
+    await expect(page.locator('.comment-form')).toHaveCount(2);
 
-    // The form should be within the handler.js section
-    const handlerForm = handlerSection.locator('.comment-form');
-    await expect(handlerForm).toBeVisible();
+    // Both file sections should have their form
+    await expect(serverSection.locator('.comment-form')).toBeVisible();
+    await expect(handlerSection.locator('.comment-form')).toBeVisible();
   });
 });
 

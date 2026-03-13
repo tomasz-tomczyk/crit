@@ -53,7 +53,34 @@
 
   // Per-file active form state
   let activeFilePath = null;
-  let activeForm = null;  // { filePath, afterBlockIndex, startLine, endLine, editingId, side }
+  let activeForms = [];  // Array of { formKey, filePath, afterBlockIndex, startLine, endLine, editingId, side }
+
+  function formKey(form) {
+    if (form.editingId) return form.filePath + ':edit:' + form.editingId;
+    return form.filePath + ':' + form.startLine + ':' + form.endLine + ':' + (form.side || '');
+  }
+
+  function addForm(form) {
+    form.formKey = formKey(form);
+    var idx = activeForms.findIndex(function(f) { return f.formKey === form.formKey; });
+    if (idx >= 0) {
+      activeForms[idx] = form;
+    } else {
+      activeForms.push(form);
+    }
+  }
+
+  function removeForm(key) {
+    activeForms = activeForms.filter(function(f) { return f.formKey !== key; });
+  }
+
+  function getFormsForFile(filePath) {
+    return activeForms.filter(function(f) { return f.filePath === filePath; });
+  }
+
+  function findFormForEdit(commentId) {
+    return activeForms.find(function(f) { return f.editingId === commentId; });
+  }
   let selectionStart = null;
   let selectionEnd = null;
   var unifiedVisualStart = null; // visual index range for unified drag (cross-number-space)
@@ -1232,9 +1259,18 @@
   }
 
   // Re-render only a single file section (preserves scroll position)
+  function saveOpenFormContent(filePath) {
+    var fileForms = getFormsForFile(filePath);
+    for (var i = 0; i < fileForms.length; i++) {
+      var ta = document.querySelector('.comment-form[data-form-key="' + fileForms[i].formKey + '"] textarea');
+      if (ta) fileForms[i].draftBody = ta.value;
+    }
+  }
+
   function renderFileByPath(filePath) {
     const file = getFileByPath(filePath);
     if (!file) return;
+    saveOpenFormContent(filePath);
     const oldSection = document.getElementById('file-section-' + file.path);
     if (!oldSection) { renderAllFiles(); return; }
     oldSection.replaceWith(renderFileSection(file));
@@ -1314,10 +1350,9 @@
         const btn = e.target.closest('.toggle-btn');
         if (!btn) return;
         e.preventDefault(); // Don't toggle the <details>
-        if (activeForm && activeForm.filePath === file.path) {
-          clearDraft();
-          activeForm = null;
-          activeFilePath = null;
+        var fileForms = getFormsForFile(file.path);
+        fileForms.forEach(function(f) { removeForm(f.formKey); });
+        if (activeFilePath === file.path) {
           selectionStart = null;
           selectionEnd = null;
         }
@@ -1524,8 +1559,11 @@
             container.appendChild(createCommentElement(blockComments[ci], file.path));
           }
         }
-        if (activeForm && activeForm.filePath === file.path && !activeForm.editingId && activeForm.afterBlockIndex === bi) {
-          container.appendChild(createCommentForm());
+        var fileForms = getFormsForFile(file.path);
+        for (var fi = 0; fi < fileForms.length; fi++) {
+          if (!fileForms[fi].editingId && fileForms[fi].afterBlockIndex === bi) {
+            container.appendChild(createCommentForm(fileForms[fi]));
+          }
         }
       }
     }
@@ -1662,8 +1700,11 @@
           frag.appendChild(createCommentElement(blockComments[ci], file.path));
         }
       }
-      if (activeForm && activeForm.filePath === file.path && !activeForm.editingId && activeForm.afterBlockIndex === blockIndex) {
-        frag.appendChild(createCommentForm());
+      var fileForms = getFormsForFile(file.path);
+      for (var fi = 0; fi < fileForms.length; fi++) {
+        if (!fileForms[fi].editingId && fileForms[fi].afterBlockIndex === blockIndex) {
+          frag.appendChild(createCommentForm(fileForms[fi]));
+        }
       }
     }
 
@@ -1912,8 +1953,11 @@
       }
 
       // Comment form
-      if (activeForm && activeForm.filePath === file.path && !activeForm.editingId && activeForm.afterBlockIndex === bi) {
-        container.appendChild(createCommentForm());
+      var fileForms = getFormsForFile(file.path);
+      for (var fi = 0; fi < fileForms.length; fi++) {
+        if (!fileForms[fi].editingId && fileForms[fi].afterBlockIndex === bi) {
+          container.appendChild(createCommentForm(fileForms[fi]));
+        }
       }
     }
 
@@ -2006,7 +2050,6 @@
         unifiedVisualStart = vi;
         unifiedVisualEnd = vi;
       }
-      setActiveForm(null);
       renderFileByPath(fp);
 
       document.body.classList.add('dragging');
@@ -2055,23 +2098,19 @@
     const rangeStart = Math.min(diffDragState.anchorLine, diffDragState.currentLine);
     const rangeEnd = Math.max(diffDragState.anchorLine, diffDragState.currentLine);
 
-    setActiveForm({
-      filePath: diffDragState.filePath,
+    var fp = diffDragState.filePath;
+    var side = diffDragState.side;
+    diffDragState = null;
+    unifiedVisualStart = null;
+    unifiedVisualEnd = null;
+    openForm({
+      filePath: fp,
       afterBlockIndex: null,
       startLine: rangeStart,
       endLine: rangeEnd,
       editingId: null,
-      side: diffDragState.side,
+      side: side,
     });
-    activeFilePath = diffDragState.filePath;
-    selectionStart = rangeStart;
-    selectionEnd = rangeEnd;
-    var fp = diffDragState.filePath;
-    diffDragState = null;
-    unifiedVisualStart = null;
-    unifiedVisualEnd = null;
-    renderFileByPath(fp);
-    focusCommentTextarea();
   }
 
   // Helper: render hunk spacer
@@ -2145,13 +2184,16 @@
 
   // Helper: append comment form if it targets this line and side
   function appendDiffForm(container, filePath, lineNum, side) {
-    const formSide = (activeForm && activeForm.side) || '';
-    if (activeForm && activeForm.filePath === filePath && !activeForm.editingId &&
-        activeForm.endLine === lineNum && formSide === (side || '')) {
-      var el = createCommentForm();
-      if (formSide === 'old') el.classList.add('diff-comment-left');
-      else el.classList.add('diff-comment-right');
-      container.appendChild(el);
+    var fileForms = getFormsForFile(filePath);
+    for (var fi = 0; fi < fileForms.length; fi++) {
+      var form = fileForms[fi];
+      var formSide = form.side || '';
+      if (!form.editingId && form.endLine === lineNum && formSide === (side || '')) {
+        var el = createCommentForm(form);
+        if (formSide === 'old') el.classList.add('diff-comment-left');
+        else el.classList.add('diff-comment-right');
+        container.appendChild(el);
+      }
     }
   }
 
@@ -2204,7 +2246,7 @@
             }
             // After drag (form open): filter by side with actual line numbers
             else if (!diffDragState && selectionStart !== null && selectionEnd !== null) {
-              var formSide = activeForm ? (activeForm.side || '') : '';
+              var formSide = activeForms.length > 0 ? (activeForms[activeForms.length - 1].side || '') : '';
               if (lineSide === formSide && commentLineNum >= selectionStart && commentLineNum <= selectionEnd) {
                 lineEl.classList.add('selected');
               }
@@ -2363,7 +2405,7 @@
       leftCommentGutter = makeDiffCommentGutter(file.path, left.num, 'old');
       tagDiffLine(leftEl, file.path, left.num, 'old', row);
       if (commentRangeSet.has(left.num + ':old')) leftEl.classList.add('has-comment');
-      var selSide = diffDragState ? diffDragState.side : (activeForm ? activeForm.side : null);
+      var selSide = diffDragState ? diffDragState.side : (activeForms.length > 0 ? activeForms[activeForms.length - 1].side : null);
       if (activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
           left.num >= selectionStart && left.num <= selectionEnd && selSide === 'old') {
         leftEl.classList.add('selected');
@@ -2401,7 +2443,7 @@
       }
       tagDiffLine(rightEl, file.path, right.num, '', row);
       if (commentRangeSet.has(right.num + ':')) rightEl.classList.add('has-comment');
-      var selSideR = diffDragState ? diffDragState.side : (activeForm ? activeForm.side : null);
+      var selSideR = diffDragState ? diffDragState.side : (activeForms.length > 0 ? activeForms[activeForms.length - 1].side : null);
       if (activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
           right.num >= selectionStart && right.num <= selectionEnd && (selSideR || '') === '') {
         rightEl.classList.add('selected');
@@ -2523,12 +2565,7 @@
           lastBlockIndex = i;
         }
       }
-      setActiveForm({ filePath, afterBlockIndex: lastBlockIndex, startLine: rangeStart, endLine: rangeEnd, editingId: null });
-      activeFilePath = filePath;
-      selectionStart = rangeStart;
-      selectionEnd = rangeEnd;
-      renderFileByPath(filePath);
-      focusCommentTextarea();
+      openForm({ filePath: filePath, afterBlockIndex: lastBlockIndex, startLine: rangeStart, endLine: rangeEnd, editingId: null });
       return;
     }
 
@@ -2543,7 +2580,6 @@
     activeFilePath = filePath;
     selectionStart = startLine;
     selectionEnd = endLine;
-    setActiveForm(null);
     renderFileByPath(filePath);
 
     document.body.classList.add('dragging');
@@ -2683,34 +2719,45 @@
       }
     }
 
-    setActiveForm({
-      filePath: dragState.filePath,
+    var fp = dragState.filePath;
+    dragState = null;
+    openForm({
+      filePath: fp,
       afterBlockIndex: lastBlockIndex,
       startLine: rangeStart,
       endLine: rangeEnd,
       editingId: null,
     });
-    activeFilePath = dragState.filePath;
-    selectionStart = rangeStart;
-    selectionEnd = rangeEnd;
-    var fp = dragState.filePath;
-    dragState = null;
-    renderFileByPath(fp);
-    focusCommentTextarea();
   }
 
-  function setActiveForm(newForm) {
-    var prevPath = activeForm ? activeForm.filePath : null;
-    activeForm = newForm;
-    if (prevPath && (!newForm || newForm.filePath !== prevPath)) {
-      renderFileByPath(prevPath);
+  function openForm(newForm) {
+    var fk = formKey(newForm);
+    var existing = activeForms.find(function(f) { return f.formKey === fk; });
+    if (existing) {
+      activeFilePath = newForm.filePath;
+      selectionStart = newForm.startLine;
+      selectionEnd = newForm.endLine;
+      renderFileByPath(newForm.filePath);
+      focusCommentTextarea(existing.formKey);
+      return;
     }
+    addForm(newForm);
+    activeFilePath = newForm.filePath;
+    selectionStart = newForm.startLine;
+    selectionEnd = newForm.endLine;
+    renderFileByPath(newForm.filePath);
+    focusCommentTextarea(newForm.formKey);
   }
 
-  function focusCommentTextarea() {
+
+  function focusCommentTextarea(targetFormKey) {
     requestAnimationFrame(() => {
-      const ta = document.querySelector('.comment-form textarea');
-      if (ta) ta.focus();
+      if (targetFormKey) {
+        var ta = document.querySelector('.comment-form[data-form-key="' + targetFormKey + '"] textarea');
+        if (ta) { ta.focus(); return; }
+      }
+      var forms = document.querySelectorAll('.comment-form textarea');
+      if (forms.length > 0) forms[forms.length - 1].focus();
     });
   }
 
@@ -2877,41 +2924,47 @@
   }
 
   // ===== Comment Form =====
-  function createCommentForm() {
+  function createCommentForm(formObj) {
     const wrapper = document.createElement('div');
     wrapper.className = 'comment-form-wrapper';
 
     const form = document.createElement('div');
     form.className = 'comment-form';
+    form.dataset.formKey = formObj.formKey;
 
     const header = document.createElement('div');
     header.className = 'comment-form-header';
-    const lineRef = activeForm.startLine === activeForm.endLine
-      ? 'Line ' + activeForm.startLine
-      : 'Lines ' + activeForm.startLine + '-' + activeForm.endLine;
-    header.textContent = activeForm.editingId ? 'Editing comment on ' + lineRef : 'Comment on ' + lineRef;
+    const lineRef = formObj.startLine === formObj.endLine
+      ? 'Line ' + formObj.startLine
+      : 'Lines ' + formObj.startLine + '-' + formObj.endLine;
+    header.textContent = formObj.editingId ? 'Editing comment on ' + lineRef : 'Comment on ' + lineRef;
 
     const textarea = document.createElement('textarea');
     textarea.placeholder = 'Leave a review comment... (Ctrl+Enter to submit, Escape to cancel)';
-    if (activeForm.editingId) {
-      const file = getFileByPath(activeForm.filePath);
+    textarea.dataset.formKey = formObj.formKey;
+    if (formObj.editingId) {
+      const file = getFileByPath(formObj.filePath);
       if (file) {
-        const existing = file.comments.find(c => c.id === activeForm.editingId);
+        const existing = file.comments.find(c => c.id === formObj.editingId);
         if (existing) textarea.value = existing.body;
       }
+    } else if (formObj.draftBody) {
+      textarea.value = formObj.draftBody;
     }
 
     textarea.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        submitComment(textarea.value);
+        e.stopPropagation();
+        submitComment(textarea.value, formObj);
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        cancelComment();
+        e.stopPropagation();
+        cancelComment(formObj);
       }
     });
 
-    textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value); });
+    textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value, formObj); });
 
     const actions = document.createElement('div');
     actions.className = 'comment-form-actions';
@@ -2919,12 +2972,12 @@
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-sm';
     cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', cancelComment);
+    cancelBtn.addEventListener('click', function() { cancelComment(formObj); });
 
     const submitBtn = document.createElement('button');
     submitBtn.className = 'btn btn-sm btn-primary';
-    submitBtn.textContent = activeForm.editingId ? 'Update Comment' : 'Add Comment';
-    submitBtn.addEventListener('click', () => submitComment(textarea.value));
+    submitBtn.textContent = formObj.editingId ? 'Update Comment' : 'Add Comment';
+    submitBtn.addEventListener('click', function() { submitComment(textarea.value, formObj); });
 
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
@@ -2938,10 +2991,12 @@
   }
 
   function insertSuggestion(textarea) {
-    if (!activeForm) return;
-    const file = getFileByPath(activeForm.filePath);
+    var key = textarea.dataset.formKey;
+    var formObj = activeForms.find(function(f) { return f.formKey === key; });
+    if (!formObj) return;
+    const file = getFileByPath(formObj.filePath);
     if (!file) return;
-    const lines = file.content.split('\n').slice(activeForm.startLine - 1, activeForm.endLine);
+    const lines = file.content.split('\n').slice(formObj.startLine - 1, formObj.endLine);
     const suggestion = '```suggestion\n' + lines.join('\n') + '\n```';
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
@@ -2952,30 +3007,34 @@
     textarea.focus();
   }
 
-  async function submitComment(body) {
-    if (!body.trim() || !activeForm) return;
-    clearDraft();
-    const filePath = activeForm.filePath;
+  async function submitComment(body, formObj) {
+    if (!formObj) {
+      // Legacy fallback: find the most recent form (will be removed when all callers migrated)
+      formObj = activeForms.length > 0 ? activeForms[activeForms.length - 1] : null;
+    }
+    if (!body.trim() || !formObj) return;
+    clearDraft(formObj);
+    const filePath = formObj.filePath;
     const file = getFileByPath(filePath);
     if (!file) return;
 
     try {
-      if (activeForm.editingId) {
-        const res = await fetch('/api/comment/' + activeForm.editingId + '?path=' + enc(filePath), {
+      if (formObj.editingId) {
+        const res = await fetch('/api/comment/' + formObj.editingId + '?path=' + enc(filePath), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ body: body.trim() })
         });
         const updated = await res.json();
-        const idx = file.comments.findIndex(c => c.id === activeForm.editingId);
+        const idx = file.comments.findIndex(c => c.id === formObj.editingId);
         if (idx >= 0) file.comments[idx] = updated;
       } else {
         const payload = {
-          start_line: activeForm.startLine,
-          end_line: activeForm.endLine,
+          start_line: formObj.startLine,
+          end_line: formObj.endLine,
           body: body.trim()
         };
-        if (activeForm.side) payload.side = activeForm.side;
+        if (formObj.side) payload.side = formObj.side;
         if (configAuthor) payload.author = configAuthor;
         const res = await fetch('/api/file/comments?path=' + enc(filePath), {
           method: 'POST',
@@ -2989,97 +3048,118 @@
       console.error('Error saving comment:', err);
     }
 
-    var rerenderPath = filePath;
-    activeForm = null;
-    activeFilePath = null;
-    selectionStart = null;
-    selectionEnd = null;
-    focusedBlockIndex = null;
-    focusedFilePath = null;
-    focusedElement = null;
-    renderFileByPath(rerenderPath);
+    removeForm(formObj.formKey);
+    if (getFormsForFile(filePath).length === 0) {
+      if (activeFilePath === filePath) {
+        activeFilePath = null;
+        selectionStart = null;
+        selectionEnd = null;
+      }
+      focusedFilePath = null;
+      focusedBlockIndex = null;
+      focusedElement = null;
+    }
+    renderFileByPath(filePath);
     renderFileSummary();
     updateCommentCount();
   }
 
-  function cancelComment() {
-    clearDraft();
-    var rerenderPath = activeForm ? activeForm.filePath : null;
-    activeForm = null;
-    activeFilePath = null;
-    selectionStart = null;
-    selectionEnd = null;
-    focusedBlockIndex = null;
-    focusedFilePath = null;
-    focusedElement = null;
-    if (rerenderPath) {
-      renderFileByPath(rerenderPath);
-    } else {
-      renderAllFiles();
+  function cancelComment(formObj) {
+    if (!formObj) {
+      // Legacy fallback: find the most recent form (will be removed when all callers migrated)
+      formObj = activeForms.length > 0 ? activeForms[activeForms.length - 1] : null;
     }
+    if (!formObj) return;
+    clearDraft(formObj);
+    removeForm(formObj.formKey);
+    if (getFormsForFile(formObj.filePath).length === 0) {
+      if (activeFilePath === formObj.filePath) {
+        activeFilePath = null;
+        selectionStart = null;
+        selectionEnd = null;
+      }
+      focusedFilePath = null;
+      focusedBlockIndex = null;
+      focusedElement = null;
+    }
+    renderFileByPath(formObj.filePath);
   }
 
   // ===== Draft Autosave =====
-  let draftTimer = null;
+  let draftTimers = {};
 
-  function getDraftKey() {
-    if (!activeForm) return null;
-    return 'crit-draft-' + (activeForm.filePath || '');
+  function getDraftKey(formObj) {
+    if (!formObj) return null;
+    return 'crit-draft-' + formObj.formKey;
   }
 
-  function saveDraft(body) {
-    if (!activeForm) return;
-    const key = getDraftKey();
+  function saveDraft(body, formObj) {
+    if (!formObj) return;
+    var key = getDraftKey(formObj);
     if (!key) return;
     try {
       localStorage.setItem(key, JSON.stringify({
-        filePath: activeForm.filePath,
-        startLine: activeForm.startLine,
-        endLine: activeForm.endLine,
-        afterBlockIndex: activeForm.afterBlockIndex,
-        editingId: activeForm.editingId,
-        side: activeForm.side || '',
+        filePath: formObj.filePath,
+        startLine: formObj.startLine,
+        endLine: formObj.endLine,
+        afterBlockIndex: formObj.afterBlockIndex,
+        editingId: formObj.editingId,
+        side: formObj.side || '',
         body: body,
         savedAt: Date.now()
       }));
     } catch (_) {}
   }
 
-  function debouncedSaveDraft(body) {
-    clearTimeout(draftTimer);
-    draftTimer = setTimeout(function() { saveDraft(body); }, 500);
+  function debouncedSaveDraft(body, formObj) {
+    if (!formObj) return;
+    var key = formObj.formKey;
+    clearTimeout(draftTimers[key]);
+    draftTimers[key] = setTimeout(function() { saveDraft(body, formObj); }, 500);
   }
 
-  function clearDraft() {
-    clearTimeout(draftTimer);
-    const key = getDraftKey();
-    if (key) {
-      try { localStorage.removeItem(key); } catch (_) {}
+  function clearDraft(formObj) {
+    if (!formObj) return;
+    var key = formObj.formKey;
+    if (draftTimers[key]) {
+      clearTimeout(draftTimers[key]);
+      delete draftTimers[key];
+    }
+    var draftKey = getDraftKey(formObj);
+    if (draftKey) {
+      try { localStorage.removeItem(draftKey); } catch (_) {}
     }
   }
 
   window.addEventListener('beforeunload', function() {
-    if (!activeForm) return;
-    const ta = document.querySelector('.comment-form textarea');
-    if (ta) saveDraft(ta.value);
+    activeForms.forEach(function(formObj) {
+      var el = document.querySelector('.comment-form[data-form-key="' + formObj.formKey + '"] textarea');
+      if (el) saveDraft(el.value, formObj);
+    });
   });
 
   function restoreDrafts() {
-    // Check all files for saved drafts
-    for (const file of files) {
-      const key = 'crit-draft-' + file.path;
+    var restored = false;
+    var keysToProcess = [];
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (k && k.startsWith('crit-draft-')) keysToProcess.push(k);
+    }
+    for (var ki = 0; ki < keysToProcess.length; ki++) {
+      var key = keysToProcess[ki];
       try {
         var raw = localStorage.getItem(key);
         if (!raw) continue;
         var draft = JSON.parse(raw);
 
-        // Discard drafts older than 24 hours
         if (Date.now() - draft.savedAt > 24 * 60 * 60 * 1000) {
           localStorage.removeItem(key);
           continue;
         }
 
-        // Verify line range exists in current file
+        var file = getFileByPath(draft.filePath);
+        if (!file) { localStorage.removeItem(key); continue; }
+
         if (file.fileType === 'markdown' && file.content) {
           var totalLines = file.content.split('\n').length;
           if (draft.startLine < 1 || draft.endLine > totalLines) {
@@ -3088,7 +3168,6 @@
           }
         }
 
-        // If editing, verify comment still exists
         if (draft.editingId) {
           if (!file.comments.find(function(c) { return c.id === draft.editingId; })) {
             localStorage.removeItem(key);
@@ -3096,34 +3175,34 @@
           }
         }
 
-        // Restore activeForm and re-render
-        activeForm = {
+        var formObj = {
           filePath: file.path,
           afterBlockIndex: draft.afterBlockIndex,
           startLine: draft.startLine,
           endLine: draft.endLine,
           editingId: draft.editingId,
-          side: draft.side || ''
+          side: draft.side || '',
+          draftBody: draft.body || ''
         };
-        activeFilePath = file.path;
-        selectionStart = draft.startLine;
-        selectionEnd = draft.endLine;
-        renderFileByPath(file.path);
+        formObj.formKey = formKey(formObj);
+        addForm(formObj);
 
-        // Populate textarea with saved body
-        requestAnimationFrame(function() {
-          var ta = document.querySelector('.comment-form textarea');
-          if (ta && draft.body) {
-            ta.value = draft.body;
-            ta.focus();
-          }
-        });
-
-        showMiniToast('Draft restored');
-        break; // Only restore one draft at a time
+        restored = true;
+        localStorage.removeItem(key);
       } catch (_) {
         localStorage.removeItem(key);
       }
+    }
+    if (restored) {
+      // Render all files that have restored forms (deduplicated)
+      var renderedFiles = {};
+      activeForms.forEach(function(f) {
+        if (!renderedFiles[f.filePath]) {
+          renderedFiles[f.filePath] = true;
+          renderFileByPath(f.filePath);
+        }
+      });
+      showMiniToast('Draft restored');
     }
   }
 
@@ -3141,7 +3220,7 @@
 
   // ===== Comment Display =====
   function createCommentElement(comment, filePath) {
-    if (activeForm && activeForm.editingId === comment.id) {
+    if (findFormForEdit(comment.id)) {
       return createInlineEditor(comment);
     }
 
@@ -3222,11 +3301,15 @@
   }
 
   function createInlineEditor(comment) {
+    var formObj = findFormForEdit(comment.id);
+    if (!formObj) return null;
+
     const wrapper = document.createElement('div');
     wrapper.className = 'comment-form-wrapper';
 
     const form = document.createElement('div');
     form.className = 'comment-form';
+    form.dataset.formKey = formObj.formKey;
 
     const header = document.createElement('div');
     header.className = 'comment-form-header';
@@ -3237,19 +3320,22 @@
 
     const textarea = document.createElement('textarea');
     textarea.placeholder = 'Leave a review comment... (Ctrl+Enter to submit, Escape to cancel)';
+    textarea.dataset.formKey = formObj.formKey;
     textarea.value = comment.body;
 
     textarea.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        submitComment(textarea.value);
+        e.stopPropagation();
+        submitComment(textarea.value, formObj);
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        cancelComment();
+        e.stopPropagation();
+        cancelComment(formObj);
       }
     });
 
-    textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value); });
+    textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value, formObj); });
 
     const actions = document.createElement('div');
     actions.className = 'comment-form-actions';
@@ -3257,12 +3343,12 @@
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-sm';
     cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', cancelComment);
+    cancelBtn.addEventListener('click', function() { cancelComment(formObj); });
 
     const submitBtn = document.createElement('button');
     submitBtn.className = 'btn btn-sm btn-primary';
     submitBtn.textContent = 'Update Comment';
-    submitBtn.addEventListener('click', () => submitComment(textarea.value));
+    submitBtn.addEventListener('click', function() { submitComment(textarea.value, formObj); });
 
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
@@ -3278,15 +3364,13 @@
   }
 
   function editComment(comment, filePath) {
-    setActiveForm({
-      filePath,
+    openForm({
+      filePath: filePath,
       afterBlockIndex: null,
       startLine: comment.start_line,
       endLine: comment.end_line,
       editingId: comment.id,
     });
-    activeFilePath = filePath;
-    renderFileByPath(filePath);
   }
 
   async function deleteComment(id, filePath) {
@@ -3617,7 +3701,7 @@
 
         files.sort(fileSortComparator);
 
-        activeForm = null;
+        activeForms = [];
         activeFilePath = null;
         selectionStart = null;
         selectionEnd = null;
@@ -4091,9 +4175,13 @@
   document.addEventListener('keydown', function(e) {
     const tag = document.activeElement.tagName;
     if (tag === 'TEXTAREA' || tag === 'INPUT' || document.activeElement.isContentEditable) {
-      if (e.key === 'Escape' && activeForm) {
+      if (e.key === 'Escape' && activeForms.length > 0) {
         e.preventDefault();
-        cancelComment();
+        var ta = document.activeElement;
+        if (ta && ta.dataset && ta.dataset.formKey) {
+          var form = activeForms.find(function(f) { return f.formKey === ta.dataset.formKey; });
+          if (form) cancelComment(form);
+        }
       }
       return;
     }
@@ -4155,24 +4243,14 @@
           var file = getFileByPath(fp);
           if (!file || !file.lineBlocks) return;
           var block = file.lineBlocks[bi];
-          selectionStart = block.startLine;
-          selectionEnd = block.endLine;
-          setActiveForm({ filePath: fp, afterBlockIndex: bi, startLine: block.startLine, endLine: block.endLine, editingId: null });
-          activeFilePath = fp;
-          renderFileByPath(fp);
-          focusCommentTextarea();
+          openForm({ filePath: fp, afterBlockIndex: bi, startLine: block.startLine, endLine: block.endLine, editingId: null });
         }
         // Diff line
         else if (focusedElement.dataset.diffFilePath && focusedElement.dataset.diffLineNum) {
           var dfp = focusedElement.dataset.diffFilePath;
           var lineNum = parseInt(focusedElement.dataset.diffLineNum);
           var side = focusedElement.dataset.diffSide || '';
-          selectionStart = lineNum;
-          selectionEnd = lineNum;
-          setActiveForm({ filePath: dfp, afterBlockIndex: null, startLine: lineNum, endLine: lineNum, editingId: null, side: side || undefined });
-          activeFilePath = dfp;
-          renderFileByPath(dfp);
-          focusCommentTextarea();
+          openForm({ filePath: dfp, afterBlockIndex: null, startLine: lineNum, endLine: lineNum, editingId: null, side: side || undefined });
         }
         break;
       }
@@ -4238,7 +4316,7 @@
       }
       case 'Escape': {
         e.preventDefault();
-        if (activeForm) cancelComment();
+        if (activeForms.length > 0) cancelComment(activeForms[activeForms.length - 1]);
         else if (selectionStart !== null) {
           var clearPath = activeFilePath;
           selectionStart = null;
