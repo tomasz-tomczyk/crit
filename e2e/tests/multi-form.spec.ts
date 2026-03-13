@@ -204,4 +204,54 @@ test.describe('Multi-Form Comments', () => {
     // Verify two forms exist
     await expect(section.locator('.comment-form')).toHaveCount(2);
   });
+
+  test('first form range gets form-selected highlight when second form opens on same file (document view)', async ({ page }) => {
+    await switchToDocumentView(page);
+    const section = mdSection(page);
+
+    const firstLineBlock = section.locator('.line-block').first();
+    await firstLineBlock.hover();
+    await section.locator('.line-comment-gutter').first().click();
+    await expect(section.locator('.comment-form')).toHaveCount(1);
+
+    // Open second form on a different line
+    const thirdLineBlock = section.locator('.line-block').nth(2);
+    await thirdLineBlock.hover();
+    await section.locator('.line-comment-gutter').nth(2).click();
+    await expect(section.locator('.comment-form')).toHaveCount(2);
+
+    // First block should carry form-selected (its range is covered by an open form)
+    await expect(firstLineBlock).toHaveClass(/form-selected/);
+    // Third block should carry selected (it is the current selection)
+    await expect(thirdLineBlock).toHaveClass(/selected/);
+  });
+
+  test('first form range gets form-selected highlight when second form opens on same file (split diff)', async ({ page }) => {
+    const goSec = goSection(page);
+    const additions = goSec.locator('.diff-split-side.right[data-diff-line-num]');
+
+    // Need at least two commentable lines
+    await expect(additions).toHaveCount(2, { timeout: 5_000 }).catch(() => {});
+    const count = await additions.count();
+    if (count < 2) return;
+
+    const firstAdd = additions.first();
+    const secondAdd = additions.nth(1);
+
+    // Open form on first addition
+    await firstAdd.hover();
+    await firstAdd.locator('.diff-comment-btn').click();
+    await expect(goSec.locator('.comment-form')).toHaveCount(1);
+
+    // Open form on second addition
+    await secondAdd.scrollIntoViewIfNeeded();
+    await secondAdd.hover();
+    await secondAdd.locator('.diff-comment-btn').click();
+    await expect(goSec.locator('.comment-form')).toHaveCount(2);
+
+    // First addition's line should now be form-selected
+    await expect(firstAdd).toHaveClass(/form-selected/);
+    // Second addition's line should be selected
+    await expect(secondAdd).toHaveClass(/selected/);
+  });
 });
