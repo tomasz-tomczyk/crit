@@ -46,10 +46,3 @@ gofmt -l .
 golangci-lint run ./...
 ```
 
-## Acknowledgments
-
-Crit embeds the following open-source libraries:
-
-- [markdown-it](https://github.com/markdown-it/markdown-it): Markdown parser
-- [highlight.js](https://github.com/highlightjs/highlight.js): Syntax highlighting
-- [Mermaid](https://github.com/mermaid-js/mermaid): Diagram rendering

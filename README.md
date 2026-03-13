@@ -124,6 +124,10 @@ Architecture diagrams in fenced ` ```mermaid ` blocks render inline. You can com
 
 ![Mermaid diagram](images/mermaid.png)
 
+### Share for Async Review
+
+Want a second opinion before handing off to the agent? Enable sharing by setting `CRIT_SHARE_URL=https://crit.live` (or pass `--share-url`), then click the Share button to upload your review and get a public URL anyone can open in a browser, no install needed. Each reviewer's comments are color-coded by author. Unpublish anytime.
+
 ### Everything else
 
 - **Draft autosave.** Close your browser mid-review and pick up exactly where you left off.
@@ -148,27 +152,28 @@ crit install all           # install all integrations at once
 
 This copies the right files to the right places in your project. Safe to re-run - existing files are skipped (use `--force` to overwrite).
 
-Or set up manually:
+<details>
+<summary>Manual setup</summary>
 
-| Tool               | Setup                                                                                 |
-| ------------------ | ------------------------------------------------------------------------------------- |
-| **Claude Code**    | Copy `integrations/claude-code/crit.md` to `.claude/commands/crit.md`                 |
-| **Claude Code**    | Copy `integrations/claude-code/crit-comment.md` to `.claude/commands/crit-comment.md` |
-| **Cursor**         | Copy `integrations/cursor/crit-command.md` to `.cursor/commands/crit.md`              |
-| **Cursor**         | Copy `integrations/cursor/crit-comment.md` to `.cursor/commands/crit-comment.md`      |
-| **OpenCode**       | Copy `integrations/opencode/crit.md` to `.opencode/commands/crit.md`                  |
-| **OpenCode**       | Copy `integrations/opencode/crit-comment.md` to `.opencode/commands/crit-comment.md`  |
-| **OpenCode**       | Copy `integrations/opencode/SKILL.md` to `.opencode/skills/crit-review/SKILL.md`      |
-| **GitHub Copilot** | Copy `integrations/github-copilot/crit.prompt.md` to `.github/prompts/crit.prompt.md` |
-| **GitHub Copilot** | Copy `integrations/github-copilot/crit-comment.md` to `.github/prompts/crit-comment.prompt.md` |
-| **Windsurf**       | Copy `integrations/windsurf/crit.md` to `.windsurf/rules/crit.md`                     |
-| **Windsurf**       | Copy `integrations/windsurf/crit-comment.md` to `.windsurf/rules/crit-comment.md`     |
-| **Aider**          | Append `integrations/aider/CONVENTIONS.md` to your `CONVENTIONS.md`                   |
-| **Aider**          | Copy `integrations/aider/crit-comment.md` to your project root                        |
-| **Cline**          | Copy `integrations/cline/crit.md` to `.clinerules/crit.md`                            |
-| **Cline**          | Copy `integrations/cline/crit-comment.md` to `.clinerules/crit-comment.md`            |
+- **Claude Code** — `integrations/claude-code/crit.md` → `.claude/commands/crit.md`
+- **Claude Code** — `integrations/claude-code/crit-comment.md` → `.claude/commands/crit-comment.md`
+- **Cursor** — `integrations/cursor/crit-command.md` → `.cursor/commands/crit.md`
+- **Cursor** — `integrations/cursor/crit-comment.md` → `.cursor/commands/crit-comment.md`
+- **OpenCode** — `integrations/opencode/crit.md` → `.opencode/commands/crit.md`
+- **OpenCode** — `integrations/opencode/crit-comment.md` → `.opencode/commands/crit-comment.md`
+- **OpenCode** — `integrations/opencode/SKILL.md` → `.opencode/skills/crit-review/SKILL.md`
+- **GitHub Copilot** — `integrations/github-copilot/crit.prompt.md` → `.github/prompts/crit.prompt.md`
+- **GitHub Copilot** — `integrations/github-copilot/crit-comment.md` → `.github/prompts/crit-comment.prompt.md`
+- **Windsurf** — `integrations/windsurf/crit.md` → `.windsurf/rules/crit.md`
+- **Windsurf** — `integrations/windsurf/crit-comment.md` → `.windsurf/rules/crit-comment.md`
+- **Aider** — append `integrations/aider/CONVENTIONS.md` to your `CONVENTIONS.md`
+- **Aider** — copy `integrations/aider/crit-comment.md` to your project root
+- **Cline** — `integrations/cline/crit.md` → `.clinerules/crit.md`
+- **Cline** — `integrations/cline/crit-comment.md` → `.clinerules/crit-comment.md`
 
 See [`integrations/`](integrations/) for the full files and details.
+
+</details>
 
 ### `/crit` command
 
@@ -185,12 +190,33 @@ It launches Crit, waits for your review, reads your comments, revises the plan, 
 
 Each integration also includes a `crit-comment` skill that teaches your agent to use `crit comment` to add inline review comments programmatically — no browser needed. The agent learns the syntax and can leave comments on specific lines or ranges as part of its workflow.
 
-## Share for Async Review
+## Configuration
 
-Want a second opinion before handing off to the agent? Enable sharing by setting `CRIT_SHARE_URL=https://crit.live` (or pass `--share-url`), then click the Share button to upload your review and get a public URL anyone can open in a browser, no install needed. Each reviewer's comments are color-coded by author. Unpublish anytime.
+Crit supports two-tier configuration files: `~/.crit.config.json` (global) and `.crit.config.json` (per-project). Project settings take precedence over global ones.
 
-<details id="other-install-methods">
-<summary>Other install methods</summary>
+Precedence: CLI flags > environment variables > project config > global config > defaults
+
+```bash
+crit config --generate   # scaffold a starter config file
+crit config --help       # document all config keys
+```
+
+| Key               | Description                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------ |
+| `author`          | Your display name for comments. Defaults to `git config user.name`.                        |
+| `ignore_patterns` | Files to exclude from review (gitignore-style: `*.lock`, `vendor/`, `generated/*.pb.go`). |
+| `share_url`       | Enable the Share button (e.g. `"https://crit.live"` or a self-hosted instance).            |
+| `port`            | Default port for the local server.                                                         |
+
+### Environment variables
+
+| Variable               | Description                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `CRIT_SHARE_URL`       | Enable the Share button (e.g. `https://crit.live` or a self-hosted instance) |
+| `CRIT_PORT`            | Default port for the local server                                            |
+| `CRIT_NO_UPDATE_CHECK` | Set to any value to disable the update check on startup                      |
+
+## Other Install Methods
 
 ### Go
 
@@ -214,14 +240,10 @@ inputs.crit.url = "github:tomasz-tomczyk/crit";
 
 Grab the latest binary for your platform from [Releases](https://github.com/tomasz-tomczyk/crit/releases).
 
-</details>
+## Acknowledgements
 
-<details>
-<summary>Environment variables</summary>
+Crit embeds the following open-source libraries:
 
-| Variable               | Description                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------ |
-| `CRIT_SHARE_URL`       | Enable the Share button (e.g. `https://crit.live` or a self-hosted instance) |
-| `CRIT_NO_UPDATE_CHECK` | Set to any value to disable the update check on startup                                    |
-
-</details>
+- [markdown-it](https://github.com/markdown-it/markdown-it): Markdown parser
+- [highlight.js](https://github.com/highlightjs/highlight.js): Syntax highlighting
+- [Mermaid](https://github.com/mermaid-js/mermaid): Diagram rendering
