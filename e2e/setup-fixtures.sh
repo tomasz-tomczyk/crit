@@ -297,5 +297,8 @@ fi
 echo "CRIT_BIN=$CRIT_BIN" > "/tmp/crit-e2e-state-$PORT"
 echo "CRIT_FIXTURE_DIR=$DIR" >> "/tmp/crit-e2e-state-$PORT"
 
+# Isolate from user's ~/.crit.config.json
+export HOME="$DIR"
+
 # Run crit in the fixture repo
 exec "$CRIT_BIN" --no-open --quiet --port "$PORT"
