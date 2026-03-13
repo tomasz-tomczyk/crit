@@ -3177,7 +3177,8 @@
     }
     if (comment.review_round >= 1) {
       const roundBadge = document.createElement('span');
-      roundBadge.className = 'comment-round-badge';
+      var rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
+      roundBadge.className = 'comment-round-badge' + rc;
       roundBadge.textContent = 'R' + comment.review_round;
       headerLeft.appendChild(roundBadge);
     }
@@ -3319,6 +3320,13 @@
     body.innerHTML = commentMd.render(comment.body);
 
     header.appendChild(check);
+    if (comment.review_round >= 1) {
+      const roundBadge = document.createElement('span');
+      var rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
+      roundBadge.className = 'comment-round-badge' + rc;
+      roundBadge.textContent = 'R' + comment.review_round;
+      header.appendChild(roundBadge);
+    }
     header.appendChild(body);
     el.appendChild(header);
 
@@ -3436,6 +3444,13 @@
             badge.textContent = 'Unresolved';
           }
           lineRef.appendChild(badge);
+        }
+        if (comment.review_round >= 1) {
+          var roundBadge = document.createElement('span');
+          var rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
+      roundBadge.className = 'comment-round-badge' + rc;
+          roundBadge.textContent = 'R' + comment.review_round;
+          lineRef.appendChild(roundBadge);
         }
 
         var bodyEl = document.createElement('div');

@@ -798,12 +798,15 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .comment-round-badge {
   font-size: 10px;
-  font-weight: 600;
-  color: var(--fg-dimmed);
-  background: var(--bg-tertiary);
-  padding: 1px 5px;
-  border-radius: 8px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
   white-space: nowrap;
+}
+.comment-round-badge.round-current,
+.comment-round-badge.round-latest {
+  color: var(--fg-dimmed);
 }
 
 .comment-header {

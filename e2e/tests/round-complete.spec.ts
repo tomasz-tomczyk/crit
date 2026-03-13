@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, switchToDocumentView } from './helpers';
 
 // Find a non-crit.json file path from the session (e.g., plan.md or handler.js)
 async function getTestFilePath(request: APIRequestContext): Promise<string> {
@@ -149,6 +149,40 @@ test.describe('Multi-Round — API', () => {
     const filesAfter = after.files.map((f: any) => f.path).filter((p: string) => p !== '.crit.json').sort();
 
     expect(filesAfter).toEqual(filesBefore);
+  });
+
+  test('comments include review_round from when they were created', async ({ request }) => {
+    const filePath = await getTestFilePath(request);
+
+    const session = await request.get('/api/session').then(r => r.json());
+    const currentRound = session.review_round;
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Round comment' },
+    });
+
+    const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
+    expect(comments[0].review_round).toBe(currentRound);
+  });
+
+  test('carried-forward comments preserve original review_round', async ({ request }) => {
+    const filePath = await getTestFilePath(request);
+
+    let session = await request.get('/api/session').then(r => r.json());
+    const round1 = session.review_round;
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Round 1 comment' },
+    });
+
+    await request.post('/api/finish');
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
+    expect(comments.length).toBe(1);
+    expect(comments[0].review_round).toBe(round1);
+    expect(comments[0].carried_forward).toBe(true);
   });
 });
 
@@ -415,5 +449,84 @@ test.describe('Multi-Round — Frontend', () => {
 
     // Same number of file sections after
     await expect(sections).toHaveCount(sectionsBefore);
+  });
+
+  test('round badge displays on comments', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Badge test comment' },
+    });
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const badge = page.locator('.comment-round-badge');
+    await expect(badge.first()).toBeVisible();
+    await expect(badge.first()).toHaveText(/^R\d+$/);
+  });
+
+  test('round badge shows on carried-forward comments after round-complete', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+
+    const session = await request.get('/api/session').then(r => r.json());
+    const round1 = session.review_round;
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Carried badge test' },
+    });
+
+    await request.post('/api/finish');
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const badge = page.locator('.comment-round-badge');
+    await expect(badge.first()).toBeVisible();
+    await expect(badge.first()).toHaveText('R' + round1);
+  });
+
+  test('round badge has round-latest class for most recently addressed round', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+
+    const session = await request.get('/api/session').then(r => r.json());
+    const round1 = session.review_round;
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Latest round test' },
+    });
+
+    await request.post('/api/finish');
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    // The carried-forward comment from round1 should have round-latest class
+    // since current round is round1+1, and round1 === current_round - 1
+    const badge = page.locator('.comment-round-badge.round-latest');
+    await expect(badge.first()).toBeVisible();
+    await expect(badge.first()).toHaveText('R' + round1);
+  });
+
+  test('round badge appears in comments panel', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Panel badge test' },
+    });
+
+    await loadPage(page);
+
+    // Open comments panel
+    await page.locator('#commentCount').click();
+    await expect(page.locator('#commentsPanel')).toBeVisible();
+
+    const panelBadge = page.locator('#commentsPanel .comment-round-badge');
+    await expect(panelBadge.first()).toBeVisible();
+    await expect(panelBadge.first()).toHaveText(/^R\d+$/);
   });
 });
