@@ -1491,11 +1491,14 @@
         }
         if (blockInCommentRange) lineBlockEl.classList.add('has-comment');
 
-        if (activeFilePath === file.path && selectionStart !== null && selectionEnd !== null) {
-          if (block.startLine >= selectionStart && block.endLine <= selectionEnd) {
-            lineBlockEl.classList.add('selected');
-          }
-        }
+        var fileForms1 = getFormsForFile(file.path);
+        var hasFormForBlock1 = fileForms1.some(function(f) {
+          return !f.editingId && block.startLine >= f.startLine && block.endLine <= f.endLine;
+        });
+        var inCurrentSelection1 = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
+          block.startLine >= selectionStart && block.endLine <= selectionEnd;
+        if (inCurrentSelection1) { lineBlockEl.classList.add('selected'); }
+        if (hasFormForBlock1 && !inCurrentSelection1) { lineBlockEl.classList.add('form-selected'); }
 
         (function(fp, idx, el) {
           lineBlockEl.addEventListener('mouseenter', function() {
@@ -1633,11 +1636,14 @@
       }
       if (blockInCommentRange) lineBlockEl.classList.add('has-comment');
 
-      if (activeFilePath === file.path && selectionStart !== null && selectionEnd !== null) {
-        if (block.startLine >= selectionStart && block.endLine <= selectionEnd) {
-          lineBlockEl.classList.add('selected');
-        }
-      }
+      var fileForms2 = getFormsForFile(file.path);
+      var hasFormForBlock2 = fileForms2.some(function(f) {
+        return !f.editingId && block.startLine >= f.startLine && block.endLine <= f.endLine;
+      });
+      var inCurrentSelection2 = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
+        block.startLine >= selectionStart && block.endLine <= selectionEnd;
+      if (inCurrentSelection2) { lineBlockEl.classList.add('selected'); }
+      if (hasFormForBlock2 && !inCurrentSelection2) { lineBlockEl.classList.add('form-selected'); }
 
       (function(fp, idx, el) {
         lineBlockEl.addEventListener('mouseenter', function() {
@@ -1854,11 +1860,14 @@
       }
 
       // Selection highlight (during drag or when form is open)
-      if (activeFilePath === file.path && selectionStart !== null && selectionEnd !== null) {
-        if (block.startLine >= selectionStart && block.endLine <= selectionEnd) {
-          lineBlockEl.classList.add('selected');
-        }
-      }
+      var fileForms3 = getFormsForFile(file.path);
+      var hasFormForBlock3 = fileForms3.some(function(f) {
+        return !f.editingId && block.startLine >= f.startLine && block.endLine <= f.endLine;
+      });
+      var inCurrentSelection3 = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
+        block.startLine >= selectionStart && block.endLine <= selectionEnd;
+      if (inCurrentSelection3) { lineBlockEl.classList.add('selected'); }
+      if (hasFormForBlock3 && !inCurrentSelection3) { lineBlockEl.classList.add('form-selected'); }
 
       // Track hover for keyboard shortcuts
       (function(fp, idx, el) {
@@ -2239,18 +2248,17 @@
         if (commentLineNum) {
           tagDiffLine(lineEl, file.path, commentLineNum, lineSide);
           if (activeFilePath === file.path) {
-            // During drag: use visual indices (old/new line numbers are different spaces)
-            if (diffDragState && unifiedVisualStart !== null && unifiedVisualEnd !== null &&
-                visualIdx >= unifiedVisualStart && visualIdx <= unifiedVisualEnd) {
-              lineEl.classList.add('selected');
-            }
-            // After drag (form open): filter by side with actual line numbers
-            else if (!diffDragState && selectionStart !== null && selectionEnd !== null) {
-              var formSide = activeForms.length > 0 ? (activeForms[activeForms.length - 1].side || '') : '';
-              if (lineSide === formSide && commentLineNum >= selectionStart && commentLineNum <= selectionEnd) {
-                lineEl.classList.add('selected');
-              }
-            }
+            var inCurrentDrag = diffDragState && unifiedVisualStart !== null && unifiedVisualEnd !== null &&
+                visualIdx >= unifiedVisualStart && visualIdx <= unifiedVisualEnd;
+            var formSide = activeForms.length > 0 ? (activeForms[activeForms.length - 1].side || '') : '';
+            var inCurrentForm = !diffDragState && selectionStart !== null && selectionEnd !== null &&
+                lineSide === formSide && commentLineNum >= selectionStart && commentLineNum <= selectionEnd;
+            var inCurrentSelUnified = inCurrentDrag || inCurrentForm;
+            var hasFormUnified = getFormsForFile(file.path).some(function(f) {
+              return !f.editingId && commentLineNum >= f.startLine && commentLineNum <= f.endLine && (f.side || '') === lineSide;
+            });
+            if (inCurrentSelUnified) { lineEl.classList.add('selected'); }
+            if (hasFormUnified && !inCurrentSelUnified) { lineEl.classList.add('form-selected'); }
           }
         }
 
@@ -2406,10 +2414,13 @@
       tagDiffLine(leftEl, file.path, left.num, 'old', row);
       if (commentRangeSet.has(left.num + ':old')) leftEl.classList.add('has-comment');
       var selSide = diffDragState ? diffDragState.side : (activeForms.length > 0 ? activeForms[activeForms.length - 1].side : null);
-      if (activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
-          left.num >= selectionStart && left.num <= selectionEnd && selSide === 'old') {
-        leftEl.classList.add('selected');
-      }
+      var inCurrentSelLeft = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
+          left.num >= selectionStart && left.num <= selectionEnd && selSide === 'old';
+      var hasFormLeft = getFormsForFile(file.path).some(function(f) {
+        return !f.editingId && left.num >= f.startLine && left.num <= f.endLine && (f.side || '') === 'old';
+      });
+      if (inCurrentSelLeft) { leftEl.classList.add('selected'); }
+      if (hasFormLeft && !inCurrentSelLeft) { leftEl.classList.add('form-selected'); }
     } else {
       leftCommentGutter = makeDiffCommentGutter(file.path, 0, '');
     }
@@ -2444,10 +2455,13 @@
       tagDiffLine(rightEl, file.path, right.num, '', row);
       if (commentRangeSet.has(right.num + ':')) rightEl.classList.add('has-comment');
       var selSideR = diffDragState ? diffDragState.side : (activeForms.length > 0 ? activeForms[activeForms.length - 1].side : null);
-      if (activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
-          right.num >= selectionStart && right.num <= selectionEnd && (selSideR || '') === '') {
-        rightEl.classList.add('selected');
-      }
+      var inCurrentSelRight = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
+          right.num >= selectionStart && right.num <= selectionEnd && (selSideR || '') === '';
+      var hasFormRight = getFormsForFile(file.path).some(function(f) {
+        return !f.editingId && right.num >= f.startLine && right.num <= f.endLine && (f.side || '') === '';
+      });
+      if (inCurrentSelRight) { rightEl.classList.add('selected'); }
+      if (hasFormRight && !inCurrentSelRight) { rightEl.classList.add('form-selected'); }
     } else {
       rightCommentGutter = makeDiffCommentGutter(file.path, 0, '');
     }
@@ -2601,7 +2615,12 @@
       var endLine = parseInt(lb.dataset.endLine);
       var inRange = activeFilePath === filePath && selectionStart !== null && selectionEnd !== null &&
                     startLine >= selectionStart && endLine <= selectionEnd;
+      var fileForms = getFormsForFile(filePath);
+      var hasFormForBlock = fileForms.some(function(f) {
+        return !f.editingId && startLine >= f.startLine && endLine <= f.endLine;
+      });
       lb.classList.toggle('selected', inRange);
+      lb.classList.toggle('form-selected', hasFormForBlock && !inRange);
 
       // Update the comment gutter within this line block
       var gutter = lb.querySelector('.line-comment-gutter');
@@ -2625,7 +2644,13 @@
         var uVisualIdx = parseInt(uLine.dataset.diffVisualIdx);
         var uSelected = unifiedVisualStart !== null && unifiedVisualEnd !== null &&
                         uVisualIdx >= unifiedVisualStart && uVisualIdx <= unifiedVisualEnd;
+        var uLineNum = parseInt(uLine.dataset.diffLineNum);
+        var uSide = uLine.dataset.diffSide || '';
+        var uHasForm = getFormsForFile(filePath).some(function(f) {
+          return !f.editingId && uLineNum >= f.startLine && uLineNum <= f.endLine && (f.side || '') === uSide;
+        });
         uLine.classList.toggle('selected', uSelected);
+        uLine.classList.toggle('form-selected', uHasForm && !uSelected);
       }
 
       // Split mode: toggle .selected on .diff-split-side elements
@@ -2637,7 +2662,11 @@
         var sSideMatch = diffDragState.side === sSideVal;
         var sSelected = sSideMatch && selectionStart !== null && selectionEnd !== null &&
                         sLineNum >= selectionStart && sLineNum <= selectionEnd;
+        var sHasForm = getFormsForFile(filePath).some(function(f) {
+          return !f.editingId && sLineNum >= f.startLine && sLineNum <= f.endLine && (f.side || '') === sSideVal;
+        });
         sSide.classList.toggle('selected', sSelected);
+        sSide.classList.toggle('form-selected', sHasForm && !sSelected);
       }
     }
 
