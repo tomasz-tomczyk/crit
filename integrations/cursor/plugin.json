@@ -1,0 +1,6 @@
+{
+  "name": "crit",
+  "description": "Code review with inline comments — launch crit, leave feedback, iterate",
+  "version": "0.1.0",
+  "repository": "https://github.com/tomasz-tomczyk/crit"
+}

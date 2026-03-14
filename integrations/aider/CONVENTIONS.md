@@ -28,6 +28,27 @@ Do NOT begin implementation until the user confirms the review is approved.
 
 ## After review
 
-Read `.crit.json` to find the user's inline comments. Each file's comments are in a structured JSON format with `start_line`, `end_line`, `body`, and `resolved` fields. Address each unresolved comment by revising the referenced file.
+Read `.crit.json` to find the user's inline comments. Comments are grouped per file with `start_line`/`end_line` referencing the source. A comment is unresolved if `"resolved": false` or if the `resolved` field is missing. Address each unresolved comment by revising the referenced file. After addressing, set `"resolved": true` and optionally `"resolution_note"` and `"resolution_lines"`. When done, run `crit go <port>` to trigger a new round.
 
 Only proceed after the user approves.
+
+## Leaving comments programmatically
+
+Use `crit comment` to add inline review comments to `.crit.json` without opening the browser:
+
+```bash
+crit comment <path>:<line> '<body>'
+crit comment <path>:<start>-<end> '<body>'
+crit comment --author 'Aider' src/auth.go:42 'Missing null check here'
+```
+
+Paths are relative, line numbers are 1-indexed, comments are appended (never replaced). Creates `.crit.json` automatically if it doesn't exist.
+
+## GitHub PR Integration
+
+```bash
+crit pull [pr-number]              # Fetch PR comments into .crit.json
+crit push [--dry-run] [pr-number]  # Post .crit.json comments as PR review
+```
+
+Requires `gh` CLI. PR number auto-detected from current branch.

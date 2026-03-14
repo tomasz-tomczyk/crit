@@ -656,25 +656,24 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/claude-code/crit/SKILL.md", dest: ".claude/plugins/crit/skills/crit/SKILL.md", hint: "The crit skill auto-activates when working with crit commands or .crit.json"},
 	},
 	"cursor": {
-		{source: "integrations/cursor/crit-command.md", dest: ".cursor/commands/crit.md", hint: "Run /crit in Cursor to start a review loop"},
-		{source: "integrations/cursor/crit-comment.md", dest: ".cursor/commands/crit-comment.md", hint: "Agents can use /crit-comment to leave inline comments without opening the UI"},
+		{source: "integrations/cursor/plugin.json", dest: ".cursor/plugins/crit/.cursor-plugin/plugin.json", hint: ""},
+		{source: "integrations/cursor/crit.md", dest: ".cursor/plugins/crit/commands/crit.md", hint: "Run /crit in Cursor to start a review loop"},
+		{source: "integrations/cursor/crit/SKILL.md", dest: ".cursor/plugins/crit/skills/crit/SKILL.md", hint: "The crit skill auto-activates when working with crit commands or .crit.json"},
 	},
 	"opencode": {
 		{source: "integrations/opencode/crit.md", dest: ".opencode/commands/crit.md", hint: "Run /crit in OpenCode to start a review loop"},
-		{source: "integrations/opencode/SKILL.md", dest: ".opencode/skills/crit-review/SKILL.md", hint: "The crit-review skill is available to OpenCode agents when needed"},
-		{source: "integrations/opencode/crit-comment.md", dest: ".opencode/commands/crit-comment.md", hint: "Agents can use /crit-comment to leave inline comments without opening the UI"},
+		{source: "integrations/opencode/SKILL.md", dest: ".opencode/skills/crit/SKILL.md", hint: "The crit skill is available to OpenCode agents when needed"},
 	},
 	"windsurf": {
 		{source: "integrations/windsurf/crit.md", dest: ".windsurf/rules/crit.md", hint: "Windsurf will suggest Crit when writing plans"},
-		{source: "integrations/windsurf/crit-comment.md", dest: ".windsurf/rules/crit-comment.md", hint: "Windsurf agents can use crit comment to leave inline comments without opening the UI"},
 	},
 	"github-copilot": {
-		{source: "integrations/github-copilot/crit.prompt.md", dest: ".github/prompts/crit.prompt.md", hint: "Run /crit in GitHub Copilot to start a review loop"},
-		{source: "integrations/github-copilot/crit-comment.md", dest: ".github/prompts/crit-comment.prompt.md", hint: "Agents can use /crit-comment to leave inline comments without opening the UI"},
+		{source: "integrations/github-copilot/plugin.json", dest: ".github/plugins/crit/plugin.json", hint: ""},
+		{source: "integrations/github-copilot/crit.prompt.md", dest: ".github/plugins/crit/prompts/crit.prompt.md", hint: "Run /crit in GitHub Copilot to start a review loop"},
+		{source: "integrations/github-copilot/crit/SKILL.md", dest: ".github/plugins/crit/skills/crit/SKILL.md", hint: "The crit skill auto-activates when working with crit commands or .crit.json"},
 	},
 	"cline": {
 		{source: "integrations/cline/crit.md", dest: ".clinerules/crit.md", hint: "Cline will suggest Crit when writing plans"},
-		{source: "integrations/cline/crit-comment.md", dest: ".clinerules/crit-comment.md", hint: "Cline agents can use crit comment to leave inline comments without opening the UI"},
 	},
 }
 

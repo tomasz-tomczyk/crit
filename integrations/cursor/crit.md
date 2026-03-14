@@ -42,7 +42,7 @@ The file contains structured JSON with comments per file:
 }
 ```
 
-Identify all comments where `"resolved": false`.
+Identify all comments where `"resolved": false` or where the `resolved` field is missing (missing means unresolved).
 
 ## Step 4: Address each review comment
 
@@ -51,6 +51,7 @@ For each unresolved comment:
 1. Understand what the comment asks for (clarification, change, addition, removal)
 2. If a comment contains a suggestion block, apply that specific change
 3. Revise the **referenced file** to address the feedback - this could be the plan file or any code file
+4. Mark it resolved in `.crit.json`: set `"resolved": true`, optionally add `"resolution_note"` (what you did) and `"resolution_lines"` (where in the updated file, e.g. `"12-15"`)
 
 Editing the plan file triggers Crit's live reload - the user sees changes in the browser immediately.
 
