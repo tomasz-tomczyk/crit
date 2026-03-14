@@ -61,18 +61,20 @@ Use `crit comment` to add inline review comments to `.crit.json` programmaticall
 
 ```bash
 # Single line comment
-crit comment [--author '<name>'] <path>:<line> '<body>'
+crit comment --author 'Claude' <path>:<line> '<body>'
 
 # Multi-line comment (range)
-crit comment [--author '<name>'] <path>:<start>-<end> '<body>'
+crit comment --author 'Claude' <path>:<start>-<end> '<body>'
 ```
 
 Rules:
+- **Always use `--author 'Claude'`** (or your agent name) so comments are attributed correctly
+- **Always use single quotes** for the body — double quotes will break on backticks and special characters
 - **Paths** are relative to the current working directory
 - **Line numbers** reference the file as it exists on disk (1-indexed), not diff line numbers
 - **Comments are appended** — calling `crit comment` multiple times adds to the list, never replaces
 - **No setup needed** — `crit comment` creates `.crit.json` automatically if it doesn't exist
-- **Author** defaults to git config user.name; use `--author` to override
+- **Do NOT run `crit go` after leaving comments** — that triggers a new review round
 
 ## GitHub PR Integration
 

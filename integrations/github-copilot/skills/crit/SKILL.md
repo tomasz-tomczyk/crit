@@ -49,27 +49,27 @@ Use `crit comment` to add inline review comments to `.crit.json` programmaticall
 
 ```bash
 # Single line comment
-crit comment [--author '<name>'] <path>:<line> '<body>'
+crit comment --author 'Claude' <path>:<line> '<body>'
 
 # Multi-line comment (range)
-crit comment [--author '<name>'] <path>:<start>-<end> '<body>'
+crit comment --author 'Claude' <path>:<start>-<end> '<body>'
 ```
 
 Examples:
 
 ```bash
-crit comment src/auth.go:42 'Missing null check on user.session — will panic if session expired'
-crit comment src/handler.go:15-28 'This error is swallowed silently'
-crit comment --author 'Claude' src/db.go:103 'Consider using a prepared statement here'
+crit comment --author 'Claude' src/auth.go:42 'Missing null check on user.session — will panic if session expired'
+crit comment --author 'Claude' src/handler.go:15-28 'This error is swallowed silently'
 ```
 
 Rules:
+- **Always use `--author 'Claude'`** (or your agent name) so comments are attributed correctly
+- **Always use single quotes** for the body — double quotes will break on backticks and special characters
 - **Paths** are relative to the current working directory
 - **Line numbers** reference the file as it exists on disk (1-indexed), not diff line numbers
-- **Body** is everything after the location argument — use single quotes to avoid shell interpretation
 - **Comments are appended** — calling `crit comment` multiple times adds to the list, never replaces
 - **No setup needed** — `crit comment` creates `.crit.json` automatically if it doesn't exist
-- **Author** defaults to the `author` field in config (which falls back to `git config user.name`). Use `--author` to override
+- **Do NOT run `crit go` after leaving comments** — that triggers a new review round. Only the `/crit` command flow uses `crit go`, and only after addressing (not leaving) comments
 
 ## GitHub PR Integration
 
