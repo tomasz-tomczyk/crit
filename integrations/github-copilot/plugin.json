@@ -6,5 +6,7 @@
     "name": "Tomasz Tomczyk"
   },
   "homepage": "https://crit.live",
-  "repository": "https://github.com/tomasz-tomczyk/crit"
+  "repository": "https://github.com/tomasz-tomczyk/crit",
+  "commands": "./",
+  "skills": "./"
 }
