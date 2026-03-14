@@ -192,21 +192,38 @@ Each integration also includes a `crit-comment` skill that teaches your agent to
 
 ## Configuration
 
-Crit supports two-tier configuration files: `~/.crit.config.json` (global) and `.crit.config.json` (per-project). Project settings take precedence over global ones.
+Crit supports persistent configuration via JSON files so you don't have to pass the same flags every time.
 
-Precedence: CLI flags > environment variables > project config > global config > defaults
+| File                  | Scope   | Location                                         |
+| --------------------- | ------- | ------------------------------------------------ |
+| `~/.crit.config.json` | Global  | Applies to all projects                          |
+| `.crit.config.json`   | Project | Repo root (from `git rev-parse --show-toplevel`) |
+
+Project config overrides global. CLI flags and env vars override both.
 
 ```bash
 crit config --generate > ~/.crit.config.json   # scaffold a starter config file
+crit config                                    # view resolved config (merged global + project)
 crit config --help                             # document all config keys
 ```
 
-| Key               | Description                                                                                |
-| ----------------- | ------------------------------------------------------------------------------------------ |
-| `author`          | Your display name for comments. Defaults to `git config user.name`.                        |
-| `ignore_patterns` | Files to exclude from review (see syntax below).                                           |
-| `share_url`       | Enable the Share button (e.g. `"https://crit.live"` or a self-hosted instance).            |
-| `port`            | Default port for the local server.                                                         |
+### Example
+
+```json
+{
+  "port": 3456,
+  "share_url": "https://crit.live",
+  "author": "Alice",
+  "ignore_patterns": [
+    "*.lock",
+    "*.min.js",
+    "vendor/",
+    "generated/*.pb.go"
+  ]
+}
+```
+
+All keys are optional — omit any you don't need.
 
 ### Ignore patterns
 
