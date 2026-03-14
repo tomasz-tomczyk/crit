@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func newTestSession(t *testing.T) *Session {
@@ -807,7 +808,7 @@ func TestNewSessionFromGit_SubdirectoryCwd(t *testing.T) {
 	os.Chdir(filepath.Join(dir, "src"))
 	defer os.Chdir(origDir)
 
-	session, err := NewSessionFromGit()
+	session, err := NewSessionFromGit(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -843,7 +844,7 @@ func TestNewSessionFromGit_SubdirectoryCwd_UntrackedFiles(t *testing.T) {
 	os.Chdir(filepath.Join(dir, "src"))
 	defer os.Chdir(origDir)
 
-	session, err := NewSessionFromGit()
+	session, err := NewSessionFromGit(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -956,6 +957,63 @@ func TestSession_CarryForward_PreservesAuthor(t *testing.T) {
 	}
 }
 
+func TestAddCommentSetsReviewRound(t *testing.T) {
+	s := newTestSession(t)
+	s.ReviewRound = 2
+
+	c, ok := s.AddComment("plan.md", 1, 1, "", "test body", "user")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	if c.ReviewRound != 2 {
+		t.Errorf("ReviewRound = %d, want 2", c.ReviewRound)
+	}
+}
+
+func TestCarryForwardPreservesReviewRound(t *testing.T) {
+	s := newTestSession(t)
+
+	// Write a .crit.json with a comment that has ReviewRound set
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{
+						ID:          "c1",
+						StartLine:   2,
+						EndLine:     2,
+						Body:        "round 1 feedback",
+						Author:      "reviewer",
+						CreatedAt:   "2026-01-01T00:00:00Z",
+						UpdatedAt:   "2026-01-01T00:00:00Z",
+						ReviewRound: 1,
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
+		t.Fatalf("writing .crit.json: %v", err)
+	}
+
+	// Load previous comments and trigger carry-forward
+	s.loadResolvedComments()
+	s.handleRoundCompleteFiles()
+
+	comments := s.GetComments("main.go")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 carried comment, got %d", len(comments))
+	}
+	if comments[0].ReviewRound != 1 {
+		t.Errorf("ReviewRound = %d, want 1", comments[0].ReviewRound)
+	}
+	if !comments[0].CarriedForward {
+		t.Error("expected CarriedForward = true")
+	}
+}
+
 // TestFileDiffUnified_ColorConfigDoesNotBreakParsing verifies that even with
 // color.diff=always in gitconfig, the --no-color flag produces parseable output.
 func TestFileDiffUnified_ColorConfigDoesNotBreakParsing(t *testing.T) {
@@ -977,5 +1035,191 @@ func TestFileDiffUnified_ColorConfigDoesNotBreakParsing(t *testing.T) {
 	}
 	if len(hunks) == 0 {
 		t.Error("expected non-empty diff hunks even with color.diff=always configured")
+	}
+}
+
+func TestSession_WriteFiles_MergesExternalComments(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		BaseRef:     "abc123",
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{Path: "main.go", Status: "modified", FileHash: "hash1", Comments: []Comment{
+				{ID: "c1", StartLine: 1, EndLine: 1, Body: "from browser", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+			}, nextID: 2},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Simulate an external tool writing a comment to .crit.json that the session doesn't know about
+	cj := CritJSON{
+		Branch: "main", BaseRef: "abc123", ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified", FileHash: "hash1",
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "from browser", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+					{ID: "c2", StartLine: 10, EndLine: 10, Body: "from CLI", Author: "Claude", CreatedAt: "2026-01-01T00:00:01Z", UpdatedAt: "2026-01-01T00:00:01Z"},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+
+	// WriteFiles should merge, not overwrite
+	s.WriteFiles()
+
+	// Read back .crit.json and verify both comments are present
+	result, _ := os.ReadFile(filepath.Join(dir, ".crit.json"))
+	var got CritJSON
+	json.Unmarshal(result, &got)
+
+	if len(got.Files["main.go"].Comments) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(got.Files["main.go"].Comments))
+	}
+
+	found := false
+	for _, c := range got.Files["main.go"].Comments {
+		if c.ID == "c2" && c.Body == "from CLI" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("external comment c2 was lost during WriteFiles")
+	}
+}
+
+func TestSession_MergeExternalCritJSON_NewComment(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		BaseRef:     "abc123",
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{Path: "main.go", Status: "modified", Comments: []Comment{}, nextID: 1},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	ch := s.Subscribe()
+	defer s.Unsubscribe(ch)
+
+	// Simulate external write of .crit.json with a new comment
+	cj := CritJSON{
+		Branch: "main", BaseRef: "abc123", ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{ID: "c1", StartLine: 5, EndLine: 5, Body: "from CLI", Author: "Claude", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+
+	changed := s.mergeExternalCritJSON()
+	if !changed {
+		t.Fatal("expected mergeExternalCritJSON to detect changes")
+	}
+
+	comments := s.GetComments("main.go")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if comments[0].Body != "from CLI" || comments[0].Author != "Claude" {
+		t.Errorf("unexpected comment: %+v", comments[0])
+	}
+
+	s.mu.RLock()
+	nextID := s.Files[0].nextID
+	s.mu.RUnlock()
+	if nextID != 2 {
+		t.Errorf("expected nextID=2, got %d", nextID)
+	}
+
+	select {
+	case event := <-ch:
+		if event.Type != "comments-changed" {
+			t.Errorf("expected comments-changed, got %q", event.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for SSE event")
+	}
+}
+
+func TestSession_MergeExternalCritJSON_NoChange(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		Files:       []*FileEntry{},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// No .crit.json exists — should return false
+	changed := s.mergeExternalCritJSON()
+	if changed {
+		t.Error("expected no change when .crit.json doesn't exist")
+	}
+}
+
+func TestSession_MergeExternalCritJSON_IgnoresOwnWrites(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		BaseRef:     "abc123",
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{Path: "main.go", Status: "modified", Comments: []Comment{
+				{ID: "c1", StartLine: 1, EndLine: 1, Body: "existing"},
+			}, nextID: 2},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Write via WriteFiles and record mtime as our own
+	s.WriteFiles()
+
+	// mergeExternalCritJSON should see mtime matches and skip
+	changed := s.mergeExternalCritJSON()
+	if changed {
+		t.Error("expected no change after our own write")
+	}
+}
+
+func TestSession_MergeExternalCritJSON_ClearDetected(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{Path: "main.go", Status: "modified", Comments: []Comment{
+				{ID: "c1", StartLine: 1, EndLine: 1, Body: "existing"},
+			}, nextID: 2},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Write .crit.json with no comments (simulating crit comment --clear)
+	cj := CritJSON{Branch: "main", ReviewRound: 1, Files: map[string]CritJSONFile{}}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+
+	changed := s.mergeExternalCritJSON()
+	if !changed {
+		t.Fatal("expected change detected on clear")
+	}
+
+	comments := s.GetComments("main.go")
+	if len(comments) != 0 {
+		t.Errorf("expected 0 comments after clear, got %d", len(comments))
 	}
 }

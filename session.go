@@ -30,6 +30,7 @@ type Comment struct {
 	ResolutionNote  string `json:"resolution_note,omitempty"`
 	ResolutionLines any    `json:"resolution_lines,omitempty"`
 	CarriedForward  bool   `json:"carried_forward,omitempty"`
+	ReviewRound     int    `json:"review_round,omitempty"`
 }
 
 // SSEEvent is sent to the browser via server-sent events.
@@ -60,13 +61,14 @@ type FileEntry struct {
 
 // Session is the top-level state manager for a multi-file review.
 type Session struct {
-	Files       []*FileEntry
-	Mode        string // "files" (explicit markdown files) or "git" (auto-detected from git)
-	Branch      string
-	BaseRef     string
-	RepoRoot    string
-	OutputDir   string // custom output directory for .crit.json (empty = RepoRoot)
-	ReviewRound int
+	Files          []*FileEntry
+	Mode           string // "files" (explicit markdown files) or "git" (auto-detected from git)
+	Branch         string
+	BaseRef        string
+	RepoRoot       string
+	OutputDir      string // custom output directory for .crit.json (empty = RepoRoot)
+	ReviewRound    int
+	IgnorePatterns []string
 
 	mu             sync.RWMutex
 	subscribers    map[chan SSEEvent]struct{}
@@ -76,9 +78,10 @@ type Session struct {
 	sharedURL      string
 	deleteToken    string
 	status         *Status
-	roundComplete  chan struct{}
-	pendingEdits   int
-	lastRoundEdits int
+	roundComplete     chan struct{}
+	pendingEdits      int
+	lastRoundEdits    int
+	lastCritJSONMtime time.Time // mtime after our last WriteFiles(); used to detect external changes
 }
 
 // CritJSON is the on-disk format for .crit.json.
@@ -100,7 +103,7 @@ type CritJSONFile struct {
 }
 
 // NewSessionFromGit creates a session by auto-detecting changed files via git.
-func NewSessionFromGit() (*Session, error) {
+func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 	root, err := RepoRoot()
 	if err != nil {
 		return nil, fmt.Errorf("not a git repository: %w", err)
@@ -125,18 +128,22 @@ func NewSessionFromGit() (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("detecting changes: %w", err)
 	}
+	// Apply ignore patterns
+	changes = filterIgnored(changes, ignorePatterns)
+
 	if len(changes) == 0 {
-		return nil, fmt.Errorf("no changed files detected")
+		return nil, fmt.Errorf("no changed files detected (after applying ignore patterns)")
 	}
 
 	s := &Session{
-		Mode:          "git",
-		Branch:        branch,
-		BaseRef:       baseRef,
-		RepoRoot:      root,
-		ReviewRound:   1,
-		subscribers:   make(map[chan SSEEvent]struct{}),
-		roundComplete: make(chan struct{}, 1),
+		Mode:           "git",
+		Branch:         branch,
+		BaseRef:        baseRef,
+		RepoRoot:       root,
+		ReviewRound:    1,
+		IgnorePatterns: ignorePatterns,
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		roundComplete:  make(chan struct{}, 1),
 	}
 
 	for _, fc := range changes {
@@ -184,7 +191,7 @@ func NewSessionFromGit() (*Session, error) {
 
 // NewSessionFromFiles creates a session from explicitly provided file or directory paths.
 // When a directory is passed, all files within it are included recursively.
-func NewSessionFromFiles(paths []string) (*Session, error) {
+func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("no files provided")
 	}
@@ -201,12 +208,13 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 			return nil, fmt.Errorf("file not found: %s", p)
 		}
 		if info.IsDir() {
-			dirFiles, err := walkDirectory(absPath)
+			dirFiles, err := walkDirectory(absPath, ignorePatterns)
 			if err != nil {
 				return nil, fmt.Errorf("walking directory %s: %w", p, err)
 			}
 			expandedPaths = append(expandedPaths, dirFiles...)
 		} else {
+			// Explicit files are never filtered by ignore patterns
 			expandedPaths = append(expandedPaths, absPath)
 		}
 	}
@@ -244,13 +252,14 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 	}
 
 	s := &Session{
-		Mode:          "files",
-		Branch:        branch,
-		BaseRef:       baseRef,
-		RepoRoot:      root,
-		ReviewRound:   1,
-		subscribers:   make(map[chan SSEEvent]struct{}),
-		roundComplete: make(chan struct{}, 1),
+		Mode:           "files",
+		Branch:         branch,
+		BaseRef:        baseRef,
+		RepoRoot:       root,
+		ReviewRound:    1,
+		IgnorePatterns: ignorePatterns,
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		roundComplete:  make(chan struct{}, 1),
 	}
 
 	for _, absPath := range expandedPaths {
@@ -296,7 +305,7 @@ func NewSessionFromFiles(paths []string) (*Session, error) {
 
 // walkDirectory recursively walks a directory and returns all file paths,
 // skipping hidden directories and common non-text directories.
-func walkDirectory(dir string) ([]string, error) {
+func walkDirectory(dir string, ignorePatterns []string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -327,6 +336,15 @@ func walkDirectory(dir string) ([]string, error) {
 		ext := strings.ToLower(filepath.Ext(name))
 		if isBinaryExtension(ext) {
 			return nil
+		}
+
+		// Apply ignore patterns (use path relative to dir)
+		if relPath, relErr := filepath.Rel(dir, path); relErr == nil {
+			for _, pat := range ignorePatterns {
+				if matchPattern(pat, relPath) {
+					return nil
+				}
+			}
 		}
 
 		files = append(files, path)
@@ -381,14 +399,15 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	c := Comment{
-		ID:        fmt.Sprintf("c%d", f.nextID),
-		StartLine: startLine,
-		EndLine:   endLine,
-		Side:      side,
-		Body:      body,
-		Author:    author,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          fmt.Sprintf("c%d", f.nextID),
+		StartLine:   startLine,
+		EndLine:     endLine,
+		Side:        side,
+		Body:        body,
+		Author:      author,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		ReviewRound: s.ReviewRound,
 	}
 	f.nextID++
 	f.Comments = append(f.Comments, c)
@@ -609,6 +628,7 @@ func (s *Session) ClearAllComments() {
 	}
 	s.Files = filtered
 	s.ReviewRound = 1
+	s.lastCritJSONMtime = time.Time{}
 	critPath := s.critJSONPath()
 	s.mu.Unlock()
 	// Delete .crit.json from disk so it is no longer listed as an untracked git file.
@@ -648,12 +668,39 @@ func (s *Session) critJSONPath() string {
 
 // WriteFiles writes the .crit.json file to disk.
 func (s *Session) WriteFiles() {
+	// If we previously wrote .crit.json but it no longer exists, an external tool
+	// (e.g. `crit comment --clear`) deleted it. Respect that: clear in-memory
+	// comments and notify the browser instead of recreating the file.
+	critPath := s.critJSONPath()
+	s.mu.RLock()
+	lastMtime := s.lastCritJSONMtime
+	s.mu.RUnlock()
+	if !lastMtime.IsZero() {
+		if _, statErr := os.Stat(critPath); os.IsNotExist(statErr) {
+			s.mu.Lock()
+			s.lastCritJSONMtime = time.Time{}
+			anyComments := false
+			for _, f := range s.Files {
+				if len(f.Comments) > 0 {
+					f.Comments = []Comment{}
+					f.nextID = 1
+					anyComments = true
+				}
+			}
+			s.mu.Unlock()
+			if anyComments {
+				s.notify(SSEEvent{Type: "comments-changed"})
+			}
+			return
+		}
+	}
+
 	s.mu.RLock()
 
 	// Start from existing .crit.json to preserve comments for files not in this session
 	// (e.g. comments added via `crit comment` on files outside the current diff).
 	cj := CritJSON{Files: make(map[string]CritJSONFile)}
-	if data, err := os.ReadFile(s.critJSONPath()); err == nil {
+	if data, err := os.ReadFile(critPath); err == nil {
 		_ = json.Unmarshal(data, &cj)
 		if cj.Files == nil {
 			cj.Files = make(map[string]CritJSONFile)
@@ -666,25 +713,48 @@ func (s *Session) WriteFiles() {
 	cj.ShareURL = s.sharedURL
 	cj.DeleteToken = s.deleteToken
 
-	// Overlay session files: update entries that have comments, remove those that don't.
+	// Overlay session files: merge with disk comments, remove entries with no comments.
 	for _, f := range s.Files {
-		if len(f.Comments) == 0 {
+		diskFile, hasDisk := cj.Files[f.Path]
+
+		// Build set of in-memory comment IDs
+		memIDs := make(map[string]struct{}, len(f.Comments))
+		for _, c := range f.Comments {
+			memIDs[c.ID] = struct{}{}
+		}
+
+		// Start with in-memory comments
+		merged := make([]Comment, len(f.Comments))
+		copy(merged, f.Comments)
+
+		// Merge in any disk-only comments (added externally via crit comment, crit pull, etc.)
+		if hasDisk {
+			for _, dc := range diskFile.Comments {
+				if _, exists := memIDs[dc.ID]; !exists {
+					merged = append(merged, dc)
+				}
+			}
+		}
+
+		if len(merged) == 0 {
 			delete(cj.Files, f.Path)
 			continue
 		}
-		comments := make([]Comment, len(f.Comments))
-		copy(comments, f.Comments)
+
 		cj.Files[f.Path] = CritJSONFile{
 			Status:   f.Status,
 			FileHash: f.FileHash,
-			Comments: comments,
+			Comments: merged,
 		}
 	}
 	s.mu.RUnlock()
 
 	// Only remove if nothing meaningful remains
 	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" {
-		os.Remove(s.critJSONPath())
+		os.Remove(critPath)
+		s.mu.Lock()
+		s.lastCritJSONMtime = time.Time{}
+		s.mu.Unlock()
 		return
 	}
 
@@ -693,9 +763,128 @@ func (s *Session) WriteFiles() {
 		fmt.Fprintf(os.Stderr, "Error marshaling .crit.json: %v\n", err)
 		return
 	}
-	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
+	if err := os.WriteFile(critPath, data, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing .crit.json: %v\n", err)
+		return
 	}
+	// Record mtime so mergeExternalCritJSON can distinguish our writes from external ones.
+	if info, err := os.Stat(critPath); err == nil {
+		s.mu.Lock()
+		s.lastCritJSONMtime = info.ModTime()
+		s.mu.Unlock()
+	}
+}
+
+// mergeExternalCritJSON checks if .crit.json was modified externally (not by us)
+// and merges any new comments into the in-memory session.
+// Returns true if changes were detected and merged.
+func (s *Session) mergeExternalCritJSON() bool {
+	critPath := s.critJSONPath()
+
+	info, err := os.Stat(critPath)
+
+	s.mu.RLock()
+	lastMtime := s.lastCritJSONMtime
+	s.mu.RUnlock()
+
+	if err != nil {
+		// File doesn't exist. If we previously tracked it, it was externally deleted.
+		if !lastMtime.IsZero() {
+			s.mu.Lock()
+			s.lastCritJSONMtime = time.Time{}
+			anyComments := false
+			for _, f := range s.Files {
+				if len(f.Comments) > 0 {
+					f.Comments = []Comment{}
+					f.nextID = 1
+					anyComments = true
+				}
+			}
+			s.mu.Unlock()
+			if anyComments {
+				s.notify(SSEEvent{Type: "comments-changed"})
+			}
+		}
+		return !lastMtime.IsZero()
+	}
+
+	// If mtime matches our last write, this is our own change — skip.
+	if !lastMtime.IsZero() && info.ModTime().Equal(lastMtime) {
+		return false
+	}
+
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		return false
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return false
+	}
+
+	s.mu.Lock()
+	s.lastCritJSONMtime = info.ModTime()
+
+	changed := false
+
+	for _, f := range s.Files {
+		diskFile, hasDisk := cj.Files[f.Path]
+
+		if !hasDisk {
+			// File not in .crit.json — if we have comments, they were cleared externally.
+			if len(f.Comments) > 0 {
+				f.Comments = []Comment{}
+				f.nextID = 1
+				changed = true
+			}
+			continue
+		}
+
+		// Build set of in-memory comment IDs.
+		memIDs := make(map[string]struct{}, len(f.Comments))
+		for _, c := range f.Comments {
+			memIDs[c.ID] = struct{}{}
+		}
+
+		// Merge in new comments from disk.
+		for _, dc := range diskFile.Comments {
+			if _, exists := memIDs[dc.ID]; !exists {
+				f.Comments = append(f.Comments, dc)
+				id := 0
+				fmt.Sscanf(dc.ID, "c%d", &id)
+				if id >= f.nextID {
+					f.nextID = id + 1
+				}
+				changed = true
+			}
+		}
+
+		// Check for comments removed on disk (e.g. crit comment --clear).
+		// After the merge above, len(f.Comments) >= len(diskFile.Comments), so != means memory has disk-absent IDs.
+		if len(diskFile.Comments) != len(f.Comments) {
+			diskIDs := make(map[string]struct{}, len(diskFile.Comments))
+			for _, dc := range diskFile.Comments {
+				diskIDs[dc.ID] = struct{}{}
+			}
+			filtered := f.Comments[:0]
+			for _, c := range f.Comments {
+				if _, exists := diskIDs[c.ID]; exists {
+					filtered = append(filtered, c)
+				}
+			}
+			if len(filtered) != len(f.Comments) {
+				f.Comments = filtered
+				changed = true
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	if changed {
+		s.notify(SSEEvent{Type: "comments-changed"})
+	}
+
+	return changed
 }
 
 // loadCritJSON loads comments and share state from an existing .crit.json.
@@ -724,6 +913,11 @@ func (s *Session) loadCritJSON() {
 				}
 			}
 		}
+	}
+
+	// Record the mtime so the first ticker tick doesn't re-process our own file.
+	if info, err := os.Stat(s.critJSONPath()); err == nil {
+		s.lastCritJSONMtime = info.ModTime()
 	}
 }
 
@@ -826,6 +1020,9 @@ func (s *Session) RefreshFileList() {
 		return
 	}
 
+	// Apply ignore patterns
+	changes = filterIgnored(changes, s.IgnorePatterns)
+
 	// Snapshot existing files under read lock
 	s.mu.RLock()
 	existing := make(map[string]*FileEntry, len(s.Files))
@@ -899,6 +1096,9 @@ func (s *Session) watchGit(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
+			// Check for external .crit.json changes (e.g. crit comment).
+			s.mergeExternalCritJSON()
+
 			fp := WorkingTreeFingerprint()
 			if fp == lastFP {
 				continue
@@ -930,6 +1130,9 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
+			// Check for external .crit.json changes (e.g. crit comment).
+			s.mergeExternalCritJSON()
+
 			s.mu.RLock()
 			files := make([]*FileEntry, len(s.Files))
 			copy(files, s.Files)
@@ -1031,6 +1234,7 @@ func (s *Session) handleRoundCompleteGit() {
 				ResolutionNote:  c.ResolutionNote,
 				ResolutionLines: c.ResolutionLines,
 				CarriedForward:  true,
+				ReviewRound:     c.ReviewRound,
 			}
 			f.nextID++
 			f.Comments = append(f.Comments, carried)
@@ -1084,6 +1288,7 @@ func (s *Session) handleRoundCompleteFiles() {
 				ResolutionNote:  c.ResolutionNote,
 				ResolutionLines: c.ResolutionLines,
 				CarriedForward:  true,
+				ReviewRound:     c.ReviewRound,
 			}
 			f.nextID++
 			f.Comments = append(f.Comments, carried)
@@ -1231,6 +1436,7 @@ func (s *Session) carryForwardComments() {
 				ResolutionNote:  c.ResolutionNote,
 				ResolutionLines: c.ResolutionLines,
 				CarriedForward:  true,
+				ReviewRound:     c.ReviewRound,
 			}
 			f.nextID++
 			f.Comments = append(f.Comments, carried)

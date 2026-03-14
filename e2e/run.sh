@@ -15,6 +15,11 @@ trap 'rm -rf "$BIN_DIR"' EXIT
 export CRIT_BIN="$BIN_DIR/crit"
 (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
 
+# Kill any stale processes on our test ports before starting fresh
+for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT"; do
+  lsof -ti tcp:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
+done
+
 # Start both fixture servers in parallel
 cd "$SCRIPT_DIR"
 bash setup-fixtures.sh "$GIT_PORT" &

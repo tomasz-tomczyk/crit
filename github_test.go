@@ -291,7 +291,7 @@ func TestAddCommentToCritJSON_RejectsPathTraversal(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	err := addCommentToCritJSON("../../../etc/passwd", 1, 1, "bad", "")
+	err := addCommentToCritJSON("../../../etc/passwd", 1, 1, "bad", "", "")
 	if err == nil {
 		t.Fatal("expected error for path traversal, got nil")
 	}
@@ -309,7 +309,7 @@ func TestAddCommentToCritJSON_RejectsAbsolutePath(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	err := addCommentToCritJSON("/etc/passwd", 1, 1, "bad", "")
+	err := addCommentToCritJSON("/etc/passwd", 1, 1, "bad", "", "")
 	if err == nil {
 		t.Fatal("expected error for absolute path, got nil")
 	}
@@ -326,7 +326,7 @@ func TestAddCommentToCritJSON_CreatesNewFile(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	err := addCommentToCritJSON("main.go", 10, 15, "Fix this bug", "")
+	err := addCommentToCritJSON("main.go", 10, 15, "Fix this bug", "", "")
 	if err != nil {
 		t.Fatalf("addCommentToCritJSON: %v", err)
 	}
@@ -367,10 +367,10 @@ func TestAddCommentToCritJSON_AppendsToExisting(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	if err := addCommentToCritJSON("main.go", 1, 1, "First", ""); err != nil {
+	if err := addCommentToCritJSON("main.go", 1, 1, "First", "", ""); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
-	if err := addCommentToCritJSON("main.go", 20, 20, "Second", ""); err != nil {
+	if err := addCommentToCritJSON("main.go", 20, 20, "Second", "", ""); err != nil {
 		t.Fatalf("second add: %v", err)
 	}
 
@@ -396,8 +396,8 @@ func TestAddCommentToCritJSON_MultipleFiles(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	addCommentToCritJSON("main.go", 1, 1, "Comment on main", "")
-	addCommentToCritJSON("auth.go", 5, 10, "Comment on auth", "")
+	addCommentToCritJSON("main.go", 1, 1, "Comment on main", "", "")
+	addCommentToCritJSON("auth.go", 5, 10, "Comment on auth", "", "")
 
 	data, _ := os.ReadFile(dir + "/.crit.json")
 	var cj CritJSON
@@ -420,7 +420,7 @@ func TestAddCommentToCritJSON_FileMode_NoGitRepo(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	err := addCommentToCritJSON("main.go", 5, 5, "File mode comment", "")
+	err := addCommentToCritJSON("main.go", 5, 5, "File mode comment", "", "")
 	if err != nil {
 		t.Fatalf("addCommentToCritJSON: %v", err)
 	}
@@ -453,7 +453,7 @@ func TestAddCommentToCritJSON_FileMode_PathRelativeToCWD(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	// Path should be stored as given (relative to CWD), not resolved to anything else
-	addCommentToCritJSON("src/auth.go", 10, 10, "comment", "")
+	addCommentToCritJSON("src/auth.go", 10, 10, "comment", "", "")
 
 	data, _ := os.ReadFile(dir + "/.crit.json")
 	var cj CritJSON
@@ -475,7 +475,7 @@ func TestAddCommentToCritJSON_OutputDir(t *testing.T) {
 	os.Chdir(repoDir)
 	defer os.Chdir(origDir)
 
-	if err := addCommentToCritJSON("main.go", 1, 1, "custom output dir", outputDir); err != nil {
+	if err := addCommentToCritJSON("main.go", 1, 1, "custom output dir", "", outputDir); err != nil {
 		t.Fatalf("addCommentToCritJSON: %v", err)
 	}
 

@@ -204,9 +204,26 @@ crit config --help                             # document all config keys
 | Key               | Description                                                                                |
 | ----------------- | ------------------------------------------------------------------------------------------ |
 | `author`          | Your display name for comments. Defaults to `git config user.name`.                        |
-| `ignore_patterns` | Files to exclude from review (gitignore-style: `*.lock`, `vendor/`, `generated/*.pb.go`). |
+| `ignore_patterns` | Files to exclude from review (see syntax below).                                           |
 | `share_url`       | Enable the Share button (e.g. `"https://crit.live"` or a self-hosted instance).            |
 | `port`            | Default port for the local server.                                                         |
+
+### Ignore patterns
+
+Patterns from global and project configs are merged. Supported syntax:
+
+| Pattern              | Matches                                         |
+| -------------------- | ----------------------------------------------- |
+| `*.lock`             | Files ending in `.lock` anywhere in tree        |
+| `vendor/`            | All files under `vendor/`                       |
+| `package-lock.json`  | Exact filename anywhere in tree                 |
+| `generated/*.pb.go`  | Path prefix with glob (`filepath.Match` syntax) |
+
+Use `--no-ignore` to temporarily bypass all patterns:
+
+```bash
+crit --no-ignore
+```
 
 ### Environment variables
 
