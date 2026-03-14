@@ -3869,13 +3869,20 @@
     btn.disabled = true;
     dismissToast('share');
 
-    // Build payload from all files
-    const payload = {
-      content: files.map(f => f.content).join('\n'),
-      filename: files.length === 1 ? files[0].path : session.branch || 'review',
-      review_round: session.review_round || 1,
-      comments: [],
-    };
+    // Build payload — multi-file sends individual files, single-file sends content for backward compat
+    const payload = files.length === 1
+      ? {
+          content: files[0].content,
+          filename: files[0].path,
+          review_round: session.review_round || 1,
+          comments: [],
+        }
+      : {
+          files: files.map(f => ({ path: f.path, content: f.content })),
+          review_round: session.review_round || 1,
+          comments: [],
+        };
+
     for (const f of files) {
       for (const c of f.comments) {
         const shared = { file: f.path, start_line: c.start_line, end_line: c.end_line, body: c.body };
