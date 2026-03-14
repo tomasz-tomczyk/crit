@@ -2,9 +2,9 @@
 
 Reviewing agent output in a terminal is painful. You can't point at a specific line and say "change this." When your agent updates the file, you re-read the whole thing to figure out what changed.
 
-Crit opens your file in a browser with GitHub-style inline comments. Leave feedback, hit Finish, and a structured prompt goes to your clipboard. Paste it back. When the agent edits, Crit shows a diff between rounds — you see exactly what it addressed.
+Crit opens your file in a browser with GitHub-style inline comments. Leave feedback, hit Finish, and a structured prompt goes to your clipboard. Paste it back. When the agent edits, Crit shows a diff between rounds - you see exactly what it addressed.
 
-Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf — any agent that reads files.
+Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf - any agent that reads files.
 
 ## Why Crit
 
@@ -37,7 +37,7 @@ crit plan.md                  # review a specific file
 crit plan.md api-spec.md      # review multiple files
 ```
 
-When you finish a review, Crit writes `.crit.json` — structured comment data your agent reads and acts on. Add it to your `.gitignore`:
+When you finish a review, Crit writes `.crit.json` - structured comment data your agent reads and acts on. Add it to your `.gitignore`:
 
 ```bash
 echo '.crit.json' >> .gitignore
@@ -96,7 +96,7 @@ crit comment --output /tmp/reviews src/auth.go:42 'comment'  # custom output dir
 crit comment --clear   # remove .crit.json
 ```
 
-Comments are appended to `.crit.json` — created automatically if it doesn't exist. Run `crit install <agent>` to install the integration, which includes a `crit-comment` skill file teaching your agent the syntax.
+Comments are appended to `.crit.json` - created automatically if it doesn't exist. Run `crit install <agent>` to install the integration, which includes a `crit-comment` skill file teaching your agent the syntax.
 
 ### Mermaid diagrams
 
@@ -155,21 +155,21 @@ This copies the right files to the right places in your project. Safe to re-run 
 <details>
 <summary>Manual setup</summary>
 
-- **Claude Code** — `integrations/claude-code/crit.md` → `.claude/commands/crit.md`
-- **Claude Code** — `integrations/claude-code/crit-comment.md` → `.claude/commands/crit-comment.md`
-- **Cursor** — `integrations/cursor/crit-command.md` → `.cursor/commands/crit.md`
-- **Cursor** — `integrations/cursor/crit-comment.md` → `.cursor/commands/crit-comment.md`
-- **OpenCode** — `integrations/opencode/crit.md` → `.opencode/commands/crit.md`
-- **OpenCode** — `integrations/opencode/crit-comment.md` → `.opencode/commands/crit-comment.md`
-- **OpenCode** — `integrations/opencode/SKILL.md` → `.opencode/skills/crit-review/SKILL.md`
-- **GitHub Copilot** — `integrations/github-copilot/crit.prompt.md` → `.github/prompts/crit.prompt.md`
-- **GitHub Copilot** — `integrations/github-copilot/crit-comment.md` → `.github/prompts/crit-comment.prompt.md`
-- **Windsurf** — `integrations/windsurf/crit.md` → `.windsurf/rules/crit.md`
-- **Windsurf** — `integrations/windsurf/crit-comment.md` → `.windsurf/rules/crit-comment.md`
-- **Aider** — append `integrations/aider/CONVENTIONS.md` to your `CONVENTIONS.md`
-- **Aider** — copy `integrations/aider/crit-comment.md` to your project root
-- **Cline** — `integrations/cline/crit.md` → `.clinerules/crit.md`
-- **Cline** — `integrations/cline/crit-comment.md` → `.clinerules/crit-comment.md`
+- **Claude Code** - `integrations/claude-code/crit.md` → `.claude/commands/crit.md`
+- **Claude Code** - `integrations/claude-code/crit-comment.md` → `.claude/commands/crit-comment.md`
+- **Cursor** - `integrations/cursor/crit-command.md` → `.cursor/commands/crit.md`
+- **Cursor** - `integrations/cursor/crit-comment.md` → `.cursor/commands/crit-comment.md`
+- **OpenCode** - `integrations/opencode/crit.md` → `.opencode/commands/crit.md`
+- **OpenCode** - `integrations/opencode/crit-comment.md` → `.opencode/commands/crit-comment.md`
+- **OpenCode** - `integrations/opencode/SKILL.md` → `.opencode/skills/crit-review/SKILL.md`
+- **GitHub Copilot** - `integrations/github-copilot/crit.prompt.md` → `.github/prompts/crit.prompt.md`
+- **GitHub Copilot** - `integrations/github-copilot/crit-comment.md` → `.github/prompts/crit-comment.prompt.md`
+- **Windsurf** - `integrations/windsurf/crit.md` → `.windsurf/rules/crit.md`
+- **Windsurf** - `integrations/windsurf/crit-comment.md` → `.windsurf/rules/crit-comment.md`
+- **Aider** - append `integrations/aider/CONVENTIONS.md` to your `CONVENTIONS.md`
+- **Aider** - copy `integrations/aider/crit-comment.md` to your project root
+- **Cline** - `integrations/cline/crit.md` → `.clinerules/crit.md`
+- **Cline** - `integrations/cline/crit-comment.md` → `.clinerules/crit-comment.md`
 
 </details>
 
@@ -188,7 +188,7 @@ It launches Crit, waits for your review, reads your comments, revises the plan, 
 
 ### `/crit-comment` command
 
-Each integration also includes a `crit-comment` skill that teaches your agent to use `crit comment` to add inline review comments programmatically — no browser needed. The agent learns the syntax and can leave comments on specific lines or ranges as part of its workflow.
+Each integration also includes a `crit-comment` skill that teaches your agent to use `crit comment` to add inline review comments programmatically - no browser needed. The agent learns the syntax and can leave comments on specific lines or ranges as part of its workflow.
 
 ## Configuration
 
@@ -214,27 +214,22 @@ crit config --help                             # document all config keys
   "port": 3456,
   "share_url": "https://crit.live",
   "author": "Alice",
-  "ignore_patterns": [
-    "*.lock",
-    "*.min.js",
-    "vendor/",
-    "generated/*.pb.go"
-  ]
+  "ignore_patterns": ["*.lock", "*.min.js", "vendor/", "generated/*.pb.go"]
 }
 ```
 
-All keys are optional — omit any you don't need.
+All keys are optional - omit any you don't need.
 
 ### Ignore patterns
 
 Patterns from global and project configs are merged. Supported syntax:
 
-| Pattern              | Matches                                         |
-| -------------------- | ----------------------------------------------- |
-| `*.lock`             | Files ending in `.lock` anywhere in tree        |
-| `vendor/`            | All files under `vendor/`                       |
-| `package-lock.json`  | Exact filename anywhere in tree                 |
-| `generated/*.pb.go`  | Path prefix with glob (`filepath.Match` syntax) |
+| Pattern             | Matches                                         |
+| ------------------- | ----------------------------------------------- |
+| `*.lock`            | Files ending in `.lock` anywhere in tree        |
+| `vendor/`           | All files under `vendor/`                       |
+| `package-lock.json` | Exact filename anywhere in tree                 |
+| `generated/*.pb.go` | Path prefix with glob (`filepath.Match` syntax) |
 
 Use `--no-ignore` to temporarily bypass all patterns:
 
