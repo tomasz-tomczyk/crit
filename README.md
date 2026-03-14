@@ -85,26 +85,6 @@ When you click "Finish Review", Crit collects your comments, formats them into a
 
 ![Agent prompt](images/prompt.png)
 
-### GitHub PR Sync
-
-Crit can sync review comments bidirectionally with GitHub PRs. Requires the [GitHub CLI](https://cli.github.com) (`gh`) to be installed and authenticated.
-
-#### Pull comments from a PR
-
-```bash
-crit pull              # auto-detects PR from current branch
-crit pull 42           # explicit PR number
-```
-
-#### Push comments to a PR
-
-```bash
-crit push                          # auto-detects PR from current branch
-crit push --dry-run                # preview without posting
-crit push --message "Round 2"      # add a top-level review comment
-crit push 42                       # explicit PR number
-```
-
 ### Programmatic comments
 
 AI agents can use `crit comment` to add inline review comments without opening the browser UI or constructing JSON manually:
@@ -127,6 +107,26 @@ Architecture diagrams in fenced ` ```mermaid ` blocks render inline. You can com
 ### Share for Async Review
 
 Want a second opinion before handing off to the agent? Enable sharing by setting `CRIT_SHARE_URL=https://crit.live` (or pass `--share-url`), then click the Share button to upload your review and get a public URL anyone can open in a browser, no install needed. Each reviewer's comments are color-coded by author. Unpublish anytime.
+
+### GitHub PR Sync
+
+Crit can sync review comments bidirectionally with GitHub PRs. Requires the [GitHub CLI](https://cli.github.com) (`gh`) to be installed and authenticated.
+
+#### Pull comments from a PR
+
+```bash
+crit pull              # auto-detects PR from current branch
+crit pull 42           # explicit PR number
+```
+
+#### Push comments to a PR
+
+```bash
+crit push                          # auto-detects PR from current branch
+crit push --dry-run                # preview without posting
+crit push --message "Round 2"      # add a top-level review comment
+crit push 42                       # explicit PR number
+```
 
 ### Everything else
 
@@ -171,9 +171,9 @@ This copies the right files to the right places in your project. Safe to re-run 
 - **Cline** — `integrations/cline/crit.md` → `.clinerules/crit.md`
 - **Cline** — `integrations/cline/crit-comment.md` → `.clinerules/crit-comment.md`
 
-See [`integrations/`](integrations/) for the full files and details.
-
 </details>
+
+See [`integrations/`](integrations/) for the full files and details.
 
 ### `/crit` command
 
@@ -197,8 +197,8 @@ Crit supports two-tier configuration files: `~/.crit.config.json` (global) and `
 Precedence: CLI flags > environment variables > project config > global config > defaults
 
 ```bash
-crit config --generate   # scaffold a starter config file
-crit config --help       # document all config keys
+crit config --generate > ~/.crit.config.json   # scaffold a starter config file
+crit config --help                             # document all config keys
 ```
 
 | Key               | Description                                                                                |
