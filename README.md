@@ -143,31 +143,28 @@ crit push 42                       # explicit PR number
 
 Crit ships with plugins and configuration files for popular AI coding tools. Each one teaches your agent to write a plan, launch `crit` for review, and wait for your feedback before implementing.
 
-### Plugin install (Claude Code, Cursor)
-
-Install natively through your tool's plugin system — no per-project setup needed:
-
-```bash
-# Claude Code
-/plugin marketplace add tomasz-tomczyk/crit
-/plugin install crit
-
-# Cursor
-# Add tomasz-tomczyk/crit as a marketplace, then install the crit plugin
-```
-
 ### Per-project install
 
-Installs the integration into the current project (good for teams — files are committed to the repo):
+The fastest way to get started. Installs a `/crit` slash command into your project:
 
 ```bash
 crit install claude-code   # or: cursor, opencode, windsurf, github-copilot, cline
 crit install all           # install all integrations at once
 ```
 
-Safe to re-run — existing files are skipped (use `--force` to overwrite).
+Safe to re-run — existing files are skipped (use `--force` to overwrite). Good for teams since the files are committed to the repo.
 
-See [`integrations/`](integrations/) for manual setup and full details.
+### Plugin install (Claude Code, Cursor)
+
+For the full experience — installs globally with a `/crit` command plus a `crit` skill that auto-activates when your agent works with `.crit.json`, `crit comment`, `crit pull/push`, etc:
+
+```bash
+# Claude Code
+/plugin marketplace add tomasz-tomczyk/crit
+/plugin install crit
+```
+
+See [`integrations/`](integrations/) for all install methods and details.
 
 ### `/crit` command
 
@@ -179,10 +176,6 @@ Claude Code, Cursor, OpenCode, and GitHub Copilot support a `/crit` slash comman
 ```
 
 It launches Crit, waits for your review, reads your comments, revises the plan, and signals Crit for another round.
-
-### `crit` skill
-
-Claude Code, Cursor, and GitHub Copilot plugins include a `crit` skill that auto-activates when your agent needs to work with crit — leaving inline comments via `crit comment`, reading `.crit.json`, syncing with GitHub PRs via `crit pull`/`crit push`, and more. No slash command needed — the agent picks it up from context.
 
 ## Configuration
 
