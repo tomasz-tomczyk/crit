@@ -1,6 +1,6 @@
 # Compiled binary
-crit
-crit.exe
+/crit
+/crit.exe
 
 # Review session files (generated at runtime)
 *.comments.json
