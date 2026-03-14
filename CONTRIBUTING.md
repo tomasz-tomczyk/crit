@@ -6,14 +6,7 @@ For bug fixes and small improvements, feel free to open a PR directly. For large
 
 ## Build from Source
 
-Requires Go 1.26+ (install via [asdf](https://asdf-vm.com/), Homebrew, or [go.dev](https://go.dev/dl/)):
-
-```bash
-git clone https://github.com/tomasz-tomczyk/crit.git
-cd crit
-go build -o crit .
-mv crit /usr/local/bin/
-```
+See [Other Install Methods](README.md#other-install-methods) in the README for build instructions.
 
 ### Cross-compile
 

@@ -252,6 +252,17 @@ crit --no-ignore
 
 ## Other Install Methods
 
+### Build from Source
+
+Requires Go 1.26+:
+
+```bash
+git clone https://github.com/tomasz-tomczyk/crit.git
+cd crit
+go build -o crit .
+mv crit /usr/local/bin/
+```
+
 ### Go
 
 ```bash
