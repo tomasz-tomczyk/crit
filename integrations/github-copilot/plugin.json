@@ -2,6 +2,9 @@
   "name": "crit",
   "description": "Close the feedback loop on AI coding: review plans and code changes with GitHub-style inline comments, then let the agent address them.",
   "version": "0.1.0",
+  "author": {
+    "name": "Tomasz Tomczyk"
+  },
   "homepage": "https://crit.live",
   "repository": "https://github.com/tomasz-tomczyk/crit"
 }

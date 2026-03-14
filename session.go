@@ -70,14 +70,14 @@ type Session struct {
 	ReviewRound    int
 	IgnorePatterns []string
 
-	mu             sync.RWMutex
-	subscribers    map[chan SSEEvent]struct{}
-	subMu          sync.Mutex
-	writeTimer     *time.Timer
-	writeGen       int
-	sharedURL      string
-	deleteToken    string
-	status         *Status
+	mu                sync.RWMutex
+	subscribers       map[chan SSEEvent]struct{}
+	subMu             sync.Mutex
+	writeTimer        *time.Timer
+	writeGen          int
+	sharedURL         string
+	deleteToken       string
+	status            *Status
 	roundComplete     chan struct{}
 	pendingEdits      int
 	lastRoundEdits    int
