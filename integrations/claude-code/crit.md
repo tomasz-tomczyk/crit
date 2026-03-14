@@ -27,7 +27,9 @@ Show the selected mode/file to the user and ask for confirmation.
 
 ## Step 2: Run crit for review
 
-Run `crit` **in the background** using `run_in_background: true`:
+If a crit server is already running from earlier in this conversation, skip launching and run `crit go <port>` to trigger a new round instead.
+
+Otherwise, run `crit` **in the background** using `run_in_background: true`:
 
 ```bash
 # For a specific file:

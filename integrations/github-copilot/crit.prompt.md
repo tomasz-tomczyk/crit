@@ -14,6 +14,8 @@ Show the selected mode/file to the user and ask for confirmation before proceedi
 
 ## Step 2: Run crit for review
 
+If a crit server is already running from earlier in this conversation, skip launching and run `crit go <port>` to trigger a new round instead.
+
 Run `crit` in a terminal:
 
 ```bash
