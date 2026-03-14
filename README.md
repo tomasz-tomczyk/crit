@@ -141,39 +141,33 @@ crit push 42                       # explicit PR number
 
 ## Agent Integrations
 
-Crit ships with drop-in configuration files for popular AI coding tools. Each one teaches your agent to write a plan, launch `crit` for review, and wait for your feedback before implementing.
+Crit ships with plugins and configuration files for popular AI coding tools. Each one teaches your agent to write a plan, launch `crit` for review, and wait for your feedback before implementing.
 
-The fastest way to set up an integration:
+### Plugin install (Claude Code, Cursor)
+
+Install natively through your tool's plugin system — no per-project setup needed:
+
+```bash
+# Claude Code
+/plugin marketplace add tomasz-tomczyk/crit
+/plugin install crit
+
+# Cursor
+# Add tomasz-tomczyk/crit as a marketplace, then install the crit plugin
+```
+
+### Per-project install
+
+Installs the integration into the current project (good for teams — files are committed to the repo):
 
 ```bash
 crit install claude-code   # or: cursor, opencode, windsurf, github-copilot, cline
 crit install all           # install all integrations at once
 ```
 
-This copies the right files to the right places in your project. Safe to re-run - existing files are skipped (use `--force` to overwrite).
+Safe to re-run — existing files are skipped (use `--force` to overwrite).
 
-<details>
-<summary>Manual setup</summary>
-
-- **Claude Code** - `integrations/claude-code/crit.md` → `.claude/commands/crit.md`
-- **Claude Code** - `integrations/claude-code/crit-comment.md` → `.claude/commands/crit-comment.md`
-- **Cursor** - `integrations/cursor/crit-command.md` → `.cursor/commands/crit.md`
-- **Cursor** - `integrations/cursor/crit-comment.md` → `.cursor/commands/crit-comment.md`
-- **OpenCode** - `integrations/opencode/crit.md` → `.opencode/commands/crit.md`
-- **OpenCode** - `integrations/opencode/crit-comment.md` → `.opencode/commands/crit-comment.md`
-- **OpenCode** - `integrations/opencode/SKILL.md` → `.opencode/skills/crit-review/SKILL.md`
-- **GitHub Copilot** - `integrations/github-copilot/crit.prompt.md` → `.github/prompts/crit.prompt.md`
-- **GitHub Copilot** - `integrations/github-copilot/crit-comment.md` → `.github/prompts/crit-comment.prompt.md`
-- **Windsurf** - `integrations/windsurf/crit.md` → `.windsurf/rules/crit.md`
-- **Windsurf** - `integrations/windsurf/crit-comment.md` → `.windsurf/rules/crit-comment.md`
-- **Aider** - append `integrations/aider/CONVENTIONS.md` to your `CONVENTIONS.md`
-- **Aider** - copy `integrations/aider/crit-comment.md` to your project root
-- **Cline** - `integrations/cline/crit.md` → `.clinerules/crit.md`
-- **Cline** - `integrations/cline/crit-comment.md` → `.clinerules/crit-comment.md`
-
-</details>
-
-See [`integrations/`](integrations/) for the full files and details.
+See [`integrations/`](integrations/) for manual setup and full details.
 
 ### `/crit` command
 
@@ -184,11 +178,11 @@ Claude Code, Cursor, OpenCode, and GitHub Copilot support a `/crit` slash comman
 /crit my-plan.md   # Review a specific file
 ```
 
-It launches Crit, waits for your review, reads your comments, revises the plan, and signals Crit for another round. OpenCode also ships with a `crit-review` skill that agents can load on demand. Other tools use rules files that teach the agent to suggest Crit when writing plans.
+It launches Crit, waits for your review, reads your comments, revises the plan, and signals Crit for another round.
 
-### `/crit-comment` command
+### `crit` skill
 
-Each integration also includes a `crit-comment` skill that teaches your agent to use `crit comment` to add inline review comments programmatically - no browser needed. The agent learns the syntax and can leave comments on specific lines or ranges as part of its workflow.
+Claude Code, Cursor, and GitHub Copilot plugins include a `crit` skill that auto-activates when your agent needs to work with crit — leaving inline comments via `crit comment`, reading `.crit.json`, syncing with GitHub PRs via `crit pull`/`crit push`, and more. No slash command needed — the agent picks it up from context.
 
 ## Configuration
 
