@@ -1,0 +1,11 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "crit",
+  "owner": "tomasz-tomczyk",
+  "plugins": [
+    {
+      "name": "crit",
+      "source": { "source": "local", "path": "integrations/claude-code" }
+    }
+  ]
+}
