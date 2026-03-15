@@ -336,3 +336,50 @@ func TestClearShareState(t *testing.T) {
 		t.Errorf("expected comments preserved after clearing share state")
 	}
 }
+
+func TestResolveShareURL(t *testing.T) {
+	// Isolate from real ~/.crit.config.json
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	tests := []struct {
+		name     string
+		flag     string
+		env      string
+		expected string
+	}{
+		{
+			name:     "flag takes priority",
+			flag:     "https://custom.example.com",
+			env:      "https://env.example.com",
+			expected: "https://custom.example.com",
+		},
+		{
+			name:     "env var used when no flag",
+			flag:     "",
+			env:      "https://env.example.com",
+			expected: "https://env.example.com",
+		},
+		{
+			name:     "default when nothing set",
+			flag:     "",
+			env:      "",
+			expected: "https://crit.live",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env != "" {
+				t.Setenv("CRIT_SHARE_URL", tt.env)
+			} else {
+				t.Setenv("CRIT_SHARE_URL", "")
+				os.Unsetenv("CRIT_SHARE_URL")
+			}
+			got := resolveShareURL(tt.flag)
+			if got != tt.expected {
+				t.Errorf("resolveShareURL(%q) = %q, want %q", tt.flag, got, tt.expected)
+			}
+		})
+	}
+}

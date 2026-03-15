@@ -100,6 +100,13 @@ func unpublishFromWeb(shareURL string, deleteToken string) error {
 		return nil
 	}
 
+	var errBody struct {
+		Error string `json:"error"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	if errBody.Error != "" {
+		return fmt.Errorf("share service error: %s", errBody.Error)
+	}
 	return fmt.Errorf("share service returned status %d", resp.StatusCode)
 }
 
