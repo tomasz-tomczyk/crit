@@ -327,10 +327,13 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await request.post('/api/round-complete');
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Only unresolved comment counts — icon visible, not in resolved state
+    // Only unresolved comment counts — icon visible, not in resolved state.
+    // Use toPass() to retry: SSE comments-changed may transiently update state.
     const countEl = page.locator('#commentCount');
-    await expect(countEl).toBeVisible();
-    await expect(countEl).not.toHaveClass(/comment-count-resolved/);
+    await expect(async () => {
+      await expect(countEl).toBeVisible();
+      await expect(countEl).not.toHaveClass(/comment-count-resolved/);
+    }).toPass({ timeout: 5000 });
 
     // Both should render: 1 resolved + 1 unresolved
     await expect(page.locator('.resolved-comment')).toHaveCount(1);

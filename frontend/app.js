@@ -3779,6 +3779,7 @@
           f.comments = Array.isArray(commentsRes) ? commentsRes : [];
         }
         renderAllFiles();
+        updateCommentCount();
         updateTreeCommentBadges();
       } catch (err) {
         console.error('Error handling comments-changed:', err);

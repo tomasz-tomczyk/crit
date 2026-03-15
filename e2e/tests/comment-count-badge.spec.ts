@@ -81,10 +81,14 @@ test.describe('Comment Count Badge', () => {
 
     await loadPage(page);
 
-    // 1 resolved + 2 unresolved → badge should show 2 (unresolved only)
-    await expect(countEl).toBeVisible();
-    await expect(countEl).not.toHaveClass(/comment-count-resolved/);
-    await expect(badgeEl).toHaveText('2');
+    // 1 resolved + 2 unresolved → badge should show 2 (unresolved only).
+    // Use toPass() to retry: an SSE comments-changed event may transiently
+    // update the badge after the initial page load.
+    await expect(async () => {
+      await expect(countEl).toBeVisible();
+      await expect(countEl).not.toHaveClass(/comment-count-resolved/);
+      await expect(badgeEl).toHaveText('2');
+    }).toPass({ timeout: 5000 });
   });
 
   test('badge increments when adding multiple comments', async ({ page, request }) => {
@@ -180,9 +184,13 @@ test.describe('Comment Count Badge', () => {
 
     await loadPage(page);
 
-    // 0 unresolved + 1 resolved → badge shows total (1) with muted styling
-    await expect(countEl).toBeVisible();
-    await expect(countEl).toHaveClass(/comment-count-resolved/);
-    await expect(badgeEl).toHaveText('1');
+    // 0 unresolved + 1 resolved → badge shows total (1) with muted styling.
+    // Use toPass() to retry: an SSE comments-changed event may transiently
+    // update the badge after the initial page load.
+    await expect(async () => {
+      await expect(countEl).toBeVisible();
+      await expect(countEl).toHaveClass(/comment-count-resolved/);
+      await expect(badgeEl).toHaveText('1');
+    }).toPass({ timeout: 5000 });
   });
 });
