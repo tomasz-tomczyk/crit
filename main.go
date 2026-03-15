@@ -67,7 +67,8 @@ func main() {
 		if len(os.Args) >= 3 {
 			port = os.Args[2]
 		}
-		resp, err := http.Get("http://localhost:" + port + "/api/wait-for-event")
+		client := &http.Client{Timeout: 24 * time.Hour}
+		resp, err := client.Get("http://localhost:" + port + "/api/wait-for-event")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: could not reach crit on port %s: %v\n", port, err)
 			os.Exit(1)

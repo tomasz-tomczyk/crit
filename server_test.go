@@ -1056,7 +1056,7 @@ func TestWaitForEventIgnoresOtherEvents(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	session.Broadcast(SSEEvent{Type: "comments-changed"})
+	session.notify(SSEEvent{Type: "comments-changed"})
 
 	select {
 	case <-done:
@@ -1078,6 +1078,16 @@ func TestWaitForEventRespectsCancel(t *testing.T) {
 
 	if w.Code != http.StatusGatewayTimeout {
 		t.Errorf("expected 504, got %d", w.Code)
+	}
+}
+
+func TestWaitForEvent_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/wait-for-event", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
 	}
 }
 

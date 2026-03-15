@@ -333,7 +333,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		"prompt":      prompt,
 	})
 
-	s.session.Broadcast(SSEEvent{
+	s.session.notify(SSEEvent{
 		Type:    "finish",
 		Content: prompt,
 	})
