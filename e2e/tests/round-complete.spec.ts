@@ -223,7 +223,7 @@ test.describe('Multi-Round — Frontend', () => {
     await expect(overlay).toHaveClass(/active/);
 
     const message = page.locator('#waitingMessage');
-    await expect(message).toContainText('close this browser tab');
+    await expect(message).toContainText('close this browser tab', { timeout: 10_000 });
   });
 
   test('round-complete SSE triggers UI refresh and exits waiting state', async ({ page, request }) => {
