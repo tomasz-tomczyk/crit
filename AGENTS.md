@@ -77,6 +77,7 @@ make build-all                                        # Cross-compile to dist/
 ```bash
 crit                          # Start review server (git mode or file mode)
 crit go <port>                # Signal round-complete to a running server
+crit listen [port]            # Block until review finishes on a running crit instance
 crit pull [pr-number]         # Fetch GitHub PR comments into .crit.json
 crit push [--dry-run] [pr]    # Post .crit.json comments as a GitHub PR review
 crit comment <path>:<line[-end]> <body>  # Add a comment to .crit.json (no server needed)
@@ -215,6 +216,7 @@ Session-scoped:
 - `GET  /api/config` — returns `{share_url, hosted_url, delete_token, version, latest_version}`
 - `POST /api/finish` — write `.crit.json`, return prompt for agent
 - `GET  /api/events` — SSE stream (file-changed, edit-detected, server-shutdown events)
+- `GET  /api/wait-for-event` — long-poll that blocks until finish, returns event JSON (used by `crit listen`)
 - `POST /api/round-complete` — agent signals all edits are done; triggers new round
 - `POST /api/share-url` — persist `{url, delete_token}` to `.crit.json` after upload
 - `DELETE /api/share-url` — unpublish: calls crit-web DELETE and clears local persisted URL
