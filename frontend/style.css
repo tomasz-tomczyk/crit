@@ -1191,6 +1191,13 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   margin-top: 12px;
 }
 
+.waiting-fallback {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--fg-dimmed);
+}
+
 .waiting-prompt {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);

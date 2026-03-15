@@ -53,6 +53,54 @@ test.describe('Multi-Round — API', () => {
     expect(data.prompt).toContain('crit go');
   });
 
+  test('GET /api/wait-for-event returns finish event when review finishes', async ({ request }) => {
+    // Add a comment so the prompt is non-empty
+    const filePath = await getTestFilePath(request);
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Wait-for-event test' },
+    });
+
+    // Start long-poll and finish in parallel
+    const [waitRes] = await Promise.all([
+      request.get('/api/wait-for-event'),
+      // Small delay to ensure long-poll is subscribed before finish fires
+      new Promise(resolve => setTimeout(resolve, 50)).then(() =>
+        request.post('/api/finish')
+      ),
+    ]);
+
+    expect(waitRes.ok()).toBeTruthy();
+    const event = await waitRes.json();
+    expect(event.type).toBe('finish');
+    expect(event.content).toContain('.crit.json');
+  });
+
+  test('GET /api/wait-for-event ignores non-finish events', async ({ request }) => {
+    const filePath = await getTestFilePath(request);
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Ignore test' },
+    });
+
+    // Start long-poll, add a comment (non-finish event), then finish
+    const [waitRes] = await Promise.all([
+      request.get('/api/wait-for-event'),
+      (async () => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        // This triggers a comments-changed event — should NOT unblock long-poll
+        await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+          data: { start_line: 2, end_line: 2, body: 'Another comment' },
+        });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        // This triggers a finish event — SHOULD unblock long-poll
+        await request.post('/api/finish');
+      })(),
+    ]);
+
+    expect(waitRes.ok()).toBeTruthy();
+    const event = await waitRes.json();
+    expect(event.type).toBe('finish');
+  });
+
   test('POST /api/finish with no comments returns empty prompt', async ({ request }) => {
     const res = await request.post('/api/finish');
     const data = await res.json();

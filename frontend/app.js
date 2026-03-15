@@ -3670,16 +3670,16 @@
 
       if (hasComments) {
         document.getElementById('waitingMessage').innerHTML =
-          'Paste the prompt below to your agent, then wait for updates.';
+          'Your agent has been notified. Waiting for updates\u2026' +
+          '<span class="waiting-fallback">If your agent wasn\u2019t listening, paste the prompt below.</span>';
         const clipEl = document.getElementById('waitingClipboard');
-        clipEl.textContent = '\u2713 Copied to clipboard';
+        clipEl.textContent = 'Copy prompt';
         clipEl.classList.remove('clipboard-confirm');
-        void clipEl.offsetWidth;
-        clipEl.classList.add('clipboard-confirm');
       } else {
         document.getElementById('waitingMessage').textContent =
           'You can close this browser tab, or leave it open for another round.';
-        document.getElementById('waitingClipboard').textContent = '';
+        document.getElementById('waitingClipboard').style.display = 'none';
+        document.getElementById('waitingPrompt').style.display = 'none';
       }
 
       try { await navigator.clipboard.writeText(prompt); } catch (_) {}
@@ -3690,6 +3690,19 @@
 
   document.getElementById('backToEditing').addEventListener('click', function() {
     setUIState('reviewing');
+  });
+
+  document.getElementById('waitingClipboard').addEventListener('click', async function() {
+    var prompt = document.getElementById('waitingPrompt').textContent;
+    try {
+      await navigator.clipboard.writeText(prompt);
+      var el = document.getElementById('waitingClipboard');
+      el.textContent = '\u2713 Copied';
+      el.classList.remove('clipboard-confirm');
+      void el.offsetWidth;
+      el.classList.add('clipboard-confirm');
+      setTimeout(function() { el.textContent = 'Copy prompt'; }, 2000);
+    } catch (_) {}
   });
 
   // ===== SSE Client =====
