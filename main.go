@@ -61,6 +61,30 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Handle "crit listen [port]" subcommand — blocks until finish event
+	if len(os.Args) >= 2 && os.Args[1] == "listen" {
+		port := "3000"
+		if len(os.Args) >= 3 {
+			port = os.Args[2]
+		}
+		resp, err := http.Get("http://localhost:" + port + "/api/wait-for-event")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: could not reach crit on port %s: %v\n", port, err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusGatewayTimeout {
+			fmt.Fprintln(os.Stderr, "Timeout waiting for event")
+			os.Exit(1)
+		}
+		_, err = io.Copy(os.Stdout, resp.Body)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	// Handle "crit install [agent]" subcommand
 	if len(os.Args) >= 2 && os.Args[1] == "install" {
 		if len(os.Args) < 3 {
@@ -553,6 +577,7 @@ Usage:
   crit                                       Auto-detect changed files via git
   crit <file|dir> [...]                      Review specific files or directories
   crit go [port]                             Signal round-complete to a running crit instance
+  crit listen [port]                         Block until review finishes on a running crit instance
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
   crit comment --clear                       Remove all comments from .crit.json
   crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments to .crit.json
