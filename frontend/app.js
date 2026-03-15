@@ -3781,6 +3781,7 @@
         renderAllFiles();
         updateCommentCount();
         updateTreeCommentBadges();
+        updateCommentCount();
       } catch (err) {
         console.error('Error handling comments-changed:', err);
       }
