@@ -42,11 +42,18 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Handle "crit go [port]" subcommand — signals round-complete to a running crit server
+	// Handle "crit go <port>" subcommand — signals round-complete to a running crit server
 	if len(os.Args) >= 2 && os.Args[1] == "go" {
-		port := "3000" // default
+		port := ""
 		if len(os.Args) >= 3 {
 			port = os.Args[2]
+		}
+		if port == "" {
+			port = resolvePort()
+		}
+		if port == "" {
+			fmt.Fprintln(os.Stderr, "Error: port is required. Usage: crit go <port>")
+			os.Exit(1)
 		}
 		resp, err := http.Post("http://localhost:"+port+"/api/round-complete", "application/json", nil)
 		if err != nil {
@@ -56,6 +63,8 @@ func main() {
 		resp.Body.Close()
 		if resp.StatusCode == 200 {
 			fmt.Println("Round complete — crit will reload.")
+			hint := newStatus(os.Stdout)
+			hint.ListenHint(port)
 		} else {
 			fmt.Fprintf(os.Stderr, "Unexpected status: %d\n", resp.StatusCode)
 			os.Exit(1)
@@ -63,11 +72,18 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Handle "crit listen [port]" subcommand — blocks until finish event
+	// Handle "crit listen <port>" subcommand — waits until finish event
 	if len(os.Args) >= 2 && os.Args[1] == "listen" {
-		port := "3000"
+		port := ""
 		if len(os.Args) >= 3 {
 			port = os.Args[2]
+		}
+		if port == "" {
+			port = resolvePort()
+		}
+		if port == "" {
+			fmt.Fprintln(os.Stderr, "Error: port is required. Usage: crit listen <port>")
+			os.Exit(1)
 		}
 		client := &http.Client{Timeout: 24 * time.Hour}
 		resp, err := client.Get("http://localhost:" + port + "/api/wait-for-event")
@@ -705,6 +721,7 @@ func main() {
 
 	url := fmt.Sprintf("http://localhost:%d", addr.Port)
 	status.Listening(url)
+	status.ListenHint(fmt.Sprintf("%d", addr.Port))
 
 	if !*noOpen {
 		go openBrowser(url)
@@ -734,14 +751,28 @@ func main() {
 	_ = httpServer.Shutdown(shutCtx)
 }
 
+// resolvePort returns the configured port as a string, or empty if not configured.
+// Used by subcommands (go, listen) that need the port before the full server starts.
+func resolvePort() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	cfg := LoadConfig(dir)
+	if cfg.Port != 0 {
+		return fmt.Sprintf("%d", cfg.Port)
+	}
+	return ""
+}
+
 func printHelp() {
 	fmt.Fprintf(os.Stderr, `crit — inline code review for AI agent workflows
 
 Usage:
   crit                                       Auto-detect changed files via git
   crit <file|dir> [...]                      Review specific files or directories
-  crit go [port]                             Signal round-complete to a running crit instance
-  crit listen [port]                         Block until review finishes on a running crit instance
+  crit go <port>                             Signal round-complete to a running crit instance
+  crit listen <port>                         Wait for review to finish on a running crit instance
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
   crit comment --clear                       Remove all comments from .crit.json
   crit share <file> [file...]                Share files to crit-web and print the URL
