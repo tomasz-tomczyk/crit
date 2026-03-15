@@ -10,7 +10,6 @@
       if (lang && hljs.getLanguage(lang)) {
         try { return hljs.highlight(str, { language: lang }).value; } catch (_) {}
       }
-      try { return hljs.highlightAuto(str).value; } catch (_) {}
       return '';
     }
   });
@@ -24,7 +23,6 @@
       if (lang && hljs.getLanguage(lang)) {
         try { return hljs.highlight(str, { language: lang }).value; } catch (_) {}
       }
-      try { return hljs.highlightAuto(str).value; } catch (_) {}
       return '';
     }
   });
@@ -536,9 +534,6 @@
         let highlighted = '';
         if (lang && hljs.getLanguage(lang)) {
           try { highlighted = hljs.highlight(token.content, { language: lang }).value; } catch (_) {}
-        }
-        if (!highlighted) {
-          try { highlighted = hljs.highlightAuto(token.content).value; } catch (_) {}
         }
         if (!highlighted) highlighted = escapeHtml(token.content);
 
