@@ -176,11 +176,10 @@ func main() {
 		if showQR {
 			fmt.Println()
 			qrterminal.GenerateWithConfig(url, qrterminal.Config{
-				Level:     qrterminal.L,
-				Writer:    os.Stdout,
-				BlackChar: qrterminal.BLACK,
-				WhiteChar: qrterminal.WHITE,
-				QuietZone: 1,
+				Level:      qrterminal.L,
+				Writer:     os.Stdout,
+				HalfBlocks: true,
+				QuietZone:  1,
 			})
 		}
 
