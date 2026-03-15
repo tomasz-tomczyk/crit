@@ -98,3 +98,25 @@ After `crit go <port>` triggers a new round, immediately run `crit listen <port>
 Tell the user: **"Changes applied. Review the diff in your browser and click Finish Review when ready."**
 
 Wait for `crit listen` to complete. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
+
+## Sharing
+
+If the user asks for a URL, a link, to share the review, or to show a QR code, run:
+
+```bash
+crit share <file>
+```
+
+**Always relay the full output to the user** — copy the URL (and QR code if `--qr` was used) from the command output and include it directly in your response. Do not make them dig through tool output to find it.
+
+To also show a QR code — **only in real terminal environments** with monospace font rendering (not mobile apps like Claude Code mobile, or web chat UIs where Unicode block characters won't render):
+
+```bash
+crit share --qr <file>
+```
+
+To remove a shared review:
+
+```bash
+crit unpublish
+```

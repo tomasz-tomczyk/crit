@@ -46,6 +46,32 @@ crit comment --author 'Windsurf' src/auth.go:42 'Missing null check here'
 
 Paths are relative, line numbers are 1-indexed, comments are appended (never replaced). Creates `.crit.json` automatically if it doesn't exist.
 
+## Sharing Reviews
+
+If the user asks for a URL, a link, to share their review, or to show a QR code, use `crit share`:
+
+```bash
+crit share <file> [file...]   # Upload and print URL
+crit share --qr <file>        # Also print QR code (terminal only)
+crit unpublish                # Remove shared review
+```
+
+Examples:
+
+```bash
+crit share <file>                                # Share a single file
+crit share <file1> <file2>                       # Share multiple files
+crit share --share-url https://crit.live <file>  # Explicit share URL
+```
+
+Rules:
+- **No server needed** — `crit share` reads files directly from disk
+- **`--qr` is terminal-only** — only use when the user has a real terminal with monospace font rendering. Do not use in mobile apps (e.g. Claude Code mobile), web chat UIs, or any environment where Unicode block characters won't render correctly
+- **Comments included** — if `.crit.json` exists, comments for the shared files are included automatically
+- **Relay the output** — always copy the URL (and QR code if `--qr` was used) from the command output and include it directly in your response to the user. Do not make them dig through tool output
+- **State persisted** — share URL and delete token are saved to `.crit.json`
+- **Unpublish reads `.crit.json`** — uses the stored delete token to remove the review
+
 ## GitHub PR Integration
 
 ```bash

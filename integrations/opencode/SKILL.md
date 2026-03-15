@@ -1,6 +1,6 @@
 ---
 name: crit
-description: Use when working with crit CLI commands, .crit.json files, addressing review comments, leaving inline code review comments, pushing reviews to GitHub PRs, or pulling PR comments locally. Covers crit comment, crit pull, crit push, .crit.json format, and resolution workflow.
+description: Use when working with crit CLI commands, .crit.json files, addressing review comments, leaving inline code review comments, sharing reviews via crit share/unpublish, pushing reviews to GitHub PRs, or pulling PR comments locally. Covers crit comment, crit share, crit unpublish, crit pull, crit push, .crit.json format, and resolution workflow.
 compatibility: opencode
 ---
 
@@ -84,6 +84,32 @@ crit push [--dry-run] [pr-number]  # Post .crit.json comments as a GitHub PR rev
 ```
 
 Requires `gh` CLI installed and authenticated. PR number is auto-detected from the current branch, or pass it explicitly.
+
+## Sharing Reviews
+
+If the user asks for a URL, a link, to share their review, or to show a QR code, use `crit share`:
+
+```bash
+crit share <file> [file...]   # Upload and print URL
+crit share --qr <file>        # Also print QR code (terminal only)
+crit unpublish                # Remove shared review
+```
+
+Examples:
+
+```bash
+crit share <file>                                # Share a single file
+crit share <file1> <file2>                       # Share multiple files
+crit share --share-url https://crit.live <file>  # Explicit share URL
+```
+
+Rules:
+- **No server needed** — `crit share` reads files directly from disk
+- **`--qr` is terminal-only** — only use when the user has a real terminal with monospace font rendering. Do not use in mobile apps (e.g. Claude Code mobile), web chat UIs, or any environment where Unicode block characters won't render correctly
+- **Comments included** — if `.crit.json` exists, comments for the shared files are included automatically
+- **Relay the output** — always copy the URL (and QR code if `--qr` was used) from the command output and include it directly in your response to the user. Do not make them dig through tool output
+- **State persisted** — share URL and delete token are saved to `.crit.json`
+- **Unpublish reads `.crit.json`** — uses the stored delete token to remove the review
 
 ## Guardrails
 
