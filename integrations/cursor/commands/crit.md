@@ -93,7 +93,7 @@ If the user asks to share the review, get a link, get a URL, or show a QR code, 
 crit share <file>
 ```
 
-The URL is printed to stdout. Tell the user the URL.
+**Always relay the full output to the user** — copy the URL (and QR code if `--qr` was used) from the command output and include it directly in your response. Do not make them dig through tool output to find it.
 
 To also show a QR code — **only in terminal environments** (not mobile apps or web UIs where escape codes won't render):
 

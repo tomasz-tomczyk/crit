@@ -102,6 +102,6 @@ Rules:
 - **No server needed** — `crit share` reads files directly from disk
 - **`--qr` is terminal-only** — only use in environments with a real terminal (not mobile apps, not web UIs)
 - **Comments included** — if `.crit.json` exists, comments for the shared files are included automatically
-- **URL printed to stdout** — the share URL is the only output on stdout (safe for piping)
+- **Relay the output** — always copy the URL (and QR code if `--qr` was used) from the command output and include it directly in your response to the user. Do not make them dig through tool output
 - **State persisted** — share URL and delete token are saved to `.crit.json`
 - **Unpublish reads `.crit.json`** — uses the stored delete token to remove the review

@@ -56,7 +56,7 @@ crit share --qr plan.md         # Also show QR code (terminal only, not mobile/w
 crit unpublish                  # Remove shared review
 ```
 
-Run `crit share <file>` and report the URL. Comments from `.crit.json` are included automatically. Only use `--qr` in real terminal environments — it won't render in mobile apps or web UIs.
+Run `crit share <file>` and relay the full output (URL and QR code if shown) directly to the user. Comments from `.crit.json` are included automatically. Only use `--qr` in real terminal environments — it won't render in mobile apps or web UIs.
 
 ## GitHub PR Integration
 
