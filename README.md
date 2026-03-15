@@ -2,7 +2,7 @@
 
 Reviewing agent output in a terminal is painful. You can't point at a specific line and say "change this." When your agent updates the file, you re-read the whole thing to figure out what changed.
 
-Crit opens your file in a browser with GitHub-style inline comments. Leave feedback, hit Finish, and a structured prompt goes to your clipboard. Paste it back. When the agent edits, Crit shows a diff between rounds - you see exactly what it addressed.
+Crit opens your file in a browser with GitHub-style inline comments. Leave feedback, hit Finish, and your agent is notified automatically via `crit listen`. When the agent edits, Crit shows a diff between rounds - you see exactly what it addressed.
 
 Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf - any agent that reads files.
 
@@ -79,9 +79,9 @@ Select lines and use "Insert suggestion" to pre-fill the comment with the origin
 
 ![Insert suggestion](images/suggestion.gif)
 
-### Finish review: prompt copied to clipboard
+### Finish review: agent notified automatically
 
-When you click "Finish Review", Crit collects your comments, formats them into a prompt, and copies it to your clipboard. Paste directly into your agent.
+When you click "Finish Review", Crit writes `.crit.json` and notifies your agent via `crit listen`. If your agent was listening, it picks up the prompt automatically — no copy-paste needed. A fallback "Copy prompt" button is available if the agent wasn't listening.
 
 ![Agent prompt](images/prompt.png)
 
@@ -106,7 +106,17 @@ Architecture diagrams in fenced ` ```mermaid ` blocks render inline. You can com
 
 ### Share for Async Review
 
-Want a second opinion before handing off to the agent? Enable sharing by setting `CRIT_SHARE_URL=https://crit.live` (or pass `--share-url`), then click the Share button to upload your review and get a public URL anyone can open in a browser, no install needed. Each reviewer's comments are color-coded by author. Unpublish anytime.
+Want a second opinion before handing off to the agent? Click the Share button to upload your review and get a public URL anyone can open in a browser, no install needed. Each reviewer's comments are color-coded by author. Unpublish anytime.
+
+You can also share directly from the CLI without starting the browser UI:
+
+```bash
+crit share plan.md                    # share files and print the URL
+crit share plan.md --qr               # also print a QR code in the terminal
+crit unpublish                        # remove the shared review
+```
+
+Sharing requires `CRIT_SHARE_URL=https://crit.live` (or `--share-url`, or `share_url` in config).
 
 ### GitHub PR Sync
 
