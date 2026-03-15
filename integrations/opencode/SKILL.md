@@ -87,25 +87,25 @@ Requires `gh` CLI installed and authenticated. PR number is auto-detected from t
 
 ## Sharing Reviews
 
-If the user asks to share a review, get a link, get a URL, or show a QR code, use `crit share`:
+If the user asks for a URL, a link, to share their review, or to show a QR code, use `crit share`:
 
 ```bash
 crit share <file> [file...]   # Upload and print URL
-crit share --qr plan.md       # Also print QR code (terminal only)
+crit share --qr <file>        # Also print QR code (terminal only)
 crit unpublish                # Remove shared review
 ```
 
 Examples:
 
 ```bash
-crit share plan.md                           # Share a single file
-crit share plan.md src/main.go               # Share multiple files
-crit share --share-url https://crit.live plan.md  # Explicit share URL
+crit share <file>                                # Share a single file
+crit share <file1> <file2>                       # Share multiple files
+crit share --share-url https://crit.live <file>  # Explicit share URL
 ```
 
 Rules:
 - **No server needed** — `crit share` reads files directly from disk
-- **`--qr` is terminal-only** — only use in environments with a real terminal (not mobile apps, not web UIs)
+- **`--qr` is terminal-only** — only use when the user has a real terminal with monospace font rendering. Do not use in mobile apps (e.g. Claude Code mobile), web chat UIs, or any environment where Unicode block characters won't render correctly
 - **Comments included** — if `.crit.json` exists, comments for the shared files are included automatically
 - **Relay the output** — always copy the URL (and QR code if `--qr` was used) from the command output and include it directly in your response to the user. Do not make them dig through tool output
 - **State persisted** — share URL and delete token are saved to `.crit.json`
