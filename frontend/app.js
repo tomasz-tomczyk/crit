@@ -3857,7 +3857,6 @@
     overlay.innerHTML =
       '<div class="share-dialog">' +
         '<h3><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.25 5.5l-5.5 5.5-3.5-3.5"/></svg>Review shared</h3>' +
-        '<div class="share-dialog-qr">QR code placeholder</div>' +
         '<div class="share-dialog-url">' +
           '<span>' + escapeHtml(hostedURL) + '</span>' +
           '<button class="copy-icon-btn" id="modalCopyBtn" title="Copy link">' +
