@@ -22,9 +22,11 @@ crit $PLAN_FILE
 crit
 ```
 
-Tell the user: "I've opened your changes in Crit for review. Leave inline comments, then click Finish Review. Let me know when you're done."
+If background tasks are supported, run `crit listen <port>` in the background to be notified automatically when the user clicks Finish Review — do NOT ask the user to type anything.
 
-Do NOT begin implementation until the user confirms the review is approved.
+Otherwise, tell the user: "I've opened your changes in Crit for review. Leave inline comments, then click Finish Review. Let me know when you're done."
+
+Do NOT begin implementation until the review is complete.
 
 ## After review
 

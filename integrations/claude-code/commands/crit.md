@@ -19,7 +19,7 @@ Don't ask for confirmation — just proceed with whichever mode applies.
 
 ## Step 2: Run crit for review
 
-If a crit server is already running from earlier in this conversation, skip launching and run `crit go <port>` to trigger a new round instead.
+If a crit server is already running from earlier in this conversation, skip launching and run `crit go <port>` to trigger a new round instead. Then skip to Step 2b.
 
 Otherwise, run `crit` **in the background** using `run_in_background: true`:
 
@@ -31,13 +31,23 @@ crit <plan-file>
 crit
 ```
 
-Tell the user: **"Crit is open in your browser. Leave inline comments on the plan, then click 'Finish Review'. Type 'go' here when you're done."**
+Note the port from crit's startup output.
 
-Wait for the user to respond before proceeding.
+### Step 2b: Listen for review completion
+
+Run `crit listen <port>` **in the background** using `run_in_background: true`:
+
+```bash
+crit listen <port>
+```
+
+Tell the user: **"Crit is open in your browser. Leave inline comments, then click Finish Review."**
+
+Wait for the `crit listen` background task to complete — do NOT ask the user to type anything.
 
 ## Step 3: Read the review output
 
-After the user confirms, read the `.crit.json` file in the repo root (or working directory) using the Read tool.
+When `crit listen` completes, read the `.crit.json` file in the repo root (or working directory) using the Read tool.
 
 The file contains structured JSON with comments per file:
 
@@ -79,11 +89,10 @@ crit go <port>
 
 The port is shown in crit's startup output (default: a random available port). This triggers a new review round in the browser with a diff of what changed.
 
-## Step 6: Summary
+## Step 6: Next round
 
-Show a summary:
-- Number of review comments found
-- What was changed for each
-- Any comments that need further discussion
+After `crit go <port>` triggers a new round, immediately run `crit listen <port>` in the background again to wait for the next review.
 
-Ask the user if they want another review pass or if the plan is approved for implementation.
+Tell the user: **"Changes applied. Review the diff in your browser and click Finish Review when ready."**
+
+Wait for `crit listen` to complete. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
