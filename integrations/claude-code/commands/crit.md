@@ -45,6 +45,8 @@ Tell the user: **"Crit is open in your browser. Leave inline comments, then clic
 
 Wait for the `crit listen` background task to complete — do NOT ask the user to type anything.
 
+**Fallback:** If `crit listen` fails immediately (e.g. old crit binary without listen support), tell the user: **"Type 'go' here when you're done."** and wait for their response instead.
+
 ## Step 3: Read the review output
 
 When `crit listen` completes, read the `.crit.json` file in the repo root (or working directory) using the Read tool.
