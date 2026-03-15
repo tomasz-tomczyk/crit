@@ -46,6 +46,18 @@ crit comment --author 'Cline' src/auth.go:42 'Missing null check here'
 
 Paths are relative, line numbers are 1-indexed, comments are appended (never replaced). Creates `.crit.json` automatically if it doesn't exist.
 
+## Sharing reviews
+
+If the user asks to share, get a link, get a URL, or show a QR code:
+
+```bash
+crit share plan.md              # Share and print URL
+crit share --qr plan.md         # Also show QR code (terminal only, not mobile/web)
+crit unpublish                  # Remove shared review
+```
+
+Run `crit share <file>` and report the URL. Comments from `.crit.json` are included automatically. Only use `--qr` in real terminal environments — it won't render in mobile apps or web UIs.
+
 ## GitHub PR Integration
 
 ```bash

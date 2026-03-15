@@ -81,6 +81,8 @@ crit listen [port]            # Block until review finishes on a running crit in
 crit pull [pr-number]         # Fetch GitHub PR comments into .crit.json
 crit push [--dry-run] [pr]    # Post .crit.json comments as a GitHub PR review
 crit comment <path>:<line[-end]> <body>  # Add a comment to .crit.json (no server needed)
+crit share <file> [file...]   # Share files to crit-web, print URL
+crit unpublish                # Remove shared review from crit-web
 crit config                   # Print resolved configuration (merged global + project)
 crit init                     # Generate a starter .crit.config.json in the current directory
 crit install <agent>          # Install integration config for an AI tool

@@ -1,6 +1,6 @@
 ---
 name: crit
-description: Use when working with crit CLI commands, .crit.json files, addressing review comments, leaving inline code review comments, pushing reviews to GitHub PRs, or pulling PR comments locally. Covers crit comment, crit pull, crit push, .crit.json format, and resolution workflow.
+description: Use when working with crit CLI commands, .crit.json files, addressing review comments, leaving inline code review comments, sharing reviews via crit share/unpublish, pushing reviews to GitHub PRs, or pulling PR comments locally. Covers crit comment, crit share, crit unpublish, crit pull, crit push, .crit.json format, and resolution workflow.
 compatibility: opencode
 ---
 
@@ -84,6 +84,32 @@ crit push [--dry-run] [pr-number]  # Post .crit.json comments as a GitHub PR rev
 ```
 
 Requires `gh` CLI installed and authenticated. PR number is auto-detected from the current branch, or pass it explicitly.
+
+## Sharing Reviews
+
+If the user asks to share a review, get a link, get a URL, or show a QR code, use `crit share`:
+
+```bash
+crit share <file> [file...]   # Upload and print URL
+crit share --qr plan.md       # Also print QR code (terminal only)
+crit unpublish                # Remove shared review
+```
+
+Examples:
+
+```bash
+crit share plan.md                           # Share a single file
+crit share plan.md src/main.go               # Share multiple files
+crit share --share-url https://crit.live plan.md  # Explicit share URL
+```
+
+Rules:
+- **No server needed** — `crit share` reads files directly from disk
+- **`--qr` is terminal-only** — only use in environments with a real terminal (not mobile apps, not web UIs)
+- **Comments included** — if `.crit.json` exists, comments for the shared files are included automatically
+- **URL printed to stdout** — the share URL is the only output on stdout (safe for piping)
+- **State persisted** — share URL and delete token are saved to `.crit.json`
+- **Unpublish reads `.crit.json`** — uses the stored delete token to remove the review
 
 ## Guardrails
 
