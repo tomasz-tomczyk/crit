@@ -1343,7 +1343,9 @@ func (s *Session) emitRoundStatus(edits int) {
 
 // loadResolvedComments reads .crit.json to pick up resolved fields the agent wrote.
 func (s *Session) loadResolvedComments() {
-	data, err := os.ReadFile(s.critJSONPath())
+	critPath := s.critJSONPath()
+	info, statErr := os.Stat(critPath)
+	data, err := os.ReadFile(critPath)
 	if err != nil {
 		// No .crit.json — clear all PreviousComments
 		s.mu.Lock()
@@ -1365,6 +1367,14 @@ func (s *Session) loadResolvedComments() {
 		} else {
 			f.PreviousComments = nil
 		}
+	}
+	// Record the current mtime so mergeExternalCritJSON does not re-process
+	// this same file. Without this, the file watcher could detect the
+	// externally-written .crit.json (e.g. from a test or crit comment) as a
+	// new change and wipe comments that were added via the API after the
+	// round completed.
+	if statErr == nil {
+		s.lastCritJSONMtime = info.ModTime()
 	}
 }
 
