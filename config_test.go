@@ -20,7 +20,7 @@ func TestLoadConfigFromFile(t *testing.T) {
   "ignore_patterns": ["*.lock", "vendor/"]
 }`), 0644)
 
-	cfg, err := loadConfigFile(configPath)
+	cfg, presence, err := loadConfigFile(configPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -39,15 +39,24 @@ func TestLoadConfigFromFile(t *testing.T) {
 	if len(cfg.IgnorePatterns) != 2 {
 		t.Errorf("ignore_patterns = %v", cfg.IgnorePatterns)
 	}
+	if !presence.ShareURL {
+		t.Error("presence.ShareURL should be true")
+	}
+	if !presence.IgnorePatterns {
+		t.Error("presence.IgnorePatterns should be true")
+	}
 }
 
 func TestLoadConfigFileMissing(t *testing.T) {
-	cfg, err := loadConfigFile("/nonexistent/.crit.config.json")
+	cfg, presence, err := loadConfigFile("/nonexistent/.crit.config.json")
 	if err != nil {
 		t.Fatalf("missing file should not error: %v", err)
 	}
 	if cfg.Port != 0 {
 		t.Errorf("expected zero config")
+	}
+	if presence.ShareURL || presence.IgnorePatterns {
+		t.Error("missing file should have no presence flags")
 	}
 }
 
@@ -56,9 +65,32 @@ func TestLoadConfigFileInvalidJSON(t *testing.T) {
 	configPath := filepath.Join(dir, ".crit.config.json")
 	os.WriteFile(configPath, []byte(`{invalid json`), 0644)
 
-	_, err := loadConfigFile(configPath)
+	_, _, err := loadConfigFile(configPath)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestLoadConfigFilePresenceEmptyValues(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".crit.config.json")
+	os.WriteFile(configPath, []byte(`{"share_url": "", "ignore_patterns": []}`), 0644)
+
+	cfg, presence, err := loadConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ShareURL != "" {
+		t.Errorf("share_url = %q, want empty", cfg.ShareURL)
+	}
+	if len(cfg.IgnorePatterns) != 0 {
+		t.Errorf("ignore_patterns = %v, want empty", cfg.IgnorePatterns)
+	}
+	if !presence.ShareURL {
+		t.Error("presence.ShareURL should be true even for empty string")
+	}
+	if !presence.IgnorePatterns {
+		t.Error("presence.IgnorePatterns should be true even for empty array")
 	}
 }
 
@@ -247,6 +279,56 @@ func writeFileForConfig(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLoadConfigRuntimeDefaults(t *testing.T) {
+	// No config files at all — runtime defaults should apply
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	projectDir := t.TempDir()
+
+	cfg := LoadConfig(projectDir)
+	if cfg.ShareURL != "https://crit.live" {
+		t.Errorf("ShareURL = %q, want runtime default https://crit.live", cfg.ShareURL)
+	}
+	if len(cfg.IgnorePatterns) != 1 || cfg.IgnorePatterns[0] != ".crit.json" {
+		t.Errorf("IgnorePatterns = %v, want [.crit.json]", cfg.IgnorePatterns)
+	}
+}
+
+func TestLoadConfigRuntimeDefaultsOverriddenByEmptyValues(t *testing.T) {
+	// Config explicitly sets share_url to "" and ignore_patterns to [] — no defaults
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	projectDir := t.TempDir()
+	os.WriteFile(filepath.Join(projectDir, ".crit.config.json"),
+		[]byte(`{"share_url": "", "ignore_patterns": []}`), 0644)
+
+	cfg := LoadConfig(projectDir)
+	if cfg.ShareURL != "" {
+		t.Errorf("ShareURL = %q, want empty (explicitly overridden)", cfg.ShareURL)
+	}
+	if len(cfg.IgnorePatterns) != 0 {
+		t.Errorf("IgnorePatterns = %v, want empty (explicitly overridden)", cfg.IgnorePatterns)
+	}
+}
+
+func TestLoadConfigRuntimeDefaultsOverriddenByGlobal(t *testing.T) {
+	// Global config sets share_url — no runtime default applied
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	os.WriteFile(filepath.Join(homeDir, ".crit.config.json"),
+		[]byte(`{"share_url": "https://custom.example.com"}`), 0644)
+	projectDir := t.TempDir()
+
+	cfg := LoadConfig(projectDir)
+	if cfg.ShareURL != "https://custom.example.com" {
+		t.Errorf("ShareURL = %q, want custom global value", cfg.ShareURL)
+	}
+	// ignore_patterns not set in any config — default applies
+	if len(cfg.IgnorePatterns) != 1 || cfg.IgnorePatterns[0] != ".crit.json" {
+		t.Errorf("IgnorePatterns = %v, want [.crit.json]", cfg.IgnorePatterns)
 	}
 }
 
