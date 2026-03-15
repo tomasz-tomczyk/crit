@@ -110,6 +110,35 @@ func unpublishFromWeb(shareURL string, deleteToken string) error {
 	return fmt.Errorf("share service returned status %d", resp.StatusCode)
 }
 
+// buildShareFromSession extracts files and unresolved comments from a live session.
+func buildShareFromSession(s *Session) ([]shareFile, []shareComment, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var files []shareFile
+	var comments []shareComment
+	for _, f := range s.Files {
+		files = append(files, shareFile{Path: f.Path, Content: f.Content})
+		for _, c := range f.Comments {
+			if c.Resolved {
+				continue
+			}
+			sc := shareComment{
+				File:      f.Path,
+				StartLine: c.StartLine,
+				EndLine:   c.EndLine,
+				Body:      c.Body,
+				Author:    c.Author,
+			}
+			if c.ReviewRound >= 1 {
+				sc.ReviewRound = c.ReviewRound
+			}
+			comments = append(comments, sc)
+		}
+	}
+	return files, comments, s.ReviewRound
+}
+
 // loadCommentsForShare reads .crit.json from dir and returns shareComment entries
 // for the given file paths, plus the review round.
 func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) {
@@ -139,6 +168,9 @@ func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) 
 			continue
 		}
 		for _, c := range cf.Comments {
+			if c.Resolved {
+				continue
+			}
 			sc := shareComment{
 				File:      path,
 				StartLine: c.StartLine,

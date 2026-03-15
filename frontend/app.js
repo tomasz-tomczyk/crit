@@ -3970,37 +3970,8 @@
     setShareButtonState('sharing');
     dismissToast('share');
 
-    // Build payload
-    var payload = files.length === 1
-      ? {
-          content: files[0].content,
-          filename: files[0].path,
-          review_round: session.review_round || 1,
-          comments: [],
-        }
-      : {
-          files: files.map(function(f) { return { path: f.path, content: f.content }; }),
-          review_round: session.review_round || 1,
-          comments: [],
-        };
-
-    for (var fi = 0; fi < files.length; fi++) {
-      var f = files[fi];
-      for (var ci = 0; ci < f.comments.length; ci++) {
-        var c = f.comments[ci];
-        var shared = { file: f.path, start_line: c.start_line, end_line: c.end_line, body: c.body };
-        if (c.author) shared.author_display_name = c.author;
-        if (c.review_round >= 1) shared.review_round = c.review_round;
-        payload.comments.push(shared);
-      }
-    }
-
     try {
-      var resp = await fetch(shareURL + '/api/reviews', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      var resp = await fetch('/api/share', { method: 'POST' });
       if (!resp.ok) {
         var errBody = await resp.json().catch(function() { return {}; });
         throw new Error(errBody.error || 'Server error ' + resp.status);
@@ -4009,16 +3980,7 @@
       hostedURL = result.url;
       deleteToken = result.delete_token || '';
       setShareButtonState('shared');
-
-      // Auto-open popover as success confirmation
       showShareModal();
-
-      // Persist to server
-      fetch('/api/share-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: hostedURL, delete_token: deleteToken }),
-      }).catch(function() {});
     } catch (err) {
       setShareButtonState('default');
       var el = showToast('share', 'error',
