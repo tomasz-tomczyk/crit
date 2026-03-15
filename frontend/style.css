@@ -334,6 +334,65 @@ body {
 }
 .btn-success:hover { background: rgba(158, 206, 106, 0.1); }
 
+/* ===== Share Popover ===== */
+.share-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  z-index: 100;
+  min-width: 260px;
+  font-size: 13px;
+}
+.share-popover-qr {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 12px;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+.share-popover-url {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+  background: var(--bg-tertiary);
+  padding: 6px 8px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  color: var(--fg-secondary);
+}
+.share-popover-actions {
+  display: flex;
+  gap: 8px;
+}
+.share-popover-confirm {
+  padding: 10px;
+  border-radius: 6px;
+  background: rgba(247, 118, 142, 0.08);
+  border: 1px solid rgba(247, 118, 142, 0.15);
+}
+.share-popover-confirm p {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--red);
+  font-size: 13px;
+}
+.share-popover-confirm .confirm-detail {
+  font-size: 12px;
+  color: var(--fg-muted);
+  line-height: 1.4;
+  margin: 0 0 8px;
+}
+.share-popover-confirm .confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* ===== Document Container ===== */
 .document-wrapper {
   max-width: 840px;
