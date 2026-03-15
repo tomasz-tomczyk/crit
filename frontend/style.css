@@ -329,68 +329,105 @@ body {
 
 .btn-success {
   color: var(--green);
-  border-color: var(--green);
+  border-color: rgba(158, 206, 106, 0.35);
   background: transparent;
 }
-.btn-success:hover { background: rgba(158, 206, 106, 0.1); }
+.btn-success:hover { background: rgba(158, 206, 106, 0.08); }
 
-/* ===== Share Popover ===== */
-.share-popover {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 6px;
-  padding: 12px;
-  border-radius: 10px;
+/* ===== Share Modal ===== */
+.share-overlay {
+  display: flex;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 400;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.share-dialog {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px 32px;
+  max-width: 520px;
+  width: 90vw;
   box-shadow: var(--shadow);
-  z-index: 100;
-  min-width: 260px;
-  font-size: 13px;
+  text-align: center;
 }
-.share-popover-qr {
-  display: flex;
-  justify-content: center;
-  padding: 8px 0 12px;
+.share-dialog h3 {
+  color: var(--green);
+  margin: 0 0 20px;
+  font-size: 16px;
+}
+.share-dialog h3 svg {
+  width: 16px;
+  height: 16px;
+  vertical-align: -2px;
+  margin-right: 5px;
+}
+.share-dialog-qr {
+  padding: 16px 0 20px;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
-.share-popover-url {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  word-break: break-all;
+.share-dialog-url {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   background: var(--bg-tertiary);
-  padding: 6px 8px;
-  border-radius: 4px;
-  margin-bottom: 10px;
-  color: var(--fg-secondary);
+  padding: 10px 10px 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 20px;
 }
-.share-popover-actions {
+.share-dialog-url span {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--fg-secondary);
+  flex: 1;
+  text-align: left;
+}
+.share-dialog-url .copy-icon-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--fg-muted);
+  padding: 6px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+.share-dialog-url .copy-icon-btn:hover { color: var(--fg-primary); }
+.share-dialog-url .copy-icon-btn svg { width: 16px; height: 16px; display: block; }
+.share-dialog-actions {
   display: flex;
   gap: 8px;
+  justify-content: center;
 }
-.share-popover-confirm {
-  padding: 10px;
-  border-radius: 6px;
+.share-dialog-confirm {
+  padding: 16px;
+  border-radius: 8px;
   background: rgba(247, 118, 142, 0.08);
   border: 1px solid rgba(247, 118, 142, 0.15);
+  text-align: left;
 }
-.share-popover-confirm p {
+.share-dialog-confirm p {
   margin: 0 0 4px;
   font-weight: 600;
   color: var(--red);
+  font-size: 14px;
+}
+.share-dialog-confirm .confirm-detail {
   font-size: 13px;
-}
-.share-popover-confirm .confirm-detail {
-  font-size: 12px;
   color: var(--fg-muted);
-  line-height: 1.4;
-  margin: 0 0 8px;
+  line-height: 1.5;
+  margin: 0 0 12px;
 }
-.share-popover-confirm .confirm-actions {
+.share-dialog-confirm .confirm-actions {
   display: flex;
   gap: 8px;
+  justify-content: flex-end;
 }
 
 /* ===== Document Container ===== */

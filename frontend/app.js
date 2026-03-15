@@ -262,8 +262,7 @@
       var shareBtn = document.getElementById('shareBtn');
       shareBtn.style.display = '';
       if (hostedURL) {
-        shareBtn.textContent = 'Shared \u2713';
-        shareBtn.classList.add('btn-success');
+        setShareButtonState('shared');
       }
     }
 
@@ -3825,12 +3824,11 @@
   }
 
   // ===== Share =====
-  var sharePopoverEl = null;
-
+  var shareModalEl = null;
   function setShareButtonState(state) {
     var btn = document.getElementById('shareBtn');
     if (state === 'shared') {
-      btn.textContent = 'Shared \u2713';
+      btn.textContent = 'Shared';
       btn.classList.add('btn-success');
       btn.disabled = false;
     } else if (state === 'sharing') {
@@ -3844,66 +3842,69 @@
     }
   }
 
-  function closeSharePopover() {
-    if (sharePopoverEl) {
-      sharePopoverEl.remove();
-      sharePopoverEl = null;
-      document.removeEventListener('click', handlePopoverOutsideClick);
-      document.removeEventListener('keydown', handlePopoverEscape);
+  function closeShareModal() {
+    if (shareModalEl) {
+      shareModalEl.remove();
+      shareModalEl = null;
     }
   }
 
-  function showSharePopover() {
-    closeSharePopover();
-    var btn = document.getElementById('shareBtn');
+  function showShareModal() {
+    closeShareModal();
 
-    var el = document.createElement('div');
-    el.className = 'share-popover';
-    el.innerHTML =
-      '<div class="share-popover-qr">QR code placeholder</div>' +
-      '<div class="share-popover-url">' + escapeHtml(hostedURL) + '</div>' +
-      '<div class="share-popover-actions">' +
-        '<button class="btn btn-sm btn-success" id="popoverCopyBtn">Copy link</button>' +
-        (deleteToken ? '<button class="btn btn-sm btn-danger" id="popoverUnpublishBtn">Unpublish</button>' : '') +
+    var overlay = document.createElement('div');
+    overlay.className = 'share-overlay';
+    overlay.innerHTML =
+      '<div class="share-dialog">' +
+        '<h3><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.25 5.5l-5.5 5.5-3.5-3.5"/></svg>Review shared</h3>' +
+        '<div class="share-dialog-qr">QR code placeholder</div>' +
+        '<div class="share-dialog-url">' +
+          '<span>' + escapeHtml(hostedURL) + '</span>' +
+          '<button class="copy-icon-btn" id="modalCopyBtn" title="Copy link">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+          '</button>' +
+        '</div>' +
+        '<div class="share-dialog-actions">' +
+          (deleteToken ? '<button class="btn btn-sm btn-danger" id="modalUnpublishBtn">Unpublish</button>' : '') +
+          '<button class="btn btn-sm" id="modalCloseBtn">Close</button>' +
+        '</div>' +
       '</div>';
 
-    btn.insertAdjacentElement('afterend', el);
-    sharePopoverEl = el;
+    document.body.appendChild(overlay);
+    shareModalEl = overlay;
 
-    el.querySelector('#popoverCopyBtn').addEventListener('click', function() {
+    // Close on overlay background click
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) closeShareModal();
+    });
+
+    // Close on Escape
+    overlay.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeShareModal();
+    });
+
+    overlay.querySelector('#modalCloseBtn').addEventListener('click', closeShareModal);
+
+    var clipboardSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    var checkSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+    overlay.querySelector('#modalCopyBtn').addEventListener('click', function() {
       navigator.clipboard.writeText(hostedURL).catch(function() {});
-      this.textContent = '\u2713 Copied';
+      this.innerHTML = checkSvg;
       var copyBtn = this;
-      setTimeout(function() { copyBtn.textContent = 'Copy link'; }, 2000);
+      setTimeout(function() { copyBtn.innerHTML = clipboardSvg; }, 2000);
     });
 
     if (deleteToken) {
-      el.querySelector('#popoverUnpublishBtn').addEventListener('click', showUnpublishConfirm);
-    }
-
-    // Close on click outside or Escape
-    setTimeout(function() {
-      document.addEventListener('click', handlePopoverOutsideClick);
-      document.addEventListener('keydown', handlePopoverEscape);
-    }, 0);
-  }
-
-  function handlePopoverOutsideClick(e) {
-    if (sharePopoverEl && !sharePopoverEl.contains(e.target) && e.target.id !== 'shareBtn') {
-      closeSharePopover();
-    }
-  }
-
-  function handlePopoverEscape(e) {
-    if (e.key === 'Escape' && sharePopoverEl) {
-      closeSharePopover();
+      overlay.querySelector('#modalUnpublishBtn').addEventListener('click', showUnpublishConfirm);
     }
   }
 
   function showUnpublishConfirm() {
-    if (!sharePopoverEl) return;
-    sharePopoverEl.innerHTML =
-      '<div class="share-popover-confirm">' +
+    if (!shareModalEl) return;
+    var dialog = shareModalEl.querySelector('.share-dialog');
+    dialog.innerHTML =
+      '<h3>Unpublish</h3>' +
+      '<div class="share-dialog-confirm">' +
         '<p>Unpublish this review?</p>' +
         '<p class="confirm-detail">The shared link will stop working. Comments added by viewers will be lost.</p>' +
         '<div class="confirm-actions">' +
@@ -3911,8 +3912,8 @@
           '<button class="btn btn-sm" id="cancelUnpublishBtn">Cancel</button>' +
         '</div>' +
       '</div>';
-    sharePopoverEl.querySelector('#confirmUnpublishBtn').addEventListener('click', handleUnpublish);
-    sharePopoverEl.querySelector('#cancelUnpublishBtn').addEventListener('click', showSharePopover);
+    dialog.querySelector('#confirmUnpublishBtn').addEventListener('click', handleUnpublish);
+    dialog.querySelector('#cancelUnpublishBtn').addEventListener('click', showShareModal);
   }
 
   async function handleUnpublish() {
@@ -3929,15 +3930,10 @@
       hostedURL = '';
       deleteToken = '';
       fetch('/api/share-url', { method: 'DELETE' }).catch(function() {});
-      closeSharePopover();
+      closeShareModal();
       setShareButtonState('default');
-      var message = alreadyDeleted ? 'Already deleted.' : 'Review unpublished.';
-      showToast('share', 'success',
-        '<span>' + message + '</span>' +
-        '<div class="toast-actions"><button class="toast-btn toast-btn-ghost" onclick="dismissToast(\'share\')">Dismiss</button></div>',
-        { autoDismiss: true });
     } catch (err) {
-      closeSharePopover();
+      closeShareModal();
       var el = showToast('share', 'error',
         '<span>Unpublish failed: ' + escapeHtml(err.message) + '</span>' +
         '<div class="toast-actions">' +
@@ -3952,12 +3948,12 @@
   }
 
   document.getElementById('shareBtn').addEventListener('click', async function() {
-    // If already shared, toggle popover
+    // If already shared, toggle modal
     if (hostedURL) {
-      if (sharePopoverEl) {
-        closeSharePopover();
+      if (shareModalEl) {
+        closeShareModal();
       } else {
-        showSharePopover();
+        showShareModal();
       }
       return;
     }
@@ -4006,7 +4002,7 @@
       setShareButtonState('shared');
 
       // Auto-open popover as success confirmation
-      showSharePopover();
+      showShareModal();
 
       // Persist to server
       fetch('/api/share-url', {

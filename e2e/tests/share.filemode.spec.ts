@@ -30,7 +30,7 @@ test.describe('Share — File Mode', () => {
   test('no share popover on initial load', async ({ page }) => {
     await loadPage(page);
 
-    const popover = page.locator('.share-popover');
-    await expect(popover).toHaveCount(0);
+    const modal = page.locator('.share-overlay');
+    await expect(modal).toHaveCount(0);
   });
 });
