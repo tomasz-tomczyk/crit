@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1004,6 +1005,79 @@ func TestHandleFinishEmitsSSEEvent(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no finish event received")
+	}
+}
+
+func TestWaitForEventReturnsOnFinish(t *testing.T) {
+	srv, session := newTestServer(t)
+	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "")
+
+	var resp *httptest.ResponseRecorder
+	done := make(chan struct{})
+	go func() {
+		req := httptest.NewRequest(http.MethodGet, "/api/wait-for-event", nil)
+		resp = httptest.NewRecorder()
+		srv.ServeHTTP(resp, req)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	finishReq := httptest.NewRequest(http.MethodPost, "/api/finish", nil)
+	finishW := httptest.NewRecorder()
+	srv.ServeHTTP(finishW, finishReq)
+
+	select {
+	case <-done:
+		if resp.Code != 200 {
+			t.Fatalf("expected 200, got %d", resp.Code)
+		}
+		var event map[string]string
+		json.NewDecoder(resp.Body).Decode(&event)
+		if event["type"] != "finish" {
+			t.Errorf("expected finish event, got %s", event["type"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("long-poll did not return after finish")
+	}
+}
+
+func TestWaitForEventIgnoresOtherEvents(t *testing.T) {
+	srv, session := newTestServer(t)
+	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "")
+
+	done := make(chan struct{})
+	go func() {
+		req := httptest.NewRequest(http.MethodGet, "/api/wait-for-event", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	session.Broadcast(SSEEvent{Type: "comments-changed"})
+
+	select {
+	case <-done:
+		t.Fatal("long-poll should not return on comments-changed event")
+	case <-time.After(200 * time.Millisecond):
+		// Good — still blocking
+	}
+}
+
+func TestWaitForEventRespectsCancel(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/wait-for-event", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusGatewayTimeout {
+		t.Errorf("expected 504, got %d", w.Code)
 	}
 }
 
