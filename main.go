@@ -436,8 +436,13 @@ func main() {
 	if !*noOpen && cfg.NoOpen {
 		*noOpen = true
 	}
-	if *shareURL == "" && cfg.ShareURL != "" {
-		*shareURL = cfg.ShareURL
+	// Share URL precedence: CLI flag > env var > config > runtime default
+	if *shareURL == "" {
+		if envShare, ok := os.LookupEnv("CRIT_SHARE_URL"); ok {
+			*shareURL = envShare
+		} else if cfg.ShareURL != "" {
+			*shareURL = cfg.ShareURL
+		}
 	}
 	if !*quiet && cfg.Quiet {
 		*quiet = true
@@ -487,10 +492,6 @@ func main() {
 		log.Fatalf("Error starting server: %v", err)
 	}
 	addr := listener.Addr().(*net.TCPAddr)
-
-	if *shareURL == "" {
-		*shareURL = os.Getenv("CRIT_SHARE_URL")
-	}
 
 	srv, err := NewServer(session, frontendFS, *shareURL, cfg.Author, version, addr.Port)
 	if err != nil {
