@@ -258,8 +258,14 @@
     deleteToken = configRes.delete_token || '';
     configAuthor = configRes.author || '';
 
-    if (shareURL && session.mode !== 'git') document.getElementById('shareBtn').style.display = '';
-    if (hostedURL) showSharedNotice(hostedURL);
+    if (shareURL && session.mode !== 'git') {
+      var shareBtn = document.getElementById('shareBtn');
+      shareBtn.style.display = '';
+      if (hostedURL) {
+        shareBtn.textContent = 'Shared \u2713';
+        shareBtn.classList.add('btn-success');
+      }
+    }
 
     // Version check
     if (configRes.latest_version && configRes.version && configRes.latest_version !== configRes.version) {
@@ -3819,53 +3825,126 @@
   }
 
   // ===== Share =====
-  function showSharedNotice(url) {
-    const unpublishBtn = deleteToken
-      ? '<button class="toast-btn toast-btn-danger" id="shareUnpublishBtn">Unpublish</button>'
-      : '';
-    const el = showToast('share', 'success', '' +
-      '<span>Shared! <span class="toast-url">' + escapeHtml(url) + '</span></span>' +
-      '<div class="toast-actions">' +
-        '<button class="toast-btn toast-btn-filled" id="shareCopyBtn">Copy link</button>' +
-        unpublishBtn +
-        '<button class="toast-btn toast-btn-ghost" onclick="dismissToast(\'share\')">Dismiss</button>' +
-      '</div>');
-    el.querySelector('#shareCopyBtn').addEventListener('click', async function() {
-      await navigator.clipboard.writeText(url).catch(() => {});
-      this.textContent = '\u2713 Copied';
-      setTimeout(() => { this.textContent = 'Copy link'; }, 2000);
-    });
-    if (deleteToken) {
-      el.querySelector('#shareUnpublishBtn').addEventListener('click', handleUnpublish);
+  var sharePopoverEl = null;
+
+  function setShareButtonState(state) {
+    var btn = document.getElementById('shareBtn');
+    if (state === 'shared') {
+      btn.textContent = 'Shared \u2713';
+      btn.classList.add('btn-success');
+      btn.disabled = false;
+    } else if (state === 'sharing') {
+      btn.textContent = 'Sharing\u2026';
+      btn.classList.remove('btn-success');
+      btn.disabled = true;
+    } else {
+      btn.textContent = 'Share';
+      btn.classList.remove('btn-success');
+      btn.disabled = false;
     }
   }
 
+  function closeSharePopover() {
+    if (sharePopoverEl) {
+      sharePopoverEl.remove();
+      sharePopoverEl = null;
+      document.removeEventListener('click', handlePopoverOutsideClick);
+      document.removeEventListener('keydown', handlePopoverEscape);
+    }
+  }
+
+  function showSharePopover() {
+    closeSharePopover();
+    var btn = document.getElementById('shareBtn');
+
+    var el = document.createElement('div');
+    el.className = 'share-popover';
+    el.innerHTML =
+      '<div class="share-popover-qr">QR code placeholder</div>' +
+      '<div class="share-popover-url">' + escapeHtml(hostedURL) + '</div>' +
+      '<div class="share-popover-actions">' +
+        '<button class="btn btn-sm btn-success" id="popoverCopyBtn">Copy link</button>' +
+        (deleteToken ? '<button class="btn btn-sm btn-danger" id="popoverUnpublishBtn">Unpublish</button>' : '') +
+      '</div>';
+
+    btn.insertAdjacentElement('afterend', el);
+    sharePopoverEl = el;
+
+    el.querySelector('#popoverCopyBtn').addEventListener('click', function() {
+      navigator.clipboard.writeText(hostedURL).catch(function() {});
+      this.textContent = '\u2713 Copied';
+      var copyBtn = this;
+      setTimeout(function() { copyBtn.textContent = 'Copy link'; }, 2000);
+    });
+
+    if (deleteToken) {
+      el.querySelector('#popoverUnpublishBtn').addEventListener('click', showUnpublishConfirm);
+    }
+
+    // Close on click outside or Escape
+    setTimeout(function() {
+      document.addEventListener('click', handlePopoverOutsideClick);
+      document.addEventListener('keydown', handlePopoverEscape);
+    }, 0);
+  }
+
+  function handlePopoverOutsideClick(e) {
+    if (sharePopoverEl && !sharePopoverEl.contains(e.target) && e.target.id !== 'shareBtn') {
+      closeSharePopover();
+    }
+  }
+
+  function handlePopoverEscape(e) {
+    if (e.key === 'Escape' && sharePopoverEl) {
+      closeSharePopover();
+    }
+  }
+
+  function showUnpublishConfirm() {
+    if (!sharePopoverEl) return;
+    sharePopoverEl.innerHTML =
+      '<div class="share-popover-confirm">' +
+        '<p>Unpublish this review?</p>' +
+        '<p class="confirm-detail">The shared link will stop working. Comments added by viewers will be lost.</p>' +
+        '<div class="confirm-actions">' +
+          '<button class="btn btn-sm btn-danger" id="confirmUnpublishBtn">Unpublish</button>' +
+          '<button class="btn btn-sm" id="cancelUnpublishBtn">Cancel</button>' +
+        '</div>' +
+      '</div>';
+    sharePopoverEl.querySelector('#confirmUnpublishBtn').addEventListener('click', handleUnpublish);
+    sharePopoverEl.querySelector('#cancelUnpublishBtn').addEventListener('click', showSharePopover);
+  }
+
   async function handleUnpublish() {
-    const btn = document.getElementById('shareUnpublishBtn');
+    var btn = document.getElementById('confirmUnpublishBtn');
     if (btn) { btn.textContent = 'Unpublishing\u2026'; btn.disabled = true; }
     try {
-      const resp = await fetch(shareURL + '/api/reviews', {
+      var resp = await fetch(shareURL + '/api/reviews', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ delete_token: deleteToken }),
       });
-      const alreadyDeleted = resp.status === 404;
+      var alreadyDeleted = resp.status === 404;
       if (!alreadyDeleted && !resp.ok) throw new Error('Server error ' + resp.status);
       hostedURL = '';
       deleteToken = '';
-      fetch('/api/share-url', { method: 'DELETE' }).catch(() => {});
-      const message = alreadyDeleted ? 'Already deleted.' : 'Review unpublished.';
+      fetch('/api/share-url', { method: 'DELETE' }).catch(function() {});
+      closeSharePopover();
+      setShareButtonState('default');
+      var message = alreadyDeleted ? 'Already deleted.' : 'Review unpublished.';
       showToast('share', 'success',
         '<span>' + message + '</span>' +
-        '<div class="toast-actions"><button class="toast-btn toast-btn-ghost" onclick="dismissToast(\'share\')">Dismiss</button></div>');
+        '<div class="toast-actions"><button class="toast-btn toast-btn-ghost" onclick="dismissToast(\'share\')">Dismiss</button></div>',
+        { autoDismiss: true });
     } catch (err) {
-      const el = showToast('share', 'error',
+      closeSharePopover();
+      var el = showToast('share', 'error',
         '<span>Unpublish failed: ' + escapeHtml(err.message) + '</span>' +
         '<div class="toast-actions">' +
           '<button class="toast-btn toast-btn-filled" id="shareUnpublishRetryBtn">Retry</button>' +
           '<button class="toast-btn toast-btn-ghost" onclick="dismissToast(\'share\')">Dismiss</button>' +
         '</div>');
-      el.querySelector('#shareUnpublishRetryBtn').addEventListener('click', () => {
+      el.querySelector('#shareUnpublishRetryBtn').addEventListener('click', function() {
         dismissToast('share');
         handleUnpublish();
       });
@@ -3873,14 +3952,21 @@
   }
 
   document.getElementById('shareBtn').addEventListener('click', async function() {
-    if (hostedURL) { showSharedNotice(hostedURL); return; }
-    const btn = this;
-    btn.textContent = 'Sharing\u2026';
-    btn.disabled = true;
+    // If already shared, toggle popover
+    if (hostedURL) {
+      if (sharePopoverEl) {
+        closeSharePopover();
+      } else {
+        showSharePopover();
+      }
+      return;
+    }
+
+    setShareButtonState('sharing');
     dismissToast('share');
 
-    // Build payload — multi-file sends individual files, single-file sends content for backward compat
-    const payload = files.length === 1
+    // Build payload
+    var payload = files.length === 1
       ? {
           content: files[0].content,
           filename: files[0].path,
@@ -3888,14 +3974,16 @@
           comments: [],
         }
       : {
-          files: files.map(f => ({ path: f.path, content: f.content })),
+          files: files.map(function(f) { return { path: f.path, content: f.content }; }),
           review_round: session.review_round || 1,
           comments: [],
         };
 
-    for (const f of files) {
-      for (const c of f.comments) {
-        const shared = { file: f.path, start_line: c.start_line, end_line: c.end_line, body: c.body };
+    for (var fi = 0; fi < files.length; fi++) {
+      var f = files[fi];
+      for (var ci = 0; ci < f.comments.length; ci++) {
+        var c = f.comments[ci];
+        var shared = { file: f.path, start_line: c.start_line, end_line: c.end_line, body: c.body };
         if (c.author) shared.author_display_name = c.author;
         if (c.review_round >= 1) shared.review_round = c.review_round;
         payload.comments.push(shared);
@@ -3903,56 +3991,62 @@
     }
 
     try {
-      const resp = await fetch(shareURL + '/api/reviews', {
+      var resp = await fetch(shareURL + '/api/reviews', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || 'Server error ' + resp.status);
+        var errBody = await resp.json().catch(function() { return {}; });
+        throw new Error(errBody.error || 'Server error ' + resp.status);
       }
-      const { url, delete_token } = await resp.json();
-      hostedURL = url;
-      deleteToken = delete_token || '';
-      showSharedNotice(url);
+      var result = await resp.json();
+      hostedURL = result.url;
+      deleteToken = result.delete_token || '';
+      setShareButtonState('shared');
+
+      // Auto-open popover as success confirmation
+      showSharePopover();
+
+      // Persist to server
       fetch('/api/share-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, delete_token: deleteToken }),
-      }).catch(() => {});
+        body: JSON.stringify({ url: hostedURL, delete_token: deleteToken }),
+      }).catch(function() {});
     } catch (err) {
-      const el = showToast('share', 'error',
+      setShareButtonState('default');
+      var el = showToast('share', 'error',
         '<span>Share failed: ' + escapeHtml(err.message) + '</span>' +
         '<div class="toast-actions">' +
           '<button class="toast-btn toast-btn-filled" id="shareRetryBtn">Retry</button>' +
           '<button class="toast-btn toast-btn-ghost" onclick="dismissToast(\'share\')">Dismiss</button>' +
         '</div>');
-      el.querySelector('#shareRetryBtn').addEventListener('click', () => {
+      el.querySelector('#shareRetryBtn').addEventListener('click', function() {
         dismissToast('share');
         document.getElementById('shareBtn').click();
       });
-    } finally {
-      btn.textContent = 'Share';
-      btn.disabled = false;
     }
   });
 
   // ===== Toast System =====
-  function showToast(id, type, content) {
+  function showToast(id, type, content, opts) {
     dismissToast(id);
-    const container = document.getElementById('toastContainer');
-    const el = document.createElement('div');
+    var container = document.getElementById('toastContainer');
+    var el = document.createElement('div');
     el.className = 'toast toast-' + type;
     el.id = 'toast-' + id;
     el.innerHTML = content;
     container.appendChild(el);
+    if (opts && opts.autoDismiss) {
+      setTimeout(function() { dismissToast(id); }, 4000);
+    }
     return el;
   }
 
   // Global for onclick handlers in toast HTML
   window.dismissToast = function(id) {
-    const el = document.getElementById('toast-' + id);
+    var el = document.getElementById('toast-' + id);
     if (el) el.remove();
   };
 
