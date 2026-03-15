@@ -45,6 +45,27 @@ test.describe('CLI comment sync — live browser update', () => {
     await expect(section.locator('.comment-body')).toContainText('Hello from CLI', { timeout: 5000 });
   });
 
+  test('crit comment updates header badge count via SSE', async ({ page }) => {
+    const { critBin, fixtureDir } = readFixtureState();
+    const section = mdSection(page);
+    const countEl = page.locator('#commentCount');
+    const badgeEl = page.locator('#commentCountNumber');
+
+    // Wait for document to be stable, badge should be hidden
+    await expect(section.locator('.line-block').first()).toBeVisible();
+    await expect(countEl).toBeHidden();
+
+    // Add a comment via CLI
+    execSync(
+      `"${critBin}" comment --output "${fixtureDir}" plan.md:1 "Badge update test"`,
+      { shell: true, timeout: 5000 }
+    );
+
+    // Header badge should appear with count 1
+    await expect(countEl).toBeVisible({ timeout: 5000 });
+    await expect(badgeEl).toHaveText('1');
+  });
+
   test('crit comment --clear removes all comments in the browser via SSE', async ({ page, request }) => {
     const { critBin, fixtureDir } = readFixtureState();
     const section = mdSection(page);
