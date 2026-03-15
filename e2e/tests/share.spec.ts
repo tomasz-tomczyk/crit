@@ -2,20 +2,20 @@ import { test, expect } from '@playwright/test';
 import { loadPage } from './helpers';
 
 // ============================================================
-// Share Feature — Git Mode (share button hidden)
+// Share Feature — Git Mode (share button visible with default share_url)
 // ============================================================
 test.describe('Share — Git Mode', () => {
-  test('share button is hidden in git mode', async ({ page }) => {
+  test('share button is visible with default share_url', async ({ page }) => {
     await loadPage(page);
 
     const shareBtn = page.locator('#shareBtn');
-    await expect(shareBtn).toBeHidden();
+    await expect(shareBtn).toBeVisible();
   });
 
-  test('config API returns empty share_url by default', async ({ request }) => {
+  test('config API returns default share_url', async ({ request }) => {
     const res = await request.get('/api/config');
     const config = await res.json();
-    expect(config.share_url).toBe('');
+    expect(config.share_url).toBe('https://crit.live');
   });
 
   test('config API returns empty hosted_url initially', async ({ request }) => {
