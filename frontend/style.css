@@ -1059,6 +1059,15 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .resolved-comment .resolved-body > :first-child { margin-top: 0; }
 .resolved-comment .resolved-body > :last-child { margin-bottom: 0; }
+.resolved-body a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent-subtle);
+}
+.resolved-body a:hover {
+  color: var(--accent-hover);
+  border-bottom-color: var(--accent-hover);
+}
 .resolved-comment .resolved-note {
   font-style: italic;
   color: var(--fg-muted);
