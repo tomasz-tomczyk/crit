@@ -3857,6 +3857,7 @@
     overlay.innerHTML =
       '<div class="share-dialog">' +
         '<h3><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.25 5.5l-5.5 5.5-3.5-3.5"/></svg>Review shared</h3>' +
+        '<div class="share-dialog-qr" id="modalQR"></div>' +
         '<div class="share-dialog-url">' +
           '<span>' + escapeHtml(hostedURL) + '</span>' +
           '<button class="copy-icon-btn" id="modalCopyBtn" title="Copy link">' +
@@ -3871,6 +3872,15 @@
 
     document.body.appendChild(overlay);
     shareModalEl = overlay;
+
+    // Fetch QR code
+    fetch('/api/qr?url=' + encodeURIComponent(hostedURL))
+      .then(function(r) { return r.text(); })
+      .then(function(svg) {
+        var qrEl = document.getElementById('modalQR');
+        if (qrEl) qrEl.innerHTML = svg;
+      })
+      .catch(function() {});
 
     // Close on overlay background click
     overlay.addEventListener('click', function(e) {

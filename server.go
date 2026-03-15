@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"rsc.io/qr"
 )
 
 type Server struct {
@@ -45,6 +47,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, author st
 	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
 
 	mux.HandleFunc("/api/comments", s.handleClearComments)
+	mux.HandleFunc("/api/qr", s.handleQR)
 
 	// File-scoped endpoints (use ?path= query param)
 	mux.HandleFunc("/api/file", s.handleFile)
@@ -435,6 +438,42 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.ServeFile(w, r, cleanPath)
+}
+
+func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	url := r.URL.Query().Get("url")
+	if url == "" {
+		http.Error(w, "Missing url parameter", http.StatusBadRequest)
+		return
+	}
+	code, err := qr.Encode(url, qr.L)
+	if err != nil {
+		http.Error(w, "QR generation failed", http.StatusInternalServerError)
+		return
+	}
+
+	size := code.Size
+	scale := 4
+	imgSize := size * scale
+	padding := 16
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d">`, imgSize+padding*2, imgSize+padding*2))
+	for y := 0; y < size; y++ {
+		for x := 0; x < size; x++ {
+			if code.Black(x, y) {
+				b.WriteString(fmt.Sprintf(`<rect x="%d" y="%d" width="%d" height="%d"/>`, x*scale+padding, y*scale+padding, scale, scale))
+			}
+		}
+	}
+	b.WriteString(`</svg>`)
+
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Write([]byte(b.String()))
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
