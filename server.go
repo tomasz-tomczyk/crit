@@ -332,6 +332,11 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		"prompt":      prompt,
 	})
 
+	s.session.Broadcast(SSEEvent{
+		Type:    "finish",
+		Content: prompt,
+	})
+
 	if s.status != nil {
 		round := s.session.GetReviewRound()
 		s.status.RoundFinished(round, newComments, unresolvedComments > 0)

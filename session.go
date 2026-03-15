@@ -951,6 +951,11 @@ func (s *Session) notify(event SSEEvent) {
 	}
 }
 
+// Broadcast sends an event to all SSE subscribers.
+func (s *Session) Broadcast(event SSEEvent) {
+	s.notify(event)
+}
+
 // Shutdown sends a server-shutdown event to all SSE subscribers.
 func (s *Session) Shutdown() {
 	s.notify(SSEEvent{Type: "server-shutdown"})

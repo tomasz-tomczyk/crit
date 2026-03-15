@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newTestServer(t *testing.T) (*Server, *Session) {
@@ -978,6 +979,31 @@ func TestGetFile_NotInSession_PathTraversal(t *testing.T) {
 		if w.Code != 404 {
 			t.Errorf("path %q: status = %d, want 404", path, w.Code)
 		}
+	}
+}
+
+func TestHandleFinishEmitsSSEEvent(t *testing.T) {
+	srv, session := newTestServer(t)
+	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "")
+
+	// Subscribe before triggering finish
+	ch := session.Subscribe()
+	defer session.Unsubscribe(ch)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/finish", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	select {
+	case event := <-ch:
+		if event.Type != "finish" {
+			t.Errorf("expected finish event, got %s", event.Type)
+		}
+		if event.Content == "" {
+			t.Error("expected non-empty prompt in finish event")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no finish event received")
 	}
 }
 
