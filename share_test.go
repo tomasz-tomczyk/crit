@@ -199,11 +199,13 @@ func TestLoadCommentsForFiles(t *testing.T) {
 				Comments: []Comment{
 					{ID: "c1", StartLine: 1, EndLine: 3, Body: "Fix this", Author: "Alice"},
 					{ID: "c2", StartLine: 5, EndLine: 5, Body: "Good", Author: "Bob", ReviewRound: 2},
+					{ID: "c3", StartLine: 7, EndLine: 7, Body: "Resolved one", Author: "Alice", Resolved: true},
 				},
 			},
 			"other.go": {
 				Comments: []Comment{
-					{ID: "c3", StartLine: 10, EndLine: 15, Body: "Refactor", Author: "Alice"},
+					{ID: "c4", StartLine: 10, EndLine: 15, Body: "Refactor", Author: "Alice"},
+					{ID: "c5", StartLine: 20, EndLine: 20, Body: "Done", Author: "Bob", Resolved: true},
 				},
 			},
 		},
@@ -211,22 +213,22 @@ func TestLoadCommentsForFiles(t *testing.T) {
 	data, _ := json.MarshalIndent(critJSON, "", "  ")
 	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
 
-	// Only load comments for plan.md
+	// Only load unresolved comments for plan.md (c1 and c2, not c3)
 	comments, round := loadCommentsForShare(dir, []string{"plan.md"})
 	if round != 2 {
 		t.Errorf("expected round 2, got %d", round)
 	}
 	if len(comments) != 2 {
-		t.Fatalf("expected 2 comments, got %d", len(comments))
+		t.Fatalf("expected 2 unresolved comments, got %d", len(comments))
 	}
 	if comments[0].File != "plan.md" {
 		t.Errorf("expected file plan.md, got %s", comments[0].File)
 	}
 
-	// Load for both files
+	// Load for both files — 3 unresolved (c1, c2, c4), not 5 total
 	comments, _ = loadCommentsForShare(dir, []string{"plan.md", "other.go"})
 	if len(comments) != 3 {
-		t.Fatalf("expected 3 comments, got %d", len(comments))
+		t.Fatalf("expected 3 unresolved comments, got %d", len(comments))
 	}
 
 	// Load for nonexistent file
@@ -334,6 +336,178 @@ func TestClearShareState(t *testing.T) {
 	// Comments should still be there
 	if len(cleared.Files["plan.md"].Comments) != 1 {
 		t.Errorf("expected comments preserved after clearing share state")
+	}
+}
+
+func TestBuildShareFromSession(t *testing.T) {
+	s := &Session{
+		ReviewRound: 3,
+		Files: []*FileEntry{
+			{
+				Path:    "plan.md",
+				Content: "# Plan",
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "Open comment", Author: "Alice"},
+					{ID: "c2", StartLine: 2, EndLine: 2, Body: "Resolved comment", Author: "Bob", Resolved: true},
+					{ID: "c3", StartLine: 3, EndLine: 3, Body: "Another open", Author: "Alice", ReviewRound: 2},
+				},
+			},
+			{
+				Path:    "src/main.go",
+				Content: "package main",
+				Comments: []Comment{
+					{ID: "c4", StartLine: 10, EndLine: 15, Body: "All resolved", Resolved: true},
+				},
+			},
+		},
+	}
+
+	files, comments, round := buildShareFromSession(s)
+	if round != 3 {
+		t.Errorf("expected round 3, got %d", round)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+	if files[0].Path != "plan.md" || files[0].Content != "# Plan" {
+		t.Errorf("unexpected first file: %+v", files[0])
+	}
+	// Only unresolved comments: c1 and c3
+	if len(comments) != 2 {
+		t.Fatalf("expected 2 unresolved comments, got %d", len(comments))
+	}
+	if comments[0].Body != "Open comment" {
+		t.Errorf("expected first comment body 'Open comment', got %s", comments[0].Body)
+	}
+	if comments[1].ReviewRound != 2 {
+		t.Errorf("expected review_round 2 on second comment, got %d", comments[1].ReviewRound)
+	}
+}
+
+func TestBuildShareFromSession_NoComments(t *testing.T) {
+	s := &Session{
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{Path: "readme.md", Content: "# Hello"},
+		},
+	}
+
+	files, comments, round := buildShareFromSession(s)
+	if round != 1 {
+		t.Errorf("expected round 1, got %d", round)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	if len(comments) != 0 {
+		t.Errorf("expected 0 comments, got %d", len(comments))
+	}
+}
+
+func TestHandleShare_Success(t *testing.T) {
+	// Mock crit-web server
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		json.NewDecoder(r.Body).Decode(&payload)
+
+		// Verify only unresolved comments are sent
+		comments := payload["comments"].([]any)
+		if len(comments) != 1 {
+			t.Errorf("expected 1 unresolved comment in payload, got %d", len(comments))
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"url":          "https://crit.live/r/test123",
+			"delete_token": "tok_test",
+		})
+	}))
+	defer critWeb.Close()
+
+	sess := &Session{
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{
+				Path:    "plan.md",
+				Content: "# Plan",
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix this"},
+					{ID: "c2", StartLine: 2, EndLine: 2, Body: "Done", Resolved: true},
+				},
+			},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	srv := &Server{session: sess, shareURL: critWeb.URL}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
+	w := httptest.NewRecorder()
+	srv.handleShare(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result map[string]any
+	json.NewDecoder(w.Body).Decode(&result)
+	if result["url"] != "https://crit.live/r/test123" {
+		t.Errorf("expected url, got %v", result["url"])
+	}
+	if result["delete_token"] != "tok_test" {
+		t.Errorf("expected delete_token, got %v", result["delete_token"])
+	}
+}
+
+func TestHandleShare_ShareServiceError(t *testing.T) {
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "internal error"})
+	}))
+	defer critWeb.Close()
+
+	sess := &Session{
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{Path: "plan.md", Content: "# Plan"},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	srv := &Server{session: sess, shareURL: critWeb.URL}
+	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
+	w := httptest.NewRecorder()
+	srv.handleShare(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", w.Code)
+	}
+	var result map[string]string
+	json.NewDecoder(w.Body).Decode(&result)
+	if result["error"] == "" {
+		t.Error("expected error message in response")
+	}
+}
+
+func TestHandleShare_NoShareURL(t *testing.T) {
+	srv := &Server{session: &Session{}, shareURL: ""}
+	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
+	w := httptest.NewRecorder()
+	srv.handleShare(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleShare_WrongMethod(t *testing.T) {
+	srv := &Server{session: &Session{}, shareURL: "https://crit.live"}
+	req := httptest.NewRequest(http.MethodGet, "/api/share", nil)
+	w := httptest.NewRecorder()
+	srv.handleShare(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", w.Code)
 	}
 }
 

@@ -40,6 +40,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, author st
 	// Session-scoped endpoints
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/session", s.handleSession)
+	mux.HandleFunc("/api/share", s.handleShare)
 	mux.HandleFunc("/api/share-url", s.handleShareURL)
 	mux.HandleFunc("/api/finish", s.handleFinish)
 	mux.HandleFunc("/api/events", s.handleEvents)
@@ -143,6 +144,36 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleShare uploads the current session to crit-web and returns the share URL.
+// POST /api/share
+func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.shareURL == "" {
+		http.Error(w, "share_url not configured", http.StatusBadRequest)
+		return
+	}
+
+	files, comments, reviewRound := buildShareFromSession(s.session)
+	if len(files) == 0 {
+		http.Error(w, "no files in session", http.StatusBadRequest)
+		return
+	}
+
+	url, deleteToken, err := shareFilesToWeb(files, comments, s.shareURL, reviewRound)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	s.session.SetSharedURLAndToken(url, deleteToken)
+	writeJSON(w, map[string]any{"url": url, "delete_token": deleteToken})
 }
 
 // handleFile returns file content + metadata for a single file.
