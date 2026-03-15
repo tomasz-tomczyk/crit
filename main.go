@@ -19,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	qrterminal "github.com/mdp/qrterminal/v3"
 )
 
 //go:embed frontend/*
@@ -83,6 +85,168 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
 			os.Exit(1)
 		}
+		os.Exit(0)
+	}
+
+	// Handle "crit share [--output <dir>] [--share-url <url>] [--qr] <file> [file...]" subcommand
+	if len(os.Args) >= 2 && os.Args[1] == "share" {
+		shareOutputDir := ""
+		shareSvcURL := ""
+		showQR := false
+		var shareArgs []string
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			switch {
+			case arg == "--output" || arg == "-o":
+				if i+1 >= len(os.Args) {
+					fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
+					os.Exit(1)
+				}
+				i++
+				shareOutputDir = os.Args[i]
+			case arg == "--share-url":
+				if i+1 >= len(os.Args) {
+					fmt.Fprintf(os.Stderr, "Error: --share-url requires a value\n")
+					os.Exit(1)
+				}
+				i++
+				shareSvcURL = os.Args[i]
+			case arg == "--qr":
+				showQR = true
+			default:
+				shareArgs = append(shareArgs, arg)
+			}
+		}
+
+		if len(shareArgs) == 0 {
+			fmt.Fprintln(os.Stderr, "Usage: crit share [--output <dir>] [--share-url <url>] [--qr] <file> [file...]")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "Shares files to crit-web and prints the review URL.")
+			fmt.Fprintln(os.Stderr, "Comments from .crit.json are included automatically.")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "Examples:")
+			fmt.Fprintln(os.Stderr, "  crit share plan.md")
+			fmt.Fprintln(os.Stderr, "  crit share plan.md src/main.go")
+			fmt.Fprintln(os.Stderr, "  crit share --qr plan.md")
+			os.Exit(1)
+		}
+
+		shareSvcURL = resolveShareURL(shareSvcURL)
+
+		var files []shareFile
+		for _, path := range shareArgs {
+			content, err := os.ReadFile(path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", path, err)
+				os.Exit(1)
+			}
+			relPath := path
+			if filepath.IsAbs(path) {
+				if wd, err := os.Getwd(); err == nil {
+					if rel, err := filepath.Rel(wd, path); err == nil {
+						relPath = rel
+					}
+				}
+			}
+			files = append(files, shareFile{Path: relPath, Content: string(content)})
+		}
+
+		critDir, err := resolveCritDir(shareOutputDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		filePaths := make([]string, len(files))
+		for i, f := range files {
+			filePaths[i] = f.Path
+		}
+		comments, reviewRound := loadCommentsForShare(critDir, filePaths)
+
+		url, deleteToken, err := shareFilesToWeb(files, comments, shareSvcURL, reviewRound)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := persistShareState(critDir, url, deleteToken); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not save share state to .crit.json: %v\n", err)
+		}
+
+		fmt.Println(url)
+		if showQR {
+			fmt.Println()
+			qrterminal.GenerateWithConfig(url, qrterminal.Config{
+				Level:     qrterminal.L,
+				Writer:    os.Stdout,
+				BlackChar: qrterminal.BLACK,
+				WhiteChar: qrterminal.WHITE,
+				QuietZone: 1,
+			})
+		}
+
+		os.Exit(0)
+	}
+
+	// Handle "crit unpublish [--output <dir>] [--share-url <url>]" subcommand
+	if len(os.Args) >= 2 && os.Args[1] == "unpublish" {
+		unpubOutputDir := ""
+		unpubSvcURL := ""
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			switch {
+			case arg == "--output" || arg == "-o":
+				if i+1 >= len(os.Args) {
+					fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
+					os.Exit(1)
+				}
+				i++
+				unpubOutputDir = os.Args[i]
+			case arg == "--share-url":
+				if i+1 >= len(os.Args) {
+					fmt.Fprintf(os.Stderr, "Error: --share-url requires a value\n")
+					os.Exit(1)
+				}
+				i++
+				unpubSvcURL = os.Args[i]
+			default:
+				fmt.Fprintf(os.Stderr, "Usage: crit unpublish [--output <dir>] [--share-url <url>]\n")
+				os.Exit(1)
+			}
+		}
+
+		unpubSvcURL = resolveShareURL(unpubSvcURL)
+
+		critDir, err := resolveCritDir(unpubOutputDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		critPath := filepath.Join(critDir, ".crit.json")
+		data, err := os.ReadFile(critPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: no .crit.json found. Nothing to unpublish.")
+			os.Exit(1)
+		}
+		var cj CritJSON
+		if err := json.Unmarshal(data, &cj); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid .crit.json: %v\n", err)
+			os.Exit(1)
+		}
+		if cj.DeleteToken == "" {
+			fmt.Fprintln(os.Stderr, "No shared review found in .crit.json — nothing to unpublish.")
+			os.Exit(0)
+		}
+
+		if err := unpublishFromWeb(unpubSvcURL, cj.DeleteToken); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := clearShareState(critDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not clear share state from .crit.json: %v\n", err)
+		}
+
+		fmt.Println("Review unpublished.")
 		os.Exit(0)
 	}
 
@@ -581,6 +745,8 @@ Usage:
   crit listen [port]                         Block until review finishes on a running crit instance
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
   crit comment --clear                       Remove all comments from .crit.json
+  crit share <file> [file...]                Share files to crit-web and print the URL
+  crit unpublish                             Remove a shared review from crit-web
   crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments to .crit.json
   crit push [--dry-run] [--message <msg>] [--output <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
   crit install <agent>                       Install integration files for an AI coding tool
@@ -597,6 +763,7 @@ Options:
       --no-ignore             Disable all file ignore patterns
   -q, --quiet                 Suppress status output
       --share-url <url>       Share service URL (e.g. https://crit.live)
+      --qr                    Print QR code of share URL (with crit share)
   -v, --version               Print version
 
 Environment:
