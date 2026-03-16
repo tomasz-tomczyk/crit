@@ -50,6 +50,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, author st
 	mux.HandleFunc("/api/commits", s.handleCommits)
 	mux.HandleFunc("/api/comments", s.handleClearComments)
 	mux.HandleFunc("/api/qr", s.handleQR)
+	mux.HandleFunc("/api/files/list", s.handleFilesList)
 
 	// File-scoped endpoints (use ?path= query param)
 	mux.HandleFunc("/api/file", s.handleFile)
@@ -534,6 +535,31 @@ func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Write([]byte(b.String()))
+}
+
+func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var paths []string
+	var err error
+
+	if s.session.Mode == "git" {
+		paths, err = AllTrackedFiles(s.session.RepoRoot)
+	} else {
+		paths, err = WalkFiles(s.session.RepoRoot)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	paths = filterPathsIgnored(paths, s.session.IgnorePatterns)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(paths)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

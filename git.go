@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -415,6 +417,90 @@ func untrackedFilesInDir(dir string) ([]FileChange, error) {
 		changes = append(changes, FileChange{Path: line, Status: "untracked"})
 	}
 	return changes, nil
+}
+
+// AllTrackedFiles returns all tracked files plus untracked non-ignored files.
+// Paths are relative to the repo root. dir should be the repo root.
+func AllTrackedFiles(dir string) ([]string, error) {
+	// Tracked files
+	cmd := exec.Command("git", "ls-files")
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files failed: %w", err)
+	}
+
+	seen := make(map[string]bool)
+	var files []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		if !seen[line] {
+			seen[line] = true
+			files = append(files, line)
+		}
+	}
+
+	// Untracked but not gitignored
+	cmd2 := exec.Command("git", "ls-files", "--others", "--exclude-standard")
+	if dir != "" {
+		cmd2.Dir = dir
+	}
+	out2, err := cmd2.Output()
+	if err != nil {
+		return files, nil // non-fatal: return tracked only
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out2)), "\n") {
+		if line == "" {
+			continue
+		}
+		if !seen[line] {
+			seen[line] = true
+			files = append(files, line)
+		}
+	}
+
+	return files, nil
+}
+
+// WalkFiles returns all files under root, skipping hidden directories,
+// node_modules, and other common non-project directories.
+// Paths are relative to root.
+func WalkFiles(root string) ([]string, error) {
+	skipDirs := map[string]bool{
+		"node_modules": true,
+		"vendor":       true,
+		"__pycache__":  true,
+		".git":         true,
+		"dist":         true,
+		"build":        true,
+		"_build":       true,
+		"deps":         true,
+	}
+
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if strings.HasPrefix(name, ".") || skipDirs[name] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		files = append(files, rel)
+		return nil
+	})
+	return files, err
 }
 
 func parseNameStatus(output string) []FileChange {

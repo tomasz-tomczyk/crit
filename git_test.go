@@ -1138,3 +1138,137 @@ func TestFileDiffForCommit(t *testing.T) {
 		t.Errorf("expected 3 add lines, got %d", addCount)
 	}
 }
+
+func TestAllTrackedFiles_RealRepo(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "src/main.go"), "package main")
+	writeFile(t, filepath.Join(dir, "src/util.go"), "package main")
+	writeFile(t, filepath.Join(dir, "docs/readme.md"), "# docs")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add files")
+
+	files, err := AllTrackedFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := map[string]bool{
+		"README.md":      true,
+		"src/main.go":    true,
+		"src/util.go":    true,
+		"docs/readme.md": true,
+	}
+	if len(files) != len(expected) {
+		t.Fatalf("expected %d files, got %d: %v", len(expected), len(files), files)
+	}
+	for _, f := range files {
+		if !expected[f] {
+			t.Errorf("unexpected file: %s", f)
+		}
+	}
+}
+
+func TestAllTrackedFiles_IncludesUntracked(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "new.txt"), "hello")
+
+	files, err := AllTrackedFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, f := range files {
+		if f == "new.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected untracked file new.txt in results, got: %v", files)
+	}
+}
+
+func TestAllTrackedFiles_ExcludesGitignored(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, ".gitignore"), "*.log\nbuild/\n")
+	writeFile(t, filepath.Join(dir, "app.log"), "log data")
+	writeFile(t, filepath.Join(dir, "build/out.bin"), "binary")
+	writeFile(t, filepath.Join(dir, "keep.txt"), "keep")
+	runGit(t, dir, "add", ".gitignore", "keep.txt")
+	runGit(t, dir, "commit", "-m", "add files")
+
+	files, err := AllTrackedFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, f := range files {
+		if f == "app.log" || strings.HasPrefix(f, "build/") {
+			t.Errorf("gitignored file should not appear: %s", f)
+		}
+	}
+}
+
+func TestWalkFiles_BasicDirectory(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "file1.txt"), "hello")
+	writeFile(t, filepath.Join(dir, "sub/file2.go"), "package sub")
+	writeFile(t, filepath.Join(dir, "sub/deep/file3.md"), "# deep")
+
+	files, err := WalkFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := map[string]bool{
+		"file1.txt":         true,
+		"sub/file2.go":      true,
+		"sub/deep/file3.md": true,
+	}
+	if len(files) != len(expected) {
+		t.Fatalf("expected %d files, got %d: %v", len(expected), len(files), files)
+	}
+	for _, f := range files {
+		if !expected[f] {
+			t.Errorf("unexpected file: %s", f)
+		}
+	}
+}
+
+func TestWalkFiles_SkipsHiddenDirs(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".git/config"), "git config")
+	writeFile(t, filepath.Join(dir, ".hidden/secret"), "shh")
+	writeFile(t, filepath.Join(dir, "visible.txt"), "hello")
+
+	files, err := WalkFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, f := range files {
+		if strings.HasPrefix(f, ".git/") || strings.HasPrefix(f, ".hidden/") {
+			t.Errorf("hidden dir file should not appear: %s", f)
+		}
+	}
+	if len(files) != 1 || files[0] != "visible.txt" {
+		t.Errorf("expected [visible.txt], got %v", files)
+	}
+}
+
+func TestWalkFiles_SkipsNodeModules(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.js"), "console.log('hi')")
+	writeFile(t, filepath.Join(dir, "node_modules/pkg/index.js"), "module")
+
+	files, err := WalkFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, f := range files {
+		if strings.HasPrefix(f, "node_modules/") {
+			t.Errorf("node_modules file should not appear: %s", f)
+		}
+	}
+}
