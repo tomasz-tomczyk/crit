@@ -3395,13 +3395,35 @@
     return wrapper;
   }
 
+  function getOldSideLinesFromHunks(file, startLine, endLine) {
+    var lines = [];
+    if (!file.diffHunks) return lines;
+    for (var h = 0; h < file.diffHunks.length; h++) {
+      var hunkLines = file.diffHunks[h].Lines || [];
+      for (var i = 0; i < hunkLines.length; i++) {
+        var dl = hunkLines[i];
+        if ((dl.Type === 'context' || dl.Type === 'del') && dl.OldNum >= startLine && dl.OldNum <= endLine) {
+          lines.push({ num: dl.OldNum, content: dl.Content });
+        }
+      }
+    }
+    lines.sort(function(a, b) { return a.num - b.num; });
+    return lines.map(function(l) { return l.content; });
+  }
+
   function insertSuggestion(textarea) {
     var key = textarea.dataset.formKey;
     var formObj = activeForms.find(function(f) { return f.formKey === key; });
     if (!formObj) return;
     const file = getFileByPath(formObj.filePath);
     if (!file) return;
-    const lines = file.content.split('\n').slice(formObj.startLine - 1, formObj.endLine);
+    var lines;
+    if (formObj.side === 'old') {
+      lines = getOldSideLinesFromHunks(file, formObj.startLine, formObj.endLine);
+    } else {
+      lines = file.content.split('\n').slice(formObj.startLine - 1, formObj.endLine);
+    }
+    if (lines.length === 0) return;
     const suggestion = '```suggestion\n' + lines.join('\n') + '\n```';
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
