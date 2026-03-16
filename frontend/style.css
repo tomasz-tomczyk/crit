@@ -2261,8 +2261,8 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.diff-word-add { background: rgba(158, 206, 106, 0.25); border-radius: 2px; padding: 0 1px; }
-.diff-word-del { background: rgba(247, 118, 142, 0.2); border-radius: 2px; padding: 0 1px; text-decoration: line-through; text-decoration-color: var(--red); }
+.diff-word-add { background: var(--diff-word-add-bg); border-radius: 2px; padding: 0 1px; }
+.diff-word-del { background: var(--diff-word-del-bg); border-radius: 2px; padding: 0 1px; }
 .diff-spacer {
   display: flex;
   align-items: center;
