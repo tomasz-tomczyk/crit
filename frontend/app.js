@@ -111,6 +111,8 @@
   let commitList = [];
   let diffActive = false; // rendered diff view toggle for file mode
 
+  let allProjectFiles = [];  // cached from /api/files/list
+
   // Per-file active form state
   let activeFilePath = null;
   let activeForms = [];  // Array of { formKey, filePath, afterBlockIndex, startLine, endLine, editingId, side }
@@ -309,6 +311,12 @@
     ]);
 
     session = sessionRes;
+
+    // Fire-and-forget: cache project file list for @-mention autocomplete
+    fetch('/api/files/list')
+      .then(r => r.ok ? r.json() : [])
+      .then(files => { allProjectFiles = files.sort(); })
+      .catch(() => {});
 
     // Config
     shareURL = configRes.share_url || '';
@@ -3453,6 +3461,203 @@
     requestAnimationFrame(function() { input.focus(); input.select(); });
   }
 
+  // ===== File Picker Autocomplete =====
+
+  function attachFilePicker(textarea, form) {
+    let dropdown = null;
+    let activeIndex = -1;
+    let triggerStart = -1;
+
+    textarea.addEventListener('input', function() {
+      var val = textarea.value;
+      var cursor = textarea.selectionStart;
+
+      // Find the '@' trigger: scan backwards from cursor
+      var atPos = -1;
+      for (var i = cursor - 1; i >= 0; i--) {
+        var ch = val[i];
+        if (ch === '@') {
+          // '@' must be at start of line or preceded by whitespace
+          if (i === 0 || /\s/.test(val[i - 1])) {
+            atPos = i;
+          }
+          break;
+        }
+        if (/\s/.test(ch)) break;
+      }
+
+      if (atPos === -1 || allProjectFiles.length === 0) {
+        hideDropdown();
+        return;
+      }
+
+      triggerStart = atPos;
+      var query = val.substring(atPos + 1, cursor).toLowerCase();
+      var matches = filterFiles(query);
+
+      if (matches.length === 0) {
+        hideDropdown();
+        return;
+      }
+
+      showDropdown(matches);
+    });
+
+    textarea.addEventListener('keydown', function(e) {
+      if (!dropdown) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        activeIndex = Math.min(activeIndex + 1, dropdown.children.length - 1);
+        highlightItem();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        highlightItem();
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (activeIndex >= 0 && activeIndex < dropdown.children.length) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          selectItem(dropdown.children[activeIndex].dataset.path);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        hideDropdown();
+      }
+    });
+
+    textarea.addEventListener('blur', function() {
+      setTimeout(hideDropdown, 200);
+    });
+
+    function fuzzyMatch(query, text) {
+      var qi = 0;
+      var score = 0;
+      var consecutive = 0;
+      var lastMatchPos = -1;
+      var textLower = text.toLowerCase();
+
+      for (var ti = 0; ti < textLower.length && qi < query.length; ti++) {
+        if (textLower[ti] === query[qi]) {
+          qi++;
+          if (ti === lastMatchPos + 1) {
+            consecutive++;
+            score += consecutive * 2;
+          } else {
+            consecutive = 0;
+            score += 1;
+          }
+          if (ti === 0 || text[ti - 1] === '/' || text[ti - 1] === '.' || text[ti - 1] === '-' || text[ti - 1] === '_') {
+            score += 5;
+          }
+          lastMatchPos = ti;
+        }
+      }
+
+      if (qi < query.length) return -1;
+      score -= text.length * 0.1;
+      return score;
+    }
+
+    function filterFiles(query) {
+      if (!query) return allProjectFiles.slice(0, 20);
+
+      var scored = [];
+      for (var i = 0; i < allProjectFiles.length; i++) {
+        var p = allProjectFiles[i];
+        var s = fuzzyMatch(query, p);
+        if (s >= 0) {
+          scored.push({ path: p, score: s });
+        }
+      }
+      scored.sort(function(a, b) { return b.score - a.score; });
+      return scored.slice(0, 20).map(function(item) { return item.path; });
+    }
+
+    function showDropdown(matches) {
+      if (!dropdown) {
+        dropdown = document.createElement('div');
+        dropdown.className = 'file-picker-dropdown';
+        form.style.position = 'relative';
+        form.appendChild(dropdown);
+      }
+
+      var ta = form.querySelector('textarea');
+      if (ta) {
+        dropdown.style.top = (ta.offsetTop + ta.offsetHeight) + 'px';
+      }
+
+      dropdown.innerHTML = '';
+      activeIndex = 0;
+
+      matches.forEach(function(filePath, idx) {
+        var item = document.createElement('div');
+        item.className = 'file-picker-item';
+        item.dataset.path = filePath;
+
+        var lastSlash = filePath.lastIndexOf('/');
+        if (lastSlash >= 0) {
+          var dirSpan = document.createElement('span');
+          dirSpan.className = 'file-picker-dir';
+          dirSpan.textContent = filePath.substring(0, lastSlash + 1);
+          item.appendChild(dirSpan);
+          item.appendChild(document.createTextNode(filePath.substring(lastSlash + 1)));
+        } else {
+          item.textContent = filePath;
+        }
+
+        item.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          selectItem(filePath);
+        });
+        item.addEventListener('mouseenter', function() {
+          activeIndex = idx;
+          highlightItem();
+        });
+        dropdown.appendChild(item);
+      });
+
+      highlightItem();
+    }
+
+    function highlightItem() {
+      if (!dropdown) return;
+      var items = dropdown.children;
+      for (var i = 0; i < items.length; i++) {
+        items[i].classList.toggle('active', i === activeIndex);
+      }
+      if (activeIndex >= 0 && items[activeIndex]) {
+        items[activeIndex].scrollIntoView({ block: 'nearest' });
+      }
+    }
+
+    function selectItem(filePath) {
+      var val = textarea.value;
+      var cursor = textarea.selectionStart;
+      var before = val.substring(0, triggerStart);
+      var after = val.substring(cursor);
+      var insertion = '@' + filePath + ' ';
+      textarea.value = before + insertion + after;
+      var newCursor = before.length + insertion.length;
+      textarea.selectionStart = textarea.selectionEnd = newCursor;
+      textarea.focus();
+      hideDropdown();
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    function hideDropdown() {
+      if (dropdown) {
+        dropdown.remove();
+        dropdown = null;
+        activeIndex = -1;
+        triggerStart = -1;
+      }
+    }
+  }
+
   // ===== Comment Form =====
   function createCommentFormUI(opts) {
     let formObj = opts.formObj;
@@ -3472,6 +3677,8 @@
     textarea.placeholder = 'Leave a review comment... (Ctrl+Enter to submit, Escape to cancel)';
     textarea.dataset.formKey = formObj.formKey;
     if (opts.initialBody) textarea.value = opts.initialBody;
+
+    attachFilePicker(textarea, form);
 
     textarea.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {

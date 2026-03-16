@@ -1267,6 +1267,44 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   color: var(--accent);
 }
 
+/* ===== File Picker Dropdown ===== */
+.file-picker-dropdown {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  z-index: 100;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.file-picker-item {
+  padding: 6px 10px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-primary);
+}
+
+.file-picker-item.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.file-picker-item:hover {
+  background: var(--bg-hover);
+}
+
+.file-picker-dir {
+  color: var(--fg-muted);
+}
+
 /* ===== Save Template Dialog ===== */
 .save-template-overlay {
   display: none;
