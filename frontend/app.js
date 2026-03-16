@@ -2577,13 +2577,21 @@
           appendDiffForm(container, file.path, line.OldNum, 'old');
           appendDiffForm(container, file.path, line.NewNum, '');
         } else {
+          // Compute word-level diffs for paired del/add lines
+          var wordDiffs = [];
+          var pairCount = Math.min(seg.dels.length, seg.adds.length);
+          for (let j = 0; j < pairCount; j++) {
+            wordDiffs.push(wordDiff(seg.dels[j].Content, seg.adds[j].Content));
+          }
+
           const maxLen = Math.max(seg.dels.length, seg.adds.length);
           for (let j = 0; j < maxLen; j++) {
             const del = seg.dels[j] || null;
             const add = seg.adds[j] || null;
+            var wd = j < pairCount ? wordDiffs[j] : null;
             const row = makeSplitRow(
-              del ? { num: del.OldNum, content: del.Content, type: 'del' } : null,
-              add ? { num: add.NewNum, content: add.Content, type: 'add' } : null,
+              del ? { num: del.OldNum, content: del.Content, type: 'del', wordRanges: wd ? wd.oldRanges : null } : null,
+              add ? { num: add.NewNum, content: add.Content, type: 'add', wordRanges: wd ? wd.newRanges : null } : null,
               file, commentRangeSet
             );
             container.appendChild(row.el);
@@ -2636,7 +2644,8 @@
     const leftContent = document.createElement('div');
     leftContent.className = 'diff-content';
     if (left) {
-      leftContent.innerHTML = highlightDiffLine(left.content, left.num, 'old', file.highlightCache, file.lang);
+      var hlHtml = highlightDiffLine(left.content, left.num, 'old', file.highlightCache, file.lang);
+      leftContent.innerHTML = left.wordRanges ? applyWordDiffToHtml(hlHtml, left.wordRanges, 'diff-word-del') : hlHtml;
     }
     if (!left) leftEl.classList.add('empty');
 
@@ -2677,7 +2686,8 @@
     const rightContent = document.createElement('div');
     rightContent.className = 'diff-content';
     if (right) {
-      rightContent.innerHTML = highlightDiffLine(right.content, right.num, right.type === 'del' ? 'old' : '', file.highlightCache, file.lang);
+      var hlHtml = highlightDiffLine(right.content, right.num, right.type === 'del' ? 'old' : '', file.highlightCache, file.lang);
+      rightContent.innerHTML = right.wordRanges ? applyWordDiffToHtml(hlHtml, right.wordRanges, 'diff-word-add') : hlHtml;
     }
     if (!right) rightEl.classList.add('empty');
 
