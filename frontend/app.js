@@ -3581,7 +3581,6 @@
       if (!dropdown) {
         dropdown = document.createElement('div');
         dropdown.className = 'file-picker-dropdown';
-        form.style.position = 'relative';
         form.appendChild(dropdown);
       }
 

@@ -1170,6 +1170,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 
 .comment-form {
+  position: relative;
   margin: 6px 0;
   border: 1px solid var(--accent);
   border-radius: 8px;
@@ -1297,7 +1298,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   color: var(--accent);
 }
 
-.file-picker-item:hover {
+.file-picker-item:hover:not(.active) {
   background: var(--bg-hover);
 }
 
