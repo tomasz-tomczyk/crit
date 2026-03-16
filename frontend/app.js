@@ -20,25 +20,42 @@
     var html = '<div class="suggestion-diff">';
     html += '<div class="suggestion-header">Suggested change</div>';
 
-    if (originalLines && originalLines.length > 0) {
-      for (var i = 0; i < originalLines.length; i++) {
-        html += '<div class="suggestion-line suggestion-line-del">'
-          + '<span class="suggestion-line-sign">\u2212</span>'
-          + '<span class="suggestion-line-content">' + escapeHtml(originalLines[i]) + '</span>'
-          + '</div>';
+    var origLen = (originalLines && originalLines.length > 0) ? originalLines.length : 0;
+    var isEmptySuggestion = sugLines.length === 1 && sugLines[0] === '' && origLen > 0;
+    var sugLen = isEmptySuggestion ? 0 : sugLines.length;
+    var pairedLen = Math.min(origLen, sugLen);
+
+    // Paired lines: show with word-level diff
+    for (var i = 0; i < pairedLen; i++) {
+      var wd = wordDiff(originalLines[i], sugLines[i]);
+      var delContent, addContent;
+      if (wd) {
+        delContent = applyWordDiffToHtml(escapeHtml(originalLines[i]), wd.oldRanges, 'diff-word-del');
+        addContent = applyWordDiffToHtml(escapeHtml(sugLines[i]), wd.newRanges, 'diff-word-add');
+      } else {
+        delContent = escapeHtml(originalLines[i]);
+        addContent = escapeHtml(sugLines[i]);
       }
+      html += '<div class="suggestion-line suggestion-line-del">'
+        + '<span class="suggestion-line-sign">\u2212</span>'
+        + '<span class="suggestion-line-content">' + delContent + '</span></div>';
+      html += '<div class="suggestion-line suggestion-line-add">'
+        + '<span class="suggestion-line-sign">+</span>'
+        + '<span class="suggestion-line-content">' + addContent + '</span></div>';
     }
 
-    // Empty suggestion means "delete these lines"
-    if (sugLines.length === 1 && sugLines[0] === '' && originalLines && originalLines.length > 0) {
-      // No add lines — pure deletion suggestion
-    } else {
-      for (var j = 0; j < sugLines.length; j++) {
-        html += '<div class="suggestion-line suggestion-line-add">'
-          + '<span class="suggestion-line-sign">+</span>'
-          + '<span class="suggestion-line-content">' + escapeHtml(sugLines[j]) + '</span>'
-          + '</div>';
-      }
+    // Remaining original lines (unpaired deletions)
+    for (var j = pairedLen; j < origLen; j++) {
+      html += '<div class="suggestion-line suggestion-line-del">'
+        + '<span class="suggestion-line-sign">\u2212</span>'
+        + '<span class="suggestion-line-content">' + escapeHtml(originalLines[j]) + '</span></div>';
+    }
+
+    // Remaining suggestion lines (unpaired additions)
+    for (var k = pairedLen; k < sugLen; k++) {
+      html += '<div class="suggestion-line suggestion-line-add">'
+        + '<span class="suggestion-line-sign">+</span>'
+        + '<span class="suggestion-line-content">' + escapeHtml(sugLines[k]) + '</span></div>';
     }
 
     html += '</div>';
