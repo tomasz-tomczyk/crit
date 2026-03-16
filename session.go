@@ -82,6 +82,18 @@ type Session struct {
 	lastRoundEdits int
 }
 
+// isSessionFile checks whether an absolute path belongs to a file in this session.
+func (s *Session) isSessionFile(absPath string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, f := range s.Files {
+		if f.AbsPath == absPath {
+			return true
+		}
+	}
+	return false
+}
+
 // CritJSON is the on-disk format for .crit.json.
 type CritJSON struct {
 	Branch      string                  `json:"branch"`
@@ -263,7 +275,7 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 	for _, absPath := range expandedPaths {
 		relPath := absPath
 		if root != "" {
-			if rel, err := filepath.Rel(root, absPath); err == nil {
+			if rel, err := filepath.Rel(root, absPath); err == nil && !strings.HasPrefix(rel, "..") {
 				relPath = rel
 			}
 		}

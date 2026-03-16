@@ -383,7 +383,23 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reqPath := strings.TrimPrefix(r.URL.Path, "/files/")
-	if reqPath == "" || strings.Contains(reqPath, "..") {
+	if reqPath == "" {
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
+	}
+
+	// If the path is absolute, verify it's a known session file before serving.
+	// This handles files outside the repo root (e.g., ~/.claude/plans/).
+	if filepath.IsAbs(reqPath) {
+		if s.session.isSessionFile(reqPath) {
+			http.ServeFile(w, r, reqPath)
+		} else {
+			http.Error(w, "Access denied", http.StatusForbidden)
+		}
+		return
+	}
+
+	if strings.Contains(reqPath, "..") {
 		http.Error(w, "Invalid file path", http.StatusBadRequest)
 		return
 	}
