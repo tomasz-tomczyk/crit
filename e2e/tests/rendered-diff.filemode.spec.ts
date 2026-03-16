@@ -100,10 +100,8 @@ test.describe('Rendered Diff — File Mode — Split View', () => {
     await page.locator('#diffToggle').click();
 
     const section = mdSection(page);
-    const sides = section.locator('.diff-view-side');
-    await expect(sides).toHaveCount(2);
-
     const labels = section.locator('.diff-view-side-label');
+    await expect(labels).toHaveCount(2);
     await expect(labels.nth(0)).toHaveText('Previous round');
     await expect(labels.nth(1)).toHaveText('Current round');
   });
@@ -113,8 +111,7 @@ test.describe('Rendered Diff — File Mode — Split View', () => {
     await page.locator('#diffToggle').click();
 
     const section = mdSection(page);
-    const rightSide = section.locator('.diff-view-side').nth(1);
-    const addedBlocks = rightSide.locator('.line-block.diff-added');
+    const addedBlocks = section.locator('.diff-view .line-block.diff-added');
     const count = await addedBlocks.count();
     expect(count).toBeGreaterThan(0);
   });
@@ -149,8 +146,7 @@ test.describe('Rendered Diff — File Mode — Split View', () => {
     await page.locator('#diffToggle').click();
 
     const section = mdSection(page);
-    const leftSide = section.locator('.diff-view-side').nth(0);
-    const noCommentGutters = leftSide.locator('.diff-no-comment');
+    const noCommentGutters = section.locator('.diff-view .diff-no-comment');
     const count = await noCommentGutters.count();
     expect(count).toBeGreaterThan(0);
   });
@@ -160,8 +156,7 @@ test.describe('Rendered Diff — File Mode — Split View', () => {
     await page.locator('#diffToggle').click();
 
     const section = mdSection(page);
-    const rightSide = section.locator('.diff-view-side').nth(1);
-    const commentGutters = rightSide.locator('.line-comment-gutter:not(.diff-no-comment)');
+    const commentGutters = section.locator('.diff-view .line-comment-gutter:not(.diff-no-comment)');
     const count = await commentGutters.count();
     expect(count).toBeGreaterThan(0);
   });
@@ -271,13 +266,12 @@ test.describe('Rendered Diff — File Mode — Comments', () => {
     await page.locator('#diffToggle').click();
 
     const section = mdSection(page);
-    const rightSide = section.locator('.diff-view-side').nth(1);
 
-    // Find a commentable gutter on the right side
-    const gutter = rightSide.locator('.line-comment-gutter:not(.diff-no-comment)').first();
+    // Find a commentable gutter (right/current side has commentable gutters)
+    const gutter = section.locator('.diff-view .line-comment-gutter:not(.diff-no-comment)').first();
     await gutter.scrollIntoViewIfNeeded();
-    // Hover over the line block to make gutter visible
-    const lineBlock = rightSide.locator('.line-block').first();
+    // Hover over the parent line block to make gutter visible
+    const lineBlock = gutter.locator('..');
     await lineBlock.hover();
     await gutter.click();
 
