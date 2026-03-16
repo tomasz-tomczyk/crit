@@ -558,6 +558,10 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 
 	paths = filterPathsIgnored(paths, s.session.IgnorePatterns)
 
+	if paths == nil {
+		paths = []string{}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(paths)
 }

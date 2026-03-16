@@ -1256,6 +1256,21 @@ func TestWalkFiles_SkipsHiddenDirs(t *testing.T) {
 	}
 }
 
+func TestWalkFiles_DotPrefixedRoot(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, ".dotfiles")
+	writeFile(t, filepath.Join(dir, "bashrc"), "alias ls='ls -la'")
+	writeFile(t, filepath.Join(dir, "vimrc"), "set number")
+
+	files, err := WalkFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files from dot-prefixed root, got %d: %v", len(files), files)
+	}
+}
+
 func TestWalkFiles_SkipsNodeModules(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.js"), "console.log('hi')")

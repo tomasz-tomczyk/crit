@@ -488,7 +488,7 @@ func WalkFiles(root string) ([]string, error) {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if strings.HasPrefix(name, ".") || skipDirs[name] {
+			if path != root && (strings.HasPrefix(name, ".") || skipDirs[name]) {
 				return filepath.SkipDir
 			}
 			return nil
