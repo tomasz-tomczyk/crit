@@ -511,6 +511,50 @@ func TestHandleShare_WrongMethod(t *testing.T) {
 	}
 }
 
+func TestHandleShare_AlreadyShared(t *testing.T) {
+	// Create a mock crit-web server (should NOT be called)
+	called := false
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{
+			"url":          "https://crit.live/r/new-token",
+			"delete_token": "new-del-token",
+		})
+	}))
+	defer mockServer.Close()
+
+	// Create session with existing share state (matches existing test patterns)
+	sess := &Session{
+		OutputDir:   t.TempDir(),
+		Files:       []*FileEntry{{Path: "plan.md", Content: "# Plan"}},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+	sess.SetSharedURLAndToken("https://crit.live/r/existing", "existing-del-token")
+
+	srv := &Server{session: sess, shareURL: mockServer.URL}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
+	w := httptest.NewRecorder()
+	srv.handleShare(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var result map[string]any
+	json.NewDecoder(w.Body).Decode(&result)
+	if result["url"] != "https://crit.live/r/existing" {
+		t.Errorf("expected existing URL, got %v", result["url"])
+	}
+	if result["delete_token"] != "existing-del-token" {
+		t.Errorf("expected existing delete token, got %v", result["delete_token"])
+	}
+	if called {
+		t.Error("crit-web should NOT have been called for an already-shared review")
+	}
+}
+
 func TestResolveShareURL(t *testing.T) {
 	// Isolate from real ~/.crit.config.json
 	homeDir := t.TempDir()

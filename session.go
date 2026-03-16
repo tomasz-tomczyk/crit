@@ -546,6 +546,13 @@ func (s *Session) SetSharedURLAndToken(url, token string) {
 	s.scheduleWrite()
 }
 
+// GetShareState returns the shared URL and delete token atomically.
+func (s *Session) GetShareState() (string, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sharedURL, s.deleteToken
+}
+
 // GetDeleteToken returns the stored delete token.
 func (s *Session) GetDeleteToken() string {
 	s.mu.RLock()

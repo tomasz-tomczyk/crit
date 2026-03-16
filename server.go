@@ -158,6 +158,17 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Idempotent: if already shared, return the existing URL without calling crit-web.
+	// Uses GetShareState() to read both fields under a single lock (avoids TOCTOU race
+	// where a concurrent DELETE /api/share-url could clear the token between two calls).
+	if existingURL, existingToken := s.session.GetShareState(); existingURL != "" {
+		writeJSON(w, map[string]any{
+			"url":          existingURL,
+			"delete_token": existingToken,
+		})
+		return
+	}
+
 	files, comments, reviewRound := buildShareFromSession(s.session)
 	if len(files) == 0 {
 		http.Error(w, "no files in session", http.StatusBadRequest)
