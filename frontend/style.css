@@ -1021,10 +1021,10 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   word-break: break-all;
 }
 .suggestion-line-del {
-  background: var(--diff-del-bg);
+  background: var(--diff-del-line-bg);
 }
 .suggestion-line-add {
-  background: var(--diff-add-bg);
+  background: var(--diff-add-line-bg);
 }
 .suggestion-line-sign {
   display: inline-block;
