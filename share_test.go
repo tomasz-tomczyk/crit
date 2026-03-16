@@ -555,6 +555,48 @@ func TestHandleShare_AlreadyShared(t *testing.T) {
 	}
 }
 
+func TestLoadExistingShareState(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit.json")
+
+	cj := CritJSON{
+		ShareURL:    "https://crit.live/r/existing",
+		DeleteToken: "del-token-123",
+		Files:       map[string]CritJSONFile{},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(critPath, data, 0644)
+
+	url, token := loadExistingShareState(dir)
+	if url != "https://crit.live/r/existing" {
+		t.Errorf("expected existing URL, got %q", url)
+	}
+	if token != "del-token-123" {
+		t.Errorf("expected existing token, got %q", token)
+	}
+}
+
+func TestLoadExistingShareState_NoCritJSON(t *testing.T) {
+	dir := t.TempDir()
+	url, token := loadExistingShareState(dir)
+	if url != "" || token != "" {
+		t.Errorf("expected empty, got url=%q token=%q", url, token)
+	}
+}
+
+func TestLoadExistingShareState_NoShareState(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit.json")
+	cj := CritJSON{Files: map[string]CritJSONFile{}}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(critPath, data, 0644)
+
+	url, token := loadExistingShareState(dir)
+	if url != "" || token != "" {
+		t.Errorf("expected empty, got url=%q token=%q", url, token)
+	}
+}
+
 func TestResolveShareURL(t *testing.T) {
 	// Isolate from real ~/.crit.config.json
 	homeDir := t.TempDir()

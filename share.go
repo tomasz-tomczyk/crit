@@ -232,6 +232,21 @@ func clearShareState(dir string) error {
 	return os.WriteFile(critPath, out, 0644)
 }
 
+// loadExistingShareState reads .crit.json and returns any persisted share URL and delete token.
+// Returns ("", "") if no share state exists.
+func loadExistingShareState(dir string) (string, string) {
+	critPath := filepath.Join(dir, ".crit.json")
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		return "", ""
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return "", ""
+	}
+	return cj.ShareURL, cj.DeleteToken
+}
+
 // resolveShareURL resolves the share service URL from flag > env > config > default.
 func resolveShareURL(flagValue string) string {
 	if flagValue != "" {

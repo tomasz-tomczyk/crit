@@ -151,6 +151,23 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+
+		// Idempotent: if already shared, print the existing URL.
+		existingURL, _ := loadExistingShareState(critDir)
+		if existingURL != "" {
+			fmt.Println(existingURL)
+			if showQR {
+				fmt.Println()
+				qrterminal.GenerateWithConfig(existingURL, qrterminal.Config{
+					Level:      qrterminal.L,
+					Writer:     os.Stdout,
+					HalfBlocks: true,
+					QuietZone:  1,
+				})
+			}
+			os.Exit(0)
+		}
+
 		filePaths := make([]string, len(files))
 		for i, f := range files {
 			filePaths[i] = f.Path
