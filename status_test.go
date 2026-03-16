@@ -118,6 +118,24 @@ func TestStatusRoundReady_NoPreviousComments(t *testing.T) {
 	}
 }
 
+func TestStatusListenHint_DefaultPort(t *testing.T) {
+	s, buf := testStatus()
+	s.ListenHint("3000")
+	want := "  Use `crit listen 3000` to wait for review feedback\n"
+	if got := buf.String(); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestStatusListenHint_CustomPort(t *testing.T) {
+	s, buf := testStatus()
+	s.ListenHint("4500")
+	want := "  Use `crit listen 4500` to wait for review feedback\n"
+	if got := buf.String(); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestStatusColor_IncludesAnsiCodes(t *testing.T) {
 	var buf bytes.Buffer
 	s := &Status{w: &buf, color: true}
