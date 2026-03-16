@@ -183,7 +183,12 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	paths := make([]string, len(files))
+	for i, f := range files {
+		paths[i] = f.Path
+	}
 	s.session.SetSharedURLAndToken(url, deleteToken)
+	s.session.SetShareScope(shareScope(paths))
 	writeJSON(w, map[string]any{"url": url, "delete_token": deleteToken})
 }
 

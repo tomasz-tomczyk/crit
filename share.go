@@ -2,13 +2,27 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
+
+// shareScope computes a hash of sorted file paths, used to detect when
+// share state belongs to a different file set.
+func shareScope(paths []string) string {
+	sorted := make([]string, len(paths))
+	copy(sorted, paths)
+	sort.Strings(sorted)
+	h := sha256.Sum256([]byte(strings.Join(sorted, "\n")))
+	return hex.EncodeToString(h[:8]) // 16-char hex prefix is enough
+}
 
 // shareFile represents a file to be shared.
 type shareFile struct {
@@ -188,9 +202,9 @@ func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) 
 	return comments, round
 }
 
-// persistShareState writes the share URL and delete token to .crit.json,
+// persistShareState writes the share URL, delete token, and scope hash to .crit.json,
 // preserving any existing content.
-func persistShareState(dir string, shareURL string, deleteToken string) error {
+func persistShareState(dir string, shareURL string, deleteToken string, scope string) error {
 	critPath := filepath.Join(dir, ".crit.json")
 	var cj CritJSON
 	if data, err := os.ReadFile(critPath); err == nil {
@@ -201,6 +215,7 @@ func persistShareState(dir string, shareURL string, deleteToken string) error {
 	}
 	cj.ShareURL = shareURL
 	cj.DeleteToken = deleteToken
+	cj.ShareScope = scope
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
 	data, err := json.MarshalIndent(cj, "", "  ")
@@ -223,6 +238,7 @@ func clearShareState(dir string) error {
 	}
 	cj.ShareURL = ""
 	cj.DeleteToken = ""
+	cj.ShareScope = ""
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
 	out, err := json.MarshalIndent(cj, "", "  ")
@@ -233,8 +249,8 @@ func clearShareState(dir string) error {
 }
 
 // loadExistingShareState reads .crit.json and returns any persisted share URL and delete token.
-// Returns ("", "") if no share state exists.
-func loadExistingShareState(dir string) (string, string) {
+// Returns ("", "") if no share state exists or if the scope doesn't match the given paths.
+func loadExistingShareState(dir string, paths []string) (string, string) {
 	critPath := filepath.Join(dir, ".crit.json")
 	data, err := os.ReadFile(critPath)
 	if err != nil {
@@ -242,6 +258,10 @@ func loadExistingShareState(dir string) (string, string) {
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
+		return "", ""
+	}
+	// If scope is set, only return share state if it matches the current file set.
+	if cj.ShareScope != "" && cj.ShareScope != shareScope(paths) {
 		return "", ""
 	}
 	return cj.ShareURL, cj.DeleteToken

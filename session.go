@@ -77,6 +77,7 @@ type Session struct {
 	writeGen          int
 	sharedURL         string
 	deleteToken       string
+	shareScope        string
 	status            *Status
 	roundComplete     chan struct{}
 	pendingEdits      int
@@ -92,6 +93,7 @@ type CritJSON struct {
 	ReviewRound int                     `json:"review_round"`
 	ShareURL    string                  `json:"share_url,omitempty"`
 	DeleteToken string                  `json:"delete_token,omitempty"`
+	ShareScope  string                  `json:"share_scope,omitempty"`
 	Files       map[string]CritJSONFile `json:"files"`
 }
 
@@ -546,6 +548,20 @@ func (s *Session) SetSharedURLAndToken(url, token string) {
 	s.scheduleWrite()
 }
 
+// SetShareScope stores the scope hash for the current share.
+func (s *Session) SetShareScope(scope string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.shareScope = scope
+}
+
+// GetShareScope returns the stored share scope hash.
+func (s *Session) GetShareScope() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.shareScope
+}
+
 // GetShareState returns the shared URL and delete token atomically.
 func (s *Session) GetShareState() (string, string) {
 	s.mu.RLock()
@@ -719,6 +735,7 @@ func (s *Session) WriteFiles() {
 	cj.ReviewRound = s.ReviewRound
 	cj.ShareURL = s.sharedURL
 	cj.DeleteToken = s.deleteToken
+	cj.ShareScope = s.shareScope
 
 	// Overlay session files: merge with disk comments, remove entries with no comments.
 	for _, f := range s.Files {
@@ -757,7 +774,7 @@ func (s *Session) WriteFiles() {
 	s.mu.RUnlock()
 
 	// Only remove if nothing meaningful remains
-	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" {
+	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" && cj.ShareScope == "" {
 		os.Remove(critPath)
 		s.mu.Lock()
 		s.lastCritJSONMtime = time.Time{}
@@ -905,8 +922,22 @@ func (s *Session) loadCritJSON() {
 		return
 	}
 
-	s.sharedURL = cj.ShareURL
-	s.deleteToken = cj.DeleteToken
+	// Only restore share state if the file set matches what was shared.
+	if cj.ShareScope != "" {
+		paths := make([]string, 0, len(s.Files))
+		for _, f := range s.Files {
+			paths = append(paths, f.Path)
+		}
+		if shareScope(paths) == cj.ShareScope {
+			s.sharedURL = cj.ShareURL
+			s.deleteToken = cj.DeleteToken
+			s.shareScope = cj.ShareScope
+		}
+	} else {
+		// Legacy .crit.json without scope — load unconditionally for backwards compat.
+		s.sharedURL = cj.ShareURL
+		s.deleteToken = cj.DeleteToken
+	}
 
 	// Restore comments for files that match by path
 	for _, f := range s.Files {

@@ -1223,3 +1223,63 @@ func TestSession_MergeExternalCritJSON_ClearDetected(t *testing.T) {
 		t.Errorf("expected 0 comments after clear, got %d", len(comments))
 	}
 }
+
+func TestLoadCritJSON_IgnoresStaleShareState(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit.json")
+
+	// Write .crit.json with share state for a different file set
+	scope := shareScope([]string{"old-plan.md"})
+	cj := CritJSON{
+		ShareURL:    "https://crit.live/r/old",
+		DeleteToken: "old-token",
+		ShareScope:  scope,
+		Files:       map[string]CritJSONFile{},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(critPath, data, 0644)
+
+	// Create session with DIFFERENT files
+	sess := &Session{
+		OutputDir:   dir,
+		Files:       []*FileEntry{{Path: "new-plan.md", Content: "# New"}},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+	sess.loadCritJSON()
+
+	url, token := sess.GetShareState()
+	if url != "" || token != "" {
+		t.Errorf("expected stale share state to be ignored, got url=%q token=%q", url, token)
+	}
+}
+
+func TestLoadCritJSON_RestoresMatchingShareState(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit.json")
+
+	scope := shareScope([]string{"plan.md"})
+	cj := CritJSON{
+		ShareURL:    "https://crit.live/r/current",
+		DeleteToken: "current-token",
+		ShareScope:  scope,
+		Files:       map[string]CritJSONFile{},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(critPath, data, 0644)
+
+	// Create session with SAME files
+	sess := &Session{
+		OutputDir:   dir,
+		Files:       []*FileEntry{{Path: "plan.md", Content: "# Plan"}},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+	sess.loadCritJSON()
+
+	url, token := sess.GetShareState()
+	if url != "https://crit.live/r/current" {
+		t.Errorf("expected share state restored, got url=%q", url)
+	}
+	if token != "current-token" {
+		t.Errorf("expected token restored, got token=%q", token)
+	}
+}
