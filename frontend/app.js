@@ -5072,8 +5072,8 @@
           // Only include quote if it's a partial selection (not the full line content)
           var normalizedSelected = selectedText.replace(/\s+/g, ' ');
           var normalizedFull = fullText.trim().replace(/\s+/g, ' ');
-          if (normalizedSelected !== normalizedFull) {
-            quote = selectedText.length > 300 ? selectedText.slice(0, 300) + '...' : selectedText;
+          if (normalizedSelected !== normalizedFull && selectedText.length <= 300) {
+            quote = selectedText;
           }
         }
       } catch (_) { /* quote is a nice-to-have, don't break form opening */ }
