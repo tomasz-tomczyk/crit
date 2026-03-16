@@ -2439,7 +2439,10 @@
 
       container.appendChild(renderDiffHunkHeader(hunk));
 
-      for (const line of hunk.Lines) {
+      var wordDiffMap = buildHunkWordDiffs(hunk);
+
+      for (var li = 0; li < hunk.Lines.length; li++) {
+        var line = hunk.Lines[li];
         const lineEl = document.createElement('div');
         lineEl.className = 'diff-line';
         if (line.Type === 'add') lineEl.classList.add('addition');
@@ -2492,8 +2495,9 @@
 
         const contentEl = document.createElement('div');
         contentEl.className = 'diff-content';
-        const hlLine = highlightDiffLine(line.Content, line.Type === 'del' ? line.OldNum : line.NewNum, line.Type === 'del' ? 'old' : '', file.highlightCache, file.lang);
-        contentEl.innerHTML = hlLine;
+        var hlLine = highlightDiffLine(line.Content, line.Type === 'del' ? line.OldNum : line.NewNum, line.Type === 'del' ? 'old' : '', file.highlightCache, file.lang);
+        var wdInfo = wordDiffMap.get(li);
+        contentEl.innerHTML = wdInfo ? applyWordDiffToHtml(hlLine, wdInfo.ranges, wdInfo.cssClass) : hlLine;
 
         lineEl.appendChild(gutter);
         lineEl.appendChild(commentGutter);
