@@ -31,6 +31,7 @@ After a crit review session, comments are in `.crit.json`. Comments are grouped 
           "start_line": 5,
           "end_line": 10,
           "body": "Comment text",
+          "quote": "the specific words selected",
           "author": "User Name",
           "resolved": false,
           "resolution_note": "Addressed by extracting to helper",
@@ -45,6 +46,7 @@ After a crit review session, comments are in `.crit.json`. Comments are grouped 
 ### Reading comments
 
 - Comments are grouped per file with `start_line`/`end_line` referencing source lines in that file
+- `quote` (optional): the specific text the reviewer selected — narrows the comment's scope within the line range. When present, focus your changes on the quoted text rather than the entire line range
 - `resolved`: `false` or **missing** — both mean unresolved. Only `true` means resolved.
 - Address each unresolved comment by editing the relevant file at the referenced location
 

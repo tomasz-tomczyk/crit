@@ -969,6 +969,21 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .comment-actions button:hover { color: var(--fg-primary); }
 .comment-actions .delete-btn:hover { color: var(--red); }
 
+.quote-highlight {
+  color: inherit;
+  background: rgba(250, 200, 60, 0.12);
+  border-bottom: 1.5px solid rgba(250, 200, 60, 0.4);
+  border-radius: 1px;
+  padding: 1px 0;
+}
+[data-theme="light"] .quote-highlight {
+  background: rgba(250, 200, 60, 0.18);
+  border-bottom-color: rgba(200, 160, 30, 0.45);
+}
+@media (prefers-color-scheme: light) { html:not([data-theme]) .quote-highlight {
+  background: rgba(250, 200, 60, 0.18);
+  border-bottom-color: rgba(200, 160, 30, 0.45);
+}}
 .comment-body {
   padding: 10px 14px;
   font-family: var(--font-body);

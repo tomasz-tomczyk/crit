@@ -1493,6 +1493,7 @@
     }
 
     section.appendChild(body);
+    highlightQuotesInSection(section, file);
     return section;
   }
 
@@ -3135,6 +3136,80 @@
     });
   }
 
+  // ===== Text Selection → Line Range Mapping =====
+
+  function getLineRangeFromSelection(selection) {
+    if (!selection || selection.isCollapsed || !selection.toString().trim()) return null;
+
+    const anchorNode = selection.anchorNode;
+    const focusNode = selection.focusNode;
+    if (!anchorNode || !focusNode) return null;
+
+    // Walk up from a node to find the nearest commentable element.
+    // Returns { filePath, startLine, endLine, blockIndex, side } or null.
+    function findLineInfo(node) {
+      const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+      if (!el) return null;
+
+      // Check if inside a comment — don't trigger on existing comment text
+      if (el.closest('.comment-form-wrapper') || el.closest('.comment-card')) return null;
+
+      // Check if inside non-commentable UI (header, file tree, buttons)
+      if (el.closest('.header') || el.closest('.file-tree') || el.closest('.toc-panel')) return null;
+
+      // Try markdown line-block first
+      const lineBlock = el.closest('.line-block[data-file-path]');
+      if (lineBlock) {
+        return {
+          filePath: lineBlock.dataset.filePath,
+          startLine: parseInt(lineBlock.dataset.startLine),
+          endLine: parseInt(lineBlock.dataset.endLine),
+          blockIndex: lineBlock.dataset.blockIndex != null ? parseInt(lineBlock.dataset.blockIndex) : null,
+          side: undefined
+        };
+      }
+
+      // Try diff line
+      const diffLine = el.closest('[data-diff-line-num]');
+      if (diffLine && parseInt(diffLine.dataset.diffLineNum) > 0) {
+        return {
+          filePath: diffLine.dataset.diffFilePath,
+          startLine: parseInt(diffLine.dataset.diffLineNum),
+          endLine: parseInt(diffLine.dataset.diffLineNum),
+          blockIndex: null,
+          side: diffLine.dataset.diffSide || undefined
+        };
+      }
+
+      return null;
+    }
+
+    const anchorInfo = findLineInfo(anchorNode);
+    const focusInfo = findLineInfo(focusNode);
+
+    if (!anchorInfo || !focusInfo) return null;
+
+    // Both ends must be in the same file
+    if (anchorInfo.filePath !== focusInfo.filePath) return null;
+
+    // For diff selections, both ends must be on the same side
+    if (anchorInfo.side !== focusInfo.side) return null;
+
+    // Compute union range
+    const startLine = Math.min(anchorInfo.startLine, focusInfo.startLine);
+    const endLine = Math.max(anchorInfo.endLine, focusInfo.endLine);
+    const filePath = anchorInfo.filePath;
+    const side = anchorInfo.side;
+
+    // Determine afterBlockIndex: use the larger blockIndex (form appears after last block in range)
+    let afterBlockIndex = null;
+    if (anchorInfo.blockIndex != null && focusInfo.blockIndex != null) {
+      afterBlockIndex = Math.max(anchorInfo.blockIndex, focusInfo.blockIndex);
+    }
+
+    return { filePath, startLine, endLine, afterBlockIndex, side };
+  }
+
   function openForm(newForm) {
     var fk = formKey(newForm);
     var existing = activeForms.find(function(f) { return f.formKey === fk; });
@@ -3439,6 +3514,7 @@
           end_line: formObj.endLine,
           body: body.trim()
         };
+        if (formObj.quote) payload.quote = formObj.quote;
         if (formObj.side) payload.side = formObj.side;
         if (configAuthor) payload.author = configAuthor;
         const res = await fetch('/api/file/comments?path=' + enc(filePath), {
@@ -3712,6 +3788,128 @@
     card.appendChild(bodyEl);
     wrapper.appendChild(card);
     return wrapper;
+  }
+
+  // ===== Quote Highlighting in Document/Diff Body =====
+
+  function highlightQuotesInSection(sectionEl, file) {
+    var quotedComments = file.comments.filter(function(c) { return c.quote && !c.resolved; });
+    if (quotedComments.length === 0) return;
+
+    quotedComments.forEach(function(comment) {
+      // Find the content elements in this comment's line range
+      var contentEls = [];
+      for (var ln = comment.start_line; ln <= comment.end_line; ln++) {
+        // Document view: line-blocks with data-file-path
+        sectionEl.querySelectorAll('.line-block[data-file-path="' + CSS.escape(file.path) + '"]').forEach(function(el) {
+          var s = parseInt(el.dataset.startLine);
+          var e = parseInt(el.dataset.endLine);
+          if (s <= ln && e >= ln) {
+            // Get the content div (skip gutter)
+            var content = el.querySelector('.line-content');
+            if (content && contentEls.indexOf(content) === -1) contentEls.push(content);
+          }
+        });
+        // Diff view: diff lines with data-diff-line-num
+        sectionEl.querySelectorAll('[data-diff-file-path="' + CSS.escape(file.path) + '"][data-diff-line-num="' + ln + '"]').forEach(function(el) {
+          var content = el.querySelector('.diff-content');
+          if (content && contentEls.indexOf(content) === -1) contentEls.push(content);
+        });
+      }
+
+      if (contentEls.length === 0) return;
+
+      // Collect all text nodes across the content elements
+      var textNodes = [];
+      contentEls.forEach(function(el) {
+        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+        var node;
+        while ((node = walker.nextNode())) {
+          if (node.textContent.length > 0) textNodes.push(node);
+        }
+      });
+
+      if (textNodes.length === 0) return;
+
+      // Build concatenated text and find the quote within it.
+      // Normalize the quote: collapse whitespace/newlines so cross-line selections match.
+      var fullText = textNodes.map(function(n) { return n.textContent; }).join('');
+      var normalizedQuote = comment.quote.replace(/\s+/g, ' ');
+      var normalizedFull = fullText.replace(/\s+/g, ' ');
+      var quoteIdx = normalizedFull.indexOf(normalizedQuote);
+      if (quoteIdx === -1) {
+        quoteIdx = normalizedFull.toLowerCase().indexOf(normalizedQuote.toLowerCase());
+      }
+      if (quoteIdx === -1) return;
+
+      // Map the normalized index back to the original fullText position.
+      // Walk the original text, skipping collapsed whitespace to find the real start.
+      var origIdx = 0, normIdx = 0;
+      while (normIdx < quoteIdx && origIdx < fullText.length) {
+        if (/\s/.test(fullText[origIdx])) {
+          // In normalized form, consecutive whitespace collapses to one space
+          while (origIdx < fullText.length && /\s/.test(fullText[origIdx])) origIdx++;
+          normIdx++;
+        } else {
+          origIdx++;
+          normIdx++;
+        }
+      }
+      quoteIdx = origIdx;
+      // Find the end position similarly
+      var matchLen = 0, ni = 0;
+      while (ni < normalizedQuote.length && (origIdx + matchLen) < fullText.length) {
+        if (/\s/.test(fullText[origIdx + matchLen])) {
+          while ((origIdx + matchLen) < fullText.length && /\s/.test(fullText[origIdx + matchLen])) matchLen++;
+          ni++;
+        } else {
+          matchLen++;
+          ni++;
+        }
+      }
+
+      // Walk text nodes to find which ones overlap with the quote range
+      var quoteEnd = quoteIdx + matchLen;
+      var pos = 0;
+      for (var i = 0; i < textNodes.length; i++) {
+        var node = textNodes[i];
+        var nodeEnd = pos + node.textContent.length;
+        if (nodeEnd <= quoteIdx) { pos = nodeEnd; continue; }
+        if (pos >= quoteEnd) break;
+
+        // This node overlaps with the quote range
+        var startInNode = Math.max(0, quoteIdx - pos);
+        var endInNode = Math.min(node.textContent.length, quoteEnd - pos);
+
+        // Skip wrapping whitespace-only matches (e.g. newlines between blocks)
+        var matchText = node.textContent.slice(startInNode, endInNode);
+        if (!matchText.trim()) { pos = nodeEnd; continue; }
+
+        if (startInNode === 0 && endInNode === node.textContent.length) {
+          // Wrap entire text node
+          var mark = document.createElement('mark');
+          mark.className = 'quote-highlight';
+          mark.dataset.commentId = comment.id;
+          node.parentNode.replaceChild(mark, node);
+          mark.appendChild(node);
+        } else {
+          // Split and wrap partial text
+          var before = node.textContent.slice(0, startInNode);
+          var middle = node.textContent.slice(startInNode, endInNode);
+          var after = node.textContent.slice(endInNode);
+          var frag = document.createDocumentFragment();
+          if (before) frag.appendChild(document.createTextNode(before));
+          var mark = document.createElement('mark');
+          mark.className = 'quote-highlight';
+          mark.dataset.commentId = comment.id;
+          mark.textContent = middle;
+          frag.appendChild(mark);
+          if (after) frag.appendChild(document.createTextNode(after));
+          node.parentNode.replaceChild(frag, node);
+        }
+        pos = nodeEnd;
+      }
+    });
   }
 
   function createInlineEditor(comment) {
@@ -4828,6 +5026,72 @@
         break;
       }
     }
+  });
+
+  // ===== Select-to-Comment: open comment form on text selection =====
+  document.addEventListener('mouseup', function(e) {
+    // Don't interfere with gutter interactions (drag-to-select, + button clicks).
+    if (dragState || diffDragState) return;
+    if (e.target.closest('.line-comment-gutter') || e.target.closest('.diff-gutter-btn')) return;
+
+    // Small delay to let the browser finalize the selection
+    requestAnimationFrame(function() {
+      const selection = window.getSelection();
+      const range = getLineRangeFromSelection(selection);
+      if (!range) return;
+
+      // Capture the selected text before clearing, for the quote field.
+      // If the selection covers the full text of the line range, skip it — redundant.
+      var quote = null;
+      try {
+        var selectedText = selection.toString().trim();
+        if (selectedText) {
+          // Strip diff gutter markers (+/-) from the start of each line
+          selectedText = selectedText.replace(/^[+\-]/gm, '').trim();
+
+          // Get the full text content of the lines in this range to compare.
+          // Try both document view (.line-block) and diff view elements.
+          var fullText = '';
+          for (var ln = range.startLine; ln <= range.endLine; ln++) {
+            // Document view
+            document.querySelectorAll('.line-block[data-file-path]').forEach(function(el) {
+              if (el.dataset.filePath !== range.filePath) return;
+              var s = parseInt(el.dataset.startLine), e = parseInt(el.dataset.endLine);
+              if (s <= ln && e >= ln) {
+                var content = el.querySelector('.line-content');
+                if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
+              }
+            });
+            // Diff view
+            document.querySelectorAll('[data-diff-file-path][data-diff-line-num="' + ln + '"]').forEach(function(el) {
+              if (el.dataset.diffFilePath !== range.filePath) return;
+              var content = el.querySelector('.diff-content');
+              if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
+            });
+          }
+          // Only include quote if it's a partial selection (not the full line content)
+          var normalizedSelected = selectedText.replace(/\s+/g, ' ');
+          var normalizedFull = fullText.trim().replace(/\s+/g, ' ');
+          if (normalizedSelected !== normalizedFull && selectedText.length <= 300) {
+            quote = selectedText;
+          }
+        }
+      } catch (_) { /* quote is a nice-to-have, don't break form opening */ }
+
+      // Clear the browser selection — the form is the interaction now
+      selection.removeAllRanges();
+
+      // Open the comment form using the same flow as gutter click / 'c' key.
+      openForm({
+        filePath: range.filePath,
+        afterBlockIndex: range.afterBlockIndex,
+        startLine: range.startLine,
+        endLine: range.endLine,
+        editingId: null,
+        side: range.side,
+        quote: quote
+      });
+    });
   });
 
   // ===== Start =====

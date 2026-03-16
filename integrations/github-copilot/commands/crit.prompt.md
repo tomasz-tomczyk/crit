@@ -45,14 +45,14 @@ The file contains structured JSON with comments per file:
   "files": {
     "plan.md": {
       "comments": [
-        { "id": "c1", "start_line": 5, "end_line": 10, "body": "Clarify this step", "resolved": false }
+        { "id": "c1", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false }
       ]
     }
   }
 }
 ```
 
-Identify all comments where `"resolved": false` or where the `resolved` field is missing (missing means unresolved).
+Identify all comments where `"resolved": false` or where the `resolved` field is missing (missing means unresolved). If a comment has a `"quote"` field, it contains the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range.
 
 ## Step 4: Address each review comment
 

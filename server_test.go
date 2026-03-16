@@ -201,8 +201,8 @@ func TestPostFileComment_FileNotFound(t *testing.T) {
 
 func TestGetFileComments(t *testing.T) {
 	s, session := newTestServer(t)
-	session.AddComment("test.md", 1, 1, "", "one", "")
-	session.AddComment("test.md", 2, 2, "", "two", "")
+	session.AddComment("test.md", 1, 1, "", "one", "", "")
+	session.AddComment("test.md", 2, 2, "", "two", "", "")
 
 	req := httptest.NewRequest("GET", "/api/file/comments?path=test.md", nil)
 	w := httptest.NewRecorder()
@@ -222,7 +222,7 @@ func TestGetFileComments(t *testing.T) {
 
 func TestAPIUpdateComment(t *testing.T) {
 	s, session := newTestServer(t)
-	c, _ := session.AddComment("test.md", 1, 1, "", "original", "")
+	c, _ := session.AddComment("test.md", 1, 1, "", "original", "", "")
 
 	body := `{"body":"updated"}`
 	req := httptest.NewRequest("PUT", "/api/comment/"+c.ID+"?path=test.md", strings.NewReader(body))
@@ -250,7 +250,7 @@ func TestAPIUpdateComment_NotFound(t *testing.T) {
 
 func TestAPIDeleteComment(t *testing.T) {
 	s, session := newTestServer(t)
-	c, _ := session.AddComment("test.md", 1, 1, "", "to delete", "")
+	c, _ := session.AddComment("test.md", 1, 1, "", "to delete", "", "")
 
 	req := httptest.NewRequest("DELETE", "/api/comment/"+c.ID+"?path=test.md", nil)
 	w := httptest.NewRecorder()
@@ -276,8 +276,8 @@ func TestAPIDeleteComment_NotFound(t *testing.T) {
 
 func TestClearAllComments(t *testing.T) {
 	s, session := newTestServer(t)
-	session.AddComment("test.md", 1, 1, "", "comment 1", "")
-	session.AddComment("test.md", 2, 2, "", "comment 2", "")
+	session.AddComment("test.md", 1, 1, "", "comment 1", "", "")
+	session.AddComment("test.md", 2, 2, "", "comment 2", "", "")
 
 	if len(session.GetComments("test.md")) != 2 {
 		t.Fatal("expected 2 comments before clear")
@@ -307,7 +307,7 @@ func TestClearAllComments_MethodNotAllowed(t *testing.T) {
 
 func TestFinish(t *testing.T) {
 	s, session := newTestServer(t)
-	session.AddComment("test.md", 1, 1, "", "note", "")
+	session.AddComment("test.md", 1, 1, "", "note", "", "")
 
 	req := httptest.NewRequest("POST", "/api/finish", nil)
 	w := httptest.NewRecorder()
@@ -985,7 +985,7 @@ func TestGetFile_NotInSession_PathTraversal(t *testing.T) {
 
 func TestHandleFinishEmitsSSEEvent(t *testing.T) {
 	srv, session := newTestServer(t)
-	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "")
+	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "", "")
 
 	// Subscribe before triggering finish
 	ch := session.Subscribe()
@@ -1010,7 +1010,7 @@ func TestHandleFinishEmitsSSEEvent(t *testing.T) {
 
 func TestWaitForEventReturnsOnFinish(t *testing.T) {
 	srv, session := newTestServer(t)
-	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "")
+	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "", "")
 
 	var resp *httptest.ResponseRecorder
 	done := make(chan struct{})
@@ -1044,7 +1044,7 @@ func TestWaitForEventReturnsOnFinish(t *testing.T) {
 
 func TestWaitForEventIgnoresOtherEvents(t *testing.T) {
 	srv, session := newTestServer(t)
-	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "")
+	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "", "")
 
 	done := make(chan struct{})
 	go func() {
