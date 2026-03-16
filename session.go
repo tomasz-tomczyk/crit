@@ -23,6 +23,7 @@ type Comment struct {
 	EndLine         int    `json:"end_line"`
 	Side            string `json:"side,omitempty"`
 	Body            string `json:"body"`
+	Quote           string `json:"quote,omitempty"`
 	Author          string `json:"author,omitempty"`
 	CreatedAt       string `json:"created_at"`
 	UpdatedAt       string `json:"updated_at"`
@@ -392,7 +393,7 @@ func (s *Session) FileByPath(path string) *FileEntry {
 }
 
 // AddComment adds a comment to a specific file.
-func (s *Session) AddComment(filePath string, startLine, endLine int, side, body, author string) (Comment, bool) {
+func (s *Session) AddComment(filePath string, startLine, endLine int, side, body, quote, author string) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f := s.fileByPathLocked(filePath)
@@ -406,6 +407,7 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 		EndLine:     endLine,
 		Side:        side,
 		Body:        body,
+		Quote:       quote,
 		Author:      author,
 		CreatedAt:   now,
 		UpdatedAt:   now,

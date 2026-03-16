@@ -969,6 +969,18 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .comment-actions button:hover { color: var(--fg-primary); }
 .comment-actions .delete-btn:hover { color: var(--red); }
 
+.comment-quote {
+  margin: 0;
+  padding: 6px 14px;
+  border-left: 3px solid var(--accent-subtle);
+  font-size: 12px;
+  font-family: var(--font-body);
+  line-height: 1.5;
+  color: var(--fg-secondary);
+  white-space: pre-wrap;
+  overflow: hidden;
+  max-height: 3.5em;
+}
 .comment-body {
   padding: 10px 14px;
   font-family: var(--font-body);
