@@ -1008,7 +1008,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   align-items: center;
   gap: 6px;
   padding: 4px 12px;
-  background: var(--bg-secondary);
+  background: var(--accent-subtle);
   border-bottom: 1px solid var(--border);
   font-family: var(--font-body);
   font-size: 12px;
