@@ -3493,7 +3493,9 @@
     const file = getFileByPath(formObj.filePath);
     if (!file) return;
     var lines;
-    if (formObj.side === 'old') {
+    if (formObj.quote) {
+      lines = formObj.quote.split('\n');
+    } else if (formObj.side === 'old') {
       lines = getOldSideLinesFromHunks(file, formObj.startLine, formObj.endLine);
     } else {
       lines = file.content.split('\n').slice(formObj.startLine - 1, formObj.endLine);
@@ -3726,7 +3728,9 @@
     var env = {};
     var file = getFileByPath(filePath);
     if (file && file.content && comment.start_line && comment.end_line && !comment.side) {
-      env.originalLines = file.content.split('\n').slice(comment.start_line - 1, comment.end_line);
+      env.originalLines = comment.quote
+        ? comment.quote.split('\n')
+        : file.content.split('\n').slice(comment.start_line - 1, comment.end_line);
     }
     return env;
   }
