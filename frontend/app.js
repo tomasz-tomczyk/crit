@@ -1608,26 +1608,61 @@
       }
     }
 
-    // Left side (previous round — removed highlighting, no comments)
-    var leftSide = document.createElement('div');
-    leftSide.className = 'diff-view-side';
+    // Labels row
     var leftLabel = document.createElement('div');
     leftLabel.className = 'diff-view-side-label';
     leftLabel.textContent = 'Previous round';
-    leftSide.appendChild(leftLabel);
-    leftSide.appendChild(renderRenderedDiffBlocks(prevBlocks, 'diff-removed', file, false));
-
-    // Right side (current round — added highlighting, comments enabled)
-    var rightSide = document.createElement('div');
-    rightSide.className = 'diff-view-side';
+    container.appendChild(leftLabel);
     var rightLabel = document.createElement('div');
     rightLabel.className = 'diff-view-side-label';
     rightLabel.textContent = 'Current round';
-    rightSide.appendChild(rightLabel);
-    rightSide.appendChild(renderRenderedDiffBlocks(currBlocks, 'diff-added', file, true));
+    container.appendChild(rightLabel);
 
-    container.appendChild(leftSide);
-    container.appendChild(rightSide);
+    // Two-pointer merge for horizontal alignment
+    var commentsMap = buildCommentsMap(file.comments);
+    var commentRangeSet = buildCommentedRangeSet(file.comments);
+    var oldIdx = 0, newIdx = 0;
+
+    while (oldIdx < prevBlocks.length || newIdx < currBlocks.length) {
+      var leftCell = document.createElement('div');
+      leftCell.className = 'diff-view-cell';
+      var rightCell = document.createElement('div');
+      rightCell.className = 'diff-view-cell';
+
+      if (oldIdx >= prevBlocks.length) {
+        // Old exhausted — remaining new blocks are additions
+        rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet));
+        newIdx++;
+      } else if (newIdx >= currBlocks.length) {
+        // New exhausted — remaining old blocks are deletions
+        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null));
+        oldIdx++;
+      } else if (prevBlocks[oldIdx].isDiff && currBlocks[newIdx].isDiff) {
+        // Both changed — paired change
+        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null));
+        rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet));
+        oldIdx++;
+        newIdx++;
+      } else if (prevBlocks[oldIdx].isDiff) {
+        // Old removed only — spacer on right
+        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null));
+        oldIdx++;
+      } else if (currBlocks[newIdx].isDiff) {
+        // New added only — spacer on left
+        rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet));
+        newIdx++;
+      } else {
+        // Both unchanged — render both, advance both
+        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], null, file, false, oldIdx, null, null));
+        rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], null, file, true, newIdx, commentsMap, commentRangeSet));
+        oldIdx++;
+        newIdx++;
+      }
+
+      container.appendChild(leftCell);
+      container.appendChild(rightCell);
+    }
+
     return container;
   }
 

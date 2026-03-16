@@ -2399,6 +2399,13 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .diff-view-side:last-child {
   border-right: none;
 }
+.diff-view-cell {
+  min-width: 0;
+  overflow-x: auto;
+}
+.diff-view-cell:nth-child(odd) {
+  border-right: 1px solid var(--border);
+}
 .diff-view-side-label {
   font-size: 11px;
   font-weight: 600;
