@@ -971,15 +971,18 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 .quote-highlight {
   color: inherit;
-  background: rgba(250, 200, 60, 0.25);
-  border-bottom: 2px solid rgba(250, 200, 60, 0.6);
+  background: rgba(250, 200, 60, 0.12);
+  border-bottom: 1.5px solid rgba(250, 200, 60, 0.4);
   border-radius: 1px;
   padding: 1px 0;
 }
-[data-theme="light"] .quote-highlight,
+[data-theme="light"] .quote-highlight {
+  background: rgba(250, 200, 60, 0.18);
+  border-bottom-color: rgba(200, 160, 30, 0.45);
+}
 @media (prefers-color-scheme: light) { html:not([data-theme]) .quote-highlight {
-  background: rgba(250, 200, 60, 0.2);
-  border-bottom-color: rgba(200, 160, 30, 0.5);
+  background: rgba(250, 200, 60, 0.18);
+  border-bottom-color: rgba(200, 160, 30, 0.45);
 }}
 .comment-body {
   padding: 10px 14px;

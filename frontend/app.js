@@ -3881,6 +3881,10 @@
         var startInNode = Math.max(0, quoteIdx - pos);
         var endInNode = Math.min(node.textContent.length, quoteEnd - pos);
 
+        // Skip wrapping whitespace-only matches (e.g. newlines between blocks)
+        var matchText = node.textContent.slice(startInNode, endInNode);
+        if (!matchText.trim()) { pos = nodeEnd; continue; }
+
         if (startInNode === 0 && endInNode === node.textContent.length) {
           // Wrap entire text node
           var mark = document.createElement('mark');

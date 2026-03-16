@@ -183,6 +183,53 @@ test.describe('Select-to-comment (git mode)', () => {
       await expect(section.locator('mark.quote-highlight')).toBeVisible();
     });
 
+    test('cross-line partial selection saves quote and shows highlight', async ({ page, request }) => {
+      const section = mdSection(page);
+      // Lines 3-5 in plan.md: "## Overview" (line 3), blank (line 4),
+      // "We're adding API key authentication..." (line 5)
+      // Select from middle of "Overview" heading down into the paragraph
+      const overviewBlock = section.locator('.line-block', { hasText: 'Overview' }).first();
+      const authBlock = section.locator('.line-block', { hasText: 'API key authentication' });
+      await expect(overviewBlock).toBeVisible();
+      await expect(authBlock).toBeVisible();
+
+      const startContent = overviewBlock.locator('.line-content');
+      const endContent = authBlock.locator('.line-content');
+      const startBox = await startContent.boundingBox();
+      const endBox = await endContent.boundingBox();
+      expect(startBox).toBeTruthy();
+      expect(endBox).toBeTruthy();
+      if (!startBox || !endBox) return;
+
+      // Drag from middle of "Overview" to middle of auth line
+      await page.mouse.move(startBox.x + 60, startBox.y + startBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(endBox.x + 150, endBox.y + endBox.height / 2, { steps: 10 });
+      await page.mouse.up();
+
+      // Comment form should open
+      const textarea = section.locator('.comment-form textarea');
+      await expect(textarea).toBeVisible();
+      await textarea.fill('Cross-line comment');
+      await textarea.press('Control+Enter');
+      await expect(section.locator('.comment-card')).toBeVisible();
+
+      // Verify quote was saved via API
+      const mdPath = await page.evaluate(() => {
+        const el = document.querySelector('.file-section[id*="plan"] .line-block[data-file-path]');
+        return el ? (el as HTMLElement).dataset.filePath : null;
+      });
+      const res = await request.get(`/api/file/comments?path=${mdPath}`);
+      const comments = await res.json();
+      const crossLine = comments.find((c: any) => c.body === 'Cross-line comment');
+      expect(crossLine).toBeTruthy();
+      expect(crossLine.quote).toBeTruthy();
+      expect(crossLine.quote.length).toBeGreaterThan(0);
+
+      // Quote highlight marks should appear in the document
+      await expect(section.locator('mark.quote-highlight').first()).toBeVisible();
+    });
+
     test('quote highlight inherits text color (not black)', async ({ page }) => {
       const section = mdSection(page);
       const block = section.locator('.line-block', { hasText: 'API key authentication' });
