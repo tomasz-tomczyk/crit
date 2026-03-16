@@ -2860,7 +2860,7 @@
 
     var saveTemplateBtn = document.createElement('button');
     saveTemplateBtn.className = 'btn btn-sm';
-    saveTemplateBtn.textContent = '+ Save as template';
+    saveTemplateBtn.textContent = '+ Template';
     saveTemplateBtn.addEventListener('click', function(e) {
       e.preventDefault();
       showSaveTemplateDialog(textarea, templateBar);
@@ -3005,7 +3005,7 @@
 
     const submitBtn = document.createElement('button');
     submitBtn.className = 'btn btn-sm btn-primary';
-    submitBtn.textContent = formObj.editingId ? 'Update Comment' : 'Add Comment';
+    submitBtn.textContent = formObj.editingId ? 'Update' : 'Submit';
     submitBtn.addEventListener('click', function() { submitComment(textarea.value, formObj); });
 
     actions.appendChild(cancelBtn);

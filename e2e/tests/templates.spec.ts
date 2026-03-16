@@ -35,7 +35,7 @@ test.describe('Comment Templates — Git Mode', () => {
 
   test('Save as template button visible in actions row', async ({ page }) => {
     await openCommentForm(page);
-    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Save as template' });
+    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Template' });
     await expect(saveBtn).toBeVisible();
   });
 
@@ -44,7 +44,7 @@ test.describe('Comment Templates — Git Mode', () => {
     const textarea = page.locator('.comment-form textarea');
     await textarea.fill('Consider using X instead');
 
-    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Save as template' });
+    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Template' });
     await saveBtn.click();
 
     const overlay = page.locator('.save-template-overlay');
@@ -58,7 +58,7 @@ test.describe('Comment Templates — Git Mode', () => {
     const textarea = page.locator('.comment-form textarea');
     await textarea.fill('Needs a test for this');
 
-    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Save as template' });
+    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Template' });
     await saveBtn.click();
 
     const overlay = page.locator('.save-template-overlay');
@@ -79,7 +79,7 @@ test.describe('Comment Templates — Git Mode', () => {
     await textarea.fill('My template text');
 
     // Save a template first
-    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Save as template' });
+    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Template' });
     await saveBtn.click();
     await page.locator('.save-template-overlay button', { hasText: 'Save' }).click();
 
@@ -99,7 +99,7 @@ test.describe('Comment Templates — Git Mode', () => {
     await textarea.fill('Temp template');
 
     // Save a template
-    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Save as template' });
+    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Template' });
     await saveBtn.click();
     await page.locator('.save-template-overlay button', { hasText: 'Save' }).click();
 
@@ -121,7 +121,7 @@ test.describe('Comment Templates — Git Mode', () => {
     await textarea.fill('Persistent template');
 
     // Save template
-    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Save as template' });
+    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Template' });
     await saveBtn.click();
     await page.locator('.save-template-overlay button', { hasText: 'Save' }).click();
 
@@ -142,7 +142,7 @@ test.describe('Comment Templates — Git Mode', () => {
   test('save dialog does nothing when textarea is empty', async ({ page }) => {
     await openCommentForm(page);
     // textarea is empty by default
-    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Save as template' });
+    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Template' });
     await saveBtn.click();
 
     // Dialog should not appear
@@ -155,7 +155,7 @@ test.describe('Comment Templates — Git Mode', () => {
     const textarea = page.locator('.comment-form textarea');
     await textarea.fill('Cancel me');
 
-    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Save as template' });
+    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Template' });
     await saveBtn.click();
 
     const overlay = page.locator('.save-template-overlay');

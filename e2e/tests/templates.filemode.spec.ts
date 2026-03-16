@@ -37,7 +37,7 @@ test.describe('Comment Templates — File Mode', () => {
 
   test('Save as template button visible in actions row', async ({ page }) => {
     await openCommentForm(page);
-    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Save as template' });
+    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Template' });
     await expect(saveBtn).toBeVisible();
   });
 
@@ -47,7 +47,7 @@ test.describe('Comment Templates — File Mode', () => {
     await textarea.fill('This duplicates logic in …');
 
     // Save as template
-    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Save as template' });
+    const saveBtn = page.locator('.comment-form-actions button', { hasText: '+ Template' });
     await saveBtn.click();
     const overlay = page.locator('.save-template-overlay');
     await expect(overlay).toBeVisible();
@@ -78,12 +78,12 @@ test.describe('Comment Templates — File Mode', () => {
 
     // Save first template
     await textarea.fill('Template A');
-    await page.locator('.comment-form-actions button', { hasText: '+ Save as template' }).click();
+    await page.locator('.comment-form-actions button', { hasText: '+ Template' }).click();
     await page.locator('.save-template-overlay button', { hasText: 'Save' }).click();
 
     // Save second template
     await textarea.fill('Template B');
-    await page.locator('.comment-form-actions button', { hasText: '+ Save as template' }).click();
+    await page.locator('.comment-form-actions button', { hasText: '+ Template' }).click();
     await page.locator('.save-template-overlay button', { hasText: 'Save' }).click();
 
     const chips = page.locator('.comment-template-bar .template-chip');
@@ -97,7 +97,7 @@ test.describe('Comment Templates — File Mode', () => {
     const textarea = page.locator('.comment-form textarea');
     await textarea.fill('Survives reload');
 
-    await page.locator('.comment-form-actions button', { hasText: '+ Save as template' }).click();
+    await page.locator('.comment-form-actions button', { hasText: '+ Template' }).click();
     await page.locator('.save-template-overlay button', { hasText: 'Save' }).click();
 
     // Reload page
