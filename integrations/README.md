@@ -21,22 +21,18 @@ This installs a `/crit` slash command into your project. Safe to re-run — exis
 | Cline | `crit install cline` | `.clinerules/crit.md` |
 | Aider | — (copy manually) | Append `aider/CONVENTIONS.md` to your `CONVENTIONS.md` |
 
-## Plugin marketplace (Claude Code, Cursor)
+## Plugin marketplace (Claude Code)
 
 For the full experience, install via the plugin marketplace. This gives you:
 - A `/crit` slash command for the review loop
 - A `crit` skill that auto-activates when working with `.crit.json`, `crit comment`, `crit pull/push`, etc.
 
-**Claude Code:**
 ```
 /plugin marketplace add tomasz-tomczyk/crit
 /plugin install crit
 ```
 
-**Cursor:**
-Add `tomasz-tomczyk/crit` as a marketplace source in Cursor settings, then install the `crit` plugin.
-
-The marketplace manifests live at the repo root (`.claude-plugin/marketplace.json`, `.cursor-plugin/marketplace.json`) and point to the plugin files in `integrations/claude-code/` and `integrations/cursor/` respectively.
+The marketplace manifest lives at the repo root (`.claude-plugin/marketplace.json`) and points to the plugin files in `integrations/claude-code/`.
 
 ### `crit install` vs plugin marketplace
 

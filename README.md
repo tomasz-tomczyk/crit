@@ -164,12 +164,11 @@ crit install all           # install all integrations at once
 
 Safe to re-run — existing files are skipped (use `--force` to overwrite). Good for teams since the files are committed to the repo.
 
-### Plugin install (Claude Code, Cursor)
+### Plugin install (Claude Code)
 
 For the full experience — installs globally with a `/crit` command plus a `crit` skill that auto-activates when your agent works with `.crit.json`, `crit comment`, `crit pull/push`, etc:
 
-```bash
-# Claude Code
+```
 /plugin marketplace add tomasz-tomczyk/crit
 /plugin install crit
 ```
