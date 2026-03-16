@@ -141,11 +141,17 @@ func LoadConfig(projectDir string) Config {
 		fmt.Fprintf(os.Stderr, "Warning: reading global config: %v\n", err)
 	}
 
-	// 2. Project config
+	// 2. Project config (skip if same file as global config, e.g. when CWD is home dir)
+	var project Config
+	var projectPresence configPresence
 	projectConfigPath := filepath.Join(projectDir, ".crit.config.json")
-	project, projectPresence, err := loadConfigFile(projectConfigPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: reading project config: %v\n", err)
+	globalAbs, _ := filepath.Abs(globalConfigPath())
+	projectAbs, _ := filepath.Abs(projectConfigPath)
+	if globalAbs != projectAbs {
+		project, projectPresence, err = loadConfigFile(projectConfigPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: reading project config: %v\n", err)
+		}
 	}
 
 	// 3. Merge global + project

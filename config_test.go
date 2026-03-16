@@ -367,6 +367,22 @@ func TestLoadConfigAuthorFromConfig(t *testing.T) {
 	}
 }
 
+func TestLoadConfigSameFileNoDuplicatePatterns(t *testing.T) {
+	// When CWD is the home dir, global and project config resolve to the same file.
+	// Patterns should not be duplicated. (GitHub issue #92)
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	os.WriteFile(filepath.Join(homeDir, ".crit.config.json"),
+		[]byte(`{"ignore_patterns": ["*.lock", "*.min.js", "*.min.css", ".crit.json"]}`), 0644)
+
+	cfg := LoadConfig(homeDir)
+
+	// Should have exactly 4 patterns, not 8
+	if len(cfg.IgnorePatterns) != 4 {
+		t.Errorf("IgnorePatterns = %v (len %d), want 4 unique entries (not duplicated)", cfg.IgnorePatterns, len(cfg.IgnorePatterns))
+	}
+}
+
 func TestNewSessionFromGitWithIgnore(t *testing.T) {
 	dir := initTestRepoForConfig(t)
 
