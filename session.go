@@ -939,6 +939,11 @@ func (s *Session) loadCritJSON() {
 		s.deleteToken = cj.DeleteToken
 	}
 
+	// Restore review round so the session continues from where it left off.
+	if cj.ReviewRound > s.ReviewRound {
+		s.ReviewRound = cj.ReviewRound
+	}
+
 	// Restore comments for files that match by path
 	for _, f := range s.Files {
 		if cf, ok := cj.Files[f.Path]; ok {

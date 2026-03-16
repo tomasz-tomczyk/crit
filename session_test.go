@@ -1283,3 +1283,71 @@ func TestLoadCritJSON_RestoresMatchingShareState(t *testing.T) {
 		t.Errorf("expected token restored, got token=%q", token)
 	}
 }
+
+// TestSession_LoadCritJSON_RestoresReviewRound verifies that when crit restarts
+// with an existing .crit.json, the ReviewRound is restored from the file.
+// Without this, the session starts at round 1 while comments claim higher rounds,
+// causing mismatches between the UI header and comment badges.
+func TestSession_LoadCritJSON_RestoresReviewRound(t *testing.T) {
+	s := newTestSession(t)
+
+	// Simulate a .crit.json left over from a previous session at round 3
+	cj := CritJSON{
+		ReviewRound: 3,
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Status: "added",
+				Comments: []Comment{
+					{
+						ID:          "c1",
+						StartLine:   1,
+						EndLine:     1,
+						Body:        "round 1 feedback",
+						CreatedAt:   "2026-01-01T00:00:00Z",
+						UpdatedAt:   "2026-01-01T00:00:00Z",
+						ReviewRound: 1,
+					},
+					{
+						ID:          "c2",
+						StartLine:   3,
+						EndLine:     3,
+						Body:        "round 2 feedback",
+						CreatedAt:   "2026-01-02T00:00:00Z",
+						UpdatedAt:   "2026-01-02T00:00:00Z",
+						ReviewRound: 2,
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(cj)
+	writeFile(t, filepath.Join(s.RepoRoot, ".crit.json"), string(data))
+
+	s.loadCritJSON()
+
+	// ReviewRound should be restored from .crit.json
+	if s.GetReviewRound() != 3 {
+		t.Errorf("ReviewRound = %d after loadCritJSON, want 3 (value from .crit.json)", s.GetReviewRound())
+	}
+
+	// Comments should retain their original review_round values
+	comments := s.GetComments("plan.md")
+	if len(comments) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(comments))
+	}
+	if comments[0].ReviewRound != 1 {
+		t.Errorf("first comment ReviewRound = %d, want 1", comments[0].ReviewRound)
+	}
+	if comments[1].ReviewRound != 2 {
+		t.Errorf("second comment ReviewRound = %d, want 2", comments[1].ReviewRound)
+	}
+
+	// New comments should get the restored round number
+	c, ok := s.AddComment("plan.md", 5, 5, "", "round 3 feedback", "")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	if c.ReviewRound != 3 {
+		t.Errorf("new comment ReviewRound = %d, want 3", c.ReviewRound)
+	}
+}
