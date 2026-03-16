@@ -3586,7 +3586,14 @@
 
       var ta = form.querySelector('textarea');
       if (ta) {
-        dropdown.style.top = (ta.offsetTop + ta.offsetHeight) + 'px';
+        // Position near cursor: count lines up to cursor position
+        var textBeforeCursor = ta.value.substring(0, ta.selectionStart);
+        var lineNumber = textBeforeCursor.split('\n').length;
+        var computedStyle = window.getComputedStyle(ta);
+        var lineHeight = parseFloat(computedStyle.lineHeight) || 22.4;
+        var paddingTop = parseFloat(computedStyle.paddingTop) || 10;
+        var cursorY = ta.offsetTop + paddingTop + (lineNumber * lineHeight);
+        dropdown.style.top = cursorY + 'px';
       }
 
       dropdown.innerHTML = '';
