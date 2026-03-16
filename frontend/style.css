@@ -992,6 +992,53 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   margin: 0.5em 0;
 }
 .comment-body pre code { background: none; padding: 0; }
+
+/* Suggestion diff inside comments */
+.suggestion-diff {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 8px 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 20px;
+}
+.suggestion-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--fg-dimmed);
+}
+.suggestion-line {
+  display: flex;
+  padding: 0 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.suggestion-line-del {
+  background: var(--diff-del-bg);
+}
+.suggestion-line-add {
+  background: var(--diff-add-bg);
+}
+.suggestion-line-sign {
+  display: inline-block;
+  width: 20px;
+  flex-shrink: 0;
+  user-select: none;
+  text-align: center;
+}
+.suggestion-line-del .suggestion-line-sign { color: var(--red); }
+.suggestion-line-add .suggestion-line-sign { color: var(--green); }
+.suggestion-line-content {
+  flex: 1;
+  min-width: 0;
+}
 .comment-body ul, .comment-body ol { margin: 0.3em 0; padding-left: 1.5em; }
 .comment-body a {
   color: var(--accent);
