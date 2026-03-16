@@ -1493,6 +1493,7 @@
     }
 
     section.appendChild(body);
+    highlightQuotesInSection(section, file);
     return section;
   }
 
@@ -3784,15 +3785,127 @@
     bodyEl.innerHTML = commentMd.render(comment.body, buildCommentEnv(comment, filePath));
 
     card.appendChild(header);
-    if (comment.quote) {
-      const quoteEl = document.createElement('blockquote');
-      quoteEl.className = 'comment-quote';
-      quoteEl.textContent = comment.quote;
-      card.appendChild(quoteEl);
-    }
     card.appendChild(bodyEl);
     wrapper.appendChild(card);
     return wrapper;
+  }
+
+  // ===== Quote Highlighting in Document/Diff Body =====
+
+  function highlightQuotesInSection(sectionEl, file) {
+    var quotedComments = file.comments.filter(function(c) { return c.quote && !c.resolved; });
+    if (quotedComments.length === 0) return;
+
+    quotedComments.forEach(function(comment) {
+      // Find the content elements in this comment's line range
+      var contentEls = [];
+      for (var ln = comment.start_line; ln <= comment.end_line; ln++) {
+        // Document view: line-blocks with data-file-path
+        sectionEl.querySelectorAll('.line-block[data-file-path="' + CSS.escape(file.path) + '"]').forEach(function(el) {
+          var s = parseInt(el.dataset.startLine);
+          var e = parseInt(el.dataset.endLine);
+          if (s <= ln && e >= ln) {
+            // Get the content div (skip gutter)
+            var content = el.querySelector('.line-content');
+            if (content && contentEls.indexOf(content) === -1) contentEls.push(content);
+          }
+        });
+        // Diff view: diff lines with data-diff-line-num
+        sectionEl.querySelectorAll('[data-diff-file-path="' + CSS.escape(file.path) + '"][data-diff-line-num="' + ln + '"]').forEach(function(el) {
+          var content = el.querySelector('.diff-content');
+          if (content && contentEls.indexOf(content) === -1) contentEls.push(content);
+        });
+      }
+
+      if (contentEls.length === 0) return;
+
+      // Collect all text nodes across the content elements
+      var textNodes = [];
+      contentEls.forEach(function(el) {
+        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+        var node;
+        while ((node = walker.nextNode())) {
+          if (node.textContent.length > 0) textNodes.push(node);
+        }
+      });
+
+      if (textNodes.length === 0) return;
+
+      // Build concatenated text and find the quote within it.
+      // Normalize the quote: collapse whitespace/newlines so cross-line selections match.
+      var fullText = textNodes.map(function(n) { return n.textContent; }).join('');
+      var normalizedQuote = comment.quote.replace(/\s+/g, ' ');
+      var normalizedFull = fullText.replace(/\s+/g, ' ');
+      var quoteIdx = normalizedFull.indexOf(normalizedQuote);
+      if (quoteIdx === -1) {
+        quoteIdx = normalizedFull.toLowerCase().indexOf(normalizedQuote.toLowerCase());
+      }
+      if (quoteIdx === -1) return;
+
+      // Map the normalized index back to the original fullText position.
+      // Walk the original text, skipping collapsed whitespace to find the real start.
+      var origIdx = 0, normIdx = 0;
+      while (normIdx < quoteIdx && origIdx < fullText.length) {
+        if (/\s/.test(fullText[origIdx])) {
+          // In normalized form, consecutive whitespace collapses to one space
+          while (origIdx < fullText.length && /\s/.test(fullText[origIdx])) origIdx++;
+          normIdx++;
+        } else {
+          origIdx++;
+          normIdx++;
+        }
+      }
+      quoteIdx = origIdx;
+      // Find the end position similarly
+      var matchLen = 0, ni = 0;
+      while (ni < normalizedQuote.length && (origIdx + matchLen) < fullText.length) {
+        if (/\s/.test(fullText[origIdx + matchLen])) {
+          while ((origIdx + matchLen) < fullText.length && /\s/.test(fullText[origIdx + matchLen])) matchLen++;
+          ni++;
+        } else {
+          matchLen++;
+          ni++;
+        }
+      }
+
+      // Walk text nodes to find which ones overlap with the quote range
+      var quoteEnd = quoteIdx + matchLen;
+      var pos = 0;
+      for (var i = 0; i < textNodes.length; i++) {
+        var node = textNodes[i];
+        var nodeEnd = pos + node.textContent.length;
+        if (nodeEnd <= quoteIdx) { pos = nodeEnd; continue; }
+        if (pos >= quoteEnd) break;
+
+        // This node overlaps with the quote range
+        var startInNode = Math.max(0, quoteIdx - pos);
+        var endInNode = Math.min(node.textContent.length, quoteEnd - pos);
+
+        if (startInNode === 0 && endInNode === node.textContent.length) {
+          // Wrap entire text node
+          var mark = document.createElement('mark');
+          mark.className = 'quote-highlight';
+          mark.dataset.commentId = comment.id;
+          node.parentNode.replaceChild(mark, node);
+          mark.appendChild(node);
+        } else {
+          // Split and wrap partial text
+          var before = node.textContent.slice(0, startInNode);
+          var middle = node.textContent.slice(startInNode, endInNode);
+          var after = node.textContent.slice(endInNode);
+          var frag = document.createDocumentFragment();
+          if (before) frag.appendChild(document.createTextNode(before));
+          var mark = document.createElement('mark');
+          mark.className = 'quote-highlight';
+          mark.dataset.commentId = comment.id;
+          mark.textContent = middle;
+          frag.appendChild(mark);
+          if (after) frag.appendChild(document.createTextNode(after));
+          node.parentNode.replaceChild(frag, node);
+        }
+        pos = nodeEnd;
+      }
+    });
   }
 
   function createInlineEditor(comment) {
@@ -4929,25 +5042,33 @@
       try {
         var selectedText = selection.toString().trim();
         if (selectedText) {
-          // Get the full text content of the line blocks in this range to compare
+          // Strip diff gutter markers (+/-) from the start of each line
+          selectedText = selectedText.replace(/^[+\-]/gm, '').trim();
+
+          // Get the full text content of the lines in this range to compare.
+          // Try both document view (.line-block) and diff view elements.
           var fullText = '';
-          var blocks = range.side != null
-            ? document.querySelectorAll('[data-diff-file-path][data-diff-line-num]')
-            : document.querySelectorAll('.line-block[data-file-path]');
-          blocks.forEach(function(el) {
-            var fp = el.dataset.filePath || el.dataset.diffFilePath;
-            if (fp !== range.filePath) return;
-            if (range.side != null && el.dataset.diffSide !== range.side) return;
-            var elStart = parseInt(el.dataset.startLine || el.dataset.diffLineNum || '0');
-            var elEnd = parseInt(el.dataset.endLine || el.dataset.diffLineNum || '0');
-            if (elStart >= range.startLine && elEnd <= range.endLine) {
-              // Use only the content area text, skip gutter text
-              var content = el.querySelector('.line-content, .diff-content');
-              fullText += (fullText ? '\n' : '') + (content ? content.textContent.trim() : el.textContent.trim());
-            }
-          });
+          for (var ln = range.startLine; ln <= range.endLine; ln++) {
+            // Document view
+            document.querySelectorAll('.line-block[data-file-path]').forEach(function(el) {
+              if (el.dataset.filePath !== range.filePath) return;
+              var s = parseInt(el.dataset.startLine), e = parseInt(el.dataset.endLine);
+              if (s <= ln && e >= ln) {
+                var content = el.querySelector('.line-content');
+                if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
+              }
+            });
+            // Diff view
+            document.querySelectorAll('[data-diff-file-path][data-diff-line-num="' + ln + '"]').forEach(function(el) {
+              if (el.dataset.diffFilePath !== range.filePath) return;
+              var content = el.querySelector('.diff-content');
+              if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
+            });
+          }
           // Only include quote if it's a partial selection (not the full line content)
-          if (selectedText !== fullText.trim()) {
+          var normalizedSelected = selectedText.replace(/\s+/g, ' ');
+          var normalizedFull = fullText.trim().replace(/\s+/g, ' ');
+          if (normalizedSelected !== normalizedFull) {
             quote = selectedText.length > 300 ? selectedText.slice(0, 300) + '...' : selectedText;
           }
         }

@@ -969,18 +969,18 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .comment-actions button:hover { color: var(--fg-primary); }
 .comment-actions .delete-btn:hover { color: var(--red); }
 
-.comment-quote {
-  margin: 0;
-  padding: 6px 14px;
-  border-left: 3px solid var(--accent-subtle);
-  font-size: 12px;
-  font-family: var(--font-body);
-  line-height: 1.5;
-  color: var(--fg-secondary);
-  white-space: pre-wrap;
-  overflow: hidden;
-  max-height: 3.5em;
+.quote-highlight {
+  color: inherit;
+  background: rgba(250, 200, 60, 0.25);
+  border-bottom: 2px solid rgba(250, 200, 60, 0.6);
+  border-radius: 1px;
+  padding: 1px 0;
 }
+[data-theme="light"] .quote-highlight,
+@media (prefers-color-scheme: light) { html:not([data-theme]) .quote-highlight {
+  background: rgba(250, 200, 60, 0.2);
+  border-bottom-color: rgba(200, 160, 30, 0.5);
+}}
 .comment-body {
   padding: 10px 14px;
   font-family: var(--font-body);

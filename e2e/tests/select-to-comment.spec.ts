@@ -151,6 +151,121 @@ test.describe('Select-to-comment (git mode)', () => {
     });
   });
 
+  test.describe('quote highlight', () => {
+    test.beforeEach(async ({ page }) => {
+      await switchToDocumentView(page);
+    });
+
+    test('partial text selection saves quote and shows highlight mark', async ({ page }) => {
+      const section = mdSection(page);
+      // Line 5: "We're adding API key authentication to the server..."
+      // Find the block containing this text
+      const block = section.locator('.line-block', { hasText: 'API key authentication' });
+      await expect(block).toBeVisible();
+      const content = block.locator('.line-content');
+      const box = await content.boundingBox();
+      expect(box).toBeTruthy();
+      if (!box) return;
+
+      // Select just a portion of the text (middle area, not full width)
+      await page.mouse.move(box.x + 80, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 250, box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+
+      // Submit the comment
+      const textarea = section.locator('.comment-form textarea');
+      await expect(textarea).toBeVisible();
+      await textarea.fill('Check this part');
+      await textarea.press('Control+Enter');
+
+      // After submit, the quote-highlight mark should appear in the document
+      await expect(section.locator('mark.quote-highlight')).toBeVisible();
+    });
+
+    test('quote highlight inherits text color (not black)', async ({ page }) => {
+      const section = mdSection(page);
+      const block = section.locator('.line-block', { hasText: 'API key authentication' });
+      await expect(block).toBeVisible();
+      const content = block.locator('.line-content');
+      const box = await content.boundingBox();
+      if (!box) return;
+
+      await page.mouse.move(box.x + 80, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 250, box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+
+      const textarea = section.locator('.comment-form textarea');
+      await expect(textarea).toBeVisible();
+      await textarea.fill('Color check');
+      await textarea.press('Control+Enter');
+
+      const mark = section.locator('mark.quote-highlight');
+      await expect(mark).toBeVisible();
+
+      // Verify the mark has color: inherit (not browser default black)
+      const color = await mark.evaluate(el => getComputedStyle(el).color);
+      expect(color).not.toBe('rgb(0, 0, 0)');
+    });
+
+    test('full-line selection does NOT produce a quote highlight', async ({ page }) => {
+      const section = mdSection(page);
+      const block = section.locator('.line-block', { hasText: 'API key authentication' });
+      await expect(block).toBeVisible();
+      const content = block.locator('.line-content');
+      const box = await content.boundingBox();
+      if (!box) return;
+
+      // Select the FULL width of the content (start to end)
+      await page.mouse.move(box.x, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width, box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+
+      const textarea = section.locator('.comment-form textarea');
+      await expect(textarea).toBeVisible();
+      await textarea.fill('Full line comment');
+      await textarea.press('Control+Enter');
+
+      // No quote highlight should appear (full line = redundant)
+      await expect(section.locator('mark.quote-highlight')).not.toBeVisible();
+    });
+
+    test('quote is stored in API response', async ({ page, request }) => {
+      const section = mdSection(page);
+      const block = section.locator('.line-block', { hasText: 'API key authentication' });
+      await expect(block).toBeVisible();
+      const content = block.locator('.line-content');
+      const box = await content.boundingBox();
+      if (!box) return;
+
+      // Partial selection
+      await page.mouse.move(box.x + 80, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 250, box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+
+      const textarea = section.locator('.comment-form textarea');
+      await expect(textarea).toBeVisible();
+      await textarea.fill('API check');
+      await textarea.press('Control+Enter');
+      await expect(section.locator('.comment-card')).toBeVisible();
+
+      // Verify the quote field exists in the API response
+      const mdPath = await page.evaluate(() => {
+        const el = document.querySelector('.file-section[id*="plan"] .line-block[data-file-path]');
+        return el ? (el as HTMLElement).dataset.filePath : null;
+      });
+      expect(mdPath).toBeTruthy();
+      const res = await request.get(`/api/file/comments?path=${mdPath}`);
+      const comments = await res.json();
+      const withQuote = comments.filter((c: any) => c.quote);
+      expect(withQuote.length).toBeGreaterThan(0);
+      expect(withQuote[0].quote.length).toBeGreaterThan(0);
+    });
+  });
+
   test.describe('diff view', () => {
     test('selecting diff text opens comment form', async ({ page }) => {
       // Use server.go (modified file) which has proper split diff sides
