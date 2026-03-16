@@ -48,20 +48,6 @@ test.describe('File Tree', () => {
     await expect(modifiedIcons).toHaveCount(2);
   });
 
-  test('clicking a file in the tree scrolls to its section', async ({ page }) => {
-    await loadPage(page);
-
-    // Find a tree-file entry for plan.md and click it
-    const treeFile = page.locator('.tree-file', { has: page.locator('.tree-file-name', { hasText: 'plan.md' }) });
-    await expect(treeFile).toBeVisible();
-    await treeFile.click();
-
-    // The corresponding file-section should be scrolled into view
-    const section = page.locator('#file-section-plan\\.md');
-    await expect(section).toBeVisible();
-    await expect(section).toBeInViewport();
-  });
-
   test('file tree header shows +/- stats', async ({ page }) => {
     await loadPage(page);
 

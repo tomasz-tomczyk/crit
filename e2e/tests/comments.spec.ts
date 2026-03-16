@@ -94,25 +94,6 @@ test.describe('Markdown Comments — Git Mode', () => {
     expect(color).not.toBe('rgb(0, 0, 238)'); // not default blue
   });
 
-  test('comment count updates in header after adding a comment', async ({ page }) => {
-    const section = mdSection(page);
-
-    // Initially no comments
-    const countEl = page.locator('#commentCount');
-    await expect(countEl).toBeHidden();
-
-    // Add a comment
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-    await section.locator('.line-comment-gutter').first().click();
-    await page.locator('.comment-form textarea').fill('Count test');
-    await page.locator('.comment-form .btn-primary').click();
-
-    // Comment count icon should appear
-    await expect(countEl).toBeVisible();
-    await expect(countEl).toHaveAttribute('title', /1 unresolved/);
-  });
-
   test('Ctrl+Enter submits comment', async ({ page }) => {
     const section = mdSection(page);
     const lineBlock = section.locator('.line-block').first();

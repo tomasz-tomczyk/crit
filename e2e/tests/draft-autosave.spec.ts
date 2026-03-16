@@ -4,7 +4,7 @@ import { clearAllComments, loadPage, mdSection, switchToDocumentView } from './h
 test.describe('Draft Autosave', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
-    // Clear any existing drafts
+    // Navigate once to clear any existing drafts from localStorage
     await page.goto('/');
     await page.evaluate(() => {
       const keys = Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'));
@@ -176,9 +176,8 @@ test.describe('Draft Autosave', () => {
   });
 
   test('stale drafts (>24h) are discarded on load', async ({ page }) => {
-    // Manually set a stale draft
-    await page.goto('/');
-    await page.evaluate(() => {
+    // Seed a stale draft before the page loads via addInitScript
+    await page.addInitScript(() => {
       localStorage.setItem('crit-draft-plan.md', JSON.stringify({
         filePath: 'plan.md',
         startLine: 1,

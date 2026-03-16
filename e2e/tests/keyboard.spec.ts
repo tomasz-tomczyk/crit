@@ -63,37 +63,23 @@ test.describe('Keyboard Navigation — Diff Split Mode', () => {
   test('j/k in split diff mode navigates rows, not individual sides', async ({ page }) => {
     // In split mode, .diff-split-row elements get .kb-nav
     // Pressing j should focus rows, not alternate between left/right
+    const diffRows = page.locator('.diff-split-row.kb-nav');
+    await expect(diffRows.first()).toBeAttached();
+
+    // Hover a diff-split-row to set focusedElement, then press j to focus it
+    await diffRows.first().hover();
     await page.keyboard.press('j');
 
-    const focused = page.locator('.kb-nav.focused');
-    await expect(focused).toHaveCount(1);
-
-    // The focused element should be a diff-split-row (in the code files section)
-    // or a line-block (if markdown is first). Let's navigate into the diff area.
-    const diffRows = page.locator('.diff-split-row.kb-nav');
-    const diffRowCount = await diffRows.count();
-    expect(diffRowCount).toBeGreaterThan(0);
-
-    // Navigate until we hit a diff-split-row
-    let foundDiffRow = false;
-    for (let i = 0; i < 30; i++) {
-      const focusedEl = page.locator('.kb-nav.focused');
-      const tagName = await focusedEl.evaluate(el => el.className);
-      if (tagName.includes('diff-split-row')) {
-        foundDiffRow = true;
-        break;
-      }
-      await page.keyboard.press('j');
-    }
-    expect(foundDiffRow).toBe(true);
-
-    // Now press j again — should move to the NEXT row, not the right side of the same row
     const currentRow = page.locator('.diff-split-row.kb-nav.focused');
+    await expect(currentRow).toHaveCount(1);
+
+    // Record the current index
     const currentIndex = await currentRow.evaluate(el => {
       const allRows = Array.from(document.querySelectorAll('.kb-nav'));
       return allRows.indexOf(el);
     });
 
+    // Now press j again — should move to the NEXT row, not the right side of the same row
     await page.keyboard.press('j');
 
     const nextFocused = page.locator('.kb-nav.focused');
@@ -145,29 +131,22 @@ test.describe('Keyboard Navigation — Markdown Document View', () => {
     const count = await lineBlocks.count();
     expect(count).toBeGreaterThan(2);
 
-    // Press j to focus the first navigable element (could be diff row from earlier file)
-    // Keep pressing j until we're in a line-block
-    let foundLineBlock = false;
-    for (let i = 0; i < 50; i++) {
-      await page.keyboard.press('j');
-      const focused = page.locator('.line-block.kb-nav.focused');
-      if (await focused.count() > 0) {
-        foundLineBlock = true;
-        break;
-      }
-    }
-    expect(foundLineBlock).toBe(true);
+    // Hover the first markdown line-block to set focusedElement, then press j to focus it
+    const firstBlock = lineBlocks.first();
+    await firstBlock.hover();
+    await page.keyboard.press('j');
+
+    await expect(page.locator('.line-block.kb-nav.focused')).toHaveCount(1);
+    const firstFocusedText = await page.locator('.line-block.kb-nav.focused').textContent();
 
     // Press j again to move to the next line block
-    const firstFocusedText = await page.locator('.line-block.kb-nav.focused').textContent();
     await page.keyboard.press('j');
 
     const secondFocused = page.locator('.kb-nav.focused');
     await expect(secondFocused).toHaveCount(1);
     const secondFocusedText = await secondFocused.textContent();
 
-    // If still in markdown area, the text should have changed
-    // (or we moved to a different block at minimum)
+    // The text should have changed (moved to a different block)
     expect(secondFocusedText).not.toBe(firstFocusedText);
   });
 });
@@ -183,19 +162,12 @@ test.describe('Keyboard Comment Shortcuts — Diff', () => {
   });
 
   test('c opens comment form on focused diff block', async ({ page }) => {
-    // Navigate to a diff row
-    let foundDiffRow = false;
-    for (let i = 0; i < 30; i++) {
-      await page.keyboard.press('j');
-      const focused = page.locator('.diff-split-row.kb-nav.focused');
-      if (await focused.count() > 0) {
-        foundDiffRow = true;
-        break;
-      }
-    }
-    expect(foundDiffRow).toBe(true);
+    // Hover a diff row to set focusedElement via mouseenter
+    const diffRow = page.locator('.diff-split-row.kb-nav').first();
+    await expect(diffRow).toBeAttached();
+    await diffRow.hover();
 
-    // Press c to open comment form
+    // Press c to open comment form (uses focusedElement directly)
     await page.keyboard.press('c');
 
     const form = page.locator('.comment-form');
@@ -262,26 +234,22 @@ test.describe('Keyboard Comment Shortcuts — Diff', () => {
 });
 
 test.describe('Keyboard Comment Shortcuts — Markdown', () => {
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
-    await loadPage(page);
-    await switchToDocumentView(page);
-    await clearFocus(page);
   });
 
   test('c opens comment form on focused markdown block', async ({ page }) => {
-    // Navigate to a markdown line-block
-    let found = false;
-    for (let i = 0; i < 50; i++) {
-      await page.keyboard.press('j');
-      const focused = page.locator('.line-block.kb-nav.focused');
-      if (await focused.count() > 0) {
-        found = true;
-        break;
-      }
-    }
-    expect(found).toBe(true);
+    await loadPage(page);
+    await switchToDocumentView(page);
+    await clearFocus(page);
 
+    // Hover a markdown line-block to set focusedElement via mouseenter
+    const section = mdSection(page);
+    const lineBlock = section.locator('.line-block.kb-nav').first();
+    await expect(lineBlock).toBeAttached();
+    await lineBlock.hover();
+
+    // c uses focusedElement directly (set by hover), no j-key needed
     await page.keyboard.press('c');
 
     const form = page.locator('.comment-form');
@@ -300,27 +268,13 @@ test.describe('Keyboard Comment Shortcuts — Markdown', () => {
     await switchToDocumentView(page);
     await clearFocus(page);
 
-    // Navigate to the first line-block (line 1)
-    let found = false;
-    for (let i = 0; i < 50; i++) {
-      await page.keyboard.press('j');
-      const focused = page.locator('.line-block.kb-nav.focused');
-      if (await focused.count() > 0) {
-        // Check if the block's data attributes cover line 1
-        const startLine = await focused.getAttribute('data-start-line');
-        const endLine = await focused.getAttribute('data-end-line');
-        if (startLine && endLine) {
-          const sl = parseInt(startLine);
-          const el = parseInt(endLine);
-          if (sl <= 1 && el >= 1) {
-            found = true;
-            break;
-          }
-        }
-      }
-    }
-    expect(found).toBe(true);
+    // Hover the line-block covering line 1 to set focusedElement via mouseenter
+    const section = mdSection(page);
+    const lineBlock = section.locator('.line-block.kb-nav[data-start-line="1"]');
+    await expect(lineBlock).toBeAttached();
+    await lineBlock.hover();
 
+    // e uses focusedElement directly (set by hover), no j-key needed
     await page.keyboard.press('e');
 
     const textarea = page.locator('.comment-form textarea');
@@ -342,26 +296,12 @@ test.describe('Keyboard Comment Shortcuts — Markdown', () => {
     const section = mdSection(page);
     await expect(section.locator('.comment-card')).toBeVisible();
 
-    // Navigate to the first line-block covering line 1
-    let found = false;
-    for (let i = 0; i < 50; i++) {
-      await page.keyboard.press('j');
-      const focused = page.locator('.line-block.kb-nav.focused');
-      if (await focused.count() > 0) {
-        const startLine = await focused.getAttribute('data-start-line');
-        const endLine = await focused.getAttribute('data-end-line');
-        if (startLine && endLine) {
-          const sl = parseInt(startLine);
-          const el = parseInt(endLine);
-          if (sl <= 1 && el >= 1) {
-            found = true;
-            break;
-          }
-        }
-      }
-    }
-    expect(found).toBe(true);
+    // Hover the line-block covering line 1 to set focusedElement via mouseenter
+    const lineBlock = section.locator('.line-block.kb-nav[data-start-line="1"]');
+    await expect(lineBlock).toBeAttached();
+    await lineBlock.hover();
 
+    // d uses focusedElement directly (set by hover), no j-key needed
     await page.keyboard.press('d');
 
     await expect(section.locator('.comment-card')).toHaveCount(0);
@@ -436,12 +376,10 @@ test.describe('Keyboard Escape Behavior', () => {
   });
 
   test('Escape closes open comment form', async ({ page }) => {
-    // Navigate to a diff row and open comment form
-    for (let i = 0; i < 30; i++) {
-      await page.keyboard.press('j');
-      const focused = page.locator('.diff-split-row.kb-nav.focused');
-      if (await focused.count() > 0) break;
-    }
+    // Hover a diff row to set focusedElement, then open comment form
+    const diffRow = page.locator('.diff-split-row.kb-nav').first();
+    await expect(diffRow).toBeAttached();
+    await diffRow.hover();
     await page.keyboard.press('c');
 
     const form = page.locator('.comment-form');
@@ -475,12 +413,10 @@ test.describe('Shortcuts Disabled When Typing', () => {
   });
 
   test('j types into textarea instead of navigating when textarea is focused', async ({ page }) => {
-    // Navigate to a diff row and open comment form
-    for (let i = 0; i < 30; i++) {
-      await page.keyboard.press('j');
-      const focused = page.locator('.diff-split-row.kb-nav.focused');
-      if (await focused.count() > 0) break;
-    }
+    // Hover a diff row to set focusedElement, then open comment form
+    const diffRow = page.locator('.diff-split-row.kb-nav').first();
+    await expect(diffRow).toBeAttached();
+    await diffRow.hover();
     await page.keyboard.press('c');
 
     const textarea = page.locator('.comment-form textarea');
@@ -496,12 +432,10 @@ test.describe('Shortcuts Disabled When Typing', () => {
   });
 
   test('other shortcuts (?, t) do not fire when textarea is focused', async ({ page }) => {
-    // Open a comment form
-    for (let i = 0; i < 30; i++) {
-      await page.keyboard.press('j');
-      const focused = page.locator('.diff-split-row.kb-nav.focused');
-      if (await focused.count() > 0) break;
-    }
+    // Hover a diff row to set focusedElement, then open comment form
+    const diffRow = page.locator('.diff-split-row.kb-nav').first();
+    await expect(diffRow).toBeAttached();
+    await diffRow.hover();
     await page.keyboard.press('c');
 
     const textarea = page.locator('.comment-form textarea');

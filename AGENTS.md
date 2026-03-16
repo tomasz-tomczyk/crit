@@ -139,7 +139,7 @@ make e2e-report                                       # View HTML report with sc
   - `git-mode` (port 3123) — `setup-fixtures.sh` — git repo with feature branch. Runs `*.spec.ts` (excludes other suffixes)
   - `file-mode` (port 3124) — `setup-fixtures-filemode.sh` — plain files, no git. Runs `*.filemode.spec.ts`
   - `single-file-mode` (port 3125) — `setup-fixtures-singlefile.sh` — single markdown file. Runs `*.singlefile.spec.ts`
-  - `no-git-mode` (port 3126) — `setup-fixtures-nogit.sh` — file mode without git. Runs `*.filemode.spec.ts`
+  - `no-git-mode` (port 3126) — `setup-fixtures-nogit.sh` — file mode without git. Runs `*.nogit.spec.ts`
   - `multi-file-mode` (port 3127) — `setup-fixtures-multifile.sh` — multiple code + markdown files. Runs `*.multifile.spec.ts`
 - **Real server**: Tests run against the actual compiled `crit` binary — no mocking
 - **Video/trace off by default**: Set `E2E_DEBUG=1` to enable video and trace recording on failure (saved to `e2e/test-results/`)
@@ -187,12 +187,14 @@ make e2e-report                                       # View HTML report with sc
 | `toc.singlefile.spec.ts` | single | Table of contents |
 | `toc-scrollspy.singlefile.spec.ts` | single | TOC scroll-spy highlighting |
 | `multifile.multifile.spec.ts` | multi | Loading, code rendering, comments on Go/Elixir, directory files |
+| `nogit.nogit.spec.ts` | no-git | Git-absence invariants: no branch, no diff toggle, session mode |
 
 ### Writing new tests
 
 - **Git-mode tests**: name as `*.spec.ts` — runs against the git fixture on port 3123
 - **File-mode tests**: name as `*.filemode.spec.ts` — runs against the file fixture on port 3124
 - **Single-file tests**: name as `*.singlefile.spec.ts` — runs against single-file fixture on port 3125
+- **No-git tests**: name as `*.nogit.spec.ts` — runs against the no-git fixture on port 3126
 - **Multi-file tests**: name as `*.multifile.spec.ts` — runs against the multi-file fixture on port 3127
 - **Comment cleanup**: the server persists comments between tests. Use `clearAllComments(request)` in `beforeEach` to reset state — this calls `DELETE /api/comments` (bulk endpoint)
 - **Shared helpers**: import from `./helpers` — provides `clearAllComments`, `loadPage`, `mdSection`, `goSection`, `jsSection`, `switchToDocumentView`, `dragBetween`, `clearFocus`, `addComment`, `getMdPath`
@@ -206,7 +208,7 @@ make e2e-report                                       # View HTML report with sc
 - **Always import from `./helpers`** — don't redefine `loadPage`, `mdSection`, etc. locally. If a test needs a fixture-specific helper, define it in that file but use `Page` types, not `any`.
 - **Use `clearAllComments(request)` in `beforeEach`** — the server persists state across tests. Always clean up.
 - **Parallel execution**: projects run in parallel via shell (each in its own `npx playwright test --project=X` process). Tests within a project run sequentially (`workers: 1`) because they share server state. Don't add `workers > 1` to `playwright.config.ts`.
-- **Test naming convention**: `*.spec.ts` (git-mode), `*.filemode.spec.ts` (file-mode + no-git-mode), `*.singlefile.spec.ts` (single-file), `*.multifile.spec.ts` (multi-file). The git-mode regex explicitly excludes all other patterns.
+- **Test naming convention**: `*.spec.ts` (git-mode), `*.filemode.spec.ts` (file-mode), `*.singlefile.spec.ts` (single-file), `*.nogit.spec.ts` (no-git-mode), `*.multifile.spec.ts` (multi-file). The git-mode regex explicitly excludes all other patterns.
 - **CSS selectors**: check existing tests for the correct class names before writing assertions. The codebase uses specific names like `.tree-comment-badge` (not `.tree-file-comments`).
 - **Scroll before interact**: if an element might be below the viewport (especially in file-mode with multiple files), call `scrollIntoViewIfNeeded()` before hover/click/drag.
 
