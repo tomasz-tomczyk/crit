@@ -811,7 +811,7 @@ Options:
       --no-open               Don't auto-open browser
       --no-ignore             Disable all file ignore patterns
   -q, --quiet                 Suppress status output
-      --share-url <url>       Share service URL (e.g. https://crit.live)
+      --share-url <url>       Share service URL (e.g. https://crit.live or self-hosted)
       --qr                    Print QR code of share URL (with crit share)
   -v, --version               Print version
 
