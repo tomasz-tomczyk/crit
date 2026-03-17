@@ -36,578 +36,590 @@ var (
 )
 
 func main() {
-	// Handle "crit help" subcommand
-	if len(os.Args) >= 2 && (os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h") {
+	if len(os.Args) < 2 {
+		runServer(os.Args[1:])
+		return
+	}
+
+	switch os.Args[1] {
+	case "help", "--help", "-h":
 		printHelp()
-		os.Exit(0)
+	case "go":
+		runGo(os.Args[2:])
+	case "listen":
+		runListen(os.Args[2:])
+	case "share":
+		runShare(os.Args[2:])
+	case "unpublish":
+		runUnpublish(os.Args[2:])
+	case "install":
+		runInstall(os.Args[2:])
+	case "config":
+		runConfig(os.Args[2:])
+	case "pull":
+		runPull(os.Args[2:])
+	case "push":
+		runPush(os.Args[2:])
+	case "comment":
+		runComment(os.Args[2:])
+	default:
+		runServer(os.Args[1:])
 	}
+}
 
-	// Handle "crit go <port>" subcommand — signals round-complete to a running crit server
-	if len(os.Args) >= 2 && os.Args[1] == "go" {
-		port := requirePort(os.Args[2:], "crit go <port>")
-		resp, err := http.Post("http://localhost:"+port+"/api/round-complete", "application/json", nil)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: could not reach crit on port %s: %v\n", port, err)
-			os.Exit(1)
-		}
-		resp.Body.Close()
-		if resp.StatusCode == 200 {
-			fmt.Println("Round complete — crit will reload.")
-			newStatus(os.Stdout).ListenHint(port)
-		} else {
-			fmt.Fprintf(os.Stderr, "Unexpected status: %d\n", resp.StatusCode)
-			os.Exit(1)
-		}
-		os.Exit(0)
+func runGo(args []string) {
+	port := requirePort(args, "crit go <port>")
+	resp, err := http.Post("http://localhost:"+port+"/api/round-complete", "application/json", nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not reach crit on port %s: %v\n", port, err)
+		os.Exit(1)
 	}
-
-	// Handle "crit listen <port>" subcommand — waits until finish event
-	if len(os.Args) >= 2 && os.Args[1] == "listen" {
-		port := requirePort(os.Args[2:], "crit listen <port>")
-		client := &http.Client{Timeout: 24 * time.Hour}
-		resp, err := client.Get("http://localhost:" + port + "/api/wait-for-event")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: could not reach crit on port %s: %v\n", port, err)
-			os.Exit(1)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode == http.StatusGatewayTimeout {
-			fmt.Fprintln(os.Stderr, "Timeout waiting for event")
-			os.Exit(1)
-		}
-		_, err = io.Copy(os.Stdout, resp.Body)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
-			os.Exit(1)
-		}
-		os.Exit(0)
+	resp.Body.Close()
+	if resp.StatusCode == 200 {
+		fmt.Println("Round complete — crit will reload.")
+		newStatus(os.Stdout).ListenHint(port)
+	} else {
+		fmt.Fprintf(os.Stderr, "Unexpected status: %d\n", resp.StatusCode)
+		os.Exit(1)
 	}
+}
 
-	// Handle "crit share [--output <dir>] [--share-url <url>] [--qr] <file> [file...]" subcommand
-	if len(os.Args) >= 2 && os.Args[1] == "share" {
-		shareOutputDir := ""
-		shareSvcURL := ""
-		showQR := false
-		var shareArgs []string
-		for i := 2; i < len(os.Args); i++ {
-			arg := os.Args[i]
-			switch {
-			case arg == "--output" || arg == "-o":
-				if i+1 >= len(os.Args) {
-					fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
-					os.Exit(1)
-				}
-				i++
-				shareOutputDir = os.Args[i]
-			case arg == "--share-url":
-				if i+1 >= len(os.Args) {
-					fmt.Fprintf(os.Stderr, "Error: --share-url requires a value\n")
-					os.Exit(1)
-				}
-				i++
-				shareSvcURL = os.Args[i]
-			case arg == "--qr":
-				showQR = true
-			default:
-				shareArgs = append(shareArgs, arg)
-			}
-		}
+func runListen(args []string) {
+	port := requirePort(args, "crit listen <port>")
+	client := &http.Client{Timeout: 24 * time.Hour}
+	resp, err := client.Get("http://localhost:" + port + "/api/wait-for-event")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not reach crit on port %s: %v\n", port, err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusGatewayTimeout {
+		fmt.Fprintln(os.Stderr, "Timeout waiting for event")
+		os.Exit(1)
+	}
+	_, err = io.Copy(os.Stdout, resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
+		os.Exit(1)
+	}
+}
 
-		if len(shareArgs) == 0 {
-			fmt.Fprintln(os.Stderr, "Usage: crit share [--output <dir>] [--share-url <url>] [--qr] <file> [file...]")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "Shares files to crit-web and prints the review URL.")
-			fmt.Fprintln(os.Stderr, "Comments from .crit.json are included automatically.")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "Examples:")
-			fmt.Fprintln(os.Stderr, "  crit share plan.md")
-			fmt.Fprintln(os.Stderr, "  crit share plan.md src/main.go")
-			fmt.Fprintln(os.Stderr, "  crit share --qr plan.md")
-			os.Exit(1)
-		}
-
-		shareSvcURL = resolveShareURL(shareSvcURL)
-
-		var files []shareFile
-		for _, path := range shareArgs {
-			content, err := os.ReadFile(path)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", path, err)
+func runShare(args []string) {
+	shareOutputDir := ""
+	shareSvcURL := ""
+	showQR := false
+	var shareArgs []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--output" || arg == "-o":
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
 				os.Exit(1)
 			}
-			relPath := path
-			if filepath.IsAbs(path) {
-				if wd, err := os.Getwd(); err == nil {
-					if rel, err := filepath.Rel(wd, path); err == nil {
-						relPath = rel
-					}
+			i++
+			shareOutputDir = args[i]
+		case arg == "--share-url":
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --share-url requires a value\n")
+				os.Exit(1)
+			}
+			i++
+			shareSvcURL = args[i]
+		case arg == "--qr":
+			showQR = true
+		default:
+			shareArgs = append(shareArgs, arg)
+		}
+	}
+
+	if len(shareArgs) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: crit share [--output <dir>] [--share-url <url>] [--qr] <file> [file...]")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Shares files to crit-web and prints the review URL.")
+		fmt.Fprintln(os.Stderr, "Comments from .crit.json are included automatically.")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Examples:")
+		fmt.Fprintln(os.Stderr, "  crit share plan.md")
+		fmt.Fprintln(os.Stderr, "  crit share plan.md src/main.go")
+		fmt.Fprintln(os.Stderr, "  crit share --qr plan.md")
+		os.Exit(1)
+	}
+
+	shareSvcURL = resolveShareURL(shareSvcURL)
+
+	var files []shareFile
+	for _, path := range shareArgs {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", path, err)
+			os.Exit(1)
+		}
+		relPath := path
+		if filepath.IsAbs(path) {
+			if wd, err := os.Getwd(); err == nil {
+				if rel, err := filepath.Rel(wd, path); err == nil {
+					relPath = rel
 				}
 			}
-			files = append(files, shareFile{Path: relPath, Content: string(content)})
 		}
+		files = append(files, shareFile{Path: relPath, Content: string(content)})
+	}
 
-		critDir, err := resolveCritDir(shareOutputDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
+	critDir, err := resolveCritDir(shareOutputDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 
-		// Idempotent: if already shared (same file set), print the existing URL.
-		sharePaths := make([]string, len(files))
-		for i, f := range files {
-			sharePaths[i] = f.Path
-		}
-		existingURL, _ := loadExistingShareState(critDir, sharePaths)
-		if existingURL != "" {
-			fmt.Println(existingURL)
-			if showQR {
-				fmt.Println()
-				qrterminal.GenerateWithConfig(existingURL, qrterminal.Config{
-					Level:      qrterminal.L,
-					Writer:     os.Stdout,
-					HalfBlocks: true,
-					QuietZone:  1,
-				})
-			}
-			os.Exit(0)
-		}
-
-		filePaths := make([]string, len(files))
-		for i, f := range files {
-			filePaths[i] = f.Path
-		}
-		comments, reviewRound := loadCommentsForShare(critDir, filePaths)
-
-		url, deleteToken, err := shareFilesToWeb(files, comments, shareSvcURL, reviewRound)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-		if err := persistShareState(critDir, url, deleteToken, shareScope(filePaths)); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not save share state to .crit.json: %v\n", err)
-		}
-
-		fmt.Println(url)
+	// Idempotent: if already shared (same file set), print the existing URL.
+	sharePaths := make([]string, len(files))
+	for i, f := range files {
+		sharePaths[i] = f.Path
+	}
+	existingURL, _ := loadExistingShareState(critDir, sharePaths)
+	if existingURL != "" {
+		fmt.Println(existingURL)
 		if showQR {
 			fmt.Println()
-			qrterminal.GenerateWithConfig(url, qrterminal.Config{
+			qrterminal.GenerateWithConfig(existingURL, qrterminal.Config{
 				Level:      qrterminal.L,
 				Writer:     os.Stdout,
 				HalfBlocks: true,
 				QuietZone:  1,
 			})
 		}
-
-		os.Exit(0)
+		return
 	}
 
-	// Handle "crit unpublish [--output <dir>] [--share-url <url>]" subcommand
-	if len(os.Args) >= 2 && os.Args[1] == "unpublish" {
-		unpubOutputDir := ""
-		unpubSvcURL := ""
-		for i := 2; i < len(os.Args); i++ {
-			arg := os.Args[i]
-			switch {
-			case arg == "--output" || arg == "-o":
-				if i+1 >= len(os.Args) {
-					fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
-					os.Exit(1)
-				}
-				i++
-				unpubOutputDir = os.Args[i]
-			case arg == "--share-url":
-				if i+1 >= len(os.Args) {
-					fmt.Fprintf(os.Stderr, "Error: --share-url requires a value\n")
-					os.Exit(1)
-				}
-				i++
-				unpubSvcURL = os.Args[i]
-			default:
-				fmt.Fprintf(os.Stderr, "Usage: crit unpublish [--output <dir>] [--share-url <url>]\n")
+	filePaths := make([]string, len(files))
+	for i, f := range files {
+		filePaths[i] = f.Path
+	}
+	comments, reviewRound := loadCommentsForShare(critDir, filePaths)
+
+	url, deleteToken, err := shareFilesToWeb(files, comments, shareSvcURL, reviewRound)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := persistShareState(critDir, url, deleteToken, shareScope(filePaths)); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not save share state to .crit.json: %v\n", err)
+	}
+
+	fmt.Println(url)
+	if showQR {
+		fmt.Println()
+		qrterminal.GenerateWithConfig(url, qrterminal.Config{
+			Level:      qrterminal.L,
+			Writer:     os.Stdout,
+			HalfBlocks: true,
+			QuietZone:  1,
+		})
+	}
+}
+
+func runUnpublish(args []string) {
+	unpubOutputDir := ""
+	unpubSvcURL := ""
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--output" || arg == "-o":
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
 				os.Exit(1)
 			}
-		}
-
-		unpubSvcURL = resolveShareURL(unpubSvcURL)
-
-		critDir, err := resolveCritDir(unpubOutputDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			i++
+			unpubOutputDir = args[i]
+		case arg == "--share-url":
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --share-url requires a value\n")
+				os.Exit(1)
+			}
+			i++
+			unpubSvcURL = args[i]
+		default:
+			fmt.Fprintf(os.Stderr, "Usage: crit unpublish [--output <dir>] [--share-url <url>]\n")
 			os.Exit(1)
 		}
-		critPath := filepath.Join(critDir, ".crit.json")
-		data, err := os.ReadFile(critPath)
+	}
+
+	unpubSvcURL = resolveShareURL(unpubSvcURL)
+
+	critDir, err := resolveCritDir(unpubOutputDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	critPath := filepath.Join(critDir, ".crit.json")
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: no .crit.json found. Nothing to unpublish.")
+		os.Exit(1)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid .crit.json: %v\n", err)
+		os.Exit(1)
+	}
+	if cj.DeleteToken == "" {
+		fmt.Fprintln(os.Stderr, "No shared review found in .crit.json — nothing to unpublish.")
+		return
+	}
+
+	if err := unpublishFromWeb(unpubSvcURL, cj.DeleteToken); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := clearShareState(critDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not clear share state from .crit.json: %v\n", err)
+	}
+
+	fmt.Println("Review unpublished.")
+}
+
+func runInstall(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: crit install <agent>")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Available agents:")
+		for _, a := range availableIntegrations() {
+			fmt.Fprintf(os.Stderr, "  %s\n", a)
+		}
+		fmt.Fprintln(os.Stderr, "  all")
+		os.Exit(1)
+	}
+
+	force := false
+	for _, arg := range args[1:] {
+		if arg == "--force" || arg == "-f" {
+			force = true
+		}
+	}
+
+	target := args[0]
+	if target == "all" {
+		for _, name := range availableIntegrations() {
+			installIntegration(name, force)
+		}
+	} else {
+		installIntegration(target, force)
+	}
+}
+
+func runConfig(args []string) {
+	for _, arg := range args {
+		if arg == "--help" || arg == "-h" || arg == "help" {
+			printConfigHelp()
+			return
+		}
+		if arg == "--generate" || arg == "-g" {
+			fmt.Print(defaultConfig().String())
+			return
+		}
+	}
+	configDir := ""
+	if IsGitRepo() {
+		configDir, _ = RepoRoot()
+	}
+	if configDir == "" {
+		configDir, _ = os.Getwd()
+	}
+	cfg := LoadConfig(configDir)
+	fmt.Print(cfg.String())
+}
+
+func runPull(args []string) {
+	if err := requireGH(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	prFlag := 0
+	pullOutputDir := ""
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--output" || arg == "-o" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
+				os.Exit(1)
+			}
+			i++
+			pullOutputDir = args[i]
+			continue
+		}
+		n, err := strconv.Atoi(arg)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error: no .crit.json found. Nothing to unpublish.")
+			fmt.Fprintf(os.Stderr, "Usage: crit pull [--output <dir>] [pr-number]\n")
 			os.Exit(1)
 		}
-		var cj CritJSON
+		prFlag = n
+	}
+
+	prNumber, err := detectPR(prFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	ghComments, err := fetchPRComments(prNumber)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Load existing .crit.json or create new
+	critDir, err := resolveCritDir(pullOutputDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	var cj CritJSON
+	if data, err := os.ReadFile(filepath.Join(critDir, ".crit.json")); err == nil {
 		if err := json.Unmarshal(data, &cj); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid .crit.json: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintf(os.Stderr, "Warning: existing .crit.json is invalid, starting fresh: %v\n", err)
 		}
-		if cj.DeleteToken == "" {
-			fmt.Fprintln(os.Stderr, "No shared review found in .crit.json — nothing to unpublish.")
-			os.Exit(0)
-		}
-
-		if err := unpublishFromWeb(unpubSvcURL, cj.DeleteToken); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-		if err := clearShareState(critDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not clear share state from .crit.json: %v\n", err)
-		}
-
-		fmt.Println("Review unpublished.")
-		os.Exit(0)
+	}
+	if cj.Files == nil {
+		cj.Files = make(map[string]CritJSONFile)
+		cj.Branch = CurrentBranch()
+		cj.BaseRef, _ = MergeBase(DefaultBranch())
+		cj.ReviewRound = 1
 	}
 
-	// Handle "crit install [agent]" subcommand
-	if len(os.Args) >= 2 && os.Args[1] == "install" {
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "Usage: crit install <agent>")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "Available agents:")
-			for _, a := range availableIntegrations() {
-				fmt.Fprintf(os.Stderr, "  %s\n", a)
-			}
-			fmt.Fprintln(os.Stderr, "  all")
-			os.Exit(1)
-		}
-		target := os.Args[2]
-		if target == "all" {
-			for _, name := range availableIntegrations() {
-				installIntegration(name)
-			}
-		} else {
-			installIntegration(target)
-		}
-		os.Exit(0)
+	added := mergeGHComments(&cj, ghComments)
+
+	if added == 0 {
+		fmt.Printf("No new inline comments found on PR #%d\n", prNumber)
+		return
 	}
 
-	// Handle "crit config" subcommand — print resolved configuration
-	if len(os.Args) >= 2 && os.Args[1] == "config" {
-		// Check for flags
-		for _, arg := range os.Args[2:] {
-			if arg == "--help" || arg == "-h" || arg == "help" {
-				printConfigHelp()
-				os.Exit(0)
-			}
-			if arg == "--generate" || arg == "-g" {
-				fmt.Print(defaultConfig().String())
-				os.Exit(0)
-			}
-		}
-		configDir := ""
-		if IsGitRepo() {
-			configDir, _ = RepoRoot()
-		}
-		if configDir == "" {
-			configDir, _ = os.Getwd()
-		}
-		cfg := LoadConfig(configDir)
-		fmt.Print(cfg.String())
-		os.Exit(0)
+	if err := writeCritJSON(cj, pullOutputDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 
-	// Handle "crit pull [--output <dir>] [pr-number]" subcommand — fetch GitHub PR comments to .crit.json
-	if len(os.Args) >= 2 && os.Args[1] == "pull" {
-		if err := requireGH(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
+	fmt.Printf("Pulled %d comments from PR #%d into .crit.json\n", added, prNumber)
+	fmt.Println("Run 'crit' to view them in the browser.")
+}
 
-		prFlag := 0
-		pullOutputDir := ""
-		pullArgs := os.Args[2:]
-		for i := 0; i < len(pullArgs); i++ {
-			arg := pullArgs[i]
-			if arg == "--output" || arg == "-o" {
-				if i+1 >= len(pullArgs) {
-					fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
-					os.Exit(1)
-				}
-				i++
-				pullOutputDir = pullArgs[i]
-				continue
-			}
-			n, err := strconv.Atoi(arg)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Usage: crit pull [--output <dir>] [pr-number]\n")
+func runPush(args []string) {
+	if err := requireGH(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	prFlag := 0
+	dryRun := false
+	message := ""
+	pushOutputDir := ""
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--dry-run" {
+			dryRun = true
+			continue
+		}
+		if arg == "--message" || arg == "-m" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --message requires a value\n")
 				os.Exit(1)
 			}
-			prFlag = n
+			i++
+			message = args[i]
+			continue
 		}
-
-		prNumber, err := detectPR(prFlag)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-		ghComments, err := fetchPRComments(prNumber)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Load existing .crit.json or create new
-		critDir, err := resolveCritDir(pullOutputDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		var cj CritJSON
-		if data, err := os.ReadFile(filepath.Join(critDir, ".crit.json")); err == nil {
-			if err := json.Unmarshal(data, &cj); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: existing .crit.json is invalid, starting fresh: %v\n", err)
-			}
-		}
-		if cj.Files == nil {
-			cj.Files = make(map[string]CritJSONFile)
-			cj.Branch = CurrentBranch()
-			cj.BaseRef, _ = MergeBase(DefaultBranch())
-			cj.ReviewRound = 1
-		}
-
-		added := mergeGHComments(&cj, ghComments)
-
-		if added == 0 {
-			fmt.Printf("No new inline comments found on PR #%d\n", prNumber)
-			os.Exit(0)
-		}
-
-		if err := writeCritJSON(cj, pullOutputDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("Pulled %d comments from PR #%d into .crit.json\n", added, prNumber)
-		fmt.Println("Run 'crit' to view them in the browser.")
-		os.Exit(0)
-	}
-
-	// Handle "crit push [--dry-run] [pr-number]" subcommand — post .crit.json comments to GitHub PR
-	if len(os.Args) >= 2 && os.Args[1] == "push" {
-		if err := requireGH(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-		prFlag := 0
-		dryRun := false
-		message := ""
-		pushOutputDir := ""
-		args := os.Args[2:]
-		for i := 0; i < len(args); i++ {
-			arg := args[i]
-			if arg == "--dry-run" {
-				dryRun = true
-				continue
-			}
-			if arg == "--message" || arg == "-m" {
-				if i+1 >= len(args) {
-					fmt.Fprintf(os.Stderr, "Error: --message requires a value\n")
-					os.Exit(1)
-				}
-				i++
-				message = args[i]
-				continue
-			}
-			if arg == "--output" || arg == "-o" {
-				if i+1 >= len(args) {
-					fmt.Fprintf(os.Stderr, "Error: --output requires a value\n")
-					os.Exit(1)
-				}
-				i++
-				pushOutputDir = args[i]
-				continue
-			}
-			n, err := strconv.Atoi(arg)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [--message <msg>] [--output <dir>] [pr-number]\n")
+		if arg == "--output" || arg == "-o" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --output requires a value\n")
 				os.Exit(1)
 			}
-			prFlag = n
+			i++
+			pushOutputDir = args[i]
+			continue
 		}
-
-		prNumber, err := detectPR(prFlag)
+		n, err := strconv.Atoi(arg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [--message <msg>] [--output <dir>] [pr-number]\n")
 			os.Exit(1)
 		}
-
-		// Read .crit.json
-		critDir, err := resolveCritDir(pushOutputDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		data, err := os.ReadFile(filepath.Join(critDir, ".crit.json"))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: no .crit.json found. Run a crit review first.\n")
-			os.Exit(1)
-		}
-		var cj CritJSON
-		if err := json.Unmarshal(data, &cj); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid .crit.json: %v\n", err)
-			os.Exit(1)
-		}
-
-		ghComments := critJSONToGHComments(cj)
-		if len(ghComments) == 0 {
-			fmt.Println("No unresolved comments to push.")
-			os.Exit(0)
-		}
-
-		if dryRun {
-			fmt.Printf("Would post %d comments to PR #%d:\n\n", len(ghComments), prNumber)
-			for _, c := range ghComments {
-				path := c["path"].(string)
-				line := c["line"].(int)
-				body := c["body"].(string)
-				if sl, ok := c["start_line"]; ok {
-					fmt.Printf("  %s:%d-%d\n", path, sl.(int), line)
-				} else {
-					fmt.Printf("  %s:%d\n", path, line)
-				}
-				fmt.Printf("    %s\n\n", body)
-			}
-			os.Exit(0)
-		}
-
-		fmt.Printf("Pushing %d comments to PR #%d...\n", len(ghComments), prNumber)
-		if err := createGHReview(prNumber, ghComments, message); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Posted %d review comments to PR #%d\n", len(ghComments), prNumber)
-		os.Exit(0)
+		prFlag = n
 	}
 
-	// Handle "crit comment <path>:<line[-end]> <body>" subcommand
-	if len(os.Args) >= 2 && os.Args[1] == "comment" {
-		// Parse flags, collecting non-flag args into commentArgs
-		commentOutputDir := ""
-		commentAuthor := ""
-		var commentArgs []string
-		for i := 2; i < len(os.Args); i++ {
-			arg := os.Args[i]
-			if arg == "--output" || arg == "-o" {
-				if i+1 >= len(os.Args) {
-					fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
-					os.Exit(1)
-				}
-				i++
-				commentOutputDir = os.Args[i]
-			} else if arg == "--author" {
-				if i+1 >= len(os.Args) {
-					fmt.Fprintf(os.Stderr, "Error: --author requires a value\n")
-					os.Exit(1)
-				}
-				i++
-				commentAuthor = os.Args[i]
+	prNumber, err := detectPR(prFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Read .crit.json
+	critDir, err := resolveCritDir(pushOutputDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	data, err := os.ReadFile(filepath.Join(critDir, ".crit.json"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: no .crit.json found. Run a crit review first.\n")
+		os.Exit(1)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid .crit.json: %v\n", err)
+		os.Exit(1)
+	}
+
+	ghComments := critJSONToGHComments(cj)
+	if len(ghComments) == 0 {
+		fmt.Println("No unresolved comments to push.")
+		return
+	}
+
+	if dryRun {
+		fmt.Printf("Would post %d comments to PR #%d:\n\n", len(ghComments), prNumber)
+		for _, c := range ghComments {
+			path := c["path"].(string)
+			line := c["line"].(int)
+			body := c["body"].(string)
+			if sl, ok := c["start_line"]; ok {
+				fmt.Printf("  %s:%d-%d\n", path, sl.(int), line)
 			} else {
-				commentArgs = append(commentArgs, arg)
+				fmt.Printf("  %s:%d\n", path, line)
 			}
+			fmt.Printf("    %s\n\n", body)
 		}
+		return
+	}
 
-		// Handle --clear flag
-		if len(commentArgs) >= 1 && commentArgs[0] == "--clear" {
-			if err := clearCritJSON(commentOutputDir); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	fmt.Printf("Pushing %d comments to PR #%d...\n", len(ghComments), prNumber)
+	if err := createGHReview(prNumber, ghComments, message); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Posted %d review comments to PR #%d\n", len(ghComments), prNumber)
+}
+
+func runComment(args []string) {
+	commentOutputDir := ""
+	commentAuthor := ""
+	var commentArgs []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--output" || arg == "-o" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
 				os.Exit(1)
 			}
-			fmt.Println("Cleared .crit.json")
-			os.Exit(0)
-		}
-
-		if len(commentArgs) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: crit comment [--output <dir>] [--author <name>] <path>:<line[-end]> <body>")
-			fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] --clear")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "Examples:")
-			fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' main.go:42 'Fix this bug'")
-			fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' src/auth.go:10-25 'This block needs refactoring'")
-			fmt.Fprintln(os.Stderr, "  crit comment --output /tmp/reviews main.go:42 'Fix this bug'")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "Tips:")
-			fmt.Fprintln(os.Stderr, "  Use --author to identify who left the comment (recommended for AI agents)")
-			fmt.Fprintln(os.Stderr, "  Use single quotes for the body to avoid shell interpretation of backticks")
-			os.Exit(1)
-		}
-
-		// Parse <path>:<line[-end]>
-		loc := commentArgs[0]
-		colonIdx := strings.LastIndex(loc, ":")
-		if colonIdx < 0 {
-			fmt.Fprintf(os.Stderr, "Error: invalid location %q — expected <path>:<line[-end]>\n", loc)
-			os.Exit(1)
-		}
-		filePath := loc[:colonIdx]
-		lineSpec := loc[colonIdx+1:]
-
-		var startLine, endLine int
-		if dashIdx := strings.Index(lineSpec, "-"); dashIdx >= 0 {
-			s, err := strconv.Atoi(lineSpec[:dashIdx])
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: invalid start line in %q\n", loc)
+			i++
+			commentOutputDir = args[i]
+		} else if arg == "--author" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --author requires a value\n")
 				os.Exit(1)
 			}
-			e, err := strconv.Atoi(lineSpec[dashIdx+1:])
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: invalid end line in %q\n", loc)
-				os.Exit(1)
-			}
-			startLine, endLine = s, e
+			i++
+			commentAuthor = args[i]
 		} else {
-			n, err := strconv.Atoi(lineSpec)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: invalid line number in %q\n", loc)
-				os.Exit(1)
-			}
-			startLine, endLine = n, n
+			commentArgs = append(commentArgs, arg)
 		}
+	}
 
-		// Body is all remaining args joined
-		body := strings.Join(commentArgs[1:], " ")
-
-		// Resolve author: --author flag > config > git user.name
-		if commentAuthor == "" {
-			commentCfgDir, _ := os.Getwd()
-			if IsGitRepo() {
-				commentCfgDir, _ = RepoRoot()
-			}
-			commentCfg := LoadConfig(commentCfgDir)
-			commentAuthor = commentCfg.Author
-		}
-
-		if err := addCommentToCritJSON(filePath, startLine, endLine, body, commentAuthor, commentOutputDir); err != nil {
+	// Handle --clear flag
+	if len(commentArgs) >= 1 && commentArgs[0] == "--clear" {
+		if err := clearCritJSON(commentOutputDir); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
-		os.Exit(0)
+		fmt.Println("Cleared .crit.json")
+		return
 	}
 
-	port := flag.Int("port", 0, "Port to listen on (default: random available port)")
-	flag.IntVar(port, "p", 0, "Port to listen on (shorthand)")
-	noOpen := flag.Bool("no-open", false, "Don't auto-open browser")
-	showVersion := flag.Bool("version", false, "Print version and exit")
-	flag.BoolVar(showVersion, "v", false, "Print version and exit (shorthand)")
-	shareURL := flag.String("share-url", "", "Base URL of hosted Crit service for sharing reviews (overrides CRIT_SHARE_URL env var)")
-	outputDir := flag.String("output", "", "Output directory for .crit.json (default: repo root or file directory)")
-	flag.StringVar(outputDir, "o", "", "Output directory for .crit.json (shorthand)")
-	quiet := flag.Bool("quiet", false, "Suppress status output")
-	flag.BoolVar(quiet, "q", false, "Suppress status output (shorthand)")
-	noIgnore := flag.Bool("no-ignore", false, "Disable all ignore patterns from config files")
-	flag.Usage = func() {
+	if len(commentArgs) < 2 {
+		fmt.Fprintln(os.Stderr, "Usage: crit comment [--output <dir>] [--author <name>] <path>:<line[-end]> <body>")
+		fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] --clear")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Examples:")
+		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' main.go:42 'Fix this bug'")
+		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' src/auth.go:10-25 'This block needs refactoring'")
+		fmt.Fprintln(os.Stderr, "  crit comment --output /tmp/reviews main.go:42 'Fix this bug'")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Tips:")
+		fmt.Fprintln(os.Stderr, "  Use --author to identify who left the comment (recommended for AI agents)")
+		fmt.Fprintln(os.Stderr, "  Use single quotes for the body to avoid shell interpretation of backticks")
+		os.Exit(1)
+	}
+
+	// Parse <path>:<line[-end]>
+	loc := commentArgs[0]
+	colonIdx := strings.LastIndex(loc, ":")
+	if colonIdx < 0 {
+		fmt.Fprintf(os.Stderr, "Error: invalid location %q — expected <path>:<line[-end]>\n", loc)
+		os.Exit(1)
+	}
+	filePath := loc[:colonIdx]
+	lineSpec := loc[colonIdx+1:]
+
+	var startLine, endLine int
+	if dashIdx := strings.Index(lineSpec, "-"); dashIdx >= 0 {
+		s, err := strconv.Atoi(lineSpec[:dashIdx])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid start line in %q\n", loc)
+			os.Exit(1)
+		}
+		e, err := strconv.Atoi(lineSpec[dashIdx+1:])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid end line in %q\n", loc)
+			os.Exit(1)
+		}
+		startLine, endLine = s, e
+	} else {
+		n, err := strconv.Atoi(lineSpec)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid line number in %q\n", loc)
+			os.Exit(1)
+		}
+		startLine, endLine = n, n
+	}
+
+	// Body is all remaining args joined
+	body := strings.Join(commentArgs[1:], " ")
+
+	// Resolve author: --author flag > config > git user.name
+	if commentAuthor == "" {
+		commentCfgDir, _ := os.Getwd()
+		if IsGitRepo() {
+			commentCfgDir, _ = RepoRoot()
+		}
+		commentCfg := LoadConfig(commentCfgDir)
+		commentAuthor = commentCfg.Author
+	}
+
+	if err := addCommentToCritJSON(filePath, startLine, endLine, body, commentAuthor, commentOutputDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
+}
+
+func runServer(args []string) {
+	fs := flag.NewFlagSet("crit", flag.ExitOnError)
+	port := fs.Int("port", 0, "Port to listen on (default: random available port)")
+	fs.IntVar(port, "p", 0, "Port to listen on (shorthand)")
+	noOpen := fs.Bool("no-open", false, "Don't auto-open browser")
+	showVersion := fs.Bool("version", false, "Print version and exit")
+	fs.BoolVar(showVersion, "v", false, "Print version and exit (shorthand)")
+	shareURL := fs.String("share-url", "", "Base URL of hosted Crit service for sharing reviews (overrides CRIT_SHARE_URL env var)")
+	outputDir := fs.String("output", "", "Output directory for .crit.json (default: repo root or file directory)")
+	fs.StringVar(outputDir, "o", "", "Output directory for .crit.json (shorthand)")
+	quiet := fs.Bool("quiet", false, "Suppress status output")
+	fs.BoolVar(quiet, "q", false, "Suppress status output (shorthand)")
+	noIgnore := fs.Bool("no-ignore", false, "Disable all ignore patterns from config files")
+	fs.Usage = func() {
 		printHelp()
 	}
-	flag.Parse()
+	fs.Parse(args)
 
 	if *showVersion {
 		printVersion()
@@ -663,7 +675,7 @@ func main() {
 	var session *Session
 	var err error
 
-	if flag.NArg() == 0 {
+	if fs.NArg() == 0 {
 		// No-args: git mode — auto-detect changed files
 		if !IsGitRepo() {
 			fmt.Fprintln(os.Stderr, "Error: not in a git repository and no files specified")
@@ -677,7 +689,7 @@ func main() {
 		}
 	} else {
 		// Explicit files
-		session, err = NewSessionFromFiles(flag.Args(), ignorePatterns)
+		session, err = NewSessionFromFiles(fs.Args(), ignorePatterns)
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		}
@@ -921,7 +933,7 @@ func availableIntegrations() []string {
 	return []string{"claude-code", "cursor", "opencode", "windsurf", "github-copilot", "cline"}
 }
 
-func installIntegration(name string) {
+func installIntegration(name string, force bool) {
 	files, ok := integrationMap[name]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "Unknown agent: %s\n\nAvailable agents:\n", name)
@@ -929,13 +941,6 @@ func installIntegration(name string) {
 			fmt.Fprintf(os.Stderr, "  %s\n", a)
 		}
 		os.Exit(1)
-	}
-
-	force := false
-	for _, arg := range os.Args[3:] {
-		if arg == "--force" || arg == "-f" {
-			force = true
-		}
 	}
 
 	var hints []string
