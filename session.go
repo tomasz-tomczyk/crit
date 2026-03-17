@@ -1225,11 +1225,27 @@ func availableScopes(baseRef string) []string {
 	return scopes
 }
 
+// GetCommits returns the list of commits between the base ref and HEAD.
+// Returns nil for non-git sessions or when no base ref is set.
+func (s *Session) GetCommits() []CommitInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.Mode != "git" || s.BaseRef == "" {
+		return nil
+	}
+	commits, err := CommitLog(s.BaseRef, s.RepoRoot)
+	if err != nil {
+		return nil
+	}
+	return commits
+}
+
 // GetSessionInfoScoped returns session metadata filtered to a specific diff scope.
 // When scope is "" or in file mode (scopes only apply to git), delegates to GetSessionInfo.
 // All other scopes (including "all") run fresh git queries to pick up files added after startup.
-func (s *Session) GetSessionInfoScoped(scope string) SessionInfo {
-	if scope == "" || s.Mode == "files" {
+// When commit is non-empty, files and diffs are scoped to that single commit.
+func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
+	if commit == "" && (scope == "" || s.Mode == "files") {
 		return s.GetSessionInfo()
 	}
 
@@ -1255,7 +1271,13 @@ func (s *Session) GetSessionInfoScoped(scope string) SessionInfo {
 		AvailableScopes: availableScopes(baseRef),
 	}
 
-	changes, err := ChangedFilesScoped(scope, baseRef)
+	var changes []FileChange
+	var err error
+	if commit != "" {
+		changes, err = ChangedFilesForCommit(commit, repoRoot)
+	} else {
+		changes, err = ChangedFilesScoped(scope, baseRef)
+	}
 	if err != nil || len(changes) == 0 {
 		return info
 	}
@@ -1270,14 +1292,19 @@ func (s *Session) GetSessionInfoScoped(scope string) SessionInfo {
 
 		// Compute diff stats for the scoped view
 		var hunks []DiffHunk
-		if fc.Status == "added" || fc.Status == "untracked" {
+		if commit != "" {
+			h, diffErr := FileDiffForCommit(fc.Path, commit, repoRoot)
+			if diffErr == nil {
+				hunks = h
+			}
+		} else if fc.Status == "added" || fc.Status == "untracked" {
 			absPath := filepath.Join(repoRoot, fc.Path)
-			if data, err := os.ReadFile(absPath); err == nil {
+			if data, readErr := os.ReadFile(absPath); readErr == nil {
 				hunks = FileDiffUnifiedNewFile(string(data))
 			}
 		} else {
-			h, err := FileDiffScoped(fc.Path, scope, baseRef, repoRoot)
-			if err == nil {
+			h, diffErr := FileDiffScoped(fc.Path, scope, baseRef, repoRoot)
+			if diffErr == nil {
 				hunks = h
 			}
 		}
@@ -1300,8 +1327,9 @@ func (s *Session) GetSessionInfoScoped(scope string) SessionInfo {
 
 // GetFileDiffSnapshotScoped returns diff data for a file filtered by scope.
 // When scope is "" or in file mode (scopes only apply to git), delegates to GetFileDiffSnapshot.
-func (s *Session) GetFileDiffSnapshotScoped(path, scope string) (map[string]any, bool) {
-	if scope == "" || s.Mode == "files" {
+// When commit is non-empty, returns the diff for that single commit.
+func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string) (map[string]any, bool) {
+	if commit == "" && (scope == "" || s.Mode == "files") {
 		return s.GetFileDiffSnapshot(path)
 	}
 
@@ -1319,7 +1347,12 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope string) (map[string]any,
 	s.mu.RUnlock()
 
 	var hunks []DiffHunk
-	if status == "untracked" && scope == "unstaged" {
+	if commit != "" {
+		h, err := FileDiffForCommit(path, commit, repoRoot)
+		if err == nil {
+			hunks = h
+		}
+	} else if status == "untracked" && scope == "unstaged" {
 		hunks = FileDiffUnifiedNewFile(content)
 	} else {
 		h, err := FileDiffScoped(path, scope, baseRef, repoRoot)

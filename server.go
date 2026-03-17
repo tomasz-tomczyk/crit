@@ -47,6 +47,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, author st
 	mux.HandleFunc("/api/wait-for-event", s.handleWaitForEvent)
 	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
 
+	mux.HandleFunc("/api/commits", s.handleCommits)
 	mux.HandleFunc("/api/comments", s.handleClearComments)
 	mux.HandleFunc("/api/qr", s.handleQR)
 
@@ -119,7 +120,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := r.URL.Query().Get("scope")
-	writeJSON(w, s.session.GetSessionInfoScoped(scope))
+	commit := r.URL.Query().Get("commit")
+	writeJSON(w, s.session.GetSessionInfoScoped(scope, commit))
 }
 
 func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
@@ -231,7 +233,8 @@ func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := r.URL.Query().Get("scope")
-	snapshot, ok := s.session.GetFileDiffSnapshotScoped(path, scope)
+	commit := r.URL.Query().Get("commit")
+	snapshot, ok := s.session.GetFileDiffSnapshotScoped(path, scope, commit)
 	if !ok {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
@@ -334,6 +337,15 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	commits := s.session.GetCommits()
+	writeJSON(w, commits)
 }
 
 func (s *Server) handleClearComments(w http.ResponseWriter, r *http.Request) {

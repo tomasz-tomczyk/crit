@@ -681,7 +681,7 @@ func TestGetFileDiffSnapshotScoped_AddedFileUnstagedScope(t *testing.T) {
 	s.Files[1].Status = "added"
 	s.Files[1].Content = "package main\n\nfunc main() {}\n"
 
-	result, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged")
+	result, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged", "")
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -705,7 +705,7 @@ func TestGetFileDiffSnapshotScoped_UntrackedFileUnstagedScope(t *testing.T) {
 	s.Files[1].Status = "untracked"
 	s.Files[1].Content = "package main\n\nfunc main() {}\n"
 
-	result, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged")
+	result, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged", "")
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
