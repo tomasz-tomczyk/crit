@@ -3467,8 +3467,11 @@
     let dropdown = null;
     let activeIndex = -1;
     let triggerStart = -1;
+    let navigated = false;
+    let suppressInput = false;
 
     textarea.addEventListener('input', function() {
+      if (suppressInput) { suppressInput = false; return; }
       var val = textarea.value;
       var cursor = textarea.selectionStart;
 
@@ -3510,13 +3513,15 @@
         e.preventDefault();
         e.stopImmediatePropagation();
         activeIndex = Math.min(activeIndex + 1, dropdown.children.length - 1);
+        navigated = true;
         highlightItem();
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         e.stopImmediatePropagation();
         activeIndex = Math.max(activeIndex - 1, 0);
+        navigated = true;
         highlightItem();
-      } else if (e.key === 'Enter' || e.key === 'Tab') {
+      } else if (e.key === 'Tab' || (e.key === 'Enter' && navigated)) {
         if (activeIndex >= 0 && activeIndex < dropdown.children.length) {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -3584,20 +3589,18 @@
         form.appendChild(dropdown);
       }
 
-      var ta = form.querySelector('textarea');
-      if (ta) {
-        // Position near cursor: count lines up to cursor position
-        var textBeforeCursor = ta.value.substring(0, ta.selectionStart);
-        var lineNumber = textBeforeCursor.split('\n').length;
-        var computedStyle = window.getComputedStyle(ta);
-        var lineHeight = parseFloat(computedStyle.lineHeight) || 22.4;
-        var paddingTop = parseFloat(computedStyle.paddingTop) || 10;
-        var cursorY = ta.offsetTop + paddingTop + (lineNumber * lineHeight);
-        dropdown.style.top = cursorY + 'px';
-      }
+      // Position near cursor: count lines up to cursor position
+      var textBeforeCursor = textarea.value.substring(0, textarea.selectionStart);
+      var lineNumber = textBeforeCursor.split('\n').length;
+      var computedStyle = window.getComputedStyle(textarea);
+      var lineHeight = parseFloat(computedStyle.lineHeight) || 22.4;
+      var paddingTop = parseFloat(computedStyle.paddingTop) || 10;
+      var cursorY = textarea.offsetTop + paddingTop + (lineNumber * lineHeight) - textarea.scrollTop;
+      dropdown.style.top = cursorY + 'px';
 
       dropdown.innerHTML = '';
       activeIndex = 0;
+      navigated = false;
 
       matches.forEach(function(filePath, idx) {
         var item = document.createElement('div');
@@ -3651,6 +3654,7 @@
       textarea.selectionStart = textarea.selectionEnd = newCursor;
       textarea.focus();
       hideDropdown();
+      suppressInput = true;
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
