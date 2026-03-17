@@ -268,6 +268,38 @@ func CommitLog(baseRef, dir string) ([]CommitInfo, error) {
 	return commits, nil
 }
 
+// ChangedFilesForCommit returns the files changed in a single commit.
+// The dir parameter sets the working directory for the git command.
+func ChangedFilesForCommit(sha, dir string) ([]FileChange, error) {
+	cmd := exec.Command("git", "diff-tree", "--no-commit-id", "-r", "--name-status", sha)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff-tree failed: %w", err)
+	}
+	return parseNameStatus(string(out)), nil
+}
+
+// FileDiffForCommit returns parsed diff hunks for a file in a single commit.
+// The dir parameter sets the working directory for the git command.
+func FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
+	cmd := exec.Command("git", "diff", "--no-color", sha+"^.."+sha, "--", path)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			// git diff exits 1 when there are differences
+		} else {
+			return nil, fmt.Errorf("git diff failed: %w", err)
+		}
+	}
+	return ParseUnifiedDiff(string(out)), nil
+}
+
 func changedFilesOnDefault() ([]FileChange, error) {
 	return changedFilesOnDefaultInDir("")
 }

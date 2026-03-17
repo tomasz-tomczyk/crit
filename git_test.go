@@ -1064,3 +1064,77 @@ func TestCommitLogEmpty(t *testing.T) {
 		t.Errorf("expected nil for empty baseRef, got %+v", commits)
 	}
 }
+
+func TestChangedFilesForCommit(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Create a feature branch with two commits
+	runGit(t, dir, "checkout", "-b", "feature/commit-files")
+	writeFile(t, filepath.Join(dir, "a.txt"), "hello\n")
+	runGit(t, dir, "add", "a.txt")
+	runGit(t, dir, "commit", "-m", "add a.txt")
+
+	// Second commit: add b.txt and modify a.txt
+	writeFile(t, filepath.Join(dir, "b.txt"), "world\n")
+	writeFile(t, filepath.Join(dir, "a.txt"), "hello modified\n")
+	runGit(t, dir, "add", "a.txt", "b.txt")
+	runGit(t, dir, "commit", "-m", "add b.txt and modify a.txt")
+
+	// Get HEAD SHA
+	sha := runGit(t, dir, "rev-parse", "HEAD")
+
+	changes, err := ChangedFilesForCommit(sha, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(changes) != 2 {
+		t.Fatalf("expected 2 changes, got %d: %+v", len(changes), changes)
+	}
+
+	paths := map[string]string{}
+	for _, c := range changes {
+		paths[c.Path] = c.Status
+	}
+	if paths["a.txt"] != "modified" {
+		t.Errorf("a.txt status = %q, want modified", paths["a.txt"])
+	}
+	if paths["b.txt"] != "added" {
+		t.Errorf("b.txt status = %q, want added", paths["b.txt"])
+	}
+}
+
+func TestFileDiffForCommit(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Create a feature branch and commit a file
+	runGit(t, dir, "checkout", "-b", "feature/commit-diff")
+	writeFile(t, filepath.Join(dir, "code.go"), "package main\n\nfunc Hello() {}\n")
+	runGit(t, dir, "add", "code.go")
+	runGit(t, dir, "commit", "-m", "add code.go")
+
+	// Get HEAD SHA
+	sha := runGit(t, dir, "rev-parse", "HEAD")
+
+	hunks, err := FileDiffForCommit("code.go", sha, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(hunks) == 0 {
+		t.Fatal("expected at least one hunk")
+	}
+
+	// Verify the hunk contains add lines for the new file
+	addCount := 0
+	for _, h := range hunks {
+		for _, l := range h.Lines {
+			if l.Type == "add" {
+				addCount++
+			}
+		}
+	}
+	if addCount != 3 {
+		t.Errorf("expected 3 add lines, got %d", addCount)
+	}
+}
