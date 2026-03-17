@@ -34,8 +34,9 @@ After a crit review session, comments are in `.crit.json`. Comments are grouped 
           "quote": "the specific words selected",
           "author": "User Name",
           "resolved": false,
-          "resolution_note": "Addressed by extracting to helper",
-          "resolution_lines": "12-15"
+          "replies": [
+            { "id": "c1-r1", "body": "Fixed by extracting to helper", "author": "Claude" }
+          ]
         }
       ]
     }
@@ -52,10 +53,13 @@ After a crit review session, comments are in `.crit.json`. Comments are grouped 
 
 ### Resolving comments
 
-After addressing a comment, update it in `.crit.json`:
-- Set `"resolved": true`
-- Optionally set `"resolution_note"` — brief description of what was done
-- Optionally set `"resolution_lines"` — line range in the updated file where the change was made (e.g. `"12-15"`)
+After addressing a comment, reply to it using the CLI:
+
+```bash
+crit comment --reply-to c1 --resolve 'Fixed by extracting to helper'
+```
+
+This adds a reply to the comment thread and marks it resolved. You can also reply without resolving (omit `--resolve`) if discussion is ongoing.
 
 ## Leaving Comments with crit comment CLI
 
@@ -67,6 +71,10 @@ crit comment --author 'Claude' <path>:<line> '<body>'
 
 # Multi-line comment (range)
 crit comment --author 'Claude' <path>:<start>-<end> '<body>'
+
+# Reply to an existing comment (with optional --resolve)
+crit comment --reply-to <id> --author 'Claude' '<body>'
+crit comment --reply-to <id> --resolve --author 'Claude' '<body>'
 ```
 
 Rules:

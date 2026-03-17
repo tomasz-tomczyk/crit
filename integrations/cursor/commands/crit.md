@@ -71,7 +71,7 @@ For each unresolved comment:
 1. Understand what the comment asks for (clarification, change, addition, removal)
 2. If a comment contains a suggestion block, apply that specific change
 3. Revise the **referenced file** to address the feedback - this could be the plan file or any code file
-4. Mark it resolved in `.crit.json`: set `"resolved": true`, optionally add `"resolution_note"` (what you did) and `"resolution_lines"` (where in the updated file, e.g. `"12-15"`)
+4. Reply to the comment with what you did: `crit comment --reply-to <id> --resolve '<what you did>'`
 
 Editing the plan file triggers Crit's live reload - the user sees changes in the browser immediately.
 

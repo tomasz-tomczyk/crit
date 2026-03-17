@@ -3972,6 +3972,11 @@
     const actions = document.createElement('div');
     actions.className = 'comment-actions';
 
+    const replyBtn = document.createElement('button');
+    replyBtn.title = 'Reply';
+    replyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5l-5 5v-5z"/></svg>';
+    replyBtn.addEventListener('click', () => showReplyForm(wrapper, comment.id, filePath));
+
     const editBtn = document.createElement('button');
     editBtn.title = 'Edit';
     editBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
@@ -3983,6 +3988,7 @@
     deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
     deleteBtn.addEventListener('click', () => deleteComment(comment.id, filePath));
 
+    actions.appendChild(replyBtn);
     actions.appendChild(editBtn);
     actions.appendChild(deleteBtn);
 
@@ -3995,6 +4001,67 @@
 
     card.appendChild(header);
     card.appendChild(bodyEl);
+
+    // Render replies (threading)
+    if (comment.replies && comment.replies.length > 0) {
+      const repliesContainer = document.createElement('div');
+      repliesContainer.className = 'comment-replies';
+      comment.replies.forEach(reply => {
+        const replyEl = document.createElement('div');
+        replyEl.className = 'comment-reply';
+        replyEl.dataset.replyId = reply.id;
+
+        const replyHeader = document.createElement('div');
+        replyHeader.className = 'reply-header';
+
+        const replyMeta = document.createElement('div');
+        replyMeta.className = 'reply-meta';
+        if (reply.author) {
+          const replyAuthorBadge = document.createElement('span');
+          replyAuthorBadge.className = 'comment-author-badge';
+          const colors = authorColor(reply.author);
+          replyAuthorBadge.style.cssText = 'background:' + colors.bg + ';border-color:' + colors.border + ';color:' + colors.text;
+          replyAuthorBadge.textContent = '@' + reply.author;
+          replyMeta.appendChild(replyAuthorBadge);
+        }
+        const replyTime = document.createElement('span');
+        replyTime.className = 'reply-time';
+        replyTime.textContent = formatTime(reply.created_at);
+        replyMeta.appendChild(replyTime);
+        replyHeader.appendChild(replyMeta);
+
+        // Reply actions (edit/delete) — in header, top-right
+        const replyActions = document.createElement('div');
+        replyActions.className = 'reply-actions';
+
+        const replyEditBtn = document.createElement('button');
+        replyEditBtn.title = 'Edit';
+        replyEditBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+        replyEditBtn.addEventListener('click', (e) => { e.stopPropagation(); editReply(comment.id, reply.id, filePath); });
+
+        const replyDeleteBtn = document.createElement('button');
+        replyDeleteBtn.className = 'delete-btn';
+        replyDeleteBtn.title = 'Delete';
+        replyDeleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+        replyDeleteBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteReply(comment.id, reply.id, filePath); });
+
+        replyActions.appendChild(replyEditBtn);
+        replyActions.appendChild(replyDeleteBtn);
+        replyHeader.appendChild(replyActions);
+
+        replyEl.appendChild(replyHeader);
+
+        const replyBody = document.createElement('div');
+        replyBody.className = 'reply-body';
+        replyBody.dataset.rawBody = reply.body;
+        replyBody.innerHTML = commentMd.render(reply.body);
+        replyEl.appendChild(replyBody);
+
+        repliesContainer.appendChild(replyEl);
+      });
+      card.appendChild(repliesContainer);
+    }
+
     wrapper.appendChild(card);
     return wrapper;
   }
@@ -4169,6 +4236,152 @@
     updateCommentCount();
   }
 
+  // Re-fetch comments for a file from the API and re-render
+  async function refreshFileComments(filePath) {
+    const file = getFileByPath(filePath);
+    if (!file) return;
+    try {
+      const res = await fetch('/api/file/comments?path=' + enc(filePath));
+      if (res.ok) {
+        file.comments = await res.json();
+      }
+    } catch (err) {
+      console.error('Error refreshing comments:', err);
+    }
+    renderFileByPath(filePath);
+    renderFileSummary();
+    updateCommentCount();
+  }
+
+  async function editReply(commentId, replyId, filePath) {
+    const replyEl = document.querySelector('[data-reply-id="' + replyId + '"]');
+    if (!replyEl) return;
+    const bodyEl = replyEl.querySelector('.reply-body');
+    if (!bodyEl) return;
+    // Use raw markdown if available, fall back to textContent
+    const currentText = bodyEl.dataset.rawBody || bodyEl.textContent;
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'comment-textarea';
+    textarea.value = currentText;
+    textarea.rows = 3;
+    bodyEl.replaceWith(textarea);
+    textarea.focus();
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-sm btn-primary';
+    saveBtn.textContent = 'Save';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-sm';
+    cancelBtn.textContent = 'Cancel';
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'reply-edit-actions';
+    btnRow.appendChild(saveBtn);
+    btnRow.appendChild(cancelBtn);
+    replyEl.appendChild(btnRow);
+
+    cancelBtn.addEventListener('click', () => refreshFileComments(filePath));
+    saveBtn.addEventListener('click', async () => {
+      const newBody = textarea.value.trim();
+      if (!newBody) return;
+      try {
+        await fetch('/api/comment/' + commentId + '/replies/' + replyId + '?path=' + enc(filePath), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body: newBody })
+        });
+      } catch (err) {
+        console.error('Error editing reply:', err);
+      }
+      refreshFileComments(filePath);
+    });
+  }
+
+  async function deleteReply(commentId, replyId, filePath) {
+    try {
+      await fetch('/api/comment/' + commentId + '/replies/' + replyId + '?path=' + enc(filePath), {
+        method: 'DELETE'
+      });
+    } catch (err) {
+      console.error('Error deleting reply:', err);
+    }
+    refreshFileComments(filePath);
+  }
+
+  function showReplyForm(commentEl, commentId, filePath) {
+    // Toggle: remove existing reply form on this comment
+    const existing = commentEl.querySelector('.reply-form');
+    if (existing) { existing.remove(); return; }
+
+    const form = document.createElement('div');
+    form.className = 'reply-form';
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'reply-textarea';
+    textarea.placeholder = 'Write a reply...';
+    textarea.rows = 2;
+    form.appendChild(textarea);
+
+    const buttons = document.createElement('div');
+    buttons.className = 'reply-form-buttons';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-sm';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => form.remove());
+
+    const submitBtn = document.createElement('button');
+    submitBtn.className = 'btn btn-sm btn-primary';
+    submitBtn.textContent = 'Reply';
+    submitBtn.addEventListener('click', async () => {
+      const body = textarea.value.trim();
+      if (!body) return;
+      submitBtn.disabled = true;
+      try {
+        const payload = { body: body };
+        if (configAuthor) payload.author = configAuthor;
+        const res = await fetch('/api/comment/' + commentId + '/replies?path=' + enc(filePath), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('Server returned ' + res.status);
+        form.remove();
+        refreshFileComments(filePath);
+      } catch (err) {
+        console.error('Failed to add reply:', err);
+        submitBtn.disabled = false;
+      }
+    });
+
+    buttons.appendChild(cancelBtn);
+    buttons.appendChild(submitBtn);
+    form.appendChild(buttons);
+
+    // Append after the comment card (sibling, not inside)
+    const card = commentEl.querySelector('.comment-card');
+    if (card) {
+      card.after(form);
+    } else {
+      commentEl.appendChild(form);
+    }
+
+    textarea.focus();
+
+    // Keyboard shortcuts
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        submitBtn.click();
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        form.remove();
+      }
+    });
+  }
+
   function createResolvedElement(comment, filePath) {
     const el = document.createElement('div');
     el.className = 'resolved-comment';
@@ -4196,7 +4409,62 @@
     header.appendChild(body);
     el.appendChild(header);
 
-    if (comment.resolution_note) {
+    // Show replies if present, otherwise fall back to resolution_note
+    if (comment.replies && comment.replies.length > 0) {
+      const repliesContainer = document.createElement('div');
+      repliesContainer.className = 'comment-replies resolved-replies';
+      comment.replies.forEach(reply => {
+        const replyEl = document.createElement('div');
+        replyEl.className = 'comment-reply';
+        replyEl.dataset.replyId = reply.id;
+
+        const replyHeader = document.createElement('div');
+        replyHeader.className = 'reply-header';
+
+        const replyMeta = document.createElement('div');
+        replyMeta.className = 'reply-meta';
+        if (reply.author) {
+          const replyAuthorBadge = document.createElement('span');
+          replyAuthorBadge.className = 'comment-author-badge';
+          const colors = authorColor(reply.author);
+          replyAuthorBadge.style.cssText = 'background:' + colors.bg + ';border-color:' + colors.border + ';color:' + colors.text;
+          replyAuthorBadge.textContent = '@' + reply.author;
+          replyMeta.appendChild(replyAuthorBadge);
+        }
+        const replyTime = document.createElement('span');
+        replyTime.className = 'reply-time';
+        replyTime.textContent = formatTime(reply.created_at);
+        replyMeta.appendChild(replyTime);
+        replyHeader.appendChild(replyMeta);
+
+        // Reply actions (edit/delete) — in header, top-right
+        const replyActions = document.createElement('div');
+        replyActions.className = 'reply-actions';
+        const replyEditBtn = document.createElement('button');
+        replyEditBtn.title = 'Edit';
+        replyEditBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+        replyEditBtn.addEventListener('click', (e) => { e.stopPropagation(); editReply(comment.id, reply.id, filePath); });
+        const replyDeleteBtn = document.createElement('button');
+        replyDeleteBtn.className = 'delete-btn';
+        replyDeleteBtn.title = 'Delete';
+        replyDeleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+        replyDeleteBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteReply(comment.id, reply.id, filePath); });
+        replyActions.appendChild(replyEditBtn);
+        replyActions.appendChild(replyDeleteBtn);
+        replyHeader.appendChild(replyActions);
+
+        replyEl.appendChild(replyHeader);
+
+        const replyBody = document.createElement('div');
+        replyBody.className = 'reply-body';
+        replyBody.dataset.rawBody = reply.body;
+        replyBody.innerHTML = commentMd.render(reply.body);
+        replyEl.appendChild(replyBody);
+
+        repliesContainer.appendChild(replyEl);
+      });
+      el.appendChild(repliesContainer);
+    } else if (comment.resolution_note) {
       const note = document.createElement('span');
       note.className = 'resolved-note';
       note.textContent = comment.resolution_note;
@@ -4326,12 +4594,42 @@
           lineRef.appendChild(roundBadge);
         }
 
+        if (comment.replies && comment.replies.length > 0) {
+          var replyBadge = document.createElement('span');
+          replyBadge.className = 'comments-panel-badge-replies';
+          replyBadge.textContent = comment.replies.length + (comment.replies.length === 1 ? ' reply' : ' replies');
+          lineRef.appendChild(replyBadge);
+        }
+
         const bodyEl = document.createElement('div');
         bodyEl.className = 'comments-panel-card-body';
         bodyEl.innerHTML = commentMd.render(comment.body, buildCommentEnv(comment, file.path));
 
         card.appendChild(lineRef);
         card.appendChild(bodyEl);
+
+        if (comment.replies && comment.replies.length > 0) {
+          var lastReply = comment.replies[comment.replies.length - 1];
+          var preview = document.createElement('div');
+          preview.className = 'comments-panel-reply-preview';
+
+          var previewAuthor = document.createElement('span');
+          previewAuthor.className = 'reply-preview-author';
+          previewAuthor.textContent = lastReply.author || 'anonymous';
+
+          var previewBody = document.createElement('span');
+          previewBody.className = 'reply-preview-body';
+          var maxLen = 80;
+          previewBody.textContent = lastReply.body.length > maxLen
+            ? lastReply.body.substring(0, maxLen) + '\u2026'
+            : lastReply.body;
+
+          preview.appendChild(previewAuthor);
+          preview.appendChild(document.createTextNode(': '));
+          preview.appendChild(previewBody);
+          card.appendChild(preview);
+        }
+
         card.addEventListener('click', (function(commentId, filePath) {
           return function() { scrollToComment(commentId, filePath); };
         })(comment.id, file.path));

@@ -1352,6 +1352,166 @@ func TestLoadCritJSON_RestoresMatchingShareState(t *testing.T) {
 // with an existing .crit.json, the ReviewRound is restored from the file.
 // Without this, the session starts at round 1 while comments claim higher rounds,
 // causing mismatches between the UI header and comment badges.
+func TestComment_RepliesJSON(t *testing.T) {
+	c := Comment{
+		ID:        "c1",
+		StartLine: 10,
+		EndLine:   15,
+		Body:      "Fix this",
+		CreatedAt: "2025-01-01T00:00:00Z",
+		UpdatedAt: "2025-01-01T00:00:00Z",
+		Replies: []Reply{
+			{
+				ID:        "c1-r1",
+				Body:      "Done, split the function",
+				Author:    "agent",
+				CreatedAt: "2025-01-01T00:01:00Z",
+			},
+		},
+	}
+
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var decoded Comment
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(decoded.Replies) != 1 {
+		t.Fatalf("expected 1 reply, got %d", len(decoded.Replies))
+	}
+	if decoded.Replies[0].ID != "c1-r1" {
+		t.Errorf("reply ID = %q, want %q", decoded.Replies[0].ID, "c1-r1")
+	}
+	if decoded.Replies[0].Body != "Done, split the function" {
+		t.Errorf("reply body = %q, want %q", decoded.Replies[0].Body, "Done, split the function")
+	}
+}
+
+func TestComment_NoRepliesBackwardCompat(t *testing.T) {
+	// Old .crit.json format without replies field
+	data := `{"id":"c1","start_line":5,"end_line":5,"body":"Fix","created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z","resolution_note":"Done"}`
+
+	var c Comment
+	if err := json.Unmarshal([]byte(data), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.Replies != nil {
+		t.Errorf("expected nil replies, got %v", c.Replies)
+	}
+	if c.ResolutionNote != "Done" {
+		t.Errorf("resolution_note = %q, want %q", c.ResolutionNote, "Done")
+	}
+}
+
+func TestSession_AddReply(t *testing.T) {
+	s := &Session{
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{
+				Path:     "test.md",
+				Comments: []Comment{{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix this"}},
+				nextID:   2,
+			},
+		},
+	}
+
+	reply, ok := s.AddReply("test.md", "c1", "Done, fixed it", "agent")
+	if !ok {
+		t.Fatal("AddReply returned false")
+	}
+	if reply.ID != "c1-r1" {
+		t.Errorf("reply ID = %q, want %q", reply.ID, "c1-r1")
+	}
+	if reply.Body != "Done, fixed it" {
+		t.Errorf("reply body = %q", reply.Body)
+	}
+	if reply.Author != "agent" {
+		t.Errorf("reply author = %q", reply.Author)
+	}
+
+	comments := s.GetComments("test.md")
+	if len(comments[0].Replies) != 1 {
+		t.Fatalf("expected 1 reply, got %d", len(comments[0].Replies))
+	}
+}
+
+func TestSession_UpdateReply(t *testing.T) {
+	s := &Session{
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{
+				Path: "test.md",
+				Comments: []Comment{{
+					ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix",
+					Replies: []Reply{{ID: "c1-r1", Body: "Done", Author: "agent"}},
+				}},
+			},
+		},
+	}
+
+	reply, ok := s.UpdateReply("test.md", "c1", "c1-r1", "Actually, refactored instead")
+	if !ok {
+		t.Fatal("UpdateReply returned false")
+	}
+	if reply.Body != "Actually, refactored instead" {
+		t.Errorf("reply body = %q", reply.Body)
+	}
+}
+
+func TestSession_DeleteReply(t *testing.T) {
+	s := &Session{
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{
+				Path: "test.md",
+				Comments: []Comment{{
+					ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix",
+					Replies: []Reply{
+						{ID: "c1-r1", Body: "Done", Author: "agent"},
+						{ID: "c1-r2", Body: "More changes", Author: "user"},
+					},
+				}},
+			},
+		},
+	}
+
+	ok := s.DeleteReply("test.md", "c1", "c1-r1")
+	if !ok {
+		t.Fatal("DeleteReply returned false")
+	}
+	comments := s.GetComments("test.md")
+	if len(comments[0].Replies) != 1 {
+		t.Fatalf("expected 1 reply, got %d", len(comments[0].Replies))
+	}
+	if comments[0].Replies[0].ID != "c1-r2" {
+		t.Errorf("remaining reply ID = %q", comments[0].Replies[0].ID)
+	}
+}
+
+func TestSession_AddReply_SequentialIDs(t *testing.T) {
+	s := &Session{
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{
+				Path:     "test.md",
+				Comments: []Comment{{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix"}},
+			},
+		},
+	}
+
+	r1, _ := s.AddReply("test.md", "c1", "First reply", "agent")
+	r2, _ := s.AddReply("test.md", "c1", "Second reply", "user")
+	r3, _ := s.AddReply("test.md", "c1", "Third reply", "agent")
+
+	if r1.ID != "c1-r1" || r2.ID != "c1-r2" || r3.ID != "c1-r3" {
+		t.Errorf("IDs = %q, %q, %q", r1.ID, r2.ID, r3.ID)
+	}
+}
+
 func TestSession_LoadCritJSON_RestoresReviewRound(t *testing.T) {
 	s := newTestSession(t)
 
@@ -1477,5 +1637,36 @@ func TestCarryForwardComment(t *testing.T) {
 	}
 	if carried.Quote != "" {
 		t.Errorf("Quote = %q, should not be carried forward", carried.Quote)
+	}
+}
+
+func TestSession_CarryForward_PreservesReplies(t *testing.T) {
+	c := Comment{
+		ID: "c1", StartLine: 5, EndLine: 5, Body: "Fix this",
+		CreatedAt: "2025-01-01T00:00:00Z", UpdatedAt: "2025-01-01T00:00:00Z",
+		Replies: []Reply{
+			{ID: "c1-r1", Body: "Done", Author: "agent", CreatedAt: "2025-01-01T00:01:00Z"},
+		},
+	}
+
+	// Simulate carry-forward: marshal/unmarshal round-trip
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var carried Comment
+	if err := json.Unmarshal(data, &carried); err != nil {
+		t.Fatal(err)
+	}
+	carried.CarriedForward = true
+
+	if len(carried.Replies) != 1 {
+		t.Fatalf("replies lost during carry-forward: got %d", len(carried.Replies))
+	}
+	if carried.Replies[0].Body != "Done" {
+		t.Errorf("reply body = %q after carry-forward", carried.Replies[0].Body)
+	}
+	if carried.Replies[0].ID != "c1-r1" {
+		t.Errorf("reply ID = %q after carry-forward", carried.Replies[0].ID)
 	}
 }

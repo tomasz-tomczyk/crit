@@ -34,7 +34,7 @@ crit listen <port>
 
 ## After review
 
-Read `.crit.json` to find the user's inline comments. Comments are grouped per file with `start_line`/`end_line` referencing the source. A comment is unresolved if `"resolved": false` or if the `resolved` field is missing. Address each unresolved comment by revising the referenced file. After addressing, set `"resolved": true` and optionally `"resolution_note"` and `"resolution_lines"`.
+Read `.crit.json` to find the user's inline comments. Comments are grouped per file with `start_line`/`end_line` referencing the source. A comment is unresolved if `"resolved": false` or if the `resolved` field is missing. Address each unresolved comment by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --resolve '<what you did>'`.
 
 When done, run `crit go <port>` to trigger a new round, then **immediately run `crit listen <port>` again** to wait for the next review. Do NOT skip `crit listen` between rounds.
 
@@ -48,6 +48,7 @@ Use `crit comment` to add inline review comments to `.crit.json` without opening
 crit comment <path>:<line> '<body>'
 crit comment <path>:<start>-<end> '<body>'
 crit comment --author 'Cline' src/auth.go:42 'Missing null check here'
+crit comment --reply-to c1 --resolve --author 'Cline' 'Added null check'
 ```
 
 Paths are relative, line numbers are 1-indexed, comments are appended (never replaced). Creates `.crit.json` automatically if it doesn't exist.

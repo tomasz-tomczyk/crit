@@ -294,11 +294,14 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleCommentByID handles PUT and DELETE for individual comments.
+// handleCommentByID handles PUT/DELETE for individual comments and CRUD for replies.
 // PUT/DELETE /api/comment/{id}?path=server.go
+// POST       /api/comment/{id}/replies?path=server.go
+// PUT        /api/comment/{id}/replies/{rid}?path=server.go
+// DELETE     /api/comment/{id}/replies/{rid}?path=server.go
 func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/comment/")
-	if id == "" {
+	trimmed := strings.TrimPrefix(r.URL.Path, "/api/comment/")
+	if trimmed == "" {
 		http.Error(w, "Comment ID required", http.StatusBadRequest)
 		return
 	}
@@ -308,6 +311,16 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if this is a reply route: {id}/replies or {id}/replies/{rid}
+	if parts := strings.SplitN(trimmed, "/replies", 2); len(parts) == 2 {
+		commentID := parts[0]
+		replyID := strings.TrimPrefix(parts[1], "/")
+		s.handleReplyRoute(w, r, path, commentID, replyID)
+		return
+	}
+
+	// Existing comment PUT/DELETE logic
+	id := trimmed
 	switch r.Method {
 	case http.MethodPut:
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
@@ -350,6 +363,65 @@ func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, commits)
 }
 
+func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePath, commentID, replyID string) {
+	switch {
+	case r.Method == http.MethodPost && replyID == "":
+		// POST /api/comment/{id}/replies — add reply
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		var req struct {
+			Body   string `json:"body"`
+			Author string `json:"author"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Reply body is required", http.StatusBadRequest)
+			return
+		}
+		reply, ok := s.session.AddReply(filePath, commentID, req.Body, req.Author)
+		if !ok {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, reply)
+
+	case r.Method == http.MethodPut && replyID != "":
+		// PUT /api/comment/{id}/replies/{rid} — edit reply
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		var req struct {
+			Body string `json:"body"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Reply body is required", http.StatusBadRequest)
+			return
+		}
+		reply, ok := s.session.UpdateReply(filePath, commentID, replyID, req.Body)
+		if !ok {
+			http.Error(w, "Reply not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, reply)
+
+	case r.Method == http.MethodDelete && replyID != "":
+		// DELETE /api/comment/{id}/replies/{rid} — delete reply
+		if !s.session.DeleteReply(filePath, commentID, replyID) {
+			http.Error(w, "Reply not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *Server) handleClearComments(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -384,8 +456,9 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	if totalComments > 0 && unresolvedComments > 0 {
 		prompt = fmt.Sprintf(
 			"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
-				"Read the file, address each comment in the relevant file and location, "+
-				"then mark it resolved (set \"resolved\": true, optionally \"resolution_note\" and \"resolution_lines\"). "+
+				"Read the file, address each comment in the relevant file and location. "+
+				"For each comment: reply explaining what you did using `crit comment --reply-to <comment-id> --resolve \"<explanation>\"`, "+
+				"or edit .crit.json directly to add a reply to the comment's \"replies\" array and set \"resolved\": true. "+
 				"When done run: `crit go %d`",
 			critJSON, s.port)
 	} else if totalComments > 0 && unresolvedComments == 0 {

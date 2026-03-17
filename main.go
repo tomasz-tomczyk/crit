@@ -482,6 +482,12 @@ func runPush(args []string) {
 		return
 	}
 
+	// Collect replies to push
+	var allReplies []ghReplyForPush
+	for _, cf := range cj.Files {
+		allReplies = append(allReplies, collectNewRepliesForPush("", cf)...)
+	}
+
 	if dryRun {
 		fmt.Printf("Would post %d comments to PR #%d:\n\n", len(ghComments), prNumber)
 		for _, c := range ghComments {
@@ -495,6 +501,9 @@ func runPush(args []string) {
 			}
 			fmt.Printf("    %s\n\n", body)
 		}
+		for _, reply := range allReplies {
+			fmt.Printf("  Would reply to GitHub comment %d: %.60s\n", reply.ParentGHID, reply.Body)
+		}
 		return
 	}
 
@@ -504,11 +513,27 @@ func runPush(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("Posted %d review comments to PR #%d\n", len(ghComments), prNumber)
+
+	// Phase 2: Post new replies individually
+	replyCount := 0
+	for _, reply := range allReplies {
+		if err := postGHReply(prNumber, reply.ParentGHID, reply.Body); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to post reply: %v\n", err)
+		} else {
+			replyCount++
+		}
+	}
+	if replyCount > 0 {
+		fmt.Printf("Posted %d replies\n", replyCount)
+	}
 }
 
 func runComment(args []string) {
 	commentOutputDir := ""
 	commentAuthor := ""
+	commentReplyTo := ""
+	commentResolve := false
+	commentPath := ""
 	var commentArgs []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -526,9 +551,54 @@ func runComment(args []string) {
 			}
 			i++
 			commentAuthor = args[i]
+		} else if arg == "--reply-to" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --reply-to requires a comment ID\n")
+				os.Exit(1)
+			}
+			i++
+			commentReplyTo = args[i]
+		} else if arg == "--resolve" {
+			commentResolve = true
+		} else if arg == "--path" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --path requires a value\n")
+				os.Exit(1)
+			}
+			i++
+			commentPath = args[i]
 		} else {
 			commentArgs = append(commentArgs, arg)
 		}
+	}
+
+	// Resolve author: --author flag > config > git user.name
+	if commentAuthor == "" {
+		commentCfgDir, _ := os.Getwd()
+		if IsGitRepo() {
+			commentCfgDir, _ = RepoRoot()
+		}
+		commentCfg := LoadConfig(commentCfgDir)
+		commentAuthor = commentCfg.Author
+	}
+
+	// Reply mode: crit comment --reply-to <id> [--resolve] <body>
+	if commentReplyTo != "" {
+		if len(commentArgs) < 1 {
+			fmt.Fprintln(os.Stderr, "Usage: crit comment --reply-to <comment-id> [--resolve] <body>")
+			os.Exit(1)
+		}
+		replyBody := strings.Join(commentArgs, " ")
+		if err := addReplyToCritJSON(commentReplyTo, replyBody, commentAuthor, commentResolve, commentOutputDir, commentPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if commentResolve {
+			fmt.Printf("Replied to %s and marked resolved\n", commentReplyTo)
+		} else {
+			fmt.Printf("Replied to %s\n", commentReplyTo)
+		}
+		return
 	}
 
 	// Handle --clear flag
@@ -543,11 +613,13 @@ func runComment(args []string) {
 
 	if len(commentArgs) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: crit comment [--output <dir>] [--author <name>] <path>:<line[-end]> <body>")
+		fmt.Fprintln(os.Stderr, "       crit comment --reply-to <id> [--resolve] [--author <name>] <body>")
 		fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] --clear")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Examples:")
 		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' main.go:42 'Fix this bug'")
 		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' src/auth.go:10-25 'This block needs refactoring'")
+		fmt.Fprintln(os.Stderr, "  crit comment --reply-to c1 --resolve 'Split into two functions'")
 		fmt.Fprintln(os.Stderr, "  crit comment --output /tmp/reviews main.go:42 'Fix this bug'")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Tips:")
@@ -590,16 +662,6 @@ func runComment(args []string) {
 
 	// Body is all remaining args joined
 	body := strings.Join(commentArgs[1:], " ")
-
-	// Resolve author: --author flag > config > git user.name
-	if commentAuthor == "" {
-		commentCfgDir, _ := os.Getwd()
-		if IsGitRepo() {
-			commentCfgDir, _ = RepoRoot()
-		}
-		commentCfg := LoadConfig(commentCfgDir)
-		commentAuthor = commentCfg.Author
-	}
 
 	if err := addCommentToCritJSON(filePath, startLine, endLine, body, commentAuthor, commentOutputDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -854,6 +916,7 @@ Usage:
   crit go <port>                             Signal round-complete to a running crit instance
   crit listen <port>                         Wait for review to finish on a running crit instance
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
+  crit comment --reply-to <id> [--resolve] <body>  Reply to a comment
   crit comment --clear                       Remove all comments from .crit.json
   crit share <file> [file...]                Share files to crit-web and print the URL
   crit unpublish                             Remove a shared review from crit-web
