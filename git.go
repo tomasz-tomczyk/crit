@@ -234,11 +234,15 @@ type CommitInfo struct {
 
 // CommitLog returns the commits between baseRef and HEAD, newest first.
 // Returns nil if baseRef is empty.
-func CommitLog(baseRef string) ([]CommitInfo, error) {
+// The dir parameter sets the working directory for the git command.
+func CommitLog(baseRef, dir string) ([]CommitInfo, error) {
 	if baseRef == "" {
 		return nil, nil
 	}
-	cmd := exec.Command("git", "log", "--format=%H%n%h%n%s%n%an%n%aI", "--reverse", baseRef+"..HEAD")
+	cmd := exec.Command("git", "log", "--format=%H%n%h%n%s%n%an%n%aI", baseRef+"..HEAD")
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git log failed: %w", err)
@@ -260,10 +264,6 @@ func CommitLog(baseRef string) ([]CommitInfo, error) {
 			Author:   lines[i+3],
 			Date:     lines[i+4],
 		})
-	}
-	// Reverse so newest commit is first
-	for i, j := 0, len(commits)-1; i < j; i, j = i+1, j-1 {
-		commits[i], commits[j] = commits[j], commits[i]
 	}
 	return commits, nil
 }

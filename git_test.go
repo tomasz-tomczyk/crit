@@ -1000,9 +1000,6 @@ func TestParseUnifiedDiff_MultipleHunksWithBlankLines(t *testing.T) {
 
 func TestCommitLog(t *testing.T) {
 	dir := initTestRepo(t)
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
 
 	// Record the main branch commit as base ref
 	baseRef := runGit(t, dir, "rev-parse", "HEAD")
@@ -1017,7 +1014,7 @@ func TestCommitLog(t *testing.T) {
 	runGit(t, dir, "add", "b.go")
 	runGit(t, dir, "commit", "-m", "add function B")
 
-	commits, err := CommitLog(baseRef)
+	commits, err := CommitLog(baseRef, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1057,12 +1054,9 @@ func TestCommitLog(t *testing.T) {
 
 func TestCommitLogEmpty(t *testing.T) {
 	dir := initTestRepo(t)
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
 
 	// Empty baseRef should return nil
-	commits, err := CommitLog("")
+	commits, err := CommitLog("", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
