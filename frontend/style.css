@@ -663,19 +663,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   font-size: 0.875rem;
 }
 
-/* === Mermaid diagrams === */
-.line-content.mermaid-block {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
-  margin: 6px 0;
-  text-align: center;
-  min-height: 60px;
-}
-.line-content.mermaid-block pre { margin: 0; }
-.mermaid svg { max-width: 100%; height: auto; }
-
 /* === Per-line code blocks === */
 .line-content.code-line {
   background: var(--code-bg);
@@ -688,6 +675,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border-right: 1px solid var(--border);
   overflow-x: auto;
   white-space: pre;
+  scrollbar-width: none;
 }
 .line-content.code-line code {
   background: none;
@@ -857,11 +845,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   margin: 24px 0;
 }
 
-.line-content img {
-  max-width: 100%;
-  border-radius: 6px;
-}
-
 /* Task lists */
 .line-content .task-list-item {
   list-style: none;
@@ -930,6 +913,12 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border-bottom: 1px solid var(--border);
   font-size: 12px;
   color: var(--fg-muted);
+}
+
+.comment-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .comment-author-badge {
@@ -1206,6 +1195,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .comment-form-actions-left {
   display: flex;
   gap: 8px;
+  margin-right: auto;
 }
 
 .comment-template-bar {
@@ -1308,6 +1298,34 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   margin-top: 12px;
 }
 
+
+/* ===== Disconnected Overlay ===== */
+.disconnected-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+.disconnected-dialog {
+  background: var(--bg-primary, #1e1e2e);
+  border: 1px solid var(--border, #292e42);
+  border-radius: 12px;
+  padding: 32px 40px;
+  text-align: center;
+  color: var(--fg-primary, #c0caf5);
+  font-family: inherit;
+}
+.disconnected-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.disconnected-message {
+  color: var(--fg-secondary, #a9b1d6);
+}
 
 /* ===== Waiting Overlay ===== */
 .waiting-overlay {
@@ -1460,12 +1478,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   font-size: 15px;
 }
 
-/* ===== Per-line code scrollbar hiding =====
-   Each code line is a separate scrollable element due to per-line commenting.
-   Hide individual scrollbars — users scroll via touch/trackpad. */
-.line-content.code-line {
-  scrollbar-width: none;
-}
 .line-content.code-line::-webkit-scrollbar {
   height: 0;
 }
