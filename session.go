@@ -691,15 +691,47 @@ func (s *Session) critJSONPath() string {
 	return filepath.Join(dir, ".crit.json")
 }
 
+// writeFilesSnapshot holds all session state needed to write .crit.json,
+// captured under lock so that disk I/O can happen without holding the lock.
+type writeFilesSnapshot struct {
+	critPath    string
+	lastMtime   time.Time
+	branch      string
+	baseRef     string
+	reviewRound int
+	sharedURL   string
+	deleteToken string
+	shareScope  string
+	// Per-file data needed for the merge. We copy comments so the snapshot
+	// is independent of later in-memory mutations.
+	files []writeFileSnapshot
+}
+
+type writeFileSnapshot struct {
+	path     string
+	status   string
+	fileHash string
+	comments []Comment
+}
+
 // WriteFiles writes the .crit.json file to disk.
+//
+// The implementation snapshots all needed session state under RLock, then
+// releases the lock before doing any disk I/O (ReadFile, Stat, WriteFile).
+// This prevents a slow filesystem from blocking comment operations.
+//
+// Concurrency note: the debounce timer in scheduleWrite ensures that only one
+// WriteFiles call is in-flight at a time for a given generation. Between the
+// snapshot and the final WriteFile, no concurrent WriteFiles should be running
+// because scheduleWrite cancels the previous timer before arming a new one.
 func (s *Session) WriteFiles() {
-	// If we previously wrote .crit.json but it no longer exists, an external tool
-	// (e.g. `crit comment --clear`) deleted it. Respect that: clear in-memory
-	// comments and notify the browser instead of recreating the file.
 	critPath := s.critJSONPath()
+
+	// --- Phase 1: check for external deletion (needs brief lock) ---
 	s.mu.RLock()
 	lastMtime := s.lastCritJSONMtime
 	s.mu.RUnlock()
+
 	if !lastMtime.IsZero() {
 		if _, statErr := os.Stat(critPath); os.IsNotExist(statErr) {
 			s.mu.Lock()
@@ -720,38 +752,40 @@ func (s *Session) WriteFiles() {
 		}
 	}
 
-	s.mu.RLock()
+	// --- Phase 2: snapshot session state under RLock ---
+	snap := s.snapshotForWrite(critPath)
+
+	// --- Phase 3: all disk I/O happens here, no lock held ---
 
 	// Start from existing .crit.json to preserve comments for files not in this session
 	// (e.g. comments added via `crit comment` on files outside the current diff).
 	cj := CritJSON{Files: make(map[string]CritJSONFile)}
-	if data, err := os.ReadFile(critPath); err == nil {
+	if data, err := os.ReadFile(snap.critPath); err == nil {
 		_ = json.Unmarshal(data, &cj)
 		if cj.Files == nil {
 			cj.Files = make(map[string]CritJSONFile)
 		}
 	}
-	cj.Branch = s.Branch
-	cj.BaseRef = s.BaseRef
+	cj.Branch = snap.branch
+	cj.BaseRef = snap.baseRef
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	cj.ReviewRound = s.ReviewRound
-	cj.ShareURL = s.sharedURL
-	cj.DeleteToken = s.deleteToken
-	cj.ShareScope = s.shareScope
+	cj.ReviewRound = snap.reviewRound
+	cj.ShareURL = snap.sharedURL
+	cj.DeleteToken = snap.deleteToken
+	cj.ShareScope = snap.shareScope
 
 	// Overlay session files: merge with disk comments, remove entries with no comments.
-	for _, f := range s.Files {
-		diskFile, hasDisk := cj.Files[f.Path]
+	for _, fs := range snap.files {
+		diskFile, hasDisk := cj.Files[fs.path]
 
 		// Build set of in-memory comment IDs
-		memIDs := make(map[string]struct{}, len(f.Comments))
-		for _, c := range f.Comments {
+		memIDs := make(map[string]struct{}, len(fs.comments))
+		for _, c := range fs.comments {
 			memIDs[c.ID] = struct{}{}
 		}
 
-		// Start with in-memory comments
-		merged := make([]Comment, len(f.Comments))
-		copy(merged, f.Comments)
+		// Start with in-memory comments (already a copy from the snapshot)
+		merged := fs.comments
 
 		// Merge in any disk-only comments (added externally via crit comment, crit pull, etc.)
 		if hasDisk {
@@ -763,21 +797,20 @@ func (s *Session) WriteFiles() {
 		}
 
 		if len(merged) == 0 {
-			delete(cj.Files, f.Path)
+			delete(cj.Files, fs.path)
 			continue
 		}
 
-		cj.Files[f.Path] = CritJSONFile{
-			Status:   f.Status,
-			FileHash: f.FileHash,
+		cj.Files[fs.path] = CritJSONFile{
+			Status:   fs.status,
+			FileHash: fs.fileHash,
 			Comments: merged,
 		}
 	}
-	s.mu.RUnlock()
 
 	// Only remove if nothing meaningful remains
 	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" && cj.ShareScope == "" {
-		os.Remove(critPath)
+		os.Remove(snap.critPath)
 		s.mu.Lock()
 		s.lastCritJSONMtime = time.Time{}
 		s.mu.Unlock()
@@ -789,16 +822,47 @@ func (s *Session) WriteFiles() {
 		fmt.Fprintf(os.Stderr, "Error marshaling .crit.json: %v\n", err)
 		return
 	}
-	if err := os.WriteFile(critPath, data, 0644); err != nil {
+	if err := os.WriteFile(snap.critPath, data, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing .crit.json: %v\n", err)
 		return
 	}
 	// Record mtime so mergeExternalCritJSON can distinguish our writes from external ones.
-	if info, err := os.Stat(critPath); err == nil {
+	if info, err := os.Stat(snap.critPath); err == nil {
 		s.mu.Lock()
 		s.lastCritJSONMtime = info.ModTime()
 		s.mu.Unlock()
 	}
+}
+
+// snapshotForWrite captures all session state needed by WriteFiles under RLock.
+// The returned snapshot owns its own copies of comment slices, so it is safe
+// to use after the lock is released.
+func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	snap := writeFilesSnapshot{
+		critPath:    critPath,
+		lastMtime:   s.lastCritJSONMtime,
+		branch:      s.Branch,
+		baseRef:     s.BaseRef,
+		reviewRound: s.ReviewRound,
+		sharedURL:   s.sharedURL,
+		deleteToken: s.deleteToken,
+		shareScope:  s.shareScope,
+		files:       make([]writeFileSnapshot, len(s.Files)),
+	}
+	for i, f := range s.Files {
+		comments := make([]Comment, len(f.Comments))
+		copy(comments, f.Comments)
+		snap.files[i] = writeFileSnapshot{
+			path:     f.Path,
+			status:   f.Status,
+			fileHash: f.FileHash,
+			comments: comments,
+		}
+	}
+	return snap
 }
 
 // mergeExternalCritJSON checks if .crit.json was modified externally (not by us)
