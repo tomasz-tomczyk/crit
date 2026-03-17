@@ -3404,7 +3404,9 @@
   }
 
   // ===== Comment Form =====
-  function createCommentForm(formObj) {
+  function createCommentFormUI(opts) {
+    var formObj = opts.formObj;
+
     const wrapper = document.createElement('div');
     wrapper.className = 'comment-form-wrapper';
 
@@ -3414,23 +3416,12 @@
 
     const header = document.createElement('div');
     header.className = 'comment-form-header';
-    const lineRef = formObj.startLine === formObj.endLine
-      ? 'Line ' + formObj.startLine
-      : 'Lines ' + formObj.startLine + '-' + formObj.endLine;
-    header.textContent = formObj.editingId ? 'Editing comment on ' + lineRef : 'Comment on ' + lineRef;
+    header.textContent = opts.headerText;
 
     const textarea = document.createElement('textarea');
     textarea.placeholder = 'Leave a review comment... (Ctrl+Enter to submit, Escape to cancel)';
     textarea.dataset.formKey = formObj.formKey;
-    if (formObj.editingId) {
-      const file = getFileByPath(formObj.filePath);
-      if (file) {
-        const existing = file.comments.find(c => c.id === formObj.editingId);
-        if (existing) textarea.value = existing.body;
-      }
-    } else if (formObj.draftBody) {
-      textarea.value = formObj.draftBody;
-    }
+    if (opts.initialBody) textarea.value = opts.initialBody;
 
     textarea.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -3456,7 +3447,7 @@
 
     const submitBtn = document.createElement('button');
     submitBtn.className = 'btn btn-sm btn-primary';
-    submitBtn.textContent = formObj.editingId ? 'Update' : 'Submit';
+    submitBtn.textContent = opts.submitText;
     submitBtn.addEventListener('click', function() { submitComment(textarea.value, formObj); });
 
     actions.appendChild(cancelBtn);
@@ -3467,7 +3458,35 @@
     form.appendChild(actions);
     attachTemplateUI(form, textarea, actions);
     wrapper.appendChild(form);
+
+    if (opts.autoFocus) {
+      requestAnimationFrame(function() { textarea.focus(); });
+    }
+
     return wrapper;
+  }
+
+  function createCommentForm(formObj) {
+    var lineRef = formObj.startLine === formObj.endLine
+      ? 'Line ' + formObj.startLine
+      : 'Lines ' + formObj.startLine + '-' + formObj.endLine;
+    var initialBody = '';
+    if (formObj.editingId) {
+      var file = getFileByPath(formObj.filePath);
+      if (file) {
+        var existing = file.comments.find(function(c) { return c.id === formObj.editingId; });
+        if (existing) initialBody = existing.body;
+      }
+    } else if (formObj.draftBody) {
+      initialBody = formObj.draftBody;
+    }
+    return createCommentFormUI({
+      formObj: formObj,
+      headerText: (formObj.editingId ? 'Editing comment on ' : 'Comment on ') + lineRef,
+      submitText: formObj.editingId ? 'Update' : 'Submit',
+      initialBody: initialBody,
+      autoFocus: false
+    });
   }
 
   function getOldSideLinesFromHunks(file, startLine, endLine) {
@@ -3942,63 +3961,16 @@
     var formObj = findFormForEdit(comment.id);
     if (!formObj) return null;
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'comment-form-wrapper';
-
-    const form = document.createElement('div');
-    form.className = 'comment-form';
-    form.dataset.formKey = formObj.formKey;
-
-    const header = document.createElement('div');
-    header.className = 'comment-form-header';
-    const lineRef = comment.start_line === comment.end_line
+    var lineRef = comment.start_line === comment.end_line
       ? 'Line ' + comment.start_line
       : 'Lines ' + comment.start_line + '-' + comment.end_line;
-    header.textContent = 'Editing comment on ' + lineRef;
-
-    const textarea = document.createElement('textarea');
-    textarea.placeholder = 'Leave a review comment... (Ctrl+Enter to submit, Escape to cancel)';
-    textarea.dataset.formKey = formObj.formKey;
-    textarea.value = comment.body;
-
-    textarea.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        e.stopPropagation();
-        submitComment(textarea.value, formObj);
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        cancelComment(formObj);
-      }
+    return createCommentFormUI({
+      formObj: formObj,
+      headerText: 'Editing comment on ' + lineRef,
+      submitText: 'Update Comment',
+      initialBody: comment.body,
+      autoFocus: true
     });
-
-    textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value, formObj); });
-
-    const actions = document.createElement('div');
-    actions.className = 'comment-form-actions';
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'btn btn-sm';
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', function() { cancelComment(formObj); });
-
-    const submitBtn = document.createElement('button');
-    submitBtn.className = 'btn btn-sm btn-primary';
-    submitBtn.textContent = 'Update Comment';
-    submitBtn.addEventListener('click', function() { submitComment(textarea.value, formObj); });
-
-    actions.appendChild(cancelBtn);
-    actions.appendChild(submitBtn);
-
-    form.appendChild(header);
-    form.appendChild(textarea);
-    form.appendChild(actions);
-    attachTemplateUI(form, textarea, actions);
-    wrapper.appendChild(form);
-
-    requestAnimationFrame(() => textarea.focus());
-    return wrapper;
   }
 
   function editComment(comment, filePath) {
