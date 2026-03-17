@@ -1541,100 +1541,6 @@
     }
   }
 
-  // Render a single side of the rendered diff (reuses document view block pattern)
-  function renderRenderedDiffBlocks(blocks, diffClass, file, enableComments) {
-    const container = document.createElement('div');
-    container.className = 'diff-view-blocks';
-
-    let commentsMap = enableComments ? buildCommentsMap(file.comments) : {};
-    let commentRangeSet = enableComments ? buildCommentedRangeSet(file.comments) : new Set();
-
-    for (let bi = 0; bi < blocks.length; bi++) {
-      const block = blocks[bi];
-
-      const lineBlockEl = document.createElement('div');
-      lineBlockEl.className = 'line-block';
-      lineBlockEl.dataset.filePath = file.path;
-      if (enableComments) {
-        lineBlockEl.classList.add('kb-nav');
-        lineBlockEl.dataset.blockIndex = bi;
-        lineBlockEl.dataset.startLine = block.startLine;
-        lineBlockEl.dataset.endLine = block.endLine;
-      }
-
-      if (block.isDiff) lineBlockEl.classList.add(diffClass);
-
-      if (enableComments) {
-        let blockComments = getCommentsForBlock(block, commentsMap);
-        let blockInCommentRange = false;
-        for (let ln = block.startLine; ln <= block.endLine; ln++) {
-          if (commentRangeSet.has(ln + ':')) { blockInCommentRange = true; break; }
-        }
-        if (blockInCommentRange) lineBlockEl.classList.add('has-comment');
-
-        applyBlockSelectionState(lineBlockEl, file.path, block.startLine, block.endLine, bi);
-      }
-
-      // Line number gutter
-      const gutter = document.createElement('div');
-      gutter.className = 'line-gutter';
-      const lineNum = document.createElement('span');
-      lineNum.className = 'line-num';
-      lineNum.textContent = block.startLine;
-      gutter.appendChild(lineNum);
-      lineBlockEl.appendChild(gutter);
-
-      // Comment gutter
-      const commentGutter = document.createElement('div');
-      commentGutter.className = 'line-comment-gutter';
-      if (enableComments) {
-        commentGutter.dataset.startLine = block.startLine;
-        commentGutter.dataset.endLine = block.endLine;
-        commentGutter.dataset.filePath = file.path;
-        const lineAdd = document.createElement('span');
-        lineAdd.className = 'line-add';
-        lineAdd.textContent = '+';
-        commentGutter.appendChild(lineAdd);
-        commentGutter.addEventListener('mousedown', handleGutterMouseDown);
-      } else {
-        commentGutter.classList.add('diff-no-comment');
-      }
-      lineBlockEl.appendChild(commentGutter);
-
-      // Content
-      const content = document.createElement('div');
-      let contentClasses = 'line-content';
-      if (block.isEmpty) contentClasses += ' empty-line';
-      if (block.cssClass) contentClasses += ' ' + block.cssClass;
-      content.className = contentClasses;
-      let html = block.wordDiffHtml || block.html;
-      html = processTaskLists(html);
-      html = rewriteImageSrcs(html);
-      content.innerHTML = html;
-
-      lineBlockEl.appendChild(content);
-      container.appendChild(lineBlockEl);
-
-      // Comments after block (only on current/right side)
-      if (enableComments && blockComments) {
-        for (let ci = 0; ci < blockComments.length; ci++) {
-          if (blockComments[ci].resolved) {
-            container.appendChild(createResolvedElement(blockComments[ci], file.path));
-          } else {
-            container.appendChild(createCommentElement(blockComments[ci], file.path));
-          }
-        }
-        let fileForms = getFormsForFile(file.path);
-        for (let fi = 0; fi < fileForms.length; fi++) {
-          if (!fileForms[fi].editingId && fileForms[fi].afterBlockIndex === bi) {
-            container.appendChild(createCommentForm(fileForms[fi]));
-          }
-        }
-      }
-    }
-    return container;
-  }
-
   // Annotate blocks with isDiff flag based on changed line numbers
   function annotateBlocks(blocks, changedLines) {
     return blocks.map(function(b) {
@@ -3498,10 +3404,6 @@
   }
 
   async function submitComment(body, formObj) {
-    if (!formObj) {
-      // Legacy fallback: find the most recent form (will be removed when all callers migrated)
-      formObj = activeForms.length > 0 ? activeForms[activeForms.length - 1] : null;
-    }
     if (!body.trim() || !formObj) return;
     clearDraft(formObj);
     const filePath = formObj.filePath;
@@ -3556,10 +3458,6 @@
   }
 
   function cancelComment(formObj) {
-    if (!formObj) {
-      // Legacy fallback: find the most recent form (will be removed when all callers migrated)
-      formObj = activeForms.length > 0 ? activeForms[activeForms.length - 1] : null;
-    }
     if (!formObj) return;
     clearDraft(formObj);
     removeForm(formObj.formKey);
