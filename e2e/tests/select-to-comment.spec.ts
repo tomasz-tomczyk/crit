@@ -156,6 +156,27 @@ test.describe('Select-to-comment (git mode)', () => {
       await switchToDocumentView(page);
     });
 
+    test('quote highlight appears while comment form is still open', async ({ page }) => {
+      const section = mdSection(page);
+      const block = section.locator('.line-block', { hasText: 'API key authentication' });
+      await expect(block).toBeVisible();
+      const content = block.locator('.line-content');
+      const box = await content.boundingBox();
+      expect(box).toBeTruthy();
+      if (!box) return;
+
+      // Select just a portion of the text
+      await page.mouse.move(box.x + 80, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 250, box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+
+      // Form is open but NOT yet submitted — highlight should already be visible
+      const textarea = section.locator('.comment-form textarea');
+      await expect(textarea).toBeVisible();
+      await expect(section.locator('mark.quote-highlight')).toBeVisible();
+    });
+
     test('partial text selection saves quote and shows highlight mark', async ({ page }) => {
       const section = mdSection(page);
       // Line 5: "We're adding API key authentication to the server..."

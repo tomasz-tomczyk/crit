@@ -3741,9 +3741,17 @@
 
   function highlightQuotesInSection(sectionEl, file) {
     const quotedComments = file.comments.filter(function(c) { return c.quote && !c.resolved; });
-    if (quotedComments.length === 0) return;
 
-    quotedComments.forEach(function(comment) {
+    // Also highlight quotes from open (unsaved) comment forms
+    const formQuotes = getFormsForFile(file.path)
+      .filter(function(f) { return f.quote && !f.editingId; })
+      .map(function(f) {
+        return { start_line: f.startLine, end_line: f.endLine, quote: f.quote, id: 'draft-' + f.formKey };
+      });
+    const allQuoted = quotedComments.concat(formQuotes);
+    if (allQuoted.length === 0) return;
+
+    allQuoted.forEach(function(comment) {
       // Find the content elements in this comment's line range
       const contentEls = [];
       for (let ln = comment.start_line; ln <= comment.end_line; ln++) {
