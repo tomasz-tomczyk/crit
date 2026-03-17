@@ -280,6 +280,9 @@ func addCommentToCritJSON(filePath string, startLine, endLine int, body string, 
 		}
 	} else {
 		branch := CurrentBranch()
+		// Note: base_branch config and --base-branch flag are not wired into
+		// crit pull/push/comment — these subcommands skip resolveServerConfig().
+		// DefaultBranch() uses auto-detection here. This is a known gap.
 		baseRef, _ := MergeBase(DefaultBranch())
 		cj = CritJSON{
 			Branch:      branch,

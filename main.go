@@ -386,6 +386,9 @@ func runPull(args []string) {
 	if cj.Files == nil {
 		cj.Files = make(map[string]CritJSONFile)
 		cj.Branch = CurrentBranch()
+		// Note: base_branch config and --base-branch flag are not wired into
+		// crit pull — it skips resolveServerConfig(). DefaultBranch() uses
+		// auto-detection here. This is a known gap.
 		cj.BaseRef, _ = MergeBase(DefaultBranch())
 		cj.ReviewRound = 1
 	}
@@ -727,13 +730,13 @@ func runServer(args []string) {
 			printHelp()
 			os.Exit(1)
 		}
-		session, err = NewSessionFromGit("", sc.ignorePatterns)
+		session, err = NewSessionFromGit(sc.ignorePatterns)
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		}
 	} else {
 		// Explicit files
-		session, err = NewSessionFromFiles(sc.files, "", sc.ignorePatterns)
+		session, err = NewSessionFromFiles(sc.files, sc.ignorePatterns)
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		}

@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -327,4 +329,72 @@ func TestHelperProcess_UnpublishBadFlag(t *testing.T) {
 		return
 	}
 	runUnpublish([]string{"--bogus"})
+}
+
+// TestResolveServerConfig_BaseBranch verifies that --base-branch sets defaultBranchOverride
+// and that config file base_branch is used as a fallback when the flag is absent.
+func TestResolveServerConfig_BaseBranch(t *testing.T) {
+	// Reset global state before and after
+	orig := defaultBranchOverride
+	origOnce := defaultBranchOnce
+	defer func() {
+		defaultBranchOverride = orig
+		defaultBranchOnce = origOnce
+	}()
+
+	t.Run("CLI flag sets override", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		_, err := resolveServerConfig([]string{"--base-branch", "uat"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if defaultBranchOverride != "uat" {
+			t.Errorf("expected defaultBranchOverride=uat, got %q", defaultBranchOverride)
+		}
+	})
+
+	t.Run("config file used when no flag", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, ".crit.config.json")
+		os.WriteFile(cfgPath, []byte(`{"base_branch": "develop"}`), 0644)
+
+		// resolveServerConfig reads from cwd, so chdir to our temp dir
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		_, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if defaultBranchOverride != "develop" {
+			t.Errorf("expected defaultBranchOverride=develop, got %q", defaultBranchOverride)
+		}
+	})
+
+	t.Run("CLI flag overrides config file", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, ".crit.config.json")
+		os.WriteFile(cfgPath, []byte(`{"base_branch": "develop"}`), 0644)
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		_, err := resolveServerConfig([]string{"--base-branch", "uat"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if defaultBranchOverride != "uat" {
+			t.Errorf("expected defaultBranchOverride=uat (CLI wins), got %q", defaultBranchOverride)
+		}
+	})
 }

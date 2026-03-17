@@ -422,7 +422,7 @@ func TestNewSessionFromGitWithIgnore(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	patterns := []string{"*.pb.go", "vendor/"}
-	session, err := NewSessionFromGit("", patterns)
+	session, err := NewSessionFromGit(patterns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -459,7 +459,7 @@ func TestNewSessionFromFilesWithIgnore(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "readme.txt"), "hello\n")
 
 	patterns := []string{"generated/"}
-	session, err := NewSessionFromFiles([]string{dir}, "", patterns)
+	session, err := NewSessionFromFiles([]string{dir}, patterns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
