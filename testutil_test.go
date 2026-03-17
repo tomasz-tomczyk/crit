@@ -46,3 +46,14 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// flushWrites stops any pending debounced write timer on the session.
+// Call this before WriteFiles() in tests to prevent the timer from
+// firing concurrently with explicit writes.
+func flushWrites(s *Session) {
+	s.mu.Lock()
+	if s.writeTimer != nil {
+		s.writeTimer.Stop()
+	}
+	s.mu.Unlock()
+}

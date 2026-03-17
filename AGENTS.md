@@ -84,7 +84,7 @@ crit comment <path>:<line[-end]> <body>  # Add a comment to .crit.json (no serve
 crit share <file> [file...]   # Share files to crit-web, print URL
 crit unpublish                # Remove shared review from crit-web
 crit config                   # Print resolved configuration (merged global + project)
-crit init                     # Generate a starter .crit.config.json in the current directory
+crit config --generate        # Print a starter .crit.config.json template
 crit install <agent>          # Install integration config for an AI tool
 crit help                     # Show help
 ```

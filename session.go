@@ -1079,28 +1079,6 @@ func (s *Session) GetFileDiffSnapshot(path string) (map[string]any, bool) {
 	return map[string]any{"hunks": hunks, "previous_content": prevContent}, true
 }
 
-// GetFileContent returns the content for a specific file path.
-func (s *Session) GetFileContent(path string) (string, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	f := s.fileByPathLocked(path)
-	if f == nil {
-		return "", false
-	}
-	return f.Content, true
-}
-
-// GetFileDiffHunks returns the diff hunks for a specific file.
-func (s *Session) GetFileDiffHunks(path string) ([]DiffHunk, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	f := s.fileByPathLocked(path)
-	if f == nil {
-		return nil, false
-	}
-	return f.DiffHunks, true
-}
-
 // SessionInfo returns metadata about the session for the API.
 type SessionInfo struct {
 	Mode            string            `json:"mode"` // "files" or "git"

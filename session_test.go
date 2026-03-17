@@ -251,11 +251,7 @@ func TestSession_WriteFiles(t *testing.T) {
 	s := newTestSession(t)
 	s.AddComment("plan.md", 1, 1, "", "fix", "", "")
 
-	s.mu.Lock()
-	if s.writeTimer != nil {
-		s.writeTimer.Stop()
-	}
-	s.mu.Unlock()
+	flushWrites(s)
 	s.WriteFiles()
 
 	data, err := os.ReadFile(s.critJSONPath())
@@ -291,11 +287,7 @@ func TestSession_WriteFiles_SharedURLOnly(t *testing.T) {
 	s := newTestSession(t)
 	s.SetSharedURLAndToken("https://crit.live/r/abc", "token123")
 
-	s.mu.Lock()
-	if s.writeTimer != nil {
-		s.writeTimer.Stop()
-	}
-	s.mu.Unlock()
+	flushWrites(s)
 	s.WriteFiles()
 
 	data, err := os.ReadFile(s.critJSONPath())
@@ -313,11 +305,7 @@ func TestSession_LoadCritJSON(t *testing.T) {
 	s := newTestSession(t)
 	s.AddComment("plan.md", 1, 1, "", "persisted comment", "", "")
 
-	s.mu.Lock()
-	if s.writeTimer != nil {
-		s.writeTimer.Stop()
-	}
-	s.mu.Unlock()
+	flushWrites(s)
 	s.WriteFiles()
 
 	// Create a new session pointing to same dir
@@ -460,11 +448,7 @@ func TestSession_LoadResolvedComments_StringResolutionLines(t *testing.T) {
 	s := newTestSession(t)
 	s.AddComment("plan.md", 1, 1, "", "fix this", "", "")
 
-	s.mu.Lock()
-	if s.writeTimer != nil {
-		s.writeTimer.Stop()
-	}
-	s.mu.Unlock()
+	flushWrites(s)
 	s.WriteFiles()
 
 	// Simulate what an agent does: read .crit.json, add resolved + string resolution_lines, write back
@@ -615,22 +599,6 @@ func TestDetectFileType(t *testing.T) {
 	}
 }
 
-func TestSession_GetFileContent(t *testing.T) {
-	s := newTestSession(t)
-	content, ok := s.GetFileContent("plan.md")
-	if !ok {
-		t.Fatal("expected to find plan.md")
-	}
-	if content == "" {
-		t.Error("expected non-empty content")
-	}
-
-	_, ok = s.GetFileContent("nonexistent.txt")
-	if ok {
-		t.Error("expected false for nonexistent file")
-	}
-}
-
 func TestSession_CritJSONPath_Default(t *testing.T) {
 	s := newTestSession(t)
 	want := filepath.Join(s.RepoRoot, ".crit.json")
@@ -656,11 +624,7 @@ func TestSession_WriteFiles_OutputDir(t *testing.T) {
 	s.OutputDir = outDir
 
 	s.AddComment("plan.md", 1, 1, "", "output dir comment", "", "")
-	s.mu.Lock()
-	if s.writeTimer != nil {
-		s.writeTimer.Stop()
-	}
-	s.mu.Unlock()
+	flushWrites(s)
 	s.WriteFiles()
 
 	// Should be written to OutputDir, not RepoRoot
@@ -690,11 +654,7 @@ func TestSession_LoadCritJSON_OutputDir(t *testing.T) {
 	s.OutputDir = outDir
 
 	s.AddComment("plan.md", 1, 1, "", "persisted in output dir", "", "")
-	s.mu.Lock()
-	if s.writeTimer != nil {
-		s.writeTimer.Stop()
-	}
-	s.mu.Unlock()
+	flushWrites(s)
 	s.WriteFiles()
 
 	// Create a new session pointing to same output dir

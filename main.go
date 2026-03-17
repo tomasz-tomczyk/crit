@@ -603,7 +603,23 @@ func runComment(args []string) {
 	fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
 }
 
-func runServer(args []string) {
+// serverConfig holds the resolved configuration for running the server.
+// It combines CLI flags, environment variables, and config file settings.
+type serverConfig struct {
+	port           int
+	noOpen         bool
+	quiet          bool
+	shareURL       string
+	outputDir      string
+	author         string
+	ignorePatterns []string
+	files          []string // explicit file arguments (empty = git mode)
+}
+
+// resolveServerConfig parses flags, loads config files, and resolves the
+// final server configuration from all sources (CLI > env > config > defaults).
+// Returns nil when the command should exit early (e.g. --version).
+func resolveServerConfig(args []string) (*serverConfig, error) {
 	fs := flag.NewFlagSet("crit", flag.ExitOnError)
 	port := fs.Int("port", 0, "Port to listen on (default: random available port)")
 	fs.IntVar(port, "p", 0, "Port to listen on (shorthand)")
@@ -623,7 +639,7 @@ func runServer(args []string) {
 
 	if *showVersion {
 		printVersion()
-		return
+		return nil, nil
 	}
 
 	// Load configuration
@@ -672,10 +688,30 @@ func runServer(args []string) {
 		ignorePatterns = cfg.IgnorePatterns
 	}
 
-	var session *Session
-	var err error
+	return &serverConfig{
+		port:           *port,
+		noOpen:         *noOpen,
+		quiet:          *quiet,
+		shareURL:       *shareURL,
+		outputDir:      *outputDir,
+		author:         cfg.Author,
+		ignorePatterns: ignorePatterns,
+		files:          fs.Args(),
+	}, nil
+}
 
-	if fs.NArg() == 0 {
+func runServer(args []string) {
+	sc, err := resolveServerConfig(args)
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+	if sc == nil {
+		return // --version or similar early exit
+	}
+
+	var session *Session
+
+	if len(sc.files) == 0 {
 		// No-args: git mode — auto-detect changed files
 		if !IsGitRepo() {
 			fmt.Fprintln(os.Stderr, "Error: not in a git repository and no files specified")
@@ -683,33 +719,33 @@ func runServer(args []string) {
 			printHelp()
 			os.Exit(1)
 		}
-		session, err = NewSessionFromGit(ignorePatterns)
+		session, err = NewSessionFromGit(sc.ignorePatterns)
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		}
 	} else {
 		// Explicit files
-		session, err = NewSessionFromFiles(fs.Args(), ignorePatterns)
+		session, err = NewSessionFromFiles(sc.files, sc.ignorePatterns)
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		}
 	}
 
-	if *outputDir != "" {
-		abs, err := filepath.Abs(*outputDir)
+	if sc.outputDir != "" {
+		abs, err := filepath.Abs(sc.outputDir)
 		if err != nil {
 			log.Fatalf("Error resolving output directory: %v", err)
 		}
 		session.OutputDir = abs
 	}
 
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", sc.port))
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
 	addr := listener.Addr().(*net.TCPAddr)
 
-	srv, err := NewServer(session, frontendFS, *shareURL, cfg.Author, version, addr.Port)
+	srv, err := NewServer(session, frontendFS, sc.shareURL, sc.author, version, addr.Port)
 	if err != nil {
 		log.Fatalf("Error creating server: %v", err)
 	}
@@ -724,7 +760,7 @@ func runServer(args []string) {
 	}
 
 	var statusWriter io.Writer = os.Stdout
-	if *quiet {
+	if sc.quiet {
 		statusWriter = io.Discard
 	}
 	status := newStatus(statusWriter)
@@ -735,7 +771,7 @@ func runServer(args []string) {
 	status.Listening(url)
 	status.ListenHint(fmt.Sprintf("%d", addr.Port))
 
-	if !*noOpen {
+	if !sc.noOpen {
 		go openBrowser(url)
 	}
 

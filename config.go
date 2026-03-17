@@ -231,6 +231,7 @@ func filterIgnored(files []FileChange, patterns []string) []FileChange {
 }
 
 // filterPathsIgnored removes string paths matching any ignore pattern.
+// Currently exercised only by tests, but kept as a utility parallel to filterIgnored.
 func filterPathsIgnored(paths []string, patterns []string) []string {
 	if len(patterns) == 0 {
 		return paths
