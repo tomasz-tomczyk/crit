@@ -1351,3 +1351,67 @@ func TestSession_LoadCritJSON_RestoresReviewRound(t *testing.T) {
 		t.Errorf("new comment ReviewRound = %d, want 3", c.ReviewRound)
 	}
 }
+
+func TestCarryForwardComment(t *testing.T) {
+	old := Comment{
+		ID:              "original-id",
+		StartLine:       5,
+		EndLine:         10,
+		Side:            "RIGHT",
+		Body:            "needs refactoring",
+		Quote:           "func foo() {}",
+		Author:          "reviewer-bot",
+		CreatedAt:       "2026-01-01T00:00:00Z",
+		UpdatedAt:       "2026-01-01T00:00:00Z",
+		Resolved:        true,
+		ResolutionNote:  "Fixed in round 2",
+		ResolutionLines: "5-8",
+		CarriedForward:  false,
+		ReviewRound:     1,
+	}
+
+	carried := carryForwardComment(old, "c42", "2026-02-01T00:00:00Z")
+
+	if carried.ID != "c42" {
+		t.Errorf("ID = %q, want c42", carried.ID)
+	}
+	if carried.StartLine != 5 {
+		t.Errorf("StartLine = %d, want 5", carried.StartLine)
+	}
+	if carried.EndLine != 10 {
+		t.Errorf("EndLine = %d, want 10", carried.EndLine)
+	}
+	if carried.Side != "RIGHT" {
+		t.Errorf("Side = %q, want RIGHT", carried.Side)
+	}
+	if carried.Body != "needs refactoring" {
+		t.Errorf("Body = %q", carried.Body)
+	}
+	if carried.Author != "reviewer-bot" {
+		t.Errorf("Author = %q, want reviewer-bot", carried.Author)
+	}
+	if carried.CreatedAt != "2026-01-01T00:00:00Z" {
+		t.Errorf("CreatedAt = %q, want original timestamp", carried.CreatedAt)
+	}
+	if carried.UpdatedAt != "2026-02-01T00:00:00Z" {
+		t.Errorf("UpdatedAt = %q, want new timestamp", carried.UpdatedAt)
+	}
+	if !carried.Resolved {
+		t.Error("Resolved should be preserved as true")
+	}
+	if carried.ResolutionNote != "Fixed in round 2" {
+		t.Errorf("ResolutionNote = %q", carried.ResolutionNote)
+	}
+	if carried.ResolutionLines != "5-8" {
+		t.Errorf("ResolutionLines = %v", carried.ResolutionLines)
+	}
+	if !carried.CarriedForward {
+		t.Error("CarriedForward should be true")
+	}
+	if carried.ReviewRound != 1 {
+		t.Errorf("ReviewRound = %d, want 1", carried.ReviewRound)
+	}
+	if carried.Quote != "" {
+		t.Errorf("Quote = %q, should not be carried forward", carried.Quote)
+	}
+}

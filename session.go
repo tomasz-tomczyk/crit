@@ -1237,6 +1237,24 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 	}
 }
 
+func carryForwardComment(old Comment, newID string, now string) Comment {
+	return Comment{
+		ID:              newID,
+		StartLine:       old.StartLine,
+		EndLine:         old.EndLine,
+		Side:            old.Side,
+		Body:            old.Body,
+		Author:          old.Author,
+		CreatedAt:       old.CreatedAt,
+		UpdatedAt:       now,
+		Resolved:        old.Resolved,
+		ResolutionNote:  old.ResolutionNote,
+		ResolutionLines: old.ResolutionLines,
+		CarriedForward:  true,
+		ReviewRound:     old.ReviewRound,
+	}
+}
+
 // handleRoundCompleteGit handles round completion in git mode.
 // Re-runs ChangedFiles, re-computes diffs, refreshes file list.
 // Must only be called from the single watcher goroutine (watchGit).
@@ -1266,21 +1284,7 @@ func (s *Session) handleRoundCompleteGit() {
 	for _, f := range s.Files {
 		now := time.Now().UTC().Format(time.RFC3339)
 		for _, c := range f.PreviousComments {
-			carried := Comment{
-				ID:              fmt.Sprintf("c%d", f.nextID),
-				StartLine:       c.StartLine,
-				EndLine:         c.EndLine,
-				Side:            c.Side,
-				Body:            c.Body,
-				Author:          c.Author,
-				CreatedAt:       c.CreatedAt,
-				UpdatedAt:       now,
-				Resolved:        c.Resolved,
-				ResolutionNote:  c.ResolutionNote,
-				ResolutionLines: c.ResolutionLines,
-				CarriedForward:  true,
-				ReviewRound:     c.ReviewRound,
-			}
+			carried := carryForwardComment(c, fmt.Sprintf("c%d", f.nextID), now)
 			f.nextID++
 			f.Comments = append(f.Comments, carried)
 		}
@@ -1320,21 +1324,7 @@ func (s *Session) handleRoundCompleteFiles() {
 		}
 		// Carry forward all remaining comments from PreviousComments
 		for _, c := range f.PreviousComments {
-			carried := Comment{
-				ID:              fmt.Sprintf("c%d", f.nextID),
-				StartLine:       c.StartLine,
-				EndLine:         c.EndLine,
-				Side:            c.Side,
-				Body:            c.Body,
-				Author:          c.Author,
-				CreatedAt:       c.CreatedAt,
-				UpdatedAt:       now,
-				Resolved:        c.Resolved,
-				ResolutionNote:  c.ResolutionNote,
-				ResolutionLines: c.ResolutionLines,
-				CarriedForward:  true,
-				ReviewRound:     c.ReviewRound,
-			}
+			carried := carryForwardComment(c, fmt.Sprintf("c%d", f.nextID), now)
 			f.nextID++
 			f.Comments = append(f.Comments, carried)
 		}
@@ -1478,21 +1468,9 @@ func (s *Session) carryForwardComments() {
 			if newEnd < newStart {
 				newEnd = newStart
 			}
-			carried := Comment{
-				ID:              fmt.Sprintf("c%d", f.nextID),
-				StartLine:       newStart,
-				EndLine:         newEnd,
-				Side:            c.Side,
-				Body:            c.Body,
-				Author:          c.Author,
-				CreatedAt:       c.CreatedAt,
-				UpdatedAt:       now,
-				Resolved:        c.Resolved,
-				ResolutionNote:  c.ResolutionNote,
-				ResolutionLines: c.ResolutionLines,
-				CarriedForward:  true,
-				ReviewRound:     c.ReviewRound,
-			}
+			carried := carryForwardComment(c, fmt.Sprintf("c%d", f.nextID), now)
+			carried.StartLine = newStart
+			carried.EndLine = newEnd
 			f.nextID++
 			f.Comments = append(f.Comments, carried)
 		}
