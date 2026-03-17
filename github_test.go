@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -493,5 +494,72 @@ func TestAddCommentToCritJSON_OutputDir(t *testing.T) {
 	json.Unmarshal(data, &cj)
 	if _, ok := cj.Files["main.go"]; !ok {
 		t.Error("expected main.go comment in outputDir/.crit.json")
+	}
+}
+
+// TestAddCommentToCritJSON_RespectsBaseBranchConfig verifies that when no .crit.json
+// exists yet, addCommentToCritJSON reads base_branch from .crit.config.json rather
+// than falling back to auto-detected default branch.
+func TestAddCommentToCritJSON_RespectsBaseBranchConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	// Reset DefaultBranch cache so auto-detection is fresh
+	defaultBranchOnce = sync.Once{}
+	defaultBranchOverride = ""
+	defer func() {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+	}()
+
+	// Init a git repo with user config so commits work
+	runCmd := func(args ...string) {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=t@t.com",
+			"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=t@t.com",
+		)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	runCmd("git", "init", "-b", "main", dir)
+	runCmd("git", "-C", dir, "commit", "--allow-empty", "-m", "initial")
+
+	// Create a "base" branch with a commit
+	runCmd("git", "-C", dir, "checkout", "-b", "base")
+	writeFile(t, dir+"/base.go", "package main\n")
+	runCmd("git", "-C", dir, "add", "base.go")
+	runCmd("git", "-C", dir, "commit", "-m", "base commit")
+
+	// Create a "feature" branch off "base"
+	runCmd("git", "-C", dir, "checkout", "-b", "feature")
+	writeFile(t, dir+"/feature.go", "package main\n")
+	runCmd("git", "-C", dir, "add", "feature.go")
+	runCmd("git", "-C", dir, "commit", "-m", "feature commit")
+
+	// Write config declaring "base" as the base branch
+	writeFile(t, dir+"/.crit.config.json", `{"base_branch": "base"}`)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	if err := addCommentToCritJSON("feature.go", 1, 1, "test comment", "", ""); err != nil {
+		t.Fatalf("addCommentToCritJSON: %v", err)
+	}
+
+	data, err := os.ReadFile(dir + "/.crit.json")
+	if err != nil {
+		t.Fatalf("read .crit.json: %v", err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// BaseRef must be set — proves MergeBase was called against "base", not auto-detected default
+	if cj.BaseRef == "" {
+		t.Error("BaseRef should be non-empty when base_branch is set in config")
 	}
 }

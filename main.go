@@ -386,10 +386,12 @@ func runPull(args []string) {
 	if cj.Files == nil {
 		cj.Files = make(map[string]CritJSONFile)
 		cj.Branch = CurrentBranch()
-		// Note: base_branch config and --base-branch flag are not wired into
-		// crit pull — it skips resolveServerConfig(). DefaultBranch() uses
-		// auto-detection here. This is a known gap.
-		cj.BaseRef, _ = MergeBase(DefaultBranch())
+		cfg := LoadConfig(critDir)
+		base := cfg.BaseBranch
+		if base == "" {
+			base = DefaultBranch()
+		}
+		cj.BaseRef, _ = MergeBase(base)
 		cj.ReviewRound = 1
 	}
 
