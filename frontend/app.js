@@ -1783,10 +1783,12 @@
           addedRun.push(newIdx);
           newIdx++;
         }
-        // Compute word diffs for paired removed/added blocks (with similarity check)
-        const runPairCount = Math.min(removedRun.length, addedRun.length);
-        for (let rp = 0; rp < runPairCount; rp++) {
-          applyWordDiffPair(oldBlocks[removedRun[rp]], newBlocks[addedRun[rp]]);
+        // Pair removed/added blocks by similarity for word diff
+        const rmTexts = removedRun.map(function(idx) { return htmlToText(oldBlocks[idx].html); });
+        const adTexts = addedRun.map(function(idx) { return htmlToText(newBlocks[idx].html); });
+        const mdPairs = bestWordDiffPairing(rmTexts, adTexts);
+        for (let rp = 0; rp < mdPairs.length; rp++) {
+          applyWordDiffPair(oldBlocks[removedRun[mdPairs[rp][0]]], newBlocks[addedRun[mdPairs[rp][1]]]);
         }
         // Emit all removed then all added
         for (let ri = 0; ri < removedRun.length; ri++) {
@@ -2061,6 +2063,62 @@
     return { oldKeep: oldKeep, newKeep: newKeep };
   }
 
+  // Compute similarity between two strings using token multiset Dice coefficient.
+  // Returns 0–1 (1 = identical tokens, 0 = nothing in common).
+  function lineSimilarity(a, b) {
+    if (a === b) return 1;
+    if (!a || !b) return 0;
+    const tokA = tokenize(a);
+    const tokB = tokenize(b);
+    if (tokA.length === 0 && tokB.length === 0) return 1;
+    if (tokA.length === 0 || tokB.length === 0) return 0;
+    const counts = {};
+    for (let i = 0; i < tokA.length; i++) {
+      counts[tokA[i]] = (counts[tokA[i]] || 0) + 1;
+    }
+    let common = 0;
+    for (let i = 0; i < tokB.length; i++) {
+      if (counts[tokB[i]] > 0) {
+        common++;
+        counts[tokB[i]]--;
+      }
+    }
+    return (2 * common) / (tokA.length + tokB.length);
+  }
+
+  // Find best similarity-based pairing between del and add lines for word diff.
+  // Returns array of [delIdx, addIdx] pairs. Unpaired lines get no word diff.
+  function bestWordDiffPairing(delTexts, addTexts) {
+    const delCount = delTexts.length;
+    const addCount = addTexts.length;
+    const pairCount = Math.min(delCount, addCount);
+    if (pairCount === 0) return [];
+    // 1:1 — pair directly (most common case)
+    if (delCount === 1 && addCount === 1) return [[0, 0]];
+    // Compute all similarity scores
+    const candidates = [];
+    for (let d = 0; d < delCount; d++) {
+      for (let a = 0; a < addCount; a++) {
+        candidates.push({ d: d, a: a, score: lineSimilarity(delTexts[d], addTexts[a]) });
+      }
+    }
+    candidates.sort(function(x, y) { return y.score - x.score; });
+    // Greedy assignment: pick highest similarity first
+    const usedDels = {};
+    const usedAdds = {};
+    const pairs = [];
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      if (usedDels[c.d] || usedAdds[c.a]) continue;
+      if (c.score === 0) break;
+      pairs.push([c.d, c.a]);
+      usedDels[c.d] = true;
+      usedAdds[c.a] = true;
+      if (pairs.length === pairCount) break;
+    }
+    return pairs;
+  }
+
   // Compute word-level diff between two lines.
   // Returns { oldRanges, newRanges } where each range is [startCharIdx, endCharIdx] in the raw text.
   // Returns null if lines are too long, identical, or completely different.
@@ -2235,15 +2293,21 @@
         // Collect consecutive adds
         const addStart = i;
         while (i < lines.length && lines[i].Type === 'add') i++;
-        // Pair 1:1
+        // Pair by similarity so word diffs highlight the right counterpart
         const delCount = addStart - delStart;
         const addCount = i - addStart;
-        const pairCount = Math.min(delCount, addCount);
-        for (let p = 0; p < pairCount; p++) {
-          const wd = wordDiff(lines[delStart + p].Content, lines[addStart + p].Content);
+        const delTexts = [];
+        for (let d = 0; d < delCount; d++) delTexts.push(lines[delStart + d].Content);
+        const addTexts = [];
+        for (let a = 0; a < addCount; a++) addTexts.push(lines[addStart + a].Content);
+        const pairs = bestWordDiffPairing(delTexts, addTexts);
+        for (let p = 0; p < pairs.length; p++) {
+          const dIdx = delStart + pairs[p][0];
+          const aIdx = addStart + pairs[p][1];
+          const wd = wordDiff(lines[dIdx].Content, lines[aIdx].Content);
           if (wd) {
-            wordDiffMap.set(delStart + p, { ranges: wd.oldRanges, cssClass: 'diff-word-del' });
-            wordDiffMap.set(addStart + p, { ranges: wd.newRanges, cssClass: 'diff-word-add' });
+            wordDiffMap.set(dIdx, { ranges: wd.oldRanges, cssClass: 'diff-word-del' });
+            wordDiffMap.set(aIdx, { ranges: wd.newRanges, cssClass: 'diff-word-add' });
           }
         }
       } else {
@@ -2647,18 +2711,40 @@
           appendDiffForm(container, file.path, line.OldNum, 'old');
           appendDiffForm(container, file.path, line.NewNum, '');
         } else {
-          // Compute word-level diffs for paired del/add lines
-          const wordDiffs = [];
-          const pairCount = Math.min(seg.dels.length, seg.adds.length);
-          for (let j = 0; j < pairCount; j++) {
-            wordDiffs.push(wordDiff(seg.dels[j].Content, seg.adds[j].Content));
+          // Pair del/add lines by similarity for word diff (not positionally)
+          const delTexts = [];
+          for (let dt = 0; dt < seg.dels.length; dt++) delTexts.push(seg.dels[dt].Content);
+          const addTexts = [];
+          for (let at = 0; at < seg.adds.length; at++) addTexts.push(seg.adds[at].Content);
+          const pairs = bestWordDiffPairing(delTexts, addTexts);
+
+          // Build reverse mapping: addIdx → delIdx
+          const addToDel = {};
+          const pairedDels = {};
+          for (let p = 0; p < pairs.length; p++) {
+            addToDel[pairs[p][1]] = pairs[p][0];
+            pairedDels[pairs[p][0]] = true;
           }
 
-          const maxLen = Math.max(seg.dels.length, seg.adds.length);
-          for (let j = 0; j < maxLen; j++) {
-            const del = seg.dels[j] || null;
-            const add = seg.adds[j] || null;
-            const wd = j < pairCount ? wordDiffs[j] : null;
+          // Build rows: unpaired dels first, then adds in order (paired adds bring their del)
+          const splitRows = [];
+          for (let d = 0; d < seg.dels.length; d++) {
+            if (!pairedDels[d]) splitRows.push({ del: seg.dels[d], add: null, wd: null });
+          }
+          for (let a = 0; a < seg.adds.length; a++) {
+            if (addToDel[a] !== undefined) {
+              const pd = seg.dels[addToDel[a]];
+              splitRows.push({ del: pd, add: seg.adds[a], wd: wordDiff(pd.Content, seg.adds[a].Content) });
+            } else {
+              splitRows.push({ del: null, add: seg.adds[a], wd: null });
+            }
+          }
+
+          for (let j = 0; j < splitRows.length; j++) {
+            const sr = splitRows[j];
+            const del = sr.del;
+            const add = sr.add;
+            const wd = sr.wd;
             const row = makeSplitRow(
               del ? { num: del.OldNum, content: del.Content, type: 'del', wordRanges: wd ? wd.oldRanges : null } : null,
               add ? { num: add.NewNum, content: add.Content, type: 'add', wordRanges: wd ? wd.newRanges : null } : null,
