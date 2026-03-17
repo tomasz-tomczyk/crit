@@ -502,6 +502,46 @@ test.describe('Multi-Round — Frontend', () => {
     await expect(sections).toHaveCount(sectionsBefore);
   });
 
+  test('finish button shows Approve when all comments are resolved', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+
+    // Add a comment
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Will resolve this' },
+    });
+
+    await page.reload();
+    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+
+    // With an unresolved comment, button should say "Finish Review"
+    await expect(page.locator('#finishBtn')).toHaveText('Finish Review');
+
+    // Click Finish to write .crit.json
+    await page.locator('#finishBtn').click();
+    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+
+    // Read .crit.json path and mark comment as resolved
+    const finishRes = await request.post('/api/finish');
+    const finishData = await finishRes.json();
+    const critJsonPath = finishData.review_file;
+
+    const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
+    for (const fileKey of Object.keys(critJson.files)) {
+      for (const comment of critJson.files[fileKey].comments) {
+        comment.resolved = true;
+        comment.resolution_note = 'Done';
+      }
+    }
+    fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
+
+    // Trigger round-complete
+    await request.post('/api/round-complete');
+    await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
+
+    // All comments resolved — button should say "Approve"
+    await expect(page.locator('#finishBtn')).toHaveText('Approve');
+  });
+
   test('round badge displays on comments', async ({ page, request }) => {
     const filePath = await getTestFilePath(request);
 

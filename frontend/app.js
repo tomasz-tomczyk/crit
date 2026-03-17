@@ -3964,7 +3964,7 @@
     }
     renderCommentsPanel();
     if (uiState === 'reviewing') {
-      document.getElementById('finishBtn').textContent = total === 0 ? 'Approve' : 'Finish Review';
+      document.getElementById('finishBtn').textContent = unresolved === 0 ? 'Approve' : 'Finish Review';
     }
   }
 
@@ -4128,11 +4128,11 @@
 
     switch (state) {
       case 'reviewing':
-        let totalComments = 0;
+        let unresolvedComments = 0;
         for (let fi = 0; fi < files.length; fi++) {
-          if (files[fi].comments) totalComments += files[fi].comments.length;
+          if (files[fi].comments) unresolvedComments += files[fi].comments.filter(function(c) { return !c.resolved; }).length;
         }
-        finishBtn.textContent = totalComments === 0 ? 'Approve' : 'Finish Review';
+        finishBtn.textContent = unresolvedComments === 0 ? 'Approve' : 'Finish Review';
         finishBtn.disabled = false;
         finishBtn.classList.add('btn-primary');
         document.getElementById('waitingEdits').textContent = '';
