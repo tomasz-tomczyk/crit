@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -246,42 +245,6 @@ func TestConfigString(t *testing.T) {
 	}
 }
 
-// Integration test helpers (reuse pattern from git_test.go)
-func initTestRepoForConfig(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	runGitForConfig(t, dir, "init")
-	runGitForConfig(t, dir, "config", "user.email", "test@test.com")
-	runGitForConfig(t, dir, "config", "user.name", "Test")
-	writeFileForConfig(t, filepath.Join(dir, "README.md"), "# Test")
-	runGitForConfig(t, dir, "add", "README.md")
-	runGitForConfig(t, dir, "commit", "-m", "initial")
-	runGitForConfig(t, dir, "branch", "-M", "main")
-	return dir
-}
-
-func runGitForConfig(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "HOME="+dir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-func writeFileForConfig(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestLoadConfigRuntimeDefaults(t *testing.T) {
 	// No config files at all — runtime defaults should apply
 	homeDir := t.TempDir()
@@ -339,9 +302,9 @@ func TestLoadConfigAuthorFallsBackToGit(t *testing.T) {
 
 	// Set up a git repo with user.name configured
 	repoDir := t.TempDir()
-	runGitForConfig(t, repoDir, "init")
-	runGitForConfig(t, repoDir, "config", "user.email", "test@test.com")
-	runGitForConfig(t, repoDir, "config", "user.name", "Ada Lovelace")
+	runGit(t, repoDir, "init")
+	runGit(t, repoDir, "config", "user.email", "test@test.com")
+	runGit(t, repoDir, "config", "user.name", "Ada Lovelace")
 
 	// LoadConfig calls git without -C, so we must be inside the repo
 	origDir, _ := os.Getwd()
@@ -384,19 +347,19 @@ func TestLoadConfigSameFileNoDuplicatePatterns(t *testing.T) {
 }
 
 func TestNewSessionFromGitWithIgnore(t *testing.T) {
-	dir := initTestRepoForConfig(t)
+	dir := initTestRepo(t)
 
 	// Reset defaultBranch cache so it detects the temp repo's branch
 	defaultBranchOnce = sync.Once{}
 
 	// Create a feature branch with several files
-	runGitForConfig(t, dir, "checkout", "-b", "feature")
-	writeFileForConfig(t, filepath.Join(dir, "main.go"), "package main\n")
-	writeFileForConfig(t, filepath.Join(dir, "service.pb.go"), "package main\n// generated\n")
-	writeFileForConfig(t, filepath.Join(dir, "vendor", "lib.go"), "package vendor\n")
-	writeFileForConfig(t, filepath.Join(dir, "README.md"), "# Updated\n")
-	runGitForConfig(t, dir, "add", ".")
-	runGitForConfig(t, dir, "commit", "-m", "add files")
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\n")
+	writeFile(t, filepath.Join(dir, "service.pb.go"), "package main\n// generated\n")
+	writeFile(t, filepath.Join(dir, "vendor", "lib.go"), "package vendor\n")
+	writeFile(t, filepath.Join(dir, "README.md"), "# Updated\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add files")
 
 	// cd into the repo
 	origDir, _ := os.Getwd()
@@ -435,10 +398,10 @@ func TestNewSessionFromGitWithIgnore(t *testing.T) {
 
 func TestNewSessionFromFilesWithIgnore(t *testing.T) {
 	dir := t.TempDir()
-	writeFileForConfig(t, filepath.Join(dir, "main.go"), "package main\n")
-	writeFileForConfig(t, filepath.Join(dir, "generated", "types.go"), "package gen\n")
-	writeFileForConfig(t, filepath.Join(dir, "app.min.js"), "// minified\n")
-	writeFileForConfig(t, filepath.Join(dir, "readme.txt"), "hello\n")
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\n")
+	writeFile(t, filepath.Join(dir, "generated", "types.go"), "package gen\n")
+	writeFile(t, filepath.Join(dir, "app.min.js"), "// minified\n")
+	writeFile(t, filepath.Join(dir, "readme.txt"), "hello\n")
 
 	patterns := []string{"generated/"}
 	session, err := NewSessionFromFiles([]string{dir}, patterns)
