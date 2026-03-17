@@ -455,12 +455,14 @@ test.describe('Author Badges', () => {
     const badges = page.locator('.comment-author-badge');
     await expect(badges).toHaveCount(2);
 
-    // Verify both have color styles and they are different from each other
-    const style0 = await badges.nth(0).getAttribute('style');
-    const style1 = await badges.nth(1).getAttribute('style');
-    expect(style0).toContain('background:');
-    expect(style1).toContain('background:');
-    expect(style0).not.toEqual(style1);
+    // Verify both have author-color classes and they are different from each other
+    const class0 = await badges.nth(0).getAttribute('class');
+    const class1 = await badges.nth(1).getAttribute('class');
+    const color0 = class0?.match(/author-color-\d/)?.[0];
+    const color1 = class1?.match(/author-color-\d/)?.[0];
+    expect(color0).toBeTruthy();
+    expect(color1).toBeTruthy();
+    expect(color0).not.toEqual(color1);
   });
 
   test('displays author badge on diff comments', async ({ page, request }) => {
