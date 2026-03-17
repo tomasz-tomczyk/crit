@@ -58,6 +58,36 @@ func main() {
 	http.ListenAndServe(":8080", nil)
 }
 GOEOF
+
+# Create an Elixir file to test adjacent word-diff merging and whitespace-only filtering
+cat > "$WORD_DIFF_DIR/accounts.ex" << 'EXEOF'
+defmodule MyApp.Accounts do
+  def reset_password(token) do
+    case verify_reset_password_token(token) do
+      {:ok, provider} ->
+        case Accounts.update_provider_password(provider, %{
+               "password" => password,
+               "password_confirmation" => password_confirmation
+             }) do
+          {:ok, _} -> :ok
+          {:error, changeset} -> {:error, changeset}
+        end
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def provider_password_change(provider, params) do
+    provider
+    |> cast(params, [:password, :password_confirmation])
+    |> validate_required([:password, :password_confirmation])
+    |> validate_length(:password, min: 4)
+    |> validate_confirmation(:password)
+    |> hash_password()
+  end
+end
+EXEOF
+
 git -C "$WORD_DIFF_DIR" add -A && git -C "$WORD_DIFF_DIR" commit -q -m "initial"
 
 # Modify the file to produce good word-level diff pairs
@@ -86,6 +116,32 @@ func main() {
 	}
 }
 GOEOF
+
+# Modify the Elixir file — tests both adjacent word merging and whitespace-only filtering
+cat > "$WORD_DIFF_DIR/accounts.ex" << 'EXEOF'
+defmodule MyApp.Accounts do
+  def reset_password(token) do
+    case verify_reset_password_token(token) do
+      {:ok, provider} ->
+        require_complex? =
+          provider.org_id
+          |> Entities.org_preferences(["org.complex_passwords"])
+          |> Entities.is_pref_enabled?("org.complex_passwords")
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def provider_password_change(provider, params, opts \\ []) do
+      changeset =
+        provider
+        |> cast(params, [:password, :password_confirmation])
+        |> validate_required([:password, :password_confirmation])
+        |> validate_length(:password, min: 8)
+        |> validate_confirmation(:password)
+  end
+end
+EXEOF
 
 echo ""
 echo "Starting git-mode crit for word-level diff on port $WORD_DIFF_PORT..."
