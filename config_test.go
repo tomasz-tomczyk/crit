@@ -112,6 +112,61 @@ func TestMergeConfigs(t *testing.T) {
 	}
 }
 
+func TestBaseBranchConfig(t *testing.T) {
+	t.Run("loadConfigFile parses base_branch", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, ".crit.config.json")
+		os.WriteFile(configPath, []byte(`{"base_branch": "uat"}`), 0644)
+
+		cfg, _, err := loadConfigFile(configPath)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.BaseBranch != "uat" {
+			t.Errorf("base_branch = %q, want %q", cfg.BaseBranch, "uat")
+		}
+	})
+
+	t.Run("mergeConfigs: project base_branch overrides global", func(t *testing.T) {
+		global := Config{BaseBranch: "main"}
+		project := Config{BaseBranch: "uat"}
+		merged := mergeConfigs(global, project)
+		if merged.BaseBranch != "uat" {
+			t.Errorf("base_branch = %q, want %q", merged.BaseBranch, "uat")
+		}
+	})
+
+	t.Run("mergeConfigs: global base_branch preserved when project unset", func(t *testing.T) {
+		global := Config{BaseBranch: "develop"}
+		project := Config{}
+		merged := mergeConfigs(global, project)
+		if merged.BaseBranch != "develop" {
+			t.Errorf("base_branch = %q, want %q", merged.BaseBranch, "develop")
+		}
+	})
+
+	t.Run("LoadConfig: project base_branch wins over global", func(t *testing.T) {
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		os.WriteFile(
+			filepath.Join(homeDir, ".crit.config.json"),
+			[]byte(`{"base_branch": "main"}`),
+			0644,
+		)
+		projectDir := t.TempDir()
+		os.WriteFile(
+			filepath.Join(projectDir, ".crit.config.json"),
+			[]byte(`{"base_branch": "uat"}`),
+			0644,
+		)
+
+		cfg := LoadConfig(projectDir)
+		if cfg.BaseBranch != "uat" {
+			t.Errorf("base_branch = %q, want %q", cfg.BaseBranch, "uat")
+		}
+	})
+}
+
 func TestMergeConfigsZeroValues(t *testing.T) {
 	global := Config{Port: 3000, NoOpen: true, Quiet: true}
 	project := Config{} // all zero — should not override
@@ -367,7 +422,7 @@ func TestNewSessionFromGitWithIgnore(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	patterns := []string{"*.pb.go", "vendor/"}
-	session, err := NewSessionFromGit(patterns)
+	session, err := NewSessionFromGit("", patterns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -404,7 +459,7 @@ func TestNewSessionFromFilesWithIgnore(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "readme.txt"), "hello\n")
 
 	patterns := []string{"generated/"}
-	session, err := NewSessionFromFiles([]string{dir}, patterns)
+	session, err := NewSessionFromFiles([]string{dir}, "", patterns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

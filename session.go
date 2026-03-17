@@ -106,7 +106,7 @@ type CritJSONFile struct {
 }
 
 // NewSessionFromGit creates a session by auto-detecting changed files via git.
-func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
+func NewSessionFromGit(baseBranch string, ignorePatterns []string) (*Session, error) {
 	root, err := RepoRoot()
 	if err != nil {
 		return nil, fmt.Errorf("not a git repository: %w", err)
@@ -115,9 +115,13 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 	// Compute baseRef FIRST so we use the same value for both file detection and diffs.
 	// Previously these were computed independently which could lead to inconsistencies.
 	branch := CurrentBranch()
+	resolvedBase := baseBranch
+	if resolvedBase == "" {
+		resolvedBase = DefaultBranch()
+	}
 	baseRef := ""
-	if !IsOnDefaultBranch() {
-		baseRef, _ = MergeBase(DefaultBranch())
+	if CurrentBranch() != resolvedBase {
+		baseRef, _ = MergeBase(resolvedBase)
 	}
 
 	var changes []FileChange
@@ -194,7 +198,7 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 
 // NewSessionFromFiles creates a session from explicitly provided file or directory paths.
 // When a directory is passed, all files within it are included recursively.
-func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, error) {
+func NewSessionFromFiles(paths []string, baseBranch string, ignorePatterns []string) (*Session, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("no files provided")
 	}
@@ -246,8 +250,12 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 	if IsGitRepo() {
 		root, _ = RepoRoot()
 		branch = CurrentBranch()
-		if !IsOnDefaultBranch() {
-			baseRef, _ = MergeBase(DefaultBranch())
+		resolvedBase := baseBranch
+		if resolvedBase == "" {
+			resolvedBase = DefaultBranch()
+		}
+		if branch != resolvedBase {
+			baseRef, _ = MergeBase(resolvedBase)
 		}
 	}
 	if root == "" {

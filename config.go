@@ -17,6 +17,7 @@ type Config struct {
 	Quiet          bool     `json:"quiet,omitempty"`
 	Output         string   `json:"output,omitempty"`
 	Author         string   `json:"author,omitempty"`
+	BaseBranch     string   `json:"base_branch,omitempty"`
 	IgnorePatterns []string `json:"ignore_patterns,omitempty"`
 }
 
@@ -34,12 +35,13 @@ func (c Config) String() string {
 // Uses a map to avoid omitempty suppressing zero-value fields.
 func defaultConfig() generatedConfig {
 	return generatedConfig{
-		Port:     0,
-		NoOpen:   false,
-		ShareURL: "https://crit.live",
-		Quiet:    false,
-		Output:   "",
-		Author:   "",
+		Port:       0,
+		NoOpen:     false,
+		ShareURL:   "https://crit.live",
+		Quiet:      false,
+		Output:     "",
+		Author:     "",
+		BaseBranch: "",
 		IgnorePatterns: []string{
 			"*.lock",
 			"*.min.js",
@@ -57,6 +59,7 @@ type generatedConfig struct {
 	Quiet          bool     `json:"quiet"`
 	Output         string   `json:"output"`
 	Author         string   `json:"author"`
+	BaseBranch     string   `json:"base_branch"`
 	IgnorePatterns []string `json:"ignore_patterns"`
 }
 
@@ -123,6 +126,9 @@ func mergeConfigs(global, project Config) Config {
 	}
 	if project.Author != "" {
 		merged.Author = project.Author
+	}
+	if project.BaseBranch != "" {
+		merged.BaseBranch = project.BaseBranch
 	}
 	// Union ignore patterns
 	merged.IgnorePatterns = append(merged.IgnorePatterns, project.IgnorePatterns...)

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -330,6 +331,40 @@ func TestRepoRoot_RealRepo(t *testing.T) {
 	actualRoot, _ := filepath.EvalSymlinks(root)
 	if actualRoot != expectedDir {
 		t.Errorf("RepoRoot = %q, want %q", actualRoot, expectedDir)
+	}
+}
+
+func TestDefaultBranchOverride(t *testing.T) {
+	// Save and restore global state
+	origOverride := defaultBranchOverride
+	origOnce := defaultBranchOnce
+	origResult := defaultBranchResult
+	t.Cleanup(func() {
+		defaultBranchOverride = origOverride
+		defaultBranchOnce = origOnce
+		defaultBranchResult = origResult
+	})
+
+	// Without override, auto-detection runs (result may vary by environment).
+	// We only test that the override takes precedence.
+	defaultBranchOverride = "uat"
+	if got := DefaultBranch(); got != "uat" {
+		t.Errorf("DefaultBranch() = %q, want %q", got, "uat")
+	}
+
+	// Changing the override is reflected immediately (no cache involved).
+	defaultBranchOverride = "develop"
+	if got := DefaultBranch(); got != "develop" {
+		t.Errorf("DefaultBranch() = %q, want %q", got, "develop")
+	}
+
+	// Clearing the override falls back to auto-detection via sync.Once.
+	defaultBranchOverride = ""
+	defaultBranchOnce = sync.Once{}
+	defaultBranchResult = ""
+	// Just verify it doesn't panic and returns something non-empty.
+	if got := DefaultBranch(); got == "" {
+		t.Error("DefaultBranch() returned empty string without override")
 	}
 }
 

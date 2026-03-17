@@ -632,6 +632,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 	quiet := fs.Bool("quiet", false, "Suppress status output")
 	fs.BoolVar(quiet, "q", false, "Suppress status output (shorthand)")
 	noIgnore := fs.Bool("no-ignore", false, "Disable all ignore patterns from config files")
+	baseBranch := fs.String("base-branch", "", "Base branch to diff against (overrides auto-detection)")
 	fs.Usage = func() {
 		printHelp()
 	}
@@ -682,6 +683,13 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 	if *outputDir == "" && cfg.Output != "" {
 		*outputDir = cfg.Output
 	}
+	// Base branch: CLI flag > config > auto-detect
+	if *baseBranch == "" && cfg.BaseBranch != "" {
+		*baseBranch = cfg.BaseBranch
+	}
+	if *baseBranch != "" {
+		defaultBranchOverride = *baseBranch
+	}
 
 	var ignorePatterns []string
 	if !*noIgnore {
@@ -719,13 +727,13 @@ func runServer(args []string) {
 			printHelp()
 			os.Exit(1)
 		}
-		session, err = NewSessionFromGit(sc.ignorePatterns)
+		session, err = NewSessionFromGit("", sc.ignorePatterns)
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		}
 	} else {
 		// Explicit files
-		session, err = NewSessionFromFiles(sc.files, sc.ignorePatterns)
+		session, err = NewSessionFromFiles(sc.files, "", sc.ignorePatterns)
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		}
@@ -860,6 +868,7 @@ Options:
       --no-ignore             Disable all file ignore patterns
   -q, --quiet                 Suppress status output
       --share-url <url>       Share service URL (e.g. https://crit.live or self-hosted)
+      --base-branch <branch>  Base branch to diff against (overrides auto-detection)
       --qr                    Print QR code of share URL (with crit share)
   -v, --version               Print version
 
@@ -900,6 +909,7 @@ Available keys:
   quiet             bool      Suppress status output (default: false)
   output            string    Output directory for .crit.json
   author            string    Your name for comments (default: git config user.name)
+  base_branch       string    Base branch to diff against (overrides auto-detection)
   ignore_patterns   []string  Gitignore-style patterns to exclude files from review
 
 Ignore pattern syntax:

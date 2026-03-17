@@ -54,13 +54,18 @@ func RepoRoot() (string, error) {
 }
 
 var (
-	defaultBranchOnce   sync.Once
-	defaultBranchResult string
+	defaultBranchOnce     sync.Once
+	defaultBranchResult   string
+	defaultBranchOverride string
 )
 
 // DefaultBranch returns the name of the default branch (main or master).
 // The result is cached after the first call since it doesn't change during a session.
+// If defaultBranchOverride is set, it is returned immediately without caching.
 func DefaultBranch() string {
+	if defaultBranchOverride != "" {
+		return defaultBranchOverride
+	}
 	defaultBranchOnce.Do(func() {
 		defaultBranchResult = detectDefaultBranch()
 	})
