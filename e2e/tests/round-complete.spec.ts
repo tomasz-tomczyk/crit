@@ -295,9 +295,9 @@ test.describe('Multi-Round — Frontend', () => {
     // UI should exit waiting state (overlay removed, file sections re-rendered)
     await expect(overlay).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Finish button should be available again (no comments = "Approve")
+    // Finish button should be available again (comment persists so "Finish Review")
     const finishBtn = page.locator('#finishBtn');
-    await expect(finishBtn).toHaveText('Approve');
+    await expect(finishBtn).toHaveText('Finish Review');
     await expect(finishBtn).toBeEnabled();
   });
 
