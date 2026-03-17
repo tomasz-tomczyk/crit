@@ -208,15 +208,14 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 				}
 				hash := fileHash(data)
 
-				s.mu.RLock()
-				same := hash == f.FileHash
-				s.mu.RUnlock()
-
-				if same {
+				s.mu.Lock()
+				// Re-check hash under write lock to avoid racing with AddComment.
+				// Without this, a comment added between a read-lock check and this
+				// write lock would be silently discarded.
+				if hash == f.FileHash {
+					s.mu.Unlock()
 					continue
 				}
-
-				s.mu.Lock()
 				// Snapshot on first edit of a round (markdown files)
 				if f.FileType == "markdown" && s.pendingEdits == 0 {
 					f.PreviousContent = f.Content
