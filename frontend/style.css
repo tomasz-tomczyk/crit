@@ -2434,6 +2434,11 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   color: var(--fg-dimmed);
   margin-bottom: 16px;
 }
+.diff-no-changes {
+  padding: 16px 24px;
+  color: var(--fg-muted);
+  font-style: italic;
+}
 
 /* ===== Mini Toast ===== */
 .mini-toast {

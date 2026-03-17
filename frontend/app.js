@@ -1656,18 +1656,7 @@
     const currDiffBlocks = currBlocks.filter(function(b) { return b.isDiff; });
     const pairCount = Math.min(prevDiffBlocks.length, currDiffBlocks.length);
     for (let p = 0; p < pairCount; p++) {
-      let oldText = htmlToText(prevDiffBlocks[p].html);
-      let newText = htmlToText(currDiffBlocks[p].html);
-      let wd = wordDiff(oldText, newText);
-      if (wd) {
-        // Check similarity: if too few tokens are unchanged, skip (blocks probably don't correspond)
-        let oldChangedChars = wd.oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
-        let newChangedChars = wd.newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
-        if (oldText.length > 0 && oldChangedChars / oldText.length > 0.7) continue;
-        if (newText.length > 0 && newChangedChars / newText.length > 0.7) continue;
-        prevDiffBlocks[p].wordDiffHtml = applyWordDiffToHtml(prevDiffBlocks[p].html, wd.oldRanges, 'diff-word-del');
-        currDiffBlocks[p].wordDiffHtml = applyWordDiffToHtml(currDiffBlocks[p].html, wd.newRanges, 'diff-word-add');
-      }
+      applyWordDiffPair(prevDiffBlocks[p], currDiffBlocks[p]);
     }
 
     // Labels row
@@ -1855,17 +1844,7 @@
         // Compute word diffs for paired removed/added blocks (with similarity check)
         const runPairCount = Math.min(removedRun.length, addedRun.length);
         for (let rp = 0; rp < runPairCount; rp++) {
-          const oldText = htmlToText(oldBlocks[removedRun[rp]].html);
-          const newText = htmlToText(newBlocks[addedRun[rp]].html);
-          const wd = wordDiff(oldText, newText);
-          if (wd) {
-            const oldChangedChars = wd.oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
-            const newChangedChars = wd.newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
-            if (oldText.length > 0 && oldChangedChars / oldText.length > 0.7) continue;
-            if (newText.length > 0 && newChangedChars / newText.length > 0.7) continue;
-            oldBlocks[removedRun[rp]].wordDiffHtml = applyWordDiffToHtml(oldBlocks[removedRun[rp]].html, wd.oldRanges, 'diff-word-del');
-            newBlocks[addedRun[rp]].wordDiffHtml = applyWordDiffToHtml(newBlocks[addedRun[rp]].html, wd.newRanges, 'diff-word-add');
-          }
+          applyWordDiffPair(oldBlocks[removedRun[rp]], newBlocks[addedRun[rp]]);
         }
         // Emit all removed then all added
         for (let ri = 0; ri < removedRun.length; ri++) {
@@ -2285,6 +2264,21 @@
     return tmp.textContent || '';
   }
 
+  // Apply word-level diffs to a pair of old/new blocks if they are sufficiently similar.
+  // Skips pairs where >70% of characters changed (blocks probably don't correspond).
+  function applyWordDiffPair(oldBlock, newBlock) {
+    const oldText = htmlToText(oldBlock.html);
+    const newText = htmlToText(newBlock.html);
+    const wd = wordDiff(oldText, newText);
+    if (!wd) return;
+    const oldChangedChars = wd.oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
+    const newChangedChars = wd.newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
+    if (oldText.length > 0 && oldChangedChars / oldText.length > 0.7) return;
+    if (newText.length > 0 && newChangedChars / newText.length > 0.7) return;
+    oldBlock.wordDiffHtml = applyWordDiffToHtml(oldBlock.html, wd.oldRanges, 'diff-word-del');
+    newBlock.wordDiffHtml = applyWordDiffToHtml(newBlock.html, wd.newRanges, 'diff-word-add');
+  }
+
   // Pre-compute word diffs for all paired del/add runs in a hunk.
   // Returns a Map<lineIndex, { ranges, cssClass }> mapping hunk line indices to word-diff info.
   function buildHunkWordDiffs(hunk) {
@@ -2551,7 +2545,7 @@
 
     const hunks = file.diffHunks || [];
     if (hunks.length === 0) {
-      container.innerHTML = '<div style="padding: 16px 24px; color: var(--fg-muted); font-style: italic;">No changes</div>';
+      container.innerHTML = '<div class="diff-no-changes">No changes</div>';
       return container;
     }
 
@@ -2651,7 +2645,7 @@
 
     const hunks = file.diffHunks || [];
     if (hunks.length === 0) {
-      container.innerHTML = '<div style="padding: 16px 24px; color: var(--fg-muted); font-style: italic;">No changes</div>';
+      container.innerHTML = '<div class="diff-no-changes">No changes</div>';
       return container;
     }
 
