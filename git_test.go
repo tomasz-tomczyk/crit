@@ -997,3 +997,76 @@ func TestParseUnifiedDiff_MultipleHunksWithBlankLines(t *testing.T) {
 		t.Errorf("hunk 2 blank line: old=%d new=%d, want 11,11", h2.Lines[1].OldNum, h2.Lines[1].NewNum)
 	}
 }
+
+func TestCommitLog(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Record the main branch commit as base ref
+	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+
+	// Create a feature branch with two commits
+	runGit(t, dir, "checkout", "-b", "feature/commits")
+	writeFile(t, filepath.Join(dir, "a.go"), "package main\n\nfunc A() {}\n")
+	runGit(t, dir, "add", "a.go")
+	runGit(t, dir, "commit", "-m", "add function A")
+
+	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n")
+	runGit(t, dir, "add", "b.go")
+	runGit(t, dir, "commit", "-m", "add function B")
+
+	commits, err := CommitLog(baseRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(commits) != 2 {
+		t.Fatalf("expected 2 commits, got %d", len(commits))
+	}
+
+	// Newest commit first
+	if commits[0].Message != "add function B" {
+		t.Errorf("commits[0].Message = %q, want %q", commits[0].Message, "add function B")
+	}
+	if commits[1].Message != "add function A" {
+		t.Errorf("commits[1].Message = %q, want %q", commits[1].Message, "add function A")
+	}
+
+	// Short SHAs should be 7 characters
+	for i, c := range commits {
+		if len(c.ShortSHA) != 7 {
+			t.Errorf("commits[%d].ShortSHA = %q, want 7 chars", i, c.ShortSHA)
+		}
+		if c.SHA == "" {
+			t.Errorf("commits[%d].SHA is empty", i)
+		}
+		if c.Author == "" {
+			t.Errorf("commits[%d].Author is empty", i)
+		}
+		if c.Date == "" {
+			t.Errorf("commits[%d].Date is empty", i)
+		}
+		// SHA should start with ShortSHA
+		if !strings.HasPrefix(c.SHA, c.ShortSHA) {
+			t.Errorf("commits[%d].SHA %q does not start with ShortSHA %q", i, c.SHA, c.ShortSHA)
+		}
+	}
+}
+
+func TestCommitLogEmpty(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Empty baseRef should return nil
+	commits, err := CommitLog("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commits != nil {
+		t.Errorf("expected nil for empty baseRef, got %+v", commits)
+	}
+}

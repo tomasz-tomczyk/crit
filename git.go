@@ -223,6 +223,51 @@ func FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHunk, error) {
 	return ParseUnifiedDiff(string(out)), nil
 }
 
+// CommitInfo represents a single commit in a log.
+type CommitInfo struct {
+	SHA      string `json:"sha"`
+	ShortSHA string `json:"short_sha"`
+	Message  string `json:"message"`
+	Author   string `json:"author"`
+	Date     string `json:"date"`
+}
+
+// CommitLog returns the commits between baseRef and HEAD, newest first.
+// Returns nil if baseRef is empty.
+func CommitLog(baseRef string) ([]CommitInfo, error) {
+	if baseRef == "" {
+		return nil, nil
+	}
+	cmd := exec.Command("git", "log", "--format=%H%n%h%n%s%n%an%n%aI", "--reverse", baseRef+"..HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git log failed: %w", err)
+	}
+	output := strings.TrimSpace(string(out))
+	if output == "" {
+		return nil, nil
+	}
+	lines := strings.Split(output, "\n")
+	if len(lines)%5 != 0 {
+		return nil, fmt.Errorf("unexpected git log output: %d lines (not a multiple of 5)", len(lines))
+	}
+	var commits []CommitInfo
+	for i := 0; i < len(lines); i += 5 {
+		commits = append(commits, CommitInfo{
+			SHA:      lines[i],
+			ShortSHA: lines[i+1],
+			Message:  lines[i+2],
+			Author:   lines[i+3],
+			Date:     lines[i+4],
+		})
+	}
+	// Reverse so newest commit is first
+	for i, j := 0, len(commits)-1; i < j; i, j = i+1, j-1 {
+		commits[i], commits[j] = commits[j], commits[i]
+	}
+	return commits, nil
+}
+
 func changedFilesOnDefault() ([]FileChange, error) {
 	return changedFilesOnDefaultInDir("")
 }
