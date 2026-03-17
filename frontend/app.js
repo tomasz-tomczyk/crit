@@ -2209,8 +2209,11 @@
     if (oldUnchanged === oldTokens.length && newUnchanged === newTokens.length) return null;
 
 
-    // Build character ranges for changed tokens
-    function buildRanges(tokens, keep) {
+    // Build character ranges for changed tokens.
+    // Whitespace-only tokens between two changed tokens are absorbed into the
+    // range so that "word1 word2" highlights as one continuous span instead of
+    // two spans with an unhighlighted gap on the space.
+    function buildRanges(tokens, keep, line) {
       var ranges = [];
       var charIdx = 0;
       var rangeStart = -1;
@@ -2219,6 +2222,16 @@
           if (rangeStart === -1) rangeStart = charIdx;
         } else {
           if (rangeStart !== -1) {
+            // If this kept token is whitespace and a later token is changed,
+            // absorb the whitespace into the current range.
+            if (/^\s+$/.test(tokens[i])) {
+              var hasMoreChanged = false;
+              for (var j = i + 1; j < tokens.length; j++) {
+                if (!keep[j]) { hasMoreChanged = true; break; }
+                if (!/^\s+$/.test(tokens[j])) break;
+              }
+              if (hasMoreChanged) { charIdx += tokens[i].length; continue; }
+            }
             ranges.push([rangeStart, charIdx]);
             rangeStart = -1;
           }
@@ -2226,12 +2239,14 @@
         charIdx += tokens[i].length;
       }
       if (rangeStart !== -1) ranges.push([rangeStart, charIdx]);
-      return ranges;
+      // Drop ranges that cover only whitespace (e.g. indentation changes) —
+      // the line is already colored as added/removed so highlighting spaces is noise.
+      return ranges.filter(function(r) { return !/^\s+$/.test(line.slice(r[0], r[1])); });
     }
 
     return {
-      oldRanges: buildRanges(oldTokens, oldKeep),
-      newRanges: buildRanges(newTokens, newKeep),
+      oldRanges: buildRanges(oldTokens, oldKeep, oldLine),
+      newRanges: buildRanges(newTokens, newKeep, newLine),
     };
   }
 
