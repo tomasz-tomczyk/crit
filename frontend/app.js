@@ -16,20 +16,20 @@
 
   // ===== Suggestion Diff Renderer =====
   function renderSuggestionDiff(suggestionContent, originalLines) {
-    var sugLines = suggestionContent.replace(/\n$/, '').split('\n');
-    var html = '<div class="suggestion-diff">';
+    const sugLines = suggestionContent.replace(/\n$/, '').split('\n');
+    let html = '<div class="suggestion-diff">';
     html += '<div class="suggestion-header">Suggested change</div>';
 
-    var origLen = (originalLines && originalLines.length > 0) ? originalLines.length : 0;
-    var isEmptySuggestion = sugLines.length === 1 && sugLines[0] === '' && origLen > 0;
-    var sugLen = isEmptySuggestion ? 0 : sugLines.length;
-    var pairedLen = Math.min(origLen, sugLen);
+    const origLen = (originalLines && originalLines.length > 0) ? originalLines.length : 0;
+    const isEmptySuggestion = sugLines.length === 1 && sugLines[0] === '' && origLen > 0;
+    const sugLen = isEmptySuggestion ? 0 : sugLines.length;
+    const pairedLen = Math.min(origLen, sugLen);
 
     // Compute word-level diffs for paired lines
-    var delContents = [];
-    var addContents = [];
-    for (var i = 0; i < pairedLen; i++) {
-      var wd = wordDiff(originalLines[i], sugLines[i]);
+    const delContents = [];
+    const addContents = [];
+    for (let i = 0; i < pairedLen; i++) {
+      const wd = wordDiff(originalLines[i], sugLines[i]);
       if (wd) {
         delContents.push(applyWordDiffToHtml(escapeHtml(originalLines[i]), wd.oldRanges, 'diff-word-del'));
         addContents.push(applyWordDiffToHtml(escapeHtml(sugLines[i]), wd.newRanges, 'diff-word-add'));
@@ -40,16 +40,16 @@
     }
 
     // All deletion lines first (paired + unpaired)
-    for (var j = 0; j < origLen; j++) {
-      var dc = j < pairedLen ? delContents[j] : escapeHtml(originalLines[j]);
+    for (let j = 0; j < origLen; j++) {
+      const dc = j < pairedLen ? delContents[j] : escapeHtml(originalLines[j]);
       html += '<div class="suggestion-line suggestion-line-del">'
         + '<span class="suggestion-line-sign">\u2212</span>'
         + '<span class="suggestion-line-content">' + dc + '</span></div>';
     }
 
     // All addition lines (paired + unpaired)
-    for (var k = 0; k < sugLen; k++) {
-      var ac = k < pairedLen ? addContents[k] : escapeHtml(sugLines[k]);
+    for (let k = 0; k < sugLen; k++) {
+      const ac = k < pairedLen ? addContents[k] : escapeHtml(sugLines[k]);
       html += '<div class="suggestion-line suggestion-line-add">'
         + '<span class="suggestion-line-sign">+</span>'
         + '<span class="suggestion-line-content">' + ac + '</span></div>';
@@ -60,10 +60,10 @@
   }
 
   (function() {
-    var defaultFence = commentMd.renderer.rules.fence;
+    const defaultFence = commentMd.renderer.rules.fence;
     commentMd.renderer.rules.fence = function(tokens, idx, options, env, self) {
-      var token = tokens[idx];
-      var info = token.info ? token.info.trim() : '';
+      const token = tokens[idx];
+      const info = token.info ? token.info.trim() : '';
       if (info === 'suggestion') {
         return renderSuggestionDiff(token.content, env && env.originalLines);
       }
@@ -92,7 +92,7 @@
     document.cookie = name + '=' + encodeURIComponent(value) + '; path=/; max-age=31536000; SameSite=Strict';
   }
   function getCookie(name) {
-    var match = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
+    const match = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
     return match ? decodeURIComponent(match[1]) : null;
   }
 
@@ -120,7 +120,7 @@
 
   function addForm(form) {
     form.formKey = formKey(form);
-    var idx = activeForms.findIndex(function(f) { return f.formKey === form.formKey; });
+    const idx = activeForms.findIndex(function(f) { return f.formKey === form.formKey; });
     if (idx >= 0) {
       activeForms[idx] = form;
     } else {
@@ -141,8 +141,8 @@
   }
   let selectionStart = null;
   let selectionEnd = null;
-  var unifiedVisualStart = null; // visual index range for unified drag (cross-number-space)
-  var unifiedVisualEnd = null;
+  let unifiedVisualStart = null; // visual index range for unified drag (cross-number-space)
+  let unifiedVisualEnd = null;
   let focusedBlockIndex = null;
   let focusedFilePath = null;
   let focusedElement = null; // currently focused navigable element
@@ -170,9 +170,9 @@
 
   // Sort comparator: directories before files at each depth, then alphabetical
   function fileSortComparator(a, b) {
-    var pa = a.path.split('/'), pb = b.path.split('/');
-    var min = Math.min(pa.length, pb.length);
-    for (var i = 0; i < min - 1; i++) {
+    const pa = a.path.split('/'), pb = b.path.split('/');
+    const min = Math.min(pa.length, pb.length);
+    for (let i = 0; i < min - 1; i++) {
       if (pa[i] !== pb[i]) return pa[i].localeCompare(pb[i]);
     }
     if (pa.length !== pb.length) return pb.length - pa.length;
@@ -182,7 +182,7 @@
   // Fetch and build file objects from the API for a list of file infos.
   async function loadAllFileData(fileInfos, scope) {
     return Promise.all(fileInfos.map(async (fi) => {
-      var diffUrl = '/api/file/diff?path=' + enc(fi.path);
+      let diffUrl = '/api/file/diff?path=' + enc(fi.path);
       if (scope && scope !== 'all') {
         diffUrl += '&scope=' + enc(scope);
       }
@@ -210,8 +210,8 @@
       };
 
       // Mark large diffs for deferred rendering
-      var diffLineCount = 0;
-      for (var h = 0; h < f.diffHunks.length; h++) {
+      let diffLineCount = 0;
+      for (let h = 0; h < f.diffHunks.length; h++) {
         diffLineCount += (f.diffHunks[h].Lines || []).length;
       }
       f.diffTooLarge = diffLineCount > 1000;
@@ -244,17 +244,17 @@
 
   // ===== Viewed State =====
   function viewedStorageKey() {
-    var paths = files.map(function(f) { return f.path; }).sort().join('\n');
-    var hash = 0;
-    for (var i = 0; i < paths.length; i++) {
+    const paths = files.map(function(f) { return f.path; }).sort().join('\n');
+    let hash = 0;
+    for (let i = 0; i < paths.length; i++) {
       hash = ((hash << 5) - hash + paths.charCodeAt(i)) | 0;
     }
     return 'crit-viewed-' + (hash >>> 0).toString(36);
   }
 
   function saveViewedState() {
-    var viewed = {};
-    for (var i = 0; i < files.length; i++) {
+    const viewed = {};
+    for (let i = 0; i < files.length; i++) {
       if (files[i].viewed) viewed[files[i].path] = true;
     }
     try { localStorage.setItem(viewedStorageKey(), JSON.stringify(viewed)); } catch (_) {}
@@ -262,8 +262,8 @@
 
   function restoreViewedState() {
     try {
-      var data = JSON.parse(localStorage.getItem(viewedStorageKey()) || '{}');
-      for (var i = 0; i < files.length; i++) {
+      const data = JSON.parse(localStorage.getItem(viewedStorageKey()) || '{}');
+      for (let i = 0; i < files.length; i++) {
         files[i].viewed = !!data[files[i].path];
         if (files[i].viewed) files[i].collapsed = true;
       }
@@ -271,16 +271,16 @@
   }
 
   function toggleViewed(filePath) {
-    var file = getFileByPath(filePath);
+    const file = getFileByPath(filePath);
     if (!file) return;
     file.viewed = !file.viewed;
     saveViewedState();
     updateViewedCount();
     updateTreeViewedState();
     // Update the checkbox in the file header
-    var section = document.getElementById('file-section-' + filePath);
+    const section = document.getElementById('file-section-' + filePath);
     if (section) {
-      var cb = section.querySelector('.file-header-viewed input');
+      const cb = section.querySelector('.file-header-viewed input');
       if (cb) cb.checked = file.viewed;
       // Collapse when marking as viewed
       if (file.viewed && section.open) {
@@ -299,7 +299,7 @@
 
     // Measure actual header height and set CSS variable for sticky offsets
     function updateHeaderHeight() {
-      var h = document.querySelector('.header');
+      const h = document.querySelector('.header');
       if (h) document.documentElement.style.setProperty('--header-height', h.getBoundingClientRect().height + 'px');
     }
     updateHeaderHeight();
@@ -319,7 +319,7 @@
     configAuthor = configRes.author || '';
 
     if (shareURL && session.mode !== 'git') {
-      var shareBtn = document.getElementById('shareBtn');
+      const shareBtn = document.getElementById('shareBtn');
       shareBtn.style.display = '';
       if (hostedURL) {
         setShareButtonState('shared');
@@ -353,9 +353,9 @@
       document.getElementById('tocToggle').style.display = 'none';
 
       // Show scope toggle and hide unavailable scopes
-      var scopeToggle = document.getElementById('scopeToggle');
+      const scopeToggle = document.getElementById('scopeToggle');
       scopeToggle.style.display = '';
-      var scopes = session.available_scopes || ['all', 'staged', 'unstaged'];
+      const scopes = session.available_scopes || ['all', 'staged', 'unstaged'];
       scopeToggle.querySelectorAll('.toggle-btn').forEach(function(b) {
         if (b.dataset.scope !== 'all' && scopes.indexOf(b.dataset.scope) === -1) {
           b.disabled = true;
@@ -398,10 +398,10 @@
   // Show/hide the Toggle Diff button and Split/Unified toggle in file mode
   function updateDiffModeToggle() {
     if (session.mode === 'git') return; // git mode handles this in init
-    var hasDiffs = files.some(function(f) {
+    const hasDiffs = files.some(function(f) {
       return f.fileType === 'markdown' && f.previousLineBlocks && f.previousLineBlocks.length > 0;
     });
-    var diffToggleBtn = document.getElementById('diffToggle');
+    const diffToggleBtn = document.getElementById('diffToggle');
     if (diffToggleBtn) {
       diffToggleBtn.style.display = hasDiffs ? '' : 'none';
       diffToggleBtn.classList.toggle('active', diffActive);
@@ -618,7 +618,7 @@
         for (let ci = 0; ci < codeLines.length; ci++) {
           const ln = blockStart + 2 + ci;
           if (ln > blockEnd) break;
-          var isLast = (ci === codeLines.length - 1 && blockEnd <= ln);
+          const isLast = (ci === codeLines.length - 1 && blockEnd <= ln);
           blocks.push({
             startLine: ln, endLine: ln,
             html: '<code class="hljs">' + (codeLines[ci] || '&nbsp;') + '</code>',
@@ -864,20 +864,20 @@
   }
 
   // ===== File Tree Sidebar =====
-  var activeTreePath = null;
-  var treeObserver = null;
-  var ignoreTreeObserverUntil = 0;
-  var treeFolderState = {}; // { 'src': true, 'src/components': false } — true = collapsed
+  let activeTreePath = null;
+  let treeObserver = null;
+  let ignoreTreeObserverUntil = 0;
+  const treeFolderState = {}; // { 'src': true, 'src/components': false } — true = collapsed
 
   function buildFileTree(fileList) {
     // Build a nested tree from flat paths
-    var root = { children: {}, files: [] };
-    for (var i = 0; i < fileList.length; i++) {
-      var f = fileList[i];
-      var parts = f.path.split('/');
-      var node = root;
-      for (var j = 0; j < parts.length - 1; j++) {
-        var dirName = parts[j];
+    const root = { children: {}, files: [] };
+    for (let i = 0; i < fileList.length; i++) {
+      const f = fileList[i];
+      const parts = f.path.split('/');
+      let node = root;
+      for (let j = 0; j < parts.length - 1; j++) {
+        const dirName = parts[j];
         if (!node.children[dirName]) {
           node.children[dirName] = { children: {}, files: [] };
         }
@@ -890,15 +890,15 @@
 
   function collapseCommonPrefixes(tree) {
     // Collapse single-child directories: src/ -> components/ -> Foo.tsx becomes src/components/
-    var dirs = Object.keys(tree.children);
-    var result = { children: {}, files: tree.files };
-    for (var i = 0; i < dirs.length; i++) {
-      var name = dirs[i];
-      var child = tree.children[name];
+    const dirs = Object.keys(tree.children);
+    const result = { children: {}, files: tree.files };
+    for (let i = 0; i < dirs.length; i++) {
+      let name = dirs[i];
+      let child = tree.children[name];
       // Recursively collapse child first
       child = collapseCommonPrefixes(child);
       // If child has exactly one subdirectory and no files, merge
-      var childDirs = Object.keys(child.children);
+      let childDirs = Object.keys(child.children);
       while (childDirs.length === 1 && child.files.length === 0) {
         name = name + '/' + childDirs[0];
         child = child.children[childDirs[0]];
@@ -911,7 +911,7 @@
   }
 
   function renderFileTree() {
-    var panel = document.getElementById('fileTreePanel');
+    const panel = document.getElementById('fileTreePanel');
     if (files.length <= 1 && session.mode !== 'git') {
       panel.style.display = 'none';
       return;
@@ -919,43 +919,43 @@
     panel.style.display = '';
 
     // Stats
-    var totalAdd = 0, totalDel = 0;
-    for (var i = 0; i < files.length; i++) { totalAdd += files[i].additions; totalDel += files[i].deletions; }
-    var statsEl = document.getElementById('fileTreeStats');
+    let totalAdd = 0, totalDel = 0;
+    for (let i = 0; i < files.length; i++) { totalAdd += files[i].additions; totalDel += files[i].deletions; }
+    const statsEl = document.getElementById('fileTreeStats');
     statsEl.innerHTML =
       '<span>' + files.length + '</span>' +
       (totalAdd ? ' <span class="tree-stat-add">+' + totalAdd + '</span>' : '') +
       (totalDel ? ' <span class="tree-stat-del">-' + totalDel + '</span>' : '');
 
     // Collapse/expand all button
-    var existingBtn = document.querySelector('.file-tree-collapse-btn');
+    const existingBtn = document.querySelector('.file-tree-collapse-btn');
     if (existingBtn) existingBtn.remove();
     if (files.length > 1) {
-      var collapseBtn = document.createElement('button');
+      const collapseBtn = document.createElement('button');
       collapseBtn.className = 'file-tree-collapse-btn';
       collapseBtn.title = 'Collapse all files';
       // Stacked chevron SVG
       collapseBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4.22 3.22a.75.75 0 0 1 1.06 0L8 5.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 4.28a.75.75 0 0 1 0-1.06zm0 5a.75.75 0 0 1 1.06 0L8 10.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 9.28a.75.75 0 0 1 0-1.06z"/></svg>';
       collapseBtn.addEventListener('click', function() {
-        var anyExpanded = files.some(function(f) { return !f.collapsed; });
-        for (var i = 0; i < files.length; i++) {
+        const anyExpanded = files.some(function(f) { return !f.collapsed; });
+        for (let i = 0; i < files.length; i++) {
           files[i].collapsed = anyExpanded;
         }
-        var sections = document.querySelectorAll('.file-section');
-        for (var i = 0; i < sections.length; i++) {
+        const sections = document.querySelectorAll('.file-section');
+        for (let i = 0; i < sections.length; i++) {
           sections[i].open = !anyExpanded;
         }
         collapseBtn.title = anyExpanded ? 'Expand all files' : 'Collapse all files';
         collapseBtn.classList.toggle('all-collapsed', anyExpanded);
       });
-      var headerEl = document.querySelector('.file-tree-header');
+      const headerEl = document.querySelector('.file-tree-header');
       headerEl.appendChild(collapseBtn);
     }
 
     // Build and render tree
-    var tree = buildFileTree(files);
+    let tree = buildFileTree(files);
     tree = collapseCommonPrefixes(tree);
-    var body = document.getElementById('fileTreeBody');
+    const body = document.getElementById('fileTreeBody');
     body.innerHTML = '';
     renderTreeNode(body, tree, 0, '');
 
@@ -965,7 +965,7 @@
 
   function fileStatusIcon(status) {
     // GitHub-style: document icon with colored +/- badge
-    var doc = '<path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/>';
+    const doc = '<path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/>';
     if (status === 'added' || status === 'untracked') {
       return '<svg class="tree-file-status-icon added" viewBox="0 0 16 16">' + doc +
         '<rect x="8" y="8" width="7" height="7" rx="1.5" fill="var(--green)"/>' +
@@ -987,21 +987,21 @@
   }
 
   function renderTreeNode(container, node, depth, pathPrefix) {
-    var folderSVG = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/></svg>';
+    const folderSVG = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/></svg>';
 
     // Render subdirectories
-    var dirs = Object.keys(node.children).sort();
-    for (var d = 0; d < dirs.length; d++) {
-      var dirName = dirs[d];
-      var fullPath = pathPrefix ? pathPrefix + '/' + dirName : dirName;
-      var child = node.children[dirName];
-      var isCollapsed = treeFolderState[fullPath] === true;
+    const dirs = Object.keys(node.children).sort();
+    for (let d = 0; d < dirs.length; d++) {
+      const dirName = dirs[d];
+      const fullPath = pathPrefix ? pathPrefix + '/' + dirName : dirName;
+      const child = node.children[dirName];
+      const isCollapsed = treeFolderState[fullPath] === true;
 
-      var folder = document.createElement('div');
+      const folder = document.createElement('div');
       folder.className = 'tree-folder' + (isCollapsed ? ' collapsed' : '');
       folder.dataset.folderPath = fullPath;
 
-      var row = document.createElement('div');
+      const row = document.createElement('div');
       row.className = 'tree-folder-row';
       row.style.paddingLeft = (8 + depth * 16) + 'px';
 
@@ -1019,7 +1019,7 @@
 
       folder.appendChild(row);
 
-      var childContainer = document.createElement('div');
+      const childContainer = document.createElement('div');
       childContainer.className = 'tree-folder-children';
       renderTreeNode(childContainer, child, depth + 1, fullPath);
       folder.appendChild(childContainer);
@@ -1028,25 +1028,25 @@
     }
 
     // Render files
-    var sortedFiles = node.files.slice().sort(function(a, b) { return a.path.localeCompare(b.path); });
-    for (var fi = 0; fi < sortedFiles.length; fi++) {
-      var f = sortedFiles[fi];
-      var fileName = f.path.split('/').pop();
-      var fileEl = document.createElement('div');
+    const sortedFiles = node.files.slice().sort(function(a, b) { return a.path.localeCompare(b.path); });
+    for (let fi = 0; fi < sortedFiles.length; fi++) {
+      const f = sortedFiles[fi];
+      const fileName = f.path.split('/').pop();
+      const fileEl = document.createElement('div');
       fileEl.className = 'tree-file' + (activeTreePath === f.path ? ' active' : '') + (f.viewed ? ' viewed' : '');
       fileEl.dataset.treePath = f.path;
       fileEl.style.paddingLeft = (24 + depth * 16) + 'px';
 
       // In file mode, show plain file icon (no git status badge)
-      var iconHtml = session.mode === 'git' ? fileStatusIcon(f.status) : fileStatusIcon('');
-      var innerHtml =
+      const iconHtml = session.mode === 'git' ? fileStatusIcon(f.status) : fileStatusIcon('');
+      let innerHtml =
         '<span class="tree-file-icon">' + iconHtml + '</span>' +
         '<span class="tree-file-name">' + escapeHtml(fileName) + '</span>';
 
       if (f.viewed) {
         innerHtml += '<span class="tree-viewed-check" title="Viewed">&#10003;</span>';
       }
-      var unresolvedCount = f.comments.filter(function(c) { return !c.resolved; }).length;
+      const unresolvedCount = f.comments.filter(function(c) { return !c.resolved; }).length;
       if (unresolvedCount > 0) {
         innerHtml += '<span class="tree-comment-badge">' + unresolvedCount + '</span>';
       }
@@ -1066,17 +1066,17 @@
   function updateTreeActive(filePath) {
     if (filePath === activeTreePath) return;
     activeTreePath = filePath;
-    var allFiles = document.querySelectorAll('.tree-file');
-    for (var i = 0; i < allFiles.length; i++) {
+    const allFiles = document.querySelectorAll('.tree-file');
+    for (let i = 0; i < allFiles.length; i++) {
       allFiles[i].classList.toggle('active', allFiles[i].dataset.treePath === filePath);
     }
     // Scroll active item into view within the tree panel (manual scroll
     // to avoid scrollIntoView affecting ancestor scroll containers)
-    var activeEl = document.querySelector('.tree-file.active');
+    const activeEl = document.querySelector('.tree-file.active');
     if (activeEl) {
-      var panel = document.getElementById('fileTreeBody');
-      var rect = activeEl.getBoundingClientRect();
-      var panelRect = panel.getBoundingClientRect();
+      const panel = document.getElementById('fileTreeBody');
+      const rect = activeEl.getBoundingClientRect();
+      const panelRect = panel.getBoundingClientRect();
       if (rect.top < panelRect.top) {
         panel.scrollTop += rect.top - panelRect.top;
       } else if (rect.bottom > panelRect.bottom) {
@@ -1086,14 +1086,14 @@
   }
 
   function updateTreeCommentBadges() {
-    var allFiles = document.querySelectorAll('.tree-file');
-    for (var i = 0; i < allFiles.length; i++) {
-      var el = allFiles[i];
-      var path = el.dataset.treePath;
-      var file = getFileByPath(path);
+    const allFiles = document.querySelectorAll('.tree-file');
+    for (let i = 0; i < allFiles.length; i++) {
+      const el = allFiles[i];
+      const path = el.dataset.treePath;
+      const file = getFileByPath(path);
       if (!file) continue;
-      var badge = el.querySelector('.tree-comment-badge');
-      var count = file.comments.filter(function(c) { return !c.resolved; }).length;
+      let badge = el.querySelector('.tree-comment-badge');
+      const count = file.comments.filter(function(c) { return !c.resolved; }).length;
       if (count > 0) {
         if (badge) {
           badge.textContent = count;
@@ -1110,14 +1110,14 @@
   }
 
   function updateTreeViewedState() {
-    var allFiles = document.querySelectorAll('.tree-file');
-    for (var i = 0; i < allFiles.length; i++) {
-      var el = allFiles[i];
-      var path = el.dataset.treePath;
-      var file = getFileByPath(path);
+    const allFiles = document.querySelectorAll('.tree-file');
+    for (let i = 0; i < allFiles.length; i++) {
+      const el = allFiles[i];
+      const path = el.dataset.treePath;
+      const file = getFileByPath(path);
       if (!file) continue;
       el.classList.toggle('viewed', !!file.viewed);
-      var check = el.querySelector('.tree-viewed-check');
+      let check = el.querySelector('.tree-viewed-check');
       if (file.viewed) {
         if (!check) {
           check = document.createElement('span');
@@ -1125,7 +1125,7 @@
           check.title = 'Viewed';
           check.textContent = '\u2713';
           // Insert before comment badge if present, else append
-          var badge = el.querySelector('.tree-comment-badge');
+          const badge = el.querySelector('.tree-comment-badge');
           if (badge) el.insertBefore(check, badge);
           else el.appendChild(check);
         }
@@ -1137,18 +1137,18 @@
 
   function setupTreeObserver() {
     if (treeObserver) treeObserver.disconnect();
-    var sections = document.querySelectorAll('.file-section[id]');
+    const sections = document.querySelectorAll('.file-section[id]');
     if (sections.length === 0) return;
 
     treeObserver = new IntersectionObserver(function(entries) {
       // Skip observer updates briefly after a manual scrollToFile click
       if (Date.now() < ignoreTreeObserverUntil) return;
       // Find the topmost visible section
-      var bestPath = null;
-      var bestTop = Infinity;
-      for (var i = 0; i < entries.length; i++) {
+      let bestPath = null;
+      let bestTop = Infinity;
+      for (let i = 0; i < entries.length; i++) {
         if (entries[i].isIntersecting) {
-          var top = entries[i].boundingClientRect.top;
+          const top = entries[i].boundingClientRect.top;
           if (top < bestTop) {
             bestTop = top;
             bestPath = entries[i].target.id.replace('file-section-', '');
@@ -1158,21 +1158,16 @@
       if (bestPath) updateTreeActive(bestPath);
     }, { rootMargin: '-60px 0px -70% 0px' });
 
-    for (var i = 0; i < sections.length; i++) {
+    for (let i = 0; i < sections.length; i++) {
       treeObserver.observe(sections[i]);
     }
   }
 
-  // Alias for compatibility (called from submitComment, deleteComment, SSE handler)
-  function renderFileSummary() {
-    updateTreeCommentBadges();
-  }
-
   function scrollToFile(filePath) {
-    var sectionEl = document.getElementById('file-section-' + filePath);
+    const sectionEl = document.getElementById('file-section-' + filePath);
     if (!sectionEl) return;
     // Uncollapse if collapsed
-    var file = getFileByPath(filePath);
+    const file = getFileByPath(filePath);
     if (file) file.collapsed = false;
     sectionEl.open = true;
     // Suppress IntersectionObserver for 200ms so it doesn't override our manual active state
@@ -1206,15 +1201,15 @@
   function buildChangeGroups() {
     changeGroups = [];
     // Document view: color-coded change blocks + deletion markers
-    var docEls = document.querySelectorAll('.line-block-added, .line-block-modified, .deletion-marker');
+    const docEls = document.querySelectorAll('.line-block-added, .line-block-modified, .deletion-marker');
     // Diff view: diff-added and diff-removed blocks in rendered diff (file mode)
-    var diffEls = document.querySelectorAll('.diff-view .line-block.diff-added, .diff-view .line-block.diff-removed, .diff-view-unified .line-block.diff-added, .diff-view-unified .line-block.diff-removed');
-    var all = docEls.length > 0 ? docEls : diffEls;
+    const diffEls = document.querySelectorAll('.diff-view .line-block.diff-added, .diff-view .line-block.diff-removed, .diff-view-unified .line-block.diff-added, .diff-view-unified .line-block.diff-removed');
+    const all = docEls.length > 0 ? docEls : diffEls;
     if (all.length === 0) { currentChangeIdx = -1; updateChangeCounters(); return; }
-    var group = null;
-    for (var i = 0; i < all.length; i++) {
-      var el = all[i];
-      var fp = el.dataset.filePath;
+    let group = null;
+    for (let i = 0; i < all.length; i++) {
+      const el = all[i];
+      const fp = el.dataset.filePath;
       // Start new group if file changes or elements aren't consecutive siblings
       if (!group || group.filePath !== fp || !isConsecutiveSibling(group.elements[group.elements.length - 1], el)) {
         group = { elements: [el], filePath: fp };
@@ -1229,7 +1224,7 @@
 
   function isConsecutiveSibling(a, b) {
     // Check if b immediately follows a, skipping comment elements between them
-    var node = a.nextElementSibling;
+    let node = a.nextElementSibling;
     while (node && node !== b) {
       // A non-changed line-block in between breaks the group
       if (node.classList.contains('line-block') &&
@@ -1249,16 +1244,16 @@
     // Remove previous flash
     document.querySelectorAll('.change-flash').forEach(function(el) { el.classList.remove('change-flash'); });
 
-    var viewCenter = window.innerHeight / 2;
-    var threshold = 50;
-    var targetIdx = -1;
+    const viewCenter = window.innerHeight / 2;
+    const threshold = 50;
+    let targetIdx = -1;
 
     // Check if the previously navigated change is still near viewport center
     // (i.e. user hasn't scrolled away manually)
-    var currentIsCentered = false;
+    let currentIsCentered = false;
     if (currentChangeIdx >= 0 && currentChangeIdx < changeGroups.length) {
-      var curRect = changeGroups[currentChangeIdx].elements[0].getBoundingClientRect();
-      var curCenter = (curRect.top + curRect.bottom) / 2;
+      const curRect = changeGroups[currentChangeIdx].elements[0].getBoundingClientRect();
+      const curCenter = (curRect.top + curRect.bottom) / 2;
       currentIsCentered = Math.abs(curCenter - viewCenter) < threshold * 3;
     }
 
@@ -1272,16 +1267,16 @@
     } else {
       // User scrolled manually — find next/prev relative to viewport position
       if (dir > 0) {
-        for (var i = 0; i < changeGroups.length; i++) {
-          var rect = changeGroups[i].elements[0].getBoundingClientRect();
-          var elCenter = (rect.top + rect.bottom) / 2;
+        for (let i = 0; i < changeGroups.length; i++) {
+          let rect = changeGroups[i].elements[0].getBoundingClientRect();
+          let elCenter = (rect.top + rect.bottom) / 2;
           if (elCenter > viewCenter + threshold) { targetIdx = i; break; }
         }
         if (targetIdx === -1) targetIdx = 0;
       } else {
-        for (var i = changeGroups.length - 1; i >= 0; i--) {
-          var rect = changeGroups[i].elements[0].getBoundingClientRect();
-          var elCenter = (rect.top + rect.bottom) / 2;
+        for (let i = changeGroups.length - 1; i >= 0; i--) {
+          const rect = changeGroups[i].elements[0].getBoundingClientRect();
+          const elCenter = (rect.top + rect.bottom) / 2;
           if (elCenter < viewCenter - threshold) { targetIdx = i; break; }
         }
         if (targetIdx === -1) targetIdx = changeGroups.length - 1;
@@ -1289,27 +1284,27 @@
     }
 
     currentChangeIdx = targetIdx;
-    var group = changeGroups[currentChangeIdx];
+    const group = changeGroups[currentChangeIdx];
     group.elements[0].scrollIntoView({ block: 'center', behavior: 'instant' });
     group.elements.forEach(function(el) { el.classList.add('change-flash'); });
     focusedElement = group.elements[0];
     focusedFilePath = group.filePath;
-    var bi = parseInt(group.elements[0].dataset.blockIndex);
+    const bi = parseInt(group.elements[0].dataset.blockIndex);
     if (!isNaN(bi)) focusedBlockIndex = bi;
     updateChangeCounters();
   }
 
   function updateChangeCounters() {
-    var labels = document.querySelectorAll('.change-nav-label');
+    const labels = document.querySelectorAll('.change-nav-label');
     labels.forEach(function(label) {
-      var fp = label.dataset.filePath;
+      const fp = label.dataset.filePath;
       // Count groups for this file
-      var fileGroups = changeGroups.filter(function(g) { return g.filePath === fp; });
-      var total = fileGroups.length;
+      const fileGroups = changeGroups.filter(function(g) { return g.filePath === fp; });
+      const total = fileGroups.length;
       // Find current index within this file's groups
-      var current = 0;
+      let current = 0;
       if (currentChangeIdx >= 0) {
-        var globalGroup = changeGroups[currentChangeIdx];
+        const globalGroup = changeGroups[currentChangeIdx];
         if (globalGroup.filePath === fp) {
           current = fileGroups.indexOf(globalGroup) + 1;
         }
@@ -1320,9 +1315,9 @@
 
   // Re-render only a single file section (preserves scroll position)
   function saveOpenFormContent(filePath) {
-    var fileForms = getFormsForFile(filePath);
-    for (var i = 0; i < fileForms.length; i++) {
-      var ta = document.querySelector('.comment-form[data-form-key="' + fileForms[i].formKey + '"] textarea');
+    let fileForms = getFormsForFile(filePath);
+    for (let i = 0; i < fileForms.length; i++) {
+      const ta = document.querySelector('.comment-form[data-form-key="' + fileForms[i].formKey + '"] textarea');
       if (ta) fileForms[i].draftBody = ta.value;
     }
   }
@@ -1376,13 +1371,13 @@
     const dirPath = dirParts.length > 0 ? dirParts.join('/') + '/' : '';
 
     // In file mode, hide the badge (status like "modified" is only meaningful in git mode)
-    var showBadge = session.mode === 'git';
+    const showBadge = session.mode === 'git';
     let badgeLabel = file.status.charAt(0).toUpperCase() + file.status.slice(1);
     if (file.status === 'untracked') badgeLabel = 'New';
     if (file.status === 'added') badgeLabel = 'New File';
 
     // In single-file file mode, hide the file header (filename is shown in the header bar)
-    var singleFileMode = session.mode !== 'git' && files.length === 1;
+    const singleFileMode = session.mode !== 'git' && files.length === 1;
     if (singleFileMode) header.style.display = 'none';
 
     header.innerHTML =
@@ -1410,7 +1405,7 @@
         const btn = e.target.closest('.toggle-btn');
         if (!btn) return;
         e.preventDefault(); // Don't toggle the <details>
-        var fileForms = getFormsForFile(file.path);
+        let fileForms = getFormsForFile(file.path);
         fileForms.forEach(function(f) { removeForm(f.formKey); });
         if (activeFilePath === file.path) {
           selectionStart = null;
@@ -1423,14 +1418,14 @@
 
       // Change navigation widget (file mode, both document and diff view)
       if (session.mode !== 'git') {
-        var changeNav = document.createElement('div');
+        const changeNav = document.createElement('div');
         changeNav.className = 'change-nav';
         changeNav.innerHTML =
           '<button class="change-nav-btn" data-dir="-1" title="Previous change (N)">&#9650;</button>' +
           '<span class="change-nav-label" data-file-path="' + escapeHtml(file.path) + '"></span>' +
           '<button class="change-nav-btn" data-dir="1" title="Next change (n)">&#9660;</button>';
         changeNav.addEventListener('click', function(e) {
-          var btn = e.target.closest('.change-nav-btn');
+          const btn = e.target.closest('.change-nav-btn');
           if (!btn) return;
           e.preventDefault();
           e.stopPropagation();
@@ -1441,7 +1436,7 @@
     }
 
     // Viewed checkbox
-    var viewedLabel = document.createElement('label');
+    const viewedLabel = document.createElement('label');
     viewedLabel.className = 'file-header-viewed';
     viewedLabel.title = 'Viewed';
     viewedLabel.innerHTML = '<input type="checkbox"' + (file.viewed ? ' checked' : '') + '><span>Viewed</span>';
@@ -1459,7 +1454,7 @@
     const body = document.createElement('div');
     body.className = 'file-body';
 
-    var showDiff = file.viewMode === 'diff' || (file.fileType === 'code' && session.mode === 'git');
+    const showDiff = file.viewMode === 'diff' || (file.fileType === 'code' && session.mode === 'git');
 
     if (file.status === 'deleted' && (!file.diffHunks || file.diffHunks.length === 0)) {
       const deleted = document.createElement('div');
@@ -1467,9 +1462,9 @@
       deleted.textContent = 'This file was deleted.';
       body.appendChild(deleted);
     } else if (showDiff && file.diffTooLarge && !file.diffLoaded) {
-      var diffLineCount = 0;
+      let diffLineCount = 0;
       if (file.diffHunks) {
-        for (var h = 0; h < file.diffHunks.length; h++) {
+        for (let h = 0; h < file.diffHunks.length; h++) {
           diffLineCount += (file.diffHunks[h].Lines || []).length;
         }
       }
@@ -1501,11 +1496,11 @@
 
   // Build sets of added/removed line numbers from diff hunks
   function buildDiffLineSetFromHunks(hunks) {
-    var added = new Set();
-    var removed = new Set();
-    for (var h = 0; h < hunks.length; h++) {
-      var lines = hunks[h].Lines || [];
-      for (var l = 0; l < lines.length; l++) {
+    const added = new Set();
+    const removed = new Set();
+    for (let h = 0; h < hunks.length; h++) {
+      const lines = hunks[h].Lines || [];
+      for (let l = 0; l < lines.length; l++) {
         if (lines[l].Type === 'add' && lines[l].NewNum) added.add(lines[l].NewNum);
         if (lines[l].Type === 'del' && lines[l].OldNum) removed.add(lines[l].OldNum);
       }
@@ -1515,18 +1510,18 @@
 
   // Classify a block as diff-added, diff-removed, or unchanged
   function classifyBlock(block, changedLines) {
-    for (var ln = block.startLine; ln <= block.endLine; ln++) {
+    for (let ln = block.startLine; ln <= block.endLine; ln++) {
       if (changedLines.has(ln)) return true;
     }
     return false;
   }
 
   function applyBlockSelectionState(el, filePath, startLine, endLine, blockIndex) {
-    var fileForms = getFormsForFile(filePath);
-    var hasForm = fileForms.some(function(f) {
+    let fileForms = getFormsForFile(filePath);
+    const hasForm = fileForms.some(function(f) {
       return !f.editingId && startLine >= f.startLine && endLine <= f.endLine;
     });
-    var inSelection = activeFilePath === filePath && selectionStart !== null && selectionEnd !== null &&
+    const inSelection = activeFilePath === filePath && selectionStart !== null && selectionEnd !== null &&
       startLine >= selectionStart && endLine <= selectionEnd;
     el.classList.toggle('selected', inSelection);
     el.classList.toggle('form-selected', hasForm && !inSelection);
@@ -1548,16 +1543,16 @@
 
   // Render a single side of the rendered diff (reuses document view block pattern)
   function renderRenderedDiffBlocks(blocks, diffClass, file, enableComments) {
-    var container = document.createElement('div');
+    const container = document.createElement('div');
     container.className = 'diff-view-blocks';
 
-    var commentsMap = enableComments ? buildCommentsMap(file.comments) : {};
-    var commentRangeSet = enableComments ? buildCommentedRangeSet(file.comments) : new Set();
+    let commentsMap = enableComments ? buildCommentsMap(file.comments) : {};
+    let commentRangeSet = enableComments ? buildCommentedRangeSet(file.comments) : new Set();
 
-    for (var bi = 0; bi < blocks.length; bi++) {
-      var block = blocks[bi];
+    for (let bi = 0; bi < blocks.length; bi++) {
+      const block = blocks[bi];
 
-      var lineBlockEl = document.createElement('div');
+      const lineBlockEl = document.createElement('div');
       lineBlockEl.className = 'line-block';
       lineBlockEl.dataset.filePath = file.path;
       if (enableComments) {
@@ -1570,9 +1565,9 @@
       if (block.isDiff) lineBlockEl.classList.add(diffClass);
 
       if (enableComments) {
-        var blockComments = getCommentsForBlock(block, commentsMap);
-        var blockInCommentRange = false;
-        for (var ln = block.startLine; ln <= block.endLine; ln++) {
+        let blockComments = getCommentsForBlock(block, commentsMap);
+        let blockInCommentRange = false;
+        for (let ln = block.startLine; ln <= block.endLine; ln++) {
           if (commentRangeSet.has(ln + ':')) { blockInCommentRange = true; break; }
         }
         if (blockInCommentRange) lineBlockEl.classList.add('has-comment');
@@ -1581,22 +1576,22 @@
       }
 
       // Line number gutter
-      var gutter = document.createElement('div');
+      const gutter = document.createElement('div');
       gutter.className = 'line-gutter';
-      var lineNum = document.createElement('span');
+      const lineNum = document.createElement('span');
       lineNum.className = 'line-num';
       lineNum.textContent = block.startLine;
       gutter.appendChild(lineNum);
       lineBlockEl.appendChild(gutter);
 
       // Comment gutter
-      var commentGutter = document.createElement('div');
+      const commentGutter = document.createElement('div');
       commentGutter.className = 'line-comment-gutter';
       if (enableComments) {
         commentGutter.dataset.startLine = block.startLine;
         commentGutter.dataset.endLine = block.endLine;
         commentGutter.dataset.filePath = file.path;
-        var lineAdd = document.createElement('span');
+        const lineAdd = document.createElement('span');
         lineAdd.className = 'line-add';
         lineAdd.textContent = '+';
         commentGutter.appendChild(lineAdd);
@@ -1607,12 +1602,12 @@
       lineBlockEl.appendChild(commentGutter);
 
       // Content
-      var content = document.createElement('div');
-      var contentClasses = 'line-content';
+      const content = document.createElement('div');
+      let contentClasses = 'line-content';
       if (block.isEmpty) contentClasses += ' empty-line';
       if (block.cssClass) contentClasses += ' ' + block.cssClass;
       content.className = contentClasses;
-      var html = block.wordDiffHtml || block.html;
+      let html = block.wordDiffHtml || block.html;
       html = processTaskLists(html);
       html = rewriteImageSrcs(html);
       content.innerHTML = html;
@@ -1622,15 +1617,15 @@
 
       // Comments after block (only on current/right side)
       if (enableComments && blockComments) {
-        for (var ci = 0; ci < blockComments.length; ci++) {
+        for (let ci = 0; ci < blockComments.length; ci++) {
           if (blockComments[ci].resolved) {
             container.appendChild(createResolvedElement(blockComments[ci], file.path));
           } else {
             container.appendChild(createCommentElement(blockComments[ci], file.path));
           }
         }
-        var fileForms = getFormsForFile(file.path);
-        for (var fi = 0; fi < fileForms.length; fi++) {
+        let fileForms = getFormsForFile(file.path);
+        for (let fi = 0; fi < fileForms.length; fi++) {
           if (!fileForms[fi].editingId && fileForms[fi].afterBlockIndex === bi) {
             container.appendChild(createCommentForm(fileForms[fi]));
           }
@@ -1648,26 +1643,26 @@
   }
 
   function renderRenderedDiffSplit(file) {
-    var container = document.createElement('div');
+    const container = document.createElement('div');
     container.className = 'diff-view';
 
-    var lineSets = buildDiffLineSetFromHunks(file.diffHunks);
-    var prevBlocks = annotateBlocks(file.previousLineBlocks, lineSets.removed);
-    var currBlocks = annotateBlocks(file.lineBlocks, lineSets.added);
+    let lineSets = buildDiffLineSetFromHunks(file.diffHunks);
+    const prevBlocks = annotateBlocks(file.previousLineBlocks, lineSets.removed);
+    const currBlocks = annotateBlocks(file.lineBlocks, lineSets.added);
 
     // Compute word-level diffs for paired changed blocks.
     // Only apply when blocks are sufficiently similar (>30% token overlap) to avoid noise.
-    var prevDiffBlocks = prevBlocks.filter(function(b) { return b.isDiff; });
-    var currDiffBlocks = currBlocks.filter(function(b) { return b.isDiff; });
-    var pairCount = Math.min(prevDiffBlocks.length, currDiffBlocks.length);
-    for (var p = 0; p < pairCount; p++) {
-      var oldText = htmlToText(prevDiffBlocks[p].html);
-      var newText = htmlToText(currDiffBlocks[p].html);
-      var wd = wordDiff(oldText, newText);
+    const prevDiffBlocks = prevBlocks.filter(function(b) { return b.isDiff; });
+    const currDiffBlocks = currBlocks.filter(function(b) { return b.isDiff; });
+    const pairCount = Math.min(prevDiffBlocks.length, currDiffBlocks.length);
+    for (let p = 0; p < pairCount; p++) {
+      let oldText = htmlToText(prevDiffBlocks[p].html);
+      let newText = htmlToText(currDiffBlocks[p].html);
+      let wd = wordDiff(oldText, newText);
       if (wd) {
         // Check similarity: if too few tokens are unchanged, skip (blocks probably don't correspond)
-        var oldChangedChars = wd.oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
-        var newChangedChars = wd.newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
+        let oldChangedChars = wd.oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
+        let newChangedChars = wd.newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
         if (oldText.length > 0 && oldChangedChars / oldText.length > 0.7) continue;
         if (newText.length > 0 && newChangedChars / newText.length > 0.7) continue;
         prevDiffBlocks[p].wordDiffHtml = applyWordDiffToHtml(prevDiffBlocks[p].html, wd.oldRanges, 'diff-word-del');
@@ -1676,24 +1671,24 @@
     }
 
     // Labels row
-    var leftLabel = document.createElement('div');
+    const leftLabel = document.createElement('div');
     leftLabel.className = 'diff-view-side-label';
     leftLabel.textContent = 'Previous round';
     container.appendChild(leftLabel);
-    var rightLabel = document.createElement('div');
+    const rightLabel = document.createElement('div');
     rightLabel.className = 'diff-view-side-label';
     rightLabel.textContent = 'Current round';
     container.appendChild(rightLabel);
 
     // Two-pointer merge for horizontal alignment
-    var commentsMap = buildCommentsMap(file.comments);
-    var commentRangeSet = buildCommentedRangeSet(file.comments);
-    var oldIdx = 0, newIdx = 0;
+    let commentsMap = buildCommentsMap(file.comments);
+    let commentRangeSet = buildCommentedRangeSet(file.comments);
+    let oldIdx = 0, newIdx = 0;
 
     while (oldIdx < prevBlocks.length || newIdx < currBlocks.length) {
-      var leftCell = document.createElement('div');
+      const leftCell = document.createElement('div');
       leftCell.className = 'diff-view-cell';
-      var rightCell = document.createElement('div');
+      const rightCell = document.createElement('div');
       rightCell.className = 'diff-view-cell';
 
       if (oldIdx >= prevBlocks.length) {
@@ -1736,9 +1731,9 @@
   // Render a single block for the unified diff view.
   // When commentable=true, includes gutter, keyboard nav, comments. Otherwise read-only.
   function renderUnifiedBlock(block, diffClass, file, commentable, blockIndex, commentsMap, commentRangeSet) {
-    var frag = document.createDocumentFragment();
+    const frag = document.createDocumentFragment();
 
-    var lineBlockEl = document.createElement('div');
+    const lineBlockEl = document.createElement('div');
     lineBlockEl.className = 'line-block';
     lineBlockEl.dataset.filePath = file.path;
     if (commentable) {
@@ -1749,23 +1744,23 @@
     }
     if (diffClass) lineBlockEl.classList.add(diffClass);
 
-    var blockComments = null;
+    let blockComments = null;
     if (commentable) {
       blockComments = getCommentsForBlock(block, commentsMap);
-      var blockInCommentRange = false;
-      for (var ln = block.startLine; ln <= block.endLine; ln++) {
+      let blockInCommentRange = false;
+      for (let ln = block.startLine; ln <= block.endLine; ln++) {
         if (commentRangeSet.has(ln + ':')) { blockInCommentRange = true; break; }
       }
       if (blockInCommentRange) lineBlockEl.classList.add('has-comment');
 
       applyBlockSelectionState(lineBlockEl, file.path, block.startLine, block.endLine, blockIndex);
 
-      var commentGutter = document.createElement('div');
+      const commentGutter = document.createElement('div');
       commentGutter.className = 'line-comment-gutter';
       commentGutter.dataset.startLine = block.startLine;
       commentGutter.dataset.endLine = block.endLine;
       commentGutter.dataset.filePath = file.path;
-      var lineAdd = document.createElement('span');
+      const lineAdd = document.createElement('span');
       lineAdd.className = 'line-add';
       lineAdd.textContent = '+';
       commentGutter.appendChild(lineAdd);
@@ -1773,26 +1768,26 @@
       lineBlockEl.appendChild(commentGutter);
     } else {
       // Non-commentable block: still add gutter but mark as read-only
-      var roGutter = document.createElement('div');
+      const roGutter = document.createElement('div');
       roGutter.className = 'line-comment-gutter diff-no-comment';
       lineBlockEl.appendChild(roGutter);
     }
 
     // Line number gutter
-    var gutter = document.createElement('div');
+    const gutter = document.createElement('div');
     gutter.className = 'line-gutter';
-    var lineNum = document.createElement('span');
+    const lineNum = document.createElement('span');
     lineNum.className = 'line-num';
     lineNum.textContent = block.startLine;
     gutter.appendChild(lineNum);
     lineBlockEl.insertBefore(gutter, lineBlockEl.firstChild);
 
-    var contentEl = document.createElement('div');
-    var contentClasses = 'line-content';
+    const contentEl = document.createElement('div');
+    let contentClasses = 'line-content';
     if (block.isEmpty) contentClasses += ' empty-line';
     if (block.cssClass) contentClasses += ' ' + block.cssClass;
     contentEl.className = contentClasses;
-    var html = block.wordDiffHtml || block.html;
+    let html = block.wordDiffHtml || block.html;
     html = processTaskLists(html);
     html = rewriteImageSrcs(html);
     contentEl.innerHTML = html;
@@ -1802,15 +1797,15 @@
 
     // Comments after block (only on commentable/new side)
     if (commentable && blockComments) {
-      for (var ci = 0; ci < blockComments.length; ci++) {
+      for (let ci = 0; ci < blockComments.length; ci++) {
         if (blockComments[ci].resolved) {
           frag.appendChild(createResolvedElement(blockComments[ci], file.path));
         } else {
           frag.appendChild(createCommentElement(blockComments[ci], file.path));
         }
       }
-      var fileForms = getFormsForFile(file.path);
-      for (var fi = 0; fi < fileForms.length; fi++) {
+      const fileForms = getFormsForFile(file.path);
+      for (let fi = 0; fi < fileForms.length; fi++) {
         if (!fileForms[fi].editingId && fileForms[fi].afterBlockIndex === blockIndex) {
           frag.appendChild(createCommentForm(fileForms[fi]));
         }
@@ -1821,19 +1816,19 @@
   }
 
   function renderRenderedDiffUnified(file) {
-    var container = document.createElement('div');
+    const container = document.createElement('div');
     container.className = 'diff-view-unified';
 
-    var lineSets = buildDiffLineSetFromHunks(file.diffHunks);
-    var oldBlocks = file.previousLineBlocks;
-    var newBlocks = file.lineBlocks;
+    const lineSets = buildDiffLineSetFromHunks(file.diffHunks);
+    const oldBlocks = file.previousLineBlocks;
+    const newBlocks = file.lineBlocks;
 
-    var commentsMap = buildCommentsMap(file.comments);
-    var commentRangeSet = buildCommentedRangeSet(file.comments);
+    let commentsMap = buildCommentsMap(file.comments);
+    let commentRangeSet = buildCommentedRangeSet(file.comments);
 
     // Two-pointer merge: walk both block lists simultaneously
-    var oldIdx = 0;
-    var newIdx = 0;
+    let oldIdx = 0;
+    let newIdx = 0;
 
     while (oldIdx < oldBlocks.length || newIdx < newBlocks.length) {
       if (oldIdx >= oldBlocks.length) {
@@ -1846,26 +1841,26 @@
         oldIdx++;
       } else if (classifyBlock(oldBlocks[oldIdx], lineSets.removed)) {
         // Collect consecutive removed blocks
-        var removedRun = [];
+        const removedRun = [];
         while (oldIdx < oldBlocks.length && classifyBlock(oldBlocks[oldIdx], lineSets.removed)) {
           removedRun.push(oldIdx);
           oldIdx++;
         }
         // Collect consecutive added blocks
-        var addedRun = [];
+        const addedRun = [];
         while (newIdx < newBlocks.length && classifyBlock(newBlocks[newIdx], lineSets.added)) {
           addedRun.push(newIdx);
           newIdx++;
         }
         // Compute word diffs for paired removed/added blocks (with similarity check)
-        var runPairCount = Math.min(removedRun.length, addedRun.length);
-        for (var rp = 0; rp < runPairCount; rp++) {
-          var oldText = htmlToText(oldBlocks[removedRun[rp]].html);
-          var newText = htmlToText(newBlocks[addedRun[rp]].html);
-          var wd = wordDiff(oldText, newText);
+        const runPairCount = Math.min(removedRun.length, addedRun.length);
+        for (let rp = 0; rp < runPairCount; rp++) {
+          const oldText = htmlToText(oldBlocks[removedRun[rp]].html);
+          const newText = htmlToText(newBlocks[addedRun[rp]].html);
+          const wd = wordDiff(oldText, newText);
           if (wd) {
-            var oldChangedChars = wd.oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
-            var newChangedChars = wd.newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
+            const oldChangedChars = wd.oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
+            const newChangedChars = wd.newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
             if (oldText.length > 0 && oldChangedChars / oldText.length > 0.7) continue;
             if (newText.length > 0 && newChangedChars / newText.length > 0.7) continue;
             oldBlocks[removedRun[rp]].wordDiffHtml = applyWordDiffToHtml(oldBlocks[removedRun[rp]].html, wd.oldRanges, 'diff-word-del');
@@ -1873,10 +1868,10 @@
           }
         }
         // Emit all removed then all added
-        for (var ri = 0; ri < removedRun.length; ri++) {
+        for (let ri = 0; ri < removedRun.length; ri++) {
           container.appendChild(renderUnifiedBlock(oldBlocks[removedRun[ri]], 'diff-removed', file, false, removedRun[ri], null, null));
         }
-        for (var ai = 0; ai < addedRun.length; ai++) {
+        for (let ai = 0; ai < addedRun.length; ai++) {
           container.appendChild(renderUnifiedBlock(newBlocks[addedRun[ai]], 'diff-added', file, true, addedRun[ai], commentsMap, commentRangeSet));
         }
       } else if (classifyBlock(newBlocks[newIdx], lineSets.added)) {
@@ -1899,21 +1894,21 @@
   // added = pure additions (green), modified = changed lines (amber), deletionPoints = where lines were removed (red)
   function getChangeInfo(file) {
     if (!file.diffHunks || file.diffHunks.length === 0) return null;
-    var added = new Set();
-    var modified = new Set();
-    var deletionPoints = [];
+    const added = new Set();
+    const modified = new Set();
+    const deletionPoints = [];
 
-    for (var h = 0; h < file.diffHunks.length; h++) {
-      var lines = file.diffHunks[h].Lines || [];
-      var lastContextNewNum = file.diffHunks[h].NewStart > 0 ? file.diffHunks[h].NewStart - 1 : 0;
-      var i = 0;
+    for (let h = 0; h < file.diffHunks.length; h++) {
+      const lines = file.diffHunks[h].Lines || [];
+      let lastContextNewNum = file.diffHunks[h].NewStart > 0 ? file.diffHunks[h].NewStart - 1 : 0;
+      let i = 0;
       while (i < lines.length) {
         if (lines[i].Type === 'context') {
           lastContextNewNum = lines[i].NewNum;
           i++;
         } else {
           // Collect consecutive change group (dels then adds, or interleaved)
-          var dels = [], adds = [];
+          const dels = [], adds = [];
           while (i < lines.length && lines[i].Type !== 'context') {
             if (lines[i].Type === 'del') dels.push(lines[i]);
             if (lines[i].Type === 'add') adds.push(lines[i]);
@@ -1921,12 +1916,12 @@
           }
           if (dels.length > 0 && adds.length > 0) {
             // Modification: mark add lines as modified (amber)
-            for (var a = 0; a < adds.length; a++) {
+            for (let a = 0; a < adds.length; a++) {
               if (adds[a].NewNum) modified.add(adds[a].NewNum);
             }
           } else if (adds.length > 0) {
             // Pure addition (green)
-            for (var a = 0; a < adds.length; a++) {
+            for (let a = 0; a < adds.length; a++) {
               if (adds[a].NewNum) added.add(adds[a].NewNum);
             }
           } else if (dels.length > 0) {
@@ -1956,10 +1951,10 @@
 
     const changeInfo = (file.viewMode === 'document' && session.mode !== 'git') ? getChangeInfo(file) : null;
     // Build a map of afterLine -> deletion marker for quick lookup
-    var deletionMarkerMap = {};
+    const deletionMarkerMap = {};
     if (changeInfo) {
-      for (var dp = 0; dp < changeInfo.deletionPoints.length; dp++) {
-        var pt = changeInfo.deletionPoints[dp];
+      for (let dp = 0; dp < changeInfo.deletionPoints.length; dp++) {
+        const pt = changeInfo.deletionPoints[dp];
         deletionMarkerMap[pt.afterLine] = pt;
       }
     }
@@ -1976,7 +1971,7 @@
 
       const blockComments = getCommentsForBlock(block, commentsMap);
       // Highlight all blocks in the comment's line range
-      var blockInCommentRange = false;
+      let blockInCommentRange = false;
       for (let ln = block.startLine; ln <= block.endLine; ln++) {
         if (commentRangeSet.has(ln + ':')) { blockInCommentRange = true; break; }
       }
@@ -1984,7 +1979,7 @@
 
       // Mark blocks that overlap inter-round changes (color-coded)
       if (changeInfo) {
-        var blockChangeType = null;
+        let blockChangeType = null;
         for (let ln = block.startLine; ln <= block.endLine; ln++) {
           if (changeInfo.modified.has(ln)) { blockChangeType = 'modified'; break; }
           if (changeInfo.added.has(ln)) { blockChangeType = 'added'; }
@@ -2012,9 +2007,9 @@
 
       // Drag indicators: + at endpoints, blue line between
       if (dragState && dragState.filePath === file.path && selectionStart !== null && selectionEnd !== null) {
-        var isAnchorBlock = block.startLine <= dragState.anchorEndLine && block.endLine >= dragState.anchorStartLine;
-        var isCurrentBlock = block.startLine <= dragState.currentEndLine && block.endLine >= dragState.currentStartLine;
-        var inRange = block.startLine >= selectionStart && block.endLine <= selectionEnd;
+        const isAnchorBlock = block.startLine <= dragState.anchorEndLine && block.endLine >= dragState.anchorStartLine;
+        const isCurrentBlock = block.startLine <= dragState.currentEndLine && block.endLine >= dragState.currentStartLine;
+        const inRange = block.startLine >= selectionStart && block.endLine <= selectionEnd;
         if (isAnchorBlock || isCurrentBlock) commentGutter.classList.add('drag-endpoint');
         if (inRange) {
           commentGutter.classList.add('drag-range');
@@ -2046,7 +2041,7 @@
 
       // Insert deletion marker before this block if deletions occurred before it
       if (changeInfo && bi === 0 && deletionMarkerMap[0]) {
-        var marker0 = document.createElement('div');
+        const marker0 = document.createElement('div');
         marker0.className = 'deletion-marker';
         marker0.dataset.filePath = file.path;
         marker0.textContent = '\u2212' + deletionMarkerMap[0].count + ' line' + (deletionMarkerMap[0].count !== 1 ? 's' : '');
@@ -2057,7 +2052,7 @@
 
       // Insert deletion marker after this block if deletions occurred after it
       if (changeInfo && deletionMarkerMap[block.endLine]) {
-        var marker = document.createElement('div');
+        const marker = document.createElement('div');
         marker.className = 'deletion-marker';
         marker.dataset.filePath = file.path;
         marker.textContent = '\u2212' + deletionMarkerMap[block.endLine].count + ' line' + (deletionMarkerMap[block.endLine].count !== 1 ? 's' : '');
@@ -2074,8 +2069,8 @@
       }
 
       // Comment form
-      var fileForms = getFormsForFile(file.path);
-      for (var fi = 0; fi < fileForms.length; fi++) {
+      const fileForms = getFormsForFile(file.path);
+      for (let fi = 0; fi < fileForms.length; fi++) {
         if (!fileForms[fi].editingId && fileForms[fi].afterBlockIndex === bi) {
           container.appendChild(createCommentForm(fileForms[fi]));
         }
@@ -2096,9 +2091,9 @@
   // Split a line into tokens: words (alphanumeric + underscore) and individual non-word characters.
   // Returns an array of strings. Example: 'name := "hello"' → ['name', ' ', ':', '=', ' ', '"', 'hello', '"']
   function tokenize(line) {
-    var tokens = [];
-    var re = /[\w]+|[^\w]/g;
-    var match;
+    const tokens = [];
+    const re = /[\w]+|[^\w]/g;
+    let match;
     while ((match = re.exec(line)) !== null) {
       tokens.push(match[0]);
     }
@@ -2108,16 +2103,16 @@
   // Compute LCS membership for two token arrays.
   // Returns { oldKeep: boolean[], newKeep: boolean[] } where true = token is in LCS (unchanged).
   function computeTokenLCS(oldTokens, newTokens) {
-    var m = oldTokens.length;
-    var n = newTokens.length;
+    const m = oldTokens.length;
+    const n = newTokens.length;
 
     // Build DP table
-    var dp = [];
-    for (var i = 0; i <= m; i++) {
+    const dp = [];
+    for (let i = 0; i <= m; i++) {
       dp[i] = new Array(n + 1).fill(0);
     }
-    for (var i = 1; i <= m; i++) {
-      for (var j = 1; j <= n; j++) {
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
         if (oldTokens[i - 1] === newTokens[j - 1]) {
           dp[i][j] = dp[i - 1][j - 1] + 1;
         } else {
@@ -2127,9 +2122,9 @@
     }
 
     // Backtrack to mark LCS membership
-    var oldKeep = new Array(m).fill(false);
-    var newKeep = new Array(n).fill(false);
-    var i = m, j = n;
+    let oldKeep = new Array(m).fill(false);
+    let newKeep = new Array(n).fill(false);
+    let i = m, j = n;
     while (i > 0 && j > 0) {
       if (oldTokens[i - 1] === newTokens[j - 1]) {
         oldKeep[i - 1] = true;
@@ -2155,19 +2150,19 @@
     if (oldLine.length > 200 && !oldLine.includes(' ')) return null;
     if (newLine.length > 200 && !newLine.includes(' ')) return null;
 
-    var oldTokens = tokenize(oldLine);
-    var newTokens = tokenize(newLine);
+    const oldTokens = tokenize(oldLine);
+    const newTokens = tokenize(newLine);
 
     // Skip if token counts are huge
     if (oldTokens.length > 200 || newTokens.length > 200) return null;
 
-    var result = computeTokenLCS(oldTokens, newTokens);
-    var oldKeep = result.oldKeep;
-    var newKeep = result.newKeep;
+    let result = computeTokenLCS(oldTokens, newTokens);
+    const oldKeep = result.oldKeep;
+    const newKeep = result.newKeep;
 
     // If everything changed, don't bother with word-level highlights
-    var oldUnchanged = oldKeep.filter(Boolean).length;
-    var newUnchanged = newKeep.filter(Boolean).length;
+    const oldUnchanged = oldKeep.filter(Boolean).length;
+    const newUnchanged = newKeep.filter(Boolean).length;
     if (oldUnchanged === 0 && newUnchanged === 0) return null;
 
     // If nothing changed (lines are identical), skip
@@ -2179,10 +2174,10 @@
     // range so that "word1 word2" highlights as one continuous span instead of
     // two spans with an unhighlighted gap on the space.
     function buildRanges(tokens, keep, line) {
-      var ranges = [];
-      var charIdx = 0;
-      var rangeStart = -1;
-      for (var i = 0; i < tokens.length; i++) {
+      const ranges = [];
+      let charIdx = 0;
+      let rangeStart = -1;
+      for (let i = 0; i < tokens.length; i++) {
         if (!keep[i]) {
           if (rangeStart === -1) rangeStart = charIdx;
         } else {
@@ -2190,8 +2185,8 @@
             // If this kept token is whitespace and a later token is changed,
             // absorb the whitespace into the current range.
             if (/^\s+$/.test(tokens[i])) {
-              var hasMoreChanged = false;
-              for (var j = i + 1; j < tokens.length; j++) {
+              let hasMoreChanged = false;
+              for (let j = i + 1; j < tokens.length; j++) {
                 if (!keep[j]) { hasMoreChanged = true; break; }
                 if (!/^\s+$/.test(tokens[j])) break;
               }
@@ -2222,18 +2217,18 @@
   function applyWordDiffToHtml(html, ranges, cssClass) {
     if (!ranges || ranges.length === 0) return html;
 
-    var result = '';
-    var charIdx = 0;       // visible character index
-    var rangeIdx = 0;      // which range we're processing
-    var inRange = false;   // currently inside a word-diff span
-    var i = 0;             // position in html string
+    let result = '';
+    let charIdx = 0;       // visible character index
+    let rangeIdx = 0;      // which range we're processing
+    let inRange = false;   // currently inside a word-diff span
+    let i = 0;             // position in html string
 
     while (i < html.length) {
       // Skip HTML tags (don't count them as visible characters)
       if (html[i] === '<') {
         // If we're in a word-diff range, close it before the tag, reopen after
         if (inRange) result += '</span>';
-        var tagEnd = html.indexOf('>', i);
+        const tagEnd = html.indexOf('>', i);
         if (tagEnd === -1) { result += html.slice(i); break; }
         result += html.slice(i, tagEnd + 1);
         i = tagEnd + 1;
@@ -2242,9 +2237,9 @@
       }
 
       // Handle HTML entities (e.g., &amp; &lt; &gt; &quot;) as single visible characters
-      var visibleChar;
+      let visibleChar;
       if (html[i] === '&') {
-        var semiIdx = html.indexOf(';', i);
+        const semiIdx = html.indexOf(';', i);
         if (semiIdx !== -1 && semiIdx - i < 10) {
           visibleChar = html.slice(i, semiIdx + 1);
           i = semiIdx + 1;
@@ -2285,7 +2280,7 @@
 
   // Strip HTML tags and decode entities to get visible text for word-diff comparison.
   function htmlToText(html) {
-    var tmp = document.createElement('div');
+    const tmp = document.createElement('div');
     tmp.innerHTML = html;
     return tmp.textContent || '';
   }
@@ -2293,23 +2288,23 @@
   // Pre-compute word diffs for all paired del/add runs in a hunk.
   // Returns a Map<lineIndex, { ranges, cssClass }> mapping hunk line indices to word-diff info.
   function buildHunkWordDiffs(hunk) {
-    var wordDiffMap = new Map();
-    var lines = hunk.Lines;
-    var i = 0;
+    const wordDiffMap = new Map();
+    const lines = hunk.Lines;
+    let i = 0;
     while (i < lines.length) {
       if (lines[i].Type === 'del') {
         // Collect consecutive dels
-        var delStart = i;
+        const delStart = i;
         while (i < lines.length && lines[i].Type === 'del') i++;
         // Collect consecutive adds
-        var addStart = i;
+        const addStart = i;
         while (i < lines.length && lines[i].Type === 'add') i++;
         // Pair 1:1
-        var delCount = addStart - delStart;
-        var addCount = i - addStart;
-        var pairCount = Math.min(delCount, addCount);
-        for (var p = 0; p < pairCount; p++) {
-          var wd = wordDiff(lines[delStart + p].Content, lines[addStart + p].Content);
+        const delCount = addStart - delStart;
+        const addCount = i - addStart;
+        const pairCount = Math.min(delCount, addCount);
+        for (let p = 0; p < pairCount; p++) {
+          const wd = wordDiff(lines[delStart + p].Content, lines[addStart + p].Content);
           if (wd) {
             wordDiffMap.set(delStart + p, { ranges: wd.oldRanges, cssClass: 'diff-word-del' });
             wordDiffMap.set(addStart + p, { ranges: wd.newRanges, cssClass: 'diff-word-add' });
@@ -2323,7 +2318,7 @@
   }
 
   // ===== Diff Gutter Drag (multi-line comment selection) =====
-  var diffDragState = null; // { filePath, side, anchorLine, currentLine }
+  let diffDragState = null; // { filePath, side, anchorLine, currentLine }
 
   // Tag a diff line element with data attributes for drag detection + keyboard nav
   // For split mode, navEl (the row) gets kb-nav; el (the side) gets data attrs for drag.
@@ -2332,7 +2327,7 @@
     el.dataset.diffLineNum = lineNum;
     el.dataset.diffSide = side || '';
     // In split mode, kb-nav goes on the row; in unified, on the line itself
-    var nav = navEl || el;
+    const nav = navEl || el;
     if (!nav.classList.contains('kb-nav')) {
       nav.classList.add('kb-nav');
       nav.dataset.diffFilePath = filePath;
@@ -2354,9 +2349,9 @@
     if (!lineNum) return col; // empty placeholder for lines without numbers
 
     // During drag, show + at anchor and current line, blue line between
-    var sideMatch = diffMode === 'split' ? diffDragState && diffDragState.side === (side || '') : true;
+    const sideMatch = diffMode === 'split' ? diffDragState && diffDragState.side === (side || '') : true;
     if (diffDragState && diffDragState.filePath === filePath && sideMatch && selectionStart !== null && selectionEnd !== null) {
-      var isAnchor, isCurrent, inRange, isRangeStart, isRangeEnd;
+      let isAnchor, isCurrent, inRange, isRangeStart, isRangeEnd;
       if (diffMode !== 'split' && visualIdx !== undefined && unifiedVisualStart !== null) {
         // Unified mode: use visual indices (old/new line numbers are in different spaces)
         isAnchor = visualIdx === diffDragState.anchorVisualIdx;
@@ -2433,7 +2428,7 @@
 
     // Unified mode: track visual indices for cross-number-space drag
     if (diffMode !== 'split' && diffLine.dataset.diffVisualIdx !== undefined) {
-      var hoverVisualIdx = parseInt(diffLine.dataset.diffVisualIdx);
+      const hoverVisualIdx = parseInt(diffLine.dataset.diffVisualIdx);
       diffDragState.currentVisualIdx = hoverVisualIdx;
       unifiedVisualStart = Math.min(diffDragState.anchorVisualIdx, hoverVisualIdx);
       unifiedVisualEnd = Math.max(diffDragState.anchorVisualIdx, hoverVisualIdx);
@@ -2450,8 +2445,8 @@
     const rangeStart = Math.min(diffDragState.anchorLine, diffDragState.currentLine);
     const rangeEnd = Math.max(diffDragState.anchorLine, diffDragState.currentLine);
 
-    var fp = diffDragState.filePath;
-    var side = diffDragState.side;
+    const fp = diffDragState.filePath;
+    const side = diffDragState.side;
     diffDragState = null;
     unifiedVisualStart = null;
     unifiedVisualEnd = null;
@@ -2480,20 +2475,20 @@
 
     spacer.addEventListener('click', function() {
       if (!file.content) return;
-      var contentLines = file.content.split('\n');
+      const contentLines = file.content.split('\n');
 
       // Build context lines to bridge the gap
-      var contextLines = [];
-      for (var i = 0; i < gap; i++) {
-        var newLineNum = prevNewEnd + i;
-        var oldLineNum = prevOldEnd + i;
-        var text = newLineNum <= contentLines.length ? contentLines[newLineNum - 1] : '';
+      const contextLines = [];
+      for (let i = 0; i < gap; i++) {
+        const newLineNum = prevNewEnd + i;
+        const oldLineNum = prevOldEnd + i;
+        const text = newLineNum <= contentLines.length ? contentLines[newLineNum - 1] : '';
         contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
       }
 
       // Merge: prev hunk + context lines + next hunk → single hunk
-      var hunks = file.diffHunks;
-      var merged = {
+      let hunks = file.diffHunks;
+      const merged = {
         OldStart: hunks[prevIdx].OldStart,
         NewStart: hunks[prevIdx].NewStart,
         Header: hunks[prevIdx].Header,
@@ -2525,7 +2520,7 @@
     const key = lineNum + ':' + (side || '');
     const lineComments = commentsMap[key] || [];
     for (const comment of lineComments) {
-      var el = comment.resolved
+      let el = comment.resolved
         ? createResolvedElement(comment, filePath)
         : createCommentElement(comment, filePath);
       if (side === 'old') el.classList.add('diff-comment-left');
@@ -2536,12 +2531,12 @@
 
   // Helper: append comment form if it targets this line and side
   function appendDiffForm(container, filePath, lineNum, side) {
-    var fileForms = getFormsForFile(filePath);
-    for (var fi = 0; fi < fileForms.length; fi++) {
-      var form = fileForms[fi];
-      var formSide = form.side || '';
+    const fileForms = getFormsForFile(filePath);
+    for (let fi = 0; fi < fileForms.length; fi++) {
+      const form = fileForms[fi];
+      let formSide = form.side || '';
       if (!form.editingId && form.endLine === lineNum && formSide === (side || '')) {
-        var el = createCommentForm(form);
+        let el = createCommentForm(form);
         if (formSide === 'old') el.classList.add('diff-comment-left');
         else el.classList.add('diff-comment-right');
         container.appendChild(el);
@@ -2562,7 +2557,7 @@
 
     const commentsMap = buildDiffCommentsMap(file.comments);
     const commentVisualSet = buildUnifiedCommentVisualSet(hunks, file.comments);
-    var visualIdx = 0; // sequential index for unified drag (old/new nums are different spaces)
+    let visualIdx = 0; // sequential index for unified drag (old/new nums are different spaces)
 
     for (let hi = 0; hi < hunks.length; hi++) {
       const hunk = hunks[hi];
@@ -2574,19 +2569,19 @@
 
       container.appendChild(renderDiffHunkHeader(hunk));
 
-      var wordDiffMap = buildHunkWordDiffs(hunk);
+      const wordDiffMap = buildHunkWordDiffs(hunk);
 
-      for (var li = 0; li < hunk.Lines.length; li++) {
-        var line = hunk.Lines[li];
+      for (let li = 0; li < hunk.Lines.length; li++) {
+        let line = hunk.Lines[li];
         const lineEl = document.createElement('div');
         lineEl.className = 'diff-line';
         if (line.Type === 'add') lineEl.classList.add('addition');
         if (line.Type === 'del') lineEl.classList.add('deletion');
         lineEl.dataset.diffVisualIdx = visualIdx;
 
-        var commentLineNum = line.Type === 'del' ? line.OldNum : line.NewNum;
-        var lineSide = line.Type === 'del' ? 'old' : '';
-        var commentKey = commentLineNum + ':' + lineSide;
+        const commentLineNum = line.Type === 'del' ? line.OldNum : line.NewNum;
+        const lineSide = line.Type === 'del' ? 'old' : '';
+        const commentKey = commentLineNum + ':' + lineSide;
         const lineComments = commentsMap[commentKey] || [];
         if (commentVisualSet.has(visualIdx)) lineEl.classList.add('has-comment');
 
@@ -2594,13 +2589,13 @@
         if (commentLineNum) {
           tagDiffLine(lineEl, file.path, commentLineNum, lineSide);
           if (activeFilePath === file.path) {
-            var inCurrentDrag = diffDragState && unifiedVisualStart !== null && unifiedVisualEnd !== null &&
+            const inCurrentDrag = diffDragState && unifiedVisualStart !== null && unifiedVisualEnd !== null &&
                 visualIdx >= unifiedVisualStart && visualIdx <= unifiedVisualEnd;
-            var formSide = activeForms.length > 0 ? (activeForms[activeForms.length - 1].side || '') : '';
-            var inCurrentForm = !diffDragState && selectionStart !== null && selectionEnd !== null &&
+            const formSide = activeForms.length > 0 ? (activeForms[activeForms.length - 1].side || '') : '';
+            const inCurrentForm = !diffDragState && selectionStart !== null && selectionEnd !== null &&
                 lineSide === formSide && commentLineNum >= selectionStart && commentLineNum <= selectionEnd;
-            var inCurrentSelUnified = inCurrentDrag || inCurrentForm;
-            var hasFormUnified = getFormsForFile(file.path).some(function(f) {
+            const inCurrentSelUnified = inCurrentDrag || inCurrentForm;
+            const hasFormUnified = getFormsForFile(file.path).some(function(f) {
               return !f.editingId && commentLineNum >= f.startLine && commentLineNum <= f.endLine && (f.side || '') === lineSide;
             });
             if (inCurrentSelUnified) { lineEl.classList.add('selected'); }
@@ -2630,8 +2625,8 @@
 
         const contentEl = document.createElement('div');
         contentEl.className = 'diff-content';
-        var hlLine = highlightDiffLine(line.Content, line.Type === 'del' ? line.OldNum : line.NewNum, line.Type === 'del' ? 'old' : '', file.highlightCache, file.lang);
-        var wdInfo = wordDiffMap.get(li);
+        const hlLine = highlightDiffLine(line.Content, line.Type === 'del' ? line.OldNum : line.NewNum, line.Type === 'del' ? 'old' : '', file.highlightCache, file.lang);
+        const wdInfo = wordDiffMap.get(li);
         contentEl.innerHTML = wdInfo ? applyWordDiffToHtml(hlLine, wdInfo.ranges, wdInfo.cssClass) : hlLine;
 
         lineEl.appendChild(gutter);
@@ -2702,12 +2697,12 @@
           container.appendChild(row.el);
           // Context lines: form appears where clicked (left or right),
           // but submitted comments always render on the right, like GitHub
-          var ctxComments = [
+          const ctxComments = [
             ...(commentsMap[line.OldNum + ':old'] || []),
             ...(commentsMap[line.NewNum + ':'] || [])
           ];
-          for (var ci = 0; ci < ctxComments.length; ci++) {
-            var el = ctxComments[ci].resolved
+          for (let ci = 0; ci < ctxComments.length; ci++) {
+            const el = ctxComments[ci].resolved
               ? createResolvedElement(ctxComments[ci], file.path)
               : createCommentElement(ctxComments[ci], file.path);
             el.classList.add('diff-comment-right');
@@ -2717,8 +2712,8 @@
           appendDiffForm(container, file.path, line.NewNum, '');
         } else {
           // Compute word-level diffs for paired del/add lines
-          var wordDiffs = [];
-          var pairCount = Math.min(seg.dels.length, seg.adds.length);
+          const wordDiffs = [];
+          const pairCount = Math.min(seg.dels.length, seg.adds.length);
           for (let j = 0; j < pairCount; j++) {
             wordDiffs.push(wordDiff(seg.dels[j].Content, seg.adds[j].Content));
           }
@@ -2727,7 +2722,7 @@
           for (let j = 0; j < maxLen; j++) {
             const del = seg.dels[j] || null;
             const add = seg.adds[j] || null;
-            var wd = j < pairCount ? wordDiffs[j] : null;
+            const wd = j < pairCount ? wordDiffs[j] : null;
             const row = makeSplitRow(
               del ? { num: del.OldNum, content: del.Content, type: 'del', wordRanges: wd ? wd.oldRanges : null } : null,
               add ? { num: add.NewNum, content: add.Content, type: 'add', wordRanges: wd ? wd.newRanges : null } : null,
@@ -2763,15 +2758,15 @@
     leftNum.className = 'diff-gutter-num';
     leftNum.textContent = left ? (left.num || '') : '';
 
-    var leftCommentGutter;
+    let leftCommentGutter;
     if (left && left.num) {
       leftCommentGutter = makeDiffCommentGutter(file.path, left.num, 'old');
       tagDiffLine(leftEl, file.path, left.num, 'old', row);
       if (commentRangeSet.has(left.num + ':old')) leftEl.classList.add('has-comment');
-      var selSide = diffDragState ? diffDragState.side : (activeForms.length > 0 ? activeForms[activeForms.length - 1].side : null);
-      var inCurrentSelLeft = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
+      const selSide = diffDragState ? diffDragState.side : (activeForms.length > 0 ? activeForms[activeForms.length - 1].side : null);
+      const inCurrentSelLeft = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
           left.num >= selectionStart && left.num <= selectionEnd && selSide === 'old';
-      var hasFormLeft = getFormsForFile(file.path).some(function(f) {
+      const hasFormLeft = getFormsForFile(file.path).some(function(f) {
         return !f.editingId && left.num >= f.startLine && left.num <= f.endLine && (f.side || '') === 'old';
       });
       if (inCurrentSelLeft) { leftEl.classList.add('selected'); }
@@ -2783,7 +2778,7 @@
     const leftContent = document.createElement('div');
     leftContent.className = 'diff-content';
     if (left) {
-      var hlHtml = highlightDiffLine(left.content, left.num, 'old', file.highlightCache, file.lang);
+      let hlHtml = highlightDiffLine(left.content, left.num, 'old', file.highlightCache, file.lang);
       leftContent.innerHTML = left.wordRanges ? applyWordDiffToHtml(hlHtml, left.wordRanges, 'diff-word-del') : hlHtml;
     }
     if (!left) leftEl.classList.add('empty');
@@ -2801,7 +2796,7 @@
     rightNum.className = 'diff-gutter-num';
     rightNum.textContent = right ? (right.num || '') : '';
 
-    var rightCommentGutter;
+    let rightCommentGutter;
     if (right && right.num) {
       if (right.type === 'add' || right.type === 'context') {
         rightCommentGutter = makeDiffCommentGutter(file.path, right.num, '');
@@ -2810,10 +2805,10 @@
       }
       tagDiffLine(rightEl, file.path, right.num, '', row);
       if (commentRangeSet.has(right.num + ':')) rightEl.classList.add('has-comment');
-      var selSideR = diffDragState ? diffDragState.side : (activeForms.length > 0 ? activeForms[activeForms.length - 1].side : null);
-      var inCurrentSelRight = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
+      const selSideR = diffDragState ? diffDragState.side : (activeForms.length > 0 ? activeForms[activeForms.length - 1].side : null);
+      const inCurrentSelRight = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
           right.num >= selectionStart && right.num <= selectionEnd && (selSideR || '') === '';
-      var hasFormRight = getFormsForFile(file.path).some(function(f) {
+      const hasFormRight = getFormsForFile(file.path).some(function(f) {
         return !f.editingId && right.num >= f.startLine && right.num <= f.endLine && (f.side || '') === '';
       });
       if (inCurrentSelRight) { rightEl.classList.add('selected'); }
@@ -2825,7 +2820,7 @@
     const rightContent = document.createElement('div');
     rightContent.className = 'diff-content';
     if (right) {
-      var hlHtml = highlightDiffLine(right.content, right.num, right.type === 'del' ? 'old' : '', file.highlightCache, file.lang);
+      const hlHtml = highlightDiffLine(right.content, right.num, right.type === 'del' ? 'old' : '', file.highlightCache, file.lang);
       rightContent.innerHTML = right.wordRanges ? applyWordDiffToHtml(hlHtml, right.wordRanges, 'diff-word-add') : hlHtml;
     }
     if (!right) rightEl.classList.add('empty');
@@ -2961,23 +2956,23 @@
   // Update drag selection CSS classes on existing DOM without full re-render.
   // Handles both markdown line blocks and diff gutter elements.
   function updateDragSelectionVisuals(filePath) {
-    var section = document.getElementById('file-section-' + filePath);
+    const section = document.getElementById('file-section-' + filePath);
     if (!section) return;
 
     // Markdown line blocks: toggle .selected on line-block, update comment gutter drag classes
-    var lineBlocks = section.querySelectorAll('.line-block[data-file-path="' + filePath + '"]');
-    for (var i = 0; i < lineBlocks.length; i++) {
-      var lb = lineBlocks[i];
-      var startLine = parseInt(lb.dataset.startLine);
-      var endLine = parseInt(lb.dataset.endLine);
+    const lineBlocks = section.querySelectorAll('.line-block[data-file-path="' + filePath + '"]');
+    for (let i = 0; i < lineBlocks.length; i++) {
+      const lb = lineBlocks[i];
+      const startLine = parseInt(lb.dataset.startLine);
+      const endLine = parseInt(lb.dataset.endLine);
       applyBlockSelectionState(lb, filePath, startLine, endLine);
 
       // Update the comment gutter within this line block
-      var gutter = lb.querySelector('.line-comment-gutter');
+      const gutter = lb.querySelector('.line-comment-gutter');
       if (gutter && dragState && dragState.filePath === filePath && selectionStart !== null) {
-        var isAnchorBlock = startLine <= dragState.anchorEndLine && endLine >= dragState.anchorStartLine;
-        var isCurrentBlock = startLine <= dragState.currentEndLine && endLine >= dragState.currentStartLine;
-        var gutterInRange = startLine >= selectionStart && endLine <= selectionEnd;
+        const isAnchorBlock = startLine <= dragState.anchorEndLine && endLine >= dragState.anchorStartLine;
+        const isCurrentBlock = startLine <= dragState.currentEndLine && endLine >= dragState.currentStartLine;
+        const gutterInRange = startLine >= selectionStart && endLine <= selectionEnd;
         gutter.classList.toggle('drag-endpoint', isAnchorBlock || isCurrentBlock);
         gutter.classList.toggle('drag-range', gutterInRange);
         gutter.classList.toggle('drag-range-start', gutterInRange && startLine === selectionStart);
@@ -2988,15 +2983,15 @@
     // Diff line elements: toggle .selected on diff lines and drag-range on gutters
     if (diffDragState && diffDragState.filePath === filePath) {
       // Unified mode: toggle .selected on .diff-line elements
-      var unifiedLines = section.querySelectorAll('.diff-container.unified .diff-line[data-diff-visual-idx]');
-      for (var ui = 0; ui < unifiedLines.length; ui++) {
-        var uLine = unifiedLines[ui];
-        var uVisualIdx = parseInt(uLine.dataset.diffVisualIdx);
-        var uSelected = unifiedVisualStart !== null && unifiedVisualEnd !== null &&
+      const unifiedLines = section.querySelectorAll('.diff-container.unified .diff-line[data-diff-visual-idx]');
+      for (let ui = 0; ui < unifiedLines.length; ui++) {
+        const uLine = unifiedLines[ui];
+        const uVisualIdx = parseInt(uLine.dataset.diffVisualIdx);
+        const uSelected = unifiedVisualStart !== null && unifiedVisualEnd !== null &&
                         uVisualIdx >= unifiedVisualStart && uVisualIdx <= unifiedVisualEnd;
-        var uLineNum = parseInt(uLine.dataset.diffLineNum);
-        var uSide = uLine.dataset.diffSide || '';
-        var uHasForm = getFormsForFile(filePath).some(function(f) {
+        const uLineNum = parseInt(uLine.dataset.diffLineNum);
+        const uSide = uLine.dataset.diffSide || '';
+        const uHasForm = getFormsForFile(filePath).some(function(f) {
           return !f.editingId && uLineNum >= f.startLine && uLineNum <= f.endLine && (f.side || '') === uSide;
         });
         uLine.classList.toggle('selected', uSelected);
@@ -3004,15 +2999,15 @@
       }
 
       // Split mode: toggle .selected on .diff-split-side elements
-      var splitSides = section.querySelectorAll('.diff-container.split .diff-split-side[data-diff-line-num]');
-      for (var si = 0; si < splitSides.length; si++) {
-        var sSide = splitSides[si];
-        var sLineNum = parseInt(sSide.dataset.diffLineNum);
-        var sSideVal = sSide.dataset.diffSide || '';
-        var sSideMatch = diffDragState.side === sSideVal;
-        var sSelected = sSideMatch && selectionStart !== null && selectionEnd !== null &&
+      const splitSides = section.querySelectorAll('.diff-container.split .diff-split-side[data-diff-line-num]');
+      for (let si = 0; si < splitSides.length; si++) {
+        const sSide = splitSides[si];
+        const sLineNum = parseInt(sSide.dataset.diffLineNum);
+        const sSideVal = sSide.dataset.diffSide || '';
+        const sSideMatch = diffDragState.side === sSideVal;
+        const sSelected = sSideMatch && selectionStart !== null && selectionEnd !== null &&
                         sLineNum >= selectionStart && sLineNum <= selectionEnd;
-        var sHasForm = getFormsForFile(filePath).some(function(f) {
+        const sHasForm = getFormsForFile(filePath).some(function(f) {
           return !f.editingId && sLineNum >= f.startLine && sLineNum <= f.endLine && (f.side || '') === sSideVal;
         });
         sSide.classList.toggle('selected', sSelected);
@@ -3021,21 +3016,21 @@
     }
 
     // Diff gutter elements: toggle drag-range classes
-    var diffGutters = section.querySelectorAll('.diff-comment-gutter');
-    for (var j = 0; j < diffGutters.length; j++) {
-      var col = diffGutters[j];
-      var btn = col.querySelector('.diff-comment-btn');
+    const diffGutters = section.querySelectorAll('.diff-comment-gutter');
+    for (let j = 0; j < diffGutters.length; j++) {
+      const col = diffGutters[j];
+      const btn = col.querySelector('.diff-comment-btn');
       if (!btn) continue;
-      var lineNum = parseInt(btn.dataset.lineNum);
-      var side = btn.dataset.side || '';
-      var visualIdx = btn.dataset.visualIdx !== undefined ? parseInt(btn.dataset.visualIdx) : undefined;
+      const lineNum = parseInt(btn.dataset.lineNum);
+      let side = btn.dataset.side || '';
+      const visualIdx = btn.dataset.visualIdx !== undefined ? parseInt(btn.dataset.visualIdx) : undefined;
       if (!lineNum) continue;
 
-      var sideMatch = diffMode === 'split' ? (diffDragState && diffDragState.side === side) : true;
-      var isActive = diffDragState && diffDragState.filePath === filePath && sideMatch && selectionStart !== null && selectionEnd !== null;
+      const sideMatch = diffMode === 'split' ? (diffDragState && diffDragState.side === side) : true;
+      const isActive = diffDragState && diffDragState.filePath === filePath && sideMatch && selectionStart !== null && selectionEnd !== null;
 
       if (isActive) {
-        var isAnchor, isCurrent, dgInRange, isRangeStart, isRangeEnd;
+        let isAnchor, isCurrent, dgInRange, isRangeStart, isRangeEnd;
         if (diffMode !== 'split' && visualIdx !== undefined && unifiedVisualStart !== null) {
           isAnchor = visualIdx === diffDragState.anchorVisualIdx;
           isCurrent = visualIdx === diffDragState.currentVisualIdx;
@@ -3098,7 +3093,7 @@
       }
     }
 
-    var fp = dragState.filePath;
+    const fp = dragState.filePath;
     dragState = null;
     openForm({
       filePath: fp,
@@ -3184,8 +3179,8 @@
   }
 
   function openForm(newForm) {
-    var fk = formKey(newForm);
-    var existing = activeForms.find(function(f) { return f.formKey === fk; });
+    const fk = formKey(newForm);
+    const existing = activeForms.find(function(f) { return f.formKey === fk; });
     if (existing) {
       activeFilePath = newForm.filePath;
       selectionStart = newForm.startLine;
@@ -3206,10 +3201,10 @@
   function focusCommentTextarea(targetFormKey) {
     requestAnimationFrame(() => {
       if (targetFormKey) {
-        var ta = document.querySelector('.comment-form[data-form-key="' + targetFormKey + '"] textarea');
+        const ta = document.querySelector('.comment-form[data-form-key="' + targetFormKey + '"] textarea');
         if (ta) { ta.focus(); return; }
       }
-      var forms = document.querySelectorAll('.comment-form textarea');
+      const forms = document.querySelectorAll('.comment-form textarea');
       if (forms.length > 0) forms[forms.length - 1].focus();
     });
   }
@@ -3217,9 +3212,9 @@
   // ===== Comment Templates =====
   function getTemplates() {
     try {
-      var raw = getCookie('crit-templates');
+      const raw = getCookie('crit-templates');
       if (raw) {
-        var parsed = JSON.parse(raw);
+        const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) return parsed;
       }
     } catch (_) {}
@@ -3232,28 +3227,28 @@
 
   function populateTemplateBar(bar, textarea) {
     bar.innerHTML = '';
-    var templates = getTemplates();
+    const templates = getTemplates();
     if (templates.length === 0) {
       bar.style.display = 'none';
       return;
     }
     bar.style.display = '';
     templates.forEach(function(tmpl, i) {
-      var chip = document.createElement('button');
+      const chip = document.createElement('button');
       chip.className = 'template-chip';
       chip.title = tmpl;
-      var label = document.createElement('span');
+      const label = document.createElement('span');
       label.className = 'template-chip-label';
       label.textContent = tmpl;
       chip.appendChild(label);
-      var del = document.createElement('span');
+      const del = document.createElement('span');
       del.className = 'template-chip-delete';
       del.textContent = '\u00d7';
       del.title = 'Remove template';
       del.addEventListener('click', function(e) {
         e.preventDefault();
         e.stopPropagation();
-        var t = getTemplates();
+        let t = getTemplates();
         t.splice(i, 1);
         saveTemplates(t);
         populateTemplateBar(bar, textarea);
@@ -3261,8 +3256,8 @@
       chip.appendChild(del);
       chip.addEventListener('click', function(e) {
         e.preventDefault();
-        var start = textarea.selectionStart;
-        var end = textarea.selectionEnd;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
         textarea.value = textarea.value.substring(0, start) + tmpl + textarea.value.substring(end);
         textarea.selectionStart = textarea.selectionEnd = start + tmpl.length;
         textarea.focus();
@@ -3273,16 +3268,16 @@
   }
 
   function createTemplateBar(textarea) {
-    var bar = document.createElement('div');
+    const bar = document.createElement('div');
     bar.className = 'comment-template-bar';
     populateTemplateBar(bar, textarea);
     return bar;
   }
 
   function attachTemplateUI(form, textarea, actions) {
-    var templateBar = createTemplateBar(textarea);
+    const templateBar = createTemplateBar(textarea);
 
-    var saveTemplateBtn = document.createElement('button');
+    const saveTemplateBtn = document.createElement('button');
     saveTemplateBtn.className = 'btn btn-sm';
     saveTemplateBtn.textContent = '+ Template';
     saveTemplateBtn.addEventListener('click', function(e) {
@@ -3290,63 +3285,62 @@
       showSaveTemplateDialog(textarea, templateBar);
     });
 
-    var suggestBtn = document.createElement('button');
+    const suggestBtn = document.createElement('button');
     suggestBtn.className = 'btn btn-sm';
     suggestBtn.textContent = '\u00B1 Suggest';
     suggestBtn.title = 'Insert the selected lines as a suggestion';
     suggestBtn.addEventListener('click', function() { insertSuggestion(textarea); });
 
-    var leftGroup = document.createElement('div');
+    const leftGroup = document.createElement('div');
     leftGroup.className = 'comment-form-actions-left';
     leftGroup.appendChild(suggestBtn);
     leftGroup.appendChild(saveTemplateBtn);
-    leftGroup.style.marginRight = 'auto';
 
     actions.insertBefore(leftGroup, actions.firstChild);
     form.insertBefore(templateBar, form.querySelector('textarea'));
   }
 
   function showSaveTemplateDialog(textarea, templateBar) {
-    var text = textarea.value.trim();
+    const text = textarea.value.trim();
     if (!text) {
       textarea.focus();
       return;
     }
-    var overlay = document.createElement('div');
+    const overlay = document.createElement('div');
     overlay.className = 'save-template-overlay active';
 
-    var dialog = document.createElement('div');
+    const dialog = document.createElement('div');
     dialog.className = 'save-template-dialog';
 
-    var title = document.createElement('h3');
+    const title = document.createElement('h3');
     title.textContent = 'Save as template';
     dialog.appendChild(title);
 
-    var desc = document.createElement('p');
+    const desc = document.createElement('p');
     desc.textContent = 'Edit the template text, then save.';
     dialog.appendChild(desc);
 
-    var input = document.createElement('textarea');
+    const input = document.createElement('textarea');
     input.className = 'save-template-input';
     input.value = text;
     input.rows = 3;
     dialog.appendChild(input);
 
-    var btns = document.createElement('div');
+    const btns = document.createElement('div');
     btns.className = 'save-template-actions';
 
-    var cancelBtn = document.createElement('button');
+    const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-sm';
     cancelBtn.textContent = 'Cancel';
     cancelBtn.addEventListener('click', function() { overlay.remove(); textarea.focus(); });
 
-    var saveBtn = document.createElement('button');
+    const saveBtn = document.createElement('button');
     saveBtn.className = 'btn btn-sm btn-primary';
     saveBtn.textContent = 'Save';
     saveBtn.addEventListener('click', function() {
-      var val = input.value.trim();
+      const val = input.value.trim();
       if (!val) return;
-      var t = getTemplates();
+      const t = getTemplates();
       t.push(val);
       saveTemplates(t);
       overlay.remove();
@@ -3378,7 +3372,7 @@
 
   // ===== Comment Form =====
   function createCommentFormUI(opts) {
-    var formObj = opts.formObj;
+    let formObj = opts.formObj;
 
     const wrapper = document.createElement('div');
     wrapper.className = 'comment-form-wrapper';
@@ -3440,14 +3434,14 @@
   }
 
   function createCommentForm(formObj) {
-    var lineRef = formObj.startLine === formObj.endLine
+    const lineRef = formObj.startLine === formObj.endLine
       ? 'Line ' + formObj.startLine
       : 'Lines ' + formObj.startLine + '-' + formObj.endLine;
-    var initialBody = '';
+    let initialBody = '';
     if (formObj.editingId) {
-      var file = getFileByPath(formObj.filePath);
+      const file = getFileByPath(formObj.filePath);
       if (file) {
-        var existing = file.comments.find(function(c) { return c.id === formObj.editingId; });
+        const existing = file.comments.find(function(c) { return c.id === formObj.editingId; });
         if (existing) initialBody = existing.body;
       }
     } else if (formObj.draftBody) {
@@ -3463,12 +3457,12 @@
   }
 
   function getOldSideLinesFromHunks(file, startLine, endLine) {
-    var lines = [];
+    let lines = [];
     if (!file.diffHunks) return lines;
-    for (var h = 0; h < file.diffHunks.length; h++) {
-      var hunkLines = file.diffHunks[h].Lines || [];
-      for (var i = 0; i < hunkLines.length; i++) {
-        var dl = hunkLines[i];
+    for (let h = 0; h < file.diffHunks.length; h++) {
+      const hunkLines = file.diffHunks[h].Lines || [];
+      for (let i = 0; i < hunkLines.length; i++) {
+        const dl = hunkLines[i];
         if ((dl.Type === 'context' || dl.Type === 'del') && dl.OldNum >= startLine && dl.OldNum <= endLine) {
           lines.push({ num: dl.OldNum, content: dl.Content });
         }
@@ -3479,12 +3473,12 @@
   }
 
   function insertSuggestion(textarea) {
-    var key = textarea.dataset.formKey;
-    var formObj = activeForms.find(function(f) { return f.formKey === key; });
+    let key = textarea.dataset.formKey;
+    let formObj = activeForms.find(function(f) { return f.formKey === key; });
     if (!formObj) return;
     const file = getFileByPath(formObj.filePath);
     if (!file) return;
-    var lines;
+    let lines;
     if (formObj.quote) {
       lines = formObj.quote.split('\n');
     } else if (formObj.side === 'old') {
@@ -3557,7 +3551,7 @@
       focusedElement = null;
     }
     renderFileByPath(filePath);
-    renderFileSummary();
+    updateTreeCommentBadges();
     updateCommentCount();
   }
 
@@ -3592,7 +3586,7 @@
 
   function saveDraft(body, formObj) {
     if (!formObj) return;
-    var key = getDraftKey(formObj);
+    let key = getDraftKey(formObj);
     if (!key) return;
     try {
       localStorage.setItem(key, JSON.stringify({
@@ -3610,19 +3604,19 @@
 
   function debouncedSaveDraft(body, formObj) {
     if (!formObj) return;
-    var key = formObj.formKey;
+    let key = formObj.formKey;
     clearTimeout(draftTimers[key]);
     draftTimers[key] = setTimeout(function() { saveDraft(body, formObj); }, 500);
   }
 
   function clearDraft(formObj) {
     if (!formObj) return;
-    var key = formObj.formKey;
+    let key = formObj.formKey;
     if (draftTimers[key]) {
       clearTimeout(draftTimers[key]);
       delete draftTimers[key];
     }
-    var draftKey = getDraftKey(formObj);
+    const draftKey = getDraftKey(formObj);
     if (draftKey) {
       try { localStorage.removeItem(draftKey); } catch (_) {}
     }
@@ -3630,35 +3624,35 @@
 
   window.addEventListener('beforeunload', function() {
     activeForms.forEach(function(formObj) {
-      var el = document.querySelector('.comment-form[data-form-key="' + formObj.formKey + '"] textarea');
+      const el = document.querySelector('.comment-form[data-form-key="' + formObj.formKey + '"] textarea');
       if (el) saveDraft(el.value, formObj);
     });
   });
 
   function restoreDrafts() {
-    var restored = false;
-    var keysToProcess = [];
-    for (var i = 0; i < localStorage.length; i++) {
-      var k = localStorage.key(i);
+    let restored = false;
+    const keysToProcess = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
       if (k && k.startsWith('crit-draft-')) keysToProcess.push(k);
     }
-    for (var ki = 0; ki < keysToProcess.length; ki++) {
-      var key = keysToProcess[ki];
+    for (let ki = 0; ki < keysToProcess.length; ki++) {
+      const key = keysToProcess[ki];
       try {
-        var raw = localStorage.getItem(key);
+        const raw = localStorage.getItem(key);
         if (!raw) continue;
-        var draft = JSON.parse(raw);
+        const draft = JSON.parse(raw);
 
         if (Date.now() - draft.savedAt > 24 * 60 * 60 * 1000) {
           localStorage.removeItem(key);
           continue;
         }
 
-        var file = getFileByPath(draft.filePath);
+        const file = getFileByPath(draft.filePath);
         if (!file) { localStorage.removeItem(key); continue; }
 
         if (file.fileType === 'markdown' && file.content) {
-          var totalLines = file.content.split('\n').length;
+          const totalLines = file.content.split('\n').length;
           if (draft.startLine < 1 || draft.endLine > totalLines) {
             localStorage.removeItem(key);
             continue;
@@ -3672,7 +3666,7 @@
           }
         }
 
-        var formObj = {
+        const formObj = {
           filePath: file.path,
           afterBlockIndex: draft.afterBlockIndex,
           startLine: draft.startLine,
@@ -3692,7 +3686,7 @@
     }
     if (restored) {
       // Render all files that have restored forms (deduplicated)
-      var renderedFiles = {};
+      const renderedFiles = {};
       activeForms.forEach(function(f) {
         if (!renderedFiles[f.filePath]) {
           renderedFiles[f.filePath] = true;
@@ -3704,7 +3698,7 @@
   }
 
   function showMiniToast(message) {
-    var t = document.createElement('div');
+    const t = document.createElement('div');
     t.className = 'mini-toast';
     t.textContent = message;
     document.body.appendChild(t);
@@ -3717,8 +3711,8 @@
 
   // ===== Comment Display =====
   function buildCommentEnv(comment, filePath) {
-    var env = {};
-    var file = getFileByPath(filePath);
+    const env = {};
+    const file = getFileByPath(filePath);
     if (file && file.content && comment.start_line && comment.end_line && !comment.side) {
       env.originalLines = comment.quote
         ? comment.quote.split('\n')
@@ -3753,7 +3747,7 @@
     time.textContent = formatTime(comment.created_at);
 
     const headerLeft = document.createElement('div');
-    headerLeft.style.cssText = 'display:flex;align-items:center;gap:10px';
+    headerLeft.className = 'comment-header-left';
     if (comment.author) {
       const authorBadge = document.createElement('span');
       authorBadge.className = 'comment-author-badge';
@@ -3764,7 +3758,7 @@
     }
     if (comment.review_round >= 1) {
       const roundBadge = document.createElement('span');
-      var rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
+      const rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
       roundBadge.className = 'comment-round-badge' + rc;
       roundBadge.textContent = 'R' + comment.review_round;
       headerLeft.appendChild(roundBadge);
@@ -3811,26 +3805,26 @@
   // ===== Quote Highlighting in Document/Diff Body =====
 
   function highlightQuotesInSection(sectionEl, file) {
-    var quotedComments = file.comments.filter(function(c) { return c.quote && !c.resolved; });
+    const quotedComments = file.comments.filter(function(c) { return c.quote && !c.resolved; });
     if (quotedComments.length === 0) return;
 
     quotedComments.forEach(function(comment) {
       // Find the content elements in this comment's line range
-      var contentEls = [];
-      for (var ln = comment.start_line; ln <= comment.end_line; ln++) {
+      const contentEls = [];
+      for (let ln = comment.start_line; ln <= comment.end_line; ln++) {
         // Document view: line-blocks with data-file-path
         sectionEl.querySelectorAll('.line-block[data-file-path="' + CSS.escape(file.path) + '"]').forEach(function(el) {
-          var s = parseInt(el.dataset.startLine);
-          var e = parseInt(el.dataset.endLine);
+          const s = parseInt(el.dataset.startLine);
+          const e = parseInt(el.dataset.endLine);
           if (s <= ln && e >= ln) {
             // Get the content div (skip gutter)
-            var content = el.querySelector('.line-content');
+            let content = el.querySelector('.line-content');
             if (content && contentEls.indexOf(content) === -1) contentEls.push(content);
           }
         });
         // Diff view: diff lines with data-diff-line-num
         sectionEl.querySelectorAll('[data-diff-file-path="' + CSS.escape(file.path) + '"][data-diff-line-num="' + ln + '"]').forEach(function(el) {
-          var content = el.querySelector('.diff-content');
+          const content = el.querySelector('.diff-content');
           if (content && contentEls.indexOf(content) === -1) contentEls.push(content);
         });
       }
@@ -3838,10 +3832,10 @@
       if (contentEls.length === 0) return;
 
       // Collect all text nodes across the content elements
-      var textNodes = [];
+      const textNodes = [];
       contentEls.forEach(function(el) {
-        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
-        var node;
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+        let node;
         while ((node = walker.nextNode())) {
           if (node.textContent.length > 0) textNodes.push(node);
         }
@@ -3851,10 +3845,10 @@
 
       // Build concatenated text and find the quote within it.
       // Normalize the quote: collapse whitespace/newlines so cross-line selections match.
-      var fullText = textNodes.map(function(n) { return n.textContent; }).join('');
-      var normalizedQuote = comment.quote.replace(/\s+/g, ' ');
-      var normalizedFull = fullText.replace(/\s+/g, ' ');
-      var quoteIdx = normalizedFull.indexOf(normalizedQuote);
+      const fullText = textNodes.map(function(n) { return n.textContent; }).join('');
+      const normalizedQuote = comment.quote.replace(/\s+/g, ' ');
+      const normalizedFull = fullText.replace(/\s+/g, ' ');
+      let quoteIdx = normalizedFull.indexOf(normalizedQuote);
       if (quoteIdx === -1) {
         quoteIdx = normalizedFull.toLowerCase().indexOf(normalizedQuote.toLowerCase());
       }
@@ -3862,7 +3856,7 @@
 
       // Map the normalized index back to the original fullText position.
       // Walk the original text, skipping collapsed whitespace to find the real start.
-      var origIdx = 0, normIdx = 0;
+      let origIdx = 0, normIdx = 0;
       while (normIdx < quoteIdx && origIdx < fullText.length) {
         if (/\s/.test(fullText[origIdx])) {
           // In normalized form, consecutive whitespace collapses to one space
@@ -3875,7 +3869,7 @@
       }
       quoteIdx = origIdx;
       // Find the end position similarly
-      var matchLen = 0, ni = 0;
+      let matchLen = 0, ni = 0;
       while (ni < normalizedQuote.length && (origIdx + matchLen) < fullText.length) {
         if (/\s/.test(fullText[origIdx + matchLen])) {
           while ((origIdx + matchLen) < fullText.length && /\s/.test(fullText[origIdx + matchLen])) matchLen++;
@@ -3887,37 +3881,37 @@
       }
 
       // Walk text nodes to find which ones overlap with the quote range
-      var quoteEnd = quoteIdx + matchLen;
-      var pos = 0;
-      for (var i = 0; i < textNodes.length; i++) {
-        var node = textNodes[i];
-        var nodeEnd = pos + node.textContent.length;
+      const quoteEnd = quoteIdx + matchLen;
+      let pos = 0;
+      for (let i = 0; i < textNodes.length; i++) {
+        const node = textNodes[i];
+        const nodeEnd = pos + node.textContent.length;
         if (nodeEnd <= quoteIdx) { pos = nodeEnd; continue; }
         if (pos >= quoteEnd) break;
 
         // This node overlaps with the quote range
-        var startInNode = Math.max(0, quoteIdx - pos);
-        var endInNode = Math.min(node.textContent.length, quoteEnd - pos);
+        const startInNode = Math.max(0, quoteIdx - pos);
+        const endInNode = Math.min(node.textContent.length, quoteEnd - pos);
 
         // Skip wrapping whitespace-only matches (e.g. newlines between blocks)
-        var matchText = node.textContent.slice(startInNode, endInNode);
+        const matchText = node.textContent.slice(startInNode, endInNode);
         if (!matchText.trim()) { pos = nodeEnd; continue; }
 
         if (startInNode === 0 && endInNode === node.textContent.length) {
           // Wrap entire text node
-          var mark = document.createElement('mark');
+          const mark = document.createElement('mark');
           mark.className = 'quote-highlight';
           mark.dataset.commentId = comment.id;
           node.parentNode.replaceChild(mark, node);
           mark.appendChild(node);
         } else {
           // Split and wrap partial text
-          var before = node.textContent.slice(0, startInNode);
-          var middle = node.textContent.slice(startInNode, endInNode);
-          var after = node.textContent.slice(endInNode);
-          var frag = document.createDocumentFragment();
+          const before = node.textContent.slice(0, startInNode);
+          const middle = node.textContent.slice(startInNode, endInNode);
+          const after = node.textContent.slice(endInNode);
+          const frag = document.createDocumentFragment();
           if (before) frag.appendChild(document.createTextNode(before));
-          var mark = document.createElement('mark');
+          const mark = document.createElement('mark');
           mark.className = 'quote-highlight';
           mark.dataset.commentId = comment.id;
           mark.textContent = middle;
@@ -3931,10 +3925,10 @@
   }
 
   function createInlineEditor(comment) {
-    var formObj = findFormForEdit(comment.id);
+    const formObj = findFormForEdit(comment.id);
     if (!formObj) return null;
 
-    var lineRef = comment.start_line === comment.end_line
+    let lineRef = comment.start_line === comment.end_line
       ? 'Line ' + comment.start_line
       : 'Lines ' + comment.start_line + '-' + comment.end_line;
     return createCommentFormUI({
@@ -3966,7 +3960,7 @@
       console.error('Error deleting comment:', err);
     }
     renderFileByPath(filePath);
-    renderFileSummary();
+    updateTreeCommentBadges();
     updateCommentCount();
   }
 
@@ -3989,7 +3983,7 @@
     header.appendChild(check);
     if (comment.review_round >= 1) {
       const roundBadge = document.createElement('span');
-      var rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
+      let rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
       roundBadge.className = 'comment-round-badge' + rc;
       roundBadge.textContent = 'R' + comment.review_round;
       header.appendChild(roundBadge);
@@ -4041,17 +4035,17 @@
   }
 
   function updateTocPosition() {
-    var toc = document.getElementById('toc');
-    var panel = document.getElementById('commentsPanel');
+    const toc = document.getElementById('toc');
+    const panel = document.getElementById('commentsPanel');
     if (!toc || !panel) return;
-    var panelOpen = !panel.classList.contains('comments-panel-hidden');
-    var tocBaseRight = 16; // matches the default right: 16px in CSS
+    const panelOpen = !panel.classList.contains('comments-panel-hidden');
+    const tocBaseRight = 16; // matches the default right: 16px in CSS
     toc.style.right = panelOpen ? (panel.offsetWidth + tocBaseRight) + 'px' : '';
   }
 
   function toggleCommentsPanel() {
-    var panel = document.getElementById('commentsPanel');
-    var isHidden = panel.classList.contains('comments-panel-hidden');
+    const panel = document.getElementById('commentsPanel');
+    const isHidden = panel.classList.contains('comments-panel-hidden');
     panel.classList.toggle('comments-panel-hidden');
     if (isHidden) {
       renderCommentsPanel();
@@ -4060,22 +4054,22 @@
   }
 
   function renderCommentsPanel() {
-    var panel = document.getElementById('commentsPanel');
+    const panel = document.getElementById('commentsPanel');
     if (panel.classList.contains('comments-panel-hidden')) return;
 
-    var showResolved = document.getElementById('showResolvedToggle').checked;
-    var body = document.getElementById('commentsPanelBody');
+    const showResolved = document.getElementById('showResolvedToggle').checked;
+    const body = document.getElementById('commentsPanelBody');
     body.innerHTML = '';
 
     // Show/hide the filter bar only when resolved comments exist
-    var hasResolved = files.some(function(f) { return f.comments.some(function(c) { return c.resolved; }); });
+    const hasResolved = files.some(function(f) { return f.comments.some(function(c) { return c.resolved; }); });
     document.getElementById('commentsPanelFilter').style.display = hasResolved ? '' : 'none';
 
-    var hasComments = false;
+    let hasComments = false;
 
-    for (var i = 0; i < files.length; i++) {
-      var file = files[i];
-      var visibleComments = file.comments.filter(function(c) {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const visibleComments = file.comments.filter(function(c) {
         return showResolved ? true : !c.resolved;
       });
       if (visibleComments.length === 0) continue;
@@ -4084,32 +4078,32 @@
       // Sort by start_line
       visibleComments.sort(function(a, b) { return a.start_line - b.start_line; });
 
-      var group = document.createElement('div');
+      const group = document.createElement('div');
       group.className = 'comments-panel-file-group';
 
       // File name header (only in multi-file mode)
       if (files.length > 1) {
-        var fileName = document.createElement('div');
+        const fileName = document.createElement('div');
         fileName.className = 'comments-panel-file-name';
         fileName.textContent = file.path;
         fileName.title = file.path;
         group.appendChild(fileName);
       }
 
-      for (var j = 0; j < visibleComments.length; j++) {
-        var comment = visibleComments[j];
-        var card = document.createElement('div');
+      for (let j = 0; j < visibleComments.length; j++) {
+        const comment = visibleComments[j];
+        const card = document.createElement('div');
         card.className = 'comments-panel-card' + (comment.resolved ? ' comments-panel-card-resolved' : '');
         card.dataset.commentId = comment.id;
         card.dataset.filePath = file.path;
 
-        var lineRef = document.createElement('div');
+        const lineRef = document.createElement('div');
         lineRef.className = 'comments-panel-card-line';
         lineRef.textContent = comment.start_line === comment.end_line
           ? 'Line ' + comment.start_line
           : 'Lines ' + comment.start_line + '-' + comment.end_line;
         if (comment.carried_forward) {
-          var badge = document.createElement('span');
+          const badge = document.createElement('span');
           if (comment.resolved) {
             badge.className = 'comments-panel-badge comments-panel-badge-resolved';
             badge.textContent = 'Resolved';
@@ -4120,14 +4114,14 @@
           lineRef.appendChild(badge);
         }
         if (comment.review_round >= 1) {
-          var roundBadge = document.createElement('span');
-          var rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
+          const roundBadge = document.createElement('span');
+          const rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
       roundBadge.className = 'comment-round-badge' + rc;
           roundBadge.textContent = 'R' + comment.review_round;
           lineRef.appendChild(roundBadge);
         }
 
-        var bodyEl = document.createElement('div');
+        const bodyEl = document.createElement('div');
         bodyEl.className = 'comments-panel-card-body';
         bodyEl.innerHTML = commentMd.render(comment.body, buildCommentEnv(comment, file.path));
 
@@ -4144,7 +4138,7 @@
     }
 
     if (!hasComments) {
-      var empty = document.createElement('div');
+      const empty = document.createElement('div');
       empty.className = 'comments-panel-empty';
       empty.textContent = showResolved ? 'No comments yet' : 'No unresolved comments';
       body.appendChild(empty);
@@ -4153,12 +4147,12 @@
 
   function scrollToComment(commentId, filePath) {
     // 1. Find the file section and expand if collapsed
-    var section = document.getElementById('file-section-' + filePath);
+    const section = document.getElementById('file-section-' + filePath);
     if (!section) return;
     if (!section.open) section.open = true;
 
     // 2. Find the inline comment card by comment ID
-    var commentCard = section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]')
+    const commentCard = section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]')
       || section.querySelector('.resolved-comment[data-comment-id="' + CSS.escape(commentId) + '"]');
     if (!commentCard) return;
 
@@ -4175,11 +4169,11 @@
   }
 
   function updateViewedCount() {
-    var viewed = 0;
-    for (var i = 0; i < files.length; i++) {
+    let viewed = 0;
+    for (let i = 0; i < files.length; i++) {
       if (files[i].viewed) viewed++;
     }
-    var el = document.getElementById('viewedCount');
+    const el = document.getElementById('viewedCount');
     if (files.length <= 1) { el.textContent = ''; return; }
     el.textContent = viewed + ' / ' + files.length + ' files viewed';
     el.classList.toggle('all-viewed', viewed === files.length);
@@ -4200,8 +4194,8 @@
 
     switch (state) {
       case 'reviewing':
-        var totalComments = 0;
-        for (var fi = 0; fi < files.length; fi++) {
+        let totalComments = 0;
+        for (let fi = 0; fi < files.length; fi++) {
           if (files[fi].comments) totalComments += files[fi].comments.length;
         }
         finishBtn.textContent = totalComments === 0 ? 'Approve' : 'Finish Review';
@@ -4260,10 +4254,10 @@
   });
 
   document.getElementById('waitingClipboard').addEventListener('click', async function() {
-    var prompt = document.getElementById('waitingPrompt').textContent;
+    const prompt = document.getElementById('waitingPrompt').textContent;
     try {
       await navigator.clipboard.writeText(prompt);
-      var el = document.getElementById('waitingClipboard');
+      const el = document.getElementById('waitingClipboard');
       el.textContent = '\u2713 Copied';
       el.classList.remove('clipboard-confirm');
       void el.offsetWidth;
@@ -4279,8 +4273,8 @@
     source.addEventListener('file-changed', async function() {
       try {
         // Capture per-file user state before rebuilding
-        var prevState = {};
-        for (var pi = 0; pi < files.length; pi++) {
+        const prevState = {};
+        for (let pi = 0; pi < files.length; pi++) {
           prevState[files[pi].path] = {
             viewMode: files[pi].viewMode,
             collapsed: files[pi].collapsed,
@@ -4297,8 +4291,8 @@
         files = await loadAllFileData(session.files || [], diffScope);
 
         // Restore per-file user state from previous round
-        for (var fi = 0; fi < files.length; fi++) {
-          var prev = prevState[files[fi].path];
+        for (let fi = 0; fi < files.length; fi++) {
+          const prev = prevState[files[fi].path];
           if (prev) {
             files[fi].viewMode = prev.viewMode;
             files[fi].collapsed = prev.collapsed;
@@ -4340,8 +4334,8 @@
         if (el && uiState === 'waiting') {
           el.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:4px"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="11"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>Your agent made ' + count + ' edit' + (count === 1 ? '' : 's');
           // Hide prompt and clipboard once agent starts making edits
-          var promptEl = document.getElementById('waitingPrompt');
-          var clipEl = document.getElementById('waitingClipboard');
+          const promptEl = document.getElementById('waitingPrompt');
+          const clipEl = document.getElementById('waitingClipboard');
           if (promptEl) promptEl.style.display = 'none';
           if (clipEl) clipEl.style.display = 'none';
           document.getElementById('waitingMessage').textContent = 'Waiting for your agent to finish...';
@@ -4351,9 +4345,9 @@
 
     source.addEventListener('comments-changed', async function() {
       try {
-        for (var i = 0; i < files.length; i++) {
-          var f = files[i];
-          var commentsRes = await fetch('/api/file/comments?path=' + enc(f.path))
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          const commentsRes = await fetch('/api/file/comments?path=' + enc(f.path))
             .then(function(r) { return r.ok ? r.json() : []; })
             .catch(function() { return []; });
           f.comments = Array.isArray(commentsRes) ? commentsRes : [];
@@ -4361,7 +4355,6 @@
         renderAllFiles();
         updateCommentCount();
         updateTreeCommentBadges();
-        updateCommentCount();
       } catch (err) {
         console.error('Error handling comments-changed:', err);
       }
@@ -4376,19 +4369,19 @@
   }
 
   function showDisconnected() {
-    var overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:10000';
-    var box = document.createElement('div');
-    box.style.cssText = 'background:var(--bg-primary,#1e1e2e);border:1px solid var(--border,#292e42);border-radius:12px;padding:32px 40px;text-align:center;color:var(--fg-primary,#c0caf5);font-family:inherit';
-    box.innerHTML = '<div style="font-size:20px;font-weight:600;margin-bottom:8px">Server stopped</div><div style="color:var(--fg-secondary,#a9b1d6)">You can close this tab.</div>';
+    const overlay = document.createElement('div');
+    overlay.className = 'disconnected-overlay';
+    const box = document.createElement('div');
+    box.className = 'disconnected-dialog';
+    box.innerHTML = '<div class="disconnected-title">Server stopped</div><div class="disconnected-message">You can close this tab.</div>';
     overlay.appendChild(box);
     document.body.appendChild(overlay);
   }
 
   // ===== Share =====
-  var shareModalEl = null;
+  let shareModalEl = null;
   function setShareButtonState(state) {
-    var btn = document.getElementById('shareBtn');
+    const btn = document.getElementById('shareBtn');
     if (state === 'shared') {
       btn.textContent = 'Shared';
       btn.classList.add('btn-success');
@@ -4414,7 +4407,7 @@
   function showShareModal() {
     closeShareModal();
 
-    var overlay = document.createElement('div');
+    const overlay = document.createElement('div');
     overlay.className = 'share-overlay';
     overlay.innerHTML =
       '<div class="share-dialog">' +
@@ -4439,7 +4432,7 @@
     fetch('/api/qr?url=' + encodeURIComponent(hostedURL))
       .then(function(r) { return r.text(); })
       .then(function(svg) {
-        var qrEl = document.getElementById('modalQR');
+        const qrEl = document.getElementById('modalQR');
         if (qrEl) qrEl.innerHTML = svg;
       })
       .catch(function() {});
@@ -4456,12 +4449,12 @@
 
     overlay.querySelector('#modalCloseBtn').addEventListener('click', closeShareModal);
 
-    var clipboardSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-    var checkSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+    const clipboardSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    const checkSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
     overlay.querySelector('#modalCopyBtn').addEventListener('click', function() {
       navigator.clipboard.writeText(hostedURL).catch(function() {});
       this.innerHTML = checkSvg;
-      var copyBtn = this;
+      const copyBtn = this;
       setTimeout(function() { copyBtn.innerHTML = clipboardSvg; }, 2000);
     });
 
@@ -4472,7 +4465,7 @@
 
   function showUnpublishConfirm() {
     if (!shareModalEl) return;
-    var dialog = shareModalEl.querySelector('.share-dialog');
+    const dialog = shareModalEl.querySelector('.share-dialog');
     dialog.innerHTML =
       '<h3>Unpublish</h3>' +
       '<div class="share-dialog-confirm">' +
@@ -4488,15 +4481,15 @@
   }
 
   async function handleUnpublish() {
-    var btn = document.getElementById('confirmUnpublishBtn');
+    const btn = document.getElementById('confirmUnpublishBtn');
     if (btn) { btn.textContent = 'Unpublishing\u2026'; btn.disabled = true; }
     try {
-      var resp = await fetch(shareURL + '/api/reviews', {
+      let resp = await fetch(shareURL + '/api/reviews', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ delete_token: deleteToken }),
       });
-      var alreadyDeleted = resp.status === 404;
+      const alreadyDeleted = resp.status === 404;
       if (!alreadyDeleted && !resp.ok) throw new Error('Server error ' + resp.status);
       hostedURL = '';
       deleteToken = '';
@@ -4505,7 +4498,7 @@
       setShareButtonState('default');
     } catch (err) {
       closeShareModal();
-      var el = showToast('share', 'error',
+      let el = showToast('share', 'error',
         '<span>Unpublish failed: ' + escapeHtml(err.message) + '</span>' +
         '<div class="toast-actions">' +
           '<button class="toast-btn toast-btn-filled" id="shareUnpublishRetryBtn">Retry</button>' +
@@ -4533,19 +4526,19 @@
     dismissToast('share');
 
     try {
-      var resp = await fetch('/api/share', { method: 'POST' });
+      const resp = await fetch('/api/share', { method: 'POST' });
       if (!resp.ok) {
-        var errBody = await resp.json().catch(function() { return {}; });
+        const errBody = await resp.json().catch(function() { return {}; });
         throw new Error(errBody.error || 'Server error ' + resp.status);
       }
-      var result = await resp.json();
+      const result = await resp.json();
       hostedURL = result.url;
       deleteToken = result.delete_token || '';
       setShareButtonState('shared');
       showShareModal();
     } catch (err) {
       setShareButtonState('default');
-      var el = showToast('share', 'error',
+      let el = showToast('share', 'error',
         '<span>Share failed: ' + escapeHtml(err.message) + '</span>' +
         '<div class="toast-actions">' +
           '<button class="toast-btn toast-btn-filled" id="shareRetryBtn">Retry</button>' +
@@ -4561,8 +4554,8 @@
   // ===== Toast System =====
   function showToast(id, type, content, opts) {
     dismissToast(id);
-    var container = document.getElementById('toastContainer');
-    var el = document.createElement('div');
+    const container = document.getElementById('toastContainer');
+    const el = document.createElement('div');
     el.className = 'toast toast-' + type;
     el.id = 'toast-' + id;
     el.innerHTML = content;
@@ -4575,7 +4568,7 @@
 
   // Global for onclick handlers in toast HTML
   window.dismissToast = function(id) {
-    var el = document.getElementById('toast-' + id);
+    const el = document.getElementById('toast-' + id);
     if (el) el.remove();
   };
 
@@ -4632,18 +4625,18 @@
       a.addEventListener('click', function(e) {
         e.preventDefault();
         // Uncollapse the file section first
-        var sectionEl = document.getElementById('file-section-' + item.filePath);
+        const sectionEl = document.getElementById('file-section-' + item.filePath);
         if (sectionEl) {
-          var file = getFileByPath(item.filePath);
+          const file = getFileByPath(item.filePath);
           if (file) file.collapsed = false;
           sectionEl.open = true;
         }
         // Find the line block matching this heading's start line
-        var target = sectionEl && sectionEl.querySelector('.line-block[data-start-line="' + item.startLine + '"]');
+        const target = sectionEl && sectionEl.querySelector('.line-block[data-start-line="' + item.startLine + '"]');
         if (target) {
-          var mainHeader = document.querySelector('.header');
-          var offset = (mainHeader ? mainHeader.offsetHeight : 49) + 8;
-          var y = target.getBoundingClientRect().top + window.scrollY - offset;
+          const mainHeader = document.querySelector('.header');
+          const offset = (mainHeader ? mainHeader.offsetHeight : 49) + 8;
+          const y = target.getBoundingClientRect().top + window.scrollY - offset;
           window.scrollTo({ top: y, behavior: 'smooth' });
         } else {
           scrollToFile(item.filePath);
@@ -4670,10 +4663,10 @@
       let activeItem = null;
 
       for (const item of items) {
-        var sectionEl = document.getElementById('file-section-' + item.filePath);
-        var block = sectionEl && sectionEl.querySelector('.line-block[data-start-line="' + item.startLine + '"]');
+        const sectionEl = document.getElementById('file-section-' + item.filePath);
+        const block = sectionEl && sectionEl.querySelector('.line-block[data-start-line="' + item.startLine + '"]');
         if (!block) continue;
-        var rect = block.getBoundingClientRect();
+        const rect = block.getBoundingClientRect();
         if (rect.top <= headerHeight) {
           activeItem = item;
         }
@@ -4681,7 +4674,7 @@
 
       const tocLinks = document.querySelectorAll('.toc-list a');
       for (const link of tocLinks) {
-        var isActive = activeItem &&
+        const isActive = activeItem &&
           link.dataset.startLine === String(activeItem.startLine) &&
           link.dataset.filePath === activeItem.filePath;
         link.classList.toggle('toc-active', !!isActive);
@@ -4767,9 +4760,9 @@
 
   // ===== Scope Toggle (All / Branch / Staged / Unstaged) =====
   document.getElementById('scopeToggle').addEventListener('click', async function(e) {
-    var btn = e.target.closest('.toggle-btn');
+    const btn = e.target.closest('.toggle-btn');
     if (!btn || btn.disabled || btn.classList.contains('active')) return;
-    var scope = btn.dataset.scope;
+    let scope = btn.dataset.scope;
     diffScope = scope;
     setCookie('crit-diff-scope', scope);
     document.querySelectorAll('#scopeToggle .toggle-btn').forEach(function(b) {
@@ -4807,7 +4800,7 @@
 
   // ===== TOC Toggle =====
   document.getElementById('tocToggle').addEventListener('click', function() {
-    var tocEl = document.getElementById('toc');
+    const tocEl = document.getElementById('toc');
     tocEl.classList.toggle('toc-hidden');
     setCookie('crit-toc', tocEl.classList.contains('toc-hidden') ? 'closed' : 'open');
     buildToc();
@@ -4850,9 +4843,9 @@
     if (tag === 'TEXTAREA' || tag === 'INPUT' || document.activeElement.isContentEditable) {
       if (e.key === 'Escape' && activeForms.length > 0) {
         e.preventDefault();
-        var ta = document.activeElement;
+        const ta = document.activeElement;
         if (ta && ta.dataset && ta.dataset.formKey) {
-          var form = activeForms.find(function(f) { return f.formKey === ta.dataset.formKey; });
+          const form = activeForms.find(function(f) { return f.formKey === ta.dataset.formKey; });
           if (form) cancelComment(form);
         }
       }
@@ -4872,16 +4865,16 @@
     switch (e.key) {
       case 'j': case 'k': {
         e.preventDefault();
-        var allNav = navElements;
+        const allNav = navElements;
         if (allNav.length === 0) return;
-        var curIdx = focusedElement ? allNav.indexOf(focusedElement) : -1;
+        let curIdx = focusedElement ? allNav.indexOf(focusedElement) : -1;
         if (curIdx === -1 && focusedElement) {
           // Stale ref after re-render — find nearest match by data attributes
-          var fp = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
-          var bi = focusedElement.dataset.blockIndex;
-          var dln = focusedElement.dataset.diffLineNum;
-          for (var ni = 0; ni < allNav.length; ni++) {
-            var n = allNav[ni];
+          let fp = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
+          let bi = focusedElement.dataset.blockIndex;
+          const dln = focusedElement.dataset.diffLineNum;
+          for (let ni = 0; ni < allNav.length; ni++) {
+            const n = allNav[ni];
             if (fp && bi != null && n.dataset.filePath === fp && n.dataset.blockIndex === bi) { curIdx = ni; break; }
             if (fp && dln && n.dataset.diffFilePath === fp && n.dataset.diffLineNum === dln) { curIdx = ni; break; }
           }
@@ -4911,18 +4904,18 @@
         if (!focusedElement) return;
         // Markdown line block
         if (focusedElement.dataset.filePath && focusedElement.dataset.blockIndex != null) {
-          var fp = focusedElement.dataset.filePath;
-          var bi = parseInt(focusedElement.dataset.blockIndex);
-          var file = getFileByPath(fp);
+          let fp = focusedElement.dataset.filePath;
+          const bi = parseInt(focusedElement.dataset.blockIndex);
+          const file = getFileByPath(fp);
           if (!file || !file.lineBlocks) return;
-          var block = file.lineBlocks[bi];
+          let block = file.lineBlocks[bi];
           openForm({ filePath: fp, afterBlockIndex: bi, startLine: block.startLine, endLine: block.endLine, editingId: null });
         }
         // Diff line
         else if (focusedElement.dataset.diffFilePath && focusedElement.dataset.diffLineNum) {
-          var dfp = focusedElement.dataset.diffFilePath;
-          var lineNum = parseInt(focusedElement.dataset.diffLineNum);
-          var side = focusedElement.dataset.diffSide || '';
+          const dfp = focusedElement.dataset.diffFilePath;
+          const lineNum = parseInt(focusedElement.dataset.diffLineNum);
+          const side = focusedElement.dataset.diffSide || '';
           openForm({ filePath: dfp, afterBlockIndex: null, startLine: lineNum, endLine: lineNum, editingId: null, side: side || undefined });
         }
         break;
@@ -4931,20 +4924,20 @@
       case 'd': {
         e.preventDefault();
         if (!focusedElement) return;
-        var fp = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
+        const fp = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
         if (!fp) return;
-        var file = getFileByPath(fp);
+        const file = getFileByPath(fp);
         if (!file || !file.comments || file.comments.length === 0) return;
         // Find comments for the focused line
-        var comment = null;
+        let comment = null;
         if (focusedElement.dataset.blockIndex != null) {
-          var block = file.lineBlocks[parseInt(focusedElement.dataset.blockIndex)];
+          const block = file.lineBlocks[parseInt(focusedElement.dataset.blockIndex)];
           if (block) {
             comment = file.comments.find(function(c) { return c.end_line >= block.startLine && c.end_line <= block.endLine; });
           }
         } else if (focusedElement.dataset.diffLineNum) {
-          var ln = parseInt(focusedElement.dataset.diffLineNum);
-          var sd = focusedElement.dataset.diffSide || '';
+          let ln = parseInt(focusedElement.dataset.diffLineNum);
+          const sd = focusedElement.dataset.diffSide || '';
           comment = file.comments.find(function(c) { return c.end_line === ln && (c.side || '') === sd; });
         }
         if (!comment) return;
@@ -4964,7 +4957,7 @@
         break;
       }
       case 't': {
-        var tocBtn = document.getElementById('tocToggle');
+        const tocBtn = document.getElementById('tocToggle');
         if (tocBtn.style.display === 'none') return;
         e.preventDefault();
         tocBtn.click();
@@ -4991,7 +4984,7 @@
         e.preventDefault();
         if (activeForms.length > 0) cancelComment(activeForms[activeForms.length - 1]);
         else if (selectionStart !== null) {
-          var clearPath = activeFilePath;
+          const clearPath = activeFilePath;
           selectionStart = null;
           selectionEnd = null;
           activeFilePath = null;
@@ -5021,36 +5014,36 @@
 
       // Capture the selected text before clearing, for the quote field.
       // If the selection covers the full text of the line range, skip it — redundant.
-      var quote = null;
+      let quote = null;
       try {
-        var selectedText = selection.toString().trim();
+        let selectedText = selection.toString().trim();
         if (selectedText) {
           // Strip diff gutter markers (+/-) from the start of each line
           selectedText = selectedText.replace(/^[+\-]/gm, '').trim();
 
           // Get the full text content of the lines in this range to compare.
           // Try both document view (.line-block) and diff view elements.
-          var fullText = '';
-          for (var ln = range.startLine; ln <= range.endLine; ln++) {
+          let fullText = '';
+          for (let ln = range.startLine; ln <= range.endLine; ln++) {
             // Document view
             document.querySelectorAll('.line-block[data-file-path]').forEach(function(el) {
               if (el.dataset.filePath !== range.filePath) return;
-              var s = parseInt(el.dataset.startLine), e = parseInt(el.dataset.endLine);
+              const s = parseInt(el.dataset.startLine), e = parseInt(el.dataset.endLine);
               if (s <= ln && e >= ln) {
-                var content = el.querySelector('.line-content');
+                let content = el.querySelector('.line-content');
                 if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
               }
             });
             // Diff view
             document.querySelectorAll('[data-diff-file-path][data-diff-line-num="' + ln + '"]').forEach(function(el) {
               if (el.dataset.diffFilePath !== range.filePath) return;
-              var content = el.querySelector('.diff-content');
+              const content = el.querySelector('.diff-content');
               if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
             });
           }
           // Only include quote if it's a partial selection (not the full line content)
-          var normalizedSelected = selectedText.replace(/\s+/g, ' ');
-          var normalizedFull = fullText.trim().replace(/\s+/g, ' ');
+          const normalizedSelected = selectedText.replace(/\s+/g, ' ');
+          const normalizedFull = fullText.trim().replace(/\s+/g, ' ');
           if (normalizedSelected !== normalizedFull && selectedText.length <= 300) {
             quote = selectedText;
           }
