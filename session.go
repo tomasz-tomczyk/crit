@@ -1229,11 +1229,13 @@ func availableScopes(baseRef string) []string {
 // Returns nil for non-git sessions or when no base ref is set.
 func (s *Session) GetCommits() []CommitInfo {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	if s.Mode != "git" || s.BaseRef == "" {
+		s.mu.RUnlock()
 		return nil
 	}
-	commits, err := CommitLog(s.BaseRef, s.RepoRoot)
+	baseRef, repoRoot := s.BaseRef, s.RepoRoot
+	s.mu.RUnlock()
+	commits, err := CommitLog(baseRef, repoRoot)
 	if err != nil {
 		return nil
 	}

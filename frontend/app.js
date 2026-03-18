@@ -4868,21 +4868,6 @@
     }
   }
 
-  function relativeTime(dateStr) {
-    var d = new Date(dateStr);
-    var now = new Date();
-    var secs = Math.floor((now - d) / 1000);
-    if (secs < 60) return 'just now';
-    var mins = Math.floor(secs / 60);
-    if (mins < 60) return mins + 'm ago';
-    var hrs = Math.floor(mins / 60);
-    if (hrs < 24) return hrs + 'h ago';
-    var days = Math.floor(hrs / 24);
-    if (days < 30) return days + 'd ago';
-    var months = Math.floor(days / 30);
-    return months + 'mo ago';
-  }
-
   function renderCommitPicker() {
     var list = document.getElementById('commitDropdownList');
     var allItem = document.querySelector('.commit-picker-item[data-commit=""]');
@@ -4921,10 +4906,11 @@
     }
   });
 
-  // Close on Escape
+  // Close on Escape (only when open)
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
+    if (e.key === 'Escape' && document.getElementById('commitDropdown').classList.contains('open')) {
       document.getElementById('commitDropdown').classList.remove('open');
+      e.stopPropagation();
     }
   });
 

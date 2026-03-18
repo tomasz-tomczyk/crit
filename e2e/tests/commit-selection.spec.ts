@@ -9,7 +9,7 @@ async function openCommitPicker(page: Page) {
 test.afterEach(async ({ page }) => {
   // Reset commit cookie so other test files aren't affected
   await page.evaluate(() => {
-    document.cookie = 'crit-diff-commit=; path=/; max-age=31536000; SameSite=Strict';
+    document.cookie = 'crit-diff-commit=; path=/; max-age=0; SameSite=Strict';
   });
 });
 
