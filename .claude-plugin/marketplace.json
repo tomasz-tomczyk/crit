@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "crit",
+  "owner": {
+    "name": "Tomasz Tomczyk"
+  },
+  "plugins": [
+    {
+      "name": "crit",
+      "description": "Close the feedback loop on AI coding: review plans and code changes with GitHub-style inline comments, then let the agent address them.",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/tomasz-tomczyk/crit.git",
+        "path": "integrations/claude-code"
+      },
+      "homepage": "https://crit.live",
+      "category": "development"
+    }
+  ]
+}

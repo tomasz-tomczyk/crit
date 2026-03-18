@@ -2,6 +2,7 @@
   "private": true,
   "dependencies": {
     "@highlightjs/cdn-assets": "^11.11.1",
+    "diff-match-patch": "^1.0.5",
     "markdown-it": "^14.1.1",
     "mermaid": "^11.12.2"
   },

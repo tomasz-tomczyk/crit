@@ -7,9 +7,12 @@ import (
 	"io/fs"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"rsc.io/qr"
 )
 
 type Server struct {
@@ -38,12 +41,17 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, author st
 	// Session-scoped endpoints
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/session", s.handleSession)
+	mux.HandleFunc("/api/share", s.handleShare)
 	mux.HandleFunc("/api/share-url", s.handleShareURL)
 	mux.HandleFunc("/api/finish", s.handleFinish)
 	mux.HandleFunc("/api/events", s.handleEvents)
+	mux.HandleFunc("/api/wait-for-event", s.handleWaitForEvent)
 	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
 
+	mux.HandleFunc("/api/commits", s.handleCommits)
 	mux.HandleFunc("/api/comments", s.handleClearComments)
+	mux.HandleFunc("/api/qr", s.handleQR)
+	mux.HandleFunc("/api/files/list", s.handleFilesList)
 
 	// File-scoped endpoints (use ?path= query param)
 	mux.HandleFunc("/api/file", s.handleFile)
@@ -114,7 +122,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := r.URL.Query().Get("scope")
-	writeJSON(w, s.session.GetSessionInfoScoped(scope))
+	commit := r.URL.Query().Get("commit")
+	writeJSON(w, s.session.GetSessionInfoScoped(scope, commit))
 }
 
 func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +148,52 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleShare uploads the current session to crit-web and returns the share URL.
+// POST /api/share
+func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.shareURL == "" {
+		http.Error(w, "share_url not configured", http.StatusBadRequest)
+		return
+	}
+
+	// Idempotent: if already shared, return the existing URL without calling crit-web.
+	// Uses GetShareState() to read both fields under a single lock (avoids TOCTOU race
+	// where a concurrent DELETE /api/share-url could clear the token between two calls).
+	if existingURL, existingToken := s.session.GetShareState(); existingURL != "" {
+		writeJSON(w, map[string]any{
+			"url":          existingURL,
+			"delete_token": existingToken,
+		})
+		return
+	}
+
+	files, comments, reviewRound := buildShareFromSession(s.session)
+	if len(files) == 0 {
+		http.Error(w, "no files in session", http.StatusBadRequest)
+		return
+	}
+
+	url, deleteToken, err := shareFilesToWeb(files, comments, s.shareURL, reviewRound)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	paths := make([]string, len(files))
+	for i, f := range files {
+		paths[i] = f.Path
+	}
+	s.session.SetSharedURLAndToken(url, deleteToken)
+	s.session.SetShareScope(shareScope(paths))
+	writeJSON(w, map[string]any{"url": url, "delete_token": deleteToken})
 }
 
 // handleFile returns file content + metadata for a single file.
@@ -180,7 +235,8 @@ func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := r.URL.Query().Get("scope")
-	snapshot, ok := s.session.GetFileDiffSnapshotScoped(path, scope)
+	commit := r.URL.Query().Get("commit")
+	snapshot, ok := s.session.GetFileDiffSnapshotScoped(path, scope, commit)
 	if !ok {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
@@ -209,6 +265,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			EndLine   int    `json:"end_line"`
 			Side      string `json:"side"`
 			Body      string `json:"body"`
+			Quote     string `json:"quote"`
 			Author    string `json:"author"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -224,7 +281,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		c, ok := s.session.AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body, req.Author)
+		c, ok := s.session.AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body, req.Quote, req.Author)
 		if !ok {
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
@@ -284,6 +341,15 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	commits := s.session.GetCommits()
+	writeJSON(w, commits)
+}
+
 func (s *Server) handleClearComments(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -332,11 +398,39 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		"prompt":      prompt,
 	})
 
+	s.session.notify(SSEEvent{
+		Type:    "finish",
+		Content: prompt,
+	})
+
 	if s.status != nil {
 		round := s.session.GetReviewRound()
 		s.status.RoundFinished(round, newComments, unresolvedComments > 0)
 		if unresolvedComments > 0 {
 			s.status.WaitingForAgent()
+		}
+	}
+}
+
+func (s *Server) handleWaitForEvent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ch := s.session.Subscribe()
+	defer s.session.Unsubscribe(ch)
+
+	for {
+		select {
+		case event := <-ch:
+			if event.Type == "finish" {
+				writeJSON(w, event)
+				return
+			}
+		case <-r.Context().Done():
+			w.WriteHeader(http.StatusGatewayTimeout)
+			return
 		}
 	}
 }
@@ -422,6 +516,154 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.ServeFile(w, r, cleanPath)
+}
+
+func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	url := r.URL.Query().Get("url")
+	if url == "" {
+		http.Error(w, "Missing url parameter", http.StatusBadRequest)
+		return
+	}
+	code, err := qr.Encode(url, qr.L)
+	if err != nil {
+		http.Error(w, "QR generation failed", http.StatusInternalServerError)
+		return
+	}
+
+	size := code.Size
+	scale := 4
+	imgSize := size * scale
+	padding := 16
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d">`, imgSize+padding*2, imgSize+padding*2))
+	for y := 0; y < size; y++ {
+		for x := 0; x < size; x++ {
+			if code.Black(x, y) {
+				b.WriteString(fmt.Sprintf(`<rect x="%d" y="%d" width="%d" height="%d"/>`, x*scale+padding, y*scale+padding, scale, scale))
+			}
+		}
+	}
+	b.WriteString(`</svg>`)
+
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Write([]byte(b.String()))
+}
+
+func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var paths []string
+	var err error
+
+	// Try git first (works in both "git" and "files" mode when inside a repo),
+	// fall back to filesystem walk for non-git directories.
+	paths, err = AllTrackedFiles(s.session.RepoRoot)
+	if err != nil {
+		paths, err = WalkFiles(s.session.RepoRoot)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	paths = filterPathsIgnored(paths, s.session.IgnorePatterns)
+
+	query := r.URL.Query().Get("q")
+	const maxResults = 10
+
+	var results []string
+	if query == "" {
+		// No query: return first N paths alphabetically
+		sort.Strings(paths)
+		if len(paths) > maxResults {
+			results = paths[:maxResults]
+		} else {
+			results = paths
+		}
+	} else {
+		results = fuzzyFilterPaths(paths, query, maxResults)
+	}
+
+	if results == nil {
+		results = []string{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+// fuzzyFilterPaths scores each path against query using fuzzy matching and
+// returns the top N results sorted by score (descending).
+func fuzzyFilterPaths(paths []string, query string, limit int) []string {
+	query = strings.ToLower(query)
+
+	type scored struct {
+		path  string
+		score float64
+	}
+	var matches []scored
+
+	for _, p := range paths {
+		s := fuzzyScore(query, p)
+		if s >= 0 {
+			matches = append(matches, scored{p, s})
+		}
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].score > matches[j].score
+	})
+
+	if len(matches) > limit {
+		matches = matches[:limit]
+	}
+
+	result := make([]string, len(matches))
+	for i, m := range matches {
+		result[i] = m.path
+	}
+	return result
+}
+
+// fuzzyScore returns a score >= 0 if all characters in query appear in text
+// in order, or -1 if not. Higher scores indicate better matches.
+func fuzzyScore(query, text string) float64 {
+	textLower := strings.ToLower(text)
+	qi := 0
+	score := 0.0
+	consecutive := 0
+	lastMatchPos := -1
+
+	for ti := 0; ti < len(textLower) && qi < len(query); ti++ {
+		if textLower[ti] == query[qi] {
+			qi++
+			if ti == lastMatchPos+1 {
+				consecutive++
+				score += float64(consecutive) * 2
+			} else {
+				consecutive = 0
+				score += 1
+			}
+			if ti == 0 || text[ti-1] == '/' || text[ti-1] == '.' || text[ti-1] == '-' || text[ti-1] == '_' {
+				score += 5
+			}
+			lastMatchPos = ti
+		}
+	}
+
+	if qi < len(query) {
+		return -1
+	}
+	score -= float64(len(text)) * 0.1
+	return score
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

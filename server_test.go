@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newTestServer(t *testing.T) (*Server, *Session) {
@@ -199,8 +201,8 @@ func TestPostFileComment_FileNotFound(t *testing.T) {
 
 func TestGetFileComments(t *testing.T) {
 	s, session := newTestServer(t)
-	session.AddComment("test.md", 1, 1, "", "one", "")
-	session.AddComment("test.md", 2, 2, "", "two", "")
+	session.AddComment("test.md", 1, 1, "", "one", "", "")
+	session.AddComment("test.md", 2, 2, "", "two", "", "")
 
 	req := httptest.NewRequest("GET", "/api/file/comments?path=test.md", nil)
 	w := httptest.NewRecorder()
@@ -220,7 +222,7 @@ func TestGetFileComments(t *testing.T) {
 
 func TestAPIUpdateComment(t *testing.T) {
 	s, session := newTestServer(t)
-	c, _ := session.AddComment("test.md", 1, 1, "", "original", "")
+	c, _ := session.AddComment("test.md", 1, 1, "", "original", "", "")
 
 	body := `{"body":"updated"}`
 	req := httptest.NewRequest("PUT", "/api/comment/"+c.ID+"?path=test.md", strings.NewReader(body))
@@ -248,7 +250,7 @@ func TestAPIUpdateComment_NotFound(t *testing.T) {
 
 func TestAPIDeleteComment(t *testing.T) {
 	s, session := newTestServer(t)
-	c, _ := session.AddComment("test.md", 1, 1, "", "to delete", "")
+	c, _ := session.AddComment("test.md", 1, 1, "", "to delete", "", "")
 
 	req := httptest.NewRequest("DELETE", "/api/comment/"+c.ID+"?path=test.md", nil)
 	w := httptest.NewRecorder()
@@ -274,8 +276,8 @@ func TestAPIDeleteComment_NotFound(t *testing.T) {
 
 func TestClearAllComments(t *testing.T) {
 	s, session := newTestServer(t)
-	session.AddComment("test.md", 1, 1, "", "comment 1", "")
-	session.AddComment("test.md", 2, 2, "", "comment 2", "")
+	session.AddComment("test.md", 1, 1, "", "comment 1", "", "")
+	session.AddComment("test.md", 2, 2, "", "comment 2", "", "")
 
 	if len(session.GetComments("test.md")) != 2 {
 		t.Fatal("expected 2 comments before clear")
@@ -305,7 +307,7 @@ func TestClearAllComments_MethodNotAllowed(t *testing.T) {
 
 func TestFinish(t *testing.T) {
 	s, session := newTestServer(t)
-	session.AddComment("test.md", 1, 1, "", "note", "")
+	session.AddComment("test.md", 1, 1, "", "note", "", "")
 
 	req := httptest.NewRequest("POST", "/api/finish", nil)
 	w := httptest.NewRecorder()
@@ -981,6 +983,114 @@ func TestGetFile_NotInSession_PathTraversal(t *testing.T) {
 	}
 }
 
+func TestHandleFinishEmitsSSEEvent(t *testing.T) {
+	srv, session := newTestServer(t)
+	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "", "")
+
+	// Subscribe before triggering finish
+	ch := session.Subscribe()
+	defer session.Unsubscribe(ch)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/finish", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	select {
+	case event := <-ch:
+		if event.Type != "finish" {
+			t.Errorf("expected finish event, got %s", event.Type)
+		}
+		if event.Content == "" {
+			t.Error("expected non-empty prompt in finish event")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no finish event received")
+	}
+}
+
+func TestWaitForEventReturnsOnFinish(t *testing.T) {
+	srv, session := newTestServer(t)
+	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "", "")
+
+	var resp *httptest.ResponseRecorder
+	done := make(chan struct{})
+	go func() {
+		req := httptest.NewRequest(http.MethodGet, "/api/wait-for-event", nil)
+		resp = httptest.NewRecorder()
+		srv.ServeHTTP(resp, req)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	finishReq := httptest.NewRequest(http.MethodPost, "/api/finish", nil)
+	finishW := httptest.NewRecorder()
+	srv.ServeHTTP(finishW, finishReq)
+
+	select {
+	case <-done:
+		if resp.Code != 200 {
+			t.Fatalf("expected 200, got %d", resp.Code)
+		}
+		var event map[string]string
+		json.NewDecoder(resp.Body).Decode(&event)
+		if event["type"] != "finish" {
+			t.Errorf("expected finish event, got %s", event["type"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("long-poll did not return after finish")
+	}
+}
+
+func TestWaitForEventIgnoresOtherEvents(t *testing.T) {
+	srv, session := newTestServer(t)
+	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "", "")
+
+	done := make(chan struct{})
+	go func() {
+		req := httptest.NewRequest(http.MethodGet, "/api/wait-for-event", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	session.notify(SSEEvent{Type: "comments-changed"})
+
+	select {
+	case <-done:
+		t.Fatal("long-poll should not return on comments-changed event")
+	case <-time.After(200 * time.Millisecond):
+		// Good — still blocking
+	}
+}
+
+func TestWaitForEventRespectsCancel(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/wait-for-event", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusGatewayTimeout {
+		t.Errorf("expected 504, got %d", w.Code)
+	}
+}
+
+func TestWaitForEvent_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/wait-for-event", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
 // TestGetFile_NotInSession_NotOnDisk verifies that files not in session
 // AND not on disk still return 404.
 func TestGetFile_NotInSession_NotOnDisk(t *testing.T) {
@@ -992,5 +1102,165 @@ func TestGetFile_NotInSession_NotOnDisk(t *testing.T) {
 
 	if w.Code != 404 {
 		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+// ===== File List Endpoint Tests =====
+
+func TestGetFilesList(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "src/main.go"), "package main")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add file")
+
+	session := &Session{
+		Mode:          "git",
+		RepoRoot:      dir,
+		ReviewRound:   1,
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+		Files:         []*FileEntry{},
+	}
+
+	srv, err := NewServer(session, frontendFS, "", "", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("no query returns capped results", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/files/list", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != 200 {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var files []string
+		if err := json.NewDecoder(w.Body).Decode(&files); err != nil {
+			t.Fatal(err)
+		}
+
+		if len(files) == 0 {
+			t.Fatal("expected at least 1 file")
+		}
+		if len(files) > 10 {
+			t.Fatalf("expected at most 10 files, got %d", len(files))
+		}
+	})
+
+	t.Run("query filters by fuzzy match", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/files/list?q=main", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		var files []string
+		json.NewDecoder(w.Body).Decode(&files)
+
+		found := false
+		for _, f := range files {
+			if f == "src/main.go" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected src/main.go in filtered results, got: %v", files)
+		}
+	})
+}
+
+func TestGetFilesList_RespectsIgnorePatterns(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "main.go"), "package main")
+	writeFile(t, filepath.Join(dir, "debug.log"), "log data")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add files")
+
+	session := &Session{
+		Mode:           "git",
+		RepoRoot:       dir,
+		ReviewRound:    1,
+		IgnorePatterns: []string{"*.log"},
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		roundComplete:  make(chan struct{}, 1),
+		Files:          []*FileEntry{},
+	}
+
+	srv, err := NewServer(session, frontendFS, "", "", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/api/files/list", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	var files []string
+	json.NewDecoder(w.Body).Decode(&files)
+
+	for _, f := range files {
+		if f == "debug.log" {
+			t.Error("ignored file debug.log should not appear")
+		}
+	}
+}
+
+func TestGetFilesList_FilesMode(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "app.js"), "console.log('hi')")
+	writeFile(t, filepath.Join(dir, "lib/util.js"), "module.exports = {}")
+	// node_modules should be excluded by WalkFiles
+	writeFile(t, filepath.Join(dir, "node_modules/pkg/index.js"), "module")
+
+	session := &Session{
+		Mode:          "files",
+		RepoRoot:      dir,
+		ReviewRound:   1,
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+		Files:         []*FileEntry{},
+	}
+
+	srv, err := NewServer(session, frontendFS, "", "", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/api/files/list", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var files []string
+	json.NewDecoder(w.Body).Decode(&files)
+
+	found := false
+	for _, f := range files {
+		if f == "app.js" {
+			found = true
+		}
+		if strings.HasPrefix(f, "node_modules/") {
+			t.Errorf("node_modules file should not appear: %s", f)
+		}
+	}
+	if !found {
+		t.Errorf("expected app.js in file list, got: %v", files)
+	}
+}
+
+func TestGetFilesList_MethodNotAllowed(t *testing.T) {
+	session := &Session{
+		Files:         []*FileEntry{},
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+	}
+	srv, _ := NewServer(session, frontendFS, "", "", "", 0)
+	req := httptest.NewRequest("POST", "/api/files/list", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 405 {
+		t.Fatalf("expected 405, got %d", w.Code)
 	}
 }

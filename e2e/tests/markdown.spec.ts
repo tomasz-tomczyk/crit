@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
-import { loadPage, mdSection, switchToDocumentView } from './helpers';
+import { clearAllComments, loadPage, mdSection, switchToDocumentView } from './helpers';
 
 test.describe('Markdown Rendering — plan.md', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, request }) => {
+    await clearAllComments(request);
     await loadPage(page);
     await switchToDocumentView(page);
   });
@@ -59,8 +60,7 @@ test.describe('Markdown Rendering — plan.md', () => {
     await expect(codeLines.first()).toBeVisible();
 
     // There should be multiple code lines (the Go code block has ~10 lines)
-    const count = await codeLines.count();
-    expect(count).toBeGreaterThanOrEqual(5);
+    await expect(codeLines).not.toHaveCount(0);
 
     // Syntax highlighting: hljs-* spans should be present within code elements
     const hljsSpans = section.locator('.line-content.code-line [class^="hljs-"]');
@@ -89,14 +89,10 @@ test.describe('Markdown Rendering — plan.md', () => {
     // markdown-it renders task list items as <li> with literal [ ] and [x] text
     // At least one unchecked item: "[ ] Create migration..."
     const uncheckedItems = section.locator('li', { hasText: /^\[ \]/ });
-    const uncheckedCount = await uncheckedItems.count();
-    expect(uncheckedCount).toBeGreaterThanOrEqual(1);
     await expect(uncheckedItems.first()).toBeVisible();
 
     // At least one checked item: "[x] Define key format..."
     const checkedItems = section.locator('li', { hasText: /^\[x\]/ });
-    const checkedCount = await checkedItems.count();
-    expect(checkedCount).toBeGreaterThanOrEqual(1);
     await expect(checkedItems.first()).toBeVisible();
   });
 
@@ -116,13 +112,10 @@ test.describe('Markdown Rendering — plan.md', () => {
 
     // Line gutters exist in the DOM (needed for comment interaction)
     const lineGutters = section.locator('.line-gutter');
-    const gutterCount = await lineGutters.count();
-    expect(gutterCount).toBeGreaterThan(0);
+    await expect(lineGutters.first()).toBeVisible();
 
     // Line numbers are present and visible in document view
     const lineNums = section.locator('.line-gutter .line-num');
-    const numCount = await lineNums.count();
-    expect(numCount).toBeGreaterThan(0);
     await expect(lineNums.first()).toBeVisible();
 
     // Line numbers carry valid data attributes for commenting

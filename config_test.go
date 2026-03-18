@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -20,7 +19,7 @@ func TestLoadConfigFromFile(t *testing.T) {
   "ignore_patterns": ["*.lock", "vendor/"]
 }`), 0644)
 
-	cfg, err := loadConfigFile(configPath)
+	cfg, presence, err := loadConfigFile(configPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -39,15 +38,24 @@ func TestLoadConfigFromFile(t *testing.T) {
 	if len(cfg.IgnorePatterns) != 2 {
 		t.Errorf("ignore_patterns = %v", cfg.IgnorePatterns)
 	}
+	if !presence.ShareURL {
+		t.Error("presence.ShareURL should be true")
+	}
+	if !presence.IgnorePatterns {
+		t.Error("presence.IgnorePatterns should be true")
+	}
 }
 
 func TestLoadConfigFileMissing(t *testing.T) {
-	cfg, err := loadConfigFile("/nonexistent/.crit.config.json")
+	cfg, presence, err := loadConfigFile("/nonexistent/.crit.config.json")
 	if err != nil {
 		t.Fatalf("missing file should not error: %v", err)
 	}
 	if cfg.Port != 0 {
 		t.Errorf("expected zero config")
+	}
+	if presence.ShareURL || presence.IgnorePatterns {
+		t.Error("missing file should have no presence flags")
 	}
 }
 
@@ -56,9 +64,32 @@ func TestLoadConfigFileInvalidJSON(t *testing.T) {
 	configPath := filepath.Join(dir, ".crit.config.json")
 	os.WriteFile(configPath, []byte(`{invalid json`), 0644)
 
-	_, err := loadConfigFile(configPath)
+	_, _, err := loadConfigFile(configPath)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestLoadConfigFilePresenceEmptyValues(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".crit.config.json")
+	os.WriteFile(configPath, []byte(`{"share_url": "", "ignore_patterns": []}`), 0644)
+
+	cfg, presence, err := loadConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ShareURL != "" {
+		t.Errorf("share_url = %q, want empty", cfg.ShareURL)
+	}
+	if len(cfg.IgnorePatterns) != 0 {
+		t.Errorf("ignore_patterns = %v, want empty", cfg.IgnorePatterns)
+	}
+	if !presence.ShareURL {
+		t.Error("presence.ShareURL should be true even for empty string")
+	}
+	if !presence.IgnorePatterns {
+		t.Error("presence.IgnorePatterns should be true even for empty array")
 	}
 }
 
@@ -79,6 +110,61 @@ func TestMergeConfigs(t *testing.T) {
 	if len(merged.IgnorePatterns) != 2 {
 		t.Errorf("patterns = %v, want union", merged.IgnorePatterns)
 	}
+}
+
+func TestBaseBranchConfig(t *testing.T) {
+	t.Run("loadConfigFile parses base_branch", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, ".crit.config.json")
+		os.WriteFile(configPath, []byte(`{"base_branch": "uat"}`), 0644)
+
+		cfg, _, err := loadConfigFile(configPath)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.BaseBranch != "uat" {
+			t.Errorf("base_branch = %q, want %q", cfg.BaseBranch, "uat")
+		}
+	})
+
+	t.Run("mergeConfigs: project base_branch overrides global", func(t *testing.T) {
+		global := Config{BaseBranch: "main"}
+		project := Config{BaseBranch: "uat"}
+		merged := mergeConfigs(global, project)
+		if merged.BaseBranch != "uat" {
+			t.Errorf("base_branch = %q, want %q", merged.BaseBranch, "uat")
+		}
+	})
+
+	t.Run("mergeConfigs: global base_branch preserved when project unset", func(t *testing.T) {
+		global := Config{BaseBranch: "develop"}
+		project := Config{}
+		merged := mergeConfigs(global, project)
+		if merged.BaseBranch != "develop" {
+			t.Errorf("base_branch = %q, want %q", merged.BaseBranch, "develop")
+		}
+	})
+
+	t.Run("LoadConfig: project base_branch wins over global", func(t *testing.T) {
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		os.WriteFile(
+			filepath.Join(homeDir, ".crit.config.json"),
+			[]byte(`{"base_branch": "main"}`),
+			0644,
+		)
+		projectDir := t.TempDir()
+		os.WriteFile(
+			filepath.Join(projectDir, ".crit.config.json"),
+			[]byte(`{"base_branch": "uat"}`),
+			0644,
+		)
+
+		cfg := LoadConfig(projectDir)
+		if cfg.BaseBranch != "uat" {
+			t.Errorf("base_branch = %q, want %q", cfg.BaseBranch, "uat")
+		}
+	})
 }
 
 func TestMergeConfigsZeroValues(t *testing.T) {
@@ -214,39 +300,53 @@ func TestConfigString(t *testing.T) {
 	}
 }
 
-// Integration test helpers (reuse pattern from git_test.go)
-func initTestRepoForConfig(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	runGitForConfig(t, dir, "init")
-	runGitForConfig(t, dir, "config", "user.email", "test@test.com")
-	runGitForConfig(t, dir, "config", "user.name", "Test")
-	writeFileForConfig(t, filepath.Join(dir, "README.md"), "# Test")
-	runGitForConfig(t, dir, "add", "README.md")
-	runGitForConfig(t, dir, "commit", "-m", "initial")
-	runGitForConfig(t, dir, "branch", "-M", "main")
-	return dir
+func TestLoadConfigRuntimeDefaults(t *testing.T) {
+	// No config files at all — runtime defaults should apply
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	projectDir := t.TempDir()
+
+	cfg := LoadConfig(projectDir)
+	if cfg.ShareURL != "https://crit.live" {
+		t.Errorf("ShareURL = %q, want runtime default https://crit.live", cfg.ShareURL)
+	}
+	if len(cfg.IgnorePatterns) != 1 || cfg.IgnorePatterns[0] != ".crit.json" {
+		t.Errorf("IgnorePatterns = %v, want [.crit.json]", cfg.IgnorePatterns)
+	}
 }
 
-func runGitForConfig(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "HOME="+dir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
+func TestLoadConfigRuntimeDefaultsOverriddenByEmptyValues(t *testing.T) {
+	// Config explicitly sets share_url to "" and ignore_patterns to [] — no defaults
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	projectDir := t.TempDir()
+	os.WriteFile(filepath.Join(projectDir, ".crit.config.json"),
+		[]byte(`{"share_url": "", "ignore_patterns": []}`), 0644)
+
+	cfg := LoadConfig(projectDir)
+	if cfg.ShareURL != "" {
+		t.Errorf("ShareURL = %q, want empty (explicitly overridden)", cfg.ShareURL)
 	}
-	return strings.TrimSpace(string(out))
+	if len(cfg.IgnorePatterns) != 0 {
+		t.Errorf("IgnorePatterns = %v, want empty (explicitly overridden)", cfg.IgnorePatterns)
+	}
 }
 
-func writeFileForConfig(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatal(err)
+func TestLoadConfigRuntimeDefaultsOverriddenByGlobal(t *testing.T) {
+	// Global config sets share_url — no runtime default applied
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	os.WriteFile(filepath.Join(homeDir, ".crit.config.json"),
+		[]byte(`{"share_url": "https://custom.example.com"}`), 0644)
+	projectDir := t.TempDir()
+
+	cfg := LoadConfig(projectDir)
+	if cfg.ShareURL != "https://custom.example.com" {
+		t.Errorf("ShareURL = %q, want custom global value", cfg.ShareURL)
 	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
+	// ignore_patterns not set in any config — default applies
+	if len(cfg.IgnorePatterns) != 1 || cfg.IgnorePatterns[0] != ".crit.json" {
+		t.Errorf("IgnorePatterns = %v, want [.crit.json]", cfg.IgnorePatterns)
 	}
 }
 
@@ -257,9 +357,9 @@ func TestLoadConfigAuthorFallsBackToGit(t *testing.T) {
 
 	// Set up a git repo with user.name configured
 	repoDir := t.TempDir()
-	runGitForConfig(t, repoDir, "init")
-	runGitForConfig(t, repoDir, "config", "user.email", "test@test.com")
-	runGitForConfig(t, repoDir, "config", "user.name", "Ada Lovelace")
+	runGit(t, repoDir, "init")
+	runGit(t, repoDir, "config", "user.email", "test@test.com")
+	runGit(t, repoDir, "config", "user.name", "Ada Lovelace")
 
 	// LoadConfig calls git without -C, so we must be inside the repo
 	origDir, _ := os.Getwd()
@@ -285,20 +385,36 @@ func TestLoadConfigAuthorFromConfig(t *testing.T) {
 	}
 }
 
+func TestLoadConfigSameFileNoDuplicatePatterns(t *testing.T) {
+	// When CWD is the home dir, global and project config resolve to the same file.
+	// Patterns should not be duplicated. (GitHub issue #92)
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	os.WriteFile(filepath.Join(homeDir, ".crit.config.json"),
+		[]byte(`{"ignore_patterns": ["*.lock", "*.min.js", "*.min.css", ".crit.json"]}`), 0644)
+
+	cfg := LoadConfig(homeDir)
+
+	// Should have exactly 4 patterns, not 8
+	if len(cfg.IgnorePatterns) != 4 {
+		t.Errorf("IgnorePatterns = %v (len %d), want 4 unique entries (not duplicated)", cfg.IgnorePatterns, len(cfg.IgnorePatterns))
+	}
+}
+
 func TestNewSessionFromGitWithIgnore(t *testing.T) {
-	dir := initTestRepoForConfig(t)
+	dir := initTestRepo(t)
 
 	// Reset defaultBranch cache so it detects the temp repo's branch
 	defaultBranchOnce = sync.Once{}
 
 	// Create a feature branch with several files
-	runGitForConfig(t, dir, "checkout", "-b", "feature")
-	writeFileForConfig(t, filepath.Join(dir, "main.go"), "package main\n")
-	writeFileForConfig(t, filepath.Join(dir, "service.pb.go"), "package main\n// generated\n")
-	writeFileForConfig(t, filepath.Join(dir, "vendor", "lib.go"), "package vendor\n")
-	writeFileForConfig(t, filepath.Join(dir, "README.md"), "# Updated\n")
-	runGitForConfig(t, dir, "add", ".")
-	runGitForConfig(t, dir, "commit", "-m", "add files")
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\n")
+	writeFile(t, filepath.Join(dir, "service.pb.go"), "package main\n// generated\n")
+	writeFile(t, filepath.Join(dir, "vendor", "lib.go"), "package vendor\n")
+	writeFile(t, filepath.Join(dir, "README.md"), "# Updated\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add files")
 
 	// cd into the repo
 	origDir, _ := os.Getwd()
@@ -337,10 +453,10 @@ func TestNewSessionFromGitWithIgnore(t *testing.T) {
 
 func TestNewSessionFromFilesWithIgnore(t *testing.T) {
 	dir := t.TempDir()
-	writeFileForConfig(t, filepath.Join(dir, "main.go"), "package main\n")
-	writeFileForConfig(t, filepath.Join(dir, "generated", "types.go"), "package gen\n")
-	writeFileForConfig(t, filepath.Join(dir, "app.min.js"), "// minified\n")
-	writeFileForConfig(t, filepath.Join(dir, "readme.txt"), "hello\n")
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\n")
+	writeFile(t, filepath.Join(dir, "generated", "types.go"), "package gen\n")
+	writeFile(t, filepath.Join(dir, "app.min.js"), "// minified\n")
+	writeFile(t, filepath.Join(dir, "readme.txt"), "hello\n")
 
 	patterns := []string{"generated/"}
 	session, err := NewSessionFromFiles([]string{dir}, patterns)

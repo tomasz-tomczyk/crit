@@ -5,8 +5,12 @@ import { clearAllComments, loadPage, mdSection } from './helpers';
 // Markdown Document/Diff Toggle (git mode only)
 // ============================================================
 test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
-  test('markdown file defaults to diff view in git mode', async ({ page }) => {
+  test.beforeEach(async ({ page, request }) => {
+    await clearAllComments(request);
     await loadPage(page);
+  });
+
+  test('markdown file defaults to diff view in git mode', async ({ page }) => {
     const section = mdSection(page);
     await expect(section).toBeVisible();
 
@@ -19,7 +23,6 @@ test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
   });
 
   test('clicking Document button switches to document view', async ({ page }) => {
-    await loadPage(page);
     const section = mdSection(page);
 
     const docBtn = section.locator('.file-header-toggle .toggle-btn[data-mode="document"]');
@@ -34,7 +37,6 @@ test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
   });
 
   test('clicking Diff button switches back to diff view', async ({ page }) => {
-    await loadPage(page);
     const section = mdSection(page);
 
     // Switch to document first
@@ -52,7 +54,6 @@ test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
   });
 
   test('document view shows rendered markdown with line blocks', async ({ page }) => {
-    await loadPage(page);
     const section = mdSection(page);
 
     await section.locator('.file-header-toggle .toggle-btn[data-mode="document"]').click();
@@ -61,15 +62,12 @@ test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
     // Should have line blocks with gutters
     const lineBlocks = section.locator('.line-block');
     await expect(lineBlocks.first()).toBeVisible();
-    const count = await lineBlocks.count();
-    expect(count).toBeGreaterThan(0);
 
     // Should have rendered markdown content (headings)
     await expect(section.locator('h1')).toBeVisible();
   });
 
   test('diff view shows hunk headers for markdown', async ({ page }) => {
-    await loadPage(page);
     const section = mdSection(page);
 
     // Should be in diff view by default in git mode
@@ -79,8 +77,6 @@ test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
   });
 
   test('toggle only appears on markdown files, not code files', async ({ page }) => {
-    await loadPage(page);
-
     // server.go should NOT have a document/diff toggle
     const goSection = page.locator('#file-section-server\\.go');
     await expect(goSection).toBeVisible();
@@ -92,11 +88,7 @@ test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
     await expect(mdToggle).toBeVisible();
   });
 
-  test('comments created in document view are visible after switching to diff and back', async ({ page, request }) => {
-    // Clear comments first
-    await clearAllComments(request);
-
-    await loadPage(page);
+  test('comments created in document view are visible after switching to diff and back', async ({ page }) => {
     const section = mdSection(page);
 
     // Switch to document view
@@ -125,9 +117,7 @@ test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
     await expect(card.locator('.comment-body')).toContainText('Cross-view comment');
   });
 
-  test('switching view closes open comment form', async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
+  test('switching view closes open comment form', async ({ page }) => {
     const section = mdSection(page);
 
     // Switch to document view and open a comment form
@@ -148,7 +138,6 @@ test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
   });
 
   test('document view does not show change indicators in git mode', async ({ page }) => {
-    await loadPage(page);
     const section = mdSection(page);
 
     // Switch to document view
@@ -164,7 +153,6 @@ test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
   });
 
   test('document view shows line numbers in git mode', async ({ page }) => {
-    await loadPage(page);
     const section = mdSection(page);
 
     // Switch to document view
@@ -177,9 +165,7 @@ test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
     await expect(lineNums.first()).toBeVisible();
   });
 
-  test('switching view clears line selection highlight', async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
+  test('switching view clears line selection highlight', async ({ page }) => {
     const section = mdSection(page);
 
     // Switch to document view and select a line

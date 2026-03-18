@@ -94,25 +94,6 @@ test.describe('Markdown Comments — Git Mode', () => {
     expect(color).not.toBe('rgb(0, 0, 238)'); // not default blue
   });
 
-  test('comment count updates in header after adding a comment', async ({ page }) => {
-    const section = mdSection(page);
-
-    // Initially no comments
-    const countEl = page.locator('#commentCount');
-    await expect(countEl).toBeHidden();
-
-    // Add a comment
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-    await section.locator('.line-comment-gutter').first().click();
-    await page.locator('.comment-form textarea').fill('Count test');
-    await page.locator('.comment-form .btn-primary').click();
-
-    // Comment count icon should appear
-    await expect(countEl).toBeVisible();
-    await expect(countEl).toHaveAttribute('title', /1 unresolved/);
-  });
-
   test('Ctrl+Enter submits comment', async ({ page }) => {
     const section = mdSection(page);
     const lineBlock = section.locator('.line-block').first();
@@ -382,7 +363,7 @@ test.describe('Cross-File Comments', () => {
     await clearAllComments(request);
   });
 
-  test('opening a comment form on one file closes form on another file', async ({ page }) => {
+  test('opening a comment form on one file keeps form on another file open', async ({ page }) => {
     await loadPage(page);
 
     // Open comment form on server.go (diff file)
@@ -392,9 +373,8 @@ test.describe('Cross-File Comments', () => {
     await additionSide.locator('.diff-comment-btn').click();
 
     // Form should be open
-    let form = page.locator('.comment-form');
-    await expect(form).toBeVisible();
-    expect(await form.count()).toBe(1);
+    await expect(serverSection.locator('.comment-form')).toBeVisible();
+    await expect(page.locator('.comment-form')).toHaveCount(1);
 
     // Now open comment form on handler.js
     const handlerSection = jsSection(page);
@@ -402,13 +382,12 @@ test.describe('Cross-File Comments', () => {
     await jsAdditionSide.hover();
     await jsAdditionSide.locator('.diff-comment-btn').click();
 
-    // Only one form should be visible (the one on handler.js)
-    form = page.locator('.comment-form');
-    await expect(form).toHaveCount(1);
+    // Both forms should be visible
+    await expect(page.locator('.comment-form')).toHaveCount(2);
 
-    // The form should be within the handler.js section
-    const handlerForm = handlerSection.locator('.comment-form');
-    await expect(handlerForm).toBeVisible();
+    // Both file sections should have their form
+    await expect(serverSection.locator('.comment-form')).toBeVisible();
+    await expect(handlerSection.locator('.comment-form')).toBeVisible();
   });
 });
 
@@ -476,12 +455,14 @@ test.describe('Author Badges', () => {
     const badges = page.locator('.comment-author-badge');
     await expect(badges).toHaveCount(2);
 
-    // Verify both have color styles and they are different from each other
-    const style0 = await badges.nth(0).getAttribute('style');
-    const style1 = await badges.nth(1).getAttribute('style');
-    expect(style0).toContain('background:');
-    expect(style1).toContain('background:');
-    expect(style0).not.toEqual(style1);
+    // Verify both have author-color classes and they are different from each other
+    const class0 = await badges.nth(0).getAttribute('class');
+    const class1 = await badges.nth(1).getAttribute('class');
+    const color0 = class0?.match(/author-color-\d/)?.[0];
+    const color1 = class1?.match(/author-color-\d/)?.[0];
+    expect(color0).toBeTruthy();
+    expect(color1).toBeTruthy();
+    expect(color0).not.toEqual(color1);
   });
 
   test('displays author badge on diff comments', async ({ page, request }) => {

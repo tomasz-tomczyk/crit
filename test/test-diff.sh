@@ -35,10 +35,126 @@ echo "Starting crit on $FILE (port $PORT)..."
 "$BINARY" --port "$PORT" --no-open "$FILE" &
 CRIT_PID=$!
 
+WORD_DIFF_PORT=$((PORT + 1))
+WORD_DIFF_DIR=$(mktemp -d)
+
+# Create a git repo with a Go file, then modify it to produce paired del/add lines
+git -C "$WORD_DIFF_DIR" init -q
+cat > "$WORD_DIFF_DIR/main.go" << 'GOEOF'
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, "ok")
+}
+
+func main() {
+	http.HandleFunc("/health", healthHandler)
+	fmt.Println("Server starting on :8080")
+	http.ListenAndServe(":8080", nil)
+}
+GOEOF
+
+# Create an Elixir file to test adjacent word-diff merging and whitespace-only filtering
+cat > "$WORD_DIFF_DIR/accounts.ex" << 'EXEOF'
+defmodule MyApp.Accounts do
+  def reset_password(token) do
+    case verify_reset_password_token(token) do
+      {:ok, provider} ->
+        case Accounts.update_provider_password(provider, %{
+               "password" => password,
+               "password_confirmation" => password_confirmation
+             }) do
+          {:ok, _} -> :ok
+          {:error, changeset} -> {:error, changeset}
+        end
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def provider_password_change(provider, params) do
+    provider
+    |> cast(params, [:password, :password_confirmation])
+    |> validate_required([:password, :password_confirmation])
+    |> validate_length(:password, min: 4)
+    |> validate_confirmation(:password)
+    |> hash_password()
+  end
+end
+EXEOF
+
+git -C "$WORD_DIFF_DIR" add -A && git -C "$WORD_DIFF_DIR" commit -q -m "initial"
+
+# Modify the file to produce good word-level diff pairs
+cat > "$WORD_DIFF_DIR/main.go" << 'GOEOF'
+package main
+
+import (
+	"log"
+	"net/http"
+	"os"
+)
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, `{"status":"ok"}`)
+}
+
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	http.HandleFunc("/health", healthHandler)
+	log.Printf("Server starting on :%s", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatal(err)
+	}
+}
+GOEOF
+
+# Modify the Elixir file — tests both adjacent word merging and whitespace-only filtering
+cat > "$WORD_DIFF_DIR/accounts.ex" << 'EXEOF'
+defmodule MyApp.Accounts do
+  def reset_password(token) do
+    case verify_reset_password_token(token) do
+      {:ok, provider} ->
+        require_complex? =
+          provider.org_id
+          |> Entities.org_preferences(["org.complex_passwords"])
+          |> Entities.is_pref_enabled?("org.complex_passwords")
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def provider_password_change(provider, params, opts \\ []) do
+      changeset =
+        provider
+        |> cast(params, [:password, :password_confirmation])
+        |> validate_required([:password, :password_confirmation])
+        |> validate_length(:password, min: 8)
+        |> validate_confirmation(:password)
+  end
+end
+EXEOF
+
+echo ""
+echo "Starting git-mode crit for word-level diff on port $WORD_DIFF_PORT..."
+(cd "$WORD_DIFF_DIR" && "$ROOT/$BINARY" --port "$WORD_DIFF_PORT" --no-open) &
+WORD_DIFF_PID=$!
+
 cleanup() {
   kill "$CRIT_PID" 2>/dev/null || true
+  kill "$WORD_DIFF_PID" 2>/dev/null || true
   wait "$CRIT_PID" 2>/dev/null || true
+  wait "$WORD_DIFF_PID" 2>/dev/null || true
   rm -f .crit.json
+  rm -rf "$WORD_DIFF_DIR"
 }
 trap cleanup EXIT INT TERM
 
@@ -130,8 +246,13 @@ echo "Signalling round-complete..."
 curl -sf -X POST "http://127.0.0.1:$PORT/api/round-complete" > /dev/null
 
 echo ""
-echo "Done — check the browser for the diff view with resolved comments."
-echo "Comment #4 (metadata size cap) is intentionally left unresolved."
+echo "Two crit instances running:"
+echo "  1. Markdown diff (inter-round):  http://127.0.0.1:$PORT"
+echo "  2. Code diff (word-level):       http://127.0.0.1:$WORD_DIFF_PORT"
 echo ""
-echo "Press Enter to stop the server."
+echo "Instance 1: diff view with resolved comments. Comment #4 is intentionally unresolved."
+echo "Instance 2: verify word-level diff — paired lines like fmt.Println → log.Printf"
+echo "            should show changed tokens highlighted."
+echo ""
+echo "Press Enter to stop both servers."
 read -r

@@ -17,6 +17,7 @@ type Config struct {
 	Quiet          bool     `json:"quiet,omitempty"`
 	Output         string   `json:"output,omitempty"`
 	Author         string   `json:"author,omitempty"`
+	BaseBranch     string   `json:"base_branch,omitempty"`
 	IgnorePatterns []string `json:"ignore_patterns,omitempty"`
 }
 
@@ -34,16 +35,18 @@ func (c Config) String() string {
 // Uses a map to avoid omitempty suppressing zero-value fields.
 func defaultConfig() generatedConfig {
 	return generatedConfig{
-		Port:     0,
-		NoOpen:   false,
-		ShareURL: "",
-		Quiet:    false,
-		Output:   "",
-		Author:   "",
+		Port:       0,
+		NoOpen:     false,
+		ShareURL:   "https://crit.live",
+		Quiet:      false,
+		Output:     "",
+		Author:     "",
+		BaseBranch: "",
 		IgnorePatterns: []string{
 			"*.lock",
 			"*.min.js",
 			"*.min.css",
+			".crit.json",
 		},
 	}
 }
@@ -56,6 +59,7 @@ type generatedConfig struct {
 	Quiet          bool     `json:"quiet"`
 	Output         string   `json:"output"`
 	Author         string   `json:"author"`
+	BaseBranch     string   `json:"base_branch"`
 	IgnorePatterns []string `json:"ignore_patterns"`
 }
 
@@ -67,21 +71,38 @@ func (c generatedConfig) String() string {
 	return string(data) + "\n"
 }
 
+// configPresence tracks which fields were explicitly present in a JSON config file.
+// This allows distinguishing "not set" from "explicitly set to empty/zero".
+type configPresence struct {
+	ShareURL       bool
+	IgnorePatterns bool
+}
+
 // loadConfigFile reads and parses a single JSON config file.
-// Returns a zero Config if the file doesn't exist.
-func loadConfigFile(path string) (Config, error) {
+// Returns a zero Config and empty presence if the file doesn't exist.
+func loadConfigFile(path string) (Config, configPresence, error) {
 	var cfg Config
+	var presence configPresence
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg, nil
+			return cfg, presence, nil
 		}
-		return cfg, err
+		return cfg, presence, err
 	}
+
+	// Detect which keys are explicitly present in the JSON
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	_, presence.ShareURL = raw["share_url"]
+	_, presence.IgnorePatterns = raw["ignore_patterns"]
+
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("parsing %s: %w", path, err)
+		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	return cfg, nil
+	return cfg, presence, nil
 }
 
 // mergeConfigs merges project config on top of global config.
@@ -106,6 +127,9 @@ func mergeConfigs(global, project Config) Config {
 	if project.Author != "" {
 		merged.Author = project.Author
 	}
+	if project.BaseBranch != "" {
+		merged.BaseBranch = project.BaseBranch
+	}
 	// Union ignore patterns
 	merged.IgnorePatterns = append(merged.IgnorePatterns, project.IgnorePatterns...)
 	return merged
@@ -113,24 +137,41 @@ func mergeConfigs(global, project Config) Config {
 
 // LoadConfig loads and merges configuration from all sources.
 // projectDir is the repo root (or cwd if not in a git repo).
+// Runtime defaults (share_url, ignore_patterns) are applied when no config
+// file explicitly sets those fields. To disable defaults, set them to
+// empty values in a config file (e.g. "share_url": "", "ignore_patterns": []).
 func LoadConfig(projectDir string) Config {
 	// 1. Global config
-	global, err := loadConfigFile(globalConfigPath())
+	global, globalPresence, err := loadConfigFile(globalConfigPath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: reading global config: %v\n", err)
 	}
 
-	// 2. Project config
+	// 2. Project config (skip if same file as global config, e.g. when CWD is home dir)
+	var project Config
+	var projectPresence configPresence
 	projectConfigPath := filepath.Join(projectDir, ".crit.config.json")
-	project, err := loadConfigFile(projectConfigPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: reading project config: %v\n", err)
+	globalAbs, _ := filepath.Abs(globalConfigPath())
+	projectAbs, _ := filepath.Abs(projectConfigPath)
+	if globalAbs != projectAbs {
+		project, projectPresence, err = loadConfigFile(projectConfigPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: reading project config: %v\n", err)
+		}
 	}
 
 	// 3. Merge global + project
 	merged := mergeConfigs(global, project)
 
-	// 4. Fall back to git user.name if no author configured
+	// 4. Apply runtime defaults for fields not explicitly set in any config file
+	if !globalPresence.ShareURL && !projectPresence.ShareURL {
+		merged.ShareURL = "https://crit.live"
+	}
+	if !globalPresence.IgnorePatterns && !projectPresence.IgnorePatterns {
+		merged.IgnorePatterns = []string{".crit.json"}
+	}
+
+	// 5. Fall back to git user.name if no author configured
 	if merged.Author == "" {
 		if out, err := exec.Command("git", "config", "user.name").Output(); err == nil {
 			merged.Author = strings.TrimSpace(string(out))
@@ -196,6 +237,7 @@ func filterIgnored(files []FileChange, patterns []string) []FileChange {
 }
 
 // filterPathsIgnored removes string paths matching any ignore pattern.
+// Currently exercised only by tests, but kept as a utility parallel to filterIgnored.
 func filterPathsIgnored(paths []string, patterns []string) []string {
 	if len(patterns) == 0 {
 		return paths

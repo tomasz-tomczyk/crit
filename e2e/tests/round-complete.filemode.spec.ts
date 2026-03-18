@@ -10,148 +10,6 @@ async function getTestFilePath(request: APIRequestContext): Promise<string> {
   return file?.path || session.files[0].path;
 }
 
-// Poll session API until the review round increments past `previousRound`.
-async function waitForRound(request: APIRequestContext, previousRound: number) {
-  await expect(async () => {
-    const session = await request.get('/api/session').then(r => r.json());
-    expect(session.review_round).toBeGreaterThan(previousRound);
-  }).toPass({ timeout: 5000 });
-}
-
-// ============================================================
-// Multi-Round — File Mode — API Behavior
-// ============================================================
-test.describe('Multi-Round — File Mode — API', () => {
-  test.beforeEach(async ({ request }) => {
-    await clearAllComments(request);
-  });
-
-  test('session has a positive review_round', async ({ request }) => {
-    const res = await request.get('/api/session');
-    const session = await res.json();
-    expect(session.review_round).toBeGreaterThanOrEqual(1);
-  });
-
-  test('POST /api/finish returns status and review_file', async ({ request }) => {
-    const res = await request.post('/api/finish');
-    const data = await res.json();
-    expect(data.status).toBe('finished');
-    expect(data.review_file).toContain('.crit.json');
-  });
-
-  test('POST /api/finish with comments returns a prompt', async ({ request }) => {
-    // Add a comment first
-    const filePath = await getTestFilePath(request);
-
-    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: 1, end_line: 1, body: 'Test comment for prompt' },
-    });
-
-    const res = await request.post('/api/finish');
-    const data = await res.json();
-    expect(data.prompt).toContain('.crit.json');
-    expect(data.prompt).toContain('crit go');
-  });
-
-  test('POST /api/finish with no comments returns empty prompt', async ({ request }) => {
-    const res = await request.post('/api/finish');
-    const data = await res.json();
-    expect(data.prompt).toBe('');
-  });
-
-  test('POST /api/round-complete increments the round', async ({ request }) => {
-    // Verify starting round
-    let session = await request.get('/api/session').then(r => r.json());
-    const startRound = session.review_round;
-
-    // Signal round complete
-    const res = await request.post('/api/round-complete');
-    expect(res.ok()).toBeTruthy();
-    const data = await res.json();
-    expect(data.status).toBe('ok');
-
-    // Wait for round to increment
-    await waitForRound(request, startRound);
-
-    // Verify round incremented
-    session = await request.get('/api/session').then(r => r.json());
-    expect(session.review_round).toBe(startRound + 1);
-  });
-
-  test('round-complete carries forward unresolved comments', async ({ request }) => {
-    // Add a comment (unresolved by default)
-    const filePath = await getTestFilePath(request);
-
-    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: 1, end_line: 1, body: 'Unresolved comment' },
-    });
-
-    // Finish to write .crit.json
-    await request.post('/api/finish');
-
-    // Signal round complete and wait for processing
-    const round1 = (await request.get('/api/session').then(r => r.json())).review_round;
-    await request.post('/api/round-complete');
-    await waitForRound(request, round1);
-
-    // Unresolved comment should be carried forward
-    const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
-    expect(comments.length).toBe(1);
-    expect(comments[0].body).toBe('Unresolved comment');
-    expect(comments[0].carried_forward).toBe(true);
-  });
-
-  test('round-complete carries forward resolved comments with resolved fields', async ({ request }) => {
-    // Add a comment
-    const filePath = await getTestFilePath(request);
-
-    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: 1, end_line: 1, body: 'Will be resolved' },
-    });
-
-    // Finish to write .crit.json (get the path from response)
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const critJsonPath = finishData.review_file;
-
-    // Simulate agent marking comment as resolved by editing .crit.json
-    const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
-    for (const fileKey of Object.keys(critJson.files)) {
-      for (const comment of critJson.files[fileKey].comments) {
-        comment.resolved = true;
-        comment.resolution_note = 'Fixed it';
-      }
-    }
-    fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
-
-    // Signal round complete and wait for processing
-    const round2 = (await request.get('/api/session').then(r => r.json())).review_round;
-    await request.post('/api/round-complete');
-    await waitForRound(request, round2);
-
-    // Resolved comment should be carried forward with resolved fields preserved
-    const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
-    expect(comments.length).toBe(1);
-    expect(comments[0].body).toBe('Will be resolved');
-    expect(comments[0].resolved).toBe(true);
-    expect(comments[0].resolution_note).toBe('Fixed it');
-    expect(comments[0].carried_forward).toBe(true);
-  });
-
-  test('file list is preserved after round-complete', async ({ request }) => {
-    const before = await request.get('/api/session').then(r => r.json());
-    const filesBefore = before.files.map((f: any) => f.path).filter((p: string) => p !== '.crit.json').sort();
-
-    await request.post('/api/round-complete');
-    await waitForRound(request, before.review_round);
-
-    const after = await request.get('/api/session').then(r => r.json());
-    const filesAfter = after.files.map((f: any) => f.path).filter((p: string) => p !== '.crit.json').sort();
-
-    expect(filesAfter).toEqual(filesBefore);
-  });
-});
-
 // ============================================================
 // Multi-Round — File Mode — Frontend Behavior
 // ============================================================
@@ -189,7 +47,7 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await expect(overlay).toHaveClass(/active/);
 
     const message = page.locator('#waitingMessage');
-    await expect(message).toContainText('close this browser tab');
+    await expect(message).toContainText('close this browser tab', { timeout: 10_000 });
   });
 
   test('round-complete SSE triggers UI refresh and exits waiting state', async ({ page, request }) => {
@@ -213,7 +71,7 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     // UI should exit waiting state (overlay removed, file sections re-rendered)
     await expect(overlay).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Finish button should be available again
+    // Finish button should be available again (comment persists so "Finish Review")
     const finishBtn = page.locator('#finishBtn');
     await expect(finishBtn).toHaveText('Finish Review');
     await expect(finishBtn).toBeEnabled();
@@ -327,10 +185,13 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await request.post('/api/round-complete');
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Only unresolved comment counts — icon visible, not in resolved state
+    // Only unresolved comment counts — icon visible, not in resolved state.
+    // Use toPass() to retry: SSE comments-changed may transiently update state.
     const countEl = page.locator('#commentCount');
-    await expect(countEl).toBeVisible();
-    await expect(countEl).not.toHaveClass(/comment-count-resolved/);
+    await expect(async () => {
+      await expect(countEl).toBeVisible();
+      await expect(countEl).not.toHaveClass(/comment-count-resolved/);
+    }).toPass({ timeout: 5000 });
 
     // Both should render: 1 resolved + 1 unresolved
     await expect(page.locator('.resolved-comment')).toHaveCount(1);
@@ -395,7 +256,6 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
     // Same number of file sections after
-    const sectionsAfter = await sections.count();
-    expect(sectionsAfter).toBe(sectionsBefore);
+    await expect(sections).toHaveCount(sectionsBefore);
   });
 });

@@ -1,0 +1,10 @@
+{
+  "name": "crit",
+  "owner": "tomasz-tomczyk",
+  "plugins": [
+    {
+      "name": "crit",
+      "source": { "source": "local", "path": "integrations/cursor" }
+    }
+  ]
+}

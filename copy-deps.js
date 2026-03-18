@@ -1,4 +1,4 @@
-import { cpSync } from "fs";
+import { cpSync, readFileSync, writeFileSync } from "fs";
 
 const dest = "frontend";
 
@@ -22,5 +22,13 @@ for (const lang of langs) {
 
 // mermaid
 cpSync("node_modules/mermaid/dist/mermaid.min.js", `${dest}/mermaid.min.js`);
+
+// diff-match-patch (wrap module.exports for browser use)
+let dmpSrc = readFileSync("node_modules/diff-match-patch/index.js", "utf8");
+dmpSrc = dmpSrc.replace(
+  /^module\.exports.*$/gm,
+  "// $& (stripped for browser)",
+);
+writeFileSync(`${dest}/diff-match-patch.js`, dmpSrc);
 
 console.log("Frontend deps copied to frontend/");

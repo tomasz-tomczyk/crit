@@ -2,50 +2,11 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
-
-// initTestRepo creates a temp directory with a git repo and returns the path.
-// The repo has an initial commit.
-func initTestRepo(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	runGit(t, dir, "init")
-	runGit(t, dir, "config", "user.email", "test@test.com")
-	runGit(t, dir, "config", "user.name", "Test")
-	// Create initial commit
-	writeFile(t, filepath.Join(dir, "README.md"), "# Test")
-	runGit(t, dir, "add", "README.md")
-	runGit(t, dir, "commit", "-m", "initial")
-	// Ensure default branch is "main"
-	runGit(t, dir, "branch", "-M", "main")
-	return dir
-}
-
-func runGit(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "HOME="+dir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-func writeFile(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-}
 
 func TestParseNameStatus(t *testing.T) {
 	input := "M\tserver.go\nA\tnew.go\nD\told.go\nR100\told_name.go\tnew_name.go"
@@ -370,6 +331,40 @@ func TestRepoRoot_RealRepo(t *testing.T) {
 	actualRoot, _ := filepath.EvalSymlinks(root)
 	if actualRoot != expectedDir {
 		t.Errorf("RepoRoot = %q, want %q", actualRoot, expectedDir)
+	}
+}
+
+func TestDefaultBranchOverride(t *testing.T) {
+	// Save and restore global state
+	origOverride := defaultBranchOverride
+	origOnce := defaultBranchOnce
+	origResult := defaultBranchResult
+	t.Cleanup(func() {
+		defaultBranchOverride = origOverride
+		defaultBranchOnce = origOnce
+		defaultBranchResult = origResult
+	})
+
+	// Without override, auto-detection runs (result may vary by environment).
+	// We only test that the override takes precedence.
+	defaultBranchOverride = "uat"
+	if got := DefaultBranch(); got != "uat" {
+		t.Errorf("DefaultBranch() = %q, want %q", got, "uat")
+	}
+
+	// Changing the override is reflected immediately (no cache involved).
+	defaultBranchOverride = "develop"
+	if got := DefaultBranch(); got != "develop" {
+		t.Errorf("DefaultBranch() = %q, want %q", got, "develop")
+	}
+
+	// Clearing the override falls back to auto-detection via sync.Once.
+	defaultBranchOverride = ""
+	defaultBranchOnce = sync.Once{}
+	defaultBranchResult = ""
+	// Just verify it doesn't panic and returns something non-empty.
+	if got := DefaultBranch(); got == "" {
+		t.Error("DefaultBranch() returned empty string without override")
 	}
 }
 
@@ -1000,5 +995,295 @@ func TestParseUnifiedDiff_MultipleHunksWithBlankLines(t *testing.T) {
 	}
 	if h2.Lines[1].OldNum != 11 || h2.Lines[1].NewNum != 11 {
 		t.Errorf("hunk 2 blank line: old=%d new=%d, want 11,11", h2.Lines[1].OldNum, h2.Lines[1].NewNum)
+	}
+}
+
+func TestCommitLog(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Record the main branch commit as base ref
+	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+
+	// Create a feature branch with two commits
+	runGit(t, dir, "checkout", "-b", "feature/commits")
+	writeFile(t, filepath.Join(dir, "a.go"), "package main\n\nfunc A() {}\n")
+	runGit(t, dir, "add", "a.go")
+	runGit(t, dir, "commit", "-m", "add function A")
+
+	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n")
+	runGit(t, dir, "add", "b.go")
+	runGit(t, dir, "commit", "-m", "add function B")
+
+	commits, err := CommitLog(baseRef, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(commits) != 2 {
+		t.Fatalf("expected 2 commits, got %d", len(commits))
+	}
+
+	// Newest commit first
+	if commits[0].Message != "add function B" {
+		t.Errorf("commits[0].Message = %q, want %q", commits[0].Message, "add function B")
+	}
+	if commits[1].Message != "add function A" {
+		t.Errorf("commits[1].Message = %q, want %q", commits[1].Message, "add function A")
+	}
+
+	// Short SHAs should be 7 characters
+	for i, c := range commits {
+		if len(c.ShortSHA) != 7 {
+			t.Errorf("commits[%d].ShortSHA = %q, want 7 chars", i, c.ShortSHA)
+		}
+		if c.SHA == "" {
+			t.Errorf("commits[%d].SHA is empty", i)
+		}
+		if c.Author == "" {
+			t.Errorf("commits[%d].Author is empty", i)
+		}
+		if c.Date == "" {
+			t.Errorf("commits[%d].Date is empty", i)
+		}
+		// SHA should start with ShortSHA
+		if !strings.HasPrefix(c.SHA, c.ShortSHA) {
+			t.Errorf("commits[%d].SHA %q does not start with ShortSHA %q", i, c.SHA, c.ShortSHA)
+		}
+	}
+}
+
+func TestCommitLogEmpty(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Empty baseRef should return nil
+	commits, err := CommitLog("", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commits != nil {
+		t.Errorf("expected nil for empty baseRef, got %+v", commits)
+	}
+}
+
+func TestChangedFilesForCommit(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Create a feature branch with two commits
+	runGit(t, dir, "checkout", "-b", "feature/commit-files")
+	writeFile(t, filepath.Join(dir, "a.txt"), "hello\n")
+	runGit(t, dir, "add", "a.txt")
+	runGit(t, dir, "commit", "-m", "add a.txt")
+
+	// Second commit: add b.txt and modify a.txt
+	writeFile(t, filepath.Join(dir, "b.txt"), "world\n")
+	writeFile(t, filepath.Join(dir, "a.txt"), "hello modified\n")
+	runGit(t, dir, "add", "a.txt", "b.txt")
+	runGit(t, dir, "commit", "-m", "add b.txt and modify a.txt")
+
+	// Get HEAD SHA
+	sha := runGit(t, dir, "rev-parse", "HEAD")
+
+	changes, err := ChangedFilesForCommit(sha, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(changes) != 2 {
+		t.Fatalf("expected 2 changes, got %d: %+v", len(changes), changes)
+	}
+
+	paths := map[string]string{}
+	for _, c := range changes {
+		paths[c.Path] = c.Status
+	}
+	if paths["a.txt"] != "modified" {
+		t.Errorf("a.txt status = %q, want modified", paths["a.txt"])
+	}
+	if paths["b.txt"] != "added" {
+		t.Errorf("b.txt status = %q, want added", paths["b.txt"])
+	}
+}
+
+func TestFileDiffForCommit(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Create a feature branch and commit a file
+	runGit(t, dir, "checkout", "-b", "feature/commit-diff")
+	writeFile(t, filepath.Join(dir, "code.go"), "package main\n\nfunc Hello() {}\n")
+	runGit(t, dir, "add", "code.go")
+	runGit(t, dir, "commit", "-m", "add code.go")
+
+	// Get HEAD SHA
+	sha := runGit(t, dir, "rev-parse", "HEAD")
+
+	hunks, err := FileDiffForCommit("code.go", sha, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(hunks) == 0 {
+		t.Fatal("expected at least one hunk")
+	}
+
+	// Verify the hunk contains add lines for the new file
+	addCount := 0
+	for _, h := range hunks {
+		for _, l := range h.Lines {
+			if l.Type == "add" {
+				addCount++
+			}
+		}
+	}
+	if addCount != 3 {
+		t.Errorf("expected 3 add lines, got %d", addCount)
+	}
+}
+
+func TestAllTrackedFiles_RealRepo(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "src/main.go"), "package main")
+	writeFile(t, filepath.Join(dir, "src/util.go"), "package main")
+	writeFile(t, filepath.Join(dir, "docs/readme.md"), "# docs")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add files")
+
+	files, err := AllTrackedFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := map[string]bool{
+		"README.md":      true,
+		"src/main.go":    true,
+		"src/util.go":    true,
+		"docs/readme.md": true,
+	}
+	if len(files) != len(expected) {
+		t.Fatalf("expected %d files, got %d: %v", len(expected), len(files), files)
+	}
+	for _, f := range files {
+		if !expected[f] {
+			t.Errorf("unexpected file: %s", f)
+		}
+	}
+}
+
+func TestAllTrackedFiles_IncludesUntracked(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "new.txt"), "hello")
+
+	files, err := AllTrackedFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, f := range files {
+		if f == "new.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected untracked file new.txt in results, got: %v", files)
+	}
+}
+
+func TestAllTrackedFiles_ExcludesGitignored(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, ".gitignore"), "*.log\nbuild/\n")
+	writeFile(t, filepath.Join(dir, "app.log"), "log data")
+	writeFile(t, filepath.Join(dir, "build/out.bin"), "binary")
+	writeFile(t, filepath.Join(dir, "keep.txt"), "keep")
+	runGit(t, dir, "add", ".gitignore", "keep.txt")
+	runGit(t, dir, "commit", "-m", "add files")
+
+	files, err := AllTrackedFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, f := range files {
+		if f == "app.log" || strings.HasPrefix(f, "build/") {
+			t.Errorf("gitignored file should not appear: %s", f)
+		}
+	}
+}
+
+func TestWalkFiles_BasicDirectory(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "file1.txt"), "hello")
+	writeFile(t, filepath.Join(dir, "sub/file2.go"), "package sub")
+	writeFile(t, filepath.Join(dir, "sub/deep/file3.md"), "# deep")
+
+	files, err := WalkFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := map[string]bool{
+		"file1.txt":         true,
+		"sub/file2.go":      true,
+		"sub/deep/file3.md": true,
+	}
+	if len(files) != len(expected) {
+		t.Fatalf("expected %d files, got %d: %v", len(expected), len(files), files)
+	}
+	for _, f := range files {
+		if !expected[f] {
+			t.Errorf("unexpected file: %s", f)
+		}
+	}
+}
+
+func TestWalkFiles_SkipsHiddenDirs(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".git/config"), "git config")
+	writeFile(t, filepath.Join(dir, ".hidden/secret"), "shh")
+	writeFile(t, filepath.Join(dir, "visible.txt"), "hello")
+
+	files, err := WalkFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, f := range files {
+		if strings.HasPrefix(f, ".git/") || strings.HasPrefix(f, ".hidden/") {
+			t.Errorf("hidden dir file should not appear: %s", f)
+		}
+	}
+	if len(files) != 1 || files[0] != "visible.txt" {
+		t.Errorf("expected [visible.txt], got %v", files)
+	}
+}
+
+func TestWalkFiles_DotPrefixedRoot(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, ".dotfiles")
+	writeFile(t, filepath.Join(dir, "bashrc"), "alias ls='ls -la'")
+	writeFile(t, filepath.Join(dir, "vimrc"), "set number")
+
+	files, err := WalkFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files from dot-prefixed root, got %d: %v", len(files), files)
+	}
+}
+
+func TestWalkFiles_SkipsNodeModules(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.js"), "console.log('hi')")
+	writeFile(t, filepath.Join(dir, "node_modules/pkg/index.js"), "module")
+
+	files, err := WalkFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, f := range files {
+		if strings.HasPrefix(f, "node_modules/") {
+			t.Errorf("node_modules file should not appear: %s", f)
+		}
 	}
 }

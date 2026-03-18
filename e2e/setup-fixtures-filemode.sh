@@ -170,5 +170,8 @@ if [ -z "${CRIT_BIN:-}" ]; then
   (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
 fi
 
+# Isolate from user's ~/.crit.config.json
+export HOME="$DIR"
+
 # Run crit in file mode (explicit file args, inside a git repo)
 exec "$CRIT_BIN" --no-open --quiet --port "$PORT" plan.md server.go handler.js

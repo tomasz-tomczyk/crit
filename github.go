@@ -280,7 +280,12 @@ func addCommentToCritJSON(filePath string, startLine, endLine int, body string, 
 		}
 	} else {
 		branch := CurrentBranch()
-		baseRef, _ := MergeBase(DefaultBranch())
+		cfg := LoadConfig(root)
+		base := cfg.BaseBranch
+		if base == "" {
+			base = DefaultBranch()
+		}
+		baseRef, _ := MergeBase(base)
 		cj = CritJSON{
 			Branch:      branch,
 			BaseRef:     baseRef,

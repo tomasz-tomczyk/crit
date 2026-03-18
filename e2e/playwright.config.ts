@@ -23,7 +23,7 @@ export default defineConfig({
   projects: [
     {
       name: 'git-mode',
-      testMatch: /^(?!.*\.(filemode|singlefile|multifile)\.).*\.spec\.ts$/,
+      testMatch: /^(?!.*\.(filemode|singlefile|multifile|nogit)\.).*\.spec\.ts$/,
       use: {
         browserName: 'chromium',
         baseURL: `http://localhost:${GIT_PORT}`,
@@ -46,11 +46,10 @@ export default defineConfig({
       },
     },
     {
-      // Runs the same filemode tests against a fixture with NO git repo.
-      // This verifies file-mode behavior is identical whether or not
-      // the user happens to be inside a git repository.
+      // Runs targeted no-git tests against a fixture with NO git repo.
+      // Verifies that file-mode works identically outside any git repository.
       name: 'no-git-mode',
-      testMatch: /\.filemode\.spec\.ts$/,
+      testMatch: /\.nogit\.spec\.ts$/,
       use: {
         browserName: 'chromium',
         baseURL: `http://localhost:${NOGIT_PORT}`,

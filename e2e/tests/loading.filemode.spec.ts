@@ -60,8 +60,6 @@ test.describe('File Mode — Markdown Rendering', () => {
     await loadPage(page);
     const mdSection = page.locator('.file-section').filter({ hasText: 'plan.md' });
     const gutters = mdSection.locator('.line-gutter');
-    const count = await gutters.count();
-    expect(count).toBeGreaterThan(0);
     // Gutters are visible in document view with line numbers
     await expect(gutters.first()).toBeVisible();
   });
@@ -83,8 +81,7 @@ test.describe('File Mode — Scope Cookie Resilience', () => {
     const docWrapper = mdSection.locator('.document-wrapper');
     await expect(docWrapper).toBeVisible();
     const lineBlocks = mdSection.locator('.line-block');
-    const count = await lineBlocks.count();
-    expect(count).toBeGreaterThan(0);
+    await expect(lineBlocks.first()).toBeVisible();
   });
 
   test('renders files even when scope cookie is set to branch', async ({ page }) => {
@@ -105,8 +102,7 @@ test.describe('File Mode — Code Files', () => {
     const docWrapper = jsSection.locator('.document-wrapper');
     await expect(docWrapper).toBeVisible();
     const lineBlocks = jsSection.locator('.line-block');
-    const count = await lineBlocks.count();
-    expect(count).toBeGreaterThan(0);
+    await expect(lineBlocks.first()).toBeVisible();
   });
 
   test('code files have syntax-highlighted content', async ({ page }) => {
@@ -134,8 +130,7 @@ test.describe('File Mode — Code Files', () => {
     await expect(docWrapper).toBeVisible();
     // Check line numbers exist
     const lineNums = goSection.locator('.line-num');
-    const count = await lineNums.count();
-    expect(count).toBeGreaterThan(0);
+    await expect(lineNums.first()).toBeVisible();
   });
 
   test('markdown file has commentable line gutters in file mode', async ({ page }) => {

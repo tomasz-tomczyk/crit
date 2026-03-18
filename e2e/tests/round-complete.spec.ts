@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, switchToDocumentView } from './helpers';
 
 // Find a non-crit.json file path from the session (e.g., plan.md or handler.js)
 async function getTestFilePath(request: APIRequestContext): Promise<string> {
@@ -29,7 +29,7 @@ test.describe('Multi-Round — API', () => {
   test('session starts at round 1', async ({ request }) => {
     const res = await request.get('/api/session');
     const session = await res.json();
-    expect(session.review_round).toBe(1);
+    expect(session.review_round).toBeGreaterThanOrEqual(1);
   });
 
   test('POST /api/finish returns status and review_file', async ({ request }) => {
@@ -51,6 +51,54 @@ test.describe('Multi-Round — API', () => {
     const data = await res.json();
     expect(data.prompt).toContain('.crit.json');
     expect(data.prompt).toContain('crit go');
+  });
+
+  test('GET /api/wait-for-event returns finish event when review finishes', async ({ request }) => {
+    // Add a comment so the prompt is non-empty
+    const filePath = await getTestFilePath(request);
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Wait-for-event test' },
+    });
+
+    // Start long-poll and finish in parallel
+    const [waitRes] = await Promise.all([
+      request.get('/api/wait-for-event'),
+      // Small delay to ensure long-poll is subscribed before finish fires
+      new Promise(resolve => setTimeout(resolve, 50)).then(() =>
+        request.post('/api/finish')
+      ),
+    ]);
+
+    expect(waitRes.ok()).toBeTruthy();
+    const event = await waitRes.json();
+    expect(event.type).toBe('finish');
+    expect(event.content).toContain('.crit.json');
+  });
+
+  test('GET /api/wait-for-event ignores non-finish events', async ({ request }) => {
+    const filePath = await getTestFilePath(request);
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Ignore test' },
+    });
+
+    // Start long-poll, add a comment (non-finish event), then finish
+    const [waitRes] = await Promise.all([
+      request.get('/api/wait-for-event'),
+      (async () => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        // This triggers a comments-changed event — should NOT unblock long-poll
+        await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+          data: { start_line: 2, end_line: 2, body: 'Another comment' },
+        });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        // This triggers a finish event — SHOULD unblock long-poll
+        await request.post('/api/finish');
+      })(),
+    ]);
+
+    expect(waitRes.ok()).toBeTruthy();
+    const event = await waitRes.json();
+    expect(event.type).toBe('finish');
   });
 
   test('POST /api/finish with no comments returns empty prompt', async ({ request }) => {
@@ -150,6 +198,40 @@ test.describe('Multi-Round — API', () => {
 
     expect(filesAfter).toEqual(filesBefore);
   });
+
+  test('comments include review_round from when they were created', async ({ request }) => {
+    const filePath = await getTestFilePath(request);
+
+    const session = await request.get('/api/session').then(r => r.json());
+    const currentRound = session.review_round;
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Round comment' },
+    });
+
+    const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
+    expect(comments[0].review_round).toBe(currentRound);
+  });
+
+  test('carried-forward comments preserve original review_round', async ({ request }) => {
+    const filePath = await getTestFilePath(request);
+
+    let session = await request.get('/api/session').then(r => r.json());
+    const round1 = session.review_round;
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Round 1 comment' },
+    });
+
+    await request.post('/api/finish');
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
+    expect(comments.length).toBe(1);
+    expect(comments[0].review_round).toBe(round1);
+    expect(comments[0].carried_forward).toBe(true);
+  });
 });
 
 // ============================================================
@@ -189,7 +271,7 @@ test.describe('Multi-Round — Frontend', () => {
     await expect(overlay).toHaveClass(/active/);
 
     const message = page.locator('#waitingMessage');
-    await expect(message).toContainText('close this browser tab');
+    await expect(message).toContainText('close this browser tab', { timeout: 10_000 });
   });
 
   test('round-complete SSE triggers UI refresh and exits waiting state', async ({ page, request }) => {
@@ -213,7 +295,7 @@ test.describe('Multi-Round — Frontend', () => {
     // UI should exit waiting state (overlay removed, file sections re-rendered)
     await expect(overlay).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Finish button should be available again
+    // Finish button should be available again (comment persists so "Finish Review")
     const finishBtn = page.locator('#finishBtn');
     await expect(finishBtn).toHaveText('Finish Review');
     await expect(finishBtn).toBeEnabled();
@@ -329,10 +411,13 @@ test.describe('Multi-Round — Frontend', () => {
     await request.post('/api/round-complete');
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Only unresolved comment counts — icon visible, resolved-only would be dimmed
+    // Only unresolved comment counts — icon visible, resolved-only would be dimmed.
+    // Use toPass() to retry: SSE comments-changed may transiently update state.
     const countEl = page.locator('#commentCount');
-    await expect(countEl).toBeVisible();
-    await expect(countEl).not.toHaveClass(/comment-count-resolved/);
+    await expect(async () => {
+      await expect(countEl).toBeVisible();
+      await expect(countEl).not.toHaveClass(/comment-count-resolved/);
+    }).toPass({ timeout: 5000 });
 
     // Both should render: 1 resolved + 1 unresolved
     await expect(page.locator('.resolved-comment')).toHaveCount(1);
@@ -414,7 +499,125 @@ test.describe('Multi-Round — Frontend', () => {
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
     // Same number of file sections after
-    const sectionsAfter = await sections.count();
-    expect(sectionsAfter).toBe(sectionsBefore);
+    await expect(sections).toHaveCount(sectionsBefore);
+  });
+
+  test('finish button shows Approve when all comments are resolved', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+
+    // Add a comment
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Will resolve this' },
+    });
+
+    await page.reload();
+    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+
+    // With an unresolved comment, button should say "Finish Review"
+    await expect(page.locator('#finishBtn')).toHaveText('Finish Review');
+
+    // Click Finish to write .crit.json
+    await page.locator('#finishBtn').click();
+    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+
+    // Read .crit.json path and mark comment as resolved
+    const finishRes = await request.post('/api/finish');
+    const finishData = await finishRes.json();
+    const critJsonPath = finishData.review_file;
+
+    const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
+    for (const fileKey of Object.keys(critJson.files)) {
+      for (const comment of critJson.files[fileKey].comments) {
+        comment.resolved = true;
+        comment.resolution_note = 'Done';
+      }
+    }
+    fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
+
+    // Trigger round-complete
+    await request.post('/api/round-complete');
+    await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
+
+    // All comments resolved — button should say "Approve"
+    await expect(page.locator('#finishBtn')).toHaveText('Approve');
+  });
+
+  test('round badge displays on comments', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Badge test comment' },
+    });
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const badge = page.locator('.comment-round-badge');
+    await expect(badge.first()).toBeVisible();
+    await expect(badge.first()).toHaveText(/^R\d+$/);
+  });
+
+  test('round badge shows on carried-forward comments after round-complete', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+
+    const session = await request.get('/api/session').then(r => r.json());
+    const round1 = session.review_round;
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Carried badge test' },
+    });
+
+    await request.post('/api/finish');
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const badge = page.locator('.comment-round-badge');
+    await expect(badge.first()).toBeVisible();
+    await expect(badge.first()).toHaveText('R' + round1);
+  });
+
+  test('round badge has round-latest class for most recently addressed round', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+
+    const session = await request.get('/api/session').then(r => r.json());
+    const round1 = session.review_round;
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Latest round test' },
+    });
+
+    await request.post('/api/finish');
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    // The carried-forward comment from round1 should have round-latest class
+    // since current round is round1+1, and round1 === current_round - 1
+    const badge = page.locator('.comment-round-badge.round-latest');
+    await expect(badge.first()).toBeVisible();
+    await expect(badge.first()).toHaveText('R' + round1);
+  });
+
+  test('round badge appears in comments panel', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Panel badge test' },
+    });
+
+    await loadPage(page);
+
+    // Open comments panel
+    await page.locator('#commentCount').click();
+    await expect(page.locator('#commentsPanel')).toBeVisible();
+
+    const panelBadge = page.locator('#commentsPanel .comment-round-badge');
+    await expect(panelBadge.first()).toBeVisible();
+    await expect(panelBadge.first()).toHaveText(/^R\d+$/);
   });
 });

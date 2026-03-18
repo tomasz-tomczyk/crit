@@ -23,6 +23,7 @@ type Comment struct {
 	EndLine         int    `json:"end_line"`
 	Side            string `json:"side,omitempty"`
 	Body            string `json:"body"`
+	Quote           string `json:"quote,omitempty"`
 	Author          string `json:"author,omitempty"`
 	CreatedAt       string `json:"created_at"`
 	UpdatedAt       string `json:"updated_at"`
@@ -30,6 +31,7 @@ type Comment struct {
 	ResolutionNote  string `json:"resolution_note,omitempty"`
 	ResolutionLines any    `json:"resolution_lines,omitempty"`
 	CarriedForward  bool   `json:"carried_forward,omitempty"`
+	ReviewRound     int    `json:"review_round,omitempty"`
 }
 
 // SSEEvent is sent to the browser via server-sent events.
@@ -69,17 +71,19 @@ type Session struct {
 	ReviewRound    int
 	IgnorePatterns []string
 
-	mu             sync.RWMutex
-	subscribers    map[chan SSEEvent]struct{}
-	subMu          sync.Mutex
-	writeTimer     *time.Timer
-	writeGen       int
-	sharedURL      string
-	deleteToken    string
-	status         *Status
-	roundComplete  chan struct{}
-	pendingEdits   int
-	lastRoundEdits int
+	mu                sync.RWMutex
+	subscribers       map[chan SSEEvent]struct{}
+	subMu             sync.Mutex
+	writeTimer        *time.Timer
+	writeGen          int
+	sharedURL         string
+	deleteToken       string
+	shareScope        string
+	status            *Status
+	roundComplete     chan struct{}
+	pendingEdits      int
+	lastRoundEdits    int
+	lastCritJSONMtime time.Time // mtime after our last WriteFiles(); used to detect external changes
 }
 
 // isSessionFile checks whether an absolute path belongs to a file in this session.
@@ -102,6 +106,7 @@ type CritJSON struct {
 	ReviewRound int                     `json:"review_round"`
 	ShareURL    string                  `json:"share_url,omitempty"`
 	DeleteToken string                  `json:"delete_token,omitempty"`
+	ShareScope  string                  `json:"share_scope,omitempty"`
 	Files       map[string]CritJSONFile `json:"files"`
 }
 
@@ -113,6 +118,10 @@ type CritJSONFile struct {
 }
 
 // NewSessionFromGit creates a session by auto-detecting changed files via git.
+// The base branch is read from DefaultBranch(), which respects the package-level
+// defaultBranchOverride set by resolveServerConfig() when --base-branch is given.
+// We use the global rather than a parameter so that RefreshFileList() during
+// multi-round reviews picks up the same override automatically.
 func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 	root, err := RepoRoot()
 	if err != nil {
@@ -122,9 +131,10 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 	// Compute baseRef FIRST so we use the same value for both file detection and diffs.
 	// Previously these were computed independently which could lead to inconsistencies.
 	branch := CurrentBranch()
+	resolvedBase := DefaultBranch()
 	baseRef := ""
-	if !IsOnDefaultBranch() {
-		baseRef, _ = MergeBase(DefaultBranch())
+	if branch != resolvedBase {
+		baseRef, _ = MergeBase(resolvedBase)
 	}
 
 	var changes []FileChange
@@ -201,6 +211,8 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 
 // NewSessionFromFiles creates a session from explicitly provided file or directory paths.
 // When a directory is passed, all files within it are included recursively.
+// The base branch is read from DefaultBranch(), which respects defaultBranchOverride
+// set by resolveServerConfig(). See NewSessionFromGit for rationale.
 func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("no files provided")
@@ -253,8 +265,9 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 	if IsGitRepo() {
 		root, _ = RepoRoot()
 		branch = CurrentBranch()
-		if !IsOnDefaultBranch() {
-			baseRef, _ = MergeBase(DefaultBranch())
+		resolvedBase := DefaultBranch()
+		if branch != resolvedBase {
+			baseRef, _ = MergeBase(resolvedBase)
 		}
 	}
 	if root == "" {
@@ -400,7 +413,7 @@ func (s *Session) FileByPath(path string) *FileEntry {
 }
 
 // AddComment adds a comment to a specific file.
-func (s *Session) AddComment(filePath string, startLine, endLine int, side, body, author string) (Comment, bool) {
+func (s *Session) AddComment(filePath string, startLine, endLine int, side, body, quote, author string) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f := s.fileByPathLocked(filePath)
@@ -409,14 +422,16 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	c := Comment{
-		ID:        fmt.Sprintf("c%d", f.nextID),
-		StartLine: startLine,
-		EndLine:   endLine,
-		Side:      side,
-		Body:      body,
-		Author:    author,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          fmt.Sprintf("c%d", f.nextID),
+		StartLine:   startLine,
+		EndLine:     endLine,
+		Side:        side,
+		Body:        body,
+		Quote:       quote,
+		Author:      author,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		ReviewRound: s.ReviewRound,
 	}
 	f.nextID++
 	f.Comments = append(f.Comments, c)
@@ -555,6 +570,27 @@ func (s *Session) SetSharedURLAndToken(url, token string) {
 	s.scheduleWrite()
 }
 
+// SetShareScope stores the scope hash for the current share.
+func (s *Session) SetShareScope(scope string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.shareScope = scope
+}
+
+// GetShareScope returns the stored share scope hash.
+func (s *Session) GetShareScope() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.shareScope
+}
+
+// GetShareState returns the shared URL and delete token atomically.
+func (s *Session) GetShareState() (string, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sharedURL, s.deleteToken
+}
+
 // GetDeleteToken returns the stored delete token.
 func (s *Session) GetDeleteToken() string {
 	s.mu.RLock()
@@ -637,6 +673,7 @@ func (s *Session) ClearAllComments() {
 	}
 	s.Files = filtered
 	s.ReviewRound = 1
+	s.lastCritJSONMtime = time.Time{}
 	critPath := s.critJSONPath()
 	s.mu.Unlock()
 	// Delete .crit.json from disk so it is no longer listed as an untracked git file.
@@ -674,45 +711,129 @@ func (s *Session) critJSONPath() string {
 	return filepath.Join(dir, ".crit.json")
 }
 
+// writeFilesSnapshot holds all session state needed to write .crit.json,
+// captured under lock so that disk I/O can happen without holding the lock.
+type writeFilesSnapshot struct {
+	critPath    string
+	lastMtime   time.Time
+	branch      string
+	baseRef     string
+	reviewRound int
+	sharedURL   string
+	deleteToken string
+	shareScope  string
+	// Per-file data needed for the merge. We copy comments so the snapshot
+	// is independent of later in-memory mutations.
+	files []writeFileSnapshot
+}
+
+type writeFileSnapshot struct {
+	path     string
+	status   string
+	fileHash string
+	comments []Comment
+}
+
 // WriteFiles writes the .crit.json file to disk.
+//
+// The implementation snapshots all needed session state under RLock, then
+// releases the lock before doing any disk I/O (ReadFile, Stat, WriteFile).
+// This prevents a slow filesystem from blocking comment operations.
+//
+// Concurrency note: the debounce timer in scheduleWrite ensures that only one
+// WriteFiles call is in-flight at a time for a given generation. Between the
+// snapshot and the final WriteFile, no concurrent WriteFiles should be running
+// because scheduleWrite cancels the previous timer before arming a new one.
 func (s *Session) WriteFiles() {
+	critPath := s.critJSONPath()
+
+	// --- Phase 1: check for external deletion (needs brief lock) ---
 	s.mu.RLock()
+	lastMtime := s.lastCritJSONMtime
+	s.mu.RUnlock()
+
+	if !lastMtime.IsZero() {
+		if _, statErr := os.Stat(critPath); os.IsNotExist(statErr) {
+			s.mu.Lock()
+			s.lastCritJSONMtime = time.Time{}
+			anyComments := false
+			for _, f := range s.Files {
+				if len(f.Comments) > 0 {
+					f.Comments = []Comment{}
+					f.nextID = 1
+					anyComments = true
+				}
+			}
+			s.mu.Unlock()
+			if anyComments {
+				s.notify(SSEEvent{Type: "comments-changed"})
+			}
+			return
+		}
+	}
+
+	// --- Phase 2: snapshot session state under RLock ---
+	snap := s.snapshotForWrite(critPath)
+
+	// --- Phase 3: all disk I/O happens here, no lock held ---
 
 	// Start from existing .crit.json to preserve comments for files not in this session
 	// (e.g. comments added via `crit comment` on files outside the current diff).
 	cj := CritJSON{Files: make(map[string]CritJSONFile)}
-	if data, err := os.ReadFile(s.critJSONPath()); err == nil {
+	if data, err := os.ReadFile(snap.critPath); err == nil {
 		_ = json.Unmarshal(data, &cj)
 		if cj.Files == nil {
 			cj.Files = make(map[string]CritJSONFile)
 		}
 	}
-	cj.Branch = s.Branch
-	cj.BaseRef = s.BaseRef
+	cj.Branch = snap.branch
+	cj.BaseRef = snap.baseRef
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	cj.ReviewRound = s.ReviewRound
-	cj.ShareURL = s.sharedURL
-	cj.DeleteToken = s.deleteToken
+	cj.ReviewRound = snap.reviewRound
+	cj.ShareURL = snap.sharedURL
+	cj.DeleteToken = snap.deleteToken
+	cj.ShareScope = snap.shareScope
 
-	// Overlay session files: update entries that have comments, remove those that don't.
-	for _, f := range s.Files {
-		if len(f.Comments) == 0 {
-			delete(cj.Files, f.Path)
+	// Overlay session files: merge with disk comments, remove entries with no comments.
+	for _, fs := range snap.files {
+		diskFile, hasDisk := cj.Files[fs.path]
+
+		// Build set of in-memory comment IDs
+		memIDs := make(map[string]struct{}, len(fs.comments))
+		for _, c := range fs.comments {
+			memIDs[c.ID] = struct{}{}
+		}
+
+		// Start with in-memory comments (already a copy from the snapshot)
+		merged := fs.comments
+
+		// Merge in any disk-only comments (added externally via crit comment, crit pull, etc.)
+		if hasDisk {
+			for _, dc := range diskFile.Comments {
+				if _, exists := memIDs[dc.ID]; !exists {
+					merged = append(merged, dc)
+				}
+			}
+		}
+
+		if len(merged) == 0 {
+			delete(cj.Files, fs.path)
 			continue
 		}
-		comments := make([]Comment, len(f.Comments))
-		copy(comments, f.Comments)
-		cj.Files[f.Path] = CritJSONFile{
-			Status:   f.Status,
-			FileHash: f.FileHash,
-			Comments: comments,
+
+		cj.Files[fs.path] = CritJSONFile{
+			Status:   fs.status,
+			FileHash: fs.fileHash,
+			Comments: merged,
 		}
 	}
-	s.mu.RUnlock()
 
 	// Only remove if nothing meaningful remains
-	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" {
-		os.Remove(s.critJSONPath())
+	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" && cj.ShareScope == "" {
+		os.Remove(snap.critPath)
+		s.mu.Lock()
+		s.lastCritJSONMtime = time.Time{}
+		s.mu.Unlock()
 		return
 	}
 
@@ -721,9 +842,159 @@ func (s *Session) WriteFiles() {
 		fmt.Fprintf(os.Stderr, "Error marshaling .crit.json: %v\n", err)
 		return
 	}
-	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
+	if err := os.WriteFile(snap.critPath, data, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing .crit.json: %v\n", err)
+		return
 	}
+	// Record mtime so mergeExternalCritJSON can distinguish our writes from external ones.
+	if info, err := os.Stat(snap.critPath); err == nil {
+		s.mu.Lock()
+		s.lastCritJSONMtime = info.ModTime()
+		s.mu.Unlock()
+	}
+}
+
+// snapshotForWrite captures all session state needed by WriteFiles under RLock.
+// The returned snapshot owns its own copies of comment slices, so it is safe
+// to use after the lock is released.
+func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	snap := writeFilesSnapshot{
+		critPath:    critPath,
+		lastMtime:   s.lastCritJSONMtime,
+		branch:      s.Branch,
+		baseRef:     s.BaseRef,
+		reviewRound: s.ReviewRound,
+		sharedURL:   s.sharedURL,
+		deleteToken: s.deleteToken,
+		shareScope:  s.shareScope,
+		files:       make([]writeFileSnapshot, len(s.Files)),
+	}
+	for i, f := range s.Files {
+		comments := make([]Comment, len(f.Comments))
+		copy(comments, f.Comments)
+		snap.files[i] = writeFileSnapshot{
+			path:     f.Path,
+			status:   f.Status,
+			fileHash: f.FileHash,
+			comments: comments,
+		}
+	}
+	return snap
+}
+
+// mergeExternalCritJSON checks if .crit.json was modified externally (not by us)
+// and merges any new comments into the in-memory session.
+// Returns true if changes were detected and merged.
+func (s *Session) mergeExternalCritJSON() bool {
+	critPath := s.critJSONPath()
+
+	info, err := os.Stat(critPath)
+
+	s.mu.RLock()
+	lastMtime := s.lastCritJSONMtime
+	s.mu.RUnlock()
+
+	if err != nil {
+		// File doesn't exist. If we previously tracked it, it was externally deleted.
+		if !lastMtime.IsZero() {
+			s.mu.Lock()
+			s.lastCritJSONMtime = time.Time{}
+			anyComments := false
+			for _, f := range s.Files {
+				if len(f.Comments) > 0 {
+					f.Comments = []Comment{}
+					f.nextID = 1
+					anyComments = true
+				}
+			}
+			s.mu.Unlock()
+			if anyComments {
+				s.notify(SSEEvent{Type: "comments-changed"})
+			}
+		}
+		return !lastMtime.IsZero()
+	}
+
+	// If mtime matches our last write, this is our own change — skip.
+	if !lastMtime.IsZero() && info.ModTime().Equal(lastMtime) {
+		return false
+	}
+
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		return false
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return false
+	}
+
+	s.mu.Lock()
+	s.lastCritJSONMtime = info.ModTime()
+
+	changed := false
+
+	for _, f := range s.Files {
+		diskFile, hasDisk := cj.Files[f.Path]
+
+		if !hasDisk {
+			// File not in .crit.json — if we have comments, they were cleared externally.
+			if len(f.Comments) > 0 {
+				f.Comments = []Comment{}
+				f.nextID = 1
+				changed = true
+			}
+			continue
+		}
+
+		// Build set of in-memory comment IDs.
+		memIDs := make(map[string]struct{}, len(f.Comments))
+		for _, c := range f.Comments {
+			memIDs[c.ID] = struct{}{}
+		}
+
+		// Merge in new comments from disk.
+		for _, dc := range diskFile.Comments {
+			if _, exists := memIDs[dc.ID]; !exists {
+				f.Comments = append(f.Comments, dc)
+				id := 0
+				fmt.Sscanf(dc.ID, "c%d", &id)
+				if id >= f.nextID {
+					f.nextID = id + 1
+				}
+				changed = true
+			}
+		}
+
+		// Check for comments removed on disk (e.g. crit comment --clear).
+		// After the merge above, len(f.Comments) >= len(diskFile.Comments), so != means memory has disk-absent IDs.
+		if len(diskFile.Comments) != len(f.Comments) {
+			diskIDs := make(map[string]struct{}, len(diskFile.Comments))
+			for _, dc := range diskFile.Comments {
+				diskIDs[dc.ID] = struct{}{}
+			}
+			filtered := f.Comments[:0]
+			for _, c := range f.Comments {
+				if _, exists := diskIDs[c.ID]; exists {
+					filtered = append(filtered, c)
+				}
+			}
+			if len(filtered) != len(f.Comments) {
+				f.Comments = filtered
+				changed = true
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	if changed {
+		s.notify(SSEEvent{Type: "comments-changed"})
+	}
+
+	return changed
 }
 
 // loadCritJSON loads comments and share state from an existing .crit.json.
@@ -737,8 +1008,27 @@ func (s *Session) loadCritJSON() {
 		return
 	}
 
-	s.sharedURL = cj.ShareURL
-	s.deleteToken = cj.DeleteToken
+	// Only restore share state if the file set matches what was shared.
+	if cj.ShareScope != "" {
+		paths := make([]string, 0, len(s.Files))
+		for _, f := range s.Files {
+			paths = append(paths, f.Path)
+		}
+		if shareScope(paths) == cj.ShareScope {
+			s.sharedURL = cj.ShareURL
+			s.deleteToken = cj.DeleteToken
+			s.shareScope = cj.ShareScope
+		}
+	} else {
+		// Legacy .crit.json without scope — load unconditionally for backwards compat.
+		s.sharedURL = cj.ShareURL
+		s.deleteToken = cj.DeleteToken
+	}
+
+	// Restore review round so the session continues from where it left off.
+	if cj.ReviewRound > s.ReviewRound {
+		s.ReviewRound = cj.ReviewRound
+	}
 
 	// Restore comments for files that match by path
 	for _, f := range s.Files {
@@ -752,6 +1042,11 @@ func (s *Session) loadCritJSON() {
 				}
 			}
 		}
+	}
+
+	// Record the mtime so the first ticker tick doesn't re-process our own file.
+	if info, err := os.Stat(s.critJSONPath()); err == nil {
+		s.lastCritJSONMtime = info.ModTime()
 	}
 }
 
@@ -788,486 +1083,6 @@ func (s *Session) notify(event SSEEvent) {
 // Shutdown sends a server-shutdown event to all SSE subscribers.
 func (s *Session) Shutdown() {
 	s.notify(SSEEvent{Type: "server-shutdown"})
-}
-
-// RefreshDiffs re-computes diff hunks for all files.
-func (s *Session) RefreshDiffs() {
-	// Snapshot file list and baseRef under read lock
-	s.mu.RLock()
-	type fileSnapshot struct {
-		entry   *FileEntry
-		path    string
-		status  string
-		content string
-	}
-	snapshots := make([]fileSnapshot, 0, len(s.Files))
-	for _, f := range s.Files {
-		if f.Status == "deleted" {
-			continue
-		}
-		snapshots = append(snapshots, fileSnapshot{
-			entry:   f,
-			path:    f.Path,
-			status:  f.Status,
-			content: f.Content,
-		})
-	}
-	baseRef := s.BaseRef
-	repoRoot := s.RepoRoot
-	s.mu.RUnlock()
-
-	// Compute diffs without holding any lock
-	type diffResult struct {
-		entry *FileEntry
-		hunks []DiffHunk
-	}
-	results := make([]diffResult, 0, len(snapshots))
-	for _, snap := range snapshots {
-		var hunks []DiffHunk
-		if snap.status == "added" || snap.status == "untracked" {
-			hunks = FileDiffUnifiedNewFile(snap.content)
-		} else {
-			h, err := fileDiffUnified(snap.path, baseRef, repoRoot)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", snap.path, err)
-			} else {
-				hunks = h
-			}
-		}
-		results = append(results, diffResult{entry: snap.entry, hunks: hunks})
-	}
-
-	// Assign results under write lock
-	s.mu.Lock()
-	for _, r := range results {
-		r.entry.DiffHunks = r.hunks
-	}
-	s.mu.Unlock()
-}
-
-// RefreshFileList re-runs ChangedFiles and updates the session's file list.
-// New files are added, removed files are dropped.
-func (s *Session) RefreshFileList() {
-	// ChangedFiles shells out to git — no lock needed
-	changes, err := ChangedFiles()
-	if err != nil {
-		return
-	}
-
-	// Apply ignore patterns
-	changes = filterIgnored(changes, s.IgnorePatterns)
-
-	// Snapshot existing files under read lock
-	s.mu.RLock()
-	existing := make(map[string]*FileEntry, len(s.Files))
-	for _, f := range s.Files {
-		existing[f.Path] = f
-	}
-	repoRoot := s.RepoRoot
-	s.mu.RUnlock()
-
-	// Build new file list, doing I/O (os.ReadFile, sha256) without holding the lock.
-	// Status updates for existing entries are deferred to the write-lock section
-	// to avoid racing with concurrent readers.
-	type existingUpdate struct {
-		entry  *FileEntry
-		status string
-	}
-	var newFiles []*FileEntry
-	var updates []existingUpdate
-	for _, fc := range changes {
-		if f, ok := existing[fc.Path]; ok {
-			updates = append(updates, existingUpdate{f, fc.Status})
-			newFiles = append(newFiles, f)
-		} else {
-			absPath := filepath.Join(repoRoot, fc.Path)
-			fe := &FileEntry{
-				Path:     fc.Path,
-				AbsPath:  absPath,
-				Status:   fc.Status,
-				FileType: detectFileType(fc.Path),
-				Comments: []Comment{},
-				nextID:   1,
-			}
-			if fc.Status != "deleted" {
-				if data, err := os.ReadFile(absPath); err == nil {
-					fe.Content = string(data)
-					fe.FileHash = fileHash(data)
-				}
-			}
-			newFiles = append(newFiles, fe)
-		}
-	}
-
-	// Assign under write lock
-	s.mu.Lock()
-	for _, u := range updates {
-		u.entry.Status = u.status
-	}
-	s.Files = newFiles
-	s.mu.Unlock()
-}
-
-// Watch dispatches to the appropriate file-watching strategy based on session mode.
-func (s *Session) Watch(stop <-chan struct{}) {
-	if s.Mode == "git" {
-		s.watchGit(stop)
-	} else {
-		s.watchFileMtimes(stop)
-	}
-}
-
-// watchGit polls `git status --porcelain` for working tree changes.
-// Used in git mode (no-args invocation).
-func (s *Session) watchGit(stop <-chan struct{}) {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	lastFP := WorkingTreeFingerprint()
-
-	for {
-		select {
-		case <-stop:
-			return
-		case <-ticker.C:
-			fp := WorkingTreeFingerprint()
-			if fp == lastFP {
-				continue
-			}
-			lastFP = fp
-
-			s.IncrementEdits()
-			s.notify(SSEEvent{
-				Type:    "edit-detected",
-				Content: fmt.Sprintf("%d", s.GetPendingEdits()),
-			})
-		case <-s.roundComplete:
-			s.handleRoundCompleteGit()
-		}
-	}
-}
-
-// watchFileMtimes polls individual file mtimes for changes.
-// Used in files mode (explicit file args).
-func (s *Session) watchFileMtimes(stop <-chan struct{}) {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	// Track last mod times per file
-	lastMod := make(map[string]time.Time)
-
-	for {
-		select {
-		case <-stop:
-			return
-		case <-ticker.C:
-			s.mu.RLock()
-			files := make([]*FileEntry, len(s.Files))
-			copy(files, s.Files)
-			s.mu.RUnlock()
-
-			changed := false
-			for _, f := range files {
-				info, err := os.Stat(f.AbsPath)
-				if err != nil {
-					continue
-				}
-				modTime := info.ModTime()
-				if modTime.Equal(lastMod[f.Path]) {
-					continue
-				}
-				lastMod[f.Path] = modTime
-
-				data, err := os.ReadFile(f.AbsPath)
-				if err != nil {
-					continue
-				}
-				hash := fileHash(data)
-
-				s.mu.RLock()
-				same := hash == f.FileHash
-				s.mu.RUnlock()
-
-				if same {
-					continue
-				}
-
-				s.mu.Lock()
-				// Snapshot on first edit of a round (markdown files)
-				if f.FileType == "markdown" && s.pendingEdits == 0 {
-					f.PreviousContent = f.Content
-					f.PreviousComments = make([]Comment, len(f.Comments))
-					copy(f.PreviousComments, f.Comments)
-				}
-				f.Content = string(data)
-				f.FileHash = hash
-				f.Comments = []Comment{}
-				f.nextID = 1
-				s.mu.Unlock()
-				changed = true
-			}
-
-			if changed {
-				s.IncrementEdits()
-				s.notify(SSEEvent{
-					Type:    "edit-detected",
-					Content: fmt.Sprintf("%d", s.GetPendingEdits()),
-				})
-			}
-		case <-s.roundComplete:
-			s.handleRoundCompleteFiles()
-		}
-	}
-}
-
-// handleRoundCompleteGit handles round completion in git mode.
-// Re-runs ChangedFiles, re-computes diffs, refreshes file list.
-// Must only be called from the single watcher goroutine (watchGit).
-func (s *Session) handleRoundCompleteGit() {
-	s.mu.RLock()
-	edits := s.lastRoundEdits
-	s.mu.RUnlock()
-
-	// Load resolved comments from .crit.json
-	s.loadResolvedComments()
-
-	// Refresh file list (agent may have created/deleted files)
-	s.RefreshFileList()
-
-	// Re-read all file contents
-	s.mu.Lock()
-	for _, f := range s.Files {
-		if f.Status == "deleted" {
-			continue
-		}
-		if data, err := os.ReadFile(f.AbsPath); err == nil {
-			f.Content = string(data)
-			f.FileHash = fileHash(data)
-		}
-	}
-	// Carry forward all comments at original positions
-	for _, f := range s.Files {
-		now := time.Now().UTC().Format(time.RFC3339)
-		for _, c := range f.PreviousComments {
-			carried := Comment{
-				ID:              fmt.Sprintf("c%d", f.nextID),
-				StartLine:       c.StartLine,
-				EndLine:         c.EndLine,
-				Side:            c.Side,
-				Body:            c.Body,
-				Author:          c.Author,
-				CreatedAt:       c.CreatedAt,
-				UpdatedAt:       now,
-				Resolved:        c.Resolved,
-				ResolutionNote:  c.ResolutionNote,
-				ResolutionLines: c.ResolutionLines,
-				CarriedForward:  true,
-			}
-			f.nextID++
-			f.Comments = append(f.Comments, carried)
-		}
-	}
-	s.mu.Unlock()
-
-	// Refresh diffs for all files
-	s.RefreshDiffs()
-
-	s.emitRoundStatus(edits)
-	s.notify(SSEEvent{
-		Type:    "file-changed",
-		Content: "session",
-	})
-}
-
-// handleRoundCompleteFiles handles round completion in files mode.
-// Re-reads files, carries forward unresolved comments.
-// Must only be called from the single watcher goroutine (watchFileMtimes).
-func (s *Session) handleRoundCompleteFiles() {
-	s.mu.RLock()
-	edits := s.lastRoundEdits
-	s.mu.RUnlock()
-
-	// Load resolved comments from .crit.json
-	s.loadResolvedComments()
-	s.carryForwardComments()
-
-	// Carry forward comments for files that weren't edited in this round
-	// (carryForwardComments only handles markdown files with PreviousContent)
-	s.mu.Lock()
-	now := time.Now().UTC().Format(time.RFC3339)
-	for _, f := range s.Files {
-		// Skip if comments were already carried forward (file was edited)
-		if len(f.Comments) > 0 {
-			continue
-		}
-		// Carry forward all remaining comments from PreviousComments
-		for _, c := range f.PreviousComments {
-			carried := Comment{
-				ID:              fmt.Sprintf("c%d", f.nextID),
-				StartLine:       c.StartLine,
-				EndLine:         c.EndLine,
-				Side:            c.Side,
-				Body:            c.Body,
-				Author:          c.Author,
-				CreatedAt:       c.CreatedAt,
-				UpdatedAt:       now,
-				Resolved:        c.Resolved,
-				ResolutionNote:  c.ResolutionNote,
-				ResolutionLines: c.ResolutionLines,
-				CarriedForward:  true,
-			}
-			f.nextID++
-			f.Comments = append(f.Comments, carried)
-		}
-	}
-	s.mu.Unlock()
-
-	// Re-read all file contents and update hashes
-	s.mu.Lock()
-	for _, f := range s.Files {
-		if data, err := os.ReadFile(f.AbsPath); err == nil {
-			// Snapshot PreviousContent for markdown files before overwriting.
-			// The file watcher normally does this on first edit, but if
-			// round-complete fires before the watcher polls, ensure it's set.
-			if f.FileType == "markdown" && f.PreviousContent == "" {
-				f.PreviousContent = f.Content
-			}
-			f.Content = string(data)
-			f.FileHash = fileHash(data)
-		}
-	}
-	s.mu.Unlock()
-
-	s.emitRoundStatus(edits)
-	s.notify(SSEEvent{
-		Type:    "file-changed",
-		Content: "session",
-	})
-}
-
-// emitRoundStatus prints terminal status for a completed round.
-func (s *Session) emitRoundStatus(edits int) {
-	if s.status == nil {
-		return
-	}
-	s.mu.RLock()
-	round := s.ReviewRound
-	resolved, open := 0, 0
-	for _, f := range s.Files {
-		for _, c := range f.PreviousComments {
-			if c.Resolved {
-				resolved++
-			} else {
-				open++
-			}
-		}
-	}
-	s.mu.RUnlock()
-	s.status.FileUpdated(edits)
-	s.status.RoundReady(round, resolved, open)
-}
-
-// loadResolvedComments reads .crit.json to pick up resolved fields the agent wrote.
-func (s *Session) loadResolvedComments() {
-	data, err := os.ReadFile(s.critJSONPath())
-	if err != nil {
-		// No .crit.json — clear all PreviousComments
-		s.mu.Lock()
-		for _, f := range s.Files {
-			f.PreviousComments = nil
-		}
-		s.mu.Unlock()
-		return
-	}
-	var cj CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, f := range s.Files {
-		if cf, ok := cj.Files[f.Path]; ok {
-			f.PreviousComments = cf.Comments
-		} else {
-			f.PreviousComments = nil
-		}
-	}
-}
-
-// carryForwardComments maps comments from the previous round
-// to the new document positions for markdown files.
-func (s *Session) carryForwardComments() {
-	s.mu.RLock()
-	var toProcess []*FileEntry
-	for _, f := range s.Files {
-		if f.FileType == "markdown" && f.PreviousContent != "" {
-			toProcess = append(toProcess, f)
-		}
-	}
-	s.mu.RUnlock()
-
-	for _, f := range toProcess {
-		s.mu.RLock()
-		prevContent := f.PreviousContent
-		currContent := f.Content
-		prevComments := make([]Comment, len(f.PreviousComments))
-		copy(prevComments, f.PreviousComments)
-		s.mu.RUnlock()
-
-		if len(prevComments) == 0 {
-			continue
-		}
-
-		entries := ComputeLineDiff(prevContent, currContent)
-		lineMap := MapOldLineToNew(entries)
-
-		newLineCount := len(splitLines(currContent))
-		if newLineCount == 0 {
-			newLineCount = 1
-		}
-
-		s.mu.Lock()
-		now := time.Now().UTC().Format(time.RFC3339)
-		for _, c := range prevComments {
-			newStart := lineMap[c.StartLine]
-			newEnd := lineMap[c.EndLine]
-			if newStart == 0 {
-				newStart = c.StartLine
-			}
-			if newEnd == 0 {
-				newEnd = c.EndLine
-			}
-			if newStart > newLineCount {
-				newStart = newLineCount
-			}
-			if newEnd > newLineCount {
-				newEnd = newLineCount
-			}
-			if newStart < 1 {
-				newStart = 1
-			}
-			if newEnd < newStart {
-				newEnd = newStart
-			}
-			carried := Comment{
-				ID:              fmt.Sprintf("c%d", f.nextID),
-				StartLine:       newStart,
-				EndLine:         newEnd,
-				Side:            c.Side,
-				Body:            c.Body,
-				Author:          c.Author,
-				CreatedAt:       c.CreatedAt,
-				UpdatedAt:       now,
-				Resolved:        c.Resolved,
-				ResolutionNote:  c.ResolutionNote,
-				ResolutionLines: c.ResolutionLines,
-				CarriedForward:  true,
-			}
-			f.nextID++
-			f.Comments = append(f.Comments, carried)
-		}
-		s.mu.Unlock()
-	}
 }
 
 // GetFileSnapshot returns a JSON-ready map for the /api/file endpoint.
@@ -1352,28 +1167,6 @@ func (s *Session) GetFileDiffSnapshot(path string) (map[string]any, bool) {
 	return map[string]any{"hunks": hunks, "previous_content": prevContent}, true
 }
 
-// GetFileContent returns the content for a specific file path.
-func (s *Session) GetFileContent(path string) (string, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	f := s.fileByPathLocked(path)
-	if f == nil {
-		return "", false
-	}
-	return f.Content, true
-}
-
-// GetFileDiffHunks returns the diff hunks for a specific file.
-func (s *Session) GetFileDiffHunks(path string) ([]DiffHunk, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	f := s.fileByPathLocked(path)
-	if f == nil {
-		return nil, false
-	}
-	return f.DiffHunks, true
-}
-
 // SessionInfo returns metadata about the session for the API.
 type SessionInfo struct {
 	Mode            string            `json:"mode"` // "files" or "git"
@@ -1448,10 +1241,29 @@ func availableScopes(baseRef string) []string {
 	return scopes
 }
 
+// GetCommits returns the list of commits between the base ref and HEAD.
+// Returns nil for non-git sessions or when no base ref is set.
+func (s *Session) GetCommits() []CommitInfo {
+	s.mu.RLock()
+	if s.Mode != "git" || s.BaseRef == "" {
+		s.mu.RUnlock()
+		return nil
+	}
+	baseRef, repoRoot := s.BaseRef, s.RepoRoot
+	s.mu.RUnlock()
+	commits, err := CommitLog(baseRef, repoRoot)
+	if err != nil {
+		return nil
+	}
+	return commits
+}
+
 // GetSessionInfoScoped returns session metadata filtered to a specific diff scope.
-// When scope is "" or "all", or in file mode (scopes only apply to git), delegates to GetSessionInfo.
-func (s *Session) GetSessionInfoScoped(scope string) SessionInfo {
-	if scope == "" || scope == "all" || s.Mode == "files" {
+// When scope is "" or in file mode (scopes only apply to git), delegates to GetSessionInfo.
+// All other scopes (including "all") run fresh git queries to pick up files added after startup.
+// When commit is non-empty, files and diffs are scoped to that single commit.
+func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
+	if commit == "" && (scope == "" || s.Mode == "files") {
 		return s.GetSessionInfo()
 	}
 
@@ -1477,7 +1289,13 @@ func (s *Session) GetSessionInfoScoped(scope string) SessionInfo {
 		AvailableScopes: availableScopes(baseRef),
 	}
 
-	changes, err := ChangedFilesScoped(scope, baseRef)
+	var changes []FileChange
+	var err error
+	if commit != "" {
+		changes, err = ChangedFilesForCommit(commit, repoRoot)
+	} else {
+		changes, err = ChangedFilesScoped(scope, baseRef)
+	}
 	if err != nil || len(changes) == 0 {
 		return info
 	}
@@ -1492,14 +1310,19 @@ func (s *Session) GetSessionInfoScoped(scope string) SessionInfo {
 
 		// Compute diff stats for the scoped view
 		var hunks []DiffHunk
-		if fc.Status == "added" || fc.Status == "untracked" {
+		if commit != "" {
+			h, diffErr := FileDiffForCommit(fc.Path, commit, repoRoot)
+			if diffErr == nil {
+				hunks = h
+			}
+		} else if fc.Status == "added" || fc.Status == "untracked" {
 			absPath := filepath.Join(repoRoot, fc.Path)
-			if data, err := os.ReadFile(absPath); err == nil {
+			if data, readErr := os.ReadFile(absPath); readErr == nil {
 				hunks = FileDiffUnifiedNewFile(string(data))
 			}
 		} else {
-			h, err := FileDiffScoped(fc.Path, scope, baseRef, repoRoot)
-			if err == nil {
+			h, diffErr := FileDiffScoped(fc.Path, scope, baseRef, repoRoot)
+			if diffErr == nil {
 				hunks = h
 			}
 		}
@@ -1521,9 +1344,10 @@ func (s *Session) GetSessionInfoScoped(scope string) SessionInfo {
 }
 
 // GetFileDiffSnapshotScoped returns diff data for a file filtered by scope.
-// When scope is "" or "all", or in file mode (scopes only apply to git), delegates to GetFileDiffSnapshot.
-func (s *Session) GetFileDiffSnapshotScoped(path, scope string) (map[string]any, bool) {
-	if scope == "" || scope == "all" || s.Mode == "files" {
+// When scope is "" or in file mode (scopes only apply to git), delegates to GetFileDiffSnapshot.
+// When commit is non-empty, returns the diff for that single commit.
+func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string) (map[string]any, bool) {
+	if commit == "" && (scope == "" || s.Mode == "files") {
 		return s.GetFileDiffSnapshot(path)
 	}
 
@@ -1541,7 +1365,12 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope string) (map[string]any,
 	s.mu.RUnlock()
 
 	var hunks []DiffHunk
-	if status == "untracked" && scope == "unstaged" {
+	if commit != "" {
+		h, err := FileDiffForCommit(path, commit, repoRoot)
+		if err == nil {
+			hunks = h
+		}
+	} else if status == "untracked" && scope == "unstaged" {
 		hunks = FileDiffUnifiedNewFile(content)
 	} else {
 		h, err := FileDiffScoped(path, scope, baseRef, repoRoot)
