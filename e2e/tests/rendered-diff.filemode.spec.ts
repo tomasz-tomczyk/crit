@@ -331,6 +331,95 @@ test.describe('Rendered Diff — File Mode — Comments', () => {
 });
 
 // ============================================================
+// Rendered Diff — File Mode — Word Diff on Paragraph Reflow
+// ============================================================
+test.describe('Rendered Diff — File Mode — Paragraph Reflow Word Diff', () => {
+  test('word-diff does not highlight common words shifted by line reflow', async ({ page, request }) => {
+    await clearAllComments(request);
+    const dir = await getFixtureDir(request);
+    const planPath = path.join(dir, 'plan.md');
+    const original = fs.readFileSync(planPath, 'utf-8');
+
+    // Replace the overview paragraph with text that wraps at ~80 chars.
+    // V1 wraps as: "...from the queue and\ndispatches...ship in the\nMVP..."
+    const v1Para = [
+      'The delivery worker runs as a separate long-lived process. It reads from the',
+      'queue and dispatches to channel handlers. Handlers are pluggable - email and',
+      'webhook ship in the MVP, others can be added later without changing the core.',
+    ].join('\n');
+    // V2 inserts "SQS" causing reflow: "...from the SQS queue\nand dispatches...ship in\nthe MVP..."
+    const v2Para = [
+      'The delivery worker runs as a separate long-lived process. It reads from the',
+      'SQS queue and dispatches to channel handlers. Handlers are pluggable - email',
+      'and webhook ship in the MVP, others can be added later without changing the',
+      'core.',
+    ].join('\n');
+
+    // Write v1 content, trigger round to snapshot it
+    const v1Content = original.replace(/^## Overview\n\n.*?(?=\n\n##)/ms, '## Overview\n\n' + v1Para);
+    fs.writeFileSync(planPath, v1Content);
+    await request.post('/api/round-complete');
+    await expect(async () => {
+      const s = await (await request.get('/api/session')).json();
+      expect(s.review_round).toBeGreaterThanOrEqual(2);
+    }).toPass({ timeout: 5000 });
+
+    // Now write v2 content (SQS insertion + reflow) and trigger another round
+    const v2Content = v1Content.replace(v1Para, v2Para);
+    fs.writeFileSync(planPath, v2Content);
+    // Wait for file watcher to detect the change
+    await new Promise(r => setTimeout(r, 1500));
+    await request.post('/api/round-complete');
+    await expect(async () => {
+      const diffRes = await request.get('/api/file/diff?path=plan.md');
+      const diff = await diffRes.json();
+      expect(diff.hunks?.length).toBeGreaterThan(0);
+    }).toPass({ timeout: 5000 });
+
+    // Load page, enable unified diff view
+    await loadPage(page);
+    await page.locator('#diffToggle').click();
+    await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
+    const section = mdSection(page);
+    await expect(section.locator('.diff-view-unified')).toBeVisible();
+
+    // Collect all word-diff highlight text
+    const wordDelSpans = section.locator('.diff-word-del');
+    const wordAddSpans = section.locator('.diff-word-add');
+
+    // There should be word-diff spans (SQS was added)
+    await expect(async () => {
+      const addCount = await wordAddSpans.count();
+      expect(addCount).toBeGreaterThan(0);
+    }).toPass({ timeout: 5000 });
+
+    // Collect the highlighted text from word-diff spans
+    const addTexts: string[] = [];
+    const addCount = await wordAddSpans.count();
+    for (let i = 0; i < addCount; i++) {
+      addTexts.push(((await wordAddSpans.nth(i).textContent()) || '').trim());
+    }
+    const delTexts: string[] = [];
+    const delCount = await wordDelSpans.count();
+    for (let i = 0; i < delCount; i++) {
+      delTexts.push(((await wordDelSpans.nth(i).textContent()) || '').trim());
+    }
+
+    // "SQS" should be highlighted as added
+    expect(addTexts.some(t => t.includes('SQS'))).toBeTruthy();
+
+    // Common words that merely shifted across line breaks must NOT be highlighted
+    const falsePositives = ['and', 'the', 'in'];
+    for (const word of falsePositives) {
+      const inDel = delTexts.some(t => t === word);
+      const inAdd = addTexts.some(t => t === word);
+      expect(inDel, `"${word}" should not be in word-diff deletions`).toBeFalsy();
+      expect(inAdd, `"${word}" should not be in word-diff additions`).toBeFalsy();
+    }
+  });
+});
+
+// ============================================================
 // Rendered Diff — File Mode — Non-markdown files unaffected
 // ============================================================
 test.describe('Rendered Diff — File Mode — Non-markdown', () => {
