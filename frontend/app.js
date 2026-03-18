@@ -4844,7 +4844,7 @@
     renderAllFiles();
   });
 
-  // ===== Commit List (sidebar) =====
+  // ===== Commit Picker (sidebar dropdown) =====
   async function fetchCommits() {
     var commitDropdown = document.getElementById('commitDropdown');
     try {
@@ -4862,40 +4862,85 @@
         setCookie('crit-diff-commit', '');
       }
       commitDropdown.style.display = '';
-      renderCommitList();
+      renderCommitPicker();
     } catch (e) {
       commitDropdown.style.display = 'none';
     }
   }
 
-  function renderCommitList() {
+  function relativeTime(dateStr) {
+    var d = new Date(dateStr);
+    var now = new Date();
+    var secs = Math.floor((now - d) / 1000);
+    if (secs < 60) return 'just now';
+    var mins = Math.floor(secs / 60);
+    if (mins < 60) return mins + 'm ago';
+    var hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    var days = Math.floor(hrs / 24);
+    if (days < 30) return days + 'd ago';
+    var months = Math.floor(days / 30);
+    return months + 'mo ago';
+  }
+
+  function renderCommitPicker() {
     var list = document.getElementById('commitDropdownList');
-    var allItem = document.querySelector('.commit-list-item[data-commit=""]');
+    var allItem = document.querySelector('.commit-picker-item[data-commit=""]');
+    var label = document.getElementById('commitDropdownLabel');
 
     if (diffCommit) {
       if (allItem) allItem.classList.remove('active');
+      var sel = commitList.find(function(c) { return c.sha === diffCommit; });
+      if (sel && label) label.textContent = sel.short_sha + ' ' + (sel.message.length > 30 ? sel.message.slice(0, 30) + '\u2026' : sel.message);
     } else {
       if (allItem) allItem.classList.add('active');
+      if (label) label.textContent = 'All commits';
     }
 
     list.innerHTML = commitList.map(function(c) {
       var active = c.sha === diffCommit ? ' active' : '';
-      return '<div class="commit-list-item' + active + '" data-commit="' + c.sha + '">'
-        + '<span class="commit-list-item-sha">' + escapeHtml(c.short_sha) + '</span>'
-        + '<span class="commit-list-item-msg">' + escapeHtml(c.message.length > 40 ? c.message.slice(0, 40) + '\u2026' : c.message) + '</span>'
+      var time = c.date ? '<span class="commit-picker-item-time">' + relativeTime(c.date) + '</span>' : '';
+      return '<div class="commit-picker-item' + active + '" data-commit="' + c.sha + '">'
+        + '<span class="commit-picker-item-sha">' + escapeHtml(c.short_sha) + '</span>'
+        + '<span class="commit-picker-item-msg">' + escapeHtml(c.message.length > 40 ? c.message.slice(0, 40) + '\u2026' : c.message) + '</span>'
+        + time
         + '</div>';
     }).join('');
   }
 
-  // Item selection (delegate from commit list)
-  document.getElementById('commitDropdown').addEventListener('click', function(e) {
-    var item = e.target.closest('.commit-list-item');
+  // Toggle dropdown open/close
+  document.getElementById('commitDropdownBtn').addEventListener('click', function() {
+    document.getElementById('commitDropdown').classList.toggle('open');
+  });
+
+  // Close on outside click
+  document.addEventListener('click', function(e) {
+    var picker = document.getElementById('commitDropdown');
+    if (!picker.contains(e.target)) {
+      picker.classList.remove('open');
+    }
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      document.getElementById('commitDropdown').classList.remove('open');
+    }
+  });
+
+  // Item selection (delegate from dropdown menu)
+  document.getElementById('commitDropdownMenu').addEventListener('click', function(e) {
+    var item = e.target.closest('.commit-picker-item');
     if (!item) return;
     var sha = item.dataset.commit;
-    if (sha === diffCommit) return;
+    if (sha === diffCommit) {
+      document.getElementById('commitDropdown').classList.remove('open');
+      return;
+    }
     diffCommit = sha;
     setCookie('crit-diff-commit', sha);
-    renderCommitList();
+    renderCommitPicker();
+    document.getElementById('commitDropdown').classList.remove('open');
     reloadForScope();
   });
 
