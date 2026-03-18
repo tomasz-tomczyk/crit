@@ -1600,6 +1600,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   .file-header-toggle { display: none; }
   .change-nav { display: none; }
   .scope-toggle { display: none !important; }
+  .commit-dropdown { display: none !important; }
   .diff-mode-toggle { display: none !important; }
 
   /* Force split rows to stack vertically on mobile */
@@ -2239,47 +2240,99 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .scope-toggle .toggle-btn:hover:not(.active):not(:disabled) { background: var(--bg-hover); }
 .scope-toggle .toggle-btn:disabled { opacity: 0.35; cursor: default; }
 
-/* Commit list (sidebar) */
-.commit-list {
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px;
-  max-height: 160px;
-  overflow-y: auto;
+/* Commit dropdown */
+.commit-dropdown {
+  position: relative;
+  display: inline-flex;
 }
-.commit-list-item {
-  display: flex;
+.commit-dropdown-btn {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
   font-size: 11px;
-  color: var(--fg-muted);
+  padding: 3px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  line-height: 1.4;
+}
+.commit-dropdown-btn:hover {
+  background: var(--bg-hover);
+}
+.commit-dropdown-chevron {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.commit-dropdown.open .commit-dropdown-chevron {
+  transform: rotate(180deg);
+}
+.commit-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 320px;
+  max-width: 420px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  z-index: 100;
+  padding: 4px;
+}
+.commit-dropdown.open .commit-dropdown-menu {
+  display: block;
+}
+.commit-dropdown-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--fg);
   cursor: pointer;
   border-radius: 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.commit-list-item:hover {
+.commit-dropdown-item:hover {
   background: var(--bg-hover);
-  color: var(--fg);
 }
-.commit-list-item.active {
+.commit-dropdown-item.active {
   background: var(--accent-subtle);
   color: var(--accent);
-  font-weight: 500;
+  font-weight: 600;
 }
-.commit-list-item-sha {
+.commit-dropdown-item-sha {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  opacity: 0.7;
+  font-size: 11px;
+  color: var(--fg-muted);
   flex-shrink: 0;
 }
-.commit-list-item.active .commit-list-item-sha {
-  opacity: 1;
-}
-.commit-list-item-msg {
+.commit-dropdown-item-msg {
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+}
+.commit-dropdown-item-time {
+  font-size: 10px;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.commit-dropdown-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 8px;
 }
 
 /* Diff mode toggle in header (split/unified) */

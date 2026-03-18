@@ -4844,7 +4844,7 @@
     renderAllFiles();
   });
 
-  // ===== Commit List (sidebar) =====
+  // ===== Commit Dropdown =====
   async function fetchCommits() {
     var commitDropdown = document.getElementById('commitDropdown');
     try {
@@ -4862,40 +4862,61 @@
         setCookie('crit-diff-commit', '');
       }
       commitDropdown.style.display = '';
-      renderCommitList();
+      renderCommitDropdown();
     } catch (e) {
       commitDropdown.style.display = 'none';
     }
   }
 
-  function renderCommitList() {
+  function renderCommitDropdown() {
+    var label = document.getElementById('commitDropdownLabel');
     var list = document.getElementById('commitDropdownList');
-    var allItem = document.querySelector('.commit-list-item[data-commit=""]');
+    var allItem = document.querySelector('.commit-dropdown-item[data-commit=""]');
 
     if (diffCommit) {
+      var c = commitList.find(function(c) { return c.sha === diffCommit; });
+      label.textContent = c ? c.short_sha + ' ' + c.message.slice(0, 30) : 'All commits';
       if (allItem) allItem.classList.remove('active');
     } else {
+      label.textContent = 'All commits';
       if (allItem) allItem.classList.add('active');
     }
 
     list.innerHTML = commitList.map(function(c) {
       var active = c.sha === diffCommit ? ' active' : '';
-      return '<div class="commit-list-item' + active + '" data-commit="' + c.sha + '">'
-        + '<span class="commit-list-item-sha">' + escapeHtml(c.short_sha) + '</span>'
-        + '<span class="commit-list-item-msg">' + escapeHtml(c.message.length > 40 ? c.message.slice(0, 40) + '\u2026' : c.message) + '</span>'
+      return '<div class="commit-dropdown-item' + active + '" data-commit="' + c.sha + '">'
+        + '<span class="commit-dropdown-item-sha">' + escapeHtml(c.short_sha) + '</span>'
+        + '<span class="commit-dropdown-item-msg">' + escapeHtml(c.message.length > 50 ? c.message.slice(0, 50) + '\u2026' : c.message) + '</span>'
+        + '<span class="commit-dropdown-item-time">' + relativeTime(c.date) + '</span>'
         + '</div>';
     }).join('');
   }
 
-  // Item selection (delegate from commit list)
-  document.getElementById('commitDropdown').addEventListener('click', function(e) {
-    var item = e.target.closest('.commit-list-item');
+  // Toggle dropdown open/close
+  document.getElementById('commitDropdownBtn').addEventListener('click', function(e) {
+    e.stopPropagation();
+    document.getElementById('commitDropdown').classList.toggle('open');
+  });
+
+  // Close on outside click
+  document.addEventListener('click', function(e) {
+    var dd = document.getElementById('commitDropdown');
+    if (!dd.contains(e.target)) dd.classList.remove('open');
+  });
+
+  // Item selection (delegate from menu)
+  document.getElementById('commitDropdownMenu').addEventListener('click', function(e) {
+    var item = e.target.closest('.commit-dropdown-item');
     if (!item) return;
     var sha = item.dataset.commit;
-    if (sha === diffCommit) return;
+    if (sha === diffCommit) {
+      document.getElementById('commitDropdown').classList.remove('open');
+      return;
+    }
     diffCommit = sha;
     setCookie('crit-diff-commit', sha);
-    renderCommitList();
+    document.getElementById('commitDropdown').classList.remove('open');
+    renderCommitDropdown();
     reloadForScope();
   });
 
@@ -5132,7 +5153,10 @@
       }
       case 'Escape': {
         e.preventDefault();
-        if (activeForms.length > 0) cancelComment(activeForms[activeForms.length - 1]);
+        var commitDD = document.getElementById('commitDropdown');
+        if (commitDD.classList.contains('open')) {
+          commitDD.classList.remove('open');
+        } else if (activeForms.length > 0) cancelComment(activeForms[activeForms.length - 1]);
         else if (selectionStart !== null) {
           const clearPath = activeFilePath;
           selectionStart = null;
