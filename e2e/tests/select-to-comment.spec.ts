@@ -358,5 +358,90 @@ test.describe('Select-to-comment (git mode)', () => {
       await expect(textarea).toBeVisible();
       await expect(textarea).toBeFocused();
     });
+
+    test('quote highlight appears in split diff view while form is open', async ({ page }) => {
+      const section = goSection(page);
+      // Find an addition line with enough text for a partial selection
+      const additionLine = section.locator('.diff-split-side.addition').first();
+      await additionLine.scrollIntoViewIfNeeded();
+      await expect(additionLine).toBeVisible();
+
+      const diffContent = additionLine.locator('.diff-content');
+      await expect(diffContent).toBeVisible();
+      const box = await diffContent.boundingBox();
+      expect(box).toBeTruthy();
+      if (!box) return;
+
+      // Partial selection (not full width) to ensure a quote is captured
+      await page.mouse.move(box.x + 10, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + Math.min(box.width / 2, 150), box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+
+      // Form should be open but NOT submitted — highlight should already show
+      const textarea = section.locator('.comment-form textarea');
+      await expect(textarea).toBeVisible();
+      await expect(section.locator('mark.quote-highlight')).toBeVisible();
+    });
+
+    test('quote highlight appears in unified diff view while form is open', async ({ page }) => {
+      // Switch to unified mode via the header toggle
+      const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
+      await expect(unifiedBtn).toBeVisible();
+      await unifiedBtn.click();
+
+      const section = goSection(page);
+      // Find an addition line with enough text for a meaningful partial selection
+      // Skip very short lines (like just `"log"`) — find one with substantial content
+      const additionLines = section.locator('.diff-line.addition');
+      let targetBox: any = null;
+      const count = await additionLines.count();
+      for (let i = 0; i < count; i++) {
+        const line = additionLines.nth(i);
+        const content = line.locator('.diff-content');
+        const text = await content.textContent();
+        if (text && text.trim().length > 20) {
+          await line.scrollIntoViewIfNeeded();
+          targetBox = await content.boundingBox();
+          break;
+        }
+      }
+      expect(targetBox).toBeTruthy();
+      if (!targetBox) return;
+
+      // Partial selection
+      await page.mouse.move(targetBox.x + 10, targetBox.y + targetBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2, { steps: 5 });
+      await page.mouse.up();
+
+      const textarea = section.locator('.comment-form textarea');
+      await expect(textarea).toBeVisible();
+      await expect(section.locator('mark.quote-highlight')).toBeVisible();
+    });
+
+    test('quote highlight appears in markdown diff view while form is open', async ({ page }) => {
+      // Markdown file in git mode defaults to split diff view
+      const section = mdSection(page);
+      const additionLine = section.locator('.diff-split-side.addition').first();
+      await additionLine.scrollIntoViewIfNeeded();
+      await expect(additionLine).toBeVisible();
+
+      const diffContent = additionLine.locator('.diff-content');
+      await expect(diffContent).toBeVisible();
+      const box = await diffContent.boundingBox();
+      expect(box).toBeTruthy();
+      if (!box) return;
+
+      // Partial selection
+      await page.mouse.move(box.x + 10, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + Math.min(box.width / 2, 150), box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+
+      const textarea = section.locator('.comment-form textarea');
+      await expect(textarea).toBeVisible();
+      await expect(section.locator('mark.quote-highlight')).toBeVisible();
+    });
   });
 });
