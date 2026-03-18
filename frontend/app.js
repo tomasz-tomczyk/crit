@@ -2076,6 +2076,9 @@
     const addCount = addTexts.length;
     const pairCount = Math.min(delCount, addCount);
     if (pairCount === 0) return [];
+    // Large blocks are code rewrites, not line edits — skip word-diff entirely.
+    // This matches GitHub's behavior of not highlighting large del/add blocks.
+    if (delCount + addCount > 8) return [];
     // 1:1 — pair directly if similar enough (most common case)
     if (delCount === 1 && addCount === 1) {
       return lineSimilarity(delTexts[0], addTexts[0]) >= 0.6 ? [[0, 0]] : [];
