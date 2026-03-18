@@ -223,6 +223,99 @@ func FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHunk, error) {
 	return ParseUnifiedDiff(string(out)), nil
 }
 
+// CommitInfo represents a single commit in a log.
+type CommitInfo struct {
+	SHA      string `json:"sha"`
+	ShortSHA string `json:"short_sha"`
+	Message  string `json:"message"`
+	Author   string `json:"author"`
+	Date     string `json:"date"`
+}
+
+// CommitLog returns the commits between baseRef and HEAD, newest first.
+// Returns nil if baseRef is empty.
+// The dir parameter sets the working directory for the git command.
+func CommitLog(baseRef, dir string) ([]CommitInfo, error) {
+	if baseRef == "" {
+		return nil, nil
+	}
+	cmd := exec.Command("git", "log", "--format=%H%n%h%n%s%n%an%n%aI", baseRef+"..HEAD")
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git log failed: %w", err)
+	}
+	output := strings.TrimSpace(string(out))
+	if output == "" {
+		return nil, nil
+	}
+	lines := strings.Split(output, "\n")
+	if len(lines)%5 != 0 {
+		return nil, fmt.Errorf("unexpected git log output: %d lines (not a multiple of 5)", len(lines))
+	}
+	var commits []CommitInfo
+	for i := 0; i < len(lines); i += 5 {
+		commits = append(commits, CommitInfo{
+			SHA:      lines[i],
+			ShortSHA: lines[i+1],
+			Message:  lines[i+2],
+			Author:   lines[i+3],
+			Date:     lines[i+4],
+		})
+	}
+	return commits, nil
+}
+
+// ChangedFilesForCommit returns the files changed in a single commit.
+// The dir parameter sets the working directory for the git command.
+func ChangedFilesForCommit(sha, dir string) ([]FileChange, error) {
+	cmd := exec.Command("git", "diff-tree", "--no-commit-id", "-r", "--name-status", sha)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff-tree failed: %w", err)
+	}
+	return parseNameStatus(string(out)), nil
+}
+
+// FileDiffForCommit returns parsed diff hunks for a file in a single commit.
+// The dir parameter sets the working directory for the git command.
+// For the initial (root) commit, sha^ is undefined so we diff against the empty tree.
+func FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
+	cmd := exec.Command("git", "diff", "--no-color", sha+"^.."+sha, "--", path)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			// git diff exits 1 when there are differences
+		} else if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+			// sha^ failed (root commit) — diff against the empty tree
+			emptyTree := "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+			cmd2 := exec.Command("git", "diff", "--no-color", emptyTree+".."+sha, "--", path)
+			if dir != "" {
+				cmd2.Dir = dir
+			}
+			out, err = cmd2.Output()
+			if err != nil {
+				if exitErr2, ok := err.(*exec.ExitError); ok && exitErr2.ExitCode() == 1 {
+					// differences found
+				} else {
+					return nil, fmt.Errorf("git diff (root commit) failed: %w", err)
+				}
+			}
+		} else {
+			return nil, fmt.Errorf("git diff failed: %w", err)
+		}
+	}
+	return ParseUnifiedDiff(string(out)), nil
+}
+
 func changedFilesOnDefault() ([]FileChange, error) {
 	return changedFilesOnDefaultInDir("")
 }

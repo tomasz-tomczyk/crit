@@ -997,3 +997,144 @@ func TestParseUnifiedDiff_MultipleHunksWithBlankLines(t *testing.T) {
 		t.Errorf("hunk 2 blank line: old=%d new=%d, want 11,11", h2.Lines[1].OldNum, h2.Lines[1].NewNum)
 	}
 }
+
+func TestCommitLog(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Record the main branch commit as base ref
+	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+
+	// Create a feature branch with two commits
+	runGit(t, dir, "checkout", "-b", "feature/commits")
+	writeFile(t, filepath.Join(dir, "a.go"), "package main\n\nfunc A() {}\n")
+	runGit(t, dir, "add", "a.go")
+	runGit(t, dir, "commit", "-m", "add function A")
+
+	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n")
+	runGit(t, dir, "add", "b.go")
+	runGit(t, dir, "commit", "-m", "add function B")
+
+	commits, err := CommitLog(baseRef, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(commits) != 2 {
+		t.Fatalf("expected 2 commits, got %d", len(commits))
+	}
+
+	// Newest commit first
+	if commits[0].Message != "add function B" {
+		t.Errorf("commits[0].Message = %q, want %q", commits[0].Message, "add function B")
+	}
+	if commits[1].Message != "add function A" {
+		t.Errorf("commits[1].Message = %q, want %q", commits[1].Message, "add function A")
+	}
+
+	// Short SHAs should be 7 characters
+	for i, c := range commits {
+		if len(c.ShortSHA) != 7 {
+			t.Errorf("commits[%d].ShortSHA = %q, want 7 chars", i, c.ShortSHA)
+		}
+		if c.SHA == "" {
+			t.Errorf("commits[%d].SHA is empty", i)
+		}
+		if c.Author == "" {
+			t.Errorf("commits[%d].Author is empty", i)
+		}
+		if c.Date == "" {
+			t.Errorf("commits[%d].Date is empty", i)
+		}
+		// SHA should start with ShortSHA
+		if !strings.HasPrefix(c.SHA, c.ShortSHA) {
+			t.Errorf("commits[%d].SHA %q does not start with ShortSHA %q", i, c.SHA, c.ShortSHA)
+		}
+	}
+}
+
+func TestCommitLogEmpty(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Empty baseRef should return nil
+	commits, err := CommitLog("", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commits != nil {
+		t.Errorf("expected nil for empty baseRef, got %+v", commits)
+	}
+}
+
+func TestChangedFilesForCommit(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Create a feature branch with two commits
+	runGit(t, dir, "checkout", "-b", "feature/commit-files")
+	writeFile(t, filepath.Join(dir, "a.txt"), "hello\n")
+	runGit(t, dir, "add", "a.txt")
+	runGit(t, dir, "commit", "-m", "add a.txt")
+
+	// Second commit: add b.txt and modify a.txt
+	writeFile(t, filepath.Join(dir, "b.txt"), "world\n")
+	writeFile(t, filepath.Join(dir, "a.txt"), "hello modified\n")
+	runGit(t, dir, "add", "a.txt", "b.txt")
+	runGit(t, dir, "commit", "-m", "add b.txt and modify a.txt")
+
+	// Get HEAD SHA
+	sha := runGit(t, dir, "rev-parse", "HEAD")
+
+	changes, err := ChangedFilesForCommit(sha, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(changes) != 2 {
+		t.Fatalf("expected 2 changes, got %d: %+v", len(changes), changes)
+	}
+
+	paths := map[string]string{}
+	for _, c := range changes {
+		paths[c.Path] = c.Status
+	}
+	if paths["a.txt"] != "modified" {
+		t.Errorf("a.txt status = %q, want modified", paths["a.txt"])
+	}
+	if paths["b.txt"] != "added" {
+		t.Errorf("b.txt status = %q, want added", paths["b.txt"])
+	}
+}
+
+func TestFileDiffForCommit(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Create a feature branch and commit a file
+	runGit(t, dir, "checkout", "-b", "feature/commit-diff")
+	writeFile(t, filepath.Join(dir, "code.go"), "package main\n\nfunc Hello() {}\n")
+	runGit(t, dir, "add", "code.go")
+	runGit(t, dir, "commit", "-m", "add code.go")
+
+	// Get HEAD SHA
+	sha := runGit(t, dir, "rev-parse", "HEAD")
+
+	hunks, err := FileDiffForCommit("code.go", sha, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(hunks) == 0 {
+		t.Fatal("expected at least one hunk")
+	}
+
+	// Verify the hunk contains add lines for the new file
+	addCount := 0
+	for _, h := range hunks {
+		for _, l := range h.Lines {
+			if l.Type == "add" {
+				addCount++
+			}
+		}
+	}
+	if addCount != 3 {
+		t.Errorf("expected 3 add lines, got %d", addCount)
+	}
+}

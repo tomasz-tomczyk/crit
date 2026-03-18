@@ -107,6 +107,8 @@
 
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
   let diffScope = getCookie('crit-diff-scope') || 'all'; // 'all', 'branch', 'staged', or 'unstaged'
+  let diffCommit = '';
+  let commitList = [];
   let diffActive = false; // rendered diff view toggle for file mode
 
   // Per-file active form state
@@ -178,6 +180,9 @@
       let diffUrl = '/api/file/diff?path=' + enc(fi.path);
       if (scope && scope !== 'all') {
         diffUrl += '&scope=' + enc(scope);
+      }
+      if (diffCommit) {
+        diffUrl += '&commit=' + enc(diffCommit);
       }
       const [fileRes, commentsRes, diffRes] = await Promise.all([
         fetch('/api/file?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : { content: '' }; }).catch(function() { return { content: '' }; }),
@@ -362,6 +367,14 @@
       scopeToggle.querySelectorAll('.toggle-btn').forEach(function(b) {
         b.classList.toggle('active', b.dataset.scope === diffScope);
       });
+
+      // Commit dropdown: visible only for all/branch scope in git mode
+      if (diffScope === 'all' || diffScope === 'branch') {
+        fetchCommits();
+      } else {
+        document.getElementById('commitDropdown').style.display = 'none';
+        diffCommit = '';
+      }
     }
 
     // Hide file-mode-only shortcuts in git mode
@@ -887,6 +900,17 @@
 
   function escapeHtml(str) {
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function relativeTime(dateStr) {
+    var now = Date.now();
+    var then = new Date(dateStr).getTime();
+    var diff = Math.floor((now - then) / 1000);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+    return Math.floor(diff / 604800) + 'w ago';
   }
 
   function formatTime(isoStr) {
@@ -4340,6 +4364,9 @@
           };
         }
 
+        // Clear commit filter on round-complete
+        diffCommit = '';
+
         // Re-fetch everything on file-changed (round complete)
         const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(r => r.json());
         session = sessionRes;
@@ -4815,6 +4842,89 @@
     renderAllFiles();
   });
 
+  // ===== Commit Picker (sidebar dropdown) =====
+  async function fetchCommits() {
+    var commitDropdown = document.getElementById('commitDropdown');
+    try {
+      var res = await fetch('/api/commits');
+      if (!res.ok) { commitDropdown.style.display = 'none'; return; }
+      commitList = await res.json();
+      if (!commitList || commitList.length === 0) {
+        commitDropdown.style.display = 'none';
+        diffCommit = '';
+        return;
+      }
+      if (diffCommit && !commitList.some(function(c) { return c.sha === diffCommit; })) {
+        diffCommit = '';
+      }
+      commitDropdown.style.display = '';
+      renderCommitPicker();
+    } catch (e) {
+      commitDropdown.style.display = 'none';
+    }
+  }
+
+  function renderCommitPicker() {
+    var list = document.getElementById('commitDropdownList');
+    var allItem = document.querySelector('.commit-picker-item[data-commit=""]');
+    var label = document.getElementById('commitDropdownLabel');
+
+    if (diffCommit) {
+      if (allItem) allItem.classList.remove('active');
+      var sel = commitList.find(function(c) { return c.sha === diffCommit; });
+      if (sel && label) label.textContent = sel.short_sha + ' ' + (sel.message.length > 30 ? sel.message.slice(0, 30) + '\u2026' : sel.message);
+    } else {
+      if (allItem) allItem.classList.add('active');
+      if (label) label.textContent = 'All commits';
+    }
+
+    list.innerHTML = commitList.map(function(c) {
+      var active = c.sha === diffCommit ? ' active' : '';
+      var time = c.date ? '<span class="commit-picker-item-time">' + relativeTime(c.date) + '</span>' : '';
+      return '<div class="commit-picker-item' + active + '" data-commit="' + c.sha + '">'
+        + '<span class="commit-picker-item-sha">' + escapeHtml(c.short_sha) + '</span>'
+        + '<span class="commit-picker-item-msg">' + escapeHtml(c.message.length > 40 ? c.message.slice(0, 40) + '\u2026' : c.message) + '</span>'
+        + time
+        + '</div>';
+    }).join('');
+  }
+
+  // Toggle dropdown open/close
+  document.getElementById('commitDropdownBtn').addEventListener('click', function() {
+    document.getElementById('commitDropdown').classList.toggle('open');
+  });
+
+  // Close on outside click
+  document.addEventListener('click', function(e) {
+    var picker = document.getElementById('commitDropdown');
+    if (!picker.contains(e.target)) {
+      picker.classList.remove('open');
+    }
+  });
+
+  // Close on Escape (only when open)
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && document.getElementById('commitDropdown').classList.contains('open')) {
+      document.getElementById('commitDropdown').classList.remove('open');
+      e.stopPropagation();
+    }
+  });
+
+  // Item selection (delegate from dropdown menu)
+  document.getElementById('commitDropdownMenu').addEventListener('click', function(e) {
+    var item = e.target.closest('.commit-picker-item');
+    if (!item) return;
+    var sha = item.dataset.commit;
+    if (sha === diffCommit) {
+      document.getElementById('commitDropdown').classList.remove('open');
+      return;
+    }
+    diffCommit = sha;
+    renderCommitPicker();
+    document.getElementById('commitDropdown').classList.remove('open');
+    reloadForScope();
+  });
+
   // ===== Scope Toggle (All / Branch / Staged / Unstaged) =====
   document.getElementById('scopeToggle').addEventListener('click', async function(e) {
     const btn = e.target.closest('.toggle-btn');
@@ -4822,6 +4932,12 @@
     let scope = btn.dataset.scope;
     diffScope = scope;
     setCookie('crit-diff-scope', scope);
+    if (scope !== 'all' && scope !== 'branch') {
+      diffCommit = '';
+      document.getElementById('commitDropdown').style.display = 'none';
+    } else {
+      fetchCommits();
+    }
     document.querySelectorAll('#scopeToggle .toggle-btn').forEach(function(b) {
       b.classList.toggle('active', b.dataset.scope === scope);
     });
@@ -4832,7 +4948,9 @@
     document.getElementById('filesContainer').innerHTML =
       '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">Loading...</div>';
 
-    const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(function(r) { return r.json(); });
+    var sessionUrl = '/api/session?scope=' + enc(diffScope);
+    if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
+    const sessionRes = await fetch(sessionUrl).then(function(r) { return r.json(); });
     session = sessionRes;
 
     if (!session.files || session.files.length === 0) {
