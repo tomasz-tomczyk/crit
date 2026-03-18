@@ -107,7 +107,7 @@
 
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
   let diffScope = getCookie('crit-diff-scope') || 'all'; // 'all', 'branch', 'staged', or 'unstaged'
-  let diffCommit = getCookie('crit-diff-commit') || '';
+  let diffCommit = '';
   let commitList = [];
   let diffActive = false; // rendered diff view toggle for file mode
 
@@ -374,7 +374,6 @@
       } else {
         document.getElementById('commitDropdown').style.display = 'none';
         diffCommit = '';
-        setCookie('crit-diff-commit', '');
       }
     }
 
@@ -4367,7 +4366,6 @@
 
         // Clear commit filter on round-complete
         diffCommit = '';
-        setCookie('crit-diff-commit', '');
 
         // Re-fetch everything on file-changed (round complete)
         const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(r => r.json());
@@ -4854,12 +4852,10 @@
       if (!commitList || commitList.length === 0) {
         commitDropdown.style.display = 'none';
         diffCommit = '';
-        setCookie('crit-diff-commit', '');
         return;
       }
       if (diffCommit && !commitList.some(function(c) { return c.sha === diffCommit; })) {
         diffCommit = '';
-        setCookie('crit-diff-commit', '');
       }
       commitDropdown.style.display = '';
       renderCommitPicker();
@@ -4924,7 +4920,6 @@
       return;
     }
     diffCommit = sha;
-    setCookie('crit-diff-commit', sha);
     renderCommitPicker();
     document.getElementById('commitDropdown').classList.remove('open');
     reloadForScope();
@@ -4939,7 +4934,6 @@
     setCookie('crit-diff-scope', scope);
     if (scope !== 'all' && scope !== 'branch') {
       diffCommit = '';
-      setCookie('crit-diff-commit', '');
       document.getElementById('commitDropdown').style.display = 'none';
     } else {
       fetchCommits();
