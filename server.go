@@ -546,9 +546,10 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 	var paths []string
 	var err error
 
-	if s.session.Mode == "git" {
-		paths, err = AllTrackedFiles(s.session.RepoRoot)
-	} else {
+	// Try git first (works in both "git" and "files" mode when inside a repo),
+	// fall back to filesystem walk for non-git directories.
+	paths, err = AllTrackedFiles(s.session.RepoRoot)
+	if err != nil {
 		paths, err = WalkFiles(s.session.RepoRoot)
 	}
 	if err != nil {

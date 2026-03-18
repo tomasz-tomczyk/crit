@@ -14,6 +14,28 @@
     }
   });
 
+  // ===== File Reference Inline Rule =====
+  commentMd.inline.ruler.push('file_ref', function(state, silent) {
+    var start = state.pos;
+    var max = state.posMax;
+    if (state.src.charCodeAt(start) !== 0x40 /* @ */) return false;
+    if (start > 0 && !/\s/.test(state.src[start - 1])) return false;
+    var end = start + 1;
+    while (end < max && /[a-zA-Z0-9._\-\/]/.test(state.src[end])) end++;
+    var path = state.src.substring(start + 1, end);
+    if (path.length === 0 || (path.indexOf('.') === -1 && path.indexOf('/') === -1)) return false;
+    if (!silent) {
+      var token = state.push('file_ref', '', 0);
+      token.content = path;
+    }
+    state.pos = end;
+    return true;
+  });
+  commentMd.renderer.rules.file_ref = function(tokens, idx) {
+    var path = tokens[idx].content;
+    return '<span class="file-ref">' + escapeHtml(path) + '</span>';
+  };
+
   // ===== Suggestion Diff Renderer =====
   function renderSuggestionDiff(suggestionContent, originalLines) {
     const sugLines = suggestionContent.replace(/\n$/, '').split('\n');
@@ -3586,16 +3608,19 @@
       if (!dropdown) {
         dropdown = document.createElement('div');
         dropdown.className = 'file-picker-dropdown';
-        form.appendChild(dropdown);
+        document.body.appendChild(dropdown);
       }
 
-      // Position near cursor: count lines up to cursor position
+      // Position below the @ cursor line
+      var textareaRect = textarea.getBoundingClientRect();
       var textBeforeCursor = textarea.value.substring(0, textarea.selectionStart);
       var lineNumber = textBeforeCursor.split('\n').length;
       var computedStyle = window.getComputedStyle(textarea);
       var lineHeight = parseFloat(computedStyle.lineHeight) || 22.4;
       var paddingTop = parseFloat(computedStyle.paddingTop) || 10;
-      var cursorY = textarea.offsetTop + paddingTop + (lineNumber * lineHeight) - textarea.scrollTop;
+      var cursorY = textareaRect.top + paddingTop + (lineNumber * lineHeight) - textarea.scrollTop;
+      dropdown.style.left = textareaRect.left + 'px';
+      dropdown.style.width = textareaRect.width + 'px';
       dropdown.style.top = cursorY + 'px';
 
       dropdown.innerHTML = '';

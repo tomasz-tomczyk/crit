@@ -1270,10 +1270,8 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 /* ===== File Picker Dropdown ===== */
 .file-picker-dropdown {
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  z-index: 100;
+  position: fixed;
+  z-index: 1000;
   max-height: 240px;
   overflow-y: auto;
   background: var(--bg-primary);
@@ -1304,6 +1302,17 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 .file-picker-dir {
   color: var(--fg-muted);
+}
+
+/* ===== File Reference in Comments ===== */
+.file-ref {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
 }
 
 /* ===== Save Template Dialog ===== */
