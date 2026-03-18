@@ -23,4 +23,7 @@ for (const lang of langs) {
 // mermaid
 cpSync("node_modules/mermaid/dist/mermaid.min.js", `${dest}/mermaid.min.js`);
 
+// diff-match-patch
+cpSync("node_modules/diff-match-patch/index.js", `${dest}/diff-match-patch.js`);
+
 console.log("Frontend deps copied to frontend/");

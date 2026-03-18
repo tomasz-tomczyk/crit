@@ -2035,8 +2035,7 @@
 
   // ===== Word-Level Diff =====
 
-  // Split a line into tokens: words (alphanumeric + underscore) and individual non-word characters.
-  // Returns an array of strings. Example: 'name := "hello"' → ['name', ' ', ':', '=', ' ', '"', 'hello', '"']
+  // Split a line into tokens for similarity comparison.
   function tokenize(line) {
     const tokens = [];
     const re = /[\w]+|[^\w]/g;
@@ -2045,83 +2044,6 @@
       tokens.push(match[0]);
     }
     return tokens;
-  }
-
-  // Compute LCS membership for two token arrays.
-  // Returns { oldKeep: boolean[], newKeep: boolean[] } where true = token is in LCS (unchanged).
-  // Strips common prefix/suffix first to lock identical head/tail tokens in place,
-  // preventing repeated tokens (spaces, "the", "and") from misaligning in the LCS.
-  // Treats all whitespace tokens as equivalent so paragraph reflow (\n ↔ space)
-  // doesn't produce false highlights on content words.
-  function computeTokenLCS(oldTokens, newTokens) {
-    var m = oldTokens.length;
-    var n = newTokens.length;
-
-    // Compare tokens treating all whitespace as equivalent (\n == " " == \t).
-    // In rendered text (HTML, markdown) these are visually identical.
-    function tokEq(a, b) {
-      if (a === b) return true;
-      if (/^\s+$/.test(a) && /^\s+$/.test(b)) return true;
-      return false;
-    }
-
-    // Strip common prefix — these tokens are guaranteed unchanged
-    var prefix = 0;
-    var minLen = Math.min(m, n);
-    while (prefix < minLen && tokEq(oldTokens[prefix], newTokens[prefix])) {
-      prefix++;
-    }
-
-    // Strip common suffix (don't overlap with prefix)
-    var suffix = 0;
-    var maxSuffix = minLen - prefix;
-    while (suffix < maxSuffix && tokEq(oldTokens[m - 1 - suffix], newTokens[n - 1 - suffix])) {
-      suffix++;
-    }
-
-    // Initialize keep arrays — prefix and suffix tokens are always kept
-    var oldKeep = new Array(m).fill(false);
-    var newKeep = new Array(n).fill(false);
-    for (var k = 0; k < prefix; k++) { oldKeep[k] = true; newKeep[k] = true; }
-    for (var k = 0; k < suffix; k++) { oldKeep[m - 1 - k] = true; newKeep[n - 1 - k] = true; }
-
-    // LCS on the middle (changed) portion only
-    var midM = m - prefix - suffix;
-    var midN = n - prefix - suffix;
-
-    // If either middle is empty, it's a pure insertion or deletion — nothing more to match
-    if (midM === 0 || midN === 0) return { oldKeep: oldKeep, newKeep: newKeep };
-
-    // Build DP table for middle portion
-    var dp = [];
-    for (var i = 0; i <= midM; i++) {
-      dp[i] = new Array(midN + 1).fill(0);
-    }
-    for (var i = 1; i <= midM; i++) {
-      for (var j = 1; j <= midN; j++) {
-        if (tokEq(oldTokens[prefix + i - 1], newTokens[prefix + j - 1])) {
-          dp[i][j] = dp[i - 1][j - 1] + 1;
-        } else {
-          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-        }
-      }
-    }
-
-    // Backtrack to mark LCS membership in the middle portion
-    var i = midM, j = midN;
-    while (i > 0 && j > 0) {
-      if (tokEq(oldTokens[prefix + i - 1], newTokens[prefix + j - 1])) {
-        oldKeep[prefix + i - 1] = true;
-        newKeep[prefix + j - 1] = true;
-        i--; j--;
-      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-        i--;
-      } else {
-        j--;
-      }
-    }
-
-    return { oldKeep: oldKeep, newKeep: newKeep };
   }
 
   // Compute similarity between two strings using token multiset Dice coefficient.
@@ -2180,74 +2102,63 @@
     return pairs;
   }
 
-  // Compute word-level diff between two lines.
+  // Shared diff-match-patch instance for word-level diffs.
+  var dmp = new diff_match_patch();
+  dmp.Diff_Timeout = 0.1; // 100ms max per line pair
+
+  // Compute word-level diff between two lines using diff-match-patch.
   // Returns { oldRanges, newRanges } where each range is [startCharIdx, endCharIdx] in the raw text.
   // Returns null if lines are too long, identical, or completely different.
   function wordDiff(oldLine, newLine) {
-    // Skip for very long lines (perf guard: LCS is O(m*n) on token count)
+    // Skip for very long lines (perf guard)
     if (oldLine.length > 500 || newLine.length > 500) return null;
     // Skip for lines with no spaces and >200 chars (likely minified/binary)
     if (oldLine.length > 200 && !oldLine.includes(' ')) return null;
     if (newLine.length > 200 && !newLine.includes(' ')) return null;
+    // Identical lines — no diff needed
+    if (oldLine === newLine) return null;
 
-    const oldTokens = tokenize(oldLine);
-    const newTokens = tokenize(newLine);
+    var diffs = dmp.diff_main(oldLine, newLine);
+    dmp.diff_cleanupSemantic(diffs);
 
-    // Skip if token counts are huge
-    if (oldTokens.length > 200 || newTokens.length > 200) return null;
+    // Check if everything changed (no EQUAL parts) or nothing changed
+    var hasEqual = false;
+    var hasDiff = false;
+    for (var i = 0; i < diffs.length; i++) {
+      if (diffs[i][0] === 0) hasEqual = true;
+      else hasDiff = true;
+    }
+    if (!hasEqual || !hasDiff) return null;
 
-    let result = computeTokenLCS(oldTokens, newTokens);
-    const oldKeep = result.oldKeep;
-    const newKeep = result.newKeep;
-
-    // If everything changed, don't bother with word-level highlights
-    const oldUnchanged = oldKeep.filter(Boolean).length;
-    const newUnchanged = newKeep.filter(Boolean).length;
-    if (oldUnchanged === 0 && newUnchanged === 0) return null;
-
-    // If nothing changed (lines are identical), skip
-    if (oldUnchanged === oldTokens.length && newUnchanged === newTokens.length) return null;
-
-
-    // Build character ranges for changed tokens.
-    // Whitespace-only tokens between two changed tokens are absorbed into the
-    // range so that "word1 word2" highlights as one continuous span instead of
-    // two spans with an unhighlighted gap on the space.
-    function buildRanges(tokens, keep, line) {
-      const ranges = [];
-      let charIdx = 0;
-      let rangeStart = -1;
-      for (let i = 0; i < tokens.length; i++) {
-        if (!keep[i]) {
-          if (rangeStart === -1) rangeStart = charIdx;
-        } else {
-          if (rangeStart !== -1) {
-            // If this kept token is whitespace and a later token is changed,
-            // absorb the whitespace into the current range.
-            if (/^\s+$/.test(tokens[i])) {
-              let hasMoreChanged = false;
-              for (let j = i + 1; j < tokens.length; j++) {
-                if (!keep[j]) { hasMoreChanged = true; break; }
-                if (!/^\s+$/.test(tokens[j])) break;
-              }
-              if (hasMoreChanged) { charIdx += tokens[i].length; continue; }
-            }
-            ranges.push([rangeStart, charIdx]);
-            rangeStart = -1;
-          }
+    // Convert diffs to character ranges
+    var oldRanges = [];
+    var newRanges = [];
+    var oldIdx = 0;
+    var newIdx = 0;
+    for (var i = 0; i < diffs.length; i++) {
+      var op = diffs[i][0];
+      var text = diffs[i][1];
+      if (op === 0) {
+        // EQUAL — advance both cursors
+        oldIdx += text.length;
+        newIdx += text.length;
+      } else if (op === -1) {
+        // DELETE — range on old side
+        if (!/^\s+$/.test(text)) {
+          oldRanges.push([oldIdx, oldIdx + text.length]);
         }
-        charIdx += tokens[i].length;
+        oldIdx += text.length;
+      } else if (op === 1) {
+        // INSERT — range on new side
+        if (!/^\s+$/.test(text)) {
+          newRanges.push([newIdx, newIdx + text.length]);
+        }
+        newIdx += text.length;
       }
-      if (rangeStart !== -1) ranges.push([rangeStart, charIdx]);
-      // Drop ranges that cover only whitespace (e.g. indentation changes) —
-      // the line is already colored as added/removed so highlighting spaces is noise.
-      return ranges.filter(function(r) { return !/^\s+$/.test(line.slice(r[0], r[1])); });
     }
 
-    return {
-      oldRanges: buildRanges(oldTokens, oldKeep, oldLine),
-      newRanges: buildRanges(newTokens, newKeep, newLine),
-    };
+    if (oldRanges.length === 0 && newRanges.length === 0) return null;
+    return { oldRanges: oldRanges, newRanges: newRanges };
   }
 
   // Overlay word-diff highlight ranges onto syntax-highlighted HTML.
