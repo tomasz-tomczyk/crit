@@ -2027,21 +2027,31 @@
   // Returns { oldKeep: boolean[], newKeep: boolean[] } where true = token is in LCS (unchanged).
   // Strips common prefix/suffix first to lock identical head/tail tokens in place,
   // preventing repeated tokens (spaces, "the", "and") from misaligning in the LCS.
+  // Treats all whitespace tokens as equivalent so paragraph reflow (\n ↔ space)
+  // doesn't produce false highlights on content words.
   function computeTokenLCS(oldTokens, newTokens) {
     var m = oldTokens.length;
     var n = newTokens.length;
 
+    // Compare tokens treating all whitespace as equivalent (\n == " " == \t).
+    // In rendered text (HTML, markdown) these are visually identical.
+    function tokEq(a, b) {
+      if (a === b) return true;
+      if (/^\s+$/.test(a) && /^\s+$/.test(b)) return true;
+      return false;
+    }
+
     // Strip common prefix — these tokens are guaranteed unchanged
     var prefix = 0;
     var minLen = Math.min(m, n);
-    while (prefix < minLen && oldTokens[prefix] === newTokens[prefix]) {
+    while (prefix < minLen && tokEq(oldTokens[prefix], newTokens[prefix])) {
       prefix++;
     }
 
     // Strip common suffix (don't overlap with prefix)
     var suffix = 0;
     var maxSuffix = minLen - prefix;
-    while (suffix < maxSuffix && oldTokens[m - 1 - suffix] === newTokens[n - 1 - suffix]) {
+    while (suffix < maxSuffix && tokEq(oldTokens[m - 1 - suffix], newTokens[n - 1 - suffix])) {
       suffix++;
     }
 
@@ -2065,7 +2075,7 @@
     }
     for (var i = 1; i <= midM; i++) {
       for (var j = 1; j <= midN; j++) {
-        if (oldTokens[prefix + i - 1] === newTokens[prefix + j - 1]) {
+        if (tokEq(oldTokens[prefix + i - 1], newTokens[prefix + j - 1])) {
           dp[i][j] = dp[i - 1][j - 1] + 1;
         } else {
           dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
@@ -2076,7 +2086,7 @@
     // Backtrack to mark LCS membership in the middle portion
     var i = midM, j = midN;
     while (i > 0 && j > 0) {
-      if (oldTokens[prefix + i - 1] === newTokens[prefix + j - 1]) {
+      if (tokEq(oldTokens[prefix + i - 1], newTokens[prefix + j - 1])) {
         oldKeep[prefix + i - 1] = true;
         newKeep[prefix + j - 1] = true;
         i--; j--;
