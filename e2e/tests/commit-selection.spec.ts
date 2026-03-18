@@ -136,23 +136,19 @@ test.describe('Commit Selection', () => {
     await expect(page.locator('#commitDropdown')).toBeVisible();
   });
 
-  test('selected commit persists across page reload', async ({ page }) => {
+  test('selected commit resets on page reload', async ({ page }) => {
     // Select a commit
     await openCommitPicker(page);
     const commitItem = page.locator('#commitDropdownList .commit-picker-item').first();
     await commitItem.click();
     await page.waitForResponse(r => r.url().includes('/api/session'));
 
-    // Remember the label text
-    const labelText = await page.locator('#commitDropdownLabel').textContent();
-
-    // Reload and verify persistence via cookie
+    // Reload — selection should reset (commit selection is session-scoped)
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    // Label should still show the selected commit
-    await expect(page.locator('#commitDropdownLabel')).toHaveText(labelText!);
-    await expect(page.locator('#commitDropdownLabel')).not.toHaveText('All commits');
+    // Label should show "All commits" after reload
+    await expect(page.locator('#commitDropdownLabel')).toHaveText('All commits');
   });
 
   test('selected commit item gets active class, "All" loses it', async ({ page }) => {
