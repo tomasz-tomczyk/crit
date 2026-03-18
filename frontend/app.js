@@ -2025,18 +2025,47 @@
 
   // Compute LCS membership for two token arrays.
   // Returns { oldKeep: boolean[], newKeep: boolean[] } where true = token is in LCS (unchanged).
+  // Strips common prefix/suffix first to lock identical head/tail tokens in place,
+  // preventing repeated tokens (spaces, "the", "and") from misaligning in the LCS.
   function computeTokenLCS(oldTokens, newTokens) {
-    const m = oldTokens.length;
-    const n = newTokens.length;
+    var m = oldTokens.length;
+    var n = newTokens.length;
 
-    // Build DP table
-    const dp = [];
-    for (let i = 0; i <= m; i++) {
-      dp[i] = new Array(n + 1).fill(0);
+    // Strip common prefix — these tokens are guaranteed unchanged
+    var prefix = 0;
+    var minLen = Math.min(m, n);
+    while (prefix < minLen && oldTokens[prefix] === newTokens[prefix]) {
+      prefix++;
     }
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
-        if (oldTokens[i - 1] === newTokens[j - 1]) {
+
+    // Strip common suffix (don't overlap with prefix)
+    var suffix = 0;
+    var maxSuffix = minLen - prefix;
+    while (suffix < maxSuffix && oldTokens[m - 1 - suffix] === newTokens[n - 1 - suffix]) {
+      suffix++;
+    }
+
+    // Initialize keep arrays — prefix and suffix tokens are always kept
+    var oldKeep = new Array(m).fill(false);
+    var newKeep = new Array(n).fill(false);
+    for (var k = 0; k < prefix; k++) { oldKeep[k] = true; newKeep[k] = true; }
+    for (var k = 0; k < suffix; k++) { oldKeep[m - 1 - k] = true; newKeep[n - 1 - k] = true; }
+
+    // LCS on the middle (changed) portion only
+    var midM = m - prefix - suffix;
+    var midN = n - prefix - suffix;
+
+    // If either middle is empty, it's a pure insertion or deletion — nothing more to match
+    if (midM === 0 || midN === 0) return { oldKeep: oldKeep, newKeep: newKeep };
+
+    // Build DP table for middle portion
+    var dp = [];
+    for (var i = 0; i <= midM; i++) {
+      dp[i] = new Array(midN + 1).fill(0);
+    }
+    for (var i = 1; i <= midM; i++) {
+      for (var j = 1; j <= midN; j++) {
+        if (oldTokens[prefix + i - 1] === newTokens[prefix + j - 1]) {
           dp[i][j] = dp[i - 1][j - 1] + 1;
         } else {
           dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
@@ -2044,14 +2073,12 @@
       }
     }
 
-    // Backtrack to mark LCS membership
-    let oldKeep = new Array(m).fill(false);
-    let newKeep = new Array(n).fill(false);
-    let i = m, j = n;
+    // Backtrack to mark LCS membership in the middle portion
+    var i = midM, j = midN;
     while (i > 0 && j > 0) {
-      if (oldTokens[i - 1] === newTokens[j - 1]) {
-        oldKeep[i - 1] = true;
-        newKeep[j - 1] = true;
+      if (oldTokens[prefix + i - 1] === newTokens[prefix + j - 1]) {
+        oldKeep[prefix + i - 1] = true;
+        newKeep[prefix + j - 1] = true;
         i--; j--;
       } else if (dp[i - 1][j] >= dp[i][j - 1]) {
         i--;
