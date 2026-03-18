@@ -1126,32 +1126,47 @@ func TestGetFilesList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest("GET", "/api/files/list", nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
 
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	t.Run("no query returns capped results", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/files/list", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
 
-	var files []string
-	if err := json.NewDecoder(w.Body).Decode(&files); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(files) < 2 {
-		t.Fatalf("expected at least 2 files, got %d: %v", len(files), files)
-	}
-
-	found := false
-	for _, f := range files {
-		if f == "src/main.go" {
-			found = true
+		if w.Code != 200 {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
-	}
-	if !found {
-		t.Errorf("expected src/main.go in file list, got: %v", files)
-	}
+
+		var files []string
+		if err := json.NewDecoder(w.Body).Decode(&files); err != nil {
+			t.Fatal(err)
+		}
+
+		if len(files) == 0 {
+			t.Fatal("expected at least 1 file")
+		}
+		if len(files) > 10 {
+			t.Fatalf("expected at most 10 files, got %d", len(files))
+		}
+	})
+
+	t.Run("query filters by fuzzy match", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/files/list?q=main", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		var files []string
+		json.NewDecoder(w.Body).Decode(&files)
+
+		found := false
+		for _, f := range files {
+			if f == "src/main.go" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected src/main.go in filtered results, got: %v", files)
+		}
+	})
 }
 
 func TestGetFilesList_RespectsIgnorePatterns(t *testing.T) {

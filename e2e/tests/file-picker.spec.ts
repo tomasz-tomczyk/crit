@@ -36,11 +36,7 @@ test.describe('File Picker Autocomplete — Git Mode', () => {
     const dropdown = page.locator('.file-picker-dropdown');
     await expect(dropdown).toBeVisible();
 
-    const items = dropdown.locator('.file-picker-item');
-    await expect(async () => {
-      const count = await items.count();
-      expect(count).toBeGreaterThan(0);
-    }).toPass();
+    await expect(dropdown.locator('.file-picker-item').first()).toBeVisible();
   });
 
   test('file picker filters results as you type', async ({ page }) => {
@@ -54,8 +50,8 @@ test.describe('File Picker Autocomplete — Git Mode', () => {
     // All visible items should contain "server" (case-insensitive)
     await expect(async () => {
       const items = dropdown.locator('.file-picker-item');
+      await expect(items.first()).toBeVisible();
       const count = await items.count();
-      expect(count).toBeGreaterThan(0);
       for (let i = 0; i < count; i++) {
         const text = await items.nth(i).textContent();
         expect(text!.toLowerCase()).toContain('server');

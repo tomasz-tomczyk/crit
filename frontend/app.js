@@ -133,7 +133,7 @@
   let commitList = [];
   let diffActive = false; // rendered diff view toggle for file mode
 
-  let allProjectFiles = [];  // cached from /api/files/list
+  let filePickerReady = false;  // set true once /api/files/list is confirmed working
 
   // Per-file active form state
   let activeFilePath = null;
@@ -334,10 +334,9 @@
 
     session = sessionRes;
 
-    // Fire-and-forget: cache project file list for @-mention autocomplete
+    // Fire-and-forget: verify file list endpoint is available for @-mention autocomplete
     fetch('/api/files/list')
-      .then(r => r.ok ? r.json() : [])
-      .then(files => { allProjectFiles = files.sort(); })
+      .then(r => { if (r.ok) filePickerReady = true; })
       .catch(() => {});
 
     // Config
@@ -3511,21 +3510,24 @@
         if (/\s/.test(ch)) break;
       }
 
-      if (atPos === -1 || allProjectFiles.length === 0) {
+      if (atPos === -1 || !filePickerReady) {
         hideDropdown();
         return;
       }
 
       triggerStart = atPos;
-      var query = val.substring(atPos + 1, cursor).toLowerCase();
-      var matches = filterFiles(query);
+      var query = val.substring(atPos + 1, cursor);
 
-      if (matches.length === 0) {
-        hideDropdown();
-        return;
-      }
-
-      showDropdown(matches);
+      fetch('/api/files/list?q=' + encodeURIComponent(query))
+        .then(function(r) { return r.ok ? r.json() : []; })
+        .then(function(matches) {
+          if (matches.length === 0) {
+            hideDropdown();
+            return;
+          }
+          showDropdown(matches);
+        })
+        .catch(function() { hideDropdown(); });
     });
 
     textarea.addEventListener('keydown', function(e) {
@@ -3543,7 +3545,7 @@
         activeIndex = Math.max(activeIndex - 1, 0);
         navigated = true;
         highlightItem();
-      } else if (e.key === 'Tab' || (e.key === 'Enter' && navigated)) {
+      } else if ((e.key === 'Tab' || e.key === 'Enter') && navigated) {
         if (activeIndex >= 0 && activeIndex < dropdown.children.length) {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -3559,50 +3561,6 @@
     textarea.addEventListener('blur', function() {
       setTimeout(hideDropdown, 200);
     });
-
-    function fuzzyMatch(query, text) {
-      var qi = 0;
-      var score = 0;
-      var consecutive = 0;
-      var lastMatchPos = -1;
-      var textLower = text.toLowerCase();
-
-      for (var ti = 0; ti < textLower.length && qi < query.length; ti++) {
-        if (textLower[ti] === query[qi]) {
-          qi++;
-          if (ti === lastMatchPos + 1) {
-            consecutive++;
-            score += consecutive * 2;
-          } else {
-            consecutive = 0;
-            score += 1;
-          }
-          if (ti === 0 || text[ti - 1] === '/' || text[ti - 1] === '.' || text[ti - 1] === '-' || text[ti - 1] === '_') {
-            score += 5;
-          }
-          lastMatchPos = ti;
-        }
-      }
-
-      if (qi < query.length) return -1;
-      score -= text.length * 0.1;
-      return score;
-    }
-
-    function filterFiles(query) {
-      if (!query) return allProjectFiles.slice(0, 20);
-
-      var scored = [];
-      for (var i = 0; i < allProjectFiles.length; i++) {
-        var p = allProjectFiles[i];
-        var s = fuzzyMatch(query, p);
-        if (s >= 0) {
-          scored.push({ path: p, score: s });
-        }
-      }
-      scored.sort(function(a, b) { return b.score - a.score; });
-      return scored.slice(0, 20).map(function(item) { return item.path; });
-    }
 
     function showDropdown(matches) {
       if (!dropdown) {

@@ -47,10 +47,6 @@ test.describe('File Picker Autocomplete — File Mode', () => {
     const dropdown = page.locator('.file-picker-dropdown');
     await expect(dropdown).toBeVisible();
 
-    const items = dropdown.locator('.file-picker-item');
-    await expect(async () => {
-      const count = await items.count();
-      expect(count).toBeGreaterThan(0);
-    }).toPass();
+    await expect(dropdown.locator('.file-picker-item').first()).toBeVisible();
   });
 });
