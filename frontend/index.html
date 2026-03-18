@@ -41,17 +41,6 @@
       <button class="toggle-btn" data-scope="staged" title="Staged changes">Staged</button>
       <button class="toggle-btn" data-scope="unstaged" title="Unstaged changes">Unstaged</button>
     </div>
-    <div class="commit-dropdown" id="commitDropdown" style="display:none">
-      <button class="commit-dropdown-btn" id="commitDropdownBtn">
-        <span class="commit-dropdown-label" id="commitDropdownLabel">All commits</span>
-        <svg class="commit-dropdown-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 3.75 5 6.25 7.5 3.75"/></svg>
-      </button>
-      <div class="commit-dropdown-menu" id="commitDropdownMenu">
-        <div class="commit-dropdown-item active" data-commit="">All commits</div>
-        <div class="commit-dropdown-separator"></div>
-        <div class="commit-dropdown-list" id="commitDropdownList"></div>
-      </div>
-    </div>
     <button class="btn btn-sm" id="diffToggle" style="display:none">Toggle Diff</button>
     <div class="diff-mode-toggle" id="diffModeToggle" style="display:none">
       <button class="toggle-btn active" data-mode="split" title="Split diff">Split</button>
@@ -96,6 +85,10 @@
     <div class="file-tree-header">
       <span class="file-tree-title">Files</span>
       <span class="file-tree-stats" id="fileTreeStats"></span>
+    </div>
+    <div class="commit-list" id="commitDropdown" style="display:none">
+      <div class="commit-list-item active" data-commit="">All commits</div>
+      <div class="commit-list-items" id="commitDropdownList"></div>
     </div>
     <div class="file-tree-body" id="fileTreeBody"></div>
   </div>
