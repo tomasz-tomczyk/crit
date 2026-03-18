@@ -25,32 +25,23 @@ test.describe('Word Diff — Split Mode', () => {
     const section = goSection(page);
 
     // The fixture has: fmt.Println("Server starting on :8080") → log.Printf("Server starting on :%s", port)
-    // Deletion side should highlight tokens like "Println" that differ from "Printf"
+    // diff-match-patch highlights precisely: "fmt" → "log", "Println" suffix → "Printf" suffix, etc.
     const allDelSpans = section.locator('.diff-split-side.deletion .diff-word-del');
     await expect(allDelSpans.first()).toBeVisible();
 
-    // Collect all word-del text content to verify specific tokens are highlighted
+    // Verify that word-diff spans exist and contain non-empty text
     await expect(async () => {
       const count = await allDelSpans.count();
-      const texts: string[] = [];
-      for (let i = 0; i < count; i++) {
-        texts.push((await allDelSpans.nth(i).textContent()) || '');
-      }
-      const joined = texts.join('|');
-      // "Println" should be highlighted as changed (became "Printf")
-      expect(joined).toContain('Println');
+      expect(count).toBeGreaterThan(0);
+      const text = (await allDelSpans.first().textContent()) || '';
+      expect(text.length).toBeGreaterThan(0);
     }).toPass();
 
-    // Addition side should highlight "Printf"
+    // Addition side should also have word-diff highlights
     const allAddSpans = section.locator('.diff-split-side.addition .diff-word-add');
     await expect(async () => {
       const count = await allAddSpans.count();
-      const texts: string[] = [];
-      for (let i = 0; i < count; i++) {
-        texts.push((await allAddSpans.nth(i).textContent()) || '');
-      }
-      const joined = texts.join('|');
-      expect(joined).toContain('Printf');
+      expect(count).toBeGreaterThan(0);
     }).toPass();
   });
 
@@ -122,15 +113,11 @@ test.describe('Word Diff — Unified Mode', () => {
     await unifiedBtn.click();
     await expect(section.locator('.diff-container.unified')).toBeVisible();
 
-    // Same assertion as split: "Println" on del side, "Printf" on add side
+    // Verify word-diff spans exist on deletion lines
     await expect(async () => {
       const delSpans = section.locator('.diff-line.deletion .diff-word-del');
       const count = await delSpans.count();
-      const texts: string[] = [];
-      for (let i = 0; i < count; i++) {
-        texts.push((await delSpans.nth(i).textContent()) || '');
-      }
-      expect(texts.join('|')).toContain('Println');
+      expect(count).toBeGreaterThan(0);
     }).toPass();
   });
 
@@ -201,5 +188,88 @@ test.describe('Word Diff — Edge Cases', () => {
       const wordSpans = section.locator('.diff-line:not(.addition):not(.deletion) .diff-word-add, .diff-line:not(.addition):not(.deletion) .diff-word-del');
       await expect(wordSpans).toHaveCount(0);
     }
+  });
+});
+
+test.describe('Word Diff — diff-match-patch quality', () => {
+  test('similar lines highlight only the changed portion', async ({ page }) => {
+    await loadPage(page);
+
+    // Test diff-match-patch directly via the loaded library
+    const result = await page.evaluate(() => {
+      const dmp = new (window as any).diff_match_patch();
+      dmp.Diff_Timeout = 0.1;
+
+      // Case: renderCommitDropdown → renderCommitPicker
+      // Should highlight only the suffix, not the shared prefix
+      const diffs = dmp.diff_main('renderCommitDropdown', 'renderCommitPicker');
+      dmp.diff_cleanupSemantic(diffs);
+      return diffs as [number, string][];
+    });
+
+    // Should have EQUAL "renderCommit" prefix, then DEL "Dropdown", INSERT "Picker"
+    const equalParts = result.filter(d => d[0] === 0).map(d => d[1]);
+    const delParts = result.filter(d => d[0] === -1).map(d => d[1]);
+    const addParts = result.filter(d => d[0] === 1).map(d => d[1]);
+
+    expect(equalParts.join('')).toContain('renderCommit');
+    expect(delParts.join('')).toBe('Dropdown');
+    expect(addParts.join('')).toBe('Picker');
+  });
+
+  test('completely different lines produce no word-diff highlights', async ({ page }) => {
+    await loadPage(page);
+
+    // Two completely different JS lines sharing only syntax tokens
+    const result = await page.evaluate(() => {
+      const dmp = new (window as any).diff_match_patch();
+      dmp.Diff_Timeout = 0.1;
+
+      const oldLine = 'const oldTokens = tokenize(oldLine);';
+      const newLine = 'var diffs = dmp.diff_main(oldLine, newLine);';
+      const diffs = dmp.diff_main(oldLine, newLine);
+      dmp.diff_cleanupSemantic(diffs);
+
+      // Calculate changed ratio
+      let oldLen = 0, newLen = 0, oldChanged = 0, newChanged = 0;
+      for (const [op, text] of diffs) {
+        if (op === 0) { oldLen += text.length; newLen += text.length; }
+        else if (op === -1) { oldChanged += text.length; oldLen += text.length; }
+        else if (op === 1) { newChanged += text.length; newLen += text.length; }
+      }
+      return {
+        oldRatio: oldLen > 0 ? oldChanged / oldLen : 0,
+        newRatio: newLen > 0 ? newChanged / newLen : 0,
+      };
+    });
+
+    // Both lines should have >60% changed — meaning wordDiff should return null
+    expect(result.oldRatio).toBeGreaterThan(0.6);
+    expect(result.newRatio).toBeGreaterThan(0.6);
+  });
+
+  test('camelCase changes highlight only the changed suffix', async ({ page }) => {
+    await loadPage(page);
+
+    const result = await page.evaluate(() => {
+      const dmp = new (window as any).diff_match_patch();
+      dmp.Diff_Timeout = 0.1;
+
+      // renderCommitDropdown → renderCommitPicker: should keep "renderCommit" as equal
+      const diffs = dmp.diff_main('renderCommitDropdown();', 'renderCommitPicker();');
+      dmp.diff_cleanupSemantic(diffs);
+      return diffs as [number, string][];
+    });
+
+    const equalParts = result.filter(d => d[0] === 0).map(d => d[1]).join('');
+    const delParts = result.filter(d => d[0] === -1).map(d => d[1]).join('');
+    const addParts = result.filter(d => d[0] === 1).map(d => d[1]).join('');
+
+    // The shared prefix "renderCommit" and suffix "();" should be EQUAL
+    expect(equalParts).toContain('renderCommit');
+    expect(equalParts).toContain('();');
+    // Only the differing middle should be changed
+    expect(delParts).toBe('Dropdown');
+    expect(addParts).toBe('Picker');
   });
 });

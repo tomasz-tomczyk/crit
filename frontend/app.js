@@ -2078,7 +2078,7 @@
     if (pairCount === 0) return [];
     // 1:1 — pair directly if similar enough (most common case)
     if (delCount === 1 && addCount === 1) {
-      return lineSimilarity(delTexts[0], addTexts[0]) >= 0.4 ? [[0, 0]] : [];
+      return lineSimilarity(delTexts[0], addTexts[0]) >= 0.6 ? [[0, 0]] : [];
     }
     // Compute all similarity scores
     const candidates = [];
@@ -2095,7 +2095,7 @@
     for (let i = 0; i < candidates.length; i++) {
       const c = candidates[i];
       if (usedDels[c.d] || usedAdds[c.a]) continue;
-      if (c.score < 0.4) break;
+      if (c.score < 0.6) break;
       pairs.push([c.d, c.a]);
       usedDels[c.d] = true;
       usedAdds[c.a] = true;
@@ -2160,6 +2160,14 @@
     }
 
     if (oldRanges.length === 0 && newRanges.length === 0) return null;
+
+    // If most of the line changed, the lines probably don't correspond —
+    // skip word-diff to avoid noisy highlights on unrelated lines.
+    var oldChanged = oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
+    var newChanged = newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
+    if (oldLine.length > 0 && oldChanged / oldLine.length > 0.6) return null;
+    if (newLine.length > 0 && newChanged / newLine.length > 0.6) return null;
+
     return { oldRanges: oldRanges, newRanges: newRanges };
   }
 
