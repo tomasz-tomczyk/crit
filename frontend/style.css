@@ -2545,8 +2545,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .diff-view .line-block.diff-removed .line-content {
   background: var(--diff-del-bg);
-  text-decoration: line-through;
-  opacity: 0.7;
 }
 .diff-view-unified {
   max-width: 840px;
@@ -2557,8 +2555,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .diff-view-unified .line-block.diff-removed .line-content {
   background: var(--diff-del-bg);
-  text-decoration: line-through;
-  opacity: 0.7;
 }
 #diffToggle.active {
   background: var(--accent);
