@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +51,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, author st
 	mux.HandleFunc("/api/commits", s.handleCommits)
 	mux.HandleFunc("/api/comments", s.handleClearComments)
 	mux.HandleFunc("/api/qr", s.handleQR)
+	mux.HandleFunc("/api/files/list", s.handleFilesList)
 
 	// File-scoped endpoints (use ?path= query param)
 	mux.HandleFunc("/api/file", s.handleFile)
@@ -534,6 +536,118 @@ func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Write([]byte(b.String()))
+}
+
+func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var paths []string
+	var err error
+
+	// Try git first (works in both "git" and "files" mode when inside a repo),
+	// fall back to filesystem walk for non-git directories.
+	paths, err = AllTrackedFiles(s.session.RepoRoot)
+	if err != nil {
+		paths, err = WalkFiles(s.session.RepoRoot)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	paths = filterPathsIgnored(paths, s.session.IgnorePatterns)
+
+	query := r.URL.Query().Get("q")
+	const maxResults = 10
+
+	var results []string
+	if query == "" {
+		// No query: return first N paths alphabetically
+		sort.Strings(paths)
+		if len(paths) > maxResults {
+			results = paths[:maxResults]
+		} else {
+			results = paths
+		}
+	} else {
+		results = fuzzyFilterPaths(paths, query, maxResults)
+	}
+
+	if results == nil {
+		results = []string{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+// fuzzyFilterPaths scores each path against query using fuzzy matching and
+// returns the top N results sorted by score (descending).
+func fuzzyFilterPaths(paths []string, query string, limit int) []string {
+	query = strings.ToLower(query)
+
+	type scored struct {
+		path  string
+		score float64
+	}
+	var matches []scored
+
+	for _, p := range paths {
+		s := fuzzyScore(query, p)
+		if s >= 0 {
+			matches = append(matches, scored{p, s})
+		}
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].score > matches[j].score
+	})
+
+	if len(matches) > limit {
+		matches = matches[:limit]
+	}
+
+	result := make([]string, len(matches))
+	for i, m := range matches {
+		result[i] = m.path
+	}
+	return result
+}
+
+// fuzzyScore returns a score >= 0 if all characters in query appear in text
+// in order, or -1 if not. Higher scores indicate better matches.
+func fuzzyScore(query, text string) float64 {
+	textLower := strings.ToLower(text)
+	qi := 0
+	score := 0.0
+	consecutive := 0
+	lastMatchPos := -1
+
+	for ti := 0; ti < len(textLower) && qi < len(query); ti++ {
+		if textLower[ti] == query[qi] {
+			qi++
+			if ti == lastMatchPos+1 {
+				consecutive++
+				score += float64(consecutive) * 2
+			} else {
+				consecutive = 0
+				score += 1
+			}
+			if ti == 0 || text[ti-1] == '/' || text[ti-1] == '.' || text[ti-1] == '-' || text[ti-1] == '_' {
+				score += 5
+			}
+			lastMatchPos = ti
+		}
+	}
+
+	if qi < len(query) {
+		return -1
+	}
+	score -= float64(len(text)) * 0.1
+	return score
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

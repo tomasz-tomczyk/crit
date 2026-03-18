@@ -14,6 +14,28 @@
     }
   });
 
+  // ===== File Reference Inline Rule =====
+  commentMd.inline.ruler.push('file_ref', function(state, silent) {
+    var start = state.pos;
+    var max = state.posMax;
+    if (state.src.charCodeAt(start) !== 0x40 /* @ */) return false;
+    if (start > 0 && !/\s/.test(state.src[start - 1])) return false;
+    var end = start + 1;
+    while (end < max && /[a-zA-Z0-9._\-\/]/.test(state.src[end])) end++;
+    var path = state.src.substring(start + 1, end);
+    if (path.length === 0 || (path.indexOf('.') === -1 && path.indexOf('/') === -1)) return false;
+    if (!silent) {
+      var token = state.push('file_ref', '', 0);
+      token.content = path;
+    }
+    state.pos = end;
+    return true;
+  });
+  commentMd.renderer.rules.file_ref = function(tokens, idx) {
+    var path = tokens[idx].content;
+    return '<span class="file-ref">' + escapeHtml(path) + '</span>';
+  };
+
   // ===== Suggestion Diff Renderer =====
   function renderSuggestionDiff(suggestionContent, originalLines) {
     const sugLines = suggestionContent.replace(/\n$/, '').split('\n');
@@ -110,6 +132,8 @@
   let diffCommit = '';
   let commitList = [];
   let diffActive = false; // rendered diff view toggle for file mode
+
+  let filePickerReady = false;  // set true once /api/files/list is confirmed working
 
   // Per-file active form state
   let activeFilePath = null;
@@ -309,6 +333,11 @@
     ]);
 
     session = sessionRes;
+
+    // Fire-and-forget: verify file list endpoint is available for @-mention autocomplete
+    fetch('/api/files/list')
+      .then(r => { if (r.ok) filePickerReady = true; })
+      .catch(() => {});
 
     // Config
     shareURL = configRes.share_url || '';
@@ -3453,6 +3482,175 @@
     requestAnimationFrame(function() { input.focus(); input.select(); });
   }
 
+  // ===== File Picker Autocomplete =====
+
+  function attachFilePicker(textarea, form) {
+    let dropdown = null;
+    let activeIndex = -1;
+    let triggerStart = -1;
+    let navigated = false;
+    let suppressInput = false;
+
+    textarea.addEventListener('input', function() {
+      if (suppressInput) { suppressInput = false; return; }
+      var val = textarea.value;
+      var cursor = textarea.selectionStart;
+
+      // Find the '@' trigger: scan backwards from cursor
+      var atPos = -1;
+      for (var i = cursor - 1; i >= 0; i--) {
+        var ch = val[i];
+        if (ch === '@') {
+          // '@' must be at start of line or preceded by whitespace
+          if (i === 0 || /\s/.test(val[i - 1])) {
+            atPos = i;
+          }
+          break;
+        }
+        if (/\s/.test(ch)) break;
+      }
+
+      if (atPos === -1 || !filePickerReady) {
+        hideDropdown();
+        return;
+      }
+
+      triggerStart = atPos;
+      var query = val.substring(atPos + 1, cursor);
+
+      fetch('/api/files/list?q=' + encodeURIComponent(query))
+        .then(function(r) { return r.ok ? r.json() : []; })
+        .then(function(matches) {
+          if (matches.length === 0) {
+            hideDropdown();
+            return;
+          }
+          showDropdown(matches);
+        })
+        .catch(function() { hideDropdown(); });
+    });
+
+    textarea.addEventListener('keydown', function(e) {
+      if (!dropdown) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        activeIndex = Math.min(activeIndex + 1, dropdown.children.length - 1);
+        navigated = true;
+        highlightItem();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        navigated = true;
+        highlightItem();
+      } else if ((e.key === 'Tab' || e.key === 'Enter') && navigated) {
+        if (activeIndex >= 0 && activeIndex < dropdown.children.length) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          selectItem(dropdown.children[activeIndex].dataset.path);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        hideDropdown();
+      }
+    });
+
+    textarea.addEventListener('blur', function() {
+      setTimeout(hideDropdown, 200);
+    });
+
+    function showDropdown(matches) {
+      if (!dropdown) {
+        dropdown = document.createElement('div');
+        dropdown.className = 'file-picker-dropdown';
+        document.body.appendChild(dropdown);
+      }
+
+      // Position below the @ cursor line
+      var textareaRect = textarea.getBoundingClientRect();
+      var textBeforeCursor = textarea.value.substring(0, textarea.selectionStart);
+      var lineNumber = textBeforeCursor.split('\n').length;
+      var computedStyle = window.getComputedStyle(textarea);
+      var lineHeight = parseFloat(computedStyle.lineHeight) || 22.4;
+      var paddingTop = parseFloat(computedStyle.paddingTop) || 10;
+      var cursorY = textareaRect.top + paddingTop + (lineNumber * lineHeight) - textarea.scrollTop;
+      dropdown.style.left = textareaRect.left + 'px';
+      dropdown.style.width = textareaRect.width + 'px';
+      dropdown.style.top = cursorY + 'px';
+
+      dropdown.innerHTML = '';
+      activeIndex = 0;
+      navigated = false;
+
+      matches.forEach(function(filePath, idx) {
+        var item = document.createElement('div');
+        item.className = 'file-picker-item';
+        item.dataset.path = filePath;
+
+        var lastSlash = filePath.lastIndexOf('/');
+        if (lastSlash >= 0) {
+          var dirSpan = document.createElement('span');
+          dirSpan.className = 'file-picker-dir';
+          dirSpan.textContent = filePath.substring(0, lastSlash + 1);
+          item.appendChild(dirSpan);
+          item.appendChild(document.createTextNode(filePath.substring(lastSlash + 1)));
+        } else {
+          item.textContent = filePath;
+        }
+
+        item.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          selectItem(filePath);
+        });
+        item.addEventListener('mouseenter', function() {
+          activeIndex = idx;
+          highlightItem();
+        });
+        dropdown.appendChild(item);
+      });
+
+      highlightItem();
+    }
+
+    function highlightItem() {
+      if (!dropdown) return;
+      var items = dropdown.children;
+      for (var i = 0; i < items.length; i++) {
+        items[i].classList.toggle('active', i === activeIndex);
+      }
+      if (activeIndex >= 0 && items[activeIndex]) {
+        items[activeIndex].scrollIntoView({ block: 'nearest' });
+      }
+    }
+
+    function selectItem(filePath) {
+      var val = textarea.value;
+      var cursor = textarea.selectionStart;
+      var before = val.substring(0, triggerStart);
+      var after = val.substring(cursor);
+      var insertion = '@' + filePath + ' ';
+      textarea.value = before + insertion + after;
+      var newCursor = before.length + insertion.length;
+      textarea.selectionStart = textarea.selectionEnd = newCursor;
+      textarea.focus();
+      hideDropdown();
+      suppressInput = true;
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    function hideDropdown() {
+      if (dropdown) {
+        dropdown.remove();
+        dropdown = null;
+        activeIndex = -1;
+        triggerStart = -1;
+      }
+    }
+  }
+
   // ===== Comment Form =====
   function createCommentFormUI(opts) {
     let formObj = opts.formObj;
@@ -3472,6 +3670,8 @@
     textarea.placeholder = 'Leave a review comment... (Ctrl+Enter to submit, Escape to cancel)';
     textarea.dataset.formKey = formObj.formKey;
     if (opts.initialBody) textarea.value = opts.initialBody;
+
+    attachFilePicker(textarea, form);
 
     textarea.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {

@@ -1170,6 +1170,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 
 .comment-form {
+  position: relative;
   margin: 6px 0;
   border: 1px solid var(--accent);
   border-radius: 8px;
@@ -1265,6 +1266,53 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .template-chip:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* ===== File Picker Dropdown ===== */
+.file-picker-dropdown {
+  position: fixed;
+  z-index: 1000;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.file-picker-item {
+  padding: 6px 10px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-primary);
+}
+
+.file-picker-item.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.file-picker-item:hover:not(.active) {
+  background: var(--bg-hover);
+}
+
+.file-picker-dir {
+  color: var(--fg-muted);
+}
+
+/* ===== File Reference in Comments ===== */
+.file-ref {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
 }
 
 /* ===== Save Template Dialog ===== */
