@@ -507,7 +507,7 @@ body {
 }
 
 .diff-line.focused, .diff-split-row.focused {
-  background: var(--selection-bg);
+  background: var(--accent-subtle);
 }
 
 /* ===== Gutter ===== */
@@ -2386,8 +2386,8 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .diff-container.unified .diff-line.addition { background: var(--diff-add-bg); }
 .diff-container.unified .diff-line.deletion { background: var(--diff-del-bg); }
 .diff-container.unified .diff-line.has-comment { background: var(--comment-range-bg); }
-.diff-container.unified .diff-line.selected { background: var(--selection-bg); }
-.diff-container.unified .diff-line.form-selected { background: var(--selection-bg); }
+.diff-container.unified .diff-line.selected { background: var(--accent-subtle); }
+.diff-container.unified .diff-line.form-selected { background: var(--accent-subtle); }
 .diff-container.unified .diff-gutter {
   display: flex;
   flex-shrink: 0;
@@ -2425,8 +2425,8 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .diff-split-side.addition { background: var(--diff-add-bg); }
 .diff-split-side.has-comment { background: var(--comment-range-bg); }
 .diff-split-side.empty { background: var(--bg-secondary); }
-.diff-split-side.selected { background: var(--selection-bg); }
-.diff-split-side.form-selected { background: var(--selection-bg); }
+.diff-split-side.selected { background: var(--accent-subtle); }
+.diff-split-side.form-selected { background: var(--accent-subtle); }
 .diff-split-side .diff-gutter-num { min-width: 44px; }
 .diff-split-side.deletion .diff-gutter-num { background: var(--diff-del-gutter); }
 .diff-split-side.addition .diff-gutter-num { background: var(--diff-add-gutter); }
