@@ -82,12 +82,10 @@ test.describe('TOC Refresh on File Change — Single File Mode', () => {
     // Trigger round-complete
     await request.post('/api/round-complete');
 
-    // Wait for the new heading to appear in the TOC
+    // Wait for the new heading to appear in the TOC and count to increase
     await expect(async () => {
       await expect(tocList.locator('a', { hasText: 'New Section Added' })).toBeVisible();
+      await expect(tocList.locator('a')).toHaveCount(initialCount + 1);
     }).toPass({ timeout: 5000 });
-
-    // TOC should have one more entry
-    await expect(tocList.locator('a')).toHaveCount(initialCount + 1);
   });
 });

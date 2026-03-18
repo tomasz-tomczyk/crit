@@ -4525,6 +4525,7 @@
         updateDiffModeToggle();
         renderFileTree();
         renderAllFiles();
+        buildToc();
         updateCommentCount();
         updateViewedCount();
         updateTreeViewedState();
