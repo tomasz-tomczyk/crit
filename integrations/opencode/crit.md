@@ -80,6 +80,15 @@ For each unresolved comment:
 3. Revise the referenced file to address the feedback - this could be the plan file or any code file from the git diff.
 4. Reply to the comment with what you did: `crit comment --reply-to <id> --resolve --author 'OpenCode' '<what you did>'`
 
+When addressing multiple comments, use `--json` to resolve them all in one call:
+
+```bash
+echo '[
+  {"reply_to": "c1", "body": "Fixed", "resolve": true},
+  {"reply_to": "c2", "body": "Refactored as suggested", "resolve": true}
+]' | crit comment --json --author 'OpenCode'
+```
+
 Editing the plan file triggers Crit's live reload - the user sees changes in the browser immediately.
 
 If there are zero review comments, inform the user that no changes were requested.

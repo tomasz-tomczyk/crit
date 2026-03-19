@@ -79,6 +79,15 @@ For each unresolved comment:
 4. Use the Edit tool to make targeted changes
 5. Reply to the comment with what you did: `crit comment --reply-to <id> --resolve --author 'Claude Code' '<what you did>'`
 
+When addressing multiple comments, use `--json` to resolve them all in one call:
+
+```bash
+echo '[
+  {"reply_to": "c1", "body": "Fixed", "resolve": true},
+  {"reply_to": "c2", "body": "Refactored as suggested", "resolve": true}
+]' | crit comment --json --author 'Claude Code'
+```
+
 Editing the plan file triggers Crit's live reload - the user sees changes in the browser immediately.
 
 **If there are zero review comments**: inform the user no changes were requested and stop the background `crit` process.

@@ -87,6 +87,7 @@ crit pull [pr-number]         # Fetch GitHub PR comments into .crit.json
 crit push [--dry-run] [pr]    # Post .crit.json comments as a GitHub PR review
 crit comment <path>:<line[-end]> <body>         # Add a comment to .crit.json (no server needed)
 crit comment --reply-to <id> [--resolve] <body> # Reply to a comment (optionally mark resolved)
+crit comment --json [--author <name>]           # Bulk add comments from stdin JSON
 crit share <file> [file...]   # Share files to crit-web, print URL
 crit unpublish                # Remove shared review from crit-web
 crit config                   # Print resolved configuration (merged global + project)
