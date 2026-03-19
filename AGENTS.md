@@ -63,6 +63,8 @@ crit/
 13. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both
 14. **GitHub PR sync** — `crit pull` / `crit push` bridge between `.crit.json` and GitHub PR review comments via `gh` CLI
 15. **Headless CLI comment** — `crit comment` writes directly to `.crit.json` without starting the server; SSE notifies any running server
+16. **Comment threading** — comments support nested replies and a `resolved` boolean. Agents reply with `crit comment --reply-to <id> --resolve`. The `.crit.json` schema nests replies inside each comment's `replies` array.
+17. **Commit selection** — in git mode, a sidebar lists individual commits. Selecting one scopes the file list and diffs to that commit only.
 
 ## Build & Run
 
@@ -83,7 +85,8 @@ crit go <port>                # Signal round-complete to a running server
 crit listen [port]            # Block until review finishes on a running crit instance
 crit pull [pr-number]         # Fetch GitHub PR comments into .crit.json
 crit push [--dry-run] [pr]    # Post .crit.json comments as a GitHub PR review
-crit comment <path>:<line[-end]> <body>  # Add a comment to .crit.json (no server needed)
+crit comment <path>:<line[-end]> <body>         # Add a comment to .crit.json (no server needed)
+crit comment --reply-to <id> [--resolve] <body> # Reply to a comment (optionally mark resolved)
 crit share <file> [file...]   # Share files to crit-web, print URL
 crit unpublish                # Remove shared review from crit-web
 crit config                   # Print resolved configuration (merged global + project)
@@ -99,8 +102,9 @@ Two-level JSON config files, merged (project overrides global):
 - **Global**: `~/.crit.config.json` — user-wide defaults
 - **Project**: `.crit.config.json` in repo root — per-project overrides
 
-Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `ignore_patterns`.
+Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`.
 
+- `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to `git config user.name` if not set
 - `ignore_patterns` are unioned (both global and project patterns apply)
 - Pattern types: `*.ext` (extension), `dir/` (directory prefix), `exact.file` (filename), `path/*.ext` (glob)
@@ -192,6 +196,11 @@ make e2e-report                                       # View HTML report with sc
 | `toc.singlefile.spec.ts` | single | Table of contents |
 | `toc-scrollspy.singlefile.spec.ts` | single | TOC scroll-spy highlighting |
 | `multifile.multifile.spec.ts` | multi | Loading, code rendering, comments on Go/Elixir, directory files |
+| `threading.spec.ts` | git | Comment threading: replies, resolve/unresolve, collapse |
+| `commit-selection.spec.ts` | git | Commit selection sidebar, per-commit file list and diffs |
+| `file-picker.spec.ts` | git | @-triggered file picker autocomplete in comment forms |
+| `file-picker.filemode.spec.ts` | file | @-triggered file picker in file mode |
+| `toc-refresh.singlefile.spec.ts` | single | TOC refresh when file content changes |
 | `nogit.nogit.spec.ts` | no-git | Git-absence invariants: no branch, no diff toggle, session mode |
 
 ### Writing new tests
@@ -229,6 +238,7 @@ Session-scoped:
 - `POST /api/round-complete` — agent signals all edits are done; triggers new round
 - `POST /api/share-url` — persist `{url, delete_token}` to `.crit.json` after upload
 - `DELETE /api/share-url` — unpublish: calls crit-web DELETE and clears local persisted URL
+- `GET  /api/commits` — list commits between base ref and HEAD (git mode only)
 - `DELETE /api/comments` — bulk delete all comments across all files (used by E2E test cleanup)
 
 File-scoped (use `?path=` query param):
@@ -239,6 +249,10 @@ File-scoped (use `?path=` query param):
 - `POST /api/file/comments?path=X` — add comment `{start_line, end_line, body}` (10MB body limit)
 - `PUT  /api/comment/{id}?path=X` — update comment `{body}` (10MB body limit)
 - `DELETE /api/comment/{id}?path=X` — delete comment
+- `POST   /api/comment/{id}/replies?path=X` — add reply `{body, author}`
+- `PUT    /api/comment/{id}/replies/{rid}?path=X` — edit reply `{body}`
+- `DELETE /api/comment/{id}/replies/{rid}?path=X` — delete reply
+- `POST   /api/comment/{id}/resolve?path=X` — set resolved state `{resolved: bool}`
 
 Static:
 
