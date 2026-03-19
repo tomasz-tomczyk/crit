@@ -1008,3 +1008,173 @@ func TestUpdateCritJSONWithGitHubIDs_Replies(t *testing.T) {
 		t.Errorf("reply: expected GitHubID=201, got %d", reply.GitHubID)
 	}
 }
+
+// readCritJSON is a test helper that reads and parses .crit.json from the given directory.
+func readCritJSON(t *testing.T, dir string) CritJSON {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, ".crit.json"))
+	if err != nil {
+		t.Fatalf("reading .crit.json: %v", err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatalf("parsing .crit.json: %v", err)
+	}
+	return cj
+}
+
+func TestBulkAddCommentsToCritJSON_MixedCommentsAndReplies(t *testing.T) {
+	dir := initTestRepo(t)
+	oldDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldDir)
+
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n")
+
+	entries := []BulkCommentEntry{
+		{File: "main.go", Line: 1, Body: "Add package doc"},
+		{File: "main.go", Line: 3, EndLine: 4, Body: "Extract to function"},
+	}
+
+	err := bulkAddCommentsToCritJSON(entries, "TestBot", dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify: 2 comments on main.go
+	cj := readCritJSON(t, dir)
+	cf, ok := cj.Files["main.go"]
+	if !ok {
+		t.Fatal("main.go not in .crit.json")
+	}
+	if len(cf.Comments) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(cf.Comments))
+	}
+	if cf.Comments[0].StartLine != 1 || cf.Comments[0].EndLine != 1 {
+		t.Errorf("c1: expected line 1, got %d-%d", cf.Comments[0].StartLine, cf.Comments[0].EndLine)
+	}
+	if cf.Comments[1].StartLine != 3 || cf.Comments[1].EndLine != 4 {
+		t.Errorf("c2: expected lines 3-4, got %d-%d", cf.Comments[1].StartLine, cf.Comments[1].EndLine)
+	}
+	if cf.Comments[0].Author != "TestBot" {
+		t.Errorf("expected author TestBot, got %q", cf.Comments[0].Author)
+	}
+
+	// Now add a reply to c1
+	replyEntries := []BulkCommentEntry{
+		{ReplyTo: "c1", Body: "Done — added godoc comment", Resolve: true},
+	}
+	err = bulkAddCommentsToCritJSON(replyEntries, "TestBot", dir)
+	if err != nil {
+		t.Fatalf("unexpected error on reply: %v", err)
+	}
+
+	cj = readCritJSON(t, dir)
+	cf = cj.Files["main.go"]
+	if len(cf.Comments[0].Replies) != 1 {
+		t.Fatalf("expected 1 reply on c1, got %d", len(cf.Comments[0].Replies))
+	}
+	if !cf.Comments[0].Resolved {
+		t.Error("c1 should be resolved")
+	}
+}
+
+func TestBulkAddCommentsToCritJSON_EmptyBody(t *testing.T) {
+	dir := initTestRepo(t)
+	entries := []BulkCommentEntry{{File: "main.go", Line: 1, Body: ""}}
+	err := bulkAddCommentsToCritJSON(entries, "Bot", dir)
+	if err == nil || !strings.Contains(err.Error(), "body is required") {
+		t.Errorf("expected body required error, got: %v", err)
+	}
+}
+
+func TestBulkAddCommentsToCritJSON_MissingFile(t *testing.T) {
+	dir := initTestRepo(t)
+	entries := []BulkCommentEntry{{Line: 1, Body: "test"}}
+	err := bulkAddCommentsToCritJSON(entries, "Bot", dir)
+	if err == nil || !strings.Contains(err.Error(), "file is required") {
+		t.Errorf("expected file required error, got: %v", err)
+	}
+}
+
+func TestBulkAddCommentsToCritJSON_InvalidLine(t *testing.T) {
+	dir := initTestRepo(t)
+	entries := []BulkCommentEntry{{File: "main.go", Line: 0, Body: "test"}}
+	err := bulkAddCommentsToCritJSON(entries, "Bot", dir)
+	if err == nil || !strings.Contains(err.Error(), "line must be > 0") {
+		t.Errorf("expected line error, got: %v", err)
+	}
+}
+
+func TestBulkAddCommentsToCritJSON_PathTraversal(t *testing.T) {
+	dir := initTestRepo(t)
+	entries := []BulkCommentEntry{{File: "../etc/passwd", Line: 1, Body: "test"}}
+	err := bulkAddCommentsToCritJSON(entries, "Bot", dir)
+	if err == nil || !strings.Contains(err.Error(), "must be relative") {
+		t.Errorf("expected path traversal error, got: %v", err)
+	}
+}
+
+func TestBulkAddCommentsToCritJSON_EmptyEntries(t *testing.T) {
+	dir := initTestRepo(t)
+	err := bulkAddCommentsToCritJSON(nil, "Bot", dir)
+	if err == nil || !strings.Contains(err.Error(), "no comment entries") {
+		t.Errorf("expected empty entries error, got: %v", err)
+	}
+}
+
+func TestBulkAddCommentsToCritJSON_ReplyNotFound(t *testing.T) {
+	dir := initTestRepo(t)
+	entries := []BulkCommentEntry{{ReplyTo: "c99", Body: "reply"}}
+	err := bulkAddCommentsToCritJSON(entries, "Bot", dir)
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected not found error, got: %v", err)
+	}
+}
+
+func TestBulkAddCommentsToCritJSON_PerEntryAuthor(t *testing.T) {
+	dir := initTestRepo(t)
+	oldDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldDir)
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\n")
+	entries := []BulkCommentEntry{
+		{File: "main.go", Line: 1, Body: "from global author"},
+		{File: "main.go", Line: 1, Body: "from custom author", Author: "CustomBot"},
+	}
+	err := bulkAddCommentsToCritJSON(entries, "GlobalBot", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cj := readCritJSON(t, dir)
+	if cj.Files["main.go"].Comments[0].Author != "GlobalBot" {
+		t.Errorf("expected GlobalBot, got %q", cj.Files["main.go"].Comments[0].Author)
+	}
+	if cj.Files["main.go"].Comments[1].Author != "CustomBot" {
+		t.Errorf("expected CustomBot, got %q", cj.Files["main.go"].Comments[1].Author)
+	}
+}
+
+func TestBulkAddCommentsToCritJSON_MultipleFiles(t *testing.T) {
+	dir := initTestRepo(t)
+	oldDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldDir)
+	writeFile(t, filepath.Join(dir, "a.go"), "package a\n")
+	writeFile(t, filepath.Join(dir, "b.go"), "package b\n")
+	entries := []BulkCommentEntry{
+		{File: "a.go", Line: 1, Body: "comment on a"},
+		{File: "b.go", Line: 1, Body: "comment on b"},
+	}
+	err := bulkAddCommentsToCritJSON(entries, "Bot", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cj := readCritJSON(t, dir)
+	if len(cj.Files["a.go"].Comments) != 1 {
+		t.Errorf("expected 1 comment on a.go, got %d", len(cj.Files["a.go"].Comments))
+	}
+	if len(cj.Files["b.go"].Comments) != 1 {
+		t.Errorf("expected 1 comment on b.go, got %d", len(cj.Files["b.go"].Comments))
+	}
+}

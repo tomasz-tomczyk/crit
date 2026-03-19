@@ -680,3 +680,78 @@ func clearCritJSON(outputDir string) error {
 	}
 	return nil
 }
+
+// BulkCommentEntry represents one entry in a bulk comment JSON array.
+// Either (file + line) for a new comment, or (reply_to) for a reply.
+type BulkCommentEntry struct {
+	// New comment fields
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	EndLine int    `json:"end_line,omitempty"` // defaults to Line if omitted
+	Body    string `json:"body"`
+	Author  string `json:"author,omitempty"` // overrides per-entry; falls back to global
+
+	// Reply fields
+	ReplyTo string `json:"reply_to,omitempty"`
+	Resolve bool   `json:"resolve,omitempty"`
+}
+
+// bulkAddCommentsToCritJSON applies multiple comments and replies in a single load-save cycle.
+// globalAuthor is used when an entry doesn't specify its own author.
+// outputDir overrides the .crit.json location (empty = repo root or CWD).
+func bulkAddCommentsToCritJSON(entries []BulkCommentEntry, globalAuthor string, outputDir string) error {
+	if len(entries) == 0 {
+		return fmt.Errorf("no comment entries provided")
+	}
+
+	root, err := resolveCritDir(outputDir)
+	if err != nil {
+		return err
+	}
+
+	critPath := filepath.Join(root, ".crit.json")
+	cj, err := loadCritJSON(critPath)
+	if err != nil {
+		return err
+	}
+
+	for i, e := range entries {
+		if e.Body == "" {
+			return fmt.Errorf("entry %d: body is required", i)
+		}
+
+		author := e.Author
+		if author == "" {
+			author = globalAuthor
+		}
+
+		if e.ReplyTo != "" {
+			// Reply mode
+			if err := appendReply(&cj, e.ReplyTo, e.Body, author, e.Resolve, e.File); err != nil {
+				return fmt.Errorf("entry %d: %w", i, err)
+			}
+		} else {
+			// New comment mode
+			if e.File == "" {
+				return fmt.Errorf("entry %d: file is required for new comments", i)
+			}
+			if e.Line <= 0 {
+				return fmt.Errorf("entry %d: line must be > 0", i)
+			}
+
+			cleaned := filepath.Clean(e.File)
+			if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+				return fmt.Errorf("entry %d: path %q must be relative and within the repository", i, e.File)
+			}
+
+			endLine := e.EndLine
+			if endLine == 0 {
+				endLine = e.Line
+			}
+
+			appendComment(&cj, cleaned, e.Line, endLine, e.Body, author)
+		}
+	}
+
+	return saveCritJSON(critPath, cj)
+}
