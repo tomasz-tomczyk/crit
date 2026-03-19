@@ -375,8 +375,8 @@ test.describe('Multi-Round — Frontend', () => {
     await page.locator('.comment-collapse-btn').click();
     await expect(page.locator('.comment-body')).toContainText('Will be resolved visually');
 
-    // Resolution note should be present
-    await expect(page.locator('.resolved-note')).toContainText('Done');
+    // Resolved badge should be visible in header
+    await expect(page.locator('.resolved-badge')).toBeVisible();
   });
 
   test('resolved comments are excluded from comment count', async ({ page, request }) => {
