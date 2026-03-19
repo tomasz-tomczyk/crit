@@ -98,7 +98,7 @@ func TestShareFilesToWeb_Success(t *testing.T) {
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
-			"url":          "https://crit.live/r/abc123",
+			"url":          "https://crit.md/r/abc123",
 			"delete_token": "tok_secret",
 		})
 	}))
@@ -109,8 +109,8 @@ func TestShareFilesToWeb_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if url != "https://crit.live/r/abc123" {
-		t.Errorf("expected url https://crit.live/r/abc123, got %s", url)
+	if url != "https://crit.md/r/abc123" {
+		t.Errorf("expected url https://crit.md/r/abc123, got %s", url)
 	}
 	if token != "tok_secret" {
 		t.Errorf("expected token tok_secret, got %s", token)
@@ -256,7 +256,7 @@ func TestPersistShareState(t *testing.T) {
 	dir := t.TempDir()
 
 	// Persist to new .crit.json
-	err := persistShareState(dir, "https://crit.live/r/abc", "tok_123", "")
+	err := persistShareState(dir, "https://crit.md/r/abc", "tok_123", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestPersistShareState(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(dir, ".crit.json"))
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
-	if cj.ShareURL != "https://crit.live/r/abc" {
+	if cj.ShareURL != "https://crit.md/r/abc" {
 		t.Errorf("expected share_url, got %s", cj.ShareURL)
 	}
 	if cj.DeleteToken != "tok_123" {
@@ -288,7 +288,7 @@ func TestPersistShareState_PreservesExisting(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
 
 	// Persist share state
-	err := persistShareState(dir, "https://crit.live/r/def", "tok_456", "")
+	err := persistShareState(dir, "https://crit.md/r/def", "tok_456", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestPersistShareState_PreservesExisting(t *testing.T) {
 	data, _ = os.ReadFile(filepath.Join(dir, ".crit.json"))
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
-	if cj.ShareURL != "https://crit.live/r/def" {
+	if cj.ShareURL != "https://crit.md/r/def" {
 		t.Errorf("expected share_url")
 	}
 	if cj.Branch != "main" {
@@ -312,7 +312,7 @@ func TestClearShareState(t *testing.T) {
 	dir := t.TempDir()
 
 	cj := CritJSON{
-		ShareURL:    "https://crit.live/r/old",
+		ShareURL:    "https://crit.md/r/old",
 		DeleteToken: "tok_old",
 		Files:       map[string]CritJSONFile{"plan.md": {Comments: []Comment{{ID: "c1", Body: "test"}}}},
 	}
@@ -418,7 +418,7 @@ func TestHandleShare_Success(t *testing.T) {
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
-			"url":          "https://crit.live/r/test123",
+			"url":          "https://crit.md/r/test123",
 			"delete_token": "tok_test",
 		})
 	}))
@@ -451,7 +451,7 @@ func TestHandleShare_Success(t *testing.T) {
 
 	var result map[string]any
 	json.NewDecoder(w.Body).Decode(&result)
-	if result["url"] != "https://crit.live/r/test123" {
+	if result["url"] != "https://crit.md/r/test123" {
 		t.Errorf("expected url, got %v", result["url"])
 	}
 	if result["delete_token"] != "tok_test" {
@@ -501,7 +501,7 @@ func TestHandleShare_NoShareURL(t *testing.T) {
 }
 
 func TestHandleShare_WrongMethod(t *testing.T) {
-	srv := &Server{session: &Session{}, shareURL: "https://crit.live"}
+	srv := &Server{session: &Session{}, shareURL: "https://crit.md"}
 	req := httptest.NewRequest(http.MethodGet, "/api/share", nil)
 	w := httptest.NewRecorder()
 	srv.handleShare(w, req)
@@ -518,7 +518,7 @@ func TestHandleShare_AlreadyShared(t *testing.T) {
 		called = true
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{
-			"url":          "https://crit.live/r/new-token",
+			"url":          "https://crit.md/r/new-token",
 			"delete_token": "new-del-token",
 		})
 	}))
@@ -530,7 +530,7 @@ func TestHandleShare_AlreadyShared(t *testing.T) {
 		Files:       []*FileEntry{{Path: "plan.md", Content: "# Plan"}},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
-	sess.SetSharedURLAndToken("https://crit.live/r/existing", "existing-del-token")
+	sess.SetSharedURLAndToken("https://crit.md/r/existing", "existing-del-token")
 
 	srv := &Server{session: sess, shareURL: mockServer.URL}
 
@@ -544,7 +544,7 @@ func TestHandleShare_AlreadyShared(t *testing.T) {
 
 	var result map[string]any
 	json.NewDecoder(w.Body).Decode(&result)
-	if result["url"] != "https://crit.live/r/existing" {
+	if result["url"] != "https://crit.md/r/existing" {
 		t.Errorf("expected existing URL, got %v", result["url"])
 	}
 	if result["delete_token"] != "existing-del-token" {
@@ -561,7 +561,7 @@ func TestLoadExistingShareState(t *testing.T) {
 
 	// Legacy .crit.json without scope — loads unconditionally
 	cj := CritJSON{
-		ShareURL:    "https://crit.live/r/existing",
+		ShareURL:    "https://crit.md/r/existing",
 		DeleteToken: "del-token-123",
 		Files:       map[string]CritJSONFile{},
 	}
@@ -569,7 +569,7 @@ func TestLoadExistingShareState(t *testing.T) {
 	os.WriteFile(critPath, data, 0644)
 
 	url, token := loadExistingShareState(dir, []string{"anything.md"})
-	if url != "https://crit.live/r/existing" {
+	if url != "https://crit.md/r/existing" {
 		t.Errorf("expected existing URL, got %q", url)
 	}
 	if token != "del-token-123" {
@@ -603,7 +603,7 @@ func TestLoadExistingShareState_ScopeMismatch(t *testing.T) {
 	critPath := filepath.Join(dir, ".crit.json")
 
 	cj := CritJSON{
-		ShareURL:    "https://crit.live/r/old",
+		ShareURL:    "https://crit.md/r/old",
 		DeleteToken: "old-token",
 		ShareScope:  shareScope([]string{"old-plan.md"}),
 		Files:       map[string]CritJSONFile{},
@@ -619,7 +619,7 @@ func TestLoadExistingShareState_ScopeMismatch(t *testing.T) {
 
 	// Same file set — should return share state
 	url, token = loadExistingShareState(dir, []string{"old-plan.md"})
-	if url != "https://crit.live/r/old" {
+	if url != "https://crit.md/r/old" {
 		t.Errorf("expected URL for matching scope, got %q", url)
 	}
 }
@@ -651,7 +651,7 @@ func TestResolveShareURL(t *testing.T) {
 			name:     "default when nothing set",
 			flag:     "",
 			env:      "",
-			expected: "https://crit.live",
+			expected: "https://crit.md",
 		},
 	}
 

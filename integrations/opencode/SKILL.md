@@ -110,7 +110,7 @@ Examples:
 ```bash
 crit share <file>                                # Share a single file
 crit share <file1> <file2>                       # Share multiple files
-crit share --share-url https://crit.live <file>  # Explicit share URL
+crit share --share-url https://crit.md <file>  # Explicit share URL
 ```
 
 Rules:

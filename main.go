@@ -947,7 +947,7 @@ Options:
       --no-open               Don't auto-open browser
       --no-ignore             Disable all file ignore patterns
   -q, --quiet                 Suppress status output
-      --share-url <url>       Share service URL (e.g. https://crit.live or self-hosted)
+      --share-url <url>       Share service URL (e.g. https://crit.md or self-hosted)
       --base-branch <branch>  Base branch to diff against (overrides auto-detection)
       --qr                    Print QR code of share URL (with crit share)
   -v, --version               Print version
@@ -962,7 +962,7 @@ Configuration:
   Project config:  .crit.config.json (in repo root)
   Run 'crit config' to see resolved configuration.
 
-Learn more: https://crit.live
+Learn more: https://crit.md
 `)
 }
 
@@ -1001,7 +1001,7 @@ Ignore pattern syntax:
 Example config:
   {
     "port": 3456,
-    "share_url": "https://crit.live",
+    "share_url": "https://crit.md",
     "ignore_patterns": ["*.lock", "*.min.js", "vendor/", "generated/"]
   }
 `)

@@ -307,8 +307,8 @@ func TestLoadConfigRuntimeDefaults(t *testing.T) {
 	projectDir := t.TempDir()
 
 	cfg := LoadConfig(projectDir)
-	if cfg.ShareURL != "https://crit.live" {
-		t.Errorf("ShareURL = %q, want runtime default https://crit.live", cfg.ShareURL)
+	if cfg.ShareURL != "https://crit.md" {
+		t.Errorf("ShareURL = %q, want runtime default https://crit.md", cfg.ShareURL)
 	}
 	if len(cfg.IgnorePatterns) != 1 || cfg.IgnorePatterns[0] != ".crit.json" {
 		t.Errorf("IgnorePatterns = %v, want [.crit.json]", cfg.IgnorePatterns)

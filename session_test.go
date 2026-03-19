@@ -285,7 +285,7 @@ func TestSession_WriteFiles_NoCommentsSkips(t *testing.T) {
 
 func TestSession_WriteFiles_SharedURLOnly(t *testing.T) {
 	s := newTestSession(t)
-	s.SetSharedURLAndToken("https://crit.live/r/abc", "token123")
+	s.SetSharedURLAndToken("https://crit.md/r/abc", "token123")
 
 	flushWrites(s)
 	s.WriteFiles()
@@ -296,7 +296,7 @@ func TestSession_WriteFiles_SharedURLOnly(t *testing.T) {
 	}
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
-	if cj.ShareURL != "https://crit.live/r/abc" {
+	if cj.ShareURL != "https://crit.md/r/abc" {
 		t.Errorf("share_url = %q", cj.ShareURL)
 	}
 }
@@ -1250,7 +1250,7 @@ func TestLoadCritJSON_IgnoresStaleShareState(t *testing.T) {
 	// Write .crit.json with share state for a different file set
 	scope := shareScope([]string{"old-plan.md"})
 	cj := CritJSON{
-		ShareURL:    "https://crit.live/r/old",
+		ShareURL:    "https://crit.md/r/old",
 		DeleteToken: "old-token",
 		ShareScope:  scope,
 		Files:       map[string]CritJSONFile{},
@@ -1278,7 +1278,7 @@ func TestLoadCritJSON_RestoresMatchingShareState(t *testing.T) {
 
 	scope := shareScope([]string{"plan.md"})
 	cj := CritJSON{
-		ShareURL:    "https://crit.live/r/current",
+		ShareURL:    "https://crit.md/r/current",
 		DeleteToken: "current-token",
 		ShareScope:  scope,
 		Files:       map[string]CritJSONFile{},
@@ -1295,7 +1295,7 @@ func TestLoadCritJSON_RestoresMatchingShareState(t *testing.T) {
 	sess.loadCritJSON()
 
 	url, token := sess.GetShareState()
-	if url != "https://crit.live/r/current" {
+	if url != "https://crit.md/r/current" {
 		t.Errorf("expected share state restored, got url=%q", url)
 	}
 	if token != "current-token" {

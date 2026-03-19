@@ -6,7 +6,7 @@
 - Split & unified diff between review rounds
 - AI review loop (finish review → clipboard prompt → agent edits → diff)
 - Vim keybindings (`j`/`k`/`c`/`Shift+F`)
-- Share reviews via crit.live
+- Share reviews via crit.md
 - Syntax highlighting (13+ languages)
 - Mermaid diagrams
 - Suggestion mode (before/after edits in comments)
@@ -51,9 +51,9 @@ A subtle `AudioContext`-generated tone when the agent signals round complete. Th
 
 A small "Insert template" dropdown in the comment form with pre-defined starters: "Consider using X instead of Y", "This will fail when...", "Missing error handling for...". Stored in `localStorage`, user-editable. Reduces friction of typing the same comment patterns.
 
-### "Reviewing as..." identity pill (crit.live)
+### "Reviewing as..." identity pill (crit.md)
 
-On shared reviews at crit.live, show a persistent header pill: `Reviewing as: Tomasz (purple)`. Makes multi-reviewer sessions feel collaborative rather than anonymous. The color-coding per identity already exists - this surfaces it explicitly.
+On shared reviews at crit.md, show a persistent header pill: `Reviewing as: Tomasz (purple)`. Makes multi-reviewer sessions feel collaborative rather than anonymous. The color-coding per identity already exists - this surfaces it explicitly.
 
 ---
 
@@ -79,14 +79,14 @@ After each review cycle, generate or append to a `crit-knowledge.md` that captur
 
 Export comments as GitHub PR review format, Jira issues, or structured JSON for downstream tooling. Useful when crit is embedded in larger workflows where review artifacts need to flow elsewhere.
 
-### Review history and analytics (crit.live)
+### Review history and analytics (crit.md)
 
-For teams using crit.live: aggregate data on review patterns, comment types, average rounds per plan. Surfaces which plan patterns generate the most review friction and helps teams calibrate their agent prompting. Enterprise-only, hosted, does not touch the CLI.
+For teams using crit.md: aggregate data on review patterns, comment types, average rounds per plan. Surfaces which plan patterns generate the most review friction and helps teams calibrate their agent prompting. Enterprise-only, hosted, does not touch the CLI.
 
 ### File-based plans (daemon mode)
 
 Support a persistent `crit` daemon that watches a directory for new `.md` files matching a pattern and automatically opens them for review. Eliminates the need to manually invoke `crit` per session - suitable for fully automated agent pipelines. Plannotator has open requests for this exact pattern.
 
-### Self-hosted crit.live
+### Self-hosted crit.md
 
 `docker run crit-web` for teams that need private sharing without data leaving their infrastructure. The Phoenix app is already open source - provide a production-ready Docker image and configuration guide.

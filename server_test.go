@@ -449,7 +449,7 @@ func TestHandleFiles_MethodNotAllowed(t *testing.T) {
 
 func TestGetConfig(t *testing.T) {
 	s, _ := newTestServer(t)
-	s.shareURL = "https://crit.live"
+	s.shareURL = "https://crit.md"
 	s.currentVersion = "v1.2.3"
 
 	req := httptest.NewRequest("GET", "/api/config", nil)
@@ -463,8 +463,8 @@ func TestGetConfig(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["share_url"] != "https://crit.live" {
-		t.Errorf("share_url = %q, want https://crit.live", resp["share_url"])
+	if resp["share_url"] != "https://crit.md" {
+		t.Errorf("share_url = %q, want https://crit.md", resp["share_url"])
 	}
 	if resp["hosted_url"] != "" {
 		t.Errorf("hosted_url should be empty initially, got %q", resp["hosted_url"])
@@ -542,7 +542,7 @@ func TestGetConfig_MethodNotAllowed(t *testing.T) {
 func TestPostShareURL(t *testing.T) {
 	s, session := newTestServer(t)
 
-	body := `{"url":"https://crit.live/r/abc123"}`
+	body := `{"url":"https://crit.md/r/abc123"}`
 	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -551,8 +551,8 @@ func TestPostShareURL(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
-	if session.GetSharedURL() != "https://crit.live/r/abc123" {
-		t.Errorf("shared URL = %q, want https://crit.live/r/abc123", session.GetSharedURL())
+	if session.GetSharedURL() != "https://crit.md/r/abc123" {
+		t.Errorf("shared URL = %q, want https://crit.md/r/abc123", session.GetSharedURL())
 	}
 
 	// Verify config now reflects the stored URL
@@ -563,8 +563,8 @@ func TestPostShareURL(t *testing.T) {
 	if err := json.Unmarshal(w2.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["hosted_url"] != "https://crit.live/r/abc123" {
-		t.Errorf("hosted_url = %q, want https://crit.live/r/abc123", resp["hosted_url"])
+	if resp["hosted_url"] != "https://crit.md/r/abc123" {
+		t.Errorf("hosted_url = %q, want https://crit.md/r/abc123", resp["hosted_url"])
 	}
 }
 
@@ -598,7 +598,7 @@ func TestGetConfig_IncludesDeleteToken(t *testing.T) {
 func TestPostShareURL_SavesDeleteToken(t *testing.T) {
 	s, session := newTestServer(t)
 
-	body := `{"url":"https://crit.live/r/abc","delete_token":"deletetoken1234567890x"}`
+	body := `{"url":"https://crit.md/r/abc","delete_token":"deletetoken1234567890x"}`
 	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -614,7 +614,7 @@ func TestPostShareURL_SavesDeleteToken(t *testing.T) {
 
 func TestDeleteShareURL(t *testing.T) {
 	s, session := newTestServer(t)
-	session.SetSharedURLAndToken("https://crit.live/r/abc", "sometoken1234567890123")
+	session.SetSharedURLAndToken("https://crit.md/r/abc", "sometoken1234567890123")
 
 	req := httptest.NewRequest("DELETE", "/api/share-url", nil)
 	w := httptest.NewRecorder()

@@ -299,5 +299,5 @@ func resolveShareURL(flagValue string) string {
 	if cfg.ShareURL != "" {
 		return cfg.ShareURL
 	}
-	return "https://crit.live"
+	return "https://crit.md"
 }

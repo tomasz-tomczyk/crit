@@ -121,7 +121,7 @@ crit share plan.md --qr               # also print a QR code in the terminal
 crit unpublish                        # remove the shared review
 ```
 
-Sharing uses [crit.live](https://crit.live) by default. To self-host, deploy [`crit-web`](https://github.com/tomasz-tomczyk/crit-web) (Elixir/Phoenix) and point `CRIT_SHARE_URL` (or `--share-url`, or `share_url` in config) at your instance. Set `share_url` to `""` to disable sharing entirely.
+Sharing uses [crit.md](https://crit.md) by default. To self-host, deploy [`crit-web`](https://github.com/tomasz-tomczyk/crit-web) (Elixir/Phoenix) and point `CRIT_SHARE_URL` (or `--share-url`, or `share_url` in config) at your instance. Set `share_url` to `""` to disable sharing entirely.
 
 ### GitHub PR Sync
 
@@ -214,7 +214,7 @@ crit config --help                             # document all config keys
 {
   "port": 0,
   "no_open": false,
-  "share_url": "https://crit.live",
+  "share_url": "https://crit.md",
   "quiet": false,
   "output": "",
   "author": "John",
@@ -245,7 +245,7 @@ crit --no-ignore
 
 | Variable               | Description                                                                  |
 | ---------------------- | ---------------------------------------------------------------------------- |
-| `CRIT_SHARE_URL`       | Enable the Share button (e.g. `https://crit.live` or a self-hosted instance) |
+| `CRIT_SHARE_URL`       | Enable the Share button (e.g. `https://crit.md` or a self-hosted instance) |
 | `CRIT_PORT`            | Default port for the local server                                            |
 | `CRIT_NO_UPDATE_CHECK` | Set to any value to disable the update check on startup                      |
 
