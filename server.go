@@ -482,7 +482,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		prompt = fmt.Sprintf(
 			"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
 				"Read the file, address each comment in the relevant file and location. "+
-				"For each comment: reply explaining what you did using `crit comment --reply-to <comment-id> --resolve \"<explanation>\"`, "+
+				"For each comment: reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> --resolve \"<explanation>\"`, "+
 				"or edit .crit.json directly to add a reply to the comment's \"replies\" array and set \"resolved\": true. "+
 				"When done run: `crit go %d`",
 			critJSON, s.port)

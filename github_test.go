@@ -905,3 +905,106 @@ func TestAddReplyToCritJSON_NotFound(t *testing.T) {
 		t.Errorf("error = %q, want 'not found'", err.Error())
 	}
 }
+
+func TestCritJSONToGHComments_SkipsAlreadyPushed(t *testing.T) {
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Comments: []Comment{
+					{ID: "c1", EndLine: 5, Body: "new", GitHubID: 0},
+					{ID: "c2", EndLine: 10, Body: "already pushed", GitHubID: 123},
+				},
+			},
+		},
+	}
+	comments := critJSONToGHComments(cj)
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment (skipping pushed), got %d", len(comments))
+	}
+	if comments[0]["body"] != "new" {
+		t.Errorf("wrong comment kept: %v", comments[0])
+	}
+}
+
+func TestUpdateCritJSONWithGitHubIDs(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit.json")
+
+	cj := CritJSON{
+		Branch: "main", BaseRef: "abc123", ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 5, Body: "fix this", GitHubID: 0},
+					{ID: "c2", StartLine: 10, EndLine: 10, Body: "also fix", GitHubID: 0},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(critPath, data, 0644)
+
+	idMap := map[string]int64{
+		"main.go:5":  111,
+		"main.go:10": 222,
+	}
+
+	err := updateCritJSONWithGitHubIDs(critPath, idMap, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, _ := os.ReadFile(critPath)
+	var got CritJSON
+	json.Unmarshal(result, &got)
+
+	comments := got.Files["main.go"].Comments
+	if comments[0].GitHubID != 111 {
+		t.Errorf("c1: expected GitHubID=111, got %d", comments[0].GitHubID)
+	}
+	if comments[1].GitHubID != 222 {
+		t.Errorf("c2: expected GitHubID=222, got %d", comments[1].GitHubID)
+	}
+}
+
+func TestUpdateCritJSONWithGitHubIDs_Replies(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit.json")
+
+	cj := CritJSON{
+		Branch: "main", ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Comments: []Comment{
+					{
+						ID: "c1", EndLine: 5, Body: "fix", GitHubID: 100,
+						Replies: []Reply{
+							{ID: "c1-r1", Body: "Done, fixed it", GitHubID: 0},
+						},
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(critPath, data, 0644)
+
+	replyIDs := map[replyKey]int64{
+		{ParentGHID: 100, BodyPrefix: "Done, fixed it"}: 201,
+	}
+
+	err := updateCritJSONWithGitHubIDs(critPath, nil, replyIDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, _ := os.ReadFile(critPath)
+	var got CritJSON
+	json.Unmarshal(result, &got)
+
+	reply := got.Files["main.go"].Comments[0].Replies[0]
+	if reply.GitHubID != 201 {
+		t.Errorf("reply: expected GitHubID=201, got %d", reply.GitHubID)
+	}
+}

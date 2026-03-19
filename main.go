@@ -508,7 +508,8 @@ func runPush(args []string) {
 	}
 
 	fmt.Printf("Pushing %d comments to PR #%d...\n", len(ghComments), prNumber)
-	if err := createGHReview(prNumber, ghComments, message); err != nil {
+	commentIDs, err := createGHReview(prNumber, ghComments, message)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -516,15 +517,26 @@ func runPush(args []string) {
 
 	// Phase 2: Post new replies individually
 	replyCount := 0
+	replyIDs := make(map[replyKey]int64)
 	for _, reply := range allReplies {
-		if err := postGHReply(prNumber, reply.ParentGHID, reply.Body); err != nil {
+		replyID, err := postGHReply(prNumber, reply.ParentGHID, reply.Body)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to post reply: %v\n", err)
 		} else {
 			replyCount++
+			if replyID != 0 {
+				replyIDs[replyKey{ParentGHID: reply.ParentGHID, BodyPrefix: truncateStr(reply.Body, 60)}] = replyID
+			}
 		}
 	}
 	if replyCount > 0 {
 		fmt.Printf("Posted %d replies\n", replyCount)
+	}
+
+	// Write GitHub IDs back to .crit.json for idempotent re-push
+	critPath := filepath.Join(critDir, ".crit.json")
+	if err := updateCritJSONWithGitHubIDs(critPath, commentIDs, replyIDs); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to update .crit.json with GitHub IDs: %v\n", err)
 	}
 }
 
