@@ -37,10 +37,8 @@ type Comment struct {
 	Author          string  `json:"author,omitempty"`
 	CreatedAt       string  `json:"created_at"`
 	UpdatedAt       string  `json:"updated_at"`
-	Resolved        bool    `json:"resolved,omitempty"`
-	ResolutionNote  string  `json:"resolution_note,omitempty"`
-	ResolutionLines any     `json:"resolution_lines,omitempty"`
-	CarriedForward  bool    `json:"carried_forward,omitempty"`
+	Resolved       bool `json:"resolved,omitempty"`
+	CarriedForward bool `json:"carried_forward,omitempty"`
 	ReviewRound     int     `json:"review_round,omitempty"`
 	Replies         []Reply `json:"replies,omitempty"`
 	GitHubID        int64   `json:"github_id,omitempty"`
@@ -459,7 +457,7 @@ func (s *Session) UpdateComment(filePath, id, body string) (Comment, bool) {
 }
 
 // SetCommentResolved sets or clears the resolved flag on a comment.
-func (s *Session) SetCommentResolved(filePath, id string, resolved bool, note string) (Comment, bool) {
+func (s *Session) SetCommentResolved(filePath, id string, resolved bool) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f := s.fileByPathLocked(filePath)
@@ -469,11 +467,6 @@ func (s *Session) SetCommentResolved(filePath, id string, resolved bool, note st
 	for i, c := range f.Comments {
 		if c.ID == id {
 			f.Comments[i].Resolved = resolved
-			if resolved {
-				f.Comments[i].ResolutionNote = note
-			} else {
-				f.Comments[i].ResolutionNote = ""
-			}
 			f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 			s.scheduleWrite()
 			return f.Comments[i], true

@@ -444,51 +444,6 @@ func TestSession_LoadCritJSON_MismatchedHash(t *testing.T) {
 	}
 }
 
-func TestSession_LoadResolvedComments_StringResolutionLines(t *testing.T) {
-	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "fix this", "", "")
-
-	flushWrites(s)
-	s.WriteFiles()
-
-	// Simulate what an agent does: read .crit.json, add resolved + string resolution_lines, write back
-	data, err := os.ReadFile(s.critJSONPath())
-	if err != nil {
-		t.Fatalf("read .crit.json: %v", err)
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	files := raw["files"].(map[string]any)
-	planFile := files["plan.md"].(map[string]any)
-	comments := planFile["comments"].([]any)
-	comment := comments[0].(map[string]any)
-	comment["resolved"] = true
-	comment["resolution_note"] = "Fixed it"
-	comment["resolution_lines"] = "1-5" // agent writes string, not []int
-	data, _ = json.MarshalIndent(raw, "", "  ")
-	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
-		t.Fatalf("write .crit.json: %v", err)
-	}
-
-	// Now loadResolvedComments should parse successfully despite string resolution_lines
-	s.loadResolvedComments()
-
-	s.mu.RLock()
-	f := s.fileByPathLocked("plan.md")
-	if len(f.PreviousComments) != 1 {
-		t.Fatalf("expected 1 PreviousComment, got %d", len(f.PreviousComments))
-	}
-	if !f.PreviousComments[0].Resolved {
-		t.Error("expected comment to be resolved")
-	}
-	if f.PreviousComments[0].ResolutionNote != "Fixed it" {
-		t.Errorf("ResolutionNote = %q, want %q", f.PreviousComments[0].ResolutionNote, "Fixed it")
-	}
-	s.mu.RUnlock()
-}
-
 func TestSession_SignalRoundComplete(t *testing.T) {
 	s := newTestSession(t)
 	s.AddComment("plan.md", 1, 1, "", "fix this", "", "")
@@ -1392,7 +1347,7 @@ func TestComment_RepliesJSON(t *testing.T) {
 }
 
 func TestComment_NoRepliesBackwardCompat(t *testing.T) {
-	// Old .crit.json format without replies field
+	// Old .crit.json format with deprecated resolution_note — silently ignored by Go JSON decoder
 	data := `{"id":"c1","start_line":5,"end_line":5,"body":"Fix","created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z","resolution_note":"Done"}`
 
 	var c Comment
@@ -1402,9 +1357,7 @@ func TestComment_NoRepliesBackwardCompat(t *testing.T) {
 	if c.Replies != nil {
 		t.Errorf("expected nil replies, got %v", c.Replies)
 	}
-	if c.ResolutionNote != "Done" {
-		t.Errorf("resolution_note = %q, want %q", c.ResolutionNote, "Done")
-	}
+	// resolution_note is no longer in the struct — Go silently ignores unknown JSON fields
 }
 
 func TestSession_AddReply(t *testing.T) {
@@ -1587,10 +1540,8 @@ func TestCarryForwardComment(t *testing.T) {
 		Author:          "reviewer-bot",
 		CreatedAt:       "2026-01-01T00:00:00Z",
 		UpdatedAt:       "2026-01-01T00:00:00Z",
-		Resolved:        true,
-		ResolutionNote:  "Fixed in round 2",
-		ResolutionLines: "5-8",
-		CarriedForward:  false,
+		Resolved:       true,
+		CarriedForward: false,
 		ReviewRound:     1,
 	}
 
@@ -1622,12 +1573,6 @@ func TestCarryForwardComment(t *testing.T) {
 	}
 	if !carried.Resolved {
 		t.Error("Resolved should be preserved as true")
-	}
-	if carried.ResolutionNote != "Fixed in round 2" {
-		t.Errorf("ResolutionNote = %q", carried.ResolutionNote)
-	}
-	if carried.ResolutionLines != "5-8" {
-		t.Errorf("ResolutionLines = %v", carried.ResolutionLines)
 	}
 	if !carried.CarriedForward {
 		t.Error("CarriedForward should be true")

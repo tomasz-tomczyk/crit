@@ -327,15 +327,14 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req struct {
-			Resolved bool   `json:"resolved"`
-			Note     string `json:"note"`
+			Resolved bool `json:"resolved"`
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
-		c, ok := s.session.SetCommentResolved(path, commentID, req.Resolved, req.Note)
+		c, ok := s.session.SetCommentResolved(path, commentID, req.Resolved)
 		if !ok {
 			http.Error(w, "Comment not found", http.StatusNotFound)
 			return
