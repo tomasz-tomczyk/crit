@@ -352,13 +352,14 @@ func collectNewRepliesForPush(filePath string, cf CritJSONFile) []ghReplyForPush
 }
 
 // postGHReply posts a reply to an existing GitHub PR review comment.
-func postGHReply(prNumber int, parentGHID int64, body string) error {
+// Returns the GitHub ID of the newly created reply.
+func postGHReply(prNumber int, parentGHID int64, body string) (int64, error) {
 	payload, err := json.Marshal(map[string]any{
 		"body":        body,
 		"in_reply_to": parentGHID,
 	})
 	if err != nil {
-		return fmt.Errorf("marshal reply: %w", err)
+		return 0, fmt.Errorf("marshal reply: %w", err)
 	}
 	cmd := exec.Command("gh", "api",
 		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", prNumber),
@@ -368,9 +369,15 @@ func postGHReply(prNumber int, parentGHID int64, body string) error {
 	cmd.Stdin = bytes.NewReader(payload)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("gh api: %s: %w", string(output), err)
+		return 0, fmt.Errorf("gh api: %s: %w", string(output), err)
 	}
-	return nil
+	var resp struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(output, &resp); err != nil {
+		return 0, nil // non-fatal: reply was posted, just can't parse ID
+	}
+	return resp.ID, nil
 }
 
 // critJSONToGHComments converts .crit.json comments to GitHub review comment format.
@@ -381,6 +388,9 @@ func critJSONToGHComments(cj CritJSON) []map[string]any {
 		for _, c := range cf.Comments {
 			if c.Resolved {
 				continue // don't post resolved comments
+			}
+			if c.GitHubID != 0 {
+				continue // already pushed
 			}
 			comment := map[string]any{
 				"path": path,
@@ -410,27 +420,99 @@ func buildReviewPayload(comments []map[string]any, message string) ([]byte, erro
 
 // createGHReview posts a review with inline comments to a GitHub PR.
 // message is the top-level review body (empty string posts no top-level comment).
-func createGHReview(prNumber int, comments []map[string]any, message string) error {
+// Returns a map of "path:endLine" -> GitHubID for each created comment.
+func createGHReview(prNumber int, comments []map[string]any, message string) (map[string]int64, error) {
 	data, err := buildReviewPayload(comments, message)
 	if err != nil {
-		return fmt.Errorf("marshaling review: %w", err)
+		return nil, fmt.Errorf("marshaling review: %w", err)
 	}
 
-	var stderr bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	cmd := exec.Command("gh", "api",
 		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews", prNumber),
 		"--method", "POST",
 		"--input", "-",
 	)
 	cmd.Stdin = bytes.NewReader(data)
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if stderr.Len() > 0 {
-			return fmt.Errorf("creating review: %s", strings.TrimSpace(stderr.String()))
+			return nil, fmt.Errorf("creating review: %s", strings.TrimSpace(stderr.String()))
 		}
-		return fmt.Errorf("creating review: %w", err)
+		return nil, fmt.Errorf("creating review: %w", err)
 	}
-	return nil
+
+	// Parse response to extract comment IDs
+	var resp struct {
+		Comments []struct {
+			ID   int64  `json:"id"`
+			Path string `json:"path"`
+			Line int    `json:"line"`
+		} `json:"comments"`
+	}
+	idMap := make(map[string]int64)
+	if err := json.Unmarshal(stdout.Bytes(), &resp); err == nil {
+		for _, c := range resp.Comments {
+			key := fmt.Sprintf("%s:%d", c.Path, c.Line)
+			idMap[key] = c.ID
+		}
+	}
+	return idMap, nil
+}
+
+// replyKey uniquely identifies a reply for GitHubID mapping after push.
+type replyKey struct {
+	ParentGHID int64
+	BodyPrefix string
+}
+
+// updateCritJSONWithGitHubIDs writes GitHub IDs back to .crit.json after a push.
+// commentIDs maps "path:endLine" -> GitHubID for root comments.
+// replyIDs maps replyKey -> GitHubID for replies.
+func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, replyIDs map[replyKey]int64) error {
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		return err
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return err
+	}
+
+	for path, cf := range cj.Files {
+		for i, c := range cf.Comments {
+			if c.GitHubID == 0 {
+				key := fmt.Sprintf("%s:%d", path, c.EndLine)
+				if id, ok := commentIDs[key]; ok {
+					cf.Comments[i].GitHubID = id
+				}
+			}
+			for j, r := range c.Replies {
+				if r.GitHubID == 0 && cf.Comments[i].GitHubID != 0 {
+					rk := replyKey{ParentGHID: cf.Comments[i].GitHubID, BodyPrefix: truncateStr(r.Body, 60)}
+					if id, ok := replyIDs[rk]; ok {
+						cf.Comments[i].Replies[j].GitHubID = id
+					}
+				}
+			}
+		}
+		cj.Files[path] = cf
+	}
+
+	out, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(critPath, append(out, '\n'), 0644)
+}
+
+// truncateStr returns the first n bytes of s, or all of s if shorter.
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 // addCommentToCritJSON appends a comment to .crit.json for the given file and line range.

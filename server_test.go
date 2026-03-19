@@ -983,6 +983,22 @@ func TestGetFile_NotInSession_PathTraversal(t *testing.T) {
 	}
 }
 
+func TestHandleFinish_PromptIncludesAuthor(t *testing.T) {
+	srv, session := newTestServer(t)
+	session.AddComment(session.Files[0].Path, 1, 1, "", "fix this", "", "")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/finish", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	if !strings.Contains(resp["prompt"], "--author") {
+		t.Errorf("expected prompt to mention --author, got: %s", resp["prompt"])
+	}
+}
+
 func TestHandleFinishEmitsSSEEvent(t *testing.T) {
 	srv, session := newTestServer(t)
 	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "", "")
