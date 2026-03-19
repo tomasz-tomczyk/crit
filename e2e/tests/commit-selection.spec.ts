@@ -79,8 +79,9 @@ test.describe('Commit Selection', () => {
     // First select a commit
     await openCommitPicker(page);
     const commitItem = page.locator('#commitDropdownList .commit-picker-item').first();
+    const firstResponsePromise = page.waitForResponse(r => r.url().includes('/api/session'));
     await commitItem.click();
-    await page.waitForResponse(r => r.url().includes('/api/session'));
+    await firstResponsePromise;
 
     // Now open again and select "All commits"
     await openCommitPicker(page);
@@ -140,8 +141,9 @@ test.describe('Commit Selection', () => {
     // Select a commit
     await openCommitPicker(page);
     const commitItem = page.locator('#commitDropdownList .commit-picker-item').first();
+    const responsePromise = page.waitForResponse(r => r.url().includes('/api/session'));
     await commitItem.click();
-    await page.waitForResponse(r => r.url().includes('/api/session'));
+    await responsePromise;
 
     // Reload — selection should reset (commit selection is session-scoped)
     await page.reload();
@@ -155,8 +157,9 @@ test.describe('Commit Selection', () => {
     // Select a commit
     await openCommitPicker(page);
     const commitItem = page.locator('#commitDropdownList .commit-picker-item').first();
+    const responsePromise = page.waitForResponse(r => r.url().includes('/api/session'));
     await commitItem.click();
-    await page.waitForResponse(r => r.url().includes('/api/session'));
+    await responsePromise;
 
     // Open dropdown again to inspect state
     await openCommitPicker(page);

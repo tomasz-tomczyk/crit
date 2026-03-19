@@ -422,6 +422,10 @@ test.describe('Author Badges', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
+    // Wait for the comment card to be visible before asserting on badge absence.
+    // switchToDocumentView only waits for the document wrapper — comment rendering
+    // may still be in progress, causing the count check to see 0 cards.
+    await expect(page.locator('.comment-card')).toBeVisible();
     await expect(page.locator('.comment-card')).toHaveCount(1);
     await expect(page.locator('.comment-author-badge')).toHaveCount(0);
   });
@@ -435,6 +439,8 @@ test.describe('Author Badges', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
+    // Wait for the comment card to render before asserting badge absence.
+    await expect(page.locator('.comment-card')).toBeVisible();
     await expect(page.locator('.comment-card')).toHaveCount(1);
     await expect(page.locator('.comment-author-badge')).toHaveCount(0);
   });
