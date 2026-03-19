@@ -691,3 +691,74 @@ func TestShareScope(t *testing.T) {
 		t.Error("empty file set should still produce a hash")
 	}
 }
+
+func TestBuildSharePayload_WithReplies(t *testing.T) {
+	files := []shareFile{{Path: "f.md", Content: "hello"}}
+	comments := []shareComment{{
+		File: "f.md", StartLine: 1, EndLine: 1, Body: "fix this", Author: "Alice",
+		Replies: []shareReply{
+			{Body: "done", Author: "Bob"},
+			{Body: "verified", Author: "Alice"},
+		},
+	}}
+	payload := buildSharePayload(files, comments, 1)
+	cs := payload["comments"].([]shareComment)
+	if len(cs) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(cs))
+	}
+	if len(cs[0].Replies) != 2 {
+		t.Fatalf("expected 2 replies, got %d", len(cs[0].Replies))
+	}
+	if cs[0].Replies[0].Body != "done" {
+		t.Errorf("expected reply body 'done', got %q", cs[0].Replies[0].Body)
+	}
+	if cs[0].Replies[1].Author != "Alice" {
+		t.Errorf("expected reply author 'Alice', got %q", cs[0].Replies[1].Author)
+	}
+}
+
+func TestBuildShareFromSession_WithReplies(t *testing.T) {
+	s := &Session{
+		Files: []*FileEntry{{
+			Path:    "f.md",
+			Content: "hello",
+			Comments: []Comment{{
+				ID: "c1", StartLine: 1, EndLine: 1, Body: "fix",
+				Author: "Alice",
+				Replies: []Reply{
+					{ID: "c1-r1", Body: "done", Author: "Bob"},
+				},
+			}},
+		}},
+		ReviewRound: 1,
+	}
+	_, comments, _ := buildShareFromSession(s)
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if len(comments[0].Replies) != 1 {
+		t.Fatalf("expected 1 reply, got %d", len(comments[0].Replies))
+	}
+	if comments[0].Replies[0].Body != "done" {
+		t.Errorf("expected reply body 'done', got %q", comments[0].Replies[0].Body)
+	}
+}
+
+func TestBuildShareFromSession_SkipsResolvedWithReplies(t *testing.T) {
+	s := &Session{
+		Files: []*FileEntry{{
+			Path:    "f.md",
+			Content: "hello",
+			Comments: []Comment{{
+				ID: "c1", StartLine: 1, EndLine: 1, Body: "old issue",
+				Resolved: true,
+				Replies:  []Reply{{ID: "c1-r1", Body: "fixed"}},
+			}},
+		}},
+		ReviewRound: 1,
+	}
+	_, comments, _ := buildShareFromSession(s)
+	if len(comments) != 0 {
+		t.Fatalf("expected 0 comments (resolved should be skipped), got %d", len(comments))
+	}
+}
