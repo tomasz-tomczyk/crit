@@ -84,6 +84,44 @@ Rules:
 - **No setup needed** — `crit comment` creates `.crit.json` automatically if it doesn't exist
 - **Do NOT run `crit go` after leaving comments** — that triggers a new review round. Only the `/crit` command flow uses `crit go`, and only after addressing (not leaving) comments
 
+### Bulk commenting (recommended for multiple comments)
+
+When leaving 3+ comments, use `--json` to add them all in one atomic operation:
+
+```bash
+echo '[
+  {"file": "src/auth.go", "line": 42, "body": "Missing null check"},
+  {"file": "src/auth.go", "line": 50, "end_line": 55, "body": "Extract to helper"},
+  {"file": "src/handler.go", "line": 10, "body": "Swallowed error"}
+]' | crit comment --json --author 'GitHub Copilot'
+```
+
+Replies and resolves work too:
+
+```bash
+echo '[
+  {"reply_to": "c1", "body": "Fixed — added null check", "resolve": true},
+  {"reply_to": "c2", "body": "Extracted to validateSession()"}
+]' | crit comment --json --author 'GitHub Copilot'
+```
+
+JSON schema per entry:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file` | string | yes (new comment) | Relative file path |
+| `line` | int | yes (new comment) | Start line (1-indexed) |
+| `end_line` | int | no | End line (defaults to `line`) |
+| `body` | string | yes | Comment text |
+| `author` | string | no | Per-entry override (falls back to `--author`) |
+| `reply_to` | string | yes (reply) | Comment ID to reply to (e.g. `"c1"`) |
+| `resolve` | bool | no | Mark the parent comment resolved |
+
+Benefits over individual `crit comment` calls:
+- **Atomic** — one write to `.crit.json`, no partial state
+- **Faster** — single process invocation instead of N
+- **Safer** — no race conditions with concurrent crit processes
+
 ## GitHub PR Integration
 
 ```bash

@@ -36,6 +36,15 @@ crit listen <port>
 
 Read `.crit.json` to find the user's inline comments. Comments are grouped per file with `start_line`/`end_line` referencing the source. A comment is unresolved if `"resolved": false` or if the `resolved` field is missing. Address each unresolved comment by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --resolve --author 'Aider' '<what you did>'`.
 
+When addressing multiple comments, use `--json` to resolve them all in one call:
+
+```bash
+echo '[
+  {"reply_to": "c1", "body": "Fixed", "resolve": true},
+  {"reply_to": "c2", "body": "Refactored as suggested", "resolve": true}
+]' | crit comment --json --author 'Aider'
+```
+
 When done, run `crit go <port>` to trigger a new round, then **immediately run `crit listen <port>` again** to wait for the next review. Do NOT skip `crit listen` between rounds.
 
 Only proceed after the user approves (finishes a round with zero comments).
