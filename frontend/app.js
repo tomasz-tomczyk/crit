@@ -5411,7 +5411,7 @@
       var res = await fetch('/api/commits');
       if (!res.ok) { commitDropdown.style.display = 'none'; return; }
       commitList = await res.json();
-      if (!commitList || commitList.length === 0) {
+      if (!commitList || commitList.length < 2) {
         commitDropdown.style.display = 'none';
         diffCommit = '';
         return;

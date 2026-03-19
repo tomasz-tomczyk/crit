@@ -88,6 +88,32 @@ git commit -q -m "initial commit"
 
 git checkout -q -b feat/add-auth
 
+# First commit: add notification handler (gives us 2 commits on branch)
+cat > handler.js << 'JSFILE'
+// Request handler for the notification service
+export function handleNotification(req, res) {
+  const { userId, message, channel } = req.body;
+
+  if (!userId || !message) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  const notification = {
+    id: crypto.randomUUID(),
+    userId,
+    message,
+    channel: channel || 'email',
+    createdAt: new Date().toISOString(),
+  };
+
+  queue.push(notification);
+  res.status(201).json(notification);
+}
+JSFILE
+git add handler.js
+git commit -q -m "feat: add notification handler"
+
+# Second commit: auth middleware and plan
 # Modify server.go significantly to produce multi-hunk diff
 # Hunk 1: change imports. Hunk 2: add authMiddleware. Hunk 3: modify main (wraps handler, changes startup).
 # The unchanged helper functions and /version, /ready handlers create gaps between hunks.
@@ -225,29 +251,6 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 - **Week 2**: Validation endpoint + tests
 - **Week 3**: Dashboard UI for key management
 MDFILE
-
-# Add handler.js (new file, all-addition diff)
-cat > handler.js << 'JSFILE'
-// Request handler for the notification service
-export function handleNotification(req, res) {
-  const { userId, message, channel } = req.body;
-
-  if (!userId || !message) {
-    return res.status(400).json({ error: 'Missing required fields' });
-  }
-
-  const notification = {
-    id: crypto.randomUUID(),
-    userId,
-    message,
-    channel: channel || 'email',
-    createdAt: new Date().toISOString(),
-  };
-
-  queue.push(notification);
-  res.status(201).json(notification);
-}
-JSFILE
 
 git add -A
 git commit -q -m "feat: add auth middleware and plan"
