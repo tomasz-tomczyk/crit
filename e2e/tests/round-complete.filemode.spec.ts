@@ -140,16 +140,14 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await request.post('/api/round-complete');
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Resolved comment should render as .resolved-comment (not .comment-card)
-    await expect(page.locator('.resolved-comment')).toHaveCount(1);
-    await expect(page.locator('.comment-card')).toHaveCount(0);
+    // Resolved comment should render as .comment-card.resolved-card
+    await expect(page.locator('.comment-card.resolved-card')).toHaveCount(1);
 
-    // Should have green checkmark and body text
-    await expect(page.locator('.resolved-check')).toContainText('\u2713');
-    await expect(page.locator('.resolved-body')).toContainText('Will be resolved visually');
-
-    // Resolution note should be present
-    await expect(page.locator('.resolved-note')).toContainText('Done');
+    // Should have resolved badge and body text
+    await expect(page.locator('.resolved-badge')).toContainText('Resolved');
+    // Expand to see body
+    await page.locator('.comment-collapse-btn').click();
+    await expect(page.locator('.comment-body')).toContainText('Will be resolved visually');
   });
 
   test('resolved comments are excluded from comment count', async ({ page, request }) => {
@@ -193,9 +191,9 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
       await expect(countEl).not.toHaveClass(/comment-count-resolved/);
     }).toPass({ timeout: 5000 });
 
-    // Both should render: 1 resolved + 1 unresolved
-    await expect(page.locator('.resolved-comment')).toHaveCount(1);
-    await expect(page.locator('.comment-card')).toHaveCount(1);
+    // Both should render: 1 resolved + 1 unresolved (both are .comment-card)
+    await expect(page.locator('.comment-card.resolved-card')).toHaveCount(1);
+    await expect(page.locator('.comment-card:not(.resolved-card)')).toHaveCount(1);
   });
 
   test('resolved comment is collapsed by default and expandable', async ({ page, request }) => {
@@ -229,19 +227,19 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await request.post('/api/round-complete');
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    const resolved = page.locator('.resolved-comment');
+    const resolved = page.locator('.comment-card.resolved-card');
     await expect(resolved).toBeVisible();
 
-    // Should NOT have expanded class initially
-    await expect(resolved).not.toHaveClass(/expanded/);
+    // Should have collapsed class initially
+    await expect(resolved).toHaveClass(/collapsed/);
 
-    // Click to expand
-    await resolved.click();
-    await expect(resolved).toHaveClass(/expanded/);
+    // Click chevron to expand
+    await resolved.locator('.comment-collapse-btn').click();
+    await expect(resolved).not.toHaveClass(/collapsed/);
 
     // Click again to collapse
-    await resolved.click();
-    await expect(resolved).not.toHaveClass(/expanded/);
+    await resolved.locator('.comment-collapse-btn').click();
+    await expect(resolved).toHaveClass(/collapsed/);
   });
 
   test('file sections are re-rendered after round-complete', async ({ page, request }) => {

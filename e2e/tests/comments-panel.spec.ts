@@ -301,7 +301,7 @@ test.describe('Comments Panel — Git Mode', () => {
     await panelCards(page).first().click();
 
     // The resolved inline comment should be visible and highlighted
-    const inlineResolved = mdSectionById.locator('.resolved-comment[data-comment-id]').first();
+    const inlineResolved = mdSectionById.locator('.comment-card.resolved-card[data-comment-id]').first();
     await expect(inlineResolved).toBeVisible();
     await expect(inlineResolved).toHaveClass(/comment-card-highlight/);
   });
