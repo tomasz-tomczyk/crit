@@ -319,6 +319,31 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if this is a resolve route: {id}/resolve
+	if parts := strings.SplitN(trimmed, "/resolve", 2); len(parts) == 2 && parts[1] == "" {
+		commentID := parts[0]
+		if r.Method != http.MethodPut {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Resolved bool   `json:"resolved"`
+			Note     string `json:"note"`
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		c, ok := s.session.SetCommentResolved(path, commentID, req.Resolved, req.Note)
+		if !ok {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, c)
+		return
+	}
+
 	// Existing comment PUT/DELETE logic
 	id := trimmed
 	switch r.Method {

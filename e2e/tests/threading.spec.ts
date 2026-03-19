@@ -30,7 +30,7 @@ test.describe('Comment Threading', () => {
     await expect(section.locator('.reply-body')).toContainText('Done, fixed it');
   });
 
-  test('reply button opens and closes reply form', async ({ page, request }) => {
+  test('reply input expands on focus and collapses on Escape', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Review this');
     await loadPage(page);
@@ -40,17 +40,19 @@ test.describe('Comment Threading', () => {
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
-    // Hover comment card to reveal actions, then click Reply
-    await card.hover();
-    const replyBtn = section.locator('.comment-actions button[title="Reply"]');
-    await replyBtn.click();
-    await expect(page.locator('.reply-form')).toBeVisible();
-    await expect(page.locator('.reply-textarea')).toBeFocused();
+    // Compact reply input should be visible at bottom of card
+    const replyInput = card.locator('.reply-input');
+    await expect(replyInput).toBeVisible();
 
-    // Toggle close — hover card again to keep actions visible
-    await card.hover();
-    await replyBtn.click();
-    await expect(page.locator('.reply-form')).toHaveCount(0);
+    // Click to expand
+    await replyInput.click();
+    await expect(card.locator('.reply-textarea')).toBeFocused();
+    await expect(card.locator('.reply-form-buttons')).toBeVisible();
+
+    // Escape collapses back to compact input
+    await card.locator('.reply-textarea').press('Escape');
+    await expect(card.locator('.reply-input')).toBeVisible();
+    await expect(card.locator('.reply-form-buttons')).toHaveCount(0);
   });
 
   test('submitting reply form adds reply to thread', async ({ page, request }) => {
@@ -60,19 +62,17 @@ test.describe('Comment Threading', () => {
     await switchToDocumentView(page);
 
     const section = mdSection(page);
-    await expect(section.locator('.comment-card')).toBeVisible();
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
 
-    // Open form and submit
-    await section.locator('.comment-card').hover();
-    await section.locator('.comment-actions button[title="Reply"]').click();
-    await page.locator('.reply-textarea').fill('Addressed this');
-    await page.locator('.reply-form .btn-primary').click();
+    // Click reply input to expand, fill and submit
+    await card.locator('.reply-input').click();
+    await card.locator('.reply-textarea').fill('Addressed this');
+    await card.locator('.reply-form .btn-primary').click();
 
     // Verify reply appears
     await expect(section.locator('.comment-reply')).toHaveCount(1);
     await expect(section.locator('.reply-body')).toContainText('Addressed this');
-    // Form should be gone
-    await expect(page.locator('.reply-form')).toHaveCount(0);
   });
 
   test('reply form supports Ctrl+Enter submit', async ({ page, request }) => {
@@ -82,31 +82,37 @@ test.describe('Comment Threading', () => {
     await switchToDocumentView(page);
 
     const section = mdSection(page);
-    await expect(section.locator('.comment-card')).toBeVisible();
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
 
-    await section.locator('.comment-card').hover();
-    await section.locator('.comment-actions button[title="Reply"]').click();
-    await page.locator('.reply-textarea').fill('Fixed via Ctrl+Enter');
-    await page.locator('.reply-textarea').press('Control+Enter');
+    await card.locator('.reply-input').click();
+    await card.locator('.reply-textarea').fill('Fixed via Ctrl+Enter');
+    await card.locator('.reply-textarea').press('Control+Enter');
 
     await expect(section.locator('.comment-reply')).toHaveCount(1);
     await expect(section.locator('.reply-body')).toContainText('Fixed via Ctrl+Enter');
   });
 
-  test('reply form Escape cancels', async ({ page, request }) => {
+  test('reply form Cancel collapses without submitting', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Check this');
     await loadPage(page);
     await switchToDocumentView(page);
 
     const section = mdSection(page);
-    await expect(section.locator('.comment-card')).toBeVisible();
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
 
-    await section.locator('.comment-card').hover();
-    await section.locator('.comment-actions button[title="Reply"]').click();
-    await expect(page.locator('.reply-form')).toBeVisible();
-    await page.locator('.reply-textarea').press('Escape');
-    await expect(page.locator('.reply-form')).toHaveCount(0);
+    // Expand the reply input
+    await card.locator('.reply-input').click();
+    await card.locator('.reply-textarea').fill('draft text');
+
+    // Click Cancel
+    await card.locator('.reply-form-buttons .btn:not(.btn-primary)').click();
+
+    // Should collapse back to compact input, no reply added
+    await expect(card.locator('.reply-input')).toBeVisible();
+    await expect(section.locator('.comment-reply')).toHaveCount(0);
   });
 
   test('panel shows reply count badge', async ({ page, request }) => {

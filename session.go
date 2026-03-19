@@ -458,6 +458,30 @@ func (s *Session) UpdateComment(filePath, id, body string) (Comment, bool) {
 	return Comment{}, false
 }
 
+// SetCommentResolved sets or clears the resolved flag on a comment.
+func (s *Session) SetCommentResolved(filePath, id string, resolved bool, note string) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.fileByPathLocked(filePath)
+	if f == nil {
+		return Comment{}, false
+	}
+	for i, c := range f.Comments {
+		if c.ID == id {
+			f.Comments[i].Resolved = resolved
+			if resolved {
+				f.Comments[i].ResolutionNote = note
+			} else {
+				f.Comments[i].ResolutionNote = ""
+			}
+			f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			s.scheduleWrite()
+			return f.Comments[i], true
+		}
+	}
+	return Comment{}, false
+}
+
 // DeleteComment deletes a comment from a specific file.
 func (s *Session) DeleteComment(filePath, id string) bool {
 	s.mu.Lock()
@@ -554,7 +578,7 @@ func (s *Session) DeleteReply(filePath, commentID, replyID string) bool {
 		if c.ID == commentID {
 			for j, r := range c.Replies {
 				if r.ID == replyID {
-					f.Comments[i].Replies = append(c.Replies[:j], c.Replies[j+1:]...)
+					f.Comments[i].Replies = append(f.Comments[i].Replies[:j], f.Comments[i].Replies[j+1:]...)
 					f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 					s.scheduleWrite()
 					return true
@@ -576,6 +600,12 @@ func (s *Session) GetComments(filePath string) []Comment {
 	}
 	result := make([]Comment, len(f.Comments))
 	copy(result, f.Comments)
+	for i, c := range result {
+		if len(c.Replies) > 0 {
+			result[i].Replies = make([]Reply, len(c.Replies))
+			copy(result[i].Replies, c.Replies)
+		}
+	}
 	return result
 }
 
@@ -588,6 +618,12 @@ func (s *Session) GetAllComments() map[string][]Comment {
 		if len(f.Comments) > 0 {
 			comments := make([]Comment, len(f.Comments))
 			copy(comments, f.Comments)
+			for i, c := range comments {
+				if len(c.Replies) > 0 {
+					comments[i].Replies = make([]Reply, len(c.Replies))
+					copy(comments[i].Replies, c.Replies)
+				}
+			}
 			result[f.Path] = comments
 		}
 	}

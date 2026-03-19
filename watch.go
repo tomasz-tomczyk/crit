@@ -258,6 +258,7 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 		ResolutionLines: old.ResolutionLines,
 		CarriedForward:  true,
 		ReviewRound:     old.ReviewRound,
+		Replies:         old.Replies,
 	}
 }
 

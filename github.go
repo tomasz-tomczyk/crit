@@ -353,12 +353,19 @@ func collectNewRepliesForPush(filePath string, cf CritJSONFile) []ghReplyForPush
 
 // postGHReply posts a reply to an existing GitHub PR review comment.
 func postGHReply(prNumber int, parentGHID int64, body string) error {
+	payload, err := json.Marshal(map[string]any{
+		"body":        body,
+		"in_reply_to": parentGHID,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal reply: %w", err)
+	}
 	cmd := exec.Command("gh", "api",
 		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", prNumber),
 		"--method", "POST",
-		"-f", fmt.Sprintf("body=%s", body),
-		"-F", fmt.Sprintf("in_reply_to=%d", parentGHID),
+		"--input", "-",
 	)
+	cmd.Stdin = bytes.NewReader(payload)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("gh api: %s: %w", string(output), err)

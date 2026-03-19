@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# test-diff.sh — Simulate a multi-round diff view with resolved comments.
+# test-diff.sh — Simulate a multi-round diff view with resolved comments and threaded replies.
 #
 # Usage: ./test/test-diff.sh [port]
 #
 # What this does:
 #   1. Resets test-plan-copy.md to v1 and starts crit on that file
-#   2. Seeds 4 review comments via the API
-#   3. Waits for you to press Enter (browse the comments first)
+#   2. Seeds 4 review comments + 4 threaded replies via the API
+#   3. Waits for you to press Enter (browse the comments + replies first)
 #   4. Swaps in test-plan-v2.md to simulate agent edits
 #   5. Marks some comments as resolved in .crit.json
 #   6. Signals round-complete so the diff + resolved comments appear
+#
+# Threading coverage:
+#   - Comment #2 gets 2 agent replies, then is resolved → test expanded resolved with replies
+#   - Comment #4 gets 2 replies (agent + reviewer), stays unresolved → test active threading
 
 set -e
 
@@ -206,11 +210,40 @@ curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" \
     "body": "This is blocking the migration. metadata JSONB is currently unbounded — someone will try to store a 10MB blob in it. We need a cap in the schema before migrations run. Suggest 64KB and enforce with a CHECK constraint."
   }' > /dev/null
 
+# Seed replies on comments to exercise threading
+curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/c2/replies?path=$ENCODED_PATH" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "body": "Agreed on the shared secret. I'\''ll add `X-Internal-Token` validation to the middleware before the endpoint goes live.",
+    "author": "agent"
+  }' > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/c2/replies?path=$ENCODED_PATH" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "body": "Rate limiting is done — added a per-caller sliding window (100 req/min). The token header is enforced in middleware now too.\n\nSee the updated endpoint spec at line 62.",
+    "author": "agent"
+  }' > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/c4/replies?path=$ENCODED_PATH" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "body": "64KB sounds right. I'\''ll add a CHECK constraint in the migration. Should we also add an application-level validation in the changeset?",
+    "author": "agent"
+  }' > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/c4/replies?path=$ENCODED_PATH" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "body": "Yes — belt and suspenders. CHECK constraint in Postgres + `validate_length(:metadata_json, max: 65536)` in the changeset. The DB constraint is the safety net if someone bypasses the app layer.",
+    "author": "reviewer"
+  }' > /dev/null
+
 # Finish the review to write .crit.json
 REVIEW_FILE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/finish" | python3 -c "import json, sys; print(json.load(sys.stdin)['review_file'])")
 
 echo ""
-echo "Crit is running at http://127.0.0.1:$PORT with 4 seeded comments."
+echo "Crit is running at http://127.0.0.1:$PORT with 4 comments + 4 replies."
 echo "Browse them in the browser, then press Enter to simulate the agent editing the file."
 read -r
 
@@ -250,7 +283,9 @@ echo "Two crit instances running:"
 echo "  1. Markdown diff (inter-round):  http://127.0.0.1:$PORT"
 echo "  2. Code diff (word-level):       http://127.0.0.1:$WORD_DIFF_PORT"
 echo ""
-echo "Instance 1: diff view with resolved comments. Comment #4 is intentionally unresolved."
+echo "Instance 1: diff view with resolved comments + threaded replies."
+echo "            Comment #2 (resolved): 2 agent replies — visible when expanded."
+echo "            Comment #4 (unresolved): 2 replies (agent + reviewer) — visible inline."
 echo "Instance 2: verify word-level diff — paired lines like fmt.Println → log.Printf"
 echo "            should show changed tokens highlighted."
 echo ""
