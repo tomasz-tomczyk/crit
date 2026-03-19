@@ -5698,6 +5698,10 @@
       const range = getLineRangeFromSelection(selection);
       if (!range) return;
 
+      // If any comment form is already open, don't hijack text selection —
+      // the user is selecting text to copy, not to open another comment.
+      if (activeForms.length > 0) return;
+
       // Capture the selected text before clearing, for the quote field.
       // If the selection covers the full text of the line range, skip it — redundant.
       let quote = null;

@@ -72,7 +72,7 @@ test.describe('Select-to-comment (git mode)', () => {
       await expect(comment).toContainText('Hello from text selection');
     });
 
-    test('coexists with already-open comment form (multi-form)', async ({ page }) => {
+    test('text selection does not open a second form when one is already open', async ({ page }) => {
       const section = mdSection(page);
 
       // Open a comment form via gutter click first
@@ -84,7 +84,8 @@ test.describe('Select-to-comment (git mode)', () => {
 
       await expect(section.locator('.comment-form')).toHaveCount(1);
 
-      // Now select text in a different block — should open a second form
+      // Now select text in a different block — should NOT open a second form,
+      // the selection should persist so the user can copy text
       const thirdBlock = section.locator('.line-block').nth(2);
       await thirdBlock.scrollIntoViewIfNeeded();
       const blockBox = await thirdBlock.boundingBox();
@@ -95,7 +96,12 @@ test.describe('Select-to-comment (git mode)', () => {
       await page.mouse.move(blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2, { steps: 5 });
       await page.mouse.up();
 
-      await expect(section.locator('.comment-form')).toHaveCount(2);
+      // Still only one form — text selection is for copying, not commenting
+      await expect(section.locator('.comment-form')).toHaveCount(1);
+
+      // Browser selection should persist
+      const selectedText = await page.evaluate(() => window.getSelection()?.toString().trim());
+      expect(selectedText).toBeTruthy();
     });
 
     test('multi-block selection spans correct line range', async ({ page }) => {
