@@ -30,14 +30,21 @@ type shareFile struct {
 	Content string `json:"content"`
 }
 
+// shareReply represents a reply to include in the shared review.
+type shareReply struct {
+	Body   string `json:"body"`
+	Author string `json:"author_display_name,omitempty"`
+}
+
 // shareComment represents a comment to include in the shared review.
 type shareComment struct {
-	File        string `json:"file"`
-	StartLine   int    `json:"start_line"`
-	EndLine     int    `json:"end_line"`
-	Body        string `json:"body"`
-	Author      string `json:"author_display_name,omitempty"`
-	ReviewRound int    `json:"review_round,omitempty"`
+	File        string       `json:"file"`
+	StartLine   int          `json:"start_line"`
+	EndLine     int          `json:"end_line"`
+	Body        string       `json:"body"`
+	Author      string       `json:"author_display_name,omitempty"`
+	ReviewRound int          `json:"review_round,omitempty"`
+	Replies     []shareReply `json:"replies,omitempty"`
 }
 
 // buildSharePayload constructs the JSON payload for POST /api/reviews.
@@ -147,6 +154,9 @@ func buildShareFromSession(s *Session) ([]shareFile, []shareComment, int) {
 			if c.ReviewRound >= 1 {
 				sc.ReviewRound = c.ReviewRound
 			}
+			for _, r := range c.Replies {
+				sc.Replies = append(sc.Replies, shareReply{Body: r.Body, Author: r.Author})
+			}
 			comments = append(comments, sc)
 		}
 	}
@@ -194,6 +204,9 @@ func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) 
 			}
 			if c.ReviewRound >= 1 {
 				sc.ReviewRound = c.ReviewRound
+			}
+			for _, r := range c.Replies {
+				sc.Replies = append(sc.Replies, shareReply{Body: r.Body, Author: r.Author})
 			}
 			comments = append(comments, sc)
 		}
