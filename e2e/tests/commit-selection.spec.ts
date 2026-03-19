@@ -153,6 +153,28 @@ test.describe('Commit Selection', () => {
     await expect(page.locator('#commitDropdownLabel')).toHaveText('All commits');
   });
 
+  test('commit picker hidden when only one commit exists', async ({ page }) => {
+    // Precondition: picker is visible with the default 2-commit fixture
+    await expect(page.locator('#commitDropdown')).toBeVisible();
+
+    // Intercept /api/commits to return only one commit
+    await page.route('**/api/commits', async (route) => {
+      const response = await route.fetch();
+      const commits = await response.json();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(commits.slice(0, 1)),
+      });
+    });
+
+    const commitsResponse = page.waitForResponse(r => r.url().includes('/api/commits'));
+    await page.reload();
+    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+    await commitsResponse;
+    await expect(page.locator('#commitDropdown')).toBeHidden();
+  });
+
   test('selected commit item gets active class, "All" loses it', async ({ page }) => {
     // Select a commit
     await openCommitPicker(page);
