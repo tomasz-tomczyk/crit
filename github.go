@@ -515,33 +515,16 @@ func truncateStr(s string, n int) string {
 	return s[:n]
 }
 
-// addCommentToCritJSON appends a comment to .crit.json for the given file and line range.
-// Creates .crit.json if it doesn't exist. Appends to existing comments if it does.
-// Works in both git repos and plain directories (file mode).
-// outputDir overrides the default location (repo root or CWD) when non-empty.
-func addCommentToCritJSON(filePath string, startLine, endLine int, body string, author string, outputDir string) error {
-	root, err := resolveCritDir(outputDir)
-	if err != nil {
-		return err
-	}
-
-	// Validate path is relative and doesn't escape the working directory
-	cleaned := filepath.Clean(filePath)
-	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
-		return fmt.Errorf("path %q must be relative and within the repository", filePath)
-	}
-
-	critPath := filepath.Join(root, ".crit.json")
-
-	// Load existing or create new
+// loadCritJSON reads .crit.json from disk, or returns a fresh CritJSON if the file doesn't exist.
+func loadCritJSON(critPath string) (CritJSON, error) {
 	var cj CritJSON
 	if data, err := os.ReadFile(critPath); err == nil {
 		if err := json.Unmarshal(data, &cj); err != nil {
-			return fmt.Errorf("invalid existing .crit.json: %w", err)
+			return cj, fmt.Errorf("invalid existing .crit.json: %w", err)
 		}
-	} else {
+	} else if os.IsNotExist(err) {
 		branch := CurrentBranch()
-		cfg := LoadConfig(root)
+		cfg := LoadConfig(filepath.Dir(critPath))
 		base := cfg.BaseBranch
 		if base == "" {
 			base = DefaultBranch()
@@ -553,13 +536,27 @@ func addCommentToCritJSON(filePath string, startLine, endLine int, body string, 
 			ReviewRound: 1,
 			Files:       make(map[string]CritJSONFile),
 		}
+	} else {
+		return cj, fmt.Errorf("reading .crit.json: %w", err)
 	}
+	return cj, nil
+}
 
+// saveCritJSON writes the CritJSON struct to disk with pretty-printed JSON.
+func saveCritJSON(critPath string, cj CritJSON) error {
+	data, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling .crit.json: %w", err)
+	}
+	return os.WriteFile(critPath, data, 0644)
+}
+
+// appendComment adds a comment to the CritJSON struct in memory. Does not write to disk.
+func appendComment(cj *CritJSON, filePath string, startLine, endLine int, body, author string) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
-	// Get or create the file entry
-	cf, ok := cj.Files[cleaned]
+	cf, ok := cj.Files[filePath]
 	if !ok {
 		cf = CritJSONFile{
 			Status:   "modified",
@@ -576,42 +573,18 @@ func addCommentToCritJSON(filePath string, startLine, endLine int, body string, 
 		CreatedAt: now,
 		UpdatedAt: now,
 	})
-	cj.Files[cleaned] = cf
-
-	data, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshaling .crit.json: %w", err)
-	}
-	return os.WriteFile(critPath, data, 0644)
+	cj.Files[filePath] = cf
 }
 
-// addReplyToCritJSON adds a reply to an existing comment in .crit.json.
-// It searches all files for the comment ID. If resolve is true, it also marks the comment as resolved.
-func addReplyToCritJSON(commentID, body, author string, resolve bool, outputDir string, filterPath string) error {
-	root, err := resolveCritDir(outputDir)
-	if err != nil {
-		return err
-	}
-
-	critPath := filepath.Join(root, ".crit.json")
-	data, err := os.ReadFile(critPath)
-	if err != nil {
-		return fmt.Errorf("reading .crit.json: %w", err)
-	}
-
-	var cj CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		return fmt.Errorf("invalid .crit.json: %w", err)
-	}
-
+// appendReply adds a reply to an existing comment in the CritJSON struct in memory.
+// Returns an error if the comment ID is not found or is ambiguous across files.
+func appendReply(cj *CritJSON, commentID, body, author string, resolve bool, filterPath string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
-	// Find the comment across all files
 	var found bool
 	var foundPaths []string
 	for filePath, cf := range cj.Files {
-		// If --path was specified, skip files that don't match
 		if filterPath != "" && filePath != filterPath {
 			continue
 		}
@@ -638,7 +611,7 @@ func addReplyToCritJSON(commentID, body, author string, resolve bool, outputDir 
 	}
 
 	if len(foundPaths) > 1 {
-		return fmt.Errorf("comment %q found in multiple files (%s); specify the file with --path",
+		return fmt.Errorf("comment %q found in multiple files (%s); specify the file with \"file\" field",
 			commentID, strings.Join(foundPaths, ", "))
 	}
 	if !found {
@@ -647,12 +620,52 @@ func addReplyToCritJSON(commentID, body, author string, resolve bool, outputDir 
 		}
 		return fmt.Errorf("comment %q not found in .crit.json", commentID)
 	}
+	return nil
+}
 
-	data, err = json.MarshalIndent(cj, "", "  ")
+// addCommentToCritJSON appends a comment to .crit.json for the given file and line range.
+// Creates .crit.json if it doesn't exist. Appends to existing comments if it does.
+// Works in both git repos and plain directories (file mode).
+// outputDir overrides the default location (repo root or CWD) when non-empty.
+func addCommentToCritJSON(filePath string, startLine, endLine int, body string, author string, outputDir string) error {
+	root, err := resolveCritDir(outputDir)
 	if err != nil {
-		return fmt.Errorf("marshaling .crit.json: %w", err)
+		return err
 	}
-	return os.WriteFile(critPath, data, 0644)
+
+	cleaned := filepath.Clean(filePath)
+	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+		return fmt.Errorf("path %q must be relative and within the repository", filePath)
+	}
+
+	critPath := filepath.Join(root, ".crit.json")
+	cj, err := loadCritJSON(critPath)
+	if err != nil {
+		return err
+	}
+
+	appendComment(&cj, cleaned, startLine, endLine, body, author)
+	return saveCritJSON(critPath, cj)
+}
+
+// addReplyToCritJSON adds a reply to an existing comment in .crit.json.
+// It searches all files for the comment ID. If resolve is true, it also marks the comment as resolved.
+func addReplyToCritJSON(commentID, body, author string, resolve bool, outputDir string, filterPath string) error {
+	root, err := resolveCritDir(outputDir)
+	if err != nil {
+		return err
+	}
+
+	critPath := filepath.Join(root, ".crit.json")
+	cj, err := loadCritJSON(critPath)
+	if err != nil {
+		return err
+	}
+
+	if err := appendReply(&cj, commentID, body, author, resolve, filterPath); err != nil {
+		return err
+	}
+	return saveCritJSON(critPath, cj)
 }
 
 // clearCritJSON removes .crit.json from the repo root, working directory, or outputDir.
