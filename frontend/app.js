@@ -4111,7 +4111,7 @@
     const formQuotes = getFormsForFile(file.path)
       .filter(function(f) { return f.quote && !f.editingId; })
       .map(function(f) {
-        return { start_line: f.startLine, end_line: f.endLine, quote: f.quote, id: 'draft-' + f.formKey };
+        return { start_line: f.startLine, end_line: f.endLine, quote: f.quote, id: 'draft-' + f.formKey, side: f.side };
       });
     const allQuoted = quotedComments.concat(formQuotes);
     if (allQuoted.length === 0) return;
@@ -4131,7 +4131,11 @@
           }
         });
         // Diff view: diff lines with data-diff-line-num
+        // Filter by side to avoid matching the wrong line in unified diff
+        // (deleted and added lines can share the same line number)
+        var commentSide = comment.side || '';
         sectionEl.querySelectorAll('[data-diff-file-path="' + CSS.escape(file.path) + '"][data-diff-line-num="' + ln + '"]').forEach(function(el) {
+          if (el.dataset.diffSide !== commentSide) return;
           const content = el.querySelector('.diff-content');
           if (content && contentEls.indexOf(content) === -1) contentEls.push(content);
         });
@@ -5728,9 +5732,11 @@
                 if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
               }
             });
-            // Diff view
+            // Diff view — filter by side so unified diff doesn't double-count
+            var selSide = range.side || '';
             document.querySelectorAll('[data-diff-file-path][data-diff-line-num="' + ln + '"]').forEach(function(el) {
               if (el.dataset.diffFilePath !== range.filePath) return;
+              if (el.dataset.diffSide !== selSide) return;
               const content = el.querySelector('.diff-content');
               if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
             });

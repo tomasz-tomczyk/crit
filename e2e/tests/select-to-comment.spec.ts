@@ -426,6 +426,49 @@ test.describe('Select-to-comment (git mode)', () => {
       await expect(section.locator('mark.quote-highlight')).toBeVisible();
     });
 
+    test('quote highlight appears on addition line, not deletion line in unified diff (issue #133)', async ({ page }) => {
+      // Switch to unified mode
+      const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
+      await expect(unifiedBtn).toBeVisible();
+      await unifiedBtn.click();
+
+      const section = goSection(page);
+      // Find an addition line with enough text for a partial selection
+      const additionLines = section.locator('.diff-line.addition');
+      let targetLine: any = null;
+      let targetBox: any = null;
+      const count = await additionLines.count();
+      for (let i = 0; i < count; i++) {
+        const line = additionLines.nth(i);
+        const content = line.locator('.diff-content');
+        const text = await content.textContent();
+        if (text && text.trim().length > 20) {
+          await line.scrollIntoViewIfNeeded();
+          targetLine = line;
+          targetBox = await content.boundingBox();
+          break;
+        }
+      }
+      expect(targetBox).toBeTruthy();
+      if (!targetBox || !targetLine) return;
+
+      // Partial selection on the addition line
+      await page.mouse.move(targetBox.x + 10, targetBox.y + targetBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2, { steps: 5 });
+      await page.mouse.up();
+
+      const textarea = section.locator('.comment-form textarea');
+      await expect(textarea).toBeVisible();
+
+      // The quote highlight must be inside an .addition line, NOT a .deletion line
+      const highlightMark = section.locator('mark.quote-highlight').first();
+      await expect(highlightMark).toBeVisible();
+      const parentLine = highlightMark.locator('xpath=ancestor::div[contains(@class, "diff-line")]');
+      await expect(parentLine).toHaveClass(/addition/);
+      await expect(parentLine).not.toHaveClass(/deletion/);
+    });
+
     test('quote highlight appears in markdown diff view while form is open', async ({ page }) => {
       // Markdown file in git mode defaults to split diff view
       const section = mdSection(page);
