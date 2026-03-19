@@ -23,8 +23,11 @@ Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf - any age
 ## Install
 
 ```bash
-brew install tomasz-tomczyk/tap/crit
+curl -fsSL https://raw.githubusercontent.com/JoshEllinger/crit/main/install.sh | sh
 ```
+
+Works on macOS (arm64/amd64), Linux (amd64/arm64), and Windows via WSL.
+To install to a custom location: `INSTALL_DIR=~/.local/bin bash <(curl -fsSL ...)`
 
 Also available via [Go, Nix, or binary download](#other-install-methods).
 
