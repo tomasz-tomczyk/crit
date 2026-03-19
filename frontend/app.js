@@ -2147,7 +2147,45 @@
   var dmp = new diff_match_patch();
   dmp.Diff_Timeout = 0.1; // 100ms max per line pair
 
-  // Compute word-level diff between two lines using diff-match-patch.
+  // Compute LCS membership for two token arrays.
+  // Returns { oldKeep: boolean[], newKeep: boolean[] } where true = token is in LCS (unchanged).
+  function computeTokenLCS(oldTokens, newTokens) {
+    var m = oldTokens.length;
+    var n = newTokens.length;
+    var dp = [];
+    for (var i = 0; i <= m; i++) {
+      dp[i] = new Array(n + 1).fill(0);
+    }
+    for (var i = 1; i <= m; i++) {
+      for (var j = 1; j <= n; j++) {
+        if (oldTokens[i - 1] === newTokens[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1] + 1;
+        } else {
+          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+      }
+    }
+    var oldKeep = new Array(m).fill(false);
+    var newKeep = new Array(n).fill(false);
+    var i = m, j = n;
+    while (i > 0 && j > 0) {
+      if (oldTokens[i - 1] === newTokens[j - 1]) {
+        oldKeep[i - 1] = true;
+        newKeep[j - 1] = true;
+        i--; j--;
+      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+        i--;
+      } else {
+        j--;
+      }
+    }
+    return { oldKeep: oldKeep, newKeep: newKeep };
+  }
+
+  // Compute word-level diff between two lines using token LCS.
+  // Tokenizes into words/punctuation, finds the longest common subsequence,
+  // then builds character ranges for changed tokens.
+  // This produces whole-word highlights (like GitHub) instead of character-level fragments.
   // Returns { oldRanges, newRanges } where each range is [startCharIdx, endCharIdx] in the raw text.
   // Returns null if lines are too long, identical, or completely different.
   function wordDiff(oldLine, newLine) {
@@ -2159,44 +2197,46 @@
     // Identical lines — no diff needed
     if (oldLine === newLine) return null;
 
-    var diffs = dmp.diff_main(oldLine, newLine);
-    dmp.diff_cleanupSemantic(diffs);
+    var oldTokens = tokenize(oldLine);
+    var newTokens = tokenize(newLine);
+    if (oldTokens.length === 0 && newTokens.length === 0) return null;
+    // Skip if token counts are huge (LCS is O(m*n))
+    if (oldTokens.length > 200 || newTokens.length > 200) return null;
 
-    // Check if everything changed (no EQUAL parts) or nothing changed
-    var hasEqual = false;
-    var hasDiff = false;
-    for (var i = 0; i < diffs.length; i++) {
-      if (diffs[i][0] === 0) hasEqual = true;
-      else hasDiff = true;
-    }
-    if (!hasEqual || !hasDiff) return null;
+    var result = computeTokenLCS(oldTokens, newTokens);
+    var oldKeep = result.oldKeep;
+    var newKeep = result.newKeep;
 
-    // Convert diffs to character ranges
-    var oldRanges = [];
-    var newRanges = [];
-    var oldIdx = 0;
-    var newIdx = 0;
-    for (var i = 0; i < diffs.length; i++) {
-      var op = diffs[i][0];
-      var text = diffs[i][1];
-      if (op === 0) {
-        // EQUAL — advance both cursors
-        oldIdx += text.length;
-        newIdx += text.length;
-      } else if (op === -1) {
-        // DELETE — range on old side
-        if (!/^\s+$/.test(text)) {
-          oldRanges.push([oldIdx, oldIdx + text.length]);
+    // If everything changed (no LCS), skip — lines probably don't correspond
+    var oldUnchanged = oldKeep.filter(Boolean).length;
+    var newUnchanged = newKeep.filter(Boolean).length;
+    if (oldUnchanged === 0 && newUnchanged === 0) return null;
+    // If nothing changed, skip
+    if (oldUnchanged === oldTokens.length && newUnchanged === newTokens.length) return null;
+
+    // Build character ranges for changed tokens.
+    // Adjacent changed tokens merge into one range automatically.
+    function buildRanges(tokens, keep) {
+      var ranges = [];
+      var charIdx = 0;
+      var rangeStart = -1;
+      for (var i = 0; i < tokens.length; i++) {
+        if (!keep[i]) {
+          if (rangeStart === -1) rangeStart = charIdx;
+        } else {
+          if (rangeStart !== -1) {
+            ranges.push([rangeStart, charIdx]);
+            rangeStart = -1;
+          }
         }
-        oldIdx += text.length;
-      } else if (op === 1) {
-        // INSERT — range on new side
-        if (!/^\s+$/.test(text)) {
-          newRanges.push([newIdx, newIdx + text.length]);
-        }
-        newIdx += text.length;
+        charIdx += tokens[i].length;
       }
+      if (rangeStart !== -1) ranges.push([rangeStart, charIdx]);
+      return ranges;
     }
+
+    var oldRanges = buildRanges(oldTokens, oldKeep);
+    var newRanges = buildRanges(newTokens, newKeep);
 
     if (oldRanges.length === 0 && newRanges.length === 0) return null;
 
@@ -2288,8 +2328,11 @@
   // Apply word-level diffs to a pair of old/new blocks if they are sufficiently similar.
   // Skips pairs where >70% of characters changed (blocks probably don't correspond).
   function applyWordDiffPair(oldBlock, newBlock) {
-    const oldText = htmlToText(oldBlock.html);
-    const newText = htmlToText(newBlock.html);
+    // Normalize newlines to spaces so paragraph re-wrapping doesn't create false diffs.
+    // In markdown, soft line breaks within a paragraph are just whitespace.
+    // Both \n and ' ' are single chars, so word-diff ranges remain valid for applyWordDiffToHtml.
+    const oldText = htmlToText(oldBlock.html).replace(/\n/g, ' ');
+    const newText = htmlToText(newBlock.html).replace(/\n/g, ' ');
     const wd = wordDiff(oldText, newText);
     if (!wd) return;
     const oldChangedChars = wd.oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
