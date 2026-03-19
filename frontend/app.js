@@ -140,7 +140,7 @@
   let activeForms = [];  // Array of { formKey, filePath, afterBlockIndex, startLine, endLine, editingId, side }
 
   // Track manually toggled collapse state (comment ID → boolean, true = collapsed)
-  var commentCollapseOverrides = {};
+  const commentCollapseOverrides = {};
 
   function formKey(form) {
     if (form.editingId) return form.filePath + ':edit:' + form.editingId;
@@ -404,7 +404,7 @@
       if (diffScope === 'all' || diffScope === 'branch') {
         fetchCommits();
       } else {
-        document.getElementById('commitDropdown').style.display = 'none';
+        commitDropdownEl.style.display = 'none';
         diffCommit = '';
       }
     }
@@ -935,9 +935,9 @@
   }
 
   function relativeTime(dateStr) {
-    var now = Date.now();
-    var then = new Date(dateStr).getTime();
-    var diff = Math.floor((now - then) / 1000);
+    const now = Date.now();
+    const then = new Date(dateStr).getTime();
+    const diff = Math.floor((now - then) / 1000);
     if (diff < 60) return 'just now';
     if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
     if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
@@ -2086,7 +2086,7 @@
   function lineSimilarity(a, b) {
     if (a === b) return 1;
     if (!a || !b) return 0;
-    var wordRe = /^\w+$/;
+    const wordRe = /^\w+$/;
     const tokA = tokenize(a).filter(function(t) { return wordRe.test(t); });
     const tokB = tokenize(b).filter(function(t) { return wordRe.test(t); });
     if (tokA.length === 0 && tokB.length === 0) return 1;
@@ -2143,21 +2143,17 @@
     return pairs;
   }
 
-  // Shared diff-match-patch instance for word-level diffs.
-  var dmp = new diff_match_patch();
-  dmp.Diff_Timeout = 0.1; // 100ms max per line pair
-
   // Compute LCS membership for two token arrays.
   // Returns { oldKeep: boolean[], newKeep: boolean[] } where true = token is in LCS (unchanged).
   function computeTokenLCS(oldTokens, newTokens) {
-    var m = oldTokens.length;
-    var n = newTokens.length;
-    var dp = [];
-    for (var i = 0; i <= m; i++) {
+    const m = oldTokens.length;
+    const n = newTokens.length;
+    const dp = [];
+    for (let i = 0; i <= m; i++) {
       dp[i] = new Array(n + 1).fill(0);
     }
-    for (var i = 1; i <= m; i++) {
-      for (var j = 1; j <= n; j++) {
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
         if (oldTokens[i - 1] === newTokens[j - 1]) {
           dp[i][j] = dp[i - 1][j - 1] + 1;
         } else {
@@ -2165,9 +2161,9 @@
         }
       }
     }
-    var oldKeep = new Array(m).fill(false);
-    var newKeep = new Array(n).fill(false);
-    var i = m, j = n;
+    const oldKeep = new Array(m).fill(false);
+    const newKeep = new Array(n).fill(false);
+    let i = m, j = n;
     while (i > 0 && j > 0) {
       if (oldTokens[i - 1] === newTokens[j - 1]) {
         oldKeep[i - 1] = true;
@@ -2197,19 +2193,19 @@
     // Identical lines — no diff needed
     if (oldLine === newLine) return null;
 
-    var oldTokens = tokenize(oldLine);
-    var newTokens = tokenize(newLine);
+    const oldTokens = tokenize(oldLine);
+    const newTokens = tokenize(newLine);
     if (oldTokens.length === 0 && newTokens.length === 0) return null;
     // Skip if token counts are huge (LCS is O(m*n))
     if (oldTokens.length > 200 || newTokens.length > 200) return null;
 
-    var result = computeTokenLCS(oldTokens, newTokens);
-    var oldKeep = result.oldKeep;
-    var newKeep = result.newKeep;
+    const result = computeTokenLCS(oldTokens, newTokens);
+    const oldKeep = result.oldKeep;
+    const newKeep = result.newKeep;
 
     // If everything changed (no LCS), skip — lines probably don't correspond
-    var oldUnchanged = oldKeep.filter(Boolean).length;
-    var newUnchanged = newKeep.filter(Boolean).length;
+    const oldUnchanged = oldKeep.filter(Boolean).length;
+    const newUnchanged = newKeep.filter(Boolean).length;
     if (oldUnchanged === 0 && newUnchanged === 0) return null;
     // If nothing changed, skip
     if (oldUnchanged === oldTokens.length && newUnchanged === newTokens.length) return null;
@@ -2217,10 +2213,10 @@
     // Build character ranges for changed tokens.
     // Adjacent changed tokens merge into one range automatically.
     function buildRanges(tokens, keep) {
-      var ranges = [];
-      var charIdx = 0;
-      var rangeStart = -1;
-      for (var i = 0; i < tokens.length; i++) {
+      const ranges = [];
+      let charIdx = 0;
+      let rangeStart = -1;
+      for (let i = 0; i < tokens.length; i++) {
         if (!keep[i]) {
           if (rangeStart === -1) rangeStart = charIdx;
         } else {
@@ -2235,15 +2231,15 @@
       return ranges;
     }
 
-    var oldRanges = buildRanges(oldTokens, oldKeep);
-    var newRanges = buildRanges(newTokens, newKeep);
+    const oldRanges = buildRanges(oldTokens, oldKeep);
+    const newRanges = buildRanges(newTokens, newKeep);
 
     if (oldRanges.length === 0 && newRanges.length === 0) return null;
 
     // If most of the line changed, the lines probably don't correspond —
     // skip word-diff to avoid noisy highlights on unrelated lines.
-    var oldChanged = oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
-    var newChanged = newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
+    const oldChanged = oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
+    const newChanged = newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
     if (oldLine.length > 0 && oldChanged / oldLine.length > 0.5) return null;
     if (newLine.length > 0 && newChanged / newLine.length > 0.5) return null;
 
@@ -3465,13 +3461,13 @@
 
     textarea.addEventListener('input', function() {
       if (suppressInput) { suppressInput = false; return; }
-      var val = textarea.value;
-      var cursor = textarea.selectionStart;
+      const val = textarea.value;
+      const cursor = textarea.selectionStart;
 
       // Find the '@' trigger: scan backwards from cursor
-      var atPos = -1;
-      for (var i = cursor - 1; i >= 0; i--) {
-        var ch = val[i];
+      let atPos = -1;
+      for (let i = cursor - 1; i >= 0; i--) {
+        const ch = val[i];
         if (ch === '@') {
           // '@' must be at start of line or preceded by whitespace
           if (i === 0 || /\s/.test(val[i - 1])) {
@@ -3488,7 +3484,7 @@
       }
 
       triggerStart = atPos;
-      var query = val.substring(atPos + 1, cursor);
+      const query = val.substring(atPos + 1, cursor);
 
       fetch('/api/files/list?q=' + encodeURIComponent(query))
         .then(function(r) { return r.ok ? r.json() : []; })
@@ -3542,13 +3538,13 @@
       }
 
       // Position below the @ cursor line
-      var textareaRect = textarea.getBoundingClientRect();
-      var textBeforeCursor = textarea.value.substring(0, textarea.selectionStart);
-      var lineNumber = textBeforeCursor.split('\n').length;
-      var computedStyle = window.getComputedStyle(textarea);
-      var lineHeight = parseFloat(computedStyle.lineHeight) || 22.4;
-      var paddingTop = parseFloat(computedStyle.paddingTop) || 10;
-      var cursorY = textareaRect.top + paddingTop + (lineNumber * lineHeight) - textarea.scrollTop;
+      const textareaRect = textarea.getBoundingClientRect();
+      const textBeforeCursor = textarea.value.substring(0, textarea.selectionStart);
+      const lineNumber = textBeforeCursor.split('\n').length;
+      const computedStyle = window.getComputedStyle(textarea);
+      const lineHeight = parseFloat(computedStyle.lineHeight) || 22.4;
+      const paddingTop = parseFloat(computedStyle.paddingTop) || 10;
+      const cursorY = textareaRect.top + paddingTop + (lineNumber * lineHeight) - textarea.scrollTop;
       dropdown.style.left = textareaRect.left + 'px';
       dropdown.style.width = textareaRect.width + 'px';
       dropdown.style.top = cursorY + 'px';
@@ -3558,13 +3554,13 @@
       navigated = false;
 
       matches.forEach(function(filePath, idx) {
-        var item = document.createElement('div');
+        const item = document.createElement('div');
         item.className = 'file-picker-item';
         item.dataset.path = filePath;
 
-        var lastSlash = filePath.lastIndexOf('/');
+        const lastSlash = filePath.lastIndexOf('/');
         if (lastSlash >= 0) {
-          var dirSpan = document.createElement('span');
+          const dirSpan = document.createElement('span');
           dirSpan.className = 'file-picker-dir';
           dirSpan.textContent = filePath.substring(0, lastSlash + 1);
           item.appendChild(dirSpan);
@@ -5405,35 +5401,36 @@
   });
 
   // ===== Commit Picker (sidebar dropdown) =====
+  const commitDropdownEl = document.getElementById('commitDropdown');
+
   async function fetchCommits() {
-    var commitDropdown = document.getElementById('commitDropdown');
     try {
-      var res = await fetch('/api/commits');
-      if (!res.ok) { commitDropdown.style.display = 'none'; return; }
+      const res = await fetch('/api/commits');
+      if (!res.ok) { commitDropdownEl.style.display = 'none'; return; }
       commitList = await res.json();
       if (!commitList || commitList.length < 2) {
-        commitDropdown.style.display = 'none';
+        commitDropdownEl.style.display = 'none';
         diffCommit = '';
         return;
       }
       if (diffCommit && !commitList.some(function(c) { return c.sha === diffCommit; })) {
         diffCommit = '';
       }
-      commitDropdown.style.display = '';
+      commitDropdownEl.style.display = '';
       renderCommitPicker();
     } catch (e) {
-      commitDropdown.style.display = 'none';
+      commitDropdownEl.style.display = 'none';
     }
   }
 
   function renderCommitPicker() {
-    var list = document.getElementById('commitDropdownList');
-    var allItem = document.querySelector('.commit-picker-item[data-commit=""]');
-    var label = document.getElementById('commitDropdownLabel');
+    const list = document.getElementById('commitDropdownList');
+    const allItem = document.querySelector('.commit-picker-item[data-commit=""]');
+    const label = document.getElementById('commitDropdownLabel');
 
     if (diffCommit) {
       if (allItem) allItem.classList.remove('active');
-      var sel = commitList.find(function(c) { return c.sha === diffCommit; });
+      const sel = commitList.find(function(c) { return c.sha === diffCommit; });
       if (sel && label) label.textContent = sel.short_sha + ' ' + (sel.message.length > 30 ? sel.message.slice(0, 30) + '\u2026' : sel.message);
     } else {
       if (allItem) allItem.classList.add('active');
@@ -5453,37 +5450,36 @@
 
   // Toggle dropdown open/close
   document.getElementById('commitDropdownBtn').addEventListener('click', function() {
-    document.getElementById('commitDropdown').classList.toggle('open');
+    commitDropdownEl.classList.toggle('open');
   });
 
   // Close on outside click
   document.addEventListener('click', function(e) {
-    var picker = document.getElementById('commitDropdown');
-    if (!picker.contains(e.target)) {
-      picker.classList.remove('open');
+    if (!commitDropdownEl.contains(e.target)) {
+      commitDropdownEl.classList.remove('open');
     }
   });
 
   // Close on Escape (only when open)
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && document.getElementById('commitDropdown').classList.contains('open')) {
-      document.getElementById('commitDropdown').classList.remove('open');
+    if (e.key === 'Escape' && commitDropdownEl.classList.contains('open')) {
+      commitDropdownEl.classList.remove('open');
       e.stopPropagation();
     }
   });
 
   // Item selection (delegate from dropdown menu)
   document.getElementById('commitDropdownMenu').addEventListener('click', function(e) {
-    var item = e.target.closest('.commit-picker-item');
+    const item = e.target.closest('.commit-picker-item');
     if (!item) return;
-    var sha = item.dataset.commit;
+    const sha = item.dataset.commit;
     if (sha === diffCommit) {
-      document.getElementById('commitDropdown').classList.remove('open');
+      commitDropdownEl.classList.remove('open');
       return;
     }
     diffCommit = sha;
     renderCommitPicker();
-    document.getElementById('commitDropdown').classList.remove('open');
+    commitDropdownEl.classList.remove('open');
     reloadForScope();
   });
 
@@ -5496,7 +5492,7 @@
     setCookie('crit-diff-scope', scope);
     if (scope !== 'all' && scope !== 'branch') {
       diffCommit = '';
-      document.getElementById('commitDropdown').style.display = 'none';
+      commitDropdownEl.style.display = 'none';
     } else {
       fetchCommits();
     }
@@ -5510,7 +5506,7 @@
     document.getElementById('filesContainer').innerHTML =
       '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">Loading...</div>';
 
-    var sessionUrl = '/api/session?scope=' + enc(diffScope);
+    let sessionUrl = '/api/session?scope=' + enc(diffScope);
     if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
     const sessionRes = await fetch(sessionUrl).then(function(r) { return r.json(); });
     session = sessionRes;

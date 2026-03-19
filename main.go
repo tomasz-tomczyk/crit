@@ -485,7 +485,7 @@ func runPush(args []string) {
 	// Collect replies to push
 	var allReplies []ghReplyForPush
 	for _, cf := range cj.Files {
-		allReplies = append(allReplies, collectNewRepliesForPush("", cf)...)
+		allReplies = append(allReplies, collectNewRepliesForPush(cf)...)
 	}
 
 	if dryRun {

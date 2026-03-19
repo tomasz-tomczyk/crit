@@ -76,6 +76,8 @@ func (c generatedConfig) String() string {
 type configPresence struct {
 	ShareURL       bool
 	IgnorePatterns bool
+	NoOpen         bool
+	Quiet          bool
 }
 
 // loadConfigFile reads and parses a single JSON config file.
@@ -98,6 +100,8 @@ func loadConfigFile(path string) (Config, configPresence, error) {
 	}
 	_, presence.ShareURL = raw["share_url"]
 	_, presence.IgnorePatterns = raw["ignore_patterns"]
+	_, presence.NoOpen = raw["no_open"]
+	_, presence.Quiet = raw["quiet"]
 
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
@@ -106,20 +110,22 @@ func loadConfigFile(path string) (Config, configPresence, error) {
 }
 
 // mergeConfigs merges project config on top of global config.
-// Non-zero project values override global. Ignore patterns are unioned.
-func mergeConfigs(global, project Config) Config {
+// Non-zero project values override global. Bool fields use presence tracking
+// so that project config `no_open: false` can override global `no_open: true`.
+// Ignore patterns are unioned.
+func mergeConfigs(global, project Config, projectPresence configPresence) Config {
 	merged := global
 	if project.Port != 0 {
 		merged.Port = project.Port
 	}
-	if project.NoOpen {
-		merged.NoOpen = true
+	if projectPresence.NoOpen {
+		merged.NoOpen = project.NoOpen
 	}
 	if project.ShareURL != "" {
 		merged.ShareURL = project.ShareURL
 	}
-	if project.Quiet {
-		merged.Quiet = true
+	if projectPresence.Quiet {
+		merged.Quiet = project.Quiet
 	}
 	if project.Output != "" {
 		merged.Output = project.Output
@@ -161,7 +167,7 @@ func LoadConfig(projectDir string) Config {
 	}
 
 	// 3. Merge global + project
-	merged := mergeConfigs(global, project)
+	merged := mergeConfigs(global, project, projectPresence)
 
 	// 4. Apply runtime defaults for fields not explicitly set in any config file
 	if !globalPresence.ShareURL && !projectPresence.ShareURL {
@@ -237,7 +243,7 @@ func filterIgnored(files []FileChange, patterns []string) []FileChange {
 }
 
 // filterPathsIgnored removes string paths matching any ignore pattern.
-// Currently exercised only by tests, but kept as a utility parallel to filterIgnored.
+// Used by handleFilesList to filter the file picker results.
 func filterPathsIgnored(paths []string, patterns []string) []string {
 	if len(patterns) == 0 {
 		return paths

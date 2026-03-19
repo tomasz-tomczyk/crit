@@ -337,7 +337,7 @@ func walkDirectory(dir string, ignorePatterns []string) ([]string, error) {
 
 		// Skip hidden directories and common non-text directories
 		if d.IsDir() {
-			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" || name == "__pycache__" || name == "dist" || name == "build" {
+			if strings.HasPrefix(name, ".") || skipDirs[name] {
 				return filepath.SkipDir
 			}
 			return nil
