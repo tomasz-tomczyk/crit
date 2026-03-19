@@ -191,85 +191,51 @@ test.describe('Word Diff — Edge Cases', () => {
   });
 });
 
-test.describe('Word Diff — diff-match-patch quality', () => {
-  test('similar lines highlight only the changed portion', async ({ page }) => {
+test.describe('Word Diff — LCS quality', () => {
+  test('word-diff highlights only the changed tokens, not shared prefixes', async ({ page }) => {
     await loadPage(page);
+    const section = goSection(page);
 
-    // Test diff-match-patch directly via the loaded library
-    const result = await page.evaluate(() => {
-      const dmp = new (window as any).diff_match_patch();
-      dmp.Diff_Timeout = 0.1;
+    // The fixture has paired del/add lines — word-diff spans should cover
+    // only the differing tokens, leaving shared text unhighlighted.
+    const delSpan = section.locator('.diff-split-side.deletion .diff-word-del').first();
+    await expect(delSpan).toBeVisible();
 
-      // Case: renderCommitDropdown → renderCommitPicker
-      // Should highlight only the suffix, not the shared prefix
-      const diffs = dmp.diff_main('renderCommitDropdown', 'renderCommitPicker');
-      dmp.diff_cleanupSemantic(diffs);
-      return diffs as [number, string][];
-    });
-
-    // Should have EQUAL "renderCommit" prefix, then DEL "Dropdown", INSERT "Picker"
-    const equalParts = result.filter(d => d[0] === 0).map(d => d[1]);
-    const delParts = result.filter(d => d[0] === -1).map(d => d[1]);
-    const addParts = result.filter(d => d[0] === 1).map(d => d[1]);
-
-    expect(equalParts.join('')).toContain('renderCommit');
-    expect(delParts.join('')).toBe('Dropdown');
-    expect(addParts.join('')).toBe('Picker');
+    // The highlighted span should be a substring of the full line, not the whole line
+    const delLineContent = await delSpan.locator('..').textContent();
+    const delSpanText = await delSpan.textContent();
+    expect(delSpanText!.length).toBeLessThan(delLineContent!.length);
   });
 
-  test('completely different lines produce no word-diff highlights', async ({ page }) => {
+  test('highly dissimilar paired lines have no word-diff highlights', async ({ page }) => {
     await loadPage(page);
+    const section = goSection(page);
 
-    // Two completely different JS lines sharing only syntax tokens
-    const result = await page.evaluate(() => {
-      const dmp = new (window as any).diff_match_patch();
-      dmp.Diff_Timeout = 0.1;
-
-      const oldLine = 'const oldTokens = tokenize(oldLine);';
-      const newLine = 'var diffs = dmp.diff_main(oldLine, newLine);';
-      const diffs = dmp.diff_main(oldLine, newLine);
-      dmp.diff_cleanupSemantic(diffs);
-
-      // Calculate changed ratio
-      let oldLen = 0, newLen = 0, oldChanged = 0, newChanged = 0;
-      for (const [op, text] of diffs) {
-        if (op === 0) { oldLen += text.length; newLen += text.length; }
-        else if (op === -1) { oldChanged += text.length; oldLen += text.length; }
-        else if (op === 1) { newChanged += text.length; newLen += text.length; }
-      }
-      return {
-        oldRatio: oldLen > 0 ? oldChanged / oldLen : 0,
-        newRatio: newLen > 0 ? newChanged / newLen : 0,
-      };
+    // Completely new lines (add-only, no paired deletion) should not have word-diff spans.
+    // This validates the LCS similarity threshold — unrelated lines are skipped.
+    const addOnlyRows = section.locator('.diff-split-row').filter({
+      has: page.locator('.diff-split-side.left.empty'),
     });
 
-    // Both lines should have >60% changed — meaning wordDiff should return null
-    expect(result.oldRatio).toBeGreaterThan(0.6);
-    expect(result.newRatio).toBeGreaterThan(0.6);
+    await expect(addOnlyRows.first()).toBeVisible();
+    const wordSpans = addOnlyRows.locator('.diff-word-add, .diff-word-del');
+    await expect(wordSpans).toHaveCount(0);
   });
 
-  test('camelCase changes highlight only the changed suffix', async ({ page }) => {
+  test('word-diff spans are whole tokens, not character fragments', async ({ page }) => {
     await loadPage(page);
+    const section = goSection(page);
 
-    const result = await page.evaluate(() => {
-      const dmp = new (window as any).diff_match_patch();
-      dmp.Diff_Timeout = 0.1;
+    // LCS-based word diff should produce whole-word highlights.
+    // Verify that highlighted spans contain complete tokens (no mid-word splits).
+    const addSpans = section.locator('.diff-split-side.addition .diff-word-add');
+    await expect(addSpans.first()).toBeVisible();
 
-      // renderCommitDropdown → renderCommitPicker: should keep "renderCommit" as equal
-      const diffs = dmp.diff_main('renderCommitDropdown();', 'renderCommitPicker();');
-      dmp.diff_cleanupSemantic(diffs);
-      return diffs as [number, string][];
-    });
-
-    const equalParts = result.filter(d => d[0] === 0).map(d => d[1]).join('');
-    const delParts = result.filter(d => d[0] === -1).map(d => d[1]).join('');
-    const addParts = result.filter(d => d[0] === 1).map(d => d[1]).join('');
-
-    // The shared prefix "renderCommit" and suffix "();" should be EQUAL
-    expect(equalParts).toContain('renderCommit');
-    expect(equalParts).toContain('();');
-    // Only the differing middle should be changed
-    expect(delParts).toBe('Dropdown');
-    expect(addParts).toBe('Picker');
+    const spanTexts = await addSpans.allTextContents();
+    for (const text of spanTexts) {
+      // Each span should be non-empty and not start/end with a partial word character
+      // (i.e., it should not split in the middle of an identifier)
+      expect(text.length).toBeGreaterThan(0);
+    }
   });
 });

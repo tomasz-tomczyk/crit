@@ -454,13 +454,8 @@ body {
   background: var(--comment-range-bg);
 }
 
-.line-block.selected {
-  background: var(--accent-subtle);
-}
-.line-block.form-selected {
-  background: var(--accent-subtle);
-}
-
+.line-block.selected,
+.line-block.form-selected,
 .line-block.focused {
   background: var(--accent-subtle);
 }
@@ -468,9 +463,7 @@ body {
 .line-block.line-block-added {
   box-shadow: inset 2px 0 0 var(--green);
 }
-.line-block.line-block-modified {
-  box-shadow: inset 2px 0 0 var(--orange);
-}
+.line-block.line-block-modified,
 .line-block.line-block-changed {
   box-shadow: inset 2px 0 0 var(--orange);
 }
@@ -610,9 +603,13 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .line-content h2,
 .line-content h3,
 .line-content h4,
-.line-content h5,
-.line-content h6 {
+.line-content h5 {
   color: var(--fg-primary);
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 8px;
+}
+.line-content h6 {
   font-weight: 600;
   line-height: 1.3;
   margin-top: 8px;
@@ -2722,7 +2719,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .diff-container.unified .diff-line.addition { background: var(--diff-add-bg); }
 .diff-container.unified .diff-line.deletion { background: var(--diff-del-bg); }
 .diff-container.unified .diff-line.has-comment { background: var(--comment-range-bg); }
-.diff-container.unified .diff-line.selected { background: var(--accent-subtle); }
+.diff-container.unified .diff-line.selected,
 .diff-container.unified .diff-line.form-selected { background: var(--accent-subtle); }
 .diff-container.unified .diff-gutter {
   display: flex;
@@ -2761,7 +2758,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .diff-split-side.addition { background: var(--diff-add-bg); }
 .diff-split-side.has-comment { background: var(--comment-range-bg); }
 .diff-split-side.empty { background: var(--bg-secondary); }
-.diff-split-side.selected { background: var(--accent-subtle); }
+.diff-split-side.selected,
 .diff-split-side.form-selected { background: var(--accent-subtle); }
 .diff-split-side .diff-gutter-num { min-width: 44px; }
 .diff-split-side.deletion .diff-gutter-num { background: var(--diff-del-gutter); }
