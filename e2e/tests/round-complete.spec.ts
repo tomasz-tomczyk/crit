@@ -239,6 +239,11 @@ test.describe('Multi-Round — API', () => {
 // ============================================================
 test.describe('Multi-Round — Frontend', () => {
   test.beforeEach(async ({ page, request }) => {
+    // Reset server to reviewing state in case a previous test left it in
+    // waiting/finished state. Without this, clearAllComments writes .crit.json,
+    // the file watcher detects the change, and emits edit-detected SSE events
+    // that can overwrite UI text in the next test.
+    await request.post('/api/round-complete');
     await clearAllComments(request);
     await loadPage(page);
   });
