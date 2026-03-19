@@ -2080,11 +2080,15 @@
 
   // Compute similarity between two strings using token multiset Dice coefficient.
   // Returns 0–1 (1 = identical tokens, 0 = nothing in common).
+  // Only counts word tokens (identifiers, numbers) — single punctuation characters
+  // like ", :, {, }, etc. are structural noise that inflates similarity between
+  // unrelated JSON/code lines.
   function lineSimilarity(a, b) {
     if (a === b) return 1;
     if (!a || !b) return 0;
-    const tokA = tokenize(a);
-    const tokB = tokenize(b);
+    var wordRe = /^\w+$/;
+    const tokA = tokenize(a).filter(function(t) { return wordRe.test(t); });
+    const tokB = tokenize(b).filter(function(t) { return wordRe.test(t); });
     if (tokA.length === 0 && tokB.length === 0) return 1;
     if (tokA.length === 0 || tokB.length === 0) return 0;
     const counts = {};
@@ -2113,7 +2117,7 @@
     if (delCount + addCount > 8) return [];
     // 1:1 — pair directly if similar enough (most common case)
     if (delCount === 1 && addCount === 1) {
-      return lineSimilarity(delTexts[0], addTexts[0]) >= 0.6 ? [[0, 0]] : [];
+      return lineSimilarity(delTexts[0], addTexts[0]) >= 0.4 ? [[0, 0]] : [];
     }
     // Compute all similarity scores
     const candidates = [];
@@ -2130,7 +2134,7 @@
     for (let i = 0; i < candidates.length; i++) {
       const c = candidates[i];
       if (usedDels[c.d] || usedAdds[c.a]) continue;
-      if (c.score < 0.6) break;
+      if (c.score < 0.4) break;
       pairs.push([c.d, c.a]);
       usedDels[c.d] = true;
       usedAdds[c.a] = true;
@@ -2200,8 +2204,8 @@
     // skip word-diff to avoid noisy highlights on unrelated lines.
     var oldChanged = oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
     var newChanged = newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
-    if (oldLine.length > 0 && oldChanged / oldLine.length > 0.6) return null;
-    if (newLine.length > 0 && newChanged / newLine.length > 0.6) return null;
+    if (oldLine.length > 0 && oldChanged / oldLine.length > 0.5) return null;
+    if (newLine.length > 0 && newChanged / newLine.length > 0.5) return null;
 
     return { oldRanges: oldRanges, newRanges: newRanges };
   }
