@@ -5,12 +5,11 @@ import { loadPage } from './helpers';
 // Share Feature — File Mode
 // ============================================================
 test.describe('Share — File Mode', () => {
-  test('share button is visible with default share_url', async ({ page }) => {
+  test('share button is hidden when share_url is not configured', async ({ page }) => {
     await loadPage(page);
 
     const shareBtn = page.locator('#shareBtn');
-    await expect(shareBtn).toBeVisible();
-    await expect(shareBtn).toHaveText('Share');
+    await expect(shareBtn).toBeHidden();
   });
 
   test('share button does not have success styling initially', async ({ page }) => {

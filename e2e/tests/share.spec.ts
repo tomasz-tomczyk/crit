@@ -12,10 +12,10 @@ test.describe('Share — Git Mode', () => {
     await expect(shareBtn).toBeHidden();
   });
 
-  test('config API returns default share_url', async ({ request }) => {
+  test('config API returns empty share_url when not configured', async ({ request }) => {
     const res = await request.get('/api/config');
     const config = await res.json();
-    expect(config.share_url).toBe('https://crit.live');
+    expect(config.share_url).toBe('');
   });
 
   test('config API returns empty hosted_url initially', async ({ request }) => {
