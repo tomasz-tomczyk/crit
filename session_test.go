@@ -1670,3 +1670,137 @@ func TestSession_CarryForward_PreservesReplies(t *testing.T) {
 		t.Errorf("reply ID = %q after carry-forward", carried.Replies[0].ID)
 	}
 }
+
+func TestSession_MergeExternalCritJSON_SkippedDuringPendingWrite(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{Path: "main.go", Status: "modified", Comments: []Comment{
+				{ID: "c1", StartLine: 1, EndLine: 1, Body: "existing"},
+			}, nextID: 2},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Write initial .crit.json so merge has something to read
+	s.WriteFiles()
+
+	// Delete the comment (this sets pendingWrite)
+	s.DeleteComment("main.go", "c1")
+
+	// Write .crit.json externally with the old comment still present
+	cj := CritJSON{
+		Branch: "main", ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "existing"},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	// Touch with different mtime to bypass own-write check
+	time.Sleep(10 * time.Millisecond)
+	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+
+	// Merge should be skipped because a write is pending
+	changed := s.mergeExternalCritJSON()
+	if changed {
+		t.Error("expected merge to be skipped during pending write")
+	}
+
+	// Comment should still be deleted
+	comments := s.GetComments("main.go")
+	if len(comments) != 0 {
+		t.Errorf("expected 0 comments, got %d — deleted comment was re-added", len(comments))
+	}
+}
+
+func TestSession_MergeExternalCritJSON_SyncsResolvedState(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{Path: "main.go", Status: "modified", Comments: []Comment{
+				{ID: "c1", StartLine: 1, EndLine: 1, Body: "fix this", Resolved: false},
+			}, nextID: 2},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	s.WriteFiles()
+
+	cj := CritJSON{
+		Branch: "main", ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "fix this", Resolved: true},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	time.Sleep(10 * time.Millisecond)
+	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+
+	changed := s.mergeExternalCritJSON()
+	if !changed {
+		t.Fatal("expected change detected")
+	}
+
+	comments := s.GetComments("main.go")
+	if !comments[0].Resolved {
+		t.Error("expected comment to be resolved after external edit")
+	}
+}
+
+func TestSession_MergeExternalCritJSON_SyncsUnresolve(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{Path: "main.go", Status: "modified", Comments: []Comment{
+				{ID: "c1", StartLine: 1, EndLine: 1, Body: "fix this", Resolved: true},
+			}, nextID: 2},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	s.WriteFiles()
+
+	cj := CritJSON{
+		Branch: "main", ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "fix this", Resolved: false},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	time.Sleep(10 * time.Millisecond)
+	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+
+	changed := s.mergeExternalCritJSON()
+	if !changed {
+		t.Fatal("expected change detected")
+	}
+
+	comments := s.GetComments("main.go")
+	if comments[0].Resolved {
+		t.Error("expected comment to be unresolved after external edit")
+	}
+}

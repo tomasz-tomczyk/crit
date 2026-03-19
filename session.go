@@ -88,6 +88,7 @@ type Session struct {
 	subMu             sync.Mutex
 	writeTimer        *time.Timer
 	writeGen          int
+	pendingWrite      bool
 	sharedURL         string
 	deleteToken       string
 	shareScope        string
@@ -759,6 +760,7 @@ func (s *Session) SignalRoundComplete() {
 		s.writeTimer.Stop()
 	}
 	s.writeGen++
+	s.pendingWrite = false
 	s.lastRoundEdits = s.pendingEdits
 	s.pendingEdits = 0
 	s.ReviewRound++
@@ -800,6 +802,7 @@ func (s *Session) ClearAllComments() {
 	s.Files = filtered
 	s.ReviewRound = 1
 	s.lastCritJSONMtime = time.Time{}
+	s.pendingWrite = false
 	critPath := s.critJSONPath()
 	s.mu.Unlock()
 	// Delete .crit.json from disk so it is no longer listed as an untracked git file.
@@ -813,6 +816,7 @@ func (s *Session) RoundCompleteChan() <-chan struct{} {
 
 // scheduleWrite debounces writes to disk.
 func (s *Session) scheduleWrite() {
+	s.pendingWrite = true
 	if s.writeTimer != nil {
 		s.writeTimer.Stop()
 	}
@@ -959,6 +963,7 @@ func (s *Session) WriteFiles() {
 		os.Remove(snap.critPath)
 		s.mu.Lock()
 		s.lastCritJSONMtime = time.Time{}
+		s.pendingWrite = false
 		s.mu.Unlock()
 		return
 	}
@@ -976,6 +981,7 @@ func (s *Session) WriteFiles() {
 	if info, err := os.Stat(snap.critPath); err == nil {
 		s.mu.Lock()
 		s.lastCritJSONMtime = info.ModTime()
+		s.pendingWrite = false
 		s.mu.Unlock()
 	}
 }
@@ -1049,6 +1055,15 @@ func (s *Session) mergeExternalCritJSON() bool {
 		return false
 	}
 
+	// If a debounced write is pending, skip the merge to avoid re-adding
+	// comments that the user just deleted (race between delete + debounce).
+	s.mu.RLock()
+	pending := s.pendingWrite
+	s.mu.RUnlock()
+	if pending {
+		return false
+	}
+
 	data, err := os.ReadFile(critPath)
 	if err != nil {
 		return false
@@ -1109,9 +1124,9 @@ func (s *Session) mergeExternalCritJSON() bool {
 							changed = true
 						}
 					}
-					// Sync resolved state from disk
-					if dc.Resolved && !mc.Resolved {
-						f.Comments[i].Resolved = true
+					// Sync resolved state bidirectionally from disk
+					if dc.Resolved != mc.Resolved {
+						f.Comments[i].Resolved = dc.Resolved
 						changed = true
 					}
 					break
