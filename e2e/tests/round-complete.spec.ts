@@ -167,7 +167,6 @@ test.describe('Multi-Round — API', () => {
     for (const fileKey of Object.keys(critJson.files)) {
       for (const comment of critJson.files[fileKey].comments) {
         comment.resolved = true;
-        comment.resolution_note = 'Fixed it';
       }
     }
     fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
@@ -182,7 +181,6 @@ test.describe('Multi-Round — API', () => {
     expect(comments.length).toBe(1);
     expect(comments[0].body).toBe('Will be resolved');
     expect(comments[0].resolved).toBe(true);
-    expect(comments[0].resolution_note).toBe('Fixed it');
     expect(comments[0].carried_forward).toBe(true);
   });
 
