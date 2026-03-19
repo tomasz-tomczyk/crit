@@ -281,6 +281,11 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Ensure the file is registered in the session. Files that appear after
+		// startup (e.g. user creates a new file while reviewing) may be visible in
+		// scoped views but not yet in s.Files.
+		s.session.EnsureFileEntry(path)
+
 		c, ok := s.session.AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body, req.Quote, req.Author)
 		if !ok {
 			http.Error(w, "File not found", http.StatusNotFound)
