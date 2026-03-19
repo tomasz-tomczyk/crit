@@ -546,6 +546,7 @@ func runComment(args []string) {
 	commentReplyTo := ""
 	commentResolve := false
 	commentPath := ""
+	commentJSON := false
 	var commentArgs []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -579,6 +580,8 @@ func runComment(args []string) {
 			}
 			i++
 			commentPath = args[i]
+		} else if arg == "--json" {
+			commentJSON = true
 		} else {
 			commentArgs = append(commentArgs, arg)
 		}
@@ -592,6 +595,46 @@ func runComment(args []string) {
 		}
 		commentCfg := LoadConfig(commentCfgDir)
 		commentAuthor = commentCfg.Author
+	}
+
+	// JSON bulk mode: crit comment --json < comments.json
+	if commentJSON {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
+			os.Exit(1)
+		}
+
+		var entries []BulkCommentEntry
+		if err := json.Unmarshal(data, &entries); err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing JSON: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := bulkAddCommentsToCritJSON(entries, commentAuthor, commentOutputDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Count new comments vs replies
+		var comments, replies int
+		for _, e := range entries {
+			if e.ReplyTo != "" {
+				replies++
+			} else {
+				comments++
+			}
+		}
+
+		var parts []string
+		if comments > 0 {
+			parts = append(parts, fmt.Sprintf("%d comment%s", comments, plural(comments)))
+		}
+		if replies > 0 {
+			parts = append(parts, fmt.Sprintf("%d repl%s", replies, pluralReply(replies)))
+		}
+		fmt.Printf("Added %s\n", strings.Join(parts, " and "))
+		return
 	}
 
 	// Reply mode: crit comment --reply-to <id> [--resolve] <body>
@@ -626,6 +669,7 @@ func runComment(args []string) {
 	if len(commentArgs) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: crit comment [--output <dir>] [--author <name>] <path>:<line[-end]> <body>")
 		fmt.Fprintln(os.Stderr, "       crit comment --reply-to <id> [--resolve] [--author <name>] <body>")
+		fmt.Fprintln(os.Stderr, "       crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON")
 		fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] --clear")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Examples:")
@@ -633,10 +677,12 @@ func runComment(args []string) {
 		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' src/auth.go:10-25 'This block needs refactoring'")
 		fmt.Fprintln(os.Stderr, "  crit comment --reply-to c1 --resolve --author 'Claude' 'Split into two functions'")
 		fmt.Fprintln(os.Stderr, "  crit comment --output /tmp/reviews main.go:42 'Fix this bug'")
+		fmt.Fprintln(os.Stderr, "  echo '[{\"file\":\"main.go\",\"line\":42,\"body\":\"Fix this\"}]' | crit comment --json --author 'Claude'")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Tips:")
 		fmt.Fprintln(os.Stderr, "  Use --author to identify who left the comment (recommended for AI agents)")
 		fmt.Fprintln(os.Stderr, "  Use single quotes for the body to avoid shell interpretation of backticks")
+		fmt.Fprintln(os.Stderr, "  Use --json for bulk operations (multiple comments/replies in one atomic write)")
 		os.Exit(1)
 	}
 
@@ -680,6 +726,20 @@ func runComment(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func pluralReply(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }
 
 // serverConfig holds the resolved configuration for running the server.
@@ -929,6 +989,7 @@ Usage:
   crit listen <port>                         Wait for review to finish on a running crit instance
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
   crit comment --reply-to <id> [--resolve] [--author <name>] <body>  Reply to a comment
+  crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON
   crit comment --clear                       Remove all comments from .crit.json
   crit share <file> [file...]                Share files to crit-web and print the URL
   crit unpublish                             Remove a shared review from crit-web

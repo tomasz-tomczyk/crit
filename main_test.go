@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -329,6 +330,50 @@ func TestHelperProcess_UnpublishBadFlag(t *testing.T) {
 		return
 	}
 	runUnpublish([]string{"--bogus"})
+}
+
+// TestRunComment_JSONFlag verifies that --json reads from stdin and produces output.
+func TestRunComment_JSONFlag(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcess_CommentJSON$", "--")
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
+	cmd.Stdin = strings.NewReader(`[{"file":"main.go","line":1,"body":"test"}]`)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("process exited with error: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(string(out), "Added 1 comment") {
+		t.Errorf("expected success message, got: %s", out)
+	}
+}
+
+func TestHelperProcess_CommentJSON(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	tmp := t.TempDir()
+	runComment([]string{"--json", "--output", tmp, "--author", "TestBot"})
+}
+
+// TestRunComment_JSONFlagMixed verifies that --json handles mixed comments and replies.
+func TestRunComment_JSONFlagMixed(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcess_CommentJSONMix$", "--")
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
+	cmd.Stdin = strings.NewReader(`[{"file":"main.go","line":1,"body":"comment"},{"reply_to":"c1","body":"reply","resolve":true}]`)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("process exited with error: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(string(out), "1 comment") || !strings.Contains(string(out), "1 reply") {
+		t.Errorf("expected mixed success message, got: %s", out)
+	}
+}
+
+func TestHelperProcess_CommentJSONMix(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	tmp := t.TempDir()
+	runComment([]string{"--json", "--output", tmp, "--author", "TestBot"})
 }
 
 // TestResolveServerConfig_BaseBranch verifies that --base-branch sets defaultBranchOverride
