@@ -100,7 +100,7 @@ func TestMergeConfigs(t *testing.T) {
 	project := Config{Port: 8080}
 	project.IgnorePatterns = []string{"*.pb.go"}
 
-	merged := mergeConfigs(global, project)
+	merged := mergeConfigs(global, project, configPresence{})
 	if merged.Port != 8080 {
 		t.Errorf("port = %d, want 8080 (project override)", merged.Port)
 	}
@@ -130,7 +130,7 @@ func TestBaseBranchConfig(t *testing.T) {
 	t.Run("mergeConfigs: project base_branch overrides global", func(t *testing.T) {
 		global := Config{BaseBranch: "main"}
 		project := Config{BaseBranch: "uat"}
-		merged := mergeConfigs(global, project)
+		merged := mergeConfigs(global, project, configPresence{})
 		if merged.BaseBranch != "uat" {
 			t.Errorf("base_branch = %q, want %q", merged.BaseBranch, "uat")
 		}
@@ -139,7 +139,7 @@ func TestBaseBranchConfig(t *testing.T) {
 	t.Run("mergeConfigs: global base_branch preserved when project unset", func(t *testing.T) {
 		global := Config{BaseBranch: "develop"}
 		project := Config{}
-		merged := mergeConfigs(global, project)
+		merged := mergeConfigs(global, project, configPresence{})
 		if merged.BaseBranch != "develop" {
 			t.Errorf("base_branch = %q, want %q", merged.BaseBranch, "develop")
 		}
@@ -171,7 +171,7 @@ func TestMergeConfigsZeroValues(t *testing.T) {
 	global := Config{Port: 3000, NoOpen: true, Quiet: true}
 	project := Config{} // all zero — should not override
 
-	merged := mergeConfigs(global, project)
+	merged := mergeConfigs(global, project, configPresence{})
 	if merged.Port != 3000 {
 		t.Errorf("port should stay 3000")
 	}
@@ -180,6 +180,21 @@ func TestMergeConfigsZeroValues(t *testing.T) {
 	}
 	if !merged.Quiet {
 		t.Error("quiet should stay true")
+	}
+}
+
+func TestMergeConfigsBoolOverride(t *testing.T) {
+	// Project explicitly sets no_open: false to override global no_open: true
+	global := Config{NoOpen: true, Quiet: true}
+	project := Config{NoOpen: false, Quiet: false}
+	presence := configPresence{NoOpen: true, Quiet: true}
+
+	merged := mergeConfigs(global, project, presence)
+	if merged.NoOpen {
+		t.Error("project no_open: false should override global no_open: true")
+	}
+	if merged.Quiet {
+		t.Error("project quiet: false should override global quiet: true")
 	}
 }
 

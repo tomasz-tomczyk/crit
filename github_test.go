@@ -505,7 +505,7 @@ func TestCollectNewRepliesForPush(t *testing.T) {
 		},
 	}
 
-	replies := collectNewRepliesForPush("server.go", cf)
+	replies := collectNewRepliesForPush(cf)
 	if len(replies) != 1 {
 		t.Fatalf("expected 1 new reply, got %d", len(replies))
 	}
@@ -528,7 +528,7 @@ func TestCollectNewRepliesForPush_NoGitHubRoot(t *testing.T) {
 		},
 	}
 
-	replies := collectNewRepliesForPush("server.go", cf)
+	replies := collectNewRepliesForPush(cf)
 	if len(replies) != 0 {
 		t.Fatalf("expected 0 replies for local-only comment, got %d", len(replies))
 	}

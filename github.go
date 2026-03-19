@@ -333,7 +333,7 @@ type ghReplyForPush struct {
 
 // collectNewRepliesForPush finds replies that haven't been pushed to GitHub yet.
 // A reply needs pushing if its GitHubID is 0 (local-only) and its parent Comment has a GitHubID (on GitHub).
-func collectNewRepliesForPush(filePath string, cf CritJSONFile) []ghReplyForPush {
+func collectNewRepliesForPush(cf CritJSONFile) []ghReplyForPush {
 	var replies []ghReplyForPush
 	for _, c := range cf.Comments {
 		if c.GitHubID == 0 {
