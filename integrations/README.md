@@ -13,9 +13,9 @@ This installs a `/crit` slash command into your project. Safe to re-run — exis
 
 | Tool | Install command | Destination |
 |------|----------------|-------------|
-| Claude Code | `crit install claude-code` | `.claude/commands/crit.md` |
-| Cursor | `crit install cursor` | `.cursor/commands/crit.md` |
-| GitHub Copilot | `crit install github-copilot` | `.github/prompts/crit.prompt.md` |
+| Claude Code | `crit install claude-code` | `.claude/commands/crit.md` + `.claude/skills/crit-cli/SKILL.md` |
+| Cursor | `crit install cursor` | `.cursor/commands/crit.md` + `.cursor/skills/crit-cli/SKILL.md` |
+| GitHub Copilot | `crit install github-copilot` | `.github/prompts/crit.prompt.md` + `.github/skills/crit-cli/SKILL.md` |
 | OpenCode | `crit install opencode` | `.opencode/commands/crit.md` + `.opencode/skills/crit/SKILL.md` |
 | Windsurf | `crit install windsurf` | `.windsurf/rules/crit.md` |
 | Cline | `crit install cline` | `.clinerules/crit.md` |

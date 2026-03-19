@@ -1036,9 +1036,11 @@ type integration struct {
 var integrationMap = map[string][]integration{
 	"claude-code": {
 		{source: "integrations/claude-code/commands/crit.md", dest: ".claude/commands/crit.md", hint: "Run /crit in Claude Code to start a review loop"},
+		{source: "integrations/claude-code/skills/crit-cli/SKILL.md", dest: ".claude/skills/crit-cli/SKILL.md", hint: "The crit skill is available to Claude Code agents when needed"},
 	},
 	"cursor": {
 		{source: "integrations/cursor/commands/crit.md", dest: ".cursor/commands/crit.md", hint: "Run /crit in Cursor to start a review loop"},
+		{source: "integrations/cursor/skills/crit-cli/SKILL.md", dest: ".cursor/skills/crit-cli/SKILL.md", hint: "The crit skill is available to Cursor agents when needed"},
 	},
 	"opencode": {
 		{source: "integrations/opencode/crit.md", dest: ".opencode/commands/crit.md", hint: "Run /crit in OpenCode to start a review loop"},
@@ -1049,6 +1051,7 @@ var integrationMap = map[string][]integration{
 	},
 	"github-copilot": {
 		{source: "integrations/github-copilot/commands/crit.prompt.md", dest: ".github/prompts/crit.prompt.md", hint: "Run /crit in GitHub Copilot to start a review loop"},
+		{source: "integrations/github-copilot/skills/crit-cli/SKILL.md", dest: ".github/skills/crit-cli/SKILL.md", hint: "The crit skill is available to GitHub Copilot agents when needed"},
 	},
 	"cline": {
 		{source: "integrations/cline/crit.md", dest: ".clinerules/crit.md", hint: "Cline will suggest Crit when writing plans"},

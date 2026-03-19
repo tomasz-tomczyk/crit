@@ -22,15 +22,13 @@ crit $PLAN_FILE
 crit
 ```
 
-**CRITICAL — you MUST run `crit listen <port>` after launching crit.** Run it in the background if supported:
+**CRITICAL — you MUST run `crit listen <port>` after launching crit.** Run it in the foreground and block until it exits:
 
 ```bash
 crit listen <port>
 ```
 
 **Do NOT proceed until `crit listen` completes.** Do NOT ask the user to type anything. Do NOT read `.crit.json` early. `crit listen` blocks until the user clicks Finish Review — that is how you know they are done.
-
-**Fallback:** If background tasks are NOT supported, tell the user: "Leave inline comments, then click Finish Review. Let me know when you're done." and wait for a response.
 
 ## After review
 

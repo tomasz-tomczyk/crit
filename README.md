@@ -160,7 +160,7 @@ Crit ships with plugins and configuration files for popular AI coding tools. Eac
 
 ### Per-project install
 
-The fastest way to get started. Installs a `/crit` slash command into your project:
+The fastest way to get started. Installs a `/crit` slash command plus any integration companion files available for that tool (for example `SKILL.md` files) into your project:
 
 ```bash
 crit install claude-code   # or: cursor, opencode, windsurf, github-copilot, cline
