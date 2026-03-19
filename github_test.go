@@ -1178,3 +1178,29 @@ func TestBulkAddCommentsToCritJSON_MultipleFiles(t *testing.T) {
 		t.Errorf("expected 1 comment on b.go, got %d", len(cj.Files["b.go"].Comments))
 	}
 }
+
+func TestBulkAddCommentsToCritJSON_EndLineDefaultsToLine(t *testing.T) {
+	dir := initTestRepo(t)
+	oldDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldDir)
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\nline2\nline3\nline4\nline5\n")
+	entries := []BulkCommentEntry{
+		{File: "main.go", Line: 2, Body: "single line - no end_line"},
+		{File: "main.go", Line: 3, EndLine: 5, Body: "explicit range"},
+	}
+	err := bulkAddCommentsToCritJSON(entries, "Bot", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cj := readCritJSON(t, dir)
+	cf := cj.Files["main.go"]
+	// When EndLine is omitted (0), it should default to Line
+	if cf.Comments[0].StartLine != 2 || cf.Comments[0].EndLine != 2 {
+		t.Errorf("expected line 2-2, got %d-%d", cf.Comments[0].StartLine, cf.Comments[0].EndLine)
+	}
+	// When EndLine is explicit, it should be preserved
+	if cf.Comments[1].StartLine != 3 || cf.Comments[1].EndLine != 5 {
+		t.Errorf("expected lines 3-5, got %d-%d", cf.Comments[1].StartLine, cf.Comments[1].EndLine)
+	}
+}
