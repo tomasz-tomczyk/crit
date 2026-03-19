@@ -34,7 +34,7 @@ crit listen <port>
 
 ## After review
 
-Read `.crit.json` to find the user's inline comments. Comments are grouped per file with `start_line`/`end_line` referencing the source. A comment is unresolved if `"resolved": false` or if the `resolved` field is missing. Address each unresolved comment by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --resolve '<what you did>'`.
+Read `.crit.json` to find the user's inline comments. Comments are grouped per file with `start_line`/`end_line` referencing the source. A comment is unresolved if `"resolved": false` or if the `resolved` field is missing. Address each unresolved comment by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --resolve --author 'Aider' '<what you did>'`.
 
 When done, run `crit go <port>` to trigger a new round, then **immediately run `crit listen <port>` again** to wait for the next review. Do NOT skip `crit listen` between rounds.
 

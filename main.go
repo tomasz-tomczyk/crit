@@ -631,7 +631,7 @@ func runComment(args []string) {
 		fmt.Fprintln(os.Stderr, "Examples:")
 		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' main.go:42 'Fix this bug'")
 		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' src/auth.go:10-25 'This block needs refactoring'")
-		fmt.Fprintln(os.Stderr, "  crit comment --reply-to c1 --resolve 'Split into two functions'")
+		fmt.Fprintln(os.Stderr, "  crit comment --reply-to c1 --resolve --author 'Claude' 'Split into two functions'")
 		fmt.Fprintln(os.Stderr, "  crit comment --output /tmp/reviews main.go:42 'Fix this bug'")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Tips:")
@@ -928,7 +928,7 @@ Usage:
   crit go <port>                             Signal round-complete to a running crit instance
   crit listen <port>                         Wait for review to finish on a running crit instance
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
-  crit comment --reply-to <id> [--resolve] <body>  Reply to a comment
+  crit comment --reply-to <id> [--resolve] [--author <name>] <body>  Reply to a comment
   crit comment --clear                       Remove all comments from .crit.json
   crit share <file> [file...]                Share files to crit-web and print the URL
   crit unpublish                             Remove a shared review from crit-web
