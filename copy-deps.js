@@ -1,26 +1,18 @@
-import { cpSync } from "fs";
+import { cpSync, readdirSync, readFileSync, writeFileSync } from "fs";
 
 const dest = "frontend";
 
 // markdown-it
 cpSync("node_modules/markdown-it/dist/markdown-it.min.js", `${dest}/markdown-it.min.js`);
 
-// highlight.js core
-cpSync("node_modules/@highlightjs/cdn-assets/highlight.min.js", `${dest}/highlight.min.js`);
-
-// highlight.js languages
-const langs = [
-  "bash", "css", "elixir", "go", "javascript", "json",
-  "python", "ruby", "rust", "sql", "typescript", "xml", "yaml",
-];
-for (const lang of langs) {
-  cpSync(
-    `node_modules/@highlightjs/cdn-assets/languages/${lang}.min.js`,
-    `${dest}/hljs-${lang}.min.js`,
-  );
-}
+// highlight.js — bundle core + all languages into a single file
+const core = readFileSync("node_modules/@highlightjs/cdn-assets/highlight.min.js", "utf8");
+const langDir = "node_modules/@highlightjs/cdn-assets/languages";
+const langFiles = readdirSync(langDir).filter(f => f.endsWith(".min.js")).sort();
+const langs = langFiles.map(f => readFileSync(`${langDir}/${f}`, "utf8")).join("\n");
+writeFileSync(`${dest}/highlight.min.js`, core + "\n" + langs);
 
 // mermaid
 cpSync("node_modules/mermaid/dist/mermaid.min.js", `${dest}/mermaid.min.js`);
 
-console.log("Frontend deps copied to frontend/");
+console.log(`Frontend deps copied to frontend/ (${langFiles.length} highlight.js languages bundled)`);
