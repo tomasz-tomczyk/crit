@@ -46,7 +46,7 @@ After a crit review session, comments are in `.crit.json`. Comments are grouped 
 After addressing a comment, reply to it using the CLI:
 
 ```bash
-crit comment --reply-to c1 --resolve 'Fixed by extracting to helper'
+crit comment --reply-to c1 --resolve --author 'Claude Code' 'Fixed by extracting to helper'
 ```
 
 This adds a reply to the comment thread and marks it resolved. You can also reply without resolving (omit `--resolve`) if discussion is ongoing.
@@ -57,22 +57,22 @@ Use `crit comment` to add inline review comments to `.crit.json` programmaticall
 
 ```bash
 # Single line comment
-crit comment --author 'Claude' <path>:<line> '<body>'
+crit comment --author 'Claude Code' <path>:<line> '<body>'
 
 # Multi-line comment (range)
-crit comment --author 'Claude' <path>:<start>-<end> '<body>'
+crit comment --author 'Claude Code' <path>:<start>-<end> '<body>'
 
 # Reply to an existing comment (with optional --resolve)
-crit comment --reply-to <id> --author 'Claude' '<body>'
-crit comment --reply-to <id> --resolve --author 'Claude' '<body>'
+crit comment --reply-to <id> --author 'Claude Code' '<body>'
+crit comment --reply-to <id> --resolve --author 'Claude Code' '<body>'
 ```
 
 Examples:
 
 ```bash
-crit comment --author 'Claude' src/auth.go:42 'Missing null check on user.session — will panic if session expired'
-crit comment --author 'Claude' src/handler.go:15-28 'This error is swallowed silently'
-crit comment --reply-to c1 --resolve --author 'Claude' 'Added null check on line 42'
+crit comment --author 'Claude Code' src/auth.go:42 'Missing null check on user.session — will panic if session expired'
+crit comment --author 'Claude Code' src/handler.go:15-28 'This error is swallowed silently'
+crit comment --reply-to c1 --resolve --author 'Claude Code' 'Added null check on line 42'
 ```
 
 Rules:

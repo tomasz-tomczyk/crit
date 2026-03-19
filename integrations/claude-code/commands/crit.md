@@ -77,7 +77,7 @@ For each unresolved comment:
 2. If a comment contains a suggestion block, apply that specific change
 3. Revise the **referenced file** to address the feedback - this could be the plan file or any code file from the git diff
 4. Use the Edit tool to make targeted changes
-5. Reply to the comment with what you did: `crit comment --reply-to <id> --resolve '<what you did>'`
+5. Reply to the comment with what you did: `crit comment --reply-to <id> --resolve --author 'Claude Code' '<what you did>'`
 
 Editing the plan file triggers Crit's live reload - the user sees changes in the browser immediately.
 
