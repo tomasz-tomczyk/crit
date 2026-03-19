@@ -152,4 +152,102 @@ test.describe('Comment Threading', () => {
     // Reply should be gone
     await expect(section.locator('.comment-reply')).toHaveCount(0);
   });
+
+  test('resolve button marks comment as resolved', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Fix this bug');
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
+
+    // Hover to reveal actions, click resolve
+    await card.hover();
+    await card.locator('.comment-actions button[title="Resolve"]').click();
+
+    // Card should now have resolved badge and be collapsed
+    await expect(section.locator('.resolved-badge')).toBeVisible();
+    await expect(section.locator('.comment-card.collapsed')).toHaveCount(1);
+  });
+
+  test('unresolve button restores comment to active', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Fix this bug');
+
+    // Resolve via API
+    await request.fetch(`/api/comment/c1/resolve?path=${encodeURIComponent(mdPath)}`, {
+      method: 'PUT',
+      data: { resolved: true },
+    });
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+
+    // Expand the resolved card
+    await section.locator('.comment-collapse-btn').click();
+    await expect(section.locator('.resolved-badge')).toBeVisible();
+
+    // Hover to reveal unresolve, click it
+    await section.locator('.comment-card').hover();
+    await section.locator('.comment-actions button[title="Unresolve"]').click();
+
+    // Should no longer have resolved badge, card should be expanded
+    await expect(section.locator('.resolved-badge')).toHaveCount(0);
+    await expect(section.locator('.comment-card:not(.collapsed)')).toHaveCount(1);
+  });
+
+  test('collapse chevron toggles comment body visibility', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Collapsible comment');
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
+    await expect(card.locator('.comment-body')).toBeVisible();
+
+    // Click collapse chevron
+    await card.locator('.comment-collapse-btn').click();
+    await expect(card).toHaveClass(/collapsed/);
+    await expect(card.locator('.comment-body')).not.toBeVisible();
+
+    // Click again to expand
+    await card.locator('.comment-collapse-btn').click();
+    await expect(card).not.toHaveClass(/collapsed/);
+    await expect(card.locator('.comment-body')).toBeVisible();
+  });
+
+  test('resolved comment renders as full card with badge', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Needs work');
+    await request.post(`/api/comment/c1/replies?path=${encodeURIComponent(mdPath)}`, {
+      data: { body: 'Fixed it', author: 'agent' },
+    });
+    await request.fetch(`/api/comment/c1/resolve?path=${encodeURIComponent(mdPath)}`, {
+      method: 'PUT',
+      data: { resolved: true },
+    });
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const card = section.locator('.comment-card');
+
+    // Collapsed by default with badge
+    await expect(card).toHaveClass(/collapsed/);
+    await expect(section.locator('.resolved-badge')).toBeVisible();
+
+    // Expand — should show body, reply, and reply input
+    await card.locator('.comment-collapse-btn').click();
+    await expect(card.locator('.comment-body')).toContainText('Needs work');
+    await expect(card.locator('.comment-reply')).toHaveCount(1);
+    await expect(card.locator('.reply-body')).toContainText('Fixed it');
+    await expect(card.locator('.reply-input')).toBeVisible();
+  });
 });

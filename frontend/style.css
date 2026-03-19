@@ -1135,12 +1135,12 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .comment-replies {
   margin: 0;
   border-top: 1px solid var(--border);
-  padding: 4px 14px 8px;
+  padding: 0;
 }
 
 
 .comment-reply {
-  padding: 6px 0;
+  padding: 6px 14px;
 }
 
 .comment-reply + .comment-reply {
@@ -1170,6 +1170,19 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .reply-body {
   font-size: 13px;
   line-height: 1.4;
+  overflow: hidden;
+}
+
+.reply-body ul, .reply-body ol {
+  padding-left: 1.5em;
+  margin: 0.3em 0;
+}
+
+.reply-body blockquote {
+  margin: 0.3em 0;
+  padding-left: 0.8em;
+  border-left: 3px solid var(--border);
+  color: var(--fg-secondary);
 }
 
 .reply-body p {

@@ -3923,7 +3923,7 @@
 
   function createCommentElement(comment, filePath) {
     if (findFormForEdit(comment.id)) {
-      return createInlineEditor(comment);
+      return createInlineEditor(comment, filePath);
     }
 
     const wrapper = document.createElement('div');
@@ -4228,20 +4228,29 @@
     });
   }
 
-  function createInlineEditor(comment) {
+  function createInlineEditor(comment, filePath) {
     const formObj = findFormForEdit(comment.id);
     if (!formObj) return null;
 
     let lineRef = comment.start_line === comment.end_line
       ? 'Line ' + comment.start_line
       : 'Lines ' + comment.start_line + '-' + comment.end_line;
-    return createCommentFormUI({
+    var formEl = createCommentFormUI({
       formObj: formObj,
       headerText: 'Editing comment on ' + lineRef,
       submitText: 'Update Comment',
       initialBody: comment.body,
       autoFocus: true
     });
+
+    // Keep replies visible below the edit form, inside the form's card
+    if (comment.replies && comment.replies.length > 0) {
+      var formCard = formEl.querySelector('.comment-form');
+      if (formCard) {
+        formCard.appendChild(renderReplyList(comment, filePath));
+      }
+    }
+    return formEl;
   }
 
   function editComment(comment, filePath) {
@@ -4372,6 +4381,8 @@
 
     buttons.appendChild(cancelBtn);
     buttons.appendChild(submitBtn);
+
+    attachFilePicker(textarea);
 
     function expand() {
       if (form.classList.contains('expanded')) return;
