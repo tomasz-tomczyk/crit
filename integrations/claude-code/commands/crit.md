@@ -21,6 +21,8 @@ Don't ask for confirmation — just proceed with whichever mode applies.
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
+If a crit server is already running from earlier in this conversation, `crit review` will automatically connect to it — no need to track ports or skip steps.
+
 Run `crit review` **in the background** using `run_in_background: true`:
 
 ```bash
@@ -31,7 +33,7 @@ crit review <plan-file>
 crit review
 ```
 
-This starts the daemon if needed, opens the browser, and blocks until the user clicks "Finish Review". Feedback is printed to stdout when it exits.
+This starts the daemon if needed (or connects to an existing one), opens the browser, and blocks until the user clicks "Finish Review". Feedback is printed to stdout when it exits.
 
 Tell the user: **"Crit is open in your browser. Leave inline comments, then click Finish Review."**
 
@@ -41,7 +43,7 @@ Tell the user: **"Crit is open in your browser. Leave inline comments, then clic
 
 ## Step 4: Read the review output
 
-When `crit listen` completes, read the `.crit.json` file in the repo root (or working directory) using the Read tool.
+When `crit review` completes, read the `.crit.json` file in the repo root (or working directory) using the Read tool.
 
 The file contains structured JSON with comments per file:
 

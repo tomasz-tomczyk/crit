@@ -48,7 +48,7 @@ crit/
 
 ## Key Architecture Decisions
 
-1. **All frontend assets embedded** via Go's `embed.FS` — produces a true single binary
+1. **Single binary, zero runtime dependencies** — all frontend assets embedded via Go's `embed.FS`
 2. **No frontend build step** — vanilla JS, no npm/webpack/framework. npm is only for fetching vendor libs.
 3. **Multi-file sessions** — `crit` (no args) auto-detects git changes; `crit file1 file2` reviews specific files
 4. **Two modes**: "git" mode (auto-detect from git) and "files" mode (explicit file arguments)
@@ -80,11 +80,11 @@ make build-all                                        # Cross-compile to dist/
 ## CLI Subcommands
 
 ```bash
-crit                          # Start review server (git mode or file mode)
+crit                          # Start review server (foreground, or connect to running daemon)
 crit go <port>                # Signal round-complete to a running server
 crit listen [port]            # Block until review finishes on a running crit instance
-crit review                   # Unified review (starts daemon, blocks for feedback, exits)
-crit stop                     # Stop the background daemon
+crit review                   # Daemon mode: starts background server, blocks for feedback, exits
+crit stop                     # Stop a background daemon
 crit pull [pr-number]         # Fetch GitHub PR comments into .crit.json
 crit push [--dry-run] [pr]    # Post .crit.json comments as a GitHub PR review
 crit comment <path>:<line[-end]> <body>         # Add a comment to .crit.json (no server needed)
@@ -340,16 +340,17 @@ When the agent runs `crit go <PORT>` (or calls `POST /api/round-complete`):
 
 ## Daemon Architecture
 
-`crit review` manages a background daemon for seamless multi-round reviews:
+Crit supports two modes of operation:
 
-1. **First `crit review`**: starts daemon (background `crit _serve`), opens browser, blocks for feedback
-2. **Subsequent `crit review`**: connects to existing daemon, signals round-complete, blocks for feedback
-3. **`crit stop`**: kills the daemon
+**Standalone (human use):** `crit` or `crit <file>` starts a foreground server that stays up until Ctrl+C. If a daemon is already running, it connects as a review client instead.
 
-State file: `.crit.daemon.json` at repo root — contains `{pid, port}` of the running daemon.
-Internal command: `crit _serve` runs the server in foreground (used by daemon spawning, not user-facing).
+**Daemon (agent use):** `crit review` starts a background daemon (`crit _serve`), blocks until the user finishes reviewing, prints feedback to stdout, and exits. Subsequent `crit review` calls connect to the existing daemon, signal round-complete, and block again.
 
-The existing `crit`, `crit listen`, `crit go` commands still work for manual/advanced workflows.
+Daemon state (`daemon_pid`, `daemon_port`) is stored in `.crit.json` alongside review data. The foreground server also writes daemon state so agents can connect to a human-started server.
+
+- `crit stop` kills a running daemon
+- `crit _serve` is the internal daemon process (not user-facing)
+- `crit listen` and `crit go` still work for manual/advanced workflows
 
 ## Releasing
 

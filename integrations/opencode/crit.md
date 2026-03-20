@@ -23,6 +23,8 @@ Don't ask for confirmation — just proceed with whichever mode applies.
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
+If a crit server is already running from earlier in this conversation, `crit review` will automatically connect to it — no need to track ports or skip steps.
+
 Run `crit review` in the foreground and block until it exits:
 
 ```bash
