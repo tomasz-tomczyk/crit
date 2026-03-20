@@ -62,6 +62,10 @@ func main() {
 		runComment(os.Args[2:])
 	case "review":
 		runReview(os.Args[2:])
+	case "hook":
+		runHook()
+	case "-":
+		runStdinReview()
 	case "stop":
 		runStop()
 	case "_serve":
@@ -1100,6 +1104,8 @@ func printHelp() {
 Usage:
   crit                                       Auto-detect changed files via git
   crit <file|dir> [...]                      Review specific files or directories
+  crit -                                     Read content from stdin and review it
+  crit hook                                  Claude Code hook handler (reads JSON from stdin)
   crit stop                                  Stop the background crit daemon
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
   crit comment --reply-to <id> [--resolve] [--author <name>] <body>  Reply to a comment
@@ -1281,6 +1287,14 @@ func installIntegration(name string, force bool) {
 			hints = append(hints, f.hint)
 		}
 	}
+	// Install hook for agents that support it
+	if name == "claude-code" {
+		hookHint := installClaudeCodeHook(force)
+		if hookHint != "" {
+			hints = append(hints, hookHint)
+		}
+	}
+
 	seenHints := make(map[string]bool)
 	for _, hint := range hints {
 		if seenHints[hint] {
