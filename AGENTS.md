@@ -83,6 +83,8 @@ make build-all                                        # Cross-compile to dist/
 crit                          # Start review server (git mode or file mode)
 crit go <port>                # Signal round-complete to a running server
 crit listen [port]            # Block until review finishes on a running crit instance
+crit review                   # Unified review (starts daemon, blocks for feedback, exits)
+crit stop                     # Stop the background daemon
 crit pull [pr-number]         # Fetch GitHub PR comments into .crit.json
 crit push [--dry-run] [pr]    # Post .crit.json comments as a GitHub PR review
 crit comment <path>:<line[-end]> <body>         # Add a comment to .crit.json (no server needed)
@@ -335,6 +337,19 @@ When the agent runs `crit go <PORT>` (or calls `POST /api/round-complete`):
 - **File list**: Re-run `ChangedFiles()` to detect new/removed files
 - The waiting modal shows a live count of file edits while the agent is working
 - Diff toggle for markdown files shows inter-round changes
+
+## Daemon Architecture
+
+`crit review` manages a background daemon for seamless multi-round reviews:
+
+1. **First `crit review`**: starts daemon (background `crit _serve`), opens browser, blocks for feedback
+2. **Subsequent `crit review`**: connects to existing daemon, signals round-complete, blocks for feedback
+3. **`crit stop`**: kills the daemon
+
+State file: `.crit.daemon.json` at repo root — contains `{pid, port}` of the running daemon.
+Internal command: `crit _serve` runs the server in foreground (used by daemon spawning, not user-facing).
+
+The existing `crit`, `crit listen`, `crit go` commands still work for manual/advanced workflows.
 
 ## Releasing
 
