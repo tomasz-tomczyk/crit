@@ -105,7 +105,6 @@ func (s *Session) RefreshFileList() {
 				Status:   fc.Status,
 				FileType: detectFileType(fc.Path),
 				Comments: []Comment{},
-				nextID:   1,
 			}
 			if fc.Status != "deleted" {
 				if data, err := os.ReadFile(absPath); err == nil {
@@ -225,7 +224,6 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 				f.Content = string(data)
 				f.FileHash = hash
 				f.Comments = []Comment{}
-				f.nextID = 1
 				s.mu.Unlock()
 				changed = true
 			}
@@ -289,8 +287,8 @@ func (s *Session) handleRoundCompleteGit() {
 	for _, f := range s.Files {
 		now := time.Now().UTC().Format(time.RFC3339)
 		for _, c := range f.PreviousComments {
-			carried := carryForwardComment(c, fmt.Sprintf("c%d", f.nextID), now)
-			f.nextID++
+			carried := carryForwardComment(c, fmt.Sprintf("c%d", s.nextID), now)
+			s.nextID++
 			f.Comments = append(f.Comments, carried)
 		}
 	}
@@ -329,8 +327,8 @@ func (s *Session) handleRoundCompleteFiles() {
 		}
 		// Carry forward all remaining comments from PreviousComments
 		for _, c := range f.PreviousComments {
-			carried := carryForwardComment(c, fmt.Sprintf("c%d", f.nextID), now)
-			f.nextID++
+			carried := carryForwardComment(c, fmt.Sprintf("c%d", s.nextID), now)
+			s.nextID++
 			f.Comments = append(f.Comments, carried)
 		}
 	}
@@ -473,10 +471,10 @@ func (s *Session) carryForwardComments() {
 			if newEnd < newStart {
 				newEnd = newStart
 			}
-			carried := carryForwardComment(c, fmt.Sprintf("c%d", f.nextID), now)
+			carried := carryForwardComment(c, fmt.Sprintf("c%d", s.nextID), now)
 			carried.StartLine = newStart
 			carried.EndLine = newEnd
-			f.nextID++
+			s.nextID++
 			f.Comments = append(f.Comments, carried)
 		}
 		s.mu.Unlock()

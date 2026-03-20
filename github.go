@@ -84,14 +84,17 @@ func fetchPRComments(prNumber int) ([]ghComment, error) {
 	return comments, nil
 }
 
-// nextCommentID scans existing comments and returns the next available cN ID.
-func nextCommentID(comments []Comment) int {
+// nextCommentID scans ALL files' comments in a CritJSON and returns the next
+// available globally-unique cN ID. This ensures IDs don't collide across files.
+func nextCommentID(files map[string]CritJSONFile) int {
 	next := 1
-	for _, c := range comments {
-		id := 0
-		_, _ = fmt.Sscanf(c.ID, "c%d", &id)
-		if id >= next {
-			next = id + 1
+	for _, cf := range files {
+		for _, c := range cf.Comments {
+			id := 0
+			_, _ = fmt.Sscanf(c.ID, "c%d", &id)
+			if id >= next {
+				next = id + 1
+			}
 		}
 	}
 	return next
@@ -216,7 +219,7 @@ func mergeGHComments(cj *CritJSON, ghComments []ghComment) int {
 			continue
 		}
 
-		commentID := fmt.Sprintf("c%d", nextCommentID(cf.Comments))
+		commentID := fmt.Sprintf("c%d", nextCommentID(cj.Files))
 		comment := Comment{
 			ID:        commentID,
 			StartLine: startLine,
@@ -565,7 +568,7 @@ func appendComment(cj *CritJSON, filePath string, startLine, endLine int, body, 
 	}
 
 	cf.Comments = append(cf.Comments, Comment{
-		ID:        fmt.Sprintf("c%d", nextCommentID(cf.Comments)),
+		ID:        fmt.Sprintf("c%d", nextCommentID(cj.Files)),
 		StartLine: startLine,
 		EndLine:   endLine,
 		Body:      body,

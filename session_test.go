@@ -21,6 +21,7 @@ func newTestSession(t *testing.T) *Session {
 	s := &Session{
 		RepoRoot:      dir,
 		ReviewRound:   1,
+		nextID:        1,
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 		Files: []*FileEntry{
@@ -32,7 +33,6 @@ func newTestSession(t *testing.T) *Session {
 				Content:  "# Plan\n\n## Step 1\n\nDo the thing\n",
 				FileHash: "sha256:test1",
 				Comments: []Comment{},
-				nextID:   1,
 			},
 			{
 				Path:     "main.go",
@@ -42,7 +42,6 @@ func newTestSession(t *testing.T) *Session {
 				Content:  "package main\n\nfunc main() {}\n",
 				FileHash: "sha256:test2",
 				Comments: []Comment{},
-				nextID:   1,
 			},
 		},
 	}
@@ -681,17 +680,17 @@ func TestGetFileDiffSnapshotScoped_UntrackedFileUnstagedScope(t *testing.T) {
 	}
 }
 
-func TestSession_PerFileCommentIDs(t *testing.T) {
+func TestSession_GlobalCommentIDs(t *testing.T) {
 	s := newTestSession(t)
 	c1, _ := s.AddComment("plan.md", 1, 1, "", "md comment", "", "")
 	c2, _ := s.AddComment("main.go", 1, 1, "", "go comment", "", "")
 
-	// Each file has independent ID sequences
+	// IDs are globally unique across files
 	if c1.ID != "c1" {
 		t.Errorf("plan.md first comment ID = %q, want c1", c1.ID)
 	}
-	if c2.ID != "c1" {
-		t.Errorf("main.go first comment ID = %q, want c1", c2.ID)
+	if c2.ID != "c2" {
+		t.Errorf("main.go first comment ID = %q, want c2", c2.ID)
 	}
 }
 
@@ -1064,10 +1063,11 @@ func TestSession_WriteFiles_MergesExternalComments(t *testing.T) {
 		Branch:      "main",
 		BaseRef:     "abc123",
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{Path: "main.go", Status: "modified", FileHash: "hash1", Comments: []Comment{
 				{ID: "c1", StartLine: 1, EndLine: 1, Body: "from browser", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
-			}, nextID: 2},
+			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1118,8 +1118,9 @@ func TestSession_MergeExternalCritJSON_NewComment(t *testing.T) {
 		Branch:      "main",
 		BaseRef:     "abc123",
 		ReviewRound: 1,
+		nextID:      1,
 		Files: []*FileEntry{
-			{Path: "main.go", Status: "modified", Comments: []Comment{}, nextID: 1},
+			{Path: "main.go", Status: "modified", Comments: []Comment{}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1156,7 +1157,7 @@ func TestSession_MergeExternalCritJSON_NewComment(t *testing.T) {
 	}
 
 	s.mu.RLock()
-	nextID := s.Files[0].nextID
+	nextID := s.nextID
 	s.mu.RUnlock()
 	if nextID != 2 {
 		t.Errorf("expected nextID=2, got %d", nextID)
@@ -1195,10 +1196,11 @@ func TestSession_MergeExternalCritJSON_IgnoresOwnWrites(t *testing.T) {
 		Branch:      "main",
 		BaseRef:     "abc123",
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{Path: "main.go", Status: "modified", Comments: []Comment{
 				{ID: "c1", StartLine: 1, EndLine: 1, Body: "existing"},
-			}, nextID: 2},
+			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1219,10 +1221,11 @@ func TestSession_MergeExternalCritJSON_ClearDetected(t *testing.T) {
 		RepoRoot:    dir,
 		Branch:      "main",
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{Path: "main.go", Status: "modified", Comments: []Comment{
 				{ID: "c1", StartLine: 1, EndLine: 1, Body: "existing"},
-			}, nextID: 2},
+			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1363,11 +1366,11 @@ func TestComment_NoRepliesBackwardCompat(t *testing.T) {
 func TestSession_AddReply(t *testing.T) {
 	s := &Session{
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{
 				Path:     "test.md",
 				Comments: []Comment{{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix this"}},
-				nextID:   2,
 			},
 		},
 	}
@@ -1622,10 +1625,11 @@ func TestSession_MergeExternalCritJSON_SkippedDuringPendingWrite(t *testing.T) {
 		RepoRoot:    dir,
 		Branch:      "main",
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{Path: "main.go", Status: "modified", Comments: []Comment{
 				{ID: "c1", StartLine: 1, EndLine: 1, Body: "existing"},
-			}, nextID: 2},
+			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1672,10 +1676,11 @@ func TestSession_MergeExternalCritJSON_SyncsResolvedState(t *testing.T) {
 		RepoRoot:    dir,
 		Branch:      "main",
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{Path: "main.go", Status: "modified", Comments: []Comment{
 				{ID: "c1", StartLine: 1, EndLine: 1, Body: "fix this", Resolved: false},
-			}, nextID: 2},
+			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1727,9 +1732,9 @@ func TestSession_EnsureFileEntry_NewFile(t *testing.T) {
 				Content:  "package main\n",
 				FileHash: "sha256:test",
 				Comments: []Comment{},
-				nextID:   1,
 			},
 		},
+		nextID:        1,
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 	}
@@ -1762,8 +1767,8 @@ func TestSession_EnsureFileEntry_NewFile(t *testing.T) {
 	if len(f.Comments) != 0 {
 		t.Errorf("expected 0 comments, got %d", len(f.Comments))
 	}
-	if f.nextID != 1 {
-		t.Errorf("nextID = %d, want 1", f.nextID)
+	if s.nextID != 1 {
+		t.Errorf("nextID = %d, want 1", s.nextID)
 	}
 }
 
@@ -1803,6 +1808,7 @@ func TestSession_EnsureFileEntry_ThenAddComment(t *testing.T) {
 		Mode:          "git",
 		RepoRoot:      dir,
 		ReviewRound:   1,
+		nextID:        1,
 		Files:         []*FileEntry{},
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
@@ -1866,10 +1872,11 @@ func TestSession_MergeExternalCritJSON_SyncsUnresolve(t *testing.T) {
 		RepoRoot:    dir,
 		Branch:      "main",
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{Path: "main.go", Status: "modified", Comments: []Comment{
 				{ID: "c1", StartLine: 1, EndLine: 1, Body: "fix this", Resolved: true},
-			}, nextID: 2},
+			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}

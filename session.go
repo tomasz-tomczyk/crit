@@ -60,7 +60,6 @@ type FileEntry struct {
 	Content  string    `json:"-"`         // current file content
 	FileHash string    `json:"-"`         // sha256 hash of content
 	Comments []Comment `json:"-"`         // this file's comments
-	nextID   int
 
 	// Diff hunks for code files (from git diff)
 	DiffHunks []DiffHunk `json:"-"`
@@ -82,6 +81,7 @@ type Session struct {
 	IgnorePatterns []string
 
 	mu                  sync.RWMutex
+	nextID              int // session-global comment ID counter (c1, c2, c3... across ALL files)
 	subscribers         map[chan SSEEvent]struct{}
 	subMu               sync.Mutex
 	writeTimer          *time.Timer
@@ -163,6 +163,7 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 		BaseRef:             baseRef,
 		RepoRoot:            root,
 		ReviewRound:         1,
+		nextID:              1,
 		IgnorePatterns:      ignorePatterns,
 		subscribers:         make(map[chan SSEEvent]struct{}),
 		roundComplete:       make(chan struct{}, 1),
@@ -175,7 +176,6 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 			Path:    fc.Path,
 			AbsPath: absPath,
 			Status:  fc.Status,
-			nextID:  1,
 		}
 		fe.FileType = detectFileType(fc.Path)
 
@@ -283,6 +283,7 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 		BaseRef:             baseRef,
 		RepoRoot:            root,
 		ReviewRound:         1,
+		nextID:              1,
 		IgnorePatterns:      ignorePatterns,
 		subscribers:         make(map[chan SSEEvent]struct{}),
 		roundComplete:       make(chan struct{}, 1),
@@ -310,7 +311,6 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 			Content:  string(data),
 			FileHash: fileHash(data),
 			Comments: []Comment{},
-			nextID:   1,
 		}
 
 		// Load diff hunks in a git repo
@@ -426,7 +426,7 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	c := Comment{
-		ID:          fmt.Sprintf("c%d", f.nextID),
+		ID:          fmt.Sprintf("c%d", s.nextID),
 		StartLine:   startLine,
 		EndLine:     endLine,
 		Side:        side,
@@ -437,7 +437,7 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 		UpdatedAt:   now,
 		ReviewRound: s.ReviewRound,
 	}
-	f.nextID++
+	s.nextID++
 	f.Comments = append(f.Comments, c)
 	s.scheduleWrite()
 	return c, true
@@ -723,7 +723,6 @@ func (s *Session) EnsureFileEntry(path string) bool {
 		Content:  string(data),
 		FileHash: fileHash(data),
 		Comments: []Comment{},
-		nextID:   1,
 	}
 
 	// Generate diff hunks
@@ -842,11 +841,11 @@ func (s *Session) SignalRoundComplete() {
 	s.lastRoundEdits = s.pendingEdits
 	s.pendingEdits = 0
 	s.ReviewRound++
-	// Clear comments on all files, reset IDs
+	// Clear comments on all files, reset session-global ID counter
 	for _, f := range s.Files {
 		f.Comments = []Comment{}
-		f.nextID = 1
 	}
+	s.nextID = 1
 	s.mu.Unlock()
 	select {
 	case s.roundComplete <- struct{}{}:
@@ -872,12 +871,12 @@ func (s *Session) ClearAllComments() {
 			continue
 		}
 		f.Comments = []Comment{}
-		f.nextID = 1
 		f.PreviousComments = nil
 		f.PreviousContent = ""
 		filtered = append(filtered, f)
 	}
 	s.Files = filtered
+	s.nextID = 1
 	s.ReviewRound = 1
 	s.lastCritJSONMtime = time.Time{}
 	s.pendingWrite = false
@@ -968,10 +967,10 @@ func (s *Session) WriteFiles() {
 			for _, f := range s.Files {
 				if len(f.Comments) > 0 {
 					f.Comments = []Comment{}
-					f.nextID = 1
 					anyComments = true
 				}
 			}
+			s.nextID = 1
 			s.mu.Unlock()
 			if anyComments {
 				s.notify(SSEEvent{Type: "comments-changed"})
@@ -1116,10 +1115,10 @@ func (s *Session) mergeExternalCritJSON() bool {
 			for _, f := range s.Files {
 				if len(f.Comments) > 0 {
 					f.Comments = []Comment{}
-					f.nextID = 1
 					anyComments = true
 				}
 			}
+			s.nextID = 1
 			s.mu.Unlock()
 			if anyComments {
 				s.notify(SSEEvent{Type: "comments-changed"})
@@ -1163,7 +1162,6 @@ func (s *Session) mergeExternalCritJSON() bool {
 			// File not in .crit.json — if we have comments, they were cleared externally.
 			if len(f.Comments) > 0 {
 				f.Comments = []Comment{}
-				f.nextID = 1
 				changed = true
 			}
 			continue
@@ -1181,8 +1179,8 @@ func (s *Session) mergeExternalCritJSON() bool {
 				f.Comments = append(f.Comments, dc)
 				id := 0
 				fmt.Sscanf(dc.ID, "c%d", &id)
-				if id >= f.nextID {
-					f.nextID = id + 1
+				if id >= s.nextID {
+					s.nextID = id + 1
 				}
 				changed = true
 			} else {
@@ -1273,15 +1271,16 @@ func (s *Session) loadCritJSON() {
 		s.ReviewRound = cj.ReviewRound
 	}
 
-	// Restore comments for files that match by path
+	// Restore comments for files that match by path.
+	// Scan ALL files' comments to find the global max ID for session-level nextID.
 	for _, f := range s.Files {
 		if cf, ok := cj.Files[f.Path]; ok {
 			f.Comments = cf.Comments
 			for _, c := range f.Comments {
 				id := 0
 				_, _ = fmt.Sscanf(c.ID, "c%d", &id)
-				if id >= f.nextID {
-					f.nextID = id + 1
+				if id >= s.nextID {
+					s.nextID = id + 1
 				}
 			}
 		}

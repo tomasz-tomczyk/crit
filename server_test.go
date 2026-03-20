@@ -25,6 +25,7 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 		Mode:          "files",
 		RepoRoot:      dir,
 		ReviewRound:   1,
+		nextID:        1,
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 		Files: []*FileEntry{
@@ -36,7 +37,6 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 				Content:  "line1\nline2\nline3\n",
 				FileHash: "sha256:testhash",
 				Comments: []Comment{},
-				nextID:   1,
 			},
 		},
 	}
@@ -691,7 +691,6 @@ func TestGetFileDiff_CodeFile(t *testing.T) {
 		FileType: "code",
 		Content:  "package main",
 		Comments: []Comment{},
-		nextID:   1,
 		DiffHunks: []DiffHunk{
 			{OldStart: 1, OldCount: 3, NewStart: 1, NewCount: 4, Header: "@@ -1,3 +1,4 @@"},
 		},
@@ -848,7 +847,6 @@ func TestGetFileDiff_ScopeAll_SameAsNoScope(t *testing.T) {
 		FileType: "code",
 		Content:  "package main",
 		Comments: []Comment{},
-		nextID:   1,
 		DiffHunks: []DiffHunk{
 			{OldStart: 1, OldCount: 3, NewStart: 1, NewCount: 4, Header: "@@ -1,3 +1,4 @@"},
 		},
@@ -884,7 +882,6 @@ func TestGetFileDiff_ScopeStaged_ValidResponse(t *testing.T) {
 		FileType: "code",
 		Content:  "package main",
 		Comments: []Comment{},
-		nextID:   1,
 		DiffHunks: []DiffHunk{
 			{OldStart: 1, OldCount: 3, NewStart: 1, NewCount: 4, Header: "@@ -1,3 +1,4 @@"},
 		},
