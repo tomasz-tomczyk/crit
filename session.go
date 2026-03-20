@@ -81,20 +81,21 @@ type Session struct {
 	ReviewRound    int
 	IgnorePatterns []string
 
-	mu                sync.RWMutex
-	subscribers       map[chan SSEEvent]struct{}
-	subMu             sync.Mutex
-	writeTimer        *time.Timer
-	writeGen          int
-	pendingWrite      bool
-	sharedURL         string
-	deleteToken       string
-	shareScope        string
-	status            *Status
-	roundComplete     chan struct{}
-	pendingEdits      int
-	lastRoundEdits    int
-	lastCritJSONMtime time.Time // mtime after our last WriteFiles(); used to detect external changes
+	mu                  sync.RWMutex
+	subscribers         map[chan SSEEvent]struct{}
+	subMu               sync.Mutex
+	writeTimer          *time.Timer
+	writeGen            int
+	pendingWrite        bool
+	sharedURL           string
+	deleteToken         string
+	shareScope          string
+	status              *Status
+	roundComplete       chan struct{}
+	pendingEdits        int
+	lastRoundEdits      int
+	lastCritJSONMtime   time.Time // mtime after our last WriteFiles(); used to detect external changes
+	awaitingFirstReview bool      // true until first review-cycle completes
 }
 
 // CritJSON is the on-disk format for .crit.json.
@@ -155,14 +156,15 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 	}
 
 	s := &Session{
-		Mode:           "git",
-		Branch:         branch,
-		BaseRef:        baseRef,
-		RepoRoot:       root,
-		ReviewRound:    1,
-		IgnorePatterns: ignorePatterns,
-		subscribers:    make(map[chan SSEEvent]struct{}),
-		roundComplete:  make(chan struct{}, 1),
+		Mode:                "git",
+		Branch:              branch,
+		BaseRef:             baseRef,
+		RepoRoot:            root,
+		ReviewRound:         1,
+		IgnorePatterns:      ignorePatterns,
+		subscribers:         make(map[chan SSEEvent]struct{}),
+		roundComplete:       make(chan struct{}, 1),
+		awaitingFirstReview: true,
 	}
 
 	for _, fc := range changes {
@@ -274,14 +276,15 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 	}
 
 	s := &Session{
-		Mode:           "files",
-		Branch:         branch,
-		BaseRef:        baseRef,
-		RepoRoot:       root,
-		ReviewRound:    1,
-		IgnorePatterns: ignorePatterns,
-		subscribers:    make(map[chan SSEEvent]struct{}),
-		roundComplete:  make(chan struct{}, 1),
+		Mode:                "files",
+		Branch:              branch,
+		BaseRef:             baseRef,
+		RepoRoot:            root,
+		ReviewRound:         1,
+		IgnorePatterns:      ignorePatterns,
+		subscribers:         make(map[chan SSEEvent]struct{}),
+		roundComplete:       make(chan struct{}, 1),
+		awaitingFirstReview: true,
 	}
 
 	for _, absPath := range expandedPaths {

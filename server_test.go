@@ -1265,6 +1265,42 @@ func TestGetFilesList_FilesMode(t *testing.T) {
 	}
 }
 
+func TestHealthEndpoint(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest("GET", "/api/health", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("GET /api/health: got %d, want 200", w.Code)
+	}
+}
+
+func TestReviewCycleFirstRound(t *testing.T) {
+	srv, session := newTestServer(t)
+
+	done := make(chan int)
+	go func() {
+		req := httptest.NewRequest("POST", "/api/review-cycle", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		done <- w.Code
+	}()
+
+	// Give the handler time to start blocking
+	time.Sleep(50 * time.Millisecond)
+
+	// Simulate user clicking "Finish Review"
+	session.WriteFiles()
+	session.notify(SSEEvent{Type: "finish", Content: "test feedback"})
+
+	code := <-done
+	if code != http.StatusOK {
+		t.Errorf("POST /api/review-cycle: got %d, want 200", code)
+	}
+}
+
 func TestGetFilesList_MethodNotAllowed(t *testing.T) {
 	session := &Session{
 		Files:         []*FileEntry{},
