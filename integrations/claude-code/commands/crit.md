@@ -17,37 +17,27 @@ Choose what to review based on context:
 
 Don't ask for confirmation — just proceed with whichever mode applies.
 
-## Step 2: Launch crit server
-
-If a crit server is already running from earlier in this conversation, skip to Step 3 and run `crit go <port>` there instead.
-
-Otherwise, run `crit` **in the background** using `run_in_background: true`:
-
-```bash
-# For a specific file:
-crit <plan-file>
-
-# For git mode (no args):
-crit
-```
-
-Note the port from crit's startup output.
-
-## Step 3: Block until review completes
+## Step 2: Launch crit and block until review completes
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-Run `crit listen <port>` **in the background** using `run_in_background: true`:
+Run `crit review` **in the background** using `run_in_background: true`:
 
 ```bash
-crit listen <port>
+# For a specific file:
+crit review <plan-file>
+
+# For git mode (no args):
+crit review
 ```
+
+This starts the daemon if needed, opens the browser, and blocks until the user clicks "Finish Review". Feedback is printed to stdout when it exits.
 
 Tell the user: **"Crit is open in your browser. Leave inline comments, then click Finish Review."**
 
-**Do NOT proceed until `crit listen` completes.** Do NOT ask the user to type anything. Do NOT read `.crit.json` early. Wait for the background task to finish — that is how you know the human is done reviewing.
+**Do NOT proceed until `crit review` completes.** Do NOT ask the user to type anything. Do NOT read `.crit.json` early. Wait for the background task to finish — that is how you know the human is done reviewing.
 
-**Fallback:** If `crit listen` fails immediately (e.g. old crit binary without listen support), tell the user: **"Type 'go' here when you're done."** and wait for their response instead.
+**Fallback:** If `crit review` fails immediately (e.g. old crit binary without `review` support), fall back to the old pattern: run `crit` (or `crit <plan-file>`) in the background, note the port, then run `crit listen <port>` in the background and wait for it to complete.
 
 ## Step 4: Read the review output
 
@@ -94,23 +84,21 @@ Editing the plan file triggers Crit's live reload - the user sees changes in the
 
 ## Step 6: Signal completion and start next round
 
-After all comments are addressed, signal to crit that edits are done:
+**CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
+
+Run `crit review` **in the background** using `run_in_background: true`:
 
 ```bash
-crit go <port>
+crit review
 ```
 
-This triggers a new review round in the browser with a diff of what changed.
-
-**CRITICAL — immediately after `crit go`, you MUST run `crit listen <port>` in the background again.** This is the same as Step 3. Do NOT skip it.
-
-```bash
-crit listen <port>
-```
+On subsequent calls, `crit review` automatically signals round-complete first, then blocks again until the next "Finish Review" click.
 
 Tell the user: **"Changes applied. Review the diff in your browser and click Finish Review when ready."**
 
-**Do NOT proceed until `crit listen` completes.** When it does, go back to Step 4. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
+**Do NOT proceed until `crit review` completes.** When it does, go back to Step 4. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
+
+**Fallback:** If `crit review` is not available, run `crit go <port>` then immediately run `crit listen <port>` in the background and wait for it to complete.
 
 ## Sharing
 
