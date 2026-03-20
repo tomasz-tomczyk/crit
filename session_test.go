@@ -1395,6 +1395,36 @@ func TestSession_AddReply(t *testing.T) {
 	}
 }
 
+func TestSession_AddReply_UnresolvesComment(t *testing.T) {
+	s := &Session{
+		ReviewRound: 1,
+		nextID:      2,
+		Files: []*FileEntry{
+			{
+				Path: "test.md",
+				Comments: []Comment{{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix this", Resolved: true}},
+			},
+		},
+	}
+
+	// Verify comment is resolved before reply
+	comments := s.GetComments("test.md")
+	if !comments[0].Resolved {
+		t.Fatal("expected comment to be resolved before reply")
+	}
+
+	_, ok := s.AddReply("test.md", "c1", "Actually, this needs more work", "reviewer")
+	if !ok {
+		t.Fatal("AddReply returned false")
+	}
+
+	// Comment should be unresolves after reply
+	comments = s.GetComments("test.md")
+	if comments[0].Resolved {
+		t.Error("expected comment to be unresolved after reply, but it is still resolved")
+	}
+}
+
 func TestSession_UpdateReply(t *testing.T) {
 	s := &Session{
 		ReviewRound: 1,

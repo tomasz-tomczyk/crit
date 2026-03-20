@@ -531,6 +531,7 @@ func (s *Session) AddReply(filePath, commentID, body, author string) (Reply, boo
 				CreatedAt: now,
 			}
 			f.Comments[i].Replies = append(f.Comments[i].Replies, r)
+			f.Comments[i].Resolved = false
 			f.Comments[i].UpdatedAt = now
 			s.scheduleWrite()
 			return r, true
