@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"strings"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,32 +40,67 @@ func TestDaemonLifecycle(t *testing.T) {
 	// Make a change so crit has something to review
 	writeFile(t, filepath.Join(repoDir, "test.md"), "# Hello\n\nWorld\n")
 
+	// Resolve symlinks so the session key matches (macOS: /var → /private/var)
+	repoDir, _ = filepath.EvalSymlinks(repoDir)
+
+	// Use temp HOME so session files don't pollute real HOME
+	homeDir := t.TempDir()
+	homeDir, _ = filepath.EvalSymlinks(homeDir)
+
+	// Compute expected session key (cwd=repoDir, args=[])
+	key := sessionKey(repoDir, nil)
+	sessDir := filepath.Join(homeDir, ".crit", "sessions")
+	sessionPath := filepath.Join(sessDir, key+".json")
+
 	// Start daemon via _serve
 	cmd := exec.Command(binary, "_serve", "--no-open", "--port", "0")
 	cmd.Dir = repoDir
+	// Filter existing HOME so our override takes effect (first match wins)
+	var env []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "HOME=") {
+			env = append(env, e)
+		}
+	}
+	env = append(env, "HOME="+homeDir)
+	cmd.Env = env
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start daemon: %v", err)
 	}
 	defer cmd.Process.Kill()
 
-	// Wait for daemon state file
-	statePath := filepath.Join(repoDir, ".crit.json")
-	var state daemonState
+	// Wait for session file
+	var entry sessionEntry
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
-		s, err := readDaemonState(statePath)
-		if err == nil {
-			state = s
+		data, err := os.ReadFile(sessionPath)
+		if err != nil {
+			continue
+		}
+		if err := json.Unmarshal(data, &entry); err != nil {
+			continue
+		}
+		if entry.Port > 0 {
 			break
 		}
 	}
-	if state.Port == 0 {
-		t.Fatal("daemon did not write state file")
+	if entry.Port == 0 {
+		t.Fatalf("daemon did not write session file at %s\nstderr: %s", sessionPath, stderrBuf.String())
+	}
+
+	// Verify session file contents
+	if entry.PID != cmd.Process.Pid {
+		t.Errorf("session PID %d doesn't match process PID %d", entry.PID, cmd.Process.Pid)
+	}
+	if entry.CWD != repoDir {
+		t.Errorf("session CWD %q doesn't match repo dir %q", entry.CWD, repoDir)
 	}
 
 	// Verify health endpoint
-	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/health", state.Port))
+	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/health", entry.Port))
 	if err != nil {
 		t.Fatalf("health check failed: %v", err)
 	}
@@ -77,7 +114,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	go func() {
 		client := &http.Client{Timeout: 10 * time.Second}
 		r, err := client.Post(
-			fmt.Sprintf("http://localhost:%d/api/review-cycle", state.Port),
+			fmt.Sprintf("http://localhost:%d/api/review-cycle", entry.Port),
 			"application/json", nil,
 		)
 		if err != nil {
@@ -92,7 +129,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	// Simulate user finishing review
 	time.Sleep(200 * time.Millisecond)
 	finishResp, err := http.Post(
-		fmt.Sprintf("http://localhost:%d/api/finish", state.Port),
+		fmt.Sprintf("http://localhost:%d/api/finish", entry.Port),
 		"application/json", nil,
 	)
 	if err != nil {
@@ -118,9 +155,8 @@ func TestDaemonLifecycle(t *testing.T) {
 	cmd.Process.Signal(os.Interrupt)
 	cmd.Wait()
 
-	// Daemon state should be cleared from .crit.json
-	cleanedState, err := readDaemonState(statePath)
-	if err == nil && cleanedState.PID != 0 {
-		t.Errorf("daemon state not cleaned up after shutdown: PID=%d Port=%d", cleanedState.PID, cleanedState.Port)
+	// Session file should be cleaned up
+	if _, err := os.Stat(sessionPath); !os.IsNotExist(err) {
+		t.Error("session file not cleaned up after daemon shutdown")
 	}
 }

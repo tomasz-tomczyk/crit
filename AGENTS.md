@@ -82,7 +82,8 @@ make build-all                                        # Cross-compile to dist/
 ```bash
 crit                          # Review git changes (starts daemon, blocks for feedback)
 crit <file|dir> [...]         # Review specific files or directories
-crit stop                     # Stop the background daemon
+crit stop                     # Stop the daemon for current directory
+crit stop --all               # Stop all daemons for current directory
 crit pull [pr-number]         # Fetch GitHub PR comments into .crit.json
 crit push [--dry-run] [pr]    # Post .crit.json comments as a GitHub PR review
 crit comment <path>:<line[-end]> <body>         # Add a comment to .crit.json (no server needed)
@@ -341,12 +342,25 @@ When the agent runs `crit` (or calls `POST /api/round-complete`):
 `crit` manages a background daemon for seamless multi-round reviews:
 
 1. **First `crit`**: starts background daemon (`crit _serve`), opens browser, blocks for feedback
-2. **Subsequent `crit`**: connects to existing daemon, signals round-complete, blocks for feedback
-3. **`crit <file>`**: always starts a new daemon (supports multiple concurrent reviews)
+2. **Subsequent `crit`**: connects to existing daemon (same cwd + args), signals round-complete, blocks for feedback
+3. **`crit plan.md`**: looks up daemon by hash(cwd + "plan.md") — reuses if alive, starts new if dead
 4. **Ctrl+C**: kills the daemon the client started
-5. **`crit stop`**: kills the most recent daemon
+5. **`crit stop`**: kills the daemon for current cwd (no args). `crit stop --all` kills all daemons for current cwd
+6. **Idle timeout**: daemon exits after 4 hours of no HTTP activity
 
-Daemon state (`daemon_pid`, `daemon_port`) is stored in `.crit.json` alongside review data.
+### Session Registry
+
+Daemon state lives in `~/.crit/sessions/` with one file per session, keyed by `sha256(cwd + "\0" + sorted(args))[:12]`:
+
+```
+~/.crit/sessions/
+├── a1b2c3d4e5f6.json   # crit (git mode) in /path/to/repo
+├── f6e5d4c3b2a1.json   # crit plan.md in /path/to/repo
+└── ...
+```
+
+Session file format: `{"pid", "port", "cwd", "args", "started_at"}`. `.crit.json` is purely review data — no daemon state.
+
 Internal command: `crit _serve` runs the server in foreground (used by daemon spawning, not user-facing).
 
 ## Releasing

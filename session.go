@@ -107,8 +107,6 @@ type CritJSON struct {
 	ShareURL    string                  `json:"share_url,omitempty"`
 	DeleteToken string                  `json:"delete_token,omitempty"`
 	ShareScope  string                  `json:"share_scope,omitempty"`
-	DaemonPID   int                     `json:"daemon_pid,omitempty"`
-	DaemonPort  int                     `json:"daemon_port,omitempty"`
 	Files       map[string]CritJSONFile `json:"files"`
 }
 

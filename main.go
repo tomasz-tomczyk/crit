@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"strconv"
 	"strings"
 	"syscall"
@@ -63,7 +64,7 @@ func main() {
 	case "review":
 		runReview(os.Args[2:])
 	case "stop":
-		runStop()
+		runStop(os.Args[2:])
 	case "_serve":
 		runServe(os.Args[2:])
 	default:
@@ -714,23 +715,24 @@ func runReview(args []string) {
 		}
 	}
 
-	// Check for running daemon
-	statePath := critJSONPathForDaemon()
-	state, err := readDaemonState(statePath)
+	cwd, _ := os.Getwd()
+	key := sessionKey(cwd, args)
+
+	// Check for running daemon with the same session key
+	entry, alive := findAliveSession(key)
 	weStartedDaemon := false
 
-	if err == nil && isDaemonAlive(state) && len(args) == 0 {
-		// No file args — connect to existing daemon
-		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", state.Port)
-		go openBrowser(fmt.Sprintf("http://localhost:%d", state.Port))
+	if alive {
+		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", entry.Port)
+		go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
 	} else {
-		// Start new daemon (file args given, or no daemon running)
-		state, err = startDaemon(args, configPort)
+		var err error
+		entry, _, err = startDaemon(args, configPort)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "Started crit daemon on port %d (PID %d)\n", state.Port, state.PID)
+		fmt.Fprintf(os.Stderr, "Started crit daemon on port %d (PID %d)\n", entry.Port, entry.PID)
 		weStartedDaemon = true
 	}
 
@@ -740,28 +742,27 @@ func runReview(args []string) {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
 			<-sigCh
-			// Kill the daemon we started
-			if proc, err := os.FindProcess(state.PID); err == nil {
+			if proc, err := os.FindProcess(entry.PID); err == nil {
 				proc.Signal(syscall.SIGTERM)
 			}
 			os.Exit(0)
 		}()
 	}
 
-	runReviewClient(state)
+	runReviewClient(entry)
 }
 
 // runReviewClient connects to a running daemon/server, blocks until the user
 // finishes reviewing, prints feedback to stdout, and exits.
-func runReviewClient(state daemonState) {
+func runReviewClient(entry sessionEntry) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 	resp, err := client.Post(
-		fmt.Sprintf("http://localhost:%d/api/review-cycle", state.Port),
+		fmt.Sprintf("http://localhost:%d/api/review-cycle", entry.Port),
 		"application/json",
 		nil,
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: could not reach crit daemon on port %d: %v\n", state.Port, err)
+		fmt.Fprintf(os.Stderr, "Error: could not reach crit daemon on port %d: %v\n", entry.Port, err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
@@ -779,8 +780,27 @@ func runReviewClient(state daemonState) {
 	}
 }
 
-func runStop() {
-	if err := stopDaemon(); err != nil {
+func runStop(args []string) {
+	all := false
+	var fileArgs []string
+	for _, arg := range args {
+		if arg == "--all" {
+			all = true
+		} else {
+			fileArgs = append(fileArgs, arg)
+		}
+	}
+
+	cwd, _ := os.Getwd()
+
+	if all {
+		stopAllDaemonsForCWD(cwd)
+		fmt.Println("All daemons stopped.")
+		return
+	}
+
+	key := sessionKey(cwd, fileArgs)
+	if err := stopDaemon(key); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -1047,19 +1067,37 @@ func runServe(args []string) {
 		log.Fatalf("Error creating server: %v", err)
 	}
 
-	httpServer := &http.Server{
-		Handler:     srv,
-		ReadTimeout: 15 * time.Second,
-		IdleTimeout: 60 * time.Second,
+	// Write session file so clients can discover us
+	cwd, _ := os.Getwd()
+	key := sessionKey(cwd, sc.files)
+	if err := writeSessionFile(key, sessionEntry{
+		PID:       os.Getpid(),
+		Port:      addr.Port,
+		CWD:       cwd,
+		Args:      sc.files,
+		StartedAt: time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		log.Fatalf("Error writing session file: %v", err)
 	}
 
-	// Write daemon state file so clients can discover us
-	statePath := critJSONPathForDaemon()
-	if err := writeDaemonState(statePath, daemonState{
-		PID:  os.Getpid(),
-		Port: addr.Port,
-	}); err != nil {
-		log.Fatalf("Error writing daemon state: %v", err)
+	// Idle timeout: exit after 4 hours of no HTTP activity
+	const idleTimeout = 4 * time.Hour
+	var idleMu sync.Mutex
+	lastActivity := time.Now()
+	resetActivity := func() {
+		idleMu.Lock()
+		lastActivity = time.Now()
+		idleMu.Unlock()
+	}
+
+	// Wrap handler to track activity
+	httpServer := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			resetActivity()
+			srv.ServeHTTP(w, r)
+		}),
+		ReadTimeout: 15 * time.Second,
+		IdleTimeout: 60 * time.Second,
 	}
 
 	if !sc.noOpen {
@@ -1068,6 +1106,26 @@ func runServe(args []string) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Idle timeout checker
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				idleMu.Lock()
+				idle := time.Since(lastActivity)
+				idleMu.Unlock()
+				if idle >= idleTimeout {
+					stop()
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	watchStop := make(chan struct{})
 	go session.Watch(watchStop)
@@ -1081,8 +1139,8 @@ func runServe(args []string) {
 	<-ctx.Done()
 	close(watchStop)
 
-	// Cleanup daemon state
-	removeDaemonState(statePath)
+	// Cleanup session file
+	removeSessionFile(key)
 
 	session.Shutdown()
 	session.WriteFiles()
@@ -1100,7 +1158,8 @@ func printHelp() {
 Usage:
   crit                                       Auto-detect changed files via git
   crit <file|dir> [...]                      Review specific files or directories
-  crit stop                                  Stop the background crit daemon
+  crit stop [files...]                       Stop the daemon for current directory (and args)
+  crit stop --all                            Stop all daemons for current directory
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
   crit comment --reply-to <id> [--resolve] [--author <name>] <body>  Reply to a comment
   crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON
