@@ -7,7 +7,7 @@ import (
 
 func TestDaemonStateRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, ".crit.daemon.json")
+	path := filepath.Join(dir, ".crit.json")
 
 	want := daemonState{PID: 12345, Port: 3456}
 	if err := writeDaemonState(path, want); err != nil {
@@ -24,7 +24,7 @@ func TestDaemonStateRoundTrip(t *testing.T) {
 }
 
 func TestReadDaemonStateMissing(t *testing.T) {
-	_, err := readDaemonState("/nonexistent/.crit.daemon.json")
+	_, err := readDaemonState("/nonexistent/.crit.json")
 	if err == nil {
 		t.Error("expected error for missing file")
 	}

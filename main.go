@@ -37,13 +37,15 @@ var (
 
 func main() {
 	if len(os.Args) < 2 {
-		runServer(os.Args[1:])
+		runReview(nil)
 		return
 	}
 
 	switch os.Args[1] {
 	case "help", "--help", "-h":
 		printHelp()
+	case "--version", "-v":
+		printVersion()
 	case "go":
 		runGo(os.Args[2:])
 	case "listen":
@@ -69,7 +71,7 @@ func main() {
 	case "_serve":
 		runServe(os.Args[2:])
 	default:
-		runServer(os.Args[1:])
+		runReview(os.Args[1:])
 	}
 }
 
@@ -749,7 +751,7 @@ func runReview(args []string) {
 	}
 
 	// Check for running daemon
-	statePath := daemonStatePath()
+	statePath := critJSONPathForDaemon()
 	state, err := readDaemonState(statePath)
 	if err == nil && isDaemonAlive(state) {
 		// Daemon already running — use it
@@ -1066,7 +1068,7 @@ func runServe(args []string) {
 	}
 
 	// Write daemon state file so clients can discover us
-	statePath := daemonStatePath()
+	statePath := critJSONPathForDaemon()
 	if err := writeDaemonState(statePath, daemonState{
 		PID:  os.Getpid(),
 		Port: addr.Port,

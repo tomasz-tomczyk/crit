@@ -13,45 +13,73 @@ import (
 	"time"
 )
 
-// daemonState is written to .crit.daemon.json by the daemon process.
+// daemonState tracks a running daemon process.
 type daemonState struct {
-	PID  int `json:"pid"`
-	Port int `json:"port"`
+	PID  int
+	Port int
 }
 
-// daemonStatePath returns the path to .crit.daemon.json for the current project.
-func daemonStatePath() string {
-	if IsGitRepo() {
-		if root, err := RepoRoot(); err == nil {
-			return filepath.Join(root, ".crit.daemon.json")
-		}
+// critJSONPathForDaemon returns the .crit.json path using the same logic as the session.
+func critJSONPathForDaemon() string {
+	dir, err := resolveCritDir("")
+	if err != nil {
+		dir, _ = os.Getwd()
 	}
-	dir, _ := os.Getwd()
-	return filepath.Join(dir, ".crit.daemon.json")
+	return filepath.Join(dir, ".crit.json")
 }
 
+// writeDaemonState stores daemon PID/port in .crit.json alongside review data.
 func writeDaemonState(path string, s daemonState) error {
-	data, err := json.MarshalIndent(s, "", "  ")
+	// Read existing .crit.json to preserve review data
+	var cj CritJSON
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &cj)
+	}
+	if cj.Files == nil {
+		cj.Files = make(map[string]CritJSONFile)
+	}
+	cj.DaemonPID = s.PID
+	cj.DaemonPort = s.Port
+	data, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
 }
 
+// readDaemonState reads daemon PID/port from .crit.json.
 func readDaemonState(path string) (daemonState, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return daemonState{}, err
 	}
-	var s daemonState
-	if err := json.Unmarshal(data, &s); err != nil {
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
 		return daemonState{}, err
 	}
-	return s, nil
+	if cj.DaemonPID == 0 && cj.DaemonPort == 0 {
+		return daemonState{}, fmt.Errorf("no daemon state in .crit.json")
+	}
+	return daemonState{PID: cj.DaemonPID, Port: cj.DaemonPort}, nil
 }
 
+// removeDaemonState clears daemon PID/port from .crit.json.
 func removeDaemonState(path string) {
-	os.Remove(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return
+	}
+	cj.DaemonPID = 0
+	cj.DaemonPort = 0
+	out, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		return
+	}
+	os.WriteFile(path, out, 0644)
 }
 
 // isDaemonAlive checks if the daemon process is running AND responding to HTTP.
@@ -80,7 +108,7 @@ func isDaemonAlive(s daemonState) bool {
 // startDaemon spawns a crit _serve process in the background and waits for it to be ready.
 // Returns the daemon state (PID + port) on success.
 func startDaemon(args []string, port int) (daemonState, error) {
-	statePath := daemonStatePath()
+	statePath := critJSONPathForDaemon()
 
 	// Build command: crit _serve [--port N] [args...]
 	selfPath, err := os.Executable()
@@ -148,7 +176,7 @@ func daemonSysProcAttr() *syscall.SysProcAttr {
 
 // stopDaemon verifies the daemon is ours via HTTP health check, then sends SIGTERM.
 func stopDaemon() error {
-	statePath := daemonStatePath()
+	statePath := critJSONPathForDaemon()
 	state, err := readDaemonState(statePath)
 	if err != nil {
 		return fmt.Errorf("no daemon state found: %w", err)

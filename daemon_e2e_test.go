@@ -47,7 +47,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	defer cmd.Process.Kill()
 
 	// Wait for daemon state file
-	statePath := filepath.Join(repoDir, ".crit.daemon.json")
+	statePath := filepath.Join(repoDir, ".crit.json")
 	var state daemonState
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -118,8 +118,9 @@ func TestDaemonLifecycle(t *testing.T) {
 	cmd.Process.Signal(os.Interrupt)
 	cmd.Wait()
 
-	// State file should be cleaned up
-	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
-		t.Error("daemon state file not cleaned up after shutdown")
+	// Daemon state should be cleared from .crit.json
+	cleanedState, err := readDaemonState(statePath)
+	if err == nil && cleanedState.PID != 0 {
+		t.Errorf("daemon state not cleaned up after shutdown: PID=%d Port=%d", cleanedState.PID, cleanedState.Port)
 	}
 }
