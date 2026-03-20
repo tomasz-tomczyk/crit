@@ -747,6 +747,10 @@ func runReview(args []string) {
 
 	if alive {
 		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", entry.Port)
+		// Re-open browser if no browser tab is connected (user closed it)
+		if !sc.noOpen && !daemonHasBrowser(entry) {
+			go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
+		}
 	} else {
 		// Pass raw args to startDaemon — the _serve process parses them itself
 		entry, err = startDaemon(key, args)

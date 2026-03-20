@@ -529,7 +529,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(w, map[string]string{"status": "ok"})
+	writeJSON(w, map[string]any{
+		"status":          "ok",
+		"browser_clients": s.session.HasBrowserClients(),
+	})
 }
 
 // handleReviewCycle is the unified endpoint for the daemon-client pattern.
@@ -612,6 +615,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	flusher.Flush()
+
+	s.session.BrowserConnect()
+	defer s.session.BrowserDisconnect()
 
 	ch := s.session.Subscribe()
 	defer s.session.Unsubscribe(ch)

@@ -180,13 +180,30 @@ func isDaemonAlive(s sessionEntry) bool {
 		return false
 	}
 	// HTTP health probe — ensures the port belongs to our daemon, not a reused PID
-	client := &http.Client{Timeout: 500 * time.Millisecond}
+	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/health", s.Port))
 	if err != nil {
 		return false
 	}
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+// daemonHasBrowser checks if the daemon has any connected browser clients.
+func daemonHasBrowser(s sessionEntry) bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/health", s.Port))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var result struct {
+		BrowserClients bool `json:"browser_clients"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false
+	}
+	return result.BrowserClients
 }
 
 // startDaemon spawns a crit _serve process in the background and waits for it to be ready.
