@@ -42,6 +42,7 @@ type shareComment struct {
 	StartLine   int          `json:"start_line"`
 	EndLine     int          `json:"end_line"`
 	Body        string       `json:"body"`
+	Quote       string       `json:"quote,omitempty"`
 	Author      string       `json:"author_display_name,omitempty"`
 	ReviewRound int          `json:"review_round,omitempty"`
 	Replies     []shareReply `json:"replies,omitempty"`
@@ -149,6 +150,7 @@ func buildShareFromSession(s *Session) ([]shareFile, []shareComment, int) {
 				StartLine: c.StartLine,
 				EndLine:   c.EndLine,
 				Body:      c.Body,
+				Quote:     c.Quote,
 				Author:    c.Author,
 			}
 			if c.ReviewRound >= 1 {
@@ -200,6 +202,7 @@ func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) 
 				StartLine: c.StartLine,
 				EndLine:   c.EndLine,
 				Body:      c.Body,
+				Quote:     c.Quote,
 				Author:    c.Author,
 			}
 			if c.ReviewRound >= 1 {
