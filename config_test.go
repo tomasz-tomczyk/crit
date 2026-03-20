@@ -241,6 +241,9 @@ func TestMatchPattern(t *testing.T) {
 		{"vendor/", "myvendor/foo.go", false},
 		{"generated/", "generated/types.go", true},
 		{"node_modules/", "node_modules/lodash/index.js", true},
+		{".crit/", ".crit/sessions/abc123.json", true},
+		{".crit/", ".crit/config", true},
+		{".crit/", ".crit.json", false},
 
 		// Exact filename match (no / in pattern, no leading *)
 		{"package-lock.json", "package-lock.json", true},
@@ -325,8 +328,9 @@ func TestLoadConfigRuntimeDefaults(t *testing.T) {
 	if cfg.ShareURL != "https://crit.md" {
 		t.Errorf("ShareURL = %q, want runtime default https://crit.md", cfg.ShareURL)
 	}
-	if len(cfg.IgnorePatterns) != 1 || cfg.IgnorePatterns[0] != ".crit.json" {
-		t.Errorf("IgnorePatterns = %v, want [.crit.json]", cfg.IgnorePatterns)
+	wantPatterns := []string{".crit.json", ".crit/"}
+	if len(cfg.IgnorePatterns) != len(wantPatterns) || cfg.IgnorePatterns[0] != wantPatterns[0] || cfg.IgnorePatterns[1] != wantPatterns[1] {
+		t.Errorf("IgnorePatterns = %v, want %v", cfg.IgnorePatterns, wantPatterns)
 	}
 }
 
@@ -360,8 +364,9 @@ func TestLoadConfigRuntimeDefaultsOverriddenByGlobal(t *testing.T) {
 		t.Errorf("ShareURL = %q, want custom global value", cfg.ShareURL)
 	}
 	// ignore_patterns not set in any config — default applies
-	if len(cfg.IgnorePatterns) != 1 || cfg.IgnorePatterns[0] != ".crit.json" {
-		t.Errorf("IgnorePatterns = %v, want [.crit.json]", cfg.IgnorePatterns)
+	wantPatterns := []string{".crit.json", ".crit/"}
+	if len(cfg.IgnorePatterns) != len(wantPatterns) || cfg.IgnorePatterns[0] != wantPatterns[0] || cfg.IgnorePatterns[1] != wantPatterns[1] {
+		t.Errorf("IgnorePatterns = %v, want %v", cfg.IgnorePatterns, wantPatterns)
 	}
 }
 

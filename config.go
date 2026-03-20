@@ -47,6 +47,7 @@ func defaultConfig() generatedConfig {
 			"*.min.js",
 			"*.min.css",
 			".crit.json",
+			".crit/",
 		},
 	}
 }
@@ -174,7 +175,7 @@ func LoadConfig(projectDir string) Config {
 		merged.ShareURL = "https://crit.md"
 	}
 	if !globalPresence.IgnorePatterns && !projectPresence.IgnorePatterns {
-		merged.IgnorePatterns = []string{".crit.json"}
+		merged.IgnorePatterns = []string{".crit.json", ".crit/"}
 	}
 
 	// 5. Fall back to git user.name if no author configured

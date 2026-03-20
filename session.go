@@ -1510,6 +1510,7 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	mode := s.Mode
 	branch := s.Branch
 	reviewRound := s.ReviewRound
+	ignorePatterns := s.IgnorePatterns
 	// Build a map of comment counts (comments are scope-independent)
 	commentCounts := make(map[string]int, len(s.Files))
 	for _, f := range s.Files {
@@ -1535,6 +1536,10 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	if err != nil || len(changes) == 0 {
 		return info
 	}
+
+	// Apply the same ignore patterns used during session creation so that
+	// files like .crit/sessions/*.json don't leak into scoped views.
+	changes = filterIgnored(changes, ignorePatterns)
 
 	for _, fc := range changes {
 		fi := SessionFileInfo{
