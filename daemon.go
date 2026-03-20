@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -95,8 +97,11 @@ func startDaemon(args []string, port int) (daemonState, error) {
 	cmd := exec.Command(selfPath, cmdArgs...)
 	cmd.Dir, _ = os.Getwd()
 	cmd.Stdout = nil
-	cmd.Stderr = nil
 	cmd.Stdin = nil
+
+	// Capture stderr so we can report why the daemon failed to start
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
 
 	// Detach from parent process group so it survives parent exit
 	cmd.SysProcAttr = daemonSysProcAttr()
@@ -105,9 +110,23 @@ func startDaemon(args []string, port int) (daemonState, error) {
 		return daemonState{}, fmt.Errorf("starting daemon: %w", err)
 	}
 
+	// Monitor for early exit in background
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+
 	// Wait for daemon to write its state file (poll up to 5 seconds)
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-exited:
+			// Daemon exited before becoming ready
+			msg := strings.TrimSpace(stderrBuf.String())
+			if msg != "" {
+				return daemonState{}, fmt.Errorf("daemon exited: %s", msg)
+			}
+			return daemonState{}, fmt.Errorf("daemon exited: %v", err)
+		default:
+		}
 		time.Sleep(100 * time.Millisecond)
 		state, err := readDaemonState(statePath)
 		if err != nil {
