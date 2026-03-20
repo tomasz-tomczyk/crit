@@ -391,6 +391,7 @@ func runPush(args []string) {
 	dryRun := false
 	message := ""
 	pushOutputDir := ""
+	eventFlag := ""
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--dry-run" {
@@ -415,12 +416,31 @@ func runPush(args []string) {
 			pushOutputDir = args[i]
 			continue
 		}
+		if arg == "--event" || arg == "-e" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --event requires a value (comment, approve, request-changes)\n")
+				os.Exit(1)
+			}
+			i++
+			eventFlag = args[i]
+			continue
+		}
 		n, err := strconv.Atoi(arg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [--message <msg>] [--output <dir>] [pr-number]\n")
+			fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [pr-number]\n")
 			os.Exit(1)
 		}
 		prFlag = n
+	}
+
+	event, err := parsePushEvent(eventFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	if event == "REQUEST_CHANGES" && message == "" {
+		fmt.Fprintf(os.Stderr, "Error: --event request-changes requires --message\n")
+		os.Exit(1)
 	}
 
 	prNumber, err := detectPR(prFlag)
@@ -478,7 +498,7 @@ func runPush(args []string) {
 	}
 
 	fmt.Printf("Pushing %d comments to PR #%d...\n", len(ghComments), prNumber)
-	commentIDs, err := createGHReview(prNumber, ghComments, message, "COMMENT")
+	commentIDs, err := createGHReview(prNumber, ghComments, message, event)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -1164,7 +1184,7 @@ Usage:
   crit share <file> [file...]                Share files to crit-web and print the URL
   crit unpublish                             Remove a shared review from crit-web
   crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments to .crit.json
-  crit push [--dry-run] [--message <msg>] [--output <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
+  crit push [--dry-run] [--event <type>] [-m <msg>] [-o <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
   crit install <agent>                       Install integration files for an AI coding tool
   crit config [--generate]                    Show resolved configuration
   crit help                                  Show this help message

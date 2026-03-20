@@ -411,6 +411,21 @@ func critJSONToGHComments(cj CritJSON) []map[string]any {
 	return result
 }
 
+// parsePushEvent maps a user-facing event flag value to the GitHub API event string.
+// Valid values: "" or "comment" -> "COMMENT", "approve" -> "APPROVE", "request-changes" -> "REQUEST_CHANGES".
+func parsePushEvent(flag string) (string, error) {
+	switch flag {
+	case "", "comment":
+		return "COMMENT", nil
+	case "approve":
+		return "APPROVE", nil
+	case "request-changes":
+		return "REQUEST_CHANGES", nil
+	default:
+		return "", fmt.Errorf("invalid --event value %q (valid: comment, approve, request-changes)", flag)
+	}
+}
+
 // buildReviewPayload constructs the JSON body for a GitHub PR review request.
 func buildReviewPayload(comments []map[string]any, message string, event string) ([]byte, error) {
 	review := map[string]any{

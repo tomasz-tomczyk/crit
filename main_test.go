@@ -320,6 +320,53 @@ func TestHelperProcess_CommentJSONMix(t *testing.T) {
 	runComment([]string{"--json", "--output", tmp, "--author", "TestBot"})
 }
 
+func TestParsePushEvent_Default(t *testing.T) {
+	event, err := parsePushEvent("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if event != "COMMENT" {
+		t.Errorf("default event = %q, want COMMENT", event)
+	}
+}
+
+func TestParsePushEvent_Approve(t *testing.T) {
+	event, err := parsePushEvent("approve")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if event != "APPROVE" {
+		t.Errorf("event = %q, want APPROVE", event)
+	}
+}
+
+func TestParsePushEvent_RequestChanges(t *testing.T) {
+	event, err := parsePushEvent("request-changes")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if event != "REQUEST_CHANGES" {
+		t.Errorf("event = %q, want REQUEST_CHANGES", event)
+	}
+}
+
+func TestParsePushEvent_Comment(t *testing.T) {
+	event, err := parsePushEvent("comment")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if event != "COMMENT" {
+		t.Errorf("event = %q, want COMMENT", event)
+	}
+}
+
+func TestParsePushEvent_Invalid(t *testing.T) {
+	_, err := parsePushEvent("reject")
+	if err == nil {
+		t.Error("expected error for invalid event type, got nil")
+	}
+}
+
 // TestResolveServerConfig_BaseBranch verifies that --base-branch sets defaultBranchOverride
 // and that config file base_branch is used as a fallback when the flag is absent.
 func TestResolveServerConfig_BaseBranch(t *testing.T) {
