@@ -9,7 +9,7 @@ compatibility: opencode
 - Launch Crit for a plan file or the current git diff.
 - Wait for the user to review changes in the browser.
 - Read `.crit.json` and address unresolved inline comments.
-- Signal the next review round with `crit go <port>` when edits are done.
+- Signal the next review round with `crit` when edits are done.
 - Leave inline review comments programmatically with `crit comment`.
 - Sync reviews with GitHub PRs via `crit pull` and `crit push`.
 
@@ -34,8 +34,9 @@ After a crit review session, comments are in `.crit.json`. Comments are grouped 
           "quote": "the specific words selected",
           "author": "User Name",
           "resolved": false,
-          "resolution_note": "Addressed by extracting to helper",
-          "resolution_lines": "12-15"
+          "replies": [
+            { "id": "c1-r1", "body": "Fixed by extracting to helper", "author": "Claude" }
+          ]
         }
       ]
     }
@@ -52,10 +53,13 @@ After a crit review session, comments are in `.crit.json`. Comments are grouped 
 
 ### Resolving comments
 
-After addressing a comment, update it in `.crit.json`:
-- Set `"resolved": true`
-- Optionally set `"resolution_note"` — brief description of what was done
-- Optionally set `"resolution_lines"` — line range in the updated file where the change was made (e.g. `"12-15"`)
+After addressing a comment, reply to it using the CLI:
+
+```bash
+crit comment --reply-to c1 --resolve --author 'OpenCode' 'Fixed by extracting to helper'
+```
+
+This adds a reply to the comment thread and marks it resolved. You can also reply without resolving (omit `--resolve`) if discussion is ongoing.
 
 ## Leaving Comments with crit comment CLI
 
@@ -63,10 +67,14 @@ Use `crit comment` to add inline review comments to `.crit.json` programmaticall
 
 ```bash
 # Single line comment
-crit comment --author 'Claude' <path>:<line> '<body>'
+crit comment --author 'OpenCode' <path>:<line> '<body>'
 
 # Multi-line comment (range)
-crit comment --author 'Claude' <path>:<start>-<end> '<body>'
+crit comment --author 'OpenCode' <path>:<start>-<end> '<body>'
+
+# Reply to an existing comment (with optional --resolve)
+crit comment --reply-to <id> --author 'OpenCode' '<body>'
+crit comment --reply-to <id> --resolve --author 'OpenCode' '<body>'
 ```
 
 Rules:
@@ -76,7 +84,45 @@ Rules:
 - **Line numbers** reference the file as it exists on disk (1-indexed), not diff line numbers
 - **Comments are appended** — calling `crit comment` multiple times adds to the list, never replaces
 - **No setup needed** — `crit comment` creates `.crit.json` automatically if it doesn't exist
-- **Do NOT run `crit go` after leaving comments** — that triggers a new review round
+- **Do NOT run `crit` after leaving comments** — that triggers a new review round
+
+### Bulk commenting (recommended for multiple comments)
+
+When leaving 3+ comments, use `--json` to add them all in one atomic operation:
+
+```bash
+echo '[
+  {"file": "src/auth.go", "line": 42, "body": "Missing null check"},
+  {"file": "src/auth.go", "line": 50, "end_line": 55, "body": "Extract to helper"},
+  {"file": "src/handler.go", "line": 10, "body": "Swallowed error"}
+]' | crit comment --json --author 'OpenCode'
+```
+
+Replies and resolves work too:
+
+```bash
+echo '[
+  {"reply_to": "c1", "body": "Fixed — added null check", "resolve": true},
+  {"reply_to": "c2", "body": "Extracted to validateSession()"}
+]' | crit comment --json --author 'OpenCode'
+```
+
+JSON schema per entry:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file` | string | yes (new comment) | Relative file path |
+| `line` | int | yes (new comment) | Start line (1-indexed) |
+| `end_line` | int | no | End line (defaults to `line`) |
+| `body` | string | yes | Comment text |
+| `author` | string | no | Per-entry override (falls back to `--author`) |
+| `reply_to` | string | yes (reply) | Comment ID to reply to (e.g. `"c1"`) |
+| `resolve` | bool | no | Mark the parent comment resolved |
+
+Benefits over individual `crit comment` calls:
+- **Atomic** — one write to `.crit.json`, no partial state
+- **Faster** — single process invocation instead of N
+- **Safer** — no race conditions with concurrent crit processes
 
 ## GitHub PR Integration
 
@@ -102,7 +148,7 @@ Examples:
 ```bash
 crit share <file>                                # Share a single file
 crit share <file1> <file2>                       # Share multiple files
-crit share --share-url https://crit.live <file>  # Explicit share URL
+crit share --share-url https://crit.md <file>  # Explicit share URL
 ```
 
 Rules:

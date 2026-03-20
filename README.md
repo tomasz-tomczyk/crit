@@ -7,16 +7,16 @@
 
 Reviewing agent output in a terminal is painful. You can't point at a specific line and say "change this." When your agent updates the file, you re-read the whole thing to figure out what changed.
 
-Crit opens your file in a browser with GitHub-style inline comments. Leave feedback, hit Finish, and your agent is notified automatically via `crit listen`. When the agent edits, Crit shows a diff between rounds - you see exactly what it addressed.
+Crit opens your file in a browser with GitHub-style inline comments. Leave feedback, hit Finish, and your agent is notified automatically. When the agent edits, Crit shows a diff between rounds - you see exactly what it addressed.
 
-Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf - any agent that reads files.
+Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf and any other agent.
 
 ## Why Crit
 
 - **Browser UI, not terminal.** A persistent tab with rendered markdown and visual diffs. No tmux, no TUI.
 - **Single binary, zero dependencies.** `brew install` and you're done. No daemon, no Docker, no MCP.
 - **Round-to-round diffs.** See exactly what your agent changed between iterations. Previous comments show as resolved or still open.
-- **Works with any agent.** Not locked to one editor or AI provider. Anything that reads files works.
+- **Works with any agent.** Not locked to one editor or AI provider.
 
 ![Crit review UI](images/demo-overview.png)
 
@@ -56,15 +56,15 @@ echo '.crit.json' >> .gitignore
 
 ## Features
 
+### File review
+
+Pass specific files to review them directly: `crit plan.md api-spec.md`. Markdown files render as formatted documents with per-line commenting. Code files show as syntax-highlighted source. Both support the same inline comment workflow and multi-round iteration.
+
 ### Git review
 
 Run `crit` with no arguments. Crit auto-detects changed files in your repo and opens them as syntax-highlighted git diffs. A file tree on the left shows every file with its status (added, modified, deleted) and comment counts. Toggle between split and unified diff views.
 
 ![Crit review for your branch](images/git-mode.png)
-
-### File review
-
-Pass specific files to review them directly: `crit plan.md api-spec.md`. Markdown files render as formatted documents with per-line commenting. Code files show as syntax-highlighted source. Both support the same inline comment workflow and multi-round iteration.
 
 ### Round-to-round diff
 
@@ -107,7 +107,7 @@ crit comment --output /tmp/reviews src/auth.go:42 'comment'  # custom output dir
 crit comment --clear   # remove .crit.json
 ```
 
-Comments are appended to `.crit.json` - created automatically if it doesn't exist. Run `crit install <agent>` to install the integration, which includes a `crit-comment` skill file teaching your agent the syntax.
+Comments are appended to `.crit.json` - created automatically if it doesn't exist.
 
 ### Mermaid diagrams
 
@@ -127,7 +127,7 @@ crit share plan.md --qr               # also print a QR code in the terminal
 crit unpublish                        # remove the shared review
 ```
 
-Sharing uses [crit.live](https://crit.live) by default. To self-host, deploy [`crit-web`](https://github.com/tomasz-tomczyk/crit-web) (Elixir/Phoenix) and point `CRIT_SHARE_URL` (or `--share-url`, or `share_url` in config) at your instance. Set `share_url` to `""` to disable sharing entirely.
+Sharing uses [crit.md](https://crit.md) by default. To self-host, deploy [`crit-web`](https://github.com/tomasz-tomczyk/crit-web) and point `CRIT_SHARE_URL` (or `--share-url`, or `share_url` in config) at your instance. Set `share_url` to `""` to disable sharing entirely.
 
 ### GitHub PR Sync
 
@@ -166,7 +166,7 @@ Crit ships with plugins and configuration files for popular AI coding tools. Eac
 
 ### Per-project install
 
-The fastest way to get started. Installs a `/crit` slash command into your project:
+The fastest way to get started. Installs a `/crit` slash command plus any integration companion files available for that tool (for example `SKILL.md` files) into your project:
 
 ```bash
 crit install claude-code   # or: cursor, opencode, windsurf, github-copilot, cline
@@ -219,8 +219,9 @@ crit config --help                             # document all config keys
 ```json
 {
   "port": 0,
+  "base_branch": "main",
   "no_open": false,
-  "share_url": "https://crit.live",
+  "share_url": "https://crit.md",
   "quiet": false,
   "output": "",
   "author": "John",
@@ -249,11 +250,11 @@ crit --no-ignore
 
 ### Environment variables
 
-| Variable               | Description                                                                  |
-| ---------------------- | ---------------------------------------------------------------------------- |
-| `CRIT_SHARE_URL`       | Enable the Share button (e.g. `https://crit.live` or a self-hosted instance) |
-| `CRIT_PORT`            | Default port for the local server                                            |
-| `CRIT_NO_UPDATE_CHECK` | Set to any value to disable the update check on startup                      |
+| Variable               | Description                                                                |
+| ---------------------- | -------------------------------------------------------------------------- |
+| `CRIT_SHARE_URL`       | Enable the Share button (e.g. `https://crit.md` or a self-hosted instance) |
+| `CRIT_PORT`            | Default port for the local server                                          |
+| `CRIT_NO_UPDATE_CHECK` | Set to any value to disable the update check on startup                    |
 
 ## Other Install Methods
 

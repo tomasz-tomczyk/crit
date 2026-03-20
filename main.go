@@ -37,17 +37,15 @@ var (
 
 func main() {
 	if len(os.Args) < 2 {
-		runServer(os.Args[1:])
+		runReview(nil)
 		return
 	}
 
 	switch os.Args[1] {
 	case "help", "--help", "-h":
 		printHelp()
-	case "go":
-		runGo(os.Args[2:])
-	case "listen":
-		runListen(os.Args[2:])
+	case "--version", "-v":
+		printVersion()
 	case "share":
 		runShare(os.Args[2:])
 	case "unpublish":
@@ -62,47 +60,18 @@ func main() {
 		runPush(os.Args[2:])
 	case "comment":
 		runComment(os.Args[2:])
+	case "review":
+		runReview(os.Args[2:])
+	case "stop":
+		runStop()
+	case "_serve":
+		runServe(os.Args[2:])
 	default:
-		runServer(os.Args[1:])
+		runReview(os.Args[1:])
 	}
 }
 
-func runGo(args []string) {
-	port := requirePort(args, "crit go <port>")
-	resp, err := http.Post("http://localhost:"+port+"/api/round-complete", "application/json", nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: could not reach crit on port %s: %v\n", port, err)
-		os.Exit(1)
-	}
-	resp.Body.Close()
-	if resp.StatusCode == 200 {
-		fmt.Println("Round complete — crit will reload.")
-		newStatus(os.Stdout).ListenHint(port)
-	} else {
-		fmt.Fprintf(os.Stderr, "Unexpected status: %d\n", resp.StatusCode)
-		os.Exit(1)
-	}
-}
 
-func runListen(args []string) {
-	port := requirePort(args, "crit listen <port>")
-	client := &http.Client{Timeout: 24 * time.Hour}
-	resp, err := client.Get("http://localhost:" + port + "/api/wait-for-event")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: could not reach crit on port %s: %v\n", port, err)
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusGatewayTimeout {
-		fmt.Fprintln(os.Stderr, "Timeout waiting for event")
-		os.Exit(1)
-	}
-	_, err = io.Copy(os.Stdout, resp.Body)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
-		os.Exit(1)
-	}
-}
 
 func runShare(args []string) {
 	shareOutputDir := ""
@@ -482,6 +451,12 @@ func runPush(args []string) {
 		return
 	}
 
+	// Collect replies to push
+	var allReplies []ghReplyForPush
+	for _, cf := range cj.Files {
+		allReplies = append(allReplies, collectNewRepliesForPush(cf)...)
+	}
+
 	if dryRun {
 		fmt.Printf("Would post %d comments to PR #%d:\n\n", len(ghComments), prNumber)
 		for _, c := range ghComments {
@@ -495,20 +470,52 @@ func runPush(args []string) {
 			}
 			fmt.Printf("    %s\n\n", body)
 		}
+		for _, reply := range allReplies {
+			fmt.Printf("  Would reply to GitHub comment %d: %.60s\n", reply.ParentGHID, reply.Body)
+		}
 		return
 	}
 
 	fmt.Printf("Pushing %d comments to PR #%d...\n", len(ghComments), prNumber)
-	if err := createGHReview(prNumber, ghComments, message); err != nil {
+	commentIDs, err := createGHReview(prNumber, ghComments, message)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Printf("Posted %d review comments to PR #%d\n", len(ghComments), prNumber)
+
+	// Phase 2: Post new replies individually
+	replyCount := 0
+	replyIDs := make(map[replyKey]int64)
+	for _, reply := range allReplies {
+		replyID, err := postGHReply(prNumber, reply.ParentGHID, reply.Body)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to post reply: %v\n", err)
+		} else {
+			replyCount++
+			if replyID != 0 {
+				replyIDs[replyKey{ParentGHID: reply.ParentGHID, BodyPrefix: truncateStr(reply.Body, 60)}] = replyID
+			}
+		}
+	}
+	if replyCount > 0 {
+		fmt.Printf("Posted %d replies\n", replyCount)
+	}
+
+	// Write GitHub IDs back to .crit.json for idempotent re-push
+	critPath := filepath.Join(critDir, ".crit.json")
+	if err := updateCritJSONWithGitHubIDs(critPath, commentIDs, replyIDs); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to update .crit.json with GitHub IDs: %v\n", err)
+	}
 }
 
 func runComment(args []string) {
 	commentOutputDir := ""
 	commentAuthor := ""
+	commentReplyTo := ""
+	commentResolve := false
+	commentPath := ""
+	commentJSON := false
 	var commentArgs []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -526,9 +533,96 @@ func runComment(args []string) {
 			}
 			i++
 			commentAuthor = args[i]
+		} else if arg == "--reply-to" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --reply-to requires a comment ID\n")
+				os.Exit(1)
+			}
+			i++
+			commentReplyTo = args[i]
+		} else if arg == "--resolve" {
+			commentResolve = true
+		} else if arg == "--path" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --path requires a value\n")
+				os.Exit(1)
+			}
+			i++
+			commentPath = args[i]
+		} else if arg == "--json" {
+			commentJSON = true
 		} else {
 			commentArgs = append(commentArgs, arg)
 		}
+	}
+
+	// Resolve author: --author flag > config > git user.name
+	if commentAuthor == "" {
+		commentCfgDir, _ := os.Getwd()
+		if IsGitRepo() {
+			commentCfgDir, _ = RepoRoot()
+		}
+		commentCfg := LoadConfig(commentCfgDir)
+		commentAuthor = commentCfg.Author
+	}
+
+	// JSON bulk mode: crit comment --json < comments.json
+	if commentJSON {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
+			os.Exit(1)
+		}
+
+		var entries []BulkCommentEntry
+		if err := json.Unmarshal(data, &entries); err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing JSON: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := bulkAddCommentsToCritJSON(entries, commentAuthor, commentOutputDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Count new comments vs replies
+		var comments, replies int
+		for _, e := range entries {
+			if e.ReplyTo != "" {
+				replies++
+			} else {
+				comments++
+			}
+		}
+
+		var parts []string
+		if comments > 0 {
+			parts = append(parts, fmt.Sprintf("%d comment%s", comments, plural(comments)))
+		}
+		if replies > 0 {
+			parts = append(parts, fmt.Sprintf("%d repl%s", replies, pluralReply(replies)))
+		}
+		fmt.Printf("Added %s\n", strings.Join(parts, " and "))
+		return
+	}
+
+	// Reply mode: crit comment --reply-to <id> [--resolve] <body>
+	if commentReplyTo != "" {
+		if len(commentArgs) < 1 {
+			fmt.Fprintln(os.Stderr, "Usage: crit comment --reply-to <comment-id> [--resolve] <body>")
+			os.Exit(1)
+		}
+		replyBody := strings.Join(commentArgs, " ")
+		if err := addReplyToCritJSON(commentReplyTo, replyBody, commentAuthor, commentResolve, commentOutputDir, commentPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if commentResolve {
+			fmt.Printf("Replied to %s and marked resolved\n", commentReplyTo)
+		} else {
+			fmt.Printf("Replied to %s\n", commentReplyTo)
+		}
+		return
 	}
 
 	// Handle --clear flag
@@ -543,16 +637,21 @@ func runComment(args []string) {
 
 	if len(commentArgs) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: crit comment [--output <dir>] [--author <name>] <path>:<line[-end]> <body>")
+		fmt.Fprintln(os.Stderr, "       crit comment --reply-to <id> [--resolve] [--author <name>] <body>")
+		fmt.Fprintln(os.Stderr, "       crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON")
 		fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] --clear")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Examples:")
 		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' main.go:42 'Fix this bug'")
 		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' src/auth.go:10-25 'This block needs refactoring'")
+		fmt.Fprintln(os.Stderr, "  crit comment --reply-to c1 --resolve --author 'Claude' 'Split into two functions'")
 		fmt.Fprintln(os.Stderr, "  crit comment --output /tmp/reviews main.go:42 'Fix this bug'")
+		fmt.Fprintln(os.Stderr, "  echo '[{\"file\":\"main.go\",\"line\":42,\"body\":\"Fix this\"}]' | crit comment --json --author 'Claude'")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Tips:")
 		fmt.Fprintln(os.Stderr, "  Use --author to identify who left the comment (recommended for AI agents)")
 		fmt.Fprintln(os.Stderr, "  Use single quotes for the body to avoid shell interpretation of backticks")
+		fmt.Fprintln(os.Stderr, "  Use --json for bulk operations (multiple comments/replies in one atomic write)")
 		os.Exit(1)
 	}
 
@@ -591,21 +690,115 @@ func runComment(args []string) {
 	// Body is all remaining args joined
 	body := strings.Join(commentArgs[1:], " ")
 
-	// Resolve author: --author flag > config > git user.name
-	if commentAuthor == "" {
-		commentCfgDir, _ := os.Getwd()
-		if IsGitRepo() {
-			commentCfgDir, _ = RepoRoot()
-		}
-		commentCfg := LoadConfig(commentCfgDir)
-		commentAuthor = commentCfg.Author
-	}
-
 	if err := addCommentToCritJSON(filePath, startLine, endLine, body, commentAuthor, commentOutputDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
+}
+
+// runReview always uses the daemon pattern: starts a background daemon if needed,
+// connects as a review client, blocks for one review cycle, then exits.
+// Used by `crit review` and by agents.
+func runReview(args []string) {
+	// Resolve port from config (same precedence as server)
+	configPort := 0
+	dir, _ := os.Getwd()
+	cfg := LoadConfig(dir)
+	if cfg.Port != 0 {
+		configPort = cfg.Port
+	}
+	if envPort := os.Getenv("CRIT_PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil {
+			configPort = p
+		}
+	}
+
+	// Check for running daemon
+	statePath := critJSONPathForDaemon()
+	state, err := readDaemonState(statePath)
+	weStartedDaemon := false
+
+	if err == nil && isDaemonAlive(state) && len(args) == 0 {
+		// No file args — connect to existing daemon
+		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", state.Port)
+		go openBrowser(fmt.Sprintf("http://localhost:%d", state.Port))
+	} else {
+		// Start new daemon (file args given, or no daemon running)
+		state, err = startDaemon(args, configPort)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "Started crit daemon on port %d (PID %d)\n", state.Port, state.PID)
+		weStartedDaemon = true
+	}
+
+	// If we started the daemon, clean it up on Ctrl+C
+	if weStartedDaemon {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			// Kill the daemon we started
+			if proc, err := os.FindProcess(state.PID); err == nil {
+				proc.Signal(syscall.SIGTERM)
+			}
+			os.Exit(0)
+		}()
+	}
+
+	runReviewClient(state)
+}
+
+// runReviewClient connects to a running daemon/server, blocks until the user
+// finishes reviewing, prints feedback to stdout, and exits.
+func runReviewClient(state daemonState) {
+	client := &http.Client{Timeout: 24 * time.Hour}
+	resp, err := client.Post(
+		fmt.Sprintf("http://localhost:%d/api/review-cycle", state.Port),
+		"application/json",
+		nil,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not reach crit daemon on port %d: %v\n", state.Port, err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusGatewayTimeout {
+		fmt.Fprintln(os.Stderr, "Timeout waiting for review")
+		os.Exit(1)
+	}
+
+	// Print feedback to stdout (same format as crit listen)
+	_, err = io.Copy(os.Stdout, resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runStop() {
+	if err := stopDaemon(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Daemon stopped.")
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func pluralReply(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }
 
 // serverConfig holds the resolved configuration for running the server.
@@ -812,38 +1005,94 @@ func runServer(args []string) {
 	_ = httpServer.Shutdown(shutCtx)
 }
 
-// requirePort resolves the port from CLI args, then config, or exits with an error.
-func requirePort(args []string, usage string) string {
-	port := ""
-	if len(args) > 0 {
-		port = args[0]
+func runServe(args []string) {
+	sc, err := resolveServerConfig(args)
+	if err != nil {
+		log.Fatalf("Error: %v", err)
 	}
-	if port == "" {
-		port = resolvePort()
+	if sc == nil {
+		return
 	}
-	if port == "" {
-		fmt.Fprintf(os.Stderr, "Error: port is required. Usage: %s\n", usage)
-		os.Exit(1)
+
+	// Force quiet mode — daemon runs in background, no terminal output
+	sc.quiet = true
+
+	var session *Session
+	if len(sc.files) == 0 {
+		if !IsGitRepo() {
+			fmt.Fprintln(os.Stderr, "Error: not in a git repository and no files specified")
+			os.Exit(1)
+		}
+		session, err = NewSessionFromGit(sc.ignorePatterns)
+	} else {
+		session, err = NewSessionFromFiles(sc.files, sc.ignorePatterns)
 	}
-	if _, err := strconv.Atoi(port); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid port %q\n", port)
-		os.Exit(1)
+	if err != nil {
+		log.Fatalf("Error: %v", err)
 	}
-	return port
+
+	if sc.outputDir != "" {
+		abs, _ := filepath.Abs(sc.outputDir)
+		session.OutputDir = abs
+	}
+
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", sc.port))
+	if err != nil {
+		log.Fatalf("Error starting server: %v", err)
+	}
+	addr := listener.Addr().(*net.TCPAddr)
+
+	srv, err := NewServer(session, frontendFS, sc.shareURL, sc.author, version, addr.Port)
+	if err != nil {
+		log.Fatalf("Error creating server: %v", err)
+	}
+
+	httpServer := &http.Server{
+		Handler:     srv,
+		ReadTimeout: 15 * time.Second,
+		IdleTimeout: 60 * time.Second,
+	}
+
+	// Write daemon state file so clients can discover us
+	statePath := critJSONPathForDaemon()
+	if err := writeDaemonState(statePath, daemonState{
+		PID:  os.Getpid(),
+		Port: addr.Port,
+	}); err != nil {
+		log.Fatalf("Error writing daemon state: %v", err)
+	}
+
+	if !sc.noOpen {
+		go openBrowser(fmt.Sprintf("http://localhost:%d", addr.Port))
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	watchStop := make(chan struct{})
+	go session.Watch(watchStop)
+
+	go func() {
+		if err := httpServer.Serve(listener); err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	close(watchStop)
+
+	// Cleanup daemon state
+	removeDaemonState(statePath)
+
+	session.Shutdown()
+	session.WriteFiles()
+
+	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = httpServer.Shutdown(shutCtx)
 }
 
-// resolvePort returns the configured port as a string, or empty if not configured.
-func resolvePort() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	cfg := LoadConfig(dir)
-	if cfg.Port != 0 {
-		return fmt.Sprintf("%d", cfg.Port)
-	}
-	return ""
-}
+
 
 func printHelp() {
 	fmt.Fprintf(os.Stderr, `crit — inline code review for AI agent workflows
@@ -851,9 +1100,10 @@ func printHelp() {
 Usage:
   crit                                       Auto-detect changed files via git
   crit <file|dir> [...]                      Review specific files or directories
-  crit go <port>                             Signal round-complete to a running crit instance
-  crit listen <port>                         Wait for review to finish on a running crit instance
+  crit stop                                  Stop the background crit daemon
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
+  crit comment --reply-to <id> [--resolve] [--author <name>] <body>  Reply to a comment
+  crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON
   crit comment --clear                       Remove all comments from .crit.json
   crit share <file> [file...]                Share files to crit-web and print the URL
   crit unpublish                             Remove a shared review from crit-web
@@ -872,7 +1122,7 @@ Options:
       --no-open               Don't auto-open browser
       --no-ignore             Disable all file ignore patterns
   -q, --quiet                 Suppress status output
-      --share-url <url>       Share service URL (e.g. https://crit.live or self-hosted)
+      --share-url <url>       Share service URL (e.g. https://crit.md or self-hosted)
       --base-branch <branch>  Base branch to diff against (overrides auto-detection)
       --qr                    Print QR code of share URL (with crit share)
   -v, --version               Print version
@@ -887,7 +1137,7 @@ Configuration:
   Project config:  .crit.config.json (in repo root)
   Run 'crit config' to see resolved configuration.
 
-Learn more: https://crit.live
+Learn more: https://crit.md
 `)
 }
 
@@ -926,7 +1176,7 @@ Ignore pattern syntax:
 Example config:
   {
     "port": 3456,
-    "share_url": "https://crit.live",
+    "share_url": "https://crit.md",
     "ignore_patterns": ["*.lock", "*.min.js", "vendor/", "generated/"]
   }
 `)
@@ -961,9 +1211,11 @@ type integration struct {
 var integrationMap = map[string][]integration{
 	"claude-code": {
 		{source: "integrations/claude-code/commands/crit.md", dest: ".claude/commands/crit.md", hint: "Run /crit in Claude Code to start a review loop"},
+		{source: "integrations/claude-code/skills/crit-cli/SKILL.md", dest: ".claude/skills/crit-cli/SKILL.md", hint: "The crit skill is available to Claude Code agents when needed"},
 	},
 	"cursor": {
 		{source: "integrations/cursor/commands/crit.md", dest: ".cursor/commands/crit.md", hint: "Run /crit in Cursor to start a review loop"},
+		{source: "integrations/cursor/skills/crit-cli/SKILL.md", dest: ".cursor/skills/crit-cli/SKILL.md", hint: "The crit skill is available to Cursor agents when needed"},
 	},
 	"opencode": {
 		{source: "integrations/opencode/crit.md", dest: ".opencode/commands/crit.md", hint: "Run /crit in OpenCode to start a review loop"},
@@ -974,6 +1226,7 @@ var integrationMap = map[string][]integration{
 	},
 	"github-copilot": {
 		{source: "integrations/github-copilot/commands/crit.prompt.md", dest: ".github/prompts/crit.prompt.md", hint: "Run /crit in GitHub Copilot to start a review loop"},
+		{source: "integrations/github-copilot/skills/crit-cli/SKILL.md", dest: ".github/skills/crit-cli/SKILL.md", hint: "The crit skill is available to GitHub Copilot agents when needed"},
 	},
 	"cline": {
 		{source: "integrations/cline/crit.md", dest: ".clinerules/crit.md", hint: "Cline will suggest Crit when writing plans"},

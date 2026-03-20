@@ -294,9 +294,11 @@ func FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
 	}
 	out, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			// git diff exits 1 when there are differences
-		} else if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+		exitErr, ok := err.(*exec.ExitError)
+		switch {
+		case ok && exitErr.ExitCode() == 1:
+			// git diff exits 1 when there are differences — not an error
+		case ok && exitErr.ExitCode() == 128:
 			// sha^ failed (root commit) — diff against the empty tree
 			emptyTree := "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 			cmd2 := exec.Command("git", "diff", "--no-color", emptyTree+".."+sha, "--", path)
@@ -311,7 +313,7 @@ func FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
 					return nil, fmt.Errorf("git diff (root commit) failed: %w", err)
 				}
 			}
-		} else {
+		default:
 			return nil, fmt.Errorf("git diff failed: %w", err)
 		}
 	}
@@ -466,21 +468,23 @@ func AllTrackedFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
+// skipDirs is the shared set of directory names to skip during recursive walks.
+// Used by both WalkFiles (git.go) and walkDirectory (session.go) to stay in sync.
+var skipDirs = map[string]bool{
+	"node_modules": true,
+	"vendor":       true,
+	"__pycache__":  true,
+	".git":         true,
+	"dist":         true,
+	"build":        true,
+	"_build":       true,
+	"deps":         true,
+}
+
 // WalkFiles returns all files under root, skipping hidden directories,
 // node_modules, and other common non-project directories.
 // Paths are relative to root.
 func WalkFiles(root string) ([]string, error) {
-	skipDirs := map[string]bool{
-		"node_modules": true,
-		"vendor":       true,
-		"__pycache__":  true,
-		".git":         true,
-		"dist":         true,
-		"build":        true,
-		"_build":       true,
-		"deps":         true,
-	}
-
 	var files []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {

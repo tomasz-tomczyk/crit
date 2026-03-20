@@ -50,7 +50,7 @@ test.describe('Multi-Round — API', () => {
     const res = await request.post('/api/finish');
     const data = await res.json();
     expect(data.prompt).toContain('.crit.json');
-    expect(data.prompt).toContain('crit go');
+    expect(data.prompt).toContain('crit');
   });
 
   test('GET /api/wait-for-event returns finish event when review finishes', async ({ request }) => {
@@ -167,7 +167,6 @@ test.describe('Multi-Round — API', () => {
     for (const fileKey of Object.keys(critJson.files)) {
       for (const comment of critJson.files[fileKey].comments) {
         comment.resolved = true;
-        comment.resolution_note = 'Fixed it';
       }
     }
     fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
@@ -182,7 +181,6 @@ test.describe('Multi-Round — API', () => {
     expect(comments.length).toBe(1);
     expect(comments[0].body).toBe('Will be resolved');
     expect(comments[0].resolved).toBe(true);
-    expect(comments[0].resolution_note).toBe('Fixed it');
     expect(comments[0].carried_forward).toBe(true);
   });
 
@@ -239,6 +237,11 @@ test.describe('Multi-Round — API', () => {
 // ============================================================
 test.describe('Multi-Round — Frontend', () => {
   test.beforeEach(async ({ page, request }) => {
+    // Reset server to reviewing state in case a previous test left it in
+    // waiting/finished state. Without this, clearAllComments writes .crit.json,
+    // the file watcher detects the change, and emits edit-detected SSE events
+    // that can overwrite UI text in the next test.
+    await request.post('/api/round-complete');
     await clearAllComments(request);
     await loadPage(page);
   });
@@ -259,9 +262,9 @@ test.describe('Multi-Round — Frontend', () => {
     const overlay = page.locator('#waitingOverlay');
     await expect(overlay).toHaveClass(/active/);
 
-    // Prompt should contain crit go
+    // Prompt should contain crit
     const prompt = page.locator('#waitingPrompt');
-    await expect(prompt).toContainText('crit go');
+    await expect(prompt).toContainText('crit');
   });
 
   test('finish review with no comments shows "no feedback" message', async ({ page }) => {
@@ -289,7 +292,7 @@ test.describe('Multi-Round — Frontend', () => {
     const overlay = page.locator('#waitingOverlay');
     await expect(overlay).toHaveClass(/active/);
 
-    // Trigger round-complete via API (simulates agent calling crit go)
+    // Trigger round-complete via API (simulates agent calling crit)
     await request.post('/api/round-complete');
 
     // UI should exit waiting state (overlay removed, file sections re-rendered)
@@ -366,16 +369,17 @@ test.describe('Multi-Round — Frontend', () => {
     await request.post('/api/round-complete');
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Resolved comment should render as .resolved-comment (not .comment-card)
-    await expect(page.locator('.resolved-comment')).toHaveCount(1);
-    await expect(page.locator('.comment-card')).toHaveCount(0);
+    // Resolved comment should render as .comment-card.resolved-card
+    await expect(page.locator('.comment-card.resolved-card')).toHaveCount(1);
 
-    // Should have green checkmark and body text
-    await expect(page.locator('.resolved-check')).toContainText('\u2713');
-    await expect(page.locator('.resolved-body')).toContainText('Will be resolved visually');
+    // Should have resolved badge and body text
+    await expect(page.locator('.resolved-badge')).toContainText('Resolved');
+    // Expand to see body
+    await page.locator('.comment-collapse-btn').click();
+    await expect(page.locator('.comment-body')).toContainText('Will be resolved visually');
 
-    // Resolution note should be present
-    await expect(page.locator('.resolved-note')).toContainText('Done');
+    // Resolved badge should be visible in header
+    await expect(page.locator('.resolved-badge')).toBeVisible();
   });
 
   test('resolved comments are excluded from comment count', async ({ page, request }) => {
@@ -419,9 +423,9 @@ test.describe('Multi-Round — Frontend', () => {
       await expect(countEl).not.toHaveClass(/comment-count-resolved/);
     }).toPass({ timeout: 5000 });
 
-    // Both should render: 1 resolved + 1 unresolved
-    await expect(page.locator('.resolved-comment')).toHaveCount(1);
-    await expect(page.locator('.comment-card')).toHaveCount(1);
+    // Both should render: 1 resolved + 1 unresolved (both are .comment-card)
+    await expect(page.locator('.comment-card.resolved-card')).toHaveCount(1);
+    await expect(page.locator('.comment-card:not(.resolved-card)')).toHaveCount(1);
   });
 
   test('resolved comment is collapsed by default and expandable', async ({ page, request }) => {
@@ -455,19 +459,19 @@ test.describe('Multi-Round — Frontend', () => {
     await request.post('/api/round-complete');
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    const resolved = page.locator('.resolved-comment');
+    const resolved = page.locator('.comment-card.resolved-card');
     await expect(resolved).toBeVisible();
 
-    // Should NOT have expanded class initially
-    await expect(resolved).not.toHaveClass(/expanded/);
+    // Should have collapsed class initially
+    await expect(resolved).toHaveClass(/collapsed/);
 
-    // Click to expand
-    await resolved.click();
-    await expect(resolved).toHaveClass(/expanded/);
+    // Click chevron to expand
+    await resolved.locator('.comment-collapse-btn').click();
+    await expect(resolved).not.toHaveClass(/collapsed/);
 
     // Click again to collapse
-    await resolved.click();
-    await expect(resolved).not.toHaveClass(/expanded/);
+    await resolved.locator('.comment-collapse-btn').click();
+    await expect(resolved).toHaveClass(/collapsed/);
   });
 
   test('viewed state persists across round-complete', async ({ page, request }) => {

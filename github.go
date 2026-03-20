@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +15,7 @@ import (
 
 // ghComment represents a GitHub PR review comment from the API.
 type ghComment struct {
-	ID        int    `json:"id"`
+	ID        int64  `json:"id"`
 	Path      string `json:"path"`
 	Line      int    `json:"line"`       // end line in the diff (RIGHT side = new file line)
 	StartLine int    `json:"start_line"` // start line for multi-line comments (0 if single-line)
@@ -23,7 +24,8 @@ type ghComment struct {
 	User      struct {
 		Login string `json:"login"`
 	} `json:"user"`
-	CreatedAt string `json:"created_at"`
+	CreatedAt   string `json:"created_at"`
+	InReplyToID int64  `json:"in_reply_to_id"`
 }
 
 // requireGH checks that the gh CLI is installed and authenticated.
@@ -95,10 +97,13 @@ func nextCommentID(comments []Comment) int {
 	return next
 }
 
-// isDuplicateGHComment checks if a GitHub comment already exists in the comment list
-// by matching on author, line range, and body.
-func isDuplicateGHComment(comments []Comment, author string, startLine, endLine int, body string) bool {
+// isDuplicateGHComment checks if a GitHub comment already exists in the comment list.
+// If ghID is non-zero, matches by GitHubID. Otherwise falls back to author+lines+body.
+func isDuplicateGHComment(comments []Comment, ghID int64, author string, startLine, endLine int, body string) bool {
 	for _, c := range comments {
+		if ghID != 0 && c.GitHubID == ghID {
+			return true
+		}
 		if c.Author == author && c.StartLine == startLine && c.EndLine == endLine && c.Body == body {
 			return true
 		}
@@ -106,22 +111,70 @@ func isDuplicateGHComment(comments []Comment, author string, startLine, endLine 
 	return false
 }
 
+// isDuplicateGHReply checks if a GitHub reply already exists in the reply list by GitHubID.
+func isDuplicateGHReply(replies []Reply, ghID int64) bool {
+	for _, r := range replies {
+		if r.GitHubID == ghID {
+			return true
+		}
+	}
+	return false
+}
+
+// findCommentByGitHubID searches all files in a CritJSON for a comment with the given GitHubID.
+// Returns the file path, comment index, and true if found.
+func findCommentByGitHubID(cj *CritJSON, ghID int64) (string, int, bool) {
+	for path, cf := range cj.Files {
+		for i, c := range cf.Comments {
+			if c.GitHubID == ghID {
+				return path, i, true
+			}
+		}
+	}
+	return "", 0, false
+}
+
 // mergeGHComments appends GitHub PR comments into an existing CritJSON.
 // Only includes RIGHT-side comments (comments on the new version of the file).
-// Deduplicates by author+lines+body to prevent duplicates from repeated pulls.
-func mergeGHComments(cj *CritJSON, comments []ghComment) int {
+// Handles threading: root comments become top-level Comments, replies become Reply entries.
+// Deduplicates by GitHubID (preferred) or author+lines+body to prevent duplicates from repeated pulls.
+func mergeGHComments(cj *CritJSON, ghComments []ghComment) int {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 	added := 0
 
-	for _, gc := range comments {
+	// Separate roots from replies, filtering as we go
+	var roots []ghComment
+	var replies []ghComment
+	for _, gc := range ghComments {
 		if gc.Line == 0 {
 			continue // skip PR-level comments not attached to a line
 		}
 		if gc.Side == "LEFT" {
 			continue // skip comments on deleted/old lines
 		}
+		if gc.InReplyToID == 0 {
+			roots = append(roots, gc)
+		} else {
+			replies = append(replies, gc)
+		}
+	}
 
+	// Group replies by their parent (InReplyToID)
+	replyMap := make(map[int64][]ghComment)
+	for _, r := range replies {
+		replyMap[r.InReplyToID] = append(replyMap[r.InReplyToID], r)
+	}
+
+	// Sort each reply group by created_at
+	for parentID := range replyMap {
+		sort.Slice(replyMap[parentID], func(i, j int) bool {
+			return replyMap[parentID][i].CreatedAt < replyMap[parentID][j].CreatedAt
+		})
+	}
+
+	// Process root comments: create Comment with attached replies
+	for _, gc := range roots {
 		cf, ok := cj.Files[gc.Path]
 		if !ok {
 			cf = CritJSONFile{
@@ -135,22 +188,100 @@ func mergeGHComments(cj *CritJSON, comments []ghComment) int {
 			startLine = gc.Line // single-line comment
 		}
 
-		// Skip if this exact comment already exists (dedup for repeated pulls)
-		if isDuplicateGHComment(cf.Comments, gc.User.Login, startLine, gc.Line, gc.Body) {
+		// Skip if this root comment already exists (dedup for repeated pulls)
+		if isDuplicateGHComment(cf.Comments, gc.ID, gc.User.Login, startLine, gc.Line, gc.Body) {
+			// Even if root is a dupe, check if there are new replies to add
+			if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
+				// Find the existing comment
+				for ci, c := range cf.Comments {
+					if c.GitHubID == gc.ID {
+						for _, r := range childReplies {
+							if isDuplicateGHReply(cf.Comments[ci].Replies, r.ID) {
+								continue
+							}
+							cf.Comments[ci].Replies = append(cf.Comments[ci].Replies, Reply{
+								ID:        nextReplyID(c.ID, cf.Comments[ci].Replies),
+								Body:      r.Body,
+								Author:    r.User.Login,
+								CreatedAt: r.CreatedAt,
+								GitHubID:  r.ID,
+							})
+							added++
+						}
+						break
+					}
+				}
+				cj.Files[gc.Path] = cf
+			}
 			continue
 		}
 
-		cf.Comments = append(cf.Comments, Comment{
-			ID:        fmt.Sprintf("c%d", nextCommentID(cf.Comments)),
+		commentID := fmt.Sprintf("c%d", nextCommentID(cf.Comments))
+		comment := Comment{
+			ID:        commentID,
 			StartLine: startLine,
 			EndLine:   gc.Line,
 			Body:      gc.Body,
 			Author:    gc.User.Login,
 			CreatedAt: gc.CreatedAt,
 			UpdatedAt: now,
-		})
+			GitHubID:  gc.ID,
+		}
+
+		// Attach replies for this root
+		if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
+			for _, r := range childReplies {
+				comment.Replies = append(comment.Replies, Reply{
+					ID:        nextReplyID(commentID, comment.Replies),
+					Body:      r.Body,
+					Author:    r.User.Login,
+					CreatedAt: r.CreatedAt,
+					GitHubID:  r.ID,
+				})
+				added++
+			}
+		}
+
+		cf.Comments = append(cf.Comments, comment)
 		cj.Files[gc.Path] = cf
-		added++
+		added++ // count the root
+	}
+
+	// Process orphan replies: parent already exists in cj (from a previous pull)
+	for parentID, childReplies := range replyMap {
+		// Skip if we already handled this parent in the roots loop above
+		handled := false
+		for _, gc := range roots {
+			if gc.ID == parentID {
+				handled = true
+				break
+			}
+		}
+		if handled {
+			continue
+		}
+
+		// Find the parent comment in the existing CritJSON
+		filePath, ci, found := findCommentByGitHubID(cj, parentID)
+		if !found {
+			continue // orphan reply with no known parent — skip
+		}
+
+		cf := cj.Files[filePath]
+		for _, r := range childReplies {
+			if isDuplicateGHReply(cf.Comments[ci].Replies, r.ID) {
+				continue
+			}
+			cf.Comments[ci].Replies = append(cf.Comments[ci].Replies, Reply{
+				ID:        nextReplyID(cf.Comments[ci].ID, cf.Comments[ci].Replies),
+				Body:      r.Body,
+				Author:    r.User.Login,
+				CreatedAt: r.CreatedAt,
+				GitHubID:  r.ID,
+			})
+			added++
+		}
+		cj.Files[filePath] = cf
 	}
 
 	return added
@@ -194,6 +325,61 @@ func writeCritJSON(cj CritJSON, outputDir string) error {
 	return nil
 }
 
+// ghReplyForPush represents a reply that needs to be posted to GitHub.
+type ghReplyForPush struct {
+	ParentGHID int64
+	Body       string
+}
+
+// collectNewRepliesForPush finds replies that haven't been pushed to GitHub yet.
+// A reply needs pushing if its GitHubID is 0 (local-only) and its parent Comment has a GitHubID (on GitHub).
+func collectNewRepliesForPush(cf CritJSONFile) []ghReplyForPush {
+	var replies []ghReplyForPush
+	for _, c := range cf.Comments {
+		if c.GitHubID == 0 {
+			continue // root not on GitHub, can't reply to it
+		}
+		for _, r := range c.Replies {
+			if r.GitHubID == 0 {
+				replies = append(replies, ghReplyForPush{
+					ParentGHID: c.GitHubID,
+					Body:       r.Body,
+				})
+			}
+		}
+	}
+	return replies
+}
+
+// postGHReply posts a reply to an existing GitHub PR review comment.
+// Returns the GitHub ID of the newly created reply.
+func postGHReply(prNumber int, parentGHID int64, body string) (int64, error) {
+	payload, err := json.Marshal(map[string]any{
+		"body":        body,
+		"in_reply_to": parentGHID,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("marshal reply: %w", err)
+	}
+	cmd := exec.Command("gh", "api",
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", prNumber),
+		"--method", "POST",
+		"--input", "-",
+	)
+	cmd.Stdin = bytes.NewReader(payload)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("gh api: %s: %w", string(output), err)
+	}
+	var resp struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(output, &resp); err != nil {
+		return 0, nil // non-fatal: reply was posted, just can't parse ID
+	}
+	return resp.ID, nil
+}
+
 // critJSONToGHComments converts .crit.json comments to GitHub review comment format.
 // Returns the list of comments suitable for the GitHub "create review" API.
 func critJSONToGHComments(cj CritJSON) []map[string]any {
@@ -202,6 +388,9 @@ func critJSONToGHComments(cj CritJSON) []map[string]any {
 		for _, c := range cf.Comments {
 			if c.Resolved {
 				continue // don't post resolved comments
+			}
+			if c.GitHubID != 0 {
+				continue // already pushed
 			}
 			comment := map[string]any{
 				"path": path,
@@ -231,56 +420,111 @@ func buildReviewPayload(comments []map[string]any, message string) ([]byte, erro
 
 // createGHReview posts a review with inline comments to a GitHub PR.
 // message is the top-level review body (empty string posts no top-level comment).
-func createGHReview(prNumber int, comments []map[string]any, message string) error {
+// Returns a map of "path:endLine" -> GitHubID for each created comment.
+func createGHReview(prNumber int, comments []map[string]any, message string) (map[string]int64, error) {
 	data, err := buildReviewPayload(comments, message)
 	if err != nil {
-		return fmt.Errorf("marshaling review: %w", err)
+		return nil, fmt.Errorf("marshaling review: %w", err)
 	}
 
-	var stderr bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	cmd := exec.Command("gh", "api",
 		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews", prNumber),
 		"--method", "POST",
 		"--input", "-",
 	)
 	cmd.Stdin = bytes.NewReader(data)
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if stderr.Len() > 0 {
-			return fmt.Errorf("creating review: %s", strings.TrimSpace(stderr.String()))
+			return nil, fmt.Errorf("creating review: %s", strings.TrimSpace(stderr.String()))
 		}
-		return fmt.Errorf("creating review: %w", err)
+		return nil, fmt.Errorf("creating review: %w", err)
 	}
-	return nil
+
+	// Parse response to extract comment IDs
+	var resp struct {
+		Comments []struct {
+			ID   int64  `json:"id"`
+			Path string `json:"path"`
+			Line int    `json:"line"`
+		} `json:"comments"`
+	}
+	idMap := make(map[string]int64)
+	if err := json.Unmarshal(stdout.Bytes(), &resp); err == nil {
+		for _, c := range resp.Comments {
+			key := fmt.Sprintf("%s:%d", c.Path, c.Line)
+			idMap[key] = c.ID
+		}
+	}
+	return idMap, nil
 }
 
-// addCommentToCritJSON appends a comment to .crit.json for the given file and line range.
-// Creates .crit.json if it doesn't exist. Appends to existing comments if it does.
-// Works in both git repos and plain directories (file mode).
-// outputDir overrides the default location (repo root or CWD) when non-empty.
-func addCommentToCritJSON(filePath string, startLine, endLine int, body string, author string, outputDir string) error {
-	root, err := resolveCritDir(outputDir)
+// replyKey uniquely identifies a reply for GitHubID mapping after push.
+type replyKey struct {
+	ParentGHID int64
+	BodyPrefix string
+}
+
+// updateCritJSONWithGitHubIDs writes GitHub IDs back to .crit.json after a push.
+// commentIDs maps "path:endLine" -> GitHubID for root comments.
+// replyIDs maps replyKey -> GitHubID for replies.
+func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, replyIDs map[replyKey]int64) error {
+	data, err := os.ReadFile(critPath)
 	if err != nil {
 		return err
 	}
-
-	// Validate path is relative and doesn't escape the working directory
-	cleaned := filepath.Clean(filePath)
-	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
-		return fmt.Errorf("path %q must be relative and within the repository", filePath)
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return err
 	}
 
-	critPath := filepath.Join(root, ".crit.json")
+	for path, cf := range cj.Files {
+		for i, c := range cf.Comments {
+			if c.GitHubID == 0 {
+				key := fmt.Sprintf("%s:%d", path, c.EndLine)
+				if id, ok := commentIDs[key]; ok {
+					cf.Comments[i].GitHubID = id
+				}
+			}
+			for j, r := range c.Replies {
+				if r.GitHubID == 0 && cf.Comments[i].GitHubID != 0 {
+					rk := replyKey{ParentGHID: cf.Comments[i].GitHubID, BodyPrefix: truncateStr(r.Body, 60)}
+					if id, ok := replyIDs[rk]; ok {
+						cf.Comments[i].Replies[j].GitHubID = id
+					}
+				}
+			}
+		}
+		cj.Files[path] = cf
+	}
 
-	// Load existing or create new
+	out, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(critPath, append(out, '\n'), 0644)
+}
+
+// truncateStr returns the first n bytes of s, or all of s if shorter.
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
+// loadCritJSON reads .crit.json from disk, or returns a fresh CritJSON if the file doesn't exist.
+func loadCritJSON(critPath string) (CritJSON, error) {
 	var cj CritJSON
 	if data, err := os.ReadFile(critPath); err == nil {
 		if err := json.Unmarshal(data, &cj); err != nil {
-			return fmt.Errorf("invalid existing .crit.json: %w", err)
+			return cj, fmt.Errorf("invalid existing .crit.json: %w", err)
 		}
-	} else {
+	} else if os.IsNotExist(err) {
 		branch := CurrentBranch()
-		cfg := LoadConfig(root)
+		cfg := LoadConfig(filepath.Dir(critPath))
 		base := cfg.BaseBranch
 		if base == "" {
 			base = DefaultBranch()
@@ -292,13 +536,27 @@ func addCommentToCritJSON(filePath string, startLine, endLine int, body string, 
 			ReviewRound: 1,
 			Files:       make(map[string]CritJSONFile),
 		}
+	} else {
+		return cj, fmt.Errorf("reading .crit.json: %w", err)
 	}
+	return cj, nil
+}
 
+// saveCritJSON writes the CritJSON struct to disk with pretty-printed JSON.
+func saveCritJSON(critPath string, cj CritJSON) error {
+	data, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling .crit.json: %w", err)
+	}
+	return os.WriteFile(critPath, data, 0644)
+}
+
+// appendComment adds a comment to the CritJSON struct in memory. Does not write to disk.
+func appendComment(cj *CritJSON, filePath string, startLine, endLine int, body, author string) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
-	// Get or create the file entry
-	cf, ok := cj.Files[cleaned]
+	cf, ok := cj.Files[filePath]
 	if !ok {
 		cf = CritJSONFile{
 			Status:   "modified",
@@ -315,13 +573,99 @@ func addCommentToCritJSON(filePath string, startLine, endLine int, body string, 
 		CreatedAt: now,
 		UpdatedAt: now,
 	})
-	cj.Files[cleaned] = cf
+	cj.Files[filePath] = cf
+}
 
-	data, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshaling .crit.json: %w", err)
+// appendReply adds a reply to an existing comment in the CritJSON struct in memory.
+// Returns an error if the comment ID is not found or is ambiguous across files.
+func appendReply(cj *CritJSON, commentID, body, author string, resolve bool, filterPath string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	cj.UpdatedAt = now
+
+	var found bool
+	var foundPaths []string
+	for filePath, cf := range cj.Files {
+		if filterPath != "" && filePath != filterPath {
+			continue
+		}
+		for i, c := range cf.Comments {
+			if c.ID == commentID {
+				foundPaths = append(foundPaths, filePath)
+				if !found {
+					found = true
+					reply := Reply{
+						ID:        nextReplyID(commentID, c.Replies),
+						Body:      body,
+						Author:    author,
+						CreatedAt: now,
+					}
+					cf.Comments[i].Replies = append(cf.Comments[i].Replies, reply)
+					cf.Comments[i].UpdatedAt = now
+					if resolve {
+						cf.Comments[i].Resolved = true
+					}
+					cj.Files[filePath] = cf
+				}
+			}
+		}
 	}
-	return os.WriteFile(critPath, data, 0644)
+
+	if len(foundPaths) > 1 {
+		return fmt.Errorf("comment %q found in multiple files (%s); specify the file with \"file\" field",
+			commentID, strings.Join(foundPaths, ", "))
+	}
+	if !found {
+		if filterPath != "" {
+			return fmt.Errorf("comment %q not found in file %q in .crit.json", commentID, filterPath)
+		}
+		return fmt.Errorf("comment %q not found in .crit.json", commentID)
+	}
+	return nil
+}
+
+// addCommentToCritJSON appends a comment to .crit.json for the given file and line range.
+// Creates .crit.json if it doesn't exist. Appends to existing comments if it does.
+// Works in both git repos and plain directories (file mode).
+// outputDir overrides the default location (repo root or CWD) when non-empty.
+func addCommentToCritJSON(filePath string, startLine, endLine int, body string, author string, outputDir string) error {
+	root, err := resolveCritDir(outputDir)
+	if err != nil {
+		return err
+	}
+
+	cleaned := filepath.Clean(filePath)
+	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+		return fmt.Errorf("path %q must be relative and within the repository", filePath)
+	}
+
+	critPath := filepath.Join(root, ".crit.json")
+	cj, err := loadCritJSON(critPath)
+	if err != nil {
+		return err
+	}
+
+	appendComment(&cj, cleaned, startLine, endLine, body, author)
+	return saveCritJSON(critPath, cj)
+}
+
+// addReplyToCritJSON adds a reply to an existing comment in .crit.json.
+// It searches all files for the comment ID. If resolve is true, it also marks the comment as resolved.
+func addReplyToCritJSON(commentID, body, author string, resolve bool, outputDir string, filterPath string) error {
+	root, err := resolveCritDir(outputDir)
+	if err != nil {
+		return err
+	}
+
+	critPath := filepath.Join(root, ".crit.json")
+	cj, err := loadCritJSON(critPath)
+	if err != nil {
+		return err
+	}
+
+	if err := appendReply(&cj, commentID, body, author, resolve, filterPath); err != nil {
+		return err
+	}
+	return saveCritJSON(critPath, cj)
 }
 
 // clearCritJSON removes .crit.json from the repo root, working directory, or outputDir.
@@ -335,4 +679,79 @@ func clearCritJSON(outputDir string) error {
 		return err
 	}
 	return nil
+}
+
+// BulkCommentEntry represents one entry in a bulk comment JSON array.
+// Either (file + line) for a new comment, or (reply_to) for a reply.
+type BulkCommentEntry struct {
+	// New comment fields
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	EndLine int    `json:"end_line,omitempty"` // defaults to Line if omitted
+	Body    string `json:"body"`
+	Author  string `json:"author,omitempty"` // overrides per-entry; falls back to global
+
+	// Reply fields
+	ReplyTo string `json:"reply_to,omitempty"`
+	Resolve bool   `json:"resolve,omitempty"`
+}
+
+// bulkAddCommentsToCritJSON applies multiple comments and replies in a single load-save cycle.
+// globalAuthor is used when an entry doesn't specify its own author.
+// outputDir overrides the .crit.json location (empty = repo root or CWD).
+func bulkAddCommentsToCritJSON(entries []BulkCommentEntry, globalAuthor string, outputDir string) error {
+	if len(entries) == 0 {
+		return fmt.Errorf("no comment entries provided")
+	}
+
+	root, err := resolveCritDir(outputDir)
+	if err != nil {
+		return err
+	}
+
+	critPath := filepath.Join(root, ".crit.json")
+	cj, err := loadCritJSON(critPath)
+	if err != nil {
+		return err
+	}
+
+	for i, e := range entries {
+		if e.Body == "" {
+			return fmt.Errorf("entry %d: body is required", i)
+		}
+
+		author := e.Author
+		if author == "" {
+			author = globalAuthor
+		}
+
+		if e.ReplyTo != "" {
+			// Reply mode
+			if err := appendReply(&cj, e.ReplyTo, e.Body, author, e.Resolve, e.File); err != nil {
+				return fmt.Errorf("entry %d: %w", i, err)
+			}
+		} else {
+			// New comment mode
+			if e.File == "" {
+				return fmt.Errorf("entry %d: file is required for new comments", i)
+			}
+			if e.Line <= 0 {
+				return fmt.Errorf("entry %d: line must be > 0", i)
+			}
+
+			cleaned := filepath.Clean(e.File)
+			if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+				return fmt.Errorf("entry %d: path %q must be relative and within the repository", i, e.File)
+			}
+
+			endLine := e.EndLine
+			if endLine == 0 {
+				endLine = e.Line
+			}
+
+			appendComment(&cj, cleaned, e.Line, endLine, e.Body, author)
+		}
+	}
+
+	return saveCritJSON(critPath, cj)
 }

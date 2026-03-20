@@ -72,7 +72,7 @@ test.describe('Select-to-comment (git mode)', () => {
       await expect(comment).toContainText('Hello from text selection');
     });
 
-    test('coexists with already-open comment form (multi-form)', async ({ page }) => {
+    test('text selection does not open a second form when one is already open', async ({ page }) => {
       const section = mdSection(page);
 
       // Open a comment form via gutter click first
@@ -84,7 +84,8 @@ test.describe('Select-to-comment (git mode)', () => {
 
       await expect(section.locator('.comment-form')).toHaveCount(1);
 
-      // Now select text in a different block — should open a second form
+      // Now select text in a different block — should NOT open a second form,
+      // the selection should persist so the user can copy text
       const thirdBlock = section.locator('.line-block').nth(2);
       await thirdBlock.scrollIntoViewIfNeeded();
       const blockBox = await thirdBlock.boundingBox();
@@ -95,7 +96,12 @@ test.describe('Select-to-comment (git mode)', () => {
       await page.mouse.move(blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2, { steps: 5 });
       await page.mouse.up();
 
-      await expect(section.locator('.comment-form')).toHaveCount(2);
+      // Still only one form — text selection is for copying, not commenting
+      await expect(section.locator('.comment-form')).toHaveCount(1);
+
+      // Browser selection should persist
+      const selectedText = await page.evaluate(() => window.getSelection()?.toString().trim());
+      expect(selectedText).toBeTruthy();
     });
 
     test('multi-block selection spans correct line range', async ({ page }) => {
@@ -361,21 +367,29 @@ test.describe('Select-to-comment (git mode)', () => {
 
     test('quote highlight appears in split diff view while form is open', async ({ page }) => {
       const section = goSection(page);
-      // Find an addition line with enough text for a partial selection
-      const additionLine = section.locator('.diff-split-side.addition').first();
-      await additionLine.scrollIntoViewIfNeeded();
-      await expect(additionLine).toBeVisible();
-
-      const diffContent = additionLine.locator('.diff-content');
-      await expect(diffContent).toBeVisible();
-      const box = await diffContent.boundingBox();
-      expect(box).toBeTruthy();
-      if (!box) return;
+      // Find an addition line with enough text for a meaningful partial selection
+      // Skip very short lines (like just `"log"`) — partial selection on short
+      // lines may select the full text, producing no quote and no highlight
+      const additionLines = section.locator('.diff-split-side.addition');
+      let targetBox: any = null;
+      const count = await additionLines.count();
+      for (let i = 0; i < count; i++) {
+        const line = additionLines.nth(i);
+        const content = line.locator('.diff-content');
+        const text = await content.textContent();
+        if (text && text.trim().length > 20) {
+          await line.scrollIntoViewIfNeeded();
+          targetBox = await content.boundingBox();
+          break;
+        }
+      }
+      expect(targetBox).toBeTruthy();
+      if (!targetBox) return;
 
       // Partial selection (not full width) to ensure a quote is captured
-      await page.mouse.move(box.x + 10, box.y + box.height / 2);
+      await page.mouse.move(targetBox.x + 10, targetBox.y + targetBox.height / 2);
       await page.mouse.down();
-      await page.mouse.move(box.x + Math.min(box.width / 2, 150), box.y + box.height / 2, { steps: 5 });
+      await page.mouse.move(targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2, { steps: 5 });
       await page.mouse.up();
 
       // Form should be open but NOT submitted — highlight should already show
@@ -418,6 +432,49 @@ test.describe('Select-to-comment (git mode)', () => {
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
       await expect(section.locator('mark.quote-highlight')).toBeVisible();
+    });
+
+    test('quote highlight appears on addition line, not deletion line in unified diff (issue #133)', async ({ page }) => {
+      // Switch to unified mode
+      const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
+      await expect(unifiedBtn).toBeVisible();
+      await unifiedBtn.click();
+
+      const section = goSection(page);
+      // Find an addition line with enough text for a partial selection
+      const additionLines = section.locator('.diff-line.addition');
+      let targetLine: any = null;
+      let targetBox: any = null;
+      const count = await additionLines.count();
+      for (let i = 0; i < count; i++) {
+        const line = additionLines.nth(i);
+        const content = line.locator('.diff-content');
+        const text = await content.textContent();
+        if (text && text.trim().length > 20) {
+          await line.scrollIntoViewIfNeeded();
+          targetLine = line;
+          targetBox = await content.boundingBox();
+          break;
+        }
+      }
+      expect(targetBox).toBeTruthy();
+      if (!targetBox || !targetLine) return;
+
+      // Partial selection on the addition line
+      await page.mouse.move(targetBox.x + 10, targetBox.y + targetBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2, { steps: 5 });
+      await page.mouse.up();
+
+      const textarea = section.locator('.comment-form textarea');
+      await expect(textarea).toBeVisible();
+
+      // The quote highlight must be inside an .addition line, NOT a .deletion line
+      const highlightMark = section.locator('mark.quote-highlight').first();
+      await expect(highlightMark).toBeVisible();
+      const parentLine = highlightMark.locator('xpath=ancestor::div[contains(@class, "diff-line")]');
+      await expect(parentLine).toHaveClass(/addition/);
+      await expect(parentLine).not.toHaveClass(/deletion/);
     });
 
     test('quote highlight appears in markdown diff view while form is open', async ({ page }) => {

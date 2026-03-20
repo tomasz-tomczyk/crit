@@ -139,6 +139,9 @@
   let activeFilePath = null;
   let activeForms = [];  // Array of { formKey, filePath, afterBlockIndex, startLine, endLine, editingId, side }
 
+  // Track manually toggled collapse state (comment ID → boolean, true = collapsed)
+  const commentCollapseOverrides = {};
+
   function formKey(form) {
     if (form.editingId) return form.filePath + ':edit:' + form.editingId;
     return form.filePath + ':' + form.startLine + ':' + form.endLine + ':' + (form.side || '');
@@ -401,7 +404,7 @@
       if (diffScope === 'all' || diffScope === 'branch') {
         fetchCommits();
       } else {
-        document.getElementById('commitDropdown').style.display = 'none';
+        commitDropdownEl.style.display = 'none';
         diffCommit = '';
       }
     }
@@ -903,7 +906,7 @@
   function processTaskLists(html) {
     return html.replace(
       /(<li[^>]*class="task-list-item"[^>]*>)\s*<p>\[([ x])\]\s*/gi,
-      function(match, liTag, checked) {
+      function(_, liTag, checked) {
         const checkbox = checked === 'x'
           ? '<input type="checkbox" checked disabled>'
           : '<input type="checkbox" disabled>';
@@ -911,7 +914,7 @@
       }
     ).replace(
       /(<li[^>]*class="task-list-item"[^>]*>)\[([ x])\]\s*/gi,
-      function(match, liTag, checked) {
+      function(_, liTag, checked) {
         const checkbox = checked === 'x'
           ? '<input type="checkbox" checked disabled>'
           : '<input type="checkbox" disabled>';
@@ -932,9 +935,9 @@
   }
 
   function relativeTime(dateStr) {
-    var now = Date.now();
-    var then = new Date(dateStr).getTime();
-    var diff = Math.floor((now - then) / 1000);
+    const now = Date.now();
+    const then = new Date(dateStr).getTime();
+    const diff = Math.floor((now - then) / 1000);
     if (diff < 60) return 'just now';
     if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
     if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
@@ -2077,11 +2080,15 @@
 
   // Compute similarity between two strings using token multiset Dice coefficient.
   // Returns 0–1 (1 = identical tokens, 0 = nothing in common).
+  // Only counts word tokens (identifiers, numbers) — single punctuation characters
+  // like ", :, {, }, etc. are structural noise that inflates similarity between
+  // unrelated JSON/code lines.
   function lineSimilarity(a, b) {
     if (a === b) return 1;
     if (!a || !b) return 0;
-    const tokA = tokenize(a);
-    const tokB = tokenize(b);
+    const wordRe = /^\w+$/;
+    const tokA = tokenize(a).filter(function(t) { return wordRe.test(t); });
+    const tokB = tokenize(b).filter(function(t) { return wordRe.test(t); });
     if (tokA.length === 0 && tokB.length === 0) return 1;
     if (tokA.length === 0 || tokB.length === 0) return 0;
     const counts = {};
@@ -2110,7 +2117,7 @@
     if (delCount + addCount > 8) return [];
     // 1:1 — pair directly if similar enough (most common case)
     if (delCount === 1 && addCount === 1) {
-      return lineSimilarity(delTexts[0], addTexts[0]) >= 0.6 ? [[0, 0]] : [];
+      return lineSimilarity(delTexts[0], addTexts[0]) >= 0.4 ? [[0, 0]] : [];
     }
     // Compute all similarity scores
     const candidates = [];
@@ -2127,7 +2134,7 @@
     for (let i = 0; i < candidates.length; i++) {
       const c = candidates[i];
       if (usedDels[c.d] || usedAdds[c.a]) continue;
-      if (c.score < 0.6) break;
+      if (c.score < 0.4) break;
       pairs.push([c.d, c.a]);
       usedDels[c.d] = true;
       usedAdds[c.a] = true;
@@ -2136,11 +2143,45 @@
     return pairs;
   }
 
-  // Shared diff-match-patch instance for word-level diffs.
-  var dmp = new diff_match_patch();
-  dmp.Diff_Timeout = 0.1; // 100ms max per line pair
+  // Compute LCS membership for two token arrays.
+  // Returns { oldKeep: boolean[], newKeep: boolean[] } where true = token is in LCS (unchanged).
+  function computeTokenLCS(oldTokens, newTokens) {
+    const m = oldTokens.length;
+    const n = newTokens.length;
+    const dp = [];
+    for (let i = 0; i <= m; i++) {
+      dp[i] = new Array(n + 1).fill(0);
+    }
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (oldTokens[i - 1] === newTokens[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1] + 1;
+        } else {
+          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+      }
+    }
+    const oldKeep = new Array(m).fill(false);
+    const newKeep = new Array(n).fill(false);
+    let i = m, j = n;
+    while (i > 0 && j > 0) {
+      if (oldTokens[i - 1] === newTokens[j - 1]) {
+        oldKeep[i - 1] = true;
+        newKeep[j - 1] = true;
+        i--; j--;
+      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+        i--;
+      } else {
+        j--;
+      }
+    }
+    return { oldKeep: oldKeep, newKeep: newKeep };
+  }
 
-  // Compute word-level diff between two lines using diff-match-patch.
+  // Compute word-level diff between two lines using token LCS.
+  // Tokenizes into words/punctuation, finds the longest common subsequence,
+  // then builds character ranges for changed tokens.
+  // This produces whole-word highlights (like GitHub) instead of character-level fragments.
   // Returns { oldRanges, newRanges } where each range is [startCharIdx, endCharIdx] in the raw text.
   // Returns null if lines are too long, identical, or completely different.
   function wordDiff(oldLine, newLine) {
@@ -2152,53 +2193,55 @@
     // Identical lines — no diff needed
     if (oldLine === newLine) return null;
 
-    var diffs = dmp.diff_main(oldLine, newLine);
-    dmp.diff_cleanupSemantic(diffs);
+    const oldTokens = tokenize(oldLine);
+    const newTokens = tokenize(newLine);
+    if (oldTokens.length === 0 && newTokens.length === 0) return null;
+    // Skip if token counts are huge (LCS is O(m*n))
+    if (oldTokens.length > 200 || newTokens.length > 200) return null;
 
-    // Check if everything changed (no EQUAL parts) or nothing changed
-    var hasEqual = false;
-    var hasDiff = false;
-    for (var i = 0; i < diffs.length; i++) {
-      if (diffs[i][0] === 0) hasEqual = true;
-      else hasDiff = true;
-    }
-    if (!hasEqual || !hasDiff) return null;
+    const result = computeTokenLCS(oldTokens, newTokens);
+    const oldKeep = result.oldKeep;
+    const newKeep = result.newKeep;
 
-    // Convert diffs to character ranges
-    var oldRanges = [];
-    var newRanges = [];
-    var oldIdx = 0;
-    var newIdx = 0;
-    for (var i = 0; i < diffs.length; i++) {
-      var op = diffs[i][0];
-      var text = diffs[i][1];
-      if (op === 0) {
-        // EQUAL — advance both cursors
-        oldIdx += text.length;
-        newIdx += text.length;
-      } else if (op === -1) {
-        // DELETE — range on old side
-        if (!/^\s+$/.test(text)) {
-          oldRanges.push([oldIdx, oldIdx + text.length]);
+    // If everything changed (no LCS), skip — lines probably don't correspond
+    const oldUnchanged = oldKeep.filter(Boolean).length;
+    const newUnchanged = newKeep.filter(Boolean).length;
+    if (oldUnchanged === 0 && newUnchanged === 0) return null;
+    // If nothing changed, skip
+    if (oldUnchanged === oldTokens.length && newUnchanged === newTokens.length) return null;
+
+    // Build character ranges for changed tokens.
+    // Adjacent changed tokens merge into one range automatically.
+    function buildRanges(tokens, keep) {
+      const ranges = [];
+      let charIdx = 0;
+      let rangeStart = -1;
+      for (let i = 0; i < tokens.length; i++) {
+        if (!keep[i]) {
+          if (rangeStart === -1) rangeStart = charIdx;
+        } else {
+          if (rangeStart !== -1) {
+            ranges.push([rangeStart, charIdx]);
+            rangeStart = -1;
+          }
         }
-        oldIdx += text.length;
-      } else if (op === 1) {
-        // INSERT — range on new side
-        if (!/^\s+$/.test(text)) {
-          newRanges.push([newIdx, newIdx + text.length]);
-        }
-        newIdx += text.length;
+        charIdx += tokens[i].length;
       }
+      if (rangeStart !== -1) ranges.push([rangeStart, charIdx]);
+      return ranges;
     }
+
+    const oldRanges = buildRanges(oldTokens, oldKeep);
+    const newRanges = buildRanges(newTokens, newKeep);
 
     if (oldRanges.length === 0 && newRanges.length === 0) return null;
 
     // If most of the line changed, the lines probably don't correspond —
     // skip word-diff to avoid noisy highlights on unrelated lines.
-    var oldChanged = oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
-    var newChanged = newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
-    if (oldLine.length > 0 && oldChanged / oldLine.length > 0.6) return null;
-    if (newLine.length > 0 && newChanged / newLine.length > 0.6) return null;
+    const oldChanged = oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
+    const newChanged = newRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
+    if (oldLine.length > 0 && oldChanged / oldLine.length > 0.5) return null;
+    if (newLine.length > 0 && newChanged / newLine.length > 0.5) return null;
 
     return { oldRanges: oldRanges, newRanges: newRanges };
   }
@@ -2281,8 +2324,11 @@
   // Apply word-level diffs to a pair of old/new blocks if they are sufficiently similar.
   // Skips pairs where >70% of characters changed (blocks probably don't correspond).
   function applyWordDiffPair(oldBlock, newBlock) {
-    const oldText = htmlToText(oldBlock.html);
-    const newText = htmlToText(newBlock.html);
+    // Normalize newlines to spaces so paragraph re-wrapping doesn't create false diffs.
+    // In markdown, soft line breaks within a paragraph are just whitespace.
+    // Both \n and ' ' are single chars, so word-diff ranges remain valid for applyWordDiffToHtml.
+    const oldText = htmlToText(oldBlock.html).replace(/\n/g, ' ');
+    const newText = htmlToText(newBlock.html).replace(/\n/g, ' ');
     const wd = wordDiff(oldText, newText);
     if (!wd) return;
     const oldChangedChars = wd.oldRanges.reduce(function(s, r) { return s + r[1] - r[0]; }, 0);
@@ -2595,8 +2641,6 @@
 
         const commentLineNum = line.Type === 'del' ? line.OldNum : line.NewNum;
         const lineSide = line.Type === 'del' ? 'old' : '';
-        const commentKey = commentLineNum + ':' + lineSide;
-        const lineComments = commentsMap[commentKey] || [];
         if (commentVisualSet.has(visualIdx)) lineEl.classList.add('has-comment');
 
         // Tag for drag detection and selection highlighting
@@ -3408,7 +3452,7 @@
 
   // ===== File Picker Autocomplete =====
 
-  function attachFilePicker(textarea, form) {
+  function attachFilePicker(textarea) {
     let dropdown = null;
     let activeIndex = -1;
     let triggerStart = -1;
@@ -3417,13 +3461,13 @@
 
     textarea.addEventListener('input', function() {
       if (suppressInput) { suppressInput = false; return; }
-      var val = textarea.value;
-      var cursor = textarea.selectionStart;
+      const val = textarea.value;
+      const cursor = textarea.selectionStart;
 
       // Find the '@' trigger: scan backwards from cursor
-      var atPos = -1;
-      for (var i = cursor - 1; i >= 0; i--) {
-        var ch = val[i];
+      let atPos = -1;
+      for (let i = cursor - 1; i >= 0; i--) {
+        const ch = val[i];
         if (ch === '@') {
           // '@' must be at start of line or preceded by whitespace
           if (i === 0 || /\s/.test(val[i - 1])) {
@@ -3440,7 +3484,7 @@
       }
 
       triggerStart = atPos;
-      var query = val.substring(atPos + 1, cursor);
+      const query = val.substring(atPos + 1, cursor);
 
       fetch('/api/files/list?q=' + encodeURIComponent(query))
         .then(function(r) { return r.ok ? r.json() : []; })
@@ -3494,13 +3538,13 @@
       }
 
       // Position below the @ cursor line
-      var textareaRect = textarea.getBoundingClientRect();
-      var textBeforeCursor = textarea.value.substring(0, textarea.selectionStart);
-      var lineNumber = textBeforeCursor.split('\n').length;
-      var computedStyle = window.getComputedStyle(textarea);
-      var lineHeight = parseFloat(computedStyle.lineHeight) || 22.4;
-      var paddingTop = parseFloat(computedStyle.paddingTop) || 10;
-      var cursorY = textareaRect.top + paddingTop + (lineNumber * lineHeight) - textarea.scrollTop;
+      const textareaRect = textarea.getBoundingClientRect();
+      const textBeforeCursor = textarea.value.substring(0, textarea.selectionStart);
+      const lineNumber = textBeforeCursor.split('\n').length;
+      const computedStyle = window.getComputedStyle(textarea);
+      const lineHeight = parseFloat(computedStyle.lineHeight) || 22.4;
+      const paddingTop = parseFloat(computedStyle.paddingTop) || 10;
+      const cursorY = textareaRect.top + paddingTop + (lineNumber * lineHeight) - textarea.scrollTop;
       dropdown.style.left = textareaRect.left + 'px';
       dropdown.style.width = textareaRect.width + 'px';
       dropdown.style.top = cursorY + 'px';
@@ -3510,13 +3554,13 @@
       navigated = false;
 
       matches.forEach(function(filePath, idx) {
-        var item = document.createElement('div');
+        const item = document.createElement('div');
         item.className = 'file-picker-item';
         item.dataset.path = filePath;
 
-        var lastSlash = filePath.lastIndexOf('/');
+        const lastSlash = filePath.lastIndexOf('/');
         if (lastSlash >= 0) {
-          var dirSpan = document.createElement('span');
+          const dirSpan = document.createElement('span');
           dirSpan.className = 'file-picker-dir';
           dirSpan.textContent = filePath.substring(0, lastSlash + 1);
           item.appendChild(dirSpan);
@@ -3595,7 +3639,7 @@
     textarea.dataset.formKey = formObj.formKey;
     if (opts.initialBody) textarea.value = opts.initialBody;
 
-    attachFilePicker(textarea, form);
+    attachFilePicker(textarea);
 
     textarea.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -3922,7 +3966,7 @@
 
   function createCommentElement(comment, filePath) {
     if (findFormForEdit(comment.id)) {
-      return createInlineEditor(comment);
+      return createInlineEditor(comment, filePath);
     }
 
     const wrapper = document.createElement('div');
@@ -3945,8 +3989,23 @@
     time.className = 'comment-time';
     time.textContent = formatTime(comment.created_at);
 
+    // Apply saved collapse state (unresolved defaults to expanded)
+    if (commentCollapseOverrides[comment.id] === true) card.classList.add('collapsed');
+
+    const collapseBtn = document.createElement('button');
+    collapseBtn.className = 'comment-collapse-btn';
+    collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
+    collapseBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+    collapseBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      card.classList.toggle('collapsed');
+      commentCollapseOverrides[comment.id] = card.classList.contains('collapsed');
+      collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
+    });
+
     const headerLeft = document.createElement('div');
     headerLeft.className = 'comment-header-left';
+    headerLeft.prepend(collapseBtn);
     if (comment.author) {
       const authorBadge = document.createElement('span');
       authorBadge.className = 'comment-author-badge author-color-' + authorColorIndex(comment.author);
@@ -3983,6 +4042,26 @@
     deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
     deleteBtn.addEventListener('click', () => deleteComment(comment.id, filePath));
 
+    const resolveBtn = document.createElement('button');
+    resolveBtn.title = 'Resolve';
+    resolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    resolveBtn.addEventListener('click', async function() {
+      try {
+        var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resolved: true }),
+        });
+        if (!res.ok) throw new Error('Server returned ' + res.status);
+      } catch (err) {
+        console.error('Error resolving:', err);
+        showMiniToast('Failed to resolve comment');
+        return;
+      }
+      refreshFileComments(filePath);
+    });
+
+    actions.appendChild(resolveBtn);
     actions.appendChild(editBtn);
     actions.appendChild(deleteBtn);
 
@@ -3995,8 +4074,71 @@
 
     card.appendChild(header);
     card.appendChild(bodyEl);
+
+    // Render replies (threading)
+    if (comment.replies && comment.replies.length > 0) {
+      card.appendChild(renderReplyList(comment, filePath));
+    }
+
+    // Inline reply input (GitHub-style: compact, expands on focus)
+    card.appendChild(createReplyInput(comment.id, filePath));
+
     wrapper.appendChild(card);
     return wrapper;
+  }
+
+  // Build a reply list container for a comment's replies
+  function renderReplyList(comment, filePath, extraClass) {
+    const repliesContainer = document.createElement('div');
+    repliesContainer.className = 'comment-replies' + (extraClass ? ' ' + extraClass : '');
+    comment.replies.forEach(function(reply) {
+      const replyEl = document.createElement('div');
+      replyEl.className = 'comment-reply';
+      replyEl.dataset.replyId = reply.id;
+
+      const replyHeader = document.createElement('div');
+      replyHeader.className = 'reply-header';
+
+      const replyMeta = document.createElement('div');
+      replyMeta.className = 'reply-meta';
+      if (reply.author) {
+        const replyAuthorBadge = document.createElement('span');
+        replyAuthorBadge.className = 'comment-author-badge author-color-' + authorColorIndex(reply.author);
+        replyAuthorBadge.textContent = '@' + reply.author;
+        replyMeta.appendChild(replyAuthorBadge);
+      }
+      const replyTime = document.createElement('span');
+      replyTime.className = 'reply-time';
+      replyTime.textContent = formatTime(reply.created_at);
+      replyMeta.appendChild(replyTime);
+      replyHeader.appendChild(replyMeta);
+
+      const replyActions = document.createElement('div');
+      replyActions.className = 'reply-actions';
+      var replyEditBtn = document.createElement('button');
+      replyEditBtn.title = 'Edit';
+      replyEditBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+      replyEditBtn.addEventListener('click', function(e) { e.stopPropagation(); editReply(comment.id, reply.id, filePath); });
+      var replyDeleteBtn = document.createElement('button');
+      replyDeleteBtn.className = 'delete-btn';
+      replyDeleteBtn.title = 'Delete';
+      replyDeleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+      replyDeleteBtn.addEventListener('click', function(e) { e.stopPropagation(); deleteReply(comment.id, reply.id, filePath); });
+      replyActions.appendChild(replyEditBtn);
+      replyActions.appendChild(replyDeleteBtn);
+      replyHeader.appendChild(replyActions);
+
+      replyEl.appendChild(replyHeader);
+
+      const replyBody = document.createElement('div');
+      replyBody.className = 'reply-body';
+      replyBody.dataset.rawBody = reply.body;
+      replyBody.innerHTML = commentMd.render(reply.body);
+      replyEl.appendChild(replyBody);
+
+      repliesContainer.appendChild(replyEl);
+    });
+    return repliesContainer;
   }
 
   // ===== Quote Highlighting in Document/Diff Body =====
@@ -4008,7 +4150,7 @@
     const formQuotes = getFormsForFile(file.path)
       .filter(function(f) { return f.quote && !f.editingId; })
       .map(function(f) {
-        return { start_line: f.startLine, end_line: f.endLine, quote: f.quote, id: 'draft-' + f.formKey };
+        return { start_line: f.startLine, end_line: f.endLine, quote: f.quote, id: 'draft-' + f.formKey, side: f.side };
       });
     const allQuoted = quotedComments.concat(formQuotes);
     if (allQuoted.length === 0) return;
@@ -4028,7 +4170,11 @@
           }
         });
         // Diff view: diff lines with data-diff-line-num
+        // Filter by side to avoid matching the wrong line in unified diff
+        // (deleted and added lines can share the same line number)
+        var commentSide = comment.side || '';
         sectionEl.querySelectorAll('[data-diff-file-path="' + CSS.escape(file.path) + '"][data-diff-line-num="' + ln + '"]').forEach(function(el) {
+          if (el.dataset.diffSide !== commentSide) return;
           const content = el.querySelector('.diff-content');
           if (content && contentEls.indexOf(content) === -1) contentEls.push(content);
         });
@@ -4129,20 +4275,29 @@
     });
   }
 
-  function createInlineEditor(comment) {
+  function createInlineEditor(comment, filePath) {
     const formObj = findFormForEdit(comment.id);
     if (!formObj) return null;
 
     let lineRef = comment.start_line === comment.end_line
       ? 'Line ' + comment.start_line
       : 'Lines ' + comment.start_line + '-' + comment.end_line;
-    return createCommentFormUI({
+    var formEl = createCommentFormUI({
       formObj: formObj,
       headerText: 'Editing comment on ' + lineRef,
       submitText: 'Update Comment',
       initialBody: comment.body,
       autoFocus: true
     });
+
+    // Keep replies visible below the edit form, inside the form's card
+    if (comment.replies && comment.replies.length > 0) {
+      var formCard = formEl.querySelector('.comment-form');
+      if (formCard) {
+        formCard.appendChild(renderReplyList(comment, filePath));
+      }
+    }
+    return formEl;
   }
 
   function editComment(comment, filePath) {
@@ -4169,42 +4324,291 @@
     updateCommentCount();
   }
 
+  // Re-fetch comments for a file from the API and re-render
+  async function refreshFileComments(filePath) {
+    const file = getFileByPath(filePath);
+    if (!file) return;
+    try {
+      const res = await fetch('/api/file/comments?path=' + enc(filePath));
+      if (res.ok) {
+        file.comments = await res.json();
+      }
+    } catch (err) {
+      console.error('Error refreshing comments:', err);
+    }
+    renderFileByPath(filePath);
+    renderFileSummary();
+    updateCommentCount();
+    updateTreeCommentBadges();
+  }
+
+  async function editReply(commentId, replyId, filePath) {
+    const replyEl = document.querySelector('[data-reply-id="' + replyId + '"]');
+    if (!replyEl) return;
+    const bodyEl = replyEl.querySelector('.reply-body');
+    if (!bodyEl) return;
+    // Use raw markdown if available, fall back to textContent
+    const currentText = bodyEl.dataset.rawBody || bodyEl.textContent;
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'comment-textarea';
+    textarea.value = currentText;
+    textarea.rows = 3;
+    bodyEl.replaceWith(textarea);
+    textarea.focus();
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-sm btn-primary';
+    saveBtn.textContent = 'Save';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-sm';
+    cancelBtn.textContent = 'Cancel';
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'reply-edit-actions';
+    btnRow.appendChild(saveBtn);
+    btnRow.appendChild(cancelBtn);
+    replyEl.appendChild(btnRow);
+
+    cancelBtn.addEventListener('click', () => refreshFileComments(filePath));
+    saveBtn.addEventListener('click', async () => {
+      const newBody = textarea.value.trim();
+      if (!newBody) return;
+      try {
+        await fetch('/api/comment/' + commentId + '/replies/' + replyId + '?path=' + enc(filePath), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body: newBody })
+        });
+      } catch (err) {
+        console.error('Error editing reply:', err);
+        showMiniToast('Failed to edit reply');
+      }
+      refreshFileComments(filePath);
+    });
+  }
+
+  async function deleteReply(commentId, replyId, filePath) {
+    try {
+      await fetch('/api/comment/' + commentId + '/replies/' + replyId + '?path=' + enc(filePath), {
+        method: 'DELETE'
+      });
+    } catch (err) {
+      console.error('Error deleting reply:', err);
+    }
+    refreshFileComments(filePath);
+  }
+
+  function createReplyInput(commentId, filePath) {
+    const form = document.createElement('div');
+    form.className = 'reply-form';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'reply-input';
+    input.placeholder = 'Write a reply\u2026';
+    form.appendChild(input);
+
+    // Expanded state elements (hidden initially)
+    const textarea = document.createElement('textarea');
+    textarea.className = 'reply-textarea';
+    textarea.placeholder = 'Write a reply\u2026';
+    textarea.rows = 3;
+
+    const buttons = document.createElement('div');
+    buttons.className = 'reply-form-buttons';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-sm';
+    cancelBtn.textContent = 'Cancel';
+
+    const submitBtn = document.createElement('button');
+    submitBtn.className = 'btn btn-sm btn-primary';
+    submitBtn.textContent = 'Reply';
+
+    buttons.appendChild(cancelBtn);
+    buttons.appendChild(submitBtn);
+
+    attachFilePicker(textarea);
+
+    function expand() {
+      if (form.classList.contains('expanded')) return;
+      form.classList.add('expanded');
+      textarea.value = input.value;
+      input.replaceWith(textarea);
+      form.appendChild(buttons);
+      textarea.focus();
+    }
+
+    function collapse() {
+      if (!form.classList.contains('expanded')) return;
+      form.classList.remove('expanded');
+      textarea.replaceWith(input);
+      input.value = '';
+      if (buttons.parentNode) buttons.remove();
+    }
+
+    input.addEventListener('focus', expand);
+
+    cancelBtn.addEventListener('click', collapse);
+
+    // Collapse on blur if empty (with delay to allow button clicks)
+    textarea.addEventListener('blur', function() {
+      setTimeout(function() {
+        if (form.classList.contains('expanded') && !textarea.value.trim() && !form.contains(document.activeElement)) {
+          collapse();
+        }
+      }, 150);
+    });
+
+    submitBtn.addEventListener('click', async function() {
+      var body = textarea.value.trim();
+      if (!body) return;
+      submitBtn.disabled = true;
+      try {
+        var payload = { body: body };
+        if (configAuthor) payload.author = configAuthor;
+        var res = await fetch('/api/comment/' + commentId + '/replies?path=' + enc(filePath), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('Server returned ' + res.status);
+        refreshFileComments(filePath);
+      } catch (err) {
+        console.error('Failed to add reply:', err);
+        showMiniToast('Failed to save reply');
+        submitBtn.disabled = false;
+      }
+    });
+
+    textarea.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        submitBtn.click();
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!textarea.value.trim()) {
+          collapse();
+        }
+      }
+    });
+
+    return form;
+  }
+
   function createResolvedElement(comment, filePath) {
-    const el = document.createElement('div');
-    el.className = 'resolved-comment';
-    el.dataset.commentId = comment.id;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'comment-block';
+
+    const card = document.createElement('div');
+    // Apply saved collapse state (resolved defaults to collapsed)
+    var isCollapsed = commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true;
+    card.className = 'comment-card resolved-card' + (isCollapsed ? ' collapsed' : '');
+    card.dataset.commentId = comment.id;
 
     const header = document.createElement('div');
-    header.className = 'resolved-comment-header';
+    header.className = 'comment-header';
 
-    const check = document.createElement('span');
-    check.className = 'resolved-check';
-    check.textContent = '\u2713';
+    const collapseBtn = document.createElement('button');
+    collapseBtn.className = 'comment-collapse-btn';
+    collapseBtn.title = isCollapsed ? 'Expand comment' : 'Collapse comment';
+    collapseBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+    collapseBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      card.classList.toggle('collapsed');
+      commentCollapseOverrides[comment.id] = card.classList.contains('collapsed');
+      collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
+    });
 
-    const body = document.createElement('div');
-    body.className = 'resolved-body';
-    body.innerHTML = commentMd.render(comment.body, buildCommentEnv(comment, filePath));
+    const lineRef = document.createElement('span');
+    lineRef.className = 'comment-line-ref';
+    lineRef.textContent = comment.start_line === comment.end_line
+      ? 'Line ' + comment.start_line
+      : 'Lines ' + comment.start_line + '-' + comment.end_line;
 
-    header.appendChild(check);
+    const time = document.createElement('span');
+    time.className = 'comment-time';
+    time.textContent = formatTime(comment.created_at);
+
+    const headerLeft = document.createElement('div');
+    headerLeft.className = 'comment-header-left';
+    headerLeft.prepend(collapseBtn);
+    if (comment.author) {
+      const authorBadge = document.createElement('span');
+      authorBadge.className = 'comment-author-badge author-color-' + authorColorIndex(comment.author);
+      authorBadge.textContent = '@' + comment.author;
+      headerLeft.appendChild(authorBadge);
+    }
     if (comment.review_round >= 1) {
       const roundBadge = document.createElement('span');
-      let rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
+      var rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
       roundBadge.className = 'comment-round-badge' + rc;
       roundBadge.textContent = 'R' + comment.review_round;
-      header.appendChild(roundBadge);
+      headerLeft.appendChild(roundBadge);
     }
-    header.appendChild(body);
-    el.appendChild(header);
+    headerLeft.appendChild(lineRef);
+    headerLeft.appendChild(time);
 
-    if (comment.resolution_note) {
-      const note = document.createElement('span');
-      note.className = 'resolved-note';
-      note.textContent = comment.resolution_note;
-      el.appendChild(note);
+    const actions = document.createElement('div');
+    actions.className = 'comment-actions';
+
+    const badge = document.createElement('span');
+    badge.className = 'resolved-badge';
+    badge.textContent = 'Resolved';
+
+    const unresolveBtn = document.createElement('button');
+    unresolveBtn.title = 'Unresolve';
+    unresolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.36 2.64M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.36-2.64"/><polyline points="21 3 21 8 16 8"/><polyline points="3 21 3 16 8 16"/></svg>';
+    unresolveBtn.addEventListener('click', async function() {
+      try {
+        var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resolved: false }),
+        });
+        if (!res.ok) throw new Error('Server returned ' + res.status);
+      } catch (err) {
+        console.error('Error unresolving:', err);
+        showMiniToast('Failed to unresolve comment');
+        return;
+      }
+      refreshFileComments(filePath);
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'delete-btn';
+    deleteBtn.title = 'Delete';
+    deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+    deleteBtn.addEventListener('click', function() { deleteComment(comment.id, filePath); });
+
+    actions.appendChild(badge);
+    actions.appendChild(unresolveBtn);
+    actions.appendChild(deleteBtn);
+
+    header.appendChild(headerLeft);
+    header.appendChild(actions);
+
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'comment-body';
+    bodyEl.innerHTML = commentMd.render(comment.body, buildCommentEnv(comment, filePath));
+
+    card.appendChild(header);
+    card.appendChild(bodyEl);
+
+    // Render replies
+    if (comment.replies && comment.replies.length > 0) {
+      card.appendChild(renderReplyList(comment, filePath));
     }
 
-    el.addEventListener('click', function() { el.classList.toggle('expanded'); });
-    return el;
+    // Reply input
+    card.appendChild(createReplyInput(comment.id, filePath));
+
+    wrapper.appendChild(card);
+    return wrapper;
   }
 
   // ===== Comment Count =====
@@ -4326,12 +4730,42 @@
           lineRef.appendChild(roundBadge);
         }
 
+        if (comment.replies && comment.replies.length > 0) {
+          var replyBadge = document.createElement('span');
+          replyBadge.className = 'comments-panel-badge-replies';
+          replyBadge.textContent = comment.replies.length + (comment.replies.length === 1 ? ' reply' : ' replies');
+          lineRef.appendChild(replyBadge);
+        }
+
         const bodyEl = document.createElement('div');
         bodyEl.className = 'comments-panel-card-body';
         bodyEl.innerHTML = commentMd.render(comment.body, buildCommentEnv(comment, file.path));
 
         card.appendChild(lineRef);
         card.appendChild(bodyEl);
+
+        if (comment.replies && comment.replies.length > 0) {
+          var lastReply = comment.replies[comment.replies.length - 1];
+          var preview = document.createElement('div');
+          preview.className = 'comments-panel-reply-preview';
+
+          var previewAuthor = document.createElement('span');
+          previewAuthor.className = 'reply-preview-author';
+          previewAuthor.textContent = lastReply.author || 'anonymous';
+
+          var previewBody = document.createElement('span');
+          previewBody.className = 'reply-preview-body';
+          var maxLen = 80;
+          previewBody.textContent = lastReply.body.length > maxLen
+            ? lastReply.body.substring(0, maxLen) + '\u2026'
+            : lastReply.body;
+
+          preview.appendChild(previewAuthor);
+          preview.appendChild(document.createTextNode(': '));
+          preview.appendChild(previewBody);
+          card.appendChild(preview);
+        }
+
         card.addEventListener('click', (function(commentId, filePath) {
           return function() { scrollToComment(commentId, filePath); };
         })(comment.id, file.path));
@@ -4357,8 +4791,7 @@
     if (!section.open) section.open = true;
 
     // 2. Find the inline comment card by comment ID
-    const commentCard = section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]')
-      || section.querySelector('.resolved-comment[data-comment-id="' + CSS.escape(commentId) + '"]');
+    const commentCard = section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
     if (!commentCard) return;
 
     // 3. Scroll into view
@@ -4472,6 +4905,7 @@
   });
 
   // ===== SSE Client =====
+
   function connectSSE() {
     const source = new EventSource('/api/events');
 
@@ -4968,35 +5402,36 @@
   });
 
   // ===== Commit Picker (sidebar dropdown) =====
+  const commitDropdownEl = document.getElementById('commitDropdown');
+
   async function fetchCommits() {
-    var commitDropdown = document.getElementById('commitDropdown');
     try {
-      var res = await fetch('/api/commits');
-      if (!res.ok) { commitDropdown.style.display = 'none'; return; }
+      const res = await fetch('/api/commits');
+      if (!res.ok) { commitDropdownEl.style.display = 'none'; return; }
       commitList = await res.json();
-      if (!commitList || commitList.length === 0) {
-        commitDropdown.style.display = 'none';
+      if (!commitList || commitList.length < 2) {
+        commitDropdownEl.style.display = 'none';
         diffCommit = '';
         return;
       }
       if (diffCommit && !commitList.some(function(c) { return c.sha === diffCommit; })) {
         diffCommit = '';
       }
-      commitDropdown.style.display = '';
+      commitDropdownEl.style.display = '';
       renderCommitPicker();
     } catch (e) {
-      commitDropdown.style.display = 'none';
+      commitDropdownEl.style.display = 'none';
     }
   }
 
   function renderCommitPicker() {
-    var list = document.getElementById('commitDropdownList');
-    var allItem = document.querySelector('.commit-picker-item[data-commit=""]');
-    var label = document.getElementById('commitDropdownLabel');
+    const list = document.getElementById('commitDropdownList');
+    const allItem = document.querySelector('.commit-picker-item[data-commit=""]');
+    const label = document.getElementById('commitDropdownLabel');
 
     if (diffCommit) {
       if (allItem) allItem.classList.remove('active');
-      var sel = commitList.find(function(c) { return c.sha === diffCommit; });
+      const sel = commitList.find(function(c) { return c.sha === diffCommit; });
       if (sel && label) label.textContent = sel.short_sha + ' ' + (sel.message.length > 30 ? sel.message.slice(0, 30) + '\u2026' : sel.message);
     } else {
       if (allItem) allItem.classList.add('active');
@@ -5016,37 +5451,36 @@
 
   // Toggle dropdown open/close
   document.getElementById('commitDropdownBtn').addEventListener('click', function() {
-    document.getElementById('commitDropdown').classList.toggle('open');
+    commitDropdownEl.classList.toggle('open');
   });
 
   // Close on outside click
   document.addEventListener('click', function(e) {
-    var picker = document.getElementById('commitDropdown');
-    if (!picker.contains(e.target)) {
-      picker.classList.remove('open');
+    if (!commitDropdownEl.contains(e.target)) {
+      commitDropdownEl.classList.remove('open');
     }
   });
 
   // Close on Escape (only when open)
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && document.getElementById('commitDropdown').classList.contains('open')) {
-      document.getElementById('commitDropdown').classList.remove('open');
+    if (e.key === 'Escape' && commitDropdownEl.classList.contains('open')) {
+      commitDropdownEl.classList.remove('open');
       e.stopPropagation();
     }
   });
 
   // Item selection (delegate from dropdown menu)
   document.getElementById('commitDropdownMenu').addEventListener('click', function(e) {
-    var item = e.target.closest('.commit-picker-item');
+    const item = e.target.closest('.commit-picker-item');
     if (!item) return;
-    var sha = item.dataset.commit;
+    const sha = item.dataset.commit;
     if (sha === diffCommit) {
-      document.getElementById('commitDropdown').classList.remove('open');
+      commitDropdownEl.classList.remove('open');
       return;
     }
     diffCommit = sha;
     renderCommitPicker();
-    document.getElementById('commitDropdown').classList.remove('open');
+    commitDropdownEl.classList.remove('open');
     reloadForScope();
   });
 
@@ -5059,7 +5493,7 @@
     setCookie('crit-diff-scope', scope);
     if (scope !== 'all' && scope !== 'branch') {
       diffCommit = '';
-      document.getElementById('commitDropdown').style.display = 'none';
+      commitDropdownEl.style.display = 'none';
     } else {
       fetchCommits();
     }
@@ -5073,7 +5507,7 @@
     document.getElementById('filesContainer').innerHTML =
       '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">Loading...</div>';
 
-    var sessionUrl = '/api/session?scope=' + enc(diffScope);
+    let sessionUrl = '/api/session?scope=' + enc(diffScope);
     if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
     const sessionRes = await fetch(sessionUrl).then(function(r) { return r.json(); });
     session = sessionRes;
@@ -5312,6 +5746,10 @@
       const range = getLineRangeFromSelection(selection);
       if (!range) return;
 
+      // If any comment form is already open, don't hijack text selection —
+      // the user is selecting text to copy, not to open another comment.
+      if (activeForms.length > 0) return;
+
       // Capture the selected text before clearing, for the quote field.
       // If the selection covers the full text of the line range, skip it — redundant.
       let quote = null;
@@ -5334,9 +5772,11 @@
                 if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
               }
             });
-            // Diff view
+            // Diff view — filter by side so unified diff doesn't double-count
+            var selSide = range.side || '';
             document.querySelectorAll('[data-diff-file-path][data-diff-line-num="' + ln + '"]').forEach(function(el) {
               if (el.dataset.diffFilePath !== range.filePath) return;
+              if (el.dataset.diffSide !== selSide) return;
               const content = el.querySelector('.diff-content');
               if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
             });

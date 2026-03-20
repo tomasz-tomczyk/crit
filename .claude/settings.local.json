@@ -51,7 +51,25 @@
       "mcp__playwright__browser_snapshot",
       "Bash(~/.local/share/mise/installs/go/1.26.0/bin/go test:*)",
       "Bash(ls -la CLAUDE.md* 2>/dev/null)",
-      "Bash(grep -n 'isSessionFile\\\\|!strings.HasPrefix\\(rel, \"\\\\.\\\\.\"\\)' session.go)"
+      "Bash(grep -n 'isSessionFile\\\\|!strings.HasPrefix\\(rel, \"\\\\.\\\\.\"\\)' session.go)",
+      "Bash(/usr/local/go/bin/go test:*)",
+      "Bash(which go:*)",
+      "Read(//usr/local/**)",
+      "Read(//nix/**)",
+      "Bash(source ~/.zshrc)",
+      "Read(//run/current-system/sw/bin/**)",
+      "Bash(cat /Users/joshuaellinger/.zshrc | grep -v \"^#\" | grep -v \"^$\" | head -50)",
+      "Bash(/Users/joshuaellinger/.local/share/mise/installs/go/1.26.0/bin/go test:*)",
+      "Bash(cp crit:*)",
+      "Bash(grep -n \"func WorkingTreeFingerprint\" /Users/joshuaellinger/Sites/crit/*.go)",
+      "Bash(/Users/joshuaellinger/.local/share/mise/installs/go/1.26.0/bin/go build:*)",
+      "Bash(/Users/joshuaellinger/.local/bin/crit --help 2>&1; echo \"Exit: $?\")",
+      "Bash(spctl --assess --type exec /Users/joshuaellinger/.local/bin/crit 2>&1; echo \"Exit: $?\")",
+      "Bash(/Users/joshuaellinger/.local/bin/crit --version 2>&1; echo \"Exit: $?\")",
+      "Bash(chmod +x /Users/joshuaellinger/Sites/crit/install.sh && bash /Users/joshuaellinger/Sites/crit/install.sh 2>&1)",
+      "Bash(INSTALL_DIR=/Users/joshuaellinger/.local/bin bash /Users/joshuaellinger/Sites/crit/install.sh 2>&1)",
+      "Bash(xattr -l /Users/joshuaellinger/.local/bin/crit && spctl --assess --type exec /Users/joshuaellinger/.local/bin/crit 2>&1; echo \"spctl exit: $?\")",
+      "Bash(curl -fsSL https://raw.githubusercontent.com/JoshEllinger/crit/main/install.sh | sh 2>&1)"
     ]
   }
 }

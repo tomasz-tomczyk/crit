@@ -449,7 +449,7 @@ func TestHandleFiles_MethodNotAllowed(t *testing.T) {
 
 func TestGetConfig(t *testing.T) {
 	s, _ := newTestServer(t)
-	s.shareURL = "https://example.com/share"
+	s.shareURL = "https://crit.md"
 	s.currentVersion = "v1.2.3"
 
 	req := httptest.NewRequest("GET", "/api/config", nil)
@@ -463,8 +463,8 @@ func TestGetConfig(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["share_url"] != "https://example.com/share" {
-		t.Errorf("share_url = %q, want https://example.com/share", resp["share_url"])
+	if resp["share_url"] != "https://crit.md" {
+		t.Errorf("share_url = %q, want https://crit.md", resp["share_url"])
 	}
 	if resp["hosted_url"] != "" {
 		t.Errorf("hosted_url should be empty initially, got %q", resp["hosted_url"])
@@ -479,7 +479,7 @@ func TestGetConfig(t *testing.T) {
 
 func TestCheckForUpdates(t *testing.T) {
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/JoshEllinger/crit/releases/latest" {
+		if r.URL.Path != "/repos/tomasz-tomczyk/crit/releases/latest" {
 			http.NotFound(w, r)
 			return
 		}
@@ -492,7 +492,7 @@ func TestCheckForUpdates(t *testing.T) {
 	s.currentVersion = "v1.0.0"
 
 	// Test the parsing logic via our mock
-	req, _ := http.NewRequest("GET", gh.URL+"/repos/JoshEllinger/crit/releases/latest", nil)
+	req, _ := http.NewRequest("GET", gh.URL+"/repos/tomasz-tomczyk/crit/releases/latest", nil)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -542,7 +542,7 @@ func TestGetConfig_MethodNotAllowed(t *testing.T) {
 func TestPostShareURL(t *testing.T) {
 	s, session := newTestServer(t)
 
-	body := `{"url":"https://example.com/share/r/abc123"}`
+	body := `{"url":"https://crit.md/r/abc123"}`
 	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -551,8 +551,8 @@ func TestPostShareURL(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
-	if session.GetSharedURL() != "https://example.com/share/r/abc123" {
-		t.Errorf("shared URL = %q, want https://example.com/share/r/abc123", session.GetSharedURL())
+	if session.GetSharedURL() != "https://crit.md/r/abc123" {
+		t.Errorf("shared URL = %q, want https://crit.md/r/abc123", session.GetSharedURL())
 	}
 
 	// Verify config now reflects the stored URL
@@ -563,8 +563,8 @@ func TestPostShareURL(t *testing.T) {
 	if err := json.Unmarshal(w2.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["hosted_url"] != "https://example.com/share/r/abc123" {
-		t.Errorf("hosted_url = %q, want https://example.com/share/r/abc123", resp["hosted_url"])
+	if resp["hosted_url"] != "https://crit.md/r/abc123" {
+		t.Errorf("hosted_url = %q, want https://crit.md/r/abc123", resp["hosted_url"])
 	}
 }
 
@@ -598,7 +598,7 @@ func TestGetConfig_IncludesDeleteToken(t *testing.T) {
 func TestPostShareURL_SavesDeleteToken(t *testing.T) {
 	s, session := newTestServer(t)
 
-	body := `{"url":"https://example.com/share/r/abc","delete_token":"deletetoken1234567890x"}`
+	body := `{"url":"https://crit.md/r/abc","delete_token":"deletetoken1234567890x"}`
 	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -614,7 +614,7 @@ func TestPostShareURL_SavesDeleteToken(t *testing.T) {
 
 func TestDeleteShareURL(t *testing.T) {
 	s, session := newTestServer(t)
-	session.SetSharedURLAndToken("https://example.com/share/r/abc", "sometoken1234567890123")
+	session.SetSharedURLAndToken("https://crit.md/r/abc", "sometoken1234567890123")
 
 	req := httptest.NewRequest("DELETE", "/api/share-url", nil)
 	w := httptest.NewRecorder()
@@ -983,6 +983,22 @@ func TestGetFile_NotInSession_PathTraversal(t *testing.T) {
 	}
 }
 
+func TestHandleFinish_PromptIncludesAuthor(t *testing.T) {
+	srv, session := newTestServer(t)
+	session.AddComment(session.Files[0].Path, 1, 1, "", "fix this", "", "")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/finish", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	if !strings.Contains(resp["prompt"], "--author") {
+		t.Errorf("expected prompt to mention --author, got: %s", resp["prompt"])
+	}
+}
+
 func TestHandleFinishEmitsSSEEvent(t *testing.T) {
 	srv, session := newTestServer(t)
 	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "", "")
@@ -1246,6 +1262,42 @@ func TestGetFilesList_FilesMode(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected app.js in file list, got: %v", files)
+	}
+}
+
+func TestHealthEndpoint(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest("GET", "/api/health", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("GET /api/health: got %d, want 200", w.Code)
+	}
+}
+
+func TestReviewCycleFirstRound(t *testing.T) {
+	srv, session := newTestServer(t)
+
+	done := make(chan int)
+	go func() {
+		req := httptest.NewRequest("POST", "/api/review-cycle", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		done <- w.Code
+	}()
+
+	// Give the handler time to start blocking
+	time.Sleep(50 * time.Millisecond)
+
+	// Simulate user clicking "Finish Review"
+	session.WriteFiles()
+	session.notify(SSEEvent{Type: "finish", Content: "test feedback"})
+
+	code := <-done
+	if code != http.StatusOK {
+		t.Errorf("POST /api/review-cycle: got %d, want 200", code)
 	}
 }
 

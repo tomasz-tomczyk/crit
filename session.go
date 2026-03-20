@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,22 +17,31 @@ func fileHash(data []byte) string {
 	return fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 }
 
+// Reply represents a single reply in a comment thread.
+type Reply struct {
+	ID        string `json:"id"`
+	Body      string `json:"body"`
+	Author    string `json:"author,omitempty"`
+	CreatedAt string `json:"created_at"`
+	GitHubID  int64  `json:"github_id,omitempty"`
+}
+
 // Comment represents a single inline review comment.
 type Comment struct {
-	ID              string `json:"id"`
-	StartLine       int    `json:"start_line"`
-	EndLine         int    `json:"end_line"`
-	Side            string `json:"side,omitempty"`
-	Body            string `json:"body"`
-	Quote           string `json:"quote,omitempty"`
-	Author          string `json:"author,omitempty"`
-	CreatedAt       string `json:"created_at"`
-	UpdatedAt       string `json:"updated_at"`
-	Resolved        bool   `json:"resolved,omitempty"`
-	ResolutionNote  string `json:"resolution_note,omitempty"`
-	ResolutionLines any    `json:"resolution_lines,omitempty"`
-	CarriedForward  bool   `json:"carried_forward,omitempty"`
-	ReviewRound     int    `json:"review_round,omitempty"`
+	ID             string  `json:"id"`
+	StartLine      int     `json:"start_line"`
+	EndLine        int     `json:"end_line"`
+	Side           string  `json:"side,omitempty"`
+	Body           string  `json:"body"`
+	Quote          string  `json:"quote,omitempty"`
+	Author         string  `json:"author,omitempty"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
+	Resolved       bool    `json:"resolved,omitempty"`
+	CarriedForward bool    `json:"carried_forward,omitempty"`
+	ReviewRound    int     `json:"review_round,omitempty"`
+	Replies        []Reply `json:"replies,omitempty"`
+	GitHubID       int64   `json:"github_id,omitempty"`
 }
 
 // SSEEvent is sent to the browser via server-sent events.
@@ -71,19 +81,21 @@ type Session struct {
 	ReviewRound    int
 	IgnorePatterns []string
 
-	mu                sync.RWMutex
-	subscribers       map[chan SSEEvent]struct{}
-	subMu             sync.Mutex
-	writeTimer        *time.Timer
-	writeGen          int
-	sharedURL         string
-	deleteToken       string
-	shareScope        string
-	status            *Status
-	roundComplete     chan struct{}
-	pendingEdits      int
-	lastRoundEdits    int
-	lastCritJSONMtime time.Time // mtime after our last WriteFiles(); used to detect external changes
+	mu                  sync.RWMutex
+	subscribers         map[chan SSEEvent]struct{}
+	subMu               sync.Mutex
+	writeTimer          *time.Timer
+	writeGen            int
+	pendingWrite        bool
+	sharedURL           string
+	deleteToken         string
+	shareScope          string
+	status              *Status
+	roundComplete       chan struct{}
+	pendingEdits        int
+	lastRoundEdits      int
+	lastCritJSONMtime   time.Time // mtime after our last WriteFiles(); used to detect external changes
+	awaitingFirstReview bool      // true until first review-cycle completes
 }
 
 // isSessionFile checks whether an absolute path belongs to a file in this session.
@@ -107,6 +119,8 @@ type CritJSON struct {
 	ShareURL    string                  `json:"share_url,omitempty"`
 	DeleteToken string                  `json:"delete_token,omitempty"`
 	ShareScope  string                  `json:"share_scope,omitempty"`
+	DaemonPID   int                     `json:"daemon_pid,omitempty"`
+	DaemonPort  int                     `json:"daemon_port,omitempty"`
 	Files       map[string]CritJSONFile `json:"files"`
 }
 
@@ -156,14 +170,15 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 	}
 
 	s := &Session{
-		Mode:           "git",
-		Branch:         branch,
-		BaseRef:        baseRef,
-		RepoRoot:       root,
-		ReviewRound:    1,
-		IgnorePatterns: ignorePatterns,
-		subscribers:    make(map[chan SSEEvent]struct{}),
-		roundComplete:  make(chan struct{}, 1),
+		Mode:                "git",
+		Branch:              branch,
+		BaseRef:             baseRef,
+		RepoRoot:            root,
+		ReviewRound:         1,
+		IgnorePatterns:      ignorePatterns,
+		subscribers:         make(map[chan SSEEvent]struct{}),
+		roundComplete:       make(chan struct{}, 1),
+		awaitingFirstReview: true,
 	}
 
 	for _, fc := range changes {
@@ -275,14 +290,15 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 	}
 
 	s := &Session{
-		Mode:           "files",
-		Branch:         branch,
-		BaseRef:        baseRef,
-		RepoRoot:       root,
-		ReviewRound:    1,
-		IgnorePatterns: ignorePatterns,
-		subscribers:    make(map[chan SSEEvent]struct{}),
-		roundComplete:  make(chan struct{}, 1),
+		Mode:                "files",
+		Branch:              branch,
+		BaseRef:             baseRef,
+		RepoRoot:            root,
+		ReviewRound:         1,
+		IgnorePatterns:      ignorePatterns,
+		subscribers:         make(map[chan SSEEvent]struct{}),
+		roundComplete:       make(chan struct{}, 1),
+		awaitingFirstReview: true,
 	}
 
 	for _, absPath := range expandedPaths {
@@ -338,7 +354,7 @@ func walkDirectory(dir string, ignorePatterns []string) ([]string, error) {
 
 		// Skip hidden directories and common non-text directories
 		if d.IsDir() {
-			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" || name == "__pycache__" || name == "dist" || name == "build" {
+			if strings.HasPrefix(name, ".") || skipDirs[name] {
 				return filepath.SkipDir
 			}
 			return nil
@@ -458,6 +474,25 @@ func (s *Session) UpdateComment(filePath, id, body string) (Comment, bool) {
 	return Comment{}, false
 }
 
+// SetCommentResolved sets or clears the resolved flag on a comment.
+func (s *Session) SetCommentResolved(filePath, id string, resolved bool) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.fileByPathLocked(filePath)
+	if f == nil {
+		return Comment{}, false
+	}
+	for i, c := range f.Comments {
+		if c.ID == id {
+			f.Comments[i].Resolved = resolved
+			f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			s.scheduleWrite()
+			return f.Comments[i], true
+		}
+	}
+	return Comment{}, false
+}
+
 // DeleteComment deletes a comment from a specific file.
 func (s *Session) DeleteComment(filePath, id string) bool {
 	s.mu.Lock()
@@ -476,6 +511,96 @@ func (s *Session) DeleteComment(filePath, id string) bool {
 	return false
 }
 
+// nextReplyID generates the next reply ID for a comment, e.g. "c1-r1", "c1-r2".
+// It finds the max existing reply number with the prefix and increments.
+func nextReplyID(commentID string, existing []Reply) string {
+	prefix := commentID + "-r"
+	max := 0
+	for _, r := range existing {
+		if strings.HasPrefix(r.ID, prefix) {
+			numStr := r.ID[len(prefix):]
+			if n, err := strconv.Atoi(numStr); err == nil && n > max {
+				max = n
+			}
+		}
+	}
+	return fmt.Sprintf("%s-r%d", commentID, max+1)
+}
+
+// AddReply adds a reply to a specific comment on a file.
+func (s *Session) AddReply(filePath, commentID, body, author string) (Reply, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.fileByPathLocked(filePath)
+	if f == nil {
+		return Reply{}, false
+	}
+	for i, c := range f.Comments {
+		if c.ID == commentID {
+			now := time.Now().UTC().Format(time.RFC3339)
+			r := Reply{
+				ID:        nextReplyID(commentID, c.Replies),
+				Body:      body,
+				Author:    author,
+				CreatedAt: now,
+			}
+			f.Comments[i].Replies = append(f.Comments[i].Replies, r)
+			f.Comments[i].UpdatedAt = now
+			s.scheduleWrite()
+			return r, true
+		}
+	}
+	return Reply{}, false
+}
+
+// UpdateReply updates a reply's body on a specific comment.
+func (s *Session) UpdateReply(filePath, commentID, replyID, body string) (Reply, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.fileByPathLocked(filePath)
+	if f == nil {
+		return Reply{}, false
+	}
+	for i, c := range f.Comments {
+		if c.ID == commentID {
+			for j, r := range c.Replies {
+				if r.ID == replyID {
+					f.Comments[i].Replies[j].Body = body
+					f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+					s.scheduleWrite()
+					return f.Comments[i].Replies[j], true
+				}
+			}
+			return Reply{}, false
+		}
+	}
+	return Reply{}, false
+}
+
+// DeleteReply removes a reply from a specific comment.
+func (s *Session) DeleteReply(filePath, commentID, replyID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.fileByPathLocked(filePath)
+	if f == nil {
+		return false
+	}
+	for i, c := range f.Comments {
+		if c.ID == commentID {
+			for j, r := range c.Replies {
+				if r.ID == replyID {
+					f.Comments[i].Replies = append(f.Comments[i].Replies[:j], f.Comments[i].Replies[j+1:]...)
+					f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+					s.scheduleWrite()
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
 // GetComments returns comments for a specific file.
 func (s *Session) GetComments(filePath string) []Comment {
 	s.mu.RLock()
@@ -486,6 +611,12 @@ func (s *Session) GetComments(filePath string) []Comment {
 	}
 	result := make([]Comment, len(f.Comments))
 	copy(result, f.Comments)
+	for i, c := range result {
+		if len(c.Replies) > 0 {
+			result[i].Replies = make([]Reply, len(c.Replies))
+			copy(result[i].Replies, c.Replies)
+		}
+	}
 	return result
 }
 
@@ -498,6 +629,12 @@ func (s *Session) GetAllComments() map[string][]Comment {
 		if len(f.Comments) > 0 {
 			comments := make([]Comment, len(f.Comments))
 			copy(comments, f.Comments)
+			for i, c := range comments {
+				if len(c.Replies) > 0 {
+					comments[i].Replies = make([]Reply, len(c.Replies))
+					copy(comments[i].Replies, c.Replies)
+				}
+			}
 			result[f.Path] = comments
 		}
 	}
@@ -552,6 +689,72 @@ func (s *Session) fileByPathLocked(path string) *FileEntry {
 		}
 	}
 	return nil
+}
+
+// EnsureFileEntry registers a file into the session if it doesn't already exist.
+// This handles files that appear after startup (e.g. created by the user while
+// reviewing). The file is read from disk and added with appropriate status and
+// diff hunks so that comments and diff rendering work correctly.
+// Returns true if the file was found (either already existed or was added).
+func (s *Session) EnsureFileEntry(path string) bool {
+	s.mu.RLock()
+	if s.fileByPathLocked(path) != nil {
+		s.mu.RUnlock()
+		return true
+	}
+	repoRoot := s.RepoRoot
+	baseRef := s.BaseRef
+	s.mu.RUnlock()
+
+	if repoRoot == "" {
+		return false
+	}
+
+	absPath := filepath.Join(repoRoot, path)
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return false
+	}
+
+	// Determine the file's git status
+	status := "untracked"
+	if changes, err := ChangedFiles(); err == nil {
+		for _, fc := range changes {
+			if fc.Path == path {
+				status = fc.Status
+				break
+			}
+		}
+	}
+
+	fe := &FileEntry{
+		Path:     path,
+		AbsPath:  absPath,
+		Status:   status,
+		FileType: detectFileType(path),
+		Content:  string(data),
+		FileHash: fileHash(data),
+		Comments: []Comment{},
+		nextID:   1,
+	}
+
+	// Generate diff hunks
+	if status == "added" || status == "untracked" {
+		fe.DiffHunks = FileDiffUnifiedNewFile(fe.Content)
+	} else if status != "deleted" {
+		if hunks, err := fileDiffUnified(path, baseRef, repoRoot); err == nil {
+			fe.DiffHunks = hunks
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Double-check under write lock (another goroutine may have added it)
+	if s.fileByPathLocked(path) != nil {
+		return true
+	}
+	s.Files = append(s.Files, fe)
+	return true
 }
 
 // GetSharedURL returns the stored share URL.
@@ -626,6 +829,20 @@ func (s *Session) GetLastRoundEdits() int {
 	return s.lastRoundEdits
 }
 
+// IsAwaitingFirstReview returns true if no review cycle has completed yet.
+func (s *Session) IsAwaitingFirstReview() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.awaitingFirstReview
+}
+
+// SetAwaitingFirstReview sets the awaitingFirstReview flag.
+func (s *Session) SetAwaitingFirstReview(v bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.awaitingFirstReview = v
+}
+
 // SignalRoundComplete transitions to a new review round.
 func (s *Session) SignalRoundComplete() {
 	s.mu.Lock()
@@ -633,6 +850,7 @@ func (s *Session) SignalRoundComplete() {
 		s.writeTimer.Stop()
 	}
 	s.writeGen++
+	s.pendingWrite = false
 	s.lastRoundEdits = s.pendingEdits
 	s.pendingEdits = 0
 	s.ReviewRound++
@@ -674,6 +892,7 @@ func (s *Session) ClearAllComments() {
 	s.Files = filtered
 	s.ReviewRound = 1
 	s.lastCritJSONMtime = time.Time{}
+	s.pendingWrite = false
 	critPath := s.critJSONPath()
 	s.mu.Unlock()
 	// Delete .crit.json from disk so it is no longer listed as an untracked git file.
@@ -687,6 +906,7 @@ func (s *Session) RoundCompleteChan() <-chan struct{} {
 
 // scheduleWrite debounces writes to disk.
 func (s *Session) scheduleWrite() {
+	s.pendingWrite = true
 	if s.writeTimer != nil {
 		s.writeTimer.Stop()
 	}
@@ -833,6 +1053,7 @@ func (s *Session) WriteFiles() {
 		os.Remove(snap.critPath)
 		s.mu.Lock()
 		s.lastCritJSONMtime = time.Time{}
+		s.pendingWrite = false
 		s.mu.Unlock()
 		return
 	}
@@ -850,6 +1071,7 @@ func (s *Session) WriteFiles() {
 	if info, err := os.Stat(snap.critPath); err == nil {
 		s.mu.Lock()
 		s.lastCritJSONMtime = info.ModTime()
+		s.pendingWrite = false
 		s.mu.Unlock()
 	}
 }
@@ -923,6 +1145,15 @@ func (s *Session) mergeExternalCritJSON() bool {
 		return false
 	}
 
+	// If a debounced write is pending, skip the merge to avoid re-adding
+	// comments that the user just deleted (race between delete + debounce).
+	s.mu.RLock()
+	pending := s.pendingWrite
+	s.mu.RUnlock()
+	if pending {
+		return false
+	}
+
 	data, err := os.ReadFile(critPath)
 	if err != nil {
 		return false
@@ -966,6 +1197,30 @@ func (s *Session) mergeExternalCritJSON() bool {
 					f.nextID = id + 1
 				}
 				changed = true
+			} else {
+				// Comment exists in memory — merge replies and resolved state from disk.
+				for i, mc := range f.Comments {
+					if mc.ID != dc.ID {
+						continue
+					}
+					// Merge new replies from disk
+					memReplyIDs := make(map[string]struct{}, len(mc.Replies))
+					for _, r := range mc.Replies {
+						memReplyIDs[r.ID] = struct{}{}
+					}
+					for _, dr := range dc.Replies {
+						if _, exists := memReplyIDs[dr.ID]; !exists {
+							f.Comments[i].Replies = append(f.Comments[i].Replies, dr)
+							changed = true
+						}
+					}
+					// Sync resolved state bidirectionally from disk
+					if dc.Resolved != mc.Resolved {
+						f.Comments[i].Resolved = dc.Resolved
+						changed = true
+					}
+					break
+				}
 			}
 		}
 
@@ -1364,13 +1619,33 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string) (map[str
 	repoRoot = s.RepoRoot
 	s.mu.RUnlock()
 
+	// If the file is not in the session (e.g. created after startup), read it
+	// from disk and determine its status so we can generate the correct diff.
+	if f == nil && repoRoot != "" {
+		absPath := filepath.Join(repoRoot, path)
+		if data, err := os.ReadFile(absPath); err == nil {
+			content = string(data)
+			// Determine file status from git for the requested scope
+			if changes, err := ChangedFilesScoped(scope, baseRef); err == nil {
+				for _, fc := range changes {
+					if fc.Path == path {
+						status = fc.Status
+						break
+					}
+				}
+			}
+		}
+	}
+
 	var hunks []DiffHunk
 	if commit != "" {
 		h, err := FileDiffForCommit(path, commit, repoRoot)
 		if err == nil {
 			hunks = h
 		}
-	} else if status == "untracked" && scope == "unstaged" {
+	} else if status == "untracked" && (scope == "unstaged" || scope == "all" || scope == "") {
+		hunks = FileDiffUnifiedNewFile(content)
+	} else if status == "added" && scope != "unstaged" {
 		hunks = FileDiffUnifiedNewFile(content)
 	} else {
 		h, err := FileDiffScoped(path, scope, baseRef, repoRoot)

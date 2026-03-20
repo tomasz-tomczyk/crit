@@ -22,17 +22,32 @@ crit $PLAN_FILE
 crit
 ```
 
-If background tasks are supported, run `crit listen <port>` in the background to be notified automatically when the user clicks Finish Review — do NOT ask the user to type anything.
+**CRITICAL — you MUST run `crit` and block until it completes.**
 
-Otherwise, tell the user: "I've opened your changes in Crit for review. Leave inline comments, then click Finish Review. Let me know when you're done."
+Run `crit` (it starts the daemon if needed, opens the browser, and blocks until the user clicks "Finish Review"):
 
-Do NOT begin implementation until the review is complete.
+```bash
+crit
+```
+
+**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read `.crit.json` early. `crit` blocks until the user clicks Finish Review — that is how you know they are done.
 
 ## After review
 
-Read `.crit.json` to find the user's inline comments. Comments are grouped per file with `start_line`/`end_line` referencing the source. A comment is unresolved if `"resolved": false` or if the `resolved` field is missing. Address each unresolved comment by revising the referenced file. After addressing, set `"resolved": true` and optionally `"resolution_note"` and `"resolution_lines"`. When done, run `crit go <port>` to trigger a new round.
+Read `.crit.json` to find the user's inline comments. Comments are grouped per file with `start_line`/`end_line` referencing the source. A comment is unresolved if `"resolved": false` or if the `resolved` field is missing. Address each unresolved comment by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --resolve --author 'Cline' '<what you did>'`.
 
-Only proceed after the user approves.
+When addressing multiple comments, use `--json` to resolve them all in one call:
+
+```bash
+echo '[
+  {"reply_to": "c1", "body": "Fixed", "resolve": true},
+  {"reply_to": "c2", "body": "Refactored as suggested", "resolve": true}
+]' | crit comment --json --author 'Cline'
+```
+
+When done, run `crit` again to signal round-complete and wait for the next review. On subsequent calls, `crit` automatically signals round-complete first, then blocks again until the next "Finish Review" click.
+
+Only proceed after the user approves (finishes a round with zero comments).
 
 ## Leaving comments programmatically
 
@@ -42,6 +57,7 @@ Use `crit comment` to add inline review comments to `.crit.json` without opening
 crit comment <path>:<line> '<body>'
 crit comment <path>:<start>-<end> '<body>'
 crit comment --author 'Cline' src/auth.go:42 'Missing null check here'
+crit comment --reply-to c1 --resolve --author 'Cline' 'Added null check'
 ```
 
 Paths are relative, line numbers are 1-indexed, comments are appended (never replaced). Creates `.crit.json` automatically if it doesn't exist.
@@ -61,7 +77,7 @@ Examples:
 ```bash
 crit share <file>                                # Share a single file
 crit share <file1> <file2>                       # Share multiple files
-crit share --share-url https://crit.live <file>  # Explicit share URL
+crit share --share-url https://crit.md <file>  # Explicit share URL
 ```
 
 Rules:

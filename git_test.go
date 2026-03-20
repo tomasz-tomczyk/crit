@@ -337,11 +337,10 @@ func TestRepoRoot_RealRepo(t *testing.T) {
 func TestDefaultBranchOverride(t *testing.T) {
 	// Save and restore global state
 	origOverride := defaultBranchOverride
-	origOnce := defaultBranchOnce
 	origResult := defaultBranchResult
 	t.Cleanup(func() {
 		defaultBranchOverride = origOverride
-		defaultBranchOnce = origOnce
+		defaultBranchOnce = sync.Once{}
 		defaultBranchResult = origResult
 	})
 

@@ -12,11 +12,13 @@ Choose what to review based on context:
 
 Don't ask for confirmation — just proceed with whichever mode applies.
 
-## Step 2: Run crit for review
+## Step 2: Launch crit and block until review completes
 
-If a crit server is already running from earlier in this conversation, skip launching and run `crit go <port>` to trigger a new round instead. Then skip to Step 2b.
+**CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-Run `crit` in a terminal:
+If a crit server is already running from earlier in this conversation, `crit` will automatically connect to it — no need to track ports or skip steps.
+
+Run `crit` in the foreground and block until it exits:
 
 ```bash
 # For a specific file:
@@ -26,13 +28,11 @@ crit <plan-file>
 crit
 ```
 
-Note the port from crit's startup output.
+This starts the daemon if needed (or connects to an existing one), opens the browser, and blocks until the user clicks "Finish Review". Feedback is printed to stdout when it exits.
 
-### Step 2b: Listen for review completion
+Tell the user: **"Crit is open in your browser. Leave inline comments, then click Finish Review."**
 
-If background tasks are supported, run `crit listen <port>` in the background and wait for it to complete — do NOT ask the user to type anything.
-
-Otherwise, tell the user: **"Crit is open in your browser. Leave inline comments on the plan, then click 'Finish Review'. Type 'go' here when you're done."** and wait for the user to respond.
+**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read `.crit.json` early. Wait for the foreground command to finish — that is how you know the human is done reviewing.
 
 ## Step 3: Read the review output
 
@@ -61,29 +61,36 @@ For each unresolved comment:
 1. Understand what the comment asks for (clarification, change, addition, removal)
 2. If a comment contains a suggestion block, apply that specific change
 3. Revise the **referenced file** to address the feedback - this could be the plan file or any code file
-4. Mark it resolved in `.crit.json`: set `"resolved": true`, optionally add `"resolution_note"` (what you did) and `"resolution_lines"` (where in the updated file, e.g. `"12-15"`)
+4. Reply to the comment with what you did: `crit comment --reply-to <id> --resolve --author 'GitHub Copilot' '<what you did>'`
+
+When addressing multiple comments, use `--json` to resolve them all in one call:
+
+```bash
+echo '[
+  {"reply_to": "c1", "body": "Fixed", "resolve": true},
+  {"reply_to": "c2", "body": "Refactored as suggested", "resolve": true}
+]' | crit comment --json --author 'GitHub Copilot'
+```
 
 Editing the plan file triggers Crit's live reload - the user sees changes in the browser immediately.
 
 **If there are zero review comments**: inform the user no changes were requested.
 
-## Step 5: Signal completion
+## Step 5: Signal completion and start next round
 
-After all comments are addressed, signal to crit that edits are done:
+**CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
+
+Run `crit` in the foreground and block until it exits:
 
 ```bash
-crit go <port>
+crit
 ```
 
-The port is shown in crit's startup output. This triggers a new review round in the browser with a diff of what changed.
-
-## Step 6: Next round
-
-After `crit go <port>` triggers a new round, listen for the next review completion (same as Step 2b).
+On subsequent calls, `crit` automatically signals round-complete first, then blocks again until the next "Finish Review" click.
 
 Tell the user: **"Changes applied. Review the diff in your browser and click Finish Review when ready."**
 
-If the user finishes with zero comments, the review is approved — stop the loop and proceed.
+**Do NOT proceed until `crit` completes.** When it does, go back to Step 3. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
 
 ## Sharing
 

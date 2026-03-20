@@ -39,6 +39,8 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, author st
 	mux := http.NewServeMux()
 
 	// Session-scoped endpoints
+	mux.HandleFunc("/api/health", s.handleHealth)
+	mux.HandleFunc("/api/review-cycle", s.handleReviewCycle)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/session", s.handleSession)
 	mux.HandleFunc("/api/share", s.handleShare)
@@ -281,6 +283,11 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Ensure the file is registered in the session. Files that appear after
+		// startup (e.g. user creates a new file while reviewing) may be visible in
+		// scoped views but not yet in s.Files.
+		s.session.EnsureFileEntry(path)
+
 		c, ok := s.session.AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body, req.Quote, req.Author)
 		if !ok {
 			http.Error(w, "File not found", http.StatusNotFound)
@@ -294,11 +301,14 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleCommentByID handles PUT and DELETE for individual comments.
+// handleCommentByID handles PUT/DELETE for individual comments and CRUD for replies.
 // PUT/DELETE /api/comment/{id}?path=server.go
+// POST       /api/comment/{id}/replies?path=server.go
+// PUT        /api/comment/{id}/replies/{rid}?path=server.go
+// DELETE     /api/comment/{id}/replies/{rid}?path=server.go
 func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/comment/")
-	if id == "" {
+	trimmed := strings.TrimPrefix(r.URL.Path, "/api/comment/")
+	if trimmed == "" {
 		http.Error(w, "Comment ID required", http.StatusBadRequest)
 		return
 	}
@@ -308,6 +318,40 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if this is a reply route: {id}/replies or {id}/replies/{rid}
+	if parts := strings.SplitN(trimmed, "/replies", 2); len(parts) == 2 {
+		commentID := parts[0]
+		replyID := strings.TrimPrefix(parts[1], "/")
+		s.handleReplyRoute(w, r, path, commentID, replyID)
+		return
+	}
+
+	// Check if this is a resolve route: {id}/resolve
+	if parts := strings.SplitN(trimmed, "/resolve", 2); len(parts) == 2 && parts[1] == "" {
+		commentID := parts[0]
+		if r.Method != http.MethodPut {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Resolved bool `json:"resolved"`
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		c, ok := s.session.SetCommentResolved(path, commentID, req.Resolved)
+		if !ok {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, c)
+		return
+	}
+
+	// Existing comment PUT/DELETE logic
+	id := trimmed
 	switch r.Method {
 	case http.MethodPut:
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
@@ -350,6 +394,65 @@ func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, commits)
 }
 
+func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePath, commentID, replyID string) {
+	switch {
+	case r.Method == http.MethodPost && replyID == "":
+		// POST /api/comment/{id}/replies — add reply
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		var req struct {
+			Body   string `json:"body"`
+			Author string `json:"author"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Reply body is required", http.StatusBadRequest)
+			return
+		}
+		reply, ok := s.session.AddReply(filePath, commentID, req.Body, req.Author)
+		if !ok {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, reply)
+
+	case r.Method == http.MethodPut && replyID != "":
+		// PUT /api/comment/{id}/replies/{rid} — edit reply
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		var req struct {
+			Body string `json:"body"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Reply body is required", http.StatusBadRequest)
+			return
+		}
+		reply, ok := s.session.UpdateReply(filePath, commentID, replyID, req.Body)
+		if !ok {
+			http.Error(w, "Reply not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, reply)
+
+	case r.Method == http.MethodDelete && replyID != "":
+		// DELETE /api/comment/{id}/replies/{rid} — delete reply
+		if !s.session.DeleteReply(filePath, commentID, replyID) {
+			http.Error(w, "Reply not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *Server) handleClearComments(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -384,10 +487,11 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	if totalComments > 0 && unresolvedComments > 0 {
 		prompt = fmt.Sprintf(
 			"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
-				"Read the file, address each comment in the relevant file and location, "+
-				"then mark it resolved (set \"resolved\": true, optionally \"resolution_note\" and \"resolution_lines\"). "+
-				"When done run: `crit go %d`",
-			critJSON, s.port)
+				"Read the file, address each comment in the relevant file and location. "+
+				"For each comment: reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> --resolve \"<explanation>\"`, "+
+				"or edit .crit.json directly to add a reply to the comment's \"replies\" array and set \"resolved\": true. "+
+				"When done run: `crit`",
+			critJSON)
 	} else if totalComments > 0 && unresolvedComments == 0 {
 		prompt = "All comments are resolved — no changes needed, please proceed."
 	}
@@ -408,6 +512,55 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		s.status.RoundFinished(round, newComments, unresolvedComments > 0)
 		if unresolvedComments > 0 {
 			s.status.WaitingForAgent()
+		}
+	}
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// handleReviewCycle is the unified endpoint for the daemon-client pattern.
+// On first call (awaitingFirstReview=true): just blocks until user finishes review.
+// On subsequent calls: signals round-complete first, then blocks.
+// Returns the same feedback payload as handleFinish.
+func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Subscribe BEFORE round-complete to avoid missing the finish event
+	// if the user clicks "Finish Review" in the brief window between
+	// SignalRoundComplete and Subscribe.
+	ch := s.session.Subscribe()
+	defer s.session.Unsubscribe(ch)
+
+	if !s.session.IsAwaitingFirstReview() {
+		// Agent finished changes — signal round-complete so browser refreshes
+		s.session.SignalRoundComplete()
+	}
+
+	for {
+		select {
+		case event := <-ch:
+			if event.Type == "finish" {
+				s.session.SetAwaitingFirstReview(false)
+				// Return the same shape as handleFinish for consistent agent output
+				writeJSON(w, map[string]string{
+					"status":      "finished",
+					"review_file": s.session.critJSONPath(),
+					"prompt":      event.Content,
+				})
+				return
+			}
+		case <-r.Context().Done():
+			w.WriteHeader(http.StatusGatewayTimeout)
+			return
 		}
 	}
 }

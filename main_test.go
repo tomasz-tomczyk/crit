@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -166,62 +167,6 @@ func TestHelperProcess_ShareMissing(t *testing.T) {
 	runShare([]string{})
 }
 
-// TestRunGo_MissingPort verifies that runGo with no port and no config exits with error.
-func TestRunGo_MissingPort(t *testing.T) {
-	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_GoMissing", "--")
-	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
-	err := cmd.Run()
-	if err == nil {
-		t.Fatal("expected non-zero exit for missing go port")
-	}
-}
-
-func TestHelperProcess_GoMissing(t *testing.T) {
-	if os.Getenv("GO_TEST_HELPER") != "1" {
-		return
-	}
-	// Change to a temp dir with no config to ensure port is not resolved from config
-	tmp := t.TempDir()
-	os.Chdir(tmp)
-	runGo([]string{})
-}
-
-// TestRunGo_InvalidPort verifies that runGo with a non-numeric port exits with error.
-func TestRunGo_InvalidPort(t *testing.T) {
-	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_GoInvalidPort", "--")
-	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
-	err := cmd.Run()
-	if err == nil {
-		t.Fatal("expected non-zero exit for invalid go port")
-	}
-}
-
-func TestHelperProcess_GoInvalidPort(t *testing.T) {
-	if os.Getenv("GO_TEST_HELPER") != "1" {
-		return
-	}
-	runGo([]string{"notanumber"})
-}
-
-// TestRunListen_MissingPort verifies that runListen with no port and no config exits with error.
-func TestRunListen_MissingPort(t *testing.T) {
-	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_ListenMissing", "--")
-	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
-	err := cmd.Run()
-	if err == nil {
-		t.Fatal("expected non-zero exit for missing listen port")
-	}
-}
-
-func TestHelperProcess_ListenMissing(t *testing.T) {
-	if os.Getenv("GO_TEST_HELPER") != "1" {
-		return
-	}
-	tmp := t.TempDir()
-	os.Chdir(tmp)
-	runListen([]string{})
-}
-
 // TestRunComment_FlagParsing verifies that --output and --author flags are parsed correctly.
 func TestRunComment_FlagParsing(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_CommentFlags", "--")
@@ -331,15 +276,58 @@ func TestHelperProcess_UnpublishBadFlag(t *testing.T) {
 	runUnpublish([]string{"--bogus"})
 }
 
+// TestRunComment_JSONFlag verifies that --json reads from stdin and produces output.
+func TestRunComment_JSONFlag(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcess_CommentJSON$", "--")
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
+	cmd.Stdin = strings.NewReader(`[{"file":"main.go","line":1,"body":"test"}]`)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("process exited with error: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(string(out), "Added 1 comment") {
+		t.Errorf("expected success message, got: %s", out)
+	}
+}
+
+func TestHelperProcess_CommentJSON(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	tmp := t.TempDir()
+	runComment([]string{"--json", "--output", tmp, "--author", "TestBot"})
+}
+
+// TestRunComment_JSONFlagMixed verifies that --json handles mixed comments and replies.
+func TestRunComment_JSONFlagMixed(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcess_CommentJSONMix$", "--")
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
+	cmd.Stdin = strings.NewReader(`[{"file":"main.go","line":1,"body":"comment"},{"reply_to":"c1","body":"reply","resolve":true}]`)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("process exited with error: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(string(out), "1 comment") || !strings.Contains(string(out), "1 reply") {
+		t.Errorf("expected mixed success message, got: %s", out)
+	}
+}
+
+func TestHelperProcess_CommentJSONMix(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	tmp := t.TempDir()
+	runComment([]string{"--json", "--output", tmp, "--author", "TestBot"})
+}
+
 // TestResolveServerConfig_BaseBranch verifies that --base-branch sets defaultBranchOverride
 // and that config file base_branch is used as a fallback when the flag is absent.
 func TestResolveServerConfig_BaseBranch(t *testing.T) {
 	// Reset global state before and after
 	orig := defaultBranchOverride
-	origOnce := defaultBranchOnce
 	defer func() {
 		defaultBranchOverride = orig
-		defaultBranchOnce = origOnce
+		defaultBranchOnce = sync.Once{}
 	}()
 
 	t.Run("CLI flag sets override", func(t *testing.T) {
