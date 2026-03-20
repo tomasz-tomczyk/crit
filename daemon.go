@@ -190,27 +190,19 @@ func isDaemonAlive(s sessionEntry) bool {
 }
 
 // startDaemon spawns a crit _serve process in the background and waits for it to be ready.
-// Returns the session entry and session key on success.
-func startDaemon(args []string, port int) (sessionEntry, string, error) {
-	cwd, err := resolvedCWD()
-	if err != nil {
-		return sessionEntry{}, "", fmt.Errorf("getting cwd: %w", err)
-	}
-	key := sessionKey(cwd, args)
-
+// The key must match what the daemon computes in runServe (sessionKey(cwd, fileArgs)).
+// Raw args (including flags) are passed through to _serve which parses them itself.
+func startDaemon(key string, args []string) (sessionEntry, error) {
 	selfPath, err := os.Executable()
 	if err != nil {
-		return sessionEntry{}, "", fmt.Errorf("finding executable: %w", err)
+		return sessionEntry{}, fmt.Errorf("finding executable: %w", err)
 	}
 
 	cmdArgs := []string{"_serve"}
-	if port > 0 {
-		cmdArgs = append(cmdArgs, "--port", fmt.Sprintf("%d", port))
-	}
 	cmdArgs = append(cmdArgs, args...)
 
 	cmd := exec.Command(selfPath, cmdArgs...)
-	cmd.Dir = cwd
+	cmd.Dir, _ = os.Getwd()
 	cmd.Stdout = nil
 	cmd.Stdin = nil
 
@@ -225,7 +217,7 @@ func startDaemon(args []string, port int) (sessionEntry, string, error) {
 	removeSessionFile(key)
 
 	if err := cmd.Start(); err != nil {
-		return sessionEntry{}, "", fmt.Errorf("starting daemon: %w", err)
+		return sessionEntry{}, fmt.Errorf("starting daemon: %w", err)
 	}
 	newPID := cmd.Process.Pid
 
@@ -241,9 +233,9 @@ func startDaemon(args []string, port int) (sessionEntry, string, error) {
 			// Daemon exited before becoming ready
 			msg := strings.TrimSpace(stderrBuf.String())
 			if msg != "" {
-				return sessionEntry{}, "", fmt.Errorf("daemon exited: %s", msg)
+				return sessionEntry{}, fmt.Errorf("daemon exited: %s", msg)
 			}
-			return sessionEntry{}, "", fmt.Errorf("daemon exited: %v", err)
+			return sessionEntry{}, fmt.Errorf("daemon exited: %v", err)
 		default:
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -253,14 +245,14 @@ func startDaemon(args []string, port int) (sessionEntry, string, error) {
 		}
 		// Verify this is OUR daemon, not a leftover from a previous one
 		if entry.PID == newPID && isDaemonAlive(entry) {
-			return entry, key, nil
+			return entry, nil
 		}
 	}
 
 	// Timed out — kill the orphan process
 	cmd.Process.Kill()
 	<-exited // drain the Wait goroutine
-	return sessionEntry{}, "", fmt.Errorf("daemon did not start within 5 seconds")
+	return sessionEntry{}, fmt.Errorf("daemon did not start within 5 seconds")
 }
 
 func daemonSysProcAttr() *syscall.SysProcAttr {

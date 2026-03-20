@@ -702,21 +702,19 @@ func runComment(args []string) {
 // connects as a review client, blocks for one review cycle, then exits.
 // Used by `crit review` and by agents.
 func runReview(args []string) {
-	// Resolve port from config (same precedence as server)
-	configPort := 0
-	dir, _ := os.Getwd()
-	cfg := LoadConfig(dir)
-	if cfg.Port != 0 {
-		configPort = cfg.Port
+	// Parse args to extract file args (stripping flags like --port, --no-open).
+	// The session key must use only file args to match what runServe computes.
+	sc, err := resolveServerConfig(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
-	if envPort := os.Getenv("CRIT_PORT"); envPort != "" {
-		if p, err := strconv.Atoi(envPort); err == nil {
-			configPort = p
-		}
+	if sc == nil {
+		return // --version
 	}
 
 	cwd, _ := resolvedCWD()
-	key := sessionKey(cwd, args)
+	key := sessionKey(cwd, sc.files)
 
 	// Check for running daemon with the same session key
 	entry, alive := findAliveSession(key)
@@ -725,8 +723,8 @@ func runReview(args []string) {
 	if alive {
 		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", entry.Port)
 	} else {
-		var err error
-		entry, _, err = startDaemon(args, configPort)
+		// Pass raw args to startDaemon — the _serve process parses them itself
+		entry, err = startDaemon(key, args)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
