@@ -81,11 +81,15 @@ test.describe('Approve Button Text', () => {
     await cards.nth(0).hover();
     await cards.nth(0).locator('.comment-actions button[title="Resolve"]').click();
 
+    // Wait for the resolve to take effect: c1 should become a resolved collapsed card
+    await expect(section.locator('.comment-card.collapsed')).toHaveCount(1);
+
     // One unresolved remains — still "Finish Review"
     await expect(page.locator('#finishBtn')).toHaveText('Finish Review');
 
-    // Resolve the second comment
+    // Resolve the second comment — now only one non-collapsed card remains
     const secondCard = section.locator('.comment-card:not(.collapsed)');
+    await expect(secondCard).toHaveCount(1);
     await secondCard.hover();
     await secondCard.locator('.comment-actions button[title="Resolve"]').click();
 
@@ -94,6 +98,7 @@ test.describe('Approve Button Text', () => {
 
     // Unresolve the first comment: expand it first, then unresolve
     const collapsedCards = section.locator('.comment-card.collapsed');
+    await expect(collapsedCards).toHaveCount(2);
     await collapsedCards.nth(0).locator('.comment-collapse-btn').click();
     const expandedCard = section.locator('.comment-card:not(.collapsed)').first();
     await expandedCard.hover();
