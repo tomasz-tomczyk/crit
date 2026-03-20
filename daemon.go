@@ -190,20 +190,25 @@ func isDaemonAlive(s sessionEntry) bool {
 }
 
 // daemonHasBrowser checks if the daemon has any connected browser clients.
+// Uses a pointer to distinguish "field missing" (older daemon) from "false".
+// When the field is missing, assumes a browser is connected (safe default).
 func daemonHasBrowser(s sessionEntry) bool {
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/health", s.Port))
 	if err != nil {
-		return false
+		return true // can't reach daemon, assume browser exists
 	}
 	defer resp.Body.Close()
 	var result struct {
-		BrowserClients bool `json:"browser_clients"`
+		BrowserClients *bool `json:"browser_clients"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return false
+		return true
 	}
-	return result.BrowserClients
+	if result.BrowserClients == nil {
+		return true // older daemon without this field — assume browser exists
+	}
+	return *result.BrowserClients
 }
 
 // startDaemon spawns a crit _serve process in the background and waits for it to be ready.
