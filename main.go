@@ -37,7 +37,7 @@ var (
 
 func main() {
 	if len(os.Args) < 2 {
-		runDefault(nil)
+		runReview(nil)
 		return
 	}
 
@@ -71,7 +71,7 @@ func main() {
 	case "_serve":
 		runServe(os.Args[2:])
 	default:
-		runDefault(os.Args[1:])
+		runReview(os.Args[1:])
 	}
 }
 
@@ -928,21 +928,6 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 	}, nil
 }
 
-// runDefault checks for a running daemon. If found, connects as a review client
-// (daemon pattern — exits after one review cycle). Otherwise, starts the foreground
-// server (old behavior — stays up until Ctrl+C).
-func runDefault(args []string) {
-	statePath := critJSONPathForDaemon()
-	state, err := readDaemonState(statePath)
-	if err == nil && isDaemonAlive(state) {
-		// Daemon already running — connect as review client
-		runReviewClient(state)
-		return
-	}
-	// No daemon running — start foreground server (writes daemon state for agents)
-	runServer(args)
-}
-
 func runServer(args []string) {
 	sc, err := resolveServerConfig(args)
 	if err != nil {
@@ -1014,10 +999,6 @@ func runServer(args []string) {
 	status.Listening(url)
 	status.ListenHint(fmt.Sprintf("%d", addr.Port))
 
-	// Write daemon state so agents can discover and connect to this server
-	statePath := critJSONPathForDaemon()
-	_ = writeDaemonState(statePath, daemonState{PID: os.Getpid(), Port: addr.Port})
-
 	if !sc.noOpen {
 		go openBrowser(url)
 	}
@@ -1038,7 +1019,6 @@ func runServer(args []string) {
 	close(watchStop)
 	fmt.Println()
 
-	removeDaemonState(statePath)
 	session.Shutdown()
 	session.WriteFiles()
 
