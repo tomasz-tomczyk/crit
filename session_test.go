@@ -1708,6 +1708,158 @@ func TestSession_MergeExternalCritJSON_SyncsResolvedState(t *testing.T) {
 	}
 }
 
+func TestSession_EnsureFileEntry_NewFile(t *testing.T) {
+	dir := t.TempDir()
+	// Create a file on disk that is NOT in the session
+	newFilePath := filepath.Join(dir, "newfile.py")
+	writeFile(t, newFilePath, "def hello():\n    print('hi')\n")
+
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{
+				Path:     "existing.go",
+				AbsPath:  filepath.Join(dir, "existing.go"),
+				Status:   "modified",
+				FileType: "code",
+				Content:  "package main\n",
+				FileHash: "sha256:test",
+				Comments: []Comment{},
+				nextID:   1,
+			},
+		},
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	// File not in session, should not be findable
+	if s.FileByPath("newfile.py") != nil {
+		t.Fatal("file should not exist in session yet")
+	}
+
+	// EnsureFileEntry should add it
+	ok := s.EnsureFileEntry("newfile.py")
+	if !ok {
+		t.Fatal("EnsureFileEntry returned false")
+	}
+
+	// Now it should be findable
+	f := s.FileByPath("newfile.py")
+	if f == nil {
+		t.Fatal("file not found after EnsureFileEntry")
+	}
+	if f.Content != "def hello():\n    print('hi')\n" {
+		t.Errorf("unexpected content: %q", f.Content)
+	}
+	if f.FileType != "code" {
+		t.Errorf("FileType = %q, want code", f.FileType)
+	}
+	if f.FileHash == "" {
+		t.Error("FileHash should be set")
+	}
+	if len(f.Comments) != 0 {
+		t.Errorf("expected 0 comments, got %d", len(f.Comments))
+	}
+	if f.nextID != 1 {
+		t.Errorf("nextID = %d, want 1", f.nextID)
+	}
+}
+
+func TestSession_EnsureFileEntry_AlreadyExists(t *testing.T) {
+	s := newTestSession(t)
+
+	// plan.md is already in the session
+	ok := s.EnsureFileEntry("plan.md")
+	if !ok {
+		t.Fatal("EnsureFileEntry returned false for existing file")
+	}
+
+	// Should still have exactly 2 files (no duplicate added)
+	s.mu.RLock()
+	count := len(s.Files)
+	s.mu.RUnlock()
+	if count != 2 {
+		t.Errorf("expected 2 files, got %d (duplicate may have been added)", count)
+	}
+}
+
+func TestSession_EnsureFileEntry_NonexistentFile(t *testing.T) {
+	s := newTestSession(t)
+
+	ok := s.EnsureFileEntry("does-not-exist.txt")
+	if ok {
+		t.Error("EnsureFileEntry should return false for file that doesn't exist on disk")
+	}
+}
+
+func TestSession_EnsureFileEntry_ThenAddComment(t *testing.T) {
+	dir := t.TempDir()
+	newFilePath := filepath.Join(dir, "runtime.py")
+	writeFile(t, newFilePath, "# Runtime file\ndef greet():\n    pass\n")
+
+	s := &Session{
+		Mode:          "git",
+		RepoRoot:      dir,
+		ReviewRound:   1,
+		Files:         []*FileEntry{},
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	// Ensure the file is added to the session
+	ok := s.EnsureFileEntry("runtime.py")
+	if !ok {
+		t.Fatal("EnsureFileEntry failed")
+	}
+
+	// Now AddComment should work
+	c, ok := s.AddComment("runtime.py", 2, 2, "", "Add docstring", "", "reviewer")
+	if !ok {
+		t.Fatal("AddComment failed after EnsureFileEntry")
+	}
+	if c.ID != "c1" {
+		t.Errorf("comment ID = %q, want c1", c.ID)
+	}
+	if c.Body != "Add docstring" {
+		t.Errorf("comment body = %q", c.Body)
+	}
+
+	// Verify the comment is retrievable
+	comments := s.GetComments("runtime.py")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+}
+
+func TestGetFileDiffSnapshotScoped_RuntimeFile(t *testing.T) {
+	// A file that exists on disk but is NOT in s.Files should still get
+	// a proper all-addition diff when it's untracked.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "newfile.py"), "line1\nline2\nline3\n")
+
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		Files:       []*FileEntry{}, // file NOT in session
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// When the file status can't be determined from git (no git repo),
+	// we still get a valid response (empty hunks, not a 404).
+	result, ok := s.GetFileDiffSnapshotScoped("newfile.py", "unstaged", "")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	hunks := result["hunks"].([]DiffHunk)
+	// Without a git repo, ChangedFilesScoped will fail, so status stays empty
+	// and we fall through to FileDiffScoped which also fails -> empty hunks.
+	// The key thing is we don't panic or return !ok.
+	_ = hunks
+}
+
 func TestSession_MergeExternalCritJSON_SyncsUnresolve(t *testing.T) {
 	dir := t.TempDir()
 	s := &Session{

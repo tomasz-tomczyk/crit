@@ -674,6 +674,72 @@ func (s *Session) fileByPathLocked(path string) *FileEntry {
 	return nil
 }
 
+// EnsureFileEntry registers a file into the session if it doesn't already exist.
+// This handles files that appear after startup (e.g. created by the user while
+// reviewing). The file is read from disk and added with appropriate status and
+// diff hunks so that comments and diff rendering work correctly.
+// Returns true if the file was found (either already existed or was added).
+func (s *Session) EnsureFileEntry(path string) bool {
+	s.mu.RLock()
+	if s.fileByPathLocked(path) != nil {
+		s.mu.RUnlock()
+		return true
+	}
+	repoRoot := s.RepoRoot
+	baseRef := s.BaseRef
+	s.mu.RUnlock()
+
+	if repoRoot == "" {
+		return false
+	}
+
+	absPath := filepath.Join(repoRoot, path)
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return false
+	}
+
+	// Determine the file's git status
+	status := "untracked"
+	if changes, err := ChangedFiles(); err == nil {
+		for _, fc := range changes {
+			if fc.Path == path {
+				status = fc.Status
+				break
+			}
+		}
+	}
+
+	fe := &FileEntry{
+		Path:     path,
+		AbsPath:  absPath,
+		Status:   status,
+		FileType: detectFileType(path),
+		Content:  string(data),
+		FileHash: fileHash(data),
+		Comments: []Comment{},
+		nextID:   1,
+	}
+
+	// Generate diff hunks
+	if status == "added" || status == "untracked" {
+		fe.DiffHunks = FileDiffUnifiedNewFile(fe.Content)
+	} else if status != "deleted" {
+		if hunks, err := fileDiffUnified(path, baseRef, repoRoot); err == nil {
+			fe.DiffHunks = hunks
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Double-check under write lock (another goroutine may have added it)
+	if s.fileByPathLocked(path) != nil {
+		return true
+	}
+	s.Files = append(s.Files, fe)
+	return true
+}
+
 // GetSharedURL returns the stored share URL.
 func (s *Session) GetSharedURL() string {
 	s.mu.RLock()
@@ -1518,13 +1584,33 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string) (map[str
 	repoRoot = s.RepoRoot
 	s.mu.RUnlock()
 
+	// If the file is not in the session (e.g. created after startup), read it
+	// from disk and determine its status so we can generate the correct diff.
+	if f == nil && repoRoot != "" {
+		absPath := filepath.Join(repoRoot, path)
+		if data, err := os.ReadFile(absPath); err == nil {
+			content = string(data)
+			// Determine file status from git for the requested scope
+			if changes, err := ChangedFilesScoped(scope, baseRef); err == nil {
+				for _, fc := range changes {
+					if fc.Path == path {
+						status = fc.Status
+						break
+					}
+				}
+			}
+		}
+	}
+
 	var hunks []DiffHunk
 	if commit != "" {
 		h, err := FileDiffForCommit(path, commit, repoRoot)
 		if err == nil {
 			hunks = h
 		}
-	} else if status == "untracked" && scope == "unstaged" {
+	} else if status == "untracked" && (scope == "unstaged" || scope == "all" || scope == "") {
+		hunks = FileDiffUnifiedNewFile(content)
+	} else if status == "added" && scope != "unstaged" {
 		hunks = FileDiffUnifiedNewFile(content)
 	} else {
 		h, err := FileDiffScoped(path, scope, baseRef, repoRoot)
