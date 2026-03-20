@@ -373,7 +373,7 @@ Before tagging, bump the version in `flake.nix`:
 version = "0.x.y";
 ```
 
-**Nix vendor hash**: `flake.nix` also contains a pinned `vendorHash`. Whenever Go dependencies change (`go.mod`/`go.sum`), this hash must be updated. CI runs `nix build .` on every PR and will fail with the correct replacement hash if it's stale. To update locally: set `vendorHash = pkgs.lib.fakeHash;`, run `nix build .`, and copy the hash from the error output.
+**Nix vendor hash**: `flake.nix` also contains a pinned `vendorHash`. Whenever Go dependencies change (`go.mod`/`go.sum`), this hash must be updated. The release workflow runs `nix build .` and will fail with the correct replacement hash if it's stale. To update locally: set `vendorHash = pkgs.lib.fakeHash;`, run `nix build .`, and copy the hash from the error output.
 
 Then commit, tag, and push:
 

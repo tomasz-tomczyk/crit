@@ -49,8 +49,18 @@ jobs:
           path: e2e/test-results/
           retention-days: 7
 
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Check Nix package build
+        run: ./scripts/check-nix-build.sh
+
   release:
-    needs: [test, e2e]
+    needs: [test, e2e, nix]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

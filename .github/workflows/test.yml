@@ -17,16 +17,6 @@ jobs:
 
       - run: go test ./...
 
-  nix:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: DeterminateSystems/nix-installer-action@main
-
-      - name: Check Nix package build
-        run: ./scripts/check-nix-build.sh
-
   e2e:
     runs-on: ubuntu-latest
     steps:
