@@ -4337,7 +4337,6 @@
       console.error('Error refreshing comments:', err);
     }
     renderFileByPath(filePath);
-    renderFileSummary();
     updateCommentCount();
     updateTreeCommentBadges();
   }
