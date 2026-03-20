@@ -37,7 +37,7 @@ var (
 
 func main() {
 	if len(os.Args) < 2 {
-		runReview(nil)
+		runDefault(nil)
 		return
 	}
 
@@ -71,7 +71,7 @@ func main() {
 	case "_serve":
 		runServe(os.Args[2:])
 	default:
-		runReview(os.Args[1:])
+		runDefault(os.Args[1:])
 	}
 }
 
@@ -736,6 +736,9 @@ func runComment(args []string) {
 	fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
 }
 
+// runReview always uses the daemon pattern: starts a background daemon if needed,
+// connects as a review client, blocks for one review cycle, then exits.
+// Used by `crit review` and by agents.
 func runReview(args []string) {
 	// Resolve port from config (same precedence as server)
 	configPort := 0
@@ -750,7 +753,7 @@ func runReview(args []string) {
 		}
 	}
 
-	// Check for running daemon
+	// Check for running daemon (or foreground server)
 	statePath := critJSONPathForDaemon()
 	state, err := readDaemonState(statePath)
 	if err == nil && isDaemonAlive(state) {
@@ -767,7 +770,12 @@ func runReview(args []string) {
 		fmt.Fprintf(os.Stderr, "Started crit daemon on port %d (PID %d)\n", state.Port, state.PID)
 	}
 
-	// Long-poll the review-cycle endpoint (blocks until user finishes review)
+	runReviewClient(state)
+}
+
+// runReviewClient connects to a running daemon/server, blocks until the user
+// finishes reviewing, prints feedback to stdout, and exits.
+func runReviewClient(state daemonState) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 	resp, err := client.Post(
 		fmt.Sprintf("http://localhost:%d/api/review-cycle", state.Port),
@@ -920,6 +928,21 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 	}, nil
 }
 
+// runDefault checks for a running daemon. If found, connects as a review client
+// (daemon pattern — exits after one review cycle). Otherwise, starts the foreground
+// server (old behavior — stays up until Ctrl+C).
+func runDefault(args []string) {
+	statePath := critJSONPathForDaemon()
+	state, err := readDaemonState(statePath)
+	if err == nil && isDaemonAlive(state) {
+		// Daemon already running — connect as review client
+		runReviewClient(state)
+		return
+	}
+	// No daemon running — start foreground server (writes daemon state for agents)
+	runServer(args)
+}
+
 func runServer(args []string) {
 	sc, err := resolveServerConfig(args)
 	if err != nil {
@@ -991,6 +1014,10 @@ func runServer(args []string) {
 	status.Listening(url)
 	status.ListenHint(fmt.Sprintf("%d", addr.Port))
 
+	// Write daemon state so agents can discover and connect to this server
+	statePath := critJSONPathForDaemon()
+	_ = writeDaemonState(statePath, daemonState{PID: os.Getpid(), Port: addr.Port})
+
 	if !sc.noOpen {
 		go openBrowser(url)
 	}
@@ -1011,6 +1038,7 @@ func runServer(args []string) {
 	close(watchStop)
 	fmt.Println()
 
+	removeDaemonState(statePath)
 	session.Shutdown()
 	session.WriteFiles()
 
