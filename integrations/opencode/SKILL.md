@@ -127,11 +127,13 @@ Benefits over individual `crit comment` calls:
 ## GitHub PR Integration
 
 ```bash
-crit pull [pr-number]              # Fetch PR review comments into .crit.json
-crit push [--dry-run] [pr-number]  # Post .crit.json comments as a GitHub PR review
+crit pull [pr-number]                                    # Fetch PR review comments into .crit.json
+crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post .crit.json comments as a GitHub PR review
 ```
 
 Requires `gh` CLI installed and authenticated. PR number is auto-detected from the current branch, or pass it explicitly.
+
+Event types for `--event`: `comment` (default), `approve`, `request-changes`. Use `-m` to add a review-level body message.
 
 ## Sharing Reviews
 

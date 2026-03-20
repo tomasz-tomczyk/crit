@@ -85,7 +85,7 @@ crit <file|dir> [...]         # Review specific files or directories
 crit stop                     # Stop the daemon for current directory
 crit stop --all               # Stop all daemons for current directory
 crit pull [pr-number]         # Fetch GitHub PR comments into .crit.json
-crit push [--dry-run] [pr]    # Post .crit.json comments as a GitHub PR review
+crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post .crit.json comments as a GitHub PR review
 crit comment <path>:<line[-end]> <body>         # Add a comment to .crit.json (no server needed)
 crit comment --reply-to <id> [--resolve] <body> # Reply to a comment (optionally mark resolved)
 crit comment --json [--author <name>]           # Bulk add comments from stdin JSON
@@ -119,6 +119,8 @@ Requires `gh` CLI installed and authenticated.
 - `crit pull` fetches PR review comments (RIGHT-side only) and merges them into `.crit.json`, deduplicating by author+lines+body
 - `crit push` reads `.crit.json` and posts unresolved comments as a GitHub PR review
 - `crit push --dry-run` shows what would be posted without actually creating the review
+- `crit push --event approve` submits an approval; `--event request-changes` requests changes (default: `comment`)
+- `crit push -m 'message'` adds a review-level body message
 - PR number auto-detected from current branch, or pass explicitly: `crit pull 42`
 
 ## Linting

@@ -91,8 +91,8 @@ Rules:
 ## GitHub PR Integration
 
 ```bash
-crit pull [pr-number]              # Fetch PR comments into .crit.json
-crit push [--dry-run] [pr-number]  # Post .crit.json comments as PR review
+crit pull [pr-number]                                    # Fetch PR comments into .crit.json
+crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post .crit.json comments as PR review
 ```
 
-Requires `gh` CLI. PR number auto-detected from current branch.
+Requires `gh` CLI. PR number auto-detected from current branch. Event types for `--event`: `comment` (default), `approve`, `request-changes`.
