@@ -170,6 +170,9 @@ func startDaemon(args []string, port int) (daemonState, error) {
 		}
 	}
 
+	// Timed out — kill the orphan process
+	cmd.Process.Kill()
+	<-exited // drain the Wait goroutine
 	return daemonState{}, fmt.Errorf("daemon did not start within 5 seconds")
 }
 
@@ -205,8 +208,18 @@ func stopDaemon() error {
 		return nil // already gone
 	}
 
-	// Wait briefly for clean shutdown
-	time.Sleep(500 * time.Millisecond)
+	// Poll for process exit, escalate to SIGKILL if needed
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+		if err := proc.Signal(syscall.Signal(0)); err != nil {
+			break // process is gone
+		}
+	}
+	// Still alive? Force kill.
+	if err := proc.Signal(syscall.Signal(0)); err == nil {
+		proc.Kill()
+	}
 	removeDaemonState(statePath)
 	return nil
 }

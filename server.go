@@ -535,11 +535,7 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 	ch := s.session.Subscribe()
 	defer s.session.Unsubscribe(ch)
 
-	s.session.mu.RLock()
-	firstReview := s.session.awaitingFirstReview
-	s.session.mu.RUnlock()
-
-	if !firstReview {
+	if !s.session.IsAwaitingFirstReview() {
 		// Agent finished changes — signal round-complete so browser refreshes
 		s.session.SignalRoundComplete()
 	}
@@ -548,10 +544,13 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 		select {
 		case event := <-ch:
 			if event.Type == "finish" {
-				s.session.mu.Lock()
-				s.session.awaitingFirstReview = false
-				s.session.mu.Unlock()
-				writeJSON(w, event)
+				s.session.SetAwaitingFirstReview(false)
+				// Return the same shape as handleFinish for consistent agent output
+				writeJSON(w, map[string]string{
+					"status":      "finished",
+					"review_file": s.session.critJSONPath(),
+					"prompt":      event.Content,
+				})
 				return
 			}
 		case <-r.Context().Done():

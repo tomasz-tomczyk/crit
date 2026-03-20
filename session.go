@@ -751,6 +751,20 @@ func (s *Session) GetLastRoundEdits() int {
 	return s.lastRoundEdits
 }
 
+// IsAwaitingFirstReview returns true if no review cycle has completed yet.
+func (s *Session) IsAwaitingFirstReview() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.awaitingFirstReview
+}
+
+// SetAwaitingFirstReview sets the awaitingFirstReview flag.
+func (s *Session) SetAwaitingFirstReview(v bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.awaitingFirstReview = v
+}
+
 // SignalRoundComplete transitions to a new review round.
 func (s *Session) SignalRoundComplete() {
 	s.mu.Lock()

@@ -100,15 +100,15 @@ func TestDaemonLifecycle(t *testing.T) {
 	}
 	finishResp.Body.Close()
 
-	// review-cycle should complete with finish event
+	// review-cycle should complete with finish response
 	select {
 	case result := <-done:
-		var event SSEEvent
-		if err := json.Unmarshal([]byte(result), &event); err != nil {
+		var resp map[string]string
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
 			t.Fatalf("unmarshal result: %v (raw: %s)", err, result)
 		}
-		if event.Type != "finish" {
-			t.Errorf("got event type %q, want 'finish'", event.Type)
+		if resp["status"] != "finished" {
+			t.Errorf("got status %q, want 'finished'", resp["status"])
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("review-cycle did not complete")
