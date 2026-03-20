@@ -1327,9 +1327,11 @@ func (s *Session) BrowserConnect() {
 	atomic.AddInt32(&s.browserClients, 1)
 }
 
-// BrowserDisconnect decrements the browser client count.
+// BrowserDisconnect decrements the browser client count, clamping at zero.
 func (s *Session) BrowserDisconnect() {
-	atomic.AddInt32(&s.browserClients, -1)
+	if atomic.AddInt32(&s.browserClients, -1) < 0 {
+		atomic.StoreInt32(&s.browserClients, 0)
+	}
 }
 
 // HasBrowserClients returns true if any browser SSE clients are connected.
