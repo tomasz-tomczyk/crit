@@ -29,6 +29,11 @@ test.describe('Page Loading', () => {
     const diffToggle = page.locator('#diffModeToggle');
     await expect(diffToggle).toBeVisible();
   });
+
+  test('does not show PR link when no PR exists', async ({ page, request }) => {
+    await loadPage(page);
+    await expect(page.locator('.header-pr-link')).toHaveCount(0);
+  });
 });
 
 test.describe('File Tree', () => {

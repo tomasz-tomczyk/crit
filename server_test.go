@@ -41,7 +41,7 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 		},
 	}
 
-	s, err := NewServer(session, frontendFS, "", "", "test", 0)
+	s, err := NewServer(session, frontendFS, "", nil, "", "test", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1135,7 +1135,7 @@ func TestGetFilesList(t *testing.T) {
 		Files:         []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", "", 0)
+	srv, err := NewServer(session, frontendFS, "", nil, "", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1199,7 +1199,7 @@ func TestGetFilesList_RespectsIgnorePatterns(t *testing.T) {
 		Files:          []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", "", 0)
+	srv, err := NewServer(session, frontendFS, "", nil, "", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1233,7 +1233,7 @@ func TestGetFilesList_FilesMode(t *testing.T) {
 		Files:         []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", "", 0)
+	srv, err := NewServer(session, frontendFS, "", nil, "", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1304,7 +1304,7 @@ func TestGetFilesList_MethodNotAllowed(t *testing.T) {
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 	}
-	srv, _ := NewServer(session, frontendFS, "", "", "", 0)
+	srv, _ := NewServer(session, frontendFS, "", nil, "", "", 0)
 	req := httptest.NewRequest("POST", "/api/files/list", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

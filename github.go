@@ -59,6 +59,34 @@ func detectPR(prFlag int) (int, error) {
 	return n, nil
 }
 
+// PRInfo holds metadata about the PR for the current branch.
+type PRInfo struct {
+	URL     string `json:"url"`
+	Number  int    `json:"number"`
+	Title   string `json:"title"`
+	IsDraft bool   `json:"isDraft"`
+}
+
+// detectPRInfo returns PR metadata for the current branch.
+// Returns nil if gh is unavailable or no PR exists.
+func detectPRInfo() *PRInfo {
+	if err := requireGH(); err != nil {
+		return nil
+	}
+	out, err := exec.Command("gh", "pr", "view", "--json", "number,url,title,isDraft").Output()
+	if err != nil {
+		return nil
+	}
+	var info PRInfo
+	if err := json.Unmarshal(out, &info); err != nil {
+		return nil
+	}
+	if info.URL == "" {
+		return nil
+	}
+	return &info
+}
+
 // fetchPRComments fetches all review comments for a PR.
 func fetchPRComments(prNumber int) ([]ghComment, error) {
 	// Use --paginate --slurp to collect all pages into a single JSON structure.
