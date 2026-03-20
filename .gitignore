@@ -6,6 +6,7 @@
 *.comments.json
 *.review.md
 .crit.json
+.crit.daemon.json
 
 # Dependencies
 node_modules/
