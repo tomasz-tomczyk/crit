@@ -479,7 +479,11 @@ func runPush(args []string) {
 	}
 
 	if dryRun {
-		fmt.Printf("Would post %d comments to PR #%d (event: %s):\n\n", len(ghComments), prNumber, event)
+		displayEvent := strings.ToLower(strings.ReplaceAll(event, "_", "-"))
+		fmt.Printf("Would post %d comments to PR #%d (event: %s):\n\n", len(ghComments), prNumber, displayEvent)
+		if message != "" {
+			fmt.Printf("  Review body: %s\n\n", message)
+		}
 		for _, c := range ghComments {
 			path := c["path"].(string)
 			line := c["line"].(int)
@@ -497,13 +501,14 @@ func runPush(args []string) {
 		return
 	}
 
-	fmt.Printf("Pushing %d comments to PR #%d (%s)...\n", len(ghComments), prNumber, event)
+	displayEvent := strings.ToLower(strings.ReplaceAll(event, "_", "-"))
+	fmt.Printf("Pushing %d comments to PR #%d (%s)...\n", len(ghComments), prNumber, displayEvent)
 	commentIDs, err := createGHReview(prNumber, ghComments, message, event)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Posted %d review comments to PR #%d (%s)\n", len(ghComments), prNumber, event)
+	fmt.Printf("Posted %d review comments to PR #%d (%s)\n", len(ghComments), prNumber, displayEvent)
 
 	// Phase 2: Post new replies individually
 	replyCount := 0

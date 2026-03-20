@@ -428,6 +428,9 @@ func parsePushEvent(flag string) (string, error) {
 
 // buildReviewPayload constructs the JSON body for a GitHub PR review request.
 func buildReviewPayload(comments []map[string]any, message string, event string) ([]byte, error) {
+	if comments == nil {
+		comments = []map[string]any{}
+	}
 	review := map[string]any{
 		"event":    event,
 		"body":     message,
