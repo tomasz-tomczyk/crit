@@ -724,7 +724,6 @@ func runReview(args []string) {
 
 	if alive {
 		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", entry.Port)
-		go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
 	} else {
 		var err error
 		entry, _, err = startDaemon(args, configPort)
