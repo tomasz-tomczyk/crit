@@ -24,8 +24,22 @@ type sessionEntry struct {
 	StartedAt string   `json:"started_at"`
 }
 
+// resolvedCWD returns the current working directory with symlinks resolved.
+// This prevents macOS /var → /private/var mismatches in session keys.
+func resolvedCWD() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return cwd, nil // fall back to unresolved
+	}
+	return resolved, nil
+}
+
 // sessionKey returns a deterministic hash for cwd + args, used as the session filename.
-// Format: sha256(cwd + "\0" + sorted(args)...)[:12]
+// Format: sha256(cwd + "\0" + arg1 + "\0" + arg2 + ...)[:12]
 func sessionKey(cwd string, args []string) string {
 	sorted := make([]string, len(args))
 	copy(sorted, args)
@@ -178,7 +192,7 @@ func isDaemonAlive(s sessionEntry) bool {
 // startDaemon spawns a crit _serve process in the background and waits for it to be ready.
 // Returns the session entry and session key on success.
 func startDaemon(args []string, port int) (sessionEntry, string, error) {
-	cwd, err := os.Getwd()
+	cwd, err := resolvedCWD()
 	if err != nil {
 		return sessionEntry{}, "", fmt.Errorf("getting cwd: %w", err)
 	}

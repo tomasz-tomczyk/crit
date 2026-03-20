@@ -38,6 +38,14 @@ func TestSessionKey_DifferentCWD(t *testing.T) {
 	}
 }
 
+func TestSessionKey_NilVsEmpty(t *testing.T) {
+	k1 := sessionKey("/tmp/repo", nil)
+	k2 := sessionKey("/tmp/repo", []string{})
+	if k1 != k2 {
+		t.Errorf("nil and empty args should produce same key: %s vs %s", k1, k2)
+	}
+}
+
 func TestSessionKey_Length(t *testing.T) {
 	k := sessionKey("/tmp/repo", nil)
 	if len(k) != 12 {

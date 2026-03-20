@@ -715,7 +715,7 @@ func runReview(args []string) {
 		}
 	}
 
-	cwd, _ := os.Getwd()
+	cwd, _ := resolvedCWD()
 	key := sessionKey(cwd, args)
 
 	// Check for running daemon with the same session key
@@ -790,7 +790,7 @@ func runStop(args []string) {
 		}
 	}
 
-	cwd, _ := os.Getwd()
+	cwd, _ := resolvedCWD()
 
 	if all {
 		stopAllDaemonsForCWD(cwd)
@@ -1067,7 +1067,7 @@ func runServe(args []string) {
 	}
 
 	// Write session file so clients can discover us
-	cwd, _ := os.Getwd()
+	cwd, _ := resolvedCWD()
 	key := sessionKey(cwd, sc.files)
 	if err := writeSessionFile(key, sessionEntry{
 		PID:       os.Getpid(),
