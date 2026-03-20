@@ -17,6 +17,19 @@ jobs:
 
       - run: go test ./...
 
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Build Nix package
+        run: nix build .
+
+      - name: Smoke test Nix app
+        run: nix run . -- --help
+
   e2e:
     runs-on: ubuntu-latest
     steps:
