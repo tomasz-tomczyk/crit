@@ -485,8 +485,8 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 				"Read the file, address each comment in the relevant file and location. "+
 				"For each comment: reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> --resolve \"<explanation>\"`, "+
 				"or edit .crit.json directly to add a reply to the comment's \"replies\" array and set \"resolved\": true. "+
-				"When done run: `crit go %d`",
-			critJSON, s.port)
+				"When done run: `crit`",
+			critJSON)
 	} else if totalComments > 0 && unresolvedComments == 0 {
 		prompt = "All comments are resolved — no changes needed, please proceed."
 	}
