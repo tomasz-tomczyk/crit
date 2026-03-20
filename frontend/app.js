@@ -4905,6 +4905,8 @@
   });
 
   // ===== SSE Client =====
+  var sseReconnectDelay = 1000;
+
   function connectSSE() {
     const source = new EventSource('/api/events');
 
@@ -5007,7 +5009,19 @@
       showDisconnected();
     });
 
-    source.onerror = function() {};
+    source.onerror = function() {
+      source.close();
+      // Attempt reconnect with backoff (max 10s)
+      setTimeout(function() {
+        connectSSE();
+        sseReconnectDelay = Math.min(sseReconnectDelay * 2, 10000);
+      }, sseReconnectDelay);
+    };
+
+    source.onopen = function() {
+      sseReconnectDelay = 1000;
+      reloadForScope();
+    };
   }
 
   function showDisconnected() {
