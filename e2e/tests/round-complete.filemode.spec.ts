@@ -35,9 +35,9 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     const overlay = page.locator('#waitingOverlay');
     await expect(overlay).toHaveClass(/active/);
 
-    // Prompt should contain crit go
+    // Prompt should contain crit
     const prompt = page.locator('#waitingPrompt');
-    await expect(prompt).toContainText('crit go');
+    await expect(prompt).toContainText('crit');
   });
 
   test('finish review with no comments shows "no feedback" message', async ({ page }) => {
@@ -65,7 +65,7 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     const overlay = page.locator('#waitingOverlay');
     await expect(overlay).toHaveClass(/active/);
 
-    // Trigger round-complete via API (simulates agent calling crit go)
+    // Trigger round-complete via API (simulates agent calling crit)
     await request.post('/api/round-complete');
 
     // UI should exit waiting state (overlay removed, file sections re-rendered)
