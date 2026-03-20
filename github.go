@@ -464,19 +464,35 @@ func createGHReview(prNumber int, comments []map[string]any, message string, eve
 		return nil, fmt.Errorf("creating review: %w", err)
 	}
 
-	// Parse response to extract comment IDs
-	var resp struct {
-		Comments []struct {
-			ID   int64  `json:"id"`
-			Path string `json:"path"`
-			Line int    `json:"line"`
-		} `json:"comments"`
+	// Parse review ID from response, then fetch its comments in a second call.
+	// The create-review response does not include comment objects — only the review itself.
+	var reviewResp struct {
+		ID int64 `json:"id"`
 	}
 	idMap := make(map[string]int64)
-	if err := json.Unmarshal(stdout.Bytes(), &resp); err == nil {
-		for _, c := range resp.Comments {
-			key := fmt.Sprintf("%s:%d", c.Path, c.Line)
-			idMap[key] = c.ID
+	if err := json.Unmarshal(stdout.Bytes(), &reviewResp); err != nil || reviewResp.ID == 0 {
+		return idMap, nil // non-fatal: review was created, just can't map IDs
+	}
+
+	// Fetch this review's comments and zip with our input to map IDs by position.
+	// We use the review-scoped endpoint (only returns this review's comments, in order).
+	commentOut, err := exec.Command("gh", "api",
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews/%d/comments", prNumber, reviewResp.ID),
+	).Output()
+	if err != nil {
+		return idMap, nil // non-fatal
+	}
+	var reviewComments []struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(commentOut, &reviewComments); err == nil {
+		for i, rc := range reviewComments {
+			if i < len(comments) {
+				path, _ := comments[i]["path"].(string)
+				line, _ := comments[i]["line"].(int)
+				key := fmt.Sprintf("%s:%d", path, line)
+				idMap[key] = rc.ID
+			}
 		}
 	}
 	return idMap, nil
