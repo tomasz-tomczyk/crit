@@ -962,13 +962,18 @@ func runServer(args []string) {
 		session.OutputDir = abs
 	}
 
+	var prInfo *PRInfo
+	if session.Mode == "git" {
+		prInfo = detectPRInfo()
+	}
+
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", sc.port))
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
 	addr := listener.Addr().(*net.TCPAddr)
 
-	srv, err := NewServer(session, frontendFS, sc.shareURL, sc.author, version, addr.Port)
+	srv, err := NewServer(session, frontendFS, sc.shareURL, prInfo, sc.author, version, addr.Port)
 	if err != nil {
 		log.Fatalf("Error creating server: %v", err)
 	}
@@ -1053,13 +1058,18 @@ func runServe(args []string) {
 		session.OutputDir = abs
 	}
 
+	var prInfo *PRInfo
+	if session.Mode == "git" {
+		prInfo = detectPRInfo()
+	}
+
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", sc.port))
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
 	addr := listener.Addr().(*net.TCPAddr)
 
-	srv, err := NewServer(session, frontendFS, sc.shareURL, sc.author, version, addr.Port)
+	srv, err := NewServer(session, frontendFS, sc.shareURL, prInfo, sc.author, version, addr.Port)
 	if err != nil {
 		log.Fatalf("Error creating server: %v", err)
 	}
