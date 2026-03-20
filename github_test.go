@@ -1244,6 +1244,30 @@ func TestBulkAddCommentsToCritJSON_MultipleFiles(t *testing.T) {
 	}
 }
 
+func TestBuildReviewPayload_ApproveNoComments(t *testing.T) {
+	data, err := buildReviewPayload(nil, "Looks good!", "APPROVE")
+	if err != nil {
+		t.Fatalf("buildReviewPayload: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload["event"] != "APPROVE" {
+		t.Errorf("event = %q, want APPROVE", payload["event"])
+	}
+	if payload["body"] != "Looks good!" {
+		t.Errorf("body = %q, want %q", payload["body"], "Looks good!")
+	}
+	comments, ok := payload["comments"]
+	if ok && comments != nil {
+		arr, isArr := comments.([]any)
+		if isArr && len(arr) != 0 {
+			t.Errorf("expected nil or empty comments, got %d", len(arr))
+		}
+	}
+}
+
 func TestBulkAddCommentsToCritJSON_EndLineDefaultsToLine(t *testing.T) {
 	dir := initTestRepo(t)
 	oldDir, _ := os.Getwd()

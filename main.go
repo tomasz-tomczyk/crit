@@ -467,7 +467,7 @@ func runPush(args []string) {
 	}
 
 	ghComments := critJSONToGHComments(cj)
-	if len(ghComments) == 0 {
+	if len(ghComments) == 0 && event == "COMMENT" {
 		fmt.Println("No unresolved comments to push.")
 		return
 	}
@@ -479,7 +479,7 @@ func runPush(args []string) {
 	}
 
 	if dryRun {
-		fmt.Printf("Would post %d comments to PR #%d:\n\n", len(ghComments), prNumber)
+		fmt.Printf("Would post %d comments to PR #%d (event: %s):\n\n", len(ghComments), prNumber, event)
 		for _, c := range ghComments {
 			path := c["path"].(string)
 			line := c["line"].(int)
@@ -497,13 +497,13 @@ func runPush(args []string) {
 		return
 	}
 
-	fmt.Printf("Pushing %d comments to PR #%d...\n", len(ghComments), prNumber)
+	fmt.Printf("Pushing %d comments to PR #%d (%s)...\n", len(ghComments), prNumber, event)
 	commentIDs, err := createGHReview(prNumber, ghComments, message, event)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Posted %d review comments to PR #%d\n", len(ghComments), prNumber)
+	fmt.Printf("Posted %d review comments to PR #%d (%s)\n", len(ghComments), prNumber, event)
 
 	// Phase 2: Post new replies individually
 	replyCount := 0
