@@ -48,7 +48,7 @@ crit/
 
 ## Key Architecture Decisions
 
-1. **Single binary, zero runtime dependencies** — all frontend assets embedded via Go's `embed.FS`
+1. **All frontend assets embedded** via Go's `embed.FS` — produces a true single binary
 2. **No frontend build step** — vanilla JS, no npm/webpack/framework. npm is only for fetching vendor libs.
 3. **Multi-file sessions** — `crit` (no args) auto-detects git changes; `crit file1 file2` reviews specific files
 4. **Two modes**: "git" mode (auto-detect from git) and "files" mode (explicit file arguments)

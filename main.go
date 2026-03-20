@@ -753,15 +753,15 @@ func runReview(args []string) {
 		}
 	}
 
-	// Check for running daemon (or foreground server)
+	// Check for running daemon
 	statePath := critJSONPathForDaemon()
 	state, err := readDaemonState(statePath)
-	if err == nil && isDaemonAlive(state) {
-		// Daemon already running — use it
+	if err == nil && isDaemonAlive(state) && len(args) == 0 {
+		// No file args — connect to existing daemon
 		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", state.Port)
+		go openBrowser(fmt.Sprintf("http://localhost:%d", state.Port))
 	} else {
-		// Start new daemon
-		removeDaemonState(statePath) // clean up stale state
+		// Start new daemon (file args given, or no daemon running)
 		state, err = startDaemon(args, configPort)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
