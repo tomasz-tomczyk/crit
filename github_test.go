@@ -288,12 +288,18 @@ func TestMergeGHComments_Threading(t *testing.T) {
 	cj := &CritJSON{Files: map[string]CritJSONFile{}}
 	ghComments := []ghComment{
 		{ID: 101, Path: "server.go", Line: 42, Side: "RIGHT",
-			Body: "Too complex", User: struct{ Login string `json:"login"` }{"reviewer"}, CreatedAt: "2025-01-01T00:00:00Z"},
+			Body: "Too complex", User: struct {
+				Login string `json:"login"`
+			}{"reviewer"}, CreatedAt: "2025-01-01T00:00:00Z"},
 		{ID: 102, Path: "server.go", Line: 42, Side: "RIGHT",
-			Body: "Agreed, split it", User: struct{ Login string `json:"login"` }{"author"}, CreatedAt: "2025-01-01T00:01:00Z",
+			Body: "Agreed, split it", User: struct {
+				Login string `json:"login"`
+			}{"author"}, CreatedAt: "2025-01-01T00:01:00Z",
 			InReplyToID: 101},
 		{ID: 103, Path: "server.go", Line: 42, Side: "RIGHT",
-			Body: "Will do", User: struct{ Login string `json:"login"` }{"reviewer"}, CreatedAt: "2025-01-01T00:02:00Z",
+			Body: "Will do", User: struct {
+				Login string `json:"login"`
+			}{"reviewer"}, CreatedAt: "2025-01-01T00:02:00Z",
 			InReplyToID: 101},
 	}
 
@@ -325,13 +331,17 @@ func TestMergeGHComments_ThreadDedup(t *testing.T) {
 	cj := &CritJSON{Files: map[string]CritJSONFile{}}
 	ghComments := []ghComment{
 		{ID: 101, Path: "server.go", Line: 42, Side: "RIGHT",
-			Body: "Fix this", User: struct{ Login string `json:"login"` }{"reviewer"}, CreatedAt: "2025-01-01T00:00:00Z"},
+			Body: "Fix this", User: struct {
+				Login string `json:"login"`
+			}{"reviewer"}, CreatedAt: "2025-01-01T00:00:00Z"},
 		{ID: 102, Path: "server.go", Line: 42, Side: "RIGHT",
-			Body: "Done", User: struct{ Login string `json:"login"` }{"author"}, CreatedAt: "2025-01-01T00:01:00Z",
+			Body: "Done", User: struct {
+				Login string `json:"login"`
+			}{"author"}, CreatedAt: "2025-01-01T00:01:00Z",
 			InReplyToID: 101},
 	}
 
-	mergeGHComments(cj, ghComments) // first pull
+	mergeGHComments(cj, ghComments)          // first pull
 	added := mergeGHComments(cj, ghComments) // second pull (should dedup)
 
 	cf := cj.Files["server.go"]
@@ -351,9 +361,13 @@ func TestMergeGHComments_NewReplyOnExistingRoot(t *testing.T) {
 	// First pull: root + 1 reply
 	ghComments1 := []ghComment{
 		{ID: 101, Path: "server.go", Line: 42, Side: "RIGHT",
-			Body: "Fix this", User: struct{ Login string `json:"login"` }{"reviewer"}, CreatedAt: "2025-01-01T00:00:00Z"},
+			Body: "Fix this", User: struct {
+				Login string `json:"login"`
+			}{"reviewer"}, CreatedAt: "2025-01-01T00:00:00Z"},
 		{ID: 102, Path: "server.go", Line: 42, Side: "RIGHT",
-			Body: "Done", User: struct{ Login string `json:"login"` }{"author"}, CreatedAt: "2025-01-01T00:01:00Z",
+			Body: "Done", User: struct {
+				Login string `json:"login"`
+			}{"author"}, CreatedAt: "2025-01-01T00:01:00Z",
 			InReplyToID: 101},
 	}
 	mergeGHComments(cj, ghComments1)
@@ -361,12 +375,18 @@ func TestMergeGHComments_NewReplyOnExistingRoot(t *testing.T) {
 	// Second pull: same root + old reply + new reply
 	ghComments2 := []ghComment{
 		{ID: 101, Path: "server.go", Line: 42, Side: "RIGHT",
-			Body: "Fix this", User: struct{ Login string `json:"login"` }{"reviewer"}, CreatedAt: "2025-01-01T00:00:00Z"},
+			Body: "Fix this", User: struct {
+				Login string `json:"login"`
+			}{"reviewer"}, CreatedAt: "2025-01-01T00:00:00Z"},
 		{ID: 102, Path: "server.go", Line: 42, Side: "RIGHT",
-			Body: "Done", User: struct{ Login string `json:"login"` }{"author"}, CreatedAt: "2025-01-01T00:01:00Z",
+			Body: "Done", User: struct {
+				Login string `json:"login"`
+			}{"author"}, CreatedAt: "2025-01-01T00:01:00Z",
 			InReplyToID: 101},
 		{ID: 103, Path: "server.go", Line: 42, Side: "RIGHT",
-			Body: "Thanks!", User: struct{ Login string `json:"login"` }{"reviewer"}, CreatedAt: "2025-01-01T00:02:00Z",
+			Body: "Thanks!", User: struct {
+				Login string `json:"login"`
+			}{"reviewer"}, CreatedAt: "2025-01-01T00:02:00Z",
 			InReplyToID: 101},
 	}
 	added := mergeGHComments(cj, ghComments2)
@@ -398,7 +418,9 @@ func TestMergeGHComments_OrphanReply(t *testing.T) {
 	// Pull only the reply (root is not in the ghComments list)
 	ghComments := []ghComment{
 		{ID: 102, Path: "server.go", Line: 42, Side: "RIGHT",
-			Body: "Done", User: struct{ Login string `json:"login"` }{"author"}, CreatedAt: "2025-01-01T00:01:00Z",
+			Body: "Done", User: struct {
+				Login string `json:"login"`
+			}{"author"}, CreatedAt: "2025-01-01T00:01:00Z",
 			InReplyToID: 101},
 	}
 	added := mergeGHComments(cj, ghComments)
@@ -422,9 +444,13 @@ func TestMergeGHComments_FlatCommentsStillWork(t *testing.T) {
 	cj := &CritJSON{Files: map[string]CritJSONFile{}}
 	ghComments := []ghComment{
 		{ID: 201, Path: "main.go", Line: 10, Side: "RIGHT",
-			Body: "Fix this bug", User: struct{ Login string `json:"login"` }{"reviewer1"}, CreatedAt: "2025-01-01T00:00:00Z"},
+			Body: "Fix this bug", User: struct {
+				Login string `json:"login"`
+			}{"reviewer1"}, CreatedAt: "2025-01-01T00:00:00Z"},
 		{ID: 202, Path: "main.go", Line: 25, StartLine: 20, Side: "RIGHT",
-			Body: "Refactor this", User: struct{ Login string `json:"login"` }{"reviewer2"}, CreatedAt: "2025-01-01T00:00:00Z"},
+			Body: "Refactor this", User: struct {
+				Login string `json:"login"`
+			}{"reviewer2"}, CreatedAt: "2025-01-01T00:00:00Z"},
 	}
 
 	added := mergeGHComments(cj, ghComments)
@@ -452,12 +478,18 @@ func TestMergeGHComments_ReplySortedByCreatedAt(t *testing.T) {
 	// Replies intentionally out of order
 	ghComments := []ghComment{
 		{ID: 301, Path: "util.go", Line: 5, Side: "RIGHT",
-			Body: "Root", User: struct{ Login string `json:"login"` }{"alice"}, CreatedAt: "2025-01-01T00:00:00Z"},
+			Body: "Root", User: struct {
+				Login string `json:"login"`
+			}{"alice"}, CreatedAt: "2025-01-01T00:00:00Z"},
 		{ID: 303, Path: "util.go", Line: 5, Side: "RIGHT",
-			Body: "Third", User: struct{ Login string `json:"login"` }{"alice"}, CreatedAt: "2025-01-01T00:03:00Z",
+			Body: "Third", User: struct {
+				Login string `json:"login"`
+			}{"alice"}, CreatedAt: "2025-01-01T00:03:00Z",
 			InReplyToID: 301},
 		{ID: 302, Path: "util.go", Line: 5, Side: "RIGHT",
-			Body: "Second", User: struct{ Login string `json:"login"` }{"bob"}, CreatedAt: "2025-01-01T00:01:00Z",
+			Body: "Second", User: struct {
+				Login string `json:"login"`
+			}{"bob"}, CreatedAt: "2025-01-01T00:01:00Z",
 			InReplyToID: 301},
 	}
 

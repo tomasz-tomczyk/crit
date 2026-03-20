@@ -245,18 +245,18 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 
 func carryForwardComment(old Comment, newID string, now string) Comment {
 	return Comment{
-		ID:              newID,
-		StartLine:       old.StartLine,
-		EndLine:         old.EndLine,
-		Side:            old.Side,
-		Body:            old.Body,
-		Author:          old.Author,
-		CreatedAt:       old.CreatedAt,
+		ID:             newID,
+		StartLine:      old.StartLine,
+		EndLine:        old.EndLine,
+		Side:           old.Side,
+		Body:           old.Body,
+		Author:         old.Author,
+		CreatedAt:      old.CreatedAt,
 		UpdatedAt:      now,
 		Resolved:       old.Resolved,
 		CarriedForward: true,
-		ReviewRound:     old.ReviewRound,
-		Replies:         old.Replies,
+		ReviewRound:    old.ReviewRound,
+		Replies:        old.Replies,
 	}
 }
 

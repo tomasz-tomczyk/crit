@@ -381,10 +381,9 @@ func TestHelperProcess_CommentJSONMix(t *testing.T) {
 func TestResolveServerConfig_BaseBranch(t *testing.T) {
 	// Reset global state before and after
 	orig := defaultBranchOverride
-	origOnce := defaultBranchOnce
 	defer func() {
 		defaultBranchOverride = orig
-		defaultBranchOnce = origOnce
+		defaultBranchOnce = sync.Once{}
 	}()
 
 	t.Run("CLI flag sets override", func(t *testing.T) {

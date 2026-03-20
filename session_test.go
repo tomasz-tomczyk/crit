@@ -1531,18 +1531,18 @@ func TestSession_LoadCritJSON_RestoresReviewRound(t *testing.T) {
 
 func TestCarryForwardComment(t *testing.T) {
 	old := Comment{
-		ID:              "original-id",
-		StartLine:       5,
-		EndLine:         10,
-		Side:            "RIGHT",
-		Body:            "needs refactoring",
-		Quote:           "func foo() {}",
-		Author:          "reviewer-bot",
-		CreatedAt:       "2026-01-01T00:00:00Z",
-		UpdatedAt:       "2026-01-01T00:00:00Z",
+		ID:             "original-id",
+		StartLine:      5,
+		EndLine:        10,
+		Side:           "RIGHT",
+		Body:           "needs refactoring",
+		Quote:          "func foo() {}",
+		Author:         "reviewer-bot",
+		CreatedAt:      "2026-01-01T00:00:00Z",
+		UpdatedAt:      "2026-01-01T00:00:00Z",
 		Resolved:       true,
 		CarriedForward: false,
-		ReviewRound:     1,
+		ReviewRound:    1,
 	}
 
 	carried := carryForwardComment(old, "c42", "2026-02-01T00:00:00Z")

@@ -28,20 +28,20 @@ type Reply struct {
 
 // Comment represents a single inline review comment.
 type Comment struct {
-	ID              string  `json:"id"`
-	StartLine       int     `json:"start_line"`
-	EndLine         int     `json:"end_line"`
-	Side            string  `json:"side,omitempty"`
-	Body            string  `json:"body"`
-	Quote           string  `json:"quote,omitempty"`
-	Author          string  `json:"author,omitempty"`
-	CreatedAt       string  `json:"created_at"`
-	UpdatedAt       string  `json:"updated_at"`
-	Resolved       bool `json:"resolved,omitempty"`
-	CarriedForward bool `json:"carried_forward,omitempty"`
-	ReviewRound     int     `json:"review_round,omitempty"`
-	Replies         []Reply `json:"replies,omitempty"`
-	GitHubID        int64   `json:"github_id,omitempty"`
+	ID             string  `json:"id"`
+	StartLine      int     `json:"start_line"`
+	EndLine        int     `json:"end_line"`
+	Side           string  `json:"side,omitempty"`
+	Body           string  `json:"body"`
+	Quote          string  `json:"quote,omitempty"`
+	Author         string  `json:"author,omitempty"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
+	Resolved       bool    `json:"resolved,omitempty"`
+	CarriedForward bool    `json:"carried_forward,omitempty"`
+	ReviewRound    int     `json:"review_round,omitempty"`
+	Replies        []Reply `json:"replies,omitempty"`
+	GitHubID       int64   `json:"github_id,omitempty"`
 }
 
 // SSEEvent is sent to the browser via server-sent events.

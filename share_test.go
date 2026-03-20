@@ -618,7 +618,7 @@ func TestLoadExistingShareState_ScopeMismatch(t *testing.T) {
 	}
 
 	// Same file set — should return share state
-	url, token = loadExistingShareState(dir, []string{"old-plan.md"})
+	url, _ = loadExistingShareState(dir, []string{"old-plan.md"})
 	if url != "https://crit.md/r/old" {
 		t.Errorf("expected URL for matching scope, got %q", url)
 	}
