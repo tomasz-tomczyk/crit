@@ -62,6 +62,8 @@ func main() {
 		runPush(os.Args[2:])
 	case "comment":
 		runComment(os.Args[2:])
+	case "_serve":
+		runServe(os.Args[2:])
 	default:
 		runServer(os.Args[1:])
 	}
@@ -937,6 +939,93 @@ func runServer(args []string) {
 	<-ctx.Done()
 	close(watchStop)
 	fmt.Println()
+
+	session.Shutdown()
+	session.WriteFiles()
+
+	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = httpServer.Shutdown(shutCtx)
+}
+
+func runServe(args []string) {
+	sc, err := resolveServerConfig(args)
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+	if sc == nil {
+		return
+	}
+
+	// Force quiet mode — daemon runs in background, no terminal output
+	sc.quiet = true
+
+	var session *Session
+	if len(sc.files) == 0 {
+		if !IsGitRepo() {
+			fmt.Fprintln(os.Stderr, "Error: not in a git repository and no files specified")
+			os.Exit(1)
+		}
+		session, err = NewSessionFromGit(sc.ignorePatterns)
+	} else {
+		session, err = NewSessionFromFiles(sc.files, sc.ignorePatterns)
+	}
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+
+	if sc.outputDir != "" {
+		abs, _ := filepath.Abs(sc.outputDir)
+		session.OutputDir = abs
+	}
+
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", sc.port))
+	if err != nil {
+		log.Fatalf("Error starting server: %v", err)
+	}
+	addr := listener.Addr().(*net.TCPAddr)
+
+	srv, err := NewServer(session, frontendFS, sc.shareURL, sc.author, version, addr.Port)
+	if err != nil {
+		log.Fatalf("Error creating server: %v", err)
+	}
+
+	httpServer := &http.Server{
+		Handler:     srv,
+		ReadTimeout: 15 * time.Second,
+		IdleTimeout: 60 * time.Second,
+	}
+
+	// Write daemon state file so clients can discover us
+	statePath := daemonStatePath()
+	if err := writeDaemonState(statePath, daemonState{
+		PID:  os.Getpid(),
+		Port: addr.Port,
+	}); err != nil {
+		log.Fatalf("Error writing daemon state: %v", err)
+	}
+
+	if !sc.noOpen {
+		go openBrowser(fmt.Sprintf("http://localhost:%d", addr.Port))
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	watchStop := make(chan struct{})
+	go session.Watch(watchStop)
+
+	go func() {
+		if err := httpServer.Serve(listener); err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	close(watchStop)
+
+	// Cleanup daemon state
+	removeDaemonState(statePath)
 
 	session.Shutdown()
 	session.WriteFiles()

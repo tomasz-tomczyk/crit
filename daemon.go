@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -72,4 +73,88 @@ func isDaemonAlive(s daemonState) bool {
 	}
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+// startDaemon spawns a crit _serve process in the background and waits for it to be ready.
+// Returns the daemon state (PID + port) on success.
+func startDaemon(args []string, port int) (daemonState, error) {
+	statePath := daemonStatePath()
+
+	// Build command: crit _serve [--port N] [args...]
+	selfPath, err := os.Executable()
+	if err != nil {
+		return daemonState{}, fmt.Errorf("finding executable: %w", err)
+	}
+
+	cmdArgs := []string{"_serve"}
+	if port > 0 {
+		cmdArgs = append(cmdArgs, "--port", fmt.Sprintf("%d", port))
+	}
+	cmdArgs = append(cmdArgs, args...)
+
+	cmd := exec.Command(selfPath, cmdArgs...)
+	cmd.Dir, _ = os.Getwd()
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+
+	// Detach from parent process group so it survives parent exit
+	cmd.SysProcAttr = daemonSysProcAttr()
+
+	if err := cmd.Start(); err != nil {
+		return daemonState{}, fmt.Errorf("starting daemon: %w", err)
+	}
+
+	// Wait for daemon to write its state file (poll up to 5 seconds)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+		state, err := readDaemonState(statePath)
+		if err != nil {
+			continue
+		}
+		if isDaemonAlive(state) {
+			return state, nil
+		}
+	}
+
+	return daemonState{}, fmt.Errorf("daemon did not start within 5 seconds")
+}
+
+func daemonSysProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{
+		Setpgid: true, // new process group, survives parent exit
+	}
+}
+
+// stopDaemon verifies the daemon is ours via HTTP health check, then sends SIGTERM.
+func stopDaemon() error {
+	statePath := daemonStatePath()
+	state, err := readDaemonState(statePath)
+	if err != nil {
+		return fmt.Errorf("no daemon state found: %w", err)
+	}
+
+	// Verify this PID is actually our crit daemon (not a reused PID)
+	if !isDaemonAlive(state) {
+		// PID is dead or port belongs to something else — just clean up
+		removeDaemonState(statePath)
+		return nil
+	}
+
+	proc, err := os.FindProcess(state.PID)
+	if err != nil {
+		removeDaemonState(statePath)
+		return nil
+	}
+
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		removeDaemonState(statePath)
+		return nil // already gone
+	}
+
+	// Wait briefly for clean shutdown
+	time.Sleep(500 * time.Millisecond)
+	removeDaemonState(statePath)
+	return nil
 }
