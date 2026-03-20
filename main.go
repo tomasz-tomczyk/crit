@@ -62,6 +62,10 @@ func main() {
 		runPush(os.Args[2:])
 	case "comment":
 		runComment(os.Args[2:])
+	case "review":
+		runReview(os.Args[2:])
+	case "stop":
+		runStop()
 	case "_serve":
 		runServe(os.Args[2:])
 	default:
@@ -730,6 +734,71 @@ func runComment(args []string) {
 	fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
 }
 
+func runReview(args []string) {
+	// Resolve port from config (same precedence as server)
+	configPort := 0
+	dir, _ := os.Getwd()
+	cfg := LoadConfig(dir)
+	if cfg.Port != 0 {
+		configPort = cfg.Port
+	}
+	if envPort := os.Getenv("CRIT_PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil {
+			configPort = p
+		}
+	}
+
+	// Check for running daemon
+	statePath := daemonStatePath()
+	state, err := readDaemonState(statePath)
+	if err == nil && isDaemonAlive(state) {
+		// Daemon already running — use it
+		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", state.Port)
+	} else {
+		// Start new daemon
+		removeDaemonState(statePath) // clean up stale state
+		state, err = startDaemon(args, configPort)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "Started crit daemon on port %d (PID %d)\n", state.Port, state.PID)
+	}
+
+	// Long-poll the review-cycle endpoint (blocks until user finishes review)
+	client := &http.Client{Timeout: 24 * time.Hour}
+	resp, err := client.Post(
+		fmt.Sprintf("http://localhost:%d/api/review-cycle", state.Port),
+		"application/json",
+		nil,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not reach crit daemon on port %d: %v\n", state.Port, err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusGatewayTimeout {
+		fmt.Fprintln(os.Stderr, "Timeout waiting for review")
+		os.Exit(1)
+	}
+
+	// Print feedback to stdout (same format as crit listen)
+	_, err = io.Copy(os.Stdout, resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runStop() {
+	if err := stopDaemon(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Daemon stopped.")
+}
+
 func plural(n int) string {
 	if n == 1 {
 		return ""
@@ -1076,6 +1145,8 @@ Usage:
   crit <file|dir> [...]                      Review specific files or directories
   crit go <port>                             Signal round-complete to a running crit instance
   crit listen <port>                         Wait for review to finish on a running crit instance
+  crit review                                  Unified review cycle (starts daemon if needed)
+  crit stop                                    Stop the background crit daemon
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
   crit comment --reply-to <id> [--resolve] [--author <name>] <body>  Reply to a comment
   crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON
