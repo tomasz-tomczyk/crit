@@ -82,7 +82,7 @@ Rules:
 - **Line numbers** reference the file as it exists on disk (1-indexed), not diff line numbers
 - **Comments are appended** — calling `crit comment` multiple times adds to the list, never replaces
 - **No setup needed** — `crit comment` creates `.crit.json` automatically if it doesn't exist
-- **Do NOT run `crit go` after leaving comments** — that triggers a new review round. Only the `/crit` command flow uses `crit go`, and only after addressing (not leaving) comments
+- **Do NOT run `crit` after leaving comments** — that triggers a new review round
 
 ### Bulk commenting (recommended for multiple comments)
 

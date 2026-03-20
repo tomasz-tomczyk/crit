@@ -9,7 +9,7 @@ compatibility: opencode
 - Launch Crit for a plan file or the current git diff.
 - Wait for the user to review changes in the browser.
 - Read `.crit.json` and address unresolved inline comments.
-- Signal the next review round with `crit go <port>` when edits are done.
+- Signal the next review round with `crit` when edits are done.
 - Leave inline review comments programmatically with `crit comment`.
 - Sync reviews with GitHub PRs via `crit pull` and `crit push`.
 
@@ -84,7 +84,7 @@ Rules:
 - **Line numbers** reference the file as it exists on disk (1-indexed), not diff line numbers
 - **Comments are appended** — calling `crit comment` multiple times adds to the list, never replaces
 - **No setup needed** — `crit comment` creates `.crit.json` automatically if it doesn't exist
-- **Do NOT run `crit go` after leaving comments** — that triggers a new review round
+- **Do NOT run `crit` after leaving comments** — that triggers a new review round
 
 ### Bulk commenting (recommended for multiple comments)
 

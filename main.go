@@ -46,10 +46,6 @@ func main() {
 		printHelp()
 	case "--version", "-v":
 		printVersion()
-	case "go":
-		runGo(os.Args[2:])
-	case "listen":
-		runListen(os.Args[2:])
 	case "share":
 		runShare(os.Args[2:])
 	case "unpublish":
@@ -75,42 +71,7 @@ func main() {
 	}
 }
 
-func runGo(args []string) {
-	port := requirePort(args, "crit go <port>")
-	resp, err := http.Post("http://localhost:"+port+"/api/round-complete", "application/json", nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: could not reach crit on port %s: %v\n", port, err)
-		os.Exit(1)
-	}
-	resp.Body.Close()
-	if resp.StatusCode == 200 {
-		fmt.Println("Round complete — crit will reload.")
-		newStatus(os.Stdout).ListenHint(port)
-	} else {
-		fmt.Fprintf(os.Stderr, "Unexpected status: %d\n", resp.StatusCode)
-		os.Exit(1)
-	}
-}
 
-func runListen(args []string) {
-	port := requirePort(args, "crit listen <port>")
-	client := &http.Client{Timeout: 24 * time.Hour}
-	resp, err := client.Get("http://localhost:" + port + "/api/wait-for-event")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: could not reach crit on port %s: %v\n", port, err)
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusGatewayTimeout {
-		fmt.Fprintln(os.Stderr, "Timeout waiting for event")
-		os.Exit(1)
-	}
-	_, err = io.Copy(os.Stdout, resp.Body)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
-		os.Exit(1)
-	}
-}
 
 func runShare(args []string) {
 	shareOutputDir := ""
@@ -1131,38 +1092,7 @@ func runServe(args []string) {
 	_ = httpServer.Shutdown(shutCtx)
 }
 
-// requirePort resolves the port from CLI args, then config, or exits with an error.
-func requirePort(args []string, usage string) string {
-	port := ""
-	if len(args) > 0 {
-		port = args[0]
-	}
-	if port == "" {
-		port = resolvePort()
-	}
-	if port == "" {
-		fmt.Fprintf(os.Stderr, "Error: port is required. Usage: %s\n", usage)
-		os.Exit(1)
-	}
-	if _, err := strconv.Atoi(port); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid port %q\n", port)
-		os.Exit(1)
-	}
-	return port
-}
 
-// resolvePort returns the configured port as a string, or empty if not configured.
-func resolvePort() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	cfg := LoadConfig(dir)
-	if cfg.Port != 0 {
-		return fmt.Sprintf("%d", cfg.Port)
-	}
-	return ""
-}
 
 func printHelp() {
 	fmt.Fprintf(os.Stderr, `crit — inline code review for AI agent workflows
@@ -1170,10 +1100,7 @@ func printHelp() {
 Usage:
   crit                                       Auto-detect changed files via git
   crit <file|dir> [...]                      Review specific files or directories
-  crit go <port>                             Signal round-complete to a running crit instance
-  crit listen <port>                         Wait for review to finish on a running crit instance
-  crit review                                  Unified review cycle (starts daemon if needed)
-  crit stop                                    Stop the background crit daemon
+  crit stop                                  Stop the background crit daemon
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
   crit comment --reply-to <id> [--resolve] [--author <name>] <body>  Reply to a comment
   crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON

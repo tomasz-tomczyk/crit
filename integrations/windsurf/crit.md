@@ -22,13 +22,15 @@ crit $PLAN_FILE
 crit
 ```
 
-**CRITICAL — you MUST run `crit listen <port>` after launching crit.** Run it in the foreground and block until it exits:
+**CRITICAL — you MUST run `crit` and block until it completes.**
+
+Run `crit` (it starts the daemon if needed, opens the browser, and blocks until the user clicks "Finish Review"):
 
 ```bash
-crit listen <port>
+crit
 ```
 
-**Do NOT proceed until `crit listen` completes.** Do NOT ask the user to type anything. Do NOT read `.crit.json` early. `crit listen` blocks until the user clicks Finish Review — that is how you know they are done.
+**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read `.crit.json` early. `crit` blocks until the user clicks Finish Review — that is how you know they are done.
 
 ## After review
 
@@ -43,7 +45,7 @@ echo '[
 ]' | crit comment --json --author 'Windsurf'
 ```
 
-When done, run `crit go <port>` to trigger a new round, then **immediately run `crit listen <port>` again** to wait for the next review. Do NOT skip `crit listen` between rounds.
+When done, run `crit` again to signal round-complete and wait for the next review. On subsequent calls, `crit` automatically signals round-complete first, then blocks again until the next "Finish Review" click.
 
 Only proceed after the user approves (finishes a round with zero comments).
 
