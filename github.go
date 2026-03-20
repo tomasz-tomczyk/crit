@@ -412,9 +412,9 @@ func critJSONToGHComments(cj CritJSON) []map[string]any {
 }
 
 // buildReviewPayload constructs the JSON body for a GitHub PR review request.
-func buildReviewPayload(comments []map[string]any, message string) ([]byte, error) {
+func buildReviewPayload(comments []map[string]any, message string, event string) ([]byte, error) {
 	review := map[string]any{
-		"event":    "COMMENT",
+		"event":    event,
 		"body":     message,
 		"comments": comments,
 	}
@@ -425,7 +425,7 @@ func buildReviewPayload(comments []map[string]any, message string) ([]byte, erro
 // message is the top-level review body (empty string posts no top-level comment).
 // Returns a map of "path:endLine" -> GitHubID for each created comment.
 func createGHReview(prNumber int, comments []map[string]any, message string) (map[string]int64, error) {
-	data, err := buildReviewPayload(comments, message)
+	data, err := buildReviewPayload(comments, message, "COMMENT")
 	if err != nil {
 		return nil, fmt.Errorf("marshaling review: %w", err)
 	}

@@ -109,7 +109,7 @@ func TestMergeGHComments_SkipsNoLineComments(t *testing.T) {
 
 func TestBuildReviewPayload_EmptyMessageByDefault(t *testing.T) {
 	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "fix"}}
-	data, err := buildReviewPayload(comments, "")
+	data, err := buildReviewPayload(comments, "", "COMMENT")
 	if err != nil {
 		t.Fatalf("buildReviewPayload: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestBuildReviewPayload_EmptyMessageByDefault(t *testing.T) {
 
 func TestBuildReviewPayload_CustomMessage(t *testing.T) {
 	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "fix"}}
-	data, err := buildReviewPayload(comments, "Round 2 review")
+	data, err := buildReviewPayload(comments, "Round 2 review", "COMMENT")
 	if err != nil {
 		t.Fatalf("buildReviewPayload: %v", err)
 	}
@@ -137,6 +137,39 @@ func TestBuildReviewPayload_CustomMessage(t *testing.T) {
 	}
 	if payload["body"] != "Round 2 review" {
 		t.Errorf("body = %q, want %q", payload["body"], "Round 2 review")
+	}
+}
+
+func TestBuildReviewPayload_ApproveEvent(t *testing.T) {
+	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "lgtm"}}
+	data, err := buildReviewPayload(comments, "", "APPROVE")
+	if err != nil {
+		t.Fatalf("buildReviewPayload: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload["event"] != "APPROVE" {
+		t.Errorf("event = %q, want APPROVE", payload["event"])
+	}
+}
+
+func TestBuildReviewPayload_RequestChangesEvent(t *testing.T) {
+	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "fix this"}}
+	data, err := buildReviewPayload(comments, "Needs work", "REQUEST_CHANGES")
+	if err != nil {
+		t.Fatalf("buildReviewPayload: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload["event"] != "REQUEST_CHANGES" {
+		t.Errorf("event = %q, want REQUEST_CHANGES", payload["event"])
+	}
+	if payload["body"] != "Needs work" {
+		t.Errorf("body = %q, want %q", payload["body"], "Needs work")
 	}
 }
 
