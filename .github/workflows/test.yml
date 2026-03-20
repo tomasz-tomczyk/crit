@@ -25,9 +25,43 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
 
       - name: Build Nix package
-        run: nix build .
+        id: nix-build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          log_file=$(mktemp)
+          nix build . 2>&1 | tee "$log_file"
+          status=${PIPESTATUS[0]}
+          echo "log_file=$log_file" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Report expected Nix vendor hash
+        if: steps.nix-build.outcome == 'failure'
+        shell: bash
+        run: |
+          hash=$(grep -oE 'got:[[:space:]]*sha256-[A-Za-z0-9+/=]+' "${{ steps.nix-build.outputs.log_file }}" | sed -E 's/^got:[[:space:]]*//' | tail -n1 || true)
+
+          if [ -n "$hash" ]; then
+            echo "Expected vendorHash: $hash"
+            echo "::error::Nix vendor hash mismatch. Update flake.nix to use $hash"
+            {
+              echo "### Nix vendor hash mismatch"
+              echo
+              echo 'Set `vendorHash` in `flake.nix` to:'
+              echo
+              echo "\`\`\`nix"
+              echo "$hash"
+              echo "\`\`\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::Nix build failed. Could not extract a replacement vendor hash from the build log."
+          fi
+
+          exit 1
 
       - name: Smoke test Nix app
+        if: steps.nix-build.outcome == 'success'
         run: nix run . -- --help
 
   e2e:
