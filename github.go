@@ -424,8 +424,8 @@ func buildReviewPayload(comments []map[string]any, message string, event string)
 // createGHReview posts a review with inline comments to a GitHub PR.
 // message is the top-level review body (empty string posts no top-level comment).
 // Returns a map of "path:endLine" -> GitHubID for each created comment.
-func createGHReview(prNumber int, comments []map[string]any, message string) (map[string]int64, error) {
-	data, err := buildReviewPayload(comments, message, "COMMENT")
+func createGHReview(prNumber int, comments []map[string]any, message string, event string) (map[string]int64, error) {
+	data, err := buildReviewPayload(comments, message, event)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling review: %w", err)
 	}

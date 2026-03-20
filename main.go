@@ -478,7 +478,7 @@ func runPush(args []string) {
 	}
 
 	fmt.Printf("Pushing %d comments to PR #%d...\n", len(ghComments), prNumber)
-	commentIDs, err := createGHReview(prNumber, ghComments, message)
+	commentIDs, err := createGHReview(prNumber, ghComments, message, "COMMENT")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
