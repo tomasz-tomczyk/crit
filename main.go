@@ -756,6 +756,8 @@ func runReview(args []string) {
 	// Check for running daemon
 	statePath := critJSONPathForDaemon()
 	state, err := readDaemonState(statePath)
+	weStartedDaemon := false
+
 	if err == nil && isDaemonAlive(state) && len(args) == 0 {
 		// No file args — connect to existing daemon
 		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", state.Port)
@@ -768,6 +770,21 @@ func runReview(args []string) {
 			os.Exit(1)
 		}
 		fmt.Fprintf(os.Stderr, "Started crit daemon on port %d (PID %d)\n", state.Port, state.PID)
+		weStartedDaemon = true
+	}
+
+	// If we started the daemon, clean it up on Ctrl+C
+	if weStartedDaemon {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			// Kill the daemon we started
+			if proc, err := os.FindProcess(state.PID); err == nil {
+				proc.Signal(syscall.SIGTERM)
+			}
+			os.Exit(0)
+		}()
 	}
 
 	runReviewClient(state)
