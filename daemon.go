@@ -134,15 +134,19 @@ func startDaemon(args []string, port int) (daemonState, error) {
 	// Detach from parent process group so it survives parent exit
 	cmd.SysProcAttr = daemonSysProcAttr()
 
+	// Clear existing daemon state so the poll loop doesn't find an old daemon
+	removeDaemonState(statePath)
+
 	if err := cmd.Start(); err != nil {
 		return daemonState{}, fmt.Errorf("starting daemon: %w", err)
 	}
+	newPID := cmd.Process.Pid
 
 	// Monitor for early exit in background
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 
-	// Wait for daemon to write its state file (poll up to 5 seconds)
+	// Wait for OUR daemon to write its state file (poll up to 5 seconds)
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		select {
@@ -160,7 +164,8 @@ func startDaemon(args []string, port int) (daemonState, error) {
 		if err != nil {
 			continue
 		}
-		if isDaemonAlive(state) {
+		// Verify this is OUR daemon, not a leftover from a previous one
+		if state.PID == newPID && isDaemonAlive(state) {
 			return state, nil
 		}
 	}
