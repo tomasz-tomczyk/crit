@@ -3,8 +3,11 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE ?= $(shell date -u +%Y-%m-%d)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-build:
+build: generate
 	go build -ldflags "$(LDFLAGS)" -o crit .
+
+generate:
+	go generate ./...
 
 build-all:
 	mkdir -p dist
@@ -42,4 +45,4 @@ e2e-failed:
 e2e-report:
 	cd e2e && npx playwright show-report
 
-.PHONY: build build-all update-deps test setup-hooks clean test-diff test-daemon e2e e2e-failed e2e-report
+.PHONY: build build-all generate update-deps test setup-hooks clean test-diff test-daemon e2e e2e-failed e2e-report
