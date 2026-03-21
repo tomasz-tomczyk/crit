@@ -3786,6 +3786,7 @@
           body: body.trim()
         };
         if (formObj.quote) payload.quote = formObj.quote;
+        if (formObj.quoteOffset != null) payload.quote_offset = formObj.quoteOffset;
         if (formObj.side) payload.side = formObj.side;
         if (configAuthor) payload.author = configAuthor;
         const res = await fetch('/api/file/comments?path=' + enc(filePath), {
@@ -4164,7 +4165,7 @@
     const formQuotes = getFormsForFile(file.path)
       .filter(function(f) { return f.quote && !f.editingId; })
       .map(function(f) {
-        return { start_line: f.startLine, end_line: f.endLine, quote: f.quote, id: 'draft-' + f.formKey, side: f.side };
+        return { start_line: f.startLine, end_line: f.endLine, quote: f.quote, quote_offset: f.quoteOffset, id: 'draft-' + f.formKey, side: f.side };
       });
     const allQuoted = quotedComments.concat(formQuotes);
     if (allQuoted.length === 0) return;
@@ -4213,7 +4214,17 @@
       const fullText = textNodes.map(function(n) { return n.textContent; }).join('');
       const normalizedQuote = comment.quote.replace(/\s+/g, ' ');
       const normalizedFull = fullText.replace(/\s+/g, ' ');
-      let quoteIdx = normalizedFull.indexOf(normalizedQuote);
+      let quoteIdx = -1;
+      // Use quote_offset when available to disambiguate duplicate substrings
+      if (comment.quote_offset != null) {
+        var candidateIdx = comment.quote_offset;
+        if (normalizedFull.substr(candidateIdx, normalizedQuote.length) === normalizedQuote) {
+          quoteIdx = candidateIdx;
+        }
+      }
+      if (quoteIdx === -1) {
+        quoteIdx = normalizedFull.indexOf(normalizedQuote);
+      }
       if (quoteIdx === -1) {
         quoteIdx = normalizedFull.toLowerCase().indexOf(normalizedQuote.toLowerCase());
       }
@@ -5766,6 +5777,7 @@
       // Capture the selected text before clearing, for the quote field.
       // If the selection covers the full text of the line range, skip it — redundant.
       let quote = null;
+      let quoteOffset = null;
       try {
         let selectedText = selection.toString().trim();
         if (selectedText) {
@@ -5774,7 +5786,9 @@
 
           // Get the full text content of the lines in this range to compare.
           // Try both document view (.line-block) and diff view elements.
+          // Also collect content elements in order for offset computation.
           let fullText = '';
+          var contentEls = [];
           for (let ln = range.startLine; ln <= range.endLine; ln++) {
             // Document view
             document.querySelectorAll('.line-block[data-file-path]').forEach(function(el) {
@@ -5782,7 +5796,10 @@
               const s = parseInt(el.dataset.startLine), e = parseInt(el.dataset.endLine);
               if (s <= ln && e >= ln) {
                 let content = el.querySelector('.line-content');
-                if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
+                if (content && contentEls.indexOf(content) === -1) {
+                  fullText += (fullText ? '\n' : '') + content.textContent.trim();
+                  contentEls.push(content);
+                }
               }
             });
             // Diff view — filter by side so unified diff doesn't double-count
@@ -5791,7 +5808,10 @@
               if (el.dataset.diffFilePath !== range.filePath) return;
               if (el.dataset.diffSide !== selSide) return;
               const content = el.querySelector('.diff-content');
-              if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
+              if (content && contentEls.indexOf(content) === -1) {
+                fullText += (fullText ? '\n' : '') + content.textContent.trim();
+                contentEls.push(content);
+              }
             });
           }
           // Only include quote if it's a partial selection (not the full line content)
@@ -5799,6 +5819,49 @@
           const normalizedFull = fullText.trim().replace(/\s+/g, ' ');
           if (normalizedSelected !== normalizedFull && selectedText.length <= 300) {
             quote = selectedText;
+
+            // Compute quote_offset: character index of the selection start
+            // within the normalized full text.  Disambiguates duplicate
+            // substrings (e.g. "foo foo foo" — selecting the last "foo").
+            try {
+              // Determine which end of the selection comes first in document order
+              var selRange = selection.getRangeAt(0);
+              var startContainer = selRange.startContainer;
+              var startOff = selRange.startOffset;
+
+              // Walk content elements to find total chars before selection start
+              var charsBefore = 0;
+              var foundEl = false;
+              for (var ci = 0; ci < contentEls.length; ci++) {
+                if (contentEls[ci].contains(startContainer)) {
+                  // Walk text nodes in this element up to the start node
+                  var walker = document.createTreeWalker(contentEls[ci], NodeFilter.SHOW_TEXT, null);
+                  var tn;
+                  while ((tn = walker.nextNode())) {
+                    if (tn === startContainer) {
+                      charsBefore += startOff;
+                      break;
+                    }
+                    charsBefore += tn.textContent.length;
+                  }
+                  foundEl = true;
+                  break;
+                }
+                charsBefore += contentEls[ci].textContent.length;
+              }
+
+              if (foundEl) {
+                // Build the raw text up to charsBefore, then normalize to get offset
+                var rawAll = '';
+                var rawUpTo = charsBefore;
+                for (var ri = 0; ri < contentEls.length; ri++) {
+                  rawAll += contentEls[ri].textContent;
+                  if (contentEls[ri].contains(startContainer)) break;
+                }
+                var textBefore = rawAll.slice(0, rawUpTo);
+                quoteOffset = textBefore.replace(/\s+/g, ' ').trimStart().length;
+              }
+            } catch (_) { /* offset is a nice-to-have */ }
           }
         }
       } catch (_) { /* quote is a nice-to-have, don't break form opening */ }
@@ -5814,7 +5877,8 @@
         endLine: range.endLine,
         editingId: null,
         side: range.side,
-        quote: quote
+        quote: quote,
+        quoteOffset: quoteOffset
       });
     });
   });
