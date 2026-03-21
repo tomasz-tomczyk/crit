@@ -572,12 +572,13 @@ func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, r
 	return os.WriteFile(critPath, append(out, '\n'), 0644)
 }
 
-// truncateStr returns the first n bytes of s, or all of s if shorter.
+// truncateStr returns the first n runes of s, or all of s if shorter.
 func truncateStr(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n]
+	return string(r[:n])
 }
 
 // loadCritJSON reads .crit.json from disk, or returns a fresh CritJSON if the file doesn't exist.
