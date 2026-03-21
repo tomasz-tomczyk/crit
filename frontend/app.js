@@ -357,11 +357,48 @@
       }
     }
 
-    // Version check
-    if (configRes.latest_version && configRes.version && configRes.latest_version !== configRes.version) {
-      const el = document.getElementById('headerUpdate');
+    // Update notifications (brew upgrade + stale integrations)
+    var updates = [];
+    var hasBrew = configRes.latest_version && configRes.version && configRes.latest_version !== configRes.version;
+    if (hasBrew) {
+      updates.push({
+        label: 'crit ' + configRes.latest_version + ' available',
+        hint: 'brew upgrade crit'
+      });
+    }
+    if (configRes.stale_integrations) {
+      configRes.stale_integrations.forEach(function(si) {
+        updates.push({ label: si.agent + ' plugin outdated', hint: si.hint });
+      });
+    }
+    if (updates.length > 0 && !localStorage.getItem('crit-updates-dismissed-' + configRes.version)) {
+      var el = document.getElementById('headerUpdate');
       el.style.display = '';
-      document.getElementById('updateLink').textContent = configRes.latest_version + ' available';
+      var badge = document.getElementById('updateBadge');
+      badge.textContent = updates.length === 1 ? '1 update' : updates.length + ' updates';
+      var dropdown = document.getElementById('updateDropdown');
+      dropdown.innerHTML = '';
+      updates.forEach(function(u) {
+        var item = document.createElement('div');
+        item.className = 'header-update-item';
+        item.innerHTML = '<span class="header-update-item-label">' + u.label + '</span>'
+          + '<span class="header-update-item-hint"><code>' + u.hint + '</code></span>';
+        item.querySelector('code').addEventListener('click', function() {
+          navigator.clipboard.writeText(u.hint);
+          showMiniToast('Copied to clipboard');
+        });
+        dropdown.appendChild(item);
+      });
+      var dismiss = document.createElement('button');
+      dismiss.className = 'header-update-dismiss';
+      dismiss.textContent = 'Dismiss';
+      dismiss.addEventListener('click', function(e) {
+        e.stopPropagation();
+        localStorage.setItem('crit-updates-dismissed-' + configRes.version, '1');
+        el.style.display = 'none';
+        dropdown.classList.remove('open');
+      });
+      dropdown.appendChild(dismiss);
     }
 
     // Header context: branch name in git mode, filename in single-file file mode
@@ -5529,10 +5566,14 @@
     });
   });
 
-  // ===== Update Dismiss =====
-  window.dismissUpdate = function() {
-    document.getElementById('headerUpdate').style.display = 'none';
-  };
+  // ===== Update Badge Toggle =====
+  document.getElementById('updateBadge').addEventListener('click', function(e) {
+    e.stopPropagation();
+    document.getElementById('updateDropdown').classList.toggle('open');
+  });
+  document.addEventListener('click', function() {
+    document.getElementById('updateDropdown').classList.remove('open');
+  });
 
   // ===== Diff Mode Toggle (Split / Unified) =====
   document.querySelectorAll('#diffModeToggle .toggle-btn').forEach(function(btn) {

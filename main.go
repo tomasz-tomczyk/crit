@@ -1040,7 +1040,11 @@ func runServe(args []string) {
 	// Check for stale integrations (unless disabled)
 	if !sc.noIntegrationCheck && os.Getenv("CRIT_NO_INTEGRATION_CHECK") == "" {
 		if home, err := os.UserHomeDir(); err == nil {
-			go printIntegrationWarnings(cwd, home)
+			stale := checkInstalledIntegrations(cwd, home)
+			srv.staleIntegrations = stale
+			if len(stale) > 0 {
+				go printStaleWarnings(stale)
+			}
 		}
 	}
 

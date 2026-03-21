@@ -173,27 +173,18 @@ func TestCheckInstalledIntegrations_CacheStale(t *testing.T) {
 	}
 }
 
-func TestPrintIntegrationWarnings_NoStale(t *testing.T) {
-	dir := t.TempDir()
-	count := printIntegrationWarnings(dir, dir)
+func TestPrintStaleWarnings_NoStale(t *testing.T) {
+	count := printStaleWarnings(nil)
 	if count != 0 {
-		t.Errorf("expected 0 warnings for empty dir, got %d", count)
+		t.Errorf("expected 0 warnings for nil slice, got %d", count)
 	}
 }
 
-func TestPrintIntegrationWarnings_WithStale(t *testing.T) {
-	dir := t.TempDir()
-
-	// Write stale file
-	ccDest := filepath.Join(dir, ".claude", "commands")
-	if err := os.MkdirAll(ccDest, 0o755); err != nil {
-		t.Fatal(err)
+func TestPrintStaleWarnings_WithStale(t *testing.T) {
+	stale := []staleFile{
+		{agent: "claude-code", file: "crit.md", dest: "/tmp/test/.claude/commands/crit.md", location: locationProject},
 	}
-	if err := os.WriteFile(filepath.Join(ccDest, "crit.md"), []byte("old"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	count := printIntegrationWarnings(dir, dir)
+	count := printStaleWarnings(stale)
 	if count == 0 {
 		t.Error("expected at least 1 warning")
 	}

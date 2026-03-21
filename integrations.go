@@ -138,10 +138,9 @@ func checkInstalledIntegrations(projectDir, homeDir string) []staleFile {
 	return results
 }
 
-// printIntegrationWarnings checks for stale integrations and prints
-// location-specific warnings to stderr. Returns the number of stale files found.
-func printIntegrationWarnings(projectDir, homeDir string) int {
-	stale := checkInstalledIntegrations(projectDir, homeDir)
+// printStaleWarnings prints location-specific warnings for stale integrations
+// to stderr. Returns the number of unique warnings printed.
+func printStaleWarnings(stale []staleFile) int {
 	if len(stale) == 0 {
 		return 0
 	}
