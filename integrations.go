@@ -31,6 +31,18 @@ type staleFile struct {
 	location string // one of the location* constants
 }
 
+// toolDirFromDest extracts the tool config directory from a dest path
+// (e.g. ".claude/commands/crit.md" → ".claude").
+func toolDirFromDest(dest string) string {
+	return strings.SplitN(dest, "/", 2)[0]
+}
+
+// marketplaceUpdateHint returns tool-specific advice for updating a marketplace plugin.
+var marketplaceUpdateHints = map[string]string{
+	".claude": "Run: /plugin marketplace update crit",
+	".cursor": "Update the crit plugin in Cursor settings",
+}
+
 // updateHint returns location-specific advice for how to fix this stale file.
 func (s staleFile) updateHint() string {
 	switch s.location {
@@ -39,7 +51,14 @@ func (s staleFile) updateHint() string {
 	case locationHome:
 		return fmt.Sprintf("Run: cd ~ && crit install %s --force", s.agent)
 	case locationMarketplace, locationCache:
-		return "Run: /plugin marketplace update crit"
+		// Find the tool dir from the integration's dest path
+		if files, ok := integrationMap[s.agent]; ok && len(files) > 0 {
+			toolDir := toolDirFromDest(files[0].dest)
+			if hint, ok := marketplaceUpdateHints[toolDir]; ok {
+				return hint
+			}
+		}
+		return "Update the crit plugin in your editor settings"
 	default:
 		return fmt.Sprintf("Run: crit install %s --force", s.agent)
 	}
@@ -70,7 +89,7 @@ func checkInstalledIntegrations(projectDir, homeDir string) []staleFile {
 			}
 
 			// Derive tool config dir from dest prefix (e.g. ".claude/commands/crit.md" -> ".claude")
-			toolDir := strings.SplitN(f.dest, "/", 2)[0] // ".claude", ".cursor", ".opencode", etc.
+			toolDir := toolDirFromDest(f.dest)
 
 			// Marketplace source: ~/<toolDir>/plugins/marketplaces/crit/<f.source>
 			marketplacePath := filepath.Join(homeDir, toolDir, "plugins", "marketplaces", "crit", f.source)
