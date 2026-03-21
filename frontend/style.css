@@ -130,18 +130,27 @@ body {
   color: var(--green);
 }
 
+.header-title-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1;
+}
 .header-update {
   position: relative;
-  font-size: 11px;
 }
 .header-update-badge {
   background: none;
   border: none;
   cursor: pointer;
   color: var(--accent);
-  font-size: 11px;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
   padding: 0;
-  opacity: 0.8;
+  line-height: 1;
+  margin-top: 1px;
+  opacity: 0.7;
   transition: opacity 0.15s;
 }
 .header-update-badge:hover {
@@ -150,51 +159,54 @@ body {
 .header-update-dropdown {
   display: none;
   position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  min-width: 280px;
+  top: calc(100% + 10px);
+  left: -4px;
+  min-width: 300px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   border-radius: 8px;
-  padding: 10px 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  padding: 0;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.03);
   z-index: 100;
-  animation: update-dropdown-in 0.15s ease-out;
+  overflow: hidden;
+  animation: update-dropdown-in 0.12s ease-out;
   user-select: text;
   -webkit-user-select: text;
 }
 @keyframes update-dropdown-in {
-  from { opacity: 0; transform: translateY(-4px); }
+  from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 .header-update-dropdown.open {
   display: block;
 }
 .header-update-item {
-  margin-bottom: 10px;
+  padding: 10px 14px;
 }
-.header-update-item:last-of-type {
-  margin-bottom: 0;
+.header-update-item + .header-update-item {
+  border-top: 1px solid var(--border-primary);
 }
 .header-update-item-label {
   color: var(--fg-muted);
   font-size: 11px;
-  margin-bottom: 3px;
+  margin-bottom: 6px;
 }
 .header-update-item-cmd {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--fg-primary);
-  line-height: 1.6;
+  line-height: 1.7;
   white-space: pre-line;
+  background: var(--bg-tertiary);
+  padding: 6px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border-primary);
 }
 .header-update-dismiss {
   display: block;
   width: 100%;
-  text-align: right;
-  padding: 0;
-  margin-top: 10px;
-  padding-top: 8px;
+  text-align: center;
+  padding: 7px 14px;
   border-top: 1px solid var(--border-primary);
   background: none;
   border-left: none;
@@ -203,10 +215,11 @@ body {
   cursor: pointer;
   color: var(--fg-muted);
   font-size: 11px;
-  transition: color 0.1s;
+  transition: all 0.1s;
 }
 .header-update-dismiss:hover {
   color: var(--fg-primary);
+  background: var(--bg-tertiary);
 }
 
 .header-right {
