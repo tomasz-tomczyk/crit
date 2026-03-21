@@ -38,23 +38,8 @@ func (s staleFile) updateHint() string {
 		return fmt.Sprintf("Run: crit install %s --force", s.agent)
 	case locationHome:
 		return fmt.Sprintf("Run: cd ~ && crit install %s --force", s.agent)
-	case locationMarketplace:
-		return fmt.Sprintf("Update plugin: cd %s && git pull", filepath.Dir(filepath.Dir(s.dest)))
-	case locationCache:
-		// Navigate up to the cache root for this tool
-		// dest is like ~/.cursor/plugins/cache/crit/crit/<hash>/commands/crit.md
-		// We want ~/.cursor/plugins/cache/crit
-		parts := strings.Split(s.dest, string(filepath.Separator))
-		for i, p := range parts {
-			if p == "cache" && i+1 < len(parts) && parts[i+1] == "crit" {
-				cacheRoot := filepath.Join(parts[:i+2]...)
-				if !filepath.IsAbs(cacheRoot) {
-					cacheRoot = "/" + cacheRoot
-				}
-				return fmt.Sprintf("Clear cache: rm -rf %s", cacheRoot)
-			}
-		}
-		return "Clear plugin cache and restart"
+	case locationMarketplace, locationCache:
+		return "Run: /plugin marketplace update crit"
 	default:
 		return fmt.Sprintf("Run: crit install %s --force", s.agent)
 	}
@@ -161,8 +146,15 @@ func runCheck() {
 		return
 	}
 
+	// Deduplicate by hint — show each unique update action only once
+	seenHints := make(map[string]bool)
 	for _, s := range stale {
+		hint := s.updateHint()
+		if seenHints[hint] {
+			continue
+		}
+		seenHints[hint] = true
 		fmt.Fprintf(os.Stderr, "  outdated: %s\n", s.dest)
-		fmt.Fprintf(os.Stderr, "    → %s\n\n", s.updateHint())
+		fmt.Fprintf(os.Stderr, "    → %s\n\n", hint)
 	}
 }

@@ -130,8 +130,8 @@ func TestCheckInstalledIntegrations_MarketplaceStale(t *testing.T) {
 	for _, s := range stale {
 		if s.location == locationMarketplace {
 			found = true
-			if !strings.Contains(s.updateHint(), "git pull") {
-				t.Errorf("marketplace hint should suggest git pull, got: %s", s.updateHint())
+			if !strings.Contains(s.updateHint(), "/plugin marketplace update crit") {
+				t.Errorf("marketplace hint should suggest plugin update, got: %s", s.updateHint())
 			}
 		}
 	}
@@ -163,8 +163,8 @@ func TestCheckInstalledIntegrations_CacheStale(t *testing.T) {
 	for _, s := range stale {
 		if s.location == locationCache {
 			found = true
-			if !strings.Contains(s.updateHint(), "rm -rf") {
-				t.Errorf("cache hint should suggest rm -rf, got: %s", s.updateHint())
+			if !strings.Contains(s.updateHint(), "/plugin marketplace update crit") {
+				t.Errorf("cache hint should suggest plugin update, got: %s", s.updateHint())
 			}
 		}
 	}
