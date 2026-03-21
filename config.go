@@ -11,13 +11,13 @@ import (
 
 // Config holds all configuration values from config files.
 type Config struct {
-	Port           int      `json:"port,omitempty"`
-	NoOpen         bool     `json:"no_open,omitempty"`
-	ShareURL       string   `json:"share_url,omitempty"`
-	Quiet          bool     `json:"quiet,omitempty"`
-	Output         string   `json:"output,omitempty"`
-	Author         string   `json:"author,omitempty"`
-	BaseBranch     string   `json:"base_branch,omitempty"`
+	Port               int      `json:"port,omitempty"`
+	NoOpen             bool     `json:"no_open,omitempty"`
+	ShareURL           string   `json:"share_url,omitempty"`
+	Quiet              bool     `json:"quiet,omitempty"`
+	Output             string   `json:"output,omitempty"`
+	Author             string   `json:"author,omitempty"`
+	BaseBranch         string   `json:"base_branch,omitempty"`
 	IgnorePatterns     []string `json:"ignore_patterns,omitempty"`
 	NoIntegrationCheck bool     `json:"no_integration_check,omitempty"`
 }
@@ -55,13 +55,13 @@ func defaultConfig() generatedConfig {
 
 // generatedConfig is like Config but without omitempty, so all keys appear in output.
 type generatedConfig struct {
-	Port           int      `json:"port"`
-	NoOpen         bool     `json:"no_open"`
-	ShareURL       string   `json:"share_url"`
-	Quiet          bool     `json:"quiet"`
-	Output         string   `json:"output"`
-	Author         string   `json:"author"`
-	BaseBranch     string   `json:"base_branch"`
+	Port               int      `json:"port"`
+	NoOpen             bool     `json:"no_open"`
+	ShareURL           string   `json:"share_url"`
+	Quiet              bool     `json:"quiet"`
+	Output             string   `json:"output"`
+	Author             string   `json:"author"`
+	BaseBranch         string   `json:"base_branch"`
 	IgnorePatterns     []string `json:"ignore_patterns"`
 	NoIntegrationCheck bool     `json:"no_integration_check"`
 }
@@ -77,8 +77,8 @@ func (c generatedConfig) String() string {
 // configPresence tracks which fields were explicitly present in a JSON config file.
 // This allows distinguishing "not set" from "explicitly set to empty/zero".
 type configPresence struct {
-	ShareURL       bool
-	IgnorePatterns bool
+	ShareURL           bool
+	IgnorePatterns     bool
 	NoOpen             bool
 	Quiet              bool
 	NoIntegrationCheck bool
