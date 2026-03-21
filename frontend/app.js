@@ -375,14 +375,15 @@
       var el = document.getElementById('headerUpdate');
       el.style.display = '';
       var badge = document.getElementById('updateBadge');
-      badge.textContent = updates.length === 1 ? '1 update' : updates.length + ' updates';
+      badge.textContent = 'update available';
       var dropdown = document.getElementById('updateDropdown');
       dropdown.innerHTML = '';
+      var copyIcon = '<svg class="header-update-copy-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-6A1.5 1.5 0 013.5 2h6A1.5 1.5 0 0111 3.5V5"/></svg>';
       updates.forEach(function(u) {
         var item = document.createElement('div');
         item.className = 'header-update-item';
         item.innerHTML = '<span class="header-update-item-label">' + u.label + '</span>'
-          + '<span class="header-update-item-hint"><code>' + u.hint + '</code></span>';
+          + '<span class="header-update-item-hint"><code>' + u.hint + '</code>' + copyIcon + '</span>';
         item.querySelector('code').addEventListener('click', function() {
           navigator.clipboard.writeText(u.hint);
           showMiniToast('Copied to clipboard');
