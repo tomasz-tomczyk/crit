@@ -35,6 +35,7 @@ type Comment struct {
 	Side           string  `json:"side,omitempty"`
 	Body           string  `json:"body"`
 	Quote          string  `json:"quote,omitempty"`
+	QuoteOffset    *int    `json:"quote_offset,omitempty"`
 	Author         string  `json:"author,omitempty"`
 	CreatedAt      string  `json:"created_at"`
 	UpdatedAt      string  `json:"updated_at"`
