@@ -878,7 +878,8 @@ type serverConfig struct {
 	outputDir      string
 	author         string
 	ignorePatterns []string
-	files          []string // explicit file arguments (empty = git mode)
+	files               []string // explicit file arguments (empty = git mode)
+	noIntegrationCheck  bool
 }
 
 // resolveServerConfig parses flags, loads config files, and resolves the
@@ -968,8 +969,9 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		shareURL:       *shareURL,
 		outputDir:      *outputDir,
 		author:         cfg.Author,
-		ignorePatterns: ignorePatterns,
-		files:          fs.Args(),
+		ignorePatterns:     ignorePatterns,
+		noIntegrationCheck: cfg.NoIntegrationCheck,
+		files:              fs.Args(),
 	}, nil
 }
 
@@ -1036,10 +1038,10 @@ func runServe(args []string) {
 	}
 
 	// Check for stale integrations (unless disabled)
-	cfg := LoadConfig(cwd)
-	if !cfg.NoIntegrationCheck && os.Getenv("CRIT_NO_INTEGRATION_CHECK") == "" {
-		home, _ := os.UserHomeDir()
-		go printIntegrationWarnings(cwd, home)
+	if !sc.noIntegrationCheck && os.Getenv("CRIT_NO_INTEGRATION_CHECK") == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			go printIntegrationWarnings(cwd, home)
+		}
 	}
 
 	// Idle timeout: exit after 1 hour of no HTTP activity

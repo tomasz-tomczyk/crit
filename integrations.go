@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -71,7 +72,15 @@ func (s staleFile) updateHint() string {
 func checkInstalledIntegrations(projectDir, homeDir string) []staleFile {
 	var results []staleFile
 
-	for agent, files := range integrationMap {
+	// Sort agents for deterministic output order
+	agents := make([]string, 0, len(integrationMap))
+	for agent := range integrationMap {
+		agents = append(agents, agent)
+	}
+	sort.Strings(agents)
+
+	for _, agent := range agents {
+		files := integrationMap[agent]
 		for _, f := range files {
 			expectedHash, ok := integrationHashes[f.source]
 			if !ok {
@@ -153,8 +162,14 @@ func printIntegrationWarnings(projectDir, homeDir string) int {
 
 // runCheck implements the "crit check" subcommand.
 func runCheck() {
-	cwd, _ := os.Getwd()
-	home, _ := os.UserHomeDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: cannot determine working directory: %v\n", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: cannot determine home directory: %v\n", err)
+	}
 
 	fmt.Fprintf(os.Stderr, "crit %s — checking installed integrations...\n\n", version)
 

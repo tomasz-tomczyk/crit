@@ -14,8 +14,11 @@ import (
 func main() {
 	hashes := map[string]string{}
 	err := filepath.Walk("integrations", func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if info.IsDir() {
 			return nil
+		}
+		if err != nil {
+			return err
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
