@@ -124,3 +124,25 @@ func checkInstalledIntegrations(projectDir, homeDir string) []staleFile {
 	}
 	return results
 }
+
+// printIntegrationWarnings checks for stale integrations and prints
+// location-specific warnings to stderr. Returns the number of stale files found.
+func printIntegrationWarnings(projectDir, homeDir string) int {
+	stale := checkInstalledIntegrations(projectDir, homeDir)
+	if len(stale) == 0 {
+		return 0
+	}
+
+	// Deduplicate by agent+location — one warning per unique combo
+	type key struct{ agent, location string }
+	seen := make(map[key]bool)
+	for _, s := range stale {
+		k := key{s.agent, s.location}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		fmt.Fprintf(os.Stderr, "Note: %s integration outdated (%s). %s\n", s.agent, s.dest, s.updateHint())
+	}
+	return len(seen)
+}

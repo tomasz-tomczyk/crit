@@ -1033,6 +1033,13 @@ func runServe(args []string) {
 		log.Fatalf("Error writing session file: %v", err)
 	}
 
+	// Check for stale integrations (unless disabled)
+	cfg := LoadConfig(cwd)
+	if !cfg.NoIntegrationCheck && os.Getenv("CRIT_NO_INTEGRATION_CHECK") == "" {
+		home, _ := os.UserHomeDir()
+		go printIntegrationWarnings(cwd, home)
+	}
+
 	// Idle timeout: exit after 1 hour of no HTTP activity
 	const idleTimeout = 1 * time.Hour
 	var idleMu sync.Mutex
