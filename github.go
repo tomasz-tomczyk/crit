@@ -338,22 +338,14 @@ func resolveCritDir(outputDir string) (string, error) {
 	return root, nil
 }
 
-// writeCritJSON writes a CritJSON to the repo root or outputDir.
+// writeCritJSON resolves the output directory and writes a CritJSON via saveCritJSON.
+// Deprecated: prefer saveCritJSON directly when the crit path is already known.
 func writeCritJSON(cj CritJSON, outputDir string) error {
 	root, err := resolveCritDir(outputDir)
 	if err != nil {
 		return err
 	}
-
-	data, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshaling .crit.json: %w", err)
-	}
-
-	if err := os.WriteFile(filepath.Join(root, ".crit.json"), data, 0644); err != nil {
-		return fmt.Errorf("writing .crit.json: %w", err)
-	}
-	return nil
+	return saveCritJSON(filepath.Join(root, ".crit.json"), cj)
 }
 
 // ghReplyForPush represents a reply that needs to be posted to GitHub.
@@ -406,7 +398,7 @@ func postGHReply(prNumber int, parentGHID int64, body string) (int64, error) {
 		ID int64 `json:"id"`
 	}
 	if err := json.Unmarshal(output, &resp); err != nil {
-		return 0, nil // non-fatal: reply was posted, just can't parse ID
+		return 0, fmt.Errorf("parsing reply response: %w", err)
 	}
 	return resp.ID, nil
 }
@@ -608,13 +600,14 @@ func loadCritJSON(critPath string) (CritJSON, error) {
 	return cj, nil
 }
 
-// saveCritJSON writes the CritJSON struct to disk with pretty-printed JSON.
+// saveCritJSON writes the CritJSON struct to disk with pretty-printed JSON
+// and a trailing newline for POSIX compliance and consistency with updateCritJSONWithGitHubIDs.
 func saveCritJSON(critPath string, cj CritJSON) error {
 	data, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling .crit.json: %w", err)
 	}
-	return os.WriteFile(critPath, data, 0644)
+	return os.WriteFile(critPath, append(data, '\n'), 0644)
 }
 
 // appendComment adds a comment to the CritJSON struct in memory. Does not write to disk.

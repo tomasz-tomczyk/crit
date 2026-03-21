@@ -1,8 +1,13 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -184,5 +189,114 @@ func TestListSessionsForCWD_FiltersAndCleans(t *testing.T) {
 	// Different cwd session should not be touched
 	if _, err := os.Stat(filepath.Join(sessDir, "session2.json")); err != nil {
 		t.Error("session2 (different cwd) should not have been cleaned up")
+	}
+}
+
+func TestDaemonHasBrowser(t *testing.T) {
+	tests := []struct {
+		name     string
+		handler  http.HandlerFunc
+		want     bool
+	}{
+		{
+			name: "returns true when browser_clients is true",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(map[string]any{"status": "ok", "browser_clients": true})
+			},
+			want: true,
+		},
+		{
+			name: "returns false when browser_clients is false",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(map[string]any{"status": "ok", "browser_clients": false})
+			},
+			want: false,
+		},
+		{
+			name: "returns true when browser_clients is null (older daemon)",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				// Encode a struct where BrowserClients is a nil pointer -> JSON null
+				type resp struct {
+					Status         string `json:"status"`
+					BrowserClients *bool  `json:"browser_clients"`
+				}
+				json.NewEncoder(w).Encode(resp{Status: "ok", BrowserClients: nil})
+			},
+			want: true,
+		},
+		{
+			name: "returns true when browser_clients field is missing",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			},
+			want: true,
+		},
+		{
+			name: "returns true on invalid JSON",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, "not json")
+			},
+			want: true,
+		},
+		{
+			name: "returns true on HTTP error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "fail", http.StatusInternalServerError)
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(tt.handler)
+			defer srv.Close()
+
+			// Parse port from test server URL
+			port, _ := strconv.Atoi(srv.URL[len("http://127.0.0.1:"):])
+
+			entry := sessionEntry{PID: os.Getpid(), Port: port}
+			got := daemonHasBrowser(entry)
+			if got != tt.want {
+				t.Errorf("daemonHasBrowser() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDaemonHasBrowser_Unreachable(t *testing.T) {
+	// Port that nothing listens on
+	entry := sessionEntry{PID: os.Getpid(), Port: 1}
+	got := daemonHasBrowser(entry)
+	if !got {
+		t.Error("daemonHasBrowser should return true when daemon is unreachable (safe default)")
+	}
+}
+
+func TestIsDaemonAlive_ValidatesResponseBody(t *testing.T) {
+	// Test that isDaemonAlive rejects a non-crit process responding on the port
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A non-crit server returning 200 but without {"status":"ok"}
+		fmt.Fprint(w, `{"service":"not-crit"}`)
+	}))
+	defer srv.Close()
+
+	port, _ := strconv.Atoi(srv.URL[len("http://127.0.0.1:"):])
+	entry := sessionEntry{PID: os.Getpid(), Port: port}
+	if isDaemonAlive(entry) {
+		t.Error("isDaemonAlive should return false when response body lacks status:ok")
+	}
+}
+
+func TestIsDaemonAlive_AcceptsCritResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"status": "ok", "browser_clients": true})
+	}))
+	defer srv.Close()
+
+	port, _ := strconv.Atoi(srv.URL[len("http://127.0.0.1:"):])
+	entry := sessionEntry{PID: os.Getpid(), Port: port}
+	if !isDaemonAlive(entry) {
+		t.Error("isDaemonAlive should return true for valid crit health response")
 	}
 }

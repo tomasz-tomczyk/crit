@@ -167,6 +167,8 @@ func listSessionsForCWD(cwd string) ([]sessionEntry, []string) {
 }
 
 // isDaemonAlive checks if the daemon process is running AND responding to HTTP.
+// After PID recycling, a different process could listen on the same port,
+// so we validate that the response body contains {"status":"ok"}.
 func isDaemonAlive(s sessionEntry) bool {
 	if s.PID <= 0 || s.Port <= 0 {
 		return false
@@ -179,14 +181,24 @@ func isDaemonAlive(s sessionEntry) bool {
 	if err := proc.Signal(syscall.Signal(0)); err != nil {
 		return false
 	}
-	// HTTP health probe — ensures the port belongs to our daemon, not a reused PID
+	// HTTP health probe — ensures the port belongs to our daemon, not a reused PID.
+	// We validate the response body to guard against a non-crit process on the same port.
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/health", s.Port))
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var health struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		return false
+	}
+	return health.Status == "ok"
 }
 
 // daemonHasBrowser checks if the daemon has any connected browser clients.
