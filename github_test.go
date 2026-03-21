@@ -1293,3 +1293,29 @@ func TestBulkAddCommentsToCritJSON_EndLineDefaultsToLine(t *testing.T) {
 		t.Errorf("expected lines 3-5, got %d-%d", cf.Comments[1].StartLine, cf.Comments[1].EndLine)
 	}
 }
+
+func TestTruncateStr(t *testing.T) {
+	tests := []struct {
+		name string
+		s    string
+		n    int
+		want string
+	}{
+		{"short ASCII", "hello", 10, "hello"},
+		{"exact ASCII", "hello", 5, "hello"},
+		{"truncate ASCII", "hello world", 5, "hello"},
+		{"empty", "", 5, ""},
+		{"zero limit", "hello", 0, ""},
+		{"emoji preserved", "Hello 🌍🌎🌏", 8, "Hello 🌍🌎"},
+		{"CJK preserved", "日本語テスト", 3, "日本語"},
+		{"no mid-rune split", "café", 4, "café"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateStr(tt.s, tt.n)
+			if got != tt.want {
+				t.Errorf("truncateStr(%q, %d) = %q, want %q", tt.s, tt.n, got, tt.want)
+			}
+		})
+	}
+}
