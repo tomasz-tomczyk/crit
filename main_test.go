@@ -433,3 +433,351 @@ func TestResolveServerConfig_BaseBranch(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveServerConfig_PortPrecedence(t *testing.T) {
+	orig := defaultBranchOverride
+	defer func() {
+		defaultBranchOverride = orig
+		defaultBranchOnce = sync.Once{}
+	}()
+
+	t.Run("CLI flag wins over env and config", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"port": 4000}`), 0644)
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		t.Setenv("CRIT_PORT", "5000")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{"--port", "6000"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.port != 6000 {
+			t.Errorf("port = %d, want 6000 (CLI flag)", sc.port)
+		}
+	})
+
+	t.Run("env var wins over config when no CLI flag", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"port": 4000}`), 0644)
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		t.Setenv("CRIT_PORT", "5000")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.port != 5000 {
+			t.Errorf("port = %d, want 5000 (env var)", sc.port)
+		}
+	})
+
+	t.Run("config wins when no CLI flag or env var", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"port": 4000}`), 0644)
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		t.Setenv("CRIT_PORT", "")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.port != 4000 {
+			t.Errorf("port = %d, want 4000 (config file)", sc.port)
+		}
+	})
+
+	t.Run("zero port when nothing set", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		t.Setenv("CRIT_PORT", "")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.port != 0 {
+			t.Errorf("port = %d, want 0 (default)", sc.port)
+		}
+	})
+}
+
+func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
+	orig := defaultBranchOverride
+	defer func() {
+		defaultBranchOverride = orig
+		defaultBranchOnce = sync.Once{}
+	}()
+
+	t.Run("CLI flag wins over env and config", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		t.Setenv("CRIT_SHARE_URL", "https://env.example.com")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{"--share-url", "https://cli.example.com"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.shareURL != "https://cli.example.com" {
+			t.Errorf("shareURL = %q, want CLI value", sc.shareURL)
+		}
+	})
+
+	t.Run("env var wins over config when no CLI flag", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		t.Setenv("CRIT_SHARE_URL", "https://env.example.com")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.shareURL != "https://env.example.com" {
+			t.Errorf("shareURL = %q, want env value", sc.shareURL)
+		}
+	})
+
+	t.Run("config used when no CLI or env", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		os.Unsetenv("CRIT_SHARE_URL")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.shareURL != "https://config.example.com" {
+			t.Errorf("shareURL = %q, want config value", sc.shareURL)
+		}
+	})
+}
+
+func TestResolveServerConfig_BoolFlags(t *testing.T) {
+	orig := defaultBranchOverride
+	defer func() {
+		defaultBranchOverride = orig
+		defaultBranchOnce = sync.Once{}
+	}()
+
+	t.Run("--no-open flag sets noOpen", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{"--no-open"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !sc.noOpen {
+			t.Error("noOpen should be true when --no-open is passed")
+		}
+	})
+
+	t.Run("config no_open used when no flag", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"no_open": true}`), 0644)
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !sc.noOpen {
+			t.Error("noOpen should be true from config")
+		}
+	})
+
+	t.Run("--quiet flag sets quiet", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{"--quiet"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !sc.quiet {
+			t.Error("quiet should be true when --quiet is passed")
+		}
+	})
+
+	t.Run("--no-ignore disables ignore patterns", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"ignore_patterns": ["*.lock", "vendor/"]}`), 0644)
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{"--no-ignore"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(sc.ignorePatterns) != 0 {
+			t.Errorf("ignorePatterns = %v, want empty (--no-ignore)", sc.ignorePatterns)
+		}
+	})
+}
+
+func TestResolveServerConfig_FileArgs(t *testing.T) {
+	orig := defaultBranchOverride
+	defer func() {
+		defaultBranchOverride = orig
+		defaultBranchOnce = sync.Once{}
+	}()
+
+	defaultBranchOverride = ""
+	defaultBranchOnce = sync.Once{}
+
+	dir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	sc, err := resolveServerConfig([]string{"plan.md", "notes.md"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sc.files) != 2 || sc.files[0] != "plan.md" || sc.files[1] != "notes.md" {
+		t.Errorf("files = %v, want [plan.md notes.md]", sc.files)
+	}
+}
+
+func TestResolveServerConfig_OutputDir(t *testing.T) {
+	orig := defaultBranchOverride
+	defer func() {
+		defaultBranchOverride = orig
+		defaultBranchOnce = sync.Once{}
+	}()
+
+	t.Run("CLI --output sets outputDir", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{"--output", "/tmp/out"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.outputDir != "/tmp/out" {
+			t.Errorf("outputDir = %q, want /tmp/out", sc.outputDir)
+		}
+	})
+
+	t.Run("config output used when no flag", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"output": "/tmp/cfg-out"}`), 0644)
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.outputDir != "/tmp/cfg-out" {
+			t.Errorf("outputDir = %q, want /tmp/cfg-out (from config)", sc.outputDir)
+		}
+	})
+}
