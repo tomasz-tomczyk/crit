@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -96,6 +97,7 @@ type Session struct {
 	lastRoundEdits      int
 	lastCritJSONMtime   time.Time // mtime after our last WriteFiles(); used to detect external changes
 	awaitingFirstReview bool      // true until first review-cycle completes
+	browserClients      int32     // number of connected SSE browser clients (atomic)
 }
 
 // CritJSON is the on-disk format for .crit.json.
@@ -1319,6 +1321,23 @@ func (s *Session) notify(event SSEEvent) {
 		default:
 		}
 	}
+}
+
+// BrowserConnect increments the browser client count.
+func (s *Session) BrowserConnect() {
+	atomic.AddInt32(&s.browserClients, 1)
+}
+
+// BrowserDisconnect decrements the browser client count, clamping at zero.
+func (s *Session) BrowserDisconnect() {
+	if atomic.AddInt32(&s.browserClients, -1) < 0 {
+		atomic.StoreInt32(&s.browserClients, 0)
+	}
+}
+
+// HasBrowserClients returns true if any browser SSE clients are connected.
+func (s *Session) HasBrowserClients() bool {
+	return atomic.LoadInt32(&s.browserClients) > 0
 }
 
 // Shutdown sends a server-shutdown event to all SSE subscribers.
