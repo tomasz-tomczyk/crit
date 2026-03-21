@@ -55,6 +55,8 @@ func main() {
 		runInstall(os.Args[2:])
 	case "config":
 		runConfig(os.Args[2:])
+	case "check":
+		runCheck()
 	case "pull":
 		runPull(os.Args[2:])
 	case "push":

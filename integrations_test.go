@@ -172,3 +172,41 @@ func TestCheckInstalledIntegrations_CacheStale(t *testing.T) {
 		t.Error("expected cache location in stale results")
 	}
 }
+
+func TestPrintIntegrationWarnings_NoStale(t *testing.T) {
+	dir := t.TempDir()
+	count := printIntegrationWarnings(dir, dir)
+	if count != 0 {
+		t.Errorf("expected 0 warnings for empty dir, got %d", count)
+	}
+}
+
+func TestPrintIntegrationWarnings_WithStale(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write stale file
+	ccDest := filepath.Join(dir, ".claude", "commands")
+	if err := os.MkdirAll(ccDest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ccDest, "crit.md"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	count := printIntegrationWarnings(dir, dir)
+	if count == 0 {
+		t.Error("expected at least 1 warning")
+	}
+}
+
+func TestRunCheck_NoStale(t *testing.T) {
+	// runCheck uses os.Getwd() and os.UserHomeDir(), so we just verify it doesn't panic
+	// when called in a temp dir with no installed integrations
+	origDir, _ := os.Getwd()
+	dir := t.TempDir()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Should not panic
+	runCheck()
+}

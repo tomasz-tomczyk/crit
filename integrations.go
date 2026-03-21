@@ -146,3 +146,23 @@ func printIntegrationWarnings(projectDir, homeDir string) int {
 	}
 	return len(seen)
 }
+
+// runCheck implements the "crit check" subcommand.
+func runCheck() {
+	cwd, _ := os.Getwd()
+	home, _ := os.UserHomeDir()
+
+	fmt.Fprintf(os.Stderr, "crit %s — checking installed integrations...\n\n", version)
+
+	stale := checkInstalledIntegrations(cwd, home)
+
+	if len(stale) == 0 {
+		fmt.Fprintln(os.Stderr, "All installed integrations are up to date.")
+		return
+	}
+
+	for _, s := range stale {
+		fmt.Fprintf(os.Stderr, "  outdated: %s\n", s.dest)
+		fmt.Fprintf(os.Stderr, "    → %s\n\n", s.updateHint())
+	}
+}
