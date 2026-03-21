@@ -491,3 +491,28 @@ func TestNewSessionFromFilesWithIgnore(t *testing.T) {
 		}
 	}
 }
+
+func TestNoIntegrationCheckConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".crit.config.json")
+	if err := os.WriteFile(configPath, []byte(`{"no_integration_check": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := loadConfigFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.NoIntegrationCheck {
+		t.Error("expected NoIntegrationCheck to be true")
+	}
+}
+
+func TestNoIntegrationCheckMerge(t *testing.T) {
+	global := Config{NoIntegrationCheck: false}
+	project := Config{NoIntegrationCheck: true}
+	presence := configPresence{NoIntegrationCheck: true}
+	merged := mergeConfigs(global, project, presence)
+	if !merged.NoIntegrationCheck {
+		t.Error("project NoIntegrationCheck=true should override global")
+	}
+}
