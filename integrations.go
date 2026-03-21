@@ -39,7 +39,7 @@ func toolDirFromDest(dest string) string {
 
 // marketplaceUpdateHint returns tool-specific advice for updating a marketplace plugin.
 var marketplaceUpdateHints = map[string]string{
-	".claude": "Run in Claude Code: /plugin marketplace update crit",
+	".claude": "In Claude Code: /plugin marketplace update crit\n    Then run: claude plugin update crit@crit",
 	".cursor": "Update the crit plugin in Cursor settings",
 }
 

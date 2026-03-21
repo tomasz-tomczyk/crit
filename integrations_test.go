@@ -130,7 +130,7 @@ func TestCheckInstalledIntegrations_MarketplaceStale(t *testing.T) {
 	for _, s := range stale {
 		if s.location == locationMarketplace {
 			found = true
-			if !strings.Contains(s.updateHint(), "Run in Claude Code: /plugin marketplace update crit") {
+			if !strings.Contains(s.updateHint(), "claude plugin update crit@crit") {
 				t.Errorf("marketplace hint should suggest plugin update, got: %s", s.updateHint())
 			}
 		}
@@ -163,7 +163,7 @@ func TestCheckInstalledIntegrations_CacheStale(t *testing.T) {
 	for _, s := range stale {
 		if s.location == locationCache {
 			found = true
-			if !strings.Contains(s.updateHint(), "Run in Claude Code: /plugin marketplace update crit") {
+			if !strings.Contains(s.updateHint(), "claude plugin update crit@crit") {
 				t.Errorf("cache hint should suggest plugin update, got: %s", s.updateHint())
 			}
 		}
