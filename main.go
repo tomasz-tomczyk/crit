@@ -1129,6 +1129,7 @@ Usage:
   crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments to .crit.json
   crit push [--dry-run] [--event <type>] [-m <msg>] [-o <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
   crit install <agent>                       Install integration files for an AI coding tool
+  crit check                                 Check if installed integrations are up to date
   crit config [--generate]                    Show resolved configuration
   crit help                                  Show this help message
 
@@ -1150,6 +1151,7 @@ Environment:
   CRIT_SHARE_URL              Override the share service URL
   CRIT_PORT                   Override the default port
   CRIT_NO_UPDATE_CHECK        Disable update check on startup
+  CRIT_NO_INTEGRATION_CHECK   Disable integration staleness check
 
 Configuration:
   Global config:   ~/.crit.config.json
@@ -1184,7 +1186,8 @@ Available keys:
   output            string    Output directory for .crit.json
   author            string    Your name for comments (default: git config user.name)
   base_branch       string    Base branch to diff against (overrides auto-detection)
-  ignore_patterns   []string  Gitignore-style patterns to exclude files from review
+  ignore_patterns        []string  Gitignore-style patterns to exclude files from review
+  no_integration_check   bool      Skip integration staleness check (default: false)
 
 Ignore pattern syntax:
   *.lock            Match files by extension (anywhere in tree)
