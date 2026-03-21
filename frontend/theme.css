@@ -45,6 +45,9 @@
   --diff-word-del-bg: rgba(248, 81, 73, 0.4);
   --badge-resolved-bg: rgba(158, 206, 106, 0.12);
   --badge-unresolved-bg: rgba(255, 158, 100, 0.14);
+  --yellow-subtle: rgba(224, 175, 104, 0.08);
+  --yellow-bg: rgba(224, 175, 104, 0.14);
+  --yellow-border: rgba(224, 175, 104, 0.2);
 }
 
 /* ===== System preference: light ===== */
@@ -88,6 +91,9 @@
     --diff-word-del-bg: rgba(207, 34, 46, 0.25);
     --badge-resolved-bg: rgba(26, 127, 55, 0.1);
     --badge-unresolved-bg: rgba(188, 76, 0, 0.1);
+    --yellow-subtle: rgba(154, 103, 0, 0.06);
+    --yellow-bg: rgba(154, 103, 0, 0.1);
+    --yellow-border: rgba(154, 103, 0, 0.16);
   }
 }
 
@@ -131,6 +137,9 @@
   --diff-word-del-bg: rgba(248, 81, 73, 0.4);
   --badge-resolved-bg: rgba(158, 206, 106, 0.12);
   --badge-unresolved-bg: rgba(255, 158, 100, 0.14);
+  --yellow-subtle: rgba(224, 175, 104, 0.08);
+  --yellow-bg: rgba(224, 175, 104, 0.14);
+  --yellow-border: rgba(224, 175, 104, 0.2);
 }
 
 /* ===== Light (explicit) ===== */
@@ -173,6 +182,9 @@
   --diff-word-del-bg: rgba(207, 34, 46, 0.25);
   --badge-resolved-bg: rgba(26, 127, 55, 0.1);
   --badge-unresolved-bg: rgba(188, 76, 0, 0.1);
+  --yellow-subtle: rgba(154, 103, 0, 0.06);
+  --yellow-bg: rgba(154, 103, 0, 0.1);
+  --yellow-border: rgba(154, 103, 0, 0.16);
 }
 
 /* ===== Theme Pill (system / light / dark toggle) ===== */

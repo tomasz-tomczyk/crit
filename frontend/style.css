@@ -106,29 +106,11 @@ body {
 }
 .header-pr-link.header-pr-draft {
   color: var(--yellow);
-  background: rgba(224, 175, 104, 0.08);
-  border-color: rgba(224, 175, 104, 0.2);
+  background: var(--yellow-subtle);
+  border-color: var(--yellow-border);
 }
 .header-pr-link.header-pr-draft:hover {
-  background: rgba(224, 175, 104, 0.14);
-}
-@media (prefers-color-scheme: light) {
-  html:not([data-theme]) .header-pr-link.header-pr-draft {
-    color: var(--yellow);
-    background: rgba(154, 103, 0, 0.06);
-    border-color: rgba(154, 103, 0, 0.16);
-  }
-  html:not([data-theme]) .header-pr-link.header-pr-draft:hover {
-    background: rgba(154, 103, 0, 0.1);
-  }
-}
-[data-theme="light"] .header-pr-link.header-pr-draft {
-  color: var(--yellow);
-  background: rgba(154, 103, 0, 0.06);
-  border-color: rgba(154, 103, 0, 0.16);
-}
-[data-theme="light"] .header-pr-link.header-pr-draft:hover {
-  background: rgba(154, 103, 0, 0.1);
+  background: var(--yellow-bg);
 }
 @media print {
   .header-pr-link { display: none; }
