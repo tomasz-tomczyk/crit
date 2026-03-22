@@ -2365,7 +2365,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 /* ===== PR Overview Panel ===== */
 .pr-panel {
-  width: 340px;
+  width: 400px;
   flex-shrink: 0;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
