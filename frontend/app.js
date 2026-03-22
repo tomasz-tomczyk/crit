@@ -149,6 +149,16 @@
   // Track manually toggled collapse state (comment ID → boolean, true = collapsed)
   const commentCollapseOverrides = {};
 
+  // ===== SVG Icon Constants =====
+  const ICON_CHEVRON = '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+  const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+  const ICON_DELETE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+  const ICON_RESOLVE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  const ICON_UNRESOLVE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.36 2.64M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.36-2.64"/><polyline points="21 3 21 8 16 8"/><polyline points="3 21 3 16 8 16"/></svg>';
+  const ICON_CLIPBOARD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+  const ICON_CHECK_SMALL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  const ICON_COMMENT = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
+
   function formKey(form) {
     if (form.scope === 'review') return 'review:' + (form.editingId || 'new');
     if (form.editingId) return form.filePath + ':edit:' + form.editingId;
@@ -1564,7 +1574,8 @@
     const fileCommentBtn = document.createElement('button');
     fileCommentBtn.className = 'file-comment-btn';
     fileCommentBtn.title = 'Add file-level comment';
-    fileCommentBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
+    fileCommentBtn.setAttribute('aria-label', 'Add file-level comment');
+    fileCommentBtn.innerHTML = ICON_COMMENT;
     fileCommentBtn.addEventListener('click', function(e) {
       e.stopPropagation(); // Don't toggle the <details>
       e.preventDefault();
@@ -4076,40 +4087,31 @@
     return env;
   }
 
-  function createCommentElement(comment, filePath) {
-    if (findFormForEdit(comment.id)) {
-      return createInlineEditor(comment, filePath);
-    }
-
+  // Shared helper for building comment card skeleton (header, body, replies)
+  function buildCommentCard(comment, filePath, opts) {
+    // opts: { wrapperClass, cardClassExtra, collapseDefault, showLineRef, showCarriedForward, repliesExtraClass, showReplyInput }
     const wrapper = document.createElement('div');
-    wrapper.className = 'comment-block';
+    wrapper.className = opts.wrapperClass || 'comment-block';
 
     const card = document.createElement('div');
-    card.className = 'comment-card' + (comment.carried_forward ? ' carried-forward' : '');
+    var cardClass = 'comment-card';
+    if (opts.cardClassExtra) cardClass += ' ' + opts.cardClassExtra;
+    card.className = cardClass;
     card.dataset.commentId = comment.id;
+
+    // Collapse state
+    var isCollapsed = opts.collapseDefault
+      ? (commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true)
+      : (commentCollapseOverrides[comment.id] === true);
+    if (isCollapsed) card.classList.add('collapsed');
 
     const header = document.createElement('div');
     header.className = 'comment-header';
 
-    const lineRef = document.createElement('span');
-    lineRef.className = 'comment-line-ref';
-    if (comment.scope !== 'file') {
-      lineRef.textContent = comment.start_line === comment.end_line
-        ? 'Line ' + comment.start_line
-        : 'Lines ' + comment.start_line + '-' + comment.end_line;
-    }
-
-    const time = document.createElement('span');
-    time.className = 'comment-time';
-    time.textContent = formatTime(comment.created_at);
-
-    // Apply saved collapse state (unresolved defaults to expanded)
-    if (commentCollapseOverrides[comment.id] === true) card.classList.add('collapsed');
-
     const collapseBtn = document.createElement('button');
     collapseBtn.className = 'comment-collapse-btn';
-    collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
-    collapseBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+    collapseBtn.title = isCollapsed ? 'Expand comment' : 'Collapse comment';
+    collapseBtn.innerHTML = ICON_CHEVRON;
     collapseBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       card.classList.toggle('collapsed');
@@ -4128,37 +4130,85 @@
     }
     if (comment.review_round >= 1) {
       const roundBadge = document.createElement('span');
-      const rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
+      var rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
       roundBadge.className = 'comment-round-badge' + rc;
       roundBadge.textContent = 'R' + comment.review_round;
       headerLeft.appendChild(roundBadge);
     }
-    headerLeft.appendChild(lineRef);
-    if (comment.carried_forward) {
+    if (opts.showLineRef && comment.scope !== 'file') {
+      const lineRef = document.createElement('span');
+      lineRef.className = 'comment-line-ref';
+      lineRef.textContent = comment.start_line === comment.end_line
+        ? 'Line ' + comment.start_line
+        : 'Lines ' + comment.start_line + '-' + comment.end_line;
+      headerLeft.appendChild(lineRef);
+    }
+    if (opts.showCarriedForward && comment.carried_forward) {
       const label = document.createElement('span');
       label.className = 'carried-forward-label';
       label.textContent = 'Unresolved';
       headerLeft.appendChild(label);
     }
+    const time = document.createElement('span');
+    time.className = 'comment-time';
+    time.textContent = formatTime(comment.created_at);
     headerLeft.appendChild(time);
 
     const actions = document.createElement('div');
     actions.className = 'comment-actions';
 
+    header.appendChild(headerLeft);
+    header.appendChild(actions);
+
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'comment-body';
+    bodyEl.innerHTML = commentMd.render(comment.body, filePath ? buildCommentEnv(comment, filePath) : undefined);
+
+    card.appendChild(header);
+    card.appendChild(bodyEl);
+
+    // Render replies
+    if (comment.replies && comment.replies.length > 0) {
+      card.appendChild(renderReplyList(comment, filePath || '', opts.repliesExtraClass));
+    }
+
+    // Reply input
+    if (opts.showReplyInput && filePath) {
+      card.appendChild(createReplyInput(comment.id, filePath));
+    }
+
+    wrapper.appendChild(card);
+    return { wrapper: wrapper, card: card, actions: actions };
+  }
+
+  function createCommentElement(comment, filePath) {
+    if (findFormForEdit(comment.id)) {
+      return createInlineEditor(comment, filePath);
+    }
+
+    var parts = buildCommentCard(comment, filePath, {
+      wrapperClass: 'comment-block',
+      cardClassExtra: comment.carried_forward ? 'carried-forward' : '',
+      collapseDefault: false,
+      showLineRef: true,
+      showCarriedForward: true,
+      showReplyInput: true,
+    });
+
     const editBtn = document.createElement('button');
     editBtn.title = 'Edit';
-    editBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+    editBtn.innerHTML = ICON_EDIT;
     editBtn.addEventListener('click', () => editComment(comment, filePath));
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'delete-btn';
     deleteBtn.title = 'Delete';
-    deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+    deleteBtn.innerHTML = ICON_DELETE;
     deleteBtn.addEventListener('click', () => deleteComment(comment.id, filePath));
 
     const resolveBtn = document.createElement('button');
     resolveBtn.title = 'Resolve';
-    resolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    resolveBtn.innerHTML = ICON_RESOLVE;
     resolveBtn.addEventListener('click', async function() {
       try {
         var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
@@ -4175,30 +4225,11 @@
       refreshFileComments(filePath);
     });
 
-    actions.appendChild(resolveBtn);
-    actions.appendChild(editBtn);
-    actions.appendChild(deleteBtn);
+    parts.actions.appendChild(resolveBtn);
+    parts.actions.appendChild(editBtn);
+    parts.actions.appendChild(deleteBtn);
 
-    header.appendChild(headerLeft);
-    header.appendChild(actions);
-
-    const bodyEl = document.createElement('div');
-    bodyEl.className = 'comment-body';
-    bodyEl.innerHTML = commentMd.render(comment.body, buildCommentEnv(comment, filePath));
-
-    card.appendChild(header);
-    card.appendChild(bodyEl);
-
-    // Render replies (threading)
-    if (comment.replies && comment.replies.length > 0) {
-      card.appendChild(renderReplyList(comment, filePath));
-    }
-
-    // Inline reply input (GitHub-style: compact, expands on focus)
-    card.appendChild(createReplyInput(comment.id, filePath));
-
-    wrapper.appendChild(card);
-    return wrapper;
+    return parts.wrapper;
   }
 
   // Build a reply list container for a comment's replies
@@ -4231,12 +4262,12 @@
       replyActions.className = 'reply-actions';
       var replyEditBtn = document.createElement('button');
       replyEditBtn.title = 'Edit';
-      replyEditBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+      replyEditBtn.innerHTML = ICON_EDIT;
       replyEditBtn.addEventListener('click', function(e) { e.stopPropagation(); editReply(comment.id, reply.id, filePath); });
       var replyDeleteBtn = document.createElement('button');
       replyDeleteBtn.className = 'delete-btn';
       replyDeleteBtn.title = 'Delete';
-      replyDeleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+      replyDeleteBtn.innerHTML = ICON_DELETE;
       replyDeleteBtn.addEventListener('click', function(e) { e.stopPropagation(); deleteReply(comment.id, reply.id, filePath); });
       replyActions.appendChild(replyEditBtn);
       replyActions.appendChild(replyDeleteBtn);
@@ -4837,62 +4868,14 @@
   }
 
   function createResolvedElement(comment, filePath) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'comment-block';
-
-    const card = document.createElement('div');
-    // Apply saved collapse state (resolved defaults to collapsed)
-    var isCollapsed = commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true;
-    card.className = 'comment-card resolved-card' + (isCollapsed ? ' collapsed' : '');
-    card.dataset.commentId = comment.id;
-
-    const header = document.createElement('div');
-    header.className = 'comment-header';
-
-    const collapseBtn = document.createElement('button');
-    collapseBtn.className = 'comment-collapse-btn';
-    collapseBtn.title = isCollapsed ? 'Expand comment' : 'Collapse comment';
-    collapseBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>';
-    collapseBtn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      card.classList.toggle('collapsed');
-      commentCollapseOverrides[comment.id] = card.classList.contains('collapsed');
-      collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
+    var parts = buildCommentCard(comment, filePath, {
+      wrapperClass: 'comment-block',
+      cardClassExtra: 'resolved-card',
+      collapseDefault: true,
+      showLineRef: true,
+      showCarriedForward: false,
+      showReplyInput: true,
     });
-
-    const lineRef = document.createElement('span');
-    lineRef.className = 'comment-line-ref';
-    if (comment.scope !== 'file') {
-      lineRef.textContent = comment.start_line === comment.end_line
-        ? 'Line ' + comment.start_line
-        : 'Lines ' + comment.start_line + '-' + comment.end_line;
-    }
-
-    const time = document.createElement('span');
-    time.className = 'comment-time';
-    time.textContent = formatTime(comment.created_at);
-
-    const headerLeft = document.createElement('div');
-    headerLeft.className = 'comment-header-left';
-    headerLeft.prepend(collapseBtn);
-    if (comment.author) {
-      const authorBadge = document.createElement('span');
-      authorBadge.className = 'comment-author-badge author-color-' + authorColorIndex(comment.author);
-      authorBadge.textContent = '@' + comment.author;
-      headerLeft.appendChild(authorBadge);
-    }
-    if (comment.review_round >= 1) {
-      const roundBadge = document.createElement('span');
-      var rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
-      roundBadge.className = 'comment-round-badge' + rc;
-      roundBadge.textContent = 'R' + comment.review_round;
-      headerLeft.appendChild(roundBadge);
-    }
-    headerLeft.appendChild(lineRef);
-    headerLeft.appendChild(time);
-
-    const actions = document.createElement('div');
-    actions.className = 'comment-actions';
 
     const badge = document.createElement('span');
     badge.className = 'resolved-badge';
@@ -4901,7 +4884,7 @@
     const unresolveBtn = document.createElement('button');
     unresolveBtn.title = 'Unresolve';
     unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
-    unresolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.36 2.64M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.36-2.64"/><polyline points="21 3 21 8 16 8"/><polyline points="3 21 3 16 8 16"/></svg>';
+    unresolveBtn.innerHTML = ICON_UNRESOLVE;
     unresolveBtn.addEventListener('click', async function() {
       try {
         var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
@@ -4921,33 +4904,14 @@
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'delete-btn';
     deleteBtn.title = 'Delete';
-    deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+    deleteBtn.innerHTML = ICON_DELETE;
     deleteBtn.addEventListener('click', function() { deleteComment(comment.id, filePath); });
 
-    actions.appendChild(badge);
-    actions.appendChild(unresolveBtn);
-    actions.appendChild(deleteBtn);
+    parts.actions.appendChild(badge);
+    parts.actions.appendChild(unresolveBtn);
+    parts.actions.appendChild(deleteBtn);
 
-    header.appendChild(headerLeft);
-    header.appendChild(actions);
-
-    const bodyEl = document.createElement('div');
-    bodyEl.className = 'comment-body';
-    bodyEl.innerHTML = commentMd.render(comment.body, buildCommentEnv(comment, filePath));
-
-    card.appendChild(header);
-    card.appendChild(bodyEl);
-
-    // Render replies
-    if (comment.replies && comment.replies.length > 0) {
-      card.appendChild(renderReplyList(comment, filePath));
-    }
-
-    // Reply input
-    card.appendChild(createReplyInput(comment.id, filePath));
-
-    wrapper.appendChild(card);
-    return wrapper;
+    return parts.wrapper;
   }
 
   // ===== Comment Count =====
@@ -5017,79 +4981,26 @@
     const isGeneral = !filePath;
     const isResolved = comment.resolved;
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'comment-block panel-comment-block';
+    var cardClassExtra = [
+      isResolved ? 'resolved-card' : '',
+      comment.carried_forward ? 'carried-forward' : '',
+    ].filter(Boolean).join(' ');
 
-    const card = document.createElement('div');
-    card.className = 'comment-card'
-      + (isResolved ? ' resolved-card' : '')
-      + (comment.carried_forward ? ' carried-forward' : '');
-    card.dataset.commentId = comment.id;
-
-    // Apply saved collapse state
-    var isCollapsed = isResolved
-      ? (commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true)
-      : (commentCollapseOverrides[comment.id] === true);
-    if (isCollapsed) card.classList.add('collapsed');
-
-    const header = document.createElement('div');
-    header.className = 'comment-header';
-
-    const collapseBtn = document.createElement('button');
-    collapseBtn.className = 'comment-collapse-btn';
-    collapseBtn.title = isCollapsed ? 'Expand comment' : 'Collapse comment';
-    collapseBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>';
-    collapseBtn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      card.classList.toggle('collapsed');
-      commentCollapseOverrides[comment.id] = card.classList.contains('collapsed');
-      collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
+    var parts = buildCommentCard(comment, filePath || '', {
+      wrapperClass: 'comment-block panel-comment-block',
+      cardClassExtra: cardClassExtra,
+      collapseDefault: isResolved,
+      showLineRef: !isGeneral,
+      showCarriedForward: true,
+      repliesExtraClass: 'panel-replies',
+      showReplyInput: false,
     });
-
-    const time = document.createElement('span');
-    time.className = 'comment-time';
-    time.textContent = formatTime(comment.created_at);
-
-    const headerLeft = document.createElement('div');
-    headerLeft.className = 'comment-header-left';
-    headerLeft.prepend(collapseBtn);
-    if (comment.author) {
-      const authorBadge = document.createElement('span');
-      authorBadge.className = 'comment-author-badge author-color-' + authorColorIndex(comment.author);
-      authorBadge.textContent = '@' + comment.author;
-      headerLeft.appendChild(authorBadge);
-    }
-    if (comment.review_round >= 1) {
-      const roundBadge = document.createElement('span');
-      const rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
-      roundBadge.className = 'comment-round-badge' + rc;
-      roundBadge.textContent = 'R' + comment.review_round;
-      headerLeft.appendChild(roundBadge);
-    }
-    if (!isGeneral && comment.scope !== 'file') {
-      const lineRef = document.createElement('span');
-      lineRef.className = 'comment-line-ref';
-      lineRef.textContent = comment.start_line === comment.end_line
-        ? 'Line ' + comment.start_line
-        : 'Lines ' + comment.start_line + '-' + comment.end_line;
-      headerLeft.appendChild(lineRef);
-    }
-    if (comment.carried_forward) {
-      const label = document.createElement('span');
-      label.className = 'carried-forward-label';
-      label.textContent = 'Unresolved';
-      headerLeft.appendChild(label);
-    }
-    headerLeft.appendChild(time);
-
-    const actions = document.createElement('div');
-    actions.className = 'comment-actions';
 
     if (isResolved) {
       const badge = document.createElement('span');
       badge.className = 'resolved-badge';
       badge.textContent = 'Resolved';
-      actions.appendChild(badge);
+      parts.actions.appendChild(badge);
     }
 
     if (isGeneral) {
@@ -5098,7 +5009,7 @@
         const unresolveBtn = document.createElement('button');
         unresolveBtn.title = 'Unresolve';
         unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
-        unresolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.36 2.64M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.36-2.64"/><polyline points="21 3 21 8 16 8"/><polyline points="3 21 3 16 8 16"/></svg>';
+        unresolveBtn.innerHTML = ICON_UNRESOLVE;
         unresolveBtn.addEventListener('click', async function(e) {
           e.stopPropagation();
           try {
@@ -5116,11 +5027,11 @@
           await refreshReviewComments();
           renderCommentsPanel();
         });
-        actions.appendChild(unresolveBtn);
+        parts.actions.appendChild(unresolveBtn);
       } else {
         const resolveBtn = document.createElement('button');
         resolveBtn.title = 'Resolve';
-        resolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+        resolveBtn.innerHTML = ICON_RESOLVE;
         resolveBtn.addEventListener('click', async function(e) {
           e.stopPropagation();
           try {
@@ -5138,11 +5049,11 @@
           await refreshReviewComments();
           renderCommentsPanel();
         });
-        actions.appendChild(resolveBtn);
+        parts.actions.appendChild(resolveBtn);
       }
       const editBtn = document.createElement('button');
       editBtn.title = 'Edit';
-      editBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+      editBtn.innerHTML = ICON_EDIT;
       editBtn.addEventListener('click', function(e) {
         e.stopPropagation();
         openReviewCommentEditForm(comment);
@@ -5150,44 +5061,27 @@
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'delete-btn';
       deleteBtn.title = 'Delete';
-      deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+      deleteBtn.innerHTML = ICON_DELETE;
       deleteBtn.addEventListener('click', function(e) {
         e.stopPropagation();
         deleteReviewComment(comment.id);
       });
-      actions.appendChild(editBtn);
-      actions.appendChild(deleteBtn);
+      parts.actions.appendChild(editBtn);
+      parts.actions.appendChild(deleteBtn);
     }
     // File/inline comments in panel: no actions (use inline UI in main content)
 
-    header.appendChild(headerLeft);
-    header.appendChild(actions);
-
-    const bodyEl = document.createElement('div');
-    bodyEl.className = 'comment-body';
-    bodyEl.innerHTML = commentMd.render(comment.body, isGeneral ? undefined : buildCommentEnv(comment, filePath));
-
-    card.appendChild(header);
-    card.appendChild(bodyEl);
-
-    // Render replies (read-only in panel — no reply input)
-    if (comment.replies && comment.replies.length > 0) {
-      card.appendChild(renderReplyList(comment, filePath || '', 'panel-replies'));
-    }
-
-    wrapper.appendChild(card);
-
     // File comments are clickable to scroll to inline location
     if (!isGeneral) {
-      wrapper.style.cursor = 'pointer';
-      wrapper.addEventListener('click', function(e) {
+      parts.wrapper.style.cursor = 'pointer';
+      parts.wrapper.addEventListener('click', function(e) {
         // Don't scroll if clicking action buttons
         if (e.target.closest('.comment-actions')) return;
         scrollToComment(comment.id, filePath);
       });
     }
 
-    return wrapper;
+    return parts.wrapper;
   }
 
   function renderCommentsPanel() {
@@ -5455,6 +5349,7 @@
         for (let fi = 0; fi < files.length; fi++) {
           if (files[fi].comments) unresolvedComments += files[fi].comments.filter(function(c) { return !c.resolved; }).length;
         }
+        unresolvedComments += reviewComments.filter(function(c) { return !c.resolved; }).length;
         finishBtn.textContent = unresolvedComments === 0 ? 'Approve' : 'Finish Review';
         finishBtn.disabled = false;
         finishBtn.classList.add('btn-primary');
@@ -5689,7 +5584,7 @@
         '<div class="share-dialog-url">' +
           '<span>' + escapeHtml(hostedURL) + '</span>' +
           '<button class="copy-icon-btn" id="modalCopyBtn" title="Copy link">' +
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+            ICON_CLIPBOARD +
           '</button>' +
         '</div>' +
         '<div class="share-dialog-actions">' +
@@ -5722,13 +5617,11 @@
 
     overlay.querySelector('#modalCloseBtn').addEventListener('click', closeShareModal);
 
-    const clipboardSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-    const checkSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
     overlay.querySelector('#modalCopyBtn').addEventListener('click', function() {
       navigator.clipboard.writeText(hostedURL).catch(function() {});
-      this.innerHTML = checkSvg;
+      this.innerHTML = ICON_CHECK_SMALL;
       const copyBtn = this;
-      setTimeout(function() { copyBtn.innerHTML = clipboardSvg; }, 2000);
+      setTimeout(function() { copyBtn.innerHTML = ICON_CLIPBOARD; }, 2000);
     });
 
     if (deleteToken) {
@@ -5842,7 +5735,9 @@
   // Global for onclick handlers in toast HTML
   window.dismissToast = function(id) {
     const el = document.getElementById('toast-' + id);
-    if (el) el.remove();
+    if (!el) return;
+    el.classList.add('toast-out');
+    el.addEventListener('animationend', function() { el.remove(); }, { once: true });
   };
 
   // ===== Table of Contents =====
@@ -6006,8 +5901,6 @@
   });
 
   // ===== Update Modal =====
-  const clipboardSvgSmall = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-  const checkSvgSmall = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
   let updateEscapeHandler = null;
 
   function closeUpdateModal() {
@@ -6046,7 +5939,7 @@
         cmdsHtml += '<div class="update-item-cmd">'
           + '<code>' + escapeHtml(cmd) + '</code>'
           + '<button class="update-item-copy" title="Copy command" aria-label="Copy command" data-cmd="' + escapeHtml(cmd).replace(/"/g, '&quot;') + '">'
-          + clipboardSvgSmall
+          + ICON_CLIPBOARD
           + '</button>'
           + '</div>';
       });
@@ -6082,9 +5975,9 @@
       btn.addEventListener('click', function() {
         var cmd = this.getAttribute('data-cmd');
         navigator.clipboard.writeText(cmd).catch(function() {});
-        this.innerHTML = checkSvgSmall;
+        this.innerHTML = ICON_CHECK_SMALL;
         var self = this;
-        setTimeout(function() { self.innerHTML = clipboardSvgSmall; }, 2000);
+        setTimeout(function() { self.innerHTML = ICON_CLIPBOARD; }, 2000);
       });
     });
 
