@@ -5612,10 +5612,19 @@
       try {
         for (let i = 0; i < files.length; i++) {
           const f = files[i];
-          const commentsRes = await fetch('/api/file/comments?path=' + enc(f.path))
-            .then(function(r) { return r.ok ? r.json() : []; })
-            .catch(function() { return []; });
+          const [commentsRes, fileRes] = await Promise.all([
+            fetch('/api/file/comments?path=' + enc(f.path))
+              .then(function(r) { return r.ok ? r.json() : []; })
+              .catch(function() { return []; }),
+            fetch('/api/file?path=' + enc(f.path))
+              .then(function(r) { return r.ok ? r.json() : null; })
+              .catch(function() { return null; }),
+          ]);
           f.comments = Array.isArray(commentsRes) ? commentsRes : [];
+          if (fileRes && fileRes.content !== undefined && fileRes.content !== f.content) {
+            f.content = fileRes.content;
+            f.lineBlocks = null; // force rebuild of parsed blocks
+          }
         }
         // Also refresh review-level comments
         try {
