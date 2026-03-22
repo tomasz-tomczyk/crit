@@ -4157,10 +4157,12 @@
     card.className = cardClass;
     card.dataset.commentId = comment.id;
 
-    // Collapse state
-    var isCollapsed = opts.collapseDefault
-      ? (commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true)
-      : (commentCollapseOverrides[comment.id] === true);
+    // Collapse state — live threads never auto-collapse
+    var liveOrPending = isLiveThread(comment) || pendingAgentRequests.has(comment.id);
+    var isCollapsed = liveOrPending ? false
+      : opts.collapseDefault
+        ? (commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true)
+        : (commentCollapseOverrides[comment.id] === true);
     if (isCollapsed) card.classList.add('collapsed');
 
     const header = document.createElement('div');
@@ -4211,6 +4213,13 @@
     time.className = 'comment-time';
     time.textContent = formatTime(comment.created_at);
     headerLeft.appendChild(time);
+
+    if (liveOrPending) {
+      const badge = document.createElement('span');
+      badge.className = 'live-thread-badge' + (pendingAgentRequests.has(comment.id) ? ' pulsing' : '');
+      badge.textContent = agentName;
+      headerLeft.appendChild(badge);
+    }
 
     const actions = document.createElement('div');
     actions.className = 'comment-actions';
