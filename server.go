@@ -1143,10 +1143,9 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		if resolved {
 			s.session.SetCommentResolved(filePath, commentID, true)
 		}
-		s.session.notify(SSEEvent{Type: "comments-changed"})
-		// Re-read file content from disk in case the agent edited files
+		// Re-read file content so next fetch returns updated data
 		s.session.RefreshFileContent()
-		s.session.notify(SSEEvent{Type: "file-changed"})
+		s.session.notify(SSEEvent{Type: "comments-changed"})
 	}
 }
 
