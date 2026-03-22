@@ -3228,12 +3228,16 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 /* Send now button */
 .btn-agent {
-  background: var(--accent);
-  color: #fff;
-  border: none;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .btn-agent:hover {
-  opacity: 0.9;
+  background: var(--accent);
+  color: #fff;
 }
 .btn-agent:disabled {
   opacity: 0.5;

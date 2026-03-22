@@ -3795,7 +3795,7 @@
     if (agentEnabled && !opts.editingId) {
       const sendBtn = document.createElement('button');
       sendBtn.className = 'btn btn-sm btn-agent';
-      sendBtn.textContent = 'Send now';
+      sendBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" style="vertical-align: -1px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg> Send now';
       sendBtn.title = 'Submit comment and send to agent';
       sendBtn.addEventListener('click', async function() {
         sendBtn.disabled = true;
@@ -4217,7 +4217,7 @@
     if (liveOrPending) {
       const badge = document.createElement('span');
       badge.className = 'live-thread-badge' + (pendingAgentRequests.has(comment.id) ? ' pulsing' : '');
-      badge.textContent = '\u26A1 live';
+      badge.innerHTML = '<svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" style="vertical-align: -1px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg> live';
       headerLeft.appendChild(badge);
     }
 
