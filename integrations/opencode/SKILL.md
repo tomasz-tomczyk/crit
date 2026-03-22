@@ -188,6 +188,14 @@ Rules:
 - **State persisted** — share URL and delete token are saved to `.crit.json`
 - **Unpublish reads `.crit.json`** — uses the stored delete token to remove the review
 
+## Send to Agent
+
+Configure `agent_cmd` in `.crit.config.json` to enable "Send now" on review comments — the agent addresses comments in real-time without finishing the review:
+
+```json
+{"agent_cmd": "opencode -p"}
+```
+
 ## Guardrails
 
 - Do not continue past the review step until the user confirms they are done.

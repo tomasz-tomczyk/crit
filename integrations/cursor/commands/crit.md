@@ -114,3 +114,13 @@ To remove a shared review:
 ```bash
 crit unpublish
 ```
+
+## Send to Agent
+
+Configure `agent_cmd` in `.crit.config.json` to enable "Send now" on review comments — the agent addresses comments in real-time without finishing the review:
+
+```json
+{"agent_cmd": "cursor -p"}
+```
+
+Note: Cursor headless mode is experimental and may hang. If it does, use the standard review-and-finish workflow instead.

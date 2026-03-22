@@ -98,3 +98,11 @@ crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post .crit.json commen
 ```
 
 Requires `gh` CLI. PR number auto-detected from current branch. Event types for `--event`: `comment` (default), `approve`, `request-changes`.
+
+## Send to Agent
+
+Configure `agent_cmd` in `.crit.config.json` to enable "Send now" on review comments — the agent addresses comments in real-time without finishing the review:
+
+```json
+{"agent_cmd": "cline -y"}
+```

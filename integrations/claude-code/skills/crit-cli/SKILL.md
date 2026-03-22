@@ -188,3 +188,11 @@ Rules:
 - **Relay the output** — always copy the URL (and QR code if `--qr` was used) from the command output and include it directly in your response to the user. Do not make them dig through tool output
 - **State persisted** — share URL and delete token are saved to `.crit.json`
 - **Unpublish reads `.crit.json`** — uses the stored delete token to remove the review
+
+## Send to Agent
+
+Configure `agent_cmd` in `.crit.config.json` to enable "Send now" on review comments — the agent addresses comments in real-time without finishing the review:
+
+```json
+{"agent_cmd": "claude -p"}
+```

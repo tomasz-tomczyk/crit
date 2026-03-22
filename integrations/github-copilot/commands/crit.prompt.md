@@ -113,3 +113,7 @@ To remove a shared review:
 ```bash
 crit unpublish
 ```
+
+## Send to Agent
+
+Send to Agent is not supported for GitHub Copilot (no prompt mode available). Use the standard review-and-finish workflow instead.
