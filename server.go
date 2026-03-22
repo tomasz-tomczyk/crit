@@ -504,15 +504,24 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		prompt = "All comments are resolved — no changes needed, please proceed."
 	}
 
-	writeJSON(w, map[string]string{
+	approved := unresolvedComments == 0
+
+	writeJSON(w, map[string]any{
 		"status":      "finished",
 		"review_file": critJSON,
 		"prompt":      prompt,
+		"approved":    approved,
 	})
 
+	// Encode approved status into SSE event content as JSON so review-cycle
+	// clients can extract it without string matching on the prompt.
+	eventData, _ := json.Marshal(map[string]any{
+		"prompt":   prompt,
+		"approved": approved,
+	})
 	s.session.notify(SSEEvent{
 		Type:    "finish",
-		Content: prompt,
+		Content: string(eventData),
 	})
 
 	if s.status != nil {
@@ -562,11 +571,17 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 		case event := <-ch:
 			if event.Type == "finish" {
 				s.session.SetAwaitingFirstReview(false)
-				// Return the same shape as handleFinish for consistent agent output
-				writeJSON(w, map[string]string{
+				// Parse the structured finish event data
+				var finishData struct {
+					Prompt   string `json:"prompt"`
+					Approved bool   `json:"approved"`
+				}
+				json.Unmarshal([]byte(event.Content), &finishData)
+				writeJSON(w, map[string]any{
 					"status":      "finished",
 					"review_file": s.session.critJSONPath(),
-					"prompt":      event.Content,
+					"prompt":      finishData.Prompt,
+					"approved":    finishData.Approved,
 				})
 				return
 			}

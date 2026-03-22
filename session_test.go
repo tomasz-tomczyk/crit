@@ -1401,7 +1401,7 @@ func TestSession_AddReply_UnresolvesComment(t *testing.T) {
 		nextID:      2,
 		Files: []*FileEntry{
 			{
-				Path: "test.md",
+				Path:     "test.md",
 				Comments: []Comment{{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix this", Resolved: true}},
 			},
 		},

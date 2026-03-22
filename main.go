@@ -15,9 +15,9 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -71,8 +71,6 @@ func main() {
 		runReview(os.Args[1:])
 	}
 }
-
-
 
 func runShare(args []string) {
 	shareOutputDir := ""
@@ -818,10 +816,11 @@ func runReviewClient(entry sessionEntry) (approved bool) {
 	os.Stdout.Write(body)
 
 	// Check if the review was approved (no unresolved comments).
-	// The only non-approve case has a prompt containing reinvoke instructions.
-	var result struct{ Prompt string }
-	if json.Unmarshal(body, &result) == nil && !strings.Contains(result.Prompt, "When done run:") {
-		return true
+	var result struct {
+		Approved bool `json:"approved"`
+	}
+	if json.Unmarshal(body, &result) == nil {
+		return result.Approved
 	}
 	return false
 }
@@ -1103,8 +1102,6 @@ func runServe(args []string) {
 	defer cancel()
 	_ = httpServer.Shutdown(shutCtx)
 }
-
-
 
 func printHelp() {
 	fmt.Fprintf(os.Stderr, `crit — inline code review for AI agent workflows

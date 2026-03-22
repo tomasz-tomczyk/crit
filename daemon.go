@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -104,13 +103,17 @@ func readSessionFile(key string) (sessionEntry, error) {
 	return entry, nil
 }
 
-// removeSessionFile deletes a session file.
+// removeSessionFile deletes a session file and its associated log and lock files.
 func removeSessionFile(key string) {
 	path, err := sessionFilePath(key)
 	if err != nil {
 		return
 	}
 	os.Remove(path)
+	// Clean up associated log and lock files
+	dir := filepath.Dir(path)
+	os.Remove(filepath.Join(dir, key+".log"))
+	os.Remove(filepath.Join(dir, key+".lock"))
 }
 
 // findAliveSession looks up a session by key and returns it if alive.
@@ -161,6 +164,8 @@ func listSessionsForCWD(cwd string) ([]sessionEntry, []string) {
 			keys = append(keys, key)
 		} else {
 			os.Remove(filepath.Join(dir, de.Name()))
+			os.Remove(filepath.Join(dir, key+".log"))
+			os.Remove(filepath.Join(dir, key+".lock"))
 		}
 	}
 	return alive, keys
@@ -223,10 +228,86 @@ func daemonHasBrowser(s sessionEntry) bool {
 	return *result.BrowserClients
 }
 
+// acquireSessionLock tries to acquire a file-based lock for a session key.
+// Returns the lock file handle on success. The caller must call releaseSessionLock.
+// Retries with a short sleep for up to 5 seconds. If the lock holder is dead
+// (e.g. killed with SIGKILL), the stale lock is automatically removed.
+func acquireSessionLock(key string) (*os.File, error) {
+	dir, err := sessionsDir()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("creating sessions directory: %w", err)
+	}
+	lockPath := filepath.Join(dir, key+".lock")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err == nil {
+			// Write our PID so other processes can detect stale locks
+			fmt.Fprintf(f, "%d", os.Getpid())
+			return f, nil
+		}
+		// Lock file exists — check if the holder is still alive
+		if removeStaleLock(lockPath) {
+			continue // stale lock removed, retry immediately
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return nil, fmt.Errorf("could not acquire session lock for %s", key)
+}
+
+// removeStaleLock reads the PID from a lock file and removes it if the
+// holder process is no longer alive. Returns true if the lock was removed.
+func removeStaleLock(lockPath string) bool {
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		return false
+	}
+	var pid int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &pid); err != nil {
+		// Corrupt or empty lock file — remove it
+		os.Remove(lockPath)
+		return true
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		os.Remove(lockPath)
+		return true
+	}
+	// Signal 0 checks if the process exists without actually signaling it
+	if err := proc.Signal(syscall.Signal(0)); err != nil {
+		// Process is dead — remove stale lock
+		os.Remove(lockPath)
+		return true
+	}
+	return false
+}
+
+// releaseSessionLock closes and removes the lock file.
+func releaseSessionLock(f *os.File) {
+	name := f.Name()
+	f.Close()
+	os.Remove(name)
+}
+
 // startDaemon spawns a crit _serve process in the background and waits for it to be ready.
 // The key must match what the daemon computes in runServe (sessionKey(cwd, fileArgs)).
 // Raw args (including flags) are passed through to _serve which parses them itself.
 func startDaemon(key string, args []string) (sessionEntry, error) {
+	// Acquire file lock to prevent two simultaneous crit calls from racing
+	lock, err := acquireSessionLock(key)
+	if err != nil {
+		return sessionEntry{}, err
+	}
+	defer releaseSessionLock(lock)
+
+	// Re-check for alive session under the lock — another process may have won the race
+	if entry, alive := findAliveSession(key); alive {
+		return entry, nil
+	}
+
 	selfPath, err := os.Executable()
 	if err != nil {
 		return sessionEntry{}, fmt.Errorf("finding executable: %w", err)
@@ -240,9 +321,16 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 	cmd.Stdout = nil
 	cmd.Stdin = nil
 
-	// Capture stderr so we can report why the daemon failed to start
-	var stderrBuf bytes.Buffer
-	cmd.Stderr = &stderrBuf
+	// Redirect stderr to a log file so daemon errors are preserved
+	logPath, err := sessionLogPath(key)
+	if err != nil {
+		return sessionEntry{}, fmt.Errorf("creating log path: %w", err)
+	}
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		return sessionEntry{}, fmt.Errorf("creating daemon log file: %w", err)
+	}
+	cmd.Stderr = logFile
 
 	// Detach from parent process group so it survives parent exit
 	cmd.SysProcAttr = daemonSysProcAttr()
@@ -251,8 +339,11 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 	removeSessionFile(key)
 
 	if err := cmd.Start(); err != nil {
+		logFile.Close()
 		return sessionEntry{}, fmt.Errorf("starting daemon: %w", err)
 	}
+	// Close log file handle in parent — the daemon process owns it now
+	logFile.Close()
 	newPID := cmd.Process.Pid
 
 	// Monitor for early exit in background
@@ -264,8 +355,8 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 	for time.Now().Before(deadline) {
 		select {
 		case err := <-exited:
-			// Daemon exited before becoming ready
-			msg := strings.TrimSpace(stderrBuf.String())
+			// Daemon exited before becoming ready — read log for details
+			msg := readDaemonLog(key)
 			if msg != "" {
 				return sessionEntry{}, fmt.Errorf("daemon exited: %s", msg)
 			}
@@ -287,6 +378,28 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 	cmd.Process.Kill()
 	<-exited // drain the Wait goroutine
 	return sessionEntry{}, fmt.Errorf("daemon did not start within 5 seconds")
+}
+
+// sessionLogPath returns the path for a daemon's log file.
+func sessionLogPath(key string) (string, error) {
+	dir, err := sessionsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, key+".log"), nil
+}
+
+// readDaemonLog reads and returns the trimmed contents of a daemon log file.
+func readDaemonLog(key string) string {
+	logPath, err := sessionLogPath(key)
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func daemonSysProcAttr() *syscall.SysProcAttr {
