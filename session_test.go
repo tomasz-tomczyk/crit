@@ -2060,3 +2060,16 @@ func TestCommentCountsIncludeReviewComments(t *testing.T) {
 		t.Errorf("UnresolvedCommentCount: expected 3, got %d", got)
 	}
 }
+
+func TestClearAllCommentsIncludesReview(t *testing.T) {
+	s := newTestSession(t)
+	s.AddComment("plan.md", 1, 1, "", "line", "", "")
+	s.AddReviewComment("review", "")
+	s.ClearAllComments()
+	if got := s.TotalCommentCount(); got != 0 {
+		t.Errorf("expected 0 after clear, got %d", got)
+	}
+	if len(s.GetReviewComments()) != 0 {
+		t.Error("expected 0 review comments after clear")
+	}
+}

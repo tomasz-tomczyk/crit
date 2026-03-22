@@ -972,6 +972,8 @@ func (s *Session) ClearAllComments() {
 	}
 	s.Files = filtered
 	s.nextID = 1
+	s.reviewComments = nil
+	s.reviewNextID = 0
 	s.ReviewRound = 1
 	s.lastCritJSONMtime = time.Time{}
 	s.pendingWrite = false
