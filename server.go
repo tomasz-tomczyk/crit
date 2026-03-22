@@ -1145,10 +1145,12 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		if resolved {
 			s.session.SetCommentResolved(filePath, commentID, true)
 		}
-		// Re-read file list, content, and diffs so next fetch returns updated data
-		s.session.RefreshFileList()
+		// Re-read content (and file list/diffs in git mode) so next fetch returns updated data
 		s.session.RefreshFileContent()
-		s.session.RefreshDiffs()
+		if s.session.Mode == "git" {
+			s.session.RefreshFileList()
+			s.session.RefreshDiffs()
+		}
 		s.session.notify(SSEEvent{Type: "comments-changed"})
 	}
 }
