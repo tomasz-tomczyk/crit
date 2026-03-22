@@ -461,12 +461,13 @@ func (s *Session) AddFileComment(filePath, body, author string) (Comment, bool) 
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	c := Comment{
-		ID:        fmt.Sprintf("c%d", s.nextID),
-		Body:      body,
-		Author:    author,
-		Scope:     "file",
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          fmt.Sprintf("c%d", s.nextID),
+		Body:        body,
+		Author:      author,
+		Scope:       "file",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		ReviewRound: s.ReviewRound,
 	}
 	s.nextID++
 	f.Comments = append(f.Comments, c)
@@ -480,12 +481,13 @@ func (s *Session) AddReviewComment(body, author string) Comment {
 	defer s.mu.Unlock()
 	now := time.Now().UTC().Format(time.RFC3339)
 	c := Comment{
-		ID:        fmt.Sprintf("r%d", s.reviewNextID),
-		Body:      body,
-		Author:    author,
-		Scope:     "review",
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          fmt.Sprintf("r%d", s.reviewNextID),
+		Body:        body,
+		Author:      author,
+		Scope:       "review",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		ReviewRound: s.ReviewRound,
 	}
 	s.reviewNextID++
 	s.reviewComments = append(s.reviewComments, c)
@@ -529,6 +531,21 @@ func (s *Session) DeleteReviewComment(id string) bool {
 		}
 	}
 	return false
+}
+
+// ResolveReviewComment sets or clears the resolved flag on a review-level comment.
+func (s *Session) ResolveReviewComment(id string, resolved bool) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == id {
+			s.reviewComments[i].Resolved = resolved
+			s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			s.scheduleWrite()
+			return s.reviewComments[i], true
+		}
+	}
+	return Comment{}, false
 }
 
 // UpdateComment updates a comment in a specific file.

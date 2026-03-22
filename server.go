@@ -537,12 +537,37 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReviewCommentByID(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/review-comment/")
-	if id == "" {
+	trimmed := strings.TrimPrefix(r.URL.Path, "/api/review-comment/")
+	if trimmed == "" {
 		http.Error(w, "Comment ID required", http.StatusBadRequest)
 		return
 	}
 
+	// Check if this is a resolve route: {id}/resolve
+	if parts := strings.SplitN(trimmed, "/resolve", 2); len(parts) == 2 && parts[1] == "" {
+		commentID := parts[0]
+		if r.Method != http.MethodPut {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Resolved bool `json:"resolved"`
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		c, ok := s.session.ResolveReviewComment(commentID, req.Resolved)
+		if !ok {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, c)
+		return
+	}
+
+	id := trimmed
 	switch r.Method {
 	case http.MethodPut:
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)

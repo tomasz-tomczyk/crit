@@ -1611,3 +1611,55 @@ func TestPostFileScopedCommentRequiresBody(t *testing.T) {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
+
+func TestResolveReviewCommentAPI(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// Create a review comment
+	body := strings.NewReader(`{"body": "needs fixing"}`)
+	req := httptest.NewRequest("POST", "/api/comments", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("POST expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var c Comment
+	json.Unmarshal(w.Body.Bytes(), &c)
+
+	// Resolve it
+	body = strings.NewReader(`{"resolved": true}`)
+	req = httptest.NewRequest("PUT", "/api/review-comment/"+c.ID+"/resolve", body)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT resolve expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resolved Comment
+	json.Unmarshal(w.Body.Bytes(), &resolved)
+	if !resolved.Resolved {
+		t.Error("expected comment to be resolved")
+	}
+
+	// Unresolve it
+	body = strings.NewReader(`{"resolved": false}`)
+	req = httptest.NewRequest("PUT", "/api/review-comment/"+c.ID+"/resolve", body)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT unresolve expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var unresolved Comment
+	json.Unmarshal(w.Body.Bytes(), &unresolved)
+	if unresolved.Resolved {
+		t.Error("expected comment to be unresolved")
+	}
+
+	// Not found
+	body = strings.NewReader(`{"resolved": true}`)
+	req = httptest.NewRequest("PUT", "/api/review-comment/nonexistent/resolve", body)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}

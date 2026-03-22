@@ -2150,3 +2150,68 @@ func TestLoadCritJSONDefaultsScope(t *testing.T) {
 		t.Errorf("expected default scope 'line', got %q", comments[0].Scope)
 	}
 }
+
+func TestResolveReviewComment(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("needs work", "")
+	if c.Resolved {
+		t.Error("new review comment should not be resolved")
+	}
+
+	// Resolve
+	resolved, ok := s.ResolveReviewComment(c.ID, true)
+	if !ok {
+		t.Fatal("ResolveReviewComment failed")
+	}
+	if !resolved.Resolved {
+		t.Error("expected comment to be resolved")
+	}
+
+	// Unresolve
+	unresolved, ok := s.ResolveReviewComment(c.ID, false)
+	if !ok {
+		t.Fatal("ResolveReviewComment (unresolve) failed")
+	}
+	if unresolved.Resolved {
+		t.Error("expected comment to be unresolved")
+	}
+
+	// Not found
+	_, ok = s.ResolveReviewComment("nonexistent", true)
+	if ok {
+		t.Error("expected ResolveReviewComment to return false for unknown ID")
+	}
+}
+
+func TestResolveReviewCommentAffectsUnresolvedCount(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("review", "")
+	if got := s.UnresolvedCommentCount(); got != 1 {
+		t.Fatalf("expected 1 unresolved, got %d", got)
+	}
+	s.ResolveReviewComment(c.ID, true)
+	if got := s.UnresolvedCommentCount(); got != 0 {
+		t.Fatalf("expected 0 unresolved after resolve, got %d", got)
+	}
+}
+
+func TestFileCommentHasReviewRound(t *testing.T) {
+	s := newTestSession(t)
+	s.ReviewRound = 3
+	c, ok := s.AddFileComment("plan.md", "file-level feedback", "")
+	if !ok {
+		t.Fatal("AddFileComment failed")
+	}
+	if c.ReviewRound != 3 {
+		t.Errorf("expected ReviewRound 3, got %d", c.ReviewRound)
+	}
+}
+
+func TestReviewCommentHasReviewRound(t *testing.T) {
+	s := newTestSession(t)
+	s.ReviewRound = 2
+	c := s.AddReviewComment("general feedback", "")
+	if c.ReviewRound != 2 {
+		t.Errorf("expected ReviewRound 2, got %d", c.ReviewRound)
+	}
+}

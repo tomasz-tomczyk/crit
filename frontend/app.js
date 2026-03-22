@@ -3376,7 +3376,7 @@
     }
     return createCommentFormUI({
       formObj: formObj,
-      headerText: (formObj.editingId ? 'Editing ' : '') + 'File comment',
+      headerText: formObj.editingId ? 'Editing comment' : 'Comment',
       submitText: formObj.editingId ? 'Update' : 'Submit',
       initialBody: initialBody,
       autoFocus: false
@@ -4093,11 +4093,11 @@
 
     const lineRef = document.createElement('span');
     lineRef.className = 'comment-line-ref';
-    lineRef.textContent = comment.scope === 'file'
-      ? 'File comment'
-      : comment.start_line === comment.end_line
+    if (comment.scope !== 'file') {
+      lineRef.textContent = comment.start_line === comment.end_line
         ? 'Line ' + comment.start_line
         : 'Lines ' + comment.start_line + '-' + comment.end_line;
+    }
 
     const time = document.createElement('span');
     time.className = 'comment-time';
@@ -4860,11 +4860,11 @@
 
     const lineRef = document.createElement('span');
     lineRef.className = 'comment-line-ref';
-    lineRef.textContent = comment.scope === 'file'
-      ? 'File comment'
-      : comment.start_line === comment.end_line
+    if (comment.scope !== 'file') {
+      lineRef.textContent = comment.start_line === comment.end_line
         ? 'Line ' + comment.start_line
         : 'Lines ' + comment.start_line + '-' + comment.end_line;
+    }
 
     const time = document.createElement('span');
     time.className = 'comment-time';
@@ -5043,18 +5043,6 @@
       collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
     });
 
-    const lineRef = document.createElement('span');
-    lineRef.className = 'comment-line-ref';
-    if (isGeneral) {
-      lineRef.textContent = 'General comment';
-    } else {
-      lineRef.textContent = comment.scope === 'file'
-        ? 'File comment'
-        : comment.start_line === comment.end_line
-          ? 'Line ' + comment.start_line
-          : 'Lines ' + comment.start_line + '-' + comment.end_line;
-    }
-
     const time = document.createElement('span');
     time.className = 'comment-time';
     time.textContent = formatTime(comment.created_at);
@@ -5075,7 +5063,14 @@
       roundBadge.textContent = 'R' + comment.review_round;
       headerLeft.appendChild(roundBadge);
     }
-    headerLeft.appendChild(lineRef);
+    if (!isGeneral && comment.scope !== 'file') {
+      const lineRef = document.createElement('span');
+      lineRef.className = 'comment-line-ref';
+      lineRef.textContent = comment.start_line === comment.end_line
+        ? 'Line ' + comment.start_line
+        : 'Lines ' + comment.start_line + '-' + comment.end_line;
+      headerLeft.appendChild(lineRef);
+    }
     if (comment.carried_forward) {
       const label = document.createElement('span');
       label.className = 'carried-forward-label';
@@ -5095,7 +5090,53 @@
     }
 
     if (isGeneral) {
-      // General comments: edit and delete only
+      // General comments: resolve/unresolve, edit, and delete
+      if (isResolved) {
+        const unresolveBtn = document.createElement('button');
+        unresolveBtn.title = 'Unresolve';
+        unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
+        unresolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.36 2.64M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.36-2.64"/><polyline points="21 3 21 8 16 8"/><polyline points="3 21 3 16 8 16"/></svg>';
+        unresolveBtn.addEventListener('click', async function(e) {
+          e.stopPropagation();
+          try {
+            var res = await fetch('/api/review-comment/' + comment.id + '/resolve', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ resolved: false }),
+            });
+            if (!res.ok) throw new Error('Server returned ' + res.status);
+          } catch (err) {
+            console.error('Error unresolving:', err);
+            showMiniToast('Failed to unresolve comment');
+            return;
+          }
+          await refreshReviewComments();
+          renderCommentsPanel();
+        });
+        actions.appendChild(unresolveBtn);
+      } else {
+        const resolveBtn = document.createElement('button');
+        resolveBtn.title = 'Resolve';
+        resolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+        resolveBtn.addEventListener('click', async function(e) {
+          e.stopPropagation();
+          try {
+            var res = await fetch('/api/review-comment/' + comment.id + '/resolve', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ resolved: true }),
+            });
+            if (!res.ok) throw new Error('Server returned ' + res.status);
+          } catch (err) {
+            console.error('Error resolving:', err);
+            showMiniToast('Failed to resolve comment');
+            return;
+          }
+          await refreshReviewComments();
+          renderCommentsPanel();
+        });
+        actions.appendChild(resolveBtn);
+      }
       const editBtn = document.createElement('button');
       editBtn.title = 'Edit';
       editBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
@@ -5113,71 +5154,8 @@
       });
       actions.appendChild(editBtn);
       actions.appendChild(deleteBtn);
-    } else {
-      // File comments: edit, delete, resolve/unresolve
-      if (isResolved) {
-        const unresolveBtn = document.createElement('button');
-        unresolveBtn.title = 'Unresolve';
-        unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
-        unresolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.36 2.64M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.36-2.64"/><polyline points="21 3 21 8 16 8"/><polyline points="3 21 3 16 8 16"/></svg>';
-        unresolveBtn.addEventListener('click', async function(e) {
-          e.stopPropagation();
-          try {
-            var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ resolved: false }),
-            });
-            if (!res.ok) throw new Error('Server returned ' + res.status);
-          } catch (err) {
-            console.error('Error unresolving:', err);
-            showMiniToast('Failed to unresolve comment');
-            return;
-          }
-          refreshFileComments(filePath);
-        });
-        actions.appendChild(unresolveBtn);
-      } else {
-        const resolveBtn = document.createElement('button');
-        resolveBtn.title = 'Resolve';
-        resolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-        resolveBtn.addEventListener('click', async function(e) {
-          e.stopPropagation();
-          try {
-            var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ resolved: true }),
-            });
-            if (!res.ok) throw new Error('Server returned ' + res.status);
-          } catch (err) {
-            console.error('Error resolving:', err);
-            showMiniToast('Failed to resolve comment');
-            return;
-          }
-          refreshFileComments(filePath);
-        });
-        actions.appendChild(resolveBtn);
-      }
-
-      const editBtn = document.createElement('button');
-      editBtn.title = 'Edit';
-      editBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
-      editBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        editComment(comment, filePath);
-      });
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'delete-btn';
-      deleteBtn.title = 'Delete';
-      deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
-      deleteBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        deleteComment(comment.id, filePath);
-      });
-      actions.appendChild(editBtn);
-      actions.appendChild(deleteBtn);
     }
+    // File/inline comments in panel: no actions (use inline UI in main content)
 
     header.appendChild(headerLeft);
     header.appendChild(actions);
@@ -5240,7 +5218,7 @@
 
       const groupName = document.createElement('div');
       groupName.className = 'comments-panel-file-name';
-      groupName.textContent = 'General';
+      groupName.textContent = 'Review';
       group.appendChild(groupName);
 
       for (let j = 0; j < visibleReviewComments.length; j++) {
