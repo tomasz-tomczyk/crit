@@ -2005,3 +2005,45 @@ func TestUpdateReviewComment(t *testing.T) {
 		t.Errorf("expected 'revised', got %q", updated.Body)
 	}
 }
+
+func TestCritJSONIncludesReviewComments(t *testing.T) {
+	s := newTestSession(t)
+	s.AddReviewComment("general feedback", "")
+	s.AddComment("plan.md", 1, 1, "", "line comment", "", "")
+	s.AddFileComment("plan.md", "file comment", "")
+	s.WriteFiles()
+	data, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatal(err)
+	}
+	if len(cj.ReviewComments) != 1 {
+		t.Fatalf("expected 1 review comment, got %d", len(cj.ReviewComments))
+	}
+	if cj.ReviewComments[0].Scope != "review" {
+		t.Errorf("expected scope 'review', got %q", cj.ReviewComments[0].Scope)
+	}
+	fc := cj.Files["plan.md"]
+	if len(fc.Comments) != 2 {
+		t.Fatalf("expected 2 comments on plan.md, got %d", len(fc.Comments))
+	}
+}
+
+func TestLoadCritJSONRestoresReviewComments(t *testing.T) {
+	s := newTestSession(t)
+	s.AddReviewComment("restored comment", "")
+	s.WriteFiles()
+	s.reviewComments = nil
+	s.reviewNextID = 0
+	s.loadCritJSON()
+	rc := s.GetReviewComments()
+	if len(rc) != 1 {
+		t.Fatalf("expected 1 review comment after reload, got %d", len(rc))
+	}
+	if rc[0].Body != "restored comment" {
+		t.Errorf("unexpected body: %q", rc[0].Body)
+	}
+}

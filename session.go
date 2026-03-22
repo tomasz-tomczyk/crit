@@ -114,8 +114,9 @@ type CritJSON struct {
 	ReviewRound int                     `json:"review_round"`
 	ShareURL    string                  `json:"share_url,omitempty"`
 	DeleteToken string                  `json:"delete_token,omitempty"`
-	ShareScope  string                  `json:"share_scope,omitempty"`
-	Files       map[string]CritJSONFile `json:"files"`
+	ShareScope     string                  `json:"share_scope,omitempty"`
+	ReviewComments []Comment               `json:"review_comments,omitempty"`
+	Files          map[string]CritJSONFile `json:"files"`
 }
 
 // CritJSONFile is the per-file section in .crit.json.
@@ -1017,6 +1018,7 @@ type writeFilesSnapshot struct {
 	sharedURL   string
 	deleteToken string
 	shareScope  string
+	reviewComments []Comment
 	// Per-file data needed for the merge. We copy comments so the snapshot
 	// is independent of later in-memory mutations.
 	files []writeFileSnapshot
@@ -1088,6 +1090,7 @@ func (s *Session) WriteFiles() {
 	cj.ShareURL = snap.sharedURL
 	cj.DeleteToken = snap.deleteToken
 	cj.ShareScope = snap.shareScope
+	cj.ReviewComments = snap.reviewComments
 
 	// Overlay session files: merge with disk comments, remove entries with no comments.
 	for _, fs := range snap.files {
@@ -1124,7 +1127,7 @@ func (s *Session) WriteFiles() {
 	}
 
 	// Only remove if nothing meaningful remains
-	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" && cj.ShareScope == "" {
+	if len(cj.Files) == 0 && len(cj.ReviewComments) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" && cj.ShareScope == "" {
 		os.Remove(snap.critPath)
 		s.mu.Lock()
 		s.lastCritJSONMtime = time.Time{}
@@ -1158,16 +1161,19 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	rc := make([]Comment, len(s.reviewComments))
+	copy(rc, s.reviewComments)
 	snap := writeFilesSnapshot{
-		critPath:    critPath,
-		lastMtime:   s.lastCritJSONMtime,
-		branch:      s.Branch,
-		baseRef:     s.BaseRef,
-		reviewRound: s.ReviewRound,
-		sharedURL:   s.sharedURL,
-		deleteToken: s.deleteToken,
-		shareScope:  s.shareScope,
-		files:       make([]writeFileSnapshot, len(s.Files)),
+		critPath:       critPath,
+		lastMtime:      s.lastCritJSONMtime,
+		branch:         s.Branch,
+		baseRef:        s.BaseRef,
+		reviewRound:    s.ReviewRound,
+		sharedURL:      s.sharedURL,
+		deleteToken:    s.deleteToken,
+		shareScope:     s.shareScope,
+		reviewComments: rc,
+		files:          make([]writeFileSnapshot, len(s.Files)),
 	}
 	for i, f := range s.Files {
 		comments := make([]Comment, len(f.Comments))
@@ -1371,6 +1377,16 @@ func (s *Session) loadCritJSON() {
 					s.nextID = id + 1
 				}
 			}
+		}
+	}
+
+	// Restore review-level comments and rebuild reviewNextID.
+	s.reviewComments = cj.ReviewComments
+	for _, c := range s.reviewComments {
+		id := 0
+		_, _ = fmt.Sscanf(c.ID, "r%d", &id)
+		if id >= s.reviewNextID {
+			s.reviewNextID = id + 1
 		}
 	}
 
