@@ -45,7 +45,7 @@ echo '[
 ]' | crit comment --json --author 'Cline'
 ```
 
-When done, run `crit` again to signal round-complete and wait for the next review. On subsequent calls, `crit` automatically signals round-complete first, then blocks again until the next "Finish Review" click.
+When done, run the **exact same `crit` command from earlier** to signal round-complete and wait for the next review. If you launched `crit plan.md`, run `crit plan.md` again (not bare `crit`). The daemon is keyed by the arguments, so mismatched args will start a new daemon instead of reconnecting. On subsequent calls, `crit` automatically signals round-complete first, then blocks again until the next "Finish Review" click.
 
 Only proceed after the user approves (finishes a round with zero comments).
 

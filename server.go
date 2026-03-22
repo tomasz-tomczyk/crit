@@ -27,6 +27,7 @@ type Server struct {
 	versionMu      sync.RWMutex
 	port           int
 	status         *Status
+	shutdownFn     func() // if set, called to gracefully stop the daemon
 }
 
 func NewServer(session *Session, frontendFS embed.FS, shareURL string, prInfo *PRInfo, author string, currentVersion string, port int) (*Server, error) {
@@ -498,8 +499,8 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 				"Read the file, address each comment in the relevant file and location. "+
 				"For each comment: reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> --resolve \"<explanation>\"`, "+
 				"or edit .crit.json directly to add a reply to the comment's \"replies\" array and set \"resolved\": true. "+
-				"When done run: `crit`",
-			critJSON)
+				"When done run: `%s`",
+			critJSON, s.session.ReinvokeCommand())
 	} else if totalComments > 0 && unresolvedComments == 0 {
 		prompt = "All comments are resolved — no changes needed, please proceed."
 	}
@@ -521,6 +522,15 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		if unresolvedComments > 0 {
 			s.status.WaitingForAgent()
 		}
+	}
+
+	// Approve (no unresolved comments) — shut down the daemon after a brief
+	// delay so the review-cycle client has time to receive the finish event.
+	if unresolvedComments == 0 && s.shutdownFn != nil {
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			s.shutdownFn()
+		}()
 	}
 }
 

@@ -343,6 +343,83 @@ func TestFinish_NoComments(t *testing.T) {
 	}
 }
 
+func TestFinish_PromptIncludesFileArgs(t *testing.T) {
+	s, session := newTestServer(t)
+	session.CLIArgs = []string{"test.md"}
+	session.AddComment("test.md", 1, 1, "", "fix this", "", "")
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resp["prompt"], "`crit test.md`") {
+		t.Errorf("expected prompt to contain 'crit test.md', got: %s", resp["prompt"])
+	}
+}
+
+func TestFinish_PromptBareGitMode(t *testing.T) {
+	s, session := newTestServer(t)
+	session.Mode = "git"
+	// CLIArgs stays nil — git mode
+	session.AddComment("test.md", 1, 1, "", "fix this", "", "")
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resp["prompt"], "run: `crit`") {
+		t.Errorf("expected prompt to end with 'run: `crit`', got: %s", resp["prompt"])
+	}
+}
+
+func TestFinish_ApproveCallsShutdown(t *testing.T) {
+	s, _ := newTestServer(t)
+	shutdownCalled := make(chan struct{}, 1)
+	s.shutdownFn = func() {
+		shutdownCalled <- struct{}{}
+	}
+
+	// No comments = approve
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	select {
+	case <-shutdownCalled:
+		// good
+	case <-time.After(2 * time.Second):
+		t.Error("expected shutdownFn to be called on approve")
+	}
+}
+
+func TestFinish_UnresolvedDoesNotShutdown(t *testing.T) {
+	s, session := newTestServer(t)
+	shutdownCalled := make(chan struct{}, 1)
+	s.shutdownFn = func() {
+		shutdownCalled <- struct{}{}
+	}
+	session.AddComment("test.md", 1, 1, "", "fix this", "", "")
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	select {
+	case <-shutdownCalled:
+		t.Error("shutdownFn should not be called when there are unresolved comments")
+	case <-time.After(700 * time.Millisecond):
+		// good — no shutdown
+	}
+}
+
 // ===== Path Traversal Tests =====
 
 func TestHandleFiles_PathTraversal(t *testing.T) {

@@ -994,6 +994,8 @@ func runServe(args []string) {
 	}
 	addr := listener.Addr().(*net.TCPAddr)
 
+	session.CLIArgs = sc.files
+
 	srv, err := NewServer(session, frontendFS, sc.shareURL, prInfo, sc.author, version, addr.Port)
 	if err != nil {
 		log.Fatalf("Error creating server: %v", err)
@@ -1038,6 +1040,8 @@ func runServe(args []string) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	srv.shutdownFn = stop
 
 	// Idle timeout checker
 	go func() {
