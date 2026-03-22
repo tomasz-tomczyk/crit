@@ -3503,6 +3503,7 @@
       fetch('/api/files/list?q=' + encodeURIComponent(query))
         .then(function(r) { return r.ok ? r.json() : []; })
         .then(function(matches) {
+          if (triggerStart === -1) return;
           if (matches.length === 0) {
             hideDropdown();
             return;
@@ -3627,9 +3628,9 @@
       if (dropdown) {
         dropdown.remove();
         dropdown = null;
-        activeIndex = -1;
-        triggerStart = -1;
       }
+      activeIndex = -1;
+      triggerStart = -1;
     }
   }
 
