@@ -44,10 +44,10 @@ test.describe('Comment Count Badge', () => {
     await switchToDocumentView(page);
   });
 
-  test('badge is hidden when there are no comments', async ({ page }) => {
+  test('badge is visible but empty when there are no comments', async ({ page }) => {
     const countEl = page.locator('#commentCount');
     const badgeEl = page.locator('#commentCountNumber');
-    await expect(countEl).toBeHidden();
+    await expect(countEl).toBeVisible();
     await expect(badgeEl).toHaveText('');
   });
 
@@ -133,7 +133,7 @@ test.describe('Comment Count Badge', () => {
     await expect(badgeEl).toHaveText('1');
   });
 
-  test('badge disappears when all comments are deleted', async ({ page }) => {
+  test('badge shows empty text when all comments are deleted', async ({ page }) => {
     const section = mdSection(page);
     const countEl = page.locator('#commentCount');
     const badgeEl = page.locator('#commentCountNumber');
@@ -149,7 +149,7 @@ test.describe('Comment Count Badge', () => {
 
     // Delete it
     await section.locator('.comment-actions .delete-btn').click();
-    await expect(countEl).toBeHidden();
+    await expect(countEl).toBeVisible();
     await expect(badgeEl).toHaveText('');
   });
 

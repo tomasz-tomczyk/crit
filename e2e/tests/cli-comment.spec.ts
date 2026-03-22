@@ -51,9 +51,9 @@ test.describe('CLI comment sync — live browser update', () => {
     const countEl = page.locator('#commentCount');
     const badgeEl = page.locator('#commentCountNumber');
 
-    // Wait for document to be stable, badge should be hidden
+    // Wait for document to be stable, badge should be visible but empty
     await expect(section.locator('.line-block').first()).toBeVisible();
-    await expect(countEl).toBeHidden();
+    await expect(badgeEl).toHaveText('');
 
     // Add a comment via CLI
     execSync(

@@ -160,7 +160,7 @@ test.describe('Markdown Comments — Git Mode', () => {
 
     // Comment card should be gone
     await expect(section.locator('.comment-card')).toHaveCount(0);
-    await expect(countEl).toBeHidden();
+    await expect(page.locator('#commentCountNumber')).toHaveText('');
   });
 
   test('pressing Escape closes the comment form', async ({ page }) => {

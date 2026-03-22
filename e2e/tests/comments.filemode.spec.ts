@@ -106,8 +106,9 @@ test.describe('Comments — File Mode', () => {
     const section = mdSection(page);
     const countEl = page.locator('#commentCount');
 
-    // Initially no comments
-    await expect(countEl).toBeHidden();
+    // Initially no comments — badge visible but empty
+    await expect(countEl).toBeVisible();
+    await expect(page.locator('#commentCountNumber')).toHaveText('');
 
     // Add comment
     const lineBlock = section.locator('.line-block').first();
@@ -119,6 +120,6 @@ test.describe('Comments — File Mode', () => {
 
     // Delete comment
     await section.locator('.comment-actions .delete-btn').click();
-    await expect(countEl).toBeHidden();
+    await expect(page.locator('#commentCountNumber')).toHaveText('');
   });
 });

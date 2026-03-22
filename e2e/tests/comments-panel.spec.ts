@@ -7,7 +7,7 @@ function commentsPanel(page: Page) {
 }
 
 function panelCards(page: Page) {
-  return page.locator('.comments-panel-card');
+  return page.locator('.panel-comment-block .comment-card');
 }
 
 async function waitForRound(request: APIRequestContext, previousRound: number) {
@@ -77,8 +77,8 @@ test.describe('Comments Panel — Git Mode', () => {
 
     await page.keyboard.press('Shift+C');
     await expect(panelCards(page)).toHaveCount(2);
-    await expect(panelCards(page).first().locator('.comments-panel-card-body')).toContainText('First git comment');
-    await expect(panelCards(page).nth(1).locator('.comments-panel-card-body')).toContainText('Second git comment');
+    await expect(panelCards(page).first().locator('.comment-body')).toContainText('First git comment');
+    await expect(panelCards(page).nth(1).locator('.comment-body')).toContainText('Second git comment');
   });
 
   test('panel shows line references', async ({ page, request }) => {
@@ -87,7 +87,7 @@ test.describe('Comments Panel — Git Mode', () => {
     await loadPage(page);
 
     await page.keyboard.press('Shift+C');
-    await expect(panelCards(page).first().locator('.comments-panel-card-line')).toContainText('Line 5');
+    await expect(panelCards(page).first().locator('.comment-line-ref')).toContainText('Line 5');
   });
 
   test('panel shows line range for multi-line comments', async ({ page, request }) => {
@@ -99,7 +99,7 @@ test.describe('Comments Panel — Git Mode', () => {
     await loadPage(page);
 
     await page.keyboard.press('Shift+C');
-    await expect(panelCards(page).first().locator('.comments-panel-card-line')).toContainText('Lines 2-4');
+    await expect(panelCards(page).first().locator('.comment-line-ref')).toContainText('Lines 2-4');
   });
 
   test('panel updates when comment is added via UI', async ({ page }) => {
@@ -122,7 +122,7 @@ test.describe('Comments Panel — Git Mode', () => {
 
     // Panel should now show the comment
     await expect(panelCards(page)).toHaveCount(1);
-    await expect(panelCards(page).first().locator('.comments-panel-card-body')).toContainText('Added via UI');
+    await expect(panelCards(page).first().locator('.comment-body')).toContainText('Added via UI');
   });
 
   test('panel updates when comment is deleted', async ({ page, request }) => {
@@ -236,9 +236,7 @@ test.describe('Comments Panel — Git Mode', () => {
 
     const card = panelCards(page).first();
     await expect(card).toBeVisible();
-    await expect(card.locator('.comments-panel-badge-resolved')).toContainText('Resolved');
-    // Should NOT have an unresolved badge
-    await expect(card.locator('.comments-panel-badge-unresolved')).toHaveCount(0);
+    await expect(card.locator('.resolved-badge')).toContainText('Resolved');
   });
 
   test('unresolved carried-forward comment shows Unresolved badge', async ({ page, request }) => {
@@ -256,9 +254,9 @@ test.describe('Comments Panel — Git Mode', () => {
 
     const card = panelCards(page).first();
     await expect(card).toBeVisible();
-    await expect(card.locator('.comments-panel-badge-unresolved')).toContainText('Unresolved');
+    await expect(card.locator('.carried-forward-label')).toContainText('Unresolved');
     // Should NOT have a resolved badge
-    await expect(card.locator('.comments-panel-badge-resolved')).toHaveCount(0);
+    await expect(card.locator('.resolved-badge')).toHaveCount(0);
   });
 
   test('clicking resolved comment in panel scrolls to inline resolved comment', async ({ page, request }) => {
@@ -314,7 +312,7 @@ test.describe('Comments Panel — Git Mode', () => {
 
     const card = panelCards(page).first();
     await expect(card).toBeVisible();
-    const link = card.locator('.comments-panel-card-body a');
+    const link = card.locator('.comment-body a');
     await expect(link).toBeVisible();
     await expect(link).toHaveAttribute('href', 'https://example.com');
     // Link should have accent color, not default browser blue
@@ -330,7 +328,7 @@ test.describe('Comments Panel — Git Mode', () => {
 
     const card = panelCards(page).first();
     await expect(card).toBeVisible();
-    const codeBlock = card.locator('.comments-panel-card-body pre code');
+    const codeBlock = card.locator('.comment-body pre code');
     await expect(codeBlock).toBeVisible();
     await expect(codeBlock.locator('span[class^="hljs-"]').first()).toBeVisible();
   });
@@ -343,6 +341,7 @@ test.describe('Comments Panel — Git Mode', () => {
 
     const card = panelCards(page).first();
     await expect(card).toBeVisible();
-    await expect(card.locator('.comments-panel-badge')).toHaveCount(0);
+    await expect(card.locator('.carried-forward-label')).toHaveCount(0);
+    await expect(card.locator('.resolved-badge')).toHaveCount(0);
   });
 });
