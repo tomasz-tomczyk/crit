@@ -683,6 +683,26 @@ func nextReplyID(commentID string, existing []Reply) string {
 	return fmt.Sprintf("%s-r%d", commentID, max+1)
 }
 
+// RefreshFileContent re-reads all file content from disk.
+func (s *Session) RefreshFileContent() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, f := range s.Files {
+		if f.AbsPath == "" {
+			continue
+		}
+		data, err := os.ReadFile(f.AbsPath)
+		if err != nil {
+			continue
+		}
+		newHash := fileHash(data)
+		if newHash != f.FileHash {
+			f.Content = string(data)
+			f.FileHash = newHash
+		}
+	}
+}
+
 // AddReply adds a reply to a specific comment on a file.
 func (s *Session) AddReply(filePath, commentID, body, author string) (Reply, bool) {
 	s.mu.Lock()
@@ -775,6 +795,32 @@ func (s *Session) GetComments(filePath string) []Comment {
 		}
 	}
 	return result
+}
+
+// FindCommentByID looks up a comment by ID, optionally scoped to a file path.
+// Returns the comment, the file path it belongs to, and whether it was found.
+func (s *Session) FindCommentByID(id string, filePath string) (Comment, string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if filePath != "" {
+		for _, f := range s.Files {
+			if f.Path == filePath {
+				for _, c := range f.Comments {
+					if c.ID == id {
+						return c, f.Path, true
+					}
+				}
+			}
+		}
+	}
+	for _, f := range s.Files {
+		for _, c := range f.Comments {
+			if c.ID == id {
+				return c, f.Path, true
+			}
+		}
+	}
+	return Comment{}, "", false
 }
 
 // GetAllComments returns all comments grouped by file path.

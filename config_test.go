@@ -492,6 +492,21 @@ func TestNewSessionFromFilesWithIgnore(t *testing.T) {
 	}
 }
 
+func TestMergeConfigs_AgentCmd(t *testing.T) {
+	global := Config{AgentCmd: "claude -p"}
+	project := Config{}
+	merged := mergeConfigs(global, project, configPresence{})
+	if merged.AgentCmd != "claude -p" {
+		t.Fatalf("expected global agent_cmd to carry through, got %q", merged.AgentCmd)
+	}
+
+	project2 := Config{AgentCmd: "opencode ask"}
+	merged2 := mergeConfigs(global, project2, configPresence{})
+	if merged2.AgentCmd != "opencode ask" {
+		t.Fatalf("expected project agent_cmd to override, got %q", merged2.AgentCmd)
+	}
+}
+
 func TestNoIntegrationCheckConfig(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".crit.config.json")

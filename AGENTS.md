@@ -104,10 +104,11 @@ Two-level JSON config files, merged (project overrides global):
 - **Global**: `~/.crit.config.json` — user-wide defaults
 - **Project**: `.crit.config.json` in repo root — per-project overrides
 
-Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`.
+Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `agent_cmd`.
 
 - `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to `git config user.name` if not set
+- `agent_cmd` specifies the shell command to invoke when sending a comment to an AI agent (e.g. `"claude -p"`, `"opencode ask"`)
 - `ignore_patterns` are unioned (both global and project patterns apply)
 - Pattern types: `*.ext` (extension), `dir/` (directory prefix), `exact.file` (filename), `path/*.ext` (glob)
 - CLI flags override config file values
@@ -242,6 +243,7 @@ Session-scoped:
 - `POST /api/round-complete` — agent signals all edits are done; triggers new round
 - `POST /api/share-url` — persist `{url, delete_token}` to `.crit.json` after upload
 - `DELETE /api/share-url` — unpublish: calls crit-web DELETE and clears local persisted URL
+- `POST /api/agent/request` — send a comment to the configured agent command (requires `agent_cmd` config)
 - `GET  /api/commits` — list commits between base ref and HEAD (git mode only)
 - `GET  /api/comments` — list review-level (general) comments
 - `POST /api/comments` — add review-level comment `{body}`

@@ -145,6 +145,9 @@
   let activeFilePath = null;
   let activeForms = [];  // Array of { formKey, filePath, afterBlockIndex, startLine, endLine, editingId, side }
   let prData = null;     // PR metadata from /api/config (set once on load)
+  let agentEnabled = false;
+  let agentName = 'agent';
+  let pendingAgentRequests = new Set();
 
   // Track manually toggled collapse state (comment ID → boolean, true = collapsed)
   const commentCollapseOverrides = {};
@@ -367,6 +370,8 @@
     hostedURL = configRes.hosted_url || '';
     deleteToken = configRes.delete_token || '';
     configAuthor = configRes.author || '';
+    agentEnabled = configRes.agent_cmd_enabled || false;
+    agentName = configRes.agent_name || 'agent';
 
     if (shareURL && session.mode !== 'git') {
       const shareBtn = document.getElementById('shareBtn');
@@ -3787,6 +3792,38 @@
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
+    if (agentEnabled && !opts.editingId) {
+      const sendBtn = document.createElement('button');
+      sendBtn.className = 'btn btn-sm btn-agent';
+      sendBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" style="vertical-align: -1px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg> Send now';
+      sendBtn.title = 'Submit comment and send to agent';
+      sendBtn.addEventListener('click', async function() {
+        sendBtn.disabled = true;
+        submitBtn.disabled = true;
+        const fp = formObj.filePath;
+        const comment = await submitComment(textarea.value, formObj);
+        if (comment) {
+          pendingAgentRequests.add(comment.id);
+          renderFileByPath(fp);
+          try {
+            const res = await fetch('/api/agent/request', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ comment_id: comment.id, file_path: fp }),
+            });
+            if (!res.ok) throw new Error('Server returned ' + res.status);
+            showMiniToast('Sent to agent');
+          } catch (err) {
+            console.error('Error sending to agent:', err);
+            showMiniToast('Failed to send to agent');
+            pendingAgentRequests.delete(comment.id);
+            renderFileByPath(fp);
+          }
+        }
+      });
+      actions.appendChild(sendBtn);
+    }
+
     form.appendChild(header);
     form.appendChild(textarea);
     form.appendChild(actions);
@@ -3865,8 +3902,9 @@
   }
 
   async function submitComment(body, formObj) {
-    if (!body.trim() || !formObj) return;
+    if (!body.trim() || !formObj) return null;
     clearDraft(formObj);
+    let created;
     const filePath = formObj.filePath;
     const file = getFileByPath(filePath);
     if (!file) return;
@@ -3902,9 +3940,11 @@
         });
         const newComment = await res.json();
         file.comments.push(newComment);
+        created = newComment;
       }
     } catch (err) {
       console.error('Error saving comment:', err);
+      return null;
     }
 
     removeForm(formObj.formKey);
@@ -3921,6 +3961,7 @@
     renderFileByPath(filePath);
     updateTreeCommentBadges();
     updateCommentCount();
+    return created || null;
   }
 
   function cancelComment(formObj) {
@@ -4075,6 +4116,23 @@
     }, 3000);
   }
 
+  // ===== Agent Button =====
+  function isLiveThread(comment) {
+    if (!agentEnabled || !comment.replies) return false;
+    return comment.replies.some(function(r) { return r.author === agentName; });
+  }
+
+  function checkAgentReplies(comments) {
+    for (const c of comments) {
+      if (pendingAgentRequests.has(c.id) && c.replies && c.replies.length > 0) {
+        const lastReply = c.replies[c.replies.length - 1];
+        if (lastReply.author === agentName) {
+          pendingAgentRequests.delete(c.id);
+        }
+      }
+    }
+  }
+
   // ===== Comment Display =====
   function buildCommentEnv(comment, filePath) {
     const env = {};
@@ -4099,10 +4157,12 @@
     card.className = cardClass;
     card.dataset.commentId = comment.id;
 
-    // Collapse state
-    var isCollapsed = opts.collapseDefault
-      ? (commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true)
-      : (commentCollapseOverrides[comment.id] === true);
+    // Collapse state — live threads never auto-collapse
+    var liveOrPending = isLiveThread(comment) || pendingAgentRequests.has(comment.id);
+    var isCollapsed = liveOrPending ? false
+      : opts.collapseDefault
+        ? (commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true)
+        : (commentCollapseOverrides[comment.id] === true);
     if (isCollapsed) card.classList.add('collapsed');
 
     const header = document.createElement('div');
@@ -4154,6 +4214,13 @@
     time.textContent = formatTime(comment.created_at);
     headerLeft.appendChild(time);
 
+    if (liveOrPending) {
+      const badge = document.createElement('span');
+      badge.className = 'live-thread-badge' + (pendingAgentRequests.has(comment.id) ? ' pulsing' : '');
+      badge.innerHTML = '<svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" style="vertical-align: -1px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg> live';
+      headerLeft.appendChild(badge);
+    }
+
     const actions = document.createElement('div');
     actions.className = 'comment-actions';
 
@@ -4172,9 +4239,27 @@
       card.appendChild(renderReplyList(comment, filePath || '', opts.repliesExtraClass));
     }
 
+    // Pending agent indicator
+    if (pendingAgentRequests.has(comment.id)) {
+      const pending = document.createElement('div');
+      pending.className = 'agent-pending-reply';
+      pending.dataset.commentId = comment.id;
+      pending.innerHTML =
+        '<span class="agent-pending-author">@' + agentName + '</span>' +
+        '<span class="agent-pending-cursor">_</span>';
+      card.appendChild(pending);
+    }
+
     // Reply input
     if (opts.showReplyInput && filePath) {
       card.appendChild(createReplyInput(comment.id, filePath));
+    }
+
+    if (pendingAgentRequests.has(comment.id) || isLiveThread(comment)) {
+      wrapper.classList.add('live-thread');
+    }
+    if (pendingAgentRequests.has(comment.id)) {
+      wrapper.classList.add('agent-pending');
     }
 
     wrapper.appendChild(card);
@@ -4479,6 +4564,7 @@
     try {
       await fetch('/api/comment/' + id + '?path=' + enc(filePath), { method: 'DELETE' });
       file.comments = file.comments.filter(c => c.id !== id);
+      pendingAgentRequests.delete(id);
     } catch (err) {
       console.error('Error deleting comment:', err);
     }
@@ -4499,6 +4585,7 @@
     } catch (err) {
       console.error('Error refreshing comments:', err);
     }
+    checkAgentReplies(file.comments);
     renderFileByPath(filePath);
     updateCommentCount();
     updateTreeCommentBadges();
@@ -4770,17 +4857,22 @@
     const form = document.createElement('div');
     form.className = 'reply-form';
 
+    // Check if this comment is pending agent response
+    var isPending = pendingAgentRequests.has(commentId);
+
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'reply-input';
-    input.placeholder = 'Write a reply\u2026';
+    input.placeholder = isPending ? 'Waiting for @' + agentName + '\u2026' : 'Write a reply\u2026';
+    if (isPending) input.disabled = true;
     form.appendChild(input);
 
     // Expanded state elements (hidden initially)
     const textarea = document.createElement('textarea');
     textarea.className = 'reply-textarea';
-    textarea.placeholder = 'Write a reply\u2026';
+    textarea.placeholder = isPending ? 'Waiting for @' + agentName + '\u2026' : 'Write a reply\u2026';
     textarea.rows = 3;
+    if (isPending) textarea.disabled = true;
 
     const buttons = document.createElement('div');
     buttons.className = 'reply-form-buttons';
@@ -4841,6 +4933,23 @@
           body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error('Server returned ' + res.status);
+
+        // In live threads, also send the reply to the agent
+        var file = getFileByPath(filePath);
+        var comment = file && file.comments ? file.comments.find(function(c) { return c.id === commentId; }) : null;
+        if (comment && (isLiveThread(comment) || pendingAgentRequests.has(commentId))) {
+          pendingAgentRequests.add(commentId);
+          fetch('/api/agent/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ comment_id: commentId, file_path: filePath }),
+          }).catch(function(err) {
+            console.error('Error sending reply to agent:', err);
+            pendingAgentRequests.delete(commentId);
+            showMiniToast('Failed to send to agent');
+          });
+        }
+
         refreshFileComments(filePath);
       } catch (err) {
         console.error('Failed to add reply:', err);
@@ -5069,8 +5178,6 @@
       parts.actions.appendChild(editBtn);
       parts.actions.appendChild(deleteBtn);
     }
-    // File/inline comments in panel: no actions (use inline UI in main content)
-
     // File comments are clickable to scroll to inline location
     if (!isGeneral) {
       parts.wrapper.style.cursor = 'pointer';
@@ -5508,21 +5615,74 @@
 
     source.addEventListener('comments-changed', async function() {
       try {
-        for (let i = 0; i < files.length; i++) {
-          const f = files[i];
-          const commentsRes = await fetch('/api/file/comments?path=' + enc(f.path))
-            .then(function(r) { return r.ok ? r.json() : []; })
-            .catch(function() { return []; });
+        await Promise.all(files.map(async function(f) {
+          var fetches = [
+            fetch('/api/file/comments?path=' + enc(f.path))
+              .then(function(r) { return r.ok ? r.json() : []; })
+              .catch(function() { return []; }),
+            fetch('/api/file?path=' + enc(f.path))
+              .then(function(r) { return r.ok ? r.json() : null; })
+              .catch(function() { return null; }),
+            fetch('/api/file/diff?path=' + enc(f.path)
+              + (diffScope && diffScope !== 'all' ? '&scope=' + enc(diffScope) : '')
+              + (diffCommit ? '&commit=' + enc(diffCommit) : ''))
+              .then(function(r) { return r.ok ? r.json() : null; })
+              .catch(function() { return null; }),
+          ];
+          const [commentsRes, fileRes, diffRes] = await Promise.all(fetches);
           f.comments = Array.isArray(commentsRes) ? commentsRes : [];
-        }
+          if (fileRes && fileRes.content !== undefined && fileRes.content !== f.content) {
+            f.content = fileRes.content;
+            // Rebuild parsed blocks from new content
+            if (f.fileType === 'markdown') {
+              var parsed = parseMarkdown(f.content);
+              f.lineBlocks = parsed.blocks;
+              f.tocItems = parsed.tocItems;
+            } else if (f.fileType === 'code' && session.mode !== 'git') {
+              f.lineBlocks = buildCodeLineBlocks(f);
+            }
+            if (f.fileType === 'code') {
+              f.highlightCache = preHighlightFile(f);
+            }
+          }
+          if (diffRes && Array.isArray(diffRes.hunks)) {
+            f.diffHunks = diffRes.hunks;
+          }
+        }));
         // Also refresh review-level comments
         try {
           const rcRes = await fetch('/api/comments');
           if (rcRes.ok) reviewComments = await rcRes.json();
         } catch (_) {}
+        // Save form drafts and focused element before re-render
+        var focusedFormKey = null;
+        var focusedSelStart = 0;
+        var focusedSelEnd = 0;
+        var activeEl = document.activeElement;
+        if (activeEl && activeEl.tagName === 'TEXTAREA') {
+          var formEl = activeEl.closest('.comment-form');
+          if (formEl) {
+            focusedFormKey = formEl.dataset.formKey;
+            focusedSelStart = activeEl.selectionStart;
+            focusedSelEnd = activeEl.selectionEnd;
+          }
+        }
+        for (let i = 0; i < files.length; i++) {
+          checkAgentReplies(files[i].comments);
+          saveOpenFormContent(files[i].path);
+        }
         renderAllFiles();
         updateCommentCount();
         updateTreeCommentBadges();
+        // Restore focus
+        if (focusedFormKey) {
+          var ta = document.querySelector('.comment-form[data-form-key="' + focusedFormKey + '"] textarea');
+          if (ta) {
+            ta.focus();
+            ta.selectionStart = focusedSelStart;
+            ta.selectionEnd = focusedSelEnd;
+          }
+        }
       } catch (err) {
         console.error('Error handling comments-changed:', err);
       }

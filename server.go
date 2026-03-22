@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,12 +20,13 @@ import (
 )
 
 type Server struct {
-	session        *Session
-	mux            *http.ServeMux
-	assets         fs.FS
-	shareURL       string
-	prInfo         *PRInfo
-	author         string
+	session           *Session
+	mux               *http.ServeMux
+	assets            fs.FS
+	shareURL          string
+	prInfo            *PRInfo
+	author            string
+	agentCmd          string
 	currentVersion    string
 	latestVersion     string
 	versionMu         sync.RWMutex
@@ -30,13 +35,13 @@ type Server struct {
 	status            *Status
 }
 
-func NewServer(session *Session, frontendFS embed.FS, shareURL string, prInfo *PRInfo, author string, currentVersion string, port int) (*Server, error) {
+func NewServer(session *Session, frontendFS embed.FS, shareURL string, prInfo *PRInfo, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
 	assets, err := fs.Sub(frontendFS, "frontend")
 	if err != nil {
 		return nil, fmt.Errorf("loading frontend assets: %w", err)
 	}
 
-	s := &Server{session: session, assets: assets, shareURL: shareURL, prInfo: prInfo, author: author, currentVersion: currentVersion, port: port}
+	s := &Server{session: session, assets: assets, shareURL: shareURL, prInfo: prInfo, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port}
 
 	mux := http.NewServeMux()
 
@@ -52,6 +57,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, prInfo *P
 	mux.HandleFunc("/api/wait-for-event", s.handleWaitForEvent)
 	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
 
+	mux.HandleFunc("/api/agent/request", s.handleAgentRequest)
 	mux.HandleFunc("/api/commits", s.handleCommits)
 	mux.HandleFunc("/api/comments", s.handleReviewComments)
 	mux.HandleFunc("/api/review-comment/", s.handleReviewCommentByID)
@@ -85,12 +91,14 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	latestVersion := s.latestVersion
 	s.versionMu.RUnlock()
 	resp := map[string]interface{}{
-		"share_url":      s.shareURL,
-		"hosted_url":     s.session.GetSharedURL(),
-		"delete_token":   s.session.GetDeleteToken(),
-		"version":        s.currentVersion,
-		"latest_version": latestVersion,
-		"author":         s.author,
+		"share_url":         s.shareURL,
+		"hosted_url":        s.session.GetSharedURL(),
+		"delete_token":      s.session.GetDeleteToken(),
+		"version":           s.currentVersion,
+		"latest_version":    latestVersion,
+		"author":            s.author,
+		"agent_cmd_enabled": s.agentCmd != "",
+		"agent_name":        agentName(s.agentCmd),
 	}
 	if len(s.staleIntegrations) > 0 {
 		type staleInfo struct {
@@ -1005,6 +1013,160 @@ func fuzzyScore(query, text string) float64 {
 	}
 	score -= float64(len(text)) * 0.1
 	return score
+}
+
+// agentRequestBody is the JSON body for POST /api/agent/request.
+type agentRequestBody struct {
+	CommentID string `json:"comment_id"`
+	FilePath  string `json:"file_path"`
+}
+
+// agentName extracts the binary name from the agent command string.
+func agentName(cmd string) string {
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return "agent"
+	}
+	return filepath.Base(parts[0])
+}
+
+// handleAgentRequest dispatches a comment to the configured agent command.
+// POST /api/agent/request
+func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agentCmd == "" {
+		http.Error(w, "agent_cmd not configured", http.StatusBadRequest)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var body agentRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.CommentID == "" {
+		http.Error(w, "Bad request: comment_id required", http.StatusBadRequest)
+		return
+	}
+
+	comment, filePath, found := s.session.FindCommentByID(body.CommentID, body.FilePath)
+	if !found {
+		http.Error(w, "Comment not found", http.StatusNotFound)
+		return
+	}
+
+	prompt := buildAgentPrompt(comment, filePath)
+
+	// Run agent command asynchronously
+	go s.runAgentCmd(prompt, comment.ID, filePath)
+
+	w.WriteHeader(http.StatusAccepted)
+	writeJSON(w, map[string]any{
+		"status":     "accepted",
+		"comment_id": body.CommentID,
+		"file_path":  filePath,
+	})
+}
+
+// buildAgentPrompt constructs a prompt string from a comment for the agent.
+func buildAgentPrompt(c Comment, filePath string) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("A reviewer left a comment on %s", filePath))
+	if c.StartLine > 0 {
+		if c.EndLine > c.StartLine {
+			b.WriteString(fmt.Sprintf(" (lines %d-%d)", c.StartLine, c.EndLine))
+		} else {
+			b.WriteString(fmt.Sprintf(" (line %d)", c.StartLine))
+		}
+	}
+	b.WriteString(":\n\n")
+	if c.Quote != "" {
+		b.WriteString("Code:\n```\n")
+		b.WriteString(c.Quote)
+		b.WriteString("\n```\n\n")
+	}
+	b.WriteString("Comment:\n> ")
+	b.WriteString(c.Body)
+	b.WriteString("\n\n")
+	for _, reply := range c.Replies {
+		b.WriteString(fmt.Sprintf("Reply from %s:\n> %s\n\n", reply.Author, reply.Body))
+	}
+	b.WriteString("Address this comment. If it requires a code change, make the edit.\n\n" +
+		"IMPORTANT: Do NOT run `crit comment` or `crit` commands. " +
+		"Just print your response to stdout — it will be posted as a reply automatically.\n" +
+		"If the comment is fully addressed, start your response with RESOLVED: (e.g., \"RESOLVED: Fixed the typo on line 5.\").\n")
+	return b.String()
+}
+
+// runAgentCmd executes the configured agent command with the given prompt via stdin.
+// The agent's stdout is captured and posted as a reply to the comment.
+func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	parts := strings.Fields(s.agentCmd)
+	if len(parts) == 0 {
+		return
+	}
+	log.Printf("agent-request %s: running %q", commentID, s.agentCmd)
+	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	cmd.Stdin = strings.NewReader(prompt)
+	cmd.Dir = s.session.RepoRoot
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		log.Printf("agent-request %s: error: %v\nStderr: %s", commentID, err, stderr.String())
+		return
+	}
+
+	response := strings.TrimSpace(stdout.String())
+	if response == "" {
+		log.Printf("agent-request %s: completed (no output)", commentID)
+		return
+	}
+
+	// Check for RESOLVED: anywhere in response (agent may add preamble)
+	resolved := false
+	upper := strings.ToUpper(response)
+	if idx := strings.Index(upper, "RESOLVED:"); idx >= 0 {
+		resolved = true
+		// Keep text after RESOLVED: as the reply, discard preamble
+		response = strings.TrimSpace(response[idx+len("RESOLVED:"):])
+	}
+
+	author := agentName(s.agentCmd)
+	log.Printf("agent-request %s: completed, posting reply (%d bytes)\nResponse: %s\nStderr: %s", commentID, len(response), response, stderr.String())
+	// Try original path first, then search all files (path may have changed during agent run)
+	_, ok := s.session.AddReply(filePath, commentID, response, author)
+	if !ok {
+		if _, actualPath, found := s.session.FindCommentByID(commentID, ""); found {
+			_, ok = s.session.AddReply(actualPath, commentID, response, author)
+			if ok {
+				filePath = actualPath
+			}
+		}
+	}
+	if !ok {
+		log.Printf("agent-request %s: failed to add reply (comment not found in file %q)", commentID, filePath)
+	} else {
+		if resolved {
+			// AddReply resets Resolved to false, so we re-set it here.
+			// Both operations use scheduleWrite with a 200ms debounce,
+			// so the final resolved=true state will be persisted.
+			s.session.SetCommentResolved(filePath, commentID, true)
+		}
+		// Re-read content (and file list/diffs in git mode) so next fetch returns updated data
+		s.session.RefreshFileContent()
+		if s.session.Mode == "git" {
+			s.session.RefreshFileList()
+			s.session.RefreshDiffs()
+		}
+		s.session.notify(SSEEvent{Type: "comments-changed"})
+	}
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

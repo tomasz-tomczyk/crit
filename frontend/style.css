@@ -3225,3 +3225,89 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .file-comment-btn:hover {
   opacity: 0.8;
 }
+
+/* Send now button */
+.btn-agent {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.btn-agent:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-agent:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+/* Live Thread — green ambient glow */
+.live-thread > .comment-card {
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.2),
+              0 0 12px rgba(52, 211, 153, 0.06);
+}
+.live-thread.agent-pending > .comment-card {
+  animation: agent-glow 2s ease-in-out infinite;
+}
+@keyframes agent-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.2),
+                          0 0 8px rgba(52, 211, 153, 0.05); }
+  50% { box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.35),
+                    0 0 16px rgba(52, 211, 153, 0.12); }
+}
+
+/* Live thread badge */
+.live-thread-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.1);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.live-thread-badge.pulsing {
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+@keyframes badge-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* Pending agent indicator */
+.agent-pending-reply {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.7;
+}
+.agent-pending-author {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono, 'SF Mono', 'Consolas', monospace);
+  color: var(--accent);
+}
+.agent-pending-cursor {
+  font-family: var(--font-mono, 'SF Mono', 'Consolas', monospace);
+  font-weight: 700;
+  color: var(--accent);
+  animation: agent-cursor-blink 1s step-end infinite;
+}
+@keyframes agent-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Disabled state in live threads — hide edit only, keep delete */
+.live-thread .comment-actions .edit-btn {
+  display: none;
+}
+.live-thread.agent-pending .reply-input,
+.live-thread.agent-pending .reply-textarea {
+  opacity: 0.5;
+  pointer-events: none;
+}
