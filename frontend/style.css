@@ -2407,9 +2407,8 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .pr-panel-pr-link svg {
   flex-shrink: 0;
   margin-top: 2px;
-  color: var(--fg-muted);
+  color: inherit;
 }
-.pr-panel-pr-link:hover svg { color: var(--accent); }
 .pr-panel-pr-number {
   color: var(--fg-muted);
   font-weight: 400;
