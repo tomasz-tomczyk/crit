@@ -1551,6 +1551,7 @@ type SessionInfo struct {
 	ReviewRound     int               `json:"review_round"`
 	AvailableScopes []string          `json:"available_scopes"`
 	Files           []SessionFileInfo `json:"files"`
+	ReviewComments  []Comment         `json:"review_comments"`
 }
 
 // SessionFileInfo is a summary of a file for the session API response.
@@ -1568,12 +1569,16 @@ func (s *Session) GetSessionInfo() SessionInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	reviewComments := make([]Comment, len(s.reviewComments))
+	copy(reviewComments, s.reviewComments)
+
 	info := SessionInfo{
 		Mode:            s.Mode,
 		Branch:          s.Branch,
 		BaseRef:         s.BaseRef,
 		ReviewRound:     s.ReviewRound,
 		AvailableScopes: availableScopes(s.BaseRef),
+		ReviewComments:  reviewComments,
 	}
 
 	for _, f := range s.Files {
@@ -1656,6 +1661,8 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	for _, f := range s.Files {
 		commentCounts[f.Path] = len(f.Comments)
 	}
+	reviewComments := make([]Comment, len(s.reviewComments))
+	copy(reviewComments, s.reviewComments)
 	s.mu.RUnlock()
 
 	info := SessionInfo{
@@ -1664,6 +1671,7 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 		BaseRef:         baseRef,
 		ReviewRound:     reviewRound,
 		AvailableScopes: availableScopes(baseRef),
+		ReviewComments:  reviewComments,
 	}
 
 	var changes []FileChange

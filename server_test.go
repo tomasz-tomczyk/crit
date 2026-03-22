@@ -1482,6 +1482,23 @@ func TestGetFilesList_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestSessionIncludesReviewComments(t *testing.T) {
+	srv, sess := newTestServer(t)
+	sess.AddReviewComment("general note", "")
+	req := httptest.NewRequest("GET", "/api/session", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	var result map[string]any
+	json.Unmarshal(w.Body.Bytes(), &result)
+	rc, ok := result["review_comments"].([]any)
+	if !ok {
+		t.Fatal("expected review_comments array in session response")
+	}
+	if len(rc) != 1 {
+		t.Errorf("expected 1 review comment, got %d", len(rc))
+	}
+}
+
 func TestFinishPromptMentionsScopes(t *testing.T) {
 	srv, sess := newTestServer(t)
 	sess.AddReviewComment("address all issues", "")
