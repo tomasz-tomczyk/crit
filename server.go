@@ -1080,9 +1080,9 @@ func buildAgentPrompt(c Comment, filePath string) string {
 	for _, reply := range c.Replies {
 		b.WriteString(fmt.Sprintf("Reply from %s:\n> %s\n\n", reply.Author, reply.Body))
 	}
-	b.WriteString("Address this comment. If it requires a code change, make the edit. " +
-		"Then respond with a brief explanation of what you did. " +
-		"Your response will be posted as a reply to this comment.\n")
+	b.WriteString("Address this comment. If it requires a code change, make the edit.\n\n" +
+		"IMPORTANT: Do NOT run `crit comment` or `crit` commands. " +
+		"Just print your response to stdout — it will be posted as a reply automatically.\n")
 	return b.String()
 }
 
@@ -1120,6 +1120,8 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 	log.Printf("agent-request %s: completed, posting reply (%d bytes)", commentID, len(response))
 	if _, ok := s.session.AddReply(filePath, commentID, response, "agent"); !ok {
 		log.Printf("agent-request %s: failed to add reply (comment not found)", commentID)
+	} else {
+		s.session.notify(SSEEvent{Type: "comments-changed"})
 	}
 }
 

@@ -5581,6 +5581,9 @@
           const rcRes = await fetch('/api/comments');
           if (rcRes.ok) reviewComments = await rcRes.json();
         } catch (_) {}
+        for (let i = 0; i < files.length; i++) {
+          checkAgentReplies(files[i].comments);
+        }
         renderAllFiles();
         updateCommentCount();
         updateTreeCommentBadges();
