@@ -1128,11 +1128,13 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		return
 	}
 
-	// Check for RESOLVED: prefix convention
+	// Check for RESOLVED: anywhere in response (agent may add preamble)
 	resolved := false
-	if strings.HasPrefix(strings.ToUpper(response), "RESOLVED:") {
+	upper := strings.ToUpper(response)
+	if idx := strings.Index(upper, "RESOLVED:"); idx >= 0 {
 		resolved = true
-		response = strings.TrimSpace(response[len("RESOLVED:"):])
+		// Keep text after RESOLVED: as the reply, discard preamble
+		response = strings.TrimSpace(response[idx+len("RESOLVED:"):])
 	}
 
 	author := agentName(s.agentCmd)

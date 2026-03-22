@@ -5619,7 +5619,9 @@
             fetch('/api/file?path=' + enc(f.path))
               .then(function(r) { return r.ok ? r.json() : null; })
               .catch(function() { return null; }),
-            fetch('/api/file/diff?path=' + enc(f.path))
+            fetch('/api/file/diff?path=' + enc(f.path)
+              + (diffScope && diffScope !== 'all' ? '&scope=' + enc(diffScope) : '')
+              + (diffCommit ? '&commit=' + enc(diffCommit) : ''))
               .then(function(r) { return r.ok ? r.json() : null; })
               .catch(function() { return null; }),
           ];
