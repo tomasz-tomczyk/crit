@@ -1949,3 +1949,21 @@ func TestCommentScopeDefault(t *testing.T) {
 		t.Errorf("expected scope 'line', got %q", c.Scope)
 	}
 }
+
+func TestAddFileComment(t *testing.T) {
+	s := newTestSession(t)
+	c, ok := s.AddFileComment("plan.md", "this file needs work", "")
+	if !ok {
+		t.Fatal("AddFileComment failed")
+	}
+	if c.Scope != "file" {
+		t.Errorf("expected scope 'file', got %q", c.Scope)
+	}
+	if c.StartLine != 0 || c.EndLine != 0 {
+		t.Errorf("expected zero lines for file comment, got %d-%d", c.StartLine, c.EndLine)
+	}
+	comments := s.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+}

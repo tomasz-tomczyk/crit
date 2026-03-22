@@ -447,6 +447,29 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 	return c, true
 }
 
+// AddFileComment adds a file-level comment (not tied to specific lines).
+func (s *Session) AddFileComment(filePath, body, author string) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.fileByPathLocked(filePath)
+	if f == nil {
+		return Comment{}, false
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	c := Comment{
+		ID:        fmt.Sprintf("c%d", s.nextID),
+		Body:      body,
+		Author:    author,
+		Scope:     "file",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	s.nextID++
+	f.Comments = append(f.Comments, c)
+	s.scheduleWrite()
+	return c, true
+}
+
 // UpdateComment updates a comment in a specific file.
 func (s *Session) UpdateComment(filePath, id, body string) (Comment, bool) {
 	s.mu.Lock()
