@@ -53,7 +53,8 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, prInfo *P
 	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
 
 	mux.HandleFunc("/api/commits", s.handleCommits)
-	mux.HandleFunc("/api/comments", s.handleClearComments)
+	mux.HandleFunc("/api/comments", s.handleReviewComments)
+	mux.HandleFunc("/api/review-comment/", s.handleReviewCommentByID)
 	mux.HandleFunc("/api/qr", s.handleQR)
 	mux.HandleFunc("/api/files/list", s.handleFilesList)
 
@@ -502,13 +503,77 @@ func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePa
 	}
 }
 
-func (s *Server) handleClearComments(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
+func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		comments := s.session.GetReviewComments()
+		writeJSON(w, comments)
+
+	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		var req struct {
+			Body   string `json:"body"`
+			Author string `json:"author"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Comment body is required", http.StatusBadRequest)
+			return
+		}
+		c := s.session.AddReviewComment(req.Body, req.Author)
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, c)
+
+	case http.MethodDelete:
+		s.session.ClearAllComments()
+		writeJSON(w, map[string]string{"status": "ok"})
+
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleReviewCommentByID(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/review-comment/")
+	if id == "" {
+		http.Error(w, "Comment ID required", http.StatusBadRequest)
 		return
 	}
-	s.session.ClearAllComments()
-	writeJSON(w, map[string]string{"status": "ok"})
+
+	switch r.Method {
+	case http.MethodPut:
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		var req struct {
+			Body string `json:"body"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Comment body is required", http.StatusBadRequest)
+			return
+		}
+		c, ok := s.session.UpdateReviewComment(id, req.Body)
+		if !ok {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, c)
+
+	case http.MethodDelete:
+		if !s.session.DeleteReviewComment(id) {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleRoundComplete(w http.ResponseWriter, r *http.Request) {

@@ -295,9 +295,9 @@ func TestClearAllComments(t *testing.T) {
 	}
 }
 
-func TestClearAllComments_MethodNotAllowed(t *testing.T) {
+func TestReviewComments_MethodNotAllowed(t *testing.T) {
 	s, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/comments", nil)
+	req := httptest.NewRequest("PATCH", "/api/comments", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	if w.Code != 405 {
@@ -1479,6 +1479,63 @@ func TestGetFilesList_MethodNotAllowed(t *testing.T) {
 
 	if w.Code != 405 {
 		t.Fatalf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestReviewCommentsAPI(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// POST — create review comment
+	body := strings.NewReader(`{"body": "general note"}`)
+	req := httptest.NewRequest("POST", "/api/comments", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("POST expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var c Comment
+	json.Unmarshal(w.Body.Bytes(), &c)
+	if c.Scope != "review" {
+		t.Errorf("expected scope 'review', got %q", c.Scope)
+	}
+
+	// GET — list review comments
+	req = httptest.NewRequest("GET", "/api/comments", nil)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET expected 200, got %d", w.Code)
+	}
+	var comments []Comment
+	json.Unmarshal(w.Body.Bytes(), &comments)
+	if len(comments) != 1 {
+		t.Fatalf("expected 1, got %d", len(comments))
+	}
+
+	// PUT — update review comment
+	body = strings.NewReader(`{"body": "updated note"}`)
+	req = httptest.NewRequest("PUT", "/api/review-comment/"+c.ID, body)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// DELETE — single review comment
+	req = httptest.NewRequest("DELETE", "/api/review-comment/"+c.ID, nil)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("DELETE expected 204, got %d", w.Code)
+	}
+
+	// GET — verify empty
+	req = httptest.NewRequest("GET", "/api/comments", nil)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	json.Unmarshal(w.Body.Bytes(), &comments)
+	if len(comments) != 0 {
+		t.Errorf("expected 0 after delete, got %d", len(comments))
 	}
 }
 
