@@ -3240,31 +3240,29 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   cursor: wait;
 }
 
-/* Live Thread — Option A: ambient glow */
+/* Live Thread — green ambient glow */
 .live-thread > .comment-card {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent),
-              0 0 12px color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.2),
+              0 0 12px rgba(52, 211, 153, 0.06);
 }
 .live-thread.agent-pending > .comment-card {
   animation: agent-glow 2s ease-in-out infinite;
 }
 @keyframes agent-glow {
-  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent),
-                          0 0 8px color-mix(in srgb, var(--accent) 6%, transparent); }
-  50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
-                    0 0 16px color-mix(in srgb, var(--accent) 15%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.2),
+                          0 0 8px rgba(52, 211, 153, 0.05); }
+  50% { box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.35),
+                    0 0 16px rgba(52, 211, 153, 0.12); }
 }
 
-/* Live Thread — Option B: header badge */
+/* Live thread badge */
 .live-thread-badge {
   font-size: 10px;
   font-weight: 600;
-  font-family: var(--font-mono, 'SF Mono', 'Consolas', monospace);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.1);
   padding: 1px 6px;
   border-radius: 3px;
-  letter-spacing: 0.02em;
 }
 .live-thread-badge.pulsing {
   animation: badge-pulse 2s ease-in-out infinite;

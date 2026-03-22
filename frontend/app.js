@@ -4217,7 +4217,7 @@
     if (liveOrPending) {
       const badge = document.createElement('span');
       badge.className = 'live-thread-badge' + (pendingAgentRequests.has(comment.id) ? ' pulsing' : '');
-      badge.textContent = agentName;
+      badge.textContent = '\u26A1 live';
       headerLeft.appendChild(badge);
     }
 
