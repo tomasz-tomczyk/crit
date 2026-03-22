@@ -3240,23 +3240,33 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   cursor: wait;
 }
 
-.agent-waiting {
+/* Pending agent reply indicator */
+.agent-pending-reply {
   padding: 8px 12px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-style: italic;
+  border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 6px;
+  opacity: 0.7;
 }
-.agent-waiting-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: agent-pulse 1.5s ease-in-out infinite;
+.agent-pending-author {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
 }
-@keyframes agent-pulse {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 1; }
+.agent-pending-dots {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+.agent-pending-dots span {
+  animation: agent-dot-bounce 1.4s ease-in-out infinite;
+  display: inline-block;
+}
+.agent-pending-dots span:nth-child(2) { animation-delay: 0.2s; }
+.agent-pending-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes agent-dot-bounce {
+  0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
 }

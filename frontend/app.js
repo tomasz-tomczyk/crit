@@ -3798,20 +3798,24 @@
       sendBtn.addEventListener('click', async function() {
         sendBtn.disabled = true;
         submitBtn.disabled = true;
+        const fp = formObj.filePath;
         const comment = await submitComment(textarea.value, formObj);
         if (comment) {
+          pendingAgentRequests.add(comment.id);
+          renderFileByPath(fp);
           try {
             const res = await fetch('/api/agent/request', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ comment_id: comment.id, file_path: formObj.filePath }),
+              body: JSON.stringify({ comment_id: comment.id, file_path: fp }),
             });
             if (!res.ok) throw new Error('Server returned ' + res.status);
             showMiniToast('Sent to agent');
-            pendingAgentRequests.add(comment.id);
           } catch (err) {
             console.error('Error sending to agent:', err);
             showMiniToast('Failed to send to agent');
+            pendingAgentRequests.delete(comment.id);
+            renderFileByPath(fp);
           }
         }
       });
@@ -4120,11 +4124,6 @@
         }
       }
     }
-    document.querySelectorAll('.agent-waiting').forEach(el => {
-      if (!pendingAgentRequests.has(el.dataset.commentId)) {
-        el.remove();
-      }
-    });
   }
 
   // ===== Comment Display =====
@@ -4222,6 +4221,17 @@
     // Render replies
     if (comment.replies && comment.replies.length > 0) {
       card.appendChild(renderReplyList(comment, filePath || '', opts.repliesExtraClass));
+    }
+
+    // Pending agent indicator
+    if (pendingAgentRequests.has(comment.id)) {
+      const pending = document.createElement('div');
+      pending.className = 'agent-pending-reply';
+      pending.dataset.commentId = comment.id;
+      pending.innerHTML =
+        '<span class="agent-pending-author">@agent</span>' +
+        '<span class="agent-pending-dots"><span>.</span><span>.</span><span>.</span></span>';
+      card.appendChild(pending);
     }
 
     // Reply input
