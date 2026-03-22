@@ -129,6 +129,9 @@
   let pendingUpdates = [];
   let pendingUpdatesVersion = '';
   let updateModalEl = null;
+  let reviewComments = []; // review-level (general) comments
+  let reviewCommentFormActive = false; // is the review comment form open?
+  let reviewCommentEditingId = null; // id of review comment being edited, or null
 
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
   let diffScope = getCookie('crit-diff-scope') || 'all'; // 'all', 'branch', 'staged', or 'unstaged'
@@ -147,6 +150,7 @@
   const commentCollapseOverrides = {};
 
   function formKey(form) {
+    if (form.scope === 'review') return 'review:' + (form.editingId || 'new');
     if (form.editingId) return form.filePath + ':edit:' + form.editingId;
     if (form.scope === 'file') return form.filePath + ':file';
     return form.filePath + ':' + form.startLine + ':' + form.endLine + ':' + (form.side || '');
@@ -341,6 +345,7 @@
     ]);
 
     session = sessionRes;
+    reviewComments = sessionRes.review_comments || [];
 
     // Fire-and-forget: verify file list endpoint is available for @-mention autocomplete
     fetch('/api/files/list')
@@ -459,6 +464,7 @@
     renderFileTree();
     renderAllFiles();
     buildToc();
+    renderReviewComments();
     updateCommentCount();
     updateViewedCount();
     restoreDrafts();
@@ -4470,6 +4476,296 @@
     updateTreeCommentBadges();
   }
 
+  // ===== Review-Level (General) Comments =====
+  async function addReviewComment(body) {
+    if (!body.trim()) return;
+    try {
+      const res = await fetch('/api/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: body.trim() })
+      });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+      const newComment = await res.json();
+      reviewComments.push(newComment);
+    } catch (err) {
+      console.error('Error adding review comment:', err);
+      showMiniToast('Failed to add comment');
+      return;
+    }
+    reviewCommentFormActive = false;
+    reviewCommentEditingId = null;
+    renderReviewComments();
+    updateCommentCount();
+    renderCommentsPanel();
+  }
+
+  async function updateReviewComment(id, body) {
+    if (!body.trim()) return;
+    try {
+      const res = await fetch('/api/review-comment/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: body.trim() })
+      });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+      const updated = await res.json();
+      const idx = reviewComments.findIndex(function(c) { return c.id === id; });
+      if (idx >= 0) reviewComments[idx] = updated;
+    } catch (err) {
+      console.error('Error updating review comment:', err);
+      showMiniToast('Failed to update comment');
+      return;
+    }
+    reviewCommentFormActive = false;
+    reviewCommentEditingId = null;
+    renderReviewComments();
+    updateCommentCount();
+    renderCommentsPanel();
+  }
+
+  async function deleteReviewComment(id) {
+    try {
+      await fetch('/api/review-comment/' + id, { method: 'DELETE' });
+      reviewComments = reviewComments.filter(function(c) { return c.id !== id; });
+    } catch (err) {
+      console.error('Error deleting review comment:', err);
+      showMiniToast('Failed to delete comment');
+      return;
+    }
+    renderReviewComments();
+    updateCommentCount();
+    renderCommentsPanel();
+  }
+
+  function openReviewCommentForm() {
+    reviewCommentFormActive = true;
+    reviewCommentEditingId = null;
+    renderReviewComments();
+    // Focus the textarea
+    requestAnimationFrame(function() {
+      const ta = document.querySelector('#reviewCommentForm textarea');
+      if (ta) ta.focus();
+    });
+  }
+
+  function openReviewCommentEditForm(comment) {
+    reviewCommentFormActive = true;
+    reviewCommentEditingId = comment.id;
+    renderReviewComments();
+    requestAnimationFrame(function() {
+      const ta = document.querySelector('#reviewCommentForm textarea');
+      if (ta) ta.focus();
+    });
+  }
+
+  function cancelReviewCommentForm() {
+    reviewCommentFormActive = false;
+    reviewCommentEditingId = null;
+    renderReviewComments();
+  }
+
+  function renderReviewComments() {
+    const section = document.getElementById('reviewComments');
+    const listEl = document.getElementById('reviewCommentsList');
+    const formEl = document.getElementById('reviewCommentForm');
+    listEl.innerHTML = '';
+    formEl.innerHTML = '';
+
+    const hasComments = reviewComments.length > 0;
+    const showSection = hasComments || reviewCommentFormActive;
+    section.style.display = showSection ? '' : 'none';
+
+    if (!showSection) return;
+
+    // Render existing comments
+    for (let i = 0; i < reviewComments.length; i++) {
+      const comment = reviewComments[i];
+
+      // If editing this comment, show editor instead
+      if (reviewCommentEditingId === comment.id) {
+        listEl.appendChild(createReviewCommentEditor(comment));
+        continue;
+      }
+
+      const card = document.createElement('div');
+      card.className = 'comment-card';
+      card.dataset.commentId = comment.id;
+
+      const header = document.createElement('div');
+      header.className = 'comment-header';
+
+      const headerLeft = document.createElement('div');
+      headerLeft.className = 'comment-header-left';
+
+      const lineRef = document.createElement('span');
+      lineRef.className = 'comment-line-ref';
+      lineRef.textContent = 'General comment';
+
+      const time = document.createElement('span');
+      time.className = 'comment-time';
+      time.textContent = formatTime(comment.created_at);
+
+      if (comment.author) {
+        const authorBadge = document.createElement('span');
+        authorBadge.className = 'comment-author-badge author-color-' + authorColorIndex(comment.author);
+        authorBadge.textContent = '@' + comment.author;
+        headerLeft.appendChild(authorBadge);
+      }
+
+      headerLeft.appendChild(lineRef);
+      headerLeft.appendChild(time);
+
+      const actions = document.createElement('div');
+      actions.className = 'comment-actions';
+
+      const editBtn = document.createElement('button');
+      editBtn.title = 'Edit';
+      editBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+      editBtn.addEventListener('click', function() { openReviewCommentEditForm(comment); });
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'delete-btn';
+      deleteBtn.title = 'Delete';
+      deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+      deleteBtn.addEventListener('click', function() { deleteReviewComment(comment.id); });
+
+      actions.appendChild(editBtn);
+      actions.appendChild(deleteBtn);
+
+      header.appendChild(headerLeft);
+      header.appendChild(actions);
+
+      const bodyEl = document.createElement('div');
+      bodyEl.className = 'comment-body';
+      bodyEl.innerHTML = commentMd.render(comment.body);
+
+      card.appendChild(header);
+      card.appendChild(bodyEl);
+      listEl.appendChild(card);
+    }
+
+    // Render form if active (and not editing an existing comment inline)
+    if (reviewCommentFormActive && !reviewCommentEditingId) {
+      formEl.appendChild(createReviewCommentFormUI());
+    }
+  }
+
+  function createReviewCommentFormUI() {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'comment-form-wrapper';
+
+    const form = document.createElement('div');
+    form.className = 'comment-form';
+
+    const header = document.createElement('div');
+    header.className = 'comment-form-header';
+    header.textContent = 'General comment';
+
+    const textarea = document.createElement('textarea');
+    textarea.placeholder = 'General review comment... (Ctrl+Enter to submit, Escape to cancel)';
+
+    textarea.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        addReviewComment(textarea.value);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        cancelReviewCommentForm();
+      }
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'comment-form-actions';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-sm';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', function() { cancelReviewCommentForm(); });
+
+    const submitBtn = document.createElement('button');
+    submitBtn.className = 'btn btn-sm btn-primary';
+    submitBtn.textContent = 'Submit';
+    submitBtn.addEventListener('click', function() { addReviewComment(textarea.value); });
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(submitBtn);
+
+    form.appendChild(header);
+    form.appendChild(textarea);
+    form.appendChild(actions);
+    wrapper.appendChild(form);
+
+    return wrapper;
+  }
+
+  function createReviewCommentEditor(comment) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'comment-form-wrapper';
+
+    const form = document.createElement('div');
+    form.className = 'comment-form';
+
+    const header = document.createElement('div');
+    header.className = 'comment-form-header';
+    header.textContent = 'Editing general comment';
+
+    const textarea = document.createElement('textarea');
+    textarea.placeholder = 'General review comment...';
+    textarea.value = comment.body;
+
+    textarea.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        updateReviewComment(comment.id, textarea.value);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        cancelReviewCommentForm();
+      }
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'comment-form-actions';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-sm';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', function() { cancelReviewCommentForm(); });
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-sm btn-primary';
+    saveBtn.textContent = 'Save';
+    saveBtn.addEventListener('click', function() { updateReviewComment(comment.id, textarea.value); });
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(saveBtn);
+
+    form.appendChild(header);
+    form.appendChild(textarea);
+    form.appendChild(actions);
+    wrapper.appendChild(form);
+
+    return wrapper;
+  }
+
+  async function refreshReviewComments() {
+    try {
+      const res = await fetch('/api/comments');
+      if (res.ok) {
+        reviewComments = await res.json();
+      }
+    } catch (err) {
+      console.error('Error refreshing review comments:', err);
+    }
+    renderReviewComments();
+    updateCommentCount();
+    renderCommentsPanel();
+  }
+
   async function editReply(commentId, replyId, filePath) {
     const replyEl = document.querySelector('[data-reply-id="' + replyId + '"]');
     if (!replyEl) return;
@@ -4750,6 +5046,9 @@
         if (c.resolved) resolved++; else unresolved++;
       }
     }
+    for (const c of reviewComments) {
+      if (c.resolved) resolved++; else unresolved++;
+    }
     const total = unresolved + resolved;
     const el = document.getElementById('commentCount');
     const numEl = document.getElementById('commentCountNumber');
@@ -4809,10 +5108,55 @@
     body.innerHTML = '';
 
     // Show/hide the filter bar only when resolved comments exist
-    const hasResolved = files.some(function(f) { return f.comments.some(function(c) { return c.resolved; }); });
+    const hasResolved = files.some(function(f) { return f.comments.some(function(c) { return c.resolved; }); })
+      || reviewComments.some(function(c) { return c.resolved; });
     document.getElementById('commentsPanelFilter').style.display = hasResolved ? '' : 'none';
 
     let hasComments = false;
+
+    // Render review-level (general) comments first
+    const visibleReviewComments = reviewComments.filter(function(c) {
+      return showResolved ? true : !c.resolved;
+    });
+    if (visibleReviewComments.length > 0) {
+      hasComments = true;
+      const group = document.createElement('div');
+      group.className = 'comments-panel-file-group';
+
+      const groupName = document.createElement('div');
+      groupName.className = 'comments-panel-file-name';
+      groupName.textContent = 'General';
+      group.appendChild(groupName);
+
+      for (let j = 0; j < visibleReviewComments.length; j++) {
+        const comment = visibleReviewComments[j];
+        const card = document.createElement('div');
+        card.className = 'comments-panel-card' + (comment.resolved ? ' comments-panel-card-resolved' : '');
+        card.dataset.commentId = comment.id;
+
+        const lineRef = document.createElement('div');
+        lineRef.className = 'comments-panel-card-line';
+        lineRef.textContent = 'General comment';
+
+        const bodyEl = document.createElement('div');
+        bodyEl.className = 'comments-panel-card-body';
+        bodyEl.innerHTML = commentMd.render(comment.body);
+
+        card.appendChild(lineRef);
+        card.appendChild(bodyEl);
+
+        card.addEventListener('click', (function(commentId) {
+          return function() {
+            // Scroll to the review comments section
+            const section = document.getElementById('reviewComments');
+            if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          };
+        })(comment.id));
+
+        group.appendChild(card);
+      }
+      body.appendChild(group);
+    }
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -5120,6 +5464,10 @@
     }
   }
 
+  // ===== General Comment Buttons =====
+  document.getElementById('generalCommentBtn').addEventListener('click', openReviewCommentForm);
+  document.getElementById('addReviewCommentBtn').addEventListener('click', openReviewCommentForm);
+
   // ===== Finish Review =====
   document.getElementById('finishBtn').addEventListener('click', async function() {
     if (uiState !== 'reviewing') return;
@@ -5194,6 +5542,7 @@
         // Re-fetch everything on file-changed (round complete)
         const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(r => r.json());
         session = sessionRes;
+        reviewComments = sessionRes.review_comments || [];
 
         // Reload all files
         files = await loadAllFileData(session.files || [], diffScope);
@@ -5219,6 +5568,8 @@
         focusedFilePath = null;
         focusedElement = null;
         diffActive = false;
+        reviewCommentFormActive = false;
+        reviewCommentEditingId = null;
 
         saveViewedState();
         updateHeaderRound();
@@ -5226,6 +5577,7 @@
         renderFileTree();
         renderAllFiles();
         buildToc();
+        renderReviewComments();
         updateCommentCount();
         updateViewedCount();
         updateTreeViewedState();
@@ -5261,7 +5613,13 @@
             .catch(function() { return []; });
           f.comments = Array.isArray(commentsRes) ? commentsRes : [];
         }
+        // Also refresh review-level comments
+        try {
+          const rcRes = await fetch('/api/comments');
+          if (rcRes.ok) reviewComments = await rcRes.json();
+        } catch (_) {}
         renderAllFiles();
+        renderReviewComments();
         updateCommentCount();
         updateTreeCommentBadges();
       } catch (err) {
@@ -5879,12 +6237,14 @@
     if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
     const sessionRes = await fetch(sessionUrl).then(function(r) { return r.json(); });
     session = sessionRes;
+    reviewComments = sessionRes.review_comments || [];
 
     if (!session.files || session.files.length === 0) {
       document.getElementById('filesContainer').innerHTML =
         '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">No ' + diffScope + ' changes</div>';
       files = [];
       renderFileTree();
+      renderReviewComments();
       updateCommentCount();
       updateViewedCount();
       return;
@@ -5896,6 +6256,7 @@
     renderFileTree();
     renderAllFiles();
     buildToc();
+    renderReviewComments();
     updateCommentCount();
     updateViewedCount();
   }
@@ -6057,6 +6418,11 @@
         document.getElementById('finishBtn').click();
         break;
       }
+      case 'G': {
+        e.preventDefault();
+        openReviewCommentForm();
+        break;
+      }
       case 'C': {
         e.preventDefault();
         toggleCommentsPanel();
@@ -6088,7 +6454,8 @@
       }
       case 'Escape': {
         e.preventDefault();
-        if (activeForms.length > 0) cancelComment(activeForms[activeForms.length - 1]);
+        if (reviewCommentFormActive) cancelReviewCommentForm();
+        else if (activeForms.length > 0) cancelComment(activeForms[activeForms.length - 1]);
         else if (selectionStart !== null) {
           const clearPath = activeFilePath;
           selectionStart = null;

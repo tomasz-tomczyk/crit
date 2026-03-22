@@ -3305,6 +3305,37 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 
 /* ===== File-Level Comments ===== */
+.review-comments-section {
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.review-comments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.review-comments-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.review-comments-section .comment-card {
+  margin: 8px 16px;
+}
+
+.review-comments-section .comment-form-wrapper {
+  margin: 8px 16px;
+  padding: 0;
+}
+
 .file-comments {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);

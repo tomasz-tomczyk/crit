@@ -243,14 +243,22 @@ Session-scoped:
 - `POST /api/share-url` — persist `{url, delete_token}` to `.crit.json` after upload
 - `DELETE /api/share-url` — unpublish: calls crit-web DELETE and clears local persisted URL
 - `GET  /api/commits` — list commits between base ref and HEAD (git mode only)
+- `GET  /api/comments` — list review-level (general) comments
+- `POST /api/comments` — add review-level comment `{body}`
 - `DELETE /api/comments` — bulk delete all comments across all files (used by E2E test cleanup)
+- `PUT  /api/review-comment/{id}` — update review comment `{body}`
+- `DELETE /api/review-comment/{id}` — delete review comment
+- `POST /api/review-comment/{id}/resolve` — set resolved state `{resolved: bool}`
+- `POST /api/review-comment/{id}/replies` — add reply `{body, author}`
+- `PUT  /api/review-comment/{id}/replies/{rid}` — update reply `{body}`
+- `DELETE /api/review-comment/{id}/replies/{rid}` — delete reply
 
 File-scoped (use `?path=` query param):
 
 - `GET  /api/file?path=X` — file content + metadata
 - `GET  /api/file/diff?path=X` — diff hunks (git diff for code; inter-round diff for markdown)
 - `GET  /api/file/comments?path=X` — comments for one file
-- `POST /api/file/comments?path=X` — add comment `{start_line, end_line, body}` (10MB body limit)
+- `POST /api/file/comments?path=X` — add comment `{start_line, end_line, body}` or file-level `{body, scope: "file"}` (10MB body limit)
 - `PUT  /api/comment/{id}?path=X` — update comment `{body}` (10MB body limit)
 - `DELETE /api/comment/{id}?path=X` — delete comment
 - `POST   /api/comment/{id}/replies?path=X` — add reply `{body, author}`
@@ -423,4 +431,4 @@ EOF
 
 | File         | Description                                                |
 | ------------ | ---------------------------------------------------------- |
-| `.crit.json` | Structured JSON with per-file comments — read by AI agents |
+| `.crit.json` | Structured JSON with per-file comments and review-level comments — read by AI agents. Comments have a `scope` field: `"line"` (inline), `"file"` (file-level), or `"review"` (general). Review-level comments live in the top-level `review_comments` array. |
