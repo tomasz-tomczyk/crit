@@ -3,13 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"strings"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -140,12 +140,15 @@ func TestDaemonLifecycle(t *testing.T) {
 	// review-cycle should complete with finish response
 	select {
 	case result := <-done:
-		var resp map[string]string
+		var resp map[string]any
 		if err := json.Unmarshal([]byte(result), &resp); err != nil {
 			t.Fatalf("unmarshal result: %v (raw: %s)", err, result)
 		}
 		if resp["status"] != "finished" {
 			t.Errorf("got status %q, want 'finished'", resp["status"])
+		}
+		if resp["approved"] != true {
+			t.Errorf("expected approved=true (no comments), got %v", resp["approved"])
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("review-cycle did not complete")

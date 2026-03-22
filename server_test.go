@@ -316,7 +316,7 @@ func TestFinish(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
@@ -326,6 +326,9 @@ func TestFinish(t *testing.T) {
 	if resp["prompt"] == "" {
 		t.Error("expected prompt when comments exist")
 	}
+	if resp["approved"] != false {
+		t.Errorf("expected approved=false with unresolved comments, got %v", resp["approved"])
+	}
 }
 
 func TestFinish_NoComments(t *testing.T) {
@@ -334,12 +337,15 @@ func TestFinish_NoComments(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp["prompt"] != "" {
 		t.Errorf("expected empty prompt, got %q", resp["prompt"])
+	}
+	if resp["approved"] != true {
+		t.Errorf("expected approved=true with no comments, got %v", resp["approved"])
 	}
 }
 
@@ -352,12 +358,13 @@ func TestFinish_PromptIncludesFileArgs(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(resp["prompt"], "`crit test.md`") {
-		t.Errorf("expected prompt to contain 'crit test.md', got: %s", resp["prompt"])
+	prompt, _ := resp["prompt"].(string)
+	if !strings.Contains(prompt, "`crit test.md`") {
+		t.Errorf("expected prompt to contain 'crit test.md', got: %s", prompt)
 	}
 }
 
@@ -371,29 +378,33 @@ func TestFinish_PromptBareGitMode(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(resp["prompt"], "run: `crit`") {
-		t.Errorf("expected prompt to end with 'run: `crit`', got: %s", resp["prompt"])
+	prompt, _ := resp["prompt"].(string)
+	if !strings.Contains(prompt, "run: `crit`") {
+		t.Errorf("expected prompt to end with 'run: `crit`', got: %s", prompt)
 	}
 }
 
 func TestFinish_ApproveReturnsEmptyPrompt(t *testing.T) {
 	s, _ := newTestServer(t)
 
-	// No comments = approve → empty prompt signals client to stop daemon
+	// No comments = approve → approved=true and empty prompt
 	req := httptest.NewRequest("POST", "/api/finish", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp["prompt"] != "" {
 		t.Errorf("expected empty prompt for approve, got: %s", resp["prompt"])
+	}
+	if resp["approved"] != true {
+		t.Errorf("expected approved=true, got %v", resp["approved"])
 	}
 }
 
@@ -405,12 +416,15 @@ func TestFinish_UnresolvedReturnsPromptWithInstructions(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp["prompt"] == "" {
 		t.Error("expected non-empty prompt when there are unresolved comments")
+	}
+	if resp["approved"] != false {
+		t.Errorf("expected approved=false, got %v", resp["approved"])
 	}
 }
 
@@ -435,12 +449,15 @@ func TestReviewCycle_ApproveReturnsEmptyPrompt(t *testing.T) {
 
 	select {
 	case w := <-done:
-		var resp map[string]string
+		var resp map[string]any
 		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 			t.Fatal(err)
 		}
 		if resp["prompt"] != "" {
 			t.Errorf("expected empty prompt for approve via review-cycle, got: %s", resp["prompt"])
+		}
+		if resp["approved"] != true {
+			t.Errorf("expected approved=true via review-cycle, got %v", resp["approved"])
 		}
 	case <-time.After(2 * time.Second):
 		t.Error("review-cycle did not return in time")
@@ -467,12 +484,15 @@ func TestReviewCycle_UnresolvedReturnsPrompt(t *testing.T) {
 
 	select {
 	case w := <-done:
-		var resp map[string]string
+		var resp map[string]any
 		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 			t.Fatal(err)
 		}
 		if resp["prompt"] == "" {
 			t.Error("expected non-empty prompt when there are unresolved comments")
+		}
+		if resp["approved"] != false {
+			t.Errorf("expected approved=false via review-cycle, got %v", resp["approved"])
 		}
 	case <-time.After(2 * time.Second):
 		t.Error("review-cycle did not return in time")
@@ -1124,11 +1144,12 @@ func TestHandleFinish_PromptIncludesAuthor(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	var resp map[string]string
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 
-	if !strings.Contains(resp["prompt"], "--author") {
-		t.Errorf("expected prompt to mention --author, got: %s", resp["prompt"])
+	prompt, _ := resp["prompt"].(string)
+	if !strings.Contains(prompt, "--author") {
+		t.Errorf("expected prompt to mention --author, got: %s", prompt)
 	}
 }
 
@@ -1150,7 +1171,18 @@ func TestHandleFinishEmitsSSEEvent(t *testing.T) {
 			t.Errorf("expected finish event, got %s", event.Type)
 		}
 		if event.Content == "" {
-			t.Error("expected non-empty prompt in finish event")
+			t.Error("expected non-empty content in finish event")
+		}
+		// Verify the event content is structured JSON with prompt and approved fields
+		var data map[string]any
+		if err := json.Unmarshal([]byte(event.Content), &data); err != nil {
+			t.Errorf("expected JSON content in finish event, got: %s", event.Content)
+		}
+		if data["prompt"] == "" {
+			t.Error("expected non-empty prompt in finish event data")
+		}
+		if data["approved"] != false {
+			t.Errorf("expected approved=false with unresolved comments, got %v", data["approved"])
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no finish event received")

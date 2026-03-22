@@ -194,9 +194,9 @@ func TestListSessionsForCWD_FiltersAndCleans(t *testing.T) {
 
 func TestDaemonHasBrowser(t *testing.T) {
 	tests := []struct {
-		name     string
-		handler  http.HandlerFunc
-		want     bool
+		name    string
+		handler http.HandlerFunc
+		want    bool
 	}{
 		{
 			name: "returns true when browser_clients is true",
