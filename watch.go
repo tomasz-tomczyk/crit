@@ -223,7 +223,6 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 				}
 				f.Content = string(data)
 				f.FileHash = hash
-				f.Comments = []Comment{}
 				s.mu.Unlock()
 				changed = true
 			}

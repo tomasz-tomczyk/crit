@@ -1150,7 +1150,7 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		}
 	}
 	if !ok {
-		log.Printf("agent-request %s: failed to add reply (comment not found)", commentID)
+		log.Printf("agent-request %s: failed to add reply (comment not found in file %q)", commentID, filePath)
 	} else {
 		if resolved {
 			s.session.SetCommentResolved(filePath, commentID, true)
