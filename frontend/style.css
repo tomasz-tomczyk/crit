@@ -3302,9 +3302,8 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   50% { opacity: 0; }
 }
 
-/* Disabled state in live threads */
-.live-thread .comment-actions .edit-btn,
-.live-thread .comment-actions .delete-btn {
+/* Disabled state in live threads — hide edit only, keep delete */
+.live-thread .comment-actions .edit-btn {
   display: none;
 }
 .live-thread.agent-pending .reply-input,
