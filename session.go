@@ -1450,8 +1450,9 @@ func (s *Session) mergeExternalCritJSON() bool {
 			}
 		}
 	}
-	// Remove review comments deleted on disk
-	if len(cj.ReviewComments) != len(s.reviewComments) {
+	// Remove review comments deleted on disk (always run filter — length check is unreliable
+	// when adds and deletes happen in the same external edit)
+	{
 		diskRIDs := make(map[string]struct{}, len(cj.ReviewComments))
 		for _, dc := range cj.ReviewComments {
 			diskRIDs[dc.ID] = struct{}{}

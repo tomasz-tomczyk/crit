@@ -402,16 +402,15 @@ func (s *Session) loadResolvedComments() {
 			f.PreviousComments = nil
 		}
 	}
-	// Restore review-level comments so they survive round-complete
-	if len(cj.ReviewComments) > 0 {
-		s.reviewComments = cj.ReviewComments
-		s.reviewNextID = 0
-		for _, c := range s.reviewComments {
-			id := 0
-			fmt.Sscanf(c.ID, "r%d", &id)
-			if id >= s.reviewNextID {
-				s.reviewNextID = id + 1
-			}
+	// Restore review-level comments so they survive round-complete.
+	// Always overwrite (even when disk has 0) to clear stale in-memory state.
+	s.reviewComments = cj.ReviewComments
+	s.reviewNextID = 0
+	for _, c := range s.reviewComments {
+		id := 0
+		fmt.Sscanf(c.ID, "r%d", &id)
+		if id >= s.reviewNextID {
+			s.reviewNextID = id + 1
 		}
 	}
 	// Record the current mtime so mergeExternalCritJSON does not re-process
