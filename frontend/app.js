@@ -145,6 +145,8 @@
   let activeFilePath = null;
   let activeForms = [];  // Array of { formKey, filePath, afterBlockIndex, startLine, endLine, editingId, side }
   let prData = null;     // PR metadata from /api/config (set once on load)
+  let agentEnabled = false;
+  let pendingAgentRequests = new Set();
 
   // Track manually toggled collapse state (comment ID → boolean, true = collapsed)
   const commentCollapseOverrides = {};
@@ -367,6 +369,7 @@
     hostedURL = configRes.hosted_url || '';
     deleteToken = configRes.delete_token || '';
     configAuthor = configRes.author || '';
+    agentEnabled = configRes.agent_cmd_enabled || false;
 
     if (shareURL && session.mode !== 'git') {
       const shareBtn = document.getElementById('shareBtn');
@@ -4075,6 +4078,61 @@
     }, 3000);
   }
 
+  // ===== Agent Button =====
+  function appendAgentButton(actions, comment, filePath) {
+    if (!agentEnabled) return;
+    const agentBtn = document.createElement('button');
+    agentBtn.className = 'agent-btn';
+    agentBtn.title = 'Send now';
+    agentBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93"/><path d="M8 6a4 4 0 0 1 8 0"/><rect x="5" y="12" width="14" height="10" rx="2"/><path d="M9 16h.01"/><path d="M15 16h.01"/><path d="M9 20h6"/></svg>';
+    agentBtn.addEventListener('click', async function(e) {
+      e.stopPropagation();
+      agentBtn.disabled = true;
+      agentBtn.classList.add('loading');
+      try {
+        const res = await fetch('/api/agent/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ comment_id: comment.id, file_path: filePath }),
+        });
+        if (!res.ok) throw new Error('Server returned ' + res.status);
+        showMiniToast('Sent to agent');
+        pendingAgentRequests.add(comment.id);
+        const commentEl = actions.closest('.comment');
+        if (commentEl) {
+          const waitingEl = document.createElement('div');
+          waitingEl.className = 'agent-waiting';
+          waitingEl.dataset.commentId = comment.id;
+          waitingEl.innerHTML = '<span class="agent-waiting-dot"></span> Waiting for agent response...';
+          commentEl.after(waitingEl);
+        }
+      } catch (err) {
+        console.error('Error sending to agent:', err);
+        showMiniToast('Failed to send to agent');
+      } finally {
+        agentBtn.disabled = false;
+        agentBtn.classList.remove('loading');
+      }
+    });
+    actions.appendChild(agentBtn);
+  }
+
+  function checkAgentReplies(comments) {
+    for (const c of comments) {
+      if (pendingAgentRequests.has(c.id) && c.replies && c.replies.length > 0) {
+        const lastReply = c.replies[c.replies.length - 1];
+        if (lastReply.author === 'agent') {
+          pendingAgentRequests.delete(c.id);
+        }
+      }
+    }
+    document.querySelectorAll('.agent-waiting').forEach(el => {
+      if (!pendingAgentRequests.has(el.dataset.commentId)) {
+        el.remove();
+      }
+    });
+  }
+
   // ===== Comment Display =====
   function buildCommentEnv(comment, filePath) {
     const env = {};
@@ -4228,6 +4286,7 @@
     parts.actions.appendChild(resolveBtn);
     parts.actions.appendChild(editBtn);
     parts.actions.appendChild(deleteBtn);
+    appendAgentButton(parts.actions, comment, filePath);
 
     return parts.wrapper;
   }
@@ -4499,6 +4558,7 @@
     } catch (err) {
       console.error('Error refreshing comments:', err);
     }
+    checkAgentReplies(file.comments);
     renderFileByPath(filePath);
     updateCommentCount();
     updateTreeCommentBadges();
@@ -5070,6 +5130,9 @@
       parts.actions.appendChild(deleteBtn);
     }
     // File/inline comments in panel: no actions (use inline UI in main content)
+    if (!isGeneral) {
+      appendAgentButton(parts.actions, comment, filePath);
+    }
 
     // File comments are clickable to scroll to inline location
     if (!isGeneral) {

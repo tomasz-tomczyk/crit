@@ -3225,3 +3225,36 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .file-comment-btn:hover {
   opacity: 0.8;
 }
+
+/* Agent button */
+.comment-actions .agent-btn {
+  color: var(--text-secondary);
+}
+.comment-actions .agent-btn:hover {
+  color: var(--accent);
+}
+.comment-actions .agent-btn.loading {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.agent-waiting {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-style: italic;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-waiting-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: agent-pulse 1.5s ease-in-out infinite;
+}
+@keyframes agent-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
