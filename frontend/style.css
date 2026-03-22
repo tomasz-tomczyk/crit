@@ -3303,3 +3303,34 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   color: #fff;
   border-color: var(--accent);
 }
+
+/* ===== File-Level Comments ===== */
+.file-comments {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-comments .comment-card {
+  margin-bottom: 8px;
+}
+
+.file-comments .comment-card:last-child {
+  margin-bottom: 0;
+}
+
+.file-comment-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--fg-muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.file-comment-btn:hover {
+  opacity: 1;
+  background: var(--crit-hover-bg, rgba(127, 127, 127, 0.1));
+}
