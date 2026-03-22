@@ -4855,7 +4855,7 @@
     var body = document.getElementById('prPanelBody');
     body.innerHTML = '';
 
-    // PR link header
+    // PR title row with close button
     var linkSection = document.createElement('div');
     linkSection.className = 'pr-panel-link-section';
 
@@ -4865,8 +4865,19 @@
     prLink.target = '_blank';
     prLink.rel = 'noopener noreferrer';
     prLink.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></svg>' +
-      '<span>' + escapeHtml(pr.pr_title || 'Pull Request') + ' <span class="pr-panel-pr-number">#' + pr.pr_number + '</span></span>';
+      '<span class="pr-panel-pr-title-text">' + escapeHtml(pr.pr_title || 'Pull Request') + ' <span class="pr-panel-pr-number">#' + pr.pr_number + '</span></span>';
     linkSection.appendChild(prLink);
+
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'pr-panel-close';
+    closeBtn.title = 'Close';
+    closeBtn.setAttribute('aria-label', 'Close PR panel');
+    closeBtn.innerHTML = '&#x2715;';
+    closeBtn.addEventListener('click', function() {
+      document.getElementById('prPanel').classList.add('pr-panel-hidden');
+      updateTocPosition();
+    });
+    linkSection.appendChild(closeBtn);
 
     body.appendChild(linkSection);
 
@@ -5702,10 +5713,6 @@
 
   document.getElementById('prToggle').addEventListener('click', function() {
     togglePRPanel();
-  });
-  document.querySelector('.pr-panel-close').addEventListener('click', function() {
-    document.getElementById('prPanel').classList.add('pr-panel-hidden');
-    updateTocPosition();
   });
 
   document.getElementById('showResolvedToggle').addEventListener('change', function() {
