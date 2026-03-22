@@ -248,7 +248,7 @@ Session-scoped:
 - `DELETE /api/comments` — bulk delete all comments across all files (used by E2E test cleanup)
 - `PUT  /api/review-comment/{id}` — update review comment `{body}`
 - `DELETE /api/review-comment/{id}` — delete review comment
-- `POST /api/review-comment/{id}/resolve` — set resolved state `{resolved: bool}`
+- `PUT  /api/review-comment/{id}/resolve` — set resolved state `{resolved: bool}`
 - `POST /api/review-comment/{id}/replies` — add reply `{body, author}`
 - `PUT  /api/review-comment/{id}/replies/{rid}` — update reply `{body}`
 - `DELETE /api/review-comment/{id}/replies/{rid}` — delete reply
@@ -264,7 +264,7 @@ File-scoped (use `?path=` query param):
 - `POST   /api/comment/{id}/replies?path=X` — add reply `{body, author}`
 - `PUT    /api/comment/{id}/replies/{rid}?path=X` — edit reply `{body}`
 - `DELETE /api/comment/{id}/replies/{rid}?path=X` — delete reply
-- `POST   /api/comment/{id}/resolve?path=X` — set resolved state `{resolved: bool}`
+- `PUT    /api/comment/{id}/resolve?path=X` — set resolved state `{resolved: bool}`
 
 Static:
 
@@ -356,7 +356,7 @@ When the agent runs `crit` (or calls `POST /api/round-complete`):
 3. **`crit plan.md`**: looks up daemon by hash(cwd + "plan.md") — reuses if alive, starts new if dead
 4. **Ctrl+C**: kills the daemon the client started
 5. **`crit stop`**: kills the daemon for current cwd (no args). `crit stop --all` kills all daemons for current cwd
-6. **Idle timeout**: daemon exits after 4 hours of no HTTP activity
+6. **Idle timeout**: daemon exits after 1 hour of no HTTP activity
 
 ### Session Registry
 

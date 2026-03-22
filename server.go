@@ -444,10 +444,17 @@ func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, commits)
 }
 
-func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePath, commentID, replyID string) {
+// replyOps abstracts the difference between file-scoped and review-scoped reply operations.
+type replyOps struct {
+	add    func(body, author string) (Reply, bool)
+	update func(replyID, body string) (Reply, bool)
+	delete func(replyID string) bool
+}
+
+// handleReplyCRUD handles POST/PUT/DELETE for reply routes using the provided operations.
+func handleReplyCRUD(w http.ResponseWriter, r *http.Request, replyID string, ops replyOps) {
 	switch {
 	case r.Method == http.MethodPost && replyID == "":
-		// POST /api/comment/{id}/replies — add reply
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 		var req struct {
 			Body   string `json:"body"`
@@ -461,7 +468,7 @@ func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePa
 			http.Error(w, "Reply body is required", http.StatusBadRequest)
 			return
 		}
-		reply, ok := s.session.AddReply(filePath, commentID, req.Body, req.Author)
+		reply, ok := ops.add(req.Body, req.Author)
 		if !ok {
 			http.Error(w, "Comment not found", http.StatusNotFound)
 			return
@@ -470,7 +477,6 @@ func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePa
 		writeJSON(w, reply)
 
 	case r.Method == http.MethodPut && replyID != "":
-		// PUT /api/comment/{id}/replies/{rid} — edit reply
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 		var req struct {
 			Body string `json:"body"`
@@ -483,7 +489,7 @@ func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePa
 			http.Error(w, "Reply body is required", http.StatusBadRequest)
 			return
 		}
-		reply, ok := s.session.UpdateReply(filePath, commentID, replyID, req.Body)
+		reply, ok := ops.update(replyID, req.Body)
 		if !ok {
 			http.Error(w, "Reply not found", http.StatusNotFound)
 			return
@@ -491,8 +497,7 @@ func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePa
 		writeJSON(w, reply)
 
 	case r.Method == http.MethodDelete && replyID != "":
-		// DELETE /api/comment/{id}/replies/{rid} — delete reply
-		if !s.session.DeleteReply(filePath, commentID, replyID) {
+		if !ops.delete(replyID) {
 			http.Error(w, "Reply not found", http.StatusNotFound)
 			return
 		}
@@ -503,63 +508,32 @@ func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePa
 	}
 }
 
+func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePath, commentID, replyID string) {
+	handleReplyCRUD(w, r, replyID, replyOps{
+		add: func(body, author string) (Reply, bool) {
+			return s.session.AddReply(filePath, commentID, body, author)
+		},
+		update: func(rid, body string) (Reply, bool) {
+			return s.session.UpdateReply(filePath, commentID, rid, body)
+		},
+		delete: func(rid string) bool {
+			return s.session.DeleteReply(filePath, commentID, rid)
+		},
+	})
+}
+
 func (s *Server) handleReviewCommentReplyRoute(w http.ResponseWriter, r *http.Request, commentID, replyID string) {
-	switch {
-	case r.Method == http.MethodPost && replyID == "":
-		// POST /api/review-comment/{id}/replies — add reply
-		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-		var req struct {
-			Body   string `json:"body"`
-			Author string `json:"author"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-		if req.Body == "" {
-			http.Error(w, "Reply body is required", http.StatusBadRequest)
-			return
-		}
-		reply, ok := s.session.AddReviewCommentReply(commentID, req.Body, req.Author)
-		if !ok {
-			http.Error(w, "Comment not found", http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusCreated)
-		writeJSON(w, reply)
-
-	case r.Method == http.MethodPut && replyID != "":
-		// PUT /api/review-comment/{id}/replies/{rid} — edit reply
-		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-		var req struct {
-			Body string `json:"body"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-		if req.Body == "" {
-			http.Error(w, "Reply body is required", http.StatusBadRequest)
-			return
-		}
-		reply, ok := s.session.UpdateReviewCommentReply(commentID, replyID, req.Body)
-		if !ok {
-			http.Error(w, "Reply not found", http.StatusNotFound)
-			return
-		}
-		writeJSON(w, reply)
-
-	case r.Method == http.MethodDelete && replyID != "":
-		// DELETE /api/review-comment/{id}/replies/{rid} — delete reply
-		if !s.session.DeleteReviewCommentReply(commentID, replyID) {
-			http.Error(w, "Reply not found", http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
+	handleReplyCRUD(w, r, replyID, replyOps{
+		add: func(body, author string) (Reply, bool) {
+			return s.session.AddReviewCommentReply(commentID, body, author)
+		},
+		update: func(rid, body string) (Reply, bool) {
+			return s.session.UpdateReviewCommentReply(commentID, rid, body)
+		},
+		delete: func(rid string) bool {
+			return s.session.DeleteReviewCommentReply(commentID, rid)
+		},
+	})
 }
 
 func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {

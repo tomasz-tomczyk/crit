@@ -164,12 +164,12 @@ func runCheck() {
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot determine working directory: %v\n", err)
-		return
+		os.Exit(1)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot determine home directory: %v\n", err)
-		return
+		os.Exit(1)
 	}
 
 	fmt.Fprintf(os.Stderr, "crit %s — checking installed integrations...\n\n", version)
