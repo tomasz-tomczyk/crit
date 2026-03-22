@@ -4474,8 +4474,10 @@
   }
 
   // ===== Review-Level (General) Comments =====
+  let reviewCommentSubmitting = false;
   async function addReviewComment(body) {
-    if (!body.trim()) return;
+    if (!body.trim() || reviewCommentSubmitting) return;
+    reviewCommentSubmitting = true;
     try {
       const res = await fetch('/api/comments', {
         method: 'POST',
@@ -4488,8 +4490,10 @@
     } catch (err) {
       console.error('Error adding review comment:', err);
       showMiniToast('Failed to add comment');
+      reviewCommentSubmitting = false;
       return;
     }
+    reviewCommentSubmitting = false;
     reviewCommentFormActive = false;
     reviewCommentEditingId = null;
     updateCommentCount();
@@ -4519,7 +4523,8 @@
 
   async function deleteReviewComment(id) {
     try {
-      await fetch('/api/review-comment/' + id, { method: 'DELETE' });
+      const res = await fetch('/api/review-comment/' + id, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
       reviewComments = reviewComments.filter(function(c) { return c.id !== id; });
     } catch (err) {
       console.error('Error deleting review comment:', err);
@@ -5191,6 +5196,7 @@
 
     const showResolved = document.getElementById('showResolvedToggle').checked;
     const body = document.getElementById('commentsPanelBody');
+    const savedScroll = body.scrollTop;
     body.innerHTML = '';
 
     // Show/hide the filter bar only when resolved comments exist
@@ -5268,6 +5274,7 @@
       empty.textContent = showResolved ? 'No comments yet' : 'No unresolved comments';
       body.appendChild(empty);
     }
+    body.scrollTop = savedScroll;
   }
 
   function scrollToComment(commentId, filePath) {
