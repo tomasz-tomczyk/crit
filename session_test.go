@@ -2047,3 +2047,16 @@ func TestLoadCritJSONRestoresReviewComments(t *testing.T) {
 		t.Errorf("unexpected body: %q", rc[0].Body)
 	}
 }
+
+func TestCommentCountsIncludeReviewComments(t *testing.T) {
+	s := newTestSession(t)
+	s.AddComment("plan.md", 1, 1, "", "line", "", "")
+	s.AddFileComment("plan.md", "file", "")
+	s.AddReviewComment("review", "")
+	if got := s.TotalCommentCount(); got != 3 {
+		t.Errorf("TotalCommentCount: expected 3, got %d", got)
+	}
+	if got := s.UnresolvedCommentCount(); got != 3 {
+		t.Errorf("UnresolvedCommentCount: expected 3, got %d", got)
+	}
+}

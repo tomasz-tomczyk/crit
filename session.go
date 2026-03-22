@@ -718,11 +718,11 @@ func (s *Session) GetAllComments() map[string][]Comment {
 	return result
 }
 
-// TotalCommentCount returns the total number of comments across all files.
+// TotalCommentCount returns the total number of comments across all files and review comments.
 func (s *Session) TotalCommentCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	total := 0
+	total := len(s.reviewComments)
 	for _, f := range s.Files {
 		total += len(f.Comments)
 	}
@@ -730,10 +730,11 @@ func (s *Session) TotalCommentCount() int {
 }
 
 // NewCommentCount returns the number of new (non-carried-forward) comments across all files.
+// Review comments are always counted as new (not carried forward).
 func (s *Session) NewCommentCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	total := 0
+	total := len(s.reviewComments)
 	for _, f := range s.Files {
 		for _, c := range f.Comments {
 			if !c.CarriedForward {
@@ -744,11 +745,16 @@ func (s *Session) NewCommentCount() int {
 	return total
 }
 
-// UnresolvedCommentCount returns the number of unresolved comments across all files.
+// UnresolvedCommentCount returns the number of unresolved comments across all files and review comments.
 func (s *Session) UnresolvedCommentCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	total := 0
+	for _, c := range s.reviewComments {
+		if !c.Resolved {
+			total++
+		}
+	}
 	for _, f := range s.Files {
 		for _, c := range f.Comments {
 			if !c.Resolved {
