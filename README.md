@@ -152,10 +152,43 @@ inline — all while you continue reviewing.
 Configure in `.crit.config.json`:
 
 ```json
-{"agent_cmd": "claude -p"}
+{"agent_cmd": "claude -p --dangerously-skip-permissions"}
 ```
 
-Supported agents: Claude Code, OpenCode, Cline, Aider, Cursor (experimental).
+#### Permission modes
+
+Agents need tool permissions to edit files on your behalf. How you grant them depends on your trust level:
+
+| Mode | Command | What the agent can do |
+| --- | --- | --- |
+| Full access | `claude -p --dangerously-skip-permissions` | Read, write, and run any tool. Simplest option — recommended for trusted repos. |
+| Selective access | `claude -p --allowedTools Edit,Read,Bash,Write,Glob,Grep` | Only the listed tools are permitted. Good middle ground. |
+| No permissions | `claude -p` | The agent can respond to comments but **cannot edit files**. Useful for Q&A-only workflows. |
+
+#### How it works
+
+1. The agent receives the comment text, code context (surrounding lines), file path, and line range on **stdin**.
+2. The agent's **stdout** is captured and posted as a reply to the comment automatically.
+3. If the agent starts its response with `RESOLVED:`, the comment is **auto-resolved**.
+4. If the agent edits files, Crit detects the changes via **file watching** and updates the UI.
+
+#### Live threads
+
+After the first agent interaction, the comment becomes a **live thread**:
+
+- Further replies you post in the thread are automatically sent to the agent — no need to click "Send now" again.
+- The agent sees the **full conversation history**, so it can build on previous context.
+- Live threads show a ⚡ **live** badge and green glow to indicate the agent is connected.
+
+#### Supported agents
+
+| Agent | `agent_cmd` value |
+| --- | --- |
+| Claude Code | `claude -p --dangerously-skip-permissions` |
+| OpenCode | `opencode ask` |
+| Cline | `cline --pipe` |
+| Aider | `aider --message-file -` |
+| Cursor (experimental) | `cursor --pipe` |
 
 ### Everything else
 
