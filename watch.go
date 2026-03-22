@@ -249,6 +249,7 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 		Side:           old.Side,
 		Body:           old.Body,
 		Author:         old.Author,
+		Scope:          old.Scope,
 		CreatedAt:      old.CreatedAt,
 		UpdatedAt:      now,
 		Resolved:       old.Resolved,
@@ -446,6 +447,13 @@ func (s *Session) carryForwardComments() {
 		s.mu.Lock()
 		now := time.Now().UTC().Format(time.RFC3339)
 		for _, c := range prevComments {
+			// File-level comments have no line references — carry forward as-is.
+			if c.Scope == "file" {
+				carried := carryForwardComment(c, fmt.Sprintf("c%d", s.nextID), now)
+				s.nextID++
+				f.Comments = append(f.Comments, carried)
+				continue
+			}
 			newStart := lineMap[c.StartLine]
 			newEnd := lineMap[c.EndLine]
 			if newStart == 0 {

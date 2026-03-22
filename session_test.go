@@ -2073,3 +2073,80 @@ func TestClearAllCommentsIncludesReview(t *testing.T) {
 		t.Error("expected 0 review comments after clear")
 	}
 }
+
+func TestReviewCommentsSurviveRound(t *testing.T) {
+	s := newTestSession(t)
+	s.AddReviewComment("carry me forward", "")
+	s.WriteFiles()
+
+	// Simulate round: clear in-memory state and reload
+	s.reviewComments = nil
+	s.reviewNextID = 0
+	s.loadCritJSON()
+
+	comments := s.GetReviewComments()
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 review comment after round, got %d", len(comments))
+	}
+	if comments[0].Body != "carry me forward" {
+		t.Errorf("unexpected body: %q", comments[0].Body)
+	}
+}
+
+func TestFileCommentsSurviveRoundWithoutLineMutation(t *testing.T) {
+	s := newTestSession(t)
+	s.AddFileComment("plan.md", "restructure this", "")
+	s.AddComment("plan.md", 1, 1, "", "line comment", "", "")
+
+	// Simulate round: snapshot previous state
+	s.mu.Lock()
+	f := s.fileByPathLocked("plan.md")
+	s.mu.Unlock()
+	f.PreviousContent = f.Content
+	f.PreviousComments = make([]Comment, len(f.Comments))
+	copy(f.PreviousComments, f.Comments)
+	f.Comments = nil
+
+	s.carryForwardComments()
+
+	comments := s.GetComments("plan.md")
+	var fileComment *Comment
+	for i := range comments {
+		if comments[i].Scope == "file" {
+			fileComment = &comments[i]
+			break
+		}
+	}
+	if fileComment == nil {
+		t.Fatal("file-level comment was not carried forward")
+	}
+	if fileComment.StartLine != 0 || fileComment.EndLine != 0 {
+		t.Errorf("file comment lines mutated: got %d-%d, want 0-0", fileComment.StartLine, fileComment.EndLine)
+	}
+}
+
+func TestLoadCritJSONDefaultsScope(t *testing.T) {
+	s := newTestSession(t)
+	// Write a .crit.json with comments that have no scope field
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Status: "modified",
+				Comments: []Comment{
+					{ID: "c0", StartLine: 1, EndLine: 1, Body: "old comment"},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(s.critJSONPath(), data, 0644)
+
+	s.loadCritJSON()
+	comments := s.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if comments[0].Scope != "line" {
+		t.Errorf("expected default scope 'line', got %q", comments[0].Scope)
+	}
+}

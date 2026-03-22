@@ -1378,9 +1378,12 @@ func (s *Session) loadCritJSON() {
 	for _, f := range s.Files {
 		if cf, ok := cj.Files[f.Path]; ok {
 			f.Comments = cf.Comments
-			for _, c := range f.Comments {
+			for i := range f.Comments {
+				if f.Comments[i].Scope == "" {
+					f.Comments[i].Scope = "line"
+				}
 				id := 0
-				_, _ = fmt.Sscanf(c.ID, "c%d", &id)
+				_, _ = fmt.Sscanf(f.Comments[i].ID, "c%d", &id)
 				if id >= s.nextID {
 					s.nextID = id + 1
 				}
