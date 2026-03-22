@@ -84,6 +84,9 @@ type Session struct {
 	ReviewRound    int
 	IgnorePatterns []string
 
+	reviewComments []Comment
+	reviewNextID   int
+
 	mu                  sync.RWMutex
 	nextID              int // session-global comment ID counter (c1, c2, c3... across ALL files)
 	subscribers         map[chan SSEEvent]struct{}
@@ -468,6 +471,63 @@ func (s *Session) AddFileComment(filePath, body, author string) (Comment, bool) 
 	f.Comments = append(f.Comments, c)
 	s.scheduleWrite()
 	return c, true
+}
+
+// AddReviewComment adds a review-level comment (not tied to any file).
+func (s *Session) AddReviewComment(body, author string) Comment {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC().Format(time.RFC3339)
+	c := Comment{
+		ID:        fmt.Sprintf("r%d", s.reviewNextID),
+		Body:      body,
+		Author:    author,
+		Scope:     "review",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	s.reviewNextID++
+	s.reviewComments = append(s.reviewComments, c)
+	s.scheduleWrite()
+	return c
+}
+
+// GetReviewComments returns a copy of all review-level comments.
+func (s *Session) GetReviewComments() []Comment {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	comments := make([]Comment, len(s.reviewComments))
+	copy(comments, s.reviewComments)
+	return comments
+}
+
+// UpdateReviewComment updates a review-level comment by ID.
+func (s *Session) UpdateReviewComment(id, body string) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == id {
+			s.reviewComments[i].Body = body
+			s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			s.scheduleWrite()
+			return s.reviewComments[i], true
+		}
+	}
+	return Comment{}, false
+}
+
+// DeleteReviewComment deletes a review-level comment by ID.
+func (s *Session) DeleteReviewComment(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == id {
+			s.reviewComments = append(s.reviewComments[:i], s.reviewComments[i+1:]...)
+			s.scheduleWrite()
+			return true
+		}
+	}
+	return false
 }
 
 // UpdateComment updates a comment in a specific file.

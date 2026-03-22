@@ -1967,3 +1967,41 @@ func TestAddFileComment(t *testing.T) {
 		t.Fatalf("expected 1 comment, got %d", len(comments))
 	}
 }
+
+func TestAddReviewComment(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("please address all issues", "")
+	if c.Scope != "review" {
+		t.Errorf("expected scope 'review', got %q", c.Scope)
+	}
+	if c.ID == "" {
+		t.Error("expected non-empty ID")
+	}
+	comments := s.GetReviewComments()
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 review comment, got %d", len(comments))
+	}
+}
+
+func TestDeleteReviewComment(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("temp", "")
+	if !s.DeleteReviewComment(c.ID) {
+		t.Fatal("DeleteReviewComment failed")
+	}
+	if len(s.GetReviewComments()) != 0 {
+		t.Error("expected 0 review comments after delete")
+	}
+}
+
+func TestUpdateReviewComment(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("original", "")
+	updated, ok := s.UpdateReviewComment(c.ID, "revised")
+	if !ok {
+		t.Fatal("UpdateReviewComment failed")
+	}
+	if updated.Body != "revised" {
+		t.Errorf("expected 'revised', got %q", updated.Body)
+	}
+}
