@@ -108,12 +108,12 @@ type Session struct {
 
 // CritJSON is the on-disk format for .crit.json.
 type CritJSON struct {
-	Branch      string                  `json:"branch"`
-	BaseRef     string                  `json:"base_ref"`
-	UpdatedAt   string                  `json:"updated_at"`
-	ReviewRound int                     `json:"review_round"`
-	ShareURL    string                  `json:"share_url,omitempty"`
-	DeleteToken string                  `json:"delete_token,omitempty"`
+	Branch         string                  `json:"branch"`
+	BaseRef        string                  `json:"base_ref"`
+	UpdatedAt      string                  `json:"updated_at"`
+	ReviewRound    int                     `json:"review_round"`
+	ShareURL       string                  `json:"share_url,omitempty"`
+	DeleteToken    string                  `json:"delete_token,omitempty"`
 	ShareScope     string                  `json:"share_scope,omitempty"`
 	ReviewComments []Comment               `json:"review_comments,omitempty"`
 	Files          map[string]CritJSONFile `json:"files"`
@@ -1018,14 +1018,14 @@ func (s *Session) critJSONPath() string {
 // writeFilesSnapshot holds all session state needed to write .crit.json,
 // captured under lock so that disk I/O can happen without holding the lock.
 type writeFilesSnapshot struct {
-	critPath    string
-	lastMtime   time.Time
-	branch      string
-	baseRef     string
-	reviewRound int
-	sharedURL   string
-	deleteToken string
-	shareScope  string
+	critPath       string
+	lastMtime      time.Time
+	branch         string
+	baseRef        string
+	reviewRound    int
+	sharedURL      string
+	deleteToken    string
+	shareScope     string
 	reviewComments []Comment
 	// Per-file data needed for the merge. We copy comments so the snapshot
 	// is independent of later in-memory mutations.
