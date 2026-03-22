@@ -157,4 +157,4 @@ export HOME="$DIR"
 
 # Run crit in file mode with explicit files AND a directory
 # --share-url enables the Share button so E2E tests can exercise the share payload
-exec "$CRIT_BIN" --no-open --quiet --port "$PORT" --share-url "http://localhost:19999" plan.md main.go handler.ex lib/
+exec "$CRIT_BIN" _serve --no-open --port "$PORT" --share-url "http://localhost:19999" plan.md main.go handler.ex lib/
