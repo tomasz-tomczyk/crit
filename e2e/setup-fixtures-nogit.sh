@@ -167,4 +167,4 @@ fi
 export HOME="$DIR"
 
 # Run crit in file mode outside any git repository
-exec "$CRIT_BIN" --no-open --quiet --port "$PORT" plan.md server.go handler.js
+exec "$CRIT_BIN" _serve --no-open --port "$PORT" plan.md server.go handler.js

@@ -304,4 +304,4 @@ echo "CRIT_FIXTURE_DIR=$DIR" >> "/tmp/crit-e2e-state-$PORT"
 export HOME="$DIR"
 
 # Run crit in the fixture repo
-exec "$CRIT_BIN" --no-open --quiet --port "$PORT"
+exec "$CRIT_BIN" _serve --no-open --port "$PORT"

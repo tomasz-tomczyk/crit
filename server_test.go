@@ -343,6 +343,142 @@ func TestFinish_NoComments(t *testing.T) {
 	}
 }
 
+func TestFinish_PromptIncludesFileArgs(t *testing.T) {
+	s, session := newTestServer(t)
+	session.CLIArgs = []string{"test.md"}
+	session.AddComment("test.md", 1, 1, "", "fix this", "", "")
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resp["prompt"], "`crit test.md`") {
+		t.Errorf("expected prompt to contain 'crit test.md', got: %s", resp["prompt"])
+	}
+}
+
+func TestFinish_PromptBareGitMode(t *testing.T) {
+	s, session := newTestServer(t)
+	session.Mode = "git"
+	// CLIArgs stays nil — git mode
+	session.AddComment("test.md", 1, 1, "", "fix this", "", "")
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resp["prompt"], "run: `crit`") {
+		t.Errorf("expected prompt to end with 'run: `crit`', got: %s", resp["prompt"])
+	}
+}
+
+func TestFinish_ApproveReturnsEmptyPrompt(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	// No comments = approve → empty prompt signals client to stop daemon
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["prompt"] != "" {
+		t.Errorf("expected empty prompt for approve, got: %s", resp["prompt"])
+	}
+}
+
+func TestFinish_UnresolvedReturnsPromptWithInstructions(t *testing.T) {
+	s, session := newTestServer(t)
+	session.AddComment("test.md", 1, 1, "", "fix this", "", "")
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["prompt"] == "" {
+		t.Error("expected non-empty prompt when there are unresolved comments")
+	}
+}
+
+func TestReviewCycle_ApproveReturnsEmptyPrompt(t *testing.T) {
+	s, session := newTestServer(t)
+	session.SetAwaitingFirstReview(true)
+
+	// Start review-cycle in background (it blocks until finish event)
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := httptest.NewRequest("POST", "/api/review-cycle", nil)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+		done <- w
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Trigger finish with no comments (approve)
+	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
+	s.ServeHTTP(httptest.NewRecorder(), finishReq)
+
+	select {
+	case w := <-done:
+		var resp map[string]string
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp["prompt"] != "" {
+			t.Errorf("expected empty prompt for approve via review-cycle, got: %s", resp["prompt"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("review-cycle did not return in time")
+	}
+}
+
+func TestReviewCycle_UnresolvedReturnsPrompt(t *testing.T) {
+	s, session := newTestServer(t)
+	session.SetAwaitingFirstReview(true)
+	session.AddComment("test.md", 1, 1, "", "fix this", "", "")
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := httptest.NewRequest("POST", "/api/review-cycle", nil)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+		done <- w
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
+	s.ServeHTTP(httptest.NewRecorder(), finishReq)
+
+	select {
+	case w := <-done:
+		var resp map[string]string
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp["prompt"] == "" {
+			t.Error("expected non-empty prompt when there are unresolved comments")
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("review-cycle did not return in time")
+	}
+}
+
 // ===== Path Traversal Tests =====
 
 func TestHandleFiles_PathTraversal(t *testing.T) {

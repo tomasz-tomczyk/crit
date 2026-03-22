@@ -80,10 +80,11 @@ Editing the plan file triggers Crit's live reload - the user sees changes in the
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-Run `crit` in the foreground and block until it exits:
+Run the **exact same `crit` command from Step 2** in the foreground and block until it exits. This is critical — if you launched `crit plan.md` in Step 2, you must run `crit plan.md` again here (not bare `crit`). The daemon is keyed by the arguments, so mismatched args will start a new daemon instead of reconnecting.
 
 ```bash
-crit
+# Must match Step 2 exactly:
+crit <same-args-as-step-2>
 ```
 
 On subsequent calls, `crit` automatically signals round-complete first, then blocks again until the next "Finish Review" click.

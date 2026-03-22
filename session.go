@@ -74,7 +74,8 @@ type FileEntry struct {
 // Session is the top-level state manager for a multi-file review.
 type Session struct {
 	Files          []*FileEntry
-	Mode           string // "files" (explicit markdown files) or "git" (auto-detected from git)
+	Mode           string   // "files" (explicit markdown files) or "git" (auto-detected from git)
+	CLIArgs        []string // original file arguments passed on the command line (empty for git mode)
 	Branch         string
 	BaseRef        string
 	RepoRoot       string
@@ -1339,6 +1340,15 @@ func (s *Session) BrowserDisconnect() {
 // HasBrowserClients returns true if any browser SSE clients are connected.
 func (s *Session) HasBrowserClients() bool {
 	return atomic.LoadInt32(&s.browserClients) > 0
+}
+
+// ReinvokeCommand returns the crit command the agent should run to trigger the next round.
+// For file-mode sessions it includes the original file arguments; for git-mode it's bare "crit".
+func (s *Session) ReinvokeCommand() string {
+	if len(s.CLIArgs) == 0 {
+		return "crit"
+	}
+	return "crit " + strings.Join(s.CLIArgs, " ")
 }
 
 // Shutdown sends a server-shutdown event to all SSE subscribers.
