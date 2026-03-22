@@ -5612,14 +5612,18 @@
       try {
         for (let i = 0; i < files.length; i++) {
           const f = files[i];
-          const [commentsRes, fileRes] = await Promise.all([
+          var fetches = [
             fetch('/api/file/comments?path=' + enc(f.path))
               .then(function(r) { return r.ok ? r.json() : []; })
               .catch(function() { return []; }),
             fetch('/api/file?path=' + enc(f.path))
               .then(function(r) { return r.ok ? r.json() : null; })
               .catch(function() { return null; }),
-          ]);
+            fetch('/api/file/diff?path=' + enc(f.path))
+              .then(function(r) { return r.ok ? r.json() : null; })
+              .catch(function() { return null; }),
+          ];
+          const [commentsRes, fileRes, diffRes] = await Promise.all(fetches);
           f.comments = Array.isArray(commentsRes) ? commentsRes : [];
           if (fileRes && fileRes.content !== undefined && fileRes.content !== f.content) {
             f.content = fileRes.content;
@@ -5631,6 +5635,12 @@
             } else if (f.fileType === 'code' && session.mode !== 'git') {
               f.lineBlocks = buildCodeLineBlocks(f);
             }
+            if (f.fileType === 'code') {
+              f.highlightCache = preHighlightFile(f);
+            }
+          }
+          if (diffRes && Array.isArray(diffRes.hunks)) {
+            f.diffHunks = diffRes.hunks;
           }
         }
         // Also refresh review-level comments
