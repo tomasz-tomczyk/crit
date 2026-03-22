@@ -4530,6 +4530,8 @@
   }
 
   function openReviewCommentForm() {
+    // No-op if form is already open
+    if (reviewCommentFormActive && !reviewCommentEditingId) return;
     // Open panel if closed
     const panel = document.getElementById('commentsPanel');
     if (panel.classList.contains('comments-panel-hidden')) {
