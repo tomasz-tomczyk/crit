@@ -780,7 +780,7 @@ func runReview(args []string) {
 	// Approve (no unresolved comments) — stop the daemon to free the port
 	// for future sessions. The daemon is no longer needed since the agent
 	// won't reinvoke crit for this review.
-	if approved && weStartedDaemon {
+	if approved {
 		if proc, err := os.FindProcess(entry.PID); err == nil {
 			proc.Signal(syscall.SIGTERM)
 		}

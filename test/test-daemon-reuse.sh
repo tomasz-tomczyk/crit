@@ -41,7 +41,7 @@ fi
 
 # Set up a temp git repo so we have both file-mode and git-mode available
 WORKDIR=$(mktemp -d)
-trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$WORKDIR"' EXIT INT TERM
+trap 'kill $(jobs -p) 2>/dev/null || true; rm -rf "$WORKDIR"' EXIT INT TERM
 
 git -C "$WORKDIR" init -q
 git -C "$WORKDIR" config user.email "test@test.com"
@@ -253,10 +253,19 @@ echo ""
 # Delete all comments to simulate "all resolved"
 api -X DELETE "http://127.0.0.1:$PORT/api/comments" > /dev/null
 
+# Start a crit client that blocks on review-cycle — this simulates the real
+# agent workflow where a client is connected when finish is triggered.
+# The client detects the approve (empty prompt) and kills the daemon.
+APPROVE_LOG="$WORKDIR/approve.log"
+(cd "$WORKDIR" && "$BINARY" --no-open --port "$PORT" "$PLAN_FILE" > "$APPROVE_LOG" 2>&1) &
+APPROVE_PID=$!
+sleep 1  # let it connect via review-cycle
+
 # Finish with no unresolved comments = Approve
 api -X POST "http://127.0.0.1:$PORT/api/finish" > /dev/null
 
 # Wait for daemon to shut down (issue #184 fix)
+# The client detects approve and sends SIGTERM to the daemon.
 wait_for_port_free "$PORT"
 
 check "Daemon shut down after approve" \
@@ -264,6 +273,10 @@ check "Daemon shut down after approve" \
 
 check "Daemon process exited" \
   "$(! kill -0 $DAEMON_PID 2>/dev/null && echo true || echo false)"
+
+# Clean up approve client (should have exited already)
+kill $APPROVE_PID 2>/dev/null || true
+wait $APPROVE_PID 2>/dev/null || true
 
 echo ""
 echo "=== Phase 4: Start bare 'crit' in git mode on same port ==="
