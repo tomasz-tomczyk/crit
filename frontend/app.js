@@ -4564,6 +4564,7 @@
     try {
       await fetch('/api/comment/' + id + '?path=' + enc(filePath), { method: 'DELETE' });
       file.comments = file.comments.filter(c => c.id !== id);
+      pendingAgentRequests.delete(id);
     } catch (err) {
       console.error('Error deleting comment:', err);
     }
@@ -4942,7 +4943,11 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ comment_id: commentId, file_path: filePath }),
-          }).catch(function(err) { console.error('Error sending reply to agent:', err); });
+          }).catch(function(err) {
+            console.error('Error sending reply to agent:', err);
+            pendingAgentRequests.delete(commentId);
+            showMiniToast('Failed to send to agent');
+          });
         }
 
         refreshFileComments(filePath);
@@ -5610,8 +5615,7 @@
 
     source.addEventListener('comments-changed', async function() {
       try {
-        for (let i = 0; i < files.length; i++) {
-          const f = files[i];
+        await Promise.all(files.map(async function(f) {
           var fetches = [
             fetch('/api/file/comments?path=' + enc(f.path))
               .then(function(r) { return r.ok ? r.json() : []; })
@@ -5644,7 +5648,7 @@
           if (diffRes && Array.isArray(diffRes.hunks)) {
             f.diffHunks = diffRes.hunks;
           }
-        }
+        }));
         // Also refresh review-level comments
         try {
           const rcRes = await fetch('/api/comments');

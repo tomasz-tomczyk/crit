@@ -20,13 +20,13 @@ import (
 )
 
 type Server struct {
-	session        *Session
-	mux            *http.ServeMux
-	assets         fs.FS
-	shareURL       string
-	prInfo         *PRInfo
-	author         string
-	agentCmd       string
+	session           *Session
+	mux               *http.ServeMux
+	assets            fs.FS
+	shareURL          string
+	prInfo            *PRInfo
+	author            string
+	agentCmd          string
 	currentVersion    string
 	latestVersion     string
 	versionMu         sync.RWMutex
@@ -1042,6 +1042,7 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var body agentRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.CommentID == "" {
 		http.Error(w, "Bad request: comment_id required", http.StatusBadRequest)
@@ -1061,7 +1062,7 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusAccepted)
 	writeJSON(w, map[string]any{
-		"status":    "accepted",
+		"status":     "accepted",
 		"comment_id": body.CommentID,
 		"file_path":  filePath,
 	})
@@ -1153,6 +1154,9 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		log.Printf("agent-request %s: failed to add reply (comment not found in file %q)", commentID, filePath)
 	} else {
 		if resolved {
+			// AddReply resets Resolved to false, so we re-set it here.
+			// Both operations use scheduleWrite with a 200ms debounce,
+			// so the final resolved=true state will be persisted.
 			s.session.SetCommentResolved(filePath, commentID, true)
 		}
 		// Re-read content (and file list/diffs in git mode) so next fetch returns updated data

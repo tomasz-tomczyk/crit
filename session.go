@@ -211,7 +211,7 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 			}
 		}
 
-				fe.Comments = []Comment{}
+		fe.Comments = []Comment{}
 		s.Files = append(s.Files, fe)
 	}
 
@@ -683,7 +683,6 @@ func nextReplyID(commentID string, existing []Reply) string {
 	return fmt.Sprintf("%s-r%d", commentID, max+1)
 }
 
-// AddReply adds a reply to a specific comment on a file.
 // RefreshFileContent re-reads all file content from disk.
 func (s *Session) RefreshFileContent() {
 	s.mu.Lock()
@@ -704,6 +703,7 @@ func (s *Session) RefreshFileContent() {
 	}
 }
 
+// AddReply adds a reply to a specific comment on a file.
 func (s *Session) AddReply(filePath, commentID, body, author string) (Reply, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1064,7 +1064,7 @@ func (s *Session) SignalRoundComplete() {
 	s.ReviewRound++
 	// Clear comments on all files, reset session-global ID counter
 	for _, f := range s.Files {
-				f.Comments = []Comment{}
+		f.Comments = []Comment{}
 	}
 	s.nextID = 1
 	s.mu.Unlock()
@@ -1091,7 +1091,7 @@ func (s *Session) ClearAllComments() {
 		if filepath.Base(f.Path) == ".crit.json" {
 			continue
 		}
-				f.Comments = []Comment{}
+		f.Comments = []Comment{}
 		f.PreviousComments = nil
 		f.PreviousContent = ""
 		filtered = append(filtered, f)
@@ -1190,7 +1190,7 @@ func (s *Session) WriteFiles() {
 			anyComments := false
 			for _, f := range s.Files {
 				if len(f.Comments) > 0 {
-										f.Comments = []Comment{}
+					f.Comments = []Comment{}
 					anyComments = true
 				}
 			}
@@ -1342,7 +1342,7 @@ func (s *Session) mergeExternalCritJSON() bool {
 			anyComments := false
 			for _, f := range s.Files {
 				if len(f.Comments) > 0 {
-										f.Comments = []Comment{}
+					f.Comments = []Comment{}
 					anyComments = true
 				}
 			}
@@ -1389,7 +1389,7 @@ func (s *Session) mergeExternalCritJSON() bool {
 		if !hasDisk {
 			// File not in .crit.json — if we have comments, they were cleared externally.
 			if len(f.Comments) > 0 {
-								f.Comments = []Comment{}
+				f.Comments = []Comment{}
 				changed = true
 			}
 			continue
