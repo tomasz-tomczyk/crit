@@ -4615,17 +4615,13 @@
 
   function createReviewCommentEditor(comment) {
     const wrapper = document.createElement('div');
-    wrapper.className = 'comment-form-wrapper';
+    wrapper.className = 'comment-form-wrapper panel-comment-block';
 
     const form = document.createElement('div');
     form.className = 'comment-form';
 
-    const header = document.createElement('div');
-    header.className = 'comment-form-header';
-    header.textContent = 'Editing general comment';
-
     const textarea = document.createElement('textarea');
-    textarea.placeholder = 'General review comment...';
+    textarea.placeholder = 'Edit comment...';
     textarea.value = comment.body;
 
     textarea.addEventListener('keydown', function(e) {
@@ -4656,7 +4652,6 @@
     actions.appendChild(cancelBtn);
     actions.appendChild(saveBtn);
 
-    form.appendChild(header);
     form.appendChild(textarea);
     form.appendChild(actions);
     wrapper.appendChild(form);
