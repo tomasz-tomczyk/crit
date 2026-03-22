@@ -1411,6 +1411,62 @@ func (s *Session) mergeExternalCritJSON() bool {
 			}
 		}
 	}
+
+	// Merge review-level comments from disk
+	memReviewIDs := make(map[string]struct{}, len(s.reviewComments))
+	for _, c := range s.reviewComments {
+		memReviewIDs[c.ID] = struct{}{}
+	}
+	for _, dc := range cj.ReviewComments {
+		if _, exists := memReviewIDs[dc.ID]; !exists {
+			s.reviewComments = append(s.reviewComments, dc)
+			id := 0
+			fmt.Sscanf(dc.ID, "r%d", &id)
+			if id >= s.reviewNextID {
+				s.reviewNextID = id + 1
+			}
+			changed = true
+		} else {
+			// Merge resolved state and replies from disk
+			for i, mc := range s.reviewComments {
+				if mc.ID != dc.ID {
+					continue
+				}
+				if dc.Resolved != mc.Resolved {
+					s.reviewComments[i].Resolved = dc.Resolved
+					changed = true
+				}
+				memRIDs := make(map[string]struct{}, len(mc.Replies))
+				for _, r := range mc.Replies {
+					memRIDs[r.ID] = struct{}{}
+				}
+				for _, dr := range dc.Replies {
+					if _, exists := memRIDs[dr.ID]; !exists {
+						s.reviewComments[i].Replies = append(s.reviewComments[i].Replies, dr)
+						changed = true
+					}
+				}
+				break
+			}
+		}
+	}
+	// Remove review comments deleted on disk
+	if len(cj.ReviewComments) != len(s.reviewComments) {
+		diskRIDs := make(map[string]struct{}, len(cj.ReviewComments))
+		for _, dc := range cj.ReviewComments {
+			diskRIDs[dc.ID] = struct{}{}
+		}
+		filtered := s.reviewComments[:0]
+		for _, c := range s.reviewComments {
+			if _, exists := diskRIDs[c.ID]; exists {
+				filtered = append(filtered, c)
+			}
+		}
+		if len(filtered) != len(s.reviewComments) {
+			s.reviewComments = filtered
+			changed = true
+		}
+	}
 	s.mu.Unlock()
 
 	if changed {
