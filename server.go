@@ -27,7 +27,6 @@ type Server struct {
 	versionMu      sync.RWMutex
 	port           int
 	status         *Status
-	shutdownFn     func() // if set, called to gracefully stop the daemon
 }
 
 func NewServer(session *Session, frontendFS embed.FS, shareURL string, prInfo *PRInfo, author string, currentVersion string, port int) (*Server, error) {
@@ -569,14 +568,6 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 					"review_file": s.session.critJSONPath(),
 					"prompt":      event.Content,
 				})
-				// Approve (no unresolved comments) — shut down the daemon
-				// after a brief delay so the client has time to read the response.
-				if s.session.UnresolvedCommentCount() == 0 && s.shutdownFn != nil {
-					go func() {
-						time.Sleep(500 * time.Millisecond)
-						s.shutdownFn()
-					}()
-				}
 				return
 			}
 		case <-r.Context().Done():

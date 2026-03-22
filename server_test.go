@@ -380,54 +380,43 @@ func TestFinish_PromptBareGitMode(t *testing.T) {
 	}
 }
 
-func TestFinish_ApproveDoesNotShutdownDirectly(t *testing.T) {
+func TestFinish_ApproveReturnsEmptyPrompt(t *testing.T) {
 	s, _ := newTestServer(t)
-	shutdownCalled := make(chan struct{}, 1)
-	s.shutdownFn = func() {
-		shutdownCalled <- struct{}{}
-	}
 
-	// No comments = approve, but handleFinish should NOT shut down directly.
-	// Shutdown only happens via the review-cycle path (daemon client).
+	// No comments = approve → empty prompt signals client to stop daemon
 	req := httptest.NewRequest("POST", "/api/finish", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
-	select {
-	case <-shutdownCalled:
-		t.Error("handleFinish should not call shutdownFn directly — shutdown belongs in review-cycle")
-	case <-time.After(700 * time.Millisecond):
-		// good — no shutdown from handleFinish
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["prompt"] != "" {
+		t.Errorf("expected empty prompt for approve, got: %s", resp["prompt"])
 	}
 }
 
-func TestFinish_UnresolvedDoesNotShutdown(t *testing.T) {
+func TestFinish_UnresolvedReturnsPromptWithInstructions(t *testing.T) {
 	s, session := newTestServer(t)
-	shutdownCalled := make(chan struct{}, 1)
-	s.shutdownFn = func() {
-		shutdownCalled <- struct{}{}
-	}
 	session.AddComment("test.md", 1, 1, "", "fix this", "", "")
 
 	req := httptest.NewRequest("POST", "/api/finish", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
-	select {
-	case <-shutdownCalled:
-		t.Error("shutdownFn should not be called when there are unresolved comments")
-	case <-time.After(700 * time.Millisecond):
-		// good — no shutdown
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["prompt"] == "" {
+		t.Error("expected non-empty prompt when there are unresolved comments")
 	}
 }
 
-func TestReviewCycle_ApproveCallsShutdown(t *testing.T) {
+func TestReviewCycle_ApproveReturnsEmptyPrompt(t *testing.T) {
 	s, session := newTestServer(t)
 	session.SetAwaitingFirstReview(true)
-	shutdownCalled := make(chan struct{}, 1)
-	s.shutdownFn = func() {
-		shutdownCalled <- struct{}{}
-	}
 
 	// Start review-cycle in background (it blocks until finish event)
 	done := make(chan *httptest.ResponseRecorder, 1)
@@ -438,65 +427,31 @@ func TestReviewCycle_ApproveCallsShutdown(t *testing.T) {
 		done <- w
 	}()
 
-	// Give the review-cycle handler time to subscribe
 	time.Sleep(50 * time.Millisecond)
 
 	// Trigger finish with no comments (approve)
 	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
-	finishW := httptest.NewRecorder()
-	s.ServeHTTP(finishW, finishReq)
+	s.ServeHTTP(httptest.NewRecorder(), finishReq)
 
-	// Review-cycle should return and trigger shutdown
 	select {
-	case <-shutdownCalled:
-		// good
+	case w := <-done:
+		var resp map[string]string
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp["prompt"] != "" {
+			t.Errorf("expected empty prompt for approve via review-cycle, got: %s", resp["prompt"])
+		}
 	case <-time.After(2 * time.Second):
-		t.Error("expected shutdownFn to be called on approve via review-cycle")
+		t.Error("review-cycle did not return in time")
 	}
 }
 
-func TestReviewCycle_AllResolvedCallsShutdown(t *testing.T) {
+func TestReviewCycle_UnresolvedReturnsPrompt(t *testing.T) {
 	s, session := newTestServer(t)
 	session.SetAwaitingFirstReview(true)
-	shutdownCalled := make(chan struct{}, 1)
-	s.shutdownFn = func() {
-		shutdownCalled <- struct{}{}
-	}
-	c, _ := session.AddComment("test.md", 1, 1, "", "fix this", "", "")
-	session.SetCommentResolved("test.md", c.ID, true)
-
-	// Start review-cycle in background
-	go func() {
-		req := httptest.NewRequest("POST", "/api/review-cycle", nil)
-		w := httptest.NewRecorder()
-		s.ServeHTTP(w, req)
-	}()
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Trigger finish with all comments resolved
-	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
-	finishW := httptest.NewRecorder()
-	s.ServeHTTP(finishW, finishReq)
-
-	select {
-	case <-shutdownCalled:
-		// good — all resolved = approve = shutdown
-	case <-time.After(2 * time.Second):
-		t.Error("expected shutdownFn to be called when all comments are resolved via review-cycle")
-	}
-}
-
-func TestReviewCycle_UnresolvedDoesNotShutdown(t *testing.T) {
-	s, session := newTestServer(t)
-	session.SetAwaitingFirstReview(true)
-	shutdownCalled := make(chan struct{}, 1)
-	s.shutdownFn = func() {
-		shutdownCalled <- struct{}{}
-	}
 	session.AddComment("test.md", 1, 1, "", "fix this", "", "")
 
-	// Start review-cycle in background
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		req := httptest.NewRequest("POST", "/api/review-cycle", nil)
@@ -507,16 +462,20 @@ func TestReviewCycle_UnresolvedDoesNotShutdown(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	// Trigger finish with unresolved comments
 	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
-	finishW := httptest.NewRecorder()
-	s.ServeHTTP(finishW, finishReq)
+	s.ServeHTTP(httptest.NewRecorder(), finishReq)
 
 	select {
-	case <-shutdownCalled:
-		t.Error("shutdownFn should not be called when there are unresolved comments")
-	case <-time.After(700 * time.Millisecond):
-		// good — no shutdown
+	case w := <-done:
+		var resp map[string]string
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp["prompt"] == "" {
+			t.Error("expected non-empty prompt when there are unresolved comments")
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("review-cycle did not return in time")
 	}
 }
 

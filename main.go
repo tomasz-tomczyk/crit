@@ -775,12 +775,22 @@ func runReview(args []string) {
 		}()
 	}
 
-	runReviewClient(entry)
+	approved := runReviewClient(entry)
+
+	// Approve (no unresolved comments) — stop the daemon to free the port
+	// for future sessions. The daemon is no longer needed since the agent
+	// won't reinvoke crit for this review.
+	if approved && weStartedDaemon {
+		if proc, err := os.FindProcess(entry.PID); err == nil {
+			proc.Signal(syscall.SIGTERM)
+		}
+	}
 }
 
 // runReviewClient connects to a running daemon/server, blocks until the user
-// finishes reviewing, prints feedback to stdout, and exits.
-func runReviewClient(entry sessionEntry) {
+// finishes reviewing, prints feedback to stdout, and returns whether the
+// review was approved (no unresolved comments).
+func runReviewClient(entry sessionEntry) (approved bool) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 	resp, err := client.Post(
 		fmt.Sprintf("http://localhost:%d/api/review-cycle", entry.Port),
@@ -798,12 +808,21 @@ func runReviewClient(entry sessionEntry) {
 		os.Exit(1)
 	}
 
-	// Print feedback to stdout (same format as crit listen)
-	_, err = io.Copy(os.Stdout, resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Print feedback to stdout
+	os.Stdout.Write(body)
+
+	// Check if the review was approved (prompt is empty = no unresolved comments)
+	var result struct{ Prompt string }
+	if json.Unmarshal(body, &result) == nil && result.Prompt == "" {
+		return true
+	}
+	return false
 }
 
 func runStop(args []string) {
@@ -1040,8 +1059,6 @@ func runServe(args []string) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-
-	srv.shutdownFn = stop
 
 	// Idle timeout checker
 	go func() {
