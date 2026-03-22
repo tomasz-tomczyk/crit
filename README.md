@@ -143,6 +143,20 @@ crit push --message "Round 2"      # add a top-level review comment
 crit push 42                       # explicit PR number
 ```
 
+### Send to Agent
+
+Click "Send now" on any comment during a review to get an AI agent response in real-time.
+The agent reads the comment context, addresses it (editing code if needed), and replies
+inline — all while you continue reviewing.
+
+Configure in `.crit.config.json`:
+
+```json
+{"agent_cmd": "claude -p"}
+```
+
+Supported agents: Claude Code, OpenCode, Cline, Aider, Cursor (experimental).
+
 ### Everything else
 
 - **Draft autosave.** Close your browser mid-review and pick up exactly where you left off.
@@ -219,6 +233,7 @@ crit config --help                             # document all config keys
   "quiet": false,
   "output": "",
   "author": "John",
+  "agent_cmd": "claude -p",
   "ignore_patterns": [".crit.json"]
 }
 ```
