@@ -548,6 +548,69 @@ func (s *Session) ResolveReviewComment(id string, resolved bool) (Comment, bool)
 	return Comment{}, false
 }
 
+// AddReviewCommentReply adds a reply to a review-level comment.
+func (s *Session) AddReviewCommentReply(commentID, body, author string) (Reply, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == commentID {
+			now := time.Now().UTC().Format(time.RFC3339)
+			r := Reply{
+				ID:        nextReplyID(commentID, c.Replies),
+				Body:      body,
+				Author:    author,
+				CreatedAt: now,
+			}
+			s.reviewComments[i].Replies = append(s.reviewComments[i].Replies, r)
+			s.reviewComments[i].Resolved = false
+			s.reviewComments[i].UpdatedAt = now
+			s.scheduleWrite()
+			return r, true
+		}
+	}
+	return Reply{}, false
+}
+
+// UpdateReviewCommentReply updates a reply's body on a review-level comment.
+func (s *Session) UpdateReviewCommentReply(commentID, replyID, body string) (Reply, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == commentID {
+			for j, r := range c.Replies {
+				if r.ID == replyID {
+					s.reviewComments[i].Replies[j].Body = body
+					s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+					s.scheduleWrite()
+					return s.reviewComments[i].Replies[j], true
+				}
+			}
+			return Reply{}, false
+		}
+	}
+	return Reply{}, false
+}
+
+// DeleteReviewCommentReply removes a reply from a review-level comment.
+func (s *Session) DeleteReviewCommentReply(commentID, replyID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == commentID {
+			for j, r := range c.Replies {
+				if r.ID == replyID {
+					s.reviewComments[i].Replies = append(s.reviewComments[i].Replies[:j], s.reviewComments[i].Replies[j+1:]...)
+					s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+					s.scheduleWrite()
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
 // UpdateComment updates a comment in a specific file.
 func (s *Session) UpdateComment(filePath, id, body string) (Comment, bool) {
 	s.mu.Lock()

@@ -661,13 +661,17 @@ func runComment(args []string) {
 		return
 	}
 
-	if len(commentArgs) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: crit comment [--output <dir>] [--author <name>] <path>:<line[-end]> <body>")
+	if len(commentArgs) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: crit comment [--output <dir>] [--author <name>] <body>                    Review-level comment")
+		fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] [--author <name>] <path> <body>             File-level comment")
+		fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] [--author <name>] <path>:<line[-end]> <body> Line-level comment")
 		fmt.Fprintln(os.Stderr, "       crit comment --reply-to <id> [--resolve] [--author <name>] <body>")
 		fmt.Fprintln(os.Stderr, "       crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON")
 		fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] --clear")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Examples:")
+		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' 'Overall this looks good'")
+		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' src/auth.go 'Restructure this file'")
 		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' main.go:42 'Fix this bug'")
 		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' src/auth.go:10-25 'This block needs refactoring'")
 		fmt.Fprintln(os.Stderr, "  crit comment --reply-to c1 --resolve --author 'Claude' 'Split into two functions'")
@@ -681,46 +685,127 @@ func runComment(args []string) {
 		os.Exit(1)
 	}
 
-	// Parse <path>:<line[-end]>
+	// Determine comment scope based on argument count and format:
+	// 1 arg: review-level comment (just body)
+	// 2 args, first contains ":" with valid line spec: line-level comment (existing)
+	// 2 args, first is a file path (exists on disk or in .crit.json): file-level comment
+	// 2+ args, first contains ":": line-level comment (existing)
+	if len(commentArgs) == 1 {
+		// Review-level comment: crit comment <body>
+		body := commentArgs[0]
+		if err := addReviewCommentToCritJSON(body, commentAuthor, commentOutputDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Added review comment")
+		return
+	}
+
+	// 2+ args: check if first arg has a colon with valid line spec
 	loc := commentArgs[0]
 	colonIdx := strings.LastIndex(loc, ":")
+	if colonIdx > 0 {
+		// Check if the part after colon looks like a line spec (number or number-number)
+		lineSpec := loc[colonIdx+1:]
+		if looksLikeLineSpec(lineSpec) {
+			// Line-level comment: crit comment <path>:<line[-end]> <body>
+			filePath := loc[:colonIdx]
+			var startLine, endLine int
+			if dashIdx := strings.Index(lineSpec, "-"); dashIdx >= 0 {
+				s, err := strconv.Atoi(lineSpec[:dashIdx])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid start line in %q\n", loc)
+					os.Exit(1)
+				}
+				e, err := strconv.Atoi(lineSpec[dashIdx+1:])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid end line in %q\n", loc)
+					os.Exit(1)
+				}
+				startLine, endLine = s, e
+			} else {
+				n, err := strconv.Atoi(lineSpec)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid line number in %q\n", loc)
+					os.Exit(1)
+				}
+				startLine, endLine = n, n
+			}
+			body := strings.Join(commentArgs[1:], " ")
+			if err := addCommentToCritJSON(filePath, startLine, endLine, body, commentAuthor, commentOutputDir); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
+			return
+		}
+	}
+
+	// 2 args without colon line spec: check if first arg is a file path
+	if len(commentArgs) >= 2 {
+		candidatePath := commentArgs[0]
+		if fileExistsOnDiskOrSession(candidatePath, commentOutputDir) {
+			// File-level comment: crit comment <path> <body>
+			body := strings.Join(commentArgs[1:], " ")
+			if err := addFileCommentToCritJSON(candidatePath, body, commentAuthor, commentOutputDir); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Added file comment on %s\n", candidatePath)
+			return
+		}
+	}
+
+	// Fallback: if nothing matched, treat as the old syntax (error on missing colon)
 	if colonIdx < 0 {
-		fmt.Fprintf(os.Stderr, "Error: invalid location %q — expected <path>:<line[-end]>\n", loc)
+		fmt.Fprintf(os.Stderr, "Error: invalid location %q — expected <path>:<line[-end]>, or a valid file path for file-level comments\n", loc)
 		os.Exit(1)
 	}
-	filePath := loc[:colonIdx]
-	lineSpec := loc[colonIdx+1:]
+	fmt.Fprintf(os.Stderr, "Error: invalid line spec in %q\n", loc)
+	os.Exit(1)
+}
 
-	var startLine, endLine int
-	if dashIdx := strings.Index(lineSpec, "-"); dashIdx >= 0 {
-		s, err := strconv.Atoi(lineSpec[:dashIdx])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid start line in %q\n", loc)
-			os.Exit(1)
-		}
-		e, err := strconv.Atoi(lineSpec[dashIdx+1:])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid end line in %q\n", loc)
-			os.Exit(1)
-		}
-		startLine, endLine = s, e
-	} else {
-		n, err := strconv.Atoi(lineSpec)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid line number in %q\n", loc)
-			os.Exit(1)
-		}
-		startLine, endLine = n, n
+// looksLikeLineSpec returns true if s looks like a line number or range (e.g. "42", "10-25").
+func looksLikeLineSpec(s string) bool {
+	if s == "" {
+		return false
 	}
-
-	// Body is all remaining args joined
-	body := strings.Join(commentArgs[1:], " ")
-
-	if err := addCommentToCritJSON(filePath, startLine, endLine, body, commentAuthor, commentOutputDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	if dashIdx := strings.Index(s, "-"); dashIdx >= 0 {
+		_, err1 := strconv.Atoi(s[:dashIdx])
+		_, err2 := strconv.Atoi(s[dashIdx+1:])
+		return err1 == nil && err2 == nil
 	}
-	fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
+	_, err := strconv.Atoi(s)
+	return err == nil
+}
+
+// fileExistsOnDiskOrSession checks if a path exists as a file on disk or in .crit.json.
+func fileExistsOnDiskOrSession(path string, outputDir string) bool {
+	// Check disk first (relative to cwd)
+	if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		return true
+	}
+	// Check in repo root if we're in a git repo
+	if IsGitRepo() {
+		if root, err := RepoRoot(); err == nil {
+			absPath := filepath.Join(root, path)
+			if info, err := os.Stat(absPath); err == nil && !info.IsDir() {
+				return true
+			}
+		}
+	}
+	// Check if it exists in .crit.json
+	root, err := resolveCritDir(outputDir)
+	if err != nil {
+		return false
+	}
+	critPath := filepath.Join(root, ".crit.json")
+	cj, err := loadCritJSON(critPath)
+	if err != nil {
+		return false
+	}
+	_, exists := cj.Files[path]
+	return exists
 }
 
 // runReview always uses the daemon pattern: starts a background daemon if needed,

@@ -34,7 +34,7 @@ crit
 
 ## After review
 
-Read `.crit.json` to find the user's inline comments. Comments are grouped per file with `start_line`/`end_line` referencing the source. A comment is unresolved if `"resolved": false` or if the `resolved` field is missing. Address each unresolved comment by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --resolve --author 'Windsurf' '<what you did>'`.
+Read `.crit.json` to find the user's inline comments. Comments have three scopes: line comments in `files.<path>.comments` (with `start_line`/`end_line`), file comments (same array, `scope: "file"`, lines are 0), and review comments in the top-level `review_comments` array (`scope: "review"`, not tied to any file). A comment is unresolved if `"resolved": false` or if the `resolved` field is missing. Address each unresolved comment by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --resolve --author 'Windsurf' '<what you did>'`. This works for both file comment IDs (`c1`) and review comment IDs (`r0`).
 
 When addressing multiple comments, use `--json` to resolve them all in one call:
 
@@ -51,13 +51,15 @@ Only proceed after the user approves (finishes a round with zero comments).
 
 ## Leaving comments programmatically
 
-Use `crit comment` to add inline review comments to `.crit.json` without opening the browser:
+Use `crit comment` to add review comments to `.crit.json` without opening the browser:
 
 ```bash
-crit comment <path>:<line> '<body>'
-crit comment <path>:<start>-<end> '<body>'
-crit comment --author 'Windsurf' src/auth.go:42 'Missing null check here'
-crit comment --reply-to c1 --resolve --author 'Windsurf' 'Added null check'
+crit comment --author 'Windsurf' '<body>'                          # Review-level comment
+crit comment --author 'Windsurf' <path> '<body>'                   # File-level comment
+crit comment --author 'Windsurf' <path>:<line> '<body>'            # Line comment
+crit comment --author 'Windsurf' <path>:<start>-<end> '<body>'     # Line range comment
+crit comment --reply-to c1 --resolve --author 'Windsurf' '<body>'  # Reply to file comment
+crit comment --reply-to r0 --resolve --author 'Windsurf' '<body>'  # Reply to review comment
 ```
 
 Paths are relative, line numbers are 1-indexed, comments are appended (never replaced). Creates `.crit.json` automatically if it doesn't exist.

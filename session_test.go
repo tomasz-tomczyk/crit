@@ -2215,3 +2215,82 @@ func TestReviewCommentHasReviewRound(t *testing.T) {
 		t.Errorf("expected ReviewRound 2, got %d", c.ReviewRound)
 	}
 }
+
+func TestAddReviewCommentReply(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("needs work", "reviewer")
+	reply, ok := s.AddReviewCommentReply(c.ID, "fixed it", "author")
+	if !ok {
+		t.Fatal("AddReviewCommentReply failed")
+	}
+	if reply.Body != "fixed it" {
+		t.Errorf("expected body 'fixed it', got %q", reply.Body)
+	}
+	if reply.Author != "author" {
+		t.Errorf("expected author 'author', got %q", reply.Author)
+	}
+	// Verify reply ID format: r0-r1
+	expectedPrefix := c.ID + "-r"
+	if !strings.HasPrefix(reply.ID, expectedPrefix) {
+		t.Errorf("expected reply ID to start with %q, got %q", expectedPrefix, reply.ID)
+	}
+	// Verify the reply is attached to the comment
+	comments := s.GetReviewComments()
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if len(comments[0].Replies) != 1 {
+		t.Fatalf("expected 1 reply, got %d", len(comments[0].Replies))
+	}
+}
+
+func TestAddReviewCommentReply_NotFound(t *testing.T) {
+	s := newTestSession(t)
+	_, ok := s.AddReviewCommentReply("nonexistent", "body", "author")
+	if ok {
+		t.Error("expected AddReviewCommentReply to return false for nonexistent comment")
+	}
+}
+
+func TestUpdateReviewCommentReply(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("needs work", "reviewer")
+	reply, _ := s.AddReviewCommentReply(c.ID, "initial reply", "author")
+	updated, ok := s.UpdateReviewCommentReply(c.ID, reply.ID, "updated reply")
+	if !ok {
+		t.Fatal("UpdateReviewCommentReply failed")
+	}
+	if updated.Body != "updated reply" {
+		t.Errorf("expected body 'updated reply', got %q", updated.Body)
+	}
+}
+
+func TestUpdateReviewCommentReply_NotFound(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("needs work", "reviewer")
+	_, ok := s.UpdateReviewCommentReply(c.ID, "nonexistent", "body")
+	if ok {
+		t.Error("expected UpdateReviewCommentReply to return false for nonexistent reply")
+	}
+}
+
+func TestDeleteReviewCommentReply(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("needs work", "reviewer")
+	reply, _ := s.AddReviewCommentReply(c.ID, "to delete", "author")
+	if !s.DeleteReviewCommentReply(c.ID, reply.ID) {
+		t.Fatal("DeleteReviewCommentReply failed")
+	}
+	comments := s.GetReviewComments()
+	if len(comments[0].Replies) != 0 {
+		t.Errorf("expected 0 replies after delete, got %d", len(comments[0].Replies))
+	}
+}
+
+func TestDeleteReviewCommentReply_NotFound(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("needs work", "reviewer")
+	if s.DeleteReviewCommentReply(c.ID, "nonexistent") {
+		t.Error("expected DeleteReviewCommentReply to return false for nonexistent reply")
+	}
+}

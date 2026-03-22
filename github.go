@@ -683,10 +683,32 @@ func appendComment(cj *CritJSON, filePath string, startLine, endLine int, body, 
 
 // appendReply adds a reply to an existing comment in the CritJSON struct in memory.
 // Returns an error if the comment ID is not found or is ambiguous across files.
+// Searches both file comments and review_comments (IDs starting with "r").
 func appendReply(cj *CritJSON, commentID, body, author string, resolve bool, filterPath string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
+	// Check review comments first for IDs starting with "r"
+	if strings.HasPrefix(commentID, "r") {
+		for i, c := range cj.ReviewComments {
+			if c.ID == commentID {
+				reply := Reply{
+					ID:        nextReplyID(commentID, c.Replies),
+					Body:      body,
+					Author:    author,
+					CreatedAt: now,
+				}
+				cj.ReviewComments[i].Replies = append(cj.ReviewComments[i].Replies, reply)
+				cj.ReviewComments[i].UpdatedAt = now
+				if resolve {
+					cj.ReviewComments[i].Resolved = true
+				}
+				return nil
+			}
+		}
+	}
+
+	// Search file comments
 	var found bool
 	var foundPaths []string
 	for filePath, cf := range cj.Files {
@@ -787,18 +809,54 @@ func clearCritJSON(outputDir string) error {
 }
 
 // BulkCommentEntry represents one entry in a bulk comment JSON array.
-// Either (file + line) for a new comment, or (reply_to) for a reply.
+// Supports review-level, file-level, line-level comments, and replies.
 type BulkCommentEntry struct {
 	// New comment fields
-	File    string `json:"file"`
-	Line    int    `json:"line"`
-	EndLine int    `json:"end_line,omitempty"` // defaults to Line if omitted
-	Body    string `json:"body"`
-	Author  string `json:"author,omitempty"` // overrides per-entry; falls back to global
+	File     string `json:"file,omitempty"`
+	Path     string `json:"path,omitempty"`     // alias for File
+	Line     int    `json:"-"`                  // parsed from "line" (int or string like "45-47")
+	LineSpec string `json:"-"`                  // string line spec like "45-47" (from "line" field)
+	EndLine  int    `json:"end_line,omitempty"` // defaults to Line if omitted
+	Body     string `json:"body"`
+	Author   string `json:"author,omitempty"` // overrides per-entry; falls back to global
+	Scope    string `json:"scope,omitempty"`  // "review", "file", or "" (inferred)
 
 	// Reply fields
 	ReplyTo string `json:"reply_to,omitempty"`
 	Resolve bool   `json:"resolve,omitempty"`
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for BulkCommentEntry
+// to handle the "line" field being either an int (42) or a string ("45-47").
+func (e *BulkCommentEntry) UnmarshalJSON(data []byte) error {
+	// Use an alias to avoid infinite recursion
+	type Alias BulkCommentEntry
+	aux := &struct {
+		Line json.RawMessage `json:"line,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(e),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if len(aux.Line) > 0 {
+		// Try int first
+		var lineInt int
+		if err := json.Unmarshal(aux.Line, &lineInt); err == nil {
+			e.Line = lineInt
+			return nil
+		}
+		// Try string
+		var lineStr string
+		if err := json.Unmarshal(aux.Line, &lineStr); err == nil {
+			e.LineSpec = lineStr
+			return nil
+		}
+	}
+	return nil
 }
 
 // bulkAddCommentsToCritJSON applies multiple comments and replies in a single load-save cycle.
@@ -835,28 +893,168 @@ func bulkAddCommentsToCritJSON(entries []BulkCommentEntry, globalAuthor string, 
 			if err := appendReply(&cj, e.ReplyTo, e.Body, author, e.Resolve, e.File); err != nil {
 				return fmt.Errorf("entry %d: %w", i, err)
 			}
-		} else {
-			// New comment mode
-			if e.File == "" {
+		} else if e.Scope == "review" || (e.File == "" && e.Path == "" && e.Line <= 0 && e.LineSpec == "") {
+			// Review-level comment: explicit scope OR no file/line at all.
+			// But if Line > 0 or LineSpec is set, it's a line comment missing a file — error.
+			if e.Line > 0 || e.LineSpec != "" {
 				return fmt.Errorf("entry %d: file is required for new comments", i)
 			}
-			if e.Line <= 0 {
-				return fmt.Errorf("entry %d: line must be > 0", i)
+			if e.Scope != "review" && (e.File != "" || e.Path != "") {
+				// Has a file but no scope — not a review comment
+				return fmt.Errorf("entry %d: file is required for new comments", i)
+			}
+			appendReviewComment(&cj, e.Body, author)
+		} else {
+			// Determine file path from File or Path field
+			filePath := e.File
+			if filePath == "" {
+				filePath = e.Path
+			}
+			if filePath == "" {
+				return fmt.Errorf("entry %d: file is required for new comments", i)
 			}
 
-			cleaned := filepath.Clean(e.File)
+			cleaned := filepath.Clean(filePath)
 			if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
-				return fmt.Errorf("entry %d: path %q must be relative and within the repository", i, e.File)
+				return fmt.Errorf("entry %d: path %q must be relative and within the repository", i, filePath)
 			}
 
-			endLine := e.EndLine
-			if endLine == 0 {
-				endLine = e.Line
-			}
+			if e.Scope == "file" {
+				// Explicit file-level comment
+				appendFileComment(&cj, cleaned, e.Body, author)
+			} else if e.Line <= 0 && e.LineSpec == "" {
+				// No line specified — infer file-level only when using "path" field (new API),
+				// not "file" field (backward compat: "file" without line is an error).
+				if e.Path != "" && e.File == "" {
+					appendFileComment(&cj, cleaned, e.Body, author)
+				} else {
+					return fmt.Errorf("entry %d: line must be > 0", i)
+				}
+			} else {
+				// Line-level comment
+				startLine := e.Line
+				endLine := e.EndLine
 
-			appendComment(&cj, cleaned, e.Line, endLine, e.Body, author)
+				// Support "line": "45-47" string format
+				if e.LineSpec != "" && startLine == 0 {
+					if dashIdx := strings.Index(e.LineSpec, "-"); dashIdx >= 0 {
+						s, err1 := strconv.Atoi(e.LineSpec[:dashIdx])
+						eVal, err2 := strconv.Atoi(e.LineSpec[dashIdx+1:])
+						if err1 != nil || err2 != nil {
+							return fmt.Errorf("entry %d: invalid line spec %q", i, e.LineSpec)
+						}
+						startLine, endLine = s, eVal
+					} else {
+						n, err := strconv.Atoi(e.LineSpec)
+						if err != nil {
+							return fmt.Errorf("entry %d: invalid line spec %q", i, e.LineSpec)
+						}
+						startLine, endLine = n, n
+					}
+				}
+
+				if startLine <= 0 {
+					return fmt.Errorf("entry %d: line must be > 0", i)
+				}
+				if endLine == 0 {
+					endLine = startLine
+				}
+
+				appendComment(&cj, cleaned, startLine, endLine, e.Body, author)
+			}
 		}
 	}
 
 	return saveCritJSON(critPath, cj)
+}
+
+// addReviewCommentToCritJSON adds a review-level comment to .crit.json.
+func addReviewCommentToCritJSON(body, author, outputDir string) error {
+	root, err := resolveCritDir(outputDir)
+	if err != nil {
+		return err
+	}
+
+	critPath := filepath.Join(root, ".crit.json")
+	cj, err := loadCritJSON(critPath)
+	if err != nil {
+		return err
+	}
+
+	appendReviewComment(&cj, body, author)
+	return saveCritJSON(critPath, cj)
+}
+
+// addFileCommentToCritJSON adds a file-level comment to .crit.json.
+func addFileCommentToCritJSON(filePath, body, author, outputDir string) error {
+	root, err := resolveCritDir(outputDir)
+	if err != nil {
+		return err
+	}
+
+	cleaned := filepath.Clean(filePath)
+	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+		return fmt.Errorf("path %q must be relative and within the repository", filePath)
+	}
+
+	critPath := filepath.Join(root, ".crit.json")
+	cj, err := loadCritJSON(critPath)
+	if err != nil {
+		return err
+	}
+
+	appendFileComment(&cj, cleaned, body, author)
+	return saveCritJSON(critPath, cj)
+}
+
+// appendReviewComment adds a review-level comment to the CritJSON struct in memory.
+func appendReviewComment(cj *CritJSON, body, author string) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	cj.UpdatedAt = now
+
+	cj.ReviewComments = append(cj.ReviewComments, Comment{
+		ID:        fmt.Sprintf("r%d", nextReviewCommentID(cj.ReviewComments)),
+		Body:      body,
+		Author:    author,
+		Scope:     "review",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+}
+
+// appendFileComment adds a file-level comment (scope: "file", lines: 0) to the CritJSON struct in memory.
+func appendFileComment(cj *CritJSON, filePath, body, author string) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	cj.UpdatedAt = now
+
+	cf, ok := cj.Files[filePath]
+	if !ok {
+		cf = CritJSONFile{
+			Status:   "modified",
+			Comments: []Comment{},
+		}
+	}
+
+	cf.Comments = append(cf.Comments, Comment{
+		ID:        fmt.Sprintf("c%d", nextCommentID(cj.Files)),
+		Body:      body,
+		Author:    author,
+		Scope:     "file",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	cj.Files[filePath] = cf
+}
+
+// nextReviewCommentID returns the next available review comment ID number.
+func nextReviewCommentID(comments []Comment) int {
+	next := 0
+	for _, c := range comments {
+		id := 0
+		_, _ = fmt.Sscanf(c.ID, "r%d", &id)
+		if id >= next {
+			next = id + 1
+		}
+	}
+	return next
 }

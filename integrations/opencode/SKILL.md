@@ -19,12 +19,28 @@ Use this when the user asks to review a plan, spec, or code changes in Crit, whe
 
 ## .crit.json Format
 
-After a crit review session, comments are in `.crit.json`. Comments are grouped per file with `start_line`/`end_line` referencing the source:
+After a crit review session, comments are in `.crit.json`. Comments have three scopes:
+
+- **Line comments** (`scope: "line"`) — tied to specific lines in a file, stored in `files.<path>.comments`
+- **File comments** (`scope: "file"`) — about a file overall, stored in `files.<path>.comments` with `start_line: 0`
+- **Review comments** (`scope: "review"`) — general feedback not tied to any file, stored in `review_comments`
 
 ```json
 {
+  "review_comments": [
+    {
+      "id": "r0",
+      "body": "Overall the architecture looks good",
+      "scope": "review",
+      "author": "User Name",
+      "resolved": false,
+      "replies": [
+        { "id": "r0-r1", "body": "Thanks, addressed the minor issues", "author": "OpenCode" }
+      ]
+    }
+  ],
   "files": {
-    "path/to/file.md": {
+    "path/to/file.go": {
       "comments": [
         {
           "id": "c1",
@@ -35,7 +51,7 @@ After a crit review session, comments are in `.crit.json`. Comments are grouped 
           "author": "User Name",
           "resolved": false,
           "replies": [
-            { "id": "c1-r1", "body": "Fixed by extracting to helper", "author": "Claude" }
+            { "id": "c1-r1", "body": "Fixed by extracting to helper", "author": "OpenCode" }
           ]
         }
       ]
@@ -46,7 +62,9 @@ After a crit review session, comments are in `.crit.json`. Comments are grouped 
 
 ### Reading comments
 
-- Comments are grouped per file with `start_line`/`end_line` referencing source lines in that file
+- **Line comments** are grouped per file with `start_line`/`end_line` referencing source lines in that file
+- **File comments** are in the same per-file array but have `start_line: 0, end_line: 0, scope: "file"`
+- **Review comments** are in the top-level `review_comments` array (not tied to any file)
 - `quote` (optional): the specific text the reviewer selected — narrows the comment's scope within the line range. When present, focus your changes on the quoted text rather than the entire line range
 - `resolved`: `false` or **missing** — both mean unresolved. Only `true` means resolved.
 - Address each unresolved comment by editing the relevant file at the referenced location
@@ -57,19 +75,26 @@ After addressing a comment, reply to it using the CLI:
 
 ```bash
 crit comment --reply-to c1 --resolve --author 'OpenCode' 'Fixed by extracting to helper'
+crit comment --reply-to r0 --resolve --author 'OpenCode' 'All issues addressed'
 ```
 
-This adds a reply to the comment thread and marks it resolved. You can also reply without resolving (omit `--resolve`) if discussion is ongoing.
+This adds a reply to the comment thread and marks it resolved. Works for both file comment IDs (`c1`, `c2`, ...) and review comment IDs (`r0`, `r1`, ...). You can also reply without resolving (omit `--resolve`) if discussion is ongoing.
 
 ## Leaving Comments with crit comment CLI
 
-Use `crit comment` to add inline review comments to `.crit.json` programmatically — no browser needed:
+Use `crit comment` to add review comments to `.crit.json` programmatically — no browser needed:
 
 ```bash
-# Single line comment
+# Review-level comment (general feedback, not tied to any file)
+crit comment --author 'OpenCode' '<body>'
+
+# File-level comment (about a file overall, no line numbers)
+crit comment --author 'OpenCode' <path> '<body>'
+
+# Line comment (single line)
 crit comment --author 'OpenCode' <path>:<line> '<body>'
 
-# Multi-line comment (range)
+# Line comment (range)
 crit comment --author 'OpenCode' <path>:<start>-<end> '<body>'
 
 # Reply to an existing comment (with optional --resolve)
@@ -78,7 +103,7 @@ crit comment --reply-to <id> --resolve --author 'OpenCode' '<body>'
 ```
 
 Rules:
-- **Always use `--author 'Claude'`** (or your agent name) so comments are attributed correctly
+- **Always use `--author 'OpenCode'`** (or your agent name) so comments are attributed correctly
 - **Always use single quotes** for the body — double quotes will break on backticks and special characters
 - **Paths** are relative to the current working directory
 - **Line numbers** reference the file as it exists on disk (1-indexed), not diff line numbers
@@ -92,18 +117,12 @@ When leaving 3+ comments, use `--json` to add them all in one atomic operation:
 
 ```bash
 echo '[
+  {"body": "overall feedback", "scope": "review"},
+  {"path": "session.go", "body": "restructure", "scope": "file"},
   {"file": "src/auth.go", "line": 42, "body": "Missing null check"},
-  {"file": "src/auth.go", "line": 50, "end_line": 55, "body": "Extract to helper"},
-  {"file": "src/handler.go", "line": 10, "body": "Swallowed error"}
-]' | crit comment --json --author 'OpenCode'
-```
-
-Replies and resolves work too:
-
-```bash
-echo '[
+  {"file": "src/auth.go", "line": "50-55", "body": "Extract to helper"},
   {"reply_to": "c1", "body": "Fixed — added null check", "resolve": true},
-  {"reply_to": "c2", "body": "Extracted to validateSession()"}
+  {"reply_to": "r0", "body": "Done", "resolve": true}
 ]' | crit comment --json --author 'OpenCode'
 ```
 
@@ -111,13 +130,21 @@ JSON schema per entry:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `file` | string | yes (new comment) | Relative file path |
-| `line` | int | yes (new comment) | Start line (1-indexed) |
+| `file` | string | yes (line comment) | Relative file path |
+| `path` | string | alt for `file` | Alias for `file`; when used with no `line`, infers file-level |
+| `line` | int/string | yes (line comment) | Start line (`42`) or range (`"45-47"`) |
 | `end_line` | int | no | End line (defaults to `line`) |
 | `body` | string | yes | Comment text |
 | `author` | string | no | Per-entry override (falls back to `--author`) |
-| `reply_to` | string | yes (reply) | Comment ID to reply to (e.g. `"c1"`) |
+| `scope` | string | no | `"review"`, `"file"`, or omit to infer from context |
+| `reply_to` | string | yes (reply) | Comment ID (`"c1"` or `"r0"`) |
 | `resolve` | bool | no | Mark the parent comment resolved |
+
+Scope inference when `scope` is omitted:
+- Has `reply_to` → reply
+- No `file`/`path` and no `line` → review-level
+- Has `path` but no `line` → file-level
+- Has `file`/`path` and `line` → line-level
 
 Benefits over individual `crit comment` calls:
 - **Atomic** — one write to `.crit.json`, no partial state

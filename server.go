@@ -503,6 +503,65 @@ func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePa
 	}
 }
 
+func (s *Server) handleReviewCommentReplyRoute(w http.ResponseWriter, r *http.Request, commentID, replyID string) {
+	switch {
+	case r.Method == http.MethodPost && replyID == "":
+		// POST /api/review-comment/{id}/replies — add reply
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		var req struct {
+			Body   string `json:"body"`
+			Author string `json:"author"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Reply body is required", http.StatusBadRequest)
+			return
+		}
+		reply, ok := s.session.AddReviewCommentReply(commentID, req.Body, req.Author)
+		if !ok {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, reply)
+
+	case r.Method == http.MethodPut && replyID != "":
+		// PUT /api/review-comment/{id}/replies/{rid} — edit reply
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		var req struct {
+			Body string `json:"body"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Reply body is required", http.StatusBadRequest)
+			return
+		}
+		reply, ok := s.session.UpdateReviewCommentReply(commentID, replyID, req.Body)
+		if !ok {
+			http.Error(w, "Reply not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, reply)
+
+	case r.Method == http.MethodDelete && replyID != "":
+		// DELETE /api/review-comment/{id}/replies/{rid} — delete reply
+		if !s.session.DeleteReviewCommentReply(commentID, replyID) {
+			http.Error(w, "Reply not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -540,6 +599,14 @@ func (s *Server) handleReviewCommentByID(w http.ResponseWriter, r *http.Request)
 	trimmed := strings.TrimPrefix(r.URL.Path, "/api/review-comment/")
 	if trimmed == "" {
 		http.Error(w, "Comment ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if this is a reply route: {id}/replies or {id}/replies/{rid}
+	if parts := strings.SplitN(trimmed, "/replies", 2); len(parts) == 2 {
+		commentID := parts[0]
+		replyID := strings.TrimPrefix(parts[1], "/")
+		s.handleReviewCommentReplyRoute(w, r, commentID, replyID)
 		return
 	}
 

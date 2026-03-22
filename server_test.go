@@ -1582,6 +1582,82 @@ func TestReviewCommentsAPI(t *testing.T) {
 	}
 }
 
+func TestReviewCommentRepliesAPI(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// Create a review comment first
+	body := strings.NewReader(`{"body": "general note", "author": "reviewer"}`)
+	req := httptest.NewRequest("POST", "/api/comments", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("POST comment expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var c Comment
+	json.Unmarshal(w.Body.Bytes(), &c)
+
+	// POST reply
+	body = strings.NewReader(`{"body": "I will fix this", "author": "agent"}`)
+	req = httptest.NewRequest("POST", "/api/review-comment/"+c.ID+"/replies", body)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("POST reply expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var reply Reply
+	json.Unmarshal(w.Body.Bytes(), &reply)
+	if reply.Body != "I will fix this" {
+		t.Errorf("expected reply body 'I will fix this', got %q", reply.Body)
+	}
+	if reply.Author != "agent" {
+		t.Errorf("expected reply author 'agent', got %q", reply.Author)
+	}
+
+	// PUT reply — update
+	body = strings.NewReader(`{"body": "updated reply"}`)
+	req = httptest.NewRequest("PUT", "/api/review-comment/"+c.ID+"/replies/"+reply.ID, body)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT reply expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var updatedReply Reply
+	json.Unmarshal(w.Body.Bytes(), &updatedReply)
+	if updatedReply.Body != "updated reply" {
+		t.Errorf("expected updated body 'updated reply', got %q", updatedReply.Body)
+	}
+
+	// DELETE reply
+	req = httptest.NewRequest("DELETE", "/api/review-comment/"+c.ID+"/replies/"+reply.ID, nil)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("DELETE reply expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify reply is gone by checking the comment
+	comments := srv.session.GetReviewComments()
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if len(comments[0].Replies) != 0 {
+		t.Errorf("expected 0 replies after delete, got %d", len(comments[0].Replies))
+	}
+}
+
+func TestReviewCommentReplyNotFound(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// POST reply to nonexistent comment
+	body := strings.NewReader(`{"body": "reply", "author": "agent"}`)
+	req := httptest.NewRequest("POST", "/api/review-comment/nonexistent/replies", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
 func TestPostFileScopedComment(t *testing.T) {
 	srv, _ := newTestServer(t)
 	body := strings.NewReader(`{"body": "this file needs restructuring", "scope": "file"}`)
