@@ -37,6 +37,7 @@ type Comment struct {
 	Quote          string  `json:"quote,omitempty"`
 	QuoteOffset    *int    `json:"quote_offset,omitempty"`
 	Author         string  `json:"author,omitempty"`
+	Scope          string  `json:"scope,omitempty"`
 	CreatedAt      string  `json:"created_at"`
 	UpdatedAt      string  `json:"updated_at"`
 	Resolved       bool    `json:"resolved,omitempty"`
@@ -435,6 +436,7 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 		Body:        body,
 		Quote:       quote,
 		Author:      author,
+		Scope:       "line",
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		ReviewRound: s.ReviewRound,

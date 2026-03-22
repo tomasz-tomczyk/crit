@@ -1938,3 +1938,14 @@ func TestSession_MergeExternalCritJSON_SyncsUnresolve(t *testing.T) {
 		t.Error("expected comment to be unresolved after external edit")
 	}
 }
+
+func TestCommentScopeDefault(t *testing.T) {
+	s := newTestSession(t)
+	c, ok := s.AddComment("plan.md", 1, 1, "", "test body", "", "")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	if c.Scope != "line" {
+		t.Errorf("expected scope 'line', got %q", c.Scope)
+	}
+}
