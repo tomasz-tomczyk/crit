@@ -45,24 +45,6 @@ The marketplace manifest lives at the repo root (`.claude-plugin/marketplace.jso
 
 Both approaches give you the `/crit` slash command. The plugin marketplace additionally installs the `crit` skill which auto-teaches the agent about `crit comment`, `.crit.json` format, `crit pull/push`, and resolution workflow.
 
-## Send to Agent
-
-When `agent_cmd` is configured in `.crit.config.json`, users can click "Send now" on any review comment to have the agent address it in real-time.
-
-```json
-{"agent_cmd": "claude -p"}
-```
-
-| Tool | `agent_cmd` | Notes |
-|------|-------------|-------|
-| Claude Code | `"claude -p"` | Works, stdin |
-| OpenCode | `"opencode -p"` | Works, stdin |
-| Cline | `"cline -y"` | Works, stdin + stdout (CLI 2.0 headless mode) |
-| Aider | `"aider --message"` | Works, but prompt goes as argument not stdin |
-| Cursor | `"cursor -p"` | Experimental, may hang in headless mode |
-| Windsurf | — | Not supported (no headless CLI mode) |
-| GitHub Copilot | — | Not supported (no prompt mode available) |
-
 ## What these do
 
 All integrations follow the same pattern:

@@ -98,7 +98,3 @@ crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post .crit.json commen
 ```
 
 Requires `gh` CLI. PR number auto-detected from current branch. Event types for `--event`: `comment` (default), `approve`, `request-changes`.
-
-## Send to Agent
-
-Send to Agent is not supported for Windsurf (no headless CLI mode). Use the standard review-and-finish workflow instead.
