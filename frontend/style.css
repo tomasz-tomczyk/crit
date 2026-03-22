@@ -1973,7 +1973,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   .comment-block, .comment-form-wrapper { padding-left: 8px; }
   .line-gutter { min-width: 36px; }
   .file-tree-panel { width: 220px; }
-  .comments-panel, .pr-panel { width: 260px; }
+  .comments-panel, .pr-panel { width: 320px; }
   .pr-toggle-btn .pr-toggle-number { display: none; }
 }
 @media (max-width: 600px) {
@@ -2185,7 +2185,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 /* ===== Comments Panel (Right Sidebar) ===== */
 .comments-panel {
-  width: 340px;
+  width: 400px;
   flex-shrink: 0;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
@@ -2248,65 +2248,17 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 /* Panel comment cards — real .comment-card inside the panel */
 .panel-comment-block {
-  padding: 0;
+  padding: 0 12px;
   margin: 0;
-}
-.panel-comment-block .comment-card {
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  margin: 0;
-}
-.panel-comment-block .comment-header {
-  gap: 4px;
 }
 .panel-comment-block .comment-header-left {
   min-width: 0;
   flex-wrap: wrap;
 }
-.panel-comment-block .comment-line-ref {
-  font-size: 11px;
-}
-.panel-comment-block .comment-time {
-  font-size: 10px;
-}
-.panel-comment-block .comment-body {
-  font-size: 12px;
-  line-height: 1.45;
-}
-.panel-comment-block .comment-body p { margin: 0; }
-.panel-comment-block .comment-body p + p { margin-top: 4px; }
-.panel-comment-block .comment-body code {
-  font-size: 11px;
-  padding: 1px 4px;
-}
-.panel-comment-block .comment-actions {
-  gap: 2px;
-}
-.panel-comment-block .comment-actions button {
-  padding: 2px;
-}
-.panel-comment-block .comment-actions svg {
-  width: 13px;
-  height: 13px;
-}
-.panel-comment-block .comment-replies {
-  margin-top: 6px;
-  padding-left: 10px;
-  border-left-width: 1.5px;
-}
-.panel-comment-block .reply-item {
-  padding: 4px 0;
-}
-.panel-comment-block .reply-body {
-  font-size: 12px;
-}
 
 /* Panel general comment form */
 .comments-panel-body > .comment-form-wrapper {
-  padding: 12px 16px;
+  padding: 12px;
   border-bottom: 1px solid var(--border);
   margin: 0;
 }
@@ -2393,7 +2345,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border-top: 1px solid var(--border);
 }
 .comments-panel-file-name {
-  padding: 10px 16px 2px;
+  padding: 10px 12px 2px;
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 500;
