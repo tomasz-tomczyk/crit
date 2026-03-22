@@ -1249,6 +1249,7 @@ Environment:
 Configuration:
   Global config:   ~/.crit.config.json
   Project config:  .crit.config.json (in repo root)
+  agent_cmd        Shell command to send comments to an AI agent (e.g. "claude -p")
   Run 'crit config' to see resolved configuration.
 
 Learn more: https://crit.md
@@ -1281,6 +1282,7 @@ Available keys:
   base_branch       string    Base branch to diff against (overrides auto-detection)
   ignore_patterns        []string  Gitignore-style patterns to exclude files from review
   no_integration_check   bool      Skip integration staleness check (default: false)
+  agent_cmd              string    Shell command to send comments to an AI agent (e.g. "claude -p")
 
 Ignore pattern syntax:
   *.lock            Match files by extension (anywhere in tree)
