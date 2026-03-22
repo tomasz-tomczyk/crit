@@ -4098,7 +4098,7 @@
         if (!res.ok) throw new Error('Server returned ' + res.status);
         showMiniToast('Sent to agent');
         pendingAgentRequests.add(comment.id);
-        const commentEl = actions.closest('.comment');
+        const commentEl = actions.closest('.comment-block');
         if (commentEl) {
           const waitingEl = document.createElement('div');
           waitingEl.className = 'agent-waiting';
