@@ -61,10 +61,41 @@ func detectPR(prFlag int) (int, error) {
 
 // PRInfo holds metadata about the PR for the current branch.
 type PRInfo struct {
-	URL     string `json:"url"`
-	Number  int    `json:"number"`
-	Title   string `json:"title"`
-	IsDraft bool   `json:"isDraft"`
+	URL          string `json:"url"`
+	Number       int    `json:"number"`
+	Title        string `json:"title"`
+	IsDraft      bool   `json:"isDraft"`
+	State        string `json:"state"`
+	Body         string `json:"body"`
+	BaseRefName  string `json:"baseRefName"`
+	HeadRefName  string `json:"headRefName"`
+	Additions    int    `json:"additions"`
+	Deletions    int    `json:"deletions"`
+	ChangedFiles int    `json:"changedFiles"`
+	AuthorLogin  string `json:"author_login"`
+	CreatedAt    string `json:"createdAt"`
+}
+
+// prAuthor is used to unmarshal the nested author field from gh output.
+type prAuthor struct {
+	Login string `json:"login"`
+}
+
+// prInfoRaw mirrors the gh JSON output shape (author is nested).
+type prInfoRaw struct {
+	URL          string   `json:"url"`
+	Number       int      `json:"number"`
+	Title        string   `json:"title"`
+	IsDraft      bool     `json:"isDraft"`
+	State        string   `json:"state"`
+	Body         string   `json:"body"`
+	BaseRefName  string   `json:"baseRefName"`
+	HeadRefName  string   `json:"headRefName"`
+	Additions    int      `json:"additions"`
+	Deletions    int      `json:"deletions"`
+	ChangedFiles int      `json:"changedFiles"`
+	Author       prAuthor `json:"author"`
+	CreatedAt    string   `json:"createdAt"`
 }
 
 // detectPRInfo returns PR metadata for the current branch.
@@ -73,18 +104,33 @@ func detectPRInfo() *PRInfo {
 	if err := requireGH(); err != nil {
 		return nil
 	}
-	out, err := exec.Command("gh", "pr", "view", "--json", "number,url,title,isDraft").Output()
+	out, err := exec.Command("gh", "pr", "view", "--json",
+		"number,url,title,isDraft,state,body,baseRefName,headRefName,additions,deletions,changedFiles,author,createdAt").Output()
 	if err != nil {
 		return nil
 	}
-	var info PRInfo
-	if err := json.Unmarshal(out, &info); err != nil {
+	var raw prInfoRaw
+	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil
 	}
-	if info.URL == "" {
+	if raw.URL == "" {
 		return nil
 	}
-	return &info
+	return &PRInfo{
+		URL:          raw.URL,
+		Number:       raw.Number,
+		Title:        raw.Title,
+		IsDraft:      raw.IsDraft,
+		State:        raw.State,
+		Body:         raw.Body,
+		BaseRefName:  raw.BaseRefName,
+		HeadRefName:  raw.HeadRefName,
+		Additions:    raw.Additions,
+		Deletions:    raw.Deletions,
+		ChangedFiles: raw.ChangedFiles,
+		AuthorLogin:  raw.Author.Login,
+		CreatedAt:    raw.CreatedAt,
+	}
 }
 
 // fetchPRComments fetches all review comments for a PR.

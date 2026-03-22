@@ -30,9 +30,9 @@ test.describe('Page Loading', () => {
     await expect(diffToggle).toBeVisible();
   });
 
-  test('does not show PR link when no PR exists', async ({ page, request }) => {
+  test('does not show PR toggle when no PR exists', async ({ page, request }) => {
     await loadPage(page);
-    await expect(page.locator('.header-pr-link')).toHaveCount(0);
+    await expect(page.locator('.pr-toggle-btn')).not.toBeVisible();
   });
 });
 

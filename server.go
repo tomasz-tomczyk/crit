@@ -95,6 +95,15 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		resp["pr_number"] = s.prInfo.Number
 		resp["pr_title"] = s.prInfo.Title
 		resp["pr_is_draft"] = s.prInfo.IsDraft
+		resp["pr_state"] = s.prInfo.State
+		resp["pr_body"] = s.prInfo.Body
+		resp["pr_base_ref"] = s.prInfo.BaseRefName
+		resp["pr_head_ref"] = s.prInfo.HeadRefName
+		resp["pr_additions"] = s.prInfo.Additions
+		resp["pr_deletions"] = s.prInfo.Deletions
+		resp["pr_changed_files"] = s.prInfo.ChangedFiles
+		resp["pr_author"] = s.prInfo.AuthorLogin
+		resp["pr_created_at"] = s.prInfo.CreatedAt
 	}
 	writeJSON(w, resp)
 }

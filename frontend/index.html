@@ -29,6 +29,12 @@
   </div>
   <div class="header-right">
     <span class="viewed-count" id="viewedCount"></span>
+    <button class="pr-toggle-btn" id="prToggle" style="display:none" title="Pull request overview" aria-label="Pull request overview">
+      <svg class="pr-toggle-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+        <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/>
+      </svg>
+      <span class="pr-toggle-number" id="prToggleNumber"></span>
+    </button>
     <button class="comment-count-btn" id="commentCount" style="display:none" title="Toggle comments panel" aria-label="Toggle comments panel">
       <svg class="comment-count-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
         <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z" stroke-linejoin="round"/>
@@ -119,6 +125,13 @@
       </label>
     </div>
     <div class="comments-panel-body" id="commentsPanelBody" aria-live="polite" aria-label="Comments list"></div>
+  </div>
+  <div class="pr-panel pr-panel-hidden" id="prPanel">
+    <div class="pr-panel-header">
+      <span class="pr-panel-title">Overview</span>
+      <button class="pr-panel-close" title="Close PR panel" aria-label="Close PR panel">&#x2715;</button>
+    </div>
+    <div class="pr-panel-body" id="prPanelBody"></div>
   </div>
 </div>
 

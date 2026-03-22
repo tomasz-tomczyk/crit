@@ -373,18 +373,13 @@
       document.getElementById('branchName').textContent = session.files[0].path.split('/').pop();
     }
 
-    // PR link chip
+    // PR overview panel toggle
     if (configRes.pr_url && configRes.pr_number) {
-      var prLink = document.createElement('a');
-      prLink.className = 'header-pr-link';
-      if (configRes.pr_is_draft) prLink.classList.add('header-pr-draft');
-      prLink.href = configRes.pr_url;
-      prLink.target = '_blank';
-      prLink.rel = 'noopener noreferrer';
-      prLink.title = configRes.pr_title || 'Open pull request on GitHub';
-      var label = '#' + configRes.pr_number;
-      prLink.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></svg>' + label;
-      document.querySelector('.header-left').insertBefore(prLink, document.getElementById('headerNotify'));
+      window._prData = configRes;
+      var prToggle = document.getElementById('prToggle');
+      prToggle.style.display = '';
+      document.getElementById('prToggleNumber').textContent = '#' + configRes.pr_number;
+      if (configRes.pr_is_draft) prToggle.classList.add('pr-toggle-draft');
     }
 
     // Show diff mode toggle in git mode (always has diffs)
@@ -4670,11 +4665,16 @@
 
   function updateTocPosition() {
     const toc = document.getElementById('toc');
-    const panel = document.getElementById('commentsPanel');
-    if (!toc || !panel) return;
-    const panelOpen = !panel.classList.contains('comments-panel-hidden');
-    const tocBaseRight = 16; // matches the default right: 16px in CSS
-    toc.style.right = panelOpen ? (panel.offsetWidth + tocBaseRight) + 'px' : '';
+    const commentsPanel = document.getElementById('commentsPanel');
+    const prPanel = document.getElementById('prPanel');
+    if (!toc) return;
+    const commentsOpen = commentsPanel && !commentsPanel.classList.contains('comments-panel-hidden');
+    const prOpen = prPanel && !prPanel.classList.contains('pr-panel-hidden');
+    const tocBaseRight = 16;
+    var panelWidth = 0;
+    if (commentsOpen && commentsPanel) panelWidth = commentsPanel.offsetWidth;
+    if (prOpen && prPanel) panelWidth = prPanel.offsetWidth;
+    toc.style.right = panelWidth > 0 ? (panelWidth + tocBaseRight) + 'px' : '';
   }
 
   function toggleCommentsPanel() {
@@ -4682,6 +4682,8 @@
     const isHidden = panel.classList.contains('comments-panel-hidden');
     panel.classList.toggle('comments-panel-hidden');
     if (isHidden) {
+      // Close PR panel when opening comments
+      document.getElementById('prPanel').classList.add('pr-panel-hidden');
       renderCommentsPanel();
     }
     updateTocPosition();
@@ -4829,6 +4831,121 @@
     commentCard.addEventListener('animationend', function() {
       commentCard.classList.remove('comment-card-highlight');
     }, { once: true });
+  }
+
+  // ===== PR Overview Panel =====
+  function togglePRPanel() {
+    var panel = document.getElementById('prPanel');
+    var isHidden = panel.classList.contains('pr-panel-hidden');
+    panel.classList.toggle('pr-panel-hidden');
+    // Close comments panel if opening PR panel
+    if (isHidden) {
+      document.getElementById('commentsPanel').classList.add('comments-panel-hidden');
+      renderPRPanel();
+    }
+    updateTocPosition();
+  }
+
+  function renderPRPanel() {
+    var panel = document.getElementById('prPanel');
+    if (panel.classList.contains('pr-panel-hidden')) return;
+    var pr = window._prData;
+    if (!pr) return;
+
+    var body = document.getElementById('prPanelBody');
+    body.innerHTML = '';
+
+    // PR link header
+    var linkSection = document.createElement('div');
+    linkSection.className = 'pr-panel-link-section';
+
+    var prLink = document.createElement('a');
+    prLink.className = 'pr-panel-pr-link';
+    prLink.href = pr.pr_url;
+    prLink.target = '_blank';
+    prLink.rel = 'noopener noreferrer';
+    prLink.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></svg>' +
+      '<span>' + escapeHtml(pr.pr_title || 'Pull Request') + ' <span class="pr-panel-pr-number">#' + pr.pr_number + '</span></span>';
+    linkSection.appendChild(prLink);
+
+    body.appendChild(linkSection);
+
+    // State badge + meta
+    var metaSection = document.createElement('div');
+    metaSection.className = 'pr-panel-meta';
+
+    var stateLabel = (pr.pr_state || 'OPEN').toUpperCase();
+    var stateClass = 'pr-panel-state';
+    if (stateLabel === 'MERGED') stateClass += ' pr-panel-state-merged';
+    else if (stateLabel === 'CLOSED') stateClass += ' pr-panel-state-closed';
+    else stateClass += ' pr-panel-state-open';
+    if (pr.pr_is_draft) stateClass += ' pr-panel-state-draft';
+
+    var stateBadge = document.createElement('span');
+    stateBadge.className = stateClass;
+    stateBadge.textContent = pr.pr_is_draft ? 'Draft' : stateLabel.charAt(0) + stateLabel.slice(1).toLowerCase();
+    metaSection.appendChild(stateBadge);
+
+    if (pr.pr_author) {
+      var authorEl = document.createElement('span');
+      authorEl.className = 'pr-panel-author';
+      authorEl.textContent = pr.pr_author;
+      metaSection.appendChild(authorEl);
+    }
+
+    body.appendChild(metaSection);
+
+    // Branch info
+    if (pr.pr_head_ref && pr.pr_base_ref) {
+      var branchInfo = document.createElement('div');
+      branchInfo.className = 'pr-panel-branches';
+      branchInfo.innerHTML =
+        '<span class="pr-panel-branch">' + escapeHtml(pr.pr_head_ref) + '</span>' +
+        '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" class="pr-panel-arrow"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg>' +
+        '<span class="pr-panel-branch">' + escapeHtml(pr.pr_base_ref) + '</span>';
+      body.appendChild(branchInfo);
+    }
+
+    // Stats
+    var statsSection = document.createElement('div');
+    statsSection.className = 'pr-panel-stats';
+
+    if (pr.pr_changed_files !== undefined) {
+      var filesStat = document.createElement('span');
+      filesStat.className = 'pr-panel-stat';
+      filesStat.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>' +
+        pr.pr_changed_files + ' file' + (pr.pr_changed_files !== 1 ? 's' : '');
+      statsSection.appendChild(filesStat);
+    }
+
+    if (pr.pr_additions !== undefined || pr.pr_deletions !== undefined) {
+      var diffStat = document.createElement('span');
+      diffStat.className = 'pr-panel-stat';
+      diffStat.innerHTML =
+        '<span class="pr-panel-additions">+' + (pr.pr_additions || 0) + '</span>' +
+        '<span class="pr-panel-deletions">-' + (pr.pr_deletions || 0) + '</span>';
+      statsSection.appendChild(diffStat);
+    }
+
+    body.appendChild(statsSection);
+
+    // Description (PR body)
+    if (pr.pr_body && pr.pr_body.trim()) {
+      var descSection = document.createElement('div');
+      descSection.className = 'pr-panel-description';
+
+      var descTitle = document.createElement('div');
+      descTitle.className = 'pr-panel-section-title';
+      descTitle.textContent = 'Description';
+      descSection.appendChild(descTitle);
+
+      var descBody = document.createElement('div');
+      descBody.className = 'pr-panel-description-body';
+      descBody.innerHTML = commentMd.render(pr.pr_body);
+      descSection.appendChild(descBody);
+
+      body.appendChild(descSection);
+    }
   }
 
   function updateViewedCount() {
@@ -5580,6 +5697,14 @@
 
   document.querySelector('.comments-panel-close').addEventListener('click', function() {
     document.getElementById('commentsPanel').classList.add('comments-panel-hidden');
+    updateTocPosition();
+  });
+
+  document.getElementById('prToggle').addEventListener('click', function() {
+    togglePRPanel();
+  });
+  document.querySelector('.pr-panel-close').addEventListener('click', function() {
+    document.getElementById('prPanel').classList.add('pr-panel-hidden');
     updateTocPosition();
   });
 
