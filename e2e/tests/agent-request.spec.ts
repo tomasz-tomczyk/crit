@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, addComment, getMdPath, switchToDocumentView } from './helpers';
+import { clearAllComments, loadPage, getMdPath, mdSection, switchToDocumentView } from './helpers';
 
 // ============================================================
 // Send to Agent — Git Mode
@@ -15,44 +15,48 @@ test.describe('Send to Agent', () => {
     expect(config.agent_cmd_enabled).toBe(true);
   });
 
-  test('agent button visible on comments', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 5, 'Test comment for agent');
+  test('Send now button visible on comment form', async ({ page }) => {
     await loadPage(page);
+    await switchToDocumentView(page);
 
-    const agentBtn = page.locator('.agent-btn').first();
-    await expect(agentBtn).toBeVisible();
-    await expect(agentBtn).toHaveAttribute('title', 'Send now');
+    const section = mdSection(page);
+    const lineBlock = section.locator('.line-block').first();
+    await lineBlock.hover();
+    const gutterBtn = section.locator('.line-comment-gutter').first();
+    await gutterBtn.click();
+
+    const sendBtn = page.locator('.btn-agent');
+    await expect(sendBtn).toBeVisible();
+    await expect(sendBtn).toHaveText('Send now');
   });
 
-  test('agent button sends request and shows toast', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 5, 'Please explain this code');
+  test('Send now submits comment and sends to agent', async ({ page }) => {
     await loadPage(page);
+    await switchToDocumentView(page);
 
-    const agentBtn = page.locator('.agent-btn').first();
-    await agentBtn.click();
+    const section = mdSection(page);
+    const lineBlock = section.locator('.line-block').first();
+    await lineBlock.hover();
+    const gutterBtn = section.locator('.line-comment-gutter').first();
+    await gutterBtn.click();
+
+    const textarea = page.locator('.comment-form textarea');
+    await textarea.fill('Please review this section');
+
+    const sendBtn = page.locator('.btn-agent');
+    await sendBtn.click();
 
     // Verify toast appears
     await expect(page.locator('.mini-toast')).toContainText('Sent to agent');
   });
 
-  test('waiting indicator appears after sending', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 5, 'Review this section');
-    await loadPage(page);
-    await switchToDocumentView(page);
-
-    const agentBtn = page.locator('.agent-btn').first();
-    await agentBtn.click();
-
-    await expect(page.locator('.agent-waiting')).toBeVisible();
-    await expect(page.locator('.agent-waiting')).toContainText('Waiting for agent response');
-  });
-
   test('POST /api/agent/request returns 202', async ({ request }) => {
     const mdPath = await getMdPath(request);
-    const comment = await addComment(request, mdPath, 5, 'Is this safe?');
+
+    const commentRes = await request.post(`/api/file/comments?path=${encodeURIComponent(mdPath)}`, {
+      data: { start_line: 5, end_line: 5, body: 'Is this safe?' },
+    });
+    const comment = await commentRes.json();
 
     const res = await request.post('/api/agent/request', {
       data: { comment_id: comment.id, file_path: mdPath },

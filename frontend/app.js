@@ -3790,6 +3790,34 @@
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
+    if (agentEnabled && !opts.editingId) {
+      const sendBtn = document.createElement('button');
+      sendBtn.className = 'btn btn-sm btn-agent';
+      sendBtn.textContent = 'Send now';
+      sendBtn.title = 'Submit comment and send to agent';
+      sendBtn.addEventListener('click', async function() {
+        sendBtn.disabled = true;
+        submitBtn.disabled = true;
+        const comment = await submitComment(textarea.value, formObj);
+        if (comment) {
+          try {
+            const res = await fetch('/api/agent/request', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ comment_id: comment.id, file_path: formObj.filePath }),
+            });
+            if (!res.ok) throw new Error('Server returned ' + res.status);
+            showMiniToast('Sent to agent');
+            pendingAgentRequests.add(comment.id);
+          } catch (err) {
+            console.error('Error sending to agent:', err);
+            showMiniToast('Failed to send to agent');
+          }
+        }
+      });
+      actions.appendChild(sendBtn);
+    }
+
     form.appendChild(header);
     form.appendChild(textarea);
     form.appendChild(actions);
@@ -3868,8 +3896,9 @@
   }
 
   async function submitComment(body, formObj) {
-    if (!body.trim() || !formObj) return;
+    if (!body.trim() || !formObj) return null;
     clearDraft(formObj);
+    let created;
     const filePath = formObj.filePath;
     const file = getFileByPath(filePath);
     if (!file) return;
@@ -3905,9 +3934,11 @@
         });
         const newComment = await res.json();
         file.comments.push(newComment);
+        created = newComment;
       }
     } catch (err) {
       console.error('Error saving comment:', err);
+      return null;
     }
 
     removeForm(formObj.formKey);
@@ -3924,6 +3955,7 @@
     renderFileByPath(filePath);
     updateTreeCommentBadges();
     updateCommentCount();
+    return created || null;
   }
 
   function cancelComment(formObj) {
@@ -4079,44 +4111,6 @@
   }
 
   // ===== Agent Button =====
-  function appendAgentButton(actions, comment, filePath) {
-    if (!agentEnabled) return;
-    const agentBtn = document.createElement('button');
-    agentBtn.className = 'agent-btn';
-    agentBtn.title = 'Send now';
-    agentBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93"/><path d="M8 6a4 4 0 0 1 8 0"/><rect x="5" y="12" width="14" height="10" rx="2"/><path d="M9 16h.01"/><path d="M15 16h.01"/><path d="M9 20h6"/></svg>';
-    agentBtn.addEventListener('click', async function(e) {
-      e.stopPropagation();
-      agentBtn.disabled = true;
-      agentBtn.classList.add('loading');
-      try {
-        const res = await fetch('/api/agent/request', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ comment_id: comment.id, file_path: filePath }),
-        });
-        if (!res.ok) throw new Error('Server returned ' + res.status);
-        showMiniToast('Sent to agent');
-        pendingAgentRequests.add(comment.id);
-        const commentEl = actions.closest('.comment-block');
-        if (commentEl) {
-          const waitingEl = document.createElement('div');
-          waitingEl.className = 'agent-waiting';
-          waitingEl.dataset.commentId = comment.id;
-          waitingEl.innerHTML = '<span class="agent-waiting-dot"></span> Waiting for agent response...';
-          commentEl.after(waitingEl);
-        }
-      } catch (err) {
-        console.error('Error sending to agent:', err);
-        showMiniToast('Failed to send to agent');
-      } finally {
-        agentBtn.disabled = false;
-        agentBtn.classList.remove('loading');
-      }
-    });
-    actions.appendChild(agentBtn);
-  }
-
   function checkAgentReplies(comments) {
     for (const c of comments) {
       if (pendingAgentRequests.has(c.id) && c.replies && c.replies.length > 0) {
@@ -4286,7 +4280,6 @@
     parts.actions.appendChild(resolveBtn);
     parts.actions.appendChild(editBtn);
     parts.actions.appendChild(deleteBtn);
-    appendAgentButton(parts.actions, comment, filePath);
 
     return parts.wrapper;
   }
@@ -5129,11 +5122,6 @@
       parts.actions.appendChild(editBtn);
       parts.actions.appendChild(deleteBtn);
     }
-    // File/inline comments in panel: no actions (use inline UI in main content)
-    if (!isGeneral) {
-      appendAgentButton(parts.actions, comment, filePath);
-    }
-
     // File comments are clickable to scroll to inline location
     if (!isGeneral) {
       parts.wrapper.style.cursor = 'pointer';

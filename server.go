@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
 	"os/exec"
 	"path/filepath"
@@ -1045,7 +1046,7 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 	prompt := buildAgentPrompt(comment, filePath)
 
 	// Run agent command asynchronously
-	go s.runAgentCmd(prompt)
+	go s.runAgentCmd(prompt, comment.ID)
 
 	w.WriteHeader(http.StatusAccepted)
 	writeJSON(w, map[string]any{
@@ -1058,18 +1059,37 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 // buildAgentPrompt constructs a prompt string from a comment for the agent.
 func buildAgentPrompt(c Comment, filePath string) string {
 	var b strings.Builder
-	b.WriteString("Review comment on ")
-	b.WriteString(filePath)
+	b.WriteString(fmt.Sprintf("A reviewer left a comment on %s", filePath))
 	if c.StartLine > 0 {
-		b.WriteString(fmt.Sprintf(" (lines %d-%d)", c.StartLine, c.EndLine))
+		if c.EndLine > c.StartLine {
+			b.WriteString(fmt.Sprintf(" (lines %d-%d)", c.StartLine, c.EndLine))
+		} else {
+			b.WriteString(fmt.Sprintf(" (line %d)", c.StartLine))
+		}
 	}
 	b.WriteString(":\n\n")
+	if c.Quote != "" {
+		b.WriteString("Code:\n```\n")
+		b.WriteString(c.Quote)
+		b.WriteString("\n```\n\n")
+	}
+	b.WriteString("Comment:\n> ")
 	b.WriteString(c.Body)
+	b.WriteString("\n\n")
+	for _, reply := range c.Replies {
+		b.WriteString(fmt.Sprintf("Reply from %s:\n> %s\n\n", reply.Author, reply.Body))
+	}
+	b.WriteString(fmt.Sprintf(
+		"Address this comment. If it requires a code change, make the edit. "+
+			"Then reply explaining what you did:\n"+
+			"crit comment --reply-to %s --author agent \"<your response>\"\n"+
+			"Add --resolve if the comment is fully addressed.\n",
+		c.ID))
 	return b.String()
 }
 
 // runAgentCmd executes the configured agent command with the given prompt via stdin.
-func (s *Server) runAgentCmd(prompt string) {
+func (s *Server) runAgentCmd(prompt string, commentID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
@@ -1077,10 +1097,16 @@ func (s *Server) runAgentCmd(prompt string) {
 	if len(parts) == 0 {
 		return
 	}
+	log.Printf("agent-request %s: running %q", commentID, s.agentCmd)
 	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
 	cmd.Stdin = strings.NewReader(prompt)
 	cmd.Dir = s.session.RepoRoot
-	_ = cmd.Run()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("agent-request %s: error: %v\nOutput: %s", commentID, err, output)
+	} else {
+		log.Printf("agent-request %s: completed", commentID)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

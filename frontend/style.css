@@ -3226,14 +3226,16 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   opacity: 0.8;
 }
 
-/* Agent button */
-.comment-actions .agent-btn {
-  color: var(--text-secondary);
+/* Send now button */
+.btn-agent {
+  background: var(--accent);
+  color: #fff;
+  border: none;
 }
-.comment-actions .agent-btn:hover {
-  color: var(--accent);
+.btn-agent:hover {
+  opacity: 0.9;
 }
-.comment-actions .agent-btn.loading {
+.btn-agent:disabled {
   opacity: 0.5;
   cursor: wait;
 }
