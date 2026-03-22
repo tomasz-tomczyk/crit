@@ -49,7 +49,7 @@ test.describe('Send to Agent', () => {
     // Verify toast and pending reply indicator appear
     await expect(page.locator('.mini-toast')).toContainText('Sent to agent');
     await expect(page.locator('.agent-pending-reply')).toBeVisible();
-    await expect(page.locator('.agent-pending-author')).toHaveText('@agent');
+    await expect(page.locator('.agent-pending-author')).toHaveText('@echo');
   });
 
   test('POST /api/agent/request returns 202', async ({ request }) => {
