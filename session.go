@@ -684,6 +684,26 @@ func nextReplyID(commentID string, existing []Reply) string {
 }
 
 // AddReply adds a reply to a specific comment on a file.
+// RefreshFileContent re-reads all file content from disk.
+func (s *Session) RefreshFileContent() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, f := range s.Files {
+		if f.AbsPath == "" {
+			continue
+		}
+		data, err := os.ReadFile(f.AbsPath)
+		if err != nil {
+			continue
+		}
+		newHash := fileHash(data)
+		if newHash != f.FileHash {
+			f.Content = string(data)
+			f.FileHash = newHash
+		}
+	}
+}
+
 func (s *Session) AddReply(filePath, commentID, body, author string) (Reply, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
