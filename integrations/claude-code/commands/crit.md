@@ -48,20 +48,20 @@ The file contains structured JSON with comments per file and review-level commen
 ```json
 {
   "review_comments": [
-    { "id": "r0", "body": "Overall feedback", "scope": "review", "resolved": false }
+    { "id": "r0", "body": "Overall feedback", "resolved": false }
   ],
   "files": {
     "plan.md": {
       "comments": [
-        { "id": "c1", "start_line": 5, "end_line": 10, "body": "Clarify this step", "scope": "line", "quote": "specific words", "resolved": false },
-        { "id": "c2", "start_line": 0, "end_line": 0, "body": "File needs restructuring", "scope": "file", "resolved": false }
+        { "id": "c1", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false },
+        { "id": "c2", "body": "File needs restructuring", "resolved": false }
       ]
     }
   }
 }
 ```
 
-Comments have three scopes: `"line"` (inline on specific lines), `"file"` (about the whole file), and `"review"` (general feedback in `review_comments`). Review comment IDs use `r` prefix (`r0`, `r1`); file/line comment IDs use `c` prefix.
+There are three types of comments: `review_comments` (general feedback, `r`-prefixed IDs), file comments (in per-file `comments` array with no `start_line`/`end_line`), and line comments (with `start_line`/`end_line`). If a comment has lines, it's about those lines. If not, it's about the file as a whole.
 
 Identify all comments where `"resolved": false` or where the `resolved` field is missing (missing means unresolved). If a comment has a `"quote"` field, it contains the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range.
 

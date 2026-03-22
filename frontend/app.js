@@ -4960,7 +4960,8 @@
     const el = document.getElementById('commentCount');
     const numEl = document.getElementById('commentCountNumber');
     if (total === 0) {
-      el.style.display = 'none';
+      el.style.display = '';
+      el.classList.add('comment-count-resolved');
       el.title = 'Toggle comments panel';
       numEl.textContent = '';
     } else if (unresolved > 0) {
