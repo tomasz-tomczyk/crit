@@ -41,7 +41,7 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 		},
 	}
 
-	s, err := NewServer(session, frontendFS, "", nil, "", "test", 0)
+	s, err := NewServer(session, frontendFS, "", nil, "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -615,21 +615,21 @@ func TestGetConfig(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp["share_url"] != "https://crit.md" {
-		t.Errorf("share_url = %q, want https://crit.md", resp["share_url"])
+		t.Errorf("share_url = %v, want https://crit.md", resp["share_url"])
 	}
 	if resp["hosted_url"] != "" {
-		t.Errorf("hosted_url should be empty initially, got %q", resp["hosted_url"])
+		t.Errorf("hosted_url should be empty initially, got %v", resp["hosted_url"])
 	}
 	if resp["version"] != "v1.2.3" {
-		t.Errorf("version = %q, want v1.2.3", resp["version"])
+		t.Errorf("version = %v, want v1.2.3", resp["version"])
 	}
 	if resp["latest_version"] != "" {
-		t.Errorf("latest_version should be empty before update check, got %q", resp["latest_version"])
+		t.Errorf("latest_version should be empty before update check, got %v", resp["latest_version"])
 	}
 }
 
@@ -676,12 +676,12 @@ func TestCheckForUpdates(t *testing.T) {
 	req2 := httptest.NewRequest("GET", "/api/config", nil)
 	w2 := httptest.NewRecorder()
 	s.ServeHTTP(w2, req2)
-	var cfg map[string]string
+	var cfg map[string]any
 	if err := json.Unmarshal(w2.Body.Bytes(), &cfg); err != nil {
 		t.Fatal(err)
 	}
 	if cfg["latest_version"] != "v9.9.9" {
-		t.Errorf("config latest_version = %q, want v9.9.9", cfg["latest_version"])
+		t.Errorf("config latest_version = %v, want v9.9.9", cfg["latest_version"])
 	}
 }
 
@@ -715,12 +715,12 @@ func TestPostShareURL(t *testing.T) {
 	req2 := httptest.NewRequest("GET", "/api/config", nil)
 	w2 := httptest.NewRecorder()
 	s.ServeHTTP(w2, req2)
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.Unmarshal(w2.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp["hosted_url"] != "https://crit.md/r/abc123" {
-		t.Errorf("hosted_url = %q, want https://crit.md/r/abc123", resp["hosted_url"])
+		t.Errorf("hosted_url = %v, want https://crit.md/r/abc123", resp["hosted_url"])
 	}
 }
 
@@ -742,12 +742,12 @@ func TestGetConfig_IncludesDeleteToken(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp["delete_token"] != "mydeletetoken1234567890" {
-		t.Errorf("delete_token = %q", resp["delete_token"])
+		t.Errorf("delete_token = %v", resp["delete_token"])
 	}
 }
 
@@ -1303,7 +1303,7 @@ func TestGetFilesList(t *testing.T) {
 		Files:         []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", nil, "", "", 0)
+	srv, err := NewServer(session, frontendFS, "", nil, "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1367,7 +1367,7 @@ func TestGetFilesList_RespectsIgnorePatterns(t *testing.T) {
 		Files:          []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", nil, "", "", 0)
+	srv, err := NewServer(session, frontendFS, "", nil, "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1401,7 +1401,7 @@ func TestGetFilesList_FilesMode(t *testing.T) {
 		Files:         []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", nil, "", "", 0)
+	srv, err := NewServer(session, frontendFS, "", nil, "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1472,7 +1472,7 @@ func TestGetFilesList_MethodNotAllowed(t *testing.T) {
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 	}
-	srv, _ := NewServer(session, frontendFS, "", nil, "", "", 0)
+	srv, _ := NewServer(session, frontendFS, "", nil, "", "", 0, "")
 	req := httptest.NewRequest("POST", "/api/files/list", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -1737,5 +1737,24 @@ func TestResolveReviewCommentAPI(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestHandleConfig_AgentCmdEnabled(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	var data map[string]any
+	json.Unmarshal(w.Body.Bytes(), &data)
+	if data["agent_cmd_enabled"] != false {
+		t.Fatal("expected agent_cmd_enabled=false when not configured")
+	}
+	s.agentCmd = "claude -p"
+	w2 := httptest.NewRecorder()
+	s.ServeHTTP(w2, httptest.NewRequest("GET", "/api/config", nil))
+	json.Unmarshal(w2.Body.Bytes(), &data)
+	if data["agent_cmd_enabled"] != true {
+		t.Fatal("expected agent_cmd_enabled=true when configured")
 	}
 }

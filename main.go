@@ -965,6 +965,7 @@ type serverConfig struct {
 	ignorePatterns []string
 	files               []string // explicit file arguments (empty = git mode)
 	noIntegrationCheck  bool
+	agentCmd            string
 }
 
 // resolveServerConfig parses flags, loads config files, and resolves the
@@ -1056,6 +1057,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		author:         cfg.Author,
 		ignorePatterns:     ignorePatterns,
 		noIntegrationCheck: cfg.NoIntegrationCheck,
+		agentCmd:           cfg.AgentCmd,
 		files:              fs.Args(),
 	}, nil
 }
@@ -1104,7 +1106,7 @@ func runServe(args []string) {
 
 	session.CLIArgs = sc.files
 
-	srv, err := NewServer(session, frontendFS, sc.shareURL, prInfo, sc.author, version, addr.Port)
+	srv, err := NewServer(session, frontendFS, sc.shareURL, prInfo, sc.author, version, addr.Port, sc.agentCmd)
 	if err != nil {
 		log.Fatalf("Error creating server: %v", err)
 	}

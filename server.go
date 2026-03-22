@@ -22,6 +22,7 @@ type Server struct {
 	shareURL       string
 	prInfo         *PRInfo
 	author         string
+	agentCmd       string
 	currentVersion    string
 	latestVersion     string
 	versionMu         sync.RWMutex
@@ -30,13 +31,13 @@ type Server struct {
 	status            *Status
 }
 
-func NewServer(session *Session, frontendFS embed.FS, shareURL string, prInfo *PRInfo, author string, currentVersion string, port int) (*Server, error) {
+func NewServer(session *Session, frontendFS embed.FS, shareURL string, prInfo *PRInfo, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
 	assets, err := fs.Sub(frontendFS, "frontend")
 	if err != nil {
 		return nil, fmt.Errorf("loading frontend assets: %w", err)
 	}
 
-	s := &Server{session: session, assets: assets, shareURL: shareURL, prInfo: prInfo, author: author, currentVersion: currentVersion, port: port}
+	s := &Server{session: session, assets: assets, shareURL: shareURL, prInfo: prInfo, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port}
 
 	mux := http.NewServeMux()
 
@@ -85,12 +86,13 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	latestVersion := s.latestVersion
 	s.versionMu.RUnlock()
 	resp := map[string]interface{}{
-		"share_url":      s.shareURL,
-		"hosted_url":     s.session.GetSharedURL(),
-		"delete_token":   s.session.GetDeleteToken(),
-		"version":        s.currentVersion,
-		"latest_version": latestVersion,
-		"author":         s.author,
+		"share_url":         s.shareURL,
+		"hosted_url":        s.session.GetSharedURL(),
+		"delete_token":      s.session.GetDeleteToken(),
+		"version":           s.currentVersion,
+		"latest_version":    latestVersion,
+		"author":            s.author,
+		"agent_cmd_enabled": s.agentCmd != "",
 	}
 	if len(s.staleIntegrations) > 0 {
 		type staleInfo struct {
