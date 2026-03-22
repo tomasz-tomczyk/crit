@@ -5623,7 +5623,14 @@
           f.comments = Array.isArray(commentsRes) ? commentsRes : [];
           if (fileRes && fileRes.content !== undefined && fileRes.content !== f.content) {
             f.content = fileRes.content;
-            f.lineBlocks = null; // force rebuild of parsed blocks
+            // Rebuild parsed blocks from new content
+            if (f.fileType === 'markdown') {
+              var parsed = parseMarkdown(f.content);
+              f.lineBlocks = parsed.blocks;
+              f.tocItems = parsed.tocItems;
+            } else if (f.fileType === 'code' && session.mode !== 'git') {
+              f.lineBlocks = buildCodeLineBlocks(f);
+            }
           }
         }
         // Also refresh review-level comments
