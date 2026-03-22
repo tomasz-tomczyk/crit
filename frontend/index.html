@@ -71,7 +71,6 @@
       </button>
     </div>
     <button class="btn" id="shareBtn" style="display:none">Share</button>
-    <button class="btn" id="generalCommentBtn" title="Add a review-level comment (G)">General Comment</button>
     <button class="btn btn-primary" id="finishBtn">Approve</button>
   </div>
 </div>
@@ -107,10 +106,6 @@
     <div class="file-tree-body" id="fileTreeBody"></div>
   </div>
   <div class="main-content">
-    <div id="reviewComments" class="review-comments-section" style="display:none">
-      <div id="reviewCommentsList"></div>
-      <div id="reviewCommentForm"></div>
-    </div>
     <div id="filesContainer">
       <div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">Loading...</div>
     </div>
@@ -118,7 +113,10 @@
   <div class="comments-panel comments-panel-hidden" id="commentsPanel">
     <div class="comments-panel-header">
       <span class="comments-panel-title">Comments</span>
-      <button class="comments-panel-close" title="Close comments panel" aria-label="Close comments panel">&#x2715;</button>
+      <div class="comments-panel-header-actions">
+        <button class="comments-panel-add-btn" id="panelAddCommentBtn" title="Add a general comment (G)">+ Add</button>
+        <button class="comments-panel-close" title="Close comments panel" aria-label="Close comments panel">&#x2715;</button>
+      </div>
     </div>
     <div class="comments-panel-filter" id="commentsPanelFilter" style="display:none">
       <label class="comments-panel-switch">

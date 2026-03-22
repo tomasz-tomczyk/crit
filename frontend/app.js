@@ -464,7 +464,6 @@
     renderFileTree();
     renderAllFiles();
     buildToc();
-    renderReviewComments();
     updateCommentCount();
     updateViewedCount();
     restoreDrafts();
@@ -4493,9 +4492,7 @@
     }
     reviewCommentFormActive = false;
     reviewCommentEditingId = null;
-    renderReviewComments();
     updateCommentCount();
-    renderCommentsPanel();
   }
 
   async function updateReviewComment(id, body) {
@@ -4517,9 +4514,7 @@
     }
     reviewCommentFormActive = false;
     reviewCommentEditingId = null;
-    renderReviewComments();
     updateCommentCount();
-    renderCommentsPanel();
   }
 
   async function deleteReviewComment(id) {
@@ -4531,28 +4526,38 @@
       showMiniToast('Failed to delete comment');
       return;
     }
-    renderReviewComments();
     updateCommentCount();
-    renderCommentsPanel();
   }
 
   function openReviewCommentForm() {
+    // Open panel if closed
+    const panel = document.getElementById('commentsPanel');
+    if (panel.classList.contains('comments-panel-hidden')) {
+      panel.classList.remove('comments-panel-hidden');
+      updateTocPosition();
+    }
     reviewCommentFormActive = true;
     reviewCommentEditingId = null;
-    renderReviewComments();
+    renderCommentsPanel();
     // Focus the textarea
     requestAnimationFrame(function() {
-      const ta = document.querySelector('#reviewCommentForm textarea');
+      const ta = document.querySelector('#commentsPanelBody textarea');
       if (ta) ta.focus();
     });
   }
 
   function openReviewCommentEditForm(comment) {
+    // Open panel if closed
+    const panel = document.getElementById('commentsPanel');
+    if (panel.classList.contains('comments-panel-hidden')) {
+      panel.classList.remove('comments-panel-hidden');
+      updateTocPosition();
+    }
     reviewCommentFormActive = true;
     reviewCommentEditingId = comment.id;
-    renderReviewComments();
+    renderCommentsPanel();
     requestAnimationFrame(function() {
-      const ta = document.querySelector('#reviewCommentForm textarea');
+      const ta = document.querySelector('#commentsPanelBody textarea');
       if (ta) ta.focus();
     });
   }
@@ -4560,88 +4565,7 @@
   function cancelReviewCommentForm() {
     reviewCommentFormActive = false;
     reviewCommentEditingId = null;
-    renderReviewComments();
-  }
-
-  function renderReviewComments() {
-    const section = document.getElementById('reviewComments');
-    const listEl = document.getElementById('reviewCommentsList');
-    const formEl = document.getElementById('reviewCommentForm');
-    listEl.innerHTML = '';
-    formEl.innerHTML = '';
-
-    const hasComments = reviewComments.length > 0;
-    const showSection = hasComments || reviewCommentFormActive;
-    section.style.display = showSection ? '' : 'none';
-
-    if (!showSection) return;
-
-    // Render existing comments
-    for (let i = 0; i < reviewComments.length; i++) {
-      const comment = reviewComments[i];
-
-      // If editing this comment, show editor instead
-      if (reviewCommentEditingId === comment.id) {
-        listEl.appendChild(createReviewCommentEditor(comment));
-        continue;
-      }
-
-      const card = document.createElement('div');
-      card.className = 'comment-card';
-      card.dataset.commentId = comment.id;
-
-      const header = document.createElement('div');
-      header.className = 'comment-header';
-
-      const headerLeft = document.createElement('div');
-      headerLeft.className = 'comment-header-left';
-
-      const time = document.createElement('span');
-      time.className = 'comment-time';
-      time.textContent = formatTime(comment.created_at);
-
-      if (comment.author) {
-        const authorBadge = document.createElement('span');
-        authorBadge.className = 'comment-author-badge author-color-' + authorColorIndex(comment.author);
-        authorBadge.textContent = '@' + comment.author;
-        headerLeft.appendChild(authorBadge);
-      }
-
-      headerLeft.appendChild(time);
-
-      const actions = document.createElement('div');
-      actions.className = 'comment-actions';
-
-      const editBtn = document.createElement('button');
-      editBtn.title = 'Edit';
-      editBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
-      editBtn.addEventListener('click', function() { openReviewCommentEditForm(comment); });
-
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'delete-btn';
-      deleteBtn.title = 'Delete';
-      deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
-      deleteBtn.addEventListener('click', function() { deleteReviewComment(comment.id); });
-
-      actions.appendChild(editBtn);
-      actions.appendChild(deleteBtn);
-
-      header.appendChild(headerLeft);
-      header.appendChild(actions);
-
-      const bodyEl = document.createElement('div');
-      bodyEl.className = 'comment-body';
-      bodyEl.innerHTML = commentMd.render(comment.body);
-
-      card.appendChild(header);
-      card.appendChild(bodyEl);
-      listEl.appendChild(card);
-    }
-
-    // Render form if active (and not editing an existing comment inline)
-    if (reviewCommentFormActive && !reviewCommentEditingId) {
-      formEl.appendChild(createReviewCommentFormUI());
-    }
+    renderCommentsPanel();
   }
 
   function createReviewCommentFormUI() {
@@ -4749,9 +4673,7 @@
     } catch (err) {
       console.error('Error refreshing review comments:', err);
     }
-    renderReviewComments();
     updateCommentCount();
-    renderCommentsPanel();
   }
 
   async function editReply(commentId, replyId, filePath) {
@@ -5087,6 +5009,206 @@
     updateTocPosition();
   }
 
+  function createPanelCommentCard(comment, filePath) {
+    // Build a real comment card for the panel, but without reply input/buttons
+    const isGeneral = !filePath;
+    const isResolved = comment.resolved;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'comment-block panel-comment-block';
+
+    const card = document.createElement('div');
+    card.className = 'comment-card'
+      + (isResolved ? ' resolved-card' : '')
+      + (comment.carried_forward ? ' carried-forward' : '');
+    card.dataset.commentId = comment.id;
+
+    // Apply saved collapse state
+    var isCollapsed = isResolved
+      ? (commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true)
+      : (commentCollapseOverrides[comment.id] === true);
+    if (isCollapsed) card.classList.add('collapsed');
+
+    const header = document.createElement('div');
+    header.className = 'comment-header';
+
+    const collapseBtn = document.createElement('button');
+    collapseBtn.className = 'comment-collapse-btn';
+    collapseBtn.title = isCollapsed ? 'Expand comment' : 'Collapse comment';
+    collapseBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+    collapseBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      card.classList.toggle('collapsed');
+      commentCollapseOverrides[comment.id] = card.classList.contains('collapsed');
+      collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
+    });
+
+    const lineRef = document.createElement('span');
+    lineRef.className = 'comment-line-ref';
+    if (isGeneral) {
+      lineRef.textContent = 'General comment';
+    } else {
+      lineRef.textContent = comment.scope === 'file'
+        ? 'File comment'
+        : comment.start_line === comment.end_line
+          ? 'Line ' + comment.start_line
+          : 'Lines ' + comment.start_line + '-' + comment.end_line;
+    }
+
+    const time = document.createElement('span');
+    time.className = 'comment-time';
+    time.textContent = formatTime(comment.created_at);
+
+    const headerLeft = document.createElement('div');
+    headerLeft.className = 'comment-header-left';
+    headerLeft.prepend(collapseBtn);
+    if (comment.author) {
+      const authorBadge = document.createElement('span');
+      authorBadge.className = 'comment-author-badge author-color-' + authorColorIndex(comment.author);
+      authorBadge.textContent = '@' + comment.author;
+      headerLeft.appendChild(authorBadge);
+    }
+    if (comment.review_round >= 1) {
+      const roundBadge = document.createElement('span');
+      const rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
+      roundBadge.className = 'comment-round-badge' + rc;
+      roundBadge.textContent = 'R' + comment.review_round;
+      headerLeft.appendChild(roundBadge);
+    }
+    headerLeft.appendChild(lineRef);
+    if (comment.carried_forward) {
+      const label = document.createElement('span');
+      label.className = 'carried-forward-label';
+      label.textContent = 'Unresolved';
+      headerLeft.appendChild(label);
+    }
+    headerLeft.appendChild(time);
+
+    const actions = document.createElement('div');
+    actions.className = 'comment-actions';
+
+    if (isResolved) {
+      const badge = document.createElement('span');
+      badge.className = 'resolved-badge';
+      badge.textContent = 'Resolved';
+      actions.appendChild(badge);
+    }
+
+    if (isGeneral) {
+      // General comments: edit and delete only
+      const editBtn = document.createElement('button');
+      editBtn.title = 'Edit';
+      editBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+      editBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        openReviewCommentEditForm(comment);
+      });
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'delete-btn';
+      deleteBtn.title = 'Delete';
+      deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+      deleteBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        deleteReviewComment(comment.id);
+      });
+      actions.appendChild(editBtn);
+      actions.appendChild(deleteBtn);
+    } else {
+      // File comments: edit, delete, resolve/unresolve
+      if (isResolved) {
+        const unresolveBtn = document.createElement('button');
+        unresolveBtn.title = 'Unresolve';
+        unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
+        unresolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.36 2.64M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.36-2.64"/><polyline points="21 3 21 8 16 8"/><polyline points="3 21 3 16 8 16"/></svg>';
+        unresolveBtn.addEventListener('click', async function(e) {
+          e.stopPropagation();
+          try {
+            var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ resolved: false }),
+            });
+            if (!res.ok) throw new Error('Server returned ' + res.status);
+          } catch (err) {
+            console.error('Error unresolving:', err);
+            showMiniToast('Failed to unresolve comment');
+            return;
+          }
+          refreshFileComments(filePath);
+        });
+        actions.appendChild(unresolveBtn);
+      } else {
+        const resolveBtn = document.createElement('button');
+        resolveBtn.title = 'Resolve';
+        resolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+        resolveBtn.addEventListener('click', async function(e) {
+          e.stopPropagation();
+          try {
+            var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ resolved: true }),
+            });
+            if (!res.ok) throw new Error('Server returned ' + res.status);
+          } catch (err) {
+            console.error('Error resolving:', err);
+            showMiniToast('Failed to resolve comment');
+            return;
+          }
+          refreshFileComments(filePath);
+        });
+        actions.appendChild(resolveBtn);
+      }
+
+      const editBtn = document.createElement('button');
+      editBtn.title = 'Edit';
+      editBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+      editBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        editComment(comment, filePath);
+      });
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'delete-btn';
+      deleteBtn.title = 'Delete';
+      deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+      deleteBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        deleteComment(comment.id, filePath);
+      });
+      actions.appendChild(editBtn);
+      actions.appendChild(deleteBtn);
+    }
+
+    header.appendChild(headerLeft);
+    header.appendChild(actions);
+
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'comment-body';
+    bodyEl.innerHTML = commentMd.render(comment.body, isGeneral ? undefined : buildCommentEnv(comment, filePath));
+
+    card.appendChild(header);
+    card.appendChild(bodyEl);
+
+    // Render replies (read-only in panel — no reply input)
+    if (comment.replies && comment.replies.length > 0) {
+      card.appendChild(renderReplyList(comment, filePath || '', 'panel-replies'));
+    }
+
+    wrapper.appendChild(card);
+
+    // File comments are clickable to scroll to inline location
+    if (!isGeneral) {
+      wrapper.style.cursor = 'pointer';
+      wrapper.addEventListener('click', function(e) {
+        // Don't scroll if clicking action buttons
+        if (e.target.closest('.comment-actions')) return;
+        scrollToComment(comment.id, filePath);
+      });
+    }
+
+    return wrapper;
+  }
+
   function renderCommentsPanel() {
     const panel = document.getElementById('commentsPanel');
     if (panel.classList.contains('comments-panel-hidden')) return;
@@ -5101,6 +5223,11 @@
     document.getElementById('commentsPanelFilter').style.display = hasResolved ? '' : 'none';
 
     let hasComments = false;
+
+    // Render general comment compose form at the top when active
+    if (reviewCommentFormActive && !reviewCommentEditingId) {
+      body.appendChild(createReviewCommentFormUI());
+    }
 
     // Render review-level (general) comments first
     const visibleReviewComments = reviewComments.filter(function(c) {
@@ -5118,30 +5245,12 @@
 
       for (let j = 0; j < visibleReviewComments.length; j++) {
         const comment = visibleReviewComments[j];
-        const card = document.createElement('div');
-        card.className = 'comments-panel-card' + (comment.resolved ? ' comments-panel-card-resolved' : '');
-        card.dataset.commentId = comment.id;
-
-        const lineRef = document.createElement('div');
-        lineRef.className = 'comments-panel-card-line';
-        lineRef.textContent = 'General comment';
-
-        const bodyEl = document.createElement('div');
-        bodyEl.className = 'comments-panel-card-body';
-        bodyEl.innerHTML = commentMd.render(comment.body);
-
-        card.appendChild(lineRef);
-        card.appendChild(bodyEl);
-
-        card.addEventListener('click', (function(commentId) {
-          return function() {
-            // Scroll to the review comments section
-            const section = document.getElementById('reviewComments');
-            if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          };
-        })(comment.id));
-
-        group.appendChild(card);
+        // If editing this comment, show editor instead
+        if (reviewCommentEditingId === comment.id) {
+          group.appendChild(createReviewCommentEditor(comment));
+          continue;
+        }
+        group.appendChild(createPanelCommentCard(comment, null));
       }
       body.appendChild(group);
     }
@@ -5171,84 +5280,13 @@
 
       for (let j = 0; j < visibleComments.length; j++) {
         const comment = visibleComments[j];
-        const card = document.createElement('div');
-        card.className = 'comments-panel-card' + (comment.resolved ? ' comments-panel-card-resolved' : '');
-        card.dataset.commentId = comment.id;
-        card.dataset.filePath = file.path;
-
-        const lineRef = document.createElement('div');
-        lineRef.className = 'comments-panel-card-line';
-        lineRef.textContent = comment.scope === 'file'
-          ? 'File comment'
-          : comment.start_line === comment.end_line
-            ? 'Line ' + comment.start_line
-            : 'Lines ' + comment.start_line + '-' + comment.end_line;
-        if (comment.carried_forward) {
-          const badge = document.createElement('span');
-          if (comment.resolved) {
-            badge.className = 'comments-panel-badge comments-panel-badge-resolved';
-            badge.textContent = 'Resolved';
-          } else {
-            badge.className = 'comments-panel-badge comments-panel-badge-unresolved';
-            badge.textContent = 'Unresolved';
-          }
-          lineRef.appendChild(badge);
-        }
-        if (comment.review_round >= 1) {
-          const roundBadge = document.createElement('span');
-          const rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
-      roundBadge.className = 'comment-round-badge' + rc;
-          roundBadge.textContent = 'R' + comment.review_round;
-          lineRef.appendChild(roundBadge);
-        }
-
-        if (comment.replies && comment.replies.length > 0) {
-          var replyBadge = document.createElement('span');
-          replyBadge.className = 'comments-panel-badge-replies';
-          replyBadge.textContent = comment.replies.length + (comment.replies.length === 1 ? ' reply' : ' replies');
-          lineRef.appendChild(replyBadge);
-        }
-
-        const bodyEl = document.createElement('div');
-        bodyEl.className = 'comments-panel-card-body';
-        bodyEl.innerHTML = commentMd.render(comment.body, buildCommentEnv(comment, file.path));
-
-        card.appendChild(lineRef);
-        card.appendChild(bodyEl);
-
-        if (comment.replies && comment.replies.length > 0) {
-          var lastReply = comment.replies[comment.replies.length - 1];
-          var preview = document.createElement('div');
-          preview.className = 'comments-panel-reply-preview';
-
-          var previewAuthor = document.createElement('span');
-          previewAuthor.className = 'reply-preview-author';
-          previewAuthor.textContent = lastReply.author || 'anonymous';
-
-          var previewBody = document.createElement('span');
-          previewBody.className = 'reply-preview-body';
-          var maxLen = 80;
-          previewBody.textContent = lastReply.body.length > maxLen
-            ? lastReply.body.substring(0, maxLen) + '\u2026'
-            : lastReply.body;
-
-          preview.appendChild(previewAuthor);
-          preview.appendChild(document.createTextNode(': '));
-          preview.appendChild(previewBody);
-          card.appendChild(preview);
-        }
-
-        card.addEventListener('click', (function(commentId, filePath) {
-          return function() { scrollToComment(commentId, filePath); };
-        })(comment.id, file.path));
-
-        group.appendChild(card);
+        group.appendChild(createPanelCommentCard(comment, file.path));
       }
 
       body.appendChild(group);
     }
 
-    if (!hasComments) {
+    if (!hasComments && !reviewCommentFormActive) {
       const empty = document.createElement('div');
       empty.className = 'comments-panel-empty';
       empty.textContent = showResolved ? 'No comments yet' : 'No unresolved comments';
@@ -5452,8 +5490,8 @@
     }
   }
 
-  // ===== General Comment Buttons =====
-  document.getElementById('generalCommentBtn').addEventListener('click', openReviewCommentForm);
+  // ===== General Comment Button (in panel header) =====
+  document.getElementById('panelAddCommentBtn').addEventListener('click', openReviewCommentForm);
 
   // ===== Finish Review =====
   document.getElementById('finishBtn').addEventListener('click', async function() {
@@ -5564,7 +5602,6 @@
         renderFileTree();
         renderAllFiles();
         buildToc();
-        renderReviewComments();
         updateCommentCount();
         updateViewedCount();
         updateTreeViewedState();
@@ -5606,7 +5643,6 @@
           if (rcRes.ok) reviewComments = await rcRes.json();
         } catch (_) {}
         renderAllFiles();
-        renderReviewComments();
         updateCommentCount();
         updateTreeCommentBadges();
       } catch (err) {
@@ -6231,7 +6267,6 @@
         '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">No ' + diffScope + ' changes</div>';
       files = [];
       renderFileTree();
-      renderReviewComments();
       updateCommentCount();
       updateViewedCount();
       return;
@@ -6243,7 +6278,6 @@
     renderFileTree();
     renderAllFiles();
     buildToc();
-    renderReviewComments();
     updateCommentCount();
     updateViewedCount();
   }
