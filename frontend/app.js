@@ -5650,12 +5650,35 @@
           const rcRes = await fetch('/api/comments');
           if (rcRes.ok) reviewComments = await rcRes.json();
         } catch (_) {}
+        // Save form drafts and focused element before re-render
+        var focusedFormKey = null;
+        var focusedSelStart = 0;
+        var focusedSelEnd = 0;
+        var activeEl = document.activeElement;
+        if (activeEl && activeEl.tagName === 'TEXTAREA') {
+          var formEl = activeEl.closest('.comment-form');
+          if (formEl) {
+            focusedFormKey = formEl.dataset.formKey;
+            focusedSelStart = activeEl.selectionStart;
+            focusedSelEnd = activeEl.selectionEnd;
+          }
+        }
         for (let i = 0; i < files.length; i++) {
           checkAgentReplies(files[i].comments);
+          saveOpenFormContent(files[i].path);
         }
         renderAllFiles();
         updateCommentCount();
         updateTreeCommentBadges();
+        // Restore focus
+        if (focusedFormKey) {
+          var ta = document.querySelector('.comment-form[data-form-key="' + focusedFormKey + '"] textarea');
+          if (ta) {
+            ta.focus();
+            ta.selectionStart = focusedSelStart;
+            ta.selectionEnd = focusedSelEnd;
+          }
+        }
       } catch (err) {
         console.error('Error handling comments-changed:', err);
       }
