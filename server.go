@@ -1092,7 +1092,8 @@ func buildAgentPrompt(c Comment, filePath string) string {
 	}
 	b.WriteString("Address this comment. If it requires a code change, make the edit.\n\n" +
 		"IMPORTANT: Do NOT run `crit comment` or `crit` commands. " +
-		"Just print your response to stdout — it will be posted as a reply automatically.\n")
+		"Just print your response to stdout — it will be posted as a reply automatically.\n" +
+		"If the comment is fully addressed, start your response with RESOLVED: (e.g., \"RESOLVED: Fixed the typo on line 5.\").\n")
 	return b.String()
 }
 
