@@ -817,9 +817,10 @@ func runReviewClient(entry sessionEntry) (approved bool) {
 	// Print feedback to stdout
 	os.Stdout.Write(body)
 
-	// Check if the review was approved (prompt is empty = no unresolved comments)
+	// Check if the review was approved (no unresolved comments).
+	// The only non-approve case has a prompt containing reinvoke instructions.
 	var result struct{ Prompt string }
-	if json.Unmarshal(body, &result) == nil && result.Prompt == "" {
+	if json.Unmarshal(body, &result) == nil && !strings.Contains(result.Prompt, "When done run:") {
 		return true
 	}
 	return false
