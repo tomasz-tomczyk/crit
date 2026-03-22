@@ -402,6 +402,18 @@ func (s *Session) loadResolvedComments() {
 			f.PreviousComments = nil
 		}
 	}
+	// Restore review-level comments so they survive round-complete
+	if len(cj.ReviewComments) > 0 {
+		s.reviewComments = cj.ReviewComments
+		s.reviewNextID = 0
+		for _, c := range s.reviewComments {
+			id := 0
+			fmt.Sscanf(c.ID, "r%d", &id)
+			if id >= s.reviewNextID {
+				s.reviewNextID = id + 1
+			}
+		}
+	}
 	// Record the current mtime so mergeExternalCritJSON does not re-process
 	// this same file. Without this, the file watcher could detect the
 	// externally-written .crit.json (e.g. from a test or crit comment) as a
