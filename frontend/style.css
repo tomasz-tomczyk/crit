@@ -86,34 +86,7 @@ body {
 }
 .branch-icon svg { width: 14px; height: 14px; }
 
-.header-pr-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--accent);
-  background: var(--accent-subtle);
-  border: 1px solid var(--accent-bg);
-  border-radius: 6px;
-  padding: 3px 10px;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-.header-pr-link:hover {
-  background: var(--accent-bg);
-}
-.header-pr-link.header-pr-draft {
-  color: var(--yellow);
-  background: var(--yellow-subtle);
-  border-color: var(--yellow-border);
-}
-.header-pr-link.header-pr-draft:hover {
-  background: var(--yellow-bg);
-}
 @media print {
-  .header-pr-link { display: none; }
   .pr-toggle-btn { display: none; }
 }
 
@@ -131,11 +104,10 @@ body {
   font-family: var(--font-mono);
   font-size: 12px;
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s;
 }
 .pr-toggle-btn:hover {
   background: var(--accent-subtle);
-  border-color: var(--accent-bg);
 }
 .pr-toggle-icon {
   width: 14px;
@@ -150,7 +122,6 @@ body {
 }
 .pr-toggle-btn.pr-toggle-draft:hover {
   background: var(--yellow-subtle);
-  border-color: var(--yellow-border);
 }
 
 .header-notify {
@@ -1883,6 +1854,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   .line-gutter { min-width: 36px; }
   .file-tree-panel { width: 220px; }
   .comments-panel, .pr-panel { width: 260px; }
+  .pr-toggle-btn .pr-toggle-number { display: none; }
 }
 @media (max-width: 600px) {
   .toc, #tocToggle { display: none !important; }
@@ -2350,8 +2322,8 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   flex-direction: column;
   z-index: 85;
 }
-.pr-panel::-webkit-scrollbar { width: 5px; }
-.pr-panel::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+.pr-panel-body::-webkit-scrollbar { width: 5px; }
+.pr-panel-body::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
 .pr-panel-hidden { display: none; }
 
 .pr-panel-body {
@@ -2574,11 +2546,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   accent-color: var(--accent);
 }
 
-/* Responsive */
-@media (max-width: 768px) {
-  .pr-panel { width: 260px; }
-  .pr-toggle-btn .pr-toggle-number { display: none; }
-}
 
 
 /* ===== File Sections ===== */

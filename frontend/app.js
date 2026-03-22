@@ -138,6 +138,7 @@
   // Per-file active form state
   let activeFilePath = null;
   let activeForms = [];  // Array of { formKey, filePath, afterBlockIndex, startLine, endLine, editingId, side }
+  let prData = null;     // PR metadata from /api/config (set once on load)
 
   // Track manually toggled collapse state (comment ID → boolean, true = collapsed)
   const commentCollapseOverrides = {};
@@ -375,7 +376,7 @@
 
     // PR overview panel toggle
     if (configRes.pr_url && configRes.pr_number) {
-      window._prData = configRes;
+      prData = configRes;
       var prToggle = document.getElementById('prToggle');
       prToggle.style.display = '';
       document.getElementById('prToggleNumber').textContent = '#' + configRes.pr_number;
@@ -4849,7 +4850,7 @@
   function renderPRPanel() {
     var panel = document.getElementById('prPanel');
     if (panel.classList.contains('pr-panel-hidden')) return;
-    var pr = window._prData;
+    var pr = prData;
     if (!pr) return;
 
     var body = document.getElementById('prPanelBody');
