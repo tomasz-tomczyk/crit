@@ -1139,7 +1139,17 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 
 	author := agentName(s.agentCmd)
 	log.Printf("agent-request %s: completed, posting reply (%d bytes)\nResponse: %s\nStderr: %s", commentID, len(response), response, stderr.String())
-	if _, ok := s.session.AddReply(filePath, commentID, response, author); !ok {
+	// Try original path first, then search all files (path may have changed during agent run)
+	_, ok := s.session.AddReply(filePath, commentID, response, author)
+	if !ok {
+		if _, actualPath, found := s.session.FindCommentByID(commentID, ""); found {
+			_, ok = s.session.AddReply(actualPath, commentID, response, author)
+			if ok {
+				filePath = actualPath
+			}
+		}
+	}
+	if !ok {
 		log.Printf("agent-request %s: failed to add reply (comment not found)", commentID)
 	} else {
 		if resolved {
