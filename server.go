@@ -305,6 +305,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			Body      string `json:"body"`
 			Quote     string `json:"quote"`
 			Author    string `json:"author"`
+			Scope     string `json:"scope"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -314,15 +315,27 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Comment body is required", http.StatusBadRequest)
 			return
 		}
-		if req.StartLine < 1 || req.EndLine < req.StartLine {
-			http.Error(w, "Invalid line range", http.StatusBadRequest)
-			return
-		}
 
 		// Ensure the file is registered in the session. Files that appear after
 		// startup (e.g. user creates a new file while reviewing) may be visible in
 		// scoped views but not yet in s.Files.
 		s.session.EnsureFileEntry(path)
+
+		if req.Scope == "file" {
+			c, ok := s.session.AddFileComment(path, req.Body, req.Author)
+			if !ok {
+				http.Error(w, "File not found", http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			writeJSON(w, c)
+			return
+		}
+
+		if req.StartLine < 1 || req.EndLine < req.StartLine {
+			http.Error(w, "Invalid line range", http.StatusBadRequest)
+			return
+		}
 
 		c, ok := s.session.AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body, req.Quote, req.Author)
 		if !ok {

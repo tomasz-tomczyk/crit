@@ -1481,3 +1481,33 @@ func TestGetFilesList_MethodNotAllowed(t *testing.T) {
 		t.Fatalf("expected 405, got %d", w.Code)
 	}
 }
+
+func TestPostFileScopedComment(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`{"body": "this file needs restructuring", "scope": "file"}`)
+	req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var c Comment
+	json.Unmarshal(w.Body.Bytes(), &c)
+	if c.Scope != "file" {
+		t.Errorf("expected scope 'file', got %q", c.Scope)
+	}
+	if c.StartLine != 0 || c.EndLine != 0 {
+		t.Errorf("expected zero lines, got %d-%d", c.StartLine, c.EndLine)
+	}
+}
+
+func TestPostFileScopedCommentRequiresBody(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`{"scope": "file"}`)
+	req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
