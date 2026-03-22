@@ -3006,7 +3006,7 @@
   function buildCommentedRangeSet(comments) {
     const set = new Set();
     for (const c of comments) {
-      if (c.resolved) continue;
+      if (c.resolved || c.scope === 'file') continue;
       const side = c.side || '';
       for (let ln = c.start_line; ln <= c.end_line; ln++) set.add(ln + ':' + side);
     }
@@ -3026,6 +3026,7 @@
     }
     const set = new Set();
     for (const c of comments) {
+      if (c.scope === 'file') continue;
       const side = c.side || '';
       let startIdx = -1, endIdx = -1;
       for (let i = 0; i < lines.length; i++) {
