@@ -55,6 +55,8 @@ func main() {
 		runInstall(os.Args[2:])
 	case "config":
 		runConfig(os.Args[2:])
+	case "check":
+		runCheck()
 	case "pull":
 		runPull(os.Args[2:])
 	case "push":
@@ -876,7 +878,8 @@ type serverConfig struct {
 	outputDir      string
 	author         string
 	ignorePatterns []string
-	files          []string // explicit file arguments (empty = git mode)
+	files               []string // explicit file arguments (empty = git mode)
+	noIntegrationCheck  bool
 }
 
 // resolveServerConfig parses flags, loads config files, and resolves the
@@ -966,8 +969,9 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		shareURL:       *shareURL,
 		outputDir:      *outputDir,
 		author:         cfg.Author,
-		ignorePatterns: ignorePatterns,
-		files:          fs.Args(),
+		ignorePatterns:     ignorePatterns,
+		noIntegrationCheck: cfg.NoIntegrationCheck,
+		files:              fs.Args(),
 	}, nil
 }
 
@@ -1031,6 +1035,17 @@ func runServe(args []string) {
 		StartedAt: time.Now().UTC().Format(time.RFC3339),
 	}); err != nil {
 		log.Fatalf("Error writing session file: %v", err)
+	}
+
+	// Check for stale integrations (unless disabled)
+	if !sc.noIntegrationCheck && os.Getenv("CRIT_NO_INTEGRATION_CHECK") == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			stale := checkInstalledIntegrations(cwd, home)
+			srv.staleIntegrations = stale
+			if len(stale) > 0 {
+				go printStaleWarnings(stale)
+			}
+		}
 	}
 
 	// Idle timeout: exit after 1 hour of no HTTP activity
@@ -1120,6 +1135,7 @@ Usage:
   crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments to .crit.json
   crit push [--dry-run] [--event <type>] [-m <msg>] [-o <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
   crit install <agent>                       Install integration files for an AI coding tool
+  crit check                                 Check if installed integrations are up to date
   crit config [--generate]                    Show resolved configuration
   crit help                                  Show this help message
 
@@ -1141,6 +1157,7 @@ Environment:
   CRIT_SHARE_URL              Override the share service URL
   CRIT_PORT                   Override the default port
   CRIT_NO_UPDATE_CHECK        Disable update check on startup
+  CRIT_NO_INTEGRATION_CHECK   Disable integration staleness check
 
 Configuration:
   Global config:   ~/.crit.config.json
@@ -1175,7 +1192,8 @@ Available keys:
   output            string    Output directory for .crit.json
   author            string    Your name for comments (default: git config user.name)
   base_branch       string    Base branch to diff against (overrides auto-detection)
-  ignore_patterns   []string  Gitignore-style patterns to exclude files from review
+  ignore_patterns        []string  Gitignore-style patterns to exclude files from review
+  no_integration_check   bool      Skip integration staleness check (default: false)
 
 Ignore pattern syntax:
   *.lock            Match files by extension (anywhere in tree)

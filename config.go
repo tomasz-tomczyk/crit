@@ -11,14 +11,15 @@ import (
 
 // Config holds all configuration values from config files.
 type Config struct {
-	Port           int      `json:"port,omitempty"`
-	NoOpen         bool     `json:"no_open,omitempty"`
-	ShareURL       string   `json:"share_url,omitempty"`
-	Quiet          bool     `json:"quiet,omitempty"`
-	Output         string   `json:"output,omitempty"`
-	Author         string   `json:"author,omitempty"`
-	BaseBranch     string   `json:"base_branch,omitempty"`
-	IgnorePatterns []string `json:"ignore_patterns,omitempty"`
+	Port               int      `json:"port,omitempty"`
+	NoOpen             bool     `json:"no_open,omitempty"`
+	ShareURL           string   `json:"share_url,omitempty"`
+	Quiet              bool     `json:"quiet,omitempty"`
+	Output             string   `json:"output,omitempty"`
+	Author             string   `json:"author,omitempty"`
+	BaseBranch         string   `json:"base_branch,omitempty"`
+	IgnorePatterns     []string `json:"ignore_patterns,omitempty"`
+	NoIntegrationCheck bool     `json:"no_integration_check,omitempty"`
 }
 
 // String returns a human-readable JSON representation of the resolved config.
@@ -54,14 +55,15 @@ func defaultConfig() generatedConfig {
 
 // generatedConfig is like Config but without omitempty, so all keys appear in output.
 type generatedConfig struct {
-	Port           int      `json:"port"`
-	NoOpen         bool     `json:"no_open"`
-	ShareURL       string   `json:"share_url"`
-	Quiet          bool     `json:"quiet"`
-	Output         string   `json:"output"`
-	Author         string   `json:"author"`
-	BaseBranch     string   `json:"base_branch"`
-	IgnorePatterns []string `json:"ignore_patterns"`
+	Port               int      `json:"port"`
+	NoOpen             bool     `json:"no_open"`
+	ShareURL           string   `json:"share_url"`
+	Quiet              bool     `json:"quiet"`
+	Output             string   `json:"output"`
+	Author             string   `json:"author"`
+	BaseBranch         string   `json:"base_branch"`
+	IgnorePatterns     []string `json:"ignore_patterns"`
+	NoIntegrationCheck bool     `json:"no_integration_check"`
 }
 
 func (c generatedConfig) String() string {
@@ -75,10 +77,11 @@ func (c generatedConfig) String() string {
 // configPresence tracks which fields were explicitly present in a JSON config file.
 // This allows distinguishing "not set" from "explicitly set to empty/zero".
 type configPresence struct {
-	ShareURL       bool
-	IgnorePatterns bool
-	NoOpen         bool
-	Quiet          bool
+	ShareURL           bool
+	IgnorePatterns     bool
+	NoOpen             bool
+	Quiet              bool
+	NoIntegrationCheck bool
 }
 
 // loadConfigFile reads and parses a single JSON config file.
@@ -103,6 +106,7 @@ func loadConfigFile(path string) (Config, configPresence, error) {
 	_, presence.IgnorePatterns = raw["ignore_patterns"]
 	_, presence.NoOpen = raw["no_open"]
 	_, presence.Quiet = raw["quiet"]
+	_, presence.NoIntegrationCheck = raw["no_integration_check"]
 
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
@@ -136,6 +140,9 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	}
 	if project.BaseBranch != "" {
 		merged.BaseBranch = project.BaseBranch
+	}
+	if projectPresence.NoIntegrationCheck {
+		merged.NoIntegrationCheck = project.NoIntegrationCheck
 	}
 	// Union ignore patterns
 	merged.IgnorePatterns = append(merged.IgnorePatterns, project.IgnorePatterns...)

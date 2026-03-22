@@ -22,11 +22,12 @@ type Server struct {
 	shareURL       string
 	prInfo         *PRInfo
 	author         string
-	currentVersion string
-	latestVersion  string
-	versionMu      sync.RWMutex
-	port           int
-	status         *Status
+	currentVersion    string
+	latestVersion     string
+	versionMu         sync.RWMutex
+	staleIntegrations []staleFile
+	port              int
+	status            *Status
 }
 
 func NewServer(session *Session, frontendFS embed.FS, shareURL string, prInfo *PRInfo, author string, currentVersion string, port int) (*Server, error) {
@@ -89,6 +90,24 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"version":        s.currentVersion,
 		"latest_version": latestVersion,
 		"author":         s.author,
+	}
+	if len(s.staleIntegrations) > 0 {
+		type staleInfo struct {
+			Agent    string `json:"agent"`
+			Location string `json:"location"`
+			Hint     string `json:"hint"`
+		}
+		var items []staleInfo
+		seen := make(map[string]bool)
+		for _, sf := range s.staleIntegrations {
+			hint := sf.updateHint()
+			if seen[hint] {
+				continue
+			}
+			seen[hint] = true
+			items = append(items, staleInfo{Agent: sf.agent, Location: sf.location, Hint: hint})
+		}
+		resp["stale_integrations"] = items
 	}
 	if s.prInfo != nil {
 		resp["pr_url"] = s.prInfo.URL
