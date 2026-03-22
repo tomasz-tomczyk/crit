@@ -14,11 +14,15 @@ import (
 func main() {
 	hashes := map[string]string{}
 	err := filepath.Walk("integrations", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		if info.IsDir() {
 			return nil
 		}
-		if err != nil {
-			return err
+		// Skip README files — they're documentation, not installable integrations
+		if strings.EqualFold(filepath.Base(path), "README.md") {
+			return nil
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {

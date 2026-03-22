@@ -126,6 +126,9 @@
   let deleteToken = '';
   let configAuthor = '';
   let uiState = 'reviewing';
+  let pendingUpdates = [];
+  let pendingUpdatesVersion = '';
+  let updateModalEl = null;
 
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
   let diffScope = getCookie('crit-diff-scope') || 'all'; // 'all', 'branch', 'staged', or 'unstaged'
@@ -358,45 +361,27 @@
     }
 
     // Update notifications (brew upgrade + stale integrations)
-    var updates = [];
-    var hasBrew = configRes.latest_version && configRes.version && configRes.latest_version !== configRes.version;
+    pendingUpdates = [];
+    const hasBrew = configRes.latest_version && configRes.version && configRes.latest_version !== configRes.version;
     if (hasBrew) {
-      updates.push({
-        label: 'crit ' + configRes.latest_version + ' available',
-        hint: 'brew upgrade crit'
+      pendingUpdates.push({
+        label: 'Crit ' + configRes.latest_version + ' available',
+        labelUrl: 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + configRes.latest_version,
+        hint: 'brew update && brew upgrade crit'
       });
     }
     if (configRes.stale_integrations) {
       configRes.stale_integrations.forEach(function(si) {
-        updates.push({ label: si.agent + ' plugin outdated', hint: si.hint });
+        // Capitalize agent name for display
+        const name = si.agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+        pendingUpdates.push({ label: name + ' plugin outdated', hint: si.hint });
       });
     }
-    if (updates.length > 0 && !localStorage.getItem('crit-updates-dismissed-' + configRes.version)) {
-      var el = document.getElementById('headerUpdate');
-      el.style.display = '';
-      var badge = document.getElementById('updateBadge');
-      badge.textContent = 'update';
-      var dropdown = document.getElementById('updateDropdown');
-      dropdown.innerHTML = '';
-      updates.forEach(function(u) {
-        var item = document.createElement('div');
-        item.className = 'header-update-item';
-        // Split hint lines so each command is on its own line
-        var cmds = u.hint.split('\n').map(function(line) { return line.trim(); }).filter(Boolean).join('\n');
-        item.innerHTML = '<div class="header-update-item-label">' + u.label + '</div>'
-          + '<div class="header-update-item-cmd">' + cmds + '</div>';
-        dropdown.appendChild(item);
-      });
-      var dismiss = document.createElement('button');
-      dismiss.className = 'header-update-dismiss';
-      dismiss.textContent = 'Dismiss';
-      dismiss.addEventListener('click', function(e) {
-        e.stopPropagation();
-        localStorage.setItem('crit-updates-dismissed-' + configRes.version, '1');
-        el.style.display = 'none';
-        dropdown.classList.remove('open');
-      });
-      dropdown.appendChild(dismiss);
+
+    pendingUpdatesVersion = configRes.latest_version || configRes.version || '';
+    const dismissed = getCookie('crit-updates-dismissed');
+    if (pendingUpdates.length > 0 && dismissed !== pendingUpdatesVersion) {
+      document.getElementById('updateBtn').style.display = '';
     }
 
     // Header context: branch name in git mode, filename in single-file file mode
@@ -5564,16 +5549,111 @@
     });
   });
 
-  // ===== Update Badge Toggle =====
-  document.getElementById('updateBadge').addEventListener('click', function(e) {
-    e.stopPropagation();
-    document.getElementById('updateDropdown').classList.toggle('open');
-  });
-  document.getElementById('updateDropdown').addEventListener('click', function(e) {
-    e.stopPropagation(); // keep open for text selection
-  });
-  document.addEventListener('click', function() {
-    document.getElementById('updateDropdown').classList.remove('open');
+  // ===== Update Modal =====
+  const clipboardSvgSmall = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+  const checkSvgSmall = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  let updateEscapeHandler = null;
+
+  function closeUpdateModal() {
+    if (updateModalEl) {
+      updateModalEl.remove();
+      updateModalEl = null;
+    }
+    if (updateEscapeHandler) {
+      document.removeEventListener('keydown', updateEscapeHandler);
+      updateEscapeHandler = null;
+    }
+  }
+
+  function showUpdateModal() {
+    closeUpdateModal();
+
+    var overlay = document.createElement('div');
+    overlay.className = 'update-overlay';
+
+    let itemsHtml = '';
+    pendingUpdates.forEach(function(u) {
+      const lines = u.hint.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+      let cmdsHtml = '';
+      lines.forEach(function(line) {
+        // Separate label prefix from command — look for ":" delimiter
+        let prefix = '';
+        let cmd = line;
+        const colonIdx = line.indexOf(':');
+        if (colonIdx > 0 && colonIdx < line.length - 1 && !/^https?:/.test(line)) {
+          prefix = line.substring(0, colonIdx).trim();
+          cmd = line.substring(colonIdx + 1).trim();
+        }
+        if (prefix) {
+          cmdsHtml += '<div class="update-item-prefix">' + escapeHtml(prefix) + '</div>';
+        }
+        cmdsHtml += '<div class="update-item-cmd">'
+          + '<code>' + escapeHtml(cmd) + '</code>'
+          + '<button class="update-item-copy" title="Copy command" aria-label="Copy command" data-cmd="' + escapeHtml(cmd).replace(/"/g, '&quot;') + '">'
+          + clipboardSvgSmall
+          + '</button>'
+          + '</div>';
+      });
+      let labelHtml = escapeHtml(u.label);
+      if (u.labelUrl) {
+        labelHtml += '. <a class="update-item-release-link" href="' + escapeHtml(u.labelUrl) + '" target="_blank" rel="noopener">See release notes</a>';
+      }
+      itemsHtml += '<div class="update-item">'
+        + '<div class="update-item-label">' + labelHtml + '</div>'
+        + cmdsHtml
+        + '</div>';
+    });
+
+    overlay.innerHTML =
+      '<div class="update-dialog" role="dialog" aria-modal="true" aria-label="Updates available">' +
+        '<h3>' +
+          '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0l-3-3m3 3l3-3"/><path d="M2.5 11v1.75c0 .69.56 1.25 1.25 1.25h8.5c.69 0 1.25-.56 1.25-1.25V11"/></svg>' +
+          'Updates Available' +
+        '</h3>' +
+        '<div class="update-items">' + itemsHtml + '</div>' +
+        '<div class="update-dialog-actions">' +
+          '<button class="btn btn-sm" id="updateDismissBtn">Don\u2019t remind me</button>' +
+          '<button class="btn btn-sm" id="updateCloseBtn">Close</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+    updateModalEl = overlay;
+    overlay.querySelector('#updateCloseBtn').focus();
+
+    // Copy buttons
+    overlay.querySelectorAll('.update-item-copy').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var cmd = this.getAttribute('data-cmd');
+        navigator.clipboard.writeText(cmd).catch(function() {});
+        this.innerHTML = checkSvgSmall;
+        var self = this;
+        setTimeout(function() { self.innerHTML = clipboardSvgSmall; }, 2000);
+      });
+    });
+
+    // Close on overlay background click
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) closeUpdateModal();
+    });
+    updateEscapeHandler = function(e) {
+      if (e.key === 'Escape') closeUpdateModal();
+    };
+    document.addEventListener('keydown', updateEscapeHandler);
+    overlay.querySelector('#updateCloseBtn').addEventListener('click', closeUpdateModal);
+    overlay.querySelector('#updateDismissBtn').addEventListener('click', function() {
+      setCookie('crit-updates-dismissed', pendingUpdatesVersion);
+      document.getElementById('updateBtn').style.display = 'none';
+      closeUpdateModal();
+    });
+  }
+
+  document.getElementById('updateBtn').addEventListener('click', function() {
+    if (updateModalEl) {
+      closeUpdateModal();
+    } else {
+      showUpdateModal();
+    }
   });
 
   // ===== Diff Mode Toggle (Split / Unified) =====

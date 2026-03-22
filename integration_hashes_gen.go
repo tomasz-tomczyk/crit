@@ -3,17 +3,16 @@
 package main
 
 var integrationHashes = map[string]string{
-	"integrations/README.md": "fe5d062d5102ef28279961935a091a2e29bb2866b29e6a69eeed6e1f0e806fd6",
 	"integrations/aider/CONVENTIONS.md": "36ce73ab313a573d778924b0c8e7757abad5ee12750008a725a95c29478f7bfa",
 	"integrations/claude-code/.claude-plugin/plugin.json": "1802a767f5e73fec437b94d70ffac911b3672a2508d3e3e9da2d1ed4437d558d",
-	"integrations/claude-code/commands/crit.md": "ef416b44eb7c8731a5dc0eb0eb72459a56a39345f042ecce742c4aab69613a52",
+	"integrations/claude-code/commands/crit.md": "b7c5ddb7b3af56cd6226506287c707da7b03a5922d11fc241d88d5af4d3e940d",
 	"integrations/claude-code/skills/crit-cli/SKILL.md": "ee9ab4af4f785fa3dae39e5d89807f56fa578c2aa0d4427fdc6d75cad72d645b",
-	"integrations/cline/crit.md": "be244966d2d8c6092a366770eda556a0caa478f6022e38abc61c94204886bdb4",
-	"integrations/cursor/commands/crit.md": "d011c9aec8562c553d4595cd24985a48ce18bced28eae6a23973846ceda8ac16",
+	"integrations/cline/crit.md": "4721119db96ad3585a0ec6517c629abdd1c998944658a0a3064f67c49e2b33e5",
+	"integrations/cursor/commands/crit.md": "ddbb0e93a12f6929ca07d97805302f3a2a47dcf25e0aa017e77e0f3c7d52868d",
 	"integrations/cursor/skills/crit-cli/SKILL.md": "3a77ff8eee5ae1ee8bd544efb1aa494a3f27832ece4cb107aa9fb0283c17bcc6",
 	"integrations/github-copilot/commands/crit.prompt.md": "226da1fcbd27776fd0823dced05d31ac422bebcd4b9f4f87d85e4deff0503f2b",
 	"integrations/github-copilot/skills/crit-cli/SKILL.md": "ed525090ef5c8deb187df7ae48458a568c001f9649876c8f0f8be654f42ebfc6",
 	"integrations/opencode/SKILL.md": "9d0988f12bebfa53fc93fc17b526eb18983006ff7ab1b83a3cadf7d61bd6edb5",
-	"integrations/opencode/crit.md": "4d8c16dd9e30b2ef4dce4eda3ed4e0a42830fb9475a493b8c8e663993d1a0f13",
-	"integrations/windsurf/crit.md": "b67087ae9ccc04e88b55e9f23224f887b3b0e901fdd131cf27a3ea0fd8d0a15f",
+	"integrations/opencode/crit.md": "2c0dbb0022de11e76e28a4c9f2da2142816f40615987e964de612320e9b9771a",
+	"integrations/windsurf/crit.md": "e2af90c1235d2e6d2de16d733ab98d51ce38f6246a1818897ed64da97d81d0c1",
 }
