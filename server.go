@@ -1135,7 +1135,7 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 	}
 
 	author := agentName(s.agentCmd)
-	log.Printf("agent-request %s: completed, posting reply (%d bytes)", commentID, len(response))
+	log.Printf("agent-request %s: completed, posting reply (%d bytes)\nResponse: %s\nStderr: %s", commentID, len(response), response, stderr.String())
 	if _, ok := s.session.AddReply(filePath, commentID, response, author); !ok {
 		log.Printf("agent-request %s: failed to add reply (comment not found)", commentID)
 	} else {
@@ -1143,6 +1143,9 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 			s.session.SetCommentResolved(filePath, commentID, true)
 		}
 		s.session.notify(SSEEvent{Type: "comments-changed"})
+		// Trigger full file re-read in case the agent edited files
+		s.session.RefreshFileList()
+		s.session.notify(SSEEvent{Type: "file-changed"})
 	}
 }
 
