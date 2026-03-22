@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
@@ -1046,7 +1047,7 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 	prompt := buildAgentPrompt(comment, filePath)
 
 	// Run agent command asynchronously
-	go s.runAgentCmd(prompt, comment.ID)
+	go s.runAgentCmd(prompt, comment.ID, filePath)
 
 	w.WriteHeader(http.StatusAccepted)
 	writeJSON(w, map[string]any{
@@ -1079,17 +1080,15 @@ func buildAgentPrompt(c Comment, filePath string) string {
 	for _, reply := range c.Replies {
 		b.WriteString(fmt.Sprintf("Reply from %s:\n> %s\n\n", reply.Author, reply.Body))
 	}
-	b.WriteString(fmt.Sprintf(
-		"Address this comment. If it requires a code change, make the edit. "+
-			"Then reply explaining what you did:\n"+
-			"crit comment --reply-to %s --author agent \"<your response>\"\n"+
-			"Add --resolve if the comment is fully addressed.\n",
-		c.ID))
+	b.WriteString("Address this comment. If it requires a code change, make the edit. " +
+		"Then respond with a brief explanation of what you did. " +
+		"Your response will be posted as a reply to this comment.\n")
 	return b.String()
 }
 
 // runAgentCmd executes the configured agent command with the given prompt via stdin.
-func (s *Server) runAgentCmd(prompt string, commentID string) {
+// The agent's stdout is captured and posted as a reply to the comment.
+func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
@@ -1101,11 +1100,26 @@ func (s *Server) runAgentCmd(prompt string, commentID string) {
 	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
 	cmd.Stdin = strings.NewReader(prompt)
 	cmd.Dir = s.session.RepoRoot
-	output, err := cmd.CombinedOutput()
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
 	if err != nil {
-		log.Printf("agent-request %s: error: %v\nOutput: %s", commentID, err, output)
-	} else {
-		log.Printf("agent-request %s: completed", commentID)
+		log.Printf("agent-request %s: error: %v\nStderr: %s", commentID, err, stderr.String())
+		return
+	}
+
+	response := strings.TrimSpace(stdout.String())
+	if response == "" {
+		log.Printf("agent-request %s: completed (no output)", commentID)
+		return
+	}
+
+	log.Printf("agent-request %s: completed, posting reply (%d bytes)", commentID, len(response))
+	if _, ok := s.session.AddReply(filePath, commentID, response, "agent"); !ok {
+		log.Printf("agent-request %s: failed to add reply (comment not found)", commentID)
 	}
 }
 
