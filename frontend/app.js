@@ -146,6 +146,7 @@
   let activeForms = [];  // Array of { formKey, filePath, afterBlockIndex, startLine, endLine, editingId, side }
   let prData = null;     // PR metadata from /api/config (set once on load)
   let agentEnabled = false;
+  let agentName = 'agent';
   let pendingAgentRequests = new Set();
 
   // Track manually toggled collapse state (comment ID → boolean, true = collapsed)
@@ -370,6 +371,7 @@
     deleteToken = configRes.delete_token || '';
     configAuthor = configRes.author || '';
     agentEnabled = configRes.agent_cmd_enabled || false;
+    agentName = configRes.agent_name || 'agent';
 
     if (shareURL && session.mode !== 'git') {
       const shareBtn = document.getElementById('shareBtn');
@@ -4115,11 +4117,16 @@
   }
 
   // ===== Agent Button =====
+  function isLiveThread(comment) {
+    if (!agentEnabled || !comment.replies) return false;
+    return comment.replies.some(function(r) { return r.author === agentName; });
+  }
+
   function checkAgentReplies(comments) {
     for (const c of comments) {
       if (pendingAgentRequests.has(c.id) && c.replies && c.replies.length > 0) {
         const lastReply = c.replies[c.replies.length - 1];
-        if (lastReply.author === 'agent') {
+        if (lastReply.author === agentName) {
           pendingAgentRequests.delete(c.id);
         }
       }
@@ -4229,14 +4236,21 @@
       pending.className = 'agent-pending-reply';
       pending.dataset.commentId = comment.id;
       pending.innerHTML =
-        '<span class="agent-pending-author">@agent</span>' +
-        '<span class="agent-pending-dots"><span>.</span><span>.</span><span>.</span></span>';
+        '<span class="agent-pending-author">@' + agentName + '</span>' +
+        '<span class="agent-pending-cursor">_</span>';
       card.appendChild(pending);
     }
 
     // Reply input
     if (opts.showReplyInput && filePath) {
       card.appendChild(createReplyInput(comment.id, filePath));
+    }
+
+    if (pendingAgentRequests.has(comment.id) || isLiveThread(comment)) {
+      wrapper.classList.add('live-thread');
+    }
+    if (pendingAgentRequests.has(comment.id)) {
+      wrapper.classList.add('agent-pending');
     }
 
     wrapper.appendChild(card);
@@ -4833,17 +4847,22 @@
     const form = document.createElement('div');
     form.className = 'reply-form';
 
+    // Check if this comment is pending agent response
+    var isPending = pendingAgentRequests.has(commentId);
+
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'reply-input';
-    input.placeholder = 'Write a reply\u2026';
+    input.placeholder = isPending ? 'Waiting for @' + agentName + '\u2026' : 'Write a reply\u2026';
+    if (isPending) input.disabled = true;
     form.appendChild(input);
 
     // Expanded state elements (hidden initially)
     const textarea = document.createElement('textarea');
     textarea.className = 'reply-textarea';
-    textarea.placeholder = 'Write a reply\u2026';
+    textarea.placeholder = isPending ? 'Waiting for @' + agentName + '\u2026' : 'Write a reply\u2026';
     textarea.rows = 3;
+    if (isPending) textarea.disabled = true;
 
     const buttons = document.createElement('div');
     buttons.className = 'reply-form-buttons';
@@ -4904,6 +4923,19 @@
           body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error('Server returned ' + res.status);
+
+        // In live threads, also send the reply to the agent
+        var file = getFileByPath(filePath);
+        var comment = file && file.comments ? file.comments.find(function(c) { return c.id === commentId; }) : null;
+        if (comment && (isLiveThread(comment) || pendingAgentRequests.has(commentId))) {
+          pendingAgentRequests.add(commentId);
+          fetch('/api/agent/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ comment_id: commentId, file_path: filePath }),
+          }).catch(function(err) { console.error('Error sending reply to agent:', err); });
+        }
+
         refreshFileComments(filePath);
       } catch (err) {
         console.error('Failed to add reply:', err);

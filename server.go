@@ -98,6 +98,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"latest_version":    latestVersion,
 		"author":            s.author,
 		"agent_cmd_enabled": s.agentCmd != "",
+		"agent_name":        agentName(s.agentCmd),
 	}
 	if len(s.staleIntegrations) > 0 {
 		type staleInfo struct {
@@ -1020,6 +1021,15 @@ type agentRequestBody struct {
 	FilePath  string `json:"file_path"`
 }
 
+// agentName extracts the binary name from the agent command string.
+func agentName(cmd string) string {
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return "agent"
+	}
+	return filepath.Base(parts[0])
+}
+
 // handleAgentRequest dispatches a comment to the configured agent command.
 // POST /api/agent/request
 func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
@@ -1117,10 +1127,21 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		return
 	}
 
+	// Check for RESOLVED: prefix convention
+	resolved := false
+	if strings.HasPrefix(strings.ToUpper(response), "RESOLVED:") {
+		resolved = true
+		response = strings.TrimSpace(response[len("RESOLVED:"):])
+	}
+
+	author := agentName(s.agentCmd)
 	log.Printf("agent-request %s: completed, posting reply (%d bytes)", commentID, len(response))
-	if _, ok := s.session.AddReply(filePath, commentID, response, "agent"); !ok {
+	if _, ok := s.session.AddReply(filePath, commentID, response, author); !ok {
 		log.Printf("agent-request %s: failed to add reply (comment not found)", commentID)
 	} else {
+		if resolved {
+			s.session.SetCommentResolved(filePath, commentID, true)
+		}
 		s.session.notify(SSEEvent{Type: "comments-changed"})
 	}
 }

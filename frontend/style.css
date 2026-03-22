@@ -3240,7 +3240,12 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   cursor: wait;
 }
 
-/* Pending agent reply indicator */
+/* Live Thread */
+.live-thread > .comment-card {
+  border-left: 2px solid var(--accent);
+}
+
+/* Pending agent indicator */
 .agent-pending-reply {
   padding: 8px 12px;
   border-top: 1px solid var(--border);
@@ -3252,21 +3257,27 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .agent-pending-author {
   font-size: 11px;
   font-weight: 600;
+  font-family: var(--font-mono, 'SF Mono', 'Consolas', monospace);
   color: var(--accent);
 }
-.agent-pending-dots {
-  font-size: 16px;
+.agent-pending-cursor {
+  font-family: var(--font-mono, 'SF Mono', 'Consolas', monospace);
   font-weight: 700;
-  letter-spacing: 1px;
   color: var(--accent);
+  animation: agent-cursor-blink 1s step-end infinite;
 }
-.agent-pending-dots span {
-  animation: agent-dot-bounce 1.4s ease-in-out infinite;
-  display: inline-block;
+@keyframes agent-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
-.agent-pending-dots span:nth-child(2) { animation-delay: 0.2s; }
-.agent-pending-dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes agent-dot-bounce {
-  0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
-  40% { opacity: 1; transform: translateY(-2px); }
+
+/* Disabled state in live threads */
+.live-thread .comment-actions .edit-btn,
+.live-thread .comment-actions .delete-btn {
+  display: none;
+}
+.live-thread.agent-pending .reply-input,
+.live-thread.agent-pending .reply-textarea {
+  opacity: 0.5;
+  pointer-events: none;
 }
