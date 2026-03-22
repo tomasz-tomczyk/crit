@@ -601,6 +601,8 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	if totalComments > 0 && unresolvedComments > 0 {
 		prompt = fmt.Sprintf(
 			"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
+				"Each comment has a scope field: \"line\" for inline comments, \"file\" for file-level comments, or \"review\" for review-level comments. "+
+				"Review-level comments appear in the top-level review_comments array (not tied to any file). "+
 				"Read the file, address each comment in the relevant file and location. "+
 				"For each comment: reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> --resolve \"<explanation>\"`, "+
 				"or edit .crit.json directly to add a reply to the comment's \"replies\" array and set \"resolved\": true. "+

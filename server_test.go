@@ -1482,6 +1482,32 @@ func TestGetFilesList_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestFinishPromptMentionsScopes(t *testing.T) {
+	srv, sess := newTestServer(t)
+	sess.AddReviewComment("address all issues", "")
+	if _, ok := sess.AddFileComment("test.md", "restructure this file", ""); !ok {
+		t.Fatal("AddFileComment failed")
+	}
+	if _, ok := sess.AddComment("test.md", 1, 1, "", "bug here", "", ""); !ok {
+		t.Fatal("AddComment failed")
+	}
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	var result map[string]string
+	json.Unmarshal(w.Body.Bytes(), &result)
+	prompt := result["prompt"]
+	if prompt == "" {
+		t.Fatal("expected non-empty prompt")
+	}
+	if !strings.Contains(prompt, "review_comments") {
+		t.Error("prompt should mention review_comments array")
+	}
+	if !strings.Contains(prompt, "scope") {
+		t.Error("prompt should mention scope field")
+	}
+}
+
 func TestReviewCommentsAPI(t *testing.T) {
 	srv, _ := newTestServer(t)
 
