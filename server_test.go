@@ -380,23 +380,24 @@ func TestFinish_PromptBareGitMode(t *testing.T) {
 	}
 }
 
-func TestFinish_ApproveCallsShutdown(t *testing.T) {
+func TestFinish_ApproveDoesNotShutdownDirectly(t *testing.T) {
 	s, _ := newTestServer(t)
 	shutdownCalled := make(chan struct{}, 1)
 	s.shutdownFn = func() {
 		shutdownCalled <- struct{}{}
 	}
 
-	// No comments = approve
+	// No comments = approve, but handleFinish should NOT shut down directly.
+	// Shutdown only happens via the review-cycle path (daemon client).
 	req := httptest.NewRequest("POST", "/api/finish", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
 	select {
 	case <-shutdownCalled:
-		// good
-	case <-time.After(2 * time.Second):
-		t.Error("expected shutdownFn to be called on approve")
+		t.Error("handleFinish should not call shutdownFn directly — shutdown belongs in review-cycle")
+	case <-time.After(700 * time.Millisecond):
+		// good — no shutdown from handleFinish
 	}
 }
 
@@ -411,6 +412,105 @@ func TestFinish_UnresolvedDoesNotShutdown(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/finish", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
+
+	select {
+	case <-shutdownCalled:
+		t.Error("shutdownFn should not be called when there are unresolved comments")
+	case <-time.After(700 * time.Millisecond):
+		// good — no shutdown
+	}
+}
+
+func TestReviewCycle_ApproveCallsShutdown(t *testing.T) {
+	s, session := newTestServer(t)
+	session.SetAwaitingFirstReview(true)
+	shutdownCalled := make(chan struct{}, 1)
+	s.shutdownFn = func() {
+		shutdownCalled <- struct{}{}
+	}
+
+	// Start review-cycle in background (it blocks until finish event)
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := httptest.NewRequest("POST", "/api/review-cycle", nil)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+		done <- w
+	}()
+
+	// Give the review-cycle handler time to subscribe
+	time.Sleep(50 * time.Millisecond)
+
+	// Trigger finish with no comments (approve)
+	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
+	finishW := httptest.NewRecorder()
+	s.ServeHTTP(finishW, finishReq)
+
+	// Review-cycle should return and trigger shutdown
+	select {
+	case <-shutdownCalled:
+		// good
+	case <-time.After(2 * time.Second):
+		t.Error("expected shutdownFn to be called on approve via review-cycle")
+	}
+}
+
+func TestReviewCycle_AllResolvedCallsShutdown(t *testing.T) {
+	s, session := newTestServer(t)
+	session.SetAwaitingFirstReview(true)
+	shutdownCalled := make(chan struct{}, 1)
+	s.shutdownFn = func() {
+		shutdownCalled <- struct{}{}
+	}
+	c, _ := session.AddComment("test.md", 1, 1, "", "fix this", "", "")
+	session.SetCommentResolved("test.md", c.ID, true)
+
+	// Start review-cycle in background
+	go func() {
+		req := httptest.NewRequest("POST", "/api/review-cycle", nil)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Trigger finish with all comments resolved
+	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
+	finishW := httptest.NewRecorder()
+	s.ServeHTTP(finishW, finishReq)
+
+	select {
+	case <-shutdownCalled:
+		// good — all resolved = approve = shutdown
+	case <-time.After(2 * time.Second):
+		t.Error("expected shutdownFn to be called when all comments are resolved via review-cycle")
+	}
+}
+
+func TestReviewCycle_UnresolvedDoesNotShutdown(t *testing.T) {
+	s, session := newTestServer(t)
+	session.SetAwaitingFirstReview(true)
+	shutdownCalled := make(chan struct{}, 1)
+	s.shutdownFn = func() {
+		shutdownCalled <- struct{}{}
+	}
+	session.AddComment("test.md", 1, 1, "", "fix this", "", "")
+
+	// Start review-cycle in background
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := httptest.NewRequest("POST", "/api/review-cycle", nil)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+		done <- w
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Trigger finish with unresolved comments
+	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
+	finishW := httptest.NewRecorder()
+	s.ServeHTTP(finishW, finishReq)
 
 	select {
 	case <-shutdownCalled:

@@ -524,14 +524,6 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Approve (no unresolved comments) — shut down the daemon after a brief
-	// delay so the review-cycle client has time to receive the finish event.
-	if unresolvedComments == 0 && s.shutdownFn != nil {
-		go func() {
-			time.Sleep(500 * time.Millisecond)
-			s.shutdownFn()
-		}()
-	}
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -577,6 +569,14 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 					"review_file": s.session.critJSONPath(),
 					"prompt":      event.Content,
 				})
+				// Approve (no unresolved comments) — shut down the daemon
+				// after a brief delay so the client has time to read the response.
+				if s.session.UnresolvedCommentCount() == 0 && s.shutdownFn != nil {
+					go func() {
+						time.Sleep(500 * time.Millisecond)
+						s.shutdownFn()
+					}()
+				}
 				return
 			}
 		case <-r.Context().Done():
