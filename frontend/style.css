@@ -2732,15 +2732,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .file-header-stats .add { color: var(--green); }
 .file-header-stats .del { color: var(--red); }
-.file-header-comment-count {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--accent);
-  font-weight: 500;
-}
-.file-header-comment-count svg { width: 13px; height: 13px; }
 
 /* Viewed checkbox in file header */
 .file-header-viewed {
@@ -3307,38 +3298,26 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 /* ===== File-Level Comments ===== */
 .review-comments-section {
   margin-bottom: 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.review-comments-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-}
-
-.review-comments-header h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+  max-width: 900px;
 }
 
 .review-comments-section .comment-card {
-  margin: 8px 16px;
+  margin: 0 0 8px 0;
+}
+
+.review-comments-section .comment-card:last-child {
+  margin-bottom: 0;
 }
 
 .review-comments-section .comment-form-wrapper {
-  margin: 8px 16px;
+  margin: 0;
   padding: 0;
 }
 
 .file-comments {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
+  max-width: 900px;
 }
 
 .file-comments .comment-card {
@@ -3353,15 +3332,15 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--fg-muted);
+  color: var(--accent);
   padding: 2px 6px;
   border-radius: 4px;
   margin-left: 8px;
-  opacity: 0.6;
   transition: opacity 0.15s;
 }
 
+.file-comment-btn svg { width: 13px; height: 13px; }
+
 .file-comment-btn:hover {
-  opacity: 1;
-  background: var(--crit-hover-bg, rgba(127, 127, 127, 0.1));
+  opacity: 0.8;
 }
