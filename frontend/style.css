@@ -1973,7 +1973,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   .comment-block, .comment-form-wrapper { padding-left: 8px; }
   .line-gutter { min-width: 36px; }
   .file-tree-panel { width: 220px; }
-  .comments-panel, .pr-panel { width: 320px; }
+  .comments-panel, .pr-panel { width: 380px; }
   .pr-toggle-btn .pr-toggle-number { display: none; }
 }
 @media (max-width: 600px) {
@@ -2185,7 +2185,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 /* ===== Comments Panel (Right Sidebar) ===== */
 .comments-panel {
-  width: 400px;
+  width: 480px;
   flex-shrink: 0;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
@@ -2365,7 +2365,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 /* ===== PR Overview Panel ===== */
 .pr-panel {
-  width: 400px;
+  width: 480px;
   flex-shrink: 0;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
