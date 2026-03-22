@@ -72,7 +72,7 @@ type PRInfo struct {
 	Additions    int    `json:"additions"`
 	Deletions    int    `json:"deletions"`
 	ChangedFiles int    `json:"changedFiles"`
-	AuthorLogin  string `json:"author_login"`
+	AuthorLogin  string `json:"authorLogin"`
 	CreatedAt    string `json:"createdAt"`
 }
 
