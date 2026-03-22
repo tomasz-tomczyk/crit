@@ -4480,7 +4480,7 @@
       const res = await fetch('/api/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: body.trim() })
+        body: JSON.stringify({ body: body.trim(), author: configAuthor })
       });
       if (!res.ok) throw new Error('Server returned ' + res.status);
       const newComment = await res.json();

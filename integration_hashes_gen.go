@@ -3,16 +3,16 @@
 package main
 
 var integrationHashes = map[string]string{
-	"integrations/aider/CONVENTIONS.md": "36ce73ab313a573d778924b0c8e7757abad5ee12750008a725a95c29478f7bfa",
+	"integrations/aider/CONVENTIONS.md": "72cad55c188231f2f026863fdf910b8d45b891593b660719178fac082bb900d9",
 	"integrations/claude-code/.claude-plugin/plugin.json": "1802a767f5e73fec437b94d70ffac911b3672a2508d3e3e9da2d1ed4437d558d",
-	"integrations/claude-code/commands/crit.md": "b7c5ddb7b3af56cd6226506287c707da7b03a5922d11fc241d88d5af4d3e940d",
-	"integrations/claude-code/skills/crit-cli/SKILL.md": "ee9ab4af4f785fa3dae39e5d89807f56fa578c2aa0d4427fdc6d75cad72d645b",
-	"integrations/cline/crit.md": "4721119db96ad3585a0ec6517c629abdd1c998944658a0a3064f67c49e2b33e5",
+	"integrations/claude-code/commands/crit.md": "2cc29cb7de6cd4f24253a5e3f750151c83838f3fcb1e995fb7db18f385a03924",
+	"integrations/claude-code/skills/crit-cli/SKILL.md": "51139680abae1584527d2560e4385eb15283fe0250371369a250d33031494a1a",
+	"integrations/cline/crit.md": "3e8fb99bb9e25f4405c47234d3cae3125b9c4bd5083af5f68f6849d394832de4",
 	"integrations/cursor/commands/crit.md": "ddbb0e93a12f6929ca07d97805302f3a2a47dcf25e0aa017e77e0f3c7d52868d",
-	"integrations/cursor/skills/crit-cli/SKILL.md": "3a77ff8eee5ae1ee8bd544efb1aa494a3f27832ece4cb107aa9fb0283c17bcc6",
+	"integrations/cursor/skills/crit-cli/SKILL.md": "2b58c84bf578790236448474d4d5a402d361c9fded9865db648df3bb0aee9390",
 	"integrations/github-copilot/commands/crit.prompt.md": "226da1fcbd27776fd0823dced05d31ac422bebcd4b9f4f87d85e4deff0503f2b",
-	"integrations/github-copilot/skills/crit-cli/SKILL.md": "ed525090ef5c8deb187df7ae48458a568c001f9649876c8f0f8be654f42ebfc6",
-	"integrations/opencode/SKILL.md": "9d0988f12bebfa53fc93fc17b526eb18983006ff7ab1b83a3cadf7d61bd6edb5",
-	"integrations/opencode/crit.md": "2c0dbb0022de11e76e28a4c9f2da2142816f40615987e964de612320e9b9771a",
-	"integrations/windsurf/crit.md": "e2af90c1235d2e6d2de16d733ab98d51ce38f6246a1818897ed64da97d81d0c1",
+	"integrations/github-copilot/skills/crit-cli/SKILL.md": "60f31ae65311911ab0d7a234445ca8ae87ec2d2c9cb64832b902162faf627b45",
+	"integrations/opencode/SKILL.md": "ca158d41ae5fd6d7ad2a3bc83e90cc427eea4f49b8c14b8496eb168fd0757e23",
+	"integrations/opencode/crit.md": "7eeed082e4033862886755c537672d961e810dabd79fd82d8f9aab6aab74d314",
+	"integrations/windsurf/crit.md": "633814f69ca784f59e73e8b0def280588f055bb4d3db2e44ca56a91f98a3b237",
 }
