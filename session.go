@@ -777,6 +777,32 @@ func (s *Session) GetComments(filePath string) []Comment {
 	return result
 }
 
+// FindCommentByID looks up a comment by ID, optionally scoped to a file path.
+// Returns the comment, the file path it belongs to, and whether it was found.
+func (s *Session) FindCommentByID(id string, filePath string) (Comment, string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if filePath != "" {
+		for _, f := range s.Files {
+			if f.Path == filePath {
+				for _, c := range f.Comments {
+					if c.ID == id {
+						return c, f.Path, true
+					}
+				}
+			}
+		}
+	}
+	for _, f := range s.Files {
+		for _, c := range f.Comments {
+			if c.ID == id {
+				return c, f.Path, true
+			}
+		}
+	}
+	return Comment{}, "", false
+}
+
 // GetAllComments returns all comments grouped by file path.
 func (s *Session) GetAllComments() map[string][]Comment {
 	s.mu.RLock()

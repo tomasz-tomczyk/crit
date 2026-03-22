@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -53,6 +55,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, prInfo *P
 	mux.HandleFunc("/api/wait-for-event", s.handleWaitForEvent)
 	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
 
+	mux.HandleFunc("/api/agent/request", s.handleAgentRequest)
 	mux.HandleFunc("/api/commits", s.handleCommits)
 	mux.HandleFunc("/api/comments", s.handleReviewComments)
 	mux.HandleFunc("/api/review-comment/", s.handleReviewCommentByID)
@@ -1007,6 +1010,77 @@ func fuzzyScore(query, text string) float64 {
 	}
 	score -= float64(len(text)) * 0.1
 	return score
+}
+
+// agentRequestBody is the JSON body for POST /api/agent/request.
+type agentRequestBody struct {
+	CommentID string `json:"comment_id"`
+	FilePath  string `json:"file_path"`
+}
+
+// handleAgentRequest dispatches a comment to the configured agent command.
+// POST /api/agent/request
+func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agentCmd == "" {
+		http.Error(w, "agent_cmd not configured", http.StatusBadRequest)
+		return
+	}
+
+	var body agentRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.CommentID == "" {
+		http.Error(w, "Bad request: comment_id required", http.StatusBadRequest)
+		return
+	}
+
+	comment, filePath, found := s.session.FindCommentByID(body.CommentID, body.FilePath)
+	if !found {
+		http.Error(w, "Comment not found", http.StatusNotFound)
+		return
+	}
+
+	prompt := buildAgentPrompt(comment, filePath)
+
+	// Run agent command asynchronously
+	go s.runAgentCmd(prompt)
+
+	w.WriteHeader(http.StatusAccepted)
+	writeJSON(w, map[string]any{
+		"status":    "accepted",
+		"comment_id": body.CommentID,
+		"file_path":  filePath,
+	})
+}
+
+// buildAgentPrompt constructs a prompt string from a comment for the agent.
+func buildAgentPrompt(c Comment, filePath string) string {
+	var b strings.Builder
+	b.WriteString("Review comment on ")
+	b.WriteString(filePath)
+	if c.StartLine > 0 {
+		b.WriteString(fmt.Sprintf(" (lines %d-%d)", c.StartLine, c.EndLine))
+	}
+	b.WriteString(":\n\n")
+	b.WriteString(c.Body)
+	return b.String()
+}
+
+// runAgentCmd executes the configured agent command with the given prompt via stdin.
+func (s *Server) runAgentCmd(prompt string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	parts := strings.Fields(s.agentCmd)
+	if len(parts) == 0 {
+		return
+	}
+	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	cmd.Stdin = strings.NewReader(prompt)
+	cmd.Dir = s.session.RepoRoot
+	_ = cmd.Run()
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
