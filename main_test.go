@@ -781,3 +781,30 @@ func TestResolveServerConfig_OutputDir(t *testing.T) {
 		}
 	})
 }
+
+func TestResolvePlanConfig_NameAndFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plan.md")
+	os.WriteFile(path, []byte("# Test Plan"), 0644)
+
+	pc := resolvePlanConfig([]string{"--name", "auth-flow", path})
+	if pc.name != "auth-flow" {
+		t.Errorf("name = %q, want %q", pc.name, "auth-flow")
+	}
+	if pc.filePath != path {
+		t.Errorf("filePath = %q, want %q", pc.filePath, path)
+	}
+}
+
+func TestResolvePlanConfig_NameOnly(t *testing.T) {
+	pc := resolvePlanConfig([]string{"--name", "auth-flow"})
+	if pc.name != "auth-flow" {
+		t.Errorf("name = %q, want %q", pc.name, "auth-flow")
+	}
+	if pc.filePath != "" {
+		t.Errorf("filePath should be empty, got %q", pc.filePath)
+	}
+	if !pc.stdinExpected {
+		t.Error("expected stdinExpected=true when no file arg")
+	}
+}

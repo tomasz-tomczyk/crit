@@ -65,6 +65,8 @@ func main() {
 		runComment(os.Args[2:])
 	case "review":
 		runReview(os.Args[2:])
+	case "plan":
+		runPlan(os.Args[2:])
 	case "stop":
 		runStop(os.Args[2:])
 	case "_serve":
@@ -542,10 +544,18 @@ func runComment(args []string) {
 	commentResolve := false
 	commentPath := ""
 	commentJSON := false
+	commentPlan := ""
 	var commentArgs []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if arg == "--output" || arg == "-o" {
+		if arg == "--plan" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --plan requires a slug\n")
+				os.Exit(1)
+			}
+			i++
+			commentPlan = args[i]
+		} else if arg == "--output" || arg == "-o" {
 			if i+1 >= len(args) {
 				fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
 				os.Exit(1)
@@ -580,6 +590,15 @@ func runComment(args []string) {
 		} else {
 			commentArgs = append(commentArgs, arg)
 		}
+	}
+
+	// --plan resolves to --output for the plan storage directory
+	if commentPlan != "" {
+		if commentOutputDir != "" {
+			fmt.Fprintln(os.Stderr, "Error: --plan and --output cannot be used together")
+			os.Exit(1)
+		}
+		commentOutputDir = planStorageDir(slugify(commentPlan))
 	}
 
 	// Resolve author: --author flag > config > git user.name
@@ -811,6 +830,134 @@ func fileExistsOnDiskOrSession(path string, outputDir string) bool {
 // runReview always uses the daemon pattern: starts a background daemon if needed,
 // connects as a review client, blocks for one review cycle, then exits.
 // Used by `crit review` and by agents.
+type planConfig struct {
+	name          string
+	filePath      string
+	stdinExpected bool
+	port          int
+	noOpen        bool
+	quiet         bool
+}
+
+func resolvePlanConfig(args []string) planConfig {
+	fs := flag.NewFlagSet("plan", flag.ExitOnError)
+	name := fs.String("name", "", "Plan name/slug for session identification")
+	port := fs.Int("port", 0, "Port to listen on")
+	fs.IntVar(port, "p", 0, "Port (shorthand)")
+	noOpen := fs.Bool("no-open", false, "Don't auto-open browser")
+	quiet := fs.Bool("quiet", false, "Suppress status output")
+	fs.BoolVar(quiet, "q", false, "Suppress status (shorthand)")
+	fs.Parse(args)
+
+	pc := planConfig{
+		name:   *name,
+		port:   *port,
+		noOpen: *noOpen,
+		quiet:  *quiet,
+	}
+
+	remaining := fs.Args()
+	if len(remaining) > 0 {
+		pc.filePath = remaining[0]
+	} else {
+		pc.stdinExpected = true
+	}
+
+	return pc
+}
+
+func runPlan(args []string) {
+	pc := resolvePlanConfig(args)
+
+	var content []byte
+	var err error
+
+	if pc.filePath != "" {
+		content, err = os.ReadFile(pc.filePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", pc.filePath, err)
+			os.Exit(1)
+		}
+	} else if pc.stdinExpected {
+		if !isStdinPipe() {
+			fmt.Fprintln(os.Stderr, "Error: no file specified and stdin is not a pipe")
+			fmt.Fprintln(os.Stderr, "Usage: crit plan --name <slug> <file>  or  echo \"content\" | crit plan --name <slug>")
+			os.Exit(1)
+		}
+		content, err = io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	if len(strings.TrimSpace(string(content))) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: plan content is empty")
+		os.Exit(1)
+	}
+
+	// Resolve slug: explicit --name takes priority, otherwise derive from content heading + date
+	var slug string
+	if pc.name != "" {
+		slug = slugify(pc.name)
+	} else {
+		slug = resolveSlug(content)
+		fmt.Fprintf(os.Stderr, "No --name provided, derived slug: %s\n", slug)
+	}
+	storageDir := planStorageDir(slug)
+
+	ver, err := savePlanVersion(storageDir, content)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving plan: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "Plan '%s' saved as v%03d (%d bytes)\n", slug, ver, len(content))
+
+	cwd, _ := resolvedCWD()
+	key := planSessionKey(cwd, slug)
+
+	currentPath := filepath.Join(storageDir, "current.md")
+	daemonArgs := buildPlanDaemonArgs(currentPath, storageDir, slug, pc.port, pc.noOpen, pc.quiet)
+
+	entry, alive := findAliveSession(key)
+	weStartedDaemon := false
+
+	if alive {
+		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", entry.Port)
+		if !pc.noOpen && !daemonHasBrowser(entry) {
+			go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
+		}
+	} else {
+		entry, err = startDaemon(key, daemonArgs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "Started crit daemon on port %d (PID %d)\n", entry.Port, entry.PID)
+		weStartedDaemon = true
+	}
+
+	if weStartedDaemon {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			if proc, err := os.FindProcess(entry.PID); err == nil {
+				proc.Signal(syscall.SIGTERM)
+			}
+			os.Exit(0)
+		}()
+	}
+
+	approved := runReviewClient(entry)
+
+	if approved {
+		if proc, err := os.FindProcess(entry.PID); err == nil {
+			proc.Signal(syscall.SIGTERM)
+		}
+	}
+}
+
 func runReview(args []string) {
 	// Parse args to extract file args (stripping flags like --port, --no-open).
 	// The session key must use only file args to match what runServe computes.
@@ -966,6 +1113,8 @@ type serverConfig struct {
 	files              []string // explicit file arguments (empty = git mode)
 	noIntegrationCheck bool
 	agentCmd           string
+	planDir            string // managed storage directory for plan mode
+	planName           string // display name for plan content
 }
 
 // resolveServerConfig parses flags, loads config files, and resolves the
@@ -985,6 +1134,8 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 	fs.BoolVar(quiet, "q", false, "Suppress status output (shorthand)")
 	noIgnore := fs.Bool("no-ignore", false, "Disable all ignore patterns from config files")
 	baseBranch := fs.String("base-branch", "", "Base branch to diff against (overrides auto-detection)")
+	planDir := fs.String("plan-dir", "", "")
+	planName := fs.String("name", "", "")
 	fs.Usage = func() {
 		printHelp()
 	}
@@ -1059,6 +1210,8 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		noIntegrationCheck: cfg.NoIntegrationCheck,
 		agentCmd:           cfg.AgentCmd,
 		files:              fs.Args(),
+		planDir:            *planDir,
+		planName:           *planName,
 	}, nil
 }
 
@@ -1088,6 +1241,17 @@ func runServe(args []string) {
 		log.Fatalf("Error: %v", err)
 	}
 
+	if sc.planDir != "" {
+		applyPlanOverrides(session, sc.planDir, sc.planName)
+		// Clear stale comments loaded from cwd's .crit.json by NewSessionFromFiles,
+		// then re-load from the plan storage dir (which may not have a .crit.json yet).
+		for _, f := range session.Files {
+			f.Comments = []Comment{}
+		}
+		session.reviewComments = nil
+		session.loadCritJSON()
+	}
+
 	if sc.outputDir != "" {
 		abs, _ := filepath.Abs(sc.outputDir)
 		session.OutputDir = abs
@@ -1113,7 +1277,12 @@ func runServe(args []string) {
 
 	// Write session file so clients can discover us
 	cwd, _ := resolvedCWD()
-	key := sessionKey(cwd, sc.files)
+	var key string
+	if sc.planDir != "" {
+		key = planSessionKey(cwd, sc.planName)
+	} else {
+		key = sessionKey(cwd, sc.files)
+	}
 	if err := writeSessionFile(key, sessionEntry{
 		PID:       os.Getpid(),
 		Port:      addr.Port,
@@ -1221,6 +1390,8 @@ Usage:
   crit unpublish                             Remove a shared review from crit-web
   crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments to .crit.json
   crit push [--dry-run] [--event <type>] [-m <msg>] [-o <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
+  crit plan --name <slug> <file>             Review a plan file (manages versioned copies)
+  crit plan --name <slug>                    Read plan from stdin
   crit install <agent>                       Install integration files for an AI coding tool
   crit check                                 Check if installed integrations are up to date
   crit config [--generate]                    Show resolved configuration

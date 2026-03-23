@@ -130,6 +130,7 @@ func (s *Session) Watch(stop <-chan struct{}) {
 	if s.Mode == "git" {
 		s.watchGit(stop)
 	} else {
+		// Both "files" and "plan" modes use file mtime polling.
 		s.watchFileMtimes(stop)
 	}
 }

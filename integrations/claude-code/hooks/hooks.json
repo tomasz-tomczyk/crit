@@ -1,0 +1,17 @@
+{
+  "description": "Intercept plan mode exit for inline review via crit",
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/plan-review.sh\"",
+            "timeout": 345600
+          }
+        ]
+      }
+    ]
+  }
+}

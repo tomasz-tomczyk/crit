@@ -36,6 +36,9 @@ test-diff:
 test-daemon:
 	./test/test-daemon-reuse.sh
 
+test-plan-daemon:
+	./test/test-plan-daemon.sh
+
 clean:
 	rm -f crit
 	rm -rf dist
@@ -49,4 +52,4 @@ e2e-failed:
 e2e-report:
 	cd e2e && npx playwright show-report
 
-.PHONY: build build-all generate verify-generate update-deps test setup-hooks clean test-diff test-daemon e2e e2e-failed e2e-report
+.PHONY: build build-all generate verify-generate update-deps test setup-hooks clean test-diff test-daemon test-plan-daemon e2e e2e-failed e2e-report
