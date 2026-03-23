@@ -8,6 +8,8 @@ var integrationHashes = map[string]string{
 	"integrations/claude-code/commands/crit.md": "899d8a98a03fbbb9775ec47e77e8ea5cba6bfdd8b3020e231547cb210101495e",
 	"integrations/claude-code/skills/crit-cli/SKILL.md": "51139680abae1584527d2560e4385eb15283fe0250371369a250d33031494a1a",
 	"integrations/cline/crit.md": "3e8fb99bb9e25f4405c47234d3cae3125b9c4bd5083af5f68f6849d394832de4",
+	"integrations/codex/skills/crit-cli/SKILL.md": "972044b6ced44fbc40cdc9edd6f65280ad1b48f311cd76c25a3b911006253434",
+	"integrations/codex/skills/crit/SKILL.md": "fc39931fad4597decebd31c5b3a4aa0e9c79cc4517fdf8fe1e51eeaafdeb7fcb",
 	"integrations/cursor/commands/crit.md": "ddbb0e93a12f6929ca07d97805302f3a2a47dcf25e0aa017e77e0f3c7d52868d",
 	"integrations/cursor/skills/crit-cli/SKILL.md": "2b58c84bf578790236448474d4d5a402d361c9fded9865db648df3bb0aee9390",
 	"integrations/github-copilot/commands/crit.prompt.md": "226da1fcbd27776fd0823dced05d31ac422bebcd4b9f4f87d85e4deff0503f2b",

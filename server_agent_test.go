@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHandleAgentRequest_NoAgentConfigured(t *testing.T) {
@@ -66,5 +69,102 @@ func TestHandleAgentRequest_Success(t *testing.T) {
 	}
 	if resp["status"] != "accepted" {
 		t.Errorf("status = %v, want accepted", resp["status"])
+	}
+}
+
+func TestAgentName_Codex(t *testing.T) {
+	tests := []struct {
+		cmd  string
+		want string
+	}{
+		{"codex exec", "codex"},
+		{"codex exec {prompt}", "codex"},
+		{"/usr/local/bin/codex exec", "codex"},
+		{"claude -p", "claude"},
+		{"", "agent"},
+	}
+	for _, tc := range tests {
+		got := agentName(tc.cmd)
+		if got != tc.want {
+			t.Errorf("agentName(%q) = %q, want %q", tc.cmd, got, tc.want)
+		}
+	}
+}
+
+func TestRunAgentCmd_PromptPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "test.md")
+	os.WriteFile(testFile, []byte("hello"), 0o644)
+
+	s, session := newTestServer(t)
+	session.RepoRoot = dir
+
+	// Use a script that writes the first argument to a file, proving
+	// the prompt was passed as an argument (not stdin).
+	outFile := filepath.Join(dir, "agent-output.txt")
+	s.agentCmd = "sh -c echo $0 > " + outFile + " {prompt}"
+
+	// Actually, let's use a simpler approach: use "echo" which prints args to stdout.
+	// With {prompt}, the prompt becomes an argument to echo.
+	s.agentCmd = "echo {prompt}"
+
+	session.mu.Lock()
+	session.Files[0].Comments = []Comment{
+		{ID: "c1", StartLine: 1, EndLine: 1, Body: "test comment", Author: "reviewer", Scope: "line"},
+	}
+	session.mu.Unlock()
+
+	s.runAgentCmd("hello from placeholder", "c1", session.Files[0].Path)
+
+	// Give the session a moment to persist
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify the reply was added — echo should have printed the prompt as an arg
+	session.mu.Lock()
+	replies := session.Files[0].Comments[0].Replies
+	session.mu.Unlock()
+	if len(replies) == 0 {
+		t.Fatal("expected a reply from agent, got none")
+	}
+	if !strings.Contains(replies[0].Body, "hello from placeholder") {
+		t.Errorf("reply body = %q, want it to contain the prompt text", replies[0].Body)
+	}
+	if replies[0].Author != "echo" {
+		t.Errorf("reply author = %q, want 'echo'", replies[0].Author)
+	}
+}
+
+func TestRunAgentCmd_StdinFallback(t *testing.T) {
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "test.md")
+	os.WriteFile(testFile, []byte("hello"), 0o644)
+
+	s, session := newTestServer(t)
+	session.RepoRoot = dir
+
+	// "cat" reads from stdin and prints to stdout — no {prompt} placeholder
+	s.agentCmd = "cat"
+
+	session.mu.Lock()
+	session.Files[0].Comments = []Comment{
+		{ID: "c1", StartLine: 1, EndLine: 1, Body: "test comment", Author: "reviewer", Scope: "line"},
+	}
+	session.mu.Unlock()
+
+	s.runAgentCmd("hello from stdin", "c1", session.Files[0].Path)
+
+	time.Sleep(100 * time.Millisecond)
+
+	session.mu.Lock()
+	replies := session.Files[0].Comments[0].Replies
+	session.mu.Unlock()
+	if len(replies) == 0 {
+		t.Fatal("expected a reply from agent, got none")
+	}
+	if !strings.Contains(replies[0].Body, "hello from stdin") {
+		t.Errorf("reply body = %q, want it to contain the prompt text", replies[0].Body)
+	}
+	if replies[0].Author != "cat" {
+		t.Errorf("reply author = %q, want 'cat'", replies[0].Author)
 	}
 }

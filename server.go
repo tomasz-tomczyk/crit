@@ -1098,8 +1098,9 @@ func buildAgentPrompt(c Comment, filePath string) string {
 	return b.String()
 }
 
-// runAgentCmd executes the configured agent command with the given prompt via stdin.
-// The agent's stdout is captured and posted as a reply to the comment.
+// runAgentCmd executes the configured agent command with the given prompt.
+// If agent_cmd contains {prompt}, the placeholder is replaced with the prompt
+// as a single argument. Otherwise, the prompt is piped via stdin.
 func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -1109,8 +1110,20 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		return
 	}
 	log.Printf("agent-request %s: running %q", commentID, s.agentCmd)
+
+	// Replace {prompt} placeholder with the actual prompt as a single argument.
+	hasPlaceholder := false
+	for i, p := range parts {
+		if p == "{prompt}" {
+			parts[i] = prompt
+			hasPlaceholder = true
+		}
+	}
+
 	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
-	cmd.Stdin = strings.NewReader(prompt)
+	if !hasPlaceholder {
+		cmd.Stdin = strings.NewReader(prompt)
+	}
 	cmd.Dir = s.session.RepoRoot
 
 	var stdout, stderr bytes.Buffer

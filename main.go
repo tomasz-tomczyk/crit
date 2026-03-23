@@ -1348,10 +1348,14 @@ var integrationMap = map[string][]integration{
 	"cline": {
 		{source: "integrations/cline/crit.md", dest: ".clinerules/crit.md", hint: "Cline will suggest Crit when writing plans"},
 	},
+	"codex": {
+		{source: "integrations/codex/skills/crit/SKILL.md", dest: ".agents/skills/crit/SKILL.md", hint: "Use $crit in Codex to start a review loop"},
+		{source: "integrations/codex/skills/crit-cli/SKILL.md", dest: ".agents/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Codex agents when needed"},
+	},
 }
 
 func availableIntegrations() []string {
-	return []string{"claude-code", "cursor", "opencode", "windsurf", "github-copilot", "cline"}
+	return []string{"claude-code", "codex", "cursor", "opencode", "windsurf", "github-copilot", "cline"}
 }
 
 func installIntegration(name string, force bool) {
