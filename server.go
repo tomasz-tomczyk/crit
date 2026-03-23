@@ -682,7 +682,8 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 				"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
 					"Each comment has a scope field: \"line\" for inline comments, \"file\" for file-level comments, or \"review\" for review-level comments. "+
 					"Review-level comments appear in the top-level review_comments array (not tied to any file). "+
-					"Read the file, address each comment in the relevant file and location. "+
+					"Read the file, address each unresolved comment in the relevant file and location. "+
+					"Before acting, check each comment's replies array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change. "+
 					"For each comment: reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> --resolve \"<explanation>\"`, "+
 					"or edit .crit.json directly to add a reply to the comment's \"replies\" array and set \"resolved\": true. "+
 					"When done run: `%s`",

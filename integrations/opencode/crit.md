@@ -61,6 +61,8 @@ The file contains structured JSON with comments per file:
 
 Identify all comments where `"resolved": false` or where the `resolved` field is missing (missing means unresolved). If a comment has a `"quote"` field, it contains the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range.
 
+Before acting on a comment, check its `replies` array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change.
+
 ## Step 4: Address each review comment
 
 For each unresolved comment:

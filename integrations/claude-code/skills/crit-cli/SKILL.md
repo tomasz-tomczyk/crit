@@ -58,6 +58,7 @@ After a crit review session, comments are in `.crit.json`. Comments have three s
 - `quote` (optional): the specific text the reviewer selected — narrows the comment's scope within the line range. When present, focus your changes on the quoted text rather than the entire line range
 - `resolved`: `false` or **missing** — both mean unresolved. Only `true` means resolved.
 - Address each unresolved comment by editing the relevant file at the referenced location
+- Before acting on a comment, check its `replies` array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change
 
 ### Resolving comments
 
