@@ -204,6 +204,7 @@ After the first agent interaction, the comment becomes a **live thread**:
 - **Real-time output.** `.crit.json` is written on every comment change (200ms debounce), so your agent always has the latest review state.
 - **Dark/light/system theme.** Three-button pill in the header, persisted to localStorage.
 - **Local by default.** Server binds to `127.0.0.1`. Your files stay on your machine unless you explicitly share.
+- **No analytics or tracking.** Crit collects zero telemetry. No usage stats, no crash reports, no phone-home. If we ever add anonymous usage statistics in the future, they will be explicitly opt-in.
 
 ## Agent Integrations
 
