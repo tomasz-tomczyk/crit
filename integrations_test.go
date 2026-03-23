@@ -173,6 +173,69 @@ func TestCheckInstalledIntegrations_CacheStale(t *testing.T) {
 	}
 }
 
+func TestLatestCacheDir(t *testing.T) {
+	t.Run("picks lexicographically last dir", func(t *testing.T) {
+		dir := t.TempDir()
+		os.Mkdir(filepath.Join(dir, "1.0.0"), 0o755)
+		os.Mkdir(filepath.Join(dir, "1.0.2"), 0o755)
+		os.Mkdir(filepath.Join(dir, "1.0.1"), 0o755)
+		if got := latestCacheDir(dir); got != "1.0.2" {
+			t.Errorf("got %q, want 1.0.2", got)
+		}
+	})
+	t.Run("ignores files", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "zzz"), nil, 0o644)
+		os.Mkdir(filepath.Join(dir, "1.0.0"), 0o755)
+		if got := latestCacheDir(dir); got != "1.0.0" {
+			t.Errorf("got %q, want 1.0.0", got)
+		}
+	})
+	t.Run("returns empty for nonexistent dir", func(t *testing.T) {
+		if got := latestCacheDir("/no/such/path"); got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+	t.Run("returns empty for empty dir", func(t *testing.T) {
+		if got := latestCacheDir(t.TempDir()); got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+}
+
+func TestCheckInstalledIntegrations_CacheSkipsOldVersions(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+
+	// Create two version dirs: 1.0.0 (stale) and 1.0.1 (current)
+	for _, ver := range []string{"1.0.0", "1.0.1"} {
+		cachePath := filepath.Join(homeDir, ".claude", "plugins", "cache", "crit", "crit",
+			ver, "commands")
+		if err := os.MkdirAll(cachePath, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if ver == "1.0.0" {
+			// Stale content in old version
+			os.WriteFile(filepath.Join(cachePath, "crit.md"), []byte("old stale"), 0o644)
+		} else {
+			// Current content — use the real source file to get the correct hash
+			src := filepath.Join("integrations", "claude-code", "commands", "crit.md")
+			data, err := os.ReadFile(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			os.WriteFile(filepath.Join(cachePath, "crit.md"), data, 0o644)
+		}
+	}
+
+	stale := checkInstalledIntegrations(projectDir, homeDir)
+	for _, s := range stale {
+		if s.location == locationCache {
+			t.Errorf("should not flag cache as stale when latest version matches, got: %s", s.dest)
+		}
+	}
+}
+
 func TestPrintStaleWarnings_NoStale(t *testing.T) {
 	count := printStaleWarnings(nil)
 	if count != 0 {
