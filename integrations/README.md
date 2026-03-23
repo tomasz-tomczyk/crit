@@ -19,6 +19,7 @@ This installs a `/crit` slash command into your project. Safe to re-run — exis
 | OpenCode | `crit install opencode` | `.opencode/commands/crit.md` + `.opencode/skills/crit/SKILL.md` |
 | Windsurf | `crit install windsurf` | `.windsurf/rules/crit.md` |
 | Cline | `crit install cline` | `.clinerules/crit.md` |
+| Codex | `crit install codex` | `.agents/skills/crit/SKILL.md` + `.agents/skills/crit-cli/SKILL.md` |
 | Aider | — (copy manually) | Append `aider/CONVENTIONS.md` to your `CONVENTIONS.md` |
 
 ## Plugin marketplace (Claude Code)

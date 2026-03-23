@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestHandleAgentRequest_NoAgentConfigured(t *testing.T) {
@@ -99,13 +98,7 @@ func TestRunAgentCmd_PromptPlaceholder(t *testing.T) {
 	s, session := newTestServer(t)
 	session.RepoRoot = dir
 
-	// Use a script that writes the first argument to a file, proving
-	// the prompt was passed as an argument (not stdin).
-	outFile := filepath.Join(dir, "agent-output.txt")
-	s.agentCmd = "sh -c echo $0 > " + outFile + " {prompt}"
-
-	// Actually, let's use a simpler approach: use "echo" which prints args to stdout.
-	// With {prompt}, the prompt becomes an argument to echo.
+	// With {prompt}, the prompt is passed as an argument (not stdin).
 	s.agentCmd = "echo {prompt}"
 
 	session.mu.Lock()
@@ -116,10 +109,7 @@ func TestRunAgentCmd_PromptPlaceholder(t *testing.T) {
 
 	s.runAgentCmd("hello from placeholder", "c1", session.Files[0].Path)
 
-	// Give the session a moment to persist
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify the reply was added — echo should have printed the prompt as an arg
+	// runAgentCmd is synchronous — reply is already added when it returns.
 	session.mu.Lock()
 	replies := session.Files[0].Comments[0].Replies
 	session.mu.Unlock()
@@ -152,8 +142,6 @@ func TestRunAgentCmd_StdinFallback(t *testing.T) {
 	session.mu.Unlock()
 
 	s.runAgentCmd("hello from stdin", "c1", session.Files[0].Path)
-
-	time.Sleep(100 * time.Millisecond)
 
 	session.mu.Lock()
 	replies := session.Files[0].Comments[0].Replies
