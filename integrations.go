@@ -17,6 +17,26 @@ func computeFileHash(data []byte) string {
 	return fmt.Sprintf("%x", h)
 }
 
+// latestCacheDir returns the lexicographically last subdirectory name
+// inside dir, or "" if dir doesn't exist or has no subdirectories.
+// Version directories sort correctly by string comparison (e.g. "1.0.1" > "1.0.0").
+func latestCacheDir(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	var latest string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if entry.Name() > latest {
+			latest = entry.Name()
+		}
+	}
+	return latest
+}
+
 // location describes where a stale file was found, determining the update advice.
 const (
 	locationProject     = "project"     // ./  (crit install)
@@ -104,18 +124,15 @@ func checkInstalledIntegrations(projectDir, homeDir string) []staleFile {
 			marketplacePath := filepath.Join(homeDir, toolDir, "plugins", "marketplaces", "crit", f.source)
 			candidates = append(candidates, candidate{marketplacePath, locationMarketplace})
 
-			// Marketplace cache: ~/<toolDir>/plugins/cache/crit/crit/*/<plugin-relative-path>
+			// Marketplace cache: ~/<toolDir>/plugins/cache/crit/crit/<latest>/<plugin-relative-path>
+			// Only check the latest version directory to avoid false positives from old cached versions.
 			agentPrefix := fmt.Sprintf("integrations/%s/", agent)
 			if strings.HasPrefix(f.source, agentPrefix) {
 				relPath := strings.TrimPrefix(f.source, agentPrefix)
 				cacheBase := filepath.Join(homeDir, toolDir, "plugins", "cache", "crit", "crit")
-				if entries, err := os.ReadDir(cacheBase); err == nil {
-					for _, entry := range entries {
-						if entry.IsDir() {
-							cachePath := filepath.Join(cacheBase, entry.Name(), relPath)
-							candidates = append(candidates, candidate{cachePath, locationCache})
-						}
-					}
+				if latest := latestCacheDir(cacheBase); latest != "" {
+					cachePath := filepath.Join(cacheBase, latest, relPath)
+					candidates = append(candidates, candidate{cachePath, locationCache})
 				}
 			}
 
