@@ -81,6 +81,7 @@ type Session struct {
 	BaseRef        string
 	RepoRoot       string
 	OutputDir      string // custom output directory for .crit.json (empty = RepoRoot)
+	PlanDir        string // managed storage dir for plan mode (empty for git/files)
 	ReviewRound    int
 	IgnorePatterns []string
 
@@ -1830,7 +1831,7 @@ func (s *Session) GetCommits() []CommitInfo {
 // All other scopes (including "all") run fresh git queries to pick up files added after startup.
 // When commit is non-empty, files and diffs are scoped to that single commit.
 func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
-	if commit == "" && (scope == "" || s.Mode == "files") {
+	if commit == "" && (scope == "" || s.Mode == "files" || s.Mode == "plan") {
 		return s.GetSessionInfo()
 	}
 
@@ -1922,7 +1923,7 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 // When scope is "" or in file mode (scopes only apply to git), delegates to GetFileDiffSnapshot.
 // When commit is non-empty, returns the diff for that single commit.
 func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string) (map[string]any, bool) {
-	if commit == "" && (scope == "" || s.Mode == "files") {
+	if commit == "" && (scope == "" || s.Mode == "files" || s.Mode == "plan") {
 		return s.GetFileDiffSnapshot(path)
 	}
 

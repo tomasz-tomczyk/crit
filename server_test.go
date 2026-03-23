@@ -1758,3 +1758,26 @@ func TestHandleConfig_AgentCmdEnabled(t *testing.T) {
 		t.Fatal("expected agent_cmd_enabled=true when configured")
 	}
 }
+
+func TestHandleSession_PlanMode(t *testing.T) {
+	session := &Session{
+		Mode:    "plan",
+		PlanDir: "/tmp/test-plan",
+		Files: []*FileEntry{
+			{Path: "auth-flow.md", FileType: "markdown", Content: "# Plan", Comments: []Comment{}},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+	srv, _ := NewServer(session, frontendFS, "", nil, "", "dev", 0, "")
+
+	req := httptest.NewRequest("GET", "/api/session", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp["mode"] != "plan" {
+		t.Errorf("mode = %v, want 'plan'", resp["mode"])
+	}
+}

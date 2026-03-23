@@ -673,15 +673,21 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	critJSON := s.session.critJSONPath()
 	prompt := ""
 	if totalComments > 0 && unresolvedComments > 0 {
-		prompt = fmt.Sprintf(
-			"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
-				"Each comment has a scope field: \"line\" for inline comments, \"file\" for file-level comments, or \"review\" for review-level comments. "+
-				"Review-level comments appear in the top-level review_comments array (not tied to any file). "+
-				"Read the file, address each comment in the relevant file and location. "+
-				"For each comment: reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> --resolve \"<explanation>\"`, "+
-				"or edit .crit.json directly to add a reply to the comment's \"replies\" array and set \"resolved\": true. "+
-				"When done run: `%s`",
-			critJSON, s.session.ReinvokeCommand())
+		if s.session.Mode == "plan" {
+			// Plan mode: concise feedback for the hook workflow.
+			// Claude revises the plan text directly — no need for crit comment or .crit.json instructions.
+			prompt = s.buildPlanFeedback(critJSON)
+		} else {
+			prompt = fmt.Sprintf(
+				"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
+					"Each comment has a scope field: \"line\" for inline comments, \"file\" for file-level comments, or \"review\" for review-level comments. "+
+					"Review-level comments appear in the top-level review_comments array (not tied to any file). "+
+					"Read the file, address each comment in the relevant file and location. "+
+					"For each comment: reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> --resolve \"<explanation>\"`, "+
+					"or edit .crit.json directly to add a reply to the comment's \"replies\" array and set \"resolved\": true. "+
+					"When done run: `%s`",
+				critJSON, s.session.ReinvokeCommand())
+		}
 	} else if totalComments > 0 && unresolvedComments == 0 {
 		prompt = "All comments are resolved — no changes needed, please proceed."
 	}
@@ -714,6 +720,20 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+}
+
+// buildPlanFeedback formats review feedback for plan mode.
+// Points to .crit.json and hints at crit-cli skill, without inlining every comment.
+func (s *Server) buildPlanFeedback(critJSON string) string {
+	// Extract slug from PlanDir (last path component)
+	slug := filepath.Base(s.session.PlanDir)
+	return fmt.Sprintf(
+		"Plan review feedback — revise the plan to address the review comments. "+
+			"Comments are in %s — grouped per file with start_line/end_line referencing the source. "+
+			"Each comment has a scope field: \"line\" for inline comments, \"file\" for file-level, or \"review\" for review-level comments. "+
+			"Read the file, revise the plan to address each comment. "+
+			"To reply to and resolve comments, use `crit comment --plan %s --reply-to <id> --resolve --author <your-name> \"<explanation>\"`.",
+		critJSON, slug)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
