@@ -69,6 +69,15 @@ crit comment --reply-to r0 --resolve --author 'Cursor' 'All issues addressed'
 ```
 
 This adds a reply to the comment thread and marks it resolved. Works for both file comment IDs (`c1`, `c2`, ...) and review comment IDs (`r0`, `r1`, ...). You can also reply without resolving (omit `--resolve`) if discussion is ongoing.
+### Plan mode comments
+
+When reviewing plans (via `crit plan` or the ExitPlanMode hook), `.crit.json` is stored in `~/.crit/plans/<slug>/` — not the project root. Use `--plan <slug>` so `crit comment` finds the right file:
+
+```bash
+crit comment --plan my-plan-2026-03-23 --reply-to c1 --resolve --author 'Claude Code' 'Updated the plan'
+```
+
+The `--plan` flag resolves to the plan storage directory automatically. The slug is shown in the review feedback prompt. **Always use `--plan` when responding to plan review comments** — without it, `crit comment` looks in the project root and won't find the comments.
 
 ## Leaving Comments with crit comment CLI
 
