@@ -9,7 +9,9 @@ crit install <tool>     # Install for a specific tool
 crit install all        # Install for all supported tools
 ```
 
-This installs a `/crit` slash command into your project. Safe to re-run — existing files are skipped (use `--force` to overwrite).
+This installs integration files into your project. Safe to re-run — existing files are skipped (use `--force` to overwrite).
+
+**Global install**: Run `cd ~ && crit install <tool>` to install to your home directory instead. This makes the integration available across all projects without per-project setup. Works for tools that support user-level config (Codex reads `~/.agents/skills/`, Claude Code reads `~/.claude/`).
 
 | Tool | Install command | Destination |
 |------|----------------|-------------|
