@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,7 +35,9 @@ type Comment struct {
 	Side           string  `json:"side,omitempty"`
 	Body           string  `json:"body"`
 	Quote          string  `json:"quote,omitempty"`
+	QuoteOffset    *int    `json:"quote_offset,omitempty"`
 	Author         string  `json:"author,omitempty"`
+	Scope          string  `json:"scope,omitempty"`
 	CreatedAt      string  `json:"created_at"`
 	UpdatedAt      string  `json:"updated_at"`
 	Resolved       bool    `json:"resolved,omitempty"`
@@ -60,7 +63,6 @@ type FileEntry struct {
 	Content  string    `json:"-"`         // current file content
 	FileHash string    `json:"-"`         // sha256 hash of content
 	Comments []Comment `json:"-"`         // this file's comments
-	nextID   int
 
 	// Diff hunks for code files (from git diff)
 	DiffHunks []DiffHunk `json:"-"`
@@ -73,7 +75,8 @@ type FileEntry struct {
 // Session is the top-level state manager for a multi-file review.
 type Session struct {
 	Files          []*FileEntry
-	Mode           string // "files" (explicit markdown files) or "git" (auto-detected from git)
+	Mode           string   // "files" (explicit markdown files) or "git" (auto-detected from git)
+	CLIArgs        []string // original file arguments passed on the command line (empty for git mode)
 	Branch         string
 	BaseRef        string
 	RepoRoot       string
@@ -81,7 +84,11 @@ type Session struct {
 	ReviewRound    int
 	IgnorePatterns []string
 
+	reviewComments []Comment
+	reviewNextID   int
+
 	mu                  sync.RWMutex
+	nextID              int // session-global comment ID counter (c1, c2, c3... across ALL files)
 	subscribers         map[chan SSEEvent]struct{}
 	subMu               sync.Mutex
 	writeTimer          *time.Timer
@@ -96,6 +103,7 @@ type Session struct {
 	lastRoundEdits      int
 	lastCritJSONMtime   time.Time // mtime after our last WriteFiles(); used to detect external changes
 	awaitingFirstReview bool      // true until first review-cycle completes
+	browserClients      int32     // number of connected SSE browser clients (atomic)
 }
 
 // isSessionFile checks whether an absolute path belongs to a file in this session.
@@ -112,16 +120,15 @@ func (s *Session) isSessionFile(absPath string) bool {
 
 // CritJSON is the on-disk format for .crit.json.
 type CritJSON struct {
-	Branch      string                  `json:"branch"`
-	BaseRef     string                  `json:"base_ref"`
-	UpdatedAt   string                  `json:"updated_at"`
-	ReviewRound int                     `json:"review_round"`
-	ShareURL    string                  `json:"share_url,omitempty"`
-	DeleteToken string                  `json:"delete_token,omitempty"`
-	ShareScope  string                  `json:"share_scope,omitempty"`
-	DaemonPID   int                     `json:"daemon_pid,omitempty"`
-	DaemonPort  int                     `json:"daemon_port,omitempty"`
-	Files       map[string]CritJSONFile `json:"files"`
+	Branch         string                  `json:"branch"`
+	BaseRef        string                  `json:"base_ref"`
+	UpdatedAt      string                  `json:"updated_at"`
+	ReviewRound    int                     `json:"review_round"`
+	ShareURL       string                  `json:"share_url,omitempty"`
+	DeleteToken    string                  `json:"delete_token,omitempty"`
+	ShareScope     string                  `json:"share_scope,omitempty"`
+	ReviewComments []Comment               `json:"review_comments,omitempty"`
+	Files          map[string]CritJSONFile `json:"files"`
 }
 
 // CritJSONFile is the per-file section in .crit.json.
@@ -175,6 +182,7 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 		BaseRef:             baseRef,
 		RepoRoot:            root,
 		ReviewRound:         1,
+		nextID:              1,
 		IgnorePatterns:      ignorePatterns,
 		subscribers:         make(map[chan SSEEvent]struct{}),
 		roundComplete:       make(chan struct{}, 1),
@@ -187,7 +195,6 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 			Path:    fc.Path,
 			AbsPath: absPath,
 			Status:  fc.Status,
-			nextID:  1,
 		}
 		fe.FileType = detectFileType(fc.Path)
 
@@ -295,6 +302,7 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 		BaseRef:             baseRef,
 		RepoRoot:            root,
 		ReviewRound:         1,
+		nextID:              1,
 		IgnorePatterns:      ignorePatterns,
 		subscribers:         make(map[chan SSEEvent]struct{}),
 		roundComplete:       make(chan struct{}, 1),
@@ -322,7 +330,6 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 			Content:  string(data),
 			FileHash: fileHash(data),
 			Comments: []Comment{},
-			nextID:   1,
 		}
 
 		// Load diff hunks in a git repo
@@ -438,21 +445,182 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	c := Comment{
-		ID:          fmt.Sprintf("c%d", f.nextID),
+		ID:          fmt.Sprintf("c%d", s.nextID),
 		StartLine:   startLine,
 		EndLine:     endLine,
 		Side:        side,
 		Body:        body,
 		Quote:       quote,
 		Author:      author,
+		Scope:       "line",
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		ReviewRound: s.ReviewRound,
 	}
-	f.nextID++
+	s.nextID++
 	f.Comments = append(f.Comments, c)
 	s.scheduleWrite()
 	return c, true
+}
+
+// AddFileComment adds a file-level comment (not tied to specific lines).
+func (s *Session) AddFileComment(filePath, body, author string) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.fileByPathLocked(filePath)
+	if f == nil {
+		return Comment{}, false
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	c := Comment{
+		ID:          fmt.Sprintf("c%d", s.nextID),
+		Body:        body,
+		Author:      author,
+		Scope:       "file",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		ReviewRound: s.ReviewRound,
+	}
+	s.nextID++
+	f.Comments = append(f.Comments, c)
+	s.scheduleWrite()
+	return c, true
+}
+
+// AddReviewComment adds a review-level comment (not tied to any file).
+func (s *Session) AddReviewComment(body, author string) Comment {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC().Format(time.RFC3339)
+	c := Comment{
+		ID:          fmt.Sprintf("r%d", s.reviewNextID),
+		Body:        body,
+		Author:      author,
+		Scope:       "review",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		ReviewRound: s.ReviewRound,
+	}
+	s.reviewNextID++
+	s.reviewComments = append(s.reviewComments, c)
+	s.scheduleWrite()
+	return c
+}
+
+// GetReviewComments returns a copy of all review-level comments.
+func (s *Session) GetReviewComments() []Comment {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	comments := make([]Comment, len(s.reviewComments))
+	copy(comments, s.reviewComments)
+	return comments
+}
+
+// UpdateReviewComment updates a review-level comment by ID.
+func (s *Session) UpdateReviewComment(id, body string) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == id {
+			s.reviewComments[i].Body = body
+			s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			s.scheduleWrite()
+			return s.reviewComments[i], true
+		}
+	}
+	return Comment{}, false
+}
+
+// DeleteReviewComment deletes a review-level comment by ID.
+func (s *Session) DeleteReviewComment(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == id {
+			s.reviewComments = append(s.reviewComments[:i], s.reviewComments[i+1:]...)
+			s.scheduleWrite()
+			return true
+		}
+	}
+	return false
+}
+
+// ResolveReviewComment sets or clears the resolved flag on a review-level comment.
+func (s *Session) ResolveReviewComment(id string, resolved bool) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == id {
+			s.reviewComments[i].Resolved = resolved
+			s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			s.scheduleWrite()
+			return s.reviewComments[i], true
+		}
+	}
+	return Comment{}, false
+}
+
+// AddReviewCommentReply adds a reply to a review-level comment.
+func (s *Session) AddReviewCommentReply(commentID, body, author string) (Reply, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == commentID {
+			now := time.Now().UTC().Format(time.RFC3339)
+			r := Reply{
+				ID:        nextReplyID(commentID, c.Replies),
+				Body:      body,
+				Author:    author,
+				CreatedAt: now,
+			}
+			s.reviewComments[i].Replies = append(s.reviewComments[i].Replies, r)
+			s.reviewComments[i].Resolved = false
+			s.reviewComments[i].UpdatedAt = now
+			s.scheduleWrite()
+			return r, true
+		}
+	}
+	return Reply{}, false
+}
+
+// UpdateReviewCommentReply updates a reply's body on a review-level comment.
+func (s *Session) UpdateReviewCommentReply(commentID, replyID, body string) (Reply, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == commentID {
+			for j, r := range c.Replies {
+				if r.ID == replyID {
+					s.reviewComments[i].Replies[j].Body = body
+					s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+					s.scheduleWrite()
+					return s.reviewComments[i].Replies[j], true
+				}
+			}
+			return Reply{}, false
+		}
+	}
+	return Reply{}, false
+}
+
+// DeleteReviewCommentReply removes a reply from a review-level comment.
+func (s *Session) DeleteReviewCommentReply(commentID, replyID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == commentID {
+			for j, r := range c.Replies {
+				if r.ID == replyID {
+					s.reviewComments[i].Replies = append(s.reviewComments[i].Replies[:j], s.reviewComments[i].Replies[j+1:]...)
+					s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+					s.scheduleWrite()
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
 }
 
 // UpdateComment updates a comment in a specific file.
@@ -527,6 +695,26 @@ func nextReplyID(commentID string, existing []Reply) string {
 	return fmt.Sprintf("%s-r%d", commentID, max+1)
 }
 
+// RefreshFileContent re-reads all file content from disk.
+func (s *Session) RefreshFileContent() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, f := range s.Files {
+		if f.AbsPath == "" {
+			continue
+		}
+		data, err := os.ReadFile(f.AbsPath)
+		if err != nil {
+			continue
+		}
+		newHash := fileHash(data)
+		if newHash != f.FileHash {
+			f.Content = string(data)
+			f.FileHash = newHash
+		}
+	}
+}
+
 // AddReply adds a reply to a specific comment on a file.
 func (s *Session) AddReply(filePath, commentID, body, author string) (Reply, bool) {
 	s.mu.Lock()
@@ -545,6 +733,7 @@ func (s *Session) AddReply(filePath, commentID, body, author string) (Reply, boo
 				CreatedAt: now,
 			}
 			f.Comments[i].Replies = append(f.Comments[i].Replies, r)
+			f.Comments[i].Resolved = false
 			f.Comments[i].UpdatedAt = now
 			s.scheduleWrite()
 			return r, true
@@ -620,6 +809,32 @@ func (s *Session) GetComments(filePath string) []Comment {
 	return result
 }
 
+// FindCommentByID looks up a comment by ID, optionally scoped to a file path.
+// Returns the comment, the file path it belongs to, and whether it was found.
+func (s *Session) FindCommentByID(id string, filePath string) (Comment, string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if filePath != "" {
+		for _, f := range s.Files {
+			if f.Path == filePath {
+				for _, c := range f.Comments {
+					if c.ID == id {
+						return c, f.Path, true
+					}
+				}
+			}
+		}
+	}
+	for _, f := range s.Files {
+		for _, c := range f.Comments {
+			if c.ID == id {
+				return c, f.Path, true
+			}
+		}
+	}
+	return Comment{}, "", false
+}
+
 // GetAllComments returns all comments grouped by file path.
 func (s *Session) GetAllComments() map[string][]Comment {
 	s.mu.RLock()
@@ -641,11 +856,11 @@ func (s *Session) GetAllComments() map[string][]Comment {
 	return result
 }
 
-// TotalCommentCount returns the total number of comments across all files.
+// TotalCommentCount returns the total number of comments across all files and review comments.
 func (s *Session) TotalCommentCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	total := 0
+	total := len(s.reviewComments)
 	for _, f := range s.Files {
 		total += len(f.Comments)
 	}
@@ -653,10 +868,11 @@ func (s *Session) TotalCommentCount() int {
 }
 
 // NewCommentCount returns the number of new (non-carried-forward) comments across all files.
+// Review comments are always counted as new (not carried forward).
 func (s *Session) NewCommentCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	total := 0
+	total := len(s.reviewComments)
 	for _, f := range s.Files {
 		for _, c := range f.Comments {
 			if !c.CarriedForward {
@@ -667,11 +883,16 @@ func (s *Session) NewCommentCount() int {
 	return total
 }
 
-// UnresolvedCommentCount returns the number of unresolved comments across all files.
+// UnresolvedCommentCount returns the number of unresolved comments across all files and review comments.
 func (s *Session) UnresolvedCommentCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	total := 0
+	for _, c := range s.reviewComments {
+		if !c.Resolved {
+			total++
+		}
+	}
 	for _, f := range s.Files {
 		for _, c := range f.Comments {
 			if !c.Resolved {
@@ -735,7 +956,6 @@ func (s *Session) EnsureFileEntry(path string) bool {
 		Content:  string(data),
 		FileHash: fileHash(data),
 		Comments: []Comment{},
-		nextID:   1,
 	}
 
 	// Generate diff hunks
@@ -854,11 +1074,11 @@ func (s *Session) SignalRoundComplete() {
 	s.lastRoundEdits = s.pendingEdits
 	s.pendingEdits = 0
 	s.ReviewRound++
-	// Clear comments on all files, reset IDs
+	// Clear comments on all files, reset session-global ID counter
 	for _, f := range s.Files {
 		f.Comments = []Comment{}
-		f.nextID = 1
 	}
+	s.nextID = 1
 	s.mu.Unlock()
 	select {
 	case s.roundComplete <- struct{}{}:
@@ -884,12 +1104,14 @@ func (s *Session) ClearAllComments() {
 			continue
 		}
 		f.Comments = []Comment{}
-		f.nextID = 1
 		f.PreviousComments = nil
 		f.PreviousContent = ""
 		filtered = append(filtered, f)
 	}
 	s.Files = filtered
+	s.nextID = 1
+	s.reviewComments = nil
+	s.reviewNextID = 0
 	s.ReviewRound = 1
 	s.lastCritJSONMtime = time.Time{}
 	s.pendingWrite = false
@@ -934,14 +1156,15 @@ func (s *Session) critJSONPath() string {
 // writeFilesSnapshot holds all session state needed to write .crit.json,
 // captured under lock so that disk I/O can happen without holding the lock.
 type writeFilesSnapshot struct {
-	critPath    string
-	lastMtime   time.Time
-	branch      string
-	baseRef     string
-	reviewRound int
-	sharedURL   string
-	deleteToken string
-	shareScope  string
+	critPath       string
+	lastMtime      time.Time
+	branch         string
+	baseRef        string
+	reviewRound    int
+	sharedURL      string
+	deleteToken    string
+	shareScope     string
+	reviewComments []Comment
 	// Per-file data needed for the merge. We copy comments so the snapshot
 	// is independent of later in-memory mutations.
 	files []writeFileSnapshot
@@ -980,10 +1203,10 @@ func (s *Session) WriteFiles() {
 			for _, f := range s.Files {
 				if len(f.Comments) > 0 {
 					f.Comments = []Comment{}
-					f.nextID = 1
 					anyComments = true
 				}
 			}
+			s.nextID = 1
 			s.mu.Unlock()
 			if anyComments {
 				s.notify(SSEEvent{Type: "comments-changed"})
@@ -1013,6 +1236,7 @@ func (s *Session) WriteFiles() {
 	cj.ShareURL = snap.sharedURL
 	cj.DeleteToken = snap.deleteToken
 	cj.ShareScope = snap.shareScope
+	cj.ReviewComments = snap.reviewComments
 
 	// Overlay session files: merge with disk comments, remove entries with no comments.
 	for _, fs := range snap.files {
@@ -1049,7 +1273,7 @@ func (s *Session) WriteFiles() {
 	}
 
 	// Only remove if nothing meaningful remains
-	if len(cj.Files) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" && cj.ShareScope == "" {
+	if len(cj.Files) == 0 && len(cj.ReviewComments) == 0 && cj.ShareURL == "" && cj.DeleteToken == "" && cj.ShareScope == "" {
 		os.Remove(snap.critPath)
 		s.mu.Lock()
 		s.lastCritJSONMtime = time.Time{}
@@ -1083,16 +1307,19 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	rc := make([]Comment, len(s.reviewComments))
+	copy(rc, s.reviewComments)
 	snap := writeFilesSnapshot{
-		critPath:    critPath,
-		lastMtime:   s.lastCritJSONMtime,
-		branch:      s.Branch,
-		baseRef:     s.BaseRef,
-		reviewRound: s.ReviewRound,
-		sharedURL:   s.sharedURL,
-		deleteToken: s.deleteToken,
-		shareScope:  s.shareScope,
-		files:       make([]writeFileSnapshot, len(s.Files)),
+		critPath:       critPath,
+		lastMtime:      s.lastCritJSONMtime,
+		branch:         s.Branch,
+		baseRef:        s.BaseRef,
+		reviewRound:    s.ReviewRound,
+		sharedURL:      s.sharedURL,
+		deleteToken:    s.deleteToken,
+		shareScope:     s.shareScope,
+		reviewComments: rc,
+		files:          make([]writeFileSnapshot, len(s.Files)),
 	}
 	for i, f := range s.Files {
 		comments := make([]Comment, len(f.Comments))
@@ -1128,10 +1355,10 @@ func (s *Session) mergeExternalCritJSON() bool {
 			for _, f := range s.Files {
 				if len(f.Comments) > 0 {
 					f.Comments = []Comment{}
-					f.nextID = 1
 					anyComments = true
 				}
 			}
+			s.nextID = 1
 			s.mu.Unlock()
 			if anyComments {
 				s.notify(SSEEvent{Type: "comments-changed"})
@@ -1175,7 +1402,6 @@ func (s *Session) mergeExternalCritJSON() bool {
 			// File not in .crit.json — if we have comments, they were cleared externally.
 			if len(f.Comments) > 0 {
 				f.Comments = []Comment{}
-				f.nextID = 1
 				changed = true
 			}
 			continue
@@ -1193,8 +1419,8 @@ func (s *Session) mergeExternalCritJSON() bool {
 				f.Comments = append(f.Comments, dc)
 				id := 0
 				fmt.Sscanf(dc.ID, "c%d", &id)
-				if id >= f.nextID {
-					f.nextID = id + 1
+				if id >= s.nextID {
+					s.nextID = id + 1
 				}
 				changed = true
 			} else {
@@ -1243,6 +1469,63 @@ func (s *Session) mergeExternalCritJSON() bool {
 			}
 		}
 	}
+
+	// Merge review-level comments from disk
+	memReviewIDs := make(map[string]struct{}, len(s.reviewComments))
+	for _, c := range s.reviewComments {
+		memReviewIDs[c.ID] = struct{}{}
+	}
+	for _, dc := range cj.ReviewComments {
+		if _, exists := memReviewIDs[dc.ID]; !exists {
+			s.reviewComments = append(s.reviewComments, dc)
+			id := 0
+			fmt.Sscanf(dc.ID, "r%d", &id)
+			if id >= s.reviewNextID {
+				s.reviewNextID = id + 1
+			}
+			changed = true
+		} else {
+			// Merge resolved state and replies from disk
+			for i, mc := range s.reviewComments {
+				if mc.ID != dc.ID {
+					continue
+				}
+				if dc.Resolved != mc.Resolved {
+					s.reviewComments[i].Resolved = dc.Resolved
+					changed = true
+				}
+				memRIDs := make(map[string]struct{}, len(mc.Replies))
+				for _, r := range mc.Replies {
+					memRIDs[r.ID] = struct{}{}
+				}
+				for _, dr := range dc.Replies {
+					if _, exists := memRIDs[dr.ID]; !exists {
+						s.reviewComments[i].Replies = append(s.reviewComments[i].Replies, dr)
+						changed = true
+					}
+				}
+				break
+			}
+		}
+	}
+	// Remove review comments deleted on disk (always run filter — length check is unreliable
+	// when adds and deletes happen in the same external edit)
+	{
+		diskRIDs := make(map[string]struct{}, len(cj.ReviewComments))
+		for _, dc := range cj.ReviewComments {
+			diskRIDs[dc.ID] = struct{}{}
+		}
+		filtered := s.reviewComments[:0]
+		for _, c := range s.reviewComments {
+			if _, exists := diskRIDs[c.ID]; exists {
+				filtered = append(filtered, c)
+			}
+		}
+		if len(filtered) != len(s.reviewComments) {
+			s.reviewComments = filtered
+			changed = true
+		}
+	}
 	s.mu.Unlock()
 
 	if changed {
@@ -1285,17 +1568,31 @@ func (s *Session) loadCritJSON() {
 		s.ReviewRound = cj.ReviewRound
 	}
 
-	// Restore comments for files that match by path
+	// Restore comments for files that match by path.
+	// Scan ALL files' comments to find the global max ID for session-level nextID.
 	for _, f := range s.Files {
 		if cf, ok := cj.Files[f.Path]; ok {
 			f.Comments = cf.Comments
-			for _, c := range f.Comments {
+			for i := range f.Comments {
+				if f.Comments[i].Scope == "" {
+					f.Comments[i].Scope = "line"
+				}
 				id := 0
-				_, _ = fmt.Sscanf(c.ID, "c%d", &id)
-				if id >= f.nextID {
-					f.nextID = id + 1
+				_, _ = fmt.Sscanf(f.Comments[i].ID, "c%d", &id)
+				if id >= s.nextID {
+					s.nextID = id + 1
 				}
 			}
+		}
+	}
+
+	// Restore review-level comments and rebuild reviewNextID.
+	s.reviewComments = cj.ReviewComments
+	for _, c := range s.reviewComments {
+		id := 0
+		_, _ = fmt.Sscanf(c.ID, "r%d", &id)
+		if id >= s.reviewNextID {
+			s.reviewNextID = id + 1
 		}
 	}
 
@@ -1333,6 +1630,32 @@ func (s *Session) notify(event SSEEvent) {
 		default:
 		}
 	}
+}
+
+// BrowserConnect increments the browser client count.
+func (s *Session) BrowserConnect() {
+	atomic.AddInt32(&s.browserClients, 1)
+}
+
+// BrowserDisconnect decrements the browser client count, clamping at zero.
+func (s *Session) BrowserDisconnect() {
+	if atomic.AddInt32(&s.browserClients, -1) < 0 {
+		atomic.StoreInt32(&s.browserClients, 0)
+	}
+}
+
+// HasBrowserClients returns true if any browser SSE clients are connected.
+func (s *Session) HasBrowserClients() bool {
+	return atomic.LoadInt32(&s.browserClients) > 0
+}
+
+// ReinvokeCommand returns the crit command the agent should run to trigger the next round.
+// For file-mode sessions it includes the original file arguments; for git-mode it's bare "crit".
+func (s *Session) ReinvokeCommand() string {
+	if len(s.CLIArgs) == 0 {
+		return "crit"
+	}
+	return "crit " + strings.Join(s.CLIArgs, " ")
 }
 
 // Shutdown sends a server-shutdown event to all SSE subscribers.
@@ -1430,6 +1753,7 @@ type SessionInfo struct {
 	ReviewRound     int               `json:"review_round"`
 	AvailableScopes []string          `json:"available_scopes"`
 	Files           []SessionFileInfo `json:"files"`
+	ReviewComments  []Comment         `json:"review_comments"`
 }
 
 // SessionFileInfo is a summary of a file for the session API response.
@@ -1447,12 +1771,16 @@ func (s *Session) GetSessionInfo() SessionInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	reviewComments := make([]Comment, len(s.reviewComments))
+	copy(reviewComments, s.reviewComments)
+
 	info := SessionInfo{
 		Mode:            s.Mode,
 		Branch:          s.Branch,
 		BaseRef:         s.BaseRef,
 		ReviewRound:     s.ReviewRound,
 		AvailableScopes: availableScopes(s.BaseRef),
+		ReviewComments:  reviewComments,
 	}
 
 	for _, f := range s.Files {
@@ -1529,11 +1857,14 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	mode := s.Mode
 	branch := s.Branch
 	reviewRound := s.ReviewRound
+	ignorePatterns := s.IgnorePatterns
 	// Build a map of comment counts (comments are scope-independent)
 	commentCounts := make(map[string]int, len(s.Files))
 	for _, f := range s.Files {
 		commentCounts[f.Path] = len(f.Comments)
 	}
+	reviewComments := make([]Comment, len(s.reviewComments))
+	copy(reviewComments, s.reviewComments)
 	s.mu.RUnlock()
 
 	info := SessionInfo{
@@ -1542,6 +1873,7 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 		BaseRef:         baseRef,
 		ReviewRound:     reviewRound,
 		AvailableScopes: availableScopes(baseRef),
+		ReviewComments:  reviewComments,
 	}
 
 	var changes []FileChange
@@ -1554,6 +1886,10 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	if err != nil || len(changes) == 0 {
 		return info
 	}
+
+	// Apply the same ignore patterns used during session creation so that
+	// files like .crit/sessions/*.json don't leak into scoped views.
+	changes = filterIgnored(changes, ignorePatterns)
 
 	for _, fc := range changes {
 		fi := SessionFileInfo{

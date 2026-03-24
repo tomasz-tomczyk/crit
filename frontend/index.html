@@ -15,6 +15,10 @@
 <div class="header">
   <div class="header-left">
     <span class="header-title">Crit</span>
+    <button class="update-btn" id="updateBtn" style="display:none" title="Updates available" aria-label="Updates available">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0l-3-3m3 3l3-3"/><path d="M2.5 11v1.75c0 .69.56 1.25 1.25 1.25h8.5c.69 0 1.25-.56 1.25-1.25V11"/></svg>
+      <span class="update-btn-label">Update</span>
+    </button>
     <span class="header-context" id="branchContext" style="display:none">
       <span class="branch-icon">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z"/></svg>
@@ -29,6 +33,12 @@
   </div>
   <div class="header-right">
     <span class="viewed-count" id="viewedCount"></span>
+    <button class="pr-toggle-btn" id="prToggle" style="display:none" title="Pull request overview" aria-label="Pull request overview">
+      <svg class="pr-toggle-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+        <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/>
+      </svg>
+      <span class="pr-toggle-number" id="prToggleNumber"></span>
+    </button>
     <button class="comment-count-btn" id="commentCount" style="display:none" title="Toggle comments panel" aria-label="Toggle comments panel">
       <svg class="comment-count-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
         <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z" stroke-linejoin="round"/>
@@ -107,7 +117,10 @@
   <div class="comments-panel comments-panel-hidden" id="commentsPanel">
     <div class="comments-panel-header">
       <span class="comments-panel-title">Comments</span>
-      <button class="comments-panel-close" title="Close comments panel" aria-label="Close comments panel">&#x2715;</button>
+      <div class="comments-panel-header-actions">
+        <button class="comments-panel-add-btn" id="panelAddCommentBtn" title="Add a general comment (G)">+ Add</button>
+        <button class="comments-panel-close" title="Close comments panel" aria-label="Close comments panel">&#x2715;</button>
+      </div>
     </div>
     <div class="comments-panel-filter" id="commentsPanelFilter" style="display:none">
       <label class="comments-panel-switch">
@@ -119,6 +132,9 @@
       </label>
     </div>
     <div class="comments-panel-body" id="commentsPanelBody" aria-live="polite" aria-label="Comments list"></div>
+  </div>
+  <div class="pr-panel pr-panel-hidden" id="prPanel" aria-label="Pull request overview">
+    <div class="pr-panel-body" id="prPanelBody"></div>
   </div>
 </div>
 
@@ -145,6 +161,7 @@
       <tr><td><kbd>d</kbd></td><td>Delete comment on focused block</td></tr>
       <tr class="shortcut-filemode-only"><td><kbd>n</kbd></td><td>Next change</td></tr>
       <tr class="shortcut-filemode-only"><td><kbd>N</kbd></td><td>Previous change</td></tr>
+      <tr><td><kbd>G</kbd></td><td>General comment</td></tr>
       <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>Finish review</td></tr>
       <tr><td><kbd>Shift</kbd>+<kbd>C</kbd></td><td>Toggle comments panel</td></tr>
       <tr class="shortcut-toc-only"><td><kbd>t</kbd></td><td>Toggle table of contents</td></tr>

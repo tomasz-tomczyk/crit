@@ -115,7 +115,7 @@ test.describe('Comment Threading', () => {
     await expect(section.locator('.comment-reply')).toHaveCount(0);
   });
 
-  test('panel shows reply count badge', async ({ page, request }) => {
+  test('panel shows replies inline', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Check this');
     await request.post(`/api/comment/c1/replies?path=${encodeURIComponent(mdPath)}`, {
@@ -128,7 +128,9 @@ test.describe('Comment Threading', () => {
 
     // Open comments panel
     await page.keyboard.press('Shift+C');
-    await expect(page.locator('.comments-panel-badge-replies')).toContainText('2 replies');
+    const card = page.locator('.panel-comment-block .comment-card').first();
+    await expect(card).toBeVisible();
+    await expect(card.locator('.comment-reply')).toHaveCount(2);
   });
 
   test('can delete a reply', async ({ page, request }) => {

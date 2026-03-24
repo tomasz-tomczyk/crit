@@ -5,7 +5,7 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "0.6.0";
+      version = "0.7.0";
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in rec {
@@ -16,7 +16,7 @@
             pname = "crit";
             inherit version;
             src = self;
-            vendorHash = null;
+            vendorHash = "sha256-n2yA86hAhSipIhQw9HSKubCVT4RrPdau+/Ve7ebrevc=";
             nativeCheckInputs = [ pkgs.git ];
             ldflags = [ "-s" "-w" "-X main.version=${version}" ];
             meta = with nixpkgs.lib; {

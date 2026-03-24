@@ -105,7 +105,6 @@ func (s *Session) RefreshFileList() {
 				Status:   fc.Status,
 				FileType: detectFileType(fc.Path),
 				Comments: []Comment{},
-				nextID:   1,
 			}
 			if fc.Status != "deleted" {
 				if data, err := os.ReadFile(absPath); err == nil {
@@ -224,8 +223,6 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 				}
 				f.Content = string(data)
 				f.FileHash = hash
-				f.Comments = []Comment{}
-				f.nextID = 1
 				s.mu.Unlock()
 				changed = true
 			}
@@ -251,6 +248,7 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 		Side:           old.Side,
 		Body:           old.Body,
 		Author:         old.Author,
+		Scope:          old.Scope,
 		CreatedAt:      old.CreatedAt,
 		UpdatedAt:      now,
 		Resolved:       old.Resolved,
@@ -258,6 +256,52 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 		ReviewRound:    old.ReviewRound,
 		Replies:        old.Replies,
 	}
+}
+
+// carryForwardAllComments carries forward all PreviousComments at their original positions.
+// Must be called with s.mu held for writing.
+func (s *Session) carryForwardAllComments() {
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, f := range s.Files {
+		// Skip if comments were already carried forward (e.g. by carryForwardComments)
+		if len(f.Comments) > 0 {
+			continue
+		}
+		for _, c := range f.PreviousComments {
+			carried := carryForwardComment(c, fmt.Sprintf("c%d", s.nextID), now)
+			s.nextID++
+			f.Comments = append(f.Comments, carried)
+		}
+	}
+}
+
+// rereadFileContents re-reads all non-deleted files from disk and updates Content/FileHash.
+// If snapshotMarkdown is true, PreviousContent is set before overwriting (for files mode).
+// Must be called with s.mu held for writing.
+func (s *Session) rereadFileContents(snapshotMarkdown bool) {
+	for _, f := range s.Files {
+		if f.Status == "deleted" {
+			continue
+		}
+		data, err := os.ReadFile(f.AbsPath)
+		if err != nil {
+			continue
+		}
+		if snapshotMarkdown && f.FileType == "markdown" && f.PreviousContent == "" {
+			f.PreviousContent = f.Content
+		}
+		f.Content = string(data)
+		f.FileHash = fileHash(data)
+	}
+}
+
+// finishRoundComplete emits terminal status and notifies SSE subscribers.
+func (s *Session) finishRoundComplete(edits int) {
+	s.emitRoundStatus(edits)
+	s.notify(SSEEvent{
+		Type:    "file-changed",
+		Content: "session",
+	})
 }
 
 // handleRoundCompleteGit handles round completion in git mode.
@@ -268,42 +312,20 @@ func (s *Session) handleRoundCompleteGit() {
 	edits := s.lastRoundEdits
 	s.mu.RUnlock()
 
-	// Load resolved comments from .crit.json
 	s.loadResolvedComments()
 
 	// Refresh file list (agent may have created/deleted files)
 	s.RefreshFileList()
 
-	// Re-read all file contents
 	s.mu.Lock()
-	for _, f := range s.Files {
-		if f.Status == "deleted" {
-			continue
-		}
-		if data, err := os.ReadFile(f.AbsPath); err == nil {
-			f.Content = string(data)
-			f.FileHash = fileHash(data)
-		}
-	}
-	// Carry forward all comments at original positions
-	for _, f := range s.Files {
-		now := time.Now().UTC().Format(time.RFC3339)
-		for _, c := range f.PreviousComments {
-			carried := carryForwardComment(c, fmt.Sprintf("c%d", f.nextID), now)
-			f.nextID++
-			f.Comments = append(f.Comments, carried)
-		}
-	}
+	s.rereadFileContents(false)
+	s.carryForwardAllComments()
 	s.mu.Unlock()
 
 	// Refresh diffs for all files
 	s.RefreshDiffs()
 
-	s.emitRoundStatus(edits)
-	s.notify(SSEEvent{
-		Type:    "file-changed",
-		Content: "session",
-	})
+	s.finishRoundComplete(edits)
 }
 
 // handleRoundCompleteFiles handles round completion in files mode.
@@ -314,49 +336,20 @@ func (s *Session) handleRoundCompleteFiles() {
 	edits := s.lastRoundEdits
 	s.mu.RUnlock()
 
-	// Load resolved comments from .crit.json
 	s.loadResolvedComments()
 	s.carryForwardComments()
 
-	// Carry forward comments for files that weren't edited in this round
-	// (carryForwardComments only handles markdown files with PreviousContent)
 	s.mu.Lock()
-	now := time.Now().UTC().Format(time.RFC3339)
-	for _, f := range s.Files {
-		// Skip if comments were already carried forward (file was edited)
-		if len(f.Comments) > 0 {
-			continue
-		}
-		// Carry forward all remaining comments from PreviousComments
-		for _, c := range f.PreviousComments {
-			carried := carryForwardComment(c, fmt.Sprintf("c%d", f.nextID), now)
-			f.nextID++
-			f.Comments = append(f.Comments, carried)
-		}
-	}
+	s.carryForwardAllComments()
 	s.mu.Unlock()
 
 	// Re-read all file contents and update hashes
+	// (snapshot markdown PreviousContent in case watcher hasn't polled yet)
 	s.mu.Lock()
-	for _, f := range s.Files {
-		if data, err := os.ReadFile(f.AbsPath); err == nil {
-			// Snapshot PreviousContent for markdown files before overwriting.
-			// The file watcher normally does this on first edit, but if
-			// round-complete fires before the watcher polls, ensure it's set.
-			if f.FileType == "markdown" && f.PreviousContent == "" {
-				f.PreviousContent = f.Content
-			}
-			f.Content = string(data)
-			f.FileHash = fileHash(data)
-		}
-	}
+	s.rereadFileContents(true)
 	s.mu.Unlock()
 
-	s.emitRoundStatus(edits)
-	s.notify(SSEEvent{
-		Type:    "file-changed",
-		Content: "session",
-	})
+	s.finishRoundComplete(edits)
 }
 
 // emitRoundStatus prints terminal status for a completed round.
@@ -408,6 +401,17 @@ func (s *Session) loadResolvedComments() {
 			f.PreviousComments = nil
 		}
 	}
+	// Restore review-level comments so they survive round-complete.
+	// Always overwrite (even when disk has 0) to clear stale in-memory state.
+	s.reviewComments = cj.ReviewComments
+	s.reviewNextID = 0
+	for _, c := range s.reviewComments {
+		id := 0
+		fmt.Sscanf(c.ID, "r%d", &id)
+		if id >= s.reviewNextID {
+			s.reviewNextID = id + 1
+		}
+	}
 	// Record the current mtime so mergeExternalCritJSON does not re-process
 	// this same file. Without this, the file watcher could detect the
 	// externally-written .crit.json (e.g. from a test or crit comment) as a
@@ -453,6 +457,13 @@ func (s *Session) carryForwardComments() {
 		s.mu.Lock()
 		now := time.Now().UTC().Format(time.RFC3339)
 		for _, c := range prevComments {
+			// File-level comments have no line references — carry forward as-is.
+			if c.Scope == "file" {
+				carried := carryForwardComment(c, fmt.Sprintf("c%d", s.nextID), now)
+				s.nextID++
+				f.Comments = append(f.Comments, carried)
+				continue
+			}
 			newStart := lineMap[c.StartLine]
 			newEnd := lineMap[c.EndLine]
 			if newStart == 0 {
@@ -473,10 +484,10 @@ func (s *Session) carryForwardComments() {
 			if newEnd < newStart {
 				newEnd = newStart
 			}
-			carried := carryForwardComment(c, fmt.Sprintf("c%d", f.nextID), now)
+			carried := carryForwardComment(c, fmt.Sprintf("c%d", s.nextID), now)
 			carried.StartLine = newStart
 			carried.EndLine = newEnd
-			f.nextID++
+			s.nextID++
 			f.Comments = append(f.Comments, carried)
 		}
 		s.mu.Unlock()

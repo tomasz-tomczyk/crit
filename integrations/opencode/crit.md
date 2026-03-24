@@ -68,7 +68,7 @@ For each unresolved comment:
 1. Understand what the comment asks for.
 2. If a comment contains a suggestion block, apply that specific change.
 3. Revise the referenced file to address the feedback - this could be the plan file or any code file from the git diff.
-4. Reply to the comment with what you did: `crit comment --reply-to <id> --resolve --author 'OpenCode' '<what you did>'`
+4. Reply to the comment with what you did: `crit comment --reply-to <id> --resolve --author 'OpenCode' '<what you did>'` (works for both file comment IDs like `c1` and review comment IDs like `r0`)
 
 When addressing multiple comments, use `--json` to resolve them all in one call:
 
@@ -87,10 +87,11 @@ If there are zero review comments, inform the user that no changes were requeste
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-Run `crit` in the foreground and block until it exits:
+Run the **exact same `crit` command from Step 2** in the foreground and block until it exits. This is critical — if you launched `crit plan.md` in Step 2, you must run `crit plan.md` again here (not bare `crit`). The daemon is keyed by the arguments, so mismatched args will start a new daemon instead of reconnecting.
 
 ```bash
-crit
+# Must match Step 2 exactly:
+crit <same-args-as-step-2>
 ```
 
 On subsequent calls, `crit` automatically signals round-complete first, then blocks again until the next "Finish Review" click.

@@ -105,7 +105,7 @@ test.describe('Unstaged File Comments — pre-existing file', () => {
     await expect(section).toBeVisible();
 
     const countEl = page.locator('#commentCount');
-    await expect(countEl).toBeHidden();
+    await expect(page.locator('#commentCountNumber')).toHaveText('');
 
     // Add a comment
     const additionSide = section.locator('.diff-split-side.addition').first();

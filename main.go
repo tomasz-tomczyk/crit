@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -54,6 +55,8 @@ func main() {
 		runInstall(os.Args[2:])
 	case "config":
 		runConfig(os.Args[2:])
+	case "check":
+		runCheck()
 	case "pull":
 		runPull(os.Args[2:])
 	case "push":
@@ -63,15 +66,13 @@ func main() {
 	case "review":
 		runReview(os.Args[2:])
 	case "stop":
-		runStop()
+		runStop(os.Args[2:])
 	case "_serve":
 		runServe(os.Args[2:])
 	default:
 		runReview(os.Args[1:])
 	}
 }
-
-
 
 func runShare(args []string) {
 	shareOutputDir := ""
@@ -390,6 +391,7 @@ func runPush(args []string) {
 	dryRun := false
 	message := ""
 	pushOutputDir := ""
+	eventFlag := ""
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--dry-run" {
@@ -414,12 +416,31 @@ func runPush(args []string) {
 			pushOutputDir = args[i]
 			continue
 		}
+		if arg == "--event" || arg == "-e" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --event requires a value (comment, approve, request-changes)\n")
+				os.Exit(1)
+			}
+			i++
+			eventFlag = args[i]
+			continue
+		}
 		n, err := strconv.Atoi(arg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [--message <msg>] [--output <dir>] [pr-number]\n")
+			fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [pr-number]\n")
 			os.Exit(1)
 		}
 		prFlag = n
+	}
+
+	event, err := parsePushEvent(eventFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	if event == "REQUEST_CHANGES" && message == "" {
+		fmt.Fprintf(os.Stderr, "Error: --event request-changes requires --message\n")
+		os.Exit(1)
 	}
 
 	prNumber, err := detectPR(prFlag)
@@ -446,7 +467,7 @@ func runPush(args []string) {
 	}
 
 	ghComments := critJSONToGHComments(cj)
-	if len(ghComments) == 0 {
+	if len(ghComments) == 0 && event == "COMMENT" {
 		fmt.Println("No unresolved comments to push.")
 		return
 	}
@@ -458,7 +479,11 @@ func runPush(args []string) {
 	}
 
 	if dryRun {
-		fmt.Printf("Would post %d comments to PR #%d:\n\n", len(ghComments), prNumber)
+		displayEvent := strings.ToLower(strings.ReplaceAll(event, "_", "-"))
+		fmt.Printf("Would post %d comments to PR #%d (event: %s):\n\n", len(ghComments), prNumber, displayEvent)
+		if message != "" {
+			fmt.Printf("  Review body: %s\n\n", message)
+		}
 		for _, c := range ghComments {
 			path := c["path"].(string)
 			line := c["line"].(int)
@@ -476,13 +501,14 @@ func runPush(args []string) {
 		return
 	}
 
-	fmt.Printf("Pushing %d comments to PR #%d...\n", len(ghComments), prNumber)
-	commentIDs, err := createGHReview(prNumber, ghComments, message)
+	displayEvent := strings.ToLower(strings.ReplaceAll(event, "_", "-"))
+	fmt.Printf("Pushing %d comments to PR #%d (%s)...\n", len(ghComments), prNumber, displayEvent)
+	commentIDs, err := createGHReview(prNumber, ghComments, message, event)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Posted %d review comments to PR #%d\n", len(ghComments), prNumber)
+	fmt.Printf("Posted %d review comments to PR #%d (%s)\n", len(ghComments), prNumber, displayEvent)
 
 	// Phase 2: Post new replies individually
 	replyCount := 0
@@ -635,13 +661,17 @@ func runComment(args []string) {
 		return
 	}
 
-	if len(commentArgs) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: crit comment [--output <dir>] [--author <name>] <path>:<line[-end]> <body>")
+	if len(commentArgs) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: crit comment [--output <dir>] [--author <name>] <body>                    Review-level comment")
+		fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] [--author <name>] <path> <body>             File-level comment")
+		fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] [--author <name>] <path>:<line[-end]> <body> Line-level comment")
 		fmt.Fprintln(os.Stderr, "       crit comment --reply-to <id> [--resolve] [--author <name>] <body>")
 		fmt.Fprintln(os.Stderr, "       crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON")
 		fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] --clear")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Examples:")
+		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' 'Overall this looks good'")
+		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' src/auth.go 'Restructure this file'")
 		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' main.go:42 'Fix this bug'")
 		fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' src/auth.go:10-25 'This block needs refactoring'")
 		fmt.Fprintln(os.Stderr, "  crit comment --reply-to c1 --resolve --author 'Claude' 'Split into two functions'")
@@ -655,82 +685,165 @@ func runComment(args []string) {
 		os.Exit(1)
 	}
 
-	// Parse <path>:<line[-end]>
+	// Determine comment scope based on argument count and format:
+	// 1 arg: review-level comment (just body)
+	// 2 args, first contains ":" with valid line spec: line-level comment (existing)
+	// 2 args, first is a file path (exists on disk or in .crit.json): file-level comment
+	// 2+ args, first contains ":": line-level comment (existing)
+	if len(commentArgs) == 1 {
+		// Review-level comment: crit comment <body>
+		body := commentArgs[0]
+		if err := addReviewCommentToCritJSON(body, commentAuthor, commentOutputDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Added review comment")
+		return
+	}
+
+	// 2+ args: check if first arg has a colon with valid line spec
 	loc := commentArgs[0]
 	colonIdx := strings.LastIndex(loc, ":")
+	if colonIdx > 0 {
+		// Check if the part after colon looks like a line spec (number or number-number)
+		lineSpec := loc[colonIdx+1:]
+		if looksLikeLineSpec(lineSpec) {
+			// Line-level comment: crit comment <path>:<line[-end]> <body>
+			filePath := loc[:colonIdx]
+			var startLine, endLine int
+			if dashIdx := strings.Index(lineSpec, "-"); dashIdx >= 0 {
+				s, err := strconv.Atoi(lineSpec[:dashIdx])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid start line in %q\n", loc)
+					os.Exit(1)
+				}
+				e, err := strconv.Atoi(lineSpec[dashIdx+1:])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid end line in %q\n", loc)
+					os.Exit(1)
+				}
+				startLine, endLine = s, e
+			} else {
+				n, err := strconv.Atoi(lineSpec)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid line number in %q\n", loc)
+					os.Exit(1)
+				}
+				startLine, endLine = n, n
+			}
+			body := strings.Join(commentArgs[1:], " ")
+			if err := addCommentToCritJSON(filePath, startLine, endLine, body, commentAuthor, commentOutputDir); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
+			return
+		}
+	}
+
+	// 2 args without colon line spec: check if first arg is a file path
+	if len(commentArgs) >= 2 {
+		candidatePath := commentArgs[0]
+		if fileExistsOnDiskOrSession(candidatePath, commentOutputDir) {
+			// File-level comment: crit comment <path> <body>
+			body := strings.Join(commentArgs[1:], " ")
+			if err := addFileCommentToCritJSON(candidatePath, body, commentAuthor, commentOutputDir); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Added file comment on %s\n", candidatePath)
+			return
+		}
+	}
+
+	// Fallback: if nothing matched, treat as the old syntax (error on missing colon)
 	if colonIdx < 0 {
-		fmt.Fprintf(os.Stderr, "Error: invalid location %q — expected <path>:<line[-end]>\n", loc)
+		fmt.Fprintf(os.Stderr, "Error: invalid location %q — expected <path>:<line[-end]>, or a valid file path for file-level comments\n", loc)
 		os.Exit(1)
 	}
-	filePath := loc[:colonIdx]
-	lineSpec := loc[colonIdx+1:]
+	fmt.Fprintf(os.Stderr, "Error: invalid line spec in %q\n", loc)
+	os.Exit(1)
+}
 
-	var startLine, endLine int
-	if dashIdx := strings.Index(lineSpec, "-"); dashIdx >= 0 {
-		s, err := strconv.Atoi(lineSpec[:dashIdx])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid start line in %q\n", loc)
-			os.Exit(1)
-		}
-		e, err := strconv.Atoi(lineSpec[dashIdx+1:])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid end line in %q\n", loc)
-			os.Exit(1)
-		}
-		startLine, endLine = s, e
-	} else {
-		n, err := strconv.Atoi(lineSpec)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid line number in %q\n", loc)
-			os.Exit(1)
-		}
-		startLine, endLine = n, n
+// looksLikeLineSpec returns true if s looks like a line number or range (e.g. "42", "10-25").
+func looksLikeLineSpec(s string) bool {
+	if s == "" {
+		return false
 	}
-
-	// Body is all remaining args joined
-	body := strings.Join(commentArgs[1:], " ")
-
-	if err := addCommentToCritJSON(filePath, startLine, endLine, body, commentAuthor, commentOutputDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	if dashIdx := strings.Index(s, "-"); dashIdx >= 0 {
+		_, err1 := strconv.Atoi(s[:dashIdx])
+		_, err2 := strconv.Atoi(s[dashIdx+1:])
+		return err1 == nil && err2 == nil
 	}
-	fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
+	_, err := strconv.Atoi(s)
+	return err == nil
+}
+
+// fileExistsOnDiskOrSession checks if a path exists as a file on disk or in .crit.json.
+func fileExistsOnDiskOrSession(path string, outputDir string) bool {
+	// Check disk first (relative to cwd)
+	if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		return true
+	}
+	// Check in repo root if we're in a git repo
+	if IsGitRepo() {
+		if root, err := RepoRoot(); err == nil {
+			absPath := filepath.Join(root, path)
+			if info, err := os.Stat(absPath); err == nil && !info.IsDir() {
+				return true
+			}
+		}
+	}
+	// Check if it exists in .crit.json
+	root, err := resolveCritDir(outputDir)
+	if err != nil {
+		return false
+	}
+	critPath := filepath.Join(root, ".crit.json")
+	cj, err := loadCritJSON(critPath)
+	if err != nil {
+		return false
+	}
+	_, exists := cj.Files[path]
+	return exists
 }
 
 // runReview always uses the daemon pattern: starts a background daemon if needed,
 // connects as a review client, blocks for one review cycle, then exits.
 // Used by `crit review` and by agents.
 func runReview(args []string) {
-	// Resolve port from config (same precedence as server)
-	configPort := 0
-	dir, _ := os.Getwd()
-	cfg := LoadConfig(dir)
-	if cfg.Port != 0 {
-		configPort = cfg.Port
+	// Parse args to extract file args (stripping flags like --port, --no-open).
+	// The session key must use only file args to match what runServe computes.
+	sc, err := resolveServerConfig(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
-	if envPort := os.Getenv("CRIT_PORT"); envPort != "" {
-		if p, err := strconv.Atoi(envPort); err == nil {
-			configPort = p
-		}
+	if sc == nil {
+		return // --version
 	}
 
-	// Check for running daemon
-	statePath := critJSONPathForDaemon()
-	state, err := readDaemonState(statePath)
+	cwd, _ := resolvedCWD()
+	key := sessionKey(cwd, sc.files)
+
+	// Check for running daemon with the same session key
+	entry, alive := findAliveSession(key)
 	weStartedDaemon := false
 
-	if err == nil && isDaemonAlive(state) && len(args) == 0 {
-		// No file args — connect to existing daemon
-		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", state.Port)
-		go openBrowser(fmt.Sprintf("http://localhost:%d", state.Port))
+	if alive {
+		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", entry.Port)
+		// Re-open browser if no browser tab is connected (user closed it)
+		if !sc.noOpen && !daemonHasBrowser(entry) {
+			go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
+		}
 	} else {
-		// Start new daemon (file args given, or no daemon running)
-		state, err = startDaemon(args, configPort)
+		// Pass raw args to startDaemon — the _serve process parses them itself
+		entry, err = startDaemon(key, args)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "Started crit daemon on port %d (PID %d)\n", state.Port, state.PID)
+		fmt.Fprintf(os.Stderr, "Started crit daemon on port %d (PID %d)\n", entry.Port, entry.PID)
 		weStartedDaemon = true
 	}
 
@@ -740,28 +853,37 @@ func runReview(args []string) {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
 			<-sigCh
-			// Kill the daemon we started
-			if proc, err := os.FindProcess(state.PID); err == nil {
+			if proc, err := os.FindProcess(entry.PID); err == nil {
 				proc.Signal(syscall.SIGTERM)
 			}
 			os.Exit(0)
 		}()
 	}
 
-	runReviewClient(state)
+	approved := runReviewClient(entry)
+
+	// Approve (no unresolved comments) — stop the daemon to free the port
+	// for future sessions. The daemon is no longer needed since the agent
+	// won't reinvoke crit for this review.
+	if approved {
+		if proc, err := os.FindProcess(entry.PID); err == nil {
+			proc.Signal(syscall.SIGTERM)
+		}
+	}
 }
 
 // runReviewClient connects to a running daemon/server, blocks until the user
-// finishes reviewing, prints feedback to stdout, and exits.
-func runReviewClient(state daemonState) {
+// finishes reviewing, prints feedback to stdout, and returns whether the
+// review was approved (no unresolved comments).
+func runReviewClient(entry sessionEntry) (approved bool) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 	resp, err := client.Post(
-		fmt.Sprintf("http://localhost:%d/api/review-cycle", state.Port),
+		fmt.Sprintf("http://localhost:%d/api/review-cycle", entry.Port),
 		"application/json",
 		nil,
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: could not reach crit daemon on port %d: %v\n", state.Port, err)
+		fmt.Fprintf(os.Stderr, "Error: could not reach crit daemon on port %d: %v\n", entry.Port, err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
@@ -771,16 +893,46 @@ func runReviewClient(state daemonState) {
 		os.Exit(1)
 	}
 
-	// Print feedback to stdout (same format as crit listen)
-	_, err = io.Copy(os.Stdout, resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Print feedback to stdout
+	os.Stdout.Write(body)
+
+	// Check if the review was approved (no unresolved comments).
+	var result struct {
+		Approved bool `json:"approved"`
+	}
+	if json.Unmarshal(body, &result) == nil {
+		return result.Approved
+	}
+	return false
 }
 
-func runStop() {
-	if err := stopDaemon(); err != nil {
+func runStop(args []string) {
+	all := false
+	var fileArgs []string
+	for _, arg := range args {
+		if arg == "--all" {
+			all = true
+		} else {
+			fileArgs = append(fileArgs, arg)
+		}
+	}
+
+	cwd, _ := resolvedCWD()
+
+	if all {
+		stopAllDaemonsForCWD(cwd)
+		fmt.Println("All daemons stopped.")
+		return
+	}
+
+	key := sessionKey(cwd, fileArgs)
+	if err := stopDaemon(key); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -811,7 +963,9 @@ type serverConfig struct {
 	outputDir      string
 	author         string
 	ignorePatterns []string
-	files          []string // explicit file arguments (empty = git mode)
+	files               []string // explicit file arguments (empty = git mode)
+	noIntegrationCheck  bool
+	agentCmd            string
 }
 
 // resolveServerConfig parses flags, loads config files, and resolves the
@@ -901,108 +1055,11 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		shareURL:       *shareURL,
 		outputDir:      *outputDir,
 		author:         cfg.Author,
-		ignorePatterns: ignorePatterns,
-		files:          fs.Args(),
+		ignorePatterns:     ignorePatterns,
+		noIntegrationCheck: cfg.NoIntegrationCheck,
+		agentCmd:           cfg.AgentCmd,
+		files:              fs.Args(),
 	}, nil
-}
-
-func runServer(args []string) {
-	sc, err := resolveServerConfig(args)
-	if err != nil {
-		log.Fatalf("Error: %v", err)
-	}
-	if sc == nil {
-		return // --version or similar early exit
-	}
-
-	var session *Session
-
-	if len(sc.files) == 0 {
-		// No-args: git mode — auto-detect changed files
-		if !IsGitRepo() {
-			fmt.Fprintln(os.Stderr, "Error: not in a git repository and no files specified")
-			fmt.Fprintln(os.Stderr, "")
-			printHelp()
-			os.Exit(1)
-		}
-		session, err = NewSessionFromGit(sc.ignorePatterns)
-		if err != nil {
-			log.Fatalf("Error: %v", err)
-		}
-	} else {
-		// Explicit files
-		session, err = NewSessionFromFiles(sc.files, sc.ignorePatterns)
-		if err != nil {
-			log.Fatalf("Error: %v", err)
-		}
-	}
-
-	if sc.outputDir != "" {
-		abs, err := filepath.Abs(sc.outputDir)
-		if err != nil {
-			log.Fatalf("Error resolving output directory: %v", err)
-		}
-		session.OutputDir = abs
-	}
-
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", sc.port))
-	if err != nil {
-		log.Fatalf("Error starting server: %v", err)
-	}
-	addr := listener.Addr().(*net.TCPAddr)
-
-	srv, err := NewServer(session, frontendFS, sc.shareURL, sc.author, version, addr.Port)
-	if err != nil {
-		log.Fatalf("Error creating server: %v", err)
-	}
-	if os.Getenv("CRIT_NO_UPDATE_CHECK") == "" {
-		go srv.checkForUpdates()
-	}
-	httpServer := &http.Server{
-		Handler:     srv,
-		ReadTimeout: 15 * time.Second,
-		IdleTimeout: 60 * time.Second,
-		// No WriteTimeout — SSE connections need to stay open
-	}
-
-	var statusWriter io.Writer = os.Stdout
-	if sc.quiet {
-		statusWriter = io.Discard
-	}
-	status := newStatus(statusWriter)
-	srv.status = status
-	session.status = status
-
-	url := fmt.Sprintf("http://localhost:%d", addr.Port)
-	status.Listening(url)
-	status.ListenHint(fmt.Sprintf("%d", addr.Port))
-
-	if !sc.noOpen {
-		go openBrowser(url)
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	watchStop := make(chan struct{})
-	go session.Watch(watchStop)
-
-	go func() {
-		if err := httpServer.Serve(listener); err != http.ErrServerClosed {
-			log.Fatalf("Server error: %v", err)
-		}
-	}()
-
-	<-ctx.Done()
-	close(watchStop)
-	fmt.Println()
-
-	session.Shutdown()
-	session.WriteFiles()
-
-	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = httpServer.Shutdown(shutCtx)
 }
 
 func runServe(args []string) {
@@ -1036,30 +1093,66 @@ func runServe(args []string) {
 		session.OutputDir = abs
 	}
 
+	var prInfo *PRInfo
+	if session.Mode == "git" {
+		prInfo = detectPRInfo()
+	}
+
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", sc.port))
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
 	addr := listener.Addr().(*net.TCPAddr)
 
-	srv, err := NewServer(session, frontendFS, sc.shareURL, sc.author, version, addr.Port)
+	session.CLIArgs = sc.files
+
+	srv, err := NewServer(session, frontendFS, sc.shareURL, prInfo, sc.author, version, addr.Port, sc.agentCmd)
 	if err != nil {
 		log.Fatalf("Error creating server: %v", err)
 	}
 
-	httpServer := &http.Server{
-		Handler:     srv,
-		ReadTimeout: 15 * time.Second,
-		IdleTimeout: 60 * time.Second,
+	// Write session file so clients can discover us
+	cwd, _ := resolvedCWD()
+	key := sessionKey(cwd, sc.files)
+	if err := writeSessionFile(key, sessionEntry{
+		PID:       os.Getpid(),
+		Port:      addr.Port,
+		CWD:       cwd,
+		Args:      sc.files,
+		StartedAt: time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		log.Fatalf("Error writing session file: %v", err)
 	}
 
-	// Write daemon state file so clients can discover us
-	statePath := critJSONPathForDaemon()
-	if err := writeDaemonState(statePath, daemonState{
-		PID:  os.Getpid(),
-		Port: addr.Port,
-	}); err != nil {
-		log.Fatalf("Error writing daemon state: %v", err)
+	// Check for stale integrations (unless disabled)
+	if !sc.noIntegrationCheck && os.Getenv("CRIT_NO_INTEGRATION_CHECK") == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			stale := checkInstalledIntegrations(cwd, home)
+			srv.staleIntegrations = stale
+			if len(stale) > 0 {
+				go printStaleWarnings(stale)
+			}
+		}
+	}
+
+	// Idle timeout: exit after 1 hour of no HTTP activity
+	const idleTimeout = 1 * time.Hour
+	var idleMu sync.Mutex
+	lastActivity := time.Now()
+	resetActivity := func() {
+		idleMu.Lock()
+		lastActivity = time.Now()
+		idleMu.Unlock()
+	}
+
+	// Wrap handler to track activity
+	httpServer := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			resetActivity()
+			srv.ServeHTTP(w, r)
+		}),
+		ReadTimeout: 15 * time.Second,
+		IdleTimeout: 60 * time.Second,
 	}
 
 	if !sc.noOpen {
@@ -1068,6 +1161,26 @@ func runServe(args []string) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Idle timeout checker
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				idleMu.Lock()
+				idle := time.Since(lastActivity)
+				idleMu.Unlock()
+				if idle >= idleTimeout {
+					stop()
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	watchStop := make(chan struct{})
 	go session.Watch(watchStop)
@@ -1081,8 +1194,8 @@ func runServe(args []string) {
 	<-ctx.Done()
 	close(watchStop)
 
-	// Cleanup daemon state
-	removeDaemonState(statePath)
+	// Cleanup session file
+	removeSessionFile(key)
 
 	session.Shutdown()
 	session.WriteFiles()
@@ -1092,15 +1205,14 @@ func runServe(args []string) {
 	_ = httpServer.Shutdown(shutCtx)
 }
 
-
-
 func printHelp() {
 	fmt.Fprintf(os.Stderr, `crit — inline code review for AI agent workflows
 
 Usage:
   crit                                       Auto-detect changed files via git
   crit <file|dir> [...]                      Review specific files or directories
-  crit stop                                  Stop the background crit daemon
+  crit stop [files...]                       Stop the daemon for current directory (and args)
+  crit stop --all                            Stop all daemons for current directory
   crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
   crit comment --reply-to <id> [--resolve] [--author <name>] <body>  Reply to a comment
   crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON
@@ -1108,8 +1220,9 @@ Usage:
   crit share <file> [file...]                Share files to crit-web and print the URL
   crit unpublish                             Remove a shared review from crit-web
   crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments to .crit.json
-  crit push [--dry-run] [--message <msg>] [--output <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
+  crit push [--dry-run] [--event <type>] [-m <msg>] [-o <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
   crit install <agent>                       Install integration files for an AI coding tool
+  crit check                                 Check if installed integrations are up to date
   crit config [--generate]                    Show resolved configuration
   crit help                                  Show this help message
 
@@ -1131,10 +1244,12 @@ Environment:
   CRIT_SHARE_URL              Override the share service URL
   CRIT_PORT                   Override the default port
   CRIT_NO_UPDATE_CHECK        Disable update check on startup
+  CRIT_NO_INTEGRATION_CHECK   Disable integration staleness check
 
 Configuration:
   Global config:   ~/.crit.config.json
   Project config:  .crit.config.json (in repo root)
+  agent_cmd        Shell command to send comments to an AI agent (e.g. "claude -p")
   Run 'crit config' to see resolved configuration.
 
 Learn more: https://crit.md
@@ -1165,7 +1280,9 @@ Available keys:
   output            string    Output directory for .crit.json
   author            string    Your name for comments (default: git config user.name)
   base_branch       string    Base branch to diff against (overrides auto-detection)
-  ignore_patterns   []string  Gitignore-style patterns to exclude files from review
+  ignore_patterns        []string  Gitignore-style patterns to exclude files from review
+  no_integration_check   bool      Skip integration staleness check (default: false)
+  agent_cmd              string    Shell command to send comments to an AI agent (e.g. "claude -p")
 
 Ignore pattern syntax:
   *.lock            Match files by extension (anywhere in tree)

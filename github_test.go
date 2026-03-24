@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -109,7 +110,7 @@ func TestMergeGHComments_SkipsNoLineComments(t *testing.T) {
 
 func TestBuildReviewPayload_EmptyMessageByDefault(t *testing.T) {
 	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "fix"}}
-	data, err := buildReviewPayload(comments, "")
+	data, err := buildReviewPayload(comments, "", "COMMENT")
 	if err != nil {
 		t.Fatalf("buildReviewPayload: %v", err)
 	}
@@ -127,7 +128,7 @@ func TestBuildReviewPayload_EmptyMessageByDefault(t *testing.T) {
 
 func TestBuildReviewPayload_CustomMessage(t *testing.T) {
 	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "fix"}}
-	data, err := buildReviewPayload(comments, "Round 2 review")
+	data, err := buildReviewPayload(comments, "Round 2 review", "COMMENT")
 	if err != nil {
 		t.Fatalf("buildReviewPayload: %v", err)
 	}
@@ -137,6 +138,39 @@ func TestBuildReviewPayload_CustomMessage(t *testing.T) {
 	}
 	if payload["body"] != "Round 2 review" {
 		t.Errorf("body = %q, want %q", payload["body"], "Round 2 review")
+	}
+}
+
+func TestBuildReviewPayload_ApproveEvent(t *testing.T) {
+	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "lgtm"}}
+	data, err := buildReviewPayload(comments, "", "APPROVE")
+	if err != nil {
+		t.Fatalf("buildReviewPayload: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload["event"] != "APPROVE" {
+		t.Errorf("event = %q, want APPROVE", payload["event"])
+	}
+}
+
+func TestBuildReviewPayload_RequestChangesEvent(t *testing.T) {
+	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "fix this"}}
+	data, err := buildReviewPayload(comments, "Needs work", "REQUEST_CHANGES")
+	if err != nil {
+		t.Fatalf("buildReviewPayload: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload["event"] != "REQUEST_CHANGES" {
+		t.Errorf("event = %q, want REQUEST_CHANGES", payload["event"])
+	}
+	if payload["body"] != "Needs work" {
+		t.Errorf("body = %q, want %q", payload["body"], "Needs work")
 	}
 }
 
@@ -1211,6 +1245,30 @@ func TestBulkAddCommentsToCritJSON_MultipleFiles(t *testing.T) {
 	}
 }
 
+func TestBuildReviewPayload_ApproveNoComments(t *testing.T) {
+	data, err := buildReviewPayload(nil, "Looks good!", "APPROVE")
+	if err != nil {
+		t.Fatalf("buildReviewPayload: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload["event"] != "APPROVE" {
+		t.Errorf("event = %q, want APPROVE", payload["event"])
+	}
+	if payload["body"] != "Looks good!" {
+		t.Errorf("body = %q, want %q", payload["body"], "Looks good!")
+	}
+	comments, ok := payload["comments"]
+	if ok && comments != nil {
+		arr, isArr := comments.([]any)
+		if isArr && len(arr) != 0 {
+			t.Errorf("expected nil or empty comments, got %d", len(arr))
+		}
+	}
+}
+
 func TestBulkAddCommentsToCritJSON_EndLineDefaultsToLine(t *testing.T) {
 	dir := initTestRepo(t)
 	oldDir, _ := os.Getwd()
@@ -1234,5 +1292,210 @@ func TestBulkAddCommentsToCritJSON_EndLineDefaultsToLine(t *testing.T) {
 	// When EndLine is explicit, it should be preserved
 	if cf.Comments[1].StartLine != 3 || cf.Comments[1].EndLine != 5 {
 		t.Errorf("expected lines 3-5, got %d-%d", cf.Comments[1].StartLine, cf.Comments[1].EndLine)
+	}
+}
+
+func TestTruncateStr(t *testing.T) {
+	tests := []struct {
+		name string
+		s    string
+		n    int
+		want string
+	}{
+		{"short ASCII", "hello", 10, "hello"},
+		{"exact ASCII", "hello", 5, "hello"},
+		{"truncate ASCII", "hello world", 5, "hello"},
+		{"empty", "", 5, ""},
+		{"zero limit", "hello", 0, ""},
+		{"emoji preserved", "Hello 🌍🌎🌏", 8, "Hello 🌍🌎"},
+		{"CJK preserved", "日本語テスト", 3, "日本語"},
+		{"no mid-rune split", "café", 4, "café"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateStr(tt.s, tt.n)
+			if got != tt.want {
+				t.Errorf("truncateStr(%q, %d) = %q, want %q", tt.s, tt.n, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCreateGHReview_IDMapping tests the zip-by-position logic that maps
+// GitHub review comment IDs back to the input comments. The GitHub API
+// returns comments in the same order as the input, so the mapping relies
+// on index alignment. This test verifies the mapping works correctly,
+// including when response has fewer or more items than input.
+func TestCreateGHReview_IDMapping(t *testing.T) {
+	t.Run("zip maps IDs by position", func(t *testing.T) {
+		// Simulate the mapping logic from createGHReview without shelling out to gh.
+		// The core logic: for i, rc := range reviewComments { idMap[key(comments[i])] = rc.ID }
+		comments := []map[string]any{
+			{"path": "auth.go", "line": 10, "side": "RIGHT", "body": "fix auth"},
+			{"path": "server.go", "line": 42, "side": "RIGHT", "body": "refactor"},
+			{"path": "auth.go", "line": 30, "side": "RIGHT", "body": "add test"},
+		}
+
+		// Simulated GitHub response: same order, different IDs
+		reviewComments := []struct{ ID int64 }{
+			{ID: 1001},
+			{ID: 1002},
+			{ID: 1003},
+		}
+
+		idMap := make(map[string]int64)
+		for i, rc := range reviewComments {
+			if i < len(comments) {
+				path, _ := comments[i]["path"].(string)
+				line, _ := comments[i]["line"].(int)
+				key := fmt.Sprintf("%s:%d", path, line)
+				idMap[key] = rc.ID
+			}
+		}
+
+		expected := map[string]int64{
+			"auth.go:10":   1001,
+			"server.go:42": 1002,
+			"auth.go:30":   1003,
+		}
+		for k, v := range expected {
+			if idMap[k] != v {
+				t.Errorf("idMap[%q] = %d, want %d", k, idMap[k], v)
+			}
+		}
+	})
+
+	t.Run("fewer response items than input", func(t *testing.T) {
+		comments := []map[string]any{
+			{"path": "a.go", "line": 1, "side": "RIGHT", "body": "fix"},
+			{"path": "b.go", "line": 2, "side": "RIGHT", "body": "fix"},
+			{"path": "c.go", "line": 3, "side": "RIGHT", "body": "fix"},
+		}
+		// GitHub only returned 2 comments (partial failure)
+		reviewComments := []struct{ ID int64 }{
+			{ID: 2001},
+			{ID: 2002},
+		}
+
+		idMap := make(map[string]int64)
+		for i, rc := range reviewComments {
+			if i < len(comments) {
+				path, _ := comments[i]["path"].(string)
+				line, _ := comments[i]["line"].(int)
+				key := fmt.Sprintf("%s:%d", path, line)
+				idMap[key] = rc.ID
+			}
+		}
+
+		if idMap["a.go:1"] != 2001 {
+			t.Errorf("a.go:1 = %d, want 2001", idMap["a.go:1"])
+		}
+		if idMap["b.go:2"] != 2002 {
+			t.Errorf("b.go:2 = %d, want 2002", idMap["b.go:2"])
+		}
+		if _, ok := idMap["c.go:3"]; ok {
+			t.Error("c.go:3 should not be in map (no response for it)")
+		}
+	})
+
+	t.Run("more response items than input (should not panic)", func(t *testing.T) {
+		comments := []map[string]any{
+			{"path": "a.go", "line": 1, "side": "RIGHT", "body": "fix"},
+		}
+		// Extra response items should be safely ignored
+		reviewComments := []struct{ ID int64 }{
+			{ID: 3001},
+			{ID: 3002}, // extra
+		}
+
+		idMap := make(map[string]int64)
+		for i, rc := range reviewComments {
+			if i < len(comments) {
+				path, _ := comments[i]["path"].(string)
+				line, _ := comments[i]["line"].(int)
+				key := fmt.Sprintf("%s:%d", path, line)
+				idMap[key] = rc.ID
+			}
+		}
+
+		if idMap["a.go:1"] != 3001 {
+			t.Errorf("a.go:1 = %d, want 3001", idMap["a.go:1"])
+		}
+		if len(idMap) != 1 {
+			t.Errorf("expected 1 entry, got %d", len(idMap))
+		}
+	})
+
+	t.Run("duplicate path:line overwrites with last match", func(t *testing.T) {
+		// Two comments on the same file:line — the second should win
+		comments := []map[string]any{
+			{"path": "auth.go", "line": 10, "side": "RIGHT", "body": "first"},
+			{"path": "auth.go", "line": 10, "side": "RIGHT", "body": "second"},
+		}
+		reviewComments := []struct{ ID int64 }{
+			{ID: 4001},
+			{ID: 4002},
+		}
+
+		idMap := make(map[string]int64)
+		for i, rc := range reviewComments {
+			if i < len(comments) {
+				path, _ := comments[i]["path"].(string)
+				line, _ := comments[i]["line"].(int)
+				key := fmt.Sprintf("%s:%d", path, line)
+				idMap[key] = rc.ID
+			}
+		}
+
+		// Last one wins because same key
+		if idMap["auth.go:10"] != 4002 {
+			t.Errorf("auth.go:10 = %d, want 4002 (last match wins)", idMap["auth.go:10"])
+		}
+	})
+}
+
+// TestUpdateCritJSONWithGitHubIDs_ReplyMapping tests the replyKey-based mapping
+// that matches pushed replies back to their .crit.json entries.
+func TestUpdateCritJSONWithGitHubIDs_ReplyMapping(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit.json")
+
+	cj := CritJSON{
+		Branch: "feature", BaseRef: "abc", ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"server.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{
+						ID: "c1", StartLine: 42, EndLine: 42, Body: "Fix this",
+						GitHubID: 101,
+						Replies: []Reply{
+							{ID: "c1-r1", Body: "Done, fixed the auth check", GitHubID: 0},
+						},
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(critPath, append(data, '\n'), 0644)
+
+	commentIDs := map[string]int64{} // no new root comments
+	replyIDs := map[replyKey]int64{
+		{ParentGHID: 101, BodyPrefix: truncateStr("Done, fixed the auth check", 60)}: 5001,
+	}
+
+	if err := updateCritJSONWithGitHubIDs(critPath, commentIDs, replyIDs); err != nil {
+		t.Fatalf("updateCritJSONWithGitHubIDs: %v", err)
+	}
+
+	// Re-read and verify
+	data, _ = os.ReadFile(critPath)
+	var result CritJSON
+	json.Unmarshal(data, &result)
+
+	cf := result.Files["server.go"]
+	if cf.Comments[0].Replies[0].GitHubID != 5001 {
+		t.Errorf("reply GitHubID = %d, want 5001", cf.Comments[0].Replies[0].GitHubID)
 	}
 }

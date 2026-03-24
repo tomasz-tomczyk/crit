@@ -26,6 +26,7 @@ func TestWatchFileMtimes_CommentNotLostOnFileChange(t *testing.T) {
 		Mode:        "files",
 		RepoRoot:    dir,
 		ReviewRound: 1,
+		nextID:      1,
 		Files: []*FileEntry{
 			{
 				Path:     "plan.md",
@@ -35,7 +36,6 @@ func TestWatchFileMtimes_CommentNotLostOnFileChange(t *testing.T) {
 				Content:  content,
 				FileHash: fileHash([]byte(content)),
 				Comments: []Comment{},
-				nextID:   1,
 			},
 		},
 		subscribers:   make(map[chan SSEEvent]struct{}),
@@ -80,6 +80,7 @@ func TestWatchFileMtimes_ConcurrentAddDuringChange(t *testing.T) {
 		Mode:        "files",
 		RepoRoot:    dir,
 		ReviewRound: 1,
+		nextID:      1,
 		Files: []*FileEntry{
 			{
 				Path:     "plan.md",
@@ -89,7 +90,6 @@ func TestWatchFileMtimes_ConcurrentAddDuringChange(t *testing.T) {
 				Content:  content,
 				FileHash: fileHash([]byte(content)),
 				Comments: []Comment{},
-				nextID:   1,
 			},
 		},
 		subscribers:   make(map[chan SSEEvent]struct{}),

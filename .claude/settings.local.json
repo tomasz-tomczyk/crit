@@ -69,7 +69,19 @@
       "Bash(chmod +x /Users/joshuaellinger/Sites/crit/install.sh && bash /Users/joshuaellinger/Sites/crit/install.sh 2>&1)",
       "Bash(INSTALL_DIR=/Users/joshuaellinger/.local/bin bash /Users/joshuaellinger/Sites/crit/install.sh 2>&1)",
       "Bash(xattr -l /Users/joshuaellinger/.local/bin/crit && spctl --assess --type exec /Users/joshuaellinger/.local/bin/crit 2>&1; echo \"spctl exit: $?\")",
-      "Bash(curl -fsSL https://raw.githubusercontent.com/JoshEllinger/crit/main/install.sh | sh 2>&1)"
+      "Bash(curl -fsSL https://raw.githubusercontent.com/JoshEllinger/crit/main/install.sh | sh 2>&1)",
+      "Bash(grep -rn \"func critJSONPathForDaemon\\\\|func writeDaemonState\\\\|func readDaemonState\\\\|func removeDaemonState\\\\|type daemonState\" /Users/joshuaellinger/Sites/crit/*.go)",
+      "Bash(grep -rn \"http.Get\\\\|http.Post\\\\|http.Do\\\\|http.NewRequest\\\\|http.Client\" /Users/joshuaellinger/Sites/crit/*.go | grep -v \"_test.go\" | grep -v \"//\\\\|ServeHTTP\\\\|HandleFunc\\\\|ListenAndServe\\\\|ResponseWriter\\\\|Request\\\\b\")",
+      "Bash(curl -fsSL https://github.com/JoshEllinger/crit/releases/latest/download/install.sh | sh)",
+      "Bash(curl -fsSL https://github.com/JoshEllinger/crit/releases/latest/download/install.sh | INSTALL_DIR=\"$HOME/.local/bin\" sh)",
+      "Bash(curl -fsSL \"https://github.com/JoshEllinger/crit/releases/download/v0.6.0/crit-darwin-arm64\" -o \"$HOME/.local/bin/crit\" && chmod +x \"$HOME/.local/bin/crit\" && echo \"Installed\" && crit --version)",
+      "Bash($HOME/.local/bin/crit --version 2>&1; echo \"Exit: $?\")",
+      "Bash(spctl --assess --verbose \"$HOME/.local/bin/crit\" 2>&1; echo \"Exit: $?\")",
+      "Bash(ls /opt/homebrew/bin/go* 2>/dev/null; ls /usr/local/bin/go* 2>/dev/null; find /opt/homebrew -name \"go\" -type f 2>/dev/null | head -5)",
+      "Bash(brew list:*)",
+      "Bash(codesign --force --sign - \"$HOME/.local/bin/crit\" 2>&1 && echo \"Re-signed\" && \"$HOME/.local/bin/crit\" --version 2>&1; echo \"Exit: $?\")",
+      "Bash(PATH=\"/opt/homebrew/bin:$PATH\" go test ./... 2>&1)",
+      "Bash(find /opt/homebrew /usr/local -name \"go\" -type f 2>/dev/null | grep -v \".go$\" | head -5; ls /usr/local/go/bin/ 2>/dev/null)"
     ]
   }
 }

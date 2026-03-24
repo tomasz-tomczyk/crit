@@ -29,6 +29,11 @@ test.describe('Page Loading', () => {
     const diffToggle = page.locator('#diffModeToggle');
     await expect(diffToggle).toBeVisible();
   });
+
+  test('does not show PR toggle when no PR exists', async ({ page, request }) => {
+    await loadPage(page);
+    await expect(page.locator('.pr-toggle-btn')).not.toBeVisible();
+  });
 });
 
 test.describe('File Tree', () => {

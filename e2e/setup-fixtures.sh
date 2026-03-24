@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIR=$(mktemp -d)
 BIN_DIR=$(mktemp -d)
-trap 'rm -rf "$DIR" "$BIN_DIR"' EXIT
+trap 'rm -rf "$DIR" "$BIN_DIR" "${FAKE_HOME:-}"' EXIT
 
 cd "$DIR"
 git init -q
@@ -300,8 +300,13 @@ fi
 echo "CRIT_BIN=$CRIT_BIN" > "/tmp/crit-e2e-state-$PORT"
 echo "CRIT_FIXTURE_DIR=$DIR" >> "/tmp/crit-e2e-state-$PORT"
 
-# Isolate from user's ~/.crit.config.json
-export HOME="$DIR"
+# Isolate from user's ~/.crit.config.json — use a separate HOME so config
+# files don't appear as untracked in the git fixture
+FAKE_HOME=$(mktemp -d)
+export HOME="$FAKE_HOME"
+
+# Configure agent_cmd for E2E testing (echo just prints stdin and exits)
+echo '{"agent_cmd": "echo"}' > "$FAKE_HOME/.crit.config.json"
 
 # Run crit in the fixture repo
-exec "$CRIT_BIN" --no-open --quiet --port "$PORT"
+exec "$CRIT_BIN" _serve --no-open --port "$PORT"

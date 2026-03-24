@@ -126,6 +126,12 @@
   let deleteToken = '';
   let configAuthor = '';
   let uiState = 'reviewing';
+  let pendingUpdates = [];
+  let pendingUpdatesVersion = '';
+  let updateModalEl = null;
+  let reviewComments = []; // review-level (general) comments
+  let reviewCommentFormActive = false; // is the review comment form open?
+  let reviewCommentEditingId = null; // id of review comment being edited, or null
 
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
   let diffScope = getCookie('crit-diff-scope') || 'all'; // 'all', 'branch', 'staged', or 'unstaged'
@@ -138,12 +144,28 @@
   // Per-file active form state
   let activeFilePath = null;
   let activeForms = [];  // Array of { formKey, filePath, afterBlockIndex, startLine, endLine, editingId, side }
+  let prData = null;     // PR metadata from /api/config (set once on load)
+  let agentEnabled = false;
+  let agentName = 'agent';
+  let pendingAgentRequests = new Set();
 
   // Track manually toggled collapse state (comment ID → boolean, true = collapsed)
   const commentCollapseOverrides = {};
 
+  // ===== SVG Icon Constants =====
+  const ICON_CHEVRON = '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+  const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+  const ICON_DELETE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+  const ICON_RESOLVE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  const ICON_UNRESOLVE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.36 2.64M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.36-2.64"/><polyline points="21 3 21 8 16 8"/><polyline points="3 21 3 16 8 16"/></svg>';
+  const ICON_CLIPBOARD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+  const ICON_CHECK_SMALL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  const ICON_COMMENT = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
+
   function formKey(form) {
+    if (form.scope === 'review') return 'review:' + (form.editingId || 'new');
     if (form.editingId) return form.filePath + ':edit:' + form.editingId;
+    if (form.scope === 'file') return form.filePath + ':file';
     return form.filePath + ':' + form.startLine + ':' + form.endLine + ':' + (form.side || '');
   }
 
@@ -336,6 +358,7 @@
     ]);
 
     session = sessionRes;
+    reviewComments = sessionRes.review_comments || [];
 
     // Fire-and-forget: verify file list endpoint is available for @-mention autocomplete
     fetch('/api/files/list')
@@ -347,6 +370,8 @@
     hostedURL = configRes.hosted_url || '';
     deleteToken = configRes.delete_token || '';
     configAuthor = configRes.author || '';
+    agentEnabled = configRes.agent_cmd_enabled || false;
+    agentName = configRes.agent_name || 'agent';
 
     if (shareURL && session.mode !== 'git') {
       const shareBtn = document.getElementById('shareBtn');
@@ -356,11 +381,28 @@
       }
     }
 
-    // Version check
-    if (configRes.latest_version && configRes.version && configRes.latest_version !== configRes.version) {
-      const el = document.getElementById('headerUpdate');
-      el.style.display = '';
-      document.getElementById('updateLink').textContent = configRes.latest_version + ' available';
+    // Update notifications (brew upgrade + stale integrations)
+    pendingUpdates = [];
+    const hasBrew = configRes.latest_version && configRes.version && configRes.latest_version !== configRes.version;
+    if (hasBrew) {
+      pendingUpdates.push({
+        label: 'Crit ' + configRes.latest_version + ' available',
+        labelUrl: 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + configRes.latest_version,
+        hint: 'brew update && brew upgrade crit'
+      });
+    }
+    if (configRes.stale_integrations) {
+      configRes.stale_integrations.forEach(function(si) {
+        // Capitalize agent name for display
+        const name = si.agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+        pendingUpdates.push({ label: name + ' plugin outdated', hint: si.hint });
+      });
+    }
+
+    pendingUpdatesVersion = configRes.latest_version || configRes.version || '';
+    const dismissed = getCookie('crit-updates-dismissed');
+    if (pendingUpdates.length > 0 && dismissed !== pendingUpdatesVersion) {
+      document.getElementById('updateBtn').style.display = '';
     }
 
     // Header context: branch name in git mode, filename in single-file file mode
@@ -371,6 +413,15 @@
       document.getElementById('branchContext').style.display = '';
       document.querySelector('.branch-icon').innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>';
       document.getElementById('branchName').textContent = session.files[0].path.split('/').pop();
+    }
+
+    // PR overview panel toggle
+    if (configRes.pr_url && configRes.pr_number) {
+      prData = configRes;
+      var prToggle = document.getElementById('prToggle');
+      prToggle.style.display = '';
+      document.getElementById('prToggleNumber').textContent = '#' + configRes.pr_number;
+      if (configRes.pr_is_draft) prToggle.classList.add('pr-toggle-draft');
     }
 
     // Show diff mode toggle in git mode (always has diffs)
@@ -1457,7 +1508,6 @@
       file.collapsed = !section.open;
     });
 
-    const fileUnresolvedCount = file.comments.filter(function(c) { return !c.resolved; }).length;
     const dirParts = file.path.split('/');
     const fileName = dirParts.pop();
     const dirPath = dirParts.length > 0 ? dirParts.join('/') + '/' : '';
@@ -1481,9 +1531,7 @@
         (file.additions ? '<span class="add">+' + file.additions + '</span>' : '') +
         (file.deletions ? '<span class="del">-' + file.deletions + '</span>' : '') +
       '</span>' : '') +
-      (fileUnresolvedCount > 0 ? '<span class="file-header-comment-count">' +
-        '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>' +
-        fileUnresolvedCount + '</span>' : '');
+      '';
 
     // Add document/diff toggle for markdown files that have diff hunks
     // Hide when diffActive is on (header-level rendered diff overrides per-file toggle)
@@ -1527,6 +1575,19 @@
       }
     }
 
+    // File comment button
+    const fileCommentBtn = document.createElement('button');
+    fileCommentBtn.className = 'file-comment-btn';
+    fileCommentBtn.title = 'Add file-level comment';
+    fileCommentBtn.setAttribute('aria-label', 'Add file-level comment');
+    fileCommentBtn.innerHTML = ICON_COMMENT;
+    fileCommentBtn.addEventListener('click', function(e) {
+      e.stopPropagation(); // Don't toggle the <details>
+      e.preventDefault();
+      openFileCommentForm(file.path);
+    });
+    header.appendChild(fileCommentBtn);
+
     // Viewed checkbox
     const viewedLabel = document.createElement('label');
     viewedLabel.className = 'file-header-viewed';
@@ -1541,6 +1602,26 @@
     header.appendChild(viewedLabel);
 
     section.appendChild(header);
+
+    // File-level comments container (between header and file body)
+    const fileComments = file.comments.filter(function(c) { return c.scope === 'file'; });
+    const fileForm = getFormsForFile(file.path).find(function(f) { return f.scope === 'file'; });
+    if (fileComments.length > 0 || fileForm) {
+      const fileCommentsContainer = document.createElement('div');
+      fileCommentsContainer.className = 'file-comments';
+      for (let ci = 0; ci < fileComments.length; ci++) {
+        const comment = fileComments[ci];
+        if (comment.resolved) {
+          fileCommentsContainer.appendChild(createResolvedElement(comment, file.path));
+        } else {
+          fileCommentsContainer.appendChild(createCommentElement(comment, file.path));
+        }
+      }
+      if (fileForm) {
+        fileCommentsContainer.appendChild(createFileCommentForm(fileForm));
+      }
+      section.appendChild(fileCommentsContainer);
+    }
 
     // File body
     const body = document.createElement('div');
@@ -2940,7 +3021,7 @@
   function buildCommentedRangeSet(comments) {
     const set = new Set();
     for (const c of comments) {
-      if (c.resolved) continue;
+      if (c.resolved || c.scope === 'file') continue;
       const side = c.side || '';
       for (let ln = c.start_line; ln <= c.end_line; ln++) set.add(ln + ':' + side);
     }
@@ -2960,6 +3041,7 @@
     }
     const set = new Set();
     for (const c of comments) {
+      if (c.scope === 'file') continue;
       const side = c.side || '';
       let startIdx = -1, endIdx = -1;
       for (let i = 0; i < lines.length; i++) {
@@ -3277,6 +3359,45 @@
     focusCommentTextarea(newForm.formKey);
   }
 
+  function openFileCommentForm(filePath) {
+    const newForm = {
+      filePath: filePath,
+      scope: 'file',
+      startLine: 0,
+      endLine: 0,
+      afterBlockIndex: null
+    };
+    const fk = formKey(newForm);
+    const existing = activeForms.find(function(f) { return f.formKey === fk; });
+    if (existing) {
+      renderFileByPath(filePath);
+      focusCommentTextarea(existing.formKey);
+      return;
+    }
+    addForm(newForm);
+    renderFileByPath(filePath);
+    focusCommentTextarea(newForm.formKey);
+  }
+
+  function createFileCommentForm(formObj) {
+    let initialBody = '';
+    if (formObj.editingId) {
+      const file = getFileByPath(formObj.filePath);
+      if (file) {
+        const existing = file.comments.find(function(c) { return c.id === formObj.editingId; });
+        if (existing) initialBody = existing.body;
+      }
+    } else if (formObj.draftBody) {
+      initialBody = formObj.draftBody;
+    }
+    return createCommentFormUI({
+      formObj: formObj,
+      headerText: formObj.editingId ? 'Editing comment' : 'Comment',
+      submitText: formObj.editingId ? 'Update' : 'Submit',
+      initialBody: initialBody,
+      autoFocus: false
+    });
+  }
 
   function focusCommentTextarea(targetFormKey) {
     requestAnimationFrame(() => {
@@ -3671,6 +3792,38 @@
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
+    if (agentEnabled && !opts.editingId) {
+      const sendBtn = document.createElement('button');
+      sendBtn.className = 'btn btn-sm btn-agent';
+      sendBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" style="vertical-align: -1px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg> Send now';
+      sendBtn.title = 'Submit comment and send to agent';
+      sendBtn.addEventListener('click', async function() {
+        sendBtn.disabled = true;
+        submitBtn.disabled = true;
+        const fp = formObj.filePath;
+        const comment = await submitComment(textarea.value, formObj);
+        if (comment) {
+          pendingAgentRequests.add(comment.id);
+          renderFileByPath(fp);
+          try {
+            const res = await fetch('/api/agent/request', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ comment_id: comment.id, file_path: fp }),
+            });
+            if (!res.ok) throw new Error('Server returned ' + res.status);
+            showMiniToast('Sent to agent');
+          } catch (err) {
+            console.error('Error sending to agent:', err);
+            showMiniToast('Failed to send to agent');
+            pendingAgentRequests.delete(comment.id);
+            renderFileByPath(fp);
+          }
+        }
+      });
+      actions.appendChild(sendBtn);
+    }
+
     form.appendChild(header);
     form.appendChild(textarea);
     form.appendChild(actions);
@@ -3749,8 +3902,9 @@
   }
 
   async function submitComment(body, formObj) {
-    if (!body.trim() || !formObj) return;
+    if (!body.trim() || !formObj) return null;
     clearDraft(formObj);
+    let created;
     const filePath = formObj.filePath;
     const file = getFileByPath(filePath);
     if (!file) return;
@@ -3767,11 +3921,16 @@
         if (idx >= 0) file.comments[idx] = updated;
       } else {
         const payload = {
-          start_line: formObj.startLine,
-          end_line: formObj.endLine,
           body: body.trim()
         };
+        if (formObj.scope === 'file') {
+          payload.scope = 'file';
+        } else {
+          payload.start_line = formObj.startLine;
+          payload.end_line = formObj.endLine;
+        }
         if (formObj.quote) payload.quote = formObj.quote;
+        if (formObj.quoteOffset != null) payload.quote_offset = formObj.quoteOffset;
         if (formObj.side) payload.side = formObj.side;
         if (configAuthor) payload.author = configAuthor;
         const res = await fetch('/api/file/comments?path=' + enc(filePath), {
@@ -3781,9 +3940,11 @@
         });
         const newComment = await res.json();
         file.comments.push(newComment);
+        created = newComment;
       }
     } catch (err) {
       console.error('Error saving comment:', err);
+      return null;
     }
 
     removeForm(formObj.formKey);
@@ -3800,6 +3961,7 @@
     renderFileByPath(filePath);
     updateTreeCommentBadges();
     updateCommentCount();
+    return created || null;
   }
 
   function cancelComment(formObj) {
@@ -3839,6 +4001,7 @@
         afterBlockIndex: formObj.afterBlockIndex,
         editingId: formObj.editingId,
         side: formObj.side || '',
+        scope: formObj.scope || '',
         body: body,
         savedAt: Date.now()
       }));
@@ -3894,7 +4057,7 @@
         const file = getFileByPath(draft.filePath);
         if (!file) { localStorage.removeItem(key); continue; }
 
-        if (file.fileType === 'markdown' && file.content) {
+        if (draft.scope !== 'file' && file.fileType === 'markdown' && file.content) {
           const totalLines = file.content.split('\n').length;
           if (draft.startLine < 1 || draft.endLine > totalLines) {
             localStorage.removeItem(key);
@@ -3916,6 +4079,7 @@
           endLine: draft.endLine,
           editingId: draft.editingId,
           side: draft.side || '',
+          scope: draft.scope || '',
           draftBody: draft.body || ''
         };
         formObj.formKey = formKey(formObj);
@@ -3952,6 +4116,23 @@
     }, 3000);
   }
 
+  // ===== Agent Button =====
+  function isLiveThread(comment) {
+    if (!agentEnabled || !comment.replies) return false;
+    return comment.replies.some(function(r) { return r.author === agentName; });
+  }
+
+  function checkAgentReplies(comments) {
+    for (const c of comments) {
+      if (pendingAgentRequests.has(c.id) && c.replies && c.replies.length > 0) {
+        const lastReply = c.replies[c.replies.length - 1];
+        if (lastReply.author === agentName) {
+          pendingAgentRequests.delete(c.id);
+        }
+      }
+    }
+  }
+
   // ===== Comment Display =====
   function buildCommentEnv(comment, filePath) {
     const env = {};
@@ -3964,38 +4145,33 @@
     return env;
   }
 
-  function createCommentElement(comment, filePath) {
-    if (findFormForEdit(comment.id)) {
-      return createInlineEditor(comment, filePath);
-    }
-
+  // Shared helper for building comment card skeleton (header, body, replies)
+  function buildCommentCard(comment, filePath, opts) {
+    // opts: { wrapperClass, cardClassExtra, collapseDefault, showLineRef, showCarriedForward, repliesExtraClass, showReplyInput }
     const wrapper = document.createElement('div');
-    wrapper.className = 'comment-block';
+    wrapper.className = opts.wrapperClass || 'comment-block';
 
     const card = document.createElement('div');
-    card.className = 'comment-card' + (comment.carried_forward ? ' carried-forward' : '');
+    var cardClass = 'comment-card';
+    if (opts.cardClassExtra) cardClass += ' ' + opts.cardClassExtra;
+    card.className = cardClass;
     card.dataset.commentId = comment.id;
+
+    // Collapse state — live threads never auto-collapse
+    var liveOrPending = isLiveThread(comment) || pendingAgentRequests.has(comment.id);
+    var isCollapsed = liveOrPending ? false
+      : opts.collapseDefault
+        ? (commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true)
+        : (commentCollapseOverrides[comment.id] === true);
+    if (isCollapsed) card.classList.add('collapsed');
 
     const header = document.createElement('div');
     header.className = 'comment-header';
 
-    const lineRef = document.createElement('span');
-    lineRef.className = 'comment-line-ref';
-    lineRef.textContent = comment.start_line === comment.end_line
-      ? 'Line ' + comment.start_line
-      : 'Lines ' + comment.start_line + '-' + comment.end_line;
-
-    const time = document.createElement('span');
-    time.className = 'comment-time';
-    time.textContent = formatTime(comment.created_at);
-
-    // Apply saved collapse state (unresolved defaults to expanded)
-    if (commentCollapseOverrides[comment.id] === true) card.classList.add('collapsed');
-
     const collapseBtn = document.createElement('button');
     collapseBtn.className = 'comment-collapse-btn';
-    collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
-    collapseBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+    collapseBtn.title = isCollapsed ? 'Expand comment' : 'Collapse comment';
+    collapseBtn.innerHTML = ICON_CHEVRON;
     collapseBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       card.classList.toggle('collapsed');
@@ -4014,37 +4190,110 @@
     }
     if (comment.review_round >= 1) {
       const roundBadge = document.createElement('span');
-      const rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
+      var rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
       roundBadge.className = 'comment-round-badge' + rc;
       roundBadge.textContent = 'R' + comment.review_round;
       headerLeft.appendChild(roundBadge);
     }
-    headerLeft.appendChild(lineRef);
-    if (comment.carried_forward) {
+    if (opts.showLineRef && comment.scope !== 'file') {
+      const lineRef = document.createElement('span');
+      lineRef.className = 'comment-line-ref';
+      lineRef.textContent = comment.start_line === comment.end_line
+        ? 'Line ' + comment.start_line
+        : 'Lines ' + comment.start_line + '-' + comment.end_line;
+      headerLeft.appendChild(lineRef);
+    }
+    if (opts.showCarriedForward && comment.carried_forward) {
       const label = document.createElement('span');
       label.className = 'carried-forward-label';
       label.textContent = 'Unresolved';
       headerLeft.appendChild(label);
     }
+    const time = document.createElement('span');
+    time.className = 'comment-time';
+    time.textContent = formatTime(comment.created_at);
     headerLeft.appendChild(time);
+
+    if (liveOrPending) {
+      const badge = document.createElement('span');
+      badge.className = 'live-thread-badge' + (pendingAgentRequests.has(comment.id) ? ' pulsing' : '');
+      badge.innerHTML = '<svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" style="vertical-align: -1px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg> live';
+      headerLeft.appendChild(badge);
+    }
 
     const actions = document.createElement('div');
     actions.className = 'comment-actions';
 
+    header.appendChild(headerLeft);
+    header.appendChild(actions);
+
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'comment-body';
+    bodyEl.innerHTML = commentMd.render(comment.body, filePath ? buildCommentEnv(comment, filePath) : undefined);
+
+    card.appendChild(header);
+    card.appendChild(bodyEl);
+
+    // Render replies
+    if (comment.replies && comment.replies.length > 0) {
+      card.appendChild(renderReplyList(comment, filePath || '', opts.repliesExtraClass));
+    }
+
+    // Pending agent indicator
+    if (pendingAgentRequests.has(comment.id)) {
+      const pending = document.createElement('div');
+      pending.className = 'agent-pending-reply';
+      pending.dataset.commentId = comment.id;
+      pending.innerHTML =
+        '<span class="agent-pending-author">@' + agentName + '</span>' +
+        '<span class="agent-pending-cursor">_</span>';
+      card.appendChild(pending);
+    }
+
+    // Reply input
+    if (opts.showReplyInput && filePath) {
+      card.appendChild(createReplyInput(comment.id, filePath));
+    }
+
+    if (pendingAgentRequests.has(comment.id) || isLiveThread(comment)) {
+      wrapper.classList.add('live-thread');
+    }
+    if (pendingAgentRequests.has(comment.id)) {
+      wrapper.classList.add('agent-pending');
+    }
+
+    wrapper.appendChild(card);
+    return { wrapper: wrapper, card: card, actions: actions };
+  }
+
+  function createCommentElement(comment, filePath) {
+    if (findFormForEdit(comment.id)) {
+      return createInlineEditor(comment, filePath);
+    }
+
+    var parts = buildCommentCard(comment, filePath, {
+      wrapperClass: 'comment-block',
+      cardClassExtra: comment.carried_forward ? 'carried-forward' : '',
+      collapseDefault: false,
+      showLineRef: true,
+      showCarriedForward: true,
+      showReplyInput: true,
+    });
+
     const editBtn = document.createElement('button');
     editBtn.title = 'Edit';
-    editBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+    editBtn.innerHTML = ICON_EDIT;
     editBtn.addEventListener('click', () => editComment(comment, filePath));
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'delete-btn';
     deleteBtn.title = 'Delete';
-    deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+    deleteBtn.innerHTML = ICON_DELETE;
     deleteBtn.addEventListener('click', () => deleteComment(comment.id, filePath));
 
     const resolveBtn = document.createElement('button');
     resolveBtn.title = 'Resolve';
-    resolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    resolveBtn.innerHTML = ICON_RESOLVE;
     resolveBtn.addEventListener('click', async function() {
       try {
         var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
@@ -4061,30 +4310,11 @@
       refreshFileComments(filePath);
     });
 
-    actions.appendChild(resolveBtn);
-    actions.appendChild(editBtn);
-    actions.appendChild(deleteBtn);
+    parts.actions.appendChild(resolveBtn);
+    parts.actions.appendChild(editBtn);
+    parts.actions.appendChild(deleteBtn);
 
-    header.appendChild(headerLeft);
-    header.appendChild(actions);
-
-    const bodyEl = document.createElement('div');
-    bodyEl.className = 'comment-body';
-    bodyEl.innerHTML = commentMd.render(comment.body, buildCommentEnv(comment, filePath));
-
-    card.appendChild(header);
-    card.appendChild(bodyEl);
-
-    // Render replies (threading)
-    if (comment.replies && comment.replies.length > 0) {
-      card.appendChild(renderReplyList(comment, filePath));
-    }
-
-    // Inline reply input (GitHub-style: compact, expands on focus)
-    card.appendChild(createReplyInput(comment.id, filePath));
-
-    wrapper.appendChild(card);
-    return wrapper;
+    return parts.wrapper;
   }
 
   // Build a reply list container for a comment's replies
@@ -4117,12 +4347,12 @@
       replyActions.className = 'reply-actions';
       var replyEditBtn = document.createElement('button');
       replyEditBtn.title = 'Edit';
-      replyEditBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+      replyEditBtn.innerHTML = ICON_EDIT;
       replyEditBtn.addEventListener('click', function(e) { e.stopPropagation(); editReply(comment.id, reply.id, filePath); });
       var replyDeleteBtn = document.createElement('button');
       replyDeleteBtn.className = 'delete-btn';
       replyDeleteBtn.title = 'Delete';
-      replyDeleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+      replyDeleteBtn.innerHTML = ICON_DELETE;
       replyDeleteBtn.addEventListener('click', function(e) { e.stopPropagation(); deleteReply(comment.id, reply.id, filePath); });
       replyActions.appendChild(replyEditBtn);
       replyActions.appendChild(replyDeleteBtn);
@@ -4150,7 +4380,7 @@
     const formQuotes = getFormsForFile(file.path)
       .filter(function(f) { return f.quote && !f.editingId; })
       .map(function(f) {
-        return { start_line: f.startLine, end_line: f.endLine, quote: f.quote, id: 'draft-' + f.formKey, side: f.side };
+        return { start_line: f.startLine, end_line: f.endLine, quote: f.quote, quote_offset: f.quoteOffset, id: 'draft-' + f.formKey, side: f.side };
       });
     const allQuoted = quotedComments.concat(formQuotes);
     if (allQuoted.length === 0) return;
@@ -4199,7 +4429,17 @@
       const fullText = textNodes.map(function(n) { return n.textContent; }).join('');
       const normalizedQuote = comment.quote.replace(/\s+/g, ' ');
       const normalizedFull = fullText.replace(/\s+/g, ' ');
-      let quoteIdx = normalizedFull.indexOf(normalizedQuote);
+      let quoteIdx = -1;
+      // Use quote_offset when available to disambiguate duplicate substrings
+      if (comment.quote_offset != null) {
+        var candidateIdx = comment.quote_offset;
+        if (normalizedFull.substr(candidateIdx, normalizedQuote.length) === normalizedQuote) {
+          quoteIdx = candidateIdx;
+        }
+      }
+      if (quoteIdx === -1) {
+        quoteIdx = normalizedFull.indexOf(normalizedQuote);
+      }
       if (quoteIdx === -1) {
         quoteIdx = normalizedFull.toLowerCase().indexOf(normalizedQuote.toLowerCase());
       }
@@ -4279,12 +4519,18 @@
     const formObj = findFormForEdit(comment.id);
     if (!formObj) return null;
 
-    let lineRef = comment.start_line === comment.end_line
-      ? 'Line ' + comment.start_line
-      : 'Lines ' + comment.start_line + '-' + comment.end_line;
+    let headerText;
+    if (comment.scope === 'file') {
+      headerText = 'Editing file comment';
+    } else {
+      let lineRef = comment.start_line === comment.end_line
+        ? 'Line ' + comment.start_line
+        : 'Lines ' + comment.start_line + '-' + comment.end_line;
+      headerText = 'Editing comment on ' + lineRef;
+    }
     var formEl = createCommentFormUI({
       formObj: formObj,
-      headerText: 'Editing comment on ' + lineRef,
+      headerText: headerText,
       submitText: 'Update Comment',
       initialBody: comment.body,
       autoFocus: true
@@ -4301,13 +4547,15 @@
   }
 
   function editComment(comment, filePath) {
-    openForm({
+    const form = {
       filePath: filePath,
       afterBlockIndex: null,
       startLine: comment.start_line,
       endLine: comment.end_line,
       editingId: comment.id,
-    });
+    };
+    if (comment.scope === 'file') form.scope = 'file';
+    openForm(form);
   }
 
   async function deleteComment(id, filePath) {
@@ -4316,6 +4564,7 @@
     try {
       await fetch('/api/comment/' + id + '?path=' + enc(filePath), { method: 'DELETE' });
       file.comments = file.comments.filter(c => c.id !== id);
+      pendingAgentRequests.delete(id);
     } catch (err) {
       console.error('Error deleting comment:', err);
     }
@@ -4336,10 +4585,215 @@
     } catch (err) {
       console.error('Error refreshing comments:', err);
     }
+    checkAgentReplies(file.comments);
     renderFileByPath(filePath);
-    renderFileSummary();
     updateCommentCount();
     updateTreeCommentBadges();
+  }
+
+  // ===== Review-Level (General) Comments =====
+  let reviewCommentSubmitting = false;
+  async function addReviewComment(body) {
+    if (!body.trim() || reviewCommentSubmitting) return;
+    reviewCommentSubmitting = true;
+    try {
+      const res = await fetch('/api/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: body.trim(), author: configAuthor })
+      });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+      const newComment = await res.json();
+      reviewComments.push(newComment);
+    } catch (err) {
+      console.error('Error adding review comment:', err);
+      showMiniToast('Failed to add comment');
+      reviewCommentSubmitting = false;
+      return;
+    }
+    reviewCommentSubmitting = false;
+    reviewCommentFormActive = false;
+    reviewCommentEditingId = null;
+    updateCommentCount();
+  }
+
+  async function updateReviewComment(id, body) {
+    if (!body.trim()) return;
+    try {
+      const res = await fetch('/api/review-comment/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: body.trim() })
+      });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+      const updated = await res.json();
+      const idx = reviewComments.findIndex(function(c) { return c.id === id; });
+      if (idx >= 0) reviewComments[idx] = updated;
+    } catch (err) {
+      console.error('Error updating review comment:', err);
+      showMiniToast('Failed to update comment');
+      return;
+    }
+    reviewCommentFormActive = false;
+    reviewCommentEditingId = null;
+    updateCommentCount();
+  }
+
+  async function deleteReviewComment(id) {
+    try {
+      const res = await fetch('/api/review-comment/' + id, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+      reviewComments = reviewComments.filter(function(c) { return c.id !== id; });
+    } catch (err) {
+      console.error('Error deleting review comment:', err);
+      showMiniToast('Failed to delete comment');
+      return;
+    }
+    updateCommentCount();
+  }
+
+  function openReviewCommentForm() {
+    // No-op if form is already open
+    if (reviewCommentFormActive && !reviewCommentEditingId) return;
+    // Open panel if closed
+    const panel = document.getElementById('commentsPanel');
+    if (panel.classList.contains('comments-panel-hidden')) {
+      panel.classList.remove('comments-panel-hidden');
+      updateTocPosition();
+    }
+    reviewCommentFormActive = true;
+    reviewCommentEditingId = null;
+    renderCommentsPanel();
+    // Focus the textarea
+    requestAnimationFrame(function() {
+      const ta = document.querySelector('#commentsPanelBody textarea');
+      if (ta) ta.focus();
+    });
+  }
+
+  function openReviewCommentEditForm(comment) {
+    // Open panel if closed
+    const panel = document.getElementById('commentsPanel');
+    if (panel.classList.contains('comments-panel-hidden')) {
+      panel.classList.remove('comments-panel-hidden');
+      updateTocPosition();
+    }
+    reviewCommentFormActive = true;
+    reviewCommentEditingId = comment.id;
+    renderCommentsPanel();
+    requestAnimationFrame(function() {
+      const ta = document.querySelector('#commentsPanelBody textarea');
+      if (ta) ta.focus();
+    });
+  }
+
+  function cancelReviewCommentForm() {
+    reviewCommentFormActive = false;
+    reviewCommentEditingId = null;
+    renderCommentsPanel();
+  }
+
+  function createReviewCommentFormUI() {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'comment-form-wrapper';
+
+    const form = document.createElement('div');
+    form.className = 'comment-form';
+
+    const textarea = document.createElement('textarea');
+    textarea.placeholder = 'Leave a comment... (Ctrl+Enter to submit, Escape to cancel)';
+
+    textarea.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        addReviewComment(textarea.value);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        cancelReviewCommentForm();
+      }
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'comment-form-actions';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-sm';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', function() { cancelReviewCommentForm(); });
+
+    const submitBtn = document.createElement('button');
+    submitBtn.className = 'btn btn-sm btn-primary';
+    submitBtn.textContent = 'Submit';
+    submitBtn.addEventListener('click', function() { addReviewComment(textarea.value); });
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(submitBtn);
+
+    form.appendChild(textarea);
+    form.appendChild(actions);
+    wrapper.appendChild(form);
+
+    return wrapper;
+  }
+
+  function createReviewCommentEditor(comment) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'comment-form-wrapper panel-comment-block';
+
+    const form = document.createElement('div');
+    form.className = 'comment-form';
+
+    const textarea = document.createElement('textarea');
+    textarea.placeholder = 'Edit comment...';
+    textarea.value = comment.body;
+
+    textarea.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        updateReviewComment(comment.id, textarea.value);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        cancelReviewCommentForm();
+      }
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'comment-form-actions';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-sm';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', function() { cancelReviewCommentForm(); });
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-sm btn-primary';
+    saveBtn.textContent = 'Save';
+    saveBtn.addEventListener('click', function() { updateReviewComment(comment.id, textarea.value); });
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(saveBtn);
+
+    form.appendChild(textarea);
+    form.appendChild(actions);
+    wrapper.appendChild(form);
+
+    return wrapper;
+  }
+
+  async function refreshReviewComments() {
+    try {
+      const res = await fetch('/api/comments');
+      if (res.ok) {
+        reviewComments = await res.json();
+      }
+    } catch (err) {
+      console.error('Error refreshing review comments:', err);
+    }
+    updateCommentCount();
   }
 
   async function editReply(commentId, replyId, filePath) {
@@ -4403,17 +4857,22 @@
     const form = document.createElement('div');
     form.className = 'reply-form';
 
+    // Check if this comment is pending agent response
+    var isPending = pendingAgentRequests.has(commentId);
+
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'reply-input';
-    input.placeholder = 'Write a reply\u2026';
+    input.placeholder = isPending ? 'Waiting for @' + agentName + '\u2026' : 'Write a reply\u2026';
+    if (isPending) input.disabled = true;
     form.appendChild(input);
 
     // Expanded state elements (hidden initially)
     const textarea = document.createElement('textarea');
     textarea.className = 'reply-textarea';
-    textarea.placeholder = 'Write a reply\u2026';
+    textarea.placeholder = isPending ? 'Waiting for @' + agentName + '\u2026' : 'Write a reply\u2026';
     textarea.rows = 3;
+    if (isPending) textarea.disabled = true;
 
     const buttons = document.createElement('div');
     buttons.className = 'reply-form-buttons';
@@ -4474,6 +4933,23 @@
           body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error('Server returned ' + res.status);
+
+        // In live threads, also send the reply to the agent
+        var file = getFileByPath(filePath);
+        var comment = file && file.comments ? file.comments.find(function(c) { return c.id === commentId; }) : null;
+        if (comment && (isLiveThread(comment) || pendingAgentRequests.has(commentId))) {
+          pendingAgentRequests.add(commentId);
+          fetch('/api/agent/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ comment_id: commentId, file_path: filePath }),
+          }).catch(function(err) {
+            console.error('Error sending reply to agent:', err);
+            pendingAgentRequests.delete(commentId);
+            showMiniToast('Failed to send to agent');
+          });
+        }
+
         refreshFileComments(filePath);
       } catch (err) {
         console.error('Failed to add reply:', err);
@@ -4501,60 +4977,14 @@
   }
 
   function createResolvedElement(comment, filePath) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'comment-block';
-
-    const card = document.createElement('div');
-    // Apply saved collapse state (resolved defaults to collapsed)
-    var isCollapsed = commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true;
-    card.className = 'comment-card resolved-card' + (isCollapsed ? ' collapsed' : '');
-    card.dataset.commentId = comment.id;
-
-    const header = document.createElement('div');
-    header.className = 'comment-header';
-
-    const collapseBtn = document.createElement('button');
-    collapseBtn.className = 'comment-collapse-btn';
-    collapseBtn.title = isCollapsed ? 'Expand comment' : 'Collapse comment';
-    collapseBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>';
-    collapseBtn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      card.classList.toggle('collapsed');
-      commentCollapseOverrides[comment.id] = card.classList.contains('collapsed');
-      collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
+    var parts = buildCommentCard(comment, filePath, {
+      wrapperClass: 'comment-block',
+      cardClassExtra: 'resolved-card',
+      collapseDefault: true,
+      showLineRef: true,
+      showCarriedForward: false,
+      showReplyInput: true,
     });
-
-    const lineRef = document.createElement('span');
-    lineRef.className = 'comment-line-ref';
-    lineRef.textContent = comment.start_line === comment.end_line
-      ? 'Line ' + comment.start_line
-      : 'Lines ' + comment.start_line + '-' + comment.end_line;
-
-    const time = document.createElement('span');
-    time.className = 'comment-time';
-    time.textContent = formatTime(comment.created_at);
-
-    const headerLeft = document.createElement('div');
-    headerLeft.className = 'comment-header-left';
-    headerLeft.prepend(collapseBtn);
-    if (comment.author) {
-      const authorBadge = document.createElement('span');
-      authorBadge.className = 'comment-author-badge author-color-' + authorColorIndex(comment.author);
-      authorBadge.textContent = '@' + comment.author;
-      headerLeft.appendChild(authorBadge);
-    }
-    if (comment.review_round >= 1) {
-      const roundBadge = document.createElement('span');
-      var rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
-      roundBadge.className = 'comment-round-badge' + rc;
-      roundBadge.textContent = 'R' + comment.review_round;
-      headerLeft.appendChild(roundBadge);
-    }
-    headerLeft.appendChild(lineRef);
-    headerLeft.appendChild(time);
-
-    const actions = document.createElement('div');
-    actions.className = 'comment-actions';
 
     const badge = document.createElement('span');
     badge.className = 'resolved-badge';
@@ -4562,7 +4992,8 @@
 
     const unresolveBtn = document.createElement('button');
     unresolveBtn.title = 'Unresolve';
-    unresolveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.36 2.64M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.36-2.64"/><polyline points="21 3 21 8 16 8"/><polyline points="3 21 3 16 8 16"/></svg>';
+    unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
+    unresolveBtn.innerHTML = ICON_UNRESOLVE;
     unresolveBtn.addEventListener('click', async function() {
       try {
         var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
@@ -4582,33 +5013,14 @@
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'delete-btn';
     deleteBtn.title = 'Delete';
-    deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+    deleteBtn.innerHTML = ICON_DELETE;
     deleteBtn.addEventListener('click', function() { deleteComment(comment.id, filePath); });
 
-    actions.appendChild(badge);
-    actions.appendChild(unresolveBtn);
-    actions.appendChild(deleteBtn);
+    parts.actions.appendChild(badge);
+    parts.actions.appendChild(unresolveBtn);
+    parts.actions.appendChild(deleteBtn);
 
-    header.appendChild(headerLeft);
-    header.appendChild(actions);
-
-    const bodyEl = document.createElement('div');
-    bodyEl.className = 'comment-body';
-    bodyEl.innerHTML = commentMd.render(comment.body, buildCommentEnv(comment, filePath));
-
-    card.appendChild(header);
-    card.appendChild(bodyEl);
-
-    // Render replies
-    if (comment.replies && comment.replies.length > 0) {
-      card.appendChild(renderReplyList(comment, filePath));
-    }
-
-    // Reply input
-    card.appendChild(createReplyInput(comment.id, filePath));
-
-    wrapper.appendChild(card);
-    return wrapper;
+    return parts.wrapper;
   }
 
   // ===== Comment Count =====
@@ -4619,11 +5031,15 @@
         if (c.resolved) resolved++; else unresolved++;
       }
     }
+    for (const c of reviewComments) {
+      if (c.resolved) resolved++; else unresolved++;
+    }
     const total = unresolved + resolved;
     const el = document.getElementById('commentCount');
     const numEl = document.getElementById('commentCountNumber');
     if (total === 0) {
-      el.style.display = 'none';
+      el.style.display = '';
+      el.classList.add('comment-count-resolved');
       el.title = 'Toggle comments panel';
       numEl.textContent = '';
     } else if (unresolved > 0) {
@@ -4645,11 +5061,16 @@
 
   function updateTocPosition() {
     const toc = document.getElementById('toc');
-    const panel = document.getElementById('commentsPanel');
-    if (!toc || !panel) return;
-    const panelOpen = !panel.classList.contains('comments-panel-hidden');
-    const tocBaseRight = 16; // matches the default right: 16px in CSS
-    toc.style.right = panelOpen ? (panel.offsetWidth + tocBaseRight) + 'px' : '';
+    const commentsPanel = document.getElementById('commentsPanel');
+    const prPanel = document.getElementById('prPanel');
+    if (!toc) return;
+    const commentsOpen = commentsPanel && !commentsPanel.classList.contains('comments-panel-hidden');
+    const prOpen = prPanel && !prPanel.classList.contains('pr-panel-hidden');
+    const tocBaseRight = 16;
+    var panelWidth = 0;
+    if (commentsOpen && commentsPanel) panelWidth = commentsPanel.offsetWidth;
+    if (prOpen && prPanel) panelWidth = prPanel.offsetWidth;
+    toc.style.right = panelWidth > 0 ? (panelWidth + tocBaseRight) + 'px' : '';
   }
 
   function toggleCommentsPanel() {
@@ -4657,9 +5078,117 @@
     const isHidden = panel.classList.contains('comments-panel-hidden');
     panel.classList.toggle('comments-panel-hidden');
     if (isHidden) {
+      // Close PR panel when opening comments
+      document.getElementById('prPanel').classList.add('pr-panel-hidden');
       renderCommentsPanel();
     }
     updateTocPosition();
+  }
+
+  function createPanelCommentCard(comment, filePath) {
+    // Build a real comment card for the panel, but without reply input/buttons
+    const isGeneral = !filePath;
+    const isResolved = comment.resolved;
+
+    var cardClassExtra = [
+      isResolved ? 'resolved-card' : '',
+      comment.carried_forward ? 'carried-forward' : '',
+    ].filter(Boolean).join(' ');
+
+    var parts = buildCommentCard(comment, filePath || '', {
+      wrapperClass: 'comment-block panel-comment-block',
+      cardClassExtra: cardClassExtra,
+      collapseDefault: isResolved,
+      showLineRef: !isGeneral,
+      showCarriedForward: true,
+      repliesExtraClass: 'panel-replies',
+      showReplyInput: false,
+    });
+
+    if (isResolved) {
+      const badge = document.createElement('span');
+      badge.className = 'resolved-badge';
+      badge.textContent = 'Resolved';
+      parts.actions.appendChild(badge);
+    }
+
+    if (isGeneral) {
+      // General comments: resolve/unresolve, edit, and delete
+      if (isResolved) {
+        const unresolveBtn = document.createElement('button');
+        unresolveBtn.title = 'Unresolve';
+        unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
+        unresolveBtn.innerHTML = ICON_UNRESOLVE;
+        unresolveBtn.addEventListener('click', async function(e) {
+          e.stopPropagation();
+          try {
+            var res = await fetch('/api/review-comment/' + comment.id + '/resolve', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ resolved: false }),
+            });
+            if (!res.ok) throw new Error('Server returned ' + res.status);
+          } catch (err) {
+            console.error('Error unresolving:', err);
+            showMiniToast('Failed to unresolve comment');
+            return;
+          }
+          await refreshReviewComments();
+          renderCommentsPanel();
+        });
+        parts.actions.appendChild(unresolveBtn);
+      } else {
+        const resolveBtn = document.createElement('button');
+        resolveBtn.title = 'Resolve';
+        resolveBtn.innerHTML = ICON_RESOLVE;
+        resolveBtn.addEventListener('click', async function(e) {
+          e.stopPropagation();
+          try {
+            var res = await fetch('/api/review-comment/' + comment.id + '/resolve', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ resolved: true }),
+            });
+            if (!res.ok) throw new Error('Server returned ' + res.status);
+          } catch (err) {
+            console.error('Error resolving:', err);
+            showMiniToast('Failed to resolve comment');
+            return;
+          }
+          await refreshReviewComments();
+          renderCommentsPanel();
+        });
+        parts.actions.appendChild(resolveBtn);
+      }
+      const editBtn = document.createElement('button');
+      editBtn.title = 'Edit';
+      editBtn.innerHTML = ICON_EDIT;
+      editBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        openReviewCommentEditForm(comment);
+      });
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'delete-btn';
+      deleteBtn.title = 'Delete';
+      deleteBtn.innerHTML = ICON_DELETE;
+      deleteBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        deleteReviewComment(comment.id);
+      });
+      parts.actions.appendChild(editBtn);
+      parts.actions.appendChild(deleteBtn);
+    }
+    // File comments are clickable to scroll to inline location
+    if (!isGeneral) {
+      parts.wrapper.style.cursor = 'pointer';
+      parts.wrapper.addEventListener('click', function(e) {
+        // Don't scroll if clicking action buttons
+        if (e.target.closest('.comment-actions')) return;
+        scrollToComment(comment.id, filePath);
+      });
+    }
+
+    return parts.wrapper;
   }
 
   function renderCommentsPanel() {
@@ -4668,13 +5197,46 @@
 
     const showResolved = document.getElementById('showResolvedToggle').checked;
     const body = document.getElementById('commentsPanelBody');
+    const savedScroll = body.scrollTop;
     body.innerHTML = '';
 
     // Show/hide the filter bar only when resolved comments exist
-    const hasResolved = files.some(function(f) { return f.comments.some(function(c) { return c.resolved; }); });
+    const hasResolved = files.some(function(f) { return f.comments.some(function(c) { return c.resolved; }); })
+      || reviewComments.some(function(c) { return c.resolved; });
     document.getElementById('commentsPanelFilter').style.display = hasResolved ? '' : 'none';
 
     let hasComments = false;
+
+    // Render general comment compose form at the top when active
+    if (reviewCommentFormActive && !reviewCommentEditingId) {
+      body.appendChild(createReviewCommentFormUI());
+    }
+
+    // Render review-level (general) comments first
+    const visibleReviewComments = reviewComments.filter(function(c) {
+      return showResolved ? true : !c.resolved;
+    });
+    if (visibleReviewComments.length > 0) {
+      hasComments = true;
+      const group = document.createElement('div');
+      group.className = 'comments-panel-file-group';
+
+      const groupName = document.createElement('div');
+      groupName.className = 'comments-panel-file-name';
+      groupName.textContent = 'Review';
+      group.appendChild(groupName);
+
+      for (let j = 0; j < visibleReviewComments.length; j++) {
+        const comment = visibleReviewComments[j];
+        // If editing this comment, show editor instead
+        if (reviewCommentEditingId === comment.id) {
+          group.appendChild(createReviewCommentEditor(comment));
+          continue;
+        }
+        group.appendChild(createPanelCommentCard(comment, null));
+      }
+      body.appendChild(group);
+    }
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -4701,87 +5263,19 @@
 
       for (let j = 0; j < visibleComments.length; j++) {
         const comment = visibleComments[j];
-        const card = document.createElement('div');
-        card.className = 'comments-panel-card' + (comment.resolved ? ' comments-panel-card-resolved' : '');
-        card.dataset.commentId = comment.id;
-        card.dataset.filePath = file.path;
-
-        const lineRef = document.createElement('div');
-        lineRef.className = 'comments-panel-card-line';
-        lineRef.textContent = comment.start_line === comment.end_line
-          ? 'Line ' + comment.start_line
-          : 'Lines ' + comment.start_line + '-' + comment.end_line;
-        if (comment.carried_forward) {
-          const badge = document.createElement('span');
-          if (comment.resolved) {
-            badge.className = 'comments-panel-badge comments-panel-badge-resolved';
-            badge.textContent = 'Resolved';
-          } else {
-            badge.className = 'comments-panel-badge comments-panel-badge-unresolved';
-            badge.textContent = 'Unresolved';
-          }
-          lineRef.appendChild(badge);
-        }
-        if (comment.review_round >= 1) {
-          const roundBadge = document.createElement('span');
-          const rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
-      roundBadge.className = 'comment-round-badge' + rc;
-          roundBadge.textContent = 'R' + comment.review_round;
-          lineRef.appendChild(roundBadge);
-        }
-
-        if (comment.replies && comment.replies.length > 0) {
-          var replyBadge = document.createElement('span');
-          replyBadge.className = 'comments-panel-badge-replies';
-          replyBadge.textContent = comment.replies.length + (comment.replies.length === 1 ? ' reply' : ' replies');
-          lineRef.appendChild(replyBadge);
-        }
-
-        const bodyEl = document.createElement('div');
-        bodyEl.className = 'comments-panel-card-body';
-        bodyEl.innerHTML = commentMd.render(comment.body, buildCommentEnv(comment, file.path));
-
-        card.appendChild(lineRef);
-        card.appendChild(bodyEl);
-
-        if (comment.replies && comment.replies.length > 0) {
-          var lastReply = comment.replies[comment.replies.length - 1];
-          var preview = document.createElement('div');
-          preview.className = 'comments-panel-reply-preview';
-
-          var previewAuthor = document.createElement('span');
-          previewAuthor.className = 'reply-preview-author';
-          previewAuthor.textContent = lastReply.author || 'anonymous';
-
-          var previewBody = document.createElement('span');
-          previewBody.className = 'reply-preview-body';
-          var maxLen = 80;
-          previewBody.textContent = lastReply.body.length > maxLen
-            ? lastReply.body.substring(0, maxLen) + '\u2026'
-            : lastReply.body;
-
-          preview.appendChild(previewAuthor);
-          preview.appendChild(document.createTextNode(': '));
-          preview.appendChild(previewBody);
-          card.appendChild(preview);
-        }
-
-        card.addEventListener('click', (function(commentId, filePath) {
-          return function() { scrollToComment(commentId, filePath); };
-        })(comment.id, file.path));
-
-        group.appendChild(card);
+        group.appendChild(createPanelCommentCard(comment, file.path));
       }
 
       body.appendChild(group);
     }
 
-    if (!hasComments) {
+    if (!hasComments && !reviewCommentFormActive) {
       const empty = document.createElement('div');
       empty.className = 'comments-panel-empty';
       empty.textContent = showResolved ? 'No comments yet' : 'No unresolved comments';
       body.appendChild(empty);
     }
+    body.scrollTop = savedScroll;
   }
 
   function scrollToComment(commentId, filePath) {
@@ -4804,6 +5298,132 @@
     commentCard.addEventListener('animationend', function() {
       commentCard.classList.remove('comment-card-highlight');
     }, { once: true });
+  }
+
+  // ===== PR Overview Panel =====
+  function togglePRPanel() {
+    var panel = document.getElementById('prPanel');
+    var isHidden = panel.classList.contains('pr-panel-hidden');
+    panel.classList.toggle('pr-panel-hidden');
+    // Close comments panel if opening PR panel
+    if (isHidden) {
+      document.getElementById('commentsPanel').classList.add('comments-panel-hidden');
+      renderPRPanel();
+    }
+    updateTocPosition();
+  }
+
+  function renderPRPanel() {
+    var panel = document.getElementById('prPanel');
+    if (panel.classList.contains('pr-panel-hidden')) return;
+    var pr = prData;
+    if (!pr) return;
+
+    var body = document.getElementById('prPanelBody');
+    body.innerHTML = '';
+
+    // PR title row with close button
+    var linkSection = document.createElement('div');
+    linkSection.className = 'pr-panel-link-section';
+
+    var prLink = document.createElement('a');
+    prLink.className = 'pr-panel-pr-link';
+    prLink.href = pr.pr_url;
+    prLink.target = '_blank';
+    prLink.rel = 'noopener noreferrer';
+    prLink.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></svg>' +
+      '<span class="pr-panel-pr-title-text">' + escapeHtml(pr.pr_title || 'Pull Request') + ' <span class="pr-panel-pr-number">#' + pr.pr_number + '</span></span>';
+    linkSection.appendChild(prLink);
+
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'pr-panel-close';
+    closeBtn.title = 'Close';
+    closeBtn.setAttribute('aria-label', 'Close PR panel');
+    closeBtn.innerHTML = '&#x2715;';
+    closeBtn.addEventListener('click', function() {
+      document.getElementById('prPanel').classList.add('pr-panel-hidden');
+      updateTocPosition();
+    });
+    linkSection.appendChild(closeBtn);
+
+    body.appendChild(linkSection);
+
+    // State badge + meta
+    var metaSection = document.createElement('div');
+    metaSection.className = 'pr-panel-meta';
+
+    var stateLabel = (pr.pr_state || 'OPEN').toUpperCase();
+    var stateClass = 'pr-panel-state';
+    if (stateLabel === 'MERGED') stateClass += ' pr-panel-state-merged';
+    else if (stateLabel === 'CLOSED') stateClass += ' pr-panel-state-closed';
+    else stateClass += ' pr-panel-state-open';
+    if (pr.pr_is_draft) stateClass += ' pr-panel-state-draft';
+
+    var stateBadge = document.createElement('span');
+    stateBadge.className = stateClass;
+    stateBadge.textContent = pr.pr_is_draft ? 'Draft' : stateLabel.charAt(0) + stateLabel.slice(1).toLowerCase();
+    metaSection.appendChild(stateBadge);
+
+    if (pr.pr_author) {
+      var authorEl = document.createElement('span');
+      authorEl.className = 'pr-panel-author';
+      authorEl.textContent = pr.pr_author;
+      metaSection.appendChild(authorEl);
+    }
+
+    body.appendChild(metaSection);
+
+    // Branch info
+    if (pr.pr_head_ref && pr.pr_base_ref) {
+      var branchInfo = document.createElement('div');
+      branchInfo.className = 'pr-panel-branches';
+      branchInfo.innerHTML =
+        '<span class="pr-panel-branch">' + escapeHtml(pr.pr_head_ref) + '</span>' +
+        '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" class="pr-panel-arrow"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg>' +
+        '<span class="pr-panel-branch">' + escapeHtml(pr.pr_base_ref) + '</span>';
+      body.appendChild(branchInfo);
+    }
+
+    // Stats
+    var statsSection = document.createElement('div');
+    statsSection.className = 'pr-panel-stats';
+
+    if (pr.pr_changed_files !== undefined) {
+      var filesStat = document.createElement('span');
+      filesStat.className = 'pr-panel-stat';
+      filesStat.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>' +
+        pr.pr_changed_files + ' file' + (pr.pr_changed_files !== 1 ? 's' : '');
+      statsSection.appendChild(filesStat);
+    }
+
+    if (pr.pr_additions !== undefined || pr.pr_deletions !== undefined) {
+      var diffStat = document.createElement('span');
+      diffStat.className = 'pr-panel-stat';
+      diffStat.innerHTML =
+        '<span class="pr-panel-additions">+' + (pr.pr_additions || 0) + '</span>' +
+        '<span class="pr-panel-deletions">-' + (pr.pr_deletions || 0) + '</span>';
+      statsSection.appendChild(diffStat);
+    }
+
+    body.appendChild(statsSection);
+
+    // Description (PR body)
+    if (pr.pr_body && pr.pr_body.trim()) {
+      var descSection = document.createElement('div');
+      descSection.className = 'pr-panel-description';
+
+      var descTitle = document.createElement('div');
+      descTitle.className = 'pr-panel-section-title';
+      descTitle.textContent = 'Description';
+      descSection.appendChild(descTitle);
+
+      var descBody = document.createElement('div');
+      descBody.className = 'pr-panel-description-body';
+      descBody.innerHTML = commentMd.render(pr.pr_body);
+      descSection.appendChild(descBody);
+
+      body.appendChild(descSection);
+    }
   }
 
   function updateViewedCount() {
@@ -4836,6 +5456,7 @@
         for (let fi = 0; fi < files.length; fi++) {
           if (files[fi].comments) unresolvedComments += files[fi].comments.filter(function(c) { return !c.resolved; }).length;
         }
+        unresolvedComments += reviewComments.filter(function(c) { return !c.resolved; }).length;
         finishBtn.textContent = unresolvedComments === 0 ? 'Approve' : 'Finish Review';
         finishBtn.disabled = false;
         finishBtn.classList.add('btn-primary');
@@ -4853,6 +5474,9 @@
         break;
     }
   }
+
+  // ===== General Comment Button (in panel header) =====
+  document.getElementById('panelAddCommentBtn').addEventListener('click', openReviewCommentForm);
 
   // ===== Finish Review =====
   document.getElementById('finishBtn').addEventListener('click', async function() {
@@ -4928,6 +5552,7 @@
         // Re-fetch everything on file-changed (round complete)
         const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(r => r.json());
         session = sessionRes;
+        reviewComments = sessionRes.review_comments || [];
 
         // Reload all files
         files = await loadAllFileData(session.files || [], diffScope);
@@ -4953,6 +5578,8 @@
         focusedFilePath = null;
         focusedElement = null;
         diffActive = false;
+        reviewCommentFormActive = false;
+        reviewCommentEditingId = null;
 
         saveViewedState();
         updateHeaderRound();
@@ -4988,16 +5615,74 @@
 
     source.addEventListener('comments-changed', async function() {
       try {
-        for (let i = 0; i < files.length; i++) {
-          const f = files[i];
-          const commentsRes = await fetch('/api/file/comments?path=' + enc(f.path))
-            .then(function(r) { return r.ok ? r.json() : []; })
-            .catch(function() { return []; });
+        await Promise.all(files.map(async function(f) {
+          var fetches = [
+            fetch('/api/file/comments?path=' + enc(f.path))
+              .then(function(r) { return r.ok ? r.json() : []; })
+              .catch(function() { return []; }),
+            fetch('/api/file?path=' + enc(f.path))
+              .then(function(r) { return r.ok ? r.json() : null; })
+              .catch(function() { return null; }),
+            fetch('/api/file/diff?path=' + enc(f.path)
+              + (diffScope && diffScope !== 'all' ? '&scope=' + enc(diffScope) : '')
+              + (diffCommit ? '&commit=' + enc(diffCommit) : ''))
+              .then(function(r) { return r.ok ? r.json() : null; })
+              .catch(function() { return null; }),
+          ];
+          const [commentsRes, fileRes, diffRes] = await Promise.all(fetches);
           f.comments = Array.isArray(commentsRes) ? commentsRes : [];
+          if (fileRes && fileRes.content !== undefined && fileRes.content !== f.content) {
+            f.content = fileRes.content;
+            // Rebuild parsed blocks from new content
+            if (f.fileType === 'markdown') {
+              var parsed = parseMarkdown(f.content);
+              f.lineBlocks = parsed.blocks;
+              f.tocItems = parsed.tocItems;
+            } else if (f.fileType === 'code' && session.mode !== 'git') {
+              f.lineBlocks = buildCodeLineBlocks(f);
+            }
+            if (f.fileType === 'code') {
+              f.highlightCache = preHighlightFile(f);
+            }
+          }
+          if (diffRes && Array.isArray(diffRes.hunks)) {
+            f.diffHunks = diffRes.hunks;
+          }
+        }));
+        // Also refresh review-level comments
+        try {
+          const rcRes = await fetch('/api/comments');
+          if (rcRes.ok) reviewComments = await rcRes.json();
+        } catch (_) {}
+        // Save form drafts and focused element before re-render
+        var focusedFormKey = null;
+        var focusedSelStart = 0;
+        var focusedSelEnd = 0;
+        var activeEl = document.activeElement;
+        if (activeEl && activeEl.tagName === 'TEXTAREA') {
+          var formEl = activeEl.closest('.comment-form');
+          if (formEl) {
+            focusedFormKey = formEl.dataset.formKey;
+            focusedSelStart = activeEl.selectionStart;
+            focusedSelEnd = activeEl.selectionEnd;
+          }
+        }
+        for (let i = 0; i < files.length; i++) {
+          checkAgentReplies(files[i].comments);
+          saveOpenFormContent(files[i].path);
         }
         renderAllFiles();
         updateCommentCount();
         updateTreeCommentBadges();
+        // Restore focus
+        if (focusedFormKey) {
+          var ta = document.querySelector('.comment-form[data-form-key="' + focusedFormKey + '"] textarea');
+          if (ta) {
+            ta.focus();
+            ta.selectionStart = focusedSelStart;
+            ta.selectionEnd = focusedSelEnd;
+          }
+        }
       } catch (err) {
         console.error('Error handling comments-changed:', err);
       }
@@ -5059,7 +5744,7 @@
         '<div class="share-dialog-url">' +
           '<span>' + escapeHtml(hostedURL) + '</span>' +
           '<button class="copy-icon-btn" id="modalCopyBtn" title="Copy link">' +
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+            ICON_CLIPBOARD +
           '</button>' +
         '</div>' +
         '<div class="share-dialog-actions">' +
@@ -5092,13 +5777,11 @@
 
     overlay.querySelector('#modalCloseBtn').addEventListener('click', closeShareModal);
 
-    const clipboardSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-    const checkSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
     overlay.querySelector('#modalCopyBtn').addEventListener('click', function() {
       navigator.clipboard.writeText(hostedURL).catch(function() {});
-      this.innerHTML = checkSvg;
+      this.innerHTML = ICON_CHECK_SMALL;
       const copyBtn = this;
-      setTimeout(function() { copyBtn.innerHTML = clipboardSvg; }, 2000);
+      setTimeout(function() { copyBtn.innerHTML = ICON_CLIPBOARD; }, 2000);
     });
 
     if (deleteToken) {
@@ -5212,7 +5895,9 @@
   // Global for onclick handlers in toast HTML
   window.dismissToast = function(id) {
     const el = document.getElementById('toast-' + id);
-    if (el) el.remove();
+    if (!el) return;
+    el.classList.add('toast-out');
+    el.addEventListener('animationend', function() { el.remove(); }, { once: true });
   };
 
   // ===== Table of Contents =====
@@ -5375,10 +6060,110 @@
     });
   });
 
-  // ===== Update Dismiss =====
-  window.dismissUpdate = function() {
-    document.getElementById('headerUpdate').style.display = 'none';
-  };
+  // ===== Update Modal =====
+  let updateEscapeHandler = null;
+
+  function closeUpdateModal() {
+    if (updateModalEl) {
+      updateModalEl.remove();
+      updateModalEl = null;
+    }
+    if (updateEscapeHandler) {
+      document.removeEventListener('keydown', updateEscapeHandler);
+      updateEscapeHandler = null;
+    }
+  }
+
+  function showUpdateModal() {
+    closeUpdateModal();
+
+    var overlay = document.createElement('div');
+    overlay.className = 'update-overlay';
+
+    let itemsHtml = '';
+    pendingUpdates.forEach(function(u) {
+      const lines = u.hint.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+      let cmdsHtml = '';
+      lines.forEach(function(line) {
+        // Separate label prefix from command — look for ":" delimiter
+        let prefix = '';
+        let cmd = line;
+        const colonIdx = line.indexOf(':');
+        if (colonIdx > 0 && colonIdx < line.length - 1 && !/^https?:/.test(line)) {
+          prefix = line.substring(0, colonIdx).trim();
+          cmd = line.substring(colonIdx + 1).trim();
+        }
+        if (prefix) {
+          cmdsHtml += '<div class="update-item-prefix">' + escapeHtml(prefix) + '</div>';
+        }
+        cmdsHtml += '<div class="update-item-cmd">'
+          + '<code>' + escapeHtml(cmd) + '</code>'
+          + '<button class="update-item-copy" title="Copy command" aria-label="Copy command" data-cmd="' + escapeHtml(cmd).replace(/"/g, '&quot;') + '">'
+          + ICON_CLIPBOARD
+          + '</button>'
+          + '</div>';
+      });
+      let labelHtml = escapeHtml(u.label);
+      if (u.labelUrl) {
+        labelHtml += '. <a class="update-item-release-link" href="' + escapeHtml(u.labelUrl) + '" target="_blank" rel="noopener">See release notes</a>';
+      }
+      itemsHtml += '<div class="update-item">'
+        + '<div class="update-item-label">' + labelHtml + '</div>'
+        + cmdsHtml
+        + '</div>';
+    });
+
+    overlay.innerHTML =
+      '<div class="update-dialog" role="dialog" aria-modal="true" aria-label="Updates available">' +
+        '<h3>' +
+          '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0l-3-3m3 3l3-3"/><path d="M2.5 11v1.75c0 .69.56 1.25 1.25 1.25h8.5c.69 0 1.25-.56 1.25-1.25V11"/></svg>' +
+          'Updates Available' +
+        '</h3>' +
+        '<div class="update-items">' + itemsHtml + '</div>' +
+        '<div class="update-dialog-actions">' +
+          '<button class="btn btn-sm" id="updateDismissBtn">Don\u2019t remind me</button>' +
+          '<button class="btn btn-sm" id="updateCloseBtn">Close</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+    updateModalEl = overlay;
+    overlay.querySelector('#updateCloseBtn').focus();
+
+    // Copy buttons
+    overlay.querySelectorAll('.update-item-copy').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var cmd = this.getAttribute('data-cmd');
+        navigator.clipboard.writeText(cmd).catch(function() {});
+        this.innerHTML = ICON_CHECK_SMALL;
+        var self = this;
+        setTimeout(function() { self.innerHTML = ICON_CLIPBOARD; }, 2000);
+      });
+    });
+
+    // Close on overlay background click
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) closeUpdateModal();
+    });
+    updateEscapeHandler = function(e) {
+      if (e.key === 'Escape') closeUpdateModal();
+    };
+    document.addEventListener('keydown', updateEscapeHandler);
+    overlay.querySelector('#updateCloseBtn').addEventListener('click', closeUpdateModal);
+    overlay.querySelector('#updateDismissBtn').addEventListener('click', function() {
+      setCookie('crit-updates-dismissed', pendingUpdatesVersion);
+      document.getElementById('updateBtn').style.display = 'none';
+      closeUpdateModal();
+    });
+  }
+
+  document.getElementById('updateBtn').addEventListener('click', function() {
+    if (updateModalEl) {
+      closeUpdateModal();
+    } else {
+      showUpdateModal();
+    }
+  });
 
   // ===== Diff Mode Toggle (Split / Unified) =====
   document.querySelectorAll('#diffModeToggle .toggle-btn').forEach(function(btn) {
@@ -5511,6 +6296,7 @@
     if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
     const sessionRes = await fetch(sessionUrl).then(function(r) { return r.json(); });
     session = sessionRes;
+    reviewComments = sessionRes.review_comments || [];
 
     if (!session.files || session.files.length === 0) {
       document.getElementById('filesContainer').innerHTML =
@@ -5556,6 +6342,10 @@
   document.querySelector('.comments-panel-close').addEventListener('click', function() {
     document.getElementById('commentsPanel').classList.add('comments-panel-hidden');
     updateTocPosition();
+  });
+
+  document.getElementById('prToggle').addEventListener('click', function() {
+    togglePRPanel();
   });
 
   document.getElementById('showResolvedToggle').addEventListener('change', function() {
@@ -5685,6 +6475,11 @@
         document.getElementById('finishBtn').click();
         break;
       }
+      case 'G': {
+        e.preventDefault();
+        openReviewCommentForm();
+        break;
+      }
       case 'C': {
         e.preventDefault();
         toggleCommentsPanel();
@@ -5716,7 +6511,8 @@
       }
       case 'Escape': {
         e.preventDefault();
-        if (activeForms.length > 0) cancelComment(activeForms[activeForms.length - 1]);
+        if (reviewCommentFormActive) cancelReviewCommentForm();
+        else if (activeForms.length > 0) cancelComment(activeForms[activeForms.length - 1]);
         else if (selectionStart !== null) {
           const clearPath = activeFilePath;
           selectionStart = null;
@@ -5753,6 +6549,7 @@
       // Capture the selected text before clearing, for the quote field.
       // If the selection covers the full text of the line range, skip it — redundant.
       let quote = null;
+      let quoteOffset = null;
       try {
         let selectedText = selection.toString().trim();
         if (selectedText) {
@@ -5761,7 +6558,9 @@
 
           // Get the full text content of the lines in this range to compare.
           // Try both document view (.line-block) and diff view elements.
+          // Also collect content elements in order for offset computation.
           let fullText = '';
+          var contentEls = [];
           for (let ln = range.startLine; ln <= range.endLine; ln++) {
             // Document view
             document.querySelectorAll('.line-block[data-file-path]').forEach(function(el) {
@@ -5769,7 +6568,10 @@
               const s = parseInt(el.dataset.startLine), e = parseInt(el.dataset.endLine);
               if (s <= ln && e >= ln) {
                 let content = el.querySelector('.line-content');
-                if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
+                if (content && contentEls.indexOf(content) === -1) {
+                  fullText += (fullText ? '\n' : '') + content.textContent.trim();
+                  contentEls.push(content);
+                }
               }
             });
             // Diff view — filter by side so unified diff doesn't double-count
@@ -5778,7 +6580,10 @@
               if (el.dataset.diffFilePath !== range.filePath) return;
               if (el.dataset.diffSide !== selSide) return;
               const content = el.querySelector('.diff-content');
-              if (content) fullText += (fullText ? '\n' : '') + content.textContent.trim();
+              if (content && contentEls.indexOf(content) === -1) {
+                fullText += (fullText ? '\n' : '') + content.textContent.trim();
+                contentEls.push(content);
+              }
             });
           }
           // Only include quote if it's a partial selection (not the full line content)
@@ -5786,6 +6591,49 @@
           const normalizedFull = fullText.trim().replace(/\s+/g, ' ');
           if (normalizedSelected !== normalizedFull && selectedText.length <= 300) {
             quote = selectedText;
+
+            // Compute quote_offset: character index of the selection start
+            // within the normalized full text.  Disambiguates duplicate
+            // substrings (e.g. "foo foo foo" — selecting the last "foo").
+            try {
+              // Determine which end of the selection comes first in document order
+              var selRange = selection.getRangeAt(0);
+              var startContainer = selRange.startContainer;
+              var startOff = selRange.startOffset;
+
+              // Walk content elements to find total chars before selection start
+              var charsBefore = 0;
+              var foundEl = false;
+              for (var ci = 0; ci < contentEls.length; ci++) {
+                if (contentEls[ci].contains(startContainer)) {
+                  // Walk text nodes in this element up to the start node
+                  var walker = document.createTreeWalker(contentEls[ci], NodeFilter.SHOW_TEXT, null);
+                  var tn;
+                  while ((tn = walker.nextNode())) {
+                    if (tn === startContainer) {
+                      charsBefore += startOff;
+                      break;
+                    }
+                    charsBefore += tn.textContent.length;
+                  }
+                  foundEl = true;
+                  break;
+                }
+                charsBefore += contentEls[ci].textContent.length;
+              }
+
+              if (foundEl) {
+                // Build the raw text up to charsBefore, then normalize to get offset
+                var rawAll = '';
+                var rawUpTo = charsBefore;
+                for (var ri = 0; ri < contentEls.length; ri++) {
+                  rawAll += contentEls[ri].textContent;
+                  if (contentEls[ri].contains(startContainer)) break;
+                }
+                var textBefore = rawAll.slice(0, rawUpTo);
+                quoteOffset = textBefore.replace(/\s+/g, ' ').trimStart().length;
+              }
+            } catch (_) { /* offset is a nice-to-have */ }
           }
         }
       } catch (_) { /* quote is a nice-to-have, don't break form opening */ }
@@ -5801,7 +6649,8 @@
         endLine: range.endLine,
         editingId: null,
         side: range.side,
-        quote: quote
+        quote: quote,
+        quoteOffset: quoteOffset
       });
     });
   });

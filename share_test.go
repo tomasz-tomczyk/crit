@@ -347,7 +347,7 @@ func TestBuildShareFromSession(t *testing.T) {
 				Path:    "plan.md",
 				Content: "# Plan",
 				Comments: []Comment{
-					{ID: "c1", StartLine: 1, EndLine: 1, Body: "Open comment", Author: "Alice"},
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "Open comment", Author: "Alice", Quote: "# Plan"},
 					{ID: "c2", StartLine: 2, EndLine: 2, Body: "Resolved comment", Author: "Bob", Resolved: true},
 					{ID: "c3", StartLine: 3, EndLine: 3, Body: "Another open", Author: "Alice", ReviewRound: 2},
 				},
@@ -378,6 +378,9 @@ func TestBuildShareFromSession(t *testing.T) {
 	}
 	if comments[0].Body != "Open comment" {
 		t.Errorf("expected first comment body 'Open comment', got %s", comments[0].Body)
+	}
+	if comments[0].Quote != "# Plan" {
+		t.Errorf("expected first comment quote '# Plan', got %s", comments[0].Quote)
 	}
 	if comments[1].ReviewRound != 2 {
 		t.Errorf("expected review_round 2 on second comment, got %d", comments[1].ReviewRound)

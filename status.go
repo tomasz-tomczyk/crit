@@ -57,11 +57,6 @@ func (s *Status) Listening(url string) {
 	fmt.Fprintf(s.w, "  %s\n", s.dim("Listening on "+url))
 }
 
-// ListenHint prints a reminder about waiting for review feedback.
-func (s *Status) ListenHint(port string) {
-	fmt.Fprintf(s.w, "  %s\n", s.dim("Use `crit` to wait for review feedback"))
-}
-
 // RoundFinished prints the round summary and finish confirmation.
 func (s *Status) RoundFinished(round, commentCount int, hasPrompt bool) {
 	if commentCount > 0 {

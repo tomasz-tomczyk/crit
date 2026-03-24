@@ -21,6 +21,7 @@ func newTestSession(t *testing.T) *Session {
 	s := &Session{
 		RepoRoot:      dir,
 		ReviewRound:   1,
+		nextID:        1,
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 		Files: []*FileEntry{
@@ -32,7 +33,6 @@ func newTestSession(t *testing.T) *Session {
 				Content:  "# Plan\n\n## Step 1\n\nDo the thing\n",
 				FileHash: "sha256:test1",
 				Comments: []Comment{},
-				nextID:   1,
 			},
 			{
 				Path:     "main.go",
@@ -42,7 +42,6 @@ func newTestSession(t *testing.T) *Session {
 				Content:  "package main\n\nfunc main() {}\n",
 				FileHash: "sha256:test2",
 				Comments: []Comment{},
-				nextID:   1,
 			},
 		},
 	}
@@ -681,17 +680,17 @@ func TestGetFileDiffSnapshotScoped_UntrackedFileUnstagedScope(t *testing.T) {
 	}
 }
 
-func TestSession_PerFileCommentIDs(t *testing.T) {
+func TestSession_GlobalCommentIDs(t *testing.T) {
 	s := newTestSession(t)
 	c1, _ := s.AddComment("plan.md", 1, 1, "", "md comment", "", "")
 	c2, _ := s.AddComment("main.go", 1, 1, "", "go comment", "", "")
 
-	// Each file has independent ID sequences
+	// IDs are globally unique across files
 	if c1.ID != "c1" {
 		t.Errorf("plan.md first comment ID = %q, want c1", c1.ID)
 	}
-	if c2.ID != "c1" {
-		t.Errorf("main.go first comment ID = %q, want c1", c2.ID)
+	if c2.ID != "c2" {
+		t.Errorf("main.go first comment ID = %q, want c2", c2.ID)
 	}
 }
 
@@ -1064,10 +1063,11 @@ func TestSession_WriteFiles_MergesExternalComments(t *testing.T) {
 		Branch:      "main",
 		BaseRef:     "abc123",
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{Path: "main.go", Status: "modified", FileHash: "hash1", Comments: []Comment{
 				{ID: "c1", StartLine: 1, EndLine: 1, Body: "from browser", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
-			}, nextID: 2},
+			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1118,8 +1118,9 @@ func TestSession_MergeExternalCritJSON_NewComment(t *testing.T) {
 		Branch:      "main",
 		BaseRef:     "abc123",
 		ReviewRound: 1,
+		nextID:      1,
 		Files: []*FileEntry{
-			{Path: "main.go", Status: "modified", Comments: []Comment{}, nextID: 1},
+			{Path: "main.go", Status: "modified", Comments: []Comment{}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1156,7 +1157,7 @@ func TestSession_MergeExternalCritJSON_NewComment(t *testing.T) {
 	}
 
 	s.mu.RLock()
-	nextID := s.Files[0].nextID
+	nextID := s.nextID
 	s.mu.RUnlock()
 	if nextID != 2 {
 		t.Errorf("expected nextID=2, got %d", nextID)
@@ -1195,10 +1196,11 @@ func TestSession_MergeExternalCritJSON_IgnoresOwnWrites(t *testing.T) {
 		Branch:      "main",
 		BaseRef:     "abc123",
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{Path: "main.go", Status: "modified", Comments: []Comment{
 				{ID: "c1", StartLine: 1, EndLine: 1, Body: "existing"},
-			}, nextID: 2},
+			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1219,10 +1221,11 @@ func TestSession_MergeExternalCritJSON_ClearDetected(t *testing.T) {
 		RepoRoot:    dir,
 		Branch:      "main",
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{Path: "main.go", Status: "modified", Comments: []Comment{
 				{ID: "c1", StartLine: 1, EndLine: 1, Body: "existing"},
-			}, nextID: 2},
+			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1363,11 +1366,11 @@ func TestComment_NoRepliesBackwardCompat(t *testing.T) {
 func TestSession_AddReply(t *testing.T) {
 	s := &Session{
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{
 				Path:     "test.md",
 				Comments: []Comment{{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix this"}},
-				nextID:   2,
 			},
 		},
 	}
@@ -1389,6 +1392,36 @@ func TestSession_AddReply(t *testing.T) {
 	comments := s.GetComments("test.md")
 	if len(comments[0].Replies) != 1 {
 		t.Fatalf("expected 1 reply, got %d", len(comments[0].Replies))
+	}
+}
+
+func TestSession_AddReply_UnresolvesComment(t *testing.T) {
+	s := &Session{
+		ReviewRound: 1,
+		nextID:      2,
+		Files: []*FileEntry{
+			{
+				Path:     "test.md",
+				Comments: []Comment{{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix this", Resolved: true}},
+			},
+		},
+	}
+
+	// Verify comment is resolved before reply
+	comments := s.GetComments("test.md")
+	if !comments[0].Resolved {
+		t.Fatal("expected comment to be resolved before reply")
+	}
+
+	_, ok := s.AddReply("test.md", "c1", "Actually, this needs more work", "reviewer")
+	if !ok {
+		t.Fatal("AddReply returned false")
+	}
+
+	// Comment should be unresolves after reply
+	comments = s.GetComments("test.md")
+	if comments[0].Resolved {
+		t.Error("expected comment to be unresolved after reply, but it is still resolved")
 	}
 }
 
@@ -1622,10 +1655,11 @@ func TestSession_MergeExternalCritJSON_SkippedDuringPendingWrite(t *testing.T) {
 		RepoRoot:    dir,
 		Branch:      "main",
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{Path: "main.go", Status: "modified", Comments: []Comment{
 				{ID: "c1", StartLine: 1, EndLine: 1, Body: "existing"},
-			}, nextID: 2},
+			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1672,10 +1706,11 @@ func TestSession_MergeExternalCritJSON_SyncsResolvedState(t *testing.T) {
 		RepoRoot:    dir,
 		Branch:      "main",
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{Path: "main.go", Status: "modified", Comments: []Comment{
 				{ID: "c1", StartLine: 1, EndLine: 1, Body: "fix this", Resolved: false},
-			}, nextID: 2},
+			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1727,9 +1762,9 @@ func TestSession_EnsureFileEntry_NewFile(t *testing.T) {
 				Content:  "package main\n",
 				FileHash: "sha256:test",
 				Comments: []Comment{},
-				nextID:   1,
 			},
 		},
+		nextID:        1,
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 	}
@@ -1762,8 +1797,8 @@ func TestSession_EnsureFileEntry_NewFile(t *testing.T) {
 	if len(f.Comments) != 0 {
 		t.Errorf("expected 0 comments, got %d", len(f.Comments))
 	}
-	if f.nextID != 1 {
-		t.Errorf("nextID = %d, want 1", f.nextID)
+	if s.nextID != 1 {
+		t.Errorf("nextID = %d, want 1", s.nextID)
 	}
 }
 
@@ -1803,6 +1838,7 @@ func TestSession_EnsureFileEntry_ThenAddComment(t *testing.T) {
 		Mode:          "git",
 		RepoRoot:      dir,
 		ReviewRound:   1,
+		nextID:        1,
 		Files:         []*FileEntry{},
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
@@ -1866,10 +1902,11 @@ func TestSession_MergeExternalCritJSON_SyncsUnresolve(t *testing.T) {
 		RepoRoot:    dir,
 		Branch:      "main",
 		ReviewRound: 1,
+		nextID:      2,
 		Files: []*FileEntry{
 			{Path: "main.go", Status: "modified", Comments: []Comment{
 				{ID: "c1", StartLine: 1, EndLine: 1, Body: "fix this", Resolved: true},
-			}, nextID: 2},
+			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -1899,5 +1936,361 @@ func TestSession_MergeExternalCritJSON_SyncsUnresolve(t *testing.T) {
 	comments := s.GetComments("main.go")
 	if comments[0].Resolved {
 		t.Error("expected comment to be unresolved after external edit")
+	}
+}
+
+func TestCommentScopeDefault(t *testing.T) {
+	s := newTestSession(t)
+	c, ok := s.AddComment("plan.md", 1, 1, "", "test body", "", "")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	if c.Scope != "line" {
+		t.Errorf("expected scope 'line', got %q", c.Scope)
+	}
+}
+
+func TestAddFileComment(t *testing.T) {
+	s := newTestSession(t)
+	c, ok := s.AddFileComment("plan.md", "this file needs work", "")
+	if !ok {
+		t.Fatal("AddFileComment failed")
+	}
+	if c.Scope != "file" {
+		t.Errorf("expected scope 'file', got %q", c.Scope)
+	}
+	if c.StartLine != 0 || c.EndLine != 0 {
+		t.Errorf("expected zero lines for file comment, got %d-%d", c.StartLine, c.EndLine)
+	}
+	comments := s.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+}
+
+func TestAddReviewComment(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("please address all issues", "")
+	if c.Scope != "review" {
+		t.Errorf("expected scope 'review', got %q", c.Scope)
+	}
+	if c.ID == "" {
+		t.Error("expected non-empty ID")
+	}
+	comments := s.GetReviewComments()
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 review comment, got %d", len(comments))
+	}
+}
+
+func TestDeleteReviewComment(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("temp", "")
+	if !s.DeleteReviewComment(c.ID) {
+		t.Fatal("DeleteReviewComment failed")
+	}
+	if len(s.GetReviewComments()) != 0 {
+		t.Error("expected 0 review comments after delete")
+	}
+}
+
+func TestUpdateReviewComment(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("original", "")
+	updated, ok := s.UpdateReviewComment(c.ID, "revised")
+	if !ok {
+		t.Fatal("UpdateReviewComment failed")
+	}
+	if updated.Body != "revised" {
+		t.Errorf("expected 'revised', got %q", updated.Body)
+	}
+}
+
+func TestCritJSONIncludesReviewComments(t *testing.T) {
+	s := newTestSession(t)
+	s.AddReviewComment("general feedback", "")
+	s.AddComment("plan.md", 1, 1, "", "line comment", "", "")
+	s.AddFileComment("plan.md", "file comment", "")
+	s.WriteFiles()
+	data, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatal(err)
+	}
+	if len(cj.ReviewComments) != 1 {
+		t.Fatalf("expected 1 review comment, got %d", len(cj.ReviewComments))
+	}
+	if cj.ReviewComments[0].Scope != "review" {
+		t.Errorf("expected scope 'review', got %q", cj.ReviewComments[0].Scope)
+	}
+	fc := cj.Files["plan.md"]
+	if len(fc.Comments) != 2 {
+		t.Fatalf("expected 2 comments on plan.md, got %d", len(fc.Comments))
+	}
+}
+
+func TestLoadCritJSONRestoresReviewComments(t *testing.T) {
+	s := newTestSession(t)
+	s.AddReviewComment("restored comment", "")
+	s.WriteFiles()
+	s.reviewComments = nil
+	s.reviewNextID = 0
+	s.loadCritJSON()
+	rc := s.GetReviewComments()
+	if len(rc) != 1 {
+		t.Fatalf("expected 1 review comment after reload, got %d", len(rc))
+	}
+	if rc[0].Body != "restored comment" {
+		t.Errorf("unexpected body: %q", rc[0].Body)
+	}
+}
+
+func TestCommentCountsIncludeReviewComments(t *testing.T) {
+	s := newTestSession(t)
+	s.AddComment("plan.md", 1, 1, "", "line", "", "")
+	s.AddFileComment("plan.md", "file", "")
+	s.AddReviewComment("review", "")
+	if got := s.TotalCommentCount(); got != 3 {
+		t.Errorf("TotalCommentCount: expected 3, got %d", got)
+	}
+	if got := s.UnresolvedCommentCount(); got != 3 {
+		t.Errorf("UnresolvedCommentCount: expected 3, got %d", got)
+	}
+}
+
+func TestClearAllCommentsIncludesReview(t *testing.T) {
+	s := newTestSession(t)
+	s.AddComment("plan.md", 1, 1, "", "line", "", "")
+	s.AddReviewComment("review", "")
+	s.ClearAllComments()
+	if got := s.TotalCommentCount(); got != 0 {
+		t.Errorf("expected 0 after clear, got %d", got)
+	}
+	if len(s.GetReviewComments()) != 0 {
+		t.Error("expected 0 review comments after clear")
+	}
+}
+
+func TestReviewCommentsSurviveRound(t *testing.T) {
+	s := newTestSession(t)
+	s.AddReviewComment("carry me forward", "")
+	s.WriteFiles()
+
+	// Simulate round: clear in-memory state and reload
+	s.reviewComments = nil
+	s.reviewNextID = 0
+	s.loadCritJSON()
+
+	comments := s.GetReviewComments()
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 review comment after round, got %d", len(comments))
+	}
+	if comments[0].Body != "carry me forward" {
+		t.Errorf("unexpected body: %q", comments[0].Body)
+	}
+}
+
+func TestFileCommentsSurviveRoundWithoutLineMutation(t *testing.T) {
+	s := newTestSession(t)
+	s.AddFileComment("plan.md", "restructure this", "")
+	s.AddComment("plan.md", 1, 1, "", "line comment", "", "")
+
+	// Simulate round: snapshot previous state
+	s.mu.Lock()
+	f := s.fileByPathLocked("plan.md")
+	s.mu.Unlock()
+	f.PreviousContent = f.Content
+	f.PreviousComments = make([]Comment, len(f.Comments))
+	copy(f.PreviousComments, f.Comments)
+	f.Comments = nil
+
+	s.carryForwardComments()
+
+	comments := s.GetComments("plan.md")
+	var fileComment *Comment
+	for i := range comments {
+		if comments[i].Scope == "file" {
+			fileComment = &comments[i]
+			break
+		}
+	}
+	if fileComment == nil {
+		t.Fatal("file-level comment was not carried forward")
+	}
+	if fileComment.StartLine != 0 || fileComment.EndLine != 0 {
+		t.Errorf("file comment lines mutated: got %d-%d, want 0-0", fileComment.StartLine, fileComment.EndLine)
+	}
+}
+
+func TestLoadCritJSONDefaultsScope(t *testing.T) {
+	s := newTestSession(t)
+	// Write a .crit.json with comments that have no scope field
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Status: "modified",
+				Comments: []Comment{
+					{ID: "c0", StartLine: 1, EndLine: 1, Body: "old comment"},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(s.critJSONPath(), data, 0644)
+
+	s.loadCritJSON()
+	comments := s.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if comments[0].Scope != "line" {
+		t.Errorf("expected default scope 'line', got %q", comments[0].Scope)
+	}
+}
+
+func TestResolveReviewComment(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("needs work", "")
+	if c.Resolved {
+		t.Error("new review comment should not be resolved")
+	}
+
+	// Resolve
+	resolved, ok := s.ResolveReviewComment(c.ID, true)
+	if !ok {
+		t.Fatal("ResolveReviewComment failed")
+	}
+	if !resolved.Resolved {
+		t.Error("expected comment to be resolved")
+	}
+
+	// Unresolve
+	unresolved, ok := s.ResolveReviewComment(c.ID, false)
+	if !ok {
+		t.Fatal("ResolveReviewComment (unresolve) failed")
+	}
+	if unresolved.Resolved {
+		t.Error("expected comment to be unresolved")
+	}
+
+	// Not found
+	_, ok = s.ResolveReviewComment("nonexistent", true)
+	if ok {
+		t.Error("expected ResolveReviewComment to return false for unknown ID")
+	}
+}
+
+func TestResolveReviewCommentAffectsUnresolvedCount(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("review", "")
+	if got := s.UnresolvedCommentCount(); got != 1 {
+		t.Fatalf("expected 1 unresolved, got %d", got)
+	}
+	s.ResolveReviewComment(c.ID, true)
+	if got := s.UnresolvedCommentCount(); got != 0 {
+		t.Fatalf("expected 0 unresolved after resolve, got %d", got)
+	}
+}
+
+func TestFileCommentHasReviewRound(t *testing.T) {
+	s := newTestSession(t)
+	s.ReviewRound = 3
+	c, ok := s.AddFileComment("plan.md", "file-level feedback", "")
+	if !ok {
+		t.Fatal("AddFileComment failed")
+	}
+	if c.ReviewRound != 3 {
+		t.Errorf("expected ReviewRound 3, got %d", c.ReviewRound)
+	}
+}
+
+func TestReviewCommentHasReviewRound(t *testing.T) {
+	s := newTestSession(t)
+	s.ReviewRound = 2
+	c := s.AddReviewComment("general feedback", "")
+	if c.ReviewRound != 2 {
+		t.Errorf("expected ReviewRound 2, got %d", c.ReviewRound)
+	}
+}
+
+func TestAddReviewCommentReply(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("needs work", "reviewer")
+	reply, ok := s.AddReviewCommentReply(c.ID, "fixed it", "author")
+	if !ok {
+		t.Fatal("AddReviewCommentReply failed")
+	}
+	if reply.Body != "fixed it" {
+		t.Errorf("expected body 'fixed it', got %q", reply.Body)
+	}
+	if reply.Author != "author" {
+		t.Errorf("expected author 'author', got %q", reply.Author)
+	}
+	// Verify reply ID format: r0-r1
+	expectedPrefix := c.ID + "-r"
+	if !strings.HasPrefix(reply.ID, expectedPrefix) {
+		t.Errorf("expected reply ID to start with %q, got %q", expectedPrefix, reply.ID)
+	}
+	// Verify the reply is attached to the comment
+	comments := s.GetReviewComments()
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if len(comments[0].Replies) != 1 {
+		t.Fatalf("expected 1 reply, got %d", len(comments[0].Replies))
+	}
+}
+
+func TestAddReviewCommentReply_NotFound(t *testing.T) {
+	s := newTestSession(t)
+	_, ok := s.AddReviewCommentReply("nonexistent", "body", "author")
+	if ok {
+		t.Error("expected AddReviewCommentReply to return false for nonexistent comment")
+	}
+}
+
+func TestUpdateReviewCommentReply(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("needs work", "reviewer")
+	reply, _ := s.AddReviewCommentReply(c.ID, "initial reply", "author")
+	updated, ok := s.UpdateReviewCommentReply(c.ID, reply.ID, "updated reply")
+	if !ok {
+		t.Fatal("UpdateReviewCommentReply failed")
+	}
+	if updated.Body != "updated reply" {
+		t.Errorf("expected body 'updated reply', got %q", updated.Body)
+	}
+}
+
+func TestUpdateReviewCommentReply_NotFound(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("needs work", "reviewer")
+	_, ok := s.UpdateReviewCommentReply(c.ID, "nonexistent", "body")
+	if ok {
+		t.Error("expected UpdateReviewCommentReply to return false for nonexistent reply")
+	}
+}
+
+func TestDeleteReviewCommentReply(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("needs work", "reviewer")
+	reply, _ := s.AddReviewCommentReply(c.ID, "to delete", "author")
+	if !s.DeleteReviewCommentReply(c.ID, reply.ID) {
+		t.Fatal("DeleteReviewCommentReply failed")
+	}
+	comments := s.GetReviewComments()
+	if len(comments[0].Replies) != 0 {
+		t.Errorf("expected 0 replies after delete, got %d", len(comments[0].Replies))
+	}
+}
+
+func TestDeleteReviewCommentReply_NotFound(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("needs work", "reviewer")
+	if s.DeleteReviewCommentReply(c.ID, "nonexistent") {
+		t.Error("expected DeleteReviewCommentReply to return false for nonexistent reply")
 	}
 }

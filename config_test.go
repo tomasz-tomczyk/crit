@@ -241,6 +241,9 @@ func TestMatchPattern(t *testing.T) {
 		{"vendor/", "myvendor/foo.go", false},
 		{"generated/", "generated/types.go", true},
 		{"node_modules/", "node_modules/lodash/index.js", true},
+		{".crit/", ".crit/sessions/abc123.json", true},
+		{".crit/", ".crit/config", true},
+		{".crit/", ".crit.json", false},
 
 		// Exact filename match (no / in pattern, no leading *)
 		{"package-lock.json", "package-lock.json", true},
@@ -325,8 +328,9 @@ func TestLoadConfigRuntimeDefaults(t *testing.T) {
 	if cfg.ShareURL != "" {
 		t.Errorf("ShareURL = %q, want empty (no default)", cfg.ShareURL)
 	}
-	if len(cfg.IgnorePatterns) != 1 || cfg.IgnorePatterns[0] != ".crit.json" {
-		t.Errorf("IgnorePatterns = %v, want [.crit.json]", cfg.IgnorePatterns)
+	wantPatterns := []string{".crit.json", ".crit/"}
+	if len(cfg.IgnorePatterns) != len(wantPatterns) || cfg.IgnorePatterns[0] != wantPatterns[0] || cfg.IgnorePatterns[1] != wantPatterns[1] {
+		t.Errorf("IgnorePatterns = %v, want %v", cfg.IgnorePatterns, wantPatterns)
 	}
 }
 
@@ -360,8 +364,9 @@ func TestLoadConfigRuntimeDefaultsOverriddenByGlobal(t *testing.T) {
 		t.Errorf("ShareURL = %q, want custom global value", cfg.ShareURL)
 	}
 	// ignore_patterns not set in any config — default applies
-	if len(cfg.IgnorePatterns) != 1 || cfg.IgnorePatterns[0] != ".crit.json" {
-		t.Errorf("IgnorePatterns = %v, want [.crit.json]", cfg.IgnorePatterns)
+	wantPatterns := []string{".crit.json", ".crit/"}
+	if len(cfg.IgnorePatterns) != len(wantPatterns) || cfg.IgnorePatterns[0] != wantPatterns[0] || cfg.IgnorePatterns[1] != wantPatterns[1] {
+		t.Errorf("IgnorePatterns = %v, want %v", cfg.IgnorePatterns, wantPatterns)
 	}
 }
 
@@ -484,5 +489,45 @@ func TestNewSessionFromFilesWithIgnore(t *testing.T) {
 		if strings.HasPrefix(rel, "generated/") || strings.HasPrefix(rel, "generated\\") {
 			t.Errorf("file %s should have been ignored by generated/ pattern", f.Path)
 		}
+	}
+}
+
+func TestMergeConfigs_AgentCmd(t *testing.T) {
+	global := Config{AgentCmd: "claude -p"}
+	project := Config{}
+	merged := mergeConfigs(global, project, configPresence{})
+	if merged.AgentCmd != "claude -p" {
+		t.Fatalf("expected global agent_cmd to carry through, got %q", merged.AgentCmd)
+	}
+
+	project2 := Config{AgentCmd: "opencode ask"}
+	merged2 := mergeConfigs(global, project2, configPresence{})
+	if merged2.AgentCmd != "opencode ask" {
+		t.Fatalf("expected project agent_cmd to override, got %q", merged2.AgentCmd)
+	}
+}
+
+func TestNoIntegrationCheckConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".crit.config.json")
+	if err := os.WriteFile(configPath, []byte(`{"no_integration_check": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := loadConfigFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.NoIntegrationCheck {
+		t.Error("expected NoIntegrationCheck to be true")
+	}
+}
+
+func TestNoIntegrationCheckMerge(t *testing.T) {
+	global := Config{NoIntegrationCheck: false}
+	project := Config{NoIntegrationCheck: true}
+	presence := configPresence{NoIntegrationCheck: true}
+	merged := mergeConfigs(global, project, presence)
+	if !merged.NoIntegrationCheck {
+		t.Error("project NoIntegrationCheck=true should override global")
 	}
 }

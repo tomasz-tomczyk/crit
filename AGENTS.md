@@ -82,9 +82,10 @@ make build-all                                        # Cross-compile to dist/
 ```bash
 crit                          # Review git changes (starts daemon, blocks for feedback)
 crit <file|dir> [...]         # Review specific files or directories
-crit stop                     # Stop the background daemon
+crit stop                     # Stop the daemon for current directory
+crit stop --all               # Stop all daemons for current directory
 crit pull [pr-number]         # Fetch GitHub PR comments into .crit.json
-crit push [--dry-run] [pr]    # Post .crit.json comments as a GitHub PR review
+crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post .crit.json comments as a GitHub PR review
 crit comment <path>:<line[-end]> <body>         # Add a comment to .crit.json (no server needed)
 crit comment --reply-to <id> [--resolve] <body> # Reply to a comment (optionally mark resolved)
 crit comment --json [--author <name>]           # Bulk add comments from stdin JSON
@@ -103,10 +104,11 @@ Two-level JSON config files, merged (project overrides global):
 - **Global**: `~/.crit.config.json` — user-wide defaults
 - **Project**: `.crit.config.json` in repo root — per-project overrides
 
-Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`.
+Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `agent_cmd`.
 
 - `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to `git config user.name` if not set
+- `agent_cmd` specifies the shell command to invoke when sending a comment to an AI agent (e.g. `"claude -p"`, `"opencode ask"`)
 - `ignore_patterns` are unioned (both global and project patterns apply)
 - Pattern types: `*.ext` (extension), `dir/` (directory prefix), `exact.file` (filename), `path/*.ext` (glob)
 - CLI flags override config file values
@@ -118,6 +120,8 @@ Requires `gh` CLI installed and authenticated.
 - `crit pull` fetches PR review comments (RIGHT-side only) and merges them into `.crit.json`, deduplicating by author+lines+body
 - `crit push` reads `.crit.json` and posts unresolved comments as a GitHub PR review
 - `crit push --dry-run` shows what would be posted without actually creating the review
+- `crit push --event approve` submits an approval; `--event request-changes` requests changes (default: `comment`)
+- `crit push -m 'message'` adds a review-level body message
 - PR number auto-detected from current branch, or pass explicitly: `crit pull 42`
 
 ## Linting
@@ -239,21 +243,30 @@ Session-scoped:
 - `POST /api/round-complete` — agent signals all edits are done; triggers new round
 - `POST /api/share-url` — persist `{url, delete_token}` to `.crit.json` after upload
 - `DELETE /api/share-url` — unpublish: calls crit-web DELETE and clears local persisted URL
+- `POST /api/agent/request` — send a comment to the configured agent command (requires `agent_cmd` config)
 - `GET  /api/commits` — list commits between base ref and HEAD (git mode only)
+- `GET  /api/comments` — list review-level (general) comments
+- `POST /api/comments` — add review-level comment `{body}`
 - `DELETE /api/comments` — bulk delete all comments across all files (used by E2E test cleanup)
+- `PUT  /api/review-comment/{id}` — update review comment `{body}`
+- `DELETE /api/review-comment/{id}` — delete review comment
+- `PUT  /api/review-comment/{id}/resolve` — set resolved state `{resolved: bool}`
+- `POST /api/review-comment/{id}/replies` — add reply `{body, author}`
+- `PUT  /api/review-comment/{id}/replies/{rid}` — update reply `{body}`
+- `DELETE /api/review-comment/{id}/replies/{rid}` — delete reply
 
 File-scoped (use `?path=` query param):
 
 - `GET  /api/file?path=X` — file content + metadata
 - `GET  /api/file/diff?path=X` — diff hunks (git diff for code; inter-round diff for markdown)
 - `GET  /api/file/comments?path=X` — comments for one file
-- `POST /api/file/comments?path=X` — add comment `{start_line, end_line, body}` (10MB body limit)
+- `POST /api/file/comments?path=X` — add comment `{start_line, end_line, body}` or file-level `{body, scope: "file"}` (10MB body limit)
 - `PUT  /api/comment/{id}?path=X` — update comment `{body}` (10MB body limit)
 - `DELETE /api/comment/{id}?path=X` — delete comment
 - `POST   /api/comment/{id}/replies?path=X` — add reply `{body, author}`
 - `PUT    /api/comment/{id}/replies/{rid}?path=X` — edit reply `{body}`
 - `DELETE /api/comment/{id}/replies/{rid}?path=X` — delete reply
-- `POST   /api/comment/{id}/resolve?path=X` — set resolved state `{resolved: bool}`
+- `PUT    /api/comment/{id}/resolve?path=X` — set resolved state `{resolved: bool}`
 
 Static:
 
@@ -341,12 +354,25 @@ When the agent runs `crit` (or calls `POST /api/round-complete`):
 `crit` manages a background daemon for seamless multi-round reviews:
 
 1. **First `crit`**: starts background daemon (`crit _serve`), opens browser, blocks for feedback
-2. **Subsequent `crit`**: connects to existing daemon, signals round-complete, blocks for feedback
-3. **`crit <file>`**: always starts a new daemon (supports multiple concurrent reviews)
+2. **Subsequent `crit`**: connects to existing daemon (same cwd + args), signals round-complete, blocks for feedback
+3. **`crit plan.md`**: looks up daemon by hash(cwd + "plan.md") — reuses if alive, starts new if dead
 4. **Ctrl+C**: kills the daemon the client started
-5. **`crit stop`**: kills the most recent daemon
+5. **`crit stop`**: kills the daemon for current cwd (no args). `crit stop --all` kills all daemons for current cwd
+6. **Idle timeout**: daemon exits after 1 hour of no HTTP activity
 
-Daemon state (`daemon_pid`, `daemon_port`) is stored in `.crit.json` alongside review data.
+### Session Registry
+
+Daemon state lives in `~/.crit/sessions/` with one file per session, keyed by `sha256(cwd + "\0" + sorted(args))[:12]`:
+
+```
+~/.crit/sessions/
+├── a1b2c3d4e5f6.json   # crit (git mode) in /path/to/repo
+├── f6e5d4c3b2a1.json   # crit plan.md in /path/to/repo
+└── ...
+```
+
+Session file format: `{"pid", "port", "cwd", "args", "started_at"}`. `.crit.json` is purely review data — no daemon state.
+
 Internal command: `crit _serve` runs the server in foreground (used by daemon spawning, not user-facing).
 
 ## Releasing
@@ -359,6 +385,8 @@ Before tagging, bump the version in `flake.nix`:
 version = "0.x.y";
 ```
 
+**Nix vendor hash**: `flake.nix` also contains a pinned `vendorHash`. Whenever Go dependencies change (`go.mod`/`go.sum`), this hash must be updated. The release workflow runs `nix build .` and will fail with the correct replacement hash if it's stale. To update locally: set `vendorHash = pkgs.lib.fakeHash;`, run `nix build .`, and copy the hash from the error output.
+
 Then commit, tag, and push:
 
 ```bash
@@ -368,7 +396,7 @@ git tag v0.x.y && git push origin main v0.x.y
 
 Pushing the tag triggers the workflow, which:
 
-1. Runs tests
+1. Runs tests (including Nix build verification)
 2. Cross-compiles binaries for darwin/linux (arm64/amd64) with the version injected via ldflags
 3. Generates SHA256 checksums
 4. Creates a GitHub release with auto-generated notes and all binaries attached
@@ -405,4 +433,4 @@ EOF
 
 | File         | Description                                                |
 | ------------ | ---------------------------------------------------------- |
-| `.crit.json` | Structured JSON with per-file comments — read by AI agents |
+| `.crit.json` | Structured JSON with per-file comments and review-level comments — read by AI agents. Comments have a `scope` field: `"line"` (inline), `"file"` (file-level), or `"review"` (general). Review-level comments live in the top-level `review_comments` array. |
