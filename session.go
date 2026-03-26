@@ -116,6 +116,7 @@ type CritJSON struct {
 	ShareURL       string                  `json:"share_url,omitempty"`
 	DeleteToken    string                  `json:"delete_token,omitempty"`
 	ShareScope     string                  `json:"share_scope,omitempty"`
+	LastShareHash  string                  `json:"last_share_hash,omitempty"`
 	ReviewComments []Comment               `json:"review_comments,omitempty"`
 	Files          map[string]CritJSONFile `json:"files"`
 }

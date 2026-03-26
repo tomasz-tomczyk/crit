@@ -24,6 +24,29 @@ func shareScope(paths []string) string {
 	return hex.EncodeToString(h[:8]) // 16-char hex prefix is enough
 }
 
+// computeShareHash returns a short stable hash of the current share state:
+// file contents (for change detection) and comment resolution states.
+// If the hash equals LastShareHash in .crit.json, nothing has changed since
+// the last push and no new round is needed.
+func computeShareHash(files []shareFile, comments []shareComment) string {
+	sorted := make([]shareFile, len(files))
+	copy(sorted, files)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Path < sorted[j].Path })
+
+	sortedC := make([]shareComment, len(comments))
+	copy(sortedC, comments)
+	sort.Slice(sortedC, func(i, j int) bool { return sortedC[i].ExternalID < sortedC[j].ExternalID })
+
+	h := sha256.New()
+	for _, f := range sorted {
+		fmt.Fprintf(h, "file:%s:%s\n", f.Path, f.Content)
+	}
+	for _, c := range sortedC {
+		fmt.Fprintf(h, "comment:%s:%v\n", c.ExternalID, c.Resolved)
+	}
+	return hex.EncodeToString(h.Sum(nil)[:8])
+}
+
 // shareFile represents a file to be shared.
 type shareFile struct {
 	Path    string `json:"path"`
@@ -46,6 +69,8 @@ type shareComment struct {
 	Author      string       `json:"author_display_name,omitempty"`
 	ReviewRound int          `json:"review_round,omitempty"`
 	Replies     []shareReply `json:"replies,omitempty"`
+	ExternalID  string       `json:"external_id,omitempty"`
+	Resolved    bool         `json:"resolved,omitempty"`
 }
 
 // buildSharePayload constructs the JSON payload for POST /api/reviews.

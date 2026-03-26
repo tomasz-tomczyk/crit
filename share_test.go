@@ -9,6 +9,34 @@ import (
 	"testing"
 )
 
+func TestComputeShareHash(t *testing.T) {
+	files := []shareFile{{Path: "plan.md", Content: "hello"}}
+	comments := []shareComment{{ExternalID: "c1", Resolved: false}}
+
+	h1 := computeShareHash(files, comments)
+	if h1 == "" {
+		t.Fatal("expected non-empty hash")
+	}
+
+	// same input → same hash
+	h2 := computeShareHash(files, comments)
+	if h1 != h2 {
+		t.Errorf("same input should produce same hash, got %q vs %q", h1, h2)
+	}
+
+	// changed file content → different hash
+	files2 := []shareFile{{Path: "plan.md", Content: "changed"}}
+	if h3 := computeShareHash(files2, comments); h3 == h1 {
+		t.Error("changed file content should produce different hash")
+	}
+
+	// changed resolved state → different hash
+	comments2 := []shareComment{{ExternalID: "c1", Resolved: true}}
+	if h4 := computeShareHash(files, comments2); h4 == h1 {
+		t.Error("changed resolved state should produce different hash")
+	}
+}
+
 func TestBuildSharePayload_SingleFile(t *testing.T) {
 	files := []shareFile{
 		{Path: "plan.md", Content: "# My Plan\n\nStep 1: do the thing"},
