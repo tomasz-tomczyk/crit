@@ -157,6 +157,51 @@ func TestShareSyncIntegration(t *testing.T) {
 		t.Errorf("expected web reviewer comment in local .crit.json, got: %s", string(localData))
 	}
 
+	// h) Verify export endpoint returns .crit.json-compatible shape
+	exportResp, err := http.Get(baseURL + "/api/export/" + token + "/comments")
+	if err != nil {
+		t.Fatalf("export request failed: %v", err)
+	}
+	defer exportResp.Body.Close()
+	if exportResp.StatusCode != http.StatusOK {
+		t.Fatalf("export returned %d", exportResp.StatusCode)
+	}
+
+	var exportBody map[string]any
+	if err := json.NewDecoder(exportResp.Body).Decode(&exportBody); err != nil {
+		t.Fatalf("decoding export response: %v", err)
+	}
+
+	// Top-level .crit.json fields must be present
+	if exportBody["review_round"] == nil {
+		t.Error("export missing review_round")
+	}
+	if exportBody["share_url"] == nil {
+		t.Error("export missing share_url")
+	}
+	if exportBody["delete_token"] == nil {
+		t.Error("export missing delete_token")
+	}
+
+	// Comment shape must use "author" not "author_display_name"
+	files, _ := exportBody["files"].(map[string]any)
+	for _, fileEntry := range files {
+		entry, _ := fileEntry.(map[string]any)
+		comments, _ := entry["comments"].([]any)
+		for _, raw := range comments {
+			c, _ := raw.(map[string]any)
+			if _, hasOld := c["author_display_name"]; hasOld {
+				t.Error("export comment must not have author_display_name — use author instead")
+			}
+			if _, hasOld := c["author_identity"]; hasOld {
+				t.Error("export comment must not have author_identity")
+			}
+			if _, hasAuthor := c["author"]; !hasAuthor {
+				t.Error("export comment missing author field")
+			}
+		}
+	}
+
 	t.Logf("Share sync integration test passed. Review URL: %s", shareURL)
 }
 
