@@ -462,6 +462,77 @@ func TestPersistShareState_PreservesExisting(t *testing.T) {
 	}
 }
 
+func TestUpsertShareToWeb_CallsPUTOnChange(t *testing.T) {
+	putCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			putCalled = true
+			json.NewEncoder(w).Encode(map[string]any{
+				"url": "http://example.com/r/tok", "review_round": 2, "changed": true,
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := CritJSON{
+		ShareURL:      srv.URL + "/r/tok",
+		DeleteToken:   "dt",
+		LastShareHash: "old-hash",
+		ReviewRound:   1,
+	}
+	files := []shareFile{{Path: "plan.md", Content: "# changed"}}
+	comments := []shareComment{}
+
+	result, err := upsertShareToWeb(cfg, files, comments)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !putCalled {
+		t.Error("expected PUT to be called")
+	}
+	if !result.Changed {
+		t.Error("expected result.Changed to be true")
+	}
+	if result.ReviewRound != 2 {
+		t.Errorf("expected ReviewRound 2, got %d", result.ReviewRound)
+	}
+}
+
+func TestUpsertShareToWeb_SkipsPUTWhenUnchanged(t *testing.T) {
+	putCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			putCalled = true
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	files := []shareFile{{Path: "plan.md", Content: "same"}}
+	comments := []shareComment{}
+	currentHash := computeShareHash(files, comments)
+
+	cfg := CritJSON{
+		ShareURL:      srv.URL + "/r/tok",
+		DeleteToken:   "dt",
+		LastShareHash: currentHash,
+		ReviewRound:   1,
+	}
+
+	result, err := upsertShareToWeb(cfg, files, comments)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if putCalled {
+		t.Error("expected PUT NOT to be called when hash unchanged")
+	}
+	if result.Changed {
+		t.Error("expected result.Changed to be false")
+	}
+}
+
 func TestClearShareState(t *testing.T) {
 	dir := t.TempDir()
 
