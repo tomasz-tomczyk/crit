@@ -171,10 +171,10 @@ func runShare(args []string) {
 			os.Exit(1)
 		}
 
+		if err := updateShareState(critDir, computeShareHash(files, allComments), result.ReviewRound); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not save share state: %v\n", err)
+		}
 		if result.Changed {
-			if err := updateShareState(critDir, computeShareHash(files, allComments), result.ReviewRound); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not save share state: %v\n", err)
-			}
 			fmt.Printf("Updated (round %d): %s\n", result.ReviewRound, result.URL)
 		} else {
 			fmt.Println(existingCfg.ShareURL)
