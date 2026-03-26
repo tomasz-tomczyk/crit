@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -241,6 +243,118 @@ func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) 
 	}
 
 	return comments, round
+}
+
+// loadAllCommentsForShare is like loadCommentsForShare but includes resolved comments.
+// Used for upsert pushes so crit-web shows which comments the agent addressed.
+// Sets ExternalID on each comment from the local Comment.ID.
+func loadAllCommentsForShare(dir string, filePaths []string) ([]shareComment, int) {
+	critPath := filepath.Join(dir, ".crit.json")
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		return nil, 1
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return nil, 1
+	}
+
+	round := cj.ReviewRound
+	if round < 1 {
+		round = 1
+	}
+
+	pathSet := make(map[string]bool, len(filePaths))
+	for _, p := range filePaths {
+		pathSet[p] = true
+	}
+
+	var comments []shareComment
+	for path, cf := range cj.Files {
+		if !pathSet[path] {
+			continue
+		}
+		for _, c := range cf.Comments {
+			sc := shareComment{
+				File:        path,
+				StartLine:   c.StartLine,
+				EndLine:     c.EndLine,
+				Body:        c.Body,
+				Quote:       c.Quote,
+				Author:      c.Author,
+				Resolved:    c.Resolved,
+				ExternalID:  c.ID,
+			}
+			if c.ReviewRound >= 1 {
+				sc.ReviewRound = c.ReviewRound
+			}
+			for _, r := range c.Replies {
+				sc.Replies = append(sc.Replies, shareReply{Body: r.Body, Author: r.Author})
+			}
+			comments = append(comments, sc)
+		}
+	}
+	return comments, round
+}
+
+// webComment is the shape of a comment returned by GET /api/reviews/:token/comments.
+type webComment struct {
+	Body              string `json:"body"`
+	FilePath          string `json:"file_path"`
+	StartLine         int    `json:"start_line"`
+	EndLine           int    `json:"end_line"`
+	ReviewRound       int    `json:"review_round"`
+	Resolved          bool   `json:"resolved"`
+	ExternalID        string `json:"external_id"`
+	AuthorDisplayName string `json:"author_display_name"`
+	Quote             string `json:"quote"`
+}
+
+// fetchNewWebComments fetches comments from crit-web and returns only those
+// not already present locally (identified by external_id).
+//
+// Called automatically inside runShare when an existing ShareURL is detected —
+// i.e., when the agent calls `crit share <files>` after applying changes from
+// the crit-web prompt. This captures any web-reviewer comments added after the
+// prompt was generated (e.g., a late-arriving review) so they appear in local
+// .crit.json before the next round is pushed.
+//
+// shareURL is the full review URL, e.g. "https://crit.md/r/abc123".
+func fetchNewWebComments(shareURL string, localIDs map[string]bool) ([]webComment, error) {
+	token := path.Base(shareURL)
+	u, err := url.Parse(shareURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid share URL: %w", err)
+	}
+	apiURL := u.Scheme + "://" + u.Host + "/api/reviews/" + token + "/comments"
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetching remote comments: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil // review gone
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("remote comments returned status %d", resp.StatusCode)
+	}
+
+	var all []webComment
+	if err := json.NewDecoder(resp.Body).Decode(&all); err != nil {
+		return nil, fmt.Errorf("decoding remote comments: %w", err)
+	}
+
+	var newOnes []webComment
+	for _, wc := range all {
+		if wc.ExternalID != "" && localIDs[wc.ExternalID] {
+			continue // already have this locally
+		}
+		newOnes = append(newOnes, wc)
+	}
+	return newOnes, nil
 }
 
 // persistShareState writes the share URL, delete token, and scope hash to .crit.json,

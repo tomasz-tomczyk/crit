@@ -37,6 +37,132 @@ func TestComputeShareHash(t *testing.T) {
 	}
 }
 
+// writeCritJSONForTest writes a CritJSON to dir/.crit.json for test setup.
+func writeCritJSONForTest(t *testing.T, dir string, cj CritJSON) {
+	t.Helper()
+	data, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		t.Fatalf("marshaling CritJSON: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644); err != nil {
+		t.Fatalf("writing .crit.json: %v", err)
+	}
+}
+
+func TestLoadAllCommentsForShare_IncludesResolved(t *testing.T) {
+	dir := t.TempDir()
+	cj := CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "open", Resolved: false, ReviewRound: 1},
+					{ID: "c2", StartLine: 2, EndLine: 2, Body: "done", Resolved: true, ReviewRound: 1},
+				},
+			},
+		},
+	}
+	writeCritJSONForTest(t, dir, cj)
+
+	comments, round := loadAllCommentsForShare(dir, []string{"plan.md"})
+	if round != 1 {
+		t.Errorf("expected round 1, got %d", round)
+	}
+	if len(comments) != 2 {
+		t.Fatalf("expected 2 comments (both resolved and unresolved), got %d", len(comments))
+	}
+	ids := map[string]bool{}
+	for _, c := range comments {
+		ids[c.ExternalID] = true
+	}
+	if !ids["c1"] {
+		t.Error("expected ExternalID c1")
+	}
+	if !ids["c2"] {
+		t.Error("expected ExternalID c2")
+	}
+}
+
+func TestLoadAllCommentsForShare_SetsExternalID(t *testing.T) {
+	dir := t.TempDir()
+	cj := CritJSON{
+		ReviewRound: 2,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Comments: []Comment{
+					{ID: "abc-123", StartLine: 10, EndLine: 15, Body: "refactor this"},
+				},
+			},
+		},
+	}
+	writeCritJSONForTest(t, dir, cj)
+
+	comments, _ := loadAllCommentsForShare(dir, []string{"main.go"})
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if comments[0].ExternalID != "abc-123" {
+		t.Errorf("expected ExternalID abc-123, got %q", comments[0].ExternalID)
+	}
+}
+
+func TestFetchNewWebComments_FiltersLocalComments(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{
+			{
+				"body": "web reviewer note", "file_path": "plan.md",
+				"start_line": 5, "end_line": 5, "review_round": 1,
+				"resolved": false, "external_id": nil,
+			},
+			{
+				"body": "existing local", "file_path": "plan.md",
+				"start_line": 1, "end_line": 1, "review_round": 1,
+				"resolved": false, "external_id": "c1",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	localIDs := map[string]bool{"c1": true}
+	got, err := fetchNewWebComments(srv.URL+"/r/testtoken", localIDs)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 new comment, got %d", len(got))
+	}
+	if got[0].Body != "web reviewer note" {
+		t.Errorf("expected body 'web reviewer note', got %q", got[0].Body)
+	}
+}
+
+func TestFetchNewWebComments_404ReturnsNil(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	got, err := fetchNewWebComments(srv.URL+"/r/gone", nil)
+	if err != nil {
+		t.Fatalf("unexpected error for 404: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil for 404, got %v", got)
+	}
+}
+
+func TestFetchNewWebComments_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, err := fetchNewWebComments(srv.URL+"/r/broken", nil)
+	if err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+}
+
 func TestBuildSharePayload_SingleFile(t *testing.T) {
 	files := []shareFile{
 		{Path: "plan.md", Content: "# My Plan\n\nStep 1: do the thing"},
