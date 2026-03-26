@@ -153,7 +153,8 @@ func runShare(args []string) {
 	if existingCfg, ok := loadExistingShareCfg(critDir, sharePaths); ok {
 		// 1. Pull any comments added by web reviewers
 		localIDs := buildLocalIDSet(existingCfg)
-		if webComments, err := fetchNewWebComments(existingCfg.ShareURL, localIDs); err != nil {
+		localFingerprints := buildLocalFingerprints(existingCfg)
+		if webComments, err := fetchNewWebComments(existingCfg.ShareURL, localIDs, localFingerprints); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not pull remote comments: %v\n", err)
 		} else if len(webComments) > 0 {
 			if err := mergeWebComments(critDir, webComments); err != nil {

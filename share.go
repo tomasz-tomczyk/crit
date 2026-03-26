@@ -310,8 +310,22 @@ type webComment struct {
 	Quote             string `json:"quote"`
 }
 
+// buildLocalFingerprints returns a set of body+file+line fingerprints for all
+// local comments. Used to deduplicate web-authored comments (which have no
+// ExternalID) on repeated shares.
+func buildLocalFingerprints(cj CritJSON) map[string]bool {
+	fps := make(map[string]bool)
+	for path, f := range cj.Files {
+		for _, c := range f.Comments {
+			key := fmt.Sprintf("%s|%s|%d|%d", c.Body, path, c.StartLine, c.EndLine)
+			fps[key] = true
+		}
+	}
+	return fps
+}
+
 // fetchNewWebComments fetches comments from crit-web and returns only those
-// not already present locally (identified by external_id).
+// not already present locally (identified by external_id or body+line fingerprint).
 //
 // Called automatically inside runShare when an existing ShareURL is detected —
 // i.e., when the agent calls `crit share <files>` after applying changes from
@@ -320,7 +334,7 @@ type webComment struct {
 // .crit.json before the next round is pushed.
 //
 // shareURL is the full review URL, e.g. "https://crit.md/r/abc123".
-func fetchNewWebComments(shareURL string, localIDs map[string]bool) ([]webComment, error) {
+func fetchNewWebComments(shareURL string, localIDs map[string]bool, localFingerprints map[string]bool) ([]webComment, error) {
 	token := path.Base(shareURL)
 	u, err := url.Parse(shareURL)
 	if err != nil {
@@ -350,7 +364,13 @@ func fetchNewWebComments(shareURL string, localIDs map[string]bool) ([]webCommen
 	var newOnes []webComment
 	for _, wc := range all {
 		if wc.ExternalID != "" && localIDs[wc.ExternalID] {
-			continue // already have this locally
+			continue // already have this locally by ID
+		}
+		if wc.ExternalID == "" {
+			fp := fmt.Sprintf("%s|%s|%d|%d", wc.Body, wc.FilePath, wc.StartLine, wc.EndLine)
+			if localFingerprints[fp] {
+				continue // web-authored comment already imported
+			}
 		}
 		newOnes = append(newOnes, wc)
 	}

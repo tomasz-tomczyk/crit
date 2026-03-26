@@ -124,7 +124,7 @@ func TestFetchNewWebComments_FiltersLocalComments(t *testing.T) {
 	defer srv.Close()
 
 	localIDs := map[string]bool{"c1": true}
-	got, err := fetchNewWebComments(srv.URL+"/r/testtoken", localIDs)
+	got, err := fetchNewWebComments(srv.URL+"/r/testtoken", localIDs, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestFetchNewWebComments_404ReturnsNil(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := fetchNewWebComments(srv.URL+"/r/gone", nil)
+	got, err := fetchNewWebComments(srv.URL+"/r/gone", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error for 404: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestFetchNewWebComments_ServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := fetchNewWebComments(srv.URL+"/r/broken", nil)
+	_, err := fetchNewWebComments(srv.URL+"/r/broken", nil, nil)
 	if err == nil {
 		t.Fatal("expected error for 500 response")
 	}
