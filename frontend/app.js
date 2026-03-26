@@ -5604,14 +5604,16 @@
         const data = JSON.parse(e.data);
         const count = parseInt(data.content, 10);
         const el = document.getElementById('waitingEdits');
-        if (el && uiState === 'waiting' && waitingHasComments) {
+        if (el && uiState === 'waiting') {
           el.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:4px"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="11"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>Your agent made ' + count + ' edit' + (count === 1 ? '' : 's');
           // Hide prompt and clipboard once agent starts making edits
           const promptEl = document.getElementById('waitingPrompt');
           const clipEl = document.getElementById('waitingClipboard');
           if (promptEl) promptEl.style.display = 'none';
           if (clipEl) clipEl.style.display = 'none';
-          document.getElementById('waitingMessage').textContent = 'Waiting for your agent to finish...';
+          if (waitingHasComments) {
+            document.getElementById('waitingMessage').textContent = 'Waiting for your agent to finish...';
+          }
         }
       } catch (_) {}
     });
