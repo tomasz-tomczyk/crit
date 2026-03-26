@@ -144,17 +144,46 @@ func runShare(args []string) {
 		os.Exit(1)
 	}
 
-	// Idempotent: if already shared (same file set), print the existing URL.
 	sharePaths := make([]string, len(files))
 	for i, f := range files {
 		sharePaths[i] = f.Path
 	}
-	existingURL, _ := loadExistingShareState(critDir, sharePaths)
-	if existingURL != "" {
-		fmt.Println(existingURL)
+
+	// Existing share: pull remote comments, then upsert (PUT if changed).
+	if existingCfg, ok := loadExistingShareCfg(critDir, sharePaths); ok {
+		// 1. Pull any comments added by web reviewers
+		localIDs := buildLocalIDSet(existingCfg)
+		localFingerprints := buildLocalFingerprints(existingCfg)
+		if webComments, err := fetchNewWebComments(existingCfg.ShareURL, localIDs, localFingerprints); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not pull remote comments: %v\n", err)
+		} else if len(webComments) > 0 {
+			if err := mergeWebComments(critDir, webComments); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not merge remote comments: %v\n", err)
+			}
+		}
+
+		// 2. Load full comment state (including resolved) for the upsert payload
+		allComments, _ := loadAllCommentsForShare(critDir, sharePaths)
+
+		// 3. Upsert — PUT if anything changed, no-op if identical
+		result, err := upsertShareToWeb(existingCfg, files, allComments)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := updateShareState(critDir, computeShareHash(files, allComments), result.ReviewRound); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not save share state: %v\n", err)
+		}
+		if result.Changed {
+			fmt.Printf("Updated (round %d): %s\n", result.ReviewRound, result.URL)
+		} else {
+			fmt.Println(existingCfg.ShareURL)
+		}
+
 		if showQR {
 			fmt.Println()
-			qrterminal.GenerateWithConfig(existingURL, qrterminal.Config{
+			qrterminal.GenerateWithConfig(result.URL, qrterminal.Config{
 				Level:      qrterminal.L,
 				Writer:     os.Stdout,
 				HalfBlocks: true,
@@ -164,6 +193,7 @@ func runShare(args []string) {
 		return
 	}
 
+	// New share: POST to create the review.
 	filePaths := make([]string, len(files))
 	for i, f := range files {
 		filePaths[i] = f.Path
@@ -179,6 +209,10 @@ func runShare(args []string) {
 	if err := persistShareState(critDir, url, deleteToken, shareScope(filePaths)); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state to .crit.json: %v\n", err)
 	}
+
+	// Record initial hash so the next `crit share` can detect changes
+	initialComments, _ := loadAllCommentsForShare(critDir, filePaths)
+	_ = updateShareState(critDir, computeShareHash(files, initialComments), reviewRound)
 
 	fmt.Println(url)
 	if showQR {
