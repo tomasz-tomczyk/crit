@@ -291,14 +291,14 @@ func loadAllCommentsForShare(dir string, filePaths []string) ([]shareComment, in
 		}
 		for _, c := range cf.Comments {
 			sc := shareComment{
-				File:        path,
-				StartLine:   c.StartLine,
-				EndLine:     c.EndLine,
-				Body:        c.Body,
-				Quote:       c.Quote,
-				Author:      c.Author,
-				Resolved:    c.Resolved,
-				ExternalID:  c.ID,
+				File:       path,
+				StartLine:  c.StartLine,
+				EndLine:    c.EndLine,
+				Body:       c.Body,
+				Quote:      c.Quote,
+				Author:     c.Author,
+				Resolved:   c.Resolved,
+				ExternalID: c.ID,
 			}
 			if c.ReviewRound >= 1 {
 				sc.ReviewRound = c.ReviewRound
