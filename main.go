@@ -119,6 +119,7 @@ func runShare(args []string) {
 	}
 
 	shareSvcURL = resolveShareURL(shareSvcURL)
+	authToken := resolveAuthToken()
 
 	var files []shareFile
 	for _, path := range shareArgs {
@@ -154,7 +155,7 @@ func runShare(args []string) {
 		// 1. Pull any comments added by web reviewers
 		localIDs := buildLocalIDSet(existingCfg)
 		localFingerprints := buildLocalFingerprints(existingCfg)
-		if webComments, err := fetchNewWebComments(existingCfg.ShareURL, localIDs, localFingerprints); err != nil {
+		if webComments, err := fetchNewWebComments(existingCfg.ShareURL, localIDs, localFingerprints, authToken); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not pull remote comments: %v\n", err)
 		} else if len(webComments) > 0 {
 			if err := mergeWebComments(critDir, webComments); err != nil {
@@ -166,7 +167,7 @@ func runShare(args []string) {
 		allComments, _ := loadAllCommentsForShare(critDir, sharePaths)
 
 		// 3. Upsert — PUT if anything changed, no-op if identical
-		result, err := upsertShareToWeb(existingCfg, files, allComments)
+		result, err := upsertShareToWeb(existingCfg, files, allComments, authToken)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -200,7 +201,7 @@ func runShare(args []string) {
 	}
 	comments, reviewRound := loadCommentsForShare(critDir, filePaths)
 
-	url, deleteToken, err := shareFilesToWeb(files, comments, shareSvcURL, reviewRound)
+	url, deleteToken, err := shareFilesToWeb(files, comments, shareSvcURL, reviewRound, authToken)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -253,6 +254,7 @@ func runUnpublish(args []string) {
 	}
 
 	unpubSvcURL = resolveShareURL(unpubSvcURL)
+	unpubAuthToken := resolveAuthToken()
 
 	critDir, err := resolveCritDir(unpubOutputDir)
 	if err != nil {
@@ -275,7 +277,7 @@ func runUnpublish(args []string) {
 		return
 	}
 
-	if err := unpublishFromWeb(unpubSvcURL, cj.DeleteToken); err != nil {
+	if err := unpublishFromWeb(unpubSvcURL, cj.DeleteToken, unpubAuthToken); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -1141,6 +1143,7 @@ type serverConfig struct {
 	noOpen             bool
 	quiet              bool
 	shareURL           string
+	authToken          string
 	outputDir          string
 	author             string
 	ignorePatterns     []string
@@ -1238,6 +1241,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		noOpen:             *noOpen,
 		quiet:              *quiet,
 		shareURL:           *shareURL,
+		authToken:          cfg.AuthToken,
 		outputDir:          *outputDir,
 		author:             cfg.Author,
 		ignorePatterns:     ignorePatterns,
@@ -1304,7 +1308,7 @@ func runServe(args []string) {
 
 	session.CLIArgs = sc.files
 
-	srv, err := NewServer(session, frontendFS, sc.shareURL, prInfo, sc.author, version, addr.Port, sc.agentCmd)
+	srv, err := NewServer(session, frontendFS, sc.shareURL, sc.authToken, prInfo, sc.author, version, addr.Port, sc.agentCmd)
 	if err != nil {
 		log.Fatalf("Error creating server: %v", err)
 	}

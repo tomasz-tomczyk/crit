@@ -24,6 +24,7 @@ type Server struct {
 	mux               *http.ServeMux
 	assets            fs.FS
 	shareURL          string
+	authToken         string
 	prInfo            *PRInfo
 	author            string
 	agentCmd          string
@@ -35,13 +36,13 @@ type Server struct {
 	status            *Status
 }
 
-func NewServer(session *Session, frontendFS embed.FS, shareURL string, prInfo *PRInfo, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
+func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken string, prInfo *PRInfo, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
 	assets, err := fs.Sub(frontendFS, "frontend")
 	if err != nil {
 		return nil, fmt.Errorf("loading frontend assets: %w", err)
 	}
 
-	s := &Server{session: session, assets: assets, shareURL: shareURL, prInfo: prInfo, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port}
+	s := &Server{session: session, assets: assets, shareURL: shareURL, authToken: authToken, prInfo: prInfo, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port}
 
 	mux := http.NewServeMux()
 
@@ -226,7 +227,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	url, deleteToken, err := shareFilesToWeb(files, comments, s.shareURL, reviewRound)
+	url, deleteToken, err := shareFilesToWeb(files, comments, s.shareURL, reviewRound, s.authToken)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)

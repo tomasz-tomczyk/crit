@@ -21,6 +21,7 @@ type Config struct {
 	IgnorePatterns     []string `json:"ignore_patterns,omitempty"`
 	NoIntegrationCheck bool     `json:"no_integration_check,omitempty"`
 	AgentCmd           string   `json:"agent_cmd,omitempty"`
+	AuthToken          string   `json:"auth_token,omitempty"`
 }
 
 // String returns a human-readable JSON representation of the resolved config.
@@ -67,6 +68,7 @@ type generatedConfig struct {
 	IgnorePatterns     []string `json:"ignore_patterns"`
 	NoIntegrationCheck bool     `json:"no_integration_check"`
 	AgentCmd           string   `json:"agent_cmd"`
+	AuthToken          string   `json:"auth_token"`
 }
 
 func (c generatedConfig) String() string {
@@ -149,6 +151,9 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	}
 	if projectPresence.NoIntegrationCheck {
 		merged.NoIntegrationCheck = project.NoIntegrationCheck
+	}
+	if project.AuthToken != "" {
+		merged.AuthToken = project.AuthToken
 	}
 	// Union ignore patterns
 	merged.IgnorePatterns = append(merged.IgnorePatterns, project.IgnorePatterns...)

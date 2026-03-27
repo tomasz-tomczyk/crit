@@ -124,7 +124,7 @@ func TestFetchNewWebComments_FiltersLocalComments(t *testing.T) {
 	defer srv.Close()
 
 	localIDs := map[string]bool{"c1": true}
-	got, err := fetchNewWebComments(srv.URL+"/r/testtoken", localIDs, nil)
+	got, err := fetchNewWebComments(srv.URL+"/r/testtoken", localIDs, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestFetchNewWebComments_404ReturnsNil(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := fetchNewWebComments(srv.URL+"/r/gone", nil, nil)
+	got, err := fetchNewWebComments(srv.URL+"/r/gone", nil, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error for 404: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestFetchNewWebComments_ServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := fetchNewWebComments(srv.URL+"/r/broken", nil, nil)
+	_, err := fetchNewWebComments(srv.URL+"/r/broken", nil, nil, "")
 	if err == nil {
 		t.Fatal("expected error for 500 response")
 	}
@@ -259,7 +259,7 @@ func TestShareFilesToWeb_Success(t *testing.T) {
 	defer server.Close()
 
 	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	url, token, err := shareFilesToWeb(files, nil, server.URL, 1)
+	url, token, err := shareFilesToWeb(files, nil, server.URL, 1, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestShareFilesToWeb_ServerError(t *testing.T) {
 	defer server.Close()
 
 	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	_, _, err := shareFilesToWeb(files, nil, server.URL, 1)
+	_, _, err := shareFilesToWeb(files, nil, server.URL, 1, "")
 	if err == nil {
 		t.Fatal("expected error for server error response")
 	}
@@ -287,7 +287,7 @@ func TestShareFilesToWeb_ServerError(t *testing.T) {
 
 func TestShareFilesToWeb_NetworkError(t *testing.T) {
 	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	_, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1)
+	_, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1, "")
 	if err == nil {
 		t.Fatal("expected error for unreachable server")
 	}
@@ -312,7 +312,7 @@ func TestUnpublishFromWeb_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := unpublishFromWeb(server.URL, "tok_secret")
+	err := unpublishFromWeb(server.URL, "tok_secret", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestUnpublishFromWeb_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := unpublishFromWeb(server.URL, "bad_token")
+	err := unpublishFromWeb(server.URL, "bad_token", "")
 	if err == nil {
 		t.Fatal("expected error for server error")
 	}
@@ -338,7 +338,7 @@ func TestUnpublishFromWeb_AlreadyDeleted(t *testing.T) {
 	defer server.Close()
 
 	// 404 is treated as "already deleted" — not an error (idempotent)
-	err := unpublishFromWeb(server.URL, "old_token")
+	err := unpublishFromWeb(server.URL, "old_token", "")
 	if err != nil {
 		t.Fatalf("not-found should not be an error (already deleted): %v", err)
 	}
@@ -485,7 +485,7 @@ func TestUpsertShareToWeb_CallsPUTOnChange(t *testing.T) {
 	files := []shareFile{{Path: "plan.md", Content: "# changed"}}
 	comments := []shareComment{}
 
-	result, err := upsertShareToWeb(cfg, files, comments)
+	result, err := upsertShareToWeb(cfg, files, comments, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -521,7 +521,7 @@ func TestUpsertShareToWeb_SkipsPUTWhenUnchanged(t *testing.T) {
 		ReviewRound:   1,
 	}
 
-	result, err := upsertShareToWeb(cfg, files, comments)
+	result, err := upsertShareToWeb(cfg, files, comments, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
