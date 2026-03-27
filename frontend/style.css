@@ -298,6 +298,30 @@ body {
 .comment-count-icon { width: 16px; height: 16px; display: block; }
 .comment-count-number { font-size: 12px; font-weight: 600; margin-left: 2px; line-height: 1; }
 
+.comment-nav-group { display: flex; align-items: center; }
+.comment-nav-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--fg-muted);
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+  line-height: 0;
+}
+.comment-nav-btn:hover { color: var(--fg); background: var(--bg-hover); }
+.comment-nav-btn svg { width: 14px; height: 14px; display: block; }
+.comment-nav-group.has-comments .comment-nav-btn { display: flex; }
+.comment-nav-highlight {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 6px;
+  transition: outline-color 1s ease;
+}
+
 .btn {
   font-family: var(--font-body);
   font-size: 13px;

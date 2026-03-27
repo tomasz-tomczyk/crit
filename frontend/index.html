@@ -35,12 +35,24 @@
       </svg>
       <span class="pr-toggle-number" id="prToggleNumber"></span>
     </button>
-    <button class="comment-count-btn" id="commentCount" style="display:none" title="Toggle comments panel" aria-label="Toggle comments panel">
-      <svg class="comment-count-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
-        <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z" stroke-linejoin="round"/>
-      </svg>
-      <span class="comment-count-number" id="commentCountNumber"></span>
-    </button>
+    <div class="comment-nav-group" id="commentNavGroup" style="display:none">
+      <button class="comment-nav-btn" id="commentNavPrev" title="Previous comment ([)" aria-label="Previous comment">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
+          <path d="M4 10l4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button class="comment-count-btn" id="commentCount" title="Toggle comments panel" aria-label="Toggle comments panel">
+        <svg class="comment-count-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
+          <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z" stroke-linejoin="round"/>
+        </svg>
+        <span class="comment-count-number" id="commentCountNumber"></span>
+      </button>
+      <button class="comment-nav-btn" id="commentNavNext" title="Next comment (])" aria-label="Next comment">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
+          <path d="M4 6l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
     <div class="scope-toggle" id="scopeToggle" style="display:none">
       <button class="toggle-btn active" data-scope="all" title="All changes">All</button>
       <button class="toggle-btn" data-scope="branch" title="Committed changes">Branch</button>
@@ -152,6 +164,8 @@
     <table class="shortcuts-table">
       <tr><td><kbd>j</kbd></td><td>Next block</td></tr>
       <tr><td><kbd>k</kbd></td><td>Previous block</td></tr>
+      <tr><td><kbd>]</kbd></td><td>Next comment</td></tr>
+      <tr><td><kbd>[</kbd></td><td>Previous comment</td></tr>
       <tr><td><kbd>c</kbd></td><td>Comment on focused block</td></tr>
       <tr><td><kbd>e</kbd></td><td>Edit comment on focused block</td></tr>
       <tr><td><kbd>d</kbd></td><td>Delete comment on focused block</td></tr>

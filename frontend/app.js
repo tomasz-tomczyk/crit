@@ -5032,20 +5032,22 @@
       if (c.resolved) resolved++; else unresolved++;
     }
     const total = unresolved + resolved;
+    const navGroup = document.getElementById('commentNavGroup');
     const el = document.getElementById('commentCount');
     const numEl = document.getElementById('commentCountNumber');
     if (total === 0) {
-      el.style.display = '';
+      if (navGroup) navGroup.style.display = '';
+      if (navGroup) navGroup.classList.remove('has-comments');
       el.classList.add('comment-count-resolved');
       el.title = 'Toggle comments panel';
       numEl.textContent = '';
     } else if (unresolved > 0) {
-      el.style.display = '';
+      if (navGroup) { navGroup.style.display = ''; navGroup.classList.add('has-comments'); }
       el.classList.remove('comment-count-resolved');
       el.title = unresolved + ' unresolved comment' + (unresolved === 1 ? '' : 's') + ' — toggle panel';
       numEl.textContent = unresolved;
     } else {
-      el.style.display = '';
+      if (navGroup) { navGroup.style.display = ''; navGroup.classList.add('has-comments'); }
       el.classList.add('comment-count-resolved');
       el.title = total + ' resolved comment' + (total === 1 ? '' : 's') + ' — toggle panel';
       numEl.textContent = total;
@@ -6332,6 +6334,56 @@
     setCookie('crit-toc', 'closed');
   });
 
+  // ===== Comment Navigation =====
+  var navCommentId = null;
+
+  function navigateToComment(direction) {
+    var panel = document.getElementById('commentsPanel');
+    var container = document.getElementById('filesContainer');
+    var cards = Array.from(container.querySelectorAll('.comment-card')).filter(function(card) {
+      return !panel || !panel.contains(card);
+    });
+    if (cards.length === 0) return;
+
+    var header = document.querySelector('.header');
+    var headerHeight = header ? header.offsetHeight : 52;
+
+    // Find current position by stored comment ID (immune to smooth-scroll race conditions)
+    var idx = -1;
+    if (navCommentId) {
+      for (var i = 0; i < cards.length; i++) {
+        if (cards[i].dataset.commentId === navCommentId) { idx = i; break; }
+      }
+    }
+
+    var targetIdx;
+    if (direction === 1) {
+      if (idx < 0) {
+        // First use: pick first card below the header area by viewport position
+        targetIdx = -1;
+        for (var j = 0; j < cards.length; j++) {
+          if (cards[j].getBoundingClientRect().top > headerHeight + 8) { targetIdx = j; break; }
+        }
+        if (targetIdx < 0) targetIdx = 0;
+      } else {
+        targetIdx = idx >= cards.length - 1 ? 0 : idx + 1;
+      }
+    } else {
+      targetIdx = idx <= 0 ? cards.length - 1 : idx - 1;
+    }
+
+    var target = cards[targetIdx];
+    navCommentId = target.dataset.commentId;
+
+    var rect = target.getBoundingClientRect();
+    window.scrollTo({ top: rect.top + window.scrollY - headerHeight - 16, behavior: 'smooth' });
+    target.classList.add('comment-nav-highlight');
+    setTimeout(function() { target.classList.remove('comment-nav-highlight'); }, 1000);
+  }
+
+  document.getElementById('commentNavPrev').addEventListener('click', function() { navigateToComment(-1); });
+  document.getElementById('commentNavNext').addEventListener('click', function() { navigateToComment(1); });
+
   // ===== Comments Panel Toggle =====
   document.getElementById('commentCount').addEventListener('click', function() {
     toggleCommentsPanel();
@@ -6491,6 +6543,16 @@
         if (tocBtn.style.display === 'none') return;
         e.preventDefault();
         tocBtn.click();
+        break;
+      }
+      case ']': {
+        e.preventDefault();
+        navigateToComment(1);
+        break;
+      }
+      case '[': {
+        e.preventDefault();
+        navigateToComment(-1);
         break;
       }
       case 'n': {
