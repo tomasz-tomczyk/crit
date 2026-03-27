@@ -1002,12 +1002,9 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   font-family: var(--font-body);
 }
 
-.comment-card.carried-forward {
-  border-color: var(--orange);
-}
 .carried-forward-label {
   font-size: 11px;
-  color: var(--orange);
+  color: var(--fg-muted);
   font-weight: 500;
 }
 .comment-round-badge {

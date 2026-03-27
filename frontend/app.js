@@ -4209,7 +4209,7 @@
     if (opts.showCarriedForward && comment.carried_forward && !comment.resolved) {
       const label = document.createElement('span');
       label.className = 'carried-forward-label';
-      label.textContent = 'Unresolved';
+      label.textContent = 'Carried forward';
       headerLeft.appendChild(label);
     }
     const time = document.createElement('span');

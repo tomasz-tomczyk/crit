@@ -683,10 +683,9 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 				"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
 					"Each comment has a scope field: \"line\" for inline comments, \"file\" for file-level comments, or \"review\" for review-level comments. "+
 					"Review-level comments appear in the top-level review_comments array (not tied to any file). "+
-					"Read the file, address each unresolved comment in the relevant file and location. "+
+					"Read the file, address each comment in the relevant file and location. "+
 					"Before acting, check each comment's replies array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change. "+
-					"For each comment: reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> --resolve \"<explanation>\"`, "+
-					"or edit .crit.json directly to add a reply to the comment's \"replies\" array and set \"resolved\": true. "+
+					"For each comment, reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> \"<explanation>\"`. "+
 					"When done run: `%s`",
 				critJSON, s.session.ReinvokeCommand())
 		}
@@ -734,7 +733,7 @@ func (s *Server) buildPlanFeedback(critJSON string) string {
 			"Comments are in %s — grouped per file with start_line/end_line referencing the source. "+
 			"Each comment has a scope field: \"line\" for inline comments, \"file\" for file-level, or \"review\" for review-level comments. "+
 			"Read the file, revise the plan to address each comment. "+
-			"To reply to and resolve comments, use `crit comment --plan %s --reply-to <id> --resolve --author <your-name> \"<explanation>\"`.",
+			"To reply to comments, use `crit comment --plan %s --reply-to <id> --author <your-name> \"<explanation>\"`.",
 		critJSON, slug)
 }
 
