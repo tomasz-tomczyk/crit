@@ -461,9 +461,11 @@
       }
     }
 
-    // Hide file-mode-only shortcuts in git mode
+    // Hide mode-specific shortcuts
     if (session.mode === 'git') {
       document.querySelectorAll('.shortcut-filemode-only').forEach(function(el) { el.style.display = 'none'; });
+    } else {
+      document.querySelectorAll('.shortcut-git-only').forEach(function(el) { el.style.display = 'none'; });
     }
 
     updateHeaderRound();
@@ -6507,6 +6509,17 @@
         if (changeGroups.length === 0) break;
         e.preventDefault();
         navigateToChange(-1);
+        break;
+      }
+      case '!': case '@': case '#': case '$': {
+        if (session.mode !== 'git') break;
+        const scopeMap = { '!': 'all', '@': 'branch', '#': 'staged', '$': 'unstaged' };
+        const scope = scopeMap[e.key];
+        const btn = document.querySelector('#scopeToggle .toggle-btn[data-scope="' + scope + '"]');
+        if (btn && !btn.disabled && !btn.classList.contains('active')) {
+          e.preventDefault();
+          btn.click();
+        }
         break;
       }
       case '?': {

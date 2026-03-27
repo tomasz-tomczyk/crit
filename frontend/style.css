@@ -1805,7 +1805,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 24px 32px;
-  max-width: 480px;
+  max-width: 560px;
   width: 90vw;
   box-shadow: var(--shadow);
 }
@@ -1838,7 +1838,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   text-align: center;
 }
 .shortcuts-table td:first-child {
-  width: 120px;
+  width: 180px;
   white-space: nowrap;
 }
 
