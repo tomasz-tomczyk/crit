@@ -18,6 +18,12 @@ test.afterEach(async ({ page }) => {
   });
 });
 
+async function pressShiftScope(page: Page, digit: string, scope: string) {
+  const keyMap: Record<string, string> = { '1': '!', '2': '@', '3': '#', '4': '$' };
+  await page.keyboard.press(keyMap[digit]);
+  await expect(page.locator(`#scopeToggle .toggle-btn[data-scope="${scope}"]`)).toHaveClass(/active/);
+}
+
 test.describe('Scope Toggle', () => {
   test('scope toggle is visible in git mode with All active by default', async ({ page }) => {
     await loadPage(page);
@@ -135,6 +141,44 @@ test.describe('Scope Toggle', () => {
     // Should fall back to "all"
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="staged"]')).not.toHaveClass(/active/);
+  });
+
+  test('Shift+1 activates All scope', async ({ page }) => {
+    await loadPage(page);
+    // Start on branch scope so the shortcut has a visible effect
+    await switchScope(page, 'branch');
+    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="branch"]')).toHaveClass(/active/);
+
+    await pressShiftScope(page, '1', 'all');
+    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="branch"]')).not.toHaveClass(/active/);
+  });
+
+  test('Shift+2 activates Branch scope', async ({ page }) => {
+    await loadPage(page);
+    await pressShiftScope(page, '2', 'branch');
+    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).not.toHaveClass(/active/);
+  });
+
+  test('Shift+3 activates Staged scope', async ({ page }) => {
+    await loadPage(page);
+    await pressShiftScope(page, '3', 'staged');
+    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).not.toHaveClass(/active/);
+  });
+
+  test('Shift+4 activates Unstaged scope', async ({ page }) => {
+    await loadPage(page);
+    await pressShiftScope(page, '4', 'unstaged');
+    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).not.toHaveClass(/active/);
+  });
+
+  test('pressing Shift+1 when All is already active does nothing', async ({ page }) => {
+    await loadPage(page);
+    // All is active by default
+    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
+
+    // Press Shift+1 — no API call expected since scope is unchanged, just assert stable state
+    await page.keyboard.press('!');
+    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
   });
 
   test('clicking a disabled scope button does nothing', async ({ page }) => {
