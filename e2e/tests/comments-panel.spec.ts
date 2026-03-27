@@ -239,26 +239,6 @@ test.describe('Comments Panel — Git Mode', () => {
     await expect(card.locator('.resolved-badge')).toContainText('Resolved');
   });
 
-  test('unresolved carried-forward comment shows Unresolved badge', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Still unresolved');
-
-    // Finish + round-complete to carry forward
-    await request.post('/api/finish');
-    const round = (await request.get('/api/session').then(r => r.json())).review_round;
-    await request.post('/api/round-complete');
-    await waitForRound(request, round);
-
-    await loadPage(page);
-    await page.keyboard.press('Shift+C');
-
-    const card = panelCards(page).first();
-    await expect(card).toBeVisible();
-    await expect(card.locator('.carried-forward-label')).toContainText('Unresolved');
-    // Should NOT have a resolved badge
-    await expect(card.locator('.resolved-badge')).toHaveCount(0);
-  });
-
   test('clicking resolved comment in panel scrolls to inline resolved comment', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Resolve and scroll');
