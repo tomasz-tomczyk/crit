@@ -49,6 +49,8 @@ func main() {
 		printVersion()
 	case "share":
 		runShare(os.Args[2:])
+	case "fetch":
+		runFetch(os.Args[2:])
 	case "unpublish":
 		runUnpublish(os.Args[2:])
 	case "install":
@@ -224,6 +226,84 @@ func runShare(args []string) {
 			HalfBlocks: true,
 			QuietZone:  1,
 		})
+	}
+}
+
+func runFetch(args []string) {
+	outputDir := ""
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--output" || arg == "-o":
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
+				os.Exit(1)
+			}
+			i++
+			outputDir = args[i]
+		default:
+			fmt.Fprintln(os.Stderr, "Usage: crit fetch [--output <dir>]")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "Fetches comments added on crit-web into .crit.json.")
+			fmt.Fprintln(os.Stderr, "Requires a prior `crit share` so a share URL is recorded.")
+			os.Exit(1)
+		}
+	}
+
+	critDir, err := resolveCritDir(outputDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	critPath := filepath.Join(critDir, ".crit.json")
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: no .crit.json found. Run `crit share` first.")
+		os.Exit(1)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid .crit.json: %v\n", err)
+		os.Exit(1)
+	}
+	if cj.ShareURL == "" {
+		fmt.Fprintln(os.Stderr, "Error: no share URL in .crit.json. Run `crit share` first.")
+		os.Exit(1)
+	}
+
+	authToken := resolveAuthToken()
+	localIDs := buildLocalIDSet(cj)
+	localFingerprints := buildLocalFingerprints(cj)
+
+	webComments, err := fetchNewWebComments(cj.ShareURL, localIDs, localFingerprints, authToken)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching remote comments: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(webComments) == 0 {
+		fmt.Println("No new comments.")
+		return
+	}
+
+	if err := mergeWebComments(critDir, webComments); err != nil {
+		fmt.Fprintf(os.Stderr, "Error merging comments: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Fetched %d new comment(s) into .crit.json\n", len(webComments))
+	for _, wc := range webComments {
+		runes := []rune(wc.Body)
+		body := wc.Body
+		if len(runes) > 60 {
+			body = string(runes[:60]) + "..."
+		}
+		if wc.Scope == "review" || wc.FilePath == "" {
+			fmt.Printf("  [review] %s\n", body)
+		} else {
+			fmt.Printf("  [%s:%d] %s\n", wc.FilePath, wc.StartLine, body)
+		}
 	}
 }
 
@@ -1425,6 +1505,7 @@ Usage:
   crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON
   crit comment --clear                       Remove all comments from .crit.json
   crit share <file> [file...]                Share files to crit-web and print the URL
+  crit fetch [--output <dir>]               Fetch comments from crit-web into .crit.json
   crit unpublish                             Remove a shared review from crit-web
   crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments to .crit.json
   crit push [--dry-run] [--event <type>] [-m <msg>] [-o <dir>] [pr-number]  Post .crit.json comments to a GitHub PR

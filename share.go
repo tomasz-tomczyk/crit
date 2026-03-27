@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -63,12 +64,13 @@ type shareReply struct {
 
 // shareComment represents a comment to include in the shared review.
 type shareComment struct {
-	File        string       `json:"file"`
-	StartLine   int          `json:"start_line"`
-	EndLine     int          `json:"end_line"`
+	File        string       `json:"file,omitempty"`
+	StartLine   int          `json:"start_line,omitempty"`
+	EndLine     int          `json:"end_line,omitempty"`
 	Body        string       `json:"body"`
 	Quote       string       `json:"quote,omitempty"`
 	Author      string       `json:"author_display_name,omitempty"`
+	Scope       string       `json:"scope,omitempty"`
 	ReviewRound int          `json:"review_round,omitempty"`
 	Replies     []shareReply `json:"replies,omitempty"`
 	ExternalID  string       `json:"external_id,omitempty"`
@@ -256,6 +258,23 @@ func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) 
 			comments = append(comments, sc)
 		}
 	}
+	for _, c := range cj.ReviewComments {
+		if c.Resolved {
+			continue
+		}
+		sc := shareComment{
+			Body:  c.Body,
+			Author: c.Author,
+			Scope: "review",
+		}
+		if c.ReviewRound >= 1 {
+			sc.ReviewRound = c.ReviewRound
+		}
+		for _, r := range c.Replies {
+			sc.Replies = append(sc.Replies, shareReply{Body: r.Body, Author: r.Author})
+		}
+		comments = append(comments, sc)
+	}
 
 	return comments, round
 }
@@ -309,6 +328,23 @@ func loadAllCommentsForShare(dir string, filePaths []string) ([]shareComment, in
 			comments = append(comments, sc)
 		}
 	}
+	// Include review-level comments so they survive upsert round-trips.
+	for _, c := range cj.ReviewComments {
+		sc := shareComment{
+			Body:       c.Body,
+			Author:     c.Author,
+			Resolved:   c.Resolved,
+			ExternalID: c.ID,
+			Scope:      "review",
+		}
+		if c.ReviewRound >= 1 {
+			sc.ReviewRound = c.ReviewRound
+		}
+		for _, r := range c.Replies {
+			sc.Replies = append(sc.Replies, shareReply{Body: r.Body, Author: r.Author})
+		}
+		comments = append(comments, sc)
+	}
 	return comments, round
 }
 
@@ -323,6 +359,7 @@ type webComment struct {
 	ExternalID        string `json:"external_id"`
 	AuthorDisplayName string `json:"author_display_name"`
 	Quote             string `json:"quote"`
+	Scope             string `json:"scope"`
 }
 
 // buildLocalFingerprints returns a set of body+file+line fingerprints for all
@@ -335,6 +372,10 @@ func buildLocalFingerprints(cj CritJSON) map[string]bool {
 			key := fmt.Sprintf("%s|%s|%d|%d", c.Body, path, c.StartLine, c.EndLine)
 			fps[key] = true
 		}
+	}
+	for _, c := range cj.ReviewComments {
+		key := fmt.Sprintf("%s||0|0", c.Body)
+		fps[key] = true
 	}
 	return fps
 }
@@ -515,7 +556,8 @@ func buildLocalIDSet(cj CritJSON) map[string]bool {
 	return ids
 }
 
-// mergeWebComments adds web-reviewer comments into .crit.json under their respective files.
+// mergeWebComments adds web-reviewer comments into .crit.json under their respective files
+// or into review_comments for review-level (scope:"review") comments.
 func mergeWebComments(dir string, newComments []webComment) error {
 	critPath := filepath.Join(dir, ".crit.json")
 	data, err := os.ReadFile(critPath)
@@ -530,23 +572,47 @@ func mergeWebComments(dir string, newComments []webComment) error {
 		cj.Files = make(map[string]CritJSONFile)
 	}
 
+	// Find the highest existing web-N index so new IDs are globally unique
+	// even if earlier ones were deleted from .crit.json.
+	webCount := 0
+	for _, f := range cj.Files {
+		for _, c := range f.Comments {
+			if n, err := strconv.Atoi(strings.TrimPrefix(c.ID, "web-")); err == nil && strings.HasPrefix(c.ID, "web-") && n > webCount {
+				webCount = n
+			}
+		}
+	}
+	for _, c := range cj.ReviewComments {
+		if n, err := strconv.Atoi(strings.TrimPrefix(c.ID, "web-")); err == nil && strings.HasPrefix(c.ID, "web-") && n > webCount {
+			webCount = n
+		}
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
 	for _, wc := range newComments {
-		entry := cj.Files[wc.FilePath]
-		entry.Comments = append(entry.Comments, Comment{
-			ID:          fmt.Sprintf("web-%d", len(entry.Comments)+1),
+		webCount++
+		c := Comment{
+			ID:          fmt.Sprintf("web-%d", webCount),
 			StartLine:   wc.StartLine,
 			EndLine:     wc.EndLine,
 			Body:        wc.Body,
 			Quote:       wc.Quote,
 			Author:      wc.AuthorDisplayName,
+			Scope:       wc.Scope,
 			ReviewRound: wc.ReviewRound,
-			CreatedAt:   time.Now().UTC().Format(time.RFC3339),
-			UpdatedAt:   time.Now().UTC().Format(time.RFC3339),
-		})
-		cj.Files[wc.FilePath] = entry
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if wc.Scope == "review" {
+			cj.ReviewComments = append(cj.ReviewComments, c)
+		} else {
+			entry := cj.Files[wc.FilePath]
+			entry.Comments = append(entry.Comments, c)
+			cj.Files[wc.FilePath] = entry
+		}
 	}
 
-	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	cj.UpdatedAt = now
 	out, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {
 		return err
