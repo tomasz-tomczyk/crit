@@ -91,7 +91,7 @@
     --diff-word-add-bg: rgba(26, 127, 55, 0.25);
     --diff-word-del-bg: rgba(207, 34, 46, 0.25);
     --badge-resolved-bg: rgba(26, 127, 55, 0.1);
-      --yellow-subtle: rgba(154, 103, 0, 0.06);
+    --yellow-subtle: rgba(154, 103, 0, 0.06);
     --yellow-bg: rgba(154, 103, 0, 0.1);
     --yellow-border: rgba(154, 103, 0, 0.16);
   }
