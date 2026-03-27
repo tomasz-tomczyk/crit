@@ -990,3 +990,87 @@ func TestBuildShareFromSession_SkipsResolvedWithReplies(t *testing.T) {
 		t.Fatalf("expected 0 comments (resolved should be skipped), got %d", len(comments))
 	}
 }
+
+func TestShareFilesToWeb_SendsBearerToken(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"url":          "https://crit.md/r/abc123",
+			"delete_token": "tok_secret",
+		})
+	}))
+	defer server.Close()
+
+	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
+	shareFilesToWeb(files, nil, server.URL, 1, "crit_testtoken")
+	if gotAuth != "Bearer crit_testtoken" {
+		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
+	}
+}
+
+func TestUnpublishFromWeb_SendsBearerToken(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	unpublishFromWeb(server.URL+"/r/tok", "dt", "crit_testtoken")
+	if gotAuth != "Bearer crit_testtoken" {
+		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
+	}
+}
+
+func TestFetchNewWebComments_SendsBearerToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		json.NewEncoder(w).Encode([]map[string]any{})
+	}))
+	defer srv.Close()
+
+	fetchNewWebComments(srv.URL+"/r/tok", nil, nil, "crit_testtoken")
+	if gotAuth != "Bearer crit_testtoken" {
+		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
+	}
+}
+
+func TestUpsertShareToWeb_SendsBearerToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := CritJSON{
+		ShareURL:      srv.URL + "/r/tok",
+		DeleteToken:   "dt",
+		LastShareHash: "same",
+		ReviewRound:   1,
+	}
+	files := []shareFile{{Path: "plan.md", Content: "same"}}
+	upsertShareToWeb(cfg, files, []shareComment{}, "crit_testtoken")
+	if gotAuth != "Bearer crit_testtoken" {
+		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
+	}
+}
+
+func TestSetBearer_SetsHeader(t *testing.T) {
+	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+	setBearer(req, "crit_abc123")
+	if got := req.Header.Get("Authorization"); got != "Bearer crit_abc123" {
+		t.Errorf("expected Bearer crit_abc123, got %q", got)
+	}
+}
+
+func TestSetBearer_NoopWhenEmpty(t *testing.T) {
+	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+	setBearer(req, "")
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("expected empty Authorization header, got %q", got)
+	}
+}
