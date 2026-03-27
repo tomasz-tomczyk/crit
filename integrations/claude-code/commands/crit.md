@@ -67,7 +67,7 @@ Identify all comments where `"resolved": false` or where the `resolved` field is
 
 ## Step 4: Address each review comment
 
-For each comment:
+For each unresolved comment:
 
 1. Understand what the comment asks for (clarification, change, addition, removal)
 2. If a comment contains a suggestion block, apply that specific change

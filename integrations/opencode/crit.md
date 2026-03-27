@@ -65,7 +65,7 @@ Before acting on a comment, check its `replies` array — if you have already re
 
 ## Step 4: Address each review comment
 
-For each comment:
+For each unresolved comment:
 
 1. Understand what the comment asks for.
 2. If a comment contains a suggestion block, apply that specific change.

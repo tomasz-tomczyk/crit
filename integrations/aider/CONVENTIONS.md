@@ -34,7 +34,7 @@ crit
 
 ## After review
 
-Read `.crit.json` to find the user's inline comments. Comments have three scopes: line comments in `files.<path>.comments` (with `start_line`/`end_line`), file comments (same array, `scope: "file"`, lines are 0), and review comments in the top-level `review_comments` array (`scope: "review"`, not tied to any file). Address all comments by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --author 'Aider' '<what you did>'`. This works for both file comment IDs (`c1`) and review comment IDs (`r0`).
+Read `.crit.json` to find the user's inline comments. Comments have three scopes: line comments in `files.<path>.comments` (with `start_line`/`end_line`), file comments (same array, `scope: "file"`, lines are 0), and review comments in the top-level `review_comments` array (`scope: "review"`, not tied to any file). Address each unresolved comment by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --author 'Aider' '<what you did>'`. This works for both file comment IDs (`c1`) and review comment IDs (`r0`).
 
 When addressing multiple comments, use `--json` to reply to them all in one call:
 
