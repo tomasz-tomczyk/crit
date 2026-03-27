@@ -34,14 +34,14 @@ crit
 
 ## After review
 
-Read `.crit.json` to find the user's inline comments. Comments have three scopes: line comments in `files.<path>.comments` (with `start_line`/`end_line`), file comments (same array, `scope: "file"`, lines are 0), and review comments in the top-level `review_comments` array (`scope: "review"`, not tied to any file). A comment is unresolved if `"resolved": false` or if the `resolved` field is missing. Address each unresolved comment by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --resolve --author 'Cline' '<what you did>'`. This works for both file comment IDs (`c1`) and review comment IDs (`r0`).
+Read `.crit.json` to find the user's inline comments. Comments have three scopes: line comments in `files.<path>.comments` (with `start_line`/`end_line`), file comments (same array, `scope: "file"`, lines are 0), and review comments in the top-level `review_comments` array (`scope: "review"`, not tied to any file). Address all comments by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --author 'Cline' '<what you did>'`. This works for both file comment IDs (`c1`) and review comment IDs (`r0`).
 
-When addressing multiple comments, use `--json` to resolve them all in one call:
+When addressing multiple comments, use `--json` to reply to them all in one call:
 
 ```bash
 echo '[
-  {"reply_to": "c1", "body": "Fixed", "resolve": true},
-  {"reply_to": "c2", "body": "Refactored as suggested", "resolve": true}
+  {"reply_to": "c1", "body": "Fixed"},
+  {"reply_to": "c2", "body": "Refactored as suggested"}
 ]' | crit comment --json --author 'Cline'
 ```
 
@@ -58,8 +58,8 @@ crit comment --author 'Cline' '<body>'                          # Review-level c
 crit comment --author 'Cline' <path> '<body>'                   # File-level comment
 crit comment --author 'Cline' <path>:<line> '<body>'            # Line comment
 crit comment --author 'Cline' <path>:<start>-<end> '<body>'     # Line range comment
-crit comment --reply-to c1 --resolve --author 'Cline' '<body>'  # Reply to file comment
-crit comment --reply-to r0 --resolve --author 'Cline' '<body>'  # Reply to review comment
+crit comment --reply-to c1 --author 'Cline' '<body>'  # Reply to file comment
+crit comment --reply-to r0 --author 'Cline' '<body>'  # Reply to review comment
 ```
 
 Paths are relative, line numbers are 1-indexed, comments are appended (never replaced). Creates `.crit.json` automatically if it doesn't exist.

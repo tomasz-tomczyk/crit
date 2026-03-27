@@ -57,26 +57,26 @@ After a crit review session, comments are in `.crit.json`. Comments have three s
 - **Review comments** are in the top-level `review_comments` array (not tied to any file)
 - `quote` (optional): the specific text the reviewer selected — narrows the comment's scope within the line range. When present, focus your changes on the quoted text rather than the entire line range
 - `resolved`: `false` or **missing** — both mean unresolved. Only `true` means resolved.
-- Address each unresolved comment by editing the relevant file at the referenced location
+- Address all comments by editing the relevant file at the referenced location
 - Before acting on a comment, check its `replies` array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change
 
-### Resolving comments
+### Replying to comments
 
 After addressing a comment, reply to it using the CLI:
 
 ```bash
-crit comment --reply-to c1 --resolve --author 'Claude Code' 'Fixed by extracting to helper'
-crit comment --reply-to r0 --resolve --author 'Claude Code' 'All issues addressed'
+crit comment --reply-to c1 --author 'Claude Code' 'Fixed by extracting to helper'
+crit comment --reply-to r0 --author 'Claude Code' 'All issues addressed'
 ```
 
-This adds a reply to the comment thread and marks it resolved. Works for both file comment IDs (`c1`, `c2`, ...) and review comment IDs (`r0`, `r1`, ...). You can also reply without resolving (omit `--resolve`) if discussion is ongoing.
+This adds a reply to the comment thread. Works for both file comment IDs (`c1`, `c2`, ...) and review comment IDs (`r0`, `r1`, ...). Resolving is a user action — do not mark comments resolved from AI.
 
 ### Plan mode comments
 
 When reviewing plans (via `crit plan` or the ExitPlanMode hook), `.crit.json` is stored in `~/.crit/plans/<slug>/` — not the project root. Use `--plan <slug>` so `crit comment` finds the right file:
 
 ```bash
-crit comment --plan my-plan-2026-03-23 --reply-to c1 --resolve --author 'Claude Code' 'Updated the plan'
+crit comment --plan my-plan-2026-03-23 --reply-to c1 --author 'Claude Code' 'Updated the plan'
 ```
 
 The `--plan` flag resolves to the plan storage directory automatically. The slug is shown in the review feedback prompt. **Always use `--plan` when responding to plan review comments** — without it, `crit comment` looks in the project root and won't find the comments.
@@ -110,8 +110,8 @@ crit comment --author 'Claude Code' 'Overall architecture looks solid'
 crit comment --author 'Claude Code' src/auth.go 'This file needs restructuring'
 crit comment --author 'Claude Code' src/auth.go:42 'Missing null check on user.session — will panic if session expired'
 crit comment --author 'Claude Code' src/handler.go:15-28 'This error is swallowed silently'
-crit comment --reply-to c1 --resolve --author 'Claude Code' 'Added null check on line 42'
-crit comment --reply-to r0 --resolve --author 'Claude Code' 'All issues addressed'
+crit comment --reply-to c1 --author 'Claude Code' 'Added null check on line 42'
+crit comment --reply-to r0 --author 'Claude Code' 'All issues addressed'
 ```
 
 Rules:
@@ -133,8 +133,8 @@ echo '[
   {"path": "session.go", "body": "restructure", "scope": "file"},
   {"file": "src/auth.go", "line": 42, "body": "Missing null check"},
   {"file": "src/auth.go", "line": "50-55", "body": "Extract to helper"},
-  {"reply_to": "c1", "body": "Fixed — added null check", "resolve": true},
-  {"reply_to": "r0", "body": "Done", "resolve": true}
+  {"reply_to": "c1", "body": "Fixed — added null check"},
+  {"reply_to": "r0", "body": "Done"}
 ]' | crit comment --json --author 'Claude Code'
 ```
 
@@ -150,7 +150,7 @@ JSON schema per entry:
 | `author` | string | no | Per-entry override (falls back to `--author`) |
 | `scope` | string | no | `"review"`, `"file"`, or omit to infer from context |
 | `reply_to` | string | yes (reply) | Comment ID (`"c1"` or `"r0"`) |
-| `resolve` | bool | no | Mark the parent comment resolved |
+| `resolve` | bool | no | Mark the parent comment resolved (user action — don't set from AI) |
 
 Scope inference when `scope` is omitted:
 - Has `reply_to` → reply

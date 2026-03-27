@@ -67,18 +67,18 @@ After a crit review session, comments are in `.crit.json`. Comments have three s
 - **Review comments** are in the top-level `review_comments` array (not tied to any file)
 - `quote` (optional): the specific text the reviewer selected — narrows the comment's scope within the line range. When present, focus your changes on the quoted text rather than the entire line range
 - `resolved`: `false` or **missing** — both mean unresolved. Only `true` means resolved.
-- Address each unresolved comment by editing the relevant file at the referenced location
+- Address all comments by editing the relevant file at the referenced location
 
-### Resolving comments
+### Replying to comments
 
 After addressing a comment, reply to it using the CLI:
 
 ```bash
-crit comment --reply-to c1 --resolve --author 'OpenCode' 'Fixed by extracting to helper'
-crit comment --reply-to r0 --resolve --author 'OpenCode' 'All issues addressed'
+crit comment --reply-to c1 --author 'OpenCode' 'Fixed by extracting to helper'
+crit comment --reply-to r0 --author 'OpenCode' 'All issues addressed'
 ```
 
-This adds a reply to the comment thread and marks it resolved. Works for both file comment IDs (`c1`, `c2`, ...) and review comment IDs (`r0`, `r1`, ...). You can also reply without resolving (omit `--resolve`) if discussion is ongoing.
+This adds a reply to the comment thread. Works for both file comment IDs (`c1`, `c2`, ...) and review comment IDs (`r0`, `r1`, ...). Resolving is a user action — do not mark comments resolved from AI.
 
 ## Leaving Comments with crit comment CLI
 
@@ -121,8 +121,8 @@ echo '[
   {"path": "session.go", "body": "restructure", "scope": "file"},
   {"file": "src/auth.go", "line": 42, "body": "Missing null check"},
   {"file": "src/auth.go", "line": "50-55", "body": "Extract to helper"},
-  {"reply_to": "c1", "body": "Fixed — added null check", "resolve": true},
-  {"reply_to": "r0", "body": "Done", "resolve": true}
+  {"reply_to": "c1", "body": "Fixed — added null check"},
+  {"reply_to": "r0", "body": "Done"}
 ]' | crit comment --json --author 'OpenCode'
 ```
 
@@ -138,7 +138,7 @@ JSON schema per entry:
 | `author` | string | no | Per-entry override (falls back to `--author`) |
 | `scope` | string | no | `"review"`, `"file"`, or omit to infer from context |
 | `reply_to` | string | yes (reply) | Comment ID (`"c1"` or `"r0"`) |
-| `resolve` | bool | no | Mark the parent comment resolved |
+| `resolve` | bool | no | Mark the parent comment resolved (user action — don't set from AI) |
 
 Scope inference when `scope` is omitted:
 - Has `reply_to` → reply

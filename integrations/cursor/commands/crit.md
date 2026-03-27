@@ -56,19 +56,19 @@ Identify all comments where `"resolved": false` or where the `resolved` field is
 
 ## Step 4: Address each review comment
 
-For each unresolved comment:
+For each comment:
 
 1. Understand what the comment asks for (clarification, change, addition, removal)
 2. If a comment contains a suggestion block, apply that specific change
 3. Revise the **referenced file** to address the feedback - this could be the plan file or any code file
-4. Reply to the comment with what you did: `crit comment --reply-to <id> --resolve --author 'Cursor' '<what you did>'`
+4. Reply to the comment with what you did: `crit comment --reply-to <id> --author 'Cursor' '<what you did>'`
 
-When addressing multiple comments, use `--json` to resolve them all in one call:
+When addressing multiple comments, use `--json` to reply to them all in one call:
 
 ```bash
 echo '[
-  {"reply_to": "c1", "body": "Fixed", "resolve": true},
-  {"reply_to": "c2", "body": "Refactored as suggested", "resolve": true}
+  {"reply_to": "c1", "body": "Fixed"},
+  {"reply_to": "c2", "body": "Refactored as suggested"}
 ]' | crit comment --json --author 'Cursor'
 ```
 
