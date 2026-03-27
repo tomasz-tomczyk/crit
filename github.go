@@ -692,28 +692,26 @@ func appendComment(cj *CritJSON, filePath string, startLine, endLine int, body, 
 
 // appendReply adds a reply to an existing comment in the CritJSON struct in memory.
 // Returns an error if the comment ID is not found or is ambiguous across files.
-// Searches both file comments and review_comments (IDs starting with "r").
+// Searches both file comments and review_comments.
 func appendReply(cj *CritJSON, commentID, body, author string, resolve bool, filterPath string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
-	// Check review comments first for IDs starting with "r"
-	if strings.HasPrefix(commentID, "r") {
-		for i, c := range cj.ReviewComments {
-			if c.ID == commentID {
-				reply := Reply{
-					ID:        nextReplyID(commentID, c.Replies),
-					Body:      body,
-					Author:    author,
-					CreatedAt: now,
-				}
-				cj.ReviewComments[i].Replies = append(cj.ReviewComments[i].Replies, reply)
-				cj.ReviewComments[i].UpdatedAt = now
-				if resolve {
-					cj.ReviewComments[i].Resolved = true
-				}
-				return nil
+	// Check all review comments (not just those starting with "r" — web-fetched ones use "web-N").
+	for i, c := range cj.ReviewComments {
+		if c.ID == commentID {
+			reply := Reply{
+				ID:        nextReplyID(commentID, c.Replies),
+				Body:      body,
+				Author:    author,
+				CreatedAt: now,
 			}
+			cj.ReviewComments[i].Replies = append(cj.ReviewComments[i].Replies, reply)
+			cj.ReviewComments[i].UpdatedAt = now
+			if resolve {
+				cj.ReviewComments[i].Resolved = true
+			}
+			return nil
 		}
 	}
 
