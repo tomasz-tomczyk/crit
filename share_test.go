@@ -124,7 +124,7 @@ func TestFetchNewWebComments_FiltersLocalComments(t *testing.T) {
 	defer srv.Close()
 
 	localIDs := map[string]bool{"c1": true}
-	got, err := fetchNewWebComments(srv.URL+"/r/testtoken", localIDs, nil)
+	got, err := fetchNewWebComments(srv.URL+"/r/testtoken", localIDs, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestFetchNewWebComments_404ReturnsNil(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := fetchNewWebComments(srv.URL+"/r/gone", nil, nil)
+	got, err := fetchNewWebComments(srv.URL+"/r/gone", nil, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error for 404: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestFetchNewWebComments_ServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := fetchNewWebComments(srv.URL+"/r/broken", nil, nil)
+	_, err := fetchNewWebComments(srv.URL+"/r/broken", nil, nil, "")
 	if err == nil {
 		t.Fatal("expected error for 500 response")
 	}
@@ -259,7 +259,7 @@ func TestShareFilesToWeb_Success(t *testing.T) {
 	defer server.Close()
 
 	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	url, token, err := shareFilesToWeb(files, nil, server.URL, 1)
+	url, token, err := shareFilesToWeb(files, nil, server.URL, 1, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestShareFilesToWeb_ServerError(t *testing.T) {
 	defer server.Close()
 
 	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	_, _, err := shareFilesToWeb(files, nil, server.URL, 1)
+	_, _, err := shareFilesToWeb(files, nil, server.URL, 1, "")
 	if err == nil {
 		t.Fatal("expected error for server error response")
 	}
@@ -287,7 +287,7 @@ func TestShareFilesToWeb_ServerError(t *testing.T) {
 
 func TestShareFilesToWeb_NetworkError(t *testing.T) {
 	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	_, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1)
+	_, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1, "")
 	if err == nil {
 		t.Fatal("expected error for unreachable server")
 	}
@@ -312,7 +312,7 @@ func TestUnpublishFromWeb_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := unpublishFromWeb(server.URL, "tok_secret")
+	err := unpublishFromWeb(server.URL, "tok_secret", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestUnpublishFromWeb_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := unpublishFromWeb(server.URL, "bad_token")
+	err := unpublishFromWeb(server.URL, "bad_token", "")
 	if err == nil {
 		t.Fatal("expected error for server error")
 	}
@@ -338,7 +338,7 @@ func TestUnpublishFromWeb_AlreadyDeleted(t *testing.T) {
 	defer server.Close()
 
 	// 404 is treated as "already deleted" — not an error (idempotent)
-	err := unpublishFromWeb(server.URL, "old_token")
+	err := unpublishFromWeb(server.URL, "old_token", "")
 	if err != nil {
 		t.Fatalf("not-found should not be an error (already deleted): %v", err)
 	}
@@ -485,7 +485,7 @@ func TestUpsertShareToWeb_CallsPUTOnChange(t *testing.T) {
 	files := []shareFile{{Path: "plan.md", Content: "# changed"}}
 	comments := []shareComment{}
 
-	result, err := upsertShareToWeb(cfg, files, comments)
+	result, err := upsertShareToWeb(cfg, files, comments, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -521,7 +521,7 @@ func TestUpsertShareToWeb_SkipsPUTWhenUnchanged(t *testing.T) {
 		ReviewRound:   1,
 	}
 
-	result, err := upsertShareToWeb(cfg, files, comments)
+	result, err := upsertShareToWeb(cfg, files, comments, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -988,5 +988,89 @@ func TestBuildShareFromSession_SkipsResolvedWithReplies(t *testing.T) {
 	_, comments, _ := buildShareFromSession(s)
 	if len(comments) != 0 {
 		t.Fatalf("expected 0 comments (resolved should be skipped), got %d", len(comments))
+	}
+}
+
+func TestShareFilesToWeb_SendsBearerToken(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"url":          "https://crit.md/r/abc123",
+			"delete_token": "tok_secret",
+		})
+	}))
+	defer server.Close()
+
+	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
+	shareFilesToWeb(files, nil, server.URL, 1, "crit_testtoken")
+	if gotAuth != "Bearer crit_testtoken" {
+		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
+	}
+}
+
+func TestUnpublishFromWeb_SendsBearerToken(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	unpublishFromWeb(server.URL+"/r/tok", "dt", "crit_testtoken")
+	if gotAuth != "Bearer crit_testtoken" {
+		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
+	}
+}
+
+func TestFetchNewWebComments_SendsBearerToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		json.NewEncoder(w).Encode([]map[string]any{})
+	}))
+	defer srv.Close()
+
+	fetchNewWebComments(srv.URL+"/r/tok", nil, nil, "crit_testtoken")
+	if gotAuth != "Bearer crit_testtoken" {
+		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
+	}
+}
+
+func TestUpsertShareToWeb_SendsBearerToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := CritJSON{
+		ShareURL:      srv.URL + "/r/tok",
+		DeleteToken:   "dt",
+		LastShareHash: "same",
+		ReviewRound:   1,
+	}
+	files := []shareFile{{Path: "plan.md", Content: "same"}}
+	upsertShareToWeb(cfg, files, []shareComment{}, "crit_testtoken")
+	if gotAuth != "Bearer crit_testtoken" {
+		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
+	}
+}
+
+func TestSetBearer_SetsHeader(t *testing.T) {
+	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+	setBearer(req, "crit_abc123")
+	if got := req.Header.Get("Authorization"); got != "Bearer crit_abc123" {
+		t.Errorf("expected Bearer crit_abc123, got %q", got)
+	}
+}
+
+func TestSetBearer_NoopWhenEmpty(t *testing.T) {
+	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+	setBearer(req, "")
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("expected empty Authorization header, got %q", got)
 	}
 }

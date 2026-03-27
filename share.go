@@ -92,15 +92,22 @@ func buildSharePayload(files []shareFile, comments []shareComment, reviewRound i
 }
 
 // shareFilesToWeb uploads files to a crit-web instance and returns the share URL and delete token.
-func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string, reviewRound int) (string, string, error) {
+func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string, reviewRound int, authToken string) (string, string, error) {
 	payload := buildSharePayload(files, comments, reviewRound)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", "", fmt.Errorf("marshaling payload: %w", err)
 	}
 
+	req, err := http.NewRequest(http.MethodPost, shareURL+"/api/reviews", bytes.NewReader(body))
+	if err != nil {
+		return "", "", fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	setBearer(req, authToken)
+
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(shareURL+"/api/reviews", "application/json", bytes.NewReader(body))
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", "", fmt.Errorf("posting to share service: %w", err)
 	}
@@ -129,13 +136,14 @@ func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string
 
 // unpublishFromWeb deletes a shared review from a crit-web instance.
 // Returns nil if the review was deleted or was already gone (idempotent).
-func unpublishFromWeb(shareURL string, deleteToken string) error {
+func unpublishFromWeb(shareURL string, deleteToken string, authToken string) error {
 	body, _ := json.Marshal(map[string]string{"delete_token": deleteToken})
 	req, err := http.NewRequest(http.MethodDelete, shareURL+"/api/reviews", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	setBearer(req, authToken)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -157,6 +165,13 @@ func unpublishFromWeb(shareURL string, deleteToken string) error {
 		return fmt.Errorf("share service error: %s", errBody.Error)
 	}
 	return fmt.Errorf("share service returned status %d", resp.StatusCode)
+}
+
+// setBearer sets the Authorization header to "Bearer <token>" when token is non-empty.
+func setBearer(req *http.Request, token string) {
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 }
 
 // buildShareFromSession extracts files and unresolved comments from a live session.
@@ -276,14 +291,14 @@ func loadAllCommentsForShare(dir string, filePaths []string) ([]shareComment, in
 		}
 		for _, c := range cf.Comments {
 			sc := shareComment{
-				File:        path,
-				StartLine:   c.StartLine,
-				EndLine:     c.EndLine,
-				Body:        c.Body,
-				Quote:       c.Quote,
-				Author:      c.Author,
-				Resolved:    c.Resolved,
-				ExternalID:  c.ID,
+				File:       path,
+				StartLine:  c.StartLine,
+				EndLine:    c.EndLine,
+				Body:       c.Body,
+				Quote:      c.Quote,
+				Author:     c.Author,
+				Resolved:   c.Resolved,
+				ExternalID: c.ID,
 			}
 			if c.ReviewRound >= 1 {
 				sc.ReviewRound = c.ReviewRound
@@ -334,7 +349,7 @@ func buildLocalFingerprints(cj CritJSON) map[string]bool {
 // .crit.json before the next round is pushed.
 //
 // shareURL is the full review URL, e.g. "https://crit.md/r/abc123".
-func fetchNewWebComments(shareURL string, localIDs map[string]bool, localFingerprints map[string]bool) ([]webComment, error) {
+func fetchNewWebComments(shareURL string, localIDs map[string]bool, localFingerprints map[string]bool, authToken string) ([]webComment, error) {
 	token := path.Base(shareURL)
 	u, err := url.Parse(shareURL)
 	if err != nil {
@@ -342,8 +357,14 @@ func fetchNewWebComments(shareURL string, localIDs map[string]bool, localFingerp
 	}
 	apiURL := u.Scheme + "://" + u.Host + "/api/reviews/" + token + "/comments"
 
+	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	setBearer(req, authToken)
+
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(apiURL)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetching remote comments: %w", err)
 	}
@@ -386,7 +407,7 @@ type upsertResult struct {
 
 // upsertShareToWeb pushes an updated review to crit-web via PUT.
 // If the content hash matches LastShareHash (no changes), returns without calling PUT.
-func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment) (upsertResult, error) {
+func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, authToken string) (upsertResult, error) {
 	result := upsertResult{URL: cfg.ShareURL, ReviewRound: cfg.ReviewRound}
 
 	currentHash := computeShareHash(files, comments)
@@ -423,6 +444,7 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment) 
 		return result, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	setBearer(req, authToken)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -432,7 +454,7 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return result, fmt.Errorf("crit-web rejected delete_token — re-run crit share to create a new review")
+		return result, fmt.Errorf("crit-web rejected the request — check your auth_token in config")
 	}
 	if resp.StatusCode >= 400 {
 		return result, fmt.Errorf("upsert failed with status %d", resp.StatusCode)
@@ -638,4 +660,21 @@ func resolveShareURL(flagValue string) string {
 		return cfg.ShareURL
 	}
 	return "https://crit.md"
+}
+
+// resolveAuthToken returns the auth token from env > config.
+// Returns empty string if not configured.
+func resolveAuthToken() string {
+	if token, ok := os.LookupEnv("CRIT_AUTH_TOKEN"); ok {
+		return token
+	}
+	cfgDir := ""
+	if IsGitRepo() {
+		cfgDir, _ = RepoRoot()
+	}
+	if cfgDir == "" {
+		cfgDir, _ = os.Getwd()
+	}
+	cfg := LoadConfig(cfgDir)
+	return cfg.AuthToken
 }
