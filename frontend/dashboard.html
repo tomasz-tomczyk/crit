@@ -196,6 +196,42 @@
     .empty-state p { margin-bottom: 16px; }
 
     .time-ago { color: var(--text-muted); font-size: 13px; }
+
+    /* Project groups */
+    .project-group { margin-bottom: 24px; }
+    .project-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 0;
+      cursor: pointer;
+      user-select: none;
+    }
+    .project-header:hover { opacity: 0.8; }
+    .project-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .project-path {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: monospace;
+    }
+    .project-count {
+      font-size: 12px;
+      color: var(--text-muted);
+      background: var(--accent);
+      padding: 1px 7px;
+      border-radius: 10px;
+    }
+    .project-chevron {
+      color: var(--text-muted);
+      transition: transform 0.15s;
+      font-size: 12px;
+    }
+    .project-group.collapsed .project-chevron { transform: rotate(-90deg); }
+    .project-group.collapsed .project-body { display: none; }
   </style>
 </head>
 <body>
@@ -327,22 +363,71 @@ function renderIssues() {
     return;
   }
 
-  el.innerHTML = `<table class="issue-table">
-    <thead><tr>
-      <th>Description</th>
-      <th>Branch</th>
-      <th>Phase</th>
-      <th>Updated</th>
-      <th>Actions</th>
-    </tr></thead>
-    <tbody>${issues.map(renderIssueRow).join('')}</tbody>
-  </table>`;
+  // Group issues by repo_root
+  const grouped = {};
+  for (const issue of issues) {
+    const key = issue.repo_root || '(unknown)';
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(issue);
+  }
+
+  // Sort projects: most recently updated first
+  const projects = Object.keys(grouped).sort((a, b) => {
+    const latestA = grouped[a][0]?.updated_at || '';
+    const latestB = grouped[b][0]?.updated_at || '';
+    return latestB.localeCompare(latestA);
+  });
+
+  let html = '';
+  for (const root of projects) {
+    const projectIssues = grouped[root];
+    const name = root.split('/').pop() || root;
+    const collapsed = collapsedProjects.has(root) ? ' collapsed' : '';
+    const activeCount = projectIssues.filter(i => i.phase !== 'done').length;
+    const doneCount = projectIssues.length - activeCount;
+
+    html += `<div class="project-group${collapsed}" data-project="${esc(root)}">
+      <div class="project-header" onclick="toggleProject('${esc(root)}')">
+        <span class="project-chevron">&#9660;</span>
+        <span class="project-name">${esc(name)}</span>
+        <span class="project-count">${activeCount} active${doneCount ? ', ' + doneCount + ' done' : ''}</span>
+        <span class="project-path">${esc(root)}</span>
+      </div>
+      <div class="project-body">
+        <table class="issue-table">
+          <thead><tr>
+            <th>Description</th>
+            <th>Branch</th>
+            <th>Phase</th>
+            <th>Updated</th>
+            <th>Actions</th>
+          </tr></thead>
+          <tbody>${projectIssues.map(renderIssueRow).join('')}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+  el.innerHTML = html;
 
   // Populate project select in settings
   const select = document.getElementById('project-select');
-  const roots = [...new Set(issues.map(i => i.repo_root))];
   select.innerHTML = '<option value="">Select a project...</option>' +
-    roots.map(r => `<option value="${r}">${r}</option>`).join('');
+    projects.map(r => `<option value="${r}">${r}</option>`).join('');
+}
+
+// Track collapsed project groups (persisted to localStorage)
+let collapsedProjects = new Set(
+  JSON.parse(localStorage.getItem('crit-dashboard-collapsed') || '[]')
+);
+
+function toggleProject(root) {
+  if (collapsedProjects.has(root)) {
+    collapsedProjects.delete(root);
+  } else {
+    collapsedProjects.add(root);
+  }
+  localStorage.setItem('crit-dashboard-collapsed', JSON.stringify([...collapsedProjects]));
+  renderIssues();
 }
 
 function renderIssueRow(issue) {
