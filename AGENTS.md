@@ -60,7 +60,7 @@ crit/
 10. **GitHub-style gutter interaction** — click-and-drag on line numbers to select ranges
 11. **File watching** — git mode polls `git status --porcelain`; files mode polls mtimes; reloads via SSE
 12. **Localhost only** — server binds to `127.0.0.1`, no CORS headers needed
-13. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both
+13. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both. Exception: `agent_cmd` is global-only and cannot be set by project config (prevents malicious repos from hijacking the agent command)
 14. **GitHub PR sync** — `crit pull` / `crit push` bridge between `.crit.json` and GitHub PR review comments via `gh` CLI
 15. **Headless CLI comment** — `crit comment` writes directly to `.crit.json` without starting the server; SSE notifies any running server
 16. **Comment threading** — comments support nested replies and a `resolved` boolean. Agents reply with `crit comment --reply-to <id> --resolve`. The `.crit.json` schema nests replies inside each comment's `replies` array.
@@ -108,7 +108,7 @@ Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_
 
 - `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to `git config user.name` if not set
-- `agent_cmd` specifies the shell command to invoke when sending a comment to an AI agent (e.g. `"claude -p"`, `"opencode ask"`)
+- `agent_cmd` specifies the shell command to invoke when sending a comment to an AI agent (e.g. `"claude -p"`, `"opencode ask"`) — **global config only**; project-level `.crit.config.json` cannot override this for security reasons
 - `ignore_patterns` are unioned (both global and project patterns apply)
 - Pattern types: `*.ext` (extension), `dir/` (directory prefix), `exact.file` (filename), `path/*.ext` (glob)
 - CLI flags override config file values
