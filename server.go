@@ -34,6 +34,8 @@ type Server struct {
 	staleIntegrations []staleFile
 	port              int
 	status            *Status
+	watchStop         chan struct{} // channel to stop the current file watcher
+	watchMu           sync.Mutex   // protects watchStop
 }
 
 func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken string, prInfo *PRInfo, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
@@ -58,6 +60,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.HandleFunc("/api/wait-for-event", s.handleWaitForEvent)
 	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
 
+	mux.HandleFunc("/api/session/switch-mode", s.handleSwitchMode)
 	mux.HandleFunc("/api/agent/request", s.handleAgentRequest)
 	mux.HandleFunc("/api/commits", s.handleCommits)
 	mux.HandleFunc("/api/comments", s.handleReviewComments)
@@ -1036,19 +1039,60 @@ func fuzzyScore(query, text string) float64 {
 	return score
 }
 
+// handleSwitchMode transitions the session from one mode to another (e.g. plan → git).
+// POST /api/session/switch-mode
+func (s *Server) handleSwitchMode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Mode    string `json:"mode"`
+		BaseRef string `json:"base_ref,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Mode == "" {
+		http.Error(w, "mode required", http.StatusBadRequest)
+		return
+	}
+
+	if req.Mode != "git" && req.Mode != "files" {
+		http.Error(w, "mode must be 'git' or 'files'", http.StatusBadRequest)
+		return
+	}
+
+	// Stop current watcher
+	s.watchMu.Lock()
+	if s.watchStop != nil {
+		close(s.watchStop)
+	}
+	// Create new stop channel for the new watcher
+	newStop := make(chan struct{})
+	s.watchStop = newStop
+	s.watchMu.Unlock()
+
+	// Reinitialize session for the new mode
+	if err := s.session.SwitchToGitMode(req.BaseRef); err != nil {
+		http.Error(w, fmt.Sprintf("switching mode: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Start new watcher
+	go s.session.Watch(newStop)
+
+	// Broadcast SSE event so frontend reloads
+	s.session.notify(SSEEvent{
+		Type:    "mode-switched",
+		Content: fmt.Sprintf(`{"mode":"%s"}`, req.Mode),
+	})
+
+	writeJSON(w, map[string]string{"status": "ok", "mode": req.Mode})
+}
+
 // agentRequestBody is the JSON body for POST /api/agent/request.
 type agentRequestBody struct {
 	CommentID string `json:"comment_id"`
 	FilePath  string `json:"file_path"`
-}
-
-// agentName extracts the binary name from the agent command string.
-func agentName(cmd string) string {
-	parts := strings.Fields(cmd)
-	if len(parts) == 0 {
-		return "agent"
-	}
-	return filepath.Base(parts[0])
 }
 
 // handleAgentRequest dispatches a comment to the configured agent command.

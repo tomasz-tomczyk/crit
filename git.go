@@ -711,3 +711,40 @@ func WorkingTreeFingerprint() string {
 	}
 	return string(out)
 }
+
+// CreateWorktree creates a new git worktree at path on a new branch based on base.
+// Equivalent to: git worktree add -b <branch> <path> <base>
+func CreateWorktree(base, branch, path string) error {
+	cmd := exec.Command("git", "worktree", "add", "-b", branch, path, base)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("creating worktree: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// RemoveWorktree removes a git worktree at the given path.
+func RemoveWorktree(path string) error {
+	cmd := exec.Command("git", "worktree", "remove", "--force", path)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("removing worktree: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// WorktreeList returns a list of worktree paths for the current repository.
+func WorktreeList() ([]string, error) {
+	cmd := exec.Command("git", "worktree", "list", "--porcelain")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("listing worktrees: %w", err)
+	}
+	var paths []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "worktree ") {
+			paths = append(paths, strings.TrimPrefix(line, "worktree "))
+		}
+	}
+	return paths, nil
+}

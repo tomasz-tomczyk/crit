@@ -1980,3 +1980,79 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string) (map[str
 	}
 	return map[string]any{"hunks": hunks}, true
 }
+
+// SwitchToGitMode reinitializes the session for git mode.
+// Used when transitioning from plan review to code review in crit issue.
+func (s *Session) SwitchToGitMode(baseRef string) error {
+	// Detect branch and base ref
+	branch := CurrentBranch()
+	if baseRef == "" {
+		resolvedBase := DefaultBranch()
+		if branch != resolvedBase {
+			baseRef, _ = MergeBase(resolvedBase)
+		}
+	}
+
+	// Detect changed files
+	var changes []FileChange
+	var err error
+	if baseRef != "" {
+		changes, err = changedFilesFromBaseInDir(baseRef, s.RepoRoot)
+	} else {
+		changes, err = changedFilesOnDefaultInDir(s.RepoRoot)
+	}
+	if err != nil {
+		return fmt.Errorf("detecting changes: %w", err)
+	}
+	changes = filterIgnored(changes, s.IgnorePatterns)
+
+	// Build new file entries (I/O without holding lock)
+	var newFiles []*FileEntry
+	for _, fc := range changes {
+		absPath := filepath.Join(s.RepoRoot, fc.Path)
+		fe := &FileEntry{
+			Path:     fc.Path,
+			AbsPath:  absPath,
+			Status:   fc.Status,
+			FileType: detectFileType(fc.Path),
+			Comments: []Comment{},
+		}
+		if fc.Status != "deleted" {
+			if data, readErr := os.ReadFile(absPath); readErr == nil {
+				fe.Content = string(data)
+				fe.FileHash = fileHash(data)
+			}
+		}
+		// Load diffs
+		if fc.Status != "deleted" {
+			if fc.Status == "added" || fc.Status == "untracked" {
+				fe.DiffHunks = FileDiffUnifiedNewFile(fe.Content)
+			} else {
+				hunks, diffErr := fileDiffUnified(fc.Path, baseRef, s.RepoRoot)
+				if diffErr == nil {
+					fe.DiffHunks = hunks
+				}
+			}
+		}
+		newFiles = append(newFiles, fe)
+	}
+
+	// Update session state under lock
+	s.mu.Lock()
+	s.Mode = "git"
+	s.Branch = branch
+	s.BaseRef = baseRef
+	s.PlanDir = ""
+	s.OutputDir = ""
+	s.ReviewRound = 1
+	s.Files = newFiles
+	s.reviewComments = nil
+	s.reviewNextID = 0
+	s.nextID = 1
+	s.pendingEdits = 0
+	s.lastRoundEdits = 0
+	s.awaitingFirstReview = true
+	s.mu.Unlock()
+
+	return nil
+}

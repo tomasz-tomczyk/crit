@@ -22,6 +22,9 @@ type Config struct {
 	NoIntegrationCheck bool     `json:"no_integration_check,omitempty"`
 	AgentCmd           string   `json:"agent_cmd,omitempty"`
 	AuthToken          string   `json:"auth_token,omitempty"`
+	OnDone             string   `json:"on_done,omitempty"`
+	PlanPrompt         string   `json:"plan_prompt,omitempty"`
+	ExecPrompt         string   `json:"exec_prompt,omitempty"`
 }
 
 // String returns a human-readable JSON representation of the resolved config.
@@ -69,6 +72,9 @@ type generatedConfig struct {
 	NoIntegrationCheck bool     `json:"no_integration_check"`
 	AgentCmd           string   `json:"agent_cmd"`
 	AuthToken          string   `json:"auth_token"`
+	OnDone             string   `json:"on_done"`
+	PlanPrompt         string   `json:"plan_prompt"`
+	ExecPrompt         string   `json:"exec_prompt"`
 }
 
 func (c generatedConfig) String() string {
@@ -150,6 +156,15 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	}
 	if project.AgentCmd != "" {
 		merged.AgentCmd = project.AgentCmd
+	}
+	if project.OnDone != "" {
+		merged.OnDone = project.OnDone
+	}
+	if project.PlanPrompt != "" {
+		merged.PlanPrompt = project.PlanPrompt
+	}
+	if project.ExecPrompt != "" {
+		merged.ExecPrompt = project.ExecPrompt
 	}
 	if projectPresence.NoIntegrationCheck {
 		merged.NoIntegrationCheck = project.NoIntegrationCheck

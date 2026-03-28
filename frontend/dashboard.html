@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>crit dashboard</title>
+  <style>
+    :root {
+      --bg: #1a1a2e;
+      --bg-card: #16213e;
+      --bg-hover: #1a2744;
+      --text: #e0e0e0;
+      --text-muted: #8892a4;
+      --accent: #0f3460;
+      --accent-hover: #1a4d8c;
+      --border: #2a3a5c;
+      --green: #4ade80;
+      --yellow: #fbbf24;
+      --blue: #60a5fa;
+      --red: #f87171;
+      --purple: #a78bfa;
+      --orange: #fb923c;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    h1 span { color: var(--text-muted); font-weight: 400; font-size: 14px; }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0;
+    }
+    .tab {
+      padding: 8px 16px;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: var(--text-muted);
+      font-size: 14px;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .tab.active { color: var(--text); border-bottom-color: var(--blue); }
+    .tab:hover { color: var(--text); }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* Issues list */
+    .issue-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .btn {
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--accent);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-danger { border-color: var(--red); color: var(--red); }
+    .btn-danger:hover { background: rgba(248,113,113,0.15); }
+    .btn-primary { background: var(--blue); border-color: var(--blue); color: #000; }
+    .btn-primary:hover { opacity: 0.9; }
+
+    .issue-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .issue-table th {
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+    }
+    .issue-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .issue-table tr:hover td { background: var(--bg-hover); }
+
+    .phase-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .phase-setup { background: rgba(160,174,192,0.2); color: #a0aec0; }
+    .phase-refining { background: rgba(167,139,250,0.2); color: var(--purple); }
+    .phase-planning { background: rgba(251,191,36,0.2); color: var(--yellow); }
+    .phase-plan-review { background: rgba(96,165,250,0.2); color: var(--blue); }
+    .phase-executing { background: rgba(251,146,60,0.2); color: var(--orange); }
+    .phase-code-review { background: rgba(96,165,250,0.2); color: var(--blue); }
+    .phase-done { background: rgba(74,222,128,0.2); color: var(--green); }
+
+    .desc-cell {
+      max-width: 400px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .actions { display: flex; gap: 4px; }
+
+    /* Forms */
+    .form-group { margin-bottom: 16px; }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .form-group input, .form-group textarea, .form-group select {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .form-group textarea { min-height: 100px; resize: vertical; }
+
+    /* Modal / overlay */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      width: 500px;
+      max-width: 90vw;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal h2 { font-size: 18px; margin-bottom: 16px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+    /* Settings */
+    .settings-section { margin-bottom: 32px; }
+    .settings-section h3 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px;
+      color: var(--text-muted);
+    }
+    .empty-state p { margin-bottom: 16px; }
+
+    .time-ago { color: var(--text-muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>crit <span>dashboard</span></h1>
+
+  <div class="tabs">
+    <button class="tab active" data-panel="issues">Issues</button>
+    <button class="tab" data-panel="settings">Settings</button>
+  </div>
+
+  <div id="issues-panel" class="panel active">
+    <div class="issue-header">
+      <div></div>
+      <button class="btn btn-primary" onclick="showCreateModal()">New Issue</button>
+    </div>
+    <div id="issues-list"></div>
+  </div>
+
+  <div id="settings-panel" class="panel">
+    <div class="settings-section">
+      <h3>Global Settings</h3>
+      <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">~/.crit.config.json</p>
+      <div id="global-settings-form"></div>
+      <button class="btn btn-primary" onclick="saveGlobalSettings()">Save Global Settings</button>
+    </div>
+    <div class="settings-section">
+      <h3>Project Settings</h3>
+      <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">Select a project to edit its .crit.config.json</p>
+      <div class="form-group">
+        <label>Project</label>
+        <select id="project-select" onchange="loadProjectSettings()">
+          <option value="">Select a project...</option>
+        </select>
+      </div>
+      <div id="project-settings-form"></div>
+      <button class="btn btn-primary" onclick="saveProjectSettings()" id="save-project-btn" style="display:none">Save Project Settings</button>
+    </div>
+  </div>
+
+  <!-- Create Issue Modal -->
+  <div class="modal-backdrop" id="create-modal">
+    <div class="modal">
+      <h2>New Issue</h2>
+      <div class="form-group">
+        <label>Description *</label>
+        <textarea id="new-description" placeholder="Describe the issue..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Repository Root *</label>
+        <input type="text" id="new-repo-root" placeholder="/path/to/repo">
+      </div>
+      <div class="form-group">
+        <label>Branch Name (optional)</label>
+        <input type="text" id="new-branch" placeholder="Auto-generated from description">
+      </div>
+      <div class="form-group">
+        <label>Base Branch (optional)</label>
+        <input type="text" id="new-base" placeholder="Auto-detected from repo">
+      </div>
+      <div class="form-group">
+        <label>On Done</label>
+        <select id="new-on-done">
+          <option value="pr">Create PR</option>
+          <option value="merge">Merge</option>
+          <option value="none">None (print instructions)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Planning Prompt (optional)</label>
+        <textarea id="new-plan-prompt" placeholder="Additional instructions for planning phase..." style="min-height:60px"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Execution Prompt (optional)</label>
+        <textarea id="new-exec-prompt" placeholder="Additional instructions for execution phase..." style="min-height:60px"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="hideCreateModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="createIssue()">Create Issue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Issue Modal -->
+  <div class="modal-backdrop" id="edit-modal">
+    <div class="modal">
+      <h2>Edit Issue</h2>
+      <div id="edit-form"></div>
+      <div class="modal-actions">
+        <button class="btn" onclick="hideEditModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveIssueEdit()">Save</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+let issues = [];
+let editingSlug = null;
+
+// Tab switching
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.panel + '-panel').classList.add('active');
+    if (tab.dataset.panel === 'settings') loadGlobalSettings();
+  });
+});
+
+// Load issues
+async function loadIssues() {
+  try {
+    const resp = await fetch('/api/issues');
+    issues = await resp.json() || [];
+    renderIssues();
+  } catch (e) {
+    document.getElementById('issues-list').innerHTML =
+      '<div class="empty-state"><p>Error loading issues</p></div>';
+  }
+}
+
+function renderIssues() {
+  const el = document.getElementById('issues-list');
+  if (!issues.length) {
+    el.innerHTML = `<div class="empty-state">
+      <p>No issues yet</p>
+      <button class="btn btn-primary" onclick="showCreateModal()">Create your first issue</button>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = `<table class="issue-table">
+    <thead><tr>
+      <th>Description</th>
+      <th>Branch</th>
+      <th>Phase</th>
+      <th>Updated</th>
+      <th>Actions</th>
+    </tr></thead>
+    <tbody>${issues.map(renderIssueRow).join('')}</tbody>
+  </table>`;
+
+  // Populate project select in settings
+  const select = document.getElementById('project-select');
+  const roots = [...new Set(issues.map(i => i.repo_root))];
+  select.innerHTML = '<option value="">Select a project...</option>' +
+    roots.map(r => `<option value="${r}">${r}</option>`).join('');
+}
+
+function renderIssueRow(issue) {
+  const phaseClass = 'phase-' + issue.phase;
+  const desc = issue.description.split('\n')[0].slice(0, 60);
+  const actions = getPhaseActions(issue);
+
+  return `<tr>
+    <td class="desc-cell" title="${esc(issue.description)}">${esc(desc)}</td>
+    <td><code style="font-size:12px">${esc(issue.branch)}</code></td>
+    <td><span class="phase-badge ${phaseClass}">${issue.phase}</span></td>
+    <td class="time-ago">${timeAgo(issue.updated_at)}</td>
+    <td class="actions">${actions}</td>
+  </tr>`;
+}
+
+function getPhaseActions(issue) {
+  let btns = '';
+  switch (issue.phase) {
+    case 'setup':
+      btns += `<button class="btn btn-sm" onclick="startPhase('${issue.slug}','start')">Plan</button>`;
+      btns += `<button class="btn btn-sm" onclick="startPhase('${issue.slug}','refine')">Refine</button>`;
+      break;
+    case 'plan-review':
+      if (issue.daemon_port) btns += `<button class="btn btn-sm" onclick="openDaemon(${issue.daemon_port})">Open</button>`;
+      break;
+    case 'executing':
+      btns += `<button class="btn btn-sm" onclick="startPhase('${issue.slug}','start')">Execute</button>`;
+      break;
+    case 'code-review':
+      if (issue.daemon_port) btns += `<button class="btn btn-sm" onclick="openDaemon(${issue.daemon_port})">Open</button>`;
+      break;
+  }
+  btns += `<button class="btn btn-sm" onclick="editIssue('${issue.slug}')">Edit</button>`;
+  btns += `<button class="btn btn-sm btn-danger" onclick="deleteIssue('${issue.slug}')">Delete</button>`;
+  return btns;
+}
+
+function openDaemon(port) {
+  window.open('http://localhost:' + port, '_blank');
+}
+
+async function startPhase(slug, action) {
+  await fetch(`/api/issues/${slug}/${action}`, { method: 'POST' });
+  setTimeout(loadIssues, 1000);
+}
+
+async function deleteIssue(slug) {
+  if (!confirm('Delete this issue? This will remove the worktree and all state.')) return;
+  await fetch(`/api/issues/${slug}`, { method: 'DELETE' });
+  loadIssues();
+}
+
+// Create modal
+function showCreateModal() {
+  document.getElementById('create-modal').classList.add('open');
+}
+function hideCreateModal() {
+  document.getElementById('create-modal').classList.remove('open');
+}
+
+async function createIssue() {
+  const body = {
+    description: document.getElementById('new-description').value,
+    repo_root: document.getElementById('new-repo-root').value,
+    branch: document.getElementById('new-branch').value,
+    base: document.getElementById('new-base').value,
+    on_done: document.getElementById('new-on-done').value,
+    plan_prompt: document.getElementById('new-plan-prompt').value,
+    exec_prompt: document.getElementById('new-exec-prompt').value,
+  };
+  const resp = await fetch('/api/issues', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (resp.ok) {
+    hideCreateModal();
+    loadIssues();
+  } else {
+    alert('Error: ' + await resp.text());
+  }
+}
+
+// Edit modal
+function editIssue(slug) {
+  editingSlug = slug;
+  const issue = issues.find(i => i.slug === slug);
+  if (!issue) return;
+
+  document.getElementById('edit-form').innerHTML = `
+    <div class="form-group">
+      <label>Description</label>
+      <textarea id="edit-description">${esc(issue.description)}</textarea>
+    </div>
+    <div class="form-group">
+      <label>Planning Prompt</label>
+      <textarea id="edit-plan-prompt" style="min-height:60px">${esc(issue.plan_prompt || '')}</textarea>
+    </div>
+    <div class="form-group">
+      <label>Execution Prompt</label>
+      <textarea id="edit-exec-prompt" style="min-height:60px">${esc(issue.exec_prompt || '')}</textarea>
+    </div>
+    <div class="form-group">
+      <label>On Done</label>
+      <select id="edit-on-done">
+        <option value="pr" ${issue.on_done==='pr'?'selected':''}>Create PR</option>
+        <option value="merge" ${issue.on_done==='merge'?'selected':''}>Merge</option>
+        <option value="none" ${issue.on_done==='none'?'selected':''}>None</option>
+      </select>
+    </div>
+  `;
+  document.getElementById('edit-modal').classList.add('open');
+}
+function hideEditModal() {
+  document.getElementById('edit-modal').classList.remove('open');
+}
+
+async function saveIssueEdit() {
+  const body = {
+    description: document.getElementById('edit-description').value,
+    plan_prompt: document.getElementById('edit-plan-prompt').value,
+    exec_prompt: document.getElementById('edit-exec-prompt').value,
+    on_done: document.getElementById('edit-on-done').value,
+  };
+  await fetch(`/api/issues/${editingSlug}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  hideEditModal();
+  loadIssues();
+}
+
+// Settings
+async function loadGlobalSettings() {
+  const resp = await fetch('/api/settings/global');
+  const cfg = await resp.json();
+  renderSettingsForm('global-settings-form', cfg);
+}
+
+async function loadProjectSettings() {
+  const project = document.getElementById('project-select').value;
+  if (!project) {
+    document.getElementById('project-settings-form').innerHTML = '';
+    document.getElementById('save-project-btn').style.display = 'none';
+    return;
+  }
+  const resp = await fetch('/api/settings/project?project=' + encodeURIComponent(project));
+  const cfg = await resp.json();
+  renderSettingsForm('project-settings-form', cfg);
+  document.getElementById('save-project-btn').style.display = '';
+}
+
+function renderSettingsForm(containerId, cfg) {
+  const fields = [
+    { key: 'agent_cmd', label: 'Agent Command', type: 'text', placeholder: 'e.g. claude -p' },
+    { key: 'plan_prompt', label: 'Plan Prompt', type: 'textarea', placeholder: 'Default instructions for planning phase' },
+    { key: 'exec_prompt', label: 'Execution Prompt', type: 'textarea', placeholder: 'Default instructions for execution phase' },
+    { key: 'on_done', label: 'On Done', type: 'select', options: ['', 'pr', 'merge', 'none'] },
+    { key: 'base_branch', label: 'Base Branch', type: 'text', placeholder: 'e.g. main' },
+    { key: 'author', label: 'Author', type: 'text', placeholder: 'Your name' },
+  ];
+
+  const html = fields.map(f => {
+    const val = cfg[f.key] || '';
+    if (f.type === 'textarea') {
+      return `<div class="form-group">
+        <label>${f.label}</label>
+        <textarea data-key="${f.key}" placeholder="${f.placeholder || ''}" style="min-height:60px">${esc(val)}</textarea>
+      </div>`;
+    }
+    if (f.type === 'select') {
+      return `<div class="form-group">
+        <label>${f.label}</label>
+        <select data-key="${f.key}">
+          ${f.options.map(o => `<option value="${o}" ${val===o?'selected':''}>${o || '(default)'}</option>`).join('')}
+        </select>
+      </div>`;
+    }
+    return `<div class="form-group">
+      <label>${f.label}</label>
+      <input type="text" data-key="${f.key}" value="${esc(val)}" placeholder="${f.placeholder || ''}">
+    </div>`;
+  }).join('');
+
+  document.getElementById(containerId).innerHTML = html;
+}
+
+function collectSettings(containerId) {
+  const cfg = {};
+  document.querySelectorAll(`#${containerId} [data-key]`).forEach(el => {
+    cfg[el.dataset.key] = el.value;
+  });
+  return cfg;
+}
+
+async function saveGlobalSettings() {
+  const cfg = collectSettings('global-settings-form');
+  await fetch('/api/settings/global', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfg),
+  });
+  alert('Global settings saved');
+}
+
+async function saveProjectSettings() {
+  const project = document.getElementById('project-select').value;
+  if (!project) return;
+  const cfg = collectSettings('project-settings-form');
+  await fetch('/api/settings/project?project=' + encodeURIComponent(project), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfg),
+  });
+  alert('Project settings saved');
+}
+
+// Helpers
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = (now - d) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
+}
+
+// Init
+loadIssues();
+
+// Auto-refresh every 5 seconds
+setInterval(loadIssues, 5000);
+</script>
+</body>
+</html>

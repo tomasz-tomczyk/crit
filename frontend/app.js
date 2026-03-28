@@ -5697,6 +5697,29 @@
       }
     });
 
+    source.addEventListener('mode-switched', async function() {
+      try {
+        // Full reload: re-fetch session, rebuild file list, re-render
+        diffCommit = '';
+        const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(r => r.json());
+        session = sessionRes;
+        reviewComments = sessionRes.review_comments || [];
+        files = await loadAllFileData(session.files || [], diffScope);
+        files.sort(fileSortComparator);
+        activeForms = [];
+        activeFilePath = null;
+        updateHeaderRound();
+        updateDiffModeToggle();
+        renderFileTree();
+        renderAllFiles();
+        buildToc();
+        updateCommentCount();
+        setUIState('reviewing');
+      } catch (err) {
+        console.error('Error handling mode-switched:', err);
+      }
+    });
+
     source.addEventListener('server-shutdown', function() {
       source.close();
       showDisconnected();

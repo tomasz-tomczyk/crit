@@ -380,6 +380,83 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 	return sessionEntry{}, fmt.Errorf("daemon did not start within 5 seconds")
 }
 
+// startDaemonInDir is like startDaemon but runs the daemon with a specific working directory.
+// Used by crit issue to run daemons in worktree directories.
+func startDaemonInDir(key string, args []string, cwd string) (sessionEntry, error) {
+	// Acquire file lock to prevent two simultaneous crit calls from racing
+	lock, err := acquireSessionLock(key)
+	if err != nil {
+		return sessionEntry{}, err
+	}
+	defer releaseSessionLock(lock)
+
+	// Re-check for alive session under the lock
+	if entry, alive := findAliveSession(key); alive {
+		return entry, nil
+	}
+
+	selfPath, err := os.Executable()
+	if err != nil {
+		return sessionEntry{}, fmt.Errorf("finding executable: %w", err)
+	}
+
+	cmdArgs := []string{"_serve"}
+	cmdArgs = append(cmdArgs, args...)
+
+	cmd := exec.Command(selfPath, cmdArgs...)
+	cmd.Dir = cwd
+	cmd.Stdout = nil
+	cmd.Stdin = nil
+
+	logPath, err := sessionLogPath(key)
+	if err != nil {
+		return sessionEntry{}, fmt.Errorf("creating log path: %w", err)
+	}
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		return sessionEntry{}, fmt.Errorf("creating daemon log file: %w", err)
+	}
+	cmd.Stderr = logFile
+
+	cmd.SysProcAttr = daemonSysProcAttr()
+	removeSessionFile(key)
+
+	if err := cmd.Start(); err != nil {
+		logFile.Close()
+		return sessionEntry{}, fmt.Errorf("starting daemon: %w", err)
+	}
+	logFile.Close()
+	newPID := cmd.Process.Pid
+
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-exited:
+			msg := readDaemonLog(key)
+			if msg != "" {
+				return sessionEntry{}, fmt.Errorf("daemon exited: %s", msg)
+			}
+			return sessionEntry{}, fmt.Errorf("daemon exited: %v", err)
+		default:
+		}
+		time.Sleep(100 * time.Millisecond)
+		entry, err := readSessionFile(key)
+		if err != nil {
+			continue
+		}
+		if entry.PID == newPID && isDaemonAlive(entry) {
+			return entry, nil
+		}
+	}
+
+	cmd.Process.Kill()
+	<-exited
+	return sessionEntry{}, fmt.Errorf("daemon did not start within 5 seconds")
+}
+
 // sessionLogPath returns the path for a daemon's log file.
 func sessionLogPath(key string) (string, error) {
 	dir, err := sessionsDir()

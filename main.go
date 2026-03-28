@@ -71,6 +71,10 @@ func main() {
 		runPlan(os.Args[2:])
 	case "plan-hook":
 		runPlanHook()
+	case "issue":
+		runIssue(os.Args[2:])
+	case "dashboard":
+		runDashboard(os.Args[2:])
 	case "stop":
 		runStop(os.Args[2:])
 	case "_serve":
@@ -1602,6 +1606,7 @@ func runServe(args []string) {
 	}()
 
 	watchStop := make(chan struct{})
+	srv.watchStop = watchStop
 	go session.Watch(watchStop)
 
 	go func() {
@@ -1643,6 +1648,13 @@ Usage:
   crit push [--dry-run] [--event <type>] [-m <msg>] [-o <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
   crit plan --name <slug> <file>             Review a plan file (manages versioned copies)
   crit plan --name <slug>                    Read plan from stdin
+  crit issue "description"                   Create an issue (setup worktree, save state)
+  crit issue --file desc.md                  Create an issue from a file
+  crit issue --plan <slug>                   Start planning phase for an issue
+  crit issue --execute <slug>                Start execution phase for an issue
+  crit issue --refine <slug>                 Refine issue description with agent
+  crit issue --resume <slug>                 Resume an interrupted issue workflow
+  crit dashboard                             Open issue management dashboard
   crit install <agent>                       Install integration files for an AI coding tool
   crit check                                 Check if installed integrations are up to date
   crit config [--generate]                    Show resolved configuration
