@@ -313,6 +313,7 @@ body {
   line-height: 0;
 }
 .comment-nav-btn:hover { color: var(--fg); background: var(--bg-hover); }
+.comment-nav-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .comment-nav-btn svg { width: 14px; height: 14px; display: block; }
 .comment-nav-group.has-comments .comment-nav-btn { display: flex; }
 .comment-nav-highlight {
@@ -2700,6 +2701,26 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 .file-body {
 }
+/* Shared toggle-btn base (used by file-header-toggle, scope-toggle, diff-mode-toggle) */
+.toggle-btn {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: all 0.15s;
+}
+.toggle-btn:first-child { border-radius: 4px 0 0 4px; }
+.toggle-btn:last-child { border-radius: 0 4px 4px 0; }
+.toggle-btn.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+.toggle-btn:hover:not(.active):not(:disabled) { background: var(--bg-hover); }
+
 .file-header-toggle {
   display: inline-flex;
   background: var(--bg-primary);
@@ -2712,23 +2733,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .file-header-toggle .toggle-btn {
   font-size: 10px;
   padding: 2px 8px;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  color: var(--fg-muted);
-  cursor: pointer;
-  font-family: var(--font-body);
-  transition: all 0.15s;
 }
-.file-header-toggle .toggle-btn:first-child { border-radius: 4px 0 0 4px; }
-.file-header-toggle .toggle-btn:last-child { border-radius: 0 4px 4px 0; }
-.file-header-toggle .toggle-btn.active {
-  background: var(--accent-subtle);
-  color: var(--accent);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-}
-.file-header-toggle .toggle-btn:hover:not(.active) { background: var(--bg-hover); }
 
 /* Change navigation widget (document view) */
 .change-nav {
@@ -2775,23 +2780,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .scope-toggle .toggle-btn {
   font-size: 11px;
   padding: 3px 10px;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  color: var(--fg-muted);
-  cursor: pointer;
-  font-family: var(--font-body);
-  transition: all 0.15s;
 }
-.scope-toggle .toggle-btn:first-child { border-radius: 4px 0 0 4px; }
-.scope-toggle .toggle-btn:last-child { border-radius: 0 4px 4px 0; }
-.scope-toggle .toggle-btn.active {
-  background: var(--accent-subtle);
-  color: var(--accent);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-}
-.scope-toggle .toggle-btn:hover:not(.active):not(:disabled) { background: var(--bg-hover); }
 .scope-toggle .toggle-btn:disabled { opacity: 0.35; cursor: default; }
 
 /* Commit picker (sidebar dropdown) */
@@ -2900,23 +2889,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .diff-mode-toggle .toggle-btn {
   font-size: 11px;
   padding: 3px 10px;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  color: var(--fg-muted);
-  cursor: pointer;
-  font-family: var(--font-body);
-  transition: all 0.15s;
 }
-.diff-mode-toggle .toggle-btn:first-child { border-radius: 4px 0 0 4px; }
-.diff-mode-toggle .toggle-btn:last-child { border-radius: 0 4px 4px 0; }
-.diff-mode-toggle .toggle-btn.active {
-  background: var(--accent-subtle);
-  color: var(--accent);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-}
-.diff-mode-toggle .toggle-btn:hover:not(.active) { background: var(--bg-hover); }
 
 /* ===== Diff Shared Styles ===== */
 .diff-container {

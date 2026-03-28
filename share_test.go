@@ -783,7 +783,7 @@ func TestHandleShare_AlreadyShared(t *testing.T) {
 	}
 }
 
-func TestLoadExistingShareState(t *testing.T) {
+func TestLoadExistingShareCfg(t *testing.T) {
 	dir := t.TempDir()
 	critPath := filepath.Join(dir, ".crit.json")
 
@@ -796,37 +796,40 @@ func TestLoadExistingShareState(t *testing.T) {
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	os.WriteFile(critPath, data, 0644)
 
-	url, token := loadExistingShareState(dir, []string{"anything.md"})
-	if url != "https://crit.md/r/existing" {
-		t.Errorf("expected existing URL, got %q", url)
+	cfg, ok := loadExistingShareCfg(dir, []string{"anything.md"})
+	if !ok {
+		t.Fatal("expected ok=true")
 	}
-	if token != "del-token-123" {
-		t.Errorf("expected existing token, got %q", token)
+	if cfg.ShareURL != "https://crit.md/r/existing" {
+		t.Errorf("expected existing URL, got %q", cfg.ShareURL)
+	}
+	if cfg.DeleteToken != "del-token-123" {
+		t.Errorf("expected existing token, got %q", cfg.DeleteToken)
 	}
 }
 
-func TestLoadExistingShareState_NoCritJSON(t *testing.T) {
+func TestLoadExistingShareCfg_NoCritJSON(t *testing.T) {
 	dir := t.TempDir()
-	url, token := loadExistingShareState(dir, []string{"plan.md"})
-	if url != "" || token != "" {
-		t.Errorf("expected empty, got url=%q token=%q", url, token)
+	_, ok := loadExistingShareCfg(dir, []string{"plan.md"})
+	if ok {
+		t.Error("expected ok=false when no .crit.json exists")
 	}
 }
 
-func TestLoadExistingShareState_NoShareState(t *testing.T) {
+func TestLoadExistingShareCfg_NoShareState(t *testing.T) {
 	dir := t.TempDir()
 	critPath := filepath.Join(dir, ".crit.json")
 	cj := CritJSON{Files: map[string]CritJSONFile{}}
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	os.WriteFile(critPath, data, 0644)
 
-	url, token := loadExistingShareState(dir, []string{"plan.md"})
-	if url != "" || token != "" {
-		t.Errorf("expected empty, got url=%q token=%q", url, token)
+	_, ok := loadExistingShareCfg(dir, []string{"plan.md"})
+	if ok {
+		t.Error("expected ok=false when no share URL set")
 	}
 }
 
-func TestLoadExistingShareState_ScopeMismatch(t *testing.T) {
+func TestLoadExistingShareCfg_ScopeMismatch(t *testing.T) {
 	dir := t.TempDir()
 	critPath := filepath.Join(dir, ".crit.json")
 
@@ -840,15 +843,18 @@ func TestLoadExistingShareState_ScopeMismatch(t *testing.T) {
 	os.WriteFile(critPath, data, 0644)
 
 	// Different file set — should NOT return share state
-	url, token := loadExistingShareState(dir, []string{"new-plan.md"})
-	if url != "" || token != "" {
-		t.Errorf("expected empty for mismatched scope, got url=%q token=%q", url, token)
+	_, ok := loadExistingShareCfg(dir, []string{"new-plan.md"})
+	if ok {
+		t.Error("expected ok=false for mismatched scope")
 	}
 
 	// Same file set — should return share state
-	url, _ = loadExistingShareState(dir, []string{"old-plan.md"})
-	if url != "https://crit.md/r/old" {
-		t.Errorf("expected URL for matching scope, got %q", url)
+	cfg, ok := loadExistingShareCfg(dir, []string{"old-plan.md"})
+	if !ok {
+		t.Fatal("expected ok=true for matching scope")
+	}
+	if cfg.ShareURL != "https://crit.md/r/old" {
+		t.Errorf("expected URL for matching scope, got %q", cfg.ShareURL)
 	}
 }
 
@@ -891,7 +897,7 @@ func TestResolveShareURL(t *testing.T) {
 				t.Setenv("CRIT_SHARE_URL", "")
 				os.Unsetenv("CRIT_SHARE_URL")
 			}
-			got := resolveShareURL(tt.flag)
+			got := resolveShareURL(tt.flag, Config{})
 			if got != tt.expected {
 				t.Errorf("resolveShareURL(%q) = %q, want %q", tt.flag, got, tt.expected)
 			}
