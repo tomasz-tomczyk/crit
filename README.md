@@ -4,6 +4,7 @@
 [![Release](https://img.shields.io/github/release/tomasz-tomczyk/crit.svg)](https://github.com/tomasz-tomczyk/crit/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/tomasz-tomczyk/crit)](https://goreportcard.com/report/github.com/tomasz-tomczyk/crit)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![gitcgr](https://gitcgr.com/badge/tomasz-tomczyk/crit.svg)](https://gitcgr.com/tomasz-tomczyk/crit)
 
 Reviewing agent output in a terminal is painful. You can't point at a specific line and say "change this." When your agent updates the file, you re-read the whole thing to figure out what changed.
 
