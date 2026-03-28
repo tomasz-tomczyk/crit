@@ -69,6 +69,8 @@ func main() {
 		runReview(os.Args[2:])
 	case "plan":
 		runPlan(os.Args[2:])
+	case "plan-hook":
+		runPlanHook()
 	case "stop":
 		runStop(os.Args[2:])
 	case "_serve":
@@ -1074,6 +1076,134 @@ func runPlan(args []string) {
 			proc.Signal(syscall.SIGTERM)
 		}
 	}
+}
+
+// runPlanHook is the PermissionRequest hook handler for ExitPlanMode.
+// It reads the hook event JSON from stdin, extracts the plan content,
+// opens a crit review session, and writes a hookSpecificOutput JSON
+// decision (allow/deny) to stdout.
+func runPlanHook() {
+	var event struct {
+		ToolInput struct {
+			Plan string `json:"plan"`
+		} `json:"tool_input"`
+	}
+	if err := json.NewDecoder(os.Stdin).Decode(&event); err != nil {
+		fmt.Fprintf(os.Stderr, "crit plan-hook: could not parse stdin: %v\n", err)
+		return // allow through on parse error
+	}
+	if strings.TrimSpace(event.ToolInput.Plan) == "" {
+		return // no plan content — allow through
+	}
+
+	content := []byte(event.ToolInput.Plan)
+	slug := resolveSlug(content)
+	storageDir := planStorageDir(slug)
+
+	ver, err := savePlanVersion(storageDir, content)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "crit plan-hook: error saving plan: %v\n", err)
+		return // allow through on error
+	}
+	fmt.Fprintf(os.Stderr, "crit plan-hook: plan '%s' saved as v%03d\n", slug, ver)
+
+	cwd, _ := resolvedCWD()
+	key := planSessionKey(cwd, slug)
+	currentPath := filepath.Join(storageDir, "current.md")
+	daemonArgs := buildPlanDaemonArgs(currentPath, storageDir, slug, 0, false, false)
+
+	entry, alive := findAliveSession(key)
+	weStartedDaemon := false
+
+	if alive {
+		fmt.Fprintf(os.Stderr, "crit plan-hook: connected to daemon on port %d\n", entry.Port)
+		if !daemonHasBrowser(entry) {
+			go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
+		}
+	} else {
+		entry, err = startDaemon(key, daemonArgs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "crit plan-hook: error starting daemon: %v\n", err)
+			return // allow through on error
+		}
+		fmt.Fprintf(os.Stderr, "crit plan-hook: started daemon on port %d (PID %d)\n", entry.Port, entry.PID)
+		weStartedDaemon = true
+	}
+
+	if weStartedDaemon {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			if proc, err := os.FindProcess(entry.PID); err == nil {
+				proc.Signal(syscall.SIGTERM)
+			}
+			os.Exit(0)
+		}()
+	}
+
+	approved, prompt := runReviewClientRaw(entry)
+
+	if approved {
+		if proc, err := os.FindProcess(entry.PID); err == nil {
+			proc.Signal(syscall.SIGTERM)
+		}
+		out, _ := json.Marshal(map[string]any{
+			"hookSpecificOutput": map[string]any{
+				"hookEventName": "PermissionRequest",
+				"decision":      map[string]any{"behavior": "allow"},
+			},
+		})
+		fmt.Println(string(out))
+		return
+	}
+
+	if prompt == "" {
+		prompt = "Review comments pending — address them before proceeding."
+	}
+	out, _ := json.Marshal(map[string]any{
+		"hookSpecificOutput": map[string]any{
+			"hookEventName": "PermissionRequest",
+			"decision": map[string]any{
+				"behavior": "deny",
+				"message":  prompt,
+			},
+		},
+	})
+	fmt.Println(string(out))
+}
+
+// runReviewClientRaw is like runReviewClient but returns (approved, prompt)
+// without writing to stdout — used by runPlanHook to construct hookSpecificOutput.
+func runReviewClientRaw(entry sessionEntry) (approved bool, prompt string) {
+	client := &http.Client{Timeout: 24 * time.Hour}
+	resp, err := client.Post(
+		fmt.Sprintf("http://localhost:%d/api/review-cycle", entry.Port),
+		"application/json",
+		nil,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "crit plan-hook: could not reach daemon: %v\n", err)
+		return true, "" // allow through on error
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "crit plan-hook: daemon returned %d\n", resp.StatusCode)
+		return true, "" // allow through on infrastructure error
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return true, ""
+	}
+
+	var result struct {
+		Approved bool   `json:"approved"`
+		Prompt   string `json:"prompt"`
+	}
+	json.Unmarshal(body, &result)
+	return result.Approved, result.Prompt
 }
 
 func runReview(args []string) {
