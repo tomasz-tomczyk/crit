@@ -6391,7 +6391,10 @@
     }
 
     var rect = target.getBoundingClientRect();
-    window.scrollTo({ top: rect.top + window.scrollY - headerHeight - 16, behavior: 'smooth' });
+    var fileSection = target.closest('.file-section');
+    var fileHeader = fileSection ? fileSection.querySelector('.file-header') : null;
+    var fileHeaderHeight = fileHeader ? fileHeader.offsetHeight : 0;
+    window.scrollTo({ top: rect.top + window.scrollY - headerHeight - fileHeaderHeight - 16, behavior: 'smooth' });
     target.classList.add('comment-nav-highlight');
     navHighlightTimer = setTimeout(function() { target.classList.remove('comment-nav-highlight'); navHighlightTimer = null; }, 1000);
   }
