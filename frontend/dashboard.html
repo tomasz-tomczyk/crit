@@ -3,673 +3,1226 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>crit dashboard</title>
+  <title>crit — dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="theme.css">
+  <script src="/markdown-it.min.js"></script>
   <style>
     :root {
-      --bg: #1a1a2e;
-      --bg-card: #16213e;
-      --bg-hover: #1a2744;
-      --text: #e0e0e0;
-      --text-muted: #8892a4;
-      --accent: #0f3460;
-      --accent-hover: #1a4d8c;
-      --border: #2a3a5c;
-      --green: #4ade80;
-      --yellow: #fbbf24;
-      --blue: #60a5fa;
-      --red: #f87171;
-      --purple: #a78bfa;
-      --orange: #fb923c;
+      --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.5;
-      padding: 24px;
-      max-width: 1200px;
-      margin: 0 auto;
+      font-family: var(--font-body);
+      background: var(--bg-primary);
+      color: var(--fg-primary);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
     }
 
-    h1 {
-      font-size: 24px;
-      margin-bottom: 24px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    h1 span { color: var(--text-muted); font-weight: 400; font-size: 14px; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--scrollbar-bg); }
+    ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
 
-    .tabs {
-      display: flex;
-      gap: 4px;
-      margin-bottom: 24px;
+    /* ===== Header ===== */
+    .header {
       border-bottom: 1px solid var(--border);
-      padding-bottom: 0;
+      background: var(--bg-secondary);
+      position: sticky;
+      top: 0;
+      z-index: 100;
     }
-    .tab {
-      padding: 8px 16px;
-      cursor: pointer;
-      border: none;
-      background: none;
-      color: var(--text-muted);
-      font-size: 14px;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
-    }
-    .tab.active { color: var(--text); border-bottom-color: var(--blue); }
-    .tab:hover { color: var(--text); }
-
-    .panel { display: none; }
-    .panel.active { display: block; }
-
-    /* Issues list */
-    .issue-header {
+    .header-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 40px;
+      height: 52px;
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
+      justify-content: space-between;
+      gap: 24px;
     }
+    .header-left { display: flex; align-items: center; gap: 24px; }
+
+    .logo {
+      font-family: var(--font-mono);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .logo:hover { color: var(--accent-hover); }
+    .logo:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+    .nav { display: flex; align-items: center; gap: 2px; }
+    .nav-link {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--fg-muted);
+      padding: 5px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: color 0.15s, background 0.15s;
+      background: none;
+      border: none;
+      font-family: var(--font-body);
+    }
+    .nav-link:hover { color: var(--fg-primary); background: var(--bg-hover); }
+    .nav-link.active { color: var(--fg-primary); background: var(--bg-tertiary); }
+    .nav-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 5px; }
+
+    /* ===== Page container ===== */
+    .page {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 32px 40px;
+    }
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .page-title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.3;
+    }
+    .page-subtitle {
+      font-size: 13px;
+      color: var(--fg-muted);
+      margin-top: 3px;
+    }
+
+    /* ===== Buttons ===== */
     .btn {
-      padding: 8px 16px;
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 500;
+      padding: 7px 14px;
       border: 1px solid var(--border);
       border-radius: 6px;
-      background: var(--accent);
-      color: var(--text);
       cursor: pointer;
+      background: var(--bg-tertiary);
+      color: var(--fg-primary);
+      transition: background 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .btn:hover { background: var(--bg-hover); }
+    .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .btn-sm { font-size: 12px; padding: 4px 10px; }
+    .btn-primary { background: #5b8def; color: #fff; border-color: #5b8def; }
+    .btn-primary:hover { background: #6e9af2; }
+    .btn-danger { color: var(--red); border-color: transparent; background: transparent; }
+    .btn-danger:hover { background: rgba(247,118,142,0.1); border-color: var(--red); }
+    .btn-ghost { border-color: transparent; background: transparent; color: var(--fg-muted); }
+    .btn-ghost:hover { background: var(--bg-hover); color: var(--fg-primary); border-color: var(--border); }
+
+    /* ===== Cards ===== */
+    .card {
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .card-body { padding: 16px 20px; }
+
+    /* ===== Issue rows ===== */
+    .issue-row {
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      margin-bottom: 6px;
+    }
+    .issue-row:hover { border-color: var(--accent); }
+    .issue-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .issue-row-left { min-width: 0; flex: 1; }
+    .issue-row-title {
       font-size: 13px;
-    }
-    .btn:hover { background: var(--accent-hover); }
-    .btn-sm { padding: 4px 10px; font-size: 12px; }
-    .btn-danger { border-color: var(--red); color: var(--red); }
-    .btn-danger:hover { background: rgba(248,113,113,0.15); }
-    .btn-primary { background: var(--blue); border-color: var(--blue); color: #000; }
-    .btn-primary:hover { opacity: 0.9; }
-
-    .issue-table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    .issue-table th {
-      text-align: left;
-      padding: 8px 12px;
-      font-size: 12px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      border-bottom: 1px solid var(--border);
-    }
-    .issue-table td {
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
-      font-size: 14px;
-    }
-    .issue-table tr:hover td { background: var(--bg-hover); }
-
-    .phase-badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-size: 11px;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-    }
-    .phase-setup { background: rgba(160,174,192,0.2); color: #a0aec0; }
-    .phase-refining { background: rgba(167,139,250,0.2); color: var(--purple); }
-    .phase-planning { background: rgba(251,191,36,0.2); color: var(--yellow); }
-    .phase-plan-review { background: rgba(96,165,250,0.2); color: var(--blue); }
-    .phase-executing { background: rgba(251,146,60,0.2); color: var(--orange); }
-    .phase-code-review { background: rgba(96,165,250,0.2); color: var(--blue); }
-    .phase-done { background: rgba(74,222,128,0.2); color: var(--green); }
-
-    .desc-cell {
-      max-width: 400px;
+      color: var(--accent);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .issue-row-meta {
+      font-size: 12px;
+      color: var(--fg-muted);
+      margin-top: 3px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .issue-row-right {
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
 
-    .actions { display: flex; gap: 4px; }
+    /* ===== Project sections ===== */
+    .project-section { margin-bottom: 28px; }
+    .project-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      gap: 12px;
+    }
+    .project-section-name {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--fg-muted);
+    }
+    .project-section-path {
+      font-size: 11px;
+      color: var(--fg-muted);
+      font-family: var(--font-mono);
+    }
 
-    /* Forms */
-    .form-group { margin-bottom: 16px; }
+    /* ===== Phase badge ===== */
+    .phase-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+    }
+    .phase-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+    .phase-setup       { background: var(--accent-subtle);           color: var(--fg-dimmed); }
+    .phase-refining    { background: rgba(163,113,247,0.15);         color: var(--purple); }
+    .phase-planning    { background: var(--yellow-bg);               color: var(--yellow); }
+    .phase-plan-review { background: var(--accent-bg);               color: var(--accent); }
+    .phase-executing   { background: rgba(255,158,100,0.15);         color: var(--orange); }
+    .phase-code-review { background: var(--accent-subtle);           color: var(--accent); }
+    .phase-done        { background: var(--badge-resolved-bg);       color: var(--green); }
+    .phase-approved    { background: rgba(255,158,100,0.15);         color: var(--orange); }
+    .phase-error       { background: rgba(247,118,142,0.15);         color: var(--red); }
+    .phase-error .phase-dot { background: var(--red); }
+
+    @keyframes phasePulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.4); }
+    }
+    .phase-badge.phase-refining .phase-dot,
+    .phase-badge.phase-planning .phase-dot,
+    .phase-badge.phase-executing .phase-dot {
+      animation: phasePulse 1.4s ease-in-out infinite;
+    }
+
+    /* ===== Issue detail ===== */
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 13px;
+      color: var(--fg-muted);
+      cursor: pointer;
+      margin-bottom: 20px;
+      padding: 3px 0;
+      background: none;
+      border: none;
+      font-family: var(--font-body);
+      transition: color 0.15s;
+    }
+    .back-btn:hover { color: var(--fg-primary); }
+    .back-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 260px;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 768px) {
+      .detail-grid { grid-template-columns: 1fr; }
+      .header-inner { padding: 0 20px; }
+      .page { padding: 20px; }
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--fg-muted);
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+      font-size: 12px;
+    }
+    .meta-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .meta-label { color: var(--fg-muted); flex-shrink: 0; }
+    .meta-value { color: var(--fg-secondary); text-align: right; font-family: var(--font-mono); word-break: break-all; }
+    .meta-value.plain { font-family: var(--font-body); }
+
+    .action-btn {
+      width: 100%;
+      justify-content: flex-start;
+      font-size: 13px;
+      padding: 9px 14px;
+    }
+    .actions-stack { display: flex; flex-direction: column; gap: 6px; }
+
+    /* ===== Phase stepper ===== */
+    .phase-stepper { display: flex; flex-direction: column; gap: 0; }
+    .phase-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 7px 0;
+      position: relative;
+    }
+    .phase-step:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      left: 8px;
+      top: 26px;
+      bottom: -4px;
+      width: 2px;
+      background: var(--border);
+    }
+    .phase-step.done::after  { background: var(--green); opacity: 0.35; }
+    .phase-step.current::after { background: var(--accent); opacity: 0.35; }
+    .step-dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      background: var(--bg-primary);
+      flex-shrink: 0;
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .phase-step.done .step-dot    { border-color: var(--green); background: rgba(158,206,106,0.12); }
+    .phase-step.current .step-dot { border-color: var(--accent); background: var(--accent-bg); }
+    .step-dot svg { width: 9px; height: 9px; }
+    .step-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--fg-muted);
+      padding-top: 1px;
+    }
+    .phase-step.done .step-label    { color: var(--fg-secondary); }
+    .phase-step.current .step-label { color: var(--fg-primary); font-weight: 600; }
+
+    /* ===== Forms ===== */
+    .form-group { margin-bottom: 12px; }
     .form-group label {
       display: block;
-      font-size: 13px;
-      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--fg-muted);
       margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
-    .form-group input, .form-group textarea, .form-group select {
+    .form-group input,
+    .form-group textarea,
+    .form-group select {
       width: 100%;
-      padding: 8px 12px;
-      background: var(--bg);
+      padding: 7px 10px;
+      background: var(--bg-primary);
       border: 1px solid var(--border);
       border-radius: 6px;
-      color: var(--text);
-      font-size: 14px;
-      font-family: inherit;
+      color: var(--fg-primary);
+      font-size: 13px;
+      font-family: var(--font-body);
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    .form-group textarea { min-height: 100px; resize: vertical; }
+    .form-group input:focus,
+    .form-group textarea:focus,
+    .form-group select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-subtle);
+    }
+    .form-group textarea { min-height: 80px; resize: vertical; line-height: 1.5; }
+    .form-group input::placeholder,
+    .form-group textarea::placeholder { color: var(--fg-muted); }
 
-    /* Modal / overlay */
+    /* ===== Settings ===== */
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 768px) { .settings-grid { grid-template-columns: 1fr; } }
+    .settings-card-title { font-size: 14px; font-weight: 600; margin-bottom: 3px; }
+    .settings-card-desc { font-size: 12px; color: var(--fg-muted); font-family: var(--font-mono); margin-bottom: 16px; }
+
+    /* ===== Markdown rendered content ===== */
+    .md-view {
+      font-size: 13.5px;
+      line-height: 1.7;
+      color: var(--fg-primary);
+    }
+    .md-view h1,.md-view h2,.md-view h3,.md-view h4 {
+      font-weight: 600;
+      margin: 1em 0 0.4em;
+      line-height: 1.3;
+      color: var(--fg-primary);
+    }
+    .md-view h1 { font-size: 1.25em; }
+    .md-view h2 { font-size: 1.1em; }
+    .md-view h3 { font-size: 1em; }
+    .md-view p { margin: 0.5em 0; }
+    .md-view ul { list-style-type: disc; padding-left: 1.5em; margin: 0.4em 0; }
+    .md-view ol { list-style-type: decimal; padding-left: 1.5em; margin: 0.4em 0; }
+    .md-view li { margin: 0.25em 0; display: list-item; }
+    .md-view li > ul, .md-view li > ol { margin: 0.1em 0; }
+    .md-view strong { font-weight: 600; }
+    .md-view em { font-style: italic; }
+    .md-view hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
+    .md-view code { font-family: var(--font-mono); font-size: 12px; background: var(--bg-tertiary); padding: 2px 5px; border-radius: 3px; }
+    .md-view pre { background: var(--bg-tertiary); border-radius: 6px; padding: 14px; overflow-x: auto; margin: 0.7em 0; }
+    .md-view pre code { background: none; padding: 0; font-size: 12px; }
+    .md-view blockquote { border-left: 3px solid var(--border); padding-left: 14px; color: var(--fg-muted); margin: 0.5em 0; font-style: italic; }
+    .md-view a { color: var(--accent); text-decoration: none; }
+    .md-view a:hover { text-decoration: underline; }
+    .md-view table { border-collapse: collapse; width: 100%; margin: 0.6em 0; font-size: 13px; }
+    .md-view th, .md-view td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+    .md-view th { background: var(--bg-tertiary); font-weight: 600; }
+    .md-view :first-child { margin-top: 0; }
+    .md-view :last-child { margin-bottom: 0; }
+
+    .view-edit-toggle {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 10px;
+    }
+    .view-edit-toggle button {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--fg-muted);
+      cursor: pointer;
+    }
+    .view-edit-toggle button.active {
+      background: var(--bg-tertiary);
+      color: var(--fg-primary);
+      border-color: var(--border);
+    }
+
+    /* ===== Danger zone ===== */
+    .danger-zone {
+      border: 1px solid rgba(247,118,142,0.25);
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-top: 20px;
+    }
+    .danger-zone-title { font-size: 12px; font-weight: 600; color: var(--red); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .danger-zone-desc { font-size: 13px; color: var(--fg-muted); margin-bottom: 12px; }
+
+    /* ===== Modal ===== */
     .modal-backdrop {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.6);
-      z-index: 100;
+      background: rgba(0,0,0,0.5);
+      z-index: 200;
       justify-content: center;
       align-items: center;
     }
     .modal-backdrop.open { display: flex; }
     .modal {
-      background: var(--bg-card);
+      background: var(--bg-secondary);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 24px;
-      width: 500px;
+      border-radius: 8px;
+      padding: 20px 24px;
+      width: 540px;
       max-width: 90vw;
       max-height: 90vh;
       overflow-y: auto;
+      box-shadow: var(--shadow);
     }
-    .modal h2 { font-size: 18px; margin-bottom: 16px; }
-    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-
-    /* Settings */
-    .settings-section { margin-bottom: 32px; }
-    .settings-section h3 {
-      font-size: 16px;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .empty-state {
-      text-align: center;
-      padding: 48px;
-      color: var(--text-muted);
-    }
-    .empty-state p { margin-bottom: 16px; }
-
-    .time-ago { color: var(--text-muted); font-size: 13px; }
-
-    /* Project groups */
-    .project-group { margin-bottom: 24px; }
-    .project-header {
+    .modal h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+    .modal-actions {
       display: flex;
-      align-items: center;
+      justify-content: flex-end;
       gap: 8px;
-      padding: 8px 0;
-      cursor: pointer;
-      user-select: none;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
     }
-    .project-header:hover { opacity: 0.8; }
-    .project-name {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text);
+
+    /* ===== Misc ===== */
+    .empty-state { text-align: center; padding: 56px 24px; color: var(--fg-muted); }
+    .empty-state p { margin-bottom: 16px; font-size: 14px; }
+    code {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: var(--bg-tertiary);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--fg-secondary);
     }
-    .project-path {
-      font-size: 12px;
-      color: var(--text-muted);
-      font-family: monospace;
+    .divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+    /* ===== Toast ===== */
+    .mini-toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(12px);
+      background: var(--bg-tertiary);
+      color: var(--fg-primary);
+      border: 1px solid var(--border);
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      opacity: 0;
+      transition: opacity 0.2s, transform 0.2s;
+      z-index: 1000;
+      pointer-events: none;
+      white-space: nowrap;
     }
-    .project-count {
-      font-size: 12px;
-      color: var(--text-muted);
-      background: var(--accent);
-      padding: 1px 7px;
-      border-radius: 10px;
-    }
-    .project-chevron {
-      color: var(--text-muted);
-      transition: transform 0.15s;
-      font-size: 12px;
-    }
-    .project-group.collapsed .project-chevron { transform: rotate(-90deg); }
-    .project-group.collapsed .project-body { display: none; }
+    .mini-toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .mini-toast.error { border-color: var(--red); color: var(--red); }
   </style>
 </head>
 <body>
-  <h1>crit <span>dashboard</span></h1>
 
-  <div class="tabs">
-    <button class="tab active" data-panel="issues">Issues</button>
-    <button class="tab" data-panel="settings">Settings</button>
-  </div>
-
-  <div id="issues-panel" class="panel active">
-    <div class="issue-header">
-      <div></div>
-      <button class="btn btn-primary" onclick="showCreateModal()">New Issue</button>
+<div class="header">
+  <div class="header-inner">
+    <div class="header-left">
+      <button class="logo" id="logoBtn">crit</button>
+      <nav class="nav" role="navigation" aria-label="Main">
+        <button class="nav-link active" data-route="/issues" id="navIssues">Issues</button>
+        <button class="nav-link" data-route="/settings" id="navSettings">Settings</button>
+      </nav>
     </div>
-    <div id="issues-list"></div>
-  </div>
-
-  <div id="settings-panel" class="panel">
-    <div class="settings-section">
-      <h3>Global Settings</h3>
-      <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">~/.crit.config.json</p>
-      <div id="global-settings-form"></div>
-      <button class="btn btn-primary" onclick="saveGlobalSettings()">Save Global Settings</button>
-    </div>
-    <div class="settings-section">
-      <h3>Project Settings</h3>
-      <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">Select a project to edit its .crit.config.json</p>
-      <div class="form-group">
-        <label>Project</label>
-        <select id="project-select" onchange="loadProjectSettings()">
-          <option value="">Select a project...</option>
-        </select>
-      </div>
-      <div id="project-settings-form"></div>
-      <button class="btn btn-primary" onclick="saveProjectSettings()" id="save-project-btn" style="display:none">Save Project Settings</button>
+    <div class="theme-pill" role="group" aria-label="Theme">
+      <div class="theme-pill-indicator"></div>
+      <button class="theme-pill-btn" data-for-theme="system" title="System theme" aria-label="System theme">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v5.5A2.25 2.25 0 0 1 11.75 12h-1.312c.1.128.21.248.328.36a.75.75 0 0 1 .234.545v.345a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-.345a.75.75 0 0 1 .234-.545c.118-.111.228-.232.328-.36H4.25A2.25 2.25 0 0 1 2 9.75v-5.5Zm2.25-.75a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h7.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75h-7.5Z" clip-rule="evenodd"/></svg>
+      </button>
+      <button class="theme-pill-btn" data-for-theme="light" title="Light theme" aria-label="Light theme">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z"/></svg>
+      </button>
+      <button class="theme-pill-btn" data-for-theme="dark" title="Dark theme" aria-label="Dark theme">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M9.598 1.591a.749.749 0 0 1 .785-.175 7.001 7.001 0 1 1-8.967 8.967.75.75 0 0 1 .961-.96 5.5 5.5 0 0 0 7.046-7.046.75.75 0 0 1 .175-.786Zm1.616 1.945a7 7 0 0 1-7.678 7.678 5.499 5.499 0 1 0 7.678-7.678Z"/></svg>
+      </button>
     </div>
   </div>
+</div>
 
-  <!-- Create Issue Modal -->
-  <div class="modal-backdrop" id="create-modal">
-    <div class="modal">
-      <h2>New Issue</h2>
-      <div class="form-group">
-        <label>Description *</label>
-        <textarea id="new-description" placeholder="Describe the issue..."></textarea>
-      </div>
-      <div class="form-group">
-        <label>Repository Root *</label>
-        <input type="text" id="new-repo-root" placeholder="/path/to/repo">
-      </div>
-      <div class="form-group">
-        <label>Branch Name (optional)</label>
-        <input type="text" id="new-branch" placeholder="Auto-generated from description">
-      </div>
-      <div class="form-group">
-        <label>Base Branch (optional)</label>
-        <input type="text" id="new-base" placeholder="Auto-detected from repo">
-      </div>
-      <div class="form-group">
-        <label>On Done</label>
-        <select id="new-on-done">
-          <option value="pr">Create PR</option>
-          <option value="merge">Merge</option>
-          <option value="none">None (print instructions)</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Planning Prompt (optional)</label>
-        <textarea id="new-plan-prompt" placeholder="Additional instructions for planning phase..." style="min-height:60px"></textarea>
-      </div>
-      <div class="form-group">
-        <label>Execution Prompt (optional)</label>
-        <textarea id="new-exec-prompt" placeholder="Additional instructions for execution phase..." style="min-height:60px"></textarea>
-      </div>
-      <div class="modal-actions">
-        <button class="btn" onclick="hideCreateModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="createIssue()">Create Issue</button>
-      </div>
+<div id="app"></div>
+
+<!-- Create Issue Modal -->
+<div class="modal-backdrop" id="create-modal" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
+  <div class="modal">
+    <h2 id="create-modal-title">New Issue</h2>
+    <div class="form-group">
+      <label>Title <span style="color:var(--red)">*</span></label>
+      <input type="text" id="new-title" placeholder="Short title for the issue...">
     </div>
-  </div>
-
-  <!-- Edit Issue Modal -->
-  <div class="modal-backdrop" id="edit-modal">
-    <div class="modal">
-      <h2>Edit Issue</h2>
-      <div id="edit-form"></div>
-      <div class="modal-actions">
-        <button class="btn" onclick="hideEditModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="saveIssueEdit()">Save</button>
-      </div>
-    </div>
-  </div>
-
-<script>
-let issues = [];
-let editingSlug = null;
-
-// Tab switching
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    tab.classList.add('active');
-    document.getElementById(tab.dataset.panel + '-panel').classList.add('active');
-    if (tab.dataset.panel === 'settings') loadGlobalSettings();
-  });
-});
-
-// Load issues
-async function loadIssues() {
-  try {
-    const resp = await fetch('/api/issues');
-    issues = await resp.json() || [];
-    renderIssues();
-  } catch (e) {
-    document.getElementById('issues-list').innerHTML =
-      '<div class="empty-state"><p>Error loading issues</p></div>';
-  }
-}
-
-function renderIssues() {
-  const el = document.getElementById('issues-list');
-  if (!issues.length) {
-    el.innerHTML = `<div class="empty-state">
-      <p>No issues yet</p>
-      <button class="btn btn-primary" onclick="showCreateModal()">Create your first issue</button>
-    </div>`;
-    return;
-  }
-
-  // Group issues by repo_root
-  const grouped = {};
-  for (const issue of issues) {
-    const key = issue.repo_root || '(unknown)';
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(issue);
-  }
-
-  // Sort projects: most recently updated first
-  const projects = Object.keys(grouped).sort((a, b) => {
-    const latestA = grouped[a][0]?.updated_at || '';
-    const latestB = grouped[b][0]?.updated_at || '';
-    return latestB.localeCompare(latestA);
-  });
-
-  let html = '';
-  for (const root of projects) {
-    const projectIssues = grouped[root];
-    const name = root.split('/').pop() || root;
-    const collapsed = collapsedProjects.has(root) ? ' collapsed' : '';
-    const activeCount = projectIssues.filter(i => i.phase !== 'done').length;
-    const doneCount = projectIssues.length - activeCount;
-
-    html += `<div class="project-group${collapsed}" data-project="${esc(root)}">
-      <div class="project-header" onclick="toggleProject('${esc(root)}')">
-        <span class="project-chevron">&#9660;</span>
-        <span class="project-name">${esc(name)}</span>
-        <span class="project-count">${activeCount} active${doneCount ? ', ' + doneCount + ' done' : ''}</span>
-        <span class="project-path">${esc(root)}</span>
-      </div>
-      <div class="project-body">
-        <table class="issue-table">
-          <thead><tr>
-            <th>Description</th>
-            <th>Branch</th>
-            <th>Phase</th>
-            <th>Updated</th>
-            <th>Actions</th>
-          </tr></thead>
-          <tbody>${projectIssues.map(renderIssueRow).join('')}</tbody>
-        </table>
-      </div>
-    </div>`;
-  }
-  el.innerHTML = html;
-
-  // Populate project select in settings
-  const select = document.getElementById('project-select');
-  select.innerHTML = '<option value="">Select a project...</option>' +
-    projects.map(r => `<option value="${r}">${r}</option>`).join('');
-}
-
-// Track collapsed project groups (persisted to localStorage)
-let collapsedProjects = new Set(
-  JSON.parse(localStorage.getItem('crit-dashboard-collapsed') || '[]')
-);
-
-function toggleProject(root) {
-  if (collapsedProjects.has(root)) {
-    collapsedProjects.delete(root);
-  } else {
-    collapsedProjects.add(root);
-  }
-  localStorage.setItem('crit-dashboard-collapsed', JSON.stringify([...collapsedProjects]));
-  renderIssues();
-}
-
-function renderIssueRow(issue) {
-  const phaseClass = 'phase-' + issue.phase;
-  const desc = issue.description.split('\n')[0].slice(0, 60);
-  const actions = getPhaseActions(issue);
-
-  return `<tr>
-    <td class="desc-cell" title="${esc(issue.description)}">${esc(desc)}</td>
-    <td><code style="font-size:12px">${esc(issue.branch)}</code></td>
-    <td><span class="phase-badge ${phaseClass}">${issue.phase}</span></td>
-    <td class="time-ago">${timeAgo(issue.updated_at)}</td>
-    <td class="actions">${actions}</td>
-  </tr>`;
-}
-
-function getPhaseActions(issue) {
-  let btns = '';
-  switch (issue.phase) {
-    case 'setup':
-      btns += `<button class="btn btn-sm" onclick="startPhase('${issue.slug}','start')">Plan</button>`;
-      btns += `<button class="btn btn-sm" onclick="startPhase('${issue.slug}','refine')">Refine</button>`;
-      break;
-    case 'plan-review':
-      if (issue.daemon_port) btns += `<button class="btn btn-sm" onclick="openDaemon(${issue.daemon_port})">Open</button>`;
-      break;
-    case 'executing':
-      btns += `<button class="btn btn-sm" onclick="startPhase('${issue.slug}','start')">Execute</button>`;
-      break;
-    case 'code-review':
-      if (issue.daemon_port) btns += `<button class="btn btn-sm" onclick="openDaemon(${issue.daemon_port})">Open</button>`;
-      break;
-  }
-  btns += `<button class="btn btn-sm" onclick="editIssue('${issue.slug}')">Edit</button>`;
-  btns += `<button class="btn btn-sm btn-danger" onclick="deleteIssue('${issue.slug}')">Delete</button>`;
-  return btns;
-}
-
-function openDaemon(port) {
-  window.open('http://localhost:' + port, '_blank');
-}
-
-async function startPhase(slug, action) {
-  await fetch(`/api/issues/${slug}/${action}`, { method: 'POST' });
-  setTimeout(loadIssues, 1000);
-}
-
-async function deleteIssue(slug) {
-  if (!confirm('Delete this issue? This will remove the worktree and all state.')) return;
-  await fetch(`/api/issues/${slug}`, { method: 'DELETE' });
-  loadIssues();
-}
-
-// Create modal
-function showCreateModal() {
-  document.getElementById('create-modal').classList.add('open');
-}
-function hideCreateModal() {
-  document.getElementById('create-modal').classList.remove('open');
-}
-
-async function createIssue() {
-  const body = {
-    description: document.getElementById('new-description').value,
-    repo_root: document.getElementById('new-repo-root').value,
-    branch: document.getElementById('new-branch').value,
-    base: document.getElementById('new-base').value,
-    on_done: document.getElementById('new-on-done').value,
-    plan_prompt: document.getElementById('new-plan-prompt').value,
-    exec_prompt: document.getElementById('new-exec-prompt').value,
-  };
-  const resp = await fetch('/api/issues', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (resp.ok) {
-    hideCreateModal();
-    loadIssues();
-  } else {
-    alert('Error: ' + await resp.text());
-  }
-}
-
-// Edit modal
-function editIssue(slug) {
-  editingSlug = slug;
-  const issue = issues.find(i => i.slug === slug);
-  if (!issue) return;
-
-  document.getElementById('edit-form').innerHTML = `
     <div class="form-group">
       <label>Description</label>
-      <textarea id="edit-description">${esc(issue.description)}</textarea>
+      <textarea id="new-description" placeholder="Optional — agent refinement will fill this in..." style="min-height:80px"></textarea>
     </div>
     <div class="form-group">
-      <label>Planning Prompt</label>
-      <textarea id="edit-plan-prompt" style="min-height:60px">${esc(issue.plan_prompt || '')}</textarea>
+      <label>Repository Root <span style="color:var(--red)">*</span></label>
+      <input type="text" id="new-repo-root" placeholder="/path/to/repo">
     </div>
     <div class="form-group">
-      <label>Execution Prompt</label>
-      <textarea id="edit-exec-prompt" style="min-height:60px">${esc(issue.exec_prompt || '')}</textarea>
+      <label>Branch Name</label>
+      <input type="text" id="new-branch" placeholder="Auto-generated from title">
+    </div>
+    <div class="form-group">
+      <label>Base Branch</label>
+      <input type="text" id="new-base" placeholder="Auto-detected from repo">
     </div>
     <div class="form-group">
       <label>On Done</label>
-      <select id="edit-on-done">
-        <option value="pr" ${issue.on_done==='pr'?'selected':''}>Create PR</option>
-        <option value="merge" ${issue.on_done==='merge'?'selected':''}>Merge</option>
-        <option value="none" ${issue.on_done==='none'?'selected':''}>None</option>
+      <select id="new-on-done">
+        <option value="pr">Create PR</option>
+        <option value="merge">Merge</option>
+        <option value="none">None (print instructions)</option>
       </select>
     </div>
-  `;
-  document.getElementById('edit-modal').classList.add('open');
+    <div class="form-group">
+      <label>Planning Prompt</label>
+      <textarea id="new-plan-prompt" placeholder="Additional instructions for the planning phase..." style="min-height:56px"></textarea>
+    </div>
+    <div class="form-group">
+      <label>Execution Prompt</label>
+      <textarea id="new-exec-prompt" placeholder="Additional instructions for the execution phase..." style="min-height:56px"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="cancelCreateBtn">Cancel</button>
+      <button class="btn btn-primary" id="submitCreateBtn">Create Issue</button>
+    </div>
+  </div>
+</div>
+
+<div class="mini-toast" id="toast" aria-live="polite"></div>
+
+<script>
+// ===== State =====
+let issues = [];
+let currentRoute = '/issues';
+
+// ===== Cookie helpers =====
+function setCookie(name, value) {
+  document.cookie = name + '=' + encodeURIComponent(value) + '; path=/; max-age=31536000; SameSite=Strict';
 }
-function hideEditModal() {
-  document.getElementById('edit-modal').classList.remove('open');
+function getCookie(name) {
+  const m = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
-async function saveIssueEdit() {
-  const body = {
-    description: document.getElementById('edit-description').value,
-    plan_prompt: document.getElementById('edit-plan-prompt').value,
-    exec_prompt: document.getElementById('edit-exec-prompt').value,
-    on_done: document.getElementById('edit-on-done').value,
-  };
-  await fetch(`/api/issues/${editingSlug}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  hideEditModal();
-  loadIssues();
+// ===== Theme =====
+function applyTheme(choice) {
+  setCookie('crit-theme', choice);
+  if (choice === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  else if (choice === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  const ind = document.querySelector('.theme-pill-indicator');
+  if (ind) ind.style.left = choice === 'system' ? '0%' : choice === 'light' ? '33.333%' : '66.666%';
+}
+document.querySelectorAll('.theme-pill-btn').forEach(btn =>
+  btn.addEventListener('click', () => applyTheme(btn.getAttribute('data-for-theme')))
+);
+applyTheme(getCookie('crit-theme') || 'system');
+
+// ===== Toast =====
+let _toastTimer;
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'mini-toast' + (type === 'error' ? ' error' : '');
+  clearTimeout(_toastTimer);
+  requestAnimationFrame(() => t.classList.add('visible'));
+  _toastTimer = setTimeout(() => t.classList.remove('visible'), 2500);
 }
 
-// Settings
-async function loadGlobalSettings() {
-  const resp = await fetch('/api/settings/global');
-  const cfg = await resp.json();
-  renderSettingsForm('global-settings-form', cfg);
+// ===== Router =====
+function navigate(route) {
+  if (window._activeLogStream) {
+    window._activeLogStream.close();
+    window._activeLogStream = null;
+  }
+  currentRoute = route;
+  history.pushState(null, '', location.pathname + '#' + route);
+  render();
+}
+function parseRoute() {
+  return location.hash.replace(/^#/, '') || '/issues';
+}
+window.addEventListener('popstate', () => { currentRoute = parseRoute(); render(); });
+
+function updateNav() {
+  const onSettings = currentRoute === '/settings';
+  document.getElementById('navIssues').classList.toggle('active', !onSettings);
+  document.getElementById('navSettings').classList.toggle('active', onSettings);
 }
 
-async function loadProjectSettings() {
-  const project = document.getElementById('project-select').value;
-  if (!project) {
-    document.getElementById('project-settings-form').innerHTML = '';
-    document.getElementById('save-project-btn').style.display = 'none';
+document.querySelectorAll('[data-route]').forEach(el =>
+  el.addEventListener('click', () => navigate(el.dataset.route))
+);
+document.getElementById('logoBtn').addEventListener('click', () => navigate('/issues'));
+
+// ===== Render =====
+function render() {
+  updateNav();
+  const app = document.getElementById('app');
+  if (currentRoute === '/settings') {
+    renderSettingsPage(app);
+  } else if (currentRoute.startsWith('/issues/')) {
+    renderIssuePage(app, decodeURIComponent(currentRoute.slice('/issues/'.length)));
+  } else {
+    renderIssueList(app);
+  }
+}
+
+// ===== Issue list =====
+function renderIssueList(app) {
+  if (!issues.length) {
+    app.innerHTML = `<div class="page">
+      <div class="page-header">
+        <div><div class="page-title">Issues</div></div>
+        <button class="btn btn-primary" id="newIssueBtn">New Issue</button>
+      </div>
+      <div class="empty-state">
+        <p>No issues yet.</p>
+        <button class="btn btn-primary" id="emptyBtn">Create your first issue</button>
+      </div>
+    </div>`;
+    document.getElementById('newIssueBtn').addEventListener('click', showCreateModal);
+    document.getElementById('emptyBtn').addEventListener('click', showCreateModal);
     return;
   }
-  const resp = await fetch('/api/settings/project?project=' + encodeURIComponent(project));
-  const cfg = await resp.json();
-  renderSettingsForm('project-settings-form', cfg);
-  document.getElementById('save-project-btn').style.display = '';
+
+  const grouped = {};
+  for (const issue of issues) {
+    const k = issue.repo_root || '(unknown)';
+    if (!grouped[k]) grouped[k] = [];
+    grouped[k].push(issue);
+  }
+  const projects = Object.keys(grouped).sort((a, b) => {
+    const la = grouped[a][0]?.updated_at || '';
+    const lb = grouped[b][0]?.updated_at || '';
+    return lb.localeCompare(la);
+  });
+
+  let html = `<div class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Issues</div>
+        <div class="page-subtitle">${issues.length} issue${issues.length !== 1 ? 's' : ''} · ${projects.length} project${projects.length !== 1 ? 's' : ''}</div>
+      </div>
+      <button class="btn btn-primary" id="newIssueBtn">New Issue</button>
+    </div>`;
+
+  for (const root of projects) {
+    const projectIssues = grouped[root];
+    const name = root.split('/').pop() || root;
+    const active = projectIssues.filter(i => i.phase !== 'done').length;
+    const done = projectIssues.length - active;
+
+    html += `<div class="project-section">
+      <div class="project-section-header">
+        <span class="project-section-name">${esc(name)} · ${active} active${done ? ', ' + done + ' done' : ''}</span>
+        <span class="project-section-path">${esc(root)}</span>
+      </div>`;
+
+    for (const issue of projectIssues) {
+      const title = issue.title || issue.description.split('\n')[0].slice(0, 80);
+      html += `<div class="issue-row" tabindex="0" data-slug="${esc(issue.slug)}">
+        <div class="issue-row-left">
+          <div class="issue-row-title">${esc(title)}${issue.auto_mode ? '<span style="font-size:10px;font-weight:600;background:rgba(122,162,247,0.15);color:var(--accent);padding:1px 6px;border-radius:3px;margin-left:6px;vertical-align:middle">AUTO</span>' : ''}</div>
+          <div class="issue-row-meta">
+            <code>${esc(issue.branch)}</code>
+            <span>${timeAgo(issue.updated_at)}</span>
+          </div>
+        </div>
+        <div class="issue-row-right">
+          <span class="phase-badge phase-${esc(issue.phase)}">
+            <span class="phase-dot"></span>${esc(PHASE_LABEL[issue.phase] || issue.phase)}
+          </span>
+        </div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  html += `</div>`;
+  app.innerHTML = html;
+
+  document.getElementById('newIssueBtn').addEventListener('click', showCreateModal);
+  app.querySelectorAll('[data-slug]').forEach(row => {
+    row.addEventListener('click', () => navigate('/issues/' + encodeURIComponent(row.dataset.slug)));
+    row.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/issues/' + encodeURIComponent(row.dataset.slug)); }
+    });
+  });
+}
+
+// ===== Issue detail =====
+const PHASES_ORDERED = ['setup', 'planning', 'plan-review', 'approved', 'executing', 'code-review', 'done'];
+const PHASE_LABEL = { setup:'Setup', refining:'Refining', planning:'Planning', 'plan-review':'Plan Review', approved:'Approved', executing:'Executing', 'code-review':'Code Review', done:'Done', error:'Error' };
+const CHECK_SVG = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l3.5 3.5L13 5"/></svg>`;
+
+function renderIssuePage(app, slug) {
+  const issue = issues.find(i => i.slug === slug);
+  if (!issue) {
+    app.innerHTML = `<div class="page"><button class="back-btn" id="backBtn">← Issues</button><div class="empty-state"><p>Issue not found.</p></div></div>`;
+    document.getElementById('backBtn').addEventListener('click', () => navigate('/issues'));
+    return;
+  }
+
+  const curIdx = PHASES_ORDERED.indexOf(issue.phase);
+  const stepperHtml = PHASES_ORDERED.map((p, i) => {
+    const cls = i < curIdx ? 'done' : i === curIdx ? 'current' : '';
+    return `<div class="phase-step ${cls}">
+      <div class="step-dot">${cls === 'done' ? CHECK_SVG : ''}</div>
+      <div class="step-label">${esc(PHASE_LABEL[p] || p)}</div>
+    </div>`;
+  }).join('');
+
+  const actionsHtml = buildDetailActions(issue);
+
+  app.innerHTML = `<div class="page">
+    <button class="back-btn" id="backBtn">← Issues</button>
+
+    <div class="detail-grid">
+      <div>
+        <div class="page-header" style="margin-bottom:16px">
+          <div style="min-width:0;flex:1">
+            <div class="page-title" style="font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(issue.title || issue.description.split('\n')[0])}</div>
+            <div class="page-subtitle"><code style="font-size:12px">${esc(issue.branch)}</code></div>
+          </div>
+          <span class="phase-badge phase-${esc(issue.phase)}" style="margin-top:4px">
+            <span class="phase-dot"></span>${esc(PHASE_LABEL[issue.phase] || issue.phase)}
+          </span>
+        </div>
+        ${issue.phase === 'error' && issue.error_msg
+          ? `<div style="background:rgba(247,118,142,0.1);border:1px solid rgba(247,118,142,0.3);border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--red)">
+              <strong>Error:</strong> ${esc(issue.error_msg)}
+              <button class="btn" data-action="retry" data-slug="${esc(issue.slug)}" style="margin-left:8px;font-size:11px;padding:2px 8px">Retry</button>
+            </div>`
+          : ''}
+
+        <div class="card" style="margin-bottom:12px" id="title-desc-card">
+          <div class="card-body">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+              <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--fg-muted)">Title &amp; Description</span>
+              <div class="view-edit-toggle" style="margin-bottom:0">
+                <button id="viewModeBtn" class="active">View</button>
+                <button id="editModeBtn">Edit</button>
+              </div>
+            </div>
+            <!-- View mode -->
+            <div id="view-mode">
+              <div style="font-size:16px;font-weight:600;margin-bottom:10px;line-height:1.3">${esc(issue.title || (issue.description || '').split('\n')[0])}</div>
+              ${issue.description
+                ? `<div class="md-view" id="desc-rendered"></div>`
+                : `<div style="font-size:13px;color:var(--fg-muted);font-style:italic">No description — use Refine with Agent to generate one.</div>`
+              }
+            </div>
+            <!-- Edit mode -->
+            <div id="edit-mode" style="display:none">
+              <div class="form-group" style="margin-bottom:10px">
+                <label style="font-size:12px;color:var(--fg-muted);margin-bottom:4px;display:block">Title</label>
+                <input type="text" id="edit-title" value="${esc(issue.title)}">
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label style="font-size:12px;color:var(--fg-muted);margin-bottom:4px;display:block">Description <span style="font-weight:400">(markdown)</span></label>
+                <textarea id="edit-description" placeholder="Filled by agent refinement..." style="min-height:120px;font-family:var(--font-mono);font-size:12px">${esc(issue.description || '')}</textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        ${['refining', 'planning', 'executing'].includes(issue.phase)
+          ? `<div class="card" style="margin-bottom:12px" id="agent-log-card">
+              <div class="card-body">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+                  <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--fg-muted)">Agent Output</span>
+                  <span style="font-size:11px;color:var(--accent);display:flex;align-items:center;gap:5px">
+                    <span style="width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;animation:phasePulse 1.4s ease-in-out infinite"></span>
+                    Live
+                  </span>
+                </div>
+                <pre id="agent-log-output" style="font-family:var(--font-mono);font-size:11px;line-height:1.6;color:var(--fg-secondary);background:var(--bg-tertiary);border-radius:6px;padding:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
+              </div>
+            </div>`
+          : ''}
+
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-body">
+            <div class="section-title">Prompts</div>
+            <div class="form-group">
+              <label>Planning Prompt</label>
+              <textarea id="edit-plan-prompt" style="min-height:56px" placeholder="Additional instructions for the planning phase...">${esc(issue.plan_prompt || '')}</textarea>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label>Execution Prompt</label>
+              <textarea id="edit-exec-prompt" style="min-height:56px" placeholder="Additional instructions for the execution phase...">${esc(issue.exec_prompt || '')}</textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body">
+            <div class="section-title">On Done</div>
+            <div class="form-group" style="margin-bottom:0">
+              <select id="edit-on-done">
+                <option value="pr" ${issue.on_done==='pr'?'selected':''}>Create PR</option>
+                <option value="merge" ${issue.on_done==='merge'?'selected':''}>Merge</option>
+                <option value="none" ${issue.on_done==='none'?'selected':''}>None (print instructions)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" id="saveBtn">Save Changes</button>
+
+        <div class="danger-zone">
+          <div class="danger-zone-title">Danger Zone</div>
+          <div class="danger-zone-desc">Permanently delete this issue, its worktree, and all state.</div>
+          <button class="btn btn-danger" id="deleteBtn">Delete Issue</button>
+        </div>
+      </div>
+
+      <div>
+        ${actionsHtml ? `<div class="card" style="margin-bottom:12px">
+          <div class="card-body">
+            <div class="section-title">Actions</div>
+            <div class="actions-stack">${actionsHtml}</div>
+          </div>
+        </div>` : ''}
+
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-body">
+            <div class="section-title">Details</div>
+            <div class="meta-row"><span class="meta-label">Repo</span><span class="meta-value">${esc(issue.repo_root || '—')}</span></div>
+            <div class="meta-row"><span class="meta-label">Branch</span><span class="meta-value">${esc(issue.branch || '—')}</span></div>
+            <div class="meta-row"><span class="meta-label">Base</span><span class="meta-value">${esc(issue.base || '—')}</span></div>
+            <div class="meta-row"><span class="meta-label">Created</span><span class="meta-value plain">${timeAgo(issue.created_at)}</span></div>
+            <div class="meta-row"><span class="meta-label">Updated</span><span class="meta-value plain">${timeAgo(issue.updated_at)}</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-body">
+            <div class="section-title">Progress</div>
+            <div class="phase-stepper">${stepperHtml}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  document.getElementById('backBtn').addEventListener('click', () => navigate('/issues'));
+
+  // Render markdown description in view mode
+  const mdEl = document.getElementById('desc-rendered');
+  if (mdEl && issue.description) {
+    const md = window.markdownit ? window.markdownit({ html: false, linkify: true, typographer: true }) : null;
+    mdEl.innerHTML = md ? md.render(issue.description) : esc(issue.description).replace(/\n/g, '<br>');
+  }
+
+  // View/edit toggle
+  document.getElementById('viewModeBtn').addEventListener('click', () => {
+    document.getElementById('view-mode').style.display = '';
+    document.getElementById('edit-mode').style.display = 'none';
+    document.getElementById('viewModeBtn').classList.add('active');
+    document.getElementById('editModeBtn').classList.remove('active');
+  });
+  document.getElementById('editModeBtn').addEventListener('click', () => {
+    document.getElementById('view-mode').style.display = 'none';
+    document.getElementById('edit-mode').style.display = '';
+    document.getElementById('viewModeBtn').classList.remove('active');
+    document.getElementById('editModeBtn').classList.add('active');
+    document.getElementById('edit-title').focus();
+  });
+
+  document.getElementById('saveBtn').addEventListener('click', async () => {
+    const resp = await fetch(`/api/issues/${issue.slug}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title:       document.getElementById('edit-title').value,
+        description: document.getElementById('edit-description').value,
+        plan_prompt: document.getElementById('edit-plan-prompt').value,
+        exec_prompt: document.getElementById('edit-exec-prompt').value,
+        on_done:     document.getElementById('edit-on-done').value,
+      }),
+    });
+    if (!resp.ok) { showToast('Failed to save', 'error'); return; }
+    await loadIssues();
+    render();
+    showToast('Changes saved');
+  });
+
+  document.getElementById('deleteBtn').addEventListener('click', async () => {
+    if (!confirm('Delete this issue? This will remove the worktree and all state.')) return;
+    const resp = await fetch(`/api/issues/${issue.slug}`, { method: 'DELETE' });
+    if (!resp.ok) { showToast('Failed to delete', 'error'); return; }
+    await loadIssues();
+    navigate('/issues');
+  });
+
+  app.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      let { action, slug: s, port } = btn.dataset;
+      if (action === 'open') { window.open('http://localhost:' + port, '_blank'); return; }
+      if (action === 'retry') action = 'start';
+      const resp = await fetch(`/api/issues/${s}/${action}`, { method: 'POST' });
+      if (!resp.ok) { showToast('Failed: ' + action, 'error'); return; }
+      await loadIssues();
+      render();
+    });
+  });
+
+  // Connect to live log stream if agent is active
+  const LOG_PHASES = ['refining', 'planning', 'executing'];
+  if (LOG_PHASES.includes(issue.phase)) {
+    const logEl = document.getElementById('agent-log-output');
+    const logEs = new EventSource(`/api/issues/${encodeURIComponent(issue.slug)}/logs`);
+
+    logEs.onmessage = (e) => {
+      try {
+        const line = JSON.parse(e.data);
+        logEl.textContent += line + '\n';
+        logEl.scrollTop = logEl.scrollHeight;
+      } catch (_) {}
+    };
+
+    logEs.addEventListener('ping', () => {});
+
+    logEs.onerror = () => {
+      logEs.close();
+    };
+
+    window._activeLogStream = logEs;
+  }
+}
+
+function buildDetailActions(issue) {
+  let btns = '';
+  switch (issue.phase) {
+    case 'setup':
+      btns += `<button class="btn action-btn" data-action="start" data-slug="${esc(issue.slug)}">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 2l10 6-10 6z"/></svg>
+        Start Planning
+      </button>`;
+      btns += `<button class="btn action-btn btn-ghost" data-action="refine" data-slug="${esc(issue.slug)}">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12l2-2 8-8 2 2-8 8-2 2z"/><path d="M11 3l2 2"/></svg>
+        Refine with Agent
+      </button>`;
+      break;
+    case 'plan-review':
+      if (issue.daemon_port) btns += `<button class="btn action-btn btn-primary" data-action="open" data-port="${issue.daemon_port}">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="10" rx="1.5"/></svg>
+        Open Plan Review
+      </button>`;
+      break;
+    case 'approved':
+      btns += `<button class="btn action-btn" data-action="start" data-slug="${esc(issue.slug)}">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 2l10 6-10 6z"/></svg>
+        Start Execution
+      </button>`;
+      break;
+    case 'code-review':
+      if (issue.daemon_port) btns += `<button class="btn action-btn btn-primary" data-action="open" data-port="${issue.daemon_port}">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="10" rx="1.5"/></svg>
+        Open Code Review
+      </button>`;
+      break;
+  }
+  return btns;
+}
+
+// ===== Settings page =====
+function renderSettingsPage(app) {
+  const projects = [...new Set(issues.map(i => i.repo_root).filter(Boolean))];
+
+  app.innerHTML = `<div class="page">
+    <div class="page-header" style="margin-bottom:24px">
+      <div>
+        <div class="page-title">Settings</div>
+        <div class="page-subtitle">Global and per-project configuration</div>
+      </div>
+    </div>
+    <div class="settings-grid">
+      <div class="card">
+        <div class="card-body">
+          <div class="settings-card-title">Global Settings</div>
+          <div class="settings-card-desc">~/.crit.config.json</div>
+          <div id="global-settings-form"></div>
+          <button class="btn btn-primary" id="saveGlobalBtn">Save</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-body">
+          <div class="settings-card-title">Project Settings</div>
+          <div class="settings-card-desc">.crit.config.json</div>
+          <div class="form-group">
+            <label>Project</label>
+            <select id="project-select">
+              <option value="">Select a project...</option>
+              ${projects.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}
+            </select>
+          </div>
+          <div id="project-settings-form"></div>
+          <button class="btn btn-primary" id="saveProjectBtn" style="display:none">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  loadGlobalSettings();
+
+  document.getElementById('project-select').addEventListener('change', async () => {
+    const project = document.getElementById('project-select').value;
+    if (!project) {
+      document.getElementById('project-settings-form').innerHTML = '';
+      document.getElementById('saveProjectBtn').style.display = 'none';
+      return;
+    }
+    try {
+      const resp = await fetch('/api/settings/project?project=' + encodeURIComponent(project));
+      if (!resp.ok) throw new Error();
+      renderSettingsForm('project-settings-form', await resp.json());
+      document.getElementById('saveProjectBtn').style.display = '';
+    } catch (_) { showToast('Failed to load project settings', 'error'); }
+  });
+
+  document.getElementById('saveGlobalBtn').addEventListener('click', async () => {
+    const resp = await fetch('/api/settings/global', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectSettings('global-settings-form')),
+    });
+    showToast(resp.ok ? 'Global settings saved' : 'Failed to save', resp.ok ? undefined : 'error');
+  });
+
+  document.getElementById('saveProjectBtn').addEventListener('click', async () => {
+    const project = document.getElementById('project-select').value;
+    if (!project) return;
+    const resp = await fetch('/api/settings/project?project=' + encodeURIComponent(project), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectSettings('project-settings-form')),
+    });
+    showToast(resp.ok ? 'Project settings saved' : 'Failed to save', resp.ok ? undefined : 'error');
+  });
+}
+
+async function loadGlobalSettings() {
+  try {
+    const resp = await fetch('/api/settings/global');
+    if (!resp.ok) throw new Error();
+    renderSettingsForm('global-settings-form', await resp.json());
+  } catch (_) { showToast('Failed to load global settings', 'error'); }
 }
 
 function renderSettingsForm(containerId, cfg) {
   const fields = [
-    { key: 'agent_cmd', label: 'Agent Command', type: 'text', placeholder: 'e.g. claude -p' },
-    { key: 'plan_prompt', label: 'Plan Prompt', type: 'textarea', placeholder: 'Default instructions for planning phase' },
-    { key: 'exec_prompt', label: 'Execution Prompt', type: 'textarea', placeholder: 'Default instructions for execution phase' },
-    { key: 'on_done', label: 'On Done', type: 'select', options: ['', 'pr', 'merge', 'none'] },
-    { key: 'base_branch', label: 'Base Branch', type: 'text', placeholder: 'e.g. main' },
-    { key: 'author', label: 'Author', type: 'text', placeholder: 'Your name' },
+    { key: 'agent_cmd',   label: 'Agent Command',   type: 'text',     placeholder: 'e.g. claude -p' },
+    { key: 'plan_prompt', label: 'Plan Prompt',      type: 'textarea', placeholder: 'Default planning instructions' },
+    { key: 'exec_prompt', label: 'Execution Prompt', type: 'textarea', placeholder: 'Default execution instructions' },
+    { key: 'on_done',     label: 'On Done',          type: 'select',   options: ['', 'pr', 'merge', 'none'] },
+    { key: 'base_branch', label: 'Base Branch',      type: 'text',     placeholder: 'e.g. main' },
+    { key: 'author',      label: 'Author',           type: 'text',     placeholder: 'Your name' },
   ];
-
-  const html = fields.map(f => {
+  document.getElementById(containerId).innerHTML = fields.map(f => {
     const val = cfg[f.key] || '';
-    if (f.type === 'textarea') {
-      return `<div class="form-group">
-        <label>${f.label}</label>
-        <textarea data-key="${f.key}" placeholder="${f.placeholder || ''}" style="min-height:60px">${esc(val)}</textarea>
-      </div>`;
-    }
-    if (f.type === 'select') {
-      return `<div class="form-group">
-        <label>${f.label}</label>
-        <select data-key="${f.key}">
-          ${f.options.map(o => `<option value="${o}" ${val===o?'selected':''}>${o || '(default)'}</option>`).join('')}
-        </select>
-      </div>`;
-    }
-    return `<div class="form-group">
-      <label>${f.label}</label>
-      <input type="text" data-key="${f.key}" value="${esc(val)}" placeholder="${f.placeholder || ''}">
-    </div>`;
+    if (f.type === 'textarea') return `<div class="form-group"><label>${esc(f.label)}</label><textarea data-key="${f.key}" placeholder="${esc(f.placeholder||'')}" style="min-height:52px">${esc(val)}</textarea></div>`;
+    if (f.type === 'select')   return `<div class="form-group"><label>${esc(f.label)}</label><select data-key="${f.key}">${f.options.map(o=>`<option value="${o}" ${val===o?'selected':''}>${esc(o)||'(default)'}</option>`).join('')}</select></div>`;
+    return `<div class="form-group"><label>${esc(f.label)}</label><input type="text" data-key="${f.key}" value="${esc(val)}" placeholder="${esc(f.placeholder||'')}"></div>`;
   }).join('');
-
-  document.getElementById(containerId).innerHTML = html;
 }
 
-function collectSettings(containerId) {
+function collectSettings(id) {
   const cfg = {};
-  document.querySelectorAll(`#${containerId} [data-key]`).forEach(el => {
-    cfg[el.dataset.key] = el.value;
-  });
+  document.querySelectorAll(`#${id} [data-key]`).forEach(el => { cfg[el.dataset.key] = el.value; });
   return cfg;
 }
 
-async function saveGlobalSettings() {
-  const cfg = collectSettings('global-settings-form');
-  await fetch('/api/settings/global', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(cfg),
+// ===== Create modal =====
+function showCreateModal() {
+  document.getElementById('create-modal').classList.add('open');
+  document.getElementById('new-title').focus();
+}
+function hideCreateModal() { document.getElementById('create-modal').classList.remove('open'); }
+
+async function createIssue() {
+  const body = {
+    title:       document.getElementById('new-title').value,
+    description: document.getElementById('new-description').value,
+    repo_root:   document.getElementById('new-repo-root').value,
+    branch:      document.getElementById('new-branch').value,
+    base:        document.getElementById('new-base').value,
+    on_done:     document.getElementById('new-on-done').value,
+    plan_prompt: document.getElementById('new-plan-prompt').value,
+    exec_prompt: document.getElementById('new-exec-prompt').value,
+  };
+  const resp = await fetch('/api/issues', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
-  alert('Global settings saved');
+  if (resp.ok) {
+    hideCreateModal();
+    ['new-title','new-description','new-repo-root','new-branch','new-base','new-plan-prompt','new-exec-prompt'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('new-on-done').value = 'pr';
+    await loadIssues();
+    render();
+  } else {
+    showToast('Error: ' + await resp.text(), 'error');
+  }
 }
 
-async function saveProjectSettings() {
-  const project = document.getElementById('project-select').value;
-  if (!project) return;
-  const cfg = collectSettings('project-settings-form');
-  await fetch('/api/settings/project?project=' + encodeURIComponent(project), {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(cfg),
-  });
-  alert('Project settings saved');
-}
+document.getElementById('cancelCreateBtn').addEventListener('click', hideCreateModal);
+document.getElementById('submitCreateBtn').addEventListener('click', createIssue);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCreateModal(); });
 
-// Helpers
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
-
+// ===== Helpers =====
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
 function timeAgo(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
-  const now = new Date();
-  const diff = (now - d) / 1000;
+  const diff = (Date.now() - new Date(iso)) / 1000;
   if (diff < 60) return 'just now';
   if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
   if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
   return Math.floor(diff / 86400) + 'd ago';
 }
 
-// Init
-loadIssues();
+// ===== Data =====
+async function loadIssues() {
+  try {
+    const resp = await fetch('/api/issues');
+    issues = await resp.json() || [];
+  } catch (_) { /* keep stale */ }
+}
 
-// Auto-refresh every 5 seconds
-setInterval(loadIssues, 5000);
+// ===== SSE =====
+function connectSSE() {
+  const es = new EventSource('/api/events');
+  es.addEventListener('issues-changed', async () => {
+    await loadIssues();
+    if (!document.getElementById('edit-mode') || document.getElementById('edit-mode').style.display === 'none') {
+      render();
+    }
+  });
+  es.onerror = () => {
+    es.close();
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+// ===== Init =====
+(async () => {
+  await loadIssues();
+  currentRoute = parseRoute();
+  render();
+  connectSSE();
+})();
 </script>
 </body>
 </html>

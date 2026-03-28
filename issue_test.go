@@ -197,18 +197,11 @@ func TestIssueStateFile(t *testing.T) {
 func TestWorktreeHelpers(t *testing.T) {
 	dir := initTestRepo(t)
 
-	// Test CreateWorktree
+	// Test CreateWorktree (pass repoRoot instead of chdir)
 	wtPath := filepath.Join(t.TempDir(), "test-worktree")
-	err := CreateWorktree("main", "test-branch", wtPath)
+	err := CreateWorktree("main", "test-branch", wtPath, dir)
 	if err != nil {
-		// git worktree needs to be run from the repo
-		origDir, _ := os.Getwd()
-		os.Chdir(dir)
-		err = CreateWorktree("main", "test-branch-2", wtPath)
-		os.Chdir(origDir)
-		if err != nil {
-			t.Fatalf("CreateWorktree: %v", err)
-		}
+		t.Fatalf("CreateWorktree: %v", err)
 	}
 
 	// Verify worktree was created
@@ -228,10 +221,8 @@ func TestWorktreeHelpers(t *testing.T) {
 		t.Errorf("expected at least 2 worktrees, got %d", len(paths))
 	}
 
-	// Test RemoveWorktree
-	os.Chdir(dir)
-	err = RemoveWorktree(wtPath)
-	os.Chdir(origDir)
+	// Test RemoveWorktree (pass repoRoot instead of chdir)
+	err = RemoveWorktree(wtPath, dir)
 	if err != nil {
 		t.Fatalf("RemoveWorktree: %v", err)
 	}

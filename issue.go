@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -17,12 +19,15 @@ import (
 // Persisted to ~/.crit/issues/<project-hash>-<slug>.json.
 type issueState struct {
 	Slug        string `json:"slug"`
-	Description string `json:"description"`
+	Title       string `json:"title"`
+	Description string `json:"description"` // longer context; populated by refinement
 	Branch      string `json:"branch"`
 	Worktree    string `json:"worktree"`
 	RepoRoot    string `json:"repo_root"`
 	Base        string `json:"base"`
-	Phase       string `json:"phase"` // setup, refining, planning, plan-review, executing, code-review, done
+	Phase       string `json:"phase"`                   // setup, refining, planning, plan-review, approved, executing, code-review, done, error
+	ErrMsg      string `json:"error_msg,omitempty"`      // set when phase=error
+	AutoMode    bool   `json:"auto_mode,omitempty"`      // true when --go mode was used
 	OnDone      string `json:"on_done"`
 	PlanPrompt  string `json:"plan_prompt,omitempty"`
 	ExecPrompt  string `json:"exec_prompt,omitempty"`
@@ -40,6 +45,7 @@ type issueConfig struct {
 	refine      string // --refine: slug of issue to refine
 	plan        string // --plan: slug of issue to start planning
 	execute     string // --execute: slug of issue to start executing
+	auto        bool   // --go: run full cycle automatically
 }
 
 // issuesDir returns the path to ~/.crit/issues/.
@@ -88,7 +94,11 @@ func saveIssueState(state *issueState) error {
 	if err != nil {
 		return fmt.Errorf("marshaling issue state: %w", err)
 	}
-	return os.WriteFile(path, data, 0644)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return err
+	}
+	dashboardSSE.broadcast("issues-changed", "")
+	return nil
 }
 
 // loadIssueState loads issue state from disk by slug.
@@ -162,7 +172,11 @@ func deleteIssueState(repoRoot, slug string) error {
 	if err != nil {
 		return err
 	}
-	return os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	dashboardSSE.broadcast("issues-changed", "")
+	return nil
 }
 
 // resolveIssueConfig parses CLI arguments for crit issue.
@@ -198,6 +212,8 @@ func resolveIssueConfig(args []string) issueConfig {
 				i++
 				cfg.execute = args[i]
 			}
+		case arg == "--go":
+			cfg.auto = true
 		default:
 			positional = append(positional, arg)
 		}
@@ -230,7 +246,10 @@ func runIssue(args []string) {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		runRefinePhase(state)
+		if err := runRefinePhase(state); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 	if cfg.plan != "" {
@@ -239,7 +258,10 @@ func runIssue(args []string) {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		runPlanningPhase(state)
+		if err := runPlanningPhase(state); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 	if cfg.execute != "" {
@@ -248,7 +270,10 @@ func runIssue(args []string) {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		runExecutionPhase(state)
+		if err := runExecutionPhase(state); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -296,7 +321,7 @@ func runIssue(args []string) {
 	// Detect base branch
 	base := loadedCfg.BaseBranch
 	if base == "" {
-		base = DefaultBranch("")
+		base = DefaultBranch()
 	}
 
 	// Create worktree
@@ -306,7 +331,7 @@ func runIssue(args []string) {
 		os.Exit(1)
 	}
 
-	if err := CreateWorktree(base, branch, wtPath); err != nil {
+	if err := CreateWorktree(base, branch, wtPath, repoRoot); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -320,12 +345,14 @@ func runIssue(args []string) {
 	// Save initial state
 	state := &issueState{
 		Slug:        slug,
-		Description: description,
+		Title:       description, // user's input is the title
+		Description: "",          // populated by refinement
 		Branch:      branch,
 		Worktree:    wtPath,
 		RepoRoot:    repoRoot,
 		Base:        base,
 		Phase:       "setup",
+		AutoMode:    cfg.auto,
 		OnDone:      onDone,
 		PlanPrompt:  loadedCfg.PlanPrompt,
 		ExecPrompt:  loadedCfg.ExecPrompt,
@@ -339,6 +366,23 @@ func runIssue(args []string) {
 	fmt.Fprintf(os.Stderr, "Issue '%s' created\n", slug)
 	fmt.Fprintf(os.Stderr, "  Worktree: %s\n", wtPath)
 	fmt.Fprintf(os.Stderr, "  Branch:   %s\n", branch)
+
+	// --go mode: run full cycle automatically
+	if cfg.auto {
+		if err := runPlanningPhase(state); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		// After runPlanningPhase -> runPlanReviewPhase, state.Phase is "approved"
+		if state.Phase == "approved" {
+			if err := runExecutionPhase(state); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		}
+		return
+	}
+
 	fmt.Fprintf(os.Stderr, "\nTo start planning: crit issue --plan %s\n", slug)
 	fmt.Fprintf(os.Stderr, "To refine first:   crit issue --refine %s\n", slug)
 	fmt.Fprintf(os.Stderr, "Or open dashboard: crit dashboard\n")
@@ -347,77 +391,142 @@ func runIssue(args []string) {
 // issueSlug derives a slug from the first line of the description + date.
 func issueSlug(description string) string {
 	date := time.Now().Format("2006-01-02")
-	// Use first line or first 50 chars
+	// Use first line or first 50 runes (safe for unicode)
 	line := strings.SplitN(description, "\n", 2)[0]
-	if len(line) > 50 {
-		line = line[:50]
+	runes := []rune(line)
+	if len(runes) > 50 {
+		line = string(runes[:50])
 	}
 	return slugify(line) + "-" + date
 }
 
 // runIssueFromPhase resumes an issue from its current saved phase.
 func runIssueFromPhase(state *issueState) {
+	var err error
 	switch state.Phase {
 	case "setup":
 		fmt.Fprintf(os.Stderr, "Issue '%s' is in setup phase.\n", state.Slug)
 		fmt.Fprintf(os.Stderr, "To start planning: crit issue --plan %s\n", state.Slug)
+		return
 	case "refining":
 		fmt.Fprintf(os.Stderr, "Issue '%s' was interrupted during refining. Restarting...\n", state.Slug)
-		runRefinePhase(state)
+		err = runRefinePhase(state)
 	case "planning":
 		fmt.Fprintf(os.Stderr, "Issue '%s' was interrupted during planning. Restarting...\n", state.Slug)
-		runPlanningPhase(state)
+		err = runPlanningPhase(state)
 	case "plan-review":
-		runPlanReviewPhase(state)
-	case "executing":
+		err = runPlanReviewPhase(state)
+	case "approved":
 		fmt.Fprintf(os.Stderr, "Issue '%s' is ready for execution.\n", state.Slug)
 		fmt.Fprintf(os.Stderr, "To execute: crit issue --execute %s\n", state.Slug)
+		return
+	case "executing":
+		fmt.Fprintf(os.Stderr, "Issue '%s' is currently executing.\n", state.Slug)
+		return
 	case "code-review":
-		runCodeReviewPhase(state)
+		err = runCodeReviewPhase(state)
 	case "done":
 		fmt.Fprintf(os.Stderr, "Issue '%s' is already done.\n", state.Slug)
+		return
 	default:
 		fmt.Fprintf(os.Stderr, "Issue '%s' is in unknown phase: %s\n", state.Slug, state.Phase)
+		return
 	}
-}
-
-// runRefinePhase invokes the agent to refine/expand the issue description.
-func runRefinePhase(state *issueState) {
-	var prompt strings.Builder
-	fmt.Fprintf(&prompt, "You are working in: %s\n\n", state.Worktree)
-	fmt.Fprintf(&prompt, "Refine and expand the following issue description.\n")
-	fmt.Fprintf(&prompt, "Research the codebase to add technical context, identify affected files,\n")
-	fmt.Fprintf(&prompt, "and clarify the scope of the change.\n")
-	fmt.Fprintf(&prompt, "Output the refined description (markdown) to stdout.\n\n")
-	fmt.Fprintf(&prompt, "## Issue\n%s\n", state.Description)
-
-	state.Phase = "refining"
-	if err := saveIssueState(state); err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving state: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Fprintf(os.Stderr, "Refining issue description with %s...\n", agentName(state.AgentCmd))
-	stdout, err := invokeAgent(state.AgentCmd, prompt.String(), state.Worktree)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
 
-	if strings.TrimSpace(stdout) != "" {
-		state.Description = stdout
+// runRefinePhase invokes the agent to refine/expand the issue description.
+func runRefinePhase(state *issueState) error {
+	var prompt strings.Builder
+	fmt.Fprintf(&prompt, "You are working in: %s\n\n", state.Worktree)
+	fmt.Fprintf(&prompt, "Refine the following issue. Research the codebase to add technical context,\n")
+	fmt.Fprintf(&prompt, "identify affected files, and clarify the scope of the change.\n\n")
+	fmt.Fprintf(&prompt, "Respond with a JSON object with exactly two fields:\n\n")
+	fmt.Fprintf(&prompt, "  title       — a short, clear title (plain text, one line, no markdown, no heading prefix)\n")
+	fmt.Fprintf(&prompt, "  description — a detailed markdown description. Must NOT repeat the title.\n")
+	fmt.Fprintf(&prompt, "                Start directly with content (## Problem, ## Context, etc.).\n\n")
+	fmt.Fprintf(&prompt, "Example:\n")
+	fmt.Fprintf(&prompt, "{\n")
+	fmt.Fprintf(&prompt, "  \"title\": \"Fix login timeout on mobile Safari\",\n")
+	fmt.Fprintf(&prompt, "  \"description\": \"## Problem\\nSessions expire after 5 minutes on iOS...\\n\\n## Affected files\\n- `auth/session.go`\"\n")
+	fmt.Fprintf(&prompt, "}\n\n")
+	fmt.Fprintf(&prompt, "Rules:\n")
+	fmt.Fprintf(&prompt, "- Output ONLY the JSON object, nothing else\n")
+	fmt.Fprintf(&prompt, "- description must not start with a heading that repeats the title\n")
+	fmt.Fprintf(&prompt, "- title must be plain text (no #, no **, no backticks)\n\n")
+	fmt.Fprintf(&prompt, "## Issue title\n%s\n\n", state.Title)
+	if state.Description != "" {
+		fmt.Fprintf(&prompt, "## Additional context\n%s\n", state.Description)
+	}
+
+	state.Phase = "refining"
+	if err := saveIssueState(state); err != nil {
+		setPhaseError(state, fmt.Sprintf("saving state: %v", err))
+		return fmt.Errorf("saving state: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Refining issue with %s...\n", agentName(state.AgentCmd))
+	stdout, err := invokeAgentLogged(state.Slug, state.AgentCmd, prompt.String(), state.Worktree)
+	if err != nil {
+		setPhaseError(state, err.Error())
+		return err
+	}
+
+	if refined := parseRefineOutput(stdout); refined != nil {
+		if refined.Title != "" {
+			state.Title = refined.Title
+		}
+		if refined.Description != "" {
+			state.Description = refined.Description
+		}
 	}
 	state.Phase = "setup"
 	if err := saveIssueState(state); err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving state: %v\n", err)
-		os.Exit(1)
+		setPhaseError(state, fmt.Sprintf("saving state: %v", err))
+		return fmt.Errorf("saving state: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Description refined. To start planning: crit issue --plan %s\n", state.Slug)
+	fmt.Fprintf(os.Stderr, "Issue refined. To start planning: crit issue --plan %s\n", state.Slug)
+	return nil
+}
+
+// parseRefineOutput extracts title+description from agent JSON output.
+// Handles output wrapped in ```json ... ``` code fences.
+func parseRefineOutput(output string) *struct{ Title, Description string } {
+	s := strings.TrimSpace(output)
+	// Strip code fence if present
+	if strings.HasPrefix(s, "```") {
+		if idx := strings.Index(s, "\n"); idx >= 0 {
+			s = s[idx+1:]
+		}
+		if idx := strings.LastIndex(s, "```"); idx >= 0 {
+			s = s[:idx]
+		}
+		s = strings.TrimSpace(s)
+	}
+	var result struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(s), &result); err != nil {
+		return nil
+	}
+	// Strip any leading heading from description — title is stored as its own field.
+	desc := strings.TrimSpace(result.Description)
+	if first, rest, found := strings.Cut(desc, "\n"); found && strings.HasPrefix(first, "#") {
+		desc = strings.TrimSpace(rest)
+	} else if strings.HasPrefix(desc, "#") {
+		desc = ""
+	}
+	result.Description = desc
+	return &struct{ Title, Description string }{result.Title, result.Description}
 }
 
 // runPlanningPhase invokes the agent to create a plan, then transitions to plan review.
-func runPlanningPhase(state *issueState) {
+func runPlanningPhase(state *issueState) error {
 	var prompt strings.Builder
 	// Layer 1: crit context
 	fmt.Fprintf(&prompt, "You are working in: %s\n\n", state.Worktree)
@@ -440,20 +549,20 @@ func runPlanningPhase(state *issueState) {
 
 	state.Phase = "planning"
 	if err := saveIssueState(state); err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving state: %v\n", err)
-		os.Exit(1)
+		setPhaseError(state, fmt.Sprintf("saving state: %v", err))
+		return fmt.Errorf("saving state: %w", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Planning with %s...\n", agentName(state.AgentCmd))
-	stdout, err := invokeAgent(state.AgentCmd, prompt.String(), state.Worktree)
+	stdout, err := invokeAgentLogged(state.Slug, state.AgentCmd, prompt.String(), state.Worktree)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		setPhaseError(state, err.Error())
+		return err
 	}
 
 	if strings.TrimSpace(stdout) == "" {
-		fmt.Fprintln(os.Stderr, "Error: agent produced empty plan")
-		os.Exit(1)
+		setPhaseError(state, "agent produced empty plan")
+		return fmt.Errorf("agent produced empty plan")
 	}
 
 	// Store plan via existing crit plan infrastructure
@@ -461,45 +570,45 @@ func runPlanningPhase(state *issueState) {
 	storageDir := planStorageDir(slug)
 	ver, err := savePlanVersion(storageDir, []byte(stdout))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving plan: %v\n", err)
-		os.Exit(1)
+		setPhaseError(state, fmt.Sprintf("saving plan: %v", err))
+		return fmt.Errorf("saving plan: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "Plan saved as v%03d\n", ver)
 
 	state.Phase = "plan-review"
 	if err := saveIssueState(state); err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving state: %v\n", err)
-		os.Exit(1)
+		setPhaseError(state, fmt.Sprintf("saving state: %v", err))
+		return fmt.Errorf("saving state: %w", err)
 	}
 
 	// Automatically enter plan review
-	runPlanReviewPhase(state)
+	return runPlanReviewPhase(state)
 }
 
 // runPlanReviewPhase opens a crit plan daemon and runs the review/feedback loop.
-func runPlanReviewPhase(state *issueState) {
+func runPlanReviewPhase(state *issueState) error {
 	slug := slugify(state.Slug)
 	storageDir := planStorageDir(slug)
 	currentPath := filepath.Join(storageDir, "current.md")
 
 	// Check plan exists
 	if _, err := os.Stat(currentPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Error: no plan found. Run: crit issue --plan %s\n", state.Slug)
-		os.Exit(1)
+		msg := fmt.Sprintf("no plan found. Run: crit issue --plan %s", state.Slug)
+		setPhaseError(state, msg)
+		return fmt.Errorf("%s", msg)
 	}
 
 	daemonArgs := buildPlanDaemonArgs(currentPath, storageDir, slug, 0, false, false)
 
-	cwd, _ := resolvedCWD()
-	key := planSessionKey(cwd, slug)
+	key := planSessionKey(state.RepoRoot, slug)
 
 	entry, alive := findAliveSession(key)
 	if !alive {
 		var err error
 		entry, err = startDaemon(key, daemonArgs)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error starting daemon: %v\n", err)
-			os.Exit(1)
+			setPhaseError(state, fmt.Sprintf("starting daemon: %v", err))
+			return fmt.Errorf("starting daemon: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "Started plan review on port %d\n", entry.Port)
 	} else {
@@ -514,16 +623,16 @@ func runPlanReviewPhase(state *issueState) {
 		approved, feedback := runReviewClientRaw(entry)
 		if approved {
 			killDaemon(entry)
-			state.Phase = "executing"
+			state.Phase = "approved"
 			state.DaemonPort = 0
 			_ = saveIssueState(state)
 			fmt.Fprintf(os.Stderr, "Plan approved! To execute: crit issue --execute %s\n", state.Slug)
-			return
+			return nil
 		}
 
 		// Pipe feedback to agent — agent outputs updated plan to stdout
 		fmt.Fprintf(os.Stderr, "Sending feedback to %s...\n", agentName(state.AgentCmd))
-		stdout, err := invokeAgent(state.AgentCmd, feedback, state.Worktree)
+		stdout, err := invokeAgentLogged(state.Slug, state.AgentCmd, feedback, state.Worktree)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Agent error: %v\n", err)
 			fmt.Fprintln(os.Stderr, "Continuing review with current plan...")
@@ -546,15 +655,15 @@ func runPlanReviewPhase(state *issueState) {
 }
 
 // runExecutionPhase invokes the agent to implement the approved plan.
-func runExecutionPhase(state *issueState) {
+func runExecutionPhase(state *issueState) error {
 	slug := slugify(state.Slug)
 	storageDir := planStorageDir(slug)
 	currentPath := filepath.Join(storageDir, "current.md")
 
 	planContent, err := os.ReadFile(currentPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading plan: %v\n", err)
-		os.Exit(1)
+		setPhaseError(state, fmt.Sprintf("reading plan: %v", err))
+		return fmt.Errorf("reading plan: %w", err)
 	}
 
 	var prompt strings.Builder
@@ -571,31 +680,60 @@ func runExecutionPhase(state *issueState) {
 	// Layer 3: the approved plan
 	fmt.Fprintf(&prompt, "## Plan\n%s\n", string(planContent))
 
+	// Layer 4: carry forward unresolved plan review comments
+	critJSONPath := filepath.Join(storageDir, ".crit.json")
+	var reviewNotes strings.Builder
+	if data, readErr := os.ReadFile(critJSONPath); readErr == nil {
+		var critData struct {
+			Files map[string]struct {
+				Comments []struct {
+					Body     string `json:"body"`
+					Resolved bool   `json:"resolved"`
+					Replies  []struct {
+						Body string `json:"body"`
+					} `json:"replies"`
+				} `json:"comments"`
+			} `json:"files"`
+		}
+		if json.Unmarshal(data, &critData) == nil {
+			for _, fileData := range critData.Files {
+				for _, comment := range fileData.Comments {
+					if !comment.Resolved {
+						fmt.Fprintf(&reviewNotes, "- %s\n", comment.Body)
+					}
+				}
+			}
+		}
+	}
+	if reviewNotes.Len() > 0 {
+		fmt.Fprintf(&prompt, "## Reviewer concerns from plan review (must address)\n%s\n", reviewNotes.String())
+	}
+
 	state.Phase = "executing"
 	if err := saveIssueState(state); err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving state: %v\n", err)
-		os.Exit(1)
+		setPhaseError(state, fmt.Sprintf("saving state: %v", err))
+		return fmt.Errorf("saving state: %w", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Executing plan with %s...\n", agentName(state.AgentCmd))
-	_, err = invokeAgent(state.AgentCmd, prompt.String(), state.Worktree)
+	_, err = invokeAgentLogged(state.Slug, state.AgentCmd, prompt.String(), state.Worktree)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		setPhaseError(state, err.Error())
+		return err
 	}
 
 	state.Phase = "code-review"
 	if err := saveIssueState(state); err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving state: %v\n", err)
-		os.Exit(1)
+		setPhaseError(state, fmt.Sprintf("saving state: %v", err))
+		return fmt.Errorf("saving state: %w", err)
 	}
 
 	fmt.Fprintln(os.Stderr, "Execution complete. Starting code review...")
-	runCodeReviewPhase(state)
+	return runCodeReviewPhase(state)
 }
 
 // runCodeReviewPhase starts a crit daemon in git mode in the worktree for code review.
-func runCodeReviewPhase(state *issueState) {
+func runCodeReviewPhase(state *issueState) error {
 	key := sessionKey(state.Worktree, nil)
 
 	entry, alive := findAliveSession(key)
@@ -603,8 +741,8 @@ func runCodeReviewPhase(state *issueState) {
 		var err error
 		entry, err = startDaemonInDir(key, nil, state.Worktree)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error starting code review daemon: %v\n", err)
-			os.Exit(1)
+			setPhaseError(state, fmt.Sprintf("starting code review daemon: %v", err))
+			return fmt.Errorf("starting code review daemon: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "Started code review on port %d\n", entry.Port)
 	} else {
@@ -623,12 +761,12 @@ func runCodeReviewPhase(state *issueState) {
 			state.DaemonPort = 0
 			_ = saveIssueState(state)
 			runCompletionPhase(state)
-			return
+			return nil
 		}
 
 		// Pipe feedback to agent for iteration
 		fmt.Fprintf(os.Stderr, "Sending feedback to %s...\n", agentName(state.AgentCmd))
-		_, err := invokeAgent(state.AgentCmd, feedback, state.Worktree)
+		_, err := invokeAgentLogged(state.Slug, state.AgentCmd, feedback, state.Worktree)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Agent error: %v\n", err)
 			fmt.Fprintln(os.Stderr, "Continuing review...")
@@ -681,9 +819,103 @@ func signalRoundComplete(port int) {
 	io.Copy(io.Discard, resp.Body)
 }
 
-// killDaemon sends SIGTERM to a daemon process.
+// killDaemon gracefully stops a daemon process (SIGTERM, then SIGKILL after 2s).
 func killDaemon(entry sessionEntry) {
-	if proc, err := os.FindProcess(entry.PID); err == nil {
+	proc, err := os.FindProcess(entry.PID)
+	if err != nil {
+		return
+	}
+	// Try graceful shutdown first
+	proc.Signal(syscall.SIGTERM)
+	// Give it 2 seconds, then force
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 20; i++ {
+			time.Sleep(100 * time.Millisecond)
+			if err := proc.Signal(syscall.Signal(0)); err != nil {
+				close(done)
+				return
+			}
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+		// process exited cleanly
+	case <-time.After(2 * time.Second):
 		proc.Signal(os.Kill)
 	}
+}
+
+// setPhaseError sets the issue phase to "error" with a message and persists state.
+func setPhaseError(state *issueState, msg string) {
+	state.Phase = "error"
+	state.ErrMsg = msg
+	state.DaemonPort = 0
+	_ = saveIssueState(state)
+	fmt.Fprintf(os.Stderr, "Error in phase: %s\n", msg)
+}
+
+// issueLog is a ring buffer that stores the last 200 lines of agent output for an issue.
+type issueLog struct {
+	mu    sync.Mutex
+	lines []string
+	subs  map[chan string]struct{}
+}
+
+func (l *issueLog) write(line string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, line)
+	if len(l.lines) > 200 {
+		l.lines = l.lines[len(l.lines)-200:]
+	}
+	for ch := range l.subs {
+		select {
+		case ch <- line:
+		default:
+		}
+	}
+}
+
+func (l *issueLog) subscribe() ([]string, chan string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	ch := make(chan string, 32)
+	l.subs[ch] = struct{}{}
+	// Return copy of existing lines so subscriber gets backlog
+	snapshot := make([]string, len(l.lines))
+	copy(snapshot, l.lines)
+	return snapshot, ch
+}
+
+func (l *issueLog) unsubscribe(ch chan string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.subs, ch)
+	close(ch)
+}
+
+var issueLogs sync.Map // slug -> *issueLog
+
+func issueLogFor(slug string) *issueLog {
+	v, _ := issueLogs.LoadOrStore(slug, &issueLog{subs: make(map[chan string]struct{})})
+	return v.(*issueLog)
+}
+
+// invokeAgentLogged invokes the agent and streams stderr output to the issue log.
+func invokeAgentLogged(slug, agentCmd, prompt, cwd string) (string, error) {
+	log := issueLogFor(slug)
+	outputCh := make(chan string, 64)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for line := range outputCh {
+			log.write(line)
+		}
+	}()
+	stdout, err := invokeAgentWithOutput(agentCmd, prompt, cwd, outputCh)
+	close(outputCh)
+	<-done // wait for all lines to be written
+	return stdout, err
 }

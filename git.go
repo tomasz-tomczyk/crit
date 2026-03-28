@@ -714,8 +714,12 @@ func WorkingTreeFingerprint() string {
 
 // CreateWorktree creates a new git worktree at path on a new branch based on base.
 // Equivalent to: git worktree add -b <branch> <path> <base>
-func CreateWorktree(base, branch, path string) error {
+// repoRoot sets the working directory for the git command.
+func CreateWorktree(base, branch, path, repoRoot string) error {
 	cmd := exec.Command("git", "worktree", "add", "-b", branch, path, base)
+	if repoRoot != "" {
+		cmd.Dir = repoRoot
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("creating worktree: %s: %w", strings.TrimSpace(string(out)), err)
@@ -724,8 +728,12 @@ func CreateWorktree(base, branch, path string) error {
 }
 
 // RemoveWorktree removes a git worktree at the given path.
-func RemoveWorktree(path string) error {
+// repoRoot sets the working directory for the git command.
+func RemoveWorktree(path, repoRoot string) error {
 	cmd := exec.Command("git", "worktree", "remove", "--force", path)
+	if repoRoot != "" {
+		cmd.Dir = repoRoot
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("removing worktree: %s: %w", strings.TrimSpace(string(out)), err)

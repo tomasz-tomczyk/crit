@@ -9,9 +9,63 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
+
+// activePhaseOps tracks which slugs have active phase goroutines to prevent double-dispatch.
+var activePhaseOps sync.Map // slug -> bool
+
+func tryLockPhase(slug string) bool {
+	_, loaded := activePhaseOps.LoadOrStore(slug, true)
+	return !loaded // true = got lock, false = already running
+}
+
+func unlockPhase(slug string) {
+	activePhaseOps.Delete(slug)
+}
+
+// sseBroadcaster manages SSE client connections for the dashboard.
+type sseBroadcaster struct {
+	mu      sync.Mutex
+	clients map[chan string]struct{}
+}
+
+func newSSEBroadcaster() *sseBroadcaster {
+	return &sseBroadcaster{
+		clients: make(map[chan string]struct{}),
+	}
+}
+
+func (b *sseBroadcaster) subscribe() chan string {
+	ch := make(chan string, 4)
+	b.mu.Lock()
+	b.clients[ch] = struct{}{}
+	b.mu.Unlock()
+	return ch
+}
+
+func (b *sseBroadcaster) unsubscribe(ch chan string) {
+	b.mu.Lock()
+	delete(b.clients, ch)
+	b.mu.Unlock()
+	close(ch)
+}
+
+func (b *sseBroadcaster) broadcast(eventType, data string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	msg := fmt.Sprintf("event: %s\ndata: %s\n\n", eventType, data)
+	for ch := range b.clients {
+		select {
+		case ch <- msg:
+		default:
+		}
+	}
+}
+
+var dashboardSSE = newSSEBroadcaster()
 
 // runDashboard is the entry point for the "crit dashboard" subcommand.
 func runDashboard(args []string) {
@@ -42,8 +96,8 @@ func runDashboard(args []string) {
 
 	srv := &http.Server{
 		Handler:     mux,
-		ReadTimeout: 15 * time.Second,
-		IdleTimeout: 60 * time.Second,
+		IdleTimeout: 120 * time.Second,
+		// No ReadTimeout — SSE needs open connections
 	}
 
 	// Handle shutdown
@@ -69,10 +123,31 @@ func runDashboard(args []string) {
 // registerDashboardRoutes sets up HTTP handlers for the dashboard.
 func registerDashboardRoutes(mux *http.ServeMux) {
 	// API routes
+	mux.HandleFunc("/api/events", handleDashboardSSE)
 	mux.HandleFunc("/api/issues", handleDashboardIssues)
 	mux.HandleFunc("/api/issues/", handleDashboardIssueBySlug)
 	mux.HandleFunc("/api/settings/global", handleDashboardGlobalSettings)
 	mux.HandleFunc("/api/settings/project", handleDashboardProjectSettings)
+
+	// Serve shared frontend assets needed by the dashboard
+	mux.HandleFunc("/theme.css", func(w http.ResponseWriter, r *http.Request) {
+		data, err := frontendFS.ReadFile("frontend/theme.css")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/css")
+		w.Write(data)
+	})
+	mux.HandleFunc("/markdown-it.min.js", func(w http.ResponseWriter, r *http.Request) {
+		data, err := frontendFS.ReadFile("frontend/markdown-it.min.js")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Write(data)
+	})
 
 	// Serve dashboard frontend
 	mux.HandleFunc("/", serveDashboardHTML)
@@ -92,7 +167,8 @@ func handleDashboardIssues(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var body struct {
-			Description string `json:"description"`
+			Title       string `json:"title"`
+			Description string `json:"description,omitempty"`
 			RepoRoot    string `json:"repo_root"`
 			Branch      string `json:"branch,omitempty"`
 			Base        string `json:"base,omitempty"`
@@ -104,8 +180,8 @@ func handleDashboardIssues(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
-		if strings.TrimSpace(body.Description) == "" || strings.TrimSpace(body.RepoRoot) == "" {
-			http.Error(w, "description and repo_root required", http.StatusBadRequest)
+		if strings.TrimSpace(body.Title) == "" || strings.TrimSpace(body.RepoRoot) == "" {
+			http.Error(w, "title and repo_root required", http.StatusBadRequest)
 			return
 		}
 
@@ -116,7 +192,7 @@ func handleDashboardIssues(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		slug := issueSlug(body.Description)
+		slug := issueSlug(body.Title)
 		branch := body.Branch
 		if branch == "" {
 			branch = "issue/" + slug
@@ -142,11 +218,8 @@ func handleDashboardIssues(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Create worktree (need to run git from the repo root)
-		origDir, _ := os.Getwd()
-		os.Chdir(body.RepoRoot)
-		err := CreateWorktree(base, branch, wtPath)
-		os.Chdir(origDir)
+		// Create worktree
+		err := CreateWorktree(base, branch, wtPath, body.RepoRoot)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("creating worktree: %v", err), http.StatusInternalServerError)
 			return
@@ -154,6 +227,7 @@ func handleDashboardIssues(w http.ResponseWriter, r *http.Request) {
 
 		state := &issueState{
 			Slug:        slug,
+			Title:       body.Title,
 			Description: body.Description,
 			Branch:      branch,
 			Worktree:    wtPath,
@@ -221,6 +295,7 @@ func handleDashboardIssueBySlug(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var body struct {
+			Title       string `json:"title,omitempty"`
 			Description string `json:"description,omitempty"`
 			PlanPrompt  string `json:"plan_prompt,omitempty"`
 			ExecPrompt  string `json:"exec_prompt,omitempty"`
@@ -230,6 +305,9 @@ func handleDashboardIssueBySlug(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
+		}
+		if body.Title != "" {
+			state.Title = body.Title
 		}
 		if body.Description != "" {
 			state.Description = body.Description
@@ -269,10 +347,7 @@ func handleDashboardIssueBySlug(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// Remove worktree
-		origDir, _ := os.Getwd()
-		os.Chdir(state.RepoRoot)
-		_ = RemoveWorktree(state.Worktree)
-		os.Chdir(origDir)
+		_ = RemoveWorktree(state.Worktree, state.RepoRoot)
 		// Remove state file
 		_ = deleteIssueState(state.RepoRoot, state.Slug)
 
@@ -314,18 +389,29 @@ func handleDashboardIssueBySlug(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
+		if !tryLockPhase(state.Slug) {
+			http.Error(w, "phase already running for this issue", http.StatusConflict)
+			return
+		}
 		switch state.Phase {
 		case "setup":
 			// Trigger planning asynchronously
-			go runPlanningPhase(state)
+			go func() {
+				defer unlockPhase(state.Slug)
+				runPlanningPhase(state)
+			}()
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{"status": "planning_started", "phase": "planning"})
-		case "executing":
+		case "approved":
 			// Trigger execution asynchronously
-			go runExecutionPhase(state)
+			go func() {
+				defer unlockPhase(state.Slug)
+				runExecutionPhase(state)
+			}()
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{"status": "execution_started", "phase": "executing"})
 		default:
+			unlockPhase(state.Slug)
 			http.Error(w, fmt.Sprintf("cannot start from phase %q", state.Phase), http.StatusBadRequest)
 		}
 
@@ -340,9 +426,56 @@ func handleDashboardIssueBySlug(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "can only refine in setup phase", http.StatusBadRequest)
 			return
 		}
-		go runRefinePhase(state)
+		if !tryLockPhase(state.Slug) {
+			http.Error(w, "phase already running for this issue", http.StatusConflict)
+			return
+		}
+		go func() {
+			defer unlockPhase(state.Slug)
+			runRefinePhase(state)
+		}()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "refining_started"})
+
+	case action == "logs" && r.Method == http.MethodGet:
+		// GET /api/issues/:slug/logs — SSE stream of agent log lines
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("X-Accel-Buffering", "no")
+		flusher.Flush()
+
+		issLog := issueLogFor(slug)
+		snapshot, ch := issLog.subscribe()
+		defer issLog.unsubscribe(ch)
+
+		// Send backlog first
+		for _, line := range snapshot {
+			fmt.Fprintf(w, "data: %s\n\n", jsonEscapeLine(line))
+			flusher.Flush()
+		}
+
+		ping := time.NewTicker(30 * time.Second)
+		defer ping.Stop()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case line, ok := <-ch:
+				if !ok {
+					return
+				}
+				fmt.Fprintf(w, "data: %s\n\n", jsonEscapeLine(line))
+				flusher.Flush()
+			case <-ping.C:
+				fmt.Fprint(w, "event: ping\ndata: {}\n\n")
+				flusher.Flush()
+			}
+		}
 
 	default:
 		http.Error(w, "Not found", http.StatusNotFound)
@@ -390,8 +523,8 @@ func handleDashboardGlobalSettings(w http.ResponseWriter, r *http.Request) {
 // Requires ?project=<repo-root> query param.
 func handleDashboardProjectSettings(w http.ResponseWriter, r *http.Request) {
 	projectDir := r.URL.Query().Get("project")
-	if projectDir == "" {
-		http.Error(w, "project query param required", http.StatusBadRequest)
+	if projectDir == "" || !filepath.IsAbs(projectDir) || strings.Contains(projectDir, "..") {
+		http.Error(w, "project must be an absolute path", http.StatusBadRequest)
 		return
 	}
 	projectPath := filepath.Join(projectDir, ".crit.config.json")
@@ -427,6 +560,53 @@ func handleDashboardProjectSettings(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleDashboardSSE serves the SSE event stream for the dashboard.
+func handleDashboardSSE(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher.Flush()
+
+	ch := dashboardSSE.subscribe()
+	defer dashboardSSE.unsubscribe(ch)
+
+	ping := time.NewTicker(30 * time.Second)
+	defer ping.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprint(w, msg)
+			flusher.Flush()
+		case <-ping.C:
+			fmt.Fprint(w, "event: ping\ndata: {}\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
+// jsonEscapeLine returns a JSON-encoded string for safe SSE transmission.
+func jsonEscapeLine(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
 
 // serveDashboardHTML serves the embedded dashboard HTML.

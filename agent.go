@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -53,6 +55,71 @@ func invokeAgentWithTimeout(agentCmd, prompt, cwd string, timeout time.Duration)
 		return "", fmt.Errorf("agent command failed: %w\nStderr: %s", err, stderr.String())
 	}
 
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+// invokeAgentWithOutput is like invokeAgent but streams stderr lines to outputCh as they arrive.
+// The caller must close outputCh after this function returns.
+func invokeAgentWithOutput(agentCmd, prompt, cwd string, outputCh chan<- string) (string, error) {
+	return invokeAgentWithOutputAndTimeout(agentCmd, prompt, cwd, 10*time.Minute, outputCh)
+}
+
+// invokeAgentWithOutputAndTimeout is like invokeAgentWithOutput but with a configurable timeout.
+func invokeAgentWithOutputAndTimeout(agentCmd, prompt, cwd string, timeout time.Duration, outputCh chan<- string) (string, error) {
+	parts := strings.Fields(agentCmd)
+	if len(parts) == 0 {
+		return "", fmt.Errorf("empty agent command")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	hasPlaceholder := false
+	for i, p := range parts {
+		if p == "{prompt}" {
+			parts[i] = prompt
+			hasPlaceholder = true
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	if !hasPlaceholder {
+		cmd.Stdin = strings.NewReader(prompt)
+	}
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	// Pipe stderr line by line to the output channel
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("creating stderr pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("starting agent: %w", err)
+	}
+
+	// Stream stderr lines
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			fmt.Fprintln(os.Stderr, line) // still mirror to process stderr
+			select {
+			case outputCh <- line:
+			default: // drop if channel full
+			}
+		}
+	}()
+
+	err = cmd.Wait()
+	if err != nil {
+		return "", fmt.Errorf("agent command failed: %w", err)
+	}
 	return strings.TrimSpace(stdout.String()), nil
 }
 
