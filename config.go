@@ -148,9 +148,6 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	if project.BaseBranch != "" {
 		merged.BaseBranch = project.BaseBranch
 	}
-	if project.AgentCmd != "" {
-		merged.AgentCmd = project.AgentCmd
-	}
 	if projectPresence.NoIntegrationCheck {
 		merged.NoIntegrationCheck = project.NoIntegrationCheck
 	}
