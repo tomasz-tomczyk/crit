@@ -613,11 +613,7 @@ func mergeWebComments(dir string, newComments []webComment) error {
 	}
 
 	cj.UpdatedAt = now
-	out, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(critPath, out, 0644)
+	return saveCritJSON(critPath, cj)
 }
 
 // updateShareState writes LastShareHash and ReviewRound back to .crit.json.
@@ -634,11 +630,7 @@ func updateShareState(dir string, hash string, reviewRound int) error {
 	cj.LastShareHash = hash
 	cj.ReviewRound = reviewRound
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	out, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(critPath, out, 0644)
+	return saveCritJSON(critPath, cj)
 }
 
 // persistShareState writes the share URL, delete token, and scope hash to .crit.json,
@@ -657,11 +649,7 @@ func persistShareState(dir string, shareURL string, deleteToken string, scope st
 	cj.ShareScope = scope
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
-	data, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshaling .crit.json: %w", err)
-	}
-	return os.WriteFile(critPath, data, 0644)
+	return saveCritJSON(critPath, cj)
 }
 
 // clearShareState removes share URL and delete token from .crit.json.
@@ -680,40 +668,13 @@ func clearShareState(dir string) error {
 	cj.ShareScope = ""
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
-	out, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshaling .crit.json: %w", err)
-	}
-	return os.WriteFile(critPath, out, 0644)
+	return saveCritJSON(critPath, cj)
 }
 
-// loadExistingShareState reads .crit.json and returns any persisted share URL and delete token.
-// Returns ("", "") if no share state exists or if the scope doesn't match the given paths.
-func loadExistingShareState(dir string, paths []string) (string, string) {
-	critPath := filepath.Join(dir, ".crit.json")
-	data, err := os.ReadFile(critPath)
-	if err != nil {
-		return "", ""
-	}
-	var cj CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		return "", ""
-	}
-	// If scope is set, only return share state if it matches the current file set.
-	if cj.ShareScope != "" && cj.ShareScope != shareScope(paths) {
-		return "", ""
-	}
-	return cj.ShareURL, cj.DeleteToken
-}
 
-// resolveShareURL resolves the share service URL from flag > env > config > default.
-func resolveShareURL(flagValue string) string {
-	if flagValue != "" {
-		return flagValue
-	}
-	if envShare, ok := os.LookupEnv("CRIT_SHARE_URL"); ok {
-		return envShare
-	}
+// loadShareConfig loads the merged Config from the current directory context.
+// Used by share/fetch/unpublish commands to avoid redundant config parsing.
+func loadShareConfig() Config {
 	cfgDir := ""
 	if IsGitRepo() {
 		cfgDir, _ = RepoRoot()
@@ -721,7 +682,18 @@ func resolveShareURL(flagValue string) string {
 	if cfgDir == "" {
 		cfgDir, _ = os.Getwd()
 	}
-	cfg := LoadConfig(cfgDir)
+	return LoadConfig(cfgDir)
+}
+
+// resolveShareURL resolves the share service URL from flag > env > config > default.
+// cfg is the already-loaded Config so callers avoid redundant config parsing.
+func resolveShareURL(flagValue string, cfg Config) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	if envShare, ok := os.LookupEnv("CRIT_SHARE_URL"); ok {
+		return envShare
+	}
 	if cfg.ShareURL != "" {
 		return cfg.ShareURL
 	}
@@ -729,18 +701,11 @@ func resolveShareURL(flagValue string) string {
 }
 
 // resolveAuthToken returns the auth token from env > config.
+// cfg is the already-loaded Config so callers avoid redundant config parsing.
 // Returns empty string if not configured.
-func resolveAuthToken() string {
+func resolveAuthToken(cfg Config) string {
 	if token, ok := os.LookupEnv("CRIT_AUTH_TOKEN"); ok {
 		return token
 	}
-	cfgDir := ""
-	if IsGitRepo() {
-		cfgDir, _ = RepoRoot()
-	}
-	if cfgDir == "" {
-		cfgDir, _ = os.Getwd()
-	}
-	cfg := LoadConfig(cfgDir)
 	return cfg.AuthToken
 }

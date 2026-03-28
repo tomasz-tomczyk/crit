@@ -12,6 +12,7 @@
   --bg-tertiary: #262940;
   --bg-hover: #2d3150;
   --bg-gutter: #131420;
+  --fg: #c0caf5;
   --fg-primary: #c0caf5;
   --fg-secondary: #a9b1d6;
   --fg-muted: #565f89;
@@ -58,6 +59,7 @@
     --bg-tertiary: #eeeeee;
     --bg-hover: #e8e8e8;
     --bg-gutter: #f0f0f0;
+    --fg: #24292f;
     --fg-primary: #24292f;
     --fg-secondary: #57606a;
     --fg-muted: #8b949e;
@@ -104,6 +106,7 @@
   --bg-tertiary: #262940;
   --bg-hover: #2d3150;
   --bg-gutter: #131420;
+  --fg: #c0caf5;
   --fg-primary: #c0caf5;
   --fg-secondary: #a9b1d6;
   --fg-muted: #565f89;
@@ -149,6 +152,7 @@
   --bg-tertiary: #eeeeee;
   --bg-hover: #e8e8e8;
   --bg-gutter: #f0f0f0;
+  --fg: #24292f;
   --fg-primary: #24292f;
   --fg-secondary: #57606a;
   --fg-muted: #8b949e;

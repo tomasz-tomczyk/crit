@@ -439,6 +439,9 @@
       scopeToggle.style.display = '';
       const scopes = session.available_scopes || ['all', 'staged', 'unstaged'];
       scopeToggle.querySelectorAll('.toggle-btn').forEach(function(b) {
+        // Clear previous disabled state before re-evaluating
+        b.disabled = false;
+        b.classList.remove('disabled');
         if (b.dataset.scope !== 'all' && scopes.indexOf(b.dataset.scope) === -1) {
           b.disabled = true;
           b.classList.add('disabled');
@@ -4430,7 +4433,7 @@
       // Use quote_offset when available to disambiguate duplicate substrings
       if (comment.quote_offset != null) {
         var candidateIdx = comment.quote_offset;
-        if (normalizedFull.substr(candidateIdx, normalizedQuote.length) === normalizedQuote) {
+        if (normalizedFull.slice(candidateIdx, candidateIdx + normalizedQuote.length) === normalizedQuote) {
           quoteIdx = candidateIdx;
         }
       }
@@ -4565,6 +4568,7 @@
     } catch (err) {
       console.error('Error deleting comment:', err);
     }
+    if (navCommentId === id) navCommentId = null;
     renderFileByPath(filePath);
     updateTreeCommentBadges();
     updateCommentCount();
@@ -4646,6 +4650,7 @@
       showMiniToast('Failed to delete comment');
       return;
     }
+    if (navCommentId === id) navCommentId = null;
     updateCommentCount();
   }
 
@@ -5581,6 +5586,7 @@
         diffActive = false;
         reviewCommentFormActive = false;
         reviewCommentEditingId = null;
+        navCommentId = null;
 
         saveViewedState();
         updateHeaderRound();
@@ -6278,6 +6284,7 @@
     if (!btn || btn.disabled || btn.classList.contains('active')) return;
     let scope = btn.dataset.scope;
     diffScope = scope;
+    navCommentId = null;
     setCookie('crit-diff-scope', scope);
     if (scope !== 'all' && scope !== 'branch') {
       diffCommit = '';
@@ -6336,6 +6343,7 @@
 
   // ===== Comment Navigation =====
   var navCommentId = null;
+  var navHighlightTimer;
 
   function navigateToComment(direction) {
     var panel = document.getElementById('commentsPanel');
@@ -6375,10 +6383,17 @@
     var target = cards[targetIdx];
     navCommentId = target.dataset.commentId;
 
+    if (navHighlightTimer) {
+      clearTimeout(navHighlightTimer);
+      document.querySelectorAll('.comment-nav-highlight').forEach(function(el) {
+        el.classList.remove('comment-nav-highlight');
+      });
+    }
+
     var rect = target.getBoundingClientRect();
     window.scrollTo({ top: rect.top + window.scrollY - headerHeight - 16, behavior: 'smooth' });
     target.classList.add('comment-nav-highlight');
-    setTimeout(function() { target.classList.remove('comment-nav-highlight'); }, 1000);
+    navHighlightTimer = setTimeout(function() { target.classList.remove('comment-nav-highlight'); navHighlightTimer = null; }, 1000);
   }
 
   document.getElementById('commentNavPrev').addEventListener('click', function() { navigateToComment(-1); });

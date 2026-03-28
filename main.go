@@ -120,8 +120,9 @@ func runShare(args []string) {
 		os.Exit(1)
 	}
 
-	shareSvcURL = resolveShareURL(shareSvcURL)
-	authToken := resolveAuthToken()
+	cfg := loadShareConfig()
+	shareSvcURL = resolveShareURL(shareSvcURL, cfg)
+	authToken := resolveAuthToken(cfg)
 
 	var files []shareFile
 	for _, path := range shareArgs {
@@ -272,7 +273,7 @@ func runFetch(args []string) {
 		os.Exit(1)
 	}
 
-	authToken := resolveAuthToken()
+	authToken := resolveAuthToken(loadShareConfig())
 	localIDs := buildLocalIDSet(cj)
 	localFingerprints := buildLocalFingerprints(cj)
 
@@ -333,8 +334,9 @@ func runUnpublish(args []string) {
 		}
 	}
 
-	unpubSvcURL = resolveShareURL(unpubSvcURL)
-	unpubAuthToken := resolveAuthToken()
+	unpubCfg := loadShareConfig()
+	unpubSvcURL = resolveShareURL(unpubSvcURL, unpubCfg)
+	unpubAuthToken := resolveAuthToken(unpubCfg)
 
 	critDir, err := resolveCritDir(unpubOutputDir)
 	if err != nil {
