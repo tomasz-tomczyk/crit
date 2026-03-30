@@ -718,7 +718,12 @@ func runComment(args []string) {
 			fmt.Fprintln(os.Stderr, "Error: --plan and --output cannot be used together")
 			os.Exit(1)
 		}
-		commentOutputDir = planStorageDir(slugify(commentPlan))
+		var planDirErr error
+		commentOutputDir, planDirErr = planStorageDir(slugify(commentPlan))
+		if planDirErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", planDirErr)
+			os.Exit(1)
+		}
 	}
 
 	// Resolve author: --author flag > config > git user.name
@@ -1024,7 +1029,11 @@ func runPlan(args []string) {
 		slug = resolveSlug(content)
 		fmt.Fprintf(os.Stderr, "No --name provided, derived slug: %s\n", slug)
 	}
-	storageDir := planStorageDir(slug)
+	storageDir, err := planStorageDir(slug)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 
 	ver, err := savePlanVersion(storageDir, content)
 	if err != nil {
@@ -1113,7 +1122,11 @@ func runPlanHook() {
 	} else {
 		slug = resolveSlug(content)
 	}
-	storageDir := planStorageDir(slug)
+	storageDir, err := planStorageDir(slug)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "crit plan-hook: error resolving storage dir: %v\n", err)
+		return // allow through on error
+	}
 
 	ver, err := savePlanVersion(storageDir, content)
 	if err != nil {

@@ -3,19 +3,24 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 )
 
 // planStorageDir returns the managed storage directory for a plan session.
 // Uses the slug directly as the directory name (not a hash) for human readability.
-func planStorageDir(slug string) string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".crit", "plans", slug)
+func planStorageDir(slug string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("determining home directory: %w", err)
+	}
+	return filepath.Join(home, ".crit", "plans", slug), nil
 }
 
 // planSessionKey computes a session key for plan mode.
@@ -135,9 +140,12 @@ func resolveSlug(content []byte) string {
 }
 
 // planSessionsFile returns the path to the plan sessions mapping file.
-func planSessionsFile() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".crit", "plan-sessions.json")
+func planSessionsFile() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("determining home directory: %w", err)
+	}
+	return filepath.Join(home, ".crit", "plan-sessions.json"), nil
 }
 
 type planSessionMapping struct {
@@ -147,7 +155,11 @@ type planSessionMapping struct {
 
 // lookupPlanSlug returns the pinned slug for a session_id, if one exists.
 func lookupPlanSlug(sessionID string) (string, bool) {
-	data, err := os.ReadFile(planSessionsFile())
+	path, err := planSessionsFile()
+	if err != nil {
+		return "", false
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", false
 	}
@@ -162,16 +174,71 @@ func lookupPlanSlug(sessionID string) (string, bool) {
 	return entry.Slug, true
 }
 
-// savePlanSlug pins a slug to a session_id. Prunes entries older than 7 days.
-func savePlanSlug(sessionID, slug string) error {
-	path := planSessionsFile()
+// acquirePlanSessionsLock acquires an advisory file lock on the plan-sessions
+// lock file, blocking until the lock is available. Returns the lock file handle;
+// the caller must call releasePlanSessionsLock when done.
+func acquirePlanSessionsLock(path string) (*os.File, error) {
+	lockPath := path + ".lock"
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0755); err != nil {
+		return nil, fmt.Errorf("creating plan sessions directory: %w", err)
+	}
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("opening plan sessions lock: %w", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("acquiring plan sessions lock: %w", err)
+	}
+	return f, nil
+}
 
+// releasePlanSessionsLock releases the advisory lock and closes the file.
+func releasePlanSessionsLock(f *os.File) {
+	syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	f.Close()
+}
+
+// readPlanSessions reads and parses the plan sessions file.
+// Returns an empty map if the file does not exist.
+// Returns an error if the file exists but contains invalid JSON.
+func readPlanSessions(path string) (map[string]planSessionMapping, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return make(map[string]planSessionMapping), nil
+		}
+		return nil, fmt.Errorf("reading plan sessions: %w", err)
+	}
 	var m map[string]planSessionMapping
-	if data, err := os.ReadFile(path); err == nil {
-		json.Unmarshal(data, &m)
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("parsing plan sessions %s: %w", path, err)
 	}
 	if m == nil {
 		m = make(map[string]planSessionMapping)
+	}
+	return m, nil
+}
+
+// savePlanSlug pins a slug to a session_id. Prunes entries older than 7 days.
+// Uses advisory file locking to prevent concurrent read-modify-write races,
+// and returns an error if the existing file contains corrupt JSON rather than
+// silently overwriting it.
+func savePlanSlug(sessionID, slug string) error {
+	path, err := planSessionsFile()
+	if err != nil {
+		return err
+	}
+
+	lock, err := acquirePlanSessionsLock(path)
+	if err != nil {
+		return err
+	}
+	defer releasePlanSessionsLock(lock)
+
+	m, err := readPlanSessions(path)
+	if err != nil {
+		return err
 	}
 
 	m[sessionID] = planSessionMapping{
@@ -187,12 +254,21 @@ func savePlanSlug(sessionID, slug string) error {
 		}
 	}
 
-	os.MkdirAll(filepath.Dir(path), 0755)
 	out, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, out, 0644)
+
+	// Atomic write via temp file + rename to prevent partial writes.
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, out, 0644); err != nil {
+		return fmt.Errorf("writing plan sessions temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("renaming plan sessions temp file: %w", err)
+	}
+	return nil
 }
 
 // isStdinPipe returns true if stdin is a pipe (not a terminal).

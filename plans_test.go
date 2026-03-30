@@ -100,11 +100,30 @@ func TestPlanMode_RoundTrip(t *testing.T) {
 }
 
 func TestPlanStorageDir(t *testing.T) {
-	dir := planStorageDir("auth-flow")
+	dir, err := planStorageDir("auth-flow")
+	if err != nil {
+		t.Fatalf("planStorageDir: %v", err)
+	}
 	home, _ := os.UserHomeDir()
 	want := filepath.Join(home, ".crit", "plans", "auth-flow")
 	if dir != want {
 		t.Errorf("planStorageDir = %q, want %q", dir, want)
+	}
+}
+
+func TestPlanStorageDir_NoHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	_, err := planStorageDir("auth-flow")
+	if err == nil {
+		t.Error("expected error when HOME is unset")
+	}
+}
+
+func TestPlanSessionsFile_NoHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	_, err := planSessionsFile()
+	if err == nil {
+		t.Error("expected error when HOME is unset")
 	}
 }
 
@@ -323,7 +342,10 @@ func TestSavePlanSlug_PrunesOldEntries(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	// Write a stale entry directly
-	path := planSessionsFile()
+	path, err := planSessionsFile()
+	if err != nil {
+		t.Fatalf("planSessionsFile: %v", err)
+	}
 	os.MkdirAll(filepath.Dir(path), 0755)
 	stale := map[string]planSessionMapping{
 		"old-session": {
@@ -344,6 +366,60 @@ func TestSavePlanSlug_PrunesOldEntries(t *testing.T) {
 	slug, ok := lookupPlanSlug("new-session")
 	if !ok || slug != "new-plan" {
 		t.Error("expected new entry to survive")
+	}
+}
+
+func TestSavePlanSlug_CorruptJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Write corrupt JSON to the sessions file
+	path, err := planSessionsFile()
+	if err != nil {
+		t.Fatalf("planSessionsFile: %v", err)
+	}
+	os.MkdirAll(filepath.Dir(path), 0755)
+	os.WriteFile(path, []byte("{corrupt json!!!"), 0644)
+
+	// savePlanSlug should return an error instead of silently overwriting
+	err = savePlanSlug("session-1", "my-plan")
+	if err == nil {
+		t.Fatal("expected error for corrupt JSON, got nil")
+	}
+
+	// The corrupt file should not have been overwritten
+	data, _ := os.ReadFile(path)
+	if string(data) != "{corrupt json!!!" {
+		t.Errorf("corrupt file was overwritten: got %q", string(data))
+	}
+}
+
+func TestSavePlanSlug_ConcurrentWrites(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Run multiple concurrent saves; none should lose data
+	const n = 10
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			errs <- savePlanSlug(fmt.Sprintf("session-%d", i), fmt.Sprintf("plan-%d", i))
+		}(i)
+	}
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent savePlanSlug: %v", err)
+		}
+	}
+
+	// All entries should be present
+	for i := 0; i < n; i++ {
+		slug, ok := lookupPlanSlug(fmt.Sprintf("session-%d", i))
+		if !ok {
+			t.Errorf("session-%d not found after concurrent writes", i)
+		} else if slug != fmt.Sprintf("plan-%d", i) {
+			t.Errorf("session-%d slug = %q, want %q", i, slug, fmt.Sprintf("plan-%d", i))
+		}
 	}
 }
 
