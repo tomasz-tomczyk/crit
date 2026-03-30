@@ -1272,16 +1272,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   color: var(--fg-dimmed);
 }
 
-/* ===== Resolved Comments ===== */
-.resolved-badge {
-  font-size: 11px;
-  padding: 1px 8px;
-  border: 1px solid var(--green);
-  border-radius: 12px;
-  color: var(--green);
-  white-space: nowrap;
-}
-
 /* ===== Thread Replies ===== */
 .comment-replies {
   margin: 0;
