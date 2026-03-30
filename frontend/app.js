@@ -141,6 +141,7 @@
   let diffActive = false; // rendered diff view toggle for file mode
 
   let filePickerReady = false;  // set true once /api/files/list is confirmed working
+  let userActedThisRound = false; // tracks if user made any comment/resolve/edit action this round
 
   // Per-file active form state
   let activeFilePath = null;
@@ -3925,6 +3926,7 @@
         const updated = await res.json();
         const idx = file.comments.findIndex(c => c.id === formObj.editingId);
         if (idx >= 0) file.comments[idx] = updated;
+        userActedThisRound = true;
       } else {
         const payload = {
           body: body.trim()
@@ -3947,6 +3949,7 @@
         const newComment = await res.json();
         file.comments.push(newComment);
         created = newComment;
+        userActedThisRound = true;
       }
     } catch (err) {
       console.error('Error saving comment:', err);
@@ -4565,6 +4568,7 @@
       await fetch('/api/comment/' + id + '?path=' + enc(filePath), { method: 'DELETE' });
       file.comments = file.comments.filter(c => c.id !== id);
       pendingAgentRequests.delete(id);
+      userActedThisRound = true;
     } catch (err) {
       console.error('Error deleting comment:', err);
     }
@@ -4606,6 +4610,7 @@
       if (!res.ok) throw new Error('Server returned ' + res.status);
       const newComment = await res.json();
       reviewComments.push(newComment);
+      userActedThisRound = true;
     } catch (err) {
       console.error('Error adding review comment:', err);
       showMiniToast('Failed to add comment');
@@ -4630,6 +4635,7 @@
       const updated = await res.json();
       const idx = reviewComments.findIndex(function(c) { return c.id === id; });
       if (idx >= 0) reviewComments[idx] = updated;
+      userActedThisRound = true;
     } catch (err) {
       console.error('Error updating review comment:', err);
       showMiniToast('Failed to update comment');
@@ -4645,6 +4651,7 @@
       const res = await fetch('/api/review-comment/' + id, { method: 'DELETE' });
       if (!res.ok) throw new Error('Server returned ' + res.status);
       reviewComments = reviewComments.filter(function(c) { return c.id !== id; });
+      userActedThisRound = true;
     } catch (err) {
       console.error('Error deleting review comment:', err);
       showMiniToast('Failed to delete comment');
@@ -4839,7 +4846,9 @@
       } catch (err) {
         console.error('Error editing reply:', err);
         showMiniToast('Failed to edit reply');
+        return;
       }
+      userActedThisRound = true;
       refreshFileComments(filePath);
     });
   }
@@ -4849,6 +4858,7 @@
       await fetch('/api/comment/' + commentId + '/replies/' + replyId + '?path=' + enc(filePath), {
         method: 'DELETE'
       });
+      userActedThisRound = true;
     } catch (err) {
       console.error('Error deleting reply:', err);
     }
@@ -4935,6 +4945,7 @@
           body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error('Server returned ' + res.status);
+        userActedThisRound = true;
 
         // In live threads, also send the reply to the agent
         var file = getFileByPath(filePath);
@@ -5484,9 +5495,7 @@
   document.getElementById('panelAddCommentBtn').addEventListener('click', openReviewCommentForm);
 
   // ===== Finish Review =====
-  document.getElementById('finishBtn').addEventListener('click', async function() {
-    if (uiState !== 'reviewing') return;
-
+  async function doFinishReview() {
     try {
       const resp = await fetch('/api/finish', { method: 'POST' });
       const data = await resp.json();
@@ -5515,6 +5524,88 @@
     } catch (_) {}
 
     setUIState('waiting');
+  }
+
+  async function resolveAllAndFinish() {
+    // Resolve all unresolved file comments
+    for (var fi = 0; fi < files.length; fi++) {
+      var fileComments = files[fi].comments || [];
+      for (var ci = 0; ci < fileComments.length; ci++) {
+        if (!fileComments[ci].resolved) {
+          try {
+            await fetch('/api/comment/' + fileComments[ci].id + '/resolve?path=' + enc(files[fi].path), {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ resolved: true }),
+            });
+          } catch (_) {}
+        }
+      }
+    }
+    // Resolve all unresolved review comments
+    for (var ri = 0; ri < reviewComments.length; ri++) {
+      if (!reviewComments[ri].resolved) {
+        try {
+          await fetch('/api/review-comment/' + reviewComments[ri].id + '/resolve', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ resolved: true }),
+          });
+        } catch (_) {}
+      }
+    }
+    await doFinishReview();
+  }
+
+  function showNoChangesConfirm() {
+    document.getElementById('noChangesOverlay').classList.add('active');
+  }
+
+  function hideNoChangesConfirm() {
+    document.getElementById('noChangesOverlay').classList.remove('active');
+  }
+
+  document.getElementById('noChangesResolveAll').addEventListener('click', async function() {
+    hideNoChangesConfirm();
+    await resolveAllAndFinish();
+  });
+
+  document.getElementById('noChangesSendAnyway').addEventListener('click', async function() {
+    hideNoChangesConfirm();
+    await doFinishReview();
+  });
+
+  document.getElementById('noChangesGoBack').addEventListener('click', function() {
+    hideNoChangesConfirm();
+  });
+
+  document.getElementById('finishBtn').addEventListener('click', async function() {
+    if (uiState !== 'reviewing') return;
+
+    // Check if user took no action but there are unresolved comments.
+    // Only warn when ALL unresolved comments are carried-forward (from a previous round)
+    // and the user hasn't added, edited, resolved, or replied to anything this round.
+    var unresolvedCount = 0;
+    var hasNewComments = false;
+    for (var fi = 0; fi < files.length; fi++) {
+      if (!files[fi].comments) continue;
+      for (var ci = 0; ci < files[fi].comments.length; ci++) {
+        var c = files[fi].comments[ci];
+        if (!c.resolved) unresolvedCount++;
+        if (!c.carried_forward) hasNewComments = true;
+      }
+    }
+    for (var ri = 0; ri < reviewComments.length; ri++) {
+      if (!reviewComments[ri].resolved) unresolvedCount++;
+      if (!reviewComments[ri].carried_forward) hasNewComments = true;
+    }
+
+    if (!userActedThisRound && !hasNewComments && unresolvedCount > 0) {
+      showNoChangesConfirm();
+      return;
+    }
+
+    await doFinishReview();
   });
 
   document.getElementById('backToEditing').addEventListener('click', function() {
@@ -5541,6 +5632,9 @@
 
     source.addEventListener('file-changed', async function() {
       try {
+        // Reset action tracking for new round
+        userActedThisRound = false;
+
         // Capture per-file user state before rebuilding
         const prevState = {};
         for (let pi = 0; pi < files.length; pi++) {
@@ -6433,6 +6527,10 @@
     if (e.target === this) toggleShortcutsOverlay();
   });
 
+  document.getElementById('noChangesOverlay').addEventListener('click', function(e) {
+    if (e.target === this) hideNoChangesConfirm();
+  });
+
   document.addEventListener('keydown', function(e) {
     const tag = document.activeElement.tagName;
     if (tag === 'TEXTAREA' || tag === 'INPUT' || document.activeElement.isContentEditable) {
@@ -6443,6 +6541,14 @@
           const form = activeForms.find(function(f) { return f.formKey === ta.dataset.formKey; });
           if (form) cancelComment(form);
         }
+      }
+      return;
+    }
+
+    if (document.getElementById('noChangesOverlay').classList.contains('active')) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        hideNoChangesConfirm();
       }
       return;
     }

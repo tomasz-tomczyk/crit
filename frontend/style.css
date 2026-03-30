@@ -1805,6 +1805,48 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   100% { color: var(--fg-dimmed); }
 }
 
+/* ===== No Changes Confirmation Overlay ===== */
+.confirm-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 350;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.confirm-overlay.active { display: flex; }
+.confirm-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px 32px;
+  max-width: 480px;
+  width: 90vw;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+.confirm-dialog h3 { color: var(--yellow); margin-bottom: 12px; font-size: 16px; }
+.confirm-dialog p { color: var(--fg-secondary); font-size: 14px; margin-bottom: 20px; line-height: 1.5; }
+.confirm-actions { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.confirm-actions-row { display: flex; gap: 8px; justify-content: center; }
+.confirm-actions-row .btn { min-width: 160px; }
+.confirm-send-anyway {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--fg-muted);
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 10px 0 0;
+  margin-top: 4px;
+  cursor: pointer;
+  width: 100%;
+  transition: color 0.15s;
+}
+.confirm-send-anyway:hover { color: var(--fg-secondary); }
+
 /* ===== Keyboard Shortcuts Help Overlay ===== */
 .shortcuts-overlay {
   display: none;
