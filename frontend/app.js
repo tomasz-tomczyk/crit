@@ -4295,8 +4295,9 @@
     deleteBtn.addEventListener('click', () => deleteComment(comment.id, filePath));
 
     const resolveBtn = document.createElement('button');
+    resolveBtn.className = 'resolve-btn';
     resolveBtn.title = 'Resolve';
-    resolveBtn.innerHTML = ICON_RESOLVE;
+    resolveBtn.innerHTML = ICON_RESOLVE + '<span>Resolve</span>';
     resolveBtn.addEventListener('click', async function() {
       try {
         var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
@@ -4999,14 +5000,11 @@
       showReplyInput: true,
     });
 
-    const badge = document.createElement('span');
-    badge.className = 'resolved-badge';
-    badge.textContent = 'Resolved';
-
     const unresolveBtn = document.createElement('button');
+    unresolveBtn.className = 'resolve-btn resolve-btn--active';
     unresolveBtn.title = 'Unresolve';
     unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
-    unresolveBtn.innerHTML = ICON_UNRESOLVE;
+    unresolveBtn.innerHTML = ICON_UNRESOLVE + '<span>Unresolve</span>';
     unresolveBtn.addEventListener('click', async function() {
       try {
         var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
@@ -5029,7 +5027,6 @@
     deleteBtn.innerHTML = ICON_DELETE;
     deleteBtn.addEventListener('click', function() { deleteComment(comment.id, filePath); });
 
-    parts.actions.appendChild(badge);
     parts.actions.appendChild(unresolveBtn);
     parts.actions.appendChild(deleteBtn);
 
@@ -5120,20 +5117,14 @@
       showReplyInput: false,
     });
 
-    if (isResolved) {
-      const badge = document.createElement('span');
-      badge.className = 'resolved-badge';
-      badge.textContent = 'Resolved';
-      parts.actions.appendChild(badge);
-    }
-
     if (isGeneral) {
       // General comments: resolve/unresolve, edit, and delete
       if (isResolved) {
         const unresolveBtn = document.createElement('button');
+        unresolveBtn.className = 'resolve-btn resolve-btn--active';
         unresolveBtn.title = 'Unresolve';
         unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
-        unresolveBtn.innerHTML = ICON_UNRESOLVE;
+        unresolveBtn.innerHTML = ICON_UNRESOLVE + '<span>Unresolve</span>';
         unresolveBtn.addEventListener('click', async function(e) {
           e.stopPropagation();
           try {
@@ -5154,8 +5145,9 @@
         parts.actions.appendChild(unresolveBtn);
       } else {
         const resolveBtn = document.createElement('button');
+        resolveBtn.className = 'resolve-btn';
         resolveBtn.title = 'Resolve';
-        resolveBtn.innerHTML = ICON_RESOLVE;
+        resolveBtn.innerHTML = ICON_RESOLVE + '<span>Resolve</span>';
         resolveBtn.addEventListener('click', async function(e) {
           e.stopPropagation();
           try {

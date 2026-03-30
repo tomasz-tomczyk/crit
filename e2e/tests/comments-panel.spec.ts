@@ -204,7 +204,7 @@ test.describe('Comments Panel — Git Mode', () => {
 
   // --- Resolved / carried-forward comment tests ---
 
-  test('resolved carried-forward comment shows Resolved badge, not Unresolved', async ({ page, request }) => {
+  test('resolved carried-forward comment shows resolved card state', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Will be resolved');
 
@@ -236,7 +236,7 @@ test.describe('Comments Panel — Git Mode', () => {
 
     const card = panelCards(page).first();
     await expect(card).toBeVisible();
-    await expect(card.locator('.resolved-badge')).toContainText('Resolved');
+    await expect(card).toHaveClass(/resolved-card/);
   });
 
   test('clicking resolved comment in panel scrolls to inline resolved comment', async ({ page, request }) => {
