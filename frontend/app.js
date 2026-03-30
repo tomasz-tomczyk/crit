@@ -4297,21 +4297,10 @@
     const resolveBtn = document.createElement('button');
     resolveBtn.className = 'resolve-btn';
     resolveBtn.title = 'Resolve';
+    resolveBtn.setAttribute('aria-label', 'Resolve thread');
     resolveBtn.innerHTML = ICON_RESOLVE + '<span>Resolve</span>';
-    resolveBtn.addEventListener('click', async function() {
-      try {
-        var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ resolved: true }),
-        });
-        if (!res.ok) throw new Error('Server returned ' + res.status);
-      } catch (err) {
-        console.error('Error resolving:', err);
-        showMiniToast('Failed to resolve comment');
-        return;
-      }
-      refreshFileComments(filePath);
+    resolveBtn.addEventListener('click', function() {
+      toggleResolveStatus(comment.id, 'file', 'resolve', filePath, resolveBtn);
     });
 
     parts.actions.appendChild(resolveBtn);
@@ -4577,6 +4566,34 @@
     renderFileByPath(filePath);
     updateTreeCommentBadges();
     updateCommentCount();
+  }
+
+  // Shared resolve/unresolve handler for both file-level and review-level comments.
+  // `type` is 'file' or 'review'; `action` is 'resolve' or 'unresolve'.
+  async function toggleResolveStatus(commentId, type, action, filePath, buttonElement) {
+    const resolved = action === 'resolve';
+    const url = type === 'file'
+      ? '/api/comment/' + commentId + '/resolve?path=' + enc(filePath)
+      : '/api/review-comment/' + commentId + '/resolve';
+    try {
+      var res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolved: resolved }),
+      });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+    } catch (err) {
+      console.error('Error ' + action + ':', err);
+      showMiniToast('Failed to ' + action + ' comment');
+      return;
+    }
+    userActedThisRound = true;
+    if (type === 'file') {
+      refreshFileComments(filePath);
+    } else {
+      await refreshReviewComments();
+      renderCommentsPanel();
+    }
   }
 
   // Re-fetch comments for a file from the API and re-render
@@ -5005,20 +5022,8 @@
     unresolveBtn.title = 'Unresolve';
     unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
     unresolveBtn.innerHTML = ICON_UNRESOLVE + '<span>Unresolve</span>';
-    unresolveBtn.addEventListener('click', async function() {
-      try {
-        var res = await fetch('/api/comment/' + comment.id + '/resolve?path=' + enc(filePath), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ resolved: false }),
-        });
-        if (!res.ok) throw new Error('Server returned ' + res.status);
-      } catch (err) {
-        console.error('Error unresolving:', err);
-        showMiniToast('Failed to unresolve comment');
-        return;
-      }
-      refreshFileComments(filePath);
+    unresolveBtn.addEventListener('click', function() {
+      toggleResolveStatus(comment.id, 'file', 'unresolve', filePath, unresolveBtn);
     });
 
     const deleteBtn = document.createElement('button');
@@ -5125,45 +5130,20 @@
         unresolveBtn.title = 'Unresolve';
         unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
         unresolveBtn.innerHTML = ICON_UNRESOLVE + '<span>Unresolve</span>';
-        unresolveBtn.addEventListener('click', async function(e) {
+        unresolveBtn.addEventListener('click', function(e) {
           e.stopPropagation();
-          try {
-            var res = await fetch('/api/review-comment/' + comment.id + '/resolve', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ resolved: false }),
-            });
-            if (!res.ok) throw new Error('Server returned ' + res.status);
-          } catch (err) {
-            console.error('Error unresolving:', err);
-            showMiniToast('Failed to unresolve comment');
-            return;
-          }
-          await refreshReviewComments();
-          renderCommentsPanel();
+          toggleResolveStatus(comment.id, 'review', 'unresolve', null, unresolveBtn);
         });
         parts.actions.appendChild(unresolveBtn);
       } else {
         const resolveBtn = document.createElement('button');
         resolveBtn.className = 'resolve-btn';
         resolveBtn.title = 'Resolve';
+        resolveBtn.setAttribute('aria-label', 'Resolve thread');
         resolveBtn.innerHTML = ICON_RESOLVE + '<span>Resolve</span>';
-        resolveBtn.addEventListener('click', async function(e) {
+        resolveBtn.addEventListener('click', function(e) {
           e.stopPropagation();
-          try {
-            var res = await fetch('/api/review-comment/' + comment.id + '/resolve', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ resolved: true }),
-            });
-            if (!res.ok) throw new Error('Server returned ' + res.status);
-          } catch (err) {
-            console.error('Error resolving:', err);
-            showMiniToast('Failed to resolve comment');
-            return;
-          }
-          await refreshReviewComments();
-          renderCommentsPanel();
+          toggleResolveStatus(comment.id, 'review', 'resolve', null, resolveBtn);
         });
         parts.actions.appendChild(resolveBtn);
       }
