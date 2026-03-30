@@ -169,8 +169,8 @@ test.describe('Comment Threading', () => {
     await card.hover();
     await card.locator('.comment-actions button[title="Resolve"]').click();
 
-    // Card should now have resolved badge and be collapsed
-    await expect(section.locator('.resolved-badge')).toBeVisible();
+    // Card should now show Unresolve button and be collapsed
+    await expect(section.locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
     await expect(section.locator('.comment-card.collapsed')).toHaveCount(1);
   });
 
@@ -191,14 +191,14 @@ test.describe('Comment Threading', () => {
 
     // Expand the resolved card
     await section.locator('.comment-collapse-btn').click();
-    await expect(section.locator('.resolved-badge')).toBeVisible();
+    await expect(section.locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
 
     // Hover to reveal unresolve, click it
     await section.locator('.comment-card').hover();
     await section.locator('.comment-actions button[title="Unresolve"]').click();
 
-    // Should no longer have resolved badge, card should be expanded
-    await expect(section.locator('.resolved-badge')).toHaveCount(0);
+    // Should no longer have Unresolve button, card should be expanded
+    await expect(section.locator('.comment-actions button[title="Unresolve"]')).toHaveCount(0);
     await expect(section.locator('.comment-card:not(.collapsed)')).toHaveCount(1);
   });
 
@@ -241,9 +241,9 @@ test.describe('Comment Threading', () => {
     const section = mdSection(page);
     const card = section.locator('.comment-card');
 
-    // Collapsed by default with badge
+    // Collapsed by default with Unresolve button
     await expect(card).toHaveClass(/collapsed/);
-    await expect(section.locator('.resolved-badge')).toBeVisible();
+    await expect(section.locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
 
     // Expand — should show body, reply, and reply input
     await card.locator('.comment-collapse-btn').click();

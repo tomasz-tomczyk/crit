@@ -1147,6 +1147,22 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .comment-actions button:hover svg { opacity: 1; }
 .comment-actions button:hover { color: var(--fg-primary); }
 .comment-actions .delete-btn:hover { color: var(--red); }
+.comment-actions .resolve-btn {
+  gap: 3px;
+  font-size: 11px;
+  padding: 1px 7px 1px 4px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+.comment-actions .resolve-btn span { line-height: 1; }
+.comment-actions .resolve-btn svg { width: 12px; height: 12px; opacity: 0.7; flex-shrink: 0; }
+.comment-actions .resolve-btn:hover { color: var(--green); background: rgba(158, 206, 106, 0.1); }
+.comment-actions .resolve-btn:hover svg { opacity: 1; }
+[data-theme="light"] .comment-actions .resolve-btn:hover { background: rgba(26, 127, 55, 0.08); }
+@media (prefers-color-scheme: light) { html:not([data-theme]) .comment-actions .resolve-btn:hover { background: rgba(26, 127, 55, 0.08); }}
+.comment-actions .resolve-btn--active { border-color: var(--green); color: var(--green); opacity: 0.65; }
+.comment-actions .resolve-btn--active svg { opacity: 1; }
+.comment-actions .resolve-btn--active:hover { opacity: 1; }
 
 .quote-highlight {
   color: inherit;
