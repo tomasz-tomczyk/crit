@@ -754,7 +754,7 @@ test.describe('No-Changes Confirmation', () => {
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
   });
 
-  test('no confirmation when user resolved a comment', async ({ page, request }) => {
+  test('no confirmation when all comments are resolved', async ({ page, request }) => {
     const filePath = await getTestFilePath(request);
     await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
       data: { start_line: 1, end_line: 1, body: 'To be resolved manually' },
@@ -776,10 +776,39 @@ test.describe('No-Changes Confirmation', () => {
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    // Click finish — no unresolved comments, should go straight to waiting
+    // Click finish — no unresolved comments, button says Approve, straight to waiting
     await page.locator('#finishBtn').click();
     await expect(page.locator('#noChangesOverlay')).not.toHaveClass(/active/);
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+  });
+
+  test('shows confirmation when user resolved some but not all comments', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+    // Add two comments
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Will be resolved' },
+    });
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 2, end_line: 2, body: 'Will stay unresolved' },
+    });
+    await request.post('/api/finish');
+
+    const round1 = (await request.get('/api/session').then(r => r.json())).review_round;
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    // Resolve only the first comment via API
+    const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
+    await request.put(`/api/comment/${comments[0].id}/resolve?path=${encodeURIComponent(filePath)}`, {
+      data: { resolved: true },
+    });
+
+    await loadPage(page);
+
+    // Click finish — one comment still unresolved, no new feedback → confirmation
+    await page.locator('#finishBtn').click();
+    await expect(page.locator('#noChangesOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/);
   });
 
   test('no confirmation when there are no unresolved comments', async ({ page }) => {

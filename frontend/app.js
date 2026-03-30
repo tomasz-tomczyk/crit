@@ -4310,7 +4310,6 @@
         showMiniToast('Failed to resolve comment');
         return;
       }
-      userActedThisRound = true;
       refreshFileComments(filePath);
     });
 
@@ -5021,7 +5020,6 @@
         showMiniToast('Failed to unresolve comment');
         return;
       }
-      userActedThisRound = true;
       refreshFileComments(filePath);
     });
 
@@ -5150,7 +5148,6 @@
             showMiniToast('Failed to unresolve comment');
             return;
           }
-          userActedThisRound = true;
           await refreshReviewComments();
           renderCommentsPanel();
         });
@@ -5173,7 +5170,6 @@
             showMiniToast('Failed to resolve comment');
             return;
           }
-          userActedThisRound = true;
           await refreshReviewComments();
           renderCommentsPanel();
         });
