@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -131,6 +132,67 @@ func resolveSlug(content []byte) string {
 
 	// Timestamp fallback
 	return "plan-" + time.Now().Format("2006-01-02-150405")
+}
+
+// planSessionsFile returns the path to the plan sessions mapping file.
+func planSessionsFile() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".crit", "plan-sessions.json")
+}
+
+type planSessionMapping struct {
+	Slug      string `json:"slug"`
+	CreatedAt string `json:"created_at"`
+}
+
+// lookupPlanSlug returns the pinned slug for a session_id, if one exists.
+func lookupPlanSlug(sessionID string) (string, bool) {
+	data, err := os.ReadFile(planSessionsFile())
+	if err != nil {
+		return "", false
+	}
+	var m map[string]planSessionMapping
+	if err := json.Unmarshal(data, &m); err != nil {
+		return "", false
+	}
+	entry, ok := m[sessionID]
+	if !ok {
+		return "", false
+	}
+	return entry.Slug, true
+}
+
+// savePlanSlug pins a slug to a session_id. Prunes entries older than 7 days.
+func savePlanSlug(sessionID, slug string) error {
+	path := planSessionsFile()
+
+	var m map[string]planSessionMapping
+	if data, err := os.ReadFile(path); err == nil {
+		json.Unmarshal(data, &m)
+	}
+	if m == nil {
+		m = make(map[string]planSessionMapping)
+	}
+
+	m[sessionID] = planSessionMapping{
+		Slug:      slug,
+		CreatedAt: time.Now().Format(time.RFC3339),
+	}
+
+	// Prune stale entries
+	cutoff := time.Now().Add(-7 * 24 * time.Hour)
+	for k, v := range m {
+		if t, err := time.Parse(time.RFC3339, v.CreatedAt); err == nil && t.Before(cutoff) {
+			delete(m, k)
+		}
+	}
+
+	os.MkdirAll(filepath.Dir(path), 0755)
+	out, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0644)
 }
 
 // isStdinPipe returns true if stdin is a pipe (not a terminal).
