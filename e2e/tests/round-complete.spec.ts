@@ -625,3 +625,187 @@ test.describe('Multi-Round — Frontend', () => {
     await expect(panelBadge.first()).toHaveText(/^R\d+$/);
   });
 });
+
+// ============================================================
+// No-Changes Confirmation
+// ============================================================
+test.describe('No-Changes Confirmation', () => {
+  test.beforeEach(async ({ request }) => {
+    await request.post('/api/round-complete');
+    await clearAllComments(request);
+  });
+
+  test('shows confirmation when finishing with only carried-forward comments', async ({ page, request }) => {
+    // Round 1: add a comment and finish
+    const filePath = await getTestFilePath(request);
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Carried forward comment' },
+    });
+    await request.post('/api/finish');
+
+    // Round 2: agent signals round-complete
+    const round1 = (await request.get('/api/session').then(r => r.json())).review_round;
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    // Load page with carried-forward comments
+    await loadPage(page);
+    await expect(page.locator('#finishBtn')).toBeEnabled();
+
+    // Click finish without taking any action
+    await page.locator('#finishBtn').click();
+
+    // Should show the no-changes confirmation, not the waiting overlay
+    await expect(page.locator('#noChangesOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/);
+  });
+
+  test('go back button returns to review', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Go back test' },
+    });
+    await request.post('/api/finish');
+
+    const round1 = (await request.get('/api/session').then(r => r.json())).review_round;
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    await loadPage(page);
+    await page.locator('#finishBtn').click();
+    await expect(page.locator('#noChangesOverlay')).toHaveClass(/active/);
+
+    // Click go back
+    await page.locator('#noChangesGoBack').click();
+    await expect(page.locator('#noChangesOverlay')).not.toHaveClass(/active/);
+    await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/);
+
+    // Should be back in reviewing state
+    await expect(page.locator('#finishBtn')).toBeEnabled();
+  });
+
+  test('send anyway proceeds to waiting state', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Send anyway test' },
+    });
+    await request.post('/api/finish');
+
+    const round1 = (await request.get('/api/session').then(r => r.json())).review_round;
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    await loadPage(page);
+    await page.locator('#finishBtn').click();
+    await expect(page.locator('#noChangesOverlay')).toHaveClass(/active/);
+
+    // Click send anyway
+    await page.locator('#noChangesSendAnyway').click();
+    await expect(page.locator('#noChangesOverlay')).not.toHaveClass(/active/);
+    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+  });
+
+  test('resolve all resolves comments and finishes as approved', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Resolve all test' },
+    });
+    await request.post('/api/finish');
+
+    const round1 = (await request.get('/api/session').then(r => r.json())).review_round;
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    await loadPage(page);
+    await page.locator('#finishBtn').click();
+    await expect(page.locator('#noChangesOverlay')).toHaveClass(/active/);
+
+    // Click resolve all
+    await page.locator('#noChangesResolveAll').click();
+    await expect(page.locator('#noChangesOverlay')).not.toHaveClass(/active/);
+    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+
+    // Verify all comments are resolved
+    const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
+    expect(comments.every((c: any) => c.resolved)).toBe(true);
+  });
+
+  test('no confirmation when user added a new comment', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Original comment' },
+    });
+    await request.post('/api/finish');
+
+    const round1 = (await request.get('/api/session').then(r => r.json())).review_round;
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    // Add a new comment via API (simulates user adding a comment this round)
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 2, end_line: 2, body: 'New comment this round' },
+    });
+
+    await loadPage(page);
+
+    // Click finish — should go straight to waiting (new non-carried-forward comment exists)
+    await page.locator('#finishBtn').click();
+    await expect(page.locator('#noChangesOverlay')).not.toHaveClass(/active/);
+    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+  });
+
+  test('no confirmation when user resolved a comment', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'To be resolved manually' },
+    });
+    await request.post('/api/finish');
+
+    const round1 = (await request.get('/api/session').then(r => r.json())).review_round;
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    await loadPage(page);
+
+    // Resolve the carried-forward comment via API
+    const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
+    const commentId = comments[0].id;
+    await request.put(`/api/comment/${commentId}/resolve?path=${encodeURIComponent(filePath)}`, {
+      data: { resolved: true },
+    });
+    await page.reload();
+    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+
+    // Click finish — no unresolved comments, should go straight to waiting
+    await page.locator('#finishBtn').click();
+    await expect(page.locator('#noChangesOverlay')).not.toHaveClass(/active/);
+    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+  });
+
+  test('no confirmation when there are no unresolved comments', async ({ page }) => {
+    // No comments at all — clicking finish should approve directly
+    await loadPage(page);
+    await page.locator('#finishBtn').click();
+    await expect(page.locator('#noChangesOverlay')).not.toHaveClass(/active/);
+    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+  });
+
+  test('Escape key closes the confirmation', async ({ page, request }) => {
+    const filePath = await getTestFilePath(request);
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Escape test' },
+    });
+    await request.post('/api/finish');
+
+    const round1 = (await request.get('/api/session').then(r => r.json())).review_round;
+    await request.post('/api/round-complete');
+    await waitForRound(request, round1);
+
+    await loadPage(page);
+    await page.locator('#finishBtn').click();
+    await expect(page.locator('#noChangesOverlay')).toHaveClass(/active/);
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#noChangesOverlay')).not.toHaveClass(/active/);
+  });
+});
