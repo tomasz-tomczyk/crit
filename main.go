@@ -1084,6 +1084,7 @@ func runPlan(args []string) {
 // decision (allow/deny) to stdout.
 func runPlanHook() {
 	var event struct {
+		SessionID string `json:"session_id"`
 		ToolInput struct {
 			Plan string `json:"plan"`
 		} `json:"tool_input"`
@@ -1097,7 +1098,21 @@ func runPlanHook() {
 	}
 
 	content := []byte(event.ToolInput.Plan)
-	slug := resolveSlug(content)
+
+	// Pin slug to session_id so heading changes don't break the session.
+	var slug string
+	if event.SessionID != "" {
+		if existing, ok := lookupPlanSlug(event.SessionID); ok {
+			slug = existing
+		} else {
+			slug = resolveSlug(content)
+			if err := savePlanSlug(event.SessionID, slug); err != nil {
+				fmt.Fprintf(os.Stderr, "crit plan-hook: warning: could not save slug mapping: %v\n", err)
+			}
+		}
+	} else {
+		slug = resolveSlug(content)
+	}
 	storageDir := planStorageDir(slug)
 
 	ver, err := savePlanVersion(storageDir, content)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -252,6 +253,97 @@ func TestApplyPlanOverrides(t *testing.T) {
 	}
 	if session.Files[0].Path != "auth-flow.md" {
 		t.Errorf("display path = %q, want %q", session.Files[0].Path, "auth-flow.md")
+	}
+}
+
+func TestLookupPlanSlug_NoFile(t *testing.T) {
+	// Point planSessionsFile to a temp location
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	_, ok := lookupPlanSlug("session-abc")
+	if ok {
+		t.Error("expected no slug for unknown session")
+	}
+}
+
+func TestSavePlanSlug_RoundTrip(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := savePlanSlug("session-1", "auth-flow-2026-03-30"); err != nil {
+		t.Fatalf("savePlanSlug: %v", err)
+	}
+
+	slug, ok := lookupPlanSlug("session-1")
+	if !ok {
+		t.Fatal("expected slug to be found")
+	}
+	if slug != "auth-flow-2026-03-30" {
+		t.Errorf("slug = %q, want %q", slug, "auth-flow-2026-03-30")
+	}
+
+	// Different session_id should not find it
+	_, ok = lookupPlanSlug("session-2")
+	if ok {
+		t.Error("expected no slug for different session")
+	}
+}
+
+func TestSavePlanSlug_StableAcrossHeadingChanges(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Simulate first ExitPlanMode: derive slug from heading, pin it
+	content1 := []byte("# Add User Auth\n\nPlan details")
+	slug1 := resolveSlug(content1)
+	savePlanSlug("session-x", slug1)
+
+	// Simulate second ExitPlanMode: heading changed, but lookup finds pinned slug
+	content2 := []byte("# Implement Authentication System\n\nRevised plan")
+	slug2 := resolveSlug(content2)
+
+	// Without pinning, these would be different
+	if slug1 == slug2 {
+		t.Skip("headings produced same slug — test not meaningful")
+	}
+
+	// With pinning, we get the original slug
+	pinned, ok := lookupPlanSlug("session-x")
+	if !ok {
+		t.Fatal("expected pinned slug")
+	}
+	if pinned != slug1 {
+		t.Errorf("pinned slug = %q, want original %q", pinned, slug1)
+	}
+}
+
+func TestSavePlanSlug_PrunesOldEntries(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Write a stale entry directly
+	path := planSessionsFile()
+	os.MkdirAll(filepath.Dir(path), 0755)
+	stale := map[string]planSessionMapping{
+		"old-session": {
+			Slug:      "old-plan",
+			CreatedAt: time.Now().Add(-8 * 24 * time.Hour).Format(time.RFC3339),
+		},
+	}
+	data, _ := json.Marshal(stale)
+	os.WriteFile(path, data, 0644)
+
+	// Save a new entry — should prune the old one
+	savePlanSlug("new-session", "new-plan")
+
+	_, ok := lookupPlanSlug("old-session")
+	if ok {
+		t.Error("expected stale entry to be pruned")
+	}
+	slug, ok := lookupPlanSlug("new-session")
+	if !ok || slug != "new-plan" {
+		t.Error("expected new entry to survive")
 	}
 }
 
