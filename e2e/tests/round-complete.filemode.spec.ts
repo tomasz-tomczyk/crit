@@ -143,8 +143,8 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     // Resolved comment should render as .comment-card.resolved-card
     await expect(page.locator('.comment-card.resolved-card')).toHaveCount(1);
 
-    // Should have resolved badge and body text
-    await expect(page.locator('.resolved-badge')).toContainText('Resolved');
+    // Should have Unresolve button indicating resolved state
+    await expect(page.locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
     // Expand to see body
     await page.locator('.comment-collapse-btn').click();
     await expect(page.locator('.comment-body')).toContainText('Will be resolved visually');

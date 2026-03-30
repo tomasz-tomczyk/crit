@@ -322,6 +322,6 @@ test.describe('Comments Panel — Git Mode', () => {
     const card = panelCards(page).first();
     await expect(card).toBeVisible();
     await expect(card.locator('.carried-forward-label')).toHaveCount(0);
-    await expect(card.locator('.resolved-badge')).toHaveCount(0);
+    await expect(card.locator('.resolve-btn--active')).toHaveCount(0);
   });
 });
