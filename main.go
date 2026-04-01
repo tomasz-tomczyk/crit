@@ -1540,7 +1540,18 @@ func runServe(args []string) {
 		prInfo = detectPRInfo()
 	}
 
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", sc.port))
+	// Bind the listener with retry for explicit ports (handles transient EADDRINUSE)
+	var listener net.Listener
+	for attempt := 0; attempt < 3; attempt++ {
+		listener, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", sc.port))
+		if err == nil {
+			break
+		}
+		if sc.port == 0 {
+			break // OS-assigned port won't benefit from retry
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
@@ -1606,7 +1617,7 @@ func runServe(args []string) {
 		go openBrowser(fmt.Sprintf("http://localhost:%d", addr.Port))
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
 	// Idle timeout checker
@@ -1637,6 +1648,16 @@ func runServe(args []string) {
 			log.Fatalf("Server error: %v", err)
 		}
 	}()
+
+	// Signal readiness to the parent process via FD 3 (the readiness pipe).
+	// The listener is already bound so the server can accept connections.
+	// Only attempt if _CRIT_READY_FD is set (startDaemon sets this env var).
+	if os.Getenv("_CRIT_READY_FD") == "3" {
+		if readyPipe := os.NewFile(3, "ready-pipe"); readyPipe != nil {
+			fmt.Fprintf(readyPipe, "%d\n", addr.Port)
+			readyPipe.Close()
+		}
+	}
 
 	<-ctx.Done()
 	close(watchStop)

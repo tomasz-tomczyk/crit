@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -129,6 +130,93 @@ func TestReadSessionFileMissing(t *testing.T) {
 	_, err := readSessionFile("nonexistent")
 	if err == nil {
 		t.Error("expected error for missing file")
+	}
+}
+
+func TestWriteSessionFile_Atomic(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	key := "atomictest1234"
+	entry := sessionEntry{
+		PID:       42,
+		Port:      8080,
+		CWD:       "/tmp/repo",
+		StartedAt: "2026-03-20T12:00:00Z",
+	}
+
+	// Write session file
+	if err := writeSessionFile(key, entry); err != nil {
+		t.Fatalf("writeSessionFile: %v", err)
+	}
+
+	// Verify the file contains valid JSON
+	path, _ := sessionFilePath(key)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading session file: %v", err)
+	}
+	var got sessionEntry
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("session file contains invalid JSON: %v", err)
+	}
+	if got.PID != entry.PID || got.Port != entry.Port || got.CWD != entry.CWD {
+		t.Errorf("got %+v, want %+v", got, entry)
+	}
+
+	// Verify no temp files are left behind
+	sessDir := filepath.Join(home, ".crit", "sessions")
+	entries, _ := os.ReadDir(sessDir)
+	for _, de := range entries {
+		if strings.HasSuffix(de.Name(), ".tmp") {
+			t.Errorf("temp file left behind: %s", de.Name())
+		}
+	}
+
+	// Overwrite and verify the new content is correct
+	entry2 := sessionEntry{
+		PID:       99,
+		Port:      9090,
+		CWD:       "/tmp/repo2",
+		StartedAt: "2026-03-21T12:00:00Z",
+	}
+	if err := writeSessionFile(key, entry2); err != nil {
+		t.Fatalf("writeSessionFile overwrite: %v", err)
+	}
+	got2, err := readSessionFile(key)
+	if err != nil {
+		t.Fatalf("readSessionFile after overwrite: %v", err)
+	}
+	if got2.PID != entry2.PID || got2.Port != entry2.Port || got2.CWD != entry2.CWD {
+		t.Errorf("after overwrite: got %+v, want %+v", got2, entry2)
+	}
+}
+
+func TestAcquireSessionLock_FlockBased(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	key := "locktest123456"
+
+	// Acquire lock
+	lock, err := acquireSessionLock(key)
+	if err != nil {
+		t.Fatalf("acquireSessionLock: %v", err)
+	}
+
+	// Verify lock file exists
+	sessDir := filepath.Join(home, ".crit", "sessions")
+	lockPath := filepath.Join(sessDir, key+".lock")
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Errorf("lock file not found: %v", err)
+	}
+
+	// Release lock
+	releaseSessionLock(lock)
+
+	// Verify lock file is cleaned up
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Error("lock file not removed after release")
 	}
 }
 

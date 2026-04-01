@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -71,6 +72,7 @@ func sessionFilePath(key string) (string, error) {
 }
 
 // writeSessionFile writes a session entry to ~/.crit/sessions/<key>.json.
+// Uses atomic temp file + fsync + rename to prevent corruption.
 func writeSessionFile(key string, entry sessionEntry) error {
 	dir, err := sessionsDir()
 	if err != nil {
@@ -83,7 +85,29 @@ func writeSessionFile(key string, entry sessionEntry) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, key+".json"), data, 0644)
+
+	target := filepath.Join(dir, key+".json")
+	tmp, err := os.CreateTemp(dir, key+"*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, target)
 }
 
 // readSessionFile reads a session entry from ~/.crit/sessions/<key>.json.
@@ -188,7 +212,7 @@ func isDaemonAlive(s sessionEntry) bool {
 	}
 	// HTTP health probe — ensures the port belongs to our daemon, not a reused PID.
 	// We validate the response body to guard against a non-crit process on the same port.
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/health", s.Port))
 	if err != nil {
 		return false
@@ -228,10 +252,10 @@ func daemonHasBrowser(s sessionEntry) bool {
 	return *result.BrowserClients
 }
 
-// acquireSessionLock tries to acquire a file-based lock for a session key.
+// acquireSessionLock tries to acquire a file-based lock for a session key using flock().
 // Returns the lock file handle on success. The caller must call releaseSessionLock.
-// Retries with a short sleep for up to 5 seconds. If the lock holder is dead
-// (e.g. killed with SIGKILL), the stale lock is automatically removed.
+// flock is automatically released when the process dies, preventing stale locks.
+// Uses exponential backoff starting at 100ms, doubling up to 500ms.
 func acquireSessionLock(key string) (*os.File, error) {
 	dir, err := sessionsDir()
 	if err != nil {
@@ -241,52 +265,31 @@ func acquireSessionLock(key string) (*os.File, error) {
 		return nil, fmt.Errorf("creating sessions directory: %w", err)
 	}
 	lockPath := filepath.Join(dir, key+".lock")
+
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+
 	deadline := time.Now().Add(5 * time.Second)
+	backoff := 100 * time.Millisecond
 	for time.Now().Before(deadline) {
-		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
-			// Write our PID so other processes can detect stale locks
-			fmt.Fprintf(f, "%d", os.Getpid())
 			return f, nil
 		}
-		// Lock file exists — check if the holder is still alive
-		if removeStaleLock(lockPath) {
-			continue // stale lock removed, retry immediately
+		time.Sleep(backoff)
+		if backoff < 500*time.Millisecond {
+			backoff *= 2
 		}
-		time.Sleep(100 * time.Millisecond)
 	}
+	f.Close()
 	return nil, fmt.Errorf("could not acquire session lock for %s", key)
 }
 
-// removeStaleLock reads the PID from a lock file and removes it if the
-// holder process is no longer alive. Returns true if the lock was removed.
-func removeStaleLock(lockPath string) bool {
-	data, err := os.ReadFile(lockPath)
-	if err != nil {
-		return false
-	}
-	var pid int
-	if _, err := fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &pid); err != nil {
-		// Corrupt or empty lock file — remove it
-		os.Remove(lockPath)
-		return true
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		os.Remove(lockPath)
-		return true
-	}
-	// Signal 0 checks if the process exists without actually signaling it
-	if err := proc.Signal(syscall.Signal(0)); err != nil {
-		// Process is dead — remove stale lock
-		os.Remove(lockPath)
-		return true
-	}
-	return false
-}
-
-// releaseSessionLock closes and removes the lock file.
+// releaseSessionLock unlocks, closes, and removes the lock file.
 func releaseSessionLock(f *os.File) {
+	syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	name := f.Name()
 	f.Close()
 	os.Remove(name)
@@ -295,6 +298,7 @@ func releaseSessionLock(f *os.File) {
 // startDaemon spawns a crit _serve process in the background and waits for it to be ready.
 // The key must match what the daemon computes in runServe (sessionKey(cwd, fileArgs)).
 // Raw args (including flags) are passed through to _serve which parses them itself.
+// Uses an OS pipe (FD 3) for the daemon to signal readiness by writing its port number.
 func startDaemon(key string, args []string) (sessionEntry, error) {
 	// Acquire file lock to prevent two simultaneous crit calls from racing
 	lock, err := acquireSessionLock(key)
@@ -332,16 +336,29 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 	}
 	cmd.Stderr = logFile
 
+	// Create an OS pipe for readiness signaling — the daemon writes its port to FD 3
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		logFile.Close()
+		return sessionEntry{}, fmt.Errorf("creating readiness pipe: %w", err)
+	}
+	cmd.ExtraFiles = []*os.File{writeEnd} // becomes FD 3 in the child
+	cmd.Env = append(os.Environ(), "_CRIT_READY_FD=3")
+
 	// Detach from parent process group so it survives parent exit
 	cmd.SysProcAttr = daemonSysProcAttr()
 
-	// Clear existing session file so the poll loop doesn't find an old daemon
+	// Clear existing session file so findAliveSession doesn't find an old daemon
 	removeSessionFile(key)
 
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
+		readEnd.Close()
+		writeEnd.Close()
 		return sessionEntry{}, fmt.Errorf("starting daemon: %w", err)
 	}
+	// Close write end in parent — only the child should write to it
+	writeEnd.Close()
 	// Close log file handle in parent — the daemon process owns it now
 	logFile.Close()
 	newPID := cmd.Process.Pid
@@ -350,34 +367,75 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 
-	// Wait for OUR daemon to write its session file (poll up to 5 seconds)
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	// Read port from the readiness pipe with a 10-second timeout.
+	// The daemon writes "port\n" once it's accepting connections.
+	portCh := make(chan int, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 64)
+		n, err := readEnd.Read(buf)
+		readEnd.Close()
+		if err != nil || n == 0 {
+			errCh <- fmt.Errorf("daemon closed readiness pipe without writing port")
+			return
+		}
+		port, err := strconv.Atoi(strings.TrimSpace(string(buf[:n])))
+		if err != nil {
+			errCh <- fmt.Errorf("daemon wrote invalid port: %q", string(buf[:n]))
+			return
+		}
+		portCh <- port
+	}()
+
+	select {
+	case port := <-portCh:
+		// Daemon is ready — detach the process handle
+		cmd.Process.Release()
+
+		// Read session file for full entry (daemon writes it before signaling the pipe)
+		entry, err := readSessionFile(key)
+		if err != nil {
+			// Session file not yet flushed — construct entry from what we know
+			cwd, _ := resolvedCWD()
+			entry = sessionEntry{
+				PID:       newPID,
+				Port:      port,
+				CWD:       cwd,
+				StartedAt: time.Now().UTC().Format(time.RFC3339),
+			}
+		}
+		return entry, nil
+
+	case readErr := <-errCh:
+		// Pipe closed or invalid data — check if daemon exited
 		select {
-		case err := <-exited:
-			// Daemon exited before becoming ready — read log for details
+		case waitErr := <-exited:
 			msg := readDaemonLog(key)
 			if msg != "" {
 				return sessionEntry{}, fmt.Errorf("daemon exited: %s", msg)
 			}
-			return sessionEntry{}, fmt.Errorf("daemon exited: %v", err)
+			return sessionEntry{}, fmt.Errorf("daemon exited: %v (pipe: %v)", waitErr, readErr)
 		default:
 		}
-		time.Sleep(100 * time.Millisecond)
-		entry, err := readSessionFile(key)
-		if err != nil {
-			continue
-		}
-		// Verify this is OUR daemon, not a leftover from a previous one
-		if entry.PID == newPID && isDaemonAlive(entry) {
-			return entry, nil
-		}
-	}
+		// Daemon still running but pipe failed
+		cmd.Process.Kill()
+		<-exited
+		return sessionEntry{}, fmt.Errorf("daemon startup failed: %v", readErr)
 
-	// Timed out — kill the orphan process
-	cmd.Process.Kill()
-	<-exited // drain the Wait goroutine
-	return sessionEntry{}, fmt.Errorf("daemon did not start within 5 seconds")
+	case err := <-exited:
+		readEnd.Close()
+		msg := readDaemonLog(key)
+		if msg != "" {
+			return sessionEntry{}, fmt.Errorf("daemon exited: %s", msg)
+		}
+		return sessionEntry{}, fmt.Errorf("daemon exited: %v", err)
+
+	case <-time.After(10 * time.Second):
+		readEnd.Close()
+		cmd.Process.Kill()
+		<-exited
+		return sessionEntry{}, fmt.Errorf("daemon did not start within 10 seconds")
+	}
 }
 
 // sessionLogPath returns the path for a daemon's log file.
@@ -404,7 +462,7 @@ func readDaemonLog(key string) string {
 
 func daemonSysProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{
-		Setpgid: true, // new process group, survives parent exit
+		Setsid: true, // new session, fully detached from controlling terminal
 	}
 }
 
