@@ -1120,7 +1120,10 @@ func (s *Session) ClearAllComments() {
 // rebuilds the file list with new diffs, and notifies connected browsers via SSE.
 // Comments are preserved for files that still appear in the new diff.
 func (s *Session) ChangeBaseBranch(branch string) error {
-	if s.Mode != "git" {
+	s.mu.RLock()
+	mode := s.Mode
+	s.mu.RUnlock()
+	if mode != "git" {
 		return fmt.Errorf("base branch can only be changed in git mode")
 	}
 
@@ -1133,11 +1136,15 @@ func (s *Session) ChangeBaseBranch(branch string) error {
 		}
 	}
 
+	// Save old state for rollback
+	oldOverride := getDefaultBranchOverride()
+
 	// Update the global override so ChangedFiles() uses the new base
-	defaultBranchOverride = branch
+	setDefaultBranchOverride(branch)
 
 	s.mu.Lock()
 	oldBaseRef := s.BaseRef
+	oldBaseBranchName := s.BaseBranchName
 	s.BaseRef = mb
 	s.BaseBranchName = branch
 	repoRoot := s.RepoRoot
@@ -1161,8 +1168,11 @@ func (s *Session) ChangeBaseBranch(branch string) error {
 		changes, err = changedFilesOnDefaultInDir(repoRoot)
 	}
 	if err != nil {
+		// Rollback all state
+		setDefaultBranchOverride(oldOverride)
 		s.mu.Lock()
 		s.BaseRef = oldBaseRef
+		s.BaseBranchName = oldBaseBranchName
 		s.mu.Unlock()
 		return fmt.Errorf("detecting changes: %w", err)
 	}

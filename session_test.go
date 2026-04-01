@@ -895,8 +895,11 @@ func TestChangeBaseBranch(t *testing.T) {
 	if !hasFeature {
 		t.Error("expected feature.go in file list when diffing against main")
 	}
-	if session.BaseBranchName != "main" {
-		t.Errorf("BaseBranchName = %q, want %q", session.BaseBranchName, "main")
+	session.mu.RLock()
+	baseName := session.BaseBranchName
+	session.mu.RUnlock()
+	if baseName != "main" {
+		t.Errorf("BaseBranchName = %q, want %q", baseName, "main")
 	}
 
 	// Now change base to "production"
@@ -908,6 +911,7 @@ func TestChangeBaseBranch(t *testing.T) {
 	// With production as base, only feature.go should appear (not prod.go)
 	hasProd = false
 	hasFeature = false
+	session.mu.RLock()
 	for _, f := range session.Files {
 		if f.Path == "prod.go" {
 			hasProd = true
@@ -916,16 +920,19 @@ func TestChangeBaseBranch(t *testing.T) {
 			hasFeature = true
 		}
 	}
+	baseName = session.BaseBranchName
+	baseRef := session.BaseRef
+	session.mu.RUnlock()
 	if hasProd {
 		t.Error("prod.go should NOT appear when diffing against production")
 	}
 	if !hasFeature {
 		t.Error("expected feature.go in file list when diffing against production")
 	}
-	if session.BaseBranchName != "production" {
-		t.Errorf("BaseBranchName = %q, want %q", session.BaseBranchName, "production")
+	if baseName != "production" {
+		t.Errorf("BaseBranchName = %q, want %q", baseName, "production")
 	}
-	if session.BaseRef == "" {
+	if baseRef == "" {
 		t.Error("BaseRef should be set after changing base branch")
 	}
 }

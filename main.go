@@ -1468,7 +1468,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		*baseBranch = cfg.BaseBranch
 	}
 	if *baseBranch != "" {
-		defaultBranchOverride = *baseBranch
+		setDefaultBranchOverride(*baseBranch)
 	}
 
 	var ignorePatterns []string

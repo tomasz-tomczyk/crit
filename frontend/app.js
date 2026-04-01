@@ -6423,6 +6423,7 @@
       if (!res.ok) return;
       baseBranches = await res.json();
       if (!baseBranches || baseBranches.length < 2) {
+        baseBranchPickerEl.classList.remove('open');
         baseBranchPickerEl.style.display = 'none';
         document.getElementById('baseBranchArrow').style.display = 'none';
         return;
@@ -6430,6 +6431,7 @@
       baseBranchPickerEl.style.display = '';
       renderBaseBranchList();
     } catch (e) {
+      baseBranchPickerEl.classList.remove('open');
       baseBranchPickerEl.style.display = 'none';
       document.getElementById('baseBranchArrow').style.display = 'none';
     }
@@ -6520,8 +6522,10 @@
       updateHighlight();
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      highlightedIdx = Math.max(highlightedIdx - 1, 0);
-      updateHighlight();
+      if (highlightedIdx > 0) {
+        highlightedIdx--;
+        updateHighlight();
+      }
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (highlightedIdx >= 0 && highlightedIdx < items.length) {

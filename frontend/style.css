@@ -66,6 +66,8 @@ body {
   border: 1px solid var(--accent-bg);
   padding: 3px 10px;
   border-radius: 6px;
+  box-sizing: border-box;
+  height: 24px;
 }
 .branch-icon {
   display: flex;
@@ -101,10 +103,6 @@ body {
   box-sizing: border-box;
   height: 24px;
   transition: background 0.1s, border-color 0.1s;
-}
-.header-context {
-  box-sizing: border-box;
-  height: 24px;
 }
 .base-branch-btn:hover {
   background: var(--accent-bg);
