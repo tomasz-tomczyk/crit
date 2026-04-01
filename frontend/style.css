@@ -73,7 +73,7 @@ body {
 }
 .branch-icon svg { width: 14px; height: 14px; }
 
-/* Base branch picker (header-left, after branch name) */
+/* Base branch picker (header-left, before branch name) */
 .base-branch-picker {
   position: relative;
   display: inline-flex;
@@ -87,22 +87,21 @@ body {
 .base-branch-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--fg-muted);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  padding: 3px 8px;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent-bg);
+  padding: 3px 10px;
   border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
   line-height: 1.4;
-  transition: color 0.1s, border-color 0.1s;
+  transition: background 0.1s, border-color 0.1s;
 }
 .base-branch-btn:hover {
-  color: var(--fg);
-  border-color: var(--fg-muted);
+  background: var(--accent-bg);
 }
 .base-branch-label {
   max-width: 160px;
@@ -159,12 +158,13 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.base-branch-item:hover { background: var(--bg-hover); }
+.base-branch-item:hover, .base-branch-item.highlighted { background: var(--bg-hover); }
 .base-branch-item.active {
   background: var(--accent-subtle);
   color: var(--accent);
   font-weight: 600;
 }
+.base-branch-item.active.highlighted { background: var(--accent-bg); }
 
 @media print {
   .pr-toggle-btn { display: none; }

@@ -415,6 +415,7 @@
       if (session.base_ref) {
         currentBaseBranch = session.base_branch_name || '';
         document.getElementById('baseBranchLabel').textContent = currentBaseBranch || 'base';
+        document.getElementById('baseBranchArrow').style.display = '';
         fetchBranches();
       }
     } else if (session.mode !== 'git' && session.files && session.files.length === 1) {
@@ -6414,6 +6415,7 @@
   const baseBranchPickerEl = document.getElementById('baseBranchPicker');
   let baseBranches = [];
   let currentBaseBranch = ''; // display name of the current base branch
+  let highlightedIdx = -1;    // keyboard-highlighted item index
 
   async function fetchBranches() {
     try {
@@ -6422,12 +6424,28 @@
       baseBranches = await res.json();
       if (!baseBranches || baseBranches.length < 2) {
         baseBranchPickerEl.style.display = 'none';
+        document.getElementById('baseBranchArrow').style.display = 'none';
         return;
       }
       baseBranchPickerEl.style.display = '';
       renderBaseBranchList();
     } catch (e) {
       baseBranchPickerEl.style.display = 'none';
+      document.getElementById('baseBranchArrow').style.display = 'none';
+    }
+  }
+
+  function getVisibleItems() {
+    return Array.from(document.getElementById('baseBranchList').querySelectorAll('.base-branch-item'));
+  }
+
+  function updateHighlight() {
+    var items = getVisibleItems();
+    items.forEach(function(el, i) {
+      el.classList.toggle('highlighted', i === highlightedIdx);
+    });
+    if (highlightedIdx >= 0 && highlightedIdx < items.length) {
+      items[highlightedIdx].scrollIntoView({ block: 'nearest' });
     }
   }
 
@@ -6445,44 +6463,10 @@
     if (filtered.length === 0) {
       list.innerHTML = '<div style="padding: 8px 10px; font-size: 12px; color: var(--fg-muted);">No matching branches</div>';
     }
+    highlightedIdx = -1;
   }
 
-  // Toggle dropdown
-  document.getElementById('baseBranchBtn').addEventListener('click', function() {
-    baseBranchPickerEl.classList.toggle('open');
-    if (baseBranchPickerEl.classList.contains('open')) {
-      var search = document.getElementById('baseBranchSearch');
-      search.value = '';
-      renderBaseBranchList();
-      search.focus();
-    }
-  });
-
-  // Filter on typing
-  document.getElementById('baseBranchSearch').addEventListener('input', function(e) {
-    renderBaseBranchList(e.target.value);
-  });
-
-  // Prevent search input keystrokes from triggering global shortcuts
-  document.getElementById('baseBranchSearch').addEventListener('keydown', function(e) {
-    e.stopPropagation();
-    if (e.key === 'Escape') {
-      baseBranchPickerEl.classList.remove('open');
-    }
-  });
-
-  // Close on outside click
-  document.addEventListener('click', function(e) {
-    if (!baseBranchPickerEl.contains(e.target)) {
-      baseBranchPickerEl.classList.remove('open');
-    }
-  });
-
-  // Item selection
-  document.getElementById('baseBranchList').addEventListener('click', async function(e) {
-    var item = e.target.closest('.base-branch-item');
-    if (!item) return;
-    var branch = item.dataset.branch;
+  async function selectBaseBranch(branch) {
     if (branch === currentBaseBranch) {
       baseBranchPickerEl.classList.remove('open');
       return;
@@ -6491,7 +6475,6 @@
     document.getElementById('baseBranchLabel').textContent = branch;
     currentBaseBranch = branch;
 
-    // Call server to change the base branch
     try {
       var res = await fetch('/api/base-branch', {
         method: 'POST',
@@ -6503,12 +6486,66 @@
         console.error('Failed to change base branch:', errText);
         return;
       }
-      // Reload the view with new diffs
       await reloadForScope();
       fetchCommits();
     } catch (err) {
       console.error('Error changing base branch:', err);
     }
+  }
+
+  // Toggle dropdown
+  document.getElementById('baseBranchBtn').addEventListener('click', function() {
+    baseBranchPickerEl.classList.toggle('open');
+    if (baseBranchPickerEl.classList.contains('open')) {
+      var search = document.getElementById('baseBranchSearch');
+      search.value = '';
+      highlightedIdx = -1;
+      renderBaseBranchList();
+      search.focus();
+    }
+  });
+
+  // Filter on typing
+  document.getElementById('baseBranchSearch').addEventListener('input', function(e) {
+    renderBaseBranchList(e.target.value);
+  });
+
+  // Keyboard navigation in search input
+  document.getElementById('baseBranchSearch').addEventListener('keydown', function(e) {
+    e.stopPropagation();
+    var items = getVisibleItems();
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      highlightedIdx = Math.min(highlightedIdx + 1, items.length - 1);
+      updateHighlight();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      highlightedIdx = Math.max(highlightedIdx - 1, 0);
+      updateHighlight();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (highlightedIdx >= 0 && highlightedIdx < items.length) {
+        var branch = items[highlightedIdx].dataset.branch;
+        if (branch) selectBaseBranch(branch);
+      }
+    } else if (e.key === 'Escape') {
+      baseBranchPickerEl.classList.remove('open');
+    }
+  });
+
+  // Close on outside click
+  document.addEventListener('click', function(e) {
+    if (!baseBranchPickerEl.contains(e.target)) {
+      baseBranchPickerEl.classList.remove('open');
+    }
+  });
+
+  // Item selection via click
+  document.getElementById('baseBranchList').addEventListener('click', function(e) {
+    var item = e.target.closest('.base-branch-item');
+    if (!item) return;
+    var branch = item.dataset.branch;
+    if (branch) selectBaseBranch(branch);
   });
 
   // ===== TOC Toggle =====
