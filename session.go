@@ -774,7 +774,7 @@ func (s *Session) RefreshFileContent() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, f := range s.Files {
-		if f.AbsPath == "" {
+		if f.AbsPath == "" || f.Lazy {
 			continue
 		}
 		data, err := os.ReadFile(f.AbsPath)
