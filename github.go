@@ -99,7 +99,8 @@ type prInfoRaw struct {
 }
 
 // detectPRInfo returns PR metadata for the current branch.
-// Returns nil if gh is unavailable or no PR exists.
+// Returns nil if gh is unavailable, no PR exists, or the PR is merged/closed
+// (to avoid associating a new local branch with a stale PR that had the same name).
 func detectPRInfo() *PRInfo {
 	if err := requireGH(); err != nil {
 		return nil
@@ -113,7 +114,7 @@ func detectPRInfo() *PRInfo {
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil
 	}
-	if raw.URL == "" {
+	if raw.URL == "" || raw.State == "MERGED" || raw.State == "CLOSED" {
 		return nil
 	}
 	return &PRInfo{
