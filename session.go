@@ -14,6 +14,11 @@ import (
 	"time"
 )
 
+// lazyFileThreshold is the maximum number of files to eagerly load
+// content and diffs for. Files beyond this threshold are loaded on demand
+// when the user expands them in the UI. Only applies when >threshold files.
+const lazyFileThreshold = 100
+
 // fileHash returns a stable hash string for file content.
 func fileHash(data []byte) string {
 	return fmt.Sprintf("sha256:%x", sha256.Sum256(data))
@@ -229,7 +234,13 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 		awaitingFirstReview: true,
 	}
 
-	for _, fc := range changes {
+	// Fetch per-file stats upfront if we'll have lazy files.
+	var numstats map[string]NumstatEntry
+	if len(changes) > lazyFileThreshold && baseRef != "" {
+		numstats, _ = DiffNumstatDir(baseRef, root)
+	}
+
+	for i, fc := range changes {
 		absPath := filepath.Join(root, fc.Path)
 		fe := &FileEntry{
 			Path:    fc.Path,
@@ -237,6 +248,26 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 			Status:  fc.Status,
 		}
 		fe.FileType = detectFileType(fc.Path)
+
+		// Beyond the threshold: store metadata only, defer content + diff loading
+		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
+			fe.Lazy = true
+			fe.Comments = []Comment{}
+			if ns, ok := numstats[fc.Path]; ok {
+				fe.LazyAdditions = ns.Additions
+				fe.LazyDeletions = ns.Deletions
+			} else if fc.Status == "untracked" || fc.Status == "added" {
+				// Untracked/added files won't appear in numstat; count lines
+				if data, err := os.ReadFile(absPath); err == nil {
+					fe.LazyAdditions = strings.Count(string(data), "\n")
+					if len(data) > 0 && data[len(data)-1] != '\n' {
+						fe.LazyAdditions++
+					}
+				}
+			}
+			s.Files = append(s.Files, fe)
+			continue
+		}
 
 		// Read content (skip for deleted files)
 		if fc.Status != "deleted" {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2453,5 +2454,85 @@ func TestEnsureLoadedNotLazy(t *testing.T) {
 	}
 	if fe.Content != "already loaded" {
 		t.Fatal("content should be unchanged for non-lazy file")
+	}
+}
+
+func TestNewSessionFromGitLazyThreshold(t *testing.T) {
+	dir := initTestRepo(t)
+	defaultBranchOverride = ""
+	defer func() { defaultBranchOverride = "" }()
+
+	runGit(t, dir, "checkout", "-b", "feature-many-files")
+	for i := 0; i < 120; i++ {
+		name := fmt.Sprintf("file%03d.go", i)
+		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("package main\n// file %d\n", i))
+	}
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add 120 files")
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	s, err := NewSessionFromGit(nil)
+	if err != nil {
+		t.Fatalf("NewSessionFromGit failed: %v", err)
+	}
+
+	if len(s.Files) != 120 {
+		t.Fatalf("expected 120 files, got %d", len(s.Files))
+	}
+
+	eagerCount, lazyCount := 0, 0
+	for _, f := range s.Files {
+		if f.Lazy {
+			lazyCount++
+			if f.Content != "" {
+				t.Errorf("lazy file %s should not have content loaded", f.Path)
+			}
+		} else {
+			eagerCount++
+			if f.Content == "" && f.Status != "deleted" {
+				t.Errorf("eager file %s should have content", f.Path)
+			}
+		}
+	}
+
+	if eagerCount != 100 {
+		t.Errorf("expected 100 eager files, got %d", eagerCount)
+	}
+	if lazyCount != 20 {
+		t.Errorf("expected 20 lazy files, got %d", lazyCount)
+	}
+}
+
+func TestNewSessionFromGitUnderThreshold(t *testing.T) {
+	dir := initTestRepo(t)
+	defaultBranchOverride = ""
+	defer func() { defaultBranchOverride = "" }()
+
+	runGit(t, dir, "checkout", "-b", "feature-few-files")
+	for i := 0; i < 5; i++ {
+		writeFile(t, filepath.Join(dir, fmt.Sprintf("small%d.go", i)), "package main\n")
+	}
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add 5 files")
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	s, err := NewSessionFromGit(nil)
+	if err != nil {
+		t.Fatalf("NewSessionFromGit failed: %v", err)
+	}
+
+	for _, f := range s.Files {
+		if f.Lazy {
+			t.Errorf("file %s should not be lazy when under threshold", f.Path)
+		}
+		if f.Content == "" && f.Status != "deleted" {
+			t.Errorf("file %s should have content loaded", f.Path)
+		}
 	}
 }
