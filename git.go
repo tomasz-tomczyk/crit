@@ -59,19 +59,37 @@ var (
 	defaultBranchOnce     sync.Once
 	defaultBranchResult   string
 	defaultBranchOverride string
+	defaultBranchMu       sync.RWMutex // protects defaultBranchOverride
 )
 
 // DefaultBranch returns the name of the default branch (main or master).
 // The result is cached after the first call since it doesn't change during a session.
 // If defaultBranchOverride is set, it is returned immediately without caching.
 func DefaultBranch() string {
-	if defaultBranchOverride != "" {
-		return defaultBranchOverride
+	defaultBranchMu.RLock()
+	override := defaultBranchOverride
+	defaultBranchMu.RUnlock()
+	if override != "" {
+		return override
 	}
 	defaultBranchOnce.Do(func() {
 		defaultBranchResult = detectDefaultBranch()
 	})
 	return defaultBranchResult
+}
+
+// setDefaultBranchOverride safely updates the default branch override.
+func setDefaultBranchOverride(branch string) {
+	defaultBranchMu.Lock()
+	defaultBranchOverride = branch
+	defaultBranchMu.Unlock()
+}
+
+// getDefaultBranchOverride safely reads the default branch override.
+func getDefaultBranchOverride() string {
+	defaultBranchMu.RLock()
+	defer defaultBranchMu.RUnlock()
+	return defaultBranchOverride
 }
 
 func detectDefaultBranch() string {
@@ -96,6 +114,28 @@ func detectDefaultBranch() string {
 		return "master"
 	}
 	return "main"
+}
+
+// RemoteBranches returns the names of all remote branches (without the "origin/" prefix).
+// The result excludes HEAD. If dir is non-empty, git runs in that directory.
+func RemoteBranches(dir string) ([]string, error) {
+	cmd := exec.Command("git", "for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/")
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("for-each-ref failed: %w", err)
+	}
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		name := strings.TrimPrefix(line, "origin/")
+		if name == "" || name == "HEAD" {
+			continue
+		}
+		branches = append(branches, name)
+	}
+	return branches, nil
 }
 
 // CurrentBranch returns the name of the current branch.

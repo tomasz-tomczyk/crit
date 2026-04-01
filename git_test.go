@@ -367,6 +367,47 @@ func TestDefaultBranchOverride(t *testing.T) {
 	}
 }
 
+func TestRemoteBranches(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Create a bare remote and push branches
+	bare := t.TempDir()
+	runGit(t, bare, "init", "--bare")
+	runGit(t, dir, "remote", "add", "origin", bare)
+	runGit(t, dir, "push", "origin", "main")
+
+	runGit(t, dir, "checkout", "-b", "production")
+	writeFile(t, filepath.Join(dir, "prod.go"), "package main\n")
+	runGit(t, dir, "add", "prod.go")
+	runGit(t, dir, "commit", "-m", "prod")
+	runGit(t, dir, "push", "origin", "production")
+
+	runGit(t, dir, "checkout", "main")
+
+	branches, err := RemoteBranches(dir)
+	if err != nil {
+		t.Fatalf("RemoteBranches: %v", err)
+	}
+
+	// Should contain "main" and "production", not "HEAD"
+	has := map[string]bool{}
+	for _, b := range branches {
+		has[b] = true
+	}
+	if !has["main"] {
+		t.Errorf("expected 'main' in branches, got %v", branches)
+	}
+	if !has["production"] {
+		t.Errorf("expected 'production' in branches, got %v", branches)
+	}
+	if has["HEAD"] {
+		t.Error("HEAD should be filtered out")
+	}
+}
+
 func TestChangedFilesBranch(t *testing.T) {
 	dir := initTestRepo(t)
 	origDir, _ := os.Getwd()

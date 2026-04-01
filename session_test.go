@@ -843,6 +843,100 @@ func TestNewSessionFromGit_BaseBranchParam(t *testing.T) {
 	}
 }
 
+// TestChangeBaseBranch verifies that changing the base branch updates the session's
+// BaseRef, BaseBranchName, and file list to reflect the new diff base.
+func TestChangeBaseBranch(t *testing.T) {
+	dir := initTestRepo(t)
+
+	defaultBranchOnce = sync.Once{}
+	defaultBranchOverride = ""
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer func() {
+		os.Chdir(origDir)
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+	}()
+
+	// main has: main.go
+	// Create "production" branch off main with extra files
+	runGit(t, dir, "checkout", "-b", "production")
+	writeFile(t, filepath.Join(dir, "prod.go"), "package main\n")
+	runGit(t, dir, "add", "prod.go")
+	runGit(t, dir, "commit", "-m", "production commit")
+
+	// Create feature branch off production
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, filepath.Join(dir, "feature.go"), "package main\n")
+	runGit(t, dir, "add", "feature.go")
+	runGit(t, dir, "commit", "-m", "feature commit")
+
+	// Create session with default base (main)
+	session, err := NewSessionFromGit(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// With main as base, both prod.go and feature.go should appear
+	hasProd := false
+	hasFeature := false
+	for _, f := range session.Files {
+		if f.Path == "prod.go" {
+			hasProd = true
+		}
+		if f.Path == "feature.go" {
+			hasFeature = true
+		}
+	}
+	if !hasProd {
+		t.Error("expected prod.go in file list when diffing against main")
+	}
+	if !hasFeature {
+		t.Error("expected feature.go in file list when diffing against main")
+	}
+	session.mu.RLock()
+	baseName := session.BaseBranchName
+	session.mu.RUnlock()
+	if baseName != "main" {
+		t.Errorf("BaseBranchName = %q, want %q", baseName, "main")
+	}
+
+	// Now change base to "production"
+	err = session.ChangeBaseBranch("production")
+	if err != nil {
+		t.Fatalf("ChangeBaseBranch: %v", err)
+	}
+
+	// With production as base, only feature.go should appear (not prod.go)
+	hasProd = false
+	hasFeature = false
+	session.mu.RLock()
+	for _, f := range session.Files {
+		if f.Path == "prod.go" {
+			hasProd = true
+		}
+		if f.Path == "feature.go" {
+			hasFeature = true
+		}
+	}
+	baseName = session.BaseBranchName
+	baseRef := session.BaseRef
+	session.mu.RUnlock()
+	if hasProd {
+		t.Error("prod.go should NOT appear when diffing against production")
+	}
+	if !hasFeature {
+		t.Error("expected feature.go in file list when diffing against production")
+	}
+	if baseName != "production" {
+		t.Errorf("BaseBranchName = %q, want %q", baseName, "production")
+	}
+	if baseRef == "" {
+		t.Error("BaseRef should be set after changing base branch")
+	}
+}
+
 // TestNewSessionFromFiles_BaseBranch verifies that setting defaultBranchOverride
 // causes NewSessionFromFiles to compute a baseRef against the override branch.
 func TestNewSessionFromFiles_BaseBranch(t *testing.T) {
