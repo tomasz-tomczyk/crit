@@ -3446,3 +3446,21 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   opacity: 0.5;
   pointer-events: none;
 }
+
+/* Lazy file loading spinner */
+.file-section-loading .file-header-name::after {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-left: 8px;
+  border: 2px solid var(--border);
+  border-top-color: var(--fg);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

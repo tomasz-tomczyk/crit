@@ -226,69 +226,119 @@
   }
 
   // Fetch and build file objects from the API for a list of file infos.
+  // Files marked as lazy by the backend are returned with metadata only;
+  // their content/diff/comments are fetched on demand when expanded.
   async function loadAllFileData(fileInfos, scope) {
-    return Promise.all(fileInfos.map(async (fi) => {
-      let diffUrl = '/api/file/diff?path=' + enc(fi.path);
-      if (scope && scope !== 'all') {
-        diffUrl += '&scope=' + enc(scope);
-      }
-      if (diffCommit) {
-        diffUrl += '&commit=' + enc(diffCommit);
-      }
-      const [fileRes, commentsRes, diffRes] = await Promise.all([
-        fetch('/api/file?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : { content: '' }; }).catch(function() { return { content: '' }; }),
-        fetch('/api/file/comments?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
-        fetch(diffUrl).then(function(r) { return r.ok ? r.json() : { hunks: [] }; }).catch(function() { return { hunks: [] }; }),
-      ]);
+    const hasLazy = fileInfos.some(function(fi) { return fi.lazy; });
 
-      const f = {
+    // If no lazy files, load everything eagerly (identical to previous behavior)
+    if (!hasLazy) {
+      return Promise.all(fileInfos.map(function(fi) { return loadSingleFile(fi, scope); }));
+    }
+
+    // Split into eager and lazy batches
+    var eager = [];
+    var lazy = [];
+    for (var i = 0; i < fileInfos.length; i++) {
+      if (fileInfos[i].lazy) {
+        lazy.push(fileInfos[i]);
+      } else {
+        eager.push(fileInfos[i]);
+      }
+    }
+
+    // Load eager files fully
+    var eagerFiles = await Promise.all(eager.map(function(fi) { return loadSingleFile(fi, scope); }));
+
+    // Create lightweight placeholders for lazy files
+    var lazyFiles = lazy.map(function(fi) {
+      return {
         path: fi.path,
         status: fi.status,
         fileType: fi.file_type,
-        content: fileRes.content || '',
-        previousContent: diffRes.previous_content || '',
-        comments: Array.isArray(commentsRes) ? commentsRes : [],
-        diffHunks: diffRes.hunks || [],
+        content: '',
+        previousContent: '',
+        comments: [],
+        diffHunks: [],
         lineBlocks: null,
         previousLineBlocks: null,
         tocItems: [],
-        collapsed: fi.status === 'deleted',
+        collapsed: true,
         viewMode: (session.mode === 'git') ? 'diff' : 'document',
         additions: fi.additions || 0,
         deletions: fi.deletions || 0,
+        lazy: true,
+        diffTooLarge: false,
+        diffLoaded: false,
       };
+    });
 
-      // Mark large diffs for deferred rendering
-      let diffLineCount = 0;
-      for (let h = 0; h < f.diffHunks.length; h++) {
-        diffLineCount += (f.diffHunks[h].Lines || []).length;
+    return eagerFiles.concat(lazyFiles);
+  }
+
+  // Load a single file's content, comments, and diff from the API.
+  async function loadSingleFile(fi, scope) {
+    var diffUrl = '/api/file/diff?path=' + enc(fi.path);
+    if (scope && scope !== 'all') {
+      diffUrl += '&scope=' + enc(scope);
+    }
+    if (diffCommit) {
+      diffUrl += '&commit=' + enc(diffCommit);
+    }
+    const [fileRes, commentsRes, diffRes] = await Promise.all([
+      fetch('/api/file?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : { content: '' }; }).catch(function() { return { content: '' }; }),
+      fetch('/api/file/comments?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
+      fetch(diffUrl).then(function(r) { return r.ok ? r.json() : { hunks: [] }; }).catch(function() { return { hunks: [] }; }),
+    ]);
+
+    const f = {
+      path: fi.path,
+      status: fi.status,
+      fileType: fi.file_type,
+      content: fileRes.content || '',
+      previousContent: diffRes.previous_content || '',
+      comments: Array.isArray(commentsRes) ? commentsRes : [],
+      diffHunks: diffRes.hunks || [],
+      lineBlocks: null,
+      previousLineBlocks: null,
+      tocItems: [],
+      collapsed: fi.status === 'deleted',
+      viewMode: (session.mode === 'git') ? 'diff' : 'document',
+      additions: fi.additions || 0,
+      deletions: fi.deletions || 0,
+      lazy: false,
+    };
+
+    // Mark large diffs for deferred rendering
+    var diffLineCount = 0;
+    for (var h = 0; h < f.diffHunks.length; h++) {
+      diffLineCount += (f.diffHunks[h].Lines || []).length;
+    }
+    f.diffTooLarge = diffLineCount > 1000;
+    f.diffLoaded = !f.diffTooLarge;
+
+    // Pre-highlight code files for diff rendering
+    if (f.fileType === 'code') {
+      f.highlightCache = preHighlightFile(f);
+      f.lang = langFromPath(f.path);
+
+      // In file mode, build line blocks so code files render as document view
+      if (session.mode !== 'git') {
+        f.lineBlocks = buildCodeLineBlocks(f);
       }
-      f.diffTooLarge = diffLineCount > 1000;
-      f.diffLoaded = !f.diffTooLarge;
+    }
 
-      // Pre-highlight code files for diff rendering
-      if (f.fileType === 'code') {
-        f.highlightCache = preHighlightFile(f);
-        f.lang = langFromPath(f.path);
-
-        // In file mode, build line blocks so code files render as document view
-        if (session.mode !== 'git') {
-          f.lineBlocks = buildCodeLineBlocks(f);
-        }
+    // Parse markdown content into line blocks
+    if (f.fileType === 'markdown') {
+      const parsed = parseMarkdown(f.content);
+      f.lineBlocks = parsed.blocks;
+      f.tocItems = parsed.tocItems;
+      if (f.previousContent) {
+        f.previousLineBlocks = parseMarkdown(f.previousContent).blocks;
       }
+    }
 
-      // Parse markdown content into line blocks
-      if (f.fileType === 'markdown') {
-        const parsed = parseMarkdown(f.content);
-        f.lineBlocks = parsed.blocks;
-        f.tocItems = parsed.tocItems;
-        if (f.previousContent) {
-          f.previousLineBlocks = parseMarkdown(f.previousContent).blocks;
-        }
-      }
-
-      return f;
-    }));
+    return f;
   }
 
   // ===== Viewed State =====
@@ -1521,6 +1571,50 @@
     section.addEventListener('toggle', function() {
       file.collapsed = !section.open;
     });
+
+    // Lazy file: load content on first expand
+    if (file.lazy) {
+      section.addEventListener('toggle', function onLazyExpand() {
+        if (!section.open || !file.lazy) return;
+        section.removeEventListener('toggle', onLazyExpand);
+        section.classList.add('file-section-loading');
+
+        loadSingleFile({
+          path: file.path,
+          status: file.status,
+          file_type: file.fileType,
+          additions: file.additions,
+          deletions: file.deletions,
+        }, diffScope).then(function(loaded) {
+          // Copy loaded data into the existing file object
+          file.content = loaded.content;
+          file.previousContent = loaded.previousContent;
+          file.comments = loaded.comments;
+          file.diffHunks = loaded.diffHunks;
+          file.lineBlocks = loaded.lineBlocks;
+          file.previousLineBlocks = loaded.previousLineBlocks;
+          file.tocItems = loaded.tocItems;
+          file.diffTooLarge = loaded.diffTooLarge;
+          file.diffLoaded = loaded.diffLoaded;
+          file.lazy = false;
+          if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
+          if (loaded.lang) file.lang = loaded.lang;
+
+          // Re-render this file section in place
+          section.classList.remove('file-section-loading');
+          var newSection = renderFileSection(file);
+          newSection.open = true;
+          section.replaceWith(newSection);
+
+          // Update UI state
+          renderFileTree();
+          updateCommentCount();
+          rebuildNavList();
+        }).catch(function() {
+          section.classList.remove('file-section-loading');
+        });
+      });
+    }
 
     const dirParts = file.path.split('/');
     const fileName = dirParts.pop();
