@@ -98,7 +98,13 @@ body {
   cursor: pointer;
   white-space: nowrap;
   line-height: 1.4;
+  box-sizing: border-box;
+  height: 24px;
   transition: background 0.1s, border-color 0.1s;
+}
+.header-context {
+  box-sizing: border-box;
+  height: 24px;
 }
 .base-branch-btn:hover {
   background: var(--accent-bg);
