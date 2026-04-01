@@ -411,6 +411,12 @@
     if (session.mode === 'git' && session.branch) {
       document.getElementById('branchContext').style.display = '';
       document.getElementById('branchName').textContent = session.branch;
+      // Base branch picker: show in git mode when on a feature branch
+      if (session.base_ref) {
+        currentBaseBranch = session.base_branch_name || '';
+        document.getElementById('baseBranchLabel').textContent = currentBaseBranch || 'base';
+        fetchBranches();
+      }
     } else if (session.mode !== 'git' && session.files && session.files.length === 1) {
       document.getElementById('branchContext').style.display = '';
       document.querySelector('.branch-icon').innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>';
@@ -5763,6 +5769,10 @@
       }
     });
 
+    source.addEventListener('base-changed', function() {
+      reloadForScope();
+    });
+
     source.addEventListener('server-shutdown', function() {
       source.close();
       showDisconnected();
@@ -6374,6 +6384,12 @@
     session = sessionRes;
     reviewComments = sessionRes.review_comments || [];
 
+    // Update base branch label if it changed
+    if (session.base_branch_name) {
+      currentBaseBranch = session.base_branch_name;
+      document.getElementById('baseBranchLabel').textContent = currentBaseBranch;
+    }
+
     if (!session.files || session.files.length === 0) {
       document.getElementById('filesContainer').innerHTML =
         '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">No ' + diffScope + ' changes</div>';
@@ -6393,6 +6409,107 @@
     updateCommentCount();
     updateViewedCount();
   }
+
+  // ===== Base Branch Picker =====
+  const baseBranchPickerEl = document.getElementById('baseBranchPicker');
+  let baseBranches = [];
+  let currentBaseBranch = ''; // display name of the current base branch
+
+  async function fetchBranches() {
+    try {
+      const res = await fetch('/api/branches');
+      if (!res.ok) return;
+      baseBranches = await res.json();
+      if (!baseBranches || baseBranches.length < 2) {
+        baseBranchPickerEl.style.display = 'none';
+        return;
+      }
+      baseBranchPickerEl.style.display = '';
+      renderBaseBranchList();
+    } catch (e) {
+      baseBranchPickerEl.style.display = 'none';
+    }
+  }
+
+  function renderBaseBranchList(filter) {
+    var list = document.getElementById('baseBranchList');
+    var filtered = baseBranches;
+    if (filter) {
+      var lower = filter.toLowerCase();
+      filtered = baseBranches.filter(function(b) { return b.toLowerCase().indexOf(lower) !== -1; });
+    }
+    list.innerHTML = filtered.map(function(b) {
+      var active = b === currentBaseBranch ? ' active' : '';
+      return '<div class="base-branch-item' + active + '" data-branch="' + escapeHtml(b) + '">' + escapeHtml(b) + '</div>';
+    }).join('');
+    if (filtered.length === 0) {
+      list.innerHTML = '<div style="padding: 8px 10px; font-size: 12px; color: var(--fg-muted);">No matching branches</div>';
+    }
+  }
+
+  // Toggle dropdown
+  document.getElementById('baseBranchBtn').addEventListener('click', function() {
+    baseBranchPickerEl.classList.toggle('open');
+    if (baseBranchPickerEl.classList.contains('open')) {
+      var search = document.getElementById('baseBranchSearch');
+      search.value = '';
+      renderBaseBranchList();
+      search.focus();
+    }
+  });
+
+  // Filter on typing
+  document.getElementById('baseBranchSearch').addEventListener('input', function(e) {
+    renderBaseBranchList(e.target.value);
+  });
+
+  // Prevent search input keystrokes from triggering global shortcuts
+  document.getElementById('baseBranchSearch').addEventListener('keydown', function(e) {
+    e.stopPropagation();
+    if (e.key === 'Escape') {
+      baseBranchPickerEl.classList.remove('open');
+    }
+  });
+
+  // Close on outside click
+  document.addEventListener('click', function(e) {
+    if (!baseBranchPickerEl.contains(e.target)) {
+      baseBranchPickerEl.classList.remove('open');
+    }
+  });
+
+  // Item selection
+  document.getElementById('baseBranchList').addEventListener('click', async function(e) {
+    var item = e.target.closest('.base-branch-item');
+    if (!item) return;
+    var branch = item.dataset.branch;
+    if (branch === currentBaseBranch) {
+      baseBranchPickerEl.classList.remove('open');
+      return;
+    }
+    baseBranchPickerEl.classList.remove('open');
+    document.getElementById('baseBranchLabel').textContent = branch;
+    currentBaseBranch = branch;
+
+    // Call server to change the base branch
+    try {
+      var res = await fetch('/api/base-branch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branch: branch }),
+      });
+      if (!res.ok) {
+        var errText = await res.text();
+        console.error('Failed to change base branch:', errText);
+        return;
+      }
+      // Reload the view with new diffs
+      await reloadForScope();
+      fetchCommits();
+    } catch (err) {
+      console.error('Error changing base branch:', err);
+    }
+  });
 
   // ===== TOC Toggle =====
   document.getElementById('tocToggle').addEventListener('click', function() {

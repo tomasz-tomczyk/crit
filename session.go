@@ -79,6 +79,7 @@ type Session struct {
 	CLIArgs        []string // original file arguments passed on the command line (empty for git mode)
 	Branch         string
 	BaseRef        string
+	BaseBranchName string // display name of the base branch (e.g. "production", "master")
 	RepoRoot       string
 	OutputDir      string // custom output directory for .crit.json (empty = RepoRoot)
 	PlanDir        string // managed storage dir for plan mode (empty for git/files)
@@ -170,6 +171,7 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 		Mode:                "git",
 		Branch:              branch,
 		BaseRef:             baseRef,
+		BaseBranchName:      resolvedBase,
 		RepoRoot:            root,
 		ReviewRound:         1,
 		nextID:              1,
@@ -274,10 +276,12 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 	root := ""
 	branch := ""
 	baseRef := ""
+	baseBranchName := ""
 	if IsGitRepo() {
 		root, _ = RepoRoot()
 		branch = CurrentBranch()
 		resolvedBase := DefaultBranch()
+		baseBranchName = resolvedBase
 		if branch != resolvedBase {
 			baseRef, _ = MergeBase(resolvedBase)
 		}
@@ -290,6 +294,7 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 		Mode:                "files",
 		Branch:              branch,
 		BaseRef:             baseRef,
+		BaseBranchName:      baseBranchName,
 		RepoRoot:            root,
 		ReviewRound:         1,
 		nextID:              1,
@@ -1111,6 +1116,96 @@ func (s *Session) ClearAllComments() {
 	os.Remove(critPath) //nolint:errcheck
 }
 
+// ChangeBaseBranch changes the diff base to the given branch, recomputes merge-base,
+// rebuilds the file list with new diffs, and notifies connected browsers via SSE.
+// Comments are preserved for files that still appear in the new diff.
+func (s *Session) ChangeBaseBranch(branch string) error {
+	if s.Mode != "git" {
+		return fmt.Errorf("base branch can only be changed in git mode")
+	}
+
+	// Compute merge-base with the new branch (try both local and remote ref)
+	mb, err := MergeBase(branch)
+	if err != nil {
+		mb, err = MergeBase("origin/" + branch)
+		if err != nil {
+			return fmt.Errorf("cannot compute merge-base with %s: %w", branch, err)
+		}
+	}
+
+	// Update the global override so ChangedFiles() uses the new base
+	defaultBranchOverride = branch
+
+	s.mu.Lock()
+	oldBaseRef := s.BaseRef
+	s.BaseRef = mb
+	s.BaseBranchName = branch
+	repoRoot := s.RepoRoot
+	currentBranch := s.Branch
+	ignorePatterns := s.IgnorePatterns
+
+	// Preserve existing comments keyed by file path
+	commentsByPath := make(map[string][]Comment, len(s.Files))
+	for _, f := range s.Files {
+		if len(f.Comments) > 0 {
+			commentsByPath[f.Path] = f.Comments
+		}
+	}
+	s.mu.Unlock()
+
+	// Re-detect changed files with new base
+	var changes []FileChange
+	if currentBranch != branch {
+		changes, err = changedFilesFromBaseInDir(mb, repoRoot)
+	} else {
+		changes, err = changedFilesOnDefaultInDir(repoRoot)
+	}
+	if err != nil {
+		s.mu.Lock()
+		s.BaseRef = oldBaseRef
+		s.mu.Unlock()
+		return fmt.Errorf("detecting changes: %w", err)
+	}
+	changes = filterIgnored(changes, ignorePatterns)
+
+	// Build new file entries, preserving comments
+	var newFiles []*FileEntry
+	for _, fc := range changes {
+		absPath := filepath.Join(repoRoot, fc.Path)
+		fe := &FileEntry{
+			Path:     fc.Path,
+			AbsPath:  absPath,
+			Status:   fc.Status,
+			FileType: detectFileType(fc.Path),
+			Comments: commentsByPath[fc.Path],
+		}
+		if fe.Comments == nil {
+			fe.Comments = []Comment{}
+		}
+		if fc.Status != "deleted" {
+			if data, readErr := os.ReadFile(absPath); readErr == nil {
+				fe.Content = string(data)
+				fe.FileHash = fileHash(data)
+			}
+		}
+		if fc.Status != "added" && fc.Status != "untracked" {
+			if hunks, diffErr := fileDiffUnified(fc.Path, mb, repoRoot); diffErr == nil {
+				fe.DiffHunks = hunks
+			}
+		} else {
+			fe.DiffHunks = FileDiffUnifiedNewFile(fe.Content)
+		}
+		newFiles = append(newFiles, fe)
+	}
+
+	s.mu.Lock()
+	s.Files = newFiles
+	s.mu.Unlock()
+
+	s.notify(SSEEvent{Type: "base-changed"})
+	return nil
+}
+
 // RoundCompleteChan returns the channel signaled on round completion.
 func (s *Session) RoundCompleteChan() <-chan struct{} {
 	return s.roundComplete
@@ -1736,6 +1831,7 @@ type SessionInfo struct {
 	Mode            string            `json:"mode"` // "files" or "git"
 	Branch          string            `json:"branch"`
 	BaseRef         string            `json:"base_ref"`
+	BaseBranchName  string            `json:"base_branch_name,omitempty"`
 	ReviewRound     int               `json:"review_round"`
 	AvailableScopes []string          `json:"available_scopes"`
 	Files           []SessionFileInfo `json:"files"`
@@ -1764,6 +1860,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		Mode:            s.Mode,
 		Branch:          s.Branch,
 		BaseRef:         s.BaseRef,
+		BaseBranchName:  s.BaseBranchName,
 		ReviewRound:     s.ReviewRound,
 		AvailableScopes: availableScopes(s.BaseRef),
 		ReviewComments:  reviewComments,
@@ -1839,6 +1936,7 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	// Read session fields under lock, then release before shelling out to git.
 	s.mu.RLock()
 	baseRef := s.BaseRef
+	baseBranchName := s.BaseBranchName
 	repoRoot := s.RepoRoot
 	mode := s.Mode
 	branch := s.Branch
@@ -1857,6 +1955,7 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 		Mode:            mode,
 		Branch:          branch,
 		BaseRef:         baseRef,
+		BaseBranchName:  baseBranchName,
 		ReviewRound:     reviewRound,
 		AvailableScopes: availableScopes(baseRef),
 		ReviewComments:  reviewComments,

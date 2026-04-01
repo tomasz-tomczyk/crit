@@ -59,6 +59,8 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
 
 	mux.HandleFunc("/api/agent/request", s.handleAgentRequest)
+	mux.HandleFunc("/api/branches", s.handleBranches)
+	mux.HandleFunc("/api/base-branch", s.handleBaseBranch)
 	mux.HandleFunc("/api/commits", s.handleCommits)
 	mux.HandleFunc("/api/comments", s.handleReviewComments)
 	mux.HandleFunc("/api/review-comment/", s.handleReviewCommentByID)
@@ -451,6 +453,43 @@ func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
 	}
 	commits := s.session.GetCommits()
 	writeJSON(w, commits)
+}
+
+// handleBranches returns remote branch names for the base-branch picker.
+func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.session.mu.RLock()
+	repoRoot := s.session.RepoRoot
+	s.session.mu.RUnlock()
+	branches, err := RemoteBranches(repoRoot)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, branches)
+}
+
+// handleBaseBranch changes the diff base branch for the current session.
+func (s *Server) handleBaseBranch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Branch string `json:"branch"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Branch == "" {
+		http.Error(w, "Bad request: branch is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.session.ChangeBaseBranch(body.Branch); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]string{"ok": "true"})
 }
 
 // replyOps abstracts the difference between file-scoped and review-scoped reply operations.

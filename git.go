@@ -98,6 +98,28 @@ func detectDefaultBranch() string {
 	return "main"
 }
 
+// RemoteBranches returns the names of all remote branches (without the "origin/" prefix).
+// The result excludes HEAD. If dir is non-empty, git runs in that directory.
+func RemoteBranches(dir string) ([]string, error) {
+	cmd := exec.Command("git", "for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/")
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("for-each-ref failed: %w", err)
+	}
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		name := strings.TrimPrefix(line, "origin/")
+		if name == "" || name == "HEAD" {
+			continue
+		}
+		branches = append(branches, name)
+	}
+	return branches, nil
+}
+
 // CurrentBranch returns the name of the current branch.
 func CurrentBranch() string {
 	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")

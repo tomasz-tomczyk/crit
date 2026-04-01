@@ -25,6 +25,17 @@
       </span>
       <span id="branchName"></span>
     </span>
+    <span class="base-branch-picker" id="baseBranchPicker" style="display:none">
+      <svg class="base-branch-arrow" width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <button class="base-branch-btn" id="baseBranchBtn" title="Change base branch">
+        <span class="base-branch-label" id="baseBranchLabel"></span>
+        <svg class="base-branch-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 3.75 5 6.25 7.5 3.75"/></svg>
+      </button>
+      <div class="base-branch-menu" id="baseBranchMenu">
+        <input class="base-branch-search" id="baseBranchSearch" type="text" placeholder="Filter branches…" autocomplete="off" />
+        <div class="base-branch-list" id="baseBranchList"></div>
+      </div>
+    </span>
     <span class="header-notify" id="headerNotify"></span>
   </div>
   <div class="header-right">
