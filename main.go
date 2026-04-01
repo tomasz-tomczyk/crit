@@ -1653,6 +1653,7 @@ func runServe(args []string) {
 	// The listener is already bound so the server can accept connections.
 	// Only attempt if _CRIT_READY_FD is set (startDaemon sets this env var).
 	if os.Getenv("_CRIT_READY_FD") == "3" {
+		os.Unsetenv("_CRIT_READY_FD") // prevent leaking to agent_cmd children
 		if readyPipe := os.NewFile(3, "ready-pipe"); readyPipe != nil {
 			fmt.Fprintf(readyPipe, "%d\n", addr.Port)
 			readyPipe.Close()

@@ -342,7 +342,9 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 		logFile.Close()
 		return sessionEntry{}, fmt.Errorf("creating readiness pipe: %w", err)
 	}
-	cmd.ExtraFiles = []*os.File{writeEnd} // becomes FD 3 in the child
+	// writeEnd becomes FD 3 in the child (stdin=0, stdout=1, stderr=2, first ExtraFile=3).
+	// If ExtraFiles gains more entries, this index must stay first.
+	cmd.ExtraFiles = []*os.File{writeEnd}
 	cmd.Env = append(os.Environ(), "_CRIT_READY_FD=3")
 
 	// Detach from parent process group so it survives parent exit
@@ -369,12 +371,13 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 
 	// Read port from the readiness pipe with a 10-second timeout.
 	// The daemon writes "port\n" once it's accepting connections.
+	// Note: readEnd is closed only in the select cases below (not in the goroutine)
+	// to avoid a double-close race that could corrupt reused file descriptors.
 	portCh := make(chan int, 1)
 	errCh := make(chan error, 1)
 	go func() {
 		buf := make([]byte, 64)
 		n, err := readEnd.Read(buf)
-		readEnd.Close()
 		if err != nil || n == 0 {
 			errCh <- fmt.Errorf("daemon closed readiness pipe without writing port")
 			return
@@ -389,6 +392,7 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 
 	select {
 	case port := <-portCh:
+		readEnd.Close()
 		// Daemon is ready — detach the process handle
 		cmd.Process.Release()
 
@@ -407,6 +411,7 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 		return entry, nil
 
 	case readErr := <-errCh:
+		readEnd.Close()
 		// Pipe closed or invalid data — check if daemon exited
 		select {
 		case waitErr := <-exited:
