@@ -299,7 +299,7 @@ func (s *Session) carryForwardAllComments() {
 // Must be called with s.mu held for writing.
 func (s *Session) rereadFileContents(snapshotMarkdown bool) {
 	for _, f := range s.Files {
-		if f.Status == "deleted" {
+		if f.Status == "deleted" || f.Lazy {
 			continue
 		}
 		data, err := os.ReadFile(f.AbsPath)

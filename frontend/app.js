@@ -5735,7 +5735,8 @@
           const prev = prevState[files[fi].path];
           if (prev) {
             files[fi].viewMode = prev.viewMode;
-            files[fi].collapsed = prev.collapsed;
+            // Lazy files must stay collapsed — they have no content to render
+            if (!files[fi].lazy) files[fi].collapsed = prev.collapsed;
             if (prev.diffLoaded) files[fi].diffLoaded = prev.diffLoaded;
             if (prev.viewed) files[fi].viewed = true;
           }
@@ -5792,6 +5793,8 @@
     source.addEventListener('comments-changed', async function() {
       try {
         await Promise.all(files.map(async function(f) {
+          // Skip lazy files — they haven't been loaded yet
+          if (f.lazy) return;
           var fetches = [
             fetch('/api/file/comments?path=' + enc(f.path))
               .then(function(r) { return r.ok ? r.json() : []; })

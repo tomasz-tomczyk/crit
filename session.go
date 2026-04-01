@@ -2163,12 +2163,20 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string) (map[str
 	if f != nil {
 		baseRef = s.BaseRef
 		status = f.Status
-		content = f.Content
 	} else {
 		baseRef = s.BaseRef
 	}
 	repoRoot = s.RepoRoot
 	s.mu.RUnlock()
+
+	// Load content on demand for lazy files
+	if f != nil {
+		if err := f.ensureLoaded(repoRoot, baseRef); err == nil {
+			s.mu.RLock()
+			content = f.Content
+			s.mu.RUnlock()
+		}
+	}
 
 	// If the file is not in the session (e.g. created after startup), read it
 	// from disk and determine its status so we can generate the correct diff.
