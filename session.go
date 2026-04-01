@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -70,6 +71,53 @@ type FileEntry struct {
 	// Multi-round (markdown files only)
 	PreviousContent  string    `json:"-"`
 	PreviousComments []Comment `json:"-"`
+
+	// Lazy loading: when true, Content and DiffHunks are not yet populated.
+	// Call ensureLoaded() before accessing them. Only used when >100 files.
+	Lazy     bool      `json:"-"`
+	loadOnce sync.Once // guards one-time loading of content + diffs
+	loadErr  error     // error from loading, if any
+
+	// Stats for lazy files (populated from git diff --numstat)
+	LazyAdditions int `json:"-"`
+	LazyDeletions int `json:"-"`
+}
+
+// ensureLoaded loads content and diff hunks for a lazy file on first access.
+// For non-lazy files, this is an immediate no-op.
+func (fe *FileEntry) ensureLoaded(repoRoot, baseRef string) error {
+	if !fe.Lazy {
+		return nil
+	}
+	fe.loadOnce.Do(func() {
+		if fe.Status != "deleted" {
+			data, err := os.ReadFile(fe.AbsPath)
+			if err != nil {
+				fe.loadErr = fmt.Errorf("reading %s: %w", fe.Path, err)
+				return
+			}
+			fe.Content = string(data)
+			fe.FileHash = fileHash(data)
+		}
+
+		if fe.Status != "deleted" {
+			if fe.Status == "added" || fe.Status == "untracked" {
+				fe.DiffHunks = FileDiffUnifiedNewFile(fe.Content)
+			} else {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				hunks, err := fileDiffUnifiedCtx(ctx, fe.Path, baseRef, repoRoot)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", fe.Path, err)
+				} else {
+					fe.DiffHunks = hunks
+				}
+			}
+		}
+
+		fe.Lazy = false
+	})
+	return fe.loadErr
 }
 
 // Session is the top-level state manager for a multi-file review.

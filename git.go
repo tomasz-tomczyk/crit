@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -612,6 +613,28 @@ func fileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		// Exit code 1 means diff found changes (normal), check for actual errors
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			// git diff exits 1 when there are differences
+		} else {
+			return nil, fmt.Errorf("git diff failed: %w", err)
+		}
+	}
+	return ParseUnifiedDiff(string(out)), nil
+}
+
+// fileDiffUnifiedCtx is like fileDiffUnified but accepts a context for timeout control.
+func fileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string) ([]DiffHunk, error) {
+	var cmd *exec.Cmd
+	if baseRef == "" {
+		cmd = exec.CommandContext(ctx, "git", "diff", "--no-color", "HEAD", "--", path)
+	} else {
+		cmd = exec.CommandContext(ctx, "git", "diff", "--no-color", baseRef, "--", path)
+	}
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 			// git diff exits 1 when there are differences
 		} else {

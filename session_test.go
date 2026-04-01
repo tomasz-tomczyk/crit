@@ -2388,3 +2388,70 @@ func TestDeleteReviewCommentReply_NotFound(t *testing.T) {
 		t.Error("expected DeleteReviewCommentReply to return false for nonexistent reply")
 	}
 }
+
+func TestEnsureLoaded(t *testing.T) {
+	dir := initTestRepo(t)
+
+	writeFile(t, filepath.Join(dir, "lazy.go"), "package main\n\nfunc lazy() {}\n")
+	runGit(t, dir, "add", "lazy.go")
+	runGit(t, dir, "commit", "-m", "add lazy.go")
+	runGit(t, dir, "checkout", "-b", "feature-lazy")
+	writeFile(t, filepath.Join(dir, "lazy.go"), "package main\n\nfunc lazy() {\n\tfmt.Println(\"loaded\")\n}\n")
+	runGit(t, dir, "add", "lazy.go")
+	runGit(t, dir, "commit", "-m", "modify lazy.go")
+
+	base := strings.TrimSpace(runGit(t, dir, "merge-base", "main", "HEAD"))
+
+	fe := &FileEntry{
+		Path:    "lazy.go",
+		AbsPath: filepath.Join(dir, "lazy.go"),
+		Status:  "modified",
+		Lazy:    true,
+	}
+
+	if fe.Content != "" {
+		t.Fatal("expected empty content before ensureLoaded")
+	}
+	if len(fe.DiffHunks) != 0 {
+		t.Fatal("expected no diff hunks before ensureLoaded")
+	}
+
+	err := fe.ensureLoaded(dir, base)
+	if err != nil {
+		t.Fatalf("ensureLoaded failed: %v", err)
+	}
+
+	if fe.Content == "" {
+		t.Fatal("expected non-empty content after ensureLoaded")
+	}
+	if !strings.Contains(fe.Content, "loaded") {
+		t.Fatalf("content should contain 'loaded', got: %s", fe.Content)
+	}
+	if len(fe.DiffHunks) == 0 {
+		t.Fatal("expected diff hunks after ensureLoaded")
+	}
+	if fe.Lazy {
+		t.Fatal("expected Lazy=false after ensureLoaded")
+	}
+
+	// Second call is a no-op (sync.Once)
+	err = fe.ensureLoaded(dir, base)
+	if err != nil {
+		t.Fatalf("second ensureLoaded should not fail: %v", err)
+	}
+}
+
+func TestEnsureLoadedNotLazy(t *testing.T) {
+	fe := &FileEntry{
+		Path:    "eager.go",
+		Content: "already loaded",
+		Lazy:    false,
+	}
+	err := fe.ensureLoaded("/tmp", "abc123")
+	if err != nil {
+		t.Fatalf("ensureLoaded on non-lazy file should be no-op, got: %v", err)
+	}
+	if fe.Content != "already loaded" {
+		t.Fatal("content should be unchanged for non-lazy file")
+	}
+}
