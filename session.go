@@ -2059,10 +2059,14 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	branch := s.Branch
 	reviewRound := s.ReviewRound
 	ignorePatterns := s.IgnorePatterns
-	// Build a map of comment counts (comments are scope-independent)
+	// Build maps of comment counts and lazy state (scope-independent)
 	commentCounts := make(map[string]int, len(s.Files))
+	lazyFiles := make(map[string]*FileEntry, len(s.Files))
 	for _, f := range s.Files {
 		commentCounts[f.Path] = len(f.Comments)
+		if f.Lazy {
+			lazyFiles[f.Path] = f
+		}
 	}
 	reviewComments := make([]Comment, len(s.reviewComments))
 	copy(reviewComments, s.reviewComments)
@@ -2099,6 +2103,15 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 			Status:       fc.Status,
 			FileType:     detectFileType(fc.Path),
 			CommentCount: commentCounts[fc.Path],
+		}
+
+		// Preserve lazy state from the session — skip expensive diff computation
+		if lf, ok := lazyFiles[fc.Path]; ok {
+			fi.Lazy = true
+			fi.Additions = lf.LazyAdditions
+			fi.Deletions = lf.LazyDeletions
+			info.Files = append(info.Files, fi)
+			continue
 		}
 
 		// Compute diff stats for the scoped view
