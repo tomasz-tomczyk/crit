@@ -1840,11 +1840,22 @@ func (s *Session) Shutdown() {
 // GetFileSnapshot returns a JSON-ready map for the /api/file endpoint.
 func (s *Session) GetFileSnapshot(path string) (map[string]any, bool) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	f := s.fileByPathLocked(path)
 	if f == nil {
+		s.mu.RUnlock()
 		return nil, false
 	}
+	repoRoot := s.RepoRoot
+	baseRef := s.BaseRef
+	s.mu.RUnlock()
+
+	// Load content on demand for lazy files
+	if err := f.ensureLoaded(repoRoot, baseRef); err != nil {
+		return nil, false
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return map[string]any{
 		"path":      f.Path,
 		"status":    f.Status,
@@ -1889,7 +1900,16 @@ func (s *Session) GetFileDiffSnapshot(path string) (map[string]any, bool) {
 		s.mu.RUnlock()
 		return nil, false
 	}
+	repoRoot := s.RepoRoot
+	baseRef := s.BaseRef
+	s.mu.RUnlock()
 
+	// Load content + diffs on demand for lazy files
+	if err := f.ensureLoaded(repoRoot, baseRef); err != nil {
+		return nil, false
+	}
+
+	s.mu.RLock()
 	if f.FileType == "code" || s.Mode == "git" {
 		hunks := f.DiffHunks
 		s.mu.RUnlock()
@@ -1935,6 +1955,7 @@ type SessionFileInfo struct {
 	CommentCount int    `json:"comment_count"`
 	Additions    int    `json:"additions"`
 	Deletions    int    `json:"deletions"`
+	Lazy         bool   `json:"lazy,omitempty"`
 }
 
 // GetSessionInfo returns a snapshot of session metadata.
@@ -1961,15 +1982,22 @@ func (s *Session) GetSessionInfo() SessionInfo {
 			Status:       f.Status,
 			FileType:     f.FileType,
 			CommentCount: len(f.Comments),
+			Lazy:         f.Lazy,
 		}
-		// Count additions/deletions from diff hunks
-		for _, h := range f.DiffHunks {
-			for _, l := range h.Lines {
-				switch l.Type {
-				case "add":
-					fi.Additions++
-				case "del":
-					fi.Deletions++
+		if f.Lazy {
+			// Use pre-computed stats from git diff --numstat
+			fi.Additions = f.LazyAdditions
+			fi.Deletions = f.LazyDeletions
+		} else {
+			// Count additions/deletions from diff hunks
+			for _, h := range f.DiffHunks {
+				for _, l := range h.Lines {
+					switch l.Type {
+					case "add":
+						fi.Additions++
+					case "del":
+						fi.Deletions++
+					}
 				}
 			}
 		}

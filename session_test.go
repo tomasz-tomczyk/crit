@@ -2536,3 +2536,63 @@ func TestNewSessionFromGitUnderThreshold(t *testing.T) {
 		}
 	}
 }
+
+func TestGetFileSnapshotLazy(t *testing.T) {
+	dir := initTestRepo(t)
+
+	runGit(t, dir, "checkout", "-b", "feature-snap")
+	writeFile(t, filepath.Join(dir, "snap.go"), "package main\nfunc snap() {}\n")
+	runGit(t, dir, "add", "snap.go")
+	runGit(t, dir, "commit", "-m", "add snap.go")
+
+	base := strings.TrimSpace(runGit(t, dir, "merge-base", "main", "HEAD"))
+
+	s := &Session{
+		Mode:     "git",
+		BaseRef:  base,
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:          "snap.go",
+				AbsPath:       filepath.Join(dir, "snap.go"),
+				Status:        "added",
+				FileType:      "code",
+				Lazy:          true,
+				LazyAdditions: 2,
+				Comments:      []Comment{},
+			},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// GetFileSnapshot should trigger ensureLoaded
+	snapshot, ok := s.GetFileSnapshot("snap.go")
+	if !ok {
+		t.Fatal("expected file to be found")
+	}
+	content, _ := snapshot["content"].(string)
+	if content == "" {
+		t.Fatal("expected content to be loaded on demand")
+	}
+	if !strings.Contains(content, "func snap") {
+		t.Fatalf("unexpected content: %s", content)
+	}
+
+	// GetFileDiffSnapshot should also work for the now-loaded file
+	diffSnap, ok := s.GetFileDiffSnapshot("snap.go")
+	if !ok {
+		t.Fatal("expected diff snapshot to be found")
+	}
+	hunks, _ := diffSnap["hunks"].([]DiffHunk)
+	if len(hunks) == 0 {
+		t.Fatal("expected diff hunks after lazy load")
+	}
+
+	// GetSessionInfo should show Lazy=false now (file was loaded)
+	info := s.GetSessionInfo()
+	for _, fi := range info.Files {
+		if fi.Path == "snap.go" && fi.Lazy {
+			t.Error("expected Lazy=false in session info after file was loaded")
+		}
+	}
+}
