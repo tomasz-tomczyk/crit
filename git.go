@@ -718,11 +718,6 @@ type NumstatEntry struct {
 	Deletions int
 }
 
-// Deprecated: Use DiffNumstatDir with an empty dir instead.
-func DiffNumstat(baseRef string) (map[string]NumstatEntry, error) {
-	return DiffNumstatDir(baseRef, "")
-}
-
 // DiffNumstatDir runs git diff --numstat against the given base ref and returns per-file stats.
 // If dir is non-empty, git runs in that directory.
 func DiffNumstatDir(baseRef, dir string) (map[string]NumstatEntry, error) {
