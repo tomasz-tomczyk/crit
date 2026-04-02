@@ -24,8 +24,7 @@ test.describe('Lazy loading', () => {
 
     // All file sections should be present and expandable
     const sections = page.locator('.file-section');
-    const count = await sections.count();
-    expect(count).toBeGreaterThan(0);
+    await expect(sections.first()).toBeVisible();
 
     // No file should have the loading spinner class
     await expect(page.locator('.file-section-loading')).toHaveCount(0);

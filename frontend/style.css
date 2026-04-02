@@ -55,7 +55,7 @@ body {
   letter-spacing: -0.02em;
 }
 
-.header-context {
+.header-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -87,21 +87,9 @@ body {
   flex-shrink: 0;
 }
 .base-branch-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--accent);
-  background: var(--accent-subtle);
-  border: 1px solid var(--accent-bg);
-  padding: 3px 10px;
-  border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
   line-height: 1.4;
-  box-sizing: border-box;
-  height: 24px;
   transition: background 0.1s, border-color 0.1s;
 }
 .base-branch-btn:hover {

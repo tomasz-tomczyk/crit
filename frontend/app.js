@@ -1603,7 +1603,7 @@
           // Re-render this file section in place
           section.classList.remove('file-section-loading');
           var newSection = renderFileSection(file);
-          newSection.open = true;
+          newSection.open = section.open;
           section.replaceWith(newSection);
 
           // Update UI state
@@ -1612,6 +1612,7 @@
           rebuildNavList();
         }).catch(function() {
           section.classList.remove('file-section-loading');
+          section.addEventListener('toggle', onLazyExpand);
         });
       });
     }
@@ -5793,8 +5794,13 @@
     source.addEventListener('comments-changed', async function() {
       try {
         await Promise.all(files.map(async function(f) {
-          // Skip lazy files — they haven't been loaded yet
-          if (f.lazy) return;
+          // Lazy files: fetch only comments (not full diff)
+          if (f.lazy) {
+            return fetch('/api/file/comments?path=' + enc(f.path))
+              .then(function(r) { return r.ok ? r.json() : []; })
+              .then(function(comments) { f.comments = Array.isArray(comments) ? comments : []; })
+              .catch(function() {});
+          }
           var fetches = [
             fetch('/api/file/comments?path=' + enc(f.path))
               .then(function(r) { return r.ok ? r.json() : []; })
@@ -5869,6 +5875,7 @@
 
     source.addEventListener('base-changed', function() {
       reloadForScope();
+      fetchCommits();
     });
 
     source.addEventListener('server-shutdown', function() {
@@ -6433,7 +6440,7 @@
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape' && commitDropdownEl.classList.contains('open')) {
       commitDropdownEl.classList.remove('open');
-      e.stopPropagation();
+      e.stopImmediatePropagation();
     }
   });
 
@@ -6472,47 +6479,57 @@
     await reloadForScope();
   });
 
+  var reloadInFlight = null;
   async function reloadForScope() {
-    document.getElementById('filesContainer').innerHTML =
-      '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">Loading...</div>';
+    if (reloadInFlight) return reloadInFlight;
+    reloadInFlight = (async function() {
+      try {
+        document.getElementById('filesContainer').innerHTML =
+          '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">Loading...</div>';
 
-    let sessionUrl = '/api/session?scope=' + enc(diffScope);
-    if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
-    const sessionRes = await fetch(sessionUrl).then(function(r) { return r.json(); });
-    session = sessionRes;
-    reviewComments = sessionRes.review_comments || [];
+        let sessionUrl = '/api/session?scope=' + enc(diffScope);
+        if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
+        const sessionRes = await fetch(sessionUrl).then(function(r) { return r.json(); });
+        session = sessionRes;
+        reviewComments = sessionRes.review_comments || [];
 
-    // Update base branch label if it changed
-    if (session.base_branch_name) {
-      currentBaseBranch = session.base_branch_name;
-      document.getElementById('baseBranchLabel').textContent = currentBaseBranch;
-    }
+        // Update base branch label if it changed
+        if (session.base_branch_name) {
+          currentBaseBranch = session.base_branch_name;
+          document.getElementById('baseBranchLabel').textContent = currentBaseBranch;
+        }
 
-    if (!session.files || session.files.length === 0) {
-      document.getElementById('filesContainer').innerHTML =
-        '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">No ' + diffScope + ' changes</div>';
-      files = [];
-      renderFileTree();
-      updateCommentCount();
-      updateViewedCount();
-      return;
-    }
+        if (!session.files || session.files.length === 0) {
+          document.getElementById('filesContainer').innerHTML =
+            '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">No ' + diffScope + ' changes</div>';
+          files = [];
+          renderFileTree();
+          updateCommentCount();
+          updateViewedCount();
+          return;
+        }
 
-    files = await loadAllFileData(session.files, diffScope);
-    files.sort(fileSortComparator);
-    restoreViewedState();
-    renderFileTree();
-    renderAllFiles();
-    buildToc();
-    updateCommentCount();
-    updateViewedCount();
+        files = await loadAllFileData(session.files, diffScope);
+        files.sort(fileSortComparator);
+        restoreViewedState();
+        renderFileTree();
+        renderAllFiles();
+        buildToc();
+        updateCommentCount();
+        updateViewedCount();
+      } finally {
+        reloadInFlight = null;
+      }
+    })();
+    return reloadInFlight;
   }
 
   // ===== Base Branch Picker =====
   const baseBranchPickerEl = document.getElementById('baseBranchPicker');
+  var baseBranchBtnEl = document.getElementById('baseBranchBtn');
   let baseBranches = [];
   let currentBaseBranch = ''; // display name of the current base branch
-  let highlightedIdx = -1;    // keyboard-highlighted item index
+  const branchPicker = { highlightedIdx: -1 }; // keyboard-highlighted item index
 
   async function fetchBranches() {
     try {
@@ -6541,10 +6558,10 @@
   function updateHighlight() {
     var items = getVisibleItems();
     items.forEach(function(el, i) {
-      el.classList.toggle('highlighted', i === highlightedIdx);
+      el.classList.toggle('highlighted', i === branchPicker.highlightedIdx);
     });
-    if (highlightedIdx >= 0 && highlightedIdx < items.length) {
-      items[highlightedIdx].scrollIntoView({ block: 'nearest' });
+    if (branchPicker.highlightedIdx >= 0 && branchPicker.highlightedIdx < items.length) {
+      items[branchPicker.highlightedIdx].scrollIntoView({ block: 'nearest' });
     }
   }
 
@@ -6562,18 +6579,21 @@
     if (filtered.length === 0) {
       list.innerHTML = '<div style="padding: 8px 10px; font-size: 12px; color: var(--fg-muted);">No matching branches</div>';
     }
-    highlightedIdx = -1;
+    branchPicker.highlightedIdx = -1;
   }
 
   async function selectBaseBranch(branch) {
     if (branch === currentBaseBranch) {
       baseBranchPickerEl.classList.remove('open');
+      baseBranchBtnEl.setAttribute('aria-expanded', 'false');
       return;
     }
     baseBranchPickerEl.classList.remove('open');
+    baseBranchBtnEl.setAttribute('aria-expanded', 'false');
+    var previousBranch = currentBaseBranch;
+    var previousLabel = document.getElementById('baseBranchLabel').textContent;
     document.getElementById('baseBranchLabel').textContent = branch;
     currentBaseBranch = branch;
-
     try {
       var res = await fetch('/api/base-branch', {
         method: 'POST',
@@ -6583,22 +6603,30 @@
       if (!res.ok) {
         var errText = await res.text();
         console.error('Failed to change base branch:', errText);
+        currentBaseBranch = previousBranch;
+        document.getElementById('baseBranchLabel').textContent = previousLabel;
         return;
       }
+      // Reload immediately for responsiveness; SSE 'base-changed' will also
+      // call reloadForScope() but the dedup guard collapses double-calls.
       await reloadForScope();
       fetchCommits();
     } catch (err) {
       console.error('Error changing base branch:', err);
+      currentBaseBranch = previousBranch;
+      document.getElementById('baseBranchLabel').textContent = previousLabel;
     }
   }
 
   // Toggle dropdown
   document.getElementById('baseBranchBtn').addEventListener('click', function() {
     baseBranchPickerEl.classList.toggle('open');
-    if (baseBranchPickerEl.classList.contains('open')) {
+    var isOpen = baseBranchPickerEl.classList.contains('open');
+    baseBranchBtnEl.setAttribute('aria-expanded', String(isOpen));
+    if (isOpen) {
       var search = document.getElementById('baseBranchSearch');
       search.value = '';
-      highlightedIdx = -1;
+      branchPicker.highlightedIdx = -1;
       renderBaseBranchList();
       search.focus();
     }
@@ -6615,22 +6643,23 @@
     var items = getVisibleItems();
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      highlightedIdx = Math.min(highlightedIdx + 1, items.length - 1);
+      branchPicker.highlightedIdx = Math.min(branchPicker.highlightedIdx + 1, items.length - 1);
       updateHighlight();
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (highlightedIdx > 0) {
-        highlightedIdx--;
+      if (branchPicker.highlightedIdx > 0) {
+        branchPicker.highlightedIdx--;
         updateHighlight();
       }
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (highlightedIdx >= 0 && highlightedIdx < items.length) {
-        var branch = items[highlightedIdx].dataset.branch;
+      if (branchPicker.highlightedIdx >= 0 && branchPicker.highlightedIdx < items.length) {
+        var branch = items[branchPicker.highlightedIdx].dataset.branch;
         if (branch) selectBaseBranch(branch);
       }
     } else if (e.key === 'Escape') {
       baseBranchPickerEl.classList.remove('open');
+      baseBranchBtnEl.setAttribute('aria-expanded', 'false');
     }
   });
 
@@ -6638,6 +6667,16 @@
   document.addEventListener('click', function(e) {
     if (!baseBranchPickerEl.contains(e.target)) {
       baseBranchPickerEl.classList.remove('open');
+      baseBranchBtnEl.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  // Close on Escape (only when open)
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && baseBranchPickerEl.classList.contains('open')) {
+      baseBranchPickerEl.classList.remove('open');
+      baseBranchBtnEl.setAttribute('aria-expanded', 'false');
+      e.stopImmediatePropagation();
     }
   });
 
