@@ -1507,6 +1507,167 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 // mergeExternalCritJSON checks if .crit.json was modified externally (not by us)
 // and merges any new comments into the in-memory session.
 // Returns true if changes were detected and merged.
+func (s *Session) handleCritJSONDeleted() bool {
+	s.mu.Lock()
+	s.lastCritJSONMtime = time.Time{}
+	anyComments := false
+	for _, f := range s.Files {
+		if len(f.Comments) > 0 {
+			f.Comments = []Comment{}
+			anyComments = true
+		}
+	}
+	s.nextID = 1
+	s.mu.Unlock()
+	if anyComments {
+		s.notify(SSEEvent{Type: "comments-changed"})
+	}
+	return true
+}
+
+func (s *Session) mergeFileCommentsFromDisk(f *FileEntry, diskFile CritJSONFile) bool {
+	changed := false
+
+	memIDs := make(map[string]struct{}, len(f.Comments))
+	for _, c := range f.Comments {
+		memIDs[c.ID] = struct{}{}
+	}
+
+	for _, dc := range diskFile.Comments {
+		if _, exists := memIDs[dc.ID]; !exists {
+			f.Comments = append(f.Comments, dc)
+			id := 0
+			fmt.Sscanf(dc.ID, "c%d", &id)
+			if id >= s.nextID {
+				s.nextID = id + 1
+			}
+			changed = true
+		} else {
+			changed = s.mergeCommentRepliesAndState(f.Comments, dc) || changed
+		}
+	}
+
+	// Remove comments deleted on disk.
+	if len(diskFile.Comments) != len(f.Comments) {
+		changed = filterDeletedComments(f, diskFile.Comments) || changed
+	}
+
+	return changed
+}
+
+func (s *Session) mergeCommentRepliesAndState(comments []Comment, dc Comment) bool {
+	changed := false
+	for i, mc := range comments {
+		if mc.ID != dc.ID {
+			continue
+		}
+		memReplyIDs := make(map[string]struct{}, len(mc.Replies))
+		for _, r := range mc.Replies {
+			memReplyIDs[r.ID] = struct{}{}
+		}
+		for _, dr := range dc.Replies {
+			if _, exists := memReplyIDs[dr.ID]; !exists {
+				comments[i].Replies = append(comments[i].Replies, dr)
+				changed = true
+			}
+		}
+		if dc.Resolved != mc.Resolved {
+			comments[i].Resolved = dc.Resolved
+			changed = true
+		}
+		break
+	}
+	return changed
+}
+
+func filterDeletedComments(f *FileEntry, diskComments []Comment) bool {
+	diskIDs := make(map[string]struct{}, len(diskComments))
+	for _, dc := range diskComments {
+		diskIDs[dc.ID] = struct{}{}
+	}
+	filtered := f.Comments[:0]
+	for _, c := range f.Comments {
+		if _, exists := diskIDs[c.ID]; exists {
+			filtered = append(filtered, c)
+		}
+	}
+	if len(filtered) != len(f.Comments) {
+		f.Comments = filtered
+		return true
+	}
+	return false
+}
+
+func (s *Session) mergeReviewCommentsFromDisk(diskComments []Comment) bool {
+	changed := false
+
+	memReviewIDs := make(map[string]struct{}, len(s.reviewComments))
+	for _, c := range s.reviewComments {
+		memReviewIDs[c.ID] = struct{}{}
+	}
+	for _, dc := range diskComments {
+		if _, exists := memReviewIDs[dc.ID]; !exists {
+			s.reviewComments = append(s.reviewComments, dc)
+			id := 0
+			fmt.Sscanf(dc.ID, "r%d", &id)
+			if id >= s.reviewNextID {
+				s.reviewNextID = id + 1
+			}
+			changed = true
+		} else {
+			changed = s.mergeReviewCommentRepliesAndState(dc) || changed
+		}
+	}
+
+	// Remove review comments deleted on disk.
+	changed = s.filterDeletedReviewComments(diskComments) || changed
+
+	return changed
+}
+
+func (s *Session) mergeReviewCommentRepliesAndState(dc Comment) bool {
+	changed := false
+	for i, mc := range s.reviewComments {
+		if mc.ID != dc.ID {
+			continue
+		}
+		if dc.Resolved != mc.Resolved {
+			s.reviewComments[i].Resolved = dc.Resolved
+			changed = true
+		}
+		memRIDs := make(map[string]struct{}, len(mc.Replies))
+		for _, r := range mc.Replies {
+			memRIDs[r.ID] = struct{}{}
+		}
+		for _, dr := range dc.Replies {
+			if _, exists := memRIDs[dr.ID]; !exists {
+				s.reviewComments[i].Replies = append(s.reviewComments[i].Replies, dr)
+				changed = true
+			}
+		}
+		break
+	}
+	return changed
+}
+
+func (s *Session) filterDeletedReviewComments(diskComments []Comment) bool {
+	diskRIDs := make(map[string]struct{}, len(diskComments))
+	for _, dc := range diskComments {
+		diskRIDs[dc.ID] = struct{}{}
+	}
+	filtered := s.reviewComments[:0]
+	for _, c := range s.reviewComments {
+		if _, exists := diskRIDs[c.ID]; exists {
+			filtered = append(filtered, c)
+		}
+	}
+	if len(filtered) != len(s.reviewComments) {
+		s.reviewComments = filtered
+		return true
+	}
+	return false
+}
+
 func (s *Session) mergeExternalCritJSON() bool {
 	critPath := s.critJSONPath()
 
@@ -1517,33 +1678,16 @@ func (s *Session) mergeExternalCritJSON() bool {
 	s.mu.RUnlock()
 
 	if err != nil {
-		// File doesn't exist. If we previously tracked it, it was externally deleted.
 		if !lastMtime.IsZero() {
-			s.mu.Lock()
-			s.lastCritJSONMtime = time.Time{}
-			anyComments := false
-			for _, f := range s.Files {
-				if len(f.Comments) > 0 {
-					f.Comments = []Comment{}
-					anyComments = true
-				}
-			}
-			s.nextID = 1
-			s.mu.Unlock()
-			if anyComments {
-				s.notify(SSEEvent{Type: "comments-changed"})
-			}
+			return s.handleCritJSONDeleted()
 		}
-		return !lastMtime.IsZero()
+		return false
 	}
 
-	// If mtime matches our last write, this is our own change — skip.
 	if !lastMtime.IsZero() && info.ModTime().Equal(lastMtime) {
 		return false
 	}
 
-	// If a debounced write is pending, skip the merge to avoid re-adding
-	// comments that the user just deleted (race between delete + debounce).
 	s.mu.RLock()
 	pending := s.pendingWrite
 	s.mu.RUnlock()
@@ -1567,135 +1711,17 @@ func (s *Session) mergeExternalCritJSON() bool {
 
 	for _, f := range s.Files {
 		diskFile, hasDisk := cj.Files[f.Path]
-
 		if !hasDisk {
-			// File not in .crit.json — if we have comments, they were cleared externally.
 			if len(f.Comments) > 0 {
 				f.Comments = []Comment{}
 				changed = true
 			}
 			continue
 		}
-
-		// Build set of in-memory comment IDs.
-		memIDs := make(map[string]struct{}, len(f.Comments))
-		for _, c := range f.Comments {
-			memIDs[c.ID] = struct{}{}
-		}
-
-		// Merge in new comments from disk.
-		for _, dc := range diskFile.Comments {
-			if _, exists := memIDs[dc.ID]; !exists {
-				f.Comments = append(f.Comments, dc)
-				id := 0
-				fmt.Sscanf(dc.ID, "c%d", &id)
-				if id >= s.nextID {
-					s.nextID = id + 1
-				}
-				changed = true
-			} else {
-				// Comment exists in memory — merge replies and resolved state from disk.
-				for i, mc := range f.Comments {
-					if mc.ID != dc.ID {
-						continue
-					}
-					// Merge new replies from disk
-					memReplyIDs := make(map[string]struct{}, len(mc.Replies))
-					for _, r := range mc.Replies {
-						memReplyIDs[r.ID] = struct{}{}
-					}
-					for _, dr := range dc.Replies {
-						if _, exists := memReplyIDs[dr.ID]; !exists {
-							f.Comments[i].Replies = append(f.Comments[i].Replies, dr)
-							changed = true
-						}
-					}
-					// Sync resolved state bidirectionally from disk
-					if dc.Resolved != mc.Resolved {
-						f.Comments[i].Resolved = dc.Resolved
-						changed = true
-					}
-					break
-				}
-			}
-		}
-
-		// Check for comments removed on disk (e.g. crit comment --clear).
-		// After the merge above, len(f.Comments) >= len(diskFile.Comments), so != means memory has disk-absent IDs.
-		if len(diskFile.Comments) != len(f.Comments) {
-			diskIDs := make(map[string]struct{}, len(diskFile.Comments))
-			for _, dc := range diskFile.Comments {
-				diskIDs[dc.ID] = struct{}{}
-			}
-			filtered := f.Comments[:0]
-			for _, c := range f.Comments {
-				if _, exists := diskIDs[c.ID]; exists {
-					filtered = append(filtered, c)
-				}
-			}
-			if len(filtered) != len(f.Comments) {
-				f.Comments = filtered
-				changed = true
-			}
-		}
+		changed = s.mergeFileCommentsFromDisk(f, diskFile) || changed
 	}
 
-	// Merge review-level comments from disk
-	memReviewIDs := make(map[string]struct{}, len(s.reviewComments))
-	for _, c := range s.reviewComments {
-		memReviewIDs[c.ID] = struct{}{}
-	}
-	for _, dc := range cj.ReviewComments {
-		if _, exists := memReviewIDs[dc.ID]; !exists {
-			s.reviewComments = append(s.reviewComments, dc)
-			id := 0
-			fmt.Sscanf(dc.ID, "r%d", &id)
-			if id >= s.reviewNextID {
-				s.reviewNextID = id + 1
-			}
-			changed = true
-		} else {
-			// Merge resolved state and replies from disk
-			for i, mc := range s.reviewComments {
-				if mc.ID != dc.ID {
-					continue
-				}
-				if dc.Resolved != mc.Resolved {
-					s.reviewComments[i].Resolved = dc.Resolved
-					changed = true
-				}
-				memRIDs := make(map[string]struct{}, len(mc.Replies))
-				for _, r := range mc.Replies {
-					memRIDs[r.ID] = struct{}{}
-				}
-				for _, dr := range dc.Replies {
-					if _, exists := memRIDs[dr.ID]; !exists {
-						s.reviewComments[i].Replies = append(s.reviewComments[i].Replies, dr)
-						changed = true
-					}
-				}
-				break
-			}
-		}
-	}
-	// Remove review comments deleted on disk (always run filter — length check is unreliable
-	// when adds and deletes happen in the same external edit)
-	{
-		diskRIDs := make(map[string]struct{}, len(cj.ReviewComments))
-		for _, dc := range cj.ReviewComments {
-			diskRIDs[dc.ID] = struct{}{}
-		}
-		filtered := s.reviewComments[:0]
-		for _, c := range s.reviewComments {
-			if _, exists := diskRIDs[c.ID]; exists {
-				filtered = append(filtered, c)
-			}
-		}
-		if len(filtered) != len(s.reviewComments) {
-			s.reviewComments = filtered
-			changed = true
-		}
-	}
+	changed = s.mergeReviewCommentsFromDisk(cj.ReviewComments) || changed
 	s.mu.Unlock()
 
 	if changed {

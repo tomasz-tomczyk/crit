@@ -870,6 +870,113 @@ func (e *BulkCommentEntry) UnmarshalJSON(data []byte) error {
 // bulkAddCommentsToCritJSON applies multiple comments and replies in a single load-save cycle.
 // globalAuthor is used when an entry doesn't specify its own author.
 // outputDir overrides the .crit.json location (empty = repo root or CWD).
+func processBulkEntry(cj *CritJSON, i int, e BulkCommentEntry, globalAuthor string) error {
+	if e.Body == "" {
+		return fmt.Errorf("entry %d: body is required", i)
+	}
+
+	author := e.Author
+	if author == "" {
+		author = globalAuthor
+	}
+
+	if e.ReplyTo != "" {
+		if err := appendReply(cj, e.ReplyTo, e.Body, author, e.Resolve, e.File); err != nil {
+			return fmt.Errorf("entry %d: %w", i, err)
+		}
+		return nil
+	}
+
+	if e.Scope == "review" || (e.File == "" && e.Path == "" && e.Line <= 0 && e.LineSpec == "") {
+		return processBulkReviewEntry(cj, i, e, author)
+	}
+
+	return processBulkFileOrLineEntry(cj, i, e, author)
+}
+
+func processBulkReviewEntry(cj *CritJSON, i int, e BulkCommentEntry, author string) error {
+	if e.Line > 0 || e.LineSpec != "" {
+		return fmt.Errorf("entry %d: file is required for new comments", i)
+	}
+	if e.Scope != "review" && (e.File != "" || e.Path != "") {
+		return fmt.Errorf("entry %d: file is required for new comments", i)
+	}
+	appendReviewComment(cj, e.Body, author)
+	return nil
+}
+
+func processBulkFileOrLineEntry(cj *CritJSON, i int, e BulkCommentEntry, author string) error {
+	filePath := e.File
+	if filePath == "" {
+		filePath = e.Path
+	}
+	if filePath == "" {
+		return fmt.Errorf("entry %d: file is required for new comments", i)
+	}
+
+	cleaned := filepath.Clean(filePath)
+	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+		return fmt.Errorf("entry %d: path %q must be relative and within the repository", i, filePath)
+	}
+
+	if e.Scope == "file" {
+		appendFileComment(cj, cleaned, e.Body, author)
+		return nil
+	}
+
+	if e.Line <= 0 && e.LineSpec == "" {
+		if e.Path != "" && e.File == "" {
+			appendFileComment(cj, cleaned, e.Body, author)
+			return nil
+		}
+		return fmt.Errorf("entry %d: line must be > 0", i)
+	}
+
+	return processBulkLineComment(cj, i, e, cleaned, author)
+}
+
+func processBulkLineComment(cj *CritJSON, i int, e BulkCommentEntry, cleaned, author string) error {
+	startLine := e.Line
+	endLine := e.EndLine
+
+	if e.LineSpec != "" && startLine == 0 {
+		var err error
+		startLine, endLine, err = parseLineSpec(e.LineSpec)
+		if err != nil {
+			return fmt.Errorf("entry %d: invalid line spec %q", i, e.LineSpec)
+		}
+	}
+
+	if startLine <= 0 {
+		return fmt.Errorf("entry %d: line must be > 0", i)
+	}
+	if endLine == 0 {
+		endLine = startLine
+	}
+
+	appendComment(cj, cleaned, startLine, endLine, e.Body, author)
+	return nil
+}
+
+func parseLineSpec(spec string) (start, end int, err error) {
+	if dashIdx := strings.Index(spec, "-"); dashIdx >= 0 {
+		s, err1 := strconv.Atoi(spec[:dashIdx])
+		e, err2 := strconv.Atoi(spec[dashIdx+1:])
+		if err1 != nil || err2 != nil {
+			if err1 != nil {
+				return 0, 0, err1
+			}
+			return 0, 0, err2
+		}
+		return s, e, nil
+	}
+	n, err := strconv.Atoi(spec)
+	if err != nil {
+		return 0, 0, err
+	}
+	return n, n, nil
+}
+
 func bulkAddCommentsToCritJSON(entries []BulkCommentEntry, globalAuthor string, outputDir string) error {
 	if len(entries) == 0 {
 		return fmt.Errorf("no comment entries provided")
@@ -887,89 +994,8 @@ func bulkAddCommentsToCritJSON(entries []BulkCommentEntry, globalAuthor string, 
 	}
 
 	for i, e := range entries {
-		if e.Body == "" {
-			return fmt.Errorf("entry %d: body is required", i)
-		}
-
-		author := e.Author
-		if author == "" {
-			author = globalAuthor
-		}
-
-		if e.ReplyTo != "" {
-			// Reply mode
-			if err := appendReply(&cj, e.ReplyTo, e.Body, author, e.Resolve, e.File); err != nil {
-				return fmt.Errorf("entry %d: %w", i, err)
-			}
-		} else if e.Scope == "review" || (e.File == "" && e.Path == "" && e.Line <= 0 && e.LineSpec == "") {
-			// Review-level comment: explicit scope OR no file/line at all.
-			// But if Line > 0 or LineSpec is set, it's a line comment missing a file — error.
-			if e.Line > 0 || e.LineSpec != "" {
-				return fmt.Errorf("entry %d: file is required for new comments", i)
-			}
-			if e.Scope != "review" && (e.File != "" || e.Path != "") {
-				// Has a file but no scope — not a review comment
-				return fmt.Errorf("entry %d: file is required for new comments", i)
-			}
-			appendReviewComment(&cj, e.Body, author)
-		} else {
-			// Determine file path from File or Path field
-			filePath := e.File
-			if filePath == "" {
-				filePath = e.Path
-			}
-			if filePath == "" {
-				return fmt.Errorf("entry %d: file is required for new comments", i)
-			}
-
-			cleaned := filepath.Clean(filePath)
-			if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
-				return fmt.Errorf("entry %d: path %q must be relative and within the repository", i, filePath)
-			}
-
-			if e.Scope == "file" {
-				// Explicit file-level comment
-				appendFileComment(&cj, cleaned, e.Body, author)
-			} else if e.Line <= 0 && e.LineSpec == "" {
-				// No line specified — infer file-level only when using "path" field (new API),
-				// not "file" field (backward compat: "file" without line is an error).
-				if e.Path != "" && e.File == "" {
-					appendFileComment(&cj, cleaned, e.Body, author)
-				} else {
-					return fmt.Errorf("entry %d: line must be > 0", i)
-				}
-			} else {
-				// Line-level comment
-				startLine := e.Line
-				endLine := e.EndLine
-
-				// Support "line": "45-47" string format
-				if e.LineSpec != "" && startLine == 0 {
-					if dashIdx := strings.Index(e.LineSpec, "-"); dashIdx >= 0 {
-						s, err1 := strconv.Atoi(e.LineSpec[:dashIdx])
-						eVal, err2 := strconv.Atoi(e.LineSpec[dashIdx+1:])
-						if err1 != nil || err2 != nil {
-							return fmt.Errorf("entry %d: invalid line spec %q", i, e.LineSpec)
-						}
-						startLine, endLine = s, eVal
-					} else {
-						n, err := strconv.Atoi(e.LineSpec)
-						if err != nil {
-							return fmt.Errorf("entry %d: invalid line spec %q", i, e.LineSpec)
-						}
-						startLine, endLine = n, n
-					}
-				}
-
-				if startLine <= 0 {
-					return fmt.Errorf("entry %d: line must be > 0", i)
-				}
-				if endLine == 0 {
-					endLine = startLine
-				}
-
-				appendComment(&cj, cleaned, startLine, endLine, e.Body, author)
-			}
+		if err := processBulkEntry(&cj, i, e, globalAuthor); err != nil {
+			return err
 		}
 	}
 
