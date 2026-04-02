@@ -159,6 +159,7 @@ type Session struct {
 	lastCritJSONMtime   time.Time // mtime after our last WriteFiles(); used to detect external changes
 	awaitingFirstReview bool      // true until first review-cycle completes
 	browserClients      int32     // number of connected SSE browser clients (atomic)
+
 }
 
 // CritJSON is the on-disk format for .crit.json.
@@ -1011,16 +1012,9 @@ func (s *Session) EnsureFileEntry(path string) bool {
 		return false
 	}
 
-	// Determine the file's git status
-	status := "untracked"
-	if changes, err := ChangedFiles(); err == nil {
-		for _, fc := range changes {
-			if fc.Path == path {
-				status = fc.Status
-				break
-			}
-		}
-	}
+	// Determine the file's git status via a single-file diff against baseRef
+	// (avoids running full ChangedFiles which diffs ALL files).
+	status := fileStatusInRepo(path, repoRoot, baseRef)
 
 	fe := &FileEntry{
 		Path:     path,
@@ -1398,7 +1392,9 @@ func (s *Session) WriteFiles() {
 	// (e.g. comments added via `crit comment` on files outside the current diff).
 	cj := CritJSON{Files: make(map[string]CritJSONFile)}
 	if data, err := os.ReadFile(snap.critPath); err == nil {
-		_ = json.Unmarshal(data, &cj)
+		if unmarshalErr := json.Unmarshal(data, &cj); unmarshalErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: corrupt .crit.json, starting fresh: %v\n", unmarshalErr)
+		}
 		if cj.Files == nil {
 			cj.Files = make(map[string]CritJSONFile)
 		}
@@ -1972,9 +1968,10 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		BaseRef:         s.BaseRef,
 		BaseBranchName:  s.BaseBranchName,
 		ReviewRound:     s.ReviewRound,
-		AvailableScopes: availableScopes(s.BaseRef),
 		ReviewComments:  reviewComments,
 	}
+
+	info.AvailableScopes = availableScopes(info.BaseRef)
 
 	for _, f := range s.Files {
 		fi := SessionFileInfo{

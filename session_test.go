@@ -938,6 +938,90 @@ func TestChangeBaseBranch(t *testing.T) {
 	}
 }
 
+// TestChangeBaseBranch_CommentsPreserved verifies that comments on files that still
+// appear after changing the base branch are preserved through the transition, and
+// that rollback works when the new branch is invalid.
+func TestChangeBaseBranch_CommentsPreserved(t *testing.T) {
+	dir := initTestRepo(t)
+
+	defaultBranchOnce = sync.Once{}
+	defaultBranchOverride = ""
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer func() {
+		os.Chdir(origDir)
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+	}()
+
+	// main has: README.md (initial commit)
+	// Create "production" branch with prod.go
+	runGit(t, dir, "checkout", "-b", "production")
+	writeFile(t, filepath.Join(dir, "prod.go"), "package main\n")
+	runGit(t, dir, "add", "prod.go")
+	runGit(t, dir, "commit", "-m", "production commit")
+
+	// Create feature branch with feature.go
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, filepath.Join(dir, "feature.go"), "package main\nfunc Feature() {}\n")
+	runGit(t, dir, "add", "feature.go")
+	runGit(t, dir, "commit", "-m", "feature commit")
+
+	// Create session (base=main, so both prod.go and feature.go appear)
+	session, err := NewSessionFromGit(nil)
+	if err != nil {
+		t.Fatalf("NewSessionFromGit: %v", err)
+	}
+
+	// Add a comment on feature.go (should survive base branch change)
+	_, ok := session.AddComment("feature.go", 1, 1, "", "keep this comment", "", "")
+	if !ok {
+		t.Fatal("AddComment on feature.go failed")
+	}
+	// Add a comment on prod.go (should be lost when switching base to production)
+	_, ok = session.AddComment("prod.go", 1, 1, "", "will disappear", "", "")
+	if !ok {
+		t.Fatal("AddComment on prod.go failed")
+	}
+
+	// Switch base to production — feature.go remains, prod.go drops out
+	if err := session.ChangeBaseBranch("production"); err != nil {
+		t.Fatalf("ChangeBaseBranch(production): %v", err)
+	}
+
+	// feature.go should still have its comment
+	featureComments := session.GetComments("feature.go")
+	if len(featureComments) != 1 {
+		t.Fatalf("expected 1 comment on feature.go, got %d", len(featureComments))
+	}
+	if featureComments[0].Body != "keep this comment" {
+		t.Errorf("comment body = %q, want %q", featureComments[0].Body, "keep this comment")
+	}
+
+	// prod.go should no longer be in the session
+	if session.FileByPath("prod.go") != nil {
+		t.Error("prod.go should not appear when base is production")
+	}
+
+	// Rollback: changing to a non-existent branch should fail and preserve state
+	session.mu.RLock()
+	baseBefore := session.BaseBranchName
+	session.mu.RUnlock()
+
+	err = session.ChangeBaseBranch("nonexistent-branch")
+	if err == nil {
+		t.Fatal("expected error for nonexistent branch")
+	}
+
+	session.mu.RLock()
+	baseAfter := session.BaseBranchName
+	session.mu.RUnlock()
+	if baseAfter != baseBefore {
+		t.Errorf("BaseBranchName changed to %q after failed switch, want %q", baseAfter, baseBefore)
+	}
+}
+
 // TestNewSessionFromFiles_BaseBranch verifies that setting defaultBranchOverride
 // causes NewSessionFromFiles to compute a baseRef against the override branch.
 func TestNewSessionFromFiles_BaseBranch(t *testing.T) {

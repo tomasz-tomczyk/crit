@@ -15,6 +15,14 @@ import (
 	"time"
 )
 
+// aliveClient is used by isDaemonAlive which is called in a loop by
+// listSessionsForCWD — a short timeout keeps listing responsive.
+var aliveClient = &http.Client{Timeout: time.Second}
+
+// browserClient is used by daemonHasBrowser which is called once per
+// daemon lifecycle and can tolerate a longer timeout.
+var browserClient = &http.Client{Timeout: 2 * time.Second}
+
 // sessionEntry tracks a running daemon process in ~/.crit/sessions/.
 type sessionEntry struct {
 	PID       int      `json:"pid"`
@@ -212,8 +220,7 @@ func isDaemonAlive(s sessionEntry) bool {
 	}
 	// HTTP health probe — ensures the port belongs to our daemon, not a reused PID.
 	// We validate the response body to guard against a non-crit process on the same port.
-	client := &http.Client{Timeout: 1 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/health", s.Port))
+	resp, err := aliveClient.Get(fmt.Sprintf("http://localhost:%d/api/health", s.Port))
 	if err != nil {
 		return false
 	}
@@ -234,8 +241,7 @@ func isDaemonAlive(s sessionEntry) bool {
 // Uses a pointer to distinguish "field missing" (older daemon) from "false".
 // When the field is missing, assumes a browser is connected (safe default).
 func daemonHasBrowser(s sessionEntry) bool {
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/health", s.Port))
+	resp, err := browserClient.Get(fmt.Sprintf("http://localhost:%d/api/health", s.Port))
 	if err != nil {
 		return true // can't reach daemon, assume browser exists
 	}
@@ -321,7 +327,11 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 	cmdArgs = append(cmdArgs, args...)
 
 	cmd := exec.Command(selfPath, cmdArgs...)
-	cmd.Dir, _ = os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return sessionEntry{}, fmt.Errorf("getting working directory: %w", err)
+	}
+	cmd.Dir = cwd
 	cmd.Stdout = nil
 	cmd.Stdin = nil
 

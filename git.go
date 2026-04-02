@@ -580,6 +580,45 @@ func parseNameStatus(output string) []FileChange {
 	return changes
 }
 
+// fileStatusInRepo returns the git status of a single file relative to baseRef
+// by running `git diff --name-status <baseRef> -- <path>` from the repo root.
+// This mirrors the same diff approach that ChangedFiles uses (merge-base diff),
+// so files committed on a branch are correctly reported as added/modified.
+// Falls back to checking whether the file is tracked when baseRef is empty.
+func fileStatusInRepo(path, repoRoot, baseRef string) string {
+	if baseRef == "" {
+		// No base ref — check if the file is tracked at all.
+		cmd := exec.Command("git", "ls-files", "--error-unmatch", "--", path)
+		cmd.Dir = repoRoot
+		if err := cmd.Run(); err != nil {
+			return "untracked"
+		}
+		return "modified"
+	}
+	cmd := exec.Command("git", "diff", "--name-status", baseRef, "--", path)
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return "untracked"
+	}
+	line := strings.TrimSpace(string(out))
+	if line == "" {
+		// File exists but is unchanged relative to baseRef.
+		// Check if it's tracked; if not, it's untracked.
+		chk := exec.Command("git", "ls-files", "--error-unmatch", "--", path)
+		chk.Dir = repoRoot
+		if err := chk.Run(); err != nil {
+			return "untracked"
+		}
+		return "modified"
+	}
+	changes := parseNameStatus(line)
+	if len(changes) > 0 {
+		return changes[0].Status
+	}
+	return "modified"
+}
+
 // dedup removes duplicate paths, keeping the first occurrence.
 func dedup(changes []FileChange) []FileChange {
 	seen := map[string]bool{}
@@ -679,12 +718,13 @@ type NumstatEntry struct {
 	Deletions int
 }
 
-// DiffNumstat runs git diff --numstat against the given base ref and returns per-file stats.
+// Deprecated: Use DiffNumstatDir with an empty dir instead.
 func DiffNumstat(baseRef string) (map[string]NumstatEntry, error) {
 	return DiffNumstatDir(baseRef, "")
 }
 
-// DiffNumstatDir is like DiffNumstat but runs in a specific directory.
+// DiffNumstatDir runs git diff --numstat against the given base ref and returns per-file stats.
+// If dir is non-empty, git runs in that directory.
 func DiffNumstatDir(baseRef, dir string) (map[string]NumstatEntry, error) {
 	cmd := exec.Command("git", "diff", "--numstat", baseRef)
 	if dir != "" {

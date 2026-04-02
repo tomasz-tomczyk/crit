@@ -1759,6 +1759,113 @@ func TestHandleConfig_AgentCmdEnabled(t *testing.T) {
 	}
 }
 
+func TestFuzzyScore(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		text    string
+		wantHit bool // true if score >= 0 (match), false if -1 (no match)
+	}{
+		{name: "empty query on empty text", query: "", text: "", wantHit: true},
+		{name: "empty query penalized by length", query: "", text: "anything.go", wantHit: false},
+		{name: "exact match", query: "main.go", text: "main.go", wantHit: true},
+		{name: "substring match", query: "main", text: "main.go", wantHit: true},
+		{name: "fuzzy match scattered", query: "mgo", text: "main.go", wantHit: true},
+		{name: "no match missing char", query: "xyz", text: "main.go", wantHit: false},
+		{name: "case insensitive", query: "main", text: "MAIN.GO", wantHit: true},
+		{name: "query longer than text", query: "toolongquery", text: "short", wantHit: false},
+		{name: "path separator bonus", query: "sg", text: "src/git.go", wantHit: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			score := fuzzyScore(tt.query, tt.text)
+			gotHit := score >= 0
+			if gotHit != tt.wantHit {
+				t.Errorf("fuzzyScore(%q, %q) = %v, wantHit=%v", tt.query, tt.text, score, tt.wantHit)
+			}
+		})
+	}
+}
+
+func TestFuzzyScore_Ranking(t *testing.T) {
+	// Exact prefix match should score higher than scattered match
+	exactScore := fuzzyScore("main", "main.go")
+	scatteredScore := fuzzyScore("main", "middleware/auth_interceptor.go")
+	if exactScore <= scatteredScore {
+		t.Errorf("exact prefix score (%v) should beat scattered score (%v)", exactScore, scatteredScore)
+	}
+
+	// Shorter path with same match should score higher (length penalty)
+	shortScore := fuzzyScore("srv", "server.go")
+	longScore := fuzzyScore("srv", "internal/services/server_runner.go")
+	if shortScore <= longScore {
+		t.Errorf("short path score (%v) should beat long path score (%v)", shortScore, longScore)
+	}
+}
+
+func TestFuzzyFilterPaths(t *testing.T) {
+	paths := []string{
+		"main.go",
+		"server.go",
+		"session.go",
+		"internal/middleware.go",
+		"README.md",
+		"config.go",
+	}
+
+	t.Run("empty query returns nothing because length penalty", func(t *testing.T) {
+		results := fuzzyFilterPaths(paths, "", 3)
+		if len(results) != 0 {
+			t.Errorf("got %d results, want 0 (length penalty makes score < 0)", len(results))
+		}
+	})
+
+	t.Run("no matches returns empty", func(t *testing.T) {
+		results := fuzzyFilterPaths(paths, "xyz", 10)
+		if len(results) != 0 {
+			t.Errorf("got %d results, want 0", len(results))
+		}
+	})
+
+	t.Run("exact match appears first", func(t *testing.T) {
+		results := fuzzyFilterPaths(paths, "server.go", 5)
+		if len(results) == 0 {
+			t.Fatal("expected at least one result")
+		}
+		if results[0] != "server.go" {
+			t.Errorf("first result = %q, want %q", results[0], "server.go")
+		}
+	})
+
+	t.Run("substring match works", func(t *testing.T) {
+		results := fuzzyFilterPaths(paths, "sess", 5)
+		found := false
+		for _, r := range results {
+			if r == "session.go" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected session.go in results: %v", results)
+		}
+	})
+
+	t.Run("limit caps results", func(t *testing.T) {
+		results := fuzzyFilterPaths(paths, "go", 2)
+		if len(results) > 2 {
+			t.Errorf("got %d results, want at most 2", len(results))
+		}
+	})
+
+	t.Run("nil paths returns empty", func(t *testing.T) {
+		results := fuzzyFilterPaths(nil, "test", 10)
+		if len(results) != 0 {
+			t.Errorf("got %d results, want 0", len(results))
+		}
+	})
+}
+
 func TestHandleSession_PlanMode(t *testing.T) {
 	session := &Session{
 		Mode:    "plan",
