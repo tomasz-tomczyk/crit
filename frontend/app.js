@@ -1576,6 +1576,8 @@
     if (file.lazy) {
       section.addEventListener('toggle', function onLazyExpand() {
         if (!section.open || !file.lazy) return;
+        if (file._lazyLoading) return;
+        file._lazyLoading = true;
         section.removeEventListener('toggle', onLazyExpand);
         section.classList.add('file-section-loading');
 
@@ -1597,6 +1599,7 @@
           file.diffTooLarge = loaded.diffTooLarge;
           file.diffLoaded = loaded.diffLoaded;
           file.lazy = false;
+          file._lazyLoading = false;
           if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
           if (loaded.lang) file.lang = loaded.lang;
 
@@ -1611,6 +1614,7 @@
           updateCommentCount();
           rebuildNavList();
         }).catch(function() {
+          file._lazyLoading = false;
           section.classList.remove('file-section-loading');
           section.addEventListener('toggle', onLazyExpand);
         });
@@ -2506,9 +2510,7 @@
 
   // Strip HTML tags and decode entities to get visible text for word-diff comparison.
   function htmlToText(html) {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    return tmp.textContent || '';
+    return html.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
   }
 
   // Apply word-level diffs to a pair of old/new blocks if they are sufficiently similar.
@@ -5883,7 +5885,18 @@
       showDisconnected();
     });
 
-    source.onerror = function() {};
+    var sseErrorCount = 0;
+    source.addEventListener('message', function() { sseErrorCount = 0; });
+    source.addEventListener('file-changed', function() { sseErrorCount = 0; });
+    source.addEventListener('comments-changed', function() { sseErrorCount = 0; });
+    source.addEventListener('base-changed', function() { sseErrorCount = 0; });
+
+    source.onerror = function() {
+      sseErrorCount++;
+      if (sseErrorCount >= 3) {
+        showMiniToast('Connection lost \u2014 retrying\u2026');
+      }
+    };
   }
 
   function showDisconnected() {
@@ -6204,9 +6217,17 @@
   }
 
   // ===== Mermaid =====
+  function getMermaidTheme() {
+    var dataTheme = document.documentElement.getAttribute('data-theme');
+    if (dataTheme === 'light') return 'default';
+    if (dataTheme === 'dark') return 'dark';
+    // System theme: check prefers-color-scheme
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'default' : 'dark';
+  }
+
   function renderMermaidBlocks() {
     if (typeof mermaid === 'undefined') return;
-    mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+    mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme() });
     const codes = document.querySelectorAll('code.language-mermaid');
     codes.forEach(function(code) {
       const pre = code.parentElement;
@@ -6235,6 +6256,12 @@
       const forTheme = btn.getAttribute('data-for-theme');
       btn.classList.toggle('active', forTheme === choice);
     });
+
+    // Re-initialize mermaid diagrams with updated theme
+    if (typeof mermaid !== 'undefined') {
+      mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme() });
+      try { mermaid.run(); } catch (_) {}
+    }
 
     const indicator = document.querySelector('.theme-pill-indicator');
     if (indicator) {
@@ -6998,7 +7025,7 @@
   document.addEventListener('mouseup', function(e) {
     // Don't interfere with gutter interactions (drag-to-select, + button clicks).
     if (dragState || diffDragState) return;
-    if (e.target.closest('.line-comment-gutter') || e.target.closest('.diff-gutter-btn')) return;
+    if (e.target.closest('.line-comment-gutter') || e.target.closest('.diff-comment-btn')) return;
 
     // Small delay to let the browser finalize the selection
     requestAnimationFrame(function() {
