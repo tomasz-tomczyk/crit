@@ -210,8 +210,22 @@ func buildShareFromSession(s *Session) ([]shareFile, []shareComment, int) {
 }
 
 // loadCommentsForShare reads .crit.json from dir and returns shareComment entries
-// for the given file paths, plus the review round.
+// for the given file paths, plus the review round. Resolved comments are excluded.
 func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) {
+	return loadCommentsFromCritJSON(dir, filePaths, false)
+}
+
+// loadAllCommentsForShare is like loadCommentsForShare but includes resolved comments.
+// Used for upsert pushes so crit-web shows which comments the agent addressed.
+// Sets ExternalID on each comment from the local Comment.ID.
+func loadAllCommentsForShare(dir string, filePaths []string) ([]shareComment, int) {
+	return loadCommentsFromCritJSON(dir, filePaths, true)
+}
+
+// loadCommentsFromCritJSON reads .crit.json from dir and returns shareComment entries
+// for the given file paths, plus the review round. When includeResolved is true,
+// resolved comments are included and ExternalID is set from the local comment ID.
+func loadCommentsFromCritJSON(dir string, filePaths []string, includeResolved bool) ([]shareComment, int) {
 	critPath := filepath.Join(dir, ".crit.json")
 	data, err := os.ReadFile(critPath)
 	if err != nil {
@@ -233,21 +247,25 @@ func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) 
 	}
 
 	var comments []shareComment
-	for path, cf := range cj.Files {
-		if !pathSet[path] {
+	for filePath, cf := range cj.Files {
+		if !pathSet[filePath] {
 			continue
 		}
 		for _, c := range cf.Comments {
-			if c.Resolved {
+			if !includeResolved && c.Resolved {
 				continue
 			}
 			sc := shareComment{
-				File:      path,
+				File:      filePath,
 				StartLine: c.StartLine,
 				EndLine:   c.EndLine,
 				Body:      c.Body,
 				Quote:     c.Quote,
 				Author:    c.Author,
+			}
+			if includeResolved {
+				sc.Resolved = c.Resolved
+				sc.ExternalID = c.ID
 			}
 			if c.ReviewRound >= 1 {
 				sc.ReviewRound = c.ReviewRound
@@ -259,7 +277,7 @@ func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) 
 		}
 	}
 	for _, c := range cj.ReviewComments {
-		if c.Resolved {
+		if !includeResolved && c.Resolved {
 			continue
 		}
 		sc := shareComment{
@@ -267,75 +285,9 @@ func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) 
 			Author: c.Author,
 			Scope:  "review",
 		}
-		if c.ReviewRound >= 1 {
-			sc.ReviewRound = c.ReviewRound
-		}
-		for _, r := range c.Replies {
-			sc.Replies = append(sc.Replies, shareReply{Body: r.Body, Author: r.Author})
-		}
-		comments = append(comments, sc)
-	}
-
-	return comments, round
-}
-
-// loadAllCommentsForShare is like loadCommentsForShare but includes resolved comments.
-// Used for upsert pushes so crit-web shows which comments the agent addressed.
-// Sets ExternalID on each comment from the local Comment.ID.
-func loadAllCommentsForShare(dir string, filePaths []string) ([]shareComment, int) {
-	critPath := filepath.Join(dir, ".crit.json")
-	data, err := os.ReadFile(critPath)
-	if err != nil {
-		return nil, 1
-	}
-	var cj CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		return nil, 1
-	}
-
-	round := cj.ReviewRound
-	if round < 1 {
-		round = 1
-	}
-
-	pathSet := make(map[string]bool, len(filePaths))
-	for _, p := range filePaths {
-		pathSet[p] = true
-	}
-
-	var comments []shareComment
-	for path, cf := range cj.Files {
-		if !pathSet[path] {
-			continue
-		}
-		for _, c := range cf.Comments {
-			sc := shareComment{
-				File:       path,
-				StartLine:  c.StartLine,
-				EndLine:    c.EndLine,
-				Body:       c.Body,
-				Quote:      c.Quote,
-				Author:     c.Author,
-				Resolved:   c.Resolved,
-				ExternalID: c.ID,
-			}
-			if c.ReviewRound >= 1 {
-				sc.ReviewRound = c.ReviewRound
-			}
-			for _, r := range c.Replies {
-				sc.Replies = append(sc.Replies, shareReply{Body: r.Body, Author: r.Author})
-			}
-			comments = append(comments, sc)
-		}
-	}
-	// Include review-level comments so they survive upsert round-trips.
-	for _, c := range cj.ReviewComments {
-		sc := shareComment{
-			Body:       c.Body,
-			Author:     c.Author,
-			Resolved:   c.Resolved,
-			ExternalID: c.ID,
-			Scope:      "review",
+		if includeResolved {
+			sc.Resolved = c.Resolved
+			sc.ExternalID = c.ID
 		}
 		if c.ReviewRound >= 1 {
 			sc.ReviewRound = c.ReviewRound

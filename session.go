@@ -1297,11 +1297,6 @@ func (s *Session) ChangeBaseBranch(branch string) error {
 	return nil
 }
 
-// RoundCompleteChan returns the channel signaled on round completion.
-func (s *Session) RoundCompleteChan() <-chan struct{} {
-	return s.roundComplete
-}
-
 // scheduleWrite debounces writes to disk.
 func (s *Session) scheduleWrite() {
 	s.pendingWrite = true
@@ -1367,6 +1362,14 @@ func (s *Session) handleExternalDeletion(critPath string) bool {
 		return false
 	}
 
+	s.clearAllCommentData()
+	return true
+}
+
+// clearAllCommentData resets all in-memory comment state (file comments,
+// review comments, and ID counters) and notifies if any comments existed.
+// Caller must NOT hold s.mu.
+func (s *Session) clearAllCommentData() {
 	s.mu.Lock()
 	s.lastCritJSONMtime = time.Time{}
 	anyComments := false
@@ -1376,12 +1379,16 @@ func (s *Session) handleExternalDeletion(critPath string) bool {
 			anyComments = true
 		}
 	}
+	if len(s.reviewComments) > 0 {
+		anyComments = true
+	}
+	s.reviewComments = nil
 	s.nextID = 1
+	s.reviewNextID = 0
 	s.mu.Unlock()
 	if anyComments {
 		s.notify(SSEEvent{Type: "comments-changed"})
 	}
-	return true
 }
 
 // buildCritJSON loads existing .crit.json from disk, applies the snapshot metadata,
@@ -1527,24 +1534,10 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 	return snap
 }
 
-// mergeExternalCritJSON checks if .crit.json was modified externally (not by us)
-// and merges any new comments into the in-memory session.
-// Returns true if changes were detected and merged.
+// handleCritJSONDeleted clears all in-memory comment state when .crit.json
+// has been deleted. Returns true unconditionally to signal the deletion.
 func (s *Session) handleCritJSONDeleted() bool {
-	s.mu.Lock()
-	s.lastCritJSONMtime = time.Time{}
-	anyComments := false
-	for _, f := range s.Files {
-		if len(f.Comments) > 0 {
-			f.Comments = []Comment{}
-			anyComments = true
-		}
-	}
-	s.nextID = 1
-	s.mu.Unlock()
-	if anyComments {
-		s.notify(SSEEvent{Type: "comments-changed"})
-	}
+	s.clearAllCommentData()
 	return true
 }
 
