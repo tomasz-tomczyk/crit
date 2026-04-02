@@ -365,20 +365,20 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleCommentByID handles PUT/DELETE for individual comments and CRUD for replies.
-// PUT/DELETE /api/comment/{id}?path=server.go
-// POST       /api/comment/{id}/replies?path=server.go
-// PUT        /api/comment/{id}/replies/{rid}?path=server.go
-// DELETE     /api/comment/{id}/replies/{rid}?path=server.go
-func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
-	trimmed := strings.TrimPrefix(r.URL.Path, "/api/comment/")
+// commentOps abstracts the difference between file-scoped and review-scoped comment operations.
+type commentOps struct {
+	resolve    func(id string, resolved bool) (Comment, bool)
+	update     func(id, body string) (Comment, bool)
+	delete     func(id string) bool
+	onDeleted  func(w http.ResponseWriter) // response behavior after successful delete
+	routeReply func(w http.ResponseWriter, r *http.Request, commentID, replyID string)
+}
+
+// routeCommentByID parses the URL suffix after the prefix (/api/comment/ or /api/review-comment/)
+// and dispatches to the appropriate operation via the provided commentOps.
+func routeCommentByID(w http.ResponseWriter, r *http.Request, trimmed string, ops commentOps) {
 	if trimmed == "" {
 		http.Error(w, "Comment ID required", http.StatusBadRequest)
-		return
-	}
-	path := r.URL.Query().Get("path")
-	if path == "" {
-		http.Error(w, "path query parameter required", http.StatusBadRequest)
 		return
 	}
 
@@ -386,36 +386,44 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 	if parts := strings.SplitN(trimmed, "/replies", 2); len(parts) == 2 {
 		commentID := parts[0]
 		replyID := strings.TrimPrefix(parts[1], "/")
-		s.handleReplyRoute(w, r, path, commentID, replyID)
+		ops.routeReply(w, r, commentID, replyID)
 		return
 	}
 
 	// Check if this is a resolve route: {id}/resolve
 	if parts := strings.SplitN(trimmed, "/resolve", 2); len(parts) == 2 && parts[1] == "" {
-		commentID := parts[0]
-		if r.Method != http.MethodPut {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var req struct {
-			Resolved bool `json:"resolved"`
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-		c, ok := s.session.SetCommentResolved(path, commentID, req.Resolved)
-		if !ok {
-			http.Error(w, "Comment not found", http.StatusNotFound)
-			return
-		}
-		writeJSON(w, c)
+		handleResolve(w, r, parts[0], ops.resolve)
 		return
 	}
 
-	// Existing comment PUT/DELETE logic
-	id := trimmed
+	// PUT/DELETE on the comment itself
+	handleCommentUpdateOrDelete(w, r, trimmed, ops)
+}
+
+// handleResolve handles PUT /{prefix}/{id}/resolve — sets the resolved state on a comment.
+func handleResolve(w http.ResponseWriter, r *http.Request, commentID string, resolve func(string, bool) (Comment, bool)) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Resolved bool `json:"resolved"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	c, ok := resolve(commentID, req.Resolved)
+	if !ok {
+		http.Error(w, "Comment not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, c)
+}
+
+// handleCommentUpdateOrDelete handles PUT (update body) and DELETE on a comment.
+func handleCommentUpdateOrDelete(w http.ResponseWriter, r *http.Request, id string, ops commentOps) {
 	switch r.Method {
 	case http.MethodPut:
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
@@ -430,7 +438,7 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Comment body is required", http.StatusBadRequest)
 			return
 		}
-		c, ok := s.session.UpdateComment(path, id, req.Body)
+		c, ok := ops.update(id, req.Body)
 		if !ok {
 			http.Error(w, "Comment not found", http.StatusNotFound)
 			return
@@ -438,15 +446,46 @@ func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, c)
 
 	case http.MethodDelete:
-		if !s.session.DeleteComment(path, id) {
+		if !ops.delete(id) {
 			http.Error(w, "Comment not found", http.StatusNotFound)
 			return
 		}
-		writeJSON(w, map[string]string{"status": "deleted"})
+		ops.onDeleted(w)
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleCommentByID handles PUT/DELETE for individual comments and CRUD for replies.
+// PUT/DELETE /api/comment/{id}?path=server.go
+// POST       /api/comment/{id}/replies?path=server.go
+// PUT        /api/comment/{id}/replies/{rid}?path=server.go
+// DELETE     /api/comment/{id}/replies/{rid}?path=server.go
+func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
+	trimmed := strings.TrimPrefix(r.URL.Path, "/api/comment/")
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "path query parameter required", http.StatusBadRequest)
+		return
+	}
+	routeCommentByID(w, r, trimmed, commentOps{
+		resolve: func(id string, resolved bool) (Comment, bool) {
+			return s.session.SetCommentResolved(path, id, resolved)
+		},
+		update: func(id, body string) (Comment, bool) {
+			return s.session.UpdateComment(path, id, body)
+		},
+		delete: func(id string) bool {
+			return s.session.DeleteComment(path, id)
+		},
+		onDeleted: func(w http.ResponseWriter) {
+			writeJSON(w, map[string]string{"status": "deleted"})
+		},
+		routeReply: func(w http.ResponseWriter, r *http.Request, commentID, replyID string) {
+			s.handleReplyRoute(w, r, path, commentID, replyID)
+		},
+	})
 }
 
 func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
@@ -622,75 +661,23 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleReviewCommentByID(w http.ResponseWriter, r *http.Request) {
 	trimmed := strings.TrimPrefix(r.URL.Path, "/api/review-comment/")
-	if trimmed == "" {
-		http.Error(w, "Comment ID required", http.StatusBadRequest)
-		return
-	}
-
-	// Check if this is a reply route: {id}/replies or {id}/replies/{rid}
-	if parts := strings.SplitN(trimmed, "/replies", 2); len(parts) == 2 {
-		commentID := parts[0]
-		replyID := strings.TrimPrefix(parts[1], "/")
-		s.handleReviewCommentReplyRoute(w, r, commentID, replyID)
-		return
-	}
-
-	// Check if this is a resolve route: {id}/resolve
-	if parts := strings.SplitN(trimmed, "/resolve", 2); len(parts) == 2 && parts[1] == "" {
-		commentID := parts[0]
-		if r.Method != http.MethodPut {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var req struct {
-			Resolved bool `json:"resolved"`
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-		c, ok := s.session.ResolveReviewComment(commentID, req.Resolved)
-		if !ok {
-			http.Error(w, "Comment not found", http.StatusNotFound)
-			return
-		}
-		writeJSON(w, c)
-		return
-	}
-
-	id := trimmed
-	switch r.Method {
-	case http.MethodPut:
-		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-		var req struct {
-			Body string `json:"body"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-		if req.Body == "" {
-			http.Error(w, "Comment body is required", http.StatusBadRequest)
-			return
-		}
-		c, ok := s.session.UpdateReviewComment(id, req.Body)
-		if !ok {
-			http.Error(w, "Comment not found", http.StatusNotFound)
-			return
-		}
-		writeJSON(w, c)
-
-	case http.MethodDelete:
-		if !s.session.DeleteReviewComment(id) {
-			http.Error(w, "Comment not found", http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
+	routeCommentByID(w, r, trimmed, commentOps{
+		resolve: func(id string, resolved bool) (Comment, bool) {
+			return s.session.ResolveReviewComment(id, resolved)
+		},
+		update: func(id, body string) (Comment, bool) {
+			return s.session.UpdateReviewComment(id, body)
+		},
+		delete: func(id string) bool {
+			return s.session.DeleteReviewComment(id)
+		},
+		onDeleted: func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusNoContent)
+		},
+		routeReply: func(w http.ResponseWriter, r *http.Request, commentID, replyID string) {
+			s.handleReviewCommentReplyRoute(w, r, commentID, replyID)
+		},
+	})
 }
 
 func (s *Server) handleRoundComplete(w http.ResponseWriter, r *http.Request) {

@@ -1956,6 +1956,16 @@ type SessionFileInfo struct {
 
 // GetSessionInfo returns a snapshot of session metadata.
 func (s *Session) GetSessionInfo() SessionInfo {
+	// Capture baseRef first, then compute scopes OUTSIDE s.mu so that
+	// SignalRoundComplete (which needs s.mu exclusively) is never blocked
+	// by slow git commands inside availableScopes.
+	s.mu.RLock()
+	baseRef := s.BaseRef
+	s.mu.RUnlock()
+
+	scopes := availableScopes(baseRef)
+
+	// Re-acquire the read lock to build the full response.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -1963,15 +1973,14 @@ func (s *Session) GetSessionInfo() SessionInfo {
 	copy(reviewComments, s.reviewComments)
 
 	info := SessionInfo{
-		Mode:           s.Mode,
-		Branch:         s.Branch,
-		BaseRef:        s.BaseRef,
-		BaseBranchName: s.BaseBranchName,
-		ReviewRound:    s.ReviewRound,
-		ReviewComments: reviewComments,
+		Mode:            s.Mode,
+		Branch:          s.Branch,
+		BaseRef:         s.BaseRef,
+		BaseBranchName:  s.BaseBranchName,
+		ReviewRound:     s.ReviewRound,
+		AvailableScopes: scopes,
+		ReviewComments:  reviewComments,
 	}
-
-	info.AvailableScopes = availableScopes(info.BaseRef)
 
 	for _, f := range s.Files {
 		fi := SessionFileInfo{
@@ -2003,9 +2012,45 @@ func (s *Session) GetSessionInfo() SessionInfo {
 	return info
 }
 
+// scopeCache caches the result of availableScopes to avoid running 3 git commands
+// on every /api/session poll. The cache is package-level with its own mutex so it
+// is never held while Session.mu is locked, avoiding priority inversion with
+// SignalRoundComplete which needs Session.mu exclusively.
+var (
+	scopeCacheMu     sync.Mutex
+	scopeCacheRef    string
+	scopeCacheResult []string
+	scopeCacheTime   time.Time
+)
+
+const scopeCacheTTL = 2 * time.Second
+
 // availableScopes returns the list of scopes that have files.
 // Only includes a scope if git reports changes for it.
+// Results are cached for scopeCacheTTL to avoid repeated git commands on every poll.
 func availableScopes(baseRef string) []string {
+	scopeCacheMu.Lock()
+	if baseRef == scopeCacheRef && time.Since(scopeCacheTime) < scopeCacheTTL {
+		result := scopeCacheResult
+		scopeCacheMu.Unlock()
+		return result
+	}
+	scopeCacheMu.Unlock()
+
+	// Compute outside the cache lock — git commands may be slow.
+	scopes := computeAvailableScopes(baseRef)
+
+	scopeCacheMu.Lock()
+	scopeCacheRef = baseRef
+	scopeCacheResult = scopes
+	scopeCacheTime = time.Now()
+	scopeCacheMu.Unlock()
+
+	return scopes
+}
+
+// computeAvailableScopes runs the git commands to determine which scopes have changes.
+func computeAvailableScopes(baseRef string) []string {
 	scopes := []string{"all"}
 	if baseRef != "" {
 		if files, err := changedFilesBranch(baseRef); err == nil && len(files) > 0 {
