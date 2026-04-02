@@ -308,7 +308,7 @@ body {
   display: flex;
   align-items: center;
   background: var(--bg-tertiary);
-  border: 1px solid var(--border-primary);
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 .update-item-cmd + .update-item-cmd {
@@ -2097,7 +2097,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   .header-context { display: none; }
   .base-branch-picker { display: none; }
   .file-tree-panel { display: none; }
-  #headerUpdate { display: none !important; }
+  #updateBtn { display: none !important; }
   .file-header { padding: 8px 12px; }
   .file-header-toggle { display: none; }
   .change-nav { display: none; }
@@ -3226,7 +3226,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   left: 50%;
   transform: translateX(-50%) translateY(20px);
   background: var(--bg-tertiary);
-  color: var(--text-primary);
+  color: var(--fg-primary);
   border: 1px solid var(--border);
   padding: 8px 16px;
   border-radius: 6px;
