@@ -212,146 +212,86 @@ func findCommentByGitHubID(cj *CritJSON, ghID int64) (string, int, bool) {
 	return "", 0, false
 }
 
-// mergeGHComments appends GitHub PR comments into an existing CritJSON.
-// Only includes RIGHT-side comments (comments on the new version of the file).
-// Handles threading: root comments become top-level Comments, replies become Reply entries.
-// Deduplicates by GitHubID (preferred) or author+lines+body to prevent duplicates from repeated pulls.
-func mergeGHComments(cj *CritJSON, ghComments []ghComment) int {
-	now := time.Now().UTC().Format(time.RFC3339)
-	cj.UpdatedAt = now
-	added := 0
-
-	// Separate roots from replies, filtering as we go
+// separateRootsAndReplies filters and categorizes ghComments into root comments
+// and replies, grouped by parent ID.
+func separateRootsAndReplies(ghComments []ghComment) ([]ghComment, map[int64][]ghComment) {
 	var roots []ghComment
-	var replies []ghComment
+	replyMap := make(map[int64][]ghComment)
 	for _, gc := range ghComments {
-		if gc.Line == 0 {
-			continue // skip PR-level comments not attached to a line
-		}
-		if gc.Side == "LEFT" {
-			continue // skip comments on deleted/old lines
+		if gc.Line == 0 || gc.Side == "LEFT" {
+			continue
 		}
 		if gc.InReplyToID == 0 {
 			roots = append(roots, gc)
 		} else {
-			replies = append(replies, gc)
+			replyMap[gc.InReplyToID] = append(replyMap[gc.InReplyToID], gc)
 		}
 	}
-
-	// Group replies by their parent (InReplyToID)
-	replyMap := make(map[int64][]ghComment)
-	for _, r := range replies {
-		replyMap[r.InReplyToID] = append(replyMap[r.InReplyToID], r)
-	}
-
-	// Sort each reply group by created_at
 	for parentID := range replyMap {
 		sort.Slice(replyMap[parentID], func(i, j int) bool {
 			return replyMap[parentID][i].CreatedAt < replyMap[parentID][j].CreatedAt
 		})
 	}
+	return roots, replyMap
+}
 
-	// Process root comments: create Comment with attached replies
-	for _, gc := range roots {
-		cf, ok := cj.Files[gc.Path]
-		if !ok {
-			cf = CritJSONFile{
-				Status:   "modified",
-				Comments: []Comment{},
-			}
-		}
-
-		startLine := gc.StartLine
-		if startLine == 0 {
-			startLine = gc.Line // single-line comment
-		}
-
-		// Skip if this root comment already exists (dedup for repeated pulls)
-		if isDuplicateGHComment(cf.Comments, gc.ID, gc.User.Login, startLine, gc.Line, gc.Body) {
-			// Even if root is a dupe, check if there are new replies to add
-			if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
-				// Find the existing comment
-				for ci, c := range cf.Comments {
-					if c.GitHubID == gc.ID {
-						for _, r := range childReplies {
-							if isDuplicateGHReply(cf.Comments[ci].Replies, r.ID) {
-								continue
-							}
-							cf.Comments[ci].Replies = append(cf.Comments[ci].Replies, Reply{
-								ID:        nextReplyID(c.ID, cf.Comments[ci].Replies),
-								Body:      r.Body,
-								Author:    r.User.Login,
-								CreatedAt: r.CreatedAt,
-								GitHubID:  r.ID,
-							})
-							added++
-						}
-						break
-					}
-				}
-				cj.Files[gc.Path] = cf
-			}
+// appendNewGHReplies adds non-duplicate replies to an existing comment, returning how many were added.
+func appendNewGHReplies(comments []Comment, ci int, childReplies []ghComment) int {
+	added := 0
+	for _, r := range childReplies {
+		if isDuplicateGHReply(comments[ci].Replies, r.ID) {
 			continue
 		}
+		comments[ci].Replies = append(comments[ci].Replies, Reply{
+			ID:        nextReplyID(comments[ci].ID, comments[ci].Replies),
+			Body:      r.Body,
+			Author:    r.User.Login,
+			CreatedAt: r.CreatedAt,
+			GitHubID:  r.ID,
+		})
+		added++
+	}
+	return added
+}
 
-		commentID := fmt.Sprintf("c%d", nextCommentID(cj.Files))
-		comment := Comment{
-			ID:        commentID,
-			StartLine: startLine,
-			EndLine:   gc.Line,
-			Body:      gc.Body,
-			Author:    gc.User.Login,
-			CreatedAt: gc.CreatedAt,
-			UpdatedAt: now,
-			GitHubID:  gc.ID,
-		}
-
-		// Attach replies for this root
-		if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
-			for _, r := range childReplies {
-				comment.Replies = append(comment.Replies, Reply{
-					ID:        nextReplyID(commentID, comment.Replies),
-					Body:      r.Body,
-					Author:    r.User.Login,
-					CreatedAt: r.CreatedAt,
-					GitHubID:  r.ID,
-				})
-				added++
-			}
-		}
-
-		cf.Comments = append(cf.Comments, comment)
-		cj.Files[gc.Path] = cf
-		added++ // count the root
+// mergeRootComment handles a single root ghComment: either deduplicates or creates it.
+func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment, now string) int {
+	cf, ok := cj.Files[gc.Path]
+	if !ok {
+		cf = CritJSONFile{Status: "modified", Comments: []Comment{}}
 	}
 
-	// Process orphan replies: parent already exists in cj (from a previous pull)
-	for parentID, childReplies := range replyMap {
-		// Skip if we already handled this parent in the roots loop above
-		handled := false
-		for _, gc := range roots {
-			if gc.ID == parentID {
-				handled = true
-				break
+	startLine := gc.StartLine
+	if startLine == 0 {
+		startLine = gc.Line
+	}
+
+	if isDuplicateGHComment(cf.Comments, gc.ID, gc.User.Login, startLine, gc.Line, gc.Body) {
+		added := 0
+		if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
+			for ci, c := range cf.Comments {
+				if c.GitHubID == gc.ID {
+					added = appendNewGHReplies(cf.Comments, ci, childReplies)
+					break
+				}
 			}
+			cj.Files[gc.Path] = cf
 		}
-		if handled {
-			continue
-		}
+		return added
+	}
 
-		// Find the parent comment in the existing CritJSON
-		filePath, ci, found := findCommentByGitHubID(cj, parentID)
-		if !found {
-			continue // orphan reply with no known parent — skip
-		}
+	commentID := fmt.Sprintf("c%d", nextCommentID(cj.Files))
+	comment := Comment{
+		ID: commentID, StartLine: startLine, EndLine: gc.Line,
+		Body: gc.Body, Author: gc.User.Login, CreatedAt: gc.CreatedAt,
+		UpdatedAt: now, GitHubID: gc.ID,
+	}
 
-		cf := cj.Files[filePath]
+	added := 0
+	if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
 		for _, r := range childReplies {
-			if isDuplicateGHReply(cf.Comments[ci].Replies, r.ID) {
-				continue
-			}
-			cf.Comments[ci].Replies = append(cf.Comments[ci].Replies, Reply{
-				ID:        nextReplyID(cf.Comments[ci].ID, cf.Comments[ci].Replies),
+			comment.Replies = append(comment.Replies, Reply{
+				ID:        nextReplyID(commentID, comment.Replies),
 				Body:      r.Body,
 				Author:    r.User.Login,
 				CreatedAt: r.CreatedAt,
@@ -359,8 +299,51 @@ func mergeGHComments(cj *CritJSON, ghComments []ghComment) int {
 			})
 			added++
 		}
+	}
+
+	cf.Comments = append(cf.Comments, comment)
+	cj.Files[gc.Path] = cf
+	return added + 1 // +1 for the root
+}
+
+// mergeOrphanReplies processes replies whose parent was already in cj from a previous pull.
+func mergeOrphanReplies(cj *CritJSON, roots []ghComment, replyMap map[int64][]ghComment) int {
+	rootIDs := make(map[int64]struct{}, len(roots))
+	for _, gc := range roots {
+		rootIDs[gc.ID] = struct{}{}
+	}
+
+	added := 0
+	for parentID, childReplies := range replyMap {
+		if _, handled := rootIDs[parentID]; handled {
+			continue
+		}
+		filePath, ci, found := findCommentByGitHubID(cj, parentID)
+		if !found {
+			continue
+		}
+		cf := cj.Files[filePath]
+		added += appendNewGHReplies(cf.Comments, ci, childReplies)
 		cj.Files[filePath] = cf
 	}
+	return added
+}
+
+// mergeGHComments appends GitHub PR comments into an existing CritJSON.
+// Only includes RIGHT-side comments (comments on the new version of the file).
+// Handles threading: root comments become top-level Comments, replies become Reply entries.
+// Deduplicates by GitHubID (preferred) or author+lines+body to prevent duplicates from repeated pulls.
+func mergeGHComments(cj *CritJSON, ghComments []ghComment) int {
+	now := time.Now().UTC().Format(time.RFC3339)
+	cj.UpdatedAt = now
+
+	roots, replyMap := separateRootsAndReplies(ghComments)
+
+	added := 0
+	for _, gc := range roots {
+		added += mergeRootComment(cj, gc, replyMap, now)
+	}
+	added += mergeOrphanReplies(cj, roots, replyMap)
 
 	return added
 }

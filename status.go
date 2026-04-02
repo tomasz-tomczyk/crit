@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 )
 
 const (
@@ -16,22 +15,6 @@ const (
 type Status struct {
 	w     io.Writer
 	color bool
-}
-
-func newStatus(w io.Writer) *Status {
-	color := true
-	if os.Getenv("NO_COLOR") != "" {
-		color = false
-	} else if f, ok := w.(*os.File); ok {
-		fi, err := f.Stat()
-		if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
-			color = false
-		}
-	} else {
-		// Not a file (e.g. bytes.Buffer in tests) — no color
-		color = false
-	}
-	return &Status{w: w, color: color}
 }
 
 func (s *Status) dim(text string) string {

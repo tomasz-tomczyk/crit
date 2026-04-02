@@ -108,6 +108,75 @@ func MapOldLineToNew(entries []DiffEntry) map[int]int {
 	return m
 }
 
+// groupChangedIndices groups changed entry indices into ranges separated by gaps
+// larger than 2*contextLines of unchanged lines.
+func groupChangedIndices(changedIndices []int, contextLines int) [][2]int {
+	var groups [][2]int
+	groupStart := changedIndices[0]
+	groupEnd := changedIndices[0]
+	for _, ci := range changedIndices[1:] {
+		if ci-groupEnd > 2*contextLines {
+			groups = append(groups, [2]int{groupStart, groupEnd})
+			groupStart = ci
+		}
+		groupEnd = ci
+	}
+	groups = append(groups, [2]int{groupStart, groupEnd})
+	return groups
+}
+
+func entryToDiffLine(e DiffEntry) (DiffLine, int, int) {
+	switch e.Type {
+	case "unchanged":
+		return DiffLine{Type: "context", Content: e.Text, OldNum: e.OldLine, NewNum: e.NewLine}, 1, 1
+	case "removed":
+		return DiffLine{Type: "del", Content: e.Text, OldNum: e.OldLine}, 1, 0
+	case "added":
+		return DiffLine{Type: "add", Content: e.Text, NewNum: e.NewLine}, 0, 1
+	default:
+		return DiffLine{}, 0, 0
+	}
+}
+
+func buildHunkFromGroup(entries []DiffEntry, gStart, gEnd, contextLines int) DiffHunk {
+	start := gStart - contextLines
+	if start < 0 {
+		start = 0
+	}
+	end := gEnd + contextLines
+	if end >= len(entries) {
+		end = len(entries) - 1
+	}
+
+	var lines []DiffLine
+	var oldStart, newStart, oldCount, newCount int
+	for i := start; i <= end; i++ {
+		dl, oldInc, newInc := entryToDiffLine(entries[i])
+		oldCount += oldInc
+		newCount += newInc
+		if oldStart == 0 && dl.OldNum > 0 {
+			oldStart = dl.OldNum
+		}
+		if newStart == 0 && dl.NewNum > 0 {
+			newStart = dl.NewNum
+		}
+		lines = append(lines, dl)
+	}
+	if oldStart == 0 {
+		oldStart = 1
+	}
+	if newStart == 0 {
+		newStart = 1
+	}
+
+	return DiffHunk{
+		OldStart: oldStart, OldCount: oldCount,
+		NewStart: newStart, NewCount: newCount,
+		Header: fmt.Sprintf("@@ -%d,%d +%d,%d @@", oldStart, oldCount, newStart, newCount),
+		Lines:  lines,
+	}
+}
+
 // DiffEntriesToHunks converts LCS diff entries into DiffHunk format (same as git diff),
 // so the frontend can use one unified renderer. Groups changes with 3 lines of context.
 func DiffEntriesToHunks(entries []DiffEntry) []DiffHunk {
@@ -117,7 +186,6 @@ func DiffEntriesToHunks(entries []DiffEntry) []DiffHunk {
 
 	const contextLines = 3
 
-	// Find indices of changed (non-unchanged) entries
 	var changedIndices []int
 	for i, e := range entries {
 		if e.Type != "unchanged" {
@@ -128,76 +196,12 @@ func DiffEntriesToHunks(entries []DiffEntry) []DiffHunk {
 		return nil
 	}
 
-	// Group changed indices into ranges separated by more than 2*contextLines unchanged lines
-	type indexRange struct{ start, end int } // inclusive entry indices
-	var groups []indexRange
-	groupStart := changedIndices[0]
-	groupEnd := changedIndices[0]
-	for _, ci := range changedIndices[1:] {
-		if ci-groupEnd > 2*contextLines {
-			groups = append(groups, indexRange{groupStart, groupEnd})
-			groupStart = ci
-		}
-		groupEnd = ci
-	}
-	groups = append(groups, indexRange{groupStart, groupEnd})
+	groups := groupChangedIndices(changedIndices, contextLines)
 
-	// Build hunks from groups with context
-	var hunks []DiffHunk
+	hunks := make([]DiffHunk, 0, len(groups))
 	for _, g := range groups {
-		start := g.start - contextLines
-		if start < 0 {
-			start = 0
-		}
-		end := g.end + contextLines
-		if end >= len(entries) {
-			end = len(entries) - 1
-		}
-
-		var lines []DiffLine
-		var oldStart, newStart int
-		var oldCount, newCount int
-		for i := start; i <= end; i++ {
-			e := entries[i]
-			var dl DiffLine
-			switch e.Type {
-			case "unchanged":
-				dl = DiffLine{Type: "context", Content: e.Text, OldNum: e.OldLine, NewNum: e.NewLine}
-				oldCount++
-				newCount++
-			case "removed":
-				dl = DiffLine{Type: "del", Content: e.Text, OldNum: e.OldLine}
-				oldCount++
-			case "added":
-				dl = DiffLine{Type: "add", Content: e.Text, NewNum: e.NewLine}
-				newCount++
-			}
-			if oldStart == 0 && dl.OldNum > 0 {
-				oldStart = dl.OldNum
-			}
-			if newStart == 0 && dl.NewNum > 0 {
-				newStart = dl.NewNum
-			}
-			lines = append(lines, dl)
-		}
-		if oldStart == 0 {
-			oldStart = 1
-		}
-		if newStart == 0 {
-			newStart = 1
-		}
-
-		header := fmt.Sprintf("@@ -%d,%d +%d,%d @@", oldStart, oldCount, newStart, newCount)
-		hunks = append(hunks, DiffHunk{
-			OldStart: oldStart,
-			OldCount: oldCount,
-			NewStart: newStart,
-			NewCount: newCount,
-			Header:   header,
-			Lines:    lines,
-		})
+		hunks = append(hunks, buildHunkFromGroup(entries, g[0], g[1], contextLines))
 	}
-
 	return hunks
 }
 

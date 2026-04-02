@@ -301,90 +301,51 @@ func releaseSessionLock(f *os.File) {
 	os.Remove(name)
 }
 
-// startDaemon spawns a crit _serve process in the background and waits for it to be ready.
-// The key must match what the daemon computes in runServe (sessionKey(cwd, fileArgs)).
-// Raw args (including flags) are passed through to _serve which parses them itself.
-// Uses an OS pipe (FD 3) for the daemon to signal readiness by writing its port number.
-func startDaemon(key string, args []string) (sessionEntry, error) {
-	// Acquire file lock to prevent two simultaneous crit calls from racing
-	lock, err := acquireSessionLock(key)
-	if err != nil {
-		return sessionEntry{}, err
-	}
-	defer releaseSessionLock(lock)
-
-	// Re-check for alive session under the lock — another process may have won the race
-	if entry, alive := findAliveSession(key); alive {
-		return entry, nil
-	}
-
+// setupDaemonCmd creates and configures the daemon child process.
+// Returns the command, readiness pipe read-end, write-end, log file, and any error.
+// The caller must close writeEnd and logFile after Start().
+func setupDaemonCmd(key string, args []string) (*exec.Cmd, *os.File, *os.File, *os.File, error) {
 	selfPath, err := os.Executable()
 	if err != nil {
-		return sessionEntry{}, fmt.Errorf("finding executable: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("finding executable: %w", err)
 	}
 
-	cmdArgs := []string{"_serve"}
-	cmdArgs = append(cmdArgs, args...)
-
+	cmdArgs := append([]string{"_serve"}, args...)
 	cmd := exec.Command(selfPath, cmdArgs...)
+
 	cwd, err := os.Getwd()
 	if err != nil {
-		return sessionEntry{}, fmt.Errorf("getting working directory: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("getting working directory: %w", err)
 	}
 	cmd.Dir = cwd
 	cmd.Stdout = nil
 	cmd.Stdin = nil
 
-	// Redirect stderr to a log file so daemon errors are preserved
 	logPath, err := sessionLogPath(key)
 	if err != nil {
-		return sessionEntry{}, fmt.Errorf("creating log path: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("creating log path: %w", err)
 	}
 	logFile, err := os.Create(logPath)
 	if err != nil {
-		return sessionEntry{}, fmt.Errorf("creating daemon log file: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("creating daemon log file: %w", err)
 	}
 	cmd.Stderr = logFile
 
-	// Create an OS pipe for readiness signaling — the daemon writes its port to FD 3
 	readEnd, writeEnd, err := os.Pipe()
 	if err != nil {
 		logFile.Close()
-		return sessionEntry{}, fmt.Errorf("creating readiness pipe: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("creating readiness pipe: %w", err)
 	}
-	// writeEnd becomes FD 3 in the child (stdin=0, stdout=1, stderr=2, first ExtraFile=3).
-	// If ExtraFiles gains more entries, this index must stay first.
 	cmd.ExtraFiles = []*os.File{writeEnd}
 	cmd.Env = append(os.Environ(), "_CRIT_READY_FD=3")
-
-	// Detach from parent process group so it survives parent exit
 	cmd.SysProcAttr = daemonSysProcAttr()
 
-	// Clear existing session file so findAliveSession doesn't find an old daemon
-	removeSessionFile(key)
+	return cmd, readEnd, writeEnd, logFile, nil
+}
 
-	if err := cmd.Start(); err != nil {
-		logFile.Close()
-		readEnd.Close()
-		writeEnd.Close()
-		return sessionEntry{}, fmt.Errorf("starting daemon: %w", err)
-	}
-	// Close write end in parent — only the child should write to it
-	writeEnd.Close()
-	// Close log file handle in parent — the daemon process owns it now
-	logFile.Close()
-	newPID := cmd.Process.Pid
-
-	// Monitor for early exit in background
-	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
-
-	// Read port from the readiness pipe with a 10-second timeout.
-	// The daemon writes "port\n" once it's accepting connections.
-	// Note: readEnd is closed only in the select cases below (not in the goroutine)
-	// to avoid a double-close race that could corrupt reused file descriptors.
-	portCh := make(chan int, 1)
-	errCh := make(chan error, 1)
+func readPortFromPipe(readEnd *os.File) (portCh chan int, errCh chan error) {
+	portCh = make(chan int, 1)
+	errCh = make(chan error, 1)
 	go func() {
 		buf := make([]byte, 64)
 		n, err := readEnd.Read(buf)
@@ -399,43 +360,85 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 		}
 		portCh <- port
 	}()
+	return portCh, errCh
+}
+
+func handleDaemonReady(key string, port, pid int, readEnd *os.File, cmd *exec.Cmd) (sessionEntry, error) {
+	readEnd.Close()
+	cmd.Process.Release()
+
+	entry, err := readSessionFile(key)
+	if err != nil {
+		cwd, _ := resolvedCWD()
+		entry = sessionEntry{
+			PID:       pid,
+			Port:      port,
+			CWD:       cwd,
+			StartedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+	}
+	return entry, nil
+}
+
+func handleDaemonPipeError(key string, readErr error, readEnd *os.File, cmd *exec.Cmd, exited chan error) (sessionEntry, error) {
+	readEnd.Close()
+	select {
+	case waitErr := <-exited:
+		msg := readDaemonLog(key)
+		if msg != "" {
+			return sessionEntry{}, fmt.Errorf("daemon exited: %s", msg)
+		}
+		return sessionEntry{}, fmt.Errorf("daemon exited: %v (pipe: %v)", waitErr, readErr)
+	default:
+	}
+	cmd.Process.Kill()
+	<-exited
+	return sessionEntry{}, fmt.Errorf("daemon startup failed: %v", readErr)
+}
+
+// startDaemon spawns a crit _serve process in the background and waits for it to be ready.
+// The key must match what the daemon computes in runServe (sessionKey(cwd, fileArgs)).
+// Raw args (including flags) are passed through to _serve which parses them itself.
+// Uses an OS pipe (FD 3) for the daemon to signal readiness by writing its port number.
+func startDaemon(key string, args []string) (sessionEntry, error) {
+	lock, err := acquireSessionLock(key)
+	if err != nil {
+		return sessionEntry{}, err
+	}
+	defer releaseSessionLock(lock)
+
+	if entry, alive := findAliveSession(key); alive {
+		return entry, nil
+	}
+
+	cmd, readEnd, writeEnd, logFile, err := setupDaemonCmd(key, args)
+	if err != nil {
+		return sessionEntry{}, err
+	}
+
+	removeSessionFile(key)
+
+	if err := cmd.Start(); err != nil {
+		logFile.Close()
+		readEnd.Close()
+		writeEnd.Close()
+		return sessionEntry{}, fmt.Errorf("starting daemon: %w", err)
+	}
+	writeEnd.Close()
+	logFile.Close()
+	newPID := cmd.Process.Pid
+
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+
+	portCh, errCh := readPortFromPipe(readEnd)
 
 	select {
 	case port := <-portCh:
-		readEnd.Close()
-		// Daemon is ready — detach the process handle
-		cmd.Process.Release()
-
-		// Read session file for full entry (daemon writes it before signaling the pipe)
-		entry, err := readSessionFile(key)
-		if err != nil {
-			// Session file not yet flushed — construct entry from what we know
-			cwd, _ := resolvedCWD()
-			entry = sessionEntry{
-				PID:       newPID,
-				Port:      port,
-				CWD:       cwd,
-				StartedAt: time.Now().UTC().Format(time.RFC3339),
-			}
-		}
-		return entry, nil
+		return handleDaemonReady(key, port, newPID, readEnd, cmd)
 
 	case readErr := <-errCh:
-		readEnd.Close()
-		// Pipe closed or invalid data — check if daemon exited
-		select {
-		case waitErr := <-exited:
-			msg := readDaemonLog(key)
-			if msg != "" {
-				return sessionEntry{}, fmt.Errorf("daemon exited: %s", msg)
-			}
-			return sessionEntry{}, fmt.Errorf("daemon exited: %v (pipe: %v)", waitErr, readErr)
-		default:
-		}
-		// Daemon still running but pipe failed
-		cmd.Process.Kill()
-		<-exited
-		return sessionEntry{}, fmt.Errorf("daemon startup failed: %v", readErr)
+		return handleDaemonPipeError(key, readErr, readEnd, cmd, exited)
 
 	case err := <-exited:
 		readEnd.Close()

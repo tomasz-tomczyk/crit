@@ -139,35 +139,6 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
-// updateClient is a shared HTTP client for version-check requests.
-// Separate from healthClient because it contacts an external API with a longer timeout.
-var updateClient = &http.Client{Timeout: 5 * time.Second}
-
-func (s *Server) checkForUpdates() {
-	req, err := http.NewRequest("GET", "https://api.github.com/repos/tomasz-tomczyk/crit/releases/latest", nil)
-	if err != nil {
-		return
-	}
-	req.Header.Set("User-Agent", "crit/"+s.currentVersion)
-	resp, err := updateClient.Do(req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return
-	}
-	var release struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return
-	}
-	s.versionMu.Lock()
-	s.latestVersion = release.TagName
-	s.versionMu.Unlock()
-}
-
 // handleSession returns session metadata: mode, branch, file list with stats.
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
