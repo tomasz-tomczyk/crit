@@ -339,6 +339,7 @@ func (s *Session) handleRoundCompleteGit() {
 	s.mu.Lock()
 	s.rereadFileContents(false)
 	s.carryForwardAllComments()
+	s.ReviewRound++
 	s.mu.Unlock()
 
 	// Refresh diffs for all files
@@ -366,6 +367,7 @@ func (s *Session) handleRoundCompleteFiles() {
 	// (snapshot markdown PreviousContent in case watcher hasn't polled yet)
 	s.mu.Lock()
 	s.rereadFileContents(true)
+	s.ReviewRound++
 	s.mu.Unlock()
 
 	s.finishRoundComplete(edits)

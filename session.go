@@ -1139,7 +1139,12 @@ func (s *Session) SetAwaitingFirstReview(v bool) {
 	s.awaitingFirstReview = v
 }
 
-// SignalRoundComplete transitions to a new review round.
+// SignalRoundComplete prepares the session for a new round by clearing current
+// comments and sending a signal to the watcher goroutine. The ReviewRound counter
+// is NOT incremented here — it is deferred to the watcher's handleRoundComplete*
+// handler, which increments it only after comments have been carried forward from
+// .crit.json. This prevents a TOCTOU race where GetSessionInfo could observe the
+// new round number before carry-forward is complete, returning empty comments.
 func (s *Session) SignalRoundComplete() {
 	s.mu.Lock()
 	if s.writeTimer != nil {
@@ -1149,8 +1154,8 @@ func (s *Session) SignalRoundComplete() {
 	s.pendingWrite = false
 	s.lastRoundEdits = s.pendingEdits
 	s.pendingEdits = 0
-	s.ReviewRound++
-	// Clear comments on all files, reset session-global ID counter
+	// Clear comments on all files, reset session-global ID counter.
+	// ReviewRound is incremented later by the watcher after carry-forward.
 	for _, f := range s.Files {
 		f.Comments = []Comment{}
 	}
@@ -2013,7 +2018,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		ReviewComments: reviewComments,
 	}
 
-	info.AvailableScopes = availableScopes(info.BaseRef)
+	info.AvailableScopes = cachedAvailableScopes(info.BaseRef)
 
 	for _, f := range s.Files {
 		fi := SessionFileInfo{
@@ -2043,6 +2048,41 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		info.Files = append(info.Files, fi)
 	}
 	return info
+}
+
+// scopeCache caches the result of availableScopes to avoid running multiple
+// git commands on every /api/session request. The cache has a short TTL (2s)
+// so scope changes are picked up quickly.
+var (
+	scopeCacheMu      sync.Mutex
+	scopeCacheBaseRef string
+	scopeCacheResult  []string
+	scopeCacheExpiry  time.Time
+)
+
+const scopeCacheTTL = 2 * time.Second
+
+// cachedAvailableScopes returns availableScopes results, using a 2-second cache
+// to avoid running git commands on every /api/session poll.
+func cachedAvailableScopes(baseRef string) []string {
+	scopeCacheMu.Lock()
+	defer scopeCacheMu.Unlock()
+
+	now := time.Now()
+	if now.Before(scopeCacheExpiry) && scopeCacheBaseRef == baseRef {
+		result := make([]string, len(scopeCacheResult))
+		copy(result, scopeCacheResult)
+		return result
+	}
+
+	scopes := availableScopes(baseRef)
+	scopeCacheBaseRef = baseRef
+	scopeCacheResult = scopes
+	scopeCacheExpiry = now.Add(scopeCacheTTL)
+
+	result := make([]string, len(scopes))
+	copy(result, scopes)
+	return result
 }
 
 // availableScopes returns the list of scopes that have files.

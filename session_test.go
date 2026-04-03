@@ -459,8 +459,11 @@ func TestSession_SignalRoundComplete(t *testing.T) {
 	if s.GetLastRoundEdits() != 2 {
 		t.Errorf("last round edits = %d, want 2", s.GetLastRoundEdits())
 	}
-	if s.GetReviewRound() != 2 {
-		t.Errorf("review round = %d, want 2", s.GetReviewRound())
+	// ReviewRound is NOT incremented by SignalRoundComplete — it is deferred
+	// to the watcher's handleRoundComplete* handler to prevent a race where
+	// GetSessionInfo could observe the new round before carry-forward completes.
+	if s.GetReviewRound() != 1 {
+		t.Errorf("review round = %d, want 1 (deferred to watcher)", s.GetReviewRound())
 	}
 	if len(s.GetComments("plan.md")) != 0 {
 		t.Error("plan.md comments should be cleared")

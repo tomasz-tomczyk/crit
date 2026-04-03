@@ -1888,3 +1888,29 @@ func TestHandleSession_PlanMode(t *testing.T) {
 		t.Errorf("mode = %v, want 'plan'", resp["mode"])
 	}
 }
+
+func TestRouteCommentByID(t *testing.T) {
+	tests := []struct {
+		name    string
+		trimmed string
+		want    commentRoute
+		ok      bool
+	}{
+		{"empty", "", commentRoute{}, false},
+		{"plain ID", "c5", commentRoute{kind: "comment", id: "c5"}, true},
+		{"replies", "c5/replies", commentRoute{kind: "reply", id: "c5", sub: ""}, true},
+		{"reply ID", "c5/replies/r2", commentRoute{kind: "reply", id: "c5", sub: "r2"}, true},
+		{"resolve", "c5/resolve", commentRoute{kind: "resolve", id: "c5"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := routeCommentByID(tt.trimmed)
+			if ok != tt.ok {
+				t.Fatalf("ok = %v, want %v", ok, tt.ok)
+			}
+			if got != tt.want {
+				t.Errorf("route = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
