@@ -1870,6 +1870,10 @@ Available keys:
   ignore_patterns        []string  Gitignore-style patterns to exclude files from review
   no_integration_check   bool      Skip integration staleness check (default: false)
   agent_cmd              string    Shell command to send comments to an AI agent (e.g. "claude -p")
+  auth_token             string    Authentication token for crit-web share service
+
+Note: agent_cmd and auth_token are global-only (~/.crit.config.json).
+Project-level .crit.config.json cannot override them for security reasons.
 
 Ignore pattern syntax:
   *.lock            Match files by extension (anywhere in tree)

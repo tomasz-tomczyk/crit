@@ -123,6 +123,14 @@ crit unpublish                        # remove the shared review
 
 Sharing uses [crit.md](https://crit.md) by default. To self-host, deploy [`crit-web`](https://github.com/tomasz-tomczyk/crit-web) and point `CRIT_SHARE_URL` (or `--share-url`, or `share_url` in config) at your instance. Set `share_url` to `""` to disable sharing entirely.
 
+If your crit-web instance requires authentication, set `auth_token` in your global config (`~/.crit.config.json`):
+
+```json
+{"auth_token": "your-token-here"}
+```
+
+> **Security note:** Like `agent_cmd`, `auth_token` is read exclusively from your global `~/.crit.config.json`. Project-level config cannot set it.
+
 ### GitHub PR Sync
 
 Crit can sync review comments bidirectionally with GitHub PRs. Requires the [GitHub CLI](https://cli.github.com) (`gh`) to be installed and authenticated.
@@ -275,6 +283,7 @@ crit config --help                             # document all config keys
   "output": "",
   "author": "John",
   "agent_cmd": "claude -p",
+  "auth_token": "",
   "ignore_patterns": [".crit.json"]
 }
 ```
