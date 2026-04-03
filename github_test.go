@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -969,6 +971,103 @@ func TestAddReplyToCritJSON_NotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("error = %q, want 'not found'", err.Error())
+	}
+}
+
+// TestResolveCritDir_FileArgsInGitRepo verifies that resolveCritDir returns the
+// git repo root (not the file's parent directory) when a session has file args
+// inside a git repo. This was a real bug: "crit docs/plans/file.md" would write
+// .crit.json to the repo root, but "crit comment --reply-to c1" looked in
+// docs/plans/ and couldn't find the comments.
+func TestResolveCritDir_FileArgsInGitRepo(t *testing.T) {
+	dir := initTestRepo(t)
+	t.Chdir(dir)
+
+	// Create a file in a subdirectory (like "crit docs/plans/file.md")
+	subdir := filepath.Join(dir, "docs", "plans")
+	if err := os.MkdirAll(subdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(subdir, "plan.md"), "# Plan")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add plan")
+
+	// Write .crit.json at repo root with a file comment
+	cj := CritJSON{
+		Branch:      "main",
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"docs/plans/plan.md": {
+				Status:   "modified",
+				Comments: []Comment{{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix this"}},
+			},
+		},
+	}
+	data, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Start a health endpoint so isDaemonAlive returns true
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: mux}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	// Register a session with file args pointing to the subdirectory file
+	resolved, _ := filepath.EvalSymlinks(dir)
+	key := sessionKey(resolved, []string{"docs/plans/plan.md"})
+	err = writeSessionFile(key, sessionEntry{
+		PID:       os.Getpid(),
+		Port:      port,
+		CWD:       resolved,
+		Args:      []string{"docs/plans/plan.md"},
+		StartedAt: "2025-01-01T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { removeSessionFile(key) })
+
+	// resolveCritDir should return repo root, not docs/plans/
+	got, err := resolveCritDir("")
+	if err != nil {
+		t.Fatalf("resolveCritDir failed: %v", err)
+	}
+	if got != resolved {
+		t.Errorf("resolveCritDir() = %q, want repo root %q", got, resolved)
+	}
+
+	// End-to-end: replying to c1 should succeed (finds .crit.json at repo root)
+	err = addReplyToCritJSON("c1", "Fixed it", "agent", false, "", "")
+	if err != nil {
+		t.Fatalf("addReplyToCritJSON failed: %v (would have looked in wrong dir before fix)", err)
+	}
+
+	// Verify reply was written
+	data, err = os.ReadFile(filepath.Join(dir, ".crit.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result CritJSON
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatal(err)
+	}
+	replies := result.Files["docs/plans/plan.md"].Comments[0].Replies
+	if len(replies) != 1 || replies[0].Body != "Fixed it" {
+		t.Errorf("expected reply 'Fixed it', got %+v", replies)
 	}
 }
 

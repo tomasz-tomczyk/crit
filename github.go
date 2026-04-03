@@ -358,12 +358,17 @@ func resolveCritDir(outputDir string) (string, error) {
 		}
 		return abs, nil
 	}
-	// When crit is launched as "crit file.md", .crit.json is written to
-	// filepath.Dir(file.md), not the repo root. If there is exactly one
-	// running session for this cwd with file args, mirror that logic so
-	// crit comment finds the right .crit.json without needing --output.
+	// When crit is launched as "crit file.md" outside a git repo, .crit.json
+	// is written to filepath.Dir(file.md). Inside a git repo, it goes to the
+	// repo root. Mirror the session's logic so crit comment finds the right
+	// .crit.json without needing --output.
 	if cwd, err := resolvedCWD(); err == nil {
 		if sessions, _ := listSessionsForCWD(cwd); len(sessions) == 1 && len(sessions[0].Args) > 0 {
+			// In a git repo, .crit.json lives at the repo root, not next
+			// to the file. Only use the file-relative path outside git.
+			if root, err := RepoRoot(); err == nil {
+				return root, nil
+			}
 			return filepath.Dir(filepath.Join(sessions[0].CWD, sessions[0].Args[0])), nil
 		}
 	}
