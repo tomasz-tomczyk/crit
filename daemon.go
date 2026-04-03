@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -347,15 +349,19 @@ func readPortFromPipe(readEnd *os.File) (portCh chan int, errCh chan error) {
 	portCh = make(chan int, 1)
 	errCh = make(chan error, 1)
 	go func() {
-		buf := make([]byte, 64)
-		n, err := readEnd.Read(buf)
-		if err != nil || n == 0 {
-			errCh <- fmt.Errorf("daemon closed readiness pipe without writing port")
+		scanner := bufio.NewScanner(readEnd)
+		if !scanner.Scan() {
+			errCh <- fmt.Errorf("daemon closed readiness pipe without writing")
 			return
 		}
-		port, err := strconv.Atoi(strings.TrimSpace(string(buf[:n])))
+		line := scanner.Text()
+		if strings.HasPrefix(line, "error:") {
+			errCh <- fmt.Errorf("%s", strings.TrimPrefix(line, "error:"))
+			return
+		}
+		port, err := strconv.Atoi(line)
 		if err != nil {
-			errCh <- fmt.Errorf("daemon wrote invalid port: %q", string(buf[:n]))
+			errCh <- fmt.Errorf("daemon wrote invalid port: %q", line)
 			return
 		}
 		portCh <- port
@@ -382,17 +388,19 @@ func handleDaemonReady(key string, port, pid int, readEnd *os.File, cmd *exec.Cm
 
 func handleDaemonPipeError(key string, readErr error, readEnd *os.File, cmd *exec.Cmd, exited chan error) (sessionEntry, error) {
 	readEnd.Close()
+	// Wait briefly for daemon exit — pipe EOF usually means it already crashed.
+	// cmd.Wait() completes near-instantly for a dead process; the timeout
+	// handles the rare case where the daemon closed FD 3 but is still running.
 	select {
-	case waitErr := <-exited:
-		msg := readDaemonLog(key)
-		if msg != "" {
-			return sessionEntry{}, fmt.Errorf("daemon exited: %s", msg)
-		}
-		return sessionEntry{}, fmt.Errorf("daemon exited: %v (pipe: %v)", waitErr, readErr)
-	default:
+	case <-exited:
+	case <-time.After(500 * time.Millisecond):
+		cmd.Process.Kill()
+		<-exited
 	}
-	cmd.Process.Kill()
-	<-exited
+	msg := readDaemonLog(key)
+	if msg != "" {
+		return sessionEntry{}, fmt.Errorf("daemon exited: %s", msg)
+	}
 	return sessionEntry{}, fmt.Errorf("daemon startup failed: %v", readErr)
 }
 
@@ -476,6 +484,40 @@ func readDaemonLog(key string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// openReadyPipe returns the readiness pipe (FD 3) if this process was
+// spawned as a daemon with _CRIT_READY_FD=3. Returns nil otherwise.
+// The caller owns the returned file and must close it.
+func openReadyPipe() *os.File {
+	if os.Getenv("_CRIT_READY_FD") != "3" {
+		return nil
+	}
+	os.Unsetenv("_CRIT_READY_FD")
+	return os.NewFile(3, "ready-pipe")
+}
+
+// signalReadiness writes the port number to the readiness pipe.
+// pipe may be nil (not running as daemon), in which case this is a no-op.
+func signalReadiness(pipe *os.File, port int) {
+	if pipe == nil {
+		return
+	}
+	fmt.Fprintf(pipe, "%d\n", port)
+	pipe.Close()
+}
+
+// daemonFatal reports a startup error through the readiness pipe so the
+// parent process receives a structured message, then exits.
+// pipe may be nil (not running as daemon); the error is always logged to stderr.
+func daemonFatal(pipe *os.File, format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	log.Print(msg)
+	if pipe != nil {
+		fmt.Fprintf(pipe, "error:%s\n", msg)
+		pipe.Close()
+	}
+	os.Exit(1)
 }
 
 func daemonSysProcAttr() *syscall.SysProcAttr {

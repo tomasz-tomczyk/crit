@@ -1669,17 +1669,6 @@ func checkStaleIntegrations(sc *serverConfig, srv *Server, cwd string) {
 	}
 }
 
-func signalReadiness(port int) {
-	if os.Getenv("_CRIT_READY_FD") != "3" {
-		return
-	}
-	os.Unsetenv("_CRIT_READY_FD")
-	if readyPipe := os.NewFile(3, "ready-pipe"); readyPipe != nil {
-		fmt.Fprintf(readyPipe, "%d\n", port)
-		readyPipe.Close()
-	}
-}
-
 func runIdleTimeoutChecker(ctx context.Context, stop context.CancelFunc, idleMu *sync.Mutex, lastActivity *time.Time) {
 	const idleTimeout = 1 * time.Hour
 	ticker := time.NewTicker(5 * time.Minute)
@@ -1701,9 +1690,11 @@ func runIdleTimeoutChecker(ctx context.Context, stop context.CancelFunc, idleMu 
 }
 
 func runServe(args []string) {
+	pipe := openReadyPipe()
+
 	sc, err := resolveServerConfig(args)
 	if err != nil {
-		log.Fatalf("Error: %v", err)
+		daemonFatal(pipe, "Error: %v", err)
 	}
 	if sc == nil {
 		return
@@ -1712,7 +1703,7 @@ func runServe(args []string) {
 
 	session, err := createSession(sc)
 	if err != nil {
-		log.Fatalf("Error: %v", err)
+		daemonFatal(pipe, "Error: %v", err)
 	}
 	applySessionOverrides(session, sc)
 
@@ -1723,7 +1714,7 @@ func runServe(args []string) {
 
 	listener, err := bindListener(sc.port)
 	if err != nil {
-		log.Fatalf("Error starting server: %v", err)
+		daemonFatal(pipe, "Error starting server: %v", err)
 	}
 	addr := listener.Addr().(*net.TCPAddr)
 
@@ -1731,7 +1722,7 @@ func runServe(args []string) {
 
 	srv, err := NewServer(session, frontendFS, sc.shareURL, sc.authToken, prInfo, sc.author, version, addr.Port, sc.agentCmd)
 	if err != nil {
-		log.Fatalf("Error creating server: %v", err)
+		daemonFatal(pipe, "Error creating server: %v", err)
 	}
 
 	cwd, _ := resolvedCWD()
@@ -1743,7 +1734,7 @@ func runServe(args []string) {
 		Args:      sc.files,
 		StartedAt: time.Now().UTC().Format(time.RFC3339),
 	}); err != nil {
-		log.Fatalf("Error writing session file: %v", err)
+		daemonFatal(pipe, "Error writing session file: %v", err)
 	}
 
 	checkStaleIntegrations(sc, srv, cwd)
@@ -1779,11 +1770,12 @@ func runServe(args []string) {
 
 	go func() {
 		if err := httpServer.Serve(listener); err != http.ErrServerClosed {
-			log.Fatalf("Server error: %v", err)
+			log.Printf("Server error: %v", err)
+			stop()
 		}
 	}()
 
-	signalReadiness(addr.Port)
+	signalReadiness(pipe, addr.Port)
 
 	<-ctx.Done()
 	close(watchStop)
