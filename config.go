@@ -52,7 +52,8 @@ func defaultConfig() generatedConfig {
 			".crit.json",
 			".crit/",
 		},
-		AgentCmd: "",
+		AgentCmd:  "",
+		AuthToken: "",
 	}
 }
 
@@ -87,7 +88,6 @@ type configPresence struct {
 	NoOpen             bool
 	Quiet              bool
 	NoIntegrationCheck bool
-	AuthToken          bool
 }
 
 // loadConfigFile reads and parses a single JSON config file.
@@ -113,7 +113,6 @@ func loadConfigFile(path string) (Config, configPresence, error) {
 	_, presence.NoOpen = raw["no_open"]
 	_, presence.Quiet = raw["quiet"]
 	_, presence.NoIntegrationCheck = raw["no_integration_check"]
-	_, presence.AuthToken = raw["auth_token"]
 
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
@@ -151,9 +150,7 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	if projectPresence.NoIntegrationCheck {
 		merged.NoIntegrationCheck = project.NoIntegrationCheck
 	}
-	if projectPresence.AuthToken {
-		merged.AuthToken = project.AuthToken
-	}
+	// auth_token is global-only (like agent_cmd) — project config cannot override
 	// Union ignore patterns
 	merged.IgnorePatterns = append(merged.IgnorePatterns, project.IgnorePatterns...)
 	return merged
