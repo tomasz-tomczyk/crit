@@ -1889,6 +1889,85 @@ func TestHandleSession_PlanMode(t *testing.T) {
 	}
 }
 
+func TestReadinessGate_Returns503WhenNotReady(t *testing.T) {
+	s, err := NewServer(nil, frontendFS, "", "", nil, "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	endpoints := []string{
+		"/api/session",
+		"/api/config",
+		"/api/comments",
+	}
+	for _, ep := range endpoints {
+		req := httptest.NewRequest("GET", ep, nil)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+		if w.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s: got status %d, want 503", ep, w.Code)
+		}
+		var body map[string]string
+		json.Unmarshal(w.Body.Bytes(), &body)
+		if body["status"] != "loading" {
+			t.Errorf("%s: got status=%q, want 'loading'", ep, body["status"])
+		}
+	}
+}
+
+func TestReadinessGate_HealthAlwaysOK(t *testing.T) {
+	s, err := NewServer(nil, frontendFS, "", "", nil, "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/api/health", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("health: got status %d, want 200", w.Code)
+	}
+}
+
+func TestReadinessGate_Returns200AfterSetSession(t *testing.T) {
+	s, err := NewServer(nil, frontendFS, "", "", nil, "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.md")
+	os.WriteFile(path, []byte("hello\n"), 0644)
+
+	session := &Session{
+		Mode:          "files",
+		RepoRoot:      dir,
+		ReviewRound:   1,
+		nextID:        1,
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+		Files: []*FileEntry{
+			{
+				Path:     "test.md",
+				AbsPath:  path,
+				Status:   "added",
+				FileType: "markdown",
+				Content:  "hello\n",
+				FileHash: "sha256:testhash",
+				Comments: []Comment{},
+			},
+		},
+	}
+
+	s.SetSession(session, nil)
+
+	req := httptest.NewRequest("GET", "/api/session", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("session after SetSession: got status %d, want 200", w.Code)
+	}
+}
+
 func TestRouteCommentByID(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1912,5 +1991,29 @@ func TestRouteCommentByID(t *testing.T) {
 				t.Errorf("route = %+v, want %+v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestReadinessGate_Returns500OnInitError(t *testing.T) {
+	s, err := NewServer(nil, frontendFS, "", "", nil, "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s.SetInitErr(fmt.Errorf("no changed files detected"))
+
+	req := httptest.NewRequest("GET", "/api/session", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("got status %d, want 500", w.Code)
+	}
+	var body map[string]string
+	json.Unmarshal(w.Body.Bytes(), &body)
+	if body["status"] != "error" {
+		t.Errorf("got status=%q, want 'error'", body["status"])
+	}
+	if !strings.Contains(body["message"], "no changed files") {
+		t.Errorf("got message=%q, want it to contain 'no changed files'", body["message"])
 	}
 }

@@ -668,6 +668,7 @@ func TestHandleShare_Success(t *testing.T) {
 	}
 
 	srv := &Server{session: sess, shareURL: critWeb.URL}
+	srv.ready.Store(true)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
 	w := httptest.NewRecorder()
@@ -703,6 +704,7 @@ func TestHandleShare_ShareServiceError(t *testing.T) {
 	}
 
 	srv := &Server{session: sess, shareURL: critWeb.URL}
+	srv.ready.Store(true)
 	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
 	w := httptest.NewRecorder()
 	srv.handleShare(w, req)
@@ -719,6 +721,7 @@ func TestHandleShare_ShareServiceError(t *testing.T) {
 
 func TestHandleShare_NoShareURL(t *testing.T) {
 	srv := &Server{session: &Session{}, shareURL: ""}
+	srv.ready.Store(true)
 	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
 	w := httptest.NewRecorder()
 	srv.handleShare(w, req)
@@ -761,6 +764,7 @@ func TestHandleShare_AlreadyShared(t *testing.T) {
 	sess.SetSharedURLAndToken("https://crit.md/r/existing", "existing-del-token")
 
 	srv := &Server{session: sess, shareURL: mockServer.URL}
+	srv.ready.Store(true)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
 	w := httptest.NewRecorder()
