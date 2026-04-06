@@ -1701,26 +1701,13 @@ func runServe(args []string) {
 	}
 	sc.quiet = true
 
-	session, err := createSession(sc)
-	if err != nil {
-		daemonFatal(pipe, "Error: %v", err)
-	}
-	applySessionOverrides(session, sc)
-
-	var prInfo *PRInfo
-	if session.Mode == "git" {
-		prInfo = detectPRInfo()
-	}
-
 	listener, err := bindListener(sc.port)
 	if err != nil {
 		daemonFatal(pipe, "Error starting server: %v", err)
 	}
 	addr := listener.Addr().(*net.TCPAddr)
 
-	session.CLIArgs = sc.files
-
-	srv, err := NewServer(session, frontendFS, sc.shareURL, sc.authToken, prInfo, sc.author, version, addr.Port, sc.agentCmd)
+	srv, err := NewServer(nil, frontendFS, sc.shareURL, sc.authToken, nil, sc.author, version, addr.Port, sc.agentCmd)
 	if err != nil {
 		daemonFatal(pipe, "Error creating server: %v", err)
 	}
@@ -1736,8 +1723,6 @@ func runServe(args []string) {
 	}); err != nil {
 		daemonFatal(pipe, "Error writing session file: %v", err)
 	}
-
-	checkStaleIntegrations(sc, srv, cwd)
 
 	var idleMu sync.Mutex
 	lastActivity := time.Now()
@@ -1756,17 +1741,8 @@ func runServe(args []string) {
 		IdleTimeout: 60 * time.Second,
 	}
 
-	if !sc.noOpen {
-		go openBrowser(fmt.Sprintf("http://localhost:%d", addr.Port))
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-
-	go runIdleTimeoutChecker(ctx, stop, &idleMu, &lastActivity)
-
-	watchStop := make(chan struct{})
-	go session.Watch(watchStop)
 
 	go func() {
 		if err := httpServer.Serve(listener); err != http.ErrServerClosed {
@@ -1776,6 +1752,38 @@ func runServe(args []string) {
 	}()
 
 	signalReadiness(pipe, addr.Port)
+
+	if !sc.noOpen {
+		go openBrowser(fmt.Sprintf("http://localhost:%d", addr.Port))
+	}
+
+	go runIdleTimeoutChecker(ctx, stop, &idleMu, &lastActivity)
+
+	session, err := createSession(sc)
+	if err != nil {
+		log.Printf("Error: %v", err)
+		srv.SetInitErr(err)
+		<-ctx.Done()
+		removeSessionFile(key)
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = httpServer.Shutdown(shutCtx)
+		return
+	}
+	applySessionOverrides(session, sc)
+	session.CLIArgs = sc.files
+
+	var prInfo *PRInfo
+	if session.Mode == "git" {
+		prInfo = detectPRInfo()
+	}
+
+	srv.SetSession(session, prInfo)
+
+	checkStaleIntegrations(sc, srv, cwd)
+
+	watchStop := make(chan struct{})
+	go session.Watch(watchStop)
 
 	<-ctx.Done()
 	close(watchStop)

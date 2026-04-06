@@ -109,6 +109,24 @@ func TestDaemonLifecycle(t *testing.T) {
 		t.Fatalf("health check: got %d, want 200", resp.StatusCode)
 	}
 
+	// Wait for the session to be fully initialized (server returns 503 while loading)
+	readyDeadline := time.Now().Add(10 * time.Second)
+	sessionReady := false
+	for time.Now().Before(readyDeadline) {
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/session", entry.Port))
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				sessionReady = true
+				break
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !sessionReady {
+		t.Fatalf("session did not become ready within 10s")
+	}
+
 	// Start review-cycle in background
 	done := make(chan string, 1)
 	go func() {
