@@ -1376,6 +1376,34 @@ func runReview(args []string) {
 // review was approved (no unresolved comments).
 func runReviewClient(entry sessionEntry) (approved bool) {
 	client := &http.Client{Timeout: 24 * time.Hour}
+
+	// Wait for the server to finish initializing before calling review-cycle.
+	// The daemon signals readiness as soon as the port is bound, but session
+	// creation (git operations) may still be in progress.
+	for {
+		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/session", entry.Port))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: could not reach crit daemon on port %d: %v\n", entry.Port, err)
+			os.Exit(1)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusServiceUnavailable {
+			var status struct {
+				Message string `json:"message"`
+			}
+			json.Unmarshal(body, &status)
+			fmt.Fprintf(os.Stderr, "%s\n", body)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		if resp.StatusCode == http.StatusInternalServerError {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", body)
+			os.Exit(1)
+		}
+		break
+	}
+
 	resp, err := client.Post(
 		fmt.Sprintf("http://localhost:%d/api/review-cycle", entry.Port),
 		"application/json",
@@ -1778,9 +1806,9 @@ func runServe(args []string) {
 		prInfo = detectPRInfo()
 	}
 
-	srv.SetSession(session, prInfo)
-
 	checkStaleIntegrations(sc, srv, cwd)
+
+	srv.SetSession(session, prInfo)
 
 	watchStop := make(chan struct{})
 	go session.Watch(watchStop)
