@@ -394,9 +394,25 @@
 
   async function fetchWhenReady(url) {
     var start = Date.now();
+    var maxWait = 5 * 60 * 1000; // 5 minutes
     while (true) {
-      var r = await fetch(url);
+      var r;
+      try {
+        r = await fetch(url);
+      } catch (_) {
+        // Network error — server may have shut down during init
+        var el = document.getElementById('filesContainer');
+        if (el) {
+          el.innerHTML =
+            '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">' +
+            'Server disconnected</div>';
+        }
+        throw new Error('Server disconnected');
+      }
       if (r.status === 503) {
+        if (Date.now() - start > maxWait) {
+          throw new Error('Server did not finish initializing within 5 minutes');
+        }
         var elapsed = Math.round((Date.now() - start) / 1000);
         var loadingEl = document.getElementById('filesContainer');
         if (loadingEl) {
@@ -7178,6 +7194,8 @@
   });
 
   // ===== Start =====
-  init().then(connectSSE);
+  init().then(connectSSE).catch(function(err) {
+    console.error('Init failed:', err.message);
+  });
 
 })();

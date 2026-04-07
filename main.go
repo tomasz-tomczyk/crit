@@ -1380,6 +1380,7 @@ func runReviewClient(entry sessionEntry) (approved bool) {
 	// Wait for the server to finish initializing before calling review-cycle.
 	// The daemon signals readiness as soon as the port is bound, but session
 	// creation (git operations) may still be in progress.
+	initDeadline := time.Now().Add(5 * time.Minute)
 	for {
 		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/session", entry.Port))
 		if err != nil {
@@ -1389,16 +1390,22 @@ func runReviewClient(entry sessionEntry) (approved bool) {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusServiceUnavailable {
-			var status struct {
-				Message string `json:"message"`
+			if time.Now().After(initDeadline) {
+				fmt.Fprintf(os.Stderr, "Error: server did not finish initializing within 5 minutes\n")
+				os.Exit(1)
 			}
-			json.Unmarshal(body, &status)
-			fmt.Fprintf(os.Stderr, "%s\n", body)
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
 		if resp.StatusCode == http.StatusInternalServerError {
-			fmt.Fprintf(os.Stderr, "Error: %s\n", body)
+			var status struct {
+				Message string `json:"message"`
+			}
+			if json.Unmarshal(body, &status) == nil && status.Message != "" {
+				fmt.Fprintf(os.Stderr, "Error: %s\n", status.Message)
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: %s\n", body)
+			}
 			os.Exit(1)
 		}
 		break
