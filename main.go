@@ -1794,10 +1794,27 @@ func runServe(args []string) {
 
 	go runIdleTimeoutChecker(ctx, stop, &idleMu, &lastActivity)
 
-	session, err := createSession(sc)
-	if err != nil {
-		log.Printf("Error: %v", err)
-		srv.SetInitErr(err)
+	type sessionResult struct {
+		session *Session
+		err     error
+	}
+	ch := make(chan sessionResult, 1)
+	go func() {
+		s, err := createSession(sc)
+		ch <- sessionResult{s, err}
+	}()
+
+	var session *Session
+	var initErr error
+	select {
+	case res := <-ch:
+		session, initErr = res.session, res.err
+	case <-time.After(2 * time.Minute):
+		initErr = fmt.Errorf("session initialization timed out after 2 minutes")
+	}
+	if initErr != nil {
+		log.Printf("Error: %v", initErr)
+		srv.SetInitErr(initErr)
 		<-ctx.Done()
 		removeSessionFile(key)
 		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
