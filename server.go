@@ -49,35 +49,37 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 
 	mux := http.NewServeMux()
 
-	// Session-scoped endpoints
+	// Endpoints that work without a ready session
 	mux.HandleFunc("/api/health", s.handleHealth)
-	mux.HandleFunc("/api/review-cycle", s.handleReviewCycle)
-	mux.HandleFunc("/api/config", s.handleConfig)
-	mux.HandleFunc("/api/session", s.handleSession)
-	mux.HandleFunc("/api/share", s.handleShare)
-	mux.HandleFunc("/api/share-url", s.handleShareURL)
-	mux.HandleFunc("/api/finish", s.handleFinish)
-	mux.HandleFunc("/api/events", s.handleEvents)
-	mux.HandleFunc("/api/wait-for-event", s.handleWaitForEvent)
-	mux.HandleFunc("/api/round-complete", s.handleRoundComplete)
-
-	mux.HandleFunc("/api/agent/request", s.handleAgentRequest)
-	mux.HandleFunc("/api/branches", s.handleBranches)
-	mux.HandleFunc("/api/base-branch", s.handleBaseBranch)
-	mux.HandleFunc("/api/commits", s.handleCommits)
-	mux.HandleFunc("/api/comments", s.handleReviewComments)
-	mux.HandleFunc("/api/review-comment/", s.handleReviewCommentByID)
 	mux.HandleFunc("/api/qr", s.handleQR)
-	mux.HandleFunc("/api/files/list", s.handleFilesList)
+
+	// Session-dependent endpoints (guarded by withReady middleware)
+	mux.HandleFunc("/api/review-cycle", s.withReady(s.handleReviewCycle))
+	mux.HandleFunc("/api/config", s.withReady(s.handleConfig))
+	mux.HandleFunc("/api/session", s.withReady(s.handleSession))
+	mux.HandleFunc("/api/share", s.withReady(s.handleShare))
+	mux.HandleFunc("/api/share-url", s.withReady(s.handleShareURL))
+	mux.HandleFunc("/api/finish", s.withReady(s.handleFinish))
+	mux.HandleFunc("/api/events", s.withReady(s.handleEvents))
+	mux.HandleFunc("/api/wait-for-event", s.withReady(s.handleWaitForEvent))
+	mux.HandleFunc("/api/round-complete", s.withReady(s.handleRoundComplete))
+
+	mux.HandleFunc("/api/agent/request", s.withReady(s.handleAgentRequest))
+	mux.HandleFunc("/api/branches", s.withReady(s.handleBranches))
+	mux.HandleFunc("/api/base-branch", s.withReady(s.handleBaseBranch))
+	mux.HandleFunc("/api/commits", s.withReady(s.handleCommits))
+	mux.HandleFunc("/api/comments", s.withReady(s.handleReviewComments))
+	mux.HandleFunc("/api/review-comment/", s.withReady(s.handleReviewCommentByID))
+	mux.HandleFunc("/api/files/list", s.withReady(s.handleFilesList))
 
 	// File-scoped endpoints (use ?path= query param)
-	mux.HandleFunc("/api/file", s.handleFile)
-	mux.HandleFunc("/api/file/diff", s.handleFileDiff)
-	mux.HandleFunc("/api/file/comments", s.handleFileComments)
-	mux.HandleFunc("/api/comment/", s.handleCommentByID)
+	mux.HandleFunc("/api/file", s.withReady(s.handleFile))
+	mux.HandleFunc("/api/file/diff", s.withReady(s.handleFileDiff))
+	mux.HandleFunc("/api/file/comments", s.withReady(s.handleFileComments))
+	mux.HandleFunc("/api/comment/", s.withReady(s.handleCommentByID))
 
-	// Static file serving
-	mux.HandleFunc("/files/", s.handleFiles)
+	// Static file serving (repo files need session; embedded assets do not)
+	mux.HandleFunc("/files/", s.withReady(s.handleFiles))
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 
 	s.mux = mux
@@ -115,6 +117,17 @@ func (s *Server) requireReady(w http.ResponseWriter) bool {
 	return false
 }
 
+// withReady wraps a handler so that requireReady is checked before the handler
+// runs. Routes that depend on an initialized session use this at registration.
+func (s *Server) withReady(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.requireReady(w) {
+			return
+		}
+		next(w, r)
+	}
+}
+
 // SetSession attaches a fully initialized session and marks the server as ready.
 func (s *Server) SetSession(session *Session, prInfo *PRInfo) {
 	s.session = session
@@ -131,9 +144,6 @@ func (s *Server) SetInitErr(err error) {
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !s.requireReady(w) {
 		return
 	}
 	s.versionMu.RLock()
@@ -191,18 +201,12 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !s.requireReady(w) {
-		return
-	}
 	scope := r.URL.Query().Get("scope")
 	commit := r.URL.Query().Get("commit")
 	writeJSON(w, s.session.GetSessionInfoScoped(scope, commit))
 }
 
 func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
-	if !s.requireReady(w) {
-		return
-	}
 	switch r.Method {
 	case http.MethodPost:
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
@@ -231,9 +235,6 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !s.requireReady(w) {
 		return
 	}
 	if s.shareURL == "" {
@@ -282,9 +283,6 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !s.requireReady(w) {
-		return
-	}
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		http.Error(w, "path query parameter required", http.StatusBadRequest)
@@ -311,9 +309,6 @@ func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !s.requireReady(w) {
-		return
-	}
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		http.Error(w, "path query parameter required", http.StatusBadRequest)
@@ -332,9 +327,6 @@ func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 // handleFileComments handles GET (list) and POST (create) for file-scoped comments.
 // GET/POST /api/file/comments?path=server.go
 func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
-	if !s.requireReady(w) {
-		return
-	}
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		http.Error(w, "path query parameter required", http.StatusBadRequest)
@@ -432,9 +424,6 @@ func routeCommentByID(trimmed string) (commentRoute, bool) {
 }
 
 func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
-	if !s.requireReady(w) {
-		return
-	}
 	trimmed := strings.TrimPrefix(r.URL.Path, "/api/comment/")
 	route, ok := routeCommentByID(trimmed)
 	if !ok {
@@ -519,9 +508,6 @@ func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !s.requireReady(w) {
-		return
-	}
 	commits := s.session.GetCommits()
 	writeJSON(w, commits)
 }
@@ -530,9 +516,6 @@ func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !s.requireReady(w) {
 		return
 	}
 	s.session.mu.RLock()
@@ -550,9 +533,6 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBaseBranch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !s.requireReady(w) {
 		return
 	}
 	var body struct {
@@ -662,9 +642,6 @@ func (s *Server) handleReviewCommentReplyRoute(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
-	if !s.requireReady(w) {
-		return
-	}
 	switch r.Method {
 	case http.MethodGet:
 		comments := s.session.GetReviewComments()
@@ -698,9 +675,6 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReviewCommentByID(w http.ResponseWriter, r *http.Request) {
-	if !s.requireReady(w) {
-		return
-	}
 	trimmed := strings.TrimPrefix(r.URL.Path, "/api/review-comment/")
 	route, ok := routeCommentByID(trimmed)
 	if !ok {
@@ -780,9 +754,6 @@ func (s *Server) handleRoundComplete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !s.requireReady(w) {
-		return
-	}
 	s.session.SignalRoundComplete()
 	writeJSON(w, map[string]string{"status": "ok"})
 }
@@ -790,9 +761,6 @@ func (s *Server) handleRoundComplete(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !s.requireReady(w) {
 		return
 	}
 
@@ -891,9 +859,6 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !s.requireReady(w) {
-		return
-	}
 
 	// Subscribe BEFORE round-complete to avoid missing the finish event
 	// if the user clicks "Finish Review" in the brief window between
@@ -937,9 +902,6 @@ func (s *Server) handleWaitForEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !s.requireReady(w) {
-		return
-	}
 
 	ch := s.session.Subscribe()
 	defer s.session.Unsubscribe(ch)
@@ -961,9 +923,6 @@ func (s *Server) handleWaitForEvent(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !s.requireReady(w) {
 		return
 	}
 
@@ -1002,9 +961,6 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !s.requireReady(w) {
 		return
 	}
 
@@ -1073,9 +1029,6 @@ func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !s.requireReady(w) {
 		return
 	}
 
@@ -1205,9 +1158,6 @@ func agentName(cmd string) string {
 func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !s.requireReady(w) {
 		return
 	}
 	if s.agentCmd == "" {
