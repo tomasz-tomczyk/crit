@@ -557,7 +557,7 @@
         setCookie('crit-diff-scope', 'all');
         // Re-fetch session with corrected scope — the initial fetch used the
         // stale cookie value and may have returned an empty file list.
-        const corrected = await fetchWhenReady('/api/session?scope=all').then(r => r.json());
+        const corrected = await fetchWhenReady('/api/session').then(r => r.json());
         session = corrected;
         reviewComments = corrected.review_comments || [];
       }
