@@ -5,7 +5,7 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "0.8.2";
+      version = "0.8.3";
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in rec {
@@ -17,7 +17,9 @@
             inherit version;
             src = self;
             vendorHash = "sha256-n2yA86hAhSipIhQw9HSKubCVT4RrPdau+/Ve7ebrevc=";
-            nativeCheckInputs = [ pkgs.git ];
+            # Tests run in dedicated CI jobs (test + e2e); the Nix sandbox's
+            # /build TMPDIR cleanup races with the debounced .crit.json writer.
+            doCheck = false;
             ldflags = [ "-s" "-w" "-X main.version=${version}" ];
             meta = with nixpkgs.lib; {
               description = "Browser-based markdown review tool with inline commenting";
