@@ -555,6 +555,11 @@
       if (scopes.indexOf(diffScope) === -1) {
         diffScope = 'all';
         setCookie('crit-diff-scope', 'all');
+        // Re-fetch session with corrected scope — the initial fetch used the
+        // stale cookie value and may have returned an empty file list.
+        const corrected = await fetchWhenReady('/api/session').then(r => r.json());
+        session = corrected;
+        reviewComments = corrected.review_comments || [];
       }
       scopeToggle.querySelectorAll('.toggle-btn').forEach(function(b) {
         b.classList.toggle('active', b.dataset.scope === diffScope);

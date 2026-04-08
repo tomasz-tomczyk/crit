@@ -2204,7 +2204,7 @@ func countHunkStats(hunks []DiffHunk) (additions, deletions int) {
 // All other scopes (including "all") run fresh git queries to pick up files added after startup.
 // When commit is non-empty, files and diffs are scoped to that single commit.
 func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
-	if commit == "" && (scope == "" || s.Mode == "files" || s.Mode == "plan") {
+	if commit == "" && (scope == "" || scope == "all" || s.Mode == "files" || s.Mode == "plan") {
 		return s.GetSessionInfo()
 	}
 
@@ -2320,7 +2320,7 @@ func computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoR
 // When scope is "" or in file mode (scopes only apply to git), delegates to GetFileDiffSnapshot.
 // When commit is non-empty, returns the diff for that single commit.
 func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string) (map[string]any, bool) {
-	if commit == "" && (scope == "" || s.Mode == "files" || s.Mode == "plan") {
+	if commit == "" && (scope == "" || scope == "all" || s.Mode == "files" || s.Mode == "plan") {
 		return s.GetFileDiffSnapshot(path)
 	}
 
