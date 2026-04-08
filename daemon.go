@@ -375,6 +375,7 @@ func handleDaemonReady(key string, port, pid int, readEnd *os.File, cmd *exec.Cm
 
 	entry, err := readSessionFile(key)
 	if err != nil {
+		log.Printf("Warning: failed to read session file for key %s: %v (using partial entry)", key, err)
 		cwd, _ := resolvedCWD()
 		entry = sessionEntry{
 			PID:       pid,

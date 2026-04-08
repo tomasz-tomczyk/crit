@@ -2089,3 +2089,29 @@ func TestSetPRInfo_ConcurrentSafe(t *testing.T) {
 	}
 	<-done
 }
+
+func TestWithReady_503WhenNotReady(t *testing.T) {
+	// Create a server without a session — the server should not be ready.
+	s, err := NewServer(nil, frontendFS, "", "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/session", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	if got := w.Header().Get("Retry-After"); got != "1" {
+		t.Errorf("Retry-After = %q, want %q", got, "1")
+	}
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+	if body["status"] != "loading" {
+		t.Errorf("status = %q, want %q", body["status"], "loading")
+	}
+}

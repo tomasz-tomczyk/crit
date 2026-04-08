@@ -145,7 +145,8 @@ func (s *Server) SetPRInfo(prInfo *PRInfo) {
 // SetInitErr records a fatal initialization error. Subsequent API calls
 // return 500 with the error message instead of retryable 503s.
 func (s *Server) SetInitErr(err error) {
-	s.initErr.Store(&err)
+	e := err
+	s.initErr.Store(&e)
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {

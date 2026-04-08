@@ -1348,27 +1348,11 @@ func runReview(args []string) {
 
 	// If we started the daemon, clean it up on Ctrl+C
 	if weStartedDaemon {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		go func() {
-			<-sigCh
-			if proc, err := os.FindProcess(entry.PID); err == nil {
-				proc.Signal(syscall.SIGTERM)
-			}
-			os.Exit(0)
-		}()
+		installDaemonSignalHandler(entry.PID)
 	}
 
 	approved := runReviewClient(entry)
-
-	// Approve (no unresolved comments) — stop the daemon to free the port
-	// for future sessions. The daemon is no longer needed since the agent
-	// won't reinvoke crit for this review.
-	if approved {
-		if proc, err := os.FindProcess(entry.PID); err == nil {
-			proc.Signal(syscall.SIGTERM)
-		}
-	}
+	killDaemonOnApproval(approved, entry.PID)
 }
 
 // runReviewClient connects to a running daemon/server, blocks until the user
@@ -1799,6 +1783,10 @@ func runServe(args []string) {
 		err     error
 	}
 	ch := make(chan sessionResult, 1)
+	// NOTE: On timeout, the createSession goroutine will leak until its git
+	// operations finish (no context is threaded into the git calls). This is
+	// acceptable because the timeout path sets initErr, which triggers a full
+	// server shutdown and process exit shortly after, cleaning up all goroutines.
 	go func() {
 		s, err := createSession(sc)
 		ch <- sessionResult{s, err}
