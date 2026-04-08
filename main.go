@@ -1742,7 +1742,7 @@ func runServe(args []string) {
 	}
 	addr := listener.Addr().(*net.TCPAddr)
 
-	srv, err := NewServer(nil, frontendFS, sc.shareURL, sc.authToken, nil, sc.author, version, addr.Port, sc.agentCmd)
+	srv, err := NewServer(nil, frontendFS, sc.shareURL, sc.authToken, sc.author, version, addr.Port, sc.agentCmd)
 	if err != nil {
 		daemonFatal(pipe, "Error creating server: %v", err)
 	}
@@ -1825,14 +1825,17 @@ func runServe(args []string) {
 	applySessionOverrides(session, sc)
 	session.CLIArgs = sc.files
 
-	var prInfo *PRInfo
-	if session.Mode == "git" {
-		prInfo = detectPRInfo()
-	}
-
 	checkStaleIntegrations(sc, srv, cwd)
 
-	srv.SetSession(session, prInfo)
+	srv.SetSession(session)
+
+	if session.Mode == "git" {
+		go func() {
+			if prInfo := detectPRInfo(); prInfo != nil {
+				srv.SetPRInfo(prInfo)
+			}
+		}()
+	}
 
 	watchStop := make(chan struct{})
 	go session.Watch(watchStop)

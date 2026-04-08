@@ -27,6 +27,7 @@ type Server struct {
 	shareURL          string
 	authToken         string
 	prInfo            *PRInfo
+	prInfoMu          sync.RWMutex
 	author            string
 	agentCmd          string
 	currentVersion    string
@@ -39,13 +40,13 @@ type Server struct {
 	initErr           atomic.Pointer[error]
 }
 
-func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken string, prInfo *PRInfo, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
+func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken string, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
 	assets, err := fs.Sub(frontendFS, "frontend")
 	if err != nil {
 		return nil, fmt.Errorf("loading frontend assets: %w", err)
 	}
 
-	s := &Server{session: session, assets: assets, shareURL: shareURL, authToken: authToken, prInfo: prInfo, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port}
+	s := &Server{session: session, assets: assets, shareURL: shareURL, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port}
 
 	mux := http.NewServeMux()
 
@@ -129,10 +130,16 @@ func (s *Server) withReady(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // SetSession attaches a fully initialized session and marks the server as ready.
-func (s *Server) SetSession(session *Session, prInfo *PRInfo) {
+func (s *Server) SetSession(session *Session) {
 	s.session = session
-	s.prInfo = prInfo
 	s.ready.Store(true)
+}
+
+// SetPRInfo updates the PR metadata after the session is already ready.
+func (s *Server) SetPRInfo(prInfo *PRInfo) {
+	s.prInfoMu.Lock()
+	s.prInfo = prInfo
+	s.prInfoMu.Unlock()
 }
 
 // SetInitErr records a fatal initialization error. Subsequent API calls
@@ -177,20 +184,23 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		resp["stale_integrations"] = items
 	}
-	if s.prInfo != nil {
-		resp["pr_url"] = s.prInfo.URL
-		resp["pr_number"] = s.prInfo.Number
-		resp["pr_title"] = s.prInfo.Title
-		resp["pr_is_draft"] = s.prInfo.IsDraft
-		resp["pr_state"] = s.prInfo.State
-		resp["pr_body"] = s.prInfo.Body
-		resp["pr_base_ref"] = s.prInfo.BaseRefName
-		resp["pr_head_ref"] = s.prInfo.HeadRefName
-		resp["pr_additions"] = s.prInfo.Additions
-		resp["pr_deletions"] = s.prInfo.Deletions
-		resp["pr_changed_files"] = s.prInfo.ChangedFiles
-		resp["pr_author"] = s.prInfo.AuthorLogin
-		resp["pr_created_at"] = s.prInfo.CreatedAt
+	s.prInfoMu.RLock()
+	prInfo := s.prInfo
+	s.prInfoMu.RUnlock()
+	if prInfo != nil {
+		resp["pr_url"] = prInfo.URL
+		resp["pr_number"] = prInfo.Number
+		resp["pr_title"] = prInfo.Title
+		resp["pr_is_draft"] = prInfo.IsDraft
+		resp["pr_state"] = prInfo.State
+		resp["pr_body"] = prInfo.Body
+		resp["pr_base_ref"] = prInfo.BaseRefName
+		resp["pr_head_ref"] = prInfo.HeadRefName
+		resp["pr_additions"] = prInfo.Additions
+		resp["pr_deletions"] = prInfo.Deletions
+		resp["pr_changed_files"] = prInfo.ChangedFiles
+		resp["pr_author"] = prInfo.AuthorLogin
+		resp["pr_created_at"] = prInfo.CreatedAt
 	}
 	writeJSON(w, resp)
 }

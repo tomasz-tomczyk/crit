@@ -41,7 +41,7 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 		},
 	}
 
-	s, err := NewServer(session, frontendFS, "", "", nil, "", "test", 0, "")
+	s, err := NewServer(session, frontendFS, "", "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1303,7 +1303,7 @@ func TestGetFilesList(t *testing.T) {
 		Files:         []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", nil, "", "", 0, "")
+	srv, err := NewServer(session, frontendFS, "", "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1367,7 +1367,7 @@ func TestGetFilesList_RespectsIgnorePatterns(t *testing.T) {
 		Files:          []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", nil, "", "", 0, "")
+	srv, err := NewServer(session, frontendFS, "", "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1401,7 +1401,7 @@ func TestGetFilesList_FilesMode(t *testing.T) {
 		Files:         []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", nil, "", "", 0, "")
+	srv, err := NewServer(session, frontendFS, "", "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1472,7 +1472,7 @@ func TestGetFilesList_MethodNotAllowed(t *testing.T) {
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 	}
-	srv, _ := NewServer(session, frontendFS, "", "", nil, "", "", 0, "")
+	srv, _ := NewServer(session, frontendFS, "", "", "", "", 0, "")
 	req := httptest.NewRequest("POST", "/api/files/list", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -1875,7 +1875,7 @@ func TestHandleSession_PlanMode(t *testing.T) {
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
-	srv, _ := NewServer(session, frontendFS, "", "", nil, "", "dev", 0, "")
+	srv, _ := NewServer(session, frontendFS, "", "", "", "dev", 0, "")
 
 	req := httptest.NewRequest("GET", "/api/session", nil)
 	w := httptest.NewRecorder()
@@ -1890,7 +1890,7 @@ func TestHandleSession_PlanMode(t *testing.T) {
 }
 
 func TestReadinessGate_Returns503WhenNotReady(t *testing.T) {
-	s, err := NewServer(nil, frontendFS, "", "", nil, "", "test", 0, "")
+	s, err := NewServer(nil, frontendFS, "", "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1916,7 +1916,7 @@ func TestReadinessGate_Returns503WhenNotReady(t *testing.T) {
 }
 
 func TestReadinessGate_HealthAlwaysOK(t *testing.T) {
-	s, err := NewServer(nil, frontendFS, "", "", nil, "", "test", 0, "")
+	s, err := NewServer(nil, frontendFS, "", "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1929,7 +1929,7 @@ func TestReadinessGate_HealthAlwaysOK(t *testing.T) {
 }
 
 func TestReadinessGate_Returns200AfterSetSession(t *testing.T) {
-	s, err := NewServer(nil, frontendFS, "", "", nil, "", "test", 0, "")
+	s, err := NewServer(nil, frontendFS, "", "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1958,7 +1958,7 @@ func TestReadinessGate_Returns200AfterSetSession(t *testing.T) {
 		},
 	}
 
-	s.SetSession(session, nil)
+	s.SetSession(session)
 
 	req := httptest.NewRequest("GET", "/api/session", nil)
 	w := httptest.NewRecorder()
@@ -1995,7 +1995,7 @@ func TestRouteCommentByID(t *testing.T) {
 }
 
 func TestReadinessGate_Returns500OnInitError(t *testing.T) {
-	s, err := NewServer(nil, frontendFS, "", "", nil, "", "test", 0, "")
+	s, err := NewServer(nil, frontendFS, "", "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2016,4 +2016,76 @@ func TestReadinessGate_Returns500OnInitError(t *testing.T) {
 	if !strings.Contains(body["message"], "no changed files") {
 		t.Errorf("got message=%q, want it to contain 'no changed files'", body["message"])
 	}
+}
+
+func TestSetPRInfo_AppearsInConfig(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	// Config should have no PR fields before SetPRInfo.
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	var before map[string]any
+	json.Unmarshal(w.Body.Bytes(), &before)
+	if _, ok := before["pr_url"]; ok {
+		t.Fatal("pr_url should be absent before SetPRInfo")
+	}
+
+	// Set PR info asynchronously.
+	s.SetPRInfo(&PRInfo{
+		URL:         "https://github.com/test/repo/pull/42",
+		Number:      42,
+		Title:       "fix: something",
+		IsDraft:     false,
+		State:       "OPEN",
+		BaseRefName: "main",
+		HeadRefName: "fix-branch",
+		AuthorLogin: "testuser",
+	})
+
+	// Config should now include PR fields.
+	req = httptest.NewRequest("GET", "/api/config", nil)
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	var after map[string]any
+	json.Unmarshal(w.Body.Bytes(), &after)
+	if after["pr_url"] != "https://github.com/test/repo/pull/42" {
+		t.Errorf("pr_url = %v, want https://github.com/test/repo/pull/42", after["pr_url"])
+	}
+	if after["pr_number"].(float64) != 42 {
+		t.Errorf("pr_number = %v, want 42", after["pr_number"])
+	}
+	if after["pr_title"] != "fix: something" {
+		t.Errorf("pr_title = %v, want 'fix: something'", after["pr_title"])
+	}
+	if after["pr_author"] != "testuser" {
+		t.Errorf("pr_author = %v, want 'testuser'", after["pr_author"])
+	}
+}
+
+func TestSetPRInfo_ConcurrentSafe(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	// Simulate the async pattern: SetSession makes server ready,
+	// then SetPRInfo fires from a goroutine while config requests arrive.
+	done := make(chan struct{})
+	go func() {
+		s.SetPRInfo(&PRInfo{
+			URL:    "https://github.com/test/repo/pull/1",
+			Number: 1,
+			Title:  "concurrent PR",
+		})
+		close(done)
+	}()
+
+	// Hit config concurrently — should not panic or race.
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest("GET", "/api/config", nil)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("config: got status %d, want 200", w.Code)
+		}
+	}
+	<-done
 }
