@@ -1394,8 +1394,8 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 
 .reply-body {
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 14px;
+  line-height: 1.6;
   overflow: hidden;
 }
 
