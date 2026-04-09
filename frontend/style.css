@@ -424,12 +424,12 @@ body {
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .btn-primary {
-  background: #5b8def;
+  background: var(--accent);
   color: #fff;
-  border-color: #5b8def;
+  border-color: var(--accent);
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
-.btn-primary:hover { background: #6e9af2; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+.btn-primary:hover { background: var(--accent-hover); box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
 
 .btn-danger {
   color: var(--red);
@@ -3248,14 +3248,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   gap: 0;
   max-width: 100%;
   overflow: hidden;
-}
-.diff-view-side {
-  overflow-x: auto;
-  min-width: 0;
-  border-right: 1px solid var(--border);
-}
-.diff-view-side:last-child {
-  border-right: none;
 }
 .diff-view-cell {
   min-width: 0;

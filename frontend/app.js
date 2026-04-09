@@ -1621,7 +1621,6 @@
         file.collapsed = true;
       }
       // Expanding: let native <details> handle it
-      header.blur(); // prevent <summary> from trapping keyboard focus
     });
     section.addEventListener('toggle', function() {
       file.collapsed = !section.open;
@@ -4459,7 +4458,7 @@
     resolveBtn.setAttribute('aria-label', 'Resolve thread');
     resolveBtn.innerHTML = ICON_RESOLVE + '<span>Resolve</span>';
     resolveBtn.addEventListener('click', function() {
-      toggleResolveStatus(comment.id, 'file', 'resolve', filePath, resolveBtn);
+      toggleResolveStatus(comment.id, 'file', 'resolve', filePath);
     });
 
     parts.actions.appendChild(resolveBtn);
@@ -4729,7 +4728,7 @@
 
   // Shared resolve/unresolve handler for both file-level and review-level comments.
   // `type` is 'file' or 'review'; `action` is 'resolve' or 'unresolve'.
-  async function toggleResolveStatus(commentId, type, action, filePath, buttonElement) {
+  async function toggleResolveStatus(commentId, type, action, filePath) {
     const resolved = action === 'resolve';
     const url = type === 'file'
       ? '/api/comment/' + commentId + '/resolve?path=' + enc(filePath)
@@ -5182,7 +5181,7 @@
     unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
     unresolveBtn.innerHTML = ICON_UNRESOLVE + '<span>Unresolve</span>';
     unresolveBtn.addEventListener('click', function() {
-      toggleResolveStatus(comment.id, 'file', 'unresolve', filePath, unresolveBtn);
+      toggleResolveStatus(comment.id, 'file', 'unresolve', filePath);
     });
 
     const deleteBtn = document.createElement('button');
@@ -5291,7 +5290,7 @@
         unresolveBtn.innerHTML = ICON_UNRESOLVE + '<span>Unresolve</span>';
         unresolveBtn.addEventListener('click', function(e) {
           e.stopPropagation();
-          toggleResolveStatus(comment.id, 'review', 'unresolve', null, unresolveBtn);
+          toggleResolveStatus(comment.id, 'review', 'unresolve', null);
         });
         parts.actions.appendChild(unresolveBtn);
       } else {
@@ -5302,7 +5301,7 @@
         resolveBtn.innerHTML = ICON_RESOLVE + '<span>Resolve</span>';
         resolveBtn.addEventListener('click', function(e) {
           e.stopPropagation();
-          toggleResolveStatus(comment.id, 'review', 'resolve', null, resolveBtn);
+          toggleResolveStatus(comment.id, 'review', 'resolve', null);
         });
         parts.actions.appendChild(resolveBtn);
       }
