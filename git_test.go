@@ -273,7 +273,7 @@ func TestFileDiffUnified_RealRepo(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "README.md"), "# Modified\n\nNew content\n")
 	runGit(t, dir, "add", "README.md")
 
-	hunks, err := FileDiffUnified("README.md", "HEAD")
+	hunks, err := fileDiffUnified("README.md", "HEAD", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -690,7 +690,7 @@ func TestFileDiffScoped_Default(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(hunks) == 0 {
-		t.Error("expected diff hunks for default scope (delegates to FileDiffUnified)")
+		t.Error("expected diff hunks for default scope (delegates to fileDiffUnified)")
 	}
 }
 

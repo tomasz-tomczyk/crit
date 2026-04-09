@@ -149,8 +149,8 @@ func CurrentBranch() string {
 	return strings.TrimSpace(string(out))
 }
 
-// IsOnDefaultBranch returns true if HEAD is on the default branch.
-func IsOnDefaultBranch() bool {
+// isOnDefaultBranch returns true if HEAD is on the default branch.
+func isOnDefaultBranch() bool {
 	return CurrentBranch() == DefaultBranch()
 }
 
@@ -168,7 +168,7 @@ func MergeBase(base string) (string, error) {
 // On the default branch: staged + unstaged + untracked files.
 // On a feature branch: all changes since the merge base with the default branch + untracked.
 func ChangedFiles() ([]FileChange, error) {
-	if IsOnDefaultBranch() {
+	if isOnDefaultBranch() {
 		return changedFilesOnDefault()
 	}
 	return changedFilesOnFeature()
@@ -233,7 +233,7 @@ func changedFilesBranch(baseRef string) ([]FileChange, error) {
 }
 
 // FileDiffScoped returns parsed diff hunks for a file using a scope-appropriate git diff command.
-// Supported scopes: "branch", "staged", "unstaged". Any other value delegates to FileDiffUnified.
+// Supported scopes: "branch", "staged", "unstaged". Any other value delegates to fileDiffUnified.
 // The dir parameter sets the working directory for git commands (use repo root for correct path resolution).
 func FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHunk, error) {
 	var cmd *exec.Cmd
@@ -632,13 +632,8 @@ func dedup(changes []FileChange) []FileChange {
 	return result
 }
 
-// FileDiffUnified returns the parsed diff hunks for a file against a base ref.
-// If baseRef is empty, diffs against HEAD.
-func FileDiffUnified(path, baseRef string) ([]DiffHunk, error) {
-	return fileDiffUnified(path, baseRef, "")
-}
-
-// fileDiffUnified is the internal implementation that accepts an optional working directory.
+// fileDiffUnified returns the parsed diff hunks for a file against a base ref.
+// If baseRef is empty, diffs against HEAD. The dir parameter sets the working directory.
 func fileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
 	var cmd *exec.Cmd
 	if baseRef == "" {
