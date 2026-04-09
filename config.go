@@ -211,6 +211,37 @@ func globalConfigPath() string {
 	return filepath.Join(home, ".crit.config.json")
 }
 
+// saveGlobalConfig performs a read-modify-write on ~/.crit.config.json.
+// It uses map[string]json.RawMessage to preserve unknown keys.
+// The apply function receives the raw map and should set or delete keys as needed.
+// The file is written with 0600 permissions since it may contain auth_token.
+func saveGlobalConfig(apply func(m map[string]json.RawMessage) error) error {
+	path := globalConfigPath()
+	if path == "" {
+		return fmt.Errorf("cannot determine home directory")
+	}
+
+	raw := make(map[string]json.RawMessage)
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return fmt.Errorf("parsing %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	if err := apply(raw); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o600)
+}
+
 // matchPattern checks if a file path matches an ignore pattern.
 // Pattern types:
 //   - "*.ext"         → matches files ending in .ext anywhere
