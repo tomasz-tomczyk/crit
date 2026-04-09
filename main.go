@@ -55,6 +55,7 @@ var commandDispatch = map[string]func([]string){
 	"review":    runReview,
 	"plan":      runPlan,
 	"plan-hook": func([]string) { runPlanHook() },
+	"auth":      runAuth,
 	"stop":      runStop,
 	"_serve":    runServe,
 }
@@ -201,6 +202,10 @@ func runShareNew(critDir string, files []shareFile, filePaths []string, svcURL, 
 
 	fmt.Println(url)
 	printQR(url, showQR)
+
+	if authToken == "" {
+		showLoginHint()
+	}
 }
 
 func runShare(args []string) {
@@ -1859,6 +1864,9 @@ Usage:
   crit push [--dry-run] [--event <type>] [-m <msg>] [-o <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
   crit plan --name <slug> <file>             Review a plan file (manages versioned copies)
   crit plan --name <slug>                    Read plan from stdin
+  crit auth login                            Log in to crit-web via browser
+  crit auth logout                           Log out and revoke token
+  crit auth whoami                           Show current user info
   crit install <agent>                       Install integration files for an AI coding tool
   crit check                                 Check if installed integrations are up to date
   crit config [--generate]                    Show resolved configuration
@@ -1882,6 +1890,7 @@ Environment:
   CRIT_SHARE_URL              Override the share service URL
   CRIT_PORT                   Override the default port
   CRIT_NO_UPDATE_CHECK        Disable update check on startup
+  CRIT_AUTH_TOKEN              Override the auth token (skip login)
   CRIT_NO_INTEGRATION_CHECK   Disable integration staleness check
 
 Configuration:
