@@ -1157,6 +1157,161 @@ func TestSession_CarryForward_PreservesAuthor(t *testing.T) {
 	}
 }
 
+func TestCarryForward_FileScopeComments_NoDuplicates(t *testing.T) {
+	s := newTestSession(t)
+
+	fileComment := Comment{
+		ID:        "c2",
+		Body:      "file-level observation",
+		Author:    "Tomasz",
+		Scope:     "file",
+		CreatedAt: "2026-01-01T00:00:00Z",
+		UpdatedAt: "2026-01-01T00:00:00Z",
+	}
+
+	// Simulate the state before carry-forward: the file already has the comment
+	// in Comments (loaded from .crit.json at session start), and PreviousComments
+	// is also set (by loadResolvedComments before round-complete).
+	for _, f := range s.Files {
+		if f.Path == "plan.md" {
+			f.Comments = []Comment{fileComment}
+			f.PreviousComments = []Comment{fileComment}
+			f.PreviousContent = f.Content
+			break
+		}
+	}
+
+	s.carryForwardComments()
+
+	comments := s.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Errorf("expected 1 comment after carry-forward, got %d (duplicates!)", len(comments))
+	}
+	if len(comments) > 0 && comments[0].Body != "file-level observation" {
+		t.Errorf("Body = %q", comments[0].Body)
+	}
+}
+
+func TestCarryForward_FileScopeComments_NoDuplicatesAcrossRounds(t *testing.T) {
+	s := newTestSession(t)
+
+	fileComment := Comment{
+		ID:        "c2",
+		Body:      "file-level observation",
+		Author:    "Tomasz",
+		Scope:     "file",
+		CreatedAt: "2026-01-01T00:00:00Z",
+		UpdatedAt: "2026-01-01T00:00:00Z",
+	}
+
+	// Write .crit.json with the file-level comment
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Status:   "added",
+				Comments: []Comment{fileComment},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
+		t.Fatalf("writing .crit.json: %v", err)
+	}
+
+	// Set PreviousContent to trigger carryForwardComments (markdown file path)
+	for _, f := range s.Files {
+		if f.Path == "plan.md" {
+			f.PreviousContent = f.Content
+			break
+		}
+	}
+
+	// Round 1: carry forward
+	s.loadResolvedComments()
+	s.carryForwardComments()
+	s.carryForwardAllComments()
+
+	comments := s.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Fatalf("round 1: expected 1 comment, got %d", len(comments))
+	}
+
+	// Save state to .crit.json (simulating session save)
+	cj.Files = map[string]CritJSONFile{
+		"plan.md": {
+			Status:   "added",
+			Comments: comments,
+		},
+	}
+	data, _ = json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(s.critJSONPath(), data, 0644)
+
+	// Set up for round 2
+	for _, f := range s.Files {
+		if f.Path == "plan.md" {
+			f.PreviousContent = f.Content
+			break
+		}
+	}
+
+	// Round 2: carry forward again
+	s.loadResolvedComments()
+	s.carryForwardComments()
+	s.carryForwardAllComments()
+
+	comments = s.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Errorf("round 2: expected 1 comment, got %d (duplicates!)", len(comments))
+	}
+}
+
+func TestCarryForward_MixedScopeComments(t *testing.T) {
+	s := newTestSession(t)
+
+	fileComment := Comment{
+		ID:        "c1",
+		Body:      "file-level note",
+		Scope:     "file",
+		CreatedAt: "2026-01-01T00:00:00Z",
+		UpdatedAt: "2026-01-01T00:00:00Z",
+	}
+	lineComment := Comment{
+		ID:        "c2",
+		StartLine: 3,
+		EndLine:   3,
+		Body:      "line-level note",
+		Scope:     "line",
+		CreatedAt: "2026-01-01T00:00:00Z",
+		UpdatedAt: "2026-01-01T00:00:00Z",
+	}
+
+	for _, f := range s.Files {
+		if f.Path == "plan.md" {
+			f.Comments = []Comment{fileComment, lineComment}
+			f.PreviousComments = []Comment{fileComment, lineComment}
+			f.PreviousContent = f.Content
+			break
+		}
+	}
+
+	s.carryForwardComments()
+
+	comments := s.GetComments("plan.md")
+	if len(comments) != 2 {
+		t.Errorf("expected 2 comments (one file, one line), got %d", len(comments))
+	}
+	scopes := map[string]int{}
+	for _, c := range comments {
+		scopes[c.Scope]++
+	}
+	if scopes["file"] != 1 {
+		t.Errorf("expected 1 file-scope comment, got %d", scopes["file"])
+	}
+	if scopes["line"] != 1 {
+		t.Errorf("expected 1 line-scope comment, got %d", scopes["line"])
+	}
+}
+
 func TestAddCommentSetsReviewRound(t *testing.T) {
 	s := newTestSession(t)
 	s.ReviewRound = 2

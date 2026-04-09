@@ -49,7 +49,7 @@ func writeCritJSONForTest(t *testing.T, dir string, cj CritJSON) {
 	}
 }
 
-func TestLoadAllCommentsForShare_IncludesResolved(t *testing.T) {
+func TestLoadCommentsForUpsert_ExcludesResolved(t *testing.T) {
 	dir := t.TempDir()
 	cj := CritJSON{
 		ReviewRound: 1,
@@ -64,26 +64,22 @@ func TestLoadAllCommentsForShare_IncludesResolved(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, round := loadAllCommentsForShare(dir, []string{"plan.md"})
+	comments, round := loadCommentsForUpsert(dir, []string{"plan.md"})
 	if round != 1 {
 		t.Errorf("expected round 1, got %d", round)
 	}
-	if len(comments) != 2 {
-		t.Fatalf("expected 2 comments (both resolved and unresolved), got %d", len(comments))
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment (only unresolved), got %d", len(comments))
 	}
-	ids := map[string]bool{}
-	for _, c := range comments {
-		ids[c.ExternalID] = true
+	if comments[0].ExternalID != "c1" {
+		t.Errorf("expected ExternalID c1, got %q", comments[0].ExternalID)
 	}
-	if !ids["c1"] {
-		t.Error("expected ExternalID c1")
-	}
-	if !ids["c2"] {
-		t.Error("expected ExternalID c2")
+	if comments[0].Body != "open" {
+		t.Errorf("expected body 'open', got %q", comments[0].Body)
 	}
 }
 
-func TestLoadAllCommentsForShare_SetsExternalID(t *testing.T) {
+func TestLoadCommentsForUpsert_SetsExternalID(t *testing.T) {
 	dir := t.TempDir()
 	cj := CritJSON{
 		ReviewRound: 2,
@@ -97,12 +93,53 @@ func TestLoadAllCommentsForShare_SetsExternalID(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, _ := loadAllCommentsForShare(dir, []string{"main.go"})
+	comments, _ := loadCommentsForUpsert(dir, []string{"main.go"})
 	if len(comments) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(comments))
 	}
 	if comments[0].ExternalID != "abc-123" {
 		t.Errorf("expected ExternalID abc-123, got %q", comments[0].ExternalID)
+	}
+}
+
+func TestLoadCommentsForUpsert_ReviewLevelComments(t *testing.T) {
+	dir := t.TempDir()
+	cj := CritJSON{
+		ReviewRound: 1,
+		ReviewComments: []Comment{
+			{ID: "r1", Body: "open review note", Resolved: false},
+			{ID: "r2", Body: "resolved review note", Resolved: true},
+		},
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "file comment"},
+				},
+			},
+		},
+	}
+	writeCritJSONForTest(t, dir, cj)
+
+	comments, _ := loadCommentsForUpsert(dir, []string{"plan.md"})
+
+	// Should have 2 comments: 1 file-level + 1 unresolved review-level
+	if len(comments) != 2 {
+		t.Fatalf("expected 2 comments (1 file + 1 unresolved review), got %d", len(comments))
+	}
+	var reviewComment *shareComment
+	for i, c := range comments {
+		if c.Scope == "review" {
+			reviewComment = &comments[i]
+		}
+	}
+	if reviewComment == nil {
+		t.Fatal("expected a review-level comment")
+	}
+	if reviewComment.Body != "open review note" {
+		t.Errorf("expected unresolved review comment, got %q", reviewComment.Body)
+	}
+	if reviewComment.ExternalID != "r1" {
+		t.Errorf("expected ExternalID r1, got %q", reviewComment.ExternalID)
 	}
 }
 

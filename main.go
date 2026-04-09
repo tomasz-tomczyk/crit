@@ -163,7 +163,7 @@ func runShareExisting(existingCfg CritJSON, critDir string, files []shareFile, s
 		}
 	}
 
-	allComments, _ := loadAllCommentsForShare(critDir, sharePaths)
+	allComments, _ := loadCommentsForUpsert(critDir, sharePaths)
 
 	result, err := upsertShareToWeb(existingCfg, files, allComments, authToken)
 	if err != nil {
@@ -196,7 +196,7 @@ func runShareNew(critDir string, files []shareFile, filePaths []string, svcURL, 
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state to .crit.json: %v\n", err)
 	}
 
-	initialComments, _ := loadAllCommentsForShare(critDir, filePaths)
+	initialComments, _ := loadCommentsForUpsert(critDir, filePaths)
 	_ = updateShareState(critDir, computeShareHash(files, initialComments), reviewRound)
 
 	fmt.Println(url)

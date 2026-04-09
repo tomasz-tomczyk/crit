@@ -476,6 +476,7 @@ func (s *Session) carryForwardComments() {
 		}
 
 		s.mu.Lock()
+		f.Comments = nil // Clear before carry-forward to prevent duplicates
 		now := time.Now().UTC().Format(time.RFC3339)
 		for _, c := range prevComments {
 			// File-level comments have no line references — carry forward as-is.

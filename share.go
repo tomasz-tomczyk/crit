@@ -212,20 +212,20 @@ func buildShareFromSession(s *Session) ([]shareFile, []shareComment, int) {
 // loadCommentsForShare reads .crit.json from dir and returns shareComment entries
 // for the given file paths, plus the review round. Resolved comments are excluded.
 func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) {
-	return loadCommentsFromCritJSON(dir, filePaths, false)
+	return loadCommentsFromCritJSON(dir, filePaths, false, false)
 }
 
-// loadAllCommentsForShare is like loadCommentsForShare but includes resolved comments.
-// Used for upsert pushes so crit-web shows which comments the agent addressed.
-// Sets ExternalID on each comment from the local Comment.ID.
-func loadAllCommentsForShare(dir string, filePaths []string) ([]shareComment, int) {
-	return loadCommentsFromCritJSON(dir, filePaths, true)
+// loadCommentsForUpsert loads unresolved comments with ExternalID set for
+// round-trip tracking. Resolved comments are excluded — same as initial share.
+func loadCommentsForUpsert(dir string, filePaths []string) ([]shareComment, int) {
+	return loadCommentsFromCritJSON(dir, filePaths, false, true)
 }
 
 // loadCommentsFromCritJSON reads .crit.json from dir and returns shareComment entries
 // for the given file paths, plus the review round. When includeResolved is true,
-// resolved comments are included and ExternalID is set from the local comment ID.
-func loadCommentsFromCritJSON(dir string, filePaths []string, includeResolved bool) ([]shareComment, int) {
+// resolved comments are included. When setExternalID is true, ExternalID is set
+// from the local comment ID for round-trip tracking.
+func loadCommentsFromCritJSON(dir string, filePaths []string, includeResolved bool, setExternalID bool) ([]shareComment, int) {
 	critPath := filepath.Join(dir, ".crit.json")
 	data, err := os.ReadFile(critPath)
 	if err != nil {
@@ -262,9 +262,12 @@ func loadCommentsFromCritJSON(dir string, filePaths []string, includeResolved bo
 				Body:      c.Body,
 				Quote:     c.Quote,
 				Author:    c.Author,
+				Scope:     c.Scope,
 			}
 			if includeResolved {
 				sc.Resolved = c.Resolved
+			}
+			if setExternalID {
 				sc.ExternalID = c.ID
 			}
 			if c.ReviewRound >= 1 {
@@ -287,6 +290,8 @@ func loadCommentsFromCritJSON(dir string, filePaths []string, includeResolved bo
 		}
 		if includeResolved {
 			sc.Resolved = c.Resolved
+		}
+		if setExternalID {
 			sc.ExternalID = c.ID
 		}
 		if c.ReviewRound >= 1 {
