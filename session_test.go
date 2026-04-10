@@ -229,24 +229,6 @@ func TestSession_UnresolvedCommentCount(t *testing.T) {
 	}
 }
 
-func TestSession_UnresolvedCommentCount_AllResolved(t *testing.T) {
-	s := newTestSession(t)
-	s.mu.Lock()
-	f := s.fileByPathLocked("plan.md")
-	f.Comments = []Comment{
-		{ID: "c1", StartLine: 1, EndLine: 1, Body: "done", Resolved: true},
-		{ID: "c2", StartLine: 2, EndLine: 2, Body: "done too", Resolved: true},
-	}
-	s.mu.Unlock()
-
-	if got := s.UnresolvedCommentCount(); got != 0 {
-		t.Errorf("UnresolvedCommentCount = %d, want 0", got)
-	}
-	if got := s.TotalCommentCount(); got != 2 {
-		t.Errorf("TotalCommentCount = %d, want 2", got)
-	}
-}
-
 func TestSession_WriteFiles(t *testing.T) {
 	s := newTestSession(t)
 	s.AddComment("plan.md", 1, 1, "", "fix", "", "")
@@ -3104,5 +3086,387 @@ func TestExternalCommentStillMerged(t *testing.T) {
 	}
 	if !foundExternal {
 		t.Error("external comment c2 was lost during WriteFiles — merge is broken")
+	}
+}
+
+func TestSession_SetCommentResolved(t *testing.T) {
+	s := newTestSession(t)
+	c, _ := s.AddComment("plan.md", 1, 1, "", "needs fix", "", "")
+
+	// Resolve
+	resolved, ok := s.SetCommentResolved("plan.md", c.ID, true)
+	if !ok {
+		t.Fatal("SetCommentResolved returned false")
+	}
+	if !resolved.Resolved {
+		t.Error("expected comment to be resolved")
+	}
+
+	// Verify the resolved state persists in GetComments
+	comments := s.GetComments("plan.md")
+	if !comments[0].Resolved {
+		t.Error("resolved state not persisted in GetComments")
+	}
+
+	// Unresolve
+	unresolved, ok := s.SetCommentResolved("plan.md", c.ID, false)
+	if !ok {
+		t.Fatal("SetCommentResolved returned false on unresolve")
+	}
+	if unresolved.Resolved {
+		t.Error("expected comment to be unresolved")
+	}
+
+	comments = s.GetComments("plan.md")
+	if comments[0].Resolved {
+		t.Error("unresolve not persisted in GetComments")
+	}
+}
+
+func TestSession_SetCommentResolved_NotFound(t *testing.T) {
+	s := newTestSession(t)
+	_, ok := s.SetCommentResolved("plan.md", "c999", true)
+	if ok {
+		t.Error("expected false for nonexistent comment")
+	}
+	_, ok = s.SetCommentResolved("nonexistent.go", "c1", true)
+	if ok {
+		t.Error("expected false for nonexistent file")
+	}
+}
+
+func TestSession_FindCommentByID(t *testing.T) {
+	s := newTestSession(t)
+	c1, _ := s.AddComment("plan.md", 1, 1, "", "md comment", "", "")
+	c2, _ := s.AddComment("main.go", 5, 5, "", "go comment", "", "")
+
+	// Find with filePath hint
+	found, path, ok := s.FindCommentByID(c1.ID, "plan.md")
+	if !ok {
+		t.Fatal("FindCommentByID with hint returned false")
+	}
+	if path != "plan.md" {
+		t.Errorf("path = %q, want plan.md", path)
+	}
+	if found.Body != "md comment" {
+		t.Errorf("body = %q, want md comment", found.Body)
+	}
+
+	// Find without filePath hint (cross-file search)
+	found2, path2, ok2 := s.FindCommentByID(c2.ID, "")
+	if !ok2 {
+		t.Fatal("FindCommentByID without hint returned false")
+	}
+	if path2 != "main.go" {
+		t.Errorf("path = %q, want main.go", path2)
+	}
+	if found2.Body != "go comment" {
+		t.Errorf("body = %q, want go comment", found2.Body)
+	}
+
+	// Not found
+	_, _, ok3 := s.FindCommentByID("nonexistent", "")
+	if ok3 {
+		t.Error("expected false for nonexistent comment ID")
+	}
+}
+
+func TestSession_ClearAllComments_RemovesCritJSONFromFileList(t *testing.T) {
+	s := newTestSession(t)
+
+	// Add a .crit.json entry to the file list (as would happen when git detects it)
+	s.mu.Lock()
+	s.Files = append(s.Files, &FileEntry{
+		Path:     ".crit.json",
+		AbsPath:  filepath.Join(s.RepoRoot, ".crit.json"),
+		Status:   "untracked",
+		FileType: "code",
+		Comments: []Comment{},
+	})
+	s.mu.Unlock()
+
+	s.AddComment("plan.md", 1, 1, "", "test", "", "")
+	s.AddReviewComment("review", "")
+
+	if len(s.GetReviewComments()) != 1 {
+		t.Fatal("expected 1 review comment before clear")
+	}
+
+	s.ClearAllComments()
+
+	// .crit.json should be removed from the file list
+	for _, f := range s.Files {
+		if filepath.Base(f.Path) == ".crit.json" {
+			t.Error(".crit.json should be removed from file list after ClearAllComments")
+		}
+	}
+
+	// All comments should be gone
+	if s.TotalCommentCount() != 0 {
+		t.Errorf("expected 0 total comments, got %d", s.TotalCommentCount())
+	}
+	if len(s.GetReviewComments()) != 0 {
+		t.Errorf("expected 0 review comments, got %d", len(s.GetReviewComments()))
+	}
+
+	// Review round should reset to 1
+	if s.GetReviewRound() != 1 {
+		t.Errorf("ReviewRound = %d, want 1 after clear", s.GetReviewRound())
+	}
+}
+
+func TestSession_ClearAllComments_DeletesCritJSONFromDisk(t *testing.T) {
+	s := newTestSession(t)
+	s.AddComment("plan.md", 1, 1, "", "test", "", "")
+	flushWrites(s)
+	s.WriteFiles()
+
+	// Verify .crit.json exists
+	if _, err := os.Stat(s.critJSONPath()); err != nil {
+		t.Fatalf(".crit.json should exist before clear: %v", err)
+	}
+
+	s.ClearAllComments()
+
+	// .crit.json should be deleted from disk
+	if _, err := os.Stat(s.critJSONPath()); !os.IsNotExist(err) {
+		t.Error(".crit.json should be deleted from disk after ClearAllComments")
+	}
+}
+
+func TestSession_HandleExternalDeletion(t *testing.T) {
+	s := newTestSession(t)
+	s.AddComment("plan.md", 1, 1, "", "test", "", "")
+	flushWrites(s)
+	s.WriteFiles()
+
+	// Verify comments exist
+	if s.TotalCommentCount() != 1 {
+		t.Fatal("expected 1 comment before deletion")
+	}
+
+	// Delete .crit.json externally
+	os.Remove(s.critJSONPath())
+
+	// handleExternalDeletion should detect the deletion and clear in-memory state
+	deleted := s.handleExternalDeletion(s.critJSONPath())
+	if !deleted {
+		t.Fatal("handleExternalDeletion should return true when file was deleted")
+	}
+
+	if s.TotalCommentCount() != 0 {
+		t.Errorf("expected 0 comments after external deletion, got %d", s.TotalCommentCount())
+	}
+}
+
+func TestSession_HandleExternalDeletion_NoMtime(t *testing.T) {
+	s := newTestSession(t)
+	// Without ever writing, lastCritJSONMtime is zero — should not detect deletion
+	deleted := s.handleExternalDeletion(s.critJSONPath())
+	if deleted {
+		t.Error("handleExternalDeletion should return false when mtime is zero")
+	}
+}
+
+func TestSession_WriteFiles_RoundTrip(t *testing.T) {
+	s := newTestSession(t)
+	s.AddComment("plan.md", 1, 3, "", "fix formatting", "", "reviewer")
+	s.AddComment("main.go", 2, 2, "RIGHT", "handle error", "func main() {}", "agent")
+	s.AddReviewComment("overall looks good", "reviewer")
+
+	flushWrites(s)
+	s.WriteFiles()
+
+	// Read back the .crit.json
+	data1, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		t.Fatalf("reading first write: %v", err)
+	}
+
+	// Write again (no changes) and compare
+	flushWrites(s)
+	s.WriteFiles()
+	data2, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		t.Fatalf("reading second write: %v", err)
+	}
+
+	// Parse both to compare semantically (timestamps may differ)
+	var cj1, cj2 CritJSON
+	json.Unmarshal(data1, &cj1)
+	json.Unmarshal(data2, &cj2)
+
+	if len(cj1.Files) != len(cj2.Files) {
+		t.Errorf("file count mismatch: %d vs %d", len(cj1.Files), len(cj2.Files))
+	}
+	for path, f1 := range cj1.Files {
+		f2, ok := cj2.Files[path]
+		if !ok {
+			t.Errorf("file %q missing in second write", path)
+			continue
+		}
+		if len(f1.Comments) != len(f2.Comments) {
+			t.Errorf("%s: comment count %d vs %d", path, len(f1.Comments), len(f2.Comments))
+		}
+	}
+	if len(cj1.ReviewComments) != len(cj2.ReviewComments) {
+		t.Errorf("review comment count %d vs %d", len(cj1.ReviewComments), len(cj2.ReviewComments))
+	}
+}
+
+func TestSession_AddComment_PreservesSideAndQuote(t *testing.T) {
+	s := newTestSession(t)
+	c, ok := s.AddComment("main.go", 5, 10, "RIGHT", "fix this", "func main() {}", "reviewer")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	if c.Side != "RIGHT" {
+		t.Errorf("Side = %q, want RIGHT", c.Side)
+	}
+	if c.Quote != "func main() {}" {
+		t.Errorf("Quote = %q, want func main() {}", c.Quote)
+	}
+	if c.Scope != "line" {
+		t.Errorf("Scope = %q, want line", c.Scope)
+	}
+
+	// Verify roundtrip through WriteFiles
+	flushWrites(s)
+	s.WriteFiles()
+
+	data, _ := os.ReadFile(s.critJSONPath())
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+
+	cf := cj.Files["main.go"]
+	if len(cf.Comments) != 1 {
+		t.Fatalf("expected 1 comment in .crit.json, got %d", len(cf.Comments))
+	}
+	if cf.Comments[0].Side != "RIGHT" {
+		t.Errorf("persisted Side = %q, want RIGHT", cf.Comments[0].Side)
+	}
+	if cf.Comments[0].Quote != "func main() {}" {
+		t.Errorf("persisted Quote = %q", cf.Comments[0].Quote)
+	}
+}
+
+func TestSession_WriteFiles_ReviewCommentsPersisted(t *testing.T) {
+	s := newTestSession(t)
+	s.AddReviewComment("general note", "reviewer")
+
+	flushWrites(s)
+	s.WriteFiles()
+
+	data, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+
+	if len(cj.ReviewComments) != 1 {
+		t.Fatalf("expected 1 review comment in .crit.json, got %d", len(cj.ReviewComments))
+	}
+	if cj.ReviewComments[0].Body != "general note" {
+		t.Errorf("body = %q, want general note", cj.ReviewComments[0].Body)
+	}
+	if cj.ReviewComments[0].Scope != "review" {
+		t.Errorf("scope = %q, want review", cj.ReviewComments[0].Scope)
+	}
+}
+
+func TestSession_NextID_RestoredFromLoadCritJSON(t *testing.T) {
+	s := newTestSession(t)
+
+	// Write .crit.json with a high comment ID
+	cj := CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Status: "added",
+				Comments: []Comment{
+					{ID: "c42", StartLine: 1, EndLine: 1, Body: "test", CreatedAt: "2026-01-01T00:00:00Z"},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(cj)
+	writeFile(t, filepath.Join(s.RepoRoot, ".crit.json"), string(data))
+
+	s.loadCritJSON()
+
+	// New comments should get IDs after c42
+	c, ok := s.AddComment("plan.md", 3, 3, "", "new comment", "", "")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	if c.ID != "c43" {
+		t.Errorf("new comment ID = %q, want c43 (nextID should be restored from loaded comments)", c.ID)
+	}
+}
+
+func TestSession_ClearAllComments(t *testing.T) {
+	s := newTestSession(t)
+	s.AddComment("plan.md", 1, 1, "", "md comment", "", "")
+	s.AddComment("main.go", 1, 1, "", "go comment", "", "")
+	s.AddReviewComment("review comment", "")
+
+	if s.TotalCommentCount() != 3 {
+		t.Fatalf("precondition: expected 3 comments, got %d", s.TotalCommentCount())
+	}
+
+	s.ClearAllComments()
+
+	if len(s.GetComments("plan.md")) != 0 {
+		t.Error("plan.md comments should be cleared")
+	}
+	if len(s.GetComments("main.go")) != 0 {
+		t.Error("main.go comments should be cleared")
+	}
+	if len(s.GetReviewComments()) != 0 {
+		t.Error("review comments should be cleared")
+	}
+	if s.TotalCommentCount() != 0 {
+		t.Errorf("TotalCommentCount = %d, want 0", s.TotalCommentCount())
+	}
+}
+
+func TestSession_AddComment_WithSide(t *testing.T) {
+	s := newTestSession(t)
+	c, ok := s.AddComment("main.go", 5, 10, "RIGHT", "check this", "", "")
+	if !ok {
+		t.Fatal("AddComment with side failed")
+	}
+	if c.Side != "RIGHT" {
+		t.Errorf("Side = %q, want RIGHT", c.Side)
+	}
+	if c.StartLine != 5 || c.EndLine != 10 {
+		t.Errorf("lines = %d-%d, want 5-10", c.StartLine, c.EndLine)
+	}
+}
+
+func TestSession_WriteFiles_IncludesResolvedComments(t *testing.T) {
+	s := newTestSession(t)
+	s.AddComment("plan.md", 1, 1, "", "fix", "", "")
+	s.SetCommentResolved("plan.md", "c1", true)
+
+	flushWrites(s)
+	s.WriteFiles()
+
+	data, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatal(err)
+	}
+
+	comments := cj.Files["plan.md"].Comments
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment in .crit.json, got %d", len(comments))
+	}
+	if !comments[0].Resolved {
+		t.Error("resolved state should be persisted to .crit.json")
 	}
 }

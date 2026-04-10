@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -11,10 +13,10 @@ func TestComputeLineDiff_BasicChanges(t *testing.T) {
 
 	expected := []DiffEntry{
 		{Type: "unchanged", OldLine: 1, NewLine: 1, Text: "a"},
-		{Type: "removed", OldLine: 2, Text: "b"},
-		{Type: "added", NewLine: 2, Text: "x"},
+		{Type: "removed", OldLine: 2, NewLine: 0, Text: "b"},
+		{Type: "added", OldLine: 0, NewLine: 2, Text: "x"},
 		{Type: "unchanged", OldLine: 3, NewLine: 3, Text: "c"},
-		{Type: "added", NewLine: 4, Text: "d"},
+		{Type: "added", OldLine: 0, NewLine: 4, Text: "d"},
 	}
 
 	if len(diff) != len(expected) {
@@ -22,7 +24,13 @@ func TestComputeLineDiff_BasicChanges(t *testing.T) {
 	}
 	for i, e := range expected {
 		if diff[i].Type != e.Type || diff[i].Text != e.Text {
-			t.Errorf("diff[%d] = %+v, want %+v", i, diff[i], e)
+			t.Errorf("diff[%d] type/text = %+v, want %+v", i, diff[i], e)
+		}
+		if diff[i].OldLine != e.OldLine {
+			t.Errorf("diff[%d].OldLine = %d, want %d", i, diff[i].OldLine, e.OldLine)
+		}
+		if diff[i].NewLine != e.NewLine {
+			t.Errorf("diff[%d].NewLine = %d, want %d", i, diff[i].NewLine, e.NewLine)
 		}
 	}
 }
@@ -57,26 +65,22 @@ func TestComputeLineDiff_Identical(t *testing.T) {
 	}
 }
 
-func TestComputeLineDiff_LineNumbers(t *testing.T) {
-	oldContent := "a\nb\nc"
-	newContent := "a\nx\nc\nd"
+func TestComputeLineDiff_WhitespaceOnlyChanges(t *testing.T) {
+	oldContent := "line1\n  indented\nline3"
+	newContent := "line1\n    indented\nline3"
 	diff := ComputeLineDiff(oldContent, newContent)
 
-	expected := []DiffEntry{
-		{Type: "unchanged", OldLine: 1, NewLine: 1, Text: "a"},
-		{Type: "removed", OldLine: 2, NewLine: 0, Text: "b"},
-		{Type: "added", OldLine: 0, NewLine: 2, Text: "x"},
-		{Type: "unchanged", OldLine: 3, NewLine: 3, Text: "c"},
-		{Type: "added", OldLine: 0, NewLine: 4, Text: "d"},
+	removedCount, addedCount := 0, 0
+	for _, e := range diff {
+		switch e.Type {
+		case "removed":
+			removedCount++
+		case "added":
+			addedCount++
+		}
 	}
-
-	for i, e := range expected {
-		if diff[i].OldLine != e.OldLine {
-			t.Errorf("diff[%d].OldLine = %d, want %d", i, diff[i].OldLine, e.OldLine)
-		}
-		if diff[i].NewLine != e.NewLine {
-			t.Errorf("diff[%d].NewLine = %d, want %d", i, diff[i].NewLine, e.NewLine)
-		}
+	if removedCount != 1 || addedCount != 1 {
+		t.Errorf("whitespace change: removed=%d added=%d, want 1 and 1", removedCount, addedCount)
 	}
 }
 
@@ -197,5 +201,28 @@ func TestDiffEntriesToHunks_AllNew(t *testing.T) {
 		if l.Type != "add" {
 			t.Errorf("expected all add lines, got %s", l.Type)
 		}
+	}
+}
+
+func TestDiffEntriesToHunks_SeparateHunks(t *testing.T) {
+	// Changes far apart should produce separate hunks (gap > 2*context lines)
+	var oldLines, newLines []string
+	for i := 1; i <= 30; i++ {
+		line := fmt.Sprintf("line%d", i)
+		oldLines = append(oldLines, line)
+		if i == 5 {
+			newLines = append(newLines, "changed5")
+		} else if i == 25 {
+			newLines = append(newLines, "changed25")
+		} else {
+			newLines = append(newLines, line)
+		}
+	}
+	old := strings.Join(oldLines, "\n")
+	new := strings.Join(newLines, "\n")
+	entries := ComputeLineDiff(old, new)
+	hunks := DiffEntriesToHunks(entries)
+	if len(hunks) != 2 {
+		t.Errorf("expected 2 separate hunks for distant changes, got %d", len(hunks))
 	}
 }
