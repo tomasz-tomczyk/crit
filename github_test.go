@@ -1598,3 +1598,430 @@ func TestUpdateCritJSONWithGitHubIDs_ReplyMapping(t *testing.T) {
 		t.Errorf("reply GitHubID = %d, want 5001", cf.Comments[0].Replies[0].GitHubID)
 	}
 }
+
+func TestParseLineSpec(t *testing.T) {
+	tests := []struct {
+		spec      string
+		wantStart int
+		wantEnd   int
+		wantErr   bool
+	}{
+		{"5", 5, 5, false},
+		{"10-20", 10, 20, false},
+		{"1-1", 1, 1, false},
+		{"abc", 0, 0, true},
+		{"1-abc", 0, 0, true},
+		{"abc-5", 0, 0, true},
+	}
+	for _, tc := range tests {
+		start, end, err := parseLineSpec(tc.spec)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("parseLineSpec(%q): expected error", tc.spec)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parseLineSpec(%q): unexpected error: %v", tc.spec, err)
+			continue
+		}
+		if start != tc.wantStart || end != tc.wantEnd {
+			t.Errorf("parseLineSpec(%q) = %d,%d; want %d,%d", tc.spec, start, end, tc.wantStart, tc.wantEnd)
+		}
+	}
+}
+
+func TestBulkCommentEntry_UnmarshalJSON_IntLine(t *testing.T) {
+	data := `{"file": "main.go", "line": 42, "body": "fix"}`
+	var e BulkCommentEntry
+	if err := json.Unmarshal([]byte(data), &e); err != nil {
+		t.Fatal(err)
+	}
+	if e.Line != 42 {
+		t.Errorf("Line = %d, want 42", e.Line)
+	}
+	if e.LineSpec != "" {
+		t.Errorf("LineSpec = %q, want empty", e.LineSpec)
+	}
+}
+
+func TestBulkCommentEntry_UnmarshalJSON_StringLine(t *testing.T) {
+	data := `{"file": "main.go", "line": "10-20", "body": "fix"}`
+	var e BulkCommentEntry
+	if err := json.Unmarshal([]byte(data), &e); err != nil {
+		t.Fatal(err)
+	}
+	if e.LineSpec != "10-20" {
+		t.Errorf("LineSpec = %q, want 10-20", e.LineSpec)
+	}
+	if e.Line != 0 {
+		t.Errorf("Line = %d, want 0", e.Line)
+	}
+}
+
+func TestBulkCommentEntry_UnmarshalJSON_NoLine(t *testing.T) {
+	data := `{"file": "main.go", "body": "file-level note", "scope": "file"}`
+	var e BulkCommentEntry
+	if err := json.Unmarshal([]byte(data), &e); err != nil {
+		t.Fatal(err)
+	}
+	if e.Line != 0 {
+		t.Errorf("Line = %d, want 0", e.Line)
+	}
+	if e.LineSpec != "" {
+		t.Errorf("LineSpec = %q, want empty", e.LineSpec)
+	}
+	if e.Scope != "file" {
+		t.Errorf("Scope = %q, want file", e.Scope)
+	}
+}
+
+func TestAppendReply_ToReviewComment(t *testing.T) {
+	cj := &CritJSON{
+		ReviewComments: []Comment{
+			{ID: "r0", Body: "general note", Scope: "review"},
+		},
+		Files: make(map[string]CritJSONFile),
+	}
+
+	err := appendReply(cj, "r0", "done, addressed", "agent", false, "")
+	if err != nil {
+		t.Fatalf("appendReply to review comment: %v", err)
+	}
+	if len(cj.ReviewComments[0].Replies) != 1 {
+		t.Fatalf("expected 1 reply, got %d", len(cj.ReviewComments[0].Replies))
+	}
+	if cj.ReviewComments[0].Replies[0].Body != "done, addressed" {
+		t.Errorf("reply body = %q", cj.ReviewComments[0].Replies[0].Body)
+	}
+}
+
+func TestAppendReply_ToReviewCommentWithResolve(t *testing.T) {
+	cj := &CritJSON{
+		ReviewComments: []Comment{
+			{ID: "r0", Body: "needs fixing", Scope: "review"},
+		},
+		Files: make(map[string]CritJSONFile),
+	}
+
+	err := appendReply(cj, "r0", "fixed", "agent", true, "")
+	if err != nil {
+		t.Fatalf("appendReply: %v", err)
+	}
+	if !cj.ReviewComments[0].Resolved {
+		t.Error("expected review comment to be resolved after reply with resolve=true")
+	}
+}
+
+func TestAppendReply_NotFound(t *testing.T) {
+	cj := &CritJSON{
+		Files: make(map[string]CritJSONFile),
+	}
+	err := appendReply(cj, "c99", "reply", "agent", false, "")
+	if err == nil {
+		t.Fatal("expected error for nonexistent comment")
+	}
+}
+
+func TestAppendReviewComment(t *testing.T) {
+	cj := &CritJSON{Files: make(map[string]CritJSONFile)}
+
+	appendReviewComment(cj, "general observation", "reviewer")
+
+	if len(cj.ReviewComments) != 1 {
+		t.Fatalf("expected 1 review comment, got %d", len(cj.ReviewComments))
+	}
+	if cj.ReviewComments[0].Body != "general observation" {
+		t.Errorf("body = %q", cj.ReviewComments[0].Body)
+	}
+	if cj.ReviewComments[0].Author != "reviewer" {
+		t.Errorf("author = %q", cj.ReviewComments[0].Author)
+	}
+	if cj.ReviewComments[0].Scope != "review" {
+		t.Errorf("scope = %q, want review", cj.ReviewComments[0].Scope)
+	}
+	if cj.ReviewComments[0].ID != "r0" {
+		t.Errorf("ID = %q, want r0", cj.ReviewComments[0].ID)
+	}
+
+	// Add another
+	appendReviewComment(cj, "second note", "reviewer")
+	if cj.ReviewComments[1].ID != "r1" {
+		t.Errorf("second ID = %q, want r1", cj.ReviewComments[1].ID)
+	}
+}
+
+func TestAppendFileComment(t *testing.T) {
+	cj := &CritJSON{Files: make(map[string]CritJSONFile)}
+
+	appendFileComment(cj, "server.go", "needs restructuring", "reviewer")
+
+	cf, ok := cj.Files["server.go"]
+	if !ok {
+		t.Fatal("expected server.go in files")
+	}
+	if len(cf.Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(cf.Comments))
+	}
+	if cf.Comments[0].Scope != "file" {
+		t.Errorf("scope = %q, want file", cf.Comments[0].Scope)
+	}
+	if cf.Comments[0].StartLine != 0 || cf.Comments[0].EndLine != 0 {
+		t.Errorf("expected zero lines for file-level comment, got %d-%d", cf.Comments[0].StartLine, cf.Comments[0].EndLine)
+	}
+}
+
+func TestAppendComment_IDIncrementsGlobally(t *testing.T) {
+	cj := &CritJSON{Files: make(map[string]CritJSONFile)}
+
+	appendComment(cj, "main.go", 1, 1, "first", "reviewer")
+	appendComment(cj, "server.go", 5, 5, "second", "reviewer")
+
+	c1 := cj.Files["main.go"].Comments[0]
+	c2 := cj.Files["server.go"].Comments[0]
+
+	if c1.ID == c2.ID {
+		t.Errorf("comment IDs should be unique across files: both = %q", c1.ID)
+	}
+}
+
+func TestAddCommentToCritJSON_RoundTrip(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Add a comment via the CLI function
+	err := addCommentToCritJSON("README.md", 1, 1, "fix typo", "reviewer", "")
+	if err != nil {
+		t.Fatalf("addCommentToCritJSON: %v", err)
+	}
+
+	// Read back and verify
+	critPath := filepath.Join(dir, ".crit.json")
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		t.Fatalf("reading .crit.json: %v", err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatalf("parsing .crit.json: %v", err)
+	}
+	cf, ok := cj.Files["README.md"]
+	if !ok {
+		t.Fatal("expected README.md in .crit.json files")
+	}
+	if len(cf.Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(cf.Comments))
+	}
+	if cf.Comments[0].Body != "fix typo" {
+		t.Errorf("body = %q, want fix typo", cf.Comments[0].Body)
+	}
+	if cf.Comments[0].Author != "reviewer" {
+		t.Errorf("author = %q, want reviewer", cf.Comments[0].Author)
+	}
+
+	// Add a second comment to same file
+	err = addCommentToCritJSON("README.md", 3, 5, "refactor this section", "agent", "")
+	if err != nil {
+		t.Fatalf("second addCommentToCritJSON: %v", err)
+	}
+
+	data, _ = os.ReadFile(critPath)
+	json.Unmarshal(data, &cj)
+	if len(cj.Files["README.md"].Comments) != 2 {
+		t.Errorf("expected 2 comments after second add, got %d", len(cj.Files["README.md"].Comments))
+	}
+}
+
+func TestAddReplyToCritJSON_RoundTrip(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Add a comment first
+	err := addCommentToCritJSON("README.md", 1, 1, "fix this", "reviewer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Read to get the comment ID
+	critPath := filepath.Join(dir, ".crit.json")
+	data, _ := os.ReadFile(critPath)
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+	commentID := cj.Files["README.md"].Comments[0].ID
+
+	// Add a reply
+	err = addReplyToCritJSON(commentID, "done, fixed", "agent", false, "", "")
+	if err != nil {
+		t.Fatalf("addReplyToCritJSON: %v", err)
+	}
+
+	data, _ = os.ReadFile(critPath)
+	json.Unmarshal(data, &cj)
+	if len(cj.Files["README.md"].Comments[0].Replies) != 1 {
+		t.Fatalf("expected 1 reply, got %d", len(cj.Files["README.md"].Comments[0].Replies))
+	}
+	if cj.Files["README.md"].Comments[0].Replies[0].Body != "done, fixed" {
+		t.Errorf("reply body = %q", cj.Files["README.md"].Comments[0].Replies[0].Body)
+	}
+}
+
+func TestAddReplyToCritJSON_WithResolve_ViaFile(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	addCommentToCritJSON("README.md", 1, 1, "fix this", "reviewer", "")
+
+	critPath := filepath.Join(dir, ".crit.json")
+	data, _ := os.ReadFile(critPath)
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+	commentID := cj.Files["README.md"].Comments[0].ID
+
+	err := addReplyToCritJSON(commentID, "done", "agent", true, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ = os.ReadFile(critPath)
+	json.Unmarshal(data, &cj)
+	if !cj.Files["README.md"].Comments[0].Resolved {
+		t.Error("expected comment to be resolved after reply with resolve=true")
+	}
+}
+
+func TestNextCommentID_Gaps(t *testing.T) {
+	files := map[string]CritJSONFile{
+		"main.go": {
+			Comments: []Comment{
+				{ID: "c1"}, {ID: "c5"}, {ID: "c3"},
+			},
+		},
+		"server.go": {
+			Comments: []Comment{
+				{ID: "c2"}, {ID: "c10"},
+			},
+		},
+	}
+	next := nextCommentID(files)
+	if next != 11 {
+		t.Errorf("nextCommentID = %d, want 11", next)
+	}
+}
+
+func TestNextCommentID_Empty(t *testing.T) {
+	files := map[string]CritJSONFile{}
+	next := nextCommentID(files)
+	if next != 1 {
+		t.Errorf("nextCommentID = %d, want 1", next)
+	}
+}
+
+func TestParsePushEvent(t *testing.T) {
+	tests := []struct {
+		flag    string
+		want    string
+		wantErr bool
+	}{
+		{"comment", "COMMENT", false},
+		{"approve", "APPROVE", false},
+		{"request-changes", "REQUEST_CHANGES", false},
+		{"", "COMMENT", false},
+		{"invalid", "", true},
+	}
+	for _, tc := range tests {
+		got, err := parsePushEvent(tc.flag)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("parsePushEvent(%q): expected error", tc.flag)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parsePushEvent(%q): %v", tc.flag, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("parsePushEvent(%q) = %q, want %q", tc.flag, got, tc.want)
+		}
+	}
+}
+
+func TestAddFileCommentToCritJSON_RejectsAbsolutePath(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	err := addFileCommentToCritJSON("/etc/passwd", "test", "author", "")
+	if err == nil {
+		t.Fatal("expected error for absolute path")
+	}
+}
+
+func TestAddFileCommentToCritJSON_RejectsTraversal(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	err := addFileCommentToCritJSON("../outside", "test", "author", "")
+	if err == nil {
+		t.Fatal("expected error for path traversal")
+	}
+}
+
+func TestAddReviewCommentToCritJSON_RoundTrip(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	err := addReviewCommentToCritJSON("overall the code is good", "reviewer", "")
+	if err != nil {
+		t.Fatalf("addReviewCommentToCritJSON: %v", err)
+	}
+
+	critPath := filepath.Join(dir, ".crit.json")
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+	if len(cj.ReviewComments) != 1 {
+		t.Fatalf("expected 1 review comment, got %d", len(cj.ReviewComments))
+	}
+	if cj.ReviewComments[0].Body != "overall the code is good" {
+		t.Errorf("body = %q", cj.ReviewComments[0].Body)
+	}
+}
+
+func TestClearCritJSON(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Create a .crit.json
+	addCommentToCritJSON("README.md", 1, 1, "test", "author", "")
+
+	critPath := filepath.Join(dir, ".crit.json")
+	if _, err := os.Stat(critPath); err != nil {
+		t.Fatal("expected .crit.json to exist")
+	}
+
+	err := clearCritJSON("")
+	if err != nil {
+		t.Fatalf("clearCritJSON: %v", err)
+	}
+
+	if _, err := os.Stat(critPath); !os.IsNotExist(err) {
+		t.Error("expected .crit.json to be deleted")
+	}
+}

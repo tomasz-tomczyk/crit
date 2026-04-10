@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -530,5 +531,113 @@ func TestNoIntegrationCheckMerge(t *testing.T) {
 	merged := mergeConfigs(global, project, presence)
 	if !merged.NoIntegrationCheck {
 		t.Error("project NoIntegrationCheck=true should override global")
+	}
+}
+
+func TestSaveGlobalConfig_RoundTrip(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	// Write a key
+	err := saveGlobalConfig(func(m map[string]json.RawMessage) error {
+		data, _ := json.Marshal("https://example.com")
+		m["share_url"] = data
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("saveGlobalConfig: %v", err)
+	}
+
+	// Read it back via loadConfigFile
+	cfg, presence, err := loadConfigFile(filepath.Join(homeDir, ".crit.config.json"))
+	if err != nil {
+		t.Fatalf("loadConfigFile: %v", err)
+	}
+	if cfg.ShareURL != "https://example.com" {
+		t.Errorf("ShareURL = %q, want https://example.com", cfg.ShareURL)
+	}
+	if !presence.ShareURL {
+		t.Error("expected ShareURL presence to be true")
+	}
+}
+
+func TestSaveGlobalConfig_PreservesExistingKeys(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	// Write initial config manually
+	configPath := filepath.Join(homeDir, ".crit.config.json")
+	os.WriteFile(configPath, []byte(`{"port": 3456, "quiet": true}`), 0644)
+
+	// Update a different key
+	err := saveGlobalConfig(func(m map[string]json.RawMessage) error {
+		data, _ := json.Marshal("https://custom.example.com")
+		m["share_url"] = data
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("saveGlobalConfig: %v", err)
+	}
+
+	// Read back — both old and new keys should be present
+	cfg, _, err := loadConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("loadConfigFile: %v", err)
+	}
+	if cfg.Port != 3456 {
+		t.Errorf("Port = %d, want 3456 (should be preserved)", cfg.Port)
+	}
+	if !cfg.Quiet {
+		t.Error("Quiet should be preserved as true")
+	}
+	if cfg.ShareURL != "https://custom.example.com" {
+		t.Errorf("ShareURL = %q, want https://custom.example.com", cfg.ShareURL)
+	}
+}
+
+func TestMergeConfigs_AgentCmdProjectIgnored(t *testing.T) {
+	// Even if project config has agent_cmd, it must be ignored for security
+	global := Config{}
+	project := Config{AgentCmd: "malicious-command"}
+	merged := mergeConfigs(global, project, configPresence{})
+	if merged.AgentCmd != "" {
+		t.Errorf("project agent_cmd should be ignored, got %q", merged.AgentCmd)
+	}
+}
+
+func TestMergeConfigs_IgnorePatternsUnion(t *testing.T) {
+	global := Config{IgnorePatterns: []string{"*.lock", "vendor/"}}
+	project := Config{IgnorePatterns: []string{"*.pb.go"}}
+	merged := mergeConfigs(global, project, configPresence{})
+
+	// mergeConfigs appends project patterns to global (straight union)
+	if len(merged.IgnorePatterns) != 3 {
+		t.Errorf("expected 3 patterns, got %d: %v", len(merged.IgnorePatterns), merged.IgnorePatterns)
+	}
+	seen := make(map[string]bool)
+	for _, p := range merged.IgnorePatterns {
+		seen[p] = true
+	}
+	if !seen["*.lock"] {
+		t.Error("expected *.lock in merged patterns")
+	}
+	if !seen["vendor/"] {
+		t.Error("expected vendor/ in merged patterns")
+	}
+	if !seen["*.pb.go"] {
+		t.Error("expected *.pb.go in merged patterns")
+	}
+}
+
+func TestLoadConfig_OutputField(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	projectDir := t.TempDir()
+	os.WriteFile(filepath.Join(projectDir, ".crit.config.json"),
+		[]byte(`{"output": "/tmp/output"}`), 0644)
+
+	cfg := LoadConfig(projectDir)
+	if cfg.Output != "/tmp/output" {
+		t.Errorf("Output = %q, want /tmp/output", cfg.Output)
 	}
 }
