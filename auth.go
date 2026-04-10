@@ -76,8 +76,9 @@ func runAuthLogin(args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Fprintf(os.Stderr, "\n  Visit %s and enter code: %s\n\n", code.VerificationURI, code.UserCode)
-	go openBrowser(code.VerificationURI + "?code=" + code.UserCode)
+	fmt.Fprintf(os.Stderr, "\n  Opening browser to sign in...\n")
+	fmt.Fprintf(os.Stderr, "  If it doesn't open, visit: %s\n\n", code.VerificationURIComplete)
+	go openBrowser(code.VerificationURIComplete)
 
 	token, err := pollForToken(serverURL, code)
 	if err != nil {
@@ -115,11 +116,10 @@ func confirmReauth() bool {
 
 // deviceCodeResponse holds the response from POST /api/device/code.
 type deviceCodeResponse struct {
-	DeviceCode      string `json:"device_code"`
-	UserCode        string `json:"user_code"`
-	VerificationURI string `json:"verification_uri"`
-	Interval        int    `json:"interval"`
-	ExpiresIn       int    `json:"expires_in"`
+	DeviceCode              string `json:"device_code"`
+	VerificationURIComplete string `json:"verification_uri_complete"`
+	Interval                int    `json:"interval"`
+	ExpiresIn               int    `json:"expires_in"`
 }
 
 // requestDeviceCode initiates the device flow by requesting a device code.

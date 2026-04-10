@@ -19,11 +19,10 @@ func TestRequestDeviceCode_Success(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]any{
-			"device_code":      "dc_test123",
-			"user_code":        "BCDF-GHJK",
-			"verification_uri": "https://crit.md/device",
-			"interval":         5,
-			"expires_in":       900,
+			"device_code":               "dc_test123",
+			"verification_uri_complete": "https://crit.md/auth/cli?code=sc_test456",
+			"interval":                  5,
+			"expires_in":                900,
 		})
 	}))
 	defer srv.Close()
@@ -35,11 +34,8 @@ func TestRequestDeviceCode_Success(t *testing.T) {
 	if code.DeviceCode != "dc_test123" {
 		t.Errorf("device_code = %q, want dc_test123", code.DeviceCode)
 	}
-	if code.UserCode != "BCDF-GHJK" {
-		t.Errorf("user_code = %q, want BCDF-GHJK", code.UserCode)
-	}
-	if code.VerificationURI != "https://crit.md/device" {
-		t.Errorf("verification_uri = %q", code.VerificationURI)
+	if code.VerificationURIComplete != "https://crit.md/auth/cli?code=sc_test456" {
+		t.Errorf("verification_uri_complete = %q", code.VerificationURIComplete)
 	}
 	if code.Interval != 5 {
 		t.Errorf("interval = %d, want 5", code.Interval)
