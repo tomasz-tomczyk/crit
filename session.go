@@ -142,6 +142,11 @@ type Session struct {
 	reviewComments []Comment
 	reviewNextID   int
 
+	// deletedCommentIDs tracks IDs of file comments deleted in-memory but not
+	// yet written to disk. Keyed by file path -> set of comment IDs. This
+	// prevents mergeFileSnapshotIntoCritJSON from re-adding them from disk.
+	deletedCommentIDs map[string]map[string]struct{}
+
 	mu                  sync.RWMutex
 	nextID              int // session-global comment ID counter (c1, c2, c3... across ALL files)
 	subscribers         map[chan SSEEvent]struct{}
@@ -755,11 +760,24 @@ func (s *Session) DeleteComment(filePath, id string) bool {
 	for i, c := range f.Comments {
 		if c.ID == id {
 			f.Comments = append(f.Comments[:i], f.Comments[i+1:]...)
+			s.trackDeletedComment(filePath, id)
 			s.scheduleWrite()
 			return true
 		}
 	}
 	return false
+}
+
+// trackDeletedComment records a file comment ID as deleted so the merge logic
+// does not re-add it from disk. Caller must hold s.mu.
+func (s *Session) trackDeletedComment(filePath, id string) {
+	if s.deletedCommentIDs == nil {
+		s.deletedCommentIDs = make(map[string]map[string]struct{})
+	}
+	if s.deletedCommentIDs[filePath] == nil {
+		s.deletedCommentIDs[filePath] = make(map[string]struct{})
+	}
+	s.deletedCommentIDs[filePath][id] = struct{}{}
 }
 
 // nextReplyID generates the next reply ID for a comment, e.g. "c1-r1", "c1-r2".
@@ -1347,10 +1365,11 @@ type writeFilesSnapshot struct {
 }
 
 type writeFileSnapshot struct {
-	path     string
-	status   string
-	fileHash string
-	comments []Comment
+	path       string
+	status     string
+	fileHash   string
+	comments   []Comment
+	deletedIDs map[string]struct{} // comment IDs deleted in-memory, skip during merge
 }
 
 // handleExternalDeletion checks if .crit.json was deleted externally and clears
@@ -1390,6 +1409,7 @@ func (s *Session) clearAllCommentData() {
 	s.reviewComments = nil
 	s.nextID = 1
 	s.reviewNextID = 0
+	s.deletedCommentIDs = nil
 	s.mu.Unlock()
 	if anyComments {
 		s.notify(SSEEvent{Type: "comments-changed"})
@@ -1436,9 +1456,14 @@ func mergeFileSnapshotIntoCritJSON(cj *CritJSON, fs writeFileSnapshot) {
 	merged := fs.comments
 	if hasDisk {
 		for _, dc := range diskFile.Comments {
-			if _, exists := memIDs[dc.ID]; !exists {
-				merged = append(merged, dc)
+			if _, exists := memIDs[dc.ID]; exists {
+				continue
 			}
+			// Skip comments that were explicitly deleted in-memory
+			if _, deleted := fs.deletedIDs[dc.ID]; deleted {
+				continue
+			}
+			merged = append(merged, dc)
 		}
 	}
 
@@ -1484,6 +1509,7 @@ func (s *Session) WriteFiles() {
 		s.mu.Lock()
 		s.lastCritJSONMtime = time.Time{}
 		s.pendingWrite = false
+		s.deletedCommentIDs = nil
 		s.mu.Unlock()
 		return
 	}
@@ -1501,6 +1527,7 @@ func (s *Session) WriteFiles() {
 		s.mu.Lock()
 		s.lastCritJSONMtime = info.ModTime()
 		s.pendingWrite = false
+		s.deletedCommentIDs = nil // written to disk, no longer needed
 		s.mu.Unlock()
 	}
 }
@@ -1529,11 +1556,19 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 	for i, f := range s.Files {
 		comments := make([]Comment, len(f.Comments))
 		copy(comments, f.Comments)
+		var deleted map[string]struct{}
+		if ids := s.deletedCommentIDs[f.Path]; len(ids) > 0 {
+			deleted = make(map[string]struct{}, len(ids))
+			for k, v := range ids {
+				deleted[k] = v
+			}
+		}
 		snap.files[i] = writeFileSnapshot{
-			path:     f.Path,
-			status:   f.Status,
-			fileHash: f.FileHash,
-			comments: comments,
+			path:       f.Path,
+			status:     f.Status,
+			fileHash:   f.FileHash,
+			comments:   comments,
+			deletedIDs: deleted,
 		}
 	}
 	return snap
@@ -1727,6 +1762,8 @@ func (s *Session) mergeExternalCritJSON() bool {
 
 	s.mu.Lock()
 	s.lastCritJSONMtime = info.ModTime()
+	// Disk is authoritative for external edits — clear deleted tracking
+	s.deletedCommentIDs = nil
 
 	changed := false
 

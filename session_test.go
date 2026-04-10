@@ -2838,3 +2838,271 @@ func TestGetFileSnapshotLazy(t *testing.T) {
 		}
 	}
 }
+
+// TestDeleteComment_NotReAddedFromDisk verifies that when a file comment is
+// deleted in-memory and WriteFiles is called, the deleted comment does not
+// reappear in .crit.json due to the merge-from-disk logic.
+func TestDeleteComment_NotReAddedFromDisk(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		BaseRef:     "abc123",
+		ReviewRound: 1,
+		nextID:      2,
+		Files: []*FileEntry{
+			{Path: "main.go", Status: "modified", FileHash: "hash1", Comments: []Comment{
+				{ID: "c1", StartLine: 1, EndLine: 1, Body: "delete me", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+			}},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Write .crit.json with the comment present
+	s.WriteFiles()
+
+	// Verify the comment is on disk
+	data, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		t.Fatalf("read .crit.json: %v", err)
+	}
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+	if len(cj.Files["main.go"].Comments) != 1 {
+		t.Fatalf("expected 1 comment on disk before delete, got %d", len(cj.Files["main.go"].Comments))
+	}
+
+	// Delete the comment in-memory
+	if !s.DeleteComment("main.go", "c1") {
+		t.Fatal("DeleteComment failed")
+	}
+
+	// Flush and write again — the merge should NOT re-add c1 from disk
+	flushWrites(s)
+	s.WriteFiles()
+
+	// Read .crit.json and verify the deleted comment is gone
+	data, err = os.ReadFile(s.critJSONPath())
+	if err != nil {
+		// If .crit.json was removed (empty), that's also correct
+		return
+	}
+	json.Unmarshal(data, &cj)
+	if fileData, ok := cj.Files["main.go"]; ok {
+		for _, c := range fileData.Comments {
+			if c.ID == "c1" {
+				t.Error("deleted comment c1 reappeared in .crit.json after WriteFiles")
+			}
+		}
+	}
+}
+
+// TestDeleteReviewComment_NotReAddedFromDisk verifies that when a review-level
+// comment is deleted and WriteFiles is called, it does not reappear from disk.
+func TestDeleteReviewComment_NotReAddedFromDisk(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		ReviewRound: 1,
+		nextID:      1,
+		Files:       []*FileEntry{},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Add a review comment and write to disk
+	rc := s.AddReviewComment("delete this review comment", "")
+	s.WriteFiles()
+
+	// Verify it's on disk
+	data, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		t.Fatalf("read .crit.json: %v", err)
+	}
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+	if len(cj.ReviewComments) != 1 {
+		t.Fatalf("expected 1 review comment on disk, got %d", len(cj.ReviewComments))
+	}
+
+	// Delete the review comment in-memory
+	if !s.DeleteReviewComment(rc.ID) {
+		t.Fatal("DeleteReviewComment failed")
+	}
+
+	// Write again
+	flushWrites(s)
+	s.WriteFiles()
+
+	// Read .crit.json — should have no review comments
+	data, err = os.ReadFile(s.critJSONPath())
+	if err != nil {
+		// File removed is also acceptable
+		return
+	}
+	json.Unmarshal(data, &cj)
+	for _, c := range cj.ReviewComments {
+		if c.ID == rc.ID {
+			t.Error("deleted review comment reappeared in .crit.json after WriteFiles")
+		}
+	}
+}
+
+// TestDeleteReply_NotReAddedFromDisk verifies that when a reply on a file
+// comment is deleted, it does not reappear from disk after WriteFiles.
+func TestDeleteReply_NotReAddedFromDisk(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		ReviewRound: 1,
+		nextID:      2,
+		Files: []*FileEntry{
+			{Path: "main.go", Status: "modified", FileHash: "hash1", Comments: []Comment{
+				{
+					ID: "c1", StartLine: 1, EndLine: 1, Body: "parent comment",
+					CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z",
+					Replies: []Reply{
+						{ID: "c1-r1", Body: "delete this reply", Author: "agent", CreatedAt: "2026-01-01T00:00:01Z"},
+					},
+				},
+			}},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Write to disk with the reply
+	s.WriteFiles()
+
+	// Delete the reply in-memory
+	if !s.DeleteReply("main.go", "c1", "c1-r1") {
+		t.Fatal("DeleteReply failed")
+	}
+
+	// Write again
+	flushWrites(s)
+	s.WriteFiles()
+
+	// Read .crit.json and verify the reply is gone
+	data, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		t.Fatalf("read .crit.json: %v", err)
+	}
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+	for _, c := range cj.Files["main.go"].Comments {
+		if c.ID == "c1" {
+			for _, r := range c.Replies {
+				if r.ID == "c1-r1" {
+					t.Error("deleted reply c1-r1 reappeared in .crit.json after WriteFiles")
+				}
+			}
+		}
+	}
+}
+
+// TestDeleteReviewCommentReply_NotReAddedFromDisk verifies that when a reply
+// on a review comment is deleted, it does not reappear from disk after WriteFiles.
+func TestDeleteReviewCommentReply_NotReAddedFromDisk(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		ReviewRound: 1,
+		nextID:      1,
+		Files:       []*FileEntry{},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Add review comment with a reply, then write to disk
+	rc := s.AddReviewComment("parent review comment", "")
+	reply, ok := s.AddReviewCommentReply(rc.ID, "delete this reply", "agent")
+	if !ok {
+		t.Fatal("AddReviewCommentReply failed")
+	}
+	s.WriteFiles()
+
+	// Delete the reply in-memory
+	if !s.DeleteReviewCommentReply(rc.ID, reply.ID) {
+		t.Fatal("DeleteReviewCommentReply failed")
+	}
+
+	// Write again
+	flushWrites(s)
+	s.WriteFiles()
+
+	// Read back .crit.json
+	data, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		t.Fatalf("read .crit.json: %v", err)
+	}
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+	for _, c := range cj.ReviewComments {
+		if c.ID == rc.ID {
+			for _, r := range c.Replies {
+				if r.ID == reply.ID {
+					t.Error("deleted review reply reappeared in .crit.json after WriteFiles")
+				}
+			}
+		}
+	}
+}
+
+// TestExternalCommentStillMerged verifies that comments added externally to
+// .crit.json (not deleted by user) are still properly merged in — this is
+// a regression test for the existing merge behavior.
+func TestExternalCommentStillMerged(t *testing.T) {
+	dir := t.TempDir()
+	s := &Session{
+		RepoRoot:    dir,
+		Branch:      "main",
+		BaseRef:     "abc123",
+		ReviewRound: 1,
+		nextID:      2,
+		Files: []*FileEntry{
+			{Path: "main.go", Status: "modified", FileHash: "hash1", Comments: []Comment{
+				{ID: "c1", StartLine: 1, EndLine: 1, Body: "from browser", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+			}},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Simulate an external tool writing an additional comment to .crit.json
+	cj := CritJSON{
+		Branch: "main", BaseRef: "abc123", ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified", FileHash: "hash1",
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "from browser", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+					{ID: "c2", StartLine: 10, EndLine: 10, Body: "from CLI", Author: "Claude", CreatedAt: "2026-01-01T00:00:01Z", UpdatedAt: "2026-01-01T00:00:01Z"},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+
+	// WriteFiles should merge the external comment in
+	s.WriteFiles()
+
+	// Read back .crit.json and verify both comments are present
+	result, _ := os.ReadFile(filepath.Join(dir, ".crit.json"))
+	var got CritJSON
+	json.Unmarshal(result, &got)
+
+	if len(got.Files["main.go"].Comments) != 2 {
+		t.Fatalf("expected 2 comments (browser + external), got %d", len(got.Files["main.go"].Comments))
+	}
+
+	foundExternal := false
+	for _, c := range got.Files["main.go"].Comments {
+		if c.ID == "c2" && c.Body == "from CLI" {
+			foundExternal = true
+		}
+	}
+	if !foundExternal {
+		t.Error("external comment c2 was lost during WriteFiles — merge is broken")
+	}
+}
