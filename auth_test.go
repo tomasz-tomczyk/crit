@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 )
 
@@ -458,5 +459,46 @@ func TestShowLoginHint_PreservesExistingConfig(t *testing.T) {
 	json.Unmarshal(data, &raw)
 	if _, ok := raw["share_url"]; !ok {
 		t.Error("share_url should be preserved after showLoginHint")
+	}
+}
+
+func TestPollForToken_Integration(t *testing.T) {
+	// Server returns authorization_pending for the first 2 requests,
+	// then returns a valid token on the 3rd request.
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		if n <= 2 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "authorization_pending",
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{
+			"access_token": "crit_integration_test",
+			"user_name":    "testuser",
+		})
+	}))
+	defer srv.Close()
+
+	code := deviceCodeResponse{
+		DeviceCode: "dc_integration",
+		Interval:   1, // 1 second per poll to keep the test fast
+		ExpiresIn:  30,
+	}
+
+	token, err := pollForToken(srv.URL, code)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if token.AccessToken != "crit_integration_test" {
+		t.Errorf("access_token = %q, want crit_integration_test", token.AccessToken)
+	}
+	if token.UserName != "testuser" {
+		t.Errorf("user_name = %q, want testuser", token.UserName)
+	}
+	if got := calls.Load(); got != 3 {
+		t.Errorf("server received %d requests, want 3", got)
 	}
 }

@@ -52,12 +52,13 @@ func defaultConfig() generatedConfig {
 			".crit.json",
 			".crit/",
 		},
-		AgentCmd:  "",
-		AuthToken: "",
+		AgentCmd: "",
 	}
 }
 
 // generatedConfig is like Config but without omitempty, so all keys appear in output.
+// auth_token is intentionally excluded — it is global-only and should not appear
+// in project config files where it could be accidentally committed.
 type generatedConfig struct {
 	Port               int      `json:"port"`
 	NoOpen             bool     `json:"no_open"`
@@ -69,7 +70,6 @@ type generatedConfig struct {
 	IgnorePatterns     []string `json:"ignore_patterns"`
 	NoIntegrationCheck bool     `json:"no_integration_check"`
 	AgentCmd           string   `json:"agent_cmd"`
-	AuthToken          string   `json:"auth_token"`
 }
 
 func (c generatedConfig) String() string {

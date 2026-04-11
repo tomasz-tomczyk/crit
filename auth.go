@@ -396,31 +396,23 @@ func fetchWhoami(serverURL string, token string) (string, string, error) {
 	return result.Name, result.Email, nil
 }
 
+// errHintAlreadyShown is a sentinel error used by showLoginHint to skip
+// the write when the hint was already shown.
+var errHintAlreadyShown = fmt.Errorf("login hint already shown")
+
 // showLoginHint prints a one-time hint about crit auth login after anonymous shares.
-// Reads the config to check if the hint was already shown, then persists the flag.
+// Uses saveGlobalConfig for both read and write to avoid TOCTOU races.
 func showLoginHint() {
-	path := globalConfigPath()
-	if path == "" {
-		return
-	}
-	data, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return
-	}
-	var raw map[string]json.RawMessage
-	if len(data) > 0 {
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return
+	err := saveGlobalConfig(func(m map[string]json.RawMessage) error {
+		if v, ok := m["login_hint_shown"]; ok && string(v) == "true" {
+			return errHintAlreadyShown
 		}
-	}
-	if v, ok := raw["login_hint_shown"]; ok && string(v) == "true" {
-		return
-	}
-
-	fmt.Fprintln(os.Stderr, "  Tip: Run 'crit auth login' to link reviews to your account.")
-
-	_ = saveGlobalConfig(func(m map[string]json.RawMessage) error {
+		fmt.Fprintln(os.Stderr, "  Tip: Run 'crit auth login' to link reviews to your account.")
 		m["login_hint_shown"] = json.RawMessage("true")
 		return nil
 	})
+	if err != nil && err != errHintAlreadyShown {
+		// Silently ignore config errors — this is a best-effort hint.
+		_ = err
+	}
 }
