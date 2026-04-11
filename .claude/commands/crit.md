@@ -43,19 +43,25 @@ Tell the user: **"Crit is open in your browser. Leave inline comments, then clic
 
 When `crit` completes, read the `.crit.json` file in the repo root (or working directory) using the Read tool.
 
-The file contains structured JSON with comments per file:
+The file contains structured JSON with comments per file and review-level comments:
 
 ```json
 {
+  "review_comments": [
+    { "id": "r0", "body": "Overall feedback", "resolved": false }
+  ],
   "files": {
     "plan.md": {
       "comments": [
-        { "id": "c1", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false }
+        { "id": "c1", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false },
+        { "id": "c2", "body": "File needs restructuring", "resolved": false }
       ]
     }
   }
 }
 ```
+
+There are three types of comments: `review_comments` (general feedback, `r`-prefixed IDs), file comments (in per-file `comments` array with no `start_line`/`end_line`), and line comments (with `start_line`/`end_line`). If a comment has lines, it's about those lines. If not, it's about the file as a whole.
 
 Identify all comments where `"resolved": false` or where the `resolved` field is missing (missing means unresolved). If a comment has a `"quote"` field, it contains the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range.
 
@@ -67,14 +73,14 @@ For each unresolved comment:
 2. If a comment contains a suggestion block, apply that specific change
 3. Revise the **referenced file** to address the feedback - this could be the plan file or any code file from the git diff
 4. Use the Edit tool to make targeted changes
-5. Reply to the comment with what you did: `crit comment --reply-to <id> --resolve --author 'Claude Code' '<what you did>'`
+5. Reply to the comment with what you did: `crit comment --reply-to <id> --author 'Claude Code' '<what you did>'`
 
-When addressing multiple comments, use `--json` to resolve them all in one call:
+When addressing multiple comments, use `--json` to reply to them all in one call:
 
 ```bash
 echo '[
-  {"reply_to": "c1", "body": "Fixed", "resolve": true},
-  {"reply_to": "c2", "body": "Refactored as suggested", "resolve": true}
+  {"reply_to": "c1", "body": "Fixed"},
+  {"reply_to": "c2", "body": "Refactored as suggested"}
 ]' | crit comment --json --author 'Claude Code'
 ```
 
@@ -86,10 +92,11 @@ Editing the plan file triggers Crit's live reload - the user sees changes in the
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-Run `crit` **in the background** using `run_in_background: true`:
+Run the **exact same `crit` command from Step 2** in the background using `run_in_background: true`. This is critical — if you launched `crit plan.md` in Step 2, you must run `crit plan.md` again here (not bare `crit`). The daemon is keyed by the arguments, so mismatched args will start a new daemon instead of reconnecting.
 
 ```bash
-crit
+# Must match Step 2 exactly:
+crit <same-args-as-step-2>
 ```
 
 On subsequent calls, `crit` automatically signals round-complete first, then blocks again until the next "Finish Review" click.
