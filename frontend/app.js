@@ -6187,7 +6187,6 @@
       return;
     }
     toggleBtn.style.display = '';
-    if (tocShortcut) tocShortcut.style.display = '';
 
     // Restore TOC open/closed state from cookie
     if (getCookie('crit-toc') === 'open') {
