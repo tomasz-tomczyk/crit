@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -147,6 +148,37 @@ func (s *Server) SetPRInfo(prInfo *PRInfo) {
 func (s *Server) SetInitErr(err error) {
 	e := err
 	s.initErr.Store(&e)
+}
+
+// CheckForUpdates fetches the latest release tag from GitHub and stores
+// it so the frontend can display an update notification. Safe to call
+// from a goroutine — the result is written under versionMu.
+func (s *Server) CheckForUpdates() {
+	if s.currentVersion == "" || s.currentVersion == "dev" {
+		return
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("https://api.github.com/repos/tomasz-tomczyk/crit/releases/latest")
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return
+	}
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.Unmarshal(body, &release); err != nil || release.TagName == "" {
+		return
+	}
+	s.versionMu.Lock()
+	s.latestVersion = release.TagName
+	s.versionMu.Unlock()
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {

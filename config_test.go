@@ -534,6 +534,31 @@ func TestNoIntegrationCheckMerge(t *testing.T) {
 	}
 }
 
+func TestNoUpdateCheckConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".crit.config.json")
+	if err := os.WriteFile(configPath, []byte(`{"no_update_check": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := loadConfigFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.NoUpdateCheck {
+		t.Error("expected NoUpdateCheck to be true")
+	}
+}
+
+func TestNoUpdateCheckMerge(t *testing.T) {
+	global := Config{NoUpdateCheck: false}
+	project := Config{NoUpdateCheck: true}
+	presence := configPresence{NoUpdateCheck: true}
+	merged := mergeConfigs(global, project, presence)
+	if !merged.NoUpdateCheck {
+		t.Error("project NoUpdateCheck=true should override global")
+	}
+}
+
 func TestSaveGlobalConfig_RoundTrip(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
