@@ -473,6 +473,10 @@ func (s *Session) carryForwardComments() {
 		f.Comments = nil // Clear before carry-forward to prevent duplicates
 		now := time.Now().UTC().Format(time.RFC3339)
 		for _, c := range prevComments {
+			// Track the old ID as deleted so mergeFileSnapshotIntoCritJSON
+			// won't re-add the original from disk alongside the carried-forward copy.
+			s.trackDeletedComment(f.Path, c.ID)
+
 			// File-level comments have no line references — carry forward as-is.
 			if c.Scope == "file" {
 				carried := carryForwardComment(c, randomCommentID(), now)

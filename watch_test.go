@@ -251,3 +251,95 @@ func TestCarryForwardAllComments_NoDuplicateOnDisk(t *testing.T) {
 		}
 	}
 }
+
+func TestCarryForwardComments_NoDuplicateOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	reviewPath := filepath.Join(dir, "review.json")
+	mdPath := filepath.Join(dir, "plan.md")
+	os.WriteFile(mdPath, []byte("# Plan\n\nStep 1\n\nStep 2\n"), 0644)
+
+	s := &Session{
+		Mode:           "files",
+		RepoRoot:       dir,
+		ReviewFilePath: reviewPath,
+		Files: []*FileEntry{
+			{
+				Path:            "plan.md",
+				AbsPath:         mdPath,
+				Status:          "modified",
+				FileType:        "markdown",
+				Content:         "# Plan\n\nStep 1\n\nStep 2\n",
+				PreviousContent: "# Plan\n\nStep 1\n",
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old_md",
+						StartLine: 3,
+						EndLine:   3,
+						Body:      "Expand this",
+						Author:    "Tomasz",
+						Scope:     "line",
+						CreatedAt: "2026-04-13T10:00:00Z",
+						UpdatedAt: "2026-04-13T10:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	// Write old version to disk.
+	oldCJ := CritJSON{
+		Branch:      "main",
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Status: "modified",
+				Comments: []Comment{
+					{
+						ID:        "c_old_md",
+						StartLine: 3,
+						EndLine:   3,
+						Body:      "Expand this",
+						Author:    "Tomasz",
+						Scope:     "line",
+						CreatedAt: "2026-04-13T10:00:00Z",
+						UpdatedAt: "2026-04-13T10:00:00Z",
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(oldCJ, "", "  ")
+	os.WriteFile(reviewPath, data, 0644)
+
+	// Run markdown carry-forward.
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 carried-forward comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if carried.ID == "c_old_md" {
+		t.Error("carried-forward comment should have a new ID")
+	}
+	// Line 3 in old content ("Step 1") is still line 3 in new content.
+	if carried.StartLine != 3 || carried.EndLine != 3 {
+		t.Errorf("expected line 3, got start=%d end=%d", carried.StartLine, carried.EndLine)
+	}
+
+	// Write to disk — should not produce duplicates.
+	s.WriteFiles()
+
+	diskData, _ := os.ReadFile(reviewPath)
+	var diskCJ CritJSON
+	json.Unmarshal(diskData, &diskCJ)
+
+	diskComments := diskCJ.Files["plan.md"].Comments
+	if len(diskComments) != 1 {
+		t.Errorf("expected 1 comment on disk, got %d", len(diskComments))
+		for _, c := range diskComments {
+			t.Logf("  id=%s carried_forward=%v", c.ID, c.CarriedForward)
+		}
+	}
+}
