@@ -1961,7 +1961,6 @@ func runServe(args []string) {
 	if !sc.noUpdateCheck && os.Getenv("CRIT_NO_UPDATE_CHECK") == "" {
 		go srv.CheckForUpdates()
 	}
-
 	srv.SetSession(session)
 
 	if session.Mode == "git" {

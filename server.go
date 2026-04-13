@@ -209,6 +209,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"author":            s.author,
 		"agent_cmd_enabled": s.agentCmd != "",
 		"agent_name":        agentName(s.agentCmd),
+		"agent_cmd":         s.agentCmd,
 
 		// Auth status
 		"auth_logged_in":  s.authToken != "",
