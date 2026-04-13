@@ -6860,22 +6860,24 @@
       html += '</div>';
     }
 
-    // Account card
-    if (cfg.auth_logged_in) {
-      const display = cfg.auth_user_email || cfg.auth_user_name || 'Logged in';
-      html += '<div class="config-card config-card--green"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--diff-add-fg,#3fb950)">&#10003;</span>';
-      html += '<span class="config-card-title">Account</span>';
-      html += '<span class="config-card-value">' + escapeHtml(display) + '</span>';
-      html += '</div></div>';
-    } else {
-      html += '<div class="config-card config-card--red"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--diff-del-fg,#f85149)">&#9675;</span>';
-      html += '<span class="config-card-title">Account</span>';
-      html += '</div>';
-      html += '<div class="config-card-body">Not logged in. Sign in to link reviews to your account and track review history.</div>';
-      html += '<div class="config-card-cmd"><span>$ crit auth login</span><button class="config-card-copy" data-copy="crit auth login">Copy</button></div>';
-      html += '</div>';
+    // Account card (only show if sharing is enabled)
+    if (cfg.share_url) {
+      if (cfg.auth_logged_in) {
+        const display = cfg.auth_user_email || cfg.auth_user_name || 'Logged in';
+        html += '<div class="config-card config-card--green"><div class="config-card-header">';
+        html += '<span class="config-card-icon" style="color:var(--diff-add-fg,#3fb950)">&#10003;</span>';
+        html += '<span class="config-card-title">Account</span>';
+        html += '<span class="config-card-value">' + escapeHtml(display) + '</span>';
+        html += '</div></div>';
+      } else {
+        html += '<div class="config-card config-card--red"><div class="config-card-header">';
+        html += '<span class="config-card-icon" style="color:var(--diff-del-fg,#f85149)">&#9675;</span>';
+        html += '<span class="config-card-title">Account</span>';
+        html += '</div>';
+        html += '<div class="config-card-body">Not logged in. Sign in to link reviews to your account and track review history.</div>';
+        html += '<div class="config-card-cmd"><span>$ crit auth login</span><button class="config-card-copy" data-copy="crit auth login">Copy</button></div>';
+        html += '</div>';
+      }
     }
 
     // Agent Command card
@@ -6890,7 +6892,7 @@
       html += '<span class="config-card-icon" style="color:#d29922">&#9675;</span>';
       html += '<span class="config-card-title">Agent Command</span>';
       html += '</div>';
-      html += '<div class="config-card-body">Send review comments directly to your AI coding agent.</div>';
+      html += '<div class="config-card-body">Edit <code>~/.crit.config.json</code> and set <code>agent_cmd</code> to send comments directly to your AI agent. <a href="https://github.com/tomasz-tomczyk/crit#agent-integration" target="_blank" rel="noopener" style="color:var(--accent)">Learn more</a></div>';
       html += '<div class="config-card-snippet">// ~/.crit.config.json\n{"agent_cmd": "claude -p"}\n// Also: "opencode ask", "aider --message"</div>';
       html += '</div>';
     }
