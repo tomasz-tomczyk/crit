@@ -356,12 +356,13 @@ test.describe('Change Navigation — File Mode', () => {
 
     // Open shortcuts overlay
     await page.keyboard.press('?');
-    const overlay = page.locator('#shortcutsOverlay');
+    const overlay = page.locator('.settings-overlay');
     await expect(overlay).toHaveClass(/active/);
+    const pane = page.locator('.settings-pane[data-pane="shortcuts"]');
 
     // Should list n and N shortcuts
-    await expect(overlay.locator('text=Next change')).toBeVisible();
-    await expect(overlay.locator('text=Previous change')).toBeVisible();
+    await expect(pane.locator('text=Next change')).toBeVisible();
+    await expect(pane.locator('text=Previous change')).toBeVisible();
   });
 
   test('changed blocks have colored left border (box-shadow)', async ({ page, request }) => {

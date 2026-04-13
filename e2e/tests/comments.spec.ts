@@ -350,8 +350,8 @@ test.describe('Diff Comments — Unified Mode', () => {
 
     const box = await formWrapper.boundingBox();
     expect(box).toBeTruthy();
-    // In unified mode, max-width is 900px. With tolerance allow up to 910px.
-    expect(box!.width).toBeLessThanOrEqual(910);
+    // In unified mode, max-width is var(--content-width), defaulting to 1040px. With tolerance allow up to 1050px.
+    expect(box!.width).toBeLessThanOrEqual(1050);
   });
 });
 

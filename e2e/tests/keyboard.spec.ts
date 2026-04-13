@@ -318,8 +318,8 @@ test.describe('Keyboard UI Toggles', () => {
     await clearFocus(page);
   });
 
-  test('? toggles shortcuts overlay', async ({ page }) => {
-    const overlay = page.locator('#shortcutsOverlay');
+  test('? opens settings panel to Shortcuts tab', async ({ page }) => {
+    const overlay = page.locator('.settings-overlay');
 
     // Initially not active
     await expect(overlay).not.toHaveClass(/active/);
@@ -327,14 +327,15 @@ test.describe('Keyboard UI Toggles', () => {
     // Press ? to open
     await page.keyboard.press('?');
     await expect(overlay).toHaveClass(/active/);
+    await expect(page.locator('.settings-tab.active')).toHaveText('Shortcuts');
 
-    // Press ? again to close
+    // Press ? again to close (toggle behavior when on shortcuts tab)
     await page.keyboard.press('?');
     await expect(overlay).not.toHaveClass(/active/);
   });
 
-  test('Escape closes shortcuts overlay', async ({ page }) => {
-    const overlay = page.locator('#shortcutsOverlay');
+  test('Escape closes settings panel', async ({ page }) => {
+    const overlay = page.locator('.settings-overlay');
 
     await page.keyboard.press('?');
     await expect(overlay).toHaveClass(/active/);
@@ -441,11 +442,11 @@ test.describe('Shortcuts Disabled When Typing', () => {
     const textarea = page.locator('.comment-form textarea');
     await expect(textarea).toBeFocused();
 
-    // Type '?' — should go into textarea, not toggle shortcuts overlay
+    // Type '?' — should go into textarea, not open settings panel
     await textarea.type('?');
     await expect(textarea).toHaveValue('?');
 
-    const overlay = page.locator('#shortcutsOverlay');
+    const overlay = page.locator('.settings-overlay');
     await expect(overlay).not.toHaveClass(/active/);
   });
 });

@@ -3,6 +3,10 @@ import { clearAllComments, loadPage } from './helpers';
 
 // ============================================================
 // Theme Tests (git mode)
+//
+// Theme toggle has moved from the header into the settings panel.
+// Open the panel first, then interact with theme buttons via
+// [data-settings-theme="..."] selectors.
 // ============================================================
 test.describe('Theme — Git Mode', () => {
   test.beforeEach(async ({ page, context, request }) => {
@@ -13,16 +17,16 @@ test.describe('Theme — Git Mode', () => {
   });
 
   test('clicking light theme button sets data-theme="light" on <html>', async ({ page }) => {
-    const lightBtn = page.locator('.theme-pill-btn[data-for-theme="light"]');
-    await lightBtn.click();
+    await page.click('#settingsToggle');
+    await page.click('[data-settings-theme="light"]');
 
     const dataTheme = await page.locator('html').getAttribute('data-theme');
     expect(dataTheme).toBe('light');
   });
 
   test('clicking dark theme button sets data-theme="dark" on <html>', async ({ page }) => {
-    const darkBtn = page.locator('.theme-pill-btn[data-for-theme="dark"]');
-    await darkBtn.click();
+    await page.click('#settingsToggle');
+    await page.click('[data-settings-theme="dark"]');
 
     const dataTheme = await page.locator('html').getAttribute('data-theme');
     expect(dataTheme).toBe('dark');
@@ -30,12 +34,11 @@ test.describe('Theme — Git Mode', () => {
 
   test('clicking system theme button removes data-theme from <html>', async ({ page }) => {
     // First set to dark, then switch to system
-    const darkBtn = page.locator('.theme-pill-btn[data-for-theme="dark"]');
-    await darkBtn.click();
+    await page.click('#settingsToggle');
+    await page.click('[data-settings-theme="dark"]');
     expect(await page.locator('html').getAttribute('data-theme')).toBe('dark');
 
-    const systemBtn = page.locator('.theme-pill-btn[data-for-theme="system"]');
-    await systemBtn.click();
+    await page.click('[data-settings-theme="system"]');
 
     const dataTheme = await page.locator('html').getAttribute('data-theme');
     expect(dataTheme).toBeNull();
@@ -43,8 +46,8 @@ test.describe('Theme — Git Mode', () => {
 
   test('theme persists across page reload', async ({ page }) => {
     // Set dark theme
-    const darkBtn = page.locator('.theme-pill-btn[data-for-theme="dark"]');
-    await darkBtn.click();
+    await page.click('#settingsToggle');
+    await page.click('[data-settings-theme="dark"]');
     expect(await page.locator('html').getAttribute('data-theme')).toBe('dark');
 
     // Reload the page
@@ -57,20 +60,21 @@ test.describe('Theme — Git Mode', () => {
   });
 
   test('theme pill indicator moves when theme changes', async ({ page }) => {
-    const indicator = page.locator('.theme-pill-indicator');
+    await page.click('#settingsToggle');
+    const indicator = page.locator('#settingsThemeIndicator');
 
     // System theme: indicator at 0%
     const systemLeft = await indicator.evaluate(el => el.style.left);
     expect(systemLeft).toBe('0%');
 
-    // Switch to light: indicator at 33.333%
-    await page.locator('.theme-pill-btn[data-for-theme="light"]').click();
-    const lightLeft = await indicator.evaluate(el => el.style.left);
-    expect(lightLeft).toBe('33.333%');
+    // Switch to light: indicator moves to ~33%
+    await page.click('[data-settings-theme="light"]');
+    const lightLeft = await indicator.evaluate(el => parseFloat(el.style.left));
+    expect(lightLeft).toBeCloseTo(33.333, 1);
 
-    // Switch to dark: indicator at 66.666%
-    await page.locator('.theme-pill-btn[data-for-theme="dark"]').click();
-    const darkLeft = await indicator.evaluate(el => el.style.left);
-    expect(darkLeft).toBe('66.666%');
+    // Switch to dark: indicator moves to ~67%
+    await page.click('[data-settings-theme="dark"]');
+    const darkLeft = await indicator.evaluate(el => parseFloat(el.style.left));
+    expect(darkLeft).toBeCloseTo(66.666, 1);
   });
 });
