@@ -11,15 +11,15 @@ test.describe('Comment Threading', () => {
 
   test('can add a reply via API and see it rendered', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Fix this');
+    const comment = await addComment(request, mdPath, 1, 'Fix this');
 
     // Add a reply via API
-    const replyRes = await request.post(`/api/comment/c1/replies?path=${encodeURIComponent(mdPath)}`, {
+    const replyRes = await request.post(`/api/comment/${comment.id}/replies?path=${encodeURIComponent(mdPath)}`, {
       data: { body: 'Done, fixed it', author: 'agent' },
     });
     expect(replyRes.status()).toBe(201);
     const reply = await replyRes.json();
-    expect(reply.id).toBe('c1-r1');
+    expect(reply.id).toBeTruthy();
 
     // Load page, switch to document view, verify reply renders
     await loadPage(page);
@@ -117,11 +117,11 @@ test.describe('Comment Threading', () => {
 
   test('panel shows replies inline', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Check this');
-    await request.post(`/api/comment/c1/replies?path=${encodeURIComponent(mdPath)}`, {
+    const comment = await addComment(request, mdPath, 1, 'Check this');
+    await request.post(`/api/comment/${comment.id}/replies?path=${encodeURIComponent(mdPath)}`, {
       data: { body: 'Done', author: 'agent' },
     });
-    await request.post(`/api/comment/c1/replies?path=${encodeURIComponent(mdPath)}`, {
+    await request.post(`/api/comment/${comment.id}/replies?path=${encodeURIComponent(mdPath)}`, {
       data: { body: 'Thanks', author: 'reviewer' },
     });
     await loadPage(page);
@@ -135,8 +135,8 @@ test.describe('Comment Threading', () => {
 
   test('can delete a reply', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Fix this');
-    await request.post(`/api/comment/c1/replies?path=${encodeURIComponent(mdPath)}`, {
+    const comment = await addComment(request, mdPath, 1, 'Fix this');
+    await request.post(`/api/comment/${comment.id}/replies?path=${encodeURIComponent(mdPath)}`, {
       data: { body: 'Done', author: 'agent' },
     });
     await loadPage(page);
@@ -176,10 +176,10 @@ test.describe('Comment Threading', () => {
 
   test('unresolve button restores comment to active', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Fix this bug');
+    const comment = await addComment(request, mdPath, 1, 'Fix this bug');
 
     // Resolve via API
-    await request.fetch(`/api/comment/c1/resolve?path=${encodeURIComponent(mdPath)}`, {
+    await request.fetch(`/api/comment/${comment.id}/resolve?path=${encodeURIComponent(mdPath)}`, {
       method: 'PUT',
       data: { resolved: true },
     });
@@ -226,11 +226,11 @@ test.describe('Comment Threading', () => {
 
   test('resolved comment renders as full card with badge', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Needs work');
-    await request.post(`/api/comment/c1/replies?path=${encodeURIComponent(mdPath)}`, {
+    const comment = await addComment(request, mdPath, 1, 'Needs work');
+    await request.post(`/api/comment/${comment.id}/replies?path=${encodeURIComponent(mdPath)}`, {
       data: { body: 'Fixed it', author: 'agent' },
     });
-    await request.fetch(`/api/comment/c1/resolve?path=${encodeURIComponent(mdPath)}`, {
+    await request.fetch(`/api/comment/${comment.id}/resolve?path=${encodeURIComponent(mdPath)}`, {
       method: 'PUT',
       data: { resolved: true },
     });

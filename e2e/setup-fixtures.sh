@@ -296,14 +296,15 @@ if [ -z "${CRIT_BIN:-}" ]; then
   (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
 fi
 
-# Write fixture state for E2E tests that need to run CLI commands
-echo "CRIT_BIN=$CRIT_BIN" > "/tmp/crit-e2e-state-$PORT"
-echo "CRIT_FIXTURE_DIR=$DIR" >> "/tmp/crit-e2e-state-$PORT"
-
 # Isolate from user's ~/.crit.config.json — use a separate HOME so config
 # files don't appear as untracked in the git fixture
 FAKE_HOME=$(mktemp -d)
 export HOME="$FAKE_HOME"
+
+# Write fixture state for E2E tests that need to run CLI commands
+echo "CRIT_BIN=$CRIT_BIN" > "/tmp/crit-e2e-state-$PORT"
+echo "CRIT_FIXTURE_DIR=$DIR" >> "/tmp/crit-e2e-state-$PORT"
+echo "FAKE_HOME=$FAKE_HOME" >> "/tmp/crit-e2e-state-$PORT"
 
 # Configure agent_cmd for E2E testing (echo just prints stdin and exits)
 echo '{"agent_cmd": "echo"}' > "$FAKE_HOME/.crit.config.json"

@@ -21,10 +21,10 @@ test.describe('Approve Button Text', () => {
 
   test('shows Approve when all comments are resolved', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Needs work');
+    const comment = await addComment(request, mdPath, 1, 'Needs work');
 
     // Resolve via API
-    await request.fetch(`/api/comment/c1/resolve?path=${encodeURIComponent(mdPath)}`, {
+    await request.fetch(`/api/comment/${comment.id}/resolve?path=${encodeURIComponent(mdPath)}`, {
       method: 'PUT',
       data: { resolved: true },
     });
@@ -35,10 +35,10 @@ test.describe('Approve Button Text', () => {
 
   test('switches from Approve back to Finish Review when comment is unresolved', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Fix this bug');
+    const comment = await addComment(request, mdPath, 1, 'Fix this bug');
 
     // Resolve via API so we start with "Approve"
-    await request.fetch(`/api/comment/c1/resolve?path=${encodeURIComponent(mdPath)}`, {
+    await request.fetch(`/api/comment/${comment.id}/resolve?path=${encodeURIComponent(mdPath)}`, {
       method: 'PUT',
       data: { resolved: true },
     });

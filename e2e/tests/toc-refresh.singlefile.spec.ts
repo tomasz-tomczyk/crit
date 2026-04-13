@@ -3,11 +3,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { clearAllComments, loadPage } from './helpers';
 
-/** Get the fixture directory from the .crit.json path returned by /api/finish. */
+/** Get the fixture directory from the session API. */
 async function getFixtureDir(request: APIRequestContext): Promise<string> {
-  const res = await request.post('/api/finish');
+  const res = await request.get('/api/session');
   const data = await res.json();
-  return path.dirname(data.review_file);
+  return data.cwd;
 }
 
 test.describe('TOC Refresh on File Change — Single File Mode', () => {

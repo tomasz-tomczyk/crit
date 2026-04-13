@@ -36,7 +36,7 @@ test.describe('Multi-Round — API', () => {
     const res = await request.post('/api/finish');
     const data = await res.json();
     expect(data.status).toBe('finished');
-    expect(data.review_file).toContain('.crit.json');
+    expect(data.review_file).toMatch(/\.json$/);
   });
 
   test('POST /api/finish with comments returns a prompt', async ({ request }) => {
@@ -49,7 +49,7 @@ test.describe('Multi-Round — API', () => {
 
     const res = await request.post('/api/finish');
     const data = await res.json();
-    expect(data.prompt).toContain('.crit.json');
+    expect(data.prompt).toMatch(/\.json/);
     expect(data.prompt).toContain('crit');
   });
 
@@ -72,7 +72,7 @@ test.describe('Multi-Round — API', () => {
     expect(waitRes.ok()).toBeTruthy();
     const event = await waitRes.json();
     expect(event.type).toBe('finish');
-    expect(event.content).toContain('.crit.json');
+    expect(event.content).toMatch(/\.json/);
   });
 
   test('GET /api/wait-for-event ignores non-finish events', async ({ request }) => {

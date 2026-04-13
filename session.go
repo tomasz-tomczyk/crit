@@ -2026,6 +2026,7 @@ type SessionInfo struct {
 	AvailableScopes []string          `json:"available_scopes"`
 	Files           []SessionFileInfo `json:"files"`
 	ReviewComments  []Comment         `json:"review_comments"`
+	Cwd             string            `json:"cwd,omitempty"`
 }
 
 // SessionFileInfo is a summary of a file for the session API response.
@@ -2054,6 +2055,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		BaseBranchName: s.BaseBranchName,
 		ReviewRound:    s.ReviewRound,
 		ReviewComments: reviewComments,
+		Cwd:            s.RepoRoot,
 	}
 
 	info.AvailableScopes = cachedAvailableScopes(info.BaseRef)

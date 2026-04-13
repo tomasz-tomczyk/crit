@@ -3,11 +3,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { clearAllComments, loadPage, mdSection } from './helpers';
 
-// Get the fixture directory path from .crit.json location
+// Get the fixture directory from the session API.
 async function getFixtureDir(request: APIRequestContext): Promise<string> {
-  const finishRes = await request.post('/api/finish');
-  const finishData = await finishRes.json();
-  return path.dirname(finishData.review_file);
+  const res = await request.get('/api/session');
+  const data = await res.json();
+  return data.cwd;
 }
 
 // Perform a round-complete cycle: finish, modify file, trigger round-complete, wait for UI refresh
