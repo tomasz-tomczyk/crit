@@ -91,6 +91,21 @@ func runAuthLogin(args []string) {
 		os.Exit(1)
 	}
 
+	// Cache user identity for the settings panel
+	if token.UserName != "" || token.UserEmail != "" {
+		_ = saveGlobalConfig(func(m map[string]json.RawMessage) error {
+			if token.UserName != "" {
+				name, _ := json.Marshal(token.UserName)
+				m["auth_user_name"] = name
+			}
+			if token.UserEmail != "" {
+				email, _ := json.Marshal(token.UserEmail)
+				m["auth_user_email"] = email
+			}
+			return nil
+		})
+	}
+
 	greeting := "Logged in."
 	if token.UserName != "" {
 		greeting = fmt.Sprintf("Logged in as %s.", token.UserName)
@@ -157,6 +172,7 @@ func requestDeviceCode(serverURL string) (deviceCodeResponse, error) {
 type tokenResponse struct {
 	AccessToken string `json:"access_token"`
 	UserName    string `json:"user_name"`
+	UserEmail   string `json:"user_email"`
 }
 
 // pollForToken polls the device token endpoint until success, expiry, or cancellation.
@@ -310,6 +326,13 @@ func runAuthLogout(args []string) {
 		fmt.Fprintf(os.Stderr, "Error removing token from config: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Clear cached identity
+	_ = saveGlobalConfig(func(m map[string]json.RawMessage) error {
+		delete(m, "auth_user_name")
+		delete(m, "auth_user_email")
+		return nil
+	})
 
 	if revoked {
 		fmt.Fprintln(os.Stderr, "  Logged out.")

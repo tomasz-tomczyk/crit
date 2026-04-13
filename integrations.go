@@ -85,6 +85,100 @@ func (s staleFile) updateHint() string {
 	}
 }
 
+// integrationStatus describes a detected integration and whether it is current.
+type integrationStatus struct {
+	Agent    string `json:"agent"`
+	Status   string `json:"status"`   // "current" or "stale"
+	Location string `json:"location"` // "project", "home", "marketplace", "cache"
+	Hint     string `json:"hint"`     // update hint (stale only)
+}
+
+// detectInstalledIntegrations scans all candidate paths for each agent
+// and returns the status of every agent that has at least one file installed.
+// Unlike checkInstalledIntegrations (which only returns stale files),
+// this reports both current and stale agents.
+func detectInstalledIntegrations(projectDir, homeDir string) []integrationStatus {
+	var results []integrationStatus
+	seen := make(map[string]bool)
+
+	agents := make([]string, 0, len(integrationMap))
+	for agent := range integrationMap {
+		agents = append(agents, agent)
+	}
+	sort.Strings(agents)
+
+	for _, agent := range agents {
+		if seen[agent] {
+			continue
+		}
+		files := integrationMap[agent]
+		for _, f := range files {
+			expectedHash, ok := integrationHashes[f.source]
+			if !ok {
+				continue
+			}
+
+			candidates := buildCandidates(f, agent, projectDir, homeDir)
+
+			for _, c := range candidates {
+				installed, err := os.ReadFile(c.path)
+				if err != nil {
+					continue
+				}
+				status := "current"
+				hint := ""
+				if computeFileHash(installed) != expectedHash {
+					status = "stale"
+					sf := staleFile{agent: agent, file: filepath.Base(f.dest), dest: c.path, location: c.location}
+					hint = sf.updateHint()
+				}
+				results = append(results, integrationStatus{
+					Agent:    agent,
+					Status:   status,
+					Location: c.location,
+					Hint:     hint,
+				})
+				seen[agent] = true
+				break // first found file per agent is enough
+			}
+			if seen[agent] {
+				break // found this agent, move to next
+			}
+		}
+	}
+	return results
+}
+
+// candidate is a path + location pair for integration file lookup.
+type candidate struct {
+	path     string
+	location string
+}
+
+// buildCandidates returns the list of candidate paths to check for an integration file.
+func buildCandidates(f integration, agent, projectDir, homeDir string) []candidate {
+	candidates := []candidate{
+		{filepath.Join(projectDir, f.dest), locationProject},
+		{filepath.Join(homeDir, f.dest), locationHome},
+	}
+
+	toolDir := toolDirFromDest(f.dest)
+	marketplacePath := filepath.Join(homeDir, toolDir, "plugins", "marketplaces", "crit", f.source)
+	candidates = append(candidates, candidate{marketplacePath, locationMarketplace})
+
+	agentPrefix := fmt.Sprintf("integrations/%s/", agent)
+	if strings.HasPrefix(f.source, agentPrefix) {
+		relPath := strings.TrimPrefix(f.source, agentPrefix)
+		cacheBase := filepath.Join(homeDir, toolDir, "plugins", "cache", "crit", "crit")
+		if latest := latestCacheDir(cacheBase); latest != "" {
+			cachePath := filepath.Join(cacheBase, latest, relPath)
+			candidates = append(candidates, candidate{cachePath, locationCache})
+		}
+	}
+
+	return candidates
+}
+
 // checkInstalledIntegrations scans known integration destinations for files
 // that exist but differ from the precomputed hash in integrationHashes.
 // Checks four location types: project-local, home dir, marketplace source,
@@ -107,34 +201,7 @@ func checkInstalledIntegrations(projectDir, homeDir string) []staleFile {
 				continue
 			}
 
-			// Build candidates: path + location type
-			type candidate struct {
-				path     string
-				location string
-			}
-			candidates := []candidate{
-				{filepath.Join(projectDir, f.dest), locationProject},
-				{filepath.Join(homeDir, f.dest), locationHome},
-			}
-
-			// Derive tool config dir from dest prefix (e.g. ".claude/skills/crit/SKILL.md" -> ".claude")
-			toolDir := toolDirFromDest(f.dest)
-
-			// Marketplace source: ~/<toolDir>/plugins/marketplaces/crit/<f.source>
-			marketplacePath := filepath.Join(homeDir, toolDir, "plugins", "marketplaces", "crit", f.source)
-			candidates = append(candidates, candidate{marketplacePath, locationMarketplace})
-
-			// Marketplace cache: ~/<toolDir>/plugins/cache/crit/crit/<latest>/<plugin-relative-path>
-			// Only check the latest version directory to avoid false positives from old cached versions.
-			agentPrefix := fmt.Sprintf("integrations/%s/", agent)
-			if strings.HasPrefix(f.source, agentPrefix) {
-				relPath := strings.TrimPrefix(f.source, agentPrefix)
-				cacheBase := filepath.Join(homeDir, toolDir, "plugins", "cache", "crit", "crit")
-				if latest := latestCacheDir(cacheBase); latest != "" {
-					cachePath := filepath.Join(cacheBase, latest, relPath)
-					candidates = append(candidates, candidate{cachePath, locationCache})
-				}
-			}
+			candidates := buildCandidates(f, agent, projectDir, homeDir)
 
 			for _, c := range candidates {
 				installed, err := os.ReadFile(c.path)

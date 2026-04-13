@@ -1756,6 +1756,111 @@ func TestHandleConfig_AgentCmdEnabled(t *testing.T) {
 	}
 }
 
+func TestHandleConfig_AuthAndIntegrationFields(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.authToken = "test-token"
+	s.cfg = Config{
+		AuthUserName:  "Test User",
+		AuthUserEmail: "test@example.com",
+	}
+	s.projectDir = t.TempDir()
+	s.homeDir = t.TempDir()
+	s.reviewPath = "/tmp/test-review.json"
+
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+
+	// Auth fields
+	if resp["auth_logged_in"] != true {
+		t.Errorf("auth_logged_in = %v, want true", resp["auth_logged_in"])
+	}
+	if resp["auth_user_name"] != "Test User" {
+		t.Errorf("auth_user_name = %v, want Test User", resp["auth_user_name"])
+	}
+	if resp["auth_user_email"] != "test@example.com" {
+		t.Errorf("auth_user_email = %v, want test@example.com", resp["auth_user_email"])
+	}
+
+	// Review path
+	if resp["review_path"] != "/tmp/test-review.json" {
+		t.Errorf("review_path = %v, want /tmp/test-review.json", resp["review_path"])
+	}
+
+	// Integration fields
+	avail, ok := resp["integrations_available"].([]any)
+	if !ok || len(avail) == 0 {
+		t.Error("integrations_available should be a non-empty array")
+	}
+	if _, ok := resp["integrations"]; !ok {
+		t.Error("integrations field should be present")
+	}
+	if _, ok := resp["any_integration_installed"]; !ok {
+		t.Error("any_integration_installed field should be present")
+	}
+
+	// Config pass-throughs
+	if resp["no_integration_check"] != false {
+		t.Errorf("no_integration_check = %v, want false", resp["no_integration_check"])
+	}
+	if resp["no_update_check"] != false {
+		t.Errorf("no_update_check = %v, want false", resp["no_update_check"])
+	}
+}
+
+func TestHandleConfig_AuthNotLoggedIn(t *testing.T) {
+	s, _ := newTestServer(t)
+	// authToken is empty by default
+
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp["auth_logged_in"] != false {
+		t.Errorf("auth_logged_in = %v, want false", resp["auth_logged_in"])
+	}
+	if resp["auth_user_name"] != "" {
+		t.Errorf("auth_user_name = %v, want empty", resp["auth_user_name"])
+	}
+}
+
+func TestHandleConfig_NoIntegrationCheck(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.cfg = Config{NoIntegrationCheck: true}
+
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp["no_integration_check"] != true {
+		t.Errorf("no_integration_check = %v, want true", resp["no_integration_check"])
+	}
+	integrations, ok := resp["integrations"].([]any)
+	if !ok {
+		t.Fatal("integrations should be an array")
+	}
+	if len(integrations) != 0 {
+		t.Errorf("integrations should be empty when check disabled, got %d", len(integrations))
+	}
+	if resp["any_integration_installed"] != false {
+		t.Errorf("any_integration_installed should be false when check disabled")
+	}
+}
+
 func TestFuzzyScore(t *testing.T) {
 	tests := []struct {
 		name    string

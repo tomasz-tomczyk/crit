@@ -21,6 +21,7 @@ import (
 	"rsc.io/qr"
 )
 
+// Server handles HTTP requests for the crit review UI.
 type Server struct {
 	session           *Session
 	mux               *http.ServeMux
@@ -40,8 +41,13 @@ type Server struct {
 	status            *Status
 	ready             atomic.Bool
 	initErr           atomic.Pointer[error]
+	projectDir        string
+	homeDir           string
+	cfg               Config
+	reviewPath        string
 }
 
+// NewServer creates a Server with the given session and configuration.
 func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken string, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
 	assets, err := fs.Sub(frontendFS, "frontend")
 	if err != nil {
@@ -203,7 +209,26 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"author":            s.author,
 		"agent_cmd_enabled": s.agentCmd != "",
 		"agent_name":        agentName(s.agentCmd),
+
+		// Auth status
+		"auth_logged_in":  s.authToken != "",
+		"auth_user_name":  s.cfg.AuthUserName,
+		"auth_user_email": s.cfg.AuthUserEmail,
+
+		// Review file path
+		"review_path": s.reviewPath,
+
+		// Config pass-throughs for frontend suppression
+		"no_integration_check": s.cfg.NoIntegrationCheck,
+		"no_update_check":      s.cfg.NoUpdateCheck,
+
+		// Available integrations (always included)
+		"integrations_available": availableIntegrations(),
 	}
+
+	// Integration detection
+	s.addIntegrationStatus(resp)
+
 	if len(s.staleIntegrations) > 0 {
 		type staleInfo struct {
 			Agent    string `json:"agent"`
@@ -241,6 +266,18 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		resp["pr_created_at"] = prInfo.CreatedAt
 	}
 	writeJSON(w, resp)
+}
+
+// addIntegrationStatus populates integration detection fields in the config response.
+func (s *Server) addIntegrationStatus(resp map[string]interface{}) {
+	if s.cfg.NoIntegrationCheck {
+		resp["integrations"] = []integrationStatus{}
+		resp["any_integration_installed"] = false
+		return
+	}
+	integrations := detectInstalledIntegrations(s.projectDir, s.homeDir)
+	resp["integrations"] = integrations
+	resp["any_integration_installed"] = len(integrations) > 0
 }
 
 // handleSession returns session metadata: mode, branch, file list with stats.
