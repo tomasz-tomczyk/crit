@@ -32,11 +32,11 @@ This starts the daemon if needed (or connects to an existing one), opens the bro
 
 Tell the user: **"Crit is open in your browser. Leave inline comments, then click Finish Review."**
 
-**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read `.crit.json` early. Wait for the foreground command to finish — that is how you know the human is done reviewing.
+**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. Wait for the foreground command to finish — that is how you know the human is done reviewing.
 
 ## Step 3: Read the review output
 
-Read the `.crit.json` file in the repo root (or working directory).
+When `crit` completes, its stdout output includes the path to the review file. Read that file.
 
 The file contains structured JSON with comments per file:
 
@@ -45,7 +45,7 @@ The file contains structured JSON with comments per file:
   "files": {
     "plan.md": {
       "comments": [
-        { "id": "c1", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false }
+        { "id": "c_a1b2c3", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false }
       ]
     }
   }
@@ -67,8 +67,8 @@ When addressing multiple comments, use `--json` to reply to them all in one call
 
 ```bash
 echo '[
-  {"reply_to": "c1", "body": "Fixed"},
-  {"reply_to": "c2", "body": "Refactored as suggested"}
+  {"reply_to": "c_a1b2c3", "body": "Fixed"},
+  {"reply_to": "c_d4e5f6", "body": "Refactored as suggested"}
 ]' | crit comment --json --author 'GitHub Copilot'
 ```
 

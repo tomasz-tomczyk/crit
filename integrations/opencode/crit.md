@@ -1,5 +1,5 @@
 ---
-description: Review code changes or a plan with Crit
+description: Review code changes or a plan with crit inline comments
 agent: build
 ---
 
@@ -39,11 +39,11 @@ This starts the daemon if needed (or connects to an existing one), opens the bro
 
 Tell the user: **"Crit is open in your browser. Leave inline comments, then click Finish Review."**
 
-**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read `.crit.json` early. Wait for the foreground command to finish — that is how you know the human is done reviewing.
+**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. Wait for the foreground command to finish — that is how you know the human is done reviewing.
 
 ## Step 3: Read the review output
 
-Read the `.crit.json` file in the repo root (or working directory).
+When `crit` completes, its stdout output includes the path to the review file. Read that file.
 
 The file contains structured JSON with comments per file:
 
@@ -52,7 +52,7 @@ The file contains structured JSON with comments per file:
   "files": {
     "plan.md": {
       "comments": [
-        { "id": "c1", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false }
+        { "id": "c_a1b2c3", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false }
       ]
     }
   }
@@ -70,14 +70,14 @@ For each unresolved comment:
 1. Understand what the comment asks for.
 2. If a comment contains a suggestion block, apply that specific change.
 3. Revise the referenced file to address the feedback - this could be the plan file or any code file from the git diff.
-4. Reply to the comment with what you did: `crit comment --reply-to <id> --author 'OpenCode' '<what you did>'` (works for both file comment IDs like `c1` and review comment IDs like `r0`)
+4. Reply to the comment with what you did: `crit comment --reply-to <id> --author 'OpenCode' '<what you did>'` (works for both file comment IDs like `c_a1b2c3` and review comment IDs like `r_f1e2d3`)
 
 When addressing multiple comments, use `--json` to reply to them all in one call:
 
 ```bash
 echo '[
-  {"reply_to": "c1", "body": "Fixed"},
-  {"reply_to": "c2", "body": "Refactored as suggested"}
+  {"reply_to": "c_a1b2c3", "body": "Fixed"},
+  {"reply_to": "c_d4e5f6", "body": "Refactored as suggested"}
 ]' | crit comment --json --author 'OpenCode'
 ```
 
