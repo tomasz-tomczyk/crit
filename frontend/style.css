@@ -5,7 +5,11 @@
 :root {
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  --content-width: 1040px;
 }
+[data-width="compact"] { --content-width: 840px; }
+[data-width="default"] { --content-width: 1040px; }
+[data-width="wide"]    { --content-width: 1280px; }
 
 /* ===== Base ===== */
 html {
@@ -671,7 +675,7 @@ body {
 
 /* ===== Document Container ===== */
 .document-wrapper {
-  max-width: 840px;
+  max-width: var(--content-width);
   margin: 0 auto;
   padding: 32px 0 120px 0;
 }
@@ -1938,8 +1942,8 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .confirm-send-anyway:hover { color: var(--fg-secondary); }
 
-/* ===== Keyboard Shortcuts Help Overlay ===== */
-.shortcuts-overlay {
+/* ===== Settings Panel Overlay ===== */
+.settings-overlay {
   display: none;
   position: fixed;
   inset: 0;
@@ -1949,27 +1953,249 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   justify-content: center;
   backdrop-filter: blur(2px);
 }
-.shortcuts-overlay.active { display: flex; }
-.shortcuts-dialog {
+.settings-overlay.active { display: flex; }
+.settings-dialog {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 24px 32px;
-  max-width: 560px;
+  max-width: 620px;
   width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
   box-shadow: var(--shadow);
 }
-.shortcuts-dialog h3 {
-  color: var(--fg-primary);
-  margin-bottom: 16px;
-  font-size: 16px;
+
+/* Tab bar */
+.settings-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  flex-shrink: 0;
 }
+.settings-tab {
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s;
+}
+.settings-tab:hover { color: var(--fg-primary); }
+.settings-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.settings-tab-close {
+  margin-left: auto;
+  padding: 12px 4px;
+  font-size: 18px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  background: none;
+  border: none;
+  line-height: 1;
+}
+.settings-tab-close:hover { color: var(--fg-primary); }
+
+/* Tab content */
+.settings-content {
+  overflow-y: auto;
+  padding: 20px;
+  flex: 1;
+  min-height: 0;
+}
+.settings-pane { display: none; }
+.settings-pane.active { display: block; }
+
+/* Section headers */
+.settings-section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+.settings-section-label:not(:first-child) {
+  margin-top: 24px;
+}
+
+/* Display preference row (theme + width) */
+.settings-display-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.settings-display-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg-primary);
+}
+
+/* Reuse theme-pill styling for both theme and width pills inside the panel */
+.settings-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  border-radius: 9999px;
+}
+.settings-pill-indicator {
+  position: absolute;
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  transition: left 0.15s ease;
+  pointer-events: none;
+}
+.settings-pill-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  position: relative;
+  z-index: 1;
+  transition: color 0.15s;
+  font-size: 12px;
+  font-weight: 500;
+}
+.settings-pill-btn:hover { color: var(--fg-primary); }
+.settings-pill-btn.active { color: var(--accent); }
+
+/* Theme pill: 3 icon buttons (reuse SVGs from old header pill) */
+.settings-pill--theme .settings-pill-indicator { width: 33.333%; }
+.settings-pill--theme .settings-pill-btn { width: 32px; padding: 8px 0; }
+.settings-pill--theme .settings-pill-btn svg { width: 16px; height: 16px; display: block; }
+
+/* Width pill: 3 text buttons */
+.settings-pill--width .settings-pill-indicator { width: 33.333%; }
+
+/* Config cards */
+.config-card {
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  border-left: 3px solid var(--border);
+  margin-bottom: 8px;
+}
+.config-card--green  { border-left-color: var(--green); }
+.config-card--red    { border-left-color: var(--red); }
+.config-card--orange { border-left-color: var(--orange); }
+.config-card--blue   { border-left-color: var(--accent); }
+.config-card--gray   { border-left-color: var(--fg-muted); }
+.config-card--yellow { border-left-color: var(--yellow); }
+
+.config-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.config-card-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.config-card-title {
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--fg-primary);
+}
+.config-card-value {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+.config-card-value code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.config-card-badge {
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--bg-secondary);
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+}
+.config-card-body {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--fg-secondary);
+  line-height: 1.5;
+}
+.config-card-cmd {
+  margin-top: 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--green);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.config-card-copy {
+  font-size: 11px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.config-card-copy:hover { color: var(--fg-primary); background: var(--bg-hover); }
+.config-card-snippet {
+  margin-top: 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--fg-secondary);
+  white-space: pre;
+  overflow-x: auto;
+}
+.config-card-agents {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+/* Shortcuts table (inside settings panel) */
+.shortcuts-group-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  margin-top: 16px;
+}
+.shortcuts-group-label:first-child { margin-top: 0; }
 .shortcuts-table {
   width: 100%;
   border-collapse: collapse;
+  margin-bottom: 4px;
 }
 .shortcuts-table td {
-  padding: 6px 0;
+  padding: 5px 0;
   font-size: 13px;
   color: var(--fg-secondary);
   border-bottom: 1px solid var(--border);
@@ -1987,10 +2213,84 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   min-width: 24px;
   text-align: center;
 }
-.shortcuts-table td:first-child {
-  width: 180px;
-  white-space: nowrap;
+.shortcut-mode-badge {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--fg-muted);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  font-weight: 500;
 }
+
+/* About tab */
+.about-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+.about-header h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  margin-bottom: 4px;
+}
+.about-version {
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+.about-badge {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.about-badge--current {
+  background: var(--diff-add-bg);
+  color: var(--green);
+}
+.about-badge--update {
+  background: var(--yellow-bg);
+  color: var(--yellow);
+}
+.about-session {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  margin-bottom: 20px;
+}
+.about-session-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+}
+.about-session-label {
+  color: var(--fg-muted);
+}
+.about-session-value {
+  color: var(--fg-primary);
+}
+.about-session-value code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  word-break: break-all;
+}
+.about-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.about-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 13px;
+}
+.about-link:hover { text-decoration: underline; }
 
 /* ===== Loading State ===== */
 .loading {
@@ -3162,8 +3462,8 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .diff-container.unified .addition .diff-gutter-sign { color: var(--green); }
 .diff-container.unified .deletion .diff-gutter-sign { color: var(--red); }
-.diff-container.unified .comment-block { padding-left: 120px; margin: 0; max-width: 900px; }
-.diff-container.unified .comment-form-wrapper { padding-left: 120px; margin: 0; max-width: 900px; }
+.diff-container.unified .comment-block { padding-left: 120px; margin: 0; max-width: var(--content-width); }
+.diff-container.unified .comment-form-wrapper { padding-left: 120px; margin: 0; max-width: var(--content-width); }
 
 /* ===== Split Diff (side-by-side) ===== */
 .diff-split-row {
@@ -3294,7 +3594,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   background: var(--diff-del-bg);
 }
 .diff-view-unified {
-  max-width: 840px;
+  max-width: var(--content-width);
   margin: 0 auto;
 }
 .diff-view-unified .line-block.diff-added .line-content {
@@ -3320,7 +3620,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 .file-comments > * {
   width: 100%;
-  max-width: 900px;
+  max-width: var(--content-width);
 }
 
 .file-comments .comment-card {
