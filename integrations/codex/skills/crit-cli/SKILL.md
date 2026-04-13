@@ -1,6 +1,7 @@
 ---
 name: crit-cli
 description: Use when working with crit CLI commands, .crit.json files, addressing review comments, leaving inline code review comments, sharing reviews via crit share/unpublish, pushing reviews to GitHub PRs, or pulling PR comments locally. Covers crit comment, crit share, crit unpublish, crit pull, crit push, .crit.json format, and resolution workflow.
+user-invocable: false
 ---
 
 # Crit CLI Reference
