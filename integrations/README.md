@@ -15,9 +15,9 @@ This installs integration files into your project. Safe to re-run — existing f
 
 | Tool | Install command | Destination |
 |------|----------------|-------------|
-| Claude Code | `crit install claude-code` | `.claude/commands/crit.md` + `.claude/skills/crit-cli/SKILL.md` |
-| Cursor | `crit install cursor` | `.cursor/commands/crit.md` + `.cursor/skills/crit-cli/SKILL.md` |
-| GitHub Copilot | `crit install github-copilot` | `.github/prompts/crit.prompt.md` + `.github/skills/crit-cli/SKILL.md` |
+| Claude Code | `crit install claude-code` | `.claude/skills/crit/SKILL.md` + `.claude/skills/crit-cli/SKILL.md` |
+| Cursor | `crit install cursor` | `.cursor/skills/crit/SKILL.md` + `.cursor/skills/crit-cli/SKILL.md` |
+| GitHub Copilot | `crit install github-copilot` | `.github/skills/crit/SKILL.md` + `.github/skills/crit-cli/SKILL.md` |
 | OpenCode | `crit install opencode` | `.opencode/commands/crit.md` + `.opencode/skills/crit/SKILL.md` |
 | Windsurf | `crit install windsurf` | `.windsurf/rules/crit.md` |
 | Cline | `crit install cline` | `.clinerules/crit.md` |
@@ -42,11 +42,11 @@ The marketplace manifest lives at the repo root (`.claude-plugin/marketplace.jso
 | | `crit install` | Plugin marketplace |
 |---|---|---|
 | **Scope** | Per-project (committed to repo) | Global (user-wide) |
-| **What's installed** | `/crit` command only | `/crit` command + `crit` skill |
+| **What's installed** | `/crit` skill only | `/crit` skill + `crit-cli` skill |
 | **Good for** | Teams — everyone gets the integration | Individual users — works across all projects |
 | **Setup** | Run once per project | Install once, works everywhere |
 
-Both approaches give you the `/crit` slash command. The plugin marketplace additionally installs the `crit` skill which auto-teaches the agent about `crit comment`, `.crit.json` format, `crit pull/push`, and resolution workflow.
+Both approaches give you the `/crit` slash command. The plugin marketplace additionally installs the `crit-cli` skill which auto-teaches the agent about `crit comment`, `.crit.json` format, `crit pull/push`, and resolution workflow.
 
 ## What these do
 

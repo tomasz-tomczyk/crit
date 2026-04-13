@@ -70,6 +70,7 @@ crit/
 15. **Headless CLI comment** — `crit comment` writes directly to `.crit.json` without starting the server; SSE notifies any running server
 16. **Comment threading** — comments support nested replies and a `resolved` boolean. Agents reply with `crit comment --reply-to <id> --resolve`. The `.crit.json` schema nests replies inside each comment's `replies` array.
 17. **Commit selection** — in git mode, a sidebar lists individual commits. Selecting one scopes the file list and diffs to that commit only.
+18. **Centralized review storage** — review data stored in `~/.crit/reviews/<key>.json` (keyed by cwd + branch + args). `crit status` shows the review file path; `crit cleanup` removes stale reviews.
 
 ## Build & Run
 
@@ -89,6 +90,8 @@ crit                          # Review git changes (starts daemon, blocks for fe
 crit <file|dir> [...]         # Review specific files or directories
 crit stop                     # Stop the daemon for current directory
 crit stop --all               # Stop all daemons for current directory
+crit status [--json]          # Show review file path, daemon status, comment stats
+crit cleanup [--days N] [--force]  # Delete stale review files from ~/.crit/reviews/
 crit pull [pr-number]         # Fetch GitHub PR comments into .crit.json
 crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post .crit.json comments as a GitHub PR review
 crit comment <path>:<line[-end]> <body>         # Add a comment to .crit.json (no server needed)
@@ -109,11 +112,12 @@ Two-level JSON config files, merged (project overrides global):
 - **Global**: `~/.crit.config.json` — user-wide defaults
 - **Project**: `.crit.config.json` in repo root — per-project overrides
 
-Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `agent_cmd`.
+Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `agent_cmd`, `cleanup_on_approve`.
 
 - `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to `git config user.name` if not set
 - `agent_cmd` specifies the shell command to invoke when sending a comment to an AI agent (e.g. `"claude -p"`, `"opencode ask"`) — **global config only**; project-level `.crit.config.json` cannot override this for security reasons
+- `cleanup_on_approve` (default: `true`) — when the reviewer approves with no unresolved comments, automatically delete the review file from `~/.crit/reviews/`. Set to `false` to preserve review history.
 - `ignore_patterns` are unioned (both global and project patterns apply)
 - Pattern types: `*.ext` (extension), `dir/` (directory prefix), `exact.file` (filename), `path/*.ext` (glob)
 - CLI flags override config file values
@@ -377,16 +381,18 @@ When the agent runs `crit` (or calls `POST /api/round-complete`):
 
 ### Session Registry
 
-Daemon state lives in `~/.crit/sessions/` with one file per session, keyed by `sha256(cwd + "\0" + sorted(args))[:12]`:
+Daemon state lives in `~/.crit/sessions/` with one file per session, keyed by `sha256(cwd + "\0" + branch + "\0" + sorted(args))[:12]`:
 
 ```
 ~/.crit/sessions/
-├── a1b2c3d4e5f6.json   # crit (git mode) in /path/to/repo
+├── a1b2c3d4e5f6.json   # crit (git mode) on branch "feat-x" in /path/to/repo
 ├── f6e5d4c3b2a1.json   # crit plan.md in /path/to/repo
 └── ...
 ```
 
-Session file format: `{"pid", "port", "cwd", "args", "started_at"}`. `.crit.json` is purely review data — no daemon state.
+Session file format: `{"pid", "port", "cwd", "args", "branch", "review_path", "started_at"}`.
+
+Review data lives in `~/.crit/reviews/<key>.json` (same key as the session).
 
 Internal command: `crit _serve` runs the server in foreground (used by daemon spawning, not user-facing).
 
@@ -474,6 +480,6 @@ When reviewing this project, apply these filters to avoid false positives:
 
 ## Output Files
 
-| File         | Description                                                                                                                                                                                                                                                  |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `.crit.json` | Structured JSON with per-file comments and review-level comments — read by AI agents. Comments have a `scope` field: `"line"` (inline), `"file"` (file-level), or `"review"` (general). Review-level comments live in the top-level `review_comments` array. |
+| File                            | Description                                                                                                                                                                                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `~/.crit/reviews/<key>.json`    | Centralized review data — structured JSON with per-file comments and review-level comments, read by AI agents. Comments have a `scope` field: `"line"` (inline), `"file"` (file-level), or `"review"` (general). Review-level comments live in the top-level `review_comments` array. Use `crit status` to see the active review file path. |

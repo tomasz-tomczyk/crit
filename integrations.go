@@ -53,7 +53,7 @@ type staleFile struct {
 }
 
 // toolDirFromDest extracts the tool config directory from a dest path
-// (e.g. ".claude/commands/crit.md" → ".claude").
+// (e.g. ".claude/skills/crit/SKILL.md" → ".claude").
 func toolDirFromDest(dest string) string {
 	return strings.SplitN(dest, "/", 2)[0]
 }
@@ -117,7 +117,7 @@ func checkInstalledIntegrations(projectDir, homeDir string) []staleFile {
 				{filepath.Join(homeDir, f.dest), locationHome},
 			}
 
-			// Derive tool config dir from dest prefix (e.g. ".claude/commands/crit.md" -> ".claude")
+			// Derive tool config dir from dest prefix (e.g. ".claude/skills/crit/SKILL.md" -> ".claude")
 			toolDir := toolDirFromDest(f.dest)
 
 			// Marketplace source: ~/<toolDir>/plugins/marketplaces/crit/<f.source>
