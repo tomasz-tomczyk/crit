@@ -37,31 +37,31 @@ This starts the daemon if needed (or connects to an existing one), opens the bro
 
 Tell the user: **"Crit is open in your browser. Leave inline comments, then click Finish Review."**
 
-**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read `.crit.json` early. Wait for the background task to finish — that is how you know the human is done reviewing.
+**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. Wait for the background task to finish — that is how you know the human is done reviewing.
 
 ## Step 3: Read the review output
 
-When `crit` completes, read the `.crit.json` file in the repo root (or working directory) using the Read tool.
+When `crit` completes, its stdout output includes the path to the review file (e.g. "Review comments are in /path/to/review.json"). Read that file using the Read tool.
 
 The file contains structured JSON with comments per file and review-level comments:
 
 ```json
 {
   "review_comments": [
-    { "id": "r0", "body": "Overall feedback", "resolved": false }
+    { "id": "r_f1e2d3", "body": "Overall feedback", "resolved": false }
   ],
   "files": {
     "plan.md": {
       "comments": [
-        { "id": "c1", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false },
-        { "id": "c2", "body": "File needs restructuring", "resolved": false }
+        { "id": "c_a1b2c3", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false },
+        { "id": "c_d4e5f6", "body": "File needs restructuring", "resolved": false }
       ]
     }
   }
 }
 ```
 
-There are three types of comments: `review_comments` (general feedback, `r`-prefixed IDs), file comments (in per-file `comments` array with no `start_line`/`end_line`), and line comments (with `start_line`/`end_line`). If a comment has lines, it's about those lines. If not, it's about the file as a whole.
+There are three types of comments: `review_comments` (general feedback, `r_`-prefixed IDs), file comments (in per-file `comments` array with no `start_line`/`end_line`), and line comments (with `start_line`/`end_line`). If a comment has lines, it's about those lines. If not, it's about the file as a whole.
 
 Identify all comments where `"resolved": false` or where the `resolved` field is missing (missing means unresolved). If a comment has a `"quote"` field, it contains the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range.
 
@@ -79,8 +79,8 @@ When addressing multiple comments, use `--json` to reply to them all in one call
 
 ```bash
 echo '[
-  {"reply_to": "c1", "body": "Fixed"},
-  {"reply_to": "c2", "body": "Refactored as suggested"}
+  {"reply_to": "c_a1b2c3", "body": "Fixed"},
+  {"reply_to": "c_d4e5f6", "body": "Refactored as suggested"}
 ]' | crit comment --json --author 'Claude Code'
 ```
 
