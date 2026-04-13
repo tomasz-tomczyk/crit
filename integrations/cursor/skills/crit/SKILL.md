@@ -1,3 +1,8 @@
+---
+name: crit
+description: Review code changes or a plan with crit inline comments. Use when asked to review code, a plan, a diff, or when you want structured human feedback on your work.
+---
+
 # Review with Crit
 
 Review and revise code changes or a plan using `crit` for inline comment review.

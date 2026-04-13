@@ -63,6 +63,8 @@ The recommended way is to use `/crit` command with your agent after any piece of
 crit                          # auto-detect changed files in your repo
 crit plan.md                  # review a specific file
 crit plan.md api-spec.md      # review multiple files
+crit status                   # show review file path and daemon status
+crit cleanup                  # delete stale review files
 ```
 
 ## Features
@@ -111,10 +113,10 @@ AI agents can use `crit comment` to add inline review comments without opening t
 crit comment src/auth.go:42 'Missing null check'
 crit comment src/handler.go:15-28 'Error handling issue'
 crit comment --output /tmp/reviews src/auth.go:42 'comment'  # custom output dir
-crit comment --clear   # remove .crit.json
+crit comment --clear   # remove the review file
 ```
 
-Comments are appended to `.crit.json` - created automatically if it doesn't exist.
+Comments are appended to the review file (stored in `~/.crit/reviews/`) and created automatically if it doesn't exist. Run `crit status` to see the active review file path.
 
 ### Mermaid diagrams
 
@@ -221,6 +223,7 @@ After the first agent interaction, the comment becomes a **live thread**:
 
 ### Everything else
 
+- **Per-branch review isolation.** Each branch gets its own review file — switch branches freely without losing comments. Review data lives in `~/.crit/reviews/`, not your repo.
 - **Draft autosave.** Close your browser mid-review and pick up exactly where you left off.
 - **Vim keybindings.** `j`/`k` to navigate, `c` to comment, `Shift+F` to finish. `?` for the full reference.
 - **Concurrent reviews.** Each instance runs on its own port - review multiple plans at once.

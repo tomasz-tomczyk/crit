@@ -1,3 +1,10 @@
+---
+name: crit
+description: "Review code changes or a plan with crit inline comments"
+allowed-tools: Bash(crit:*), Bash(command ls:*), Read, Edit, Glob
+argument-hint: "[file]"
+---
+
 # Review with Crit
 
 Review and revise code changes or a plan using `crit` for inline comment review.
@@ -6,9 +13,9 @@ Review and revise code changes or a plan using `crit` for inline comment review.
 
 Choose what to review based on context:
 
-1. If the user specified a file after the command, use that
-2. If no argument, check if a plan was written earlier in this conversation. If so, review that file
-3. Otherwise, run `crit` with no arguments — it auto-detects what to review: uncommitted changes, or all changes on the current branch vs the default branch. Works on clean branches too.
+1. **User argument** - if the user provided `$ARGUMENTS` (e.g., `/crit my-plan.md`), review that file
+2. **Recent plan** - if no argument, check if a plan was written earlier in this conversation. If so, review that file with `crit <plan-file>`
+3. **Branch review** - otherwise, run `crit` with no arguments. It auto-detects what to review: uncommitted changes, or all changes on the current branch vs the default branch. Works on clean branches too.
 
 Don't ask for confirmation — just proceed with whichever mode applies.
 
@@ -18,7 +25,7 @@ Don't ask for confirmation — just proceed with whichever mode applies.
 
 If a crit server is already running from earlier in this conversation, `crit` will automatically connect to it — no need to track ports or skip steps.
 
-Run `crit` in the foreground and block until it exits:
+Run `crit` **in the background** using `run_in_background: true`:
 
 ```bash
 # For a specific file:
@@ -32,25 +39,31 @@ This starts the daemon if needed (or connects to an existing one), opens the bro
 
 Tell the user: **"Crit is open in your browser. Leave inline comments, then click Finish Review."**
 
-**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. Wait for the foreground command to finish — that is how you know the human is done reviewing.
+**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. Wait for the background task to finish — that is how you know the human is done reviewing.
 
 ## Step 3: Read the review output
 
-When `crit` completes, its stdout output includes the path to the review file. Read that file.
+When `crit` completes, its stdout output includes the path to the review file (e.g. "Review comments are in /path/to/review.json"). Read that file using the Read tool.
 
-The file contains structured JSON with comments per file:
+The file contains structured JSON with comments per file and review-level comments:
 
 ```json
 {
+  "review_comments": [
+    { "id": "r_f1e2d3", "body": "Overall feedback", "resolved": false }
+  ],
   "files": {
     "plan.md": {
       "comments": [
-        { "id": "c_a1b2c3", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false }
+        { "id": "c_a1b2c3", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false },
+        { "id": "c_d4e5f6", "body": "File needs restructuring", "resolved": false }
       ]
     }
   }
 }
 ```
+
+There are three types of comments: `review_comments` (general feedback, `r_`-prefixed IDs), file comments (in per-file `comments` array with no `start_line`/`end_line`), and line comments (with `start_line`/`end_line`). If a comment has lines, it's about those lines. If not, it's about the file as a whole.
 
 Identify all comments where `"resolved": false` or where the `resolved` field is missing (missing means unresolved). If a comment has a `"quote"` field, it contains the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range.
 
@@ -60,8 +73,9 @@ For each unresolved comment:
 
 1. Understand what the comment asks for (clarification, change, addition, removal)
 2. If a comment contains a suggestion block, apply that specific change
-3. Revise the **referenced file** to address the feedback - this could be the plan file or any code file
-4. Reply to the comment with what you did: `crit comment --reply-to <id> --author 'GitHub Copilot' '<what you did>'`
+3. Revise the **referenced file** to address the feedback - this could be the plan file or any code file from the git diff
+4. Use the Edit tool to make targeted changes
+5. Reply to the comment with what you did: `crit comment --reply-to <id> --author 'Claude Code' '<what you did>'`
 
 When addressing multiple comments, use `--json` to reply to them all in one call:
 
@@ -69,21 +83,22 @@ When addressing multiple comments, use `--json` to reply to them all in one call
 echo '[
   {"reply_to": "c_a1b2c3", "body": "Fixed"},
   {"reply_to": "c_d4e5f6", "body": "Refactored as suggested"}
-]' | crit comment --json --author 'GitHub Copilot'
+]' | crit comment --json --author 'Claude Code'
 ```
 
 Editing the plan file triggers Crit's live reload - the user sees changes in the browser immediately.
 
-**If there are zero review comments**: inform the user no changes were requested.
+**If there are zero review comments**: inform the user no changes were requested and stop the background `crit` process.
 
 ## Step 5: Signal completion and start next round
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-Run `crit` in the foreground and block until it exits:
+Run the **exact same `crit` command from Step 2** in the background using `run_in_background: true`. This is critical — if you launched `crit plan.md` in Step 2, you must run `crit plan.md` again here (not bare `crit`). The daemon is keyed by the arguments, so mismatched args will start a new daemon instead of reconnecting.
 
 ```bash
-crit
+# Must match Step 2 exactly:
+crit <same-args-as-step-2>
 ```
 
 On subsequent calls, `crit` automatically signals round-complete first, then blocks again until the next "Finish Review" click.
