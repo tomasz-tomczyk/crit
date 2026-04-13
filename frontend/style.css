@@ -1838,7 +1838,14 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   justify-content: center;
   backdrop-filter: blur(2px);
 }
-.settings-overlay.active { display: flex; }
+.settings-overlay.active {
+  display: flex;
+  animation: settings-overlay-in 0.18s ease-out;
+}
+@keyframes settings-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 .settings-dialog {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -1849,6 +1856,11 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow);
+  animation: settings-dialog-in 0.18s ease-out;
+}
+@keyframes settings-dialog-in {
+  from { opacity: 0; transform: scale(0.97) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 /* Tab bar */
@@ -1858,6 +1870,16 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border-bottom: 1px solid var(--border);
   padding: 0 20px;
   flex-shrink: 0;
+  position: relative;
+}
+.settings-tab-underline {
+  position: absolute;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  transition: left 0.2s ease, width 0.2s ease;
+  pointer-events: none;
 }
 .settings-tab {
   padding: 12px 16px;
@@ -1874,19 +1896,27 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .settings-tab:hover { color: var(--fg-primary); }
 .settings-tab.active {
   color: var(--accent);
-  border-bottom-color: var(--accent);
+  border-bottom-color: transparent;
 }
 .settings-tab-close {
   margin-left: auto;
-  padding: 12px 4px;
+  padding: 8px;
   font-size: 18px;
   color: var(--fg-muted);
   cursor: pointer;
   background: none;
   border: none;
+  border-radius: 6px;
   line-height: 1;
+  min-width: 32px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+  align-self: center;
 }
-.settings-tab-close:hover { color: var(--fg-primary); }
+.settings-tab-close:hover { color: var(--fg-primary); background: var(--bg-hover); }
 
 /* Tab content */
 .settings-content {
@@ -1900,24 +1930,32 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 /* Section headers */
 .settings-section-label {
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
   color: var(--fg-muted);
-  letter-spacing: 0.5px;
-  margin-bottom: 12px;
+  letter-spacing: 0.6px;
+  font-weight: 600;
+  margin-bottom: 10px;
 }
 .settings-section-label:not(:first-child) {
-  margin-top: 24px;
+  margin-top: 28px;
 }
 
-/* Display preference row (theme + width) */
+/* Display preference rows */
+.settings-display-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
 .settings-display-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 0;
-  border-bottom: 1px solid var(--border);
   margin-bottom: 0;
+}
+.settings-display-row:not(:last-child) {
+  border-bottom: 1px solid var(--border);
 }
 .settings-display-label {
   font-size: 14px;
@@ -1940,7 +1978,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border-radius: 9999px;
   background: var(--bg-hover);
   border: 1px solid var(--border);
-  transition: left 0.15s ease;
+  transition: left 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: none;
 }
 .settings-pill-btn {
@@ -1971,11 +2009,27 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .settings-pill--width .settings-pill-btn { padding: 6px 0; width: 72px; text-align: center; }
 
 /* Config cards */
+.config-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .config-card {
   padding: 12px 16px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  margin-bottom: 8px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.config-card:hover {
+  border-color: var(--fg-muted);
+}
+/* Unconfigured / action-needed cards get a dashed border */
+.config-card--unconfigured {
+  border-style: dashed;
+}
+.config-card--unconfigured:hover {
+  border-style: dashed;
+  border-color: var(--fg-muted);
 }
 
 .config-card-header {
@@ -2004,7 +2058,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .config-card-badge {
   font-size: 12px;
   color: var(--accent);
-  background: var(--bg-secondary);
+  background: var(--accent-subtle);
   padding: 2px 8px;
   border-radius: 10px;
   margin-left: 8px;
@@ -2016,9 +2070,9 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   line-height: 1.5;
 }
 .config-card-cmd {
-  margin-top: 8px;
-  background: var(--bg-secondary);
-  border-radius: 4px;
+  margin-top: 10px;
+  background: var(--bg-primary);
+  border-radius: 6px;
   padding: 8px 12px;
   font-family: var(--font-mono);
   font-size: 13px;
@@ -2034,15 +2088,19 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   cursor: pointer;
   background: none;
   border: none;
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
   flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
 }
 .config-card-copy:hover { color: var(--fg-primary); background: var(--bg-hover); }
+.config-card-copy.copied {
+  color: var(--green);
+}
 .config-card-snippet {
-  margin-top: 8px;
-  background: var(--bg-secondary);
-  border-radius: 4px;
+  margin-top: 10px;
+  background: var(--bg-primary);
+  border-radius: 6px;
   padding: 10px 12px;
   font-family: var(--font-mono);
   font-size: 13px;
@@ -2052,7 +2110,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   overflow-x: auto;
 }
 .config-card-agents {
-  margin-top: 8px;
+  margin-top: 6px;
   font-size: 12px;
   color: var(--fg-muted);
 }
@@ -2141,17 +2199,19 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .about-session {
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 12px;
+  padding: 14px 16px;
   font-size: 13px;
-  margin-bottom: 20px;
+  margin-bottom: 0;
 }
 .about-session-grid {
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 6px 12px;
+  grid-template-columns: 90px 1fr;
+  gap: 5px 16px;
+  align-items: baseline;
 }
 .about-session-label {
   color: var(--fg-muted);
+  font-size: 12px;
 }
 .about-session-value {
   color: var(--fg-primary);
@@ -2165,6 +2225,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .about-links {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .about-link {
   color: var(--fg-muted);
@@ -2173,16 +2234,20 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 7px 14px;
   border-radius: 6px;
   border: 1px solid var(--border);
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
 }
 .about-link:hover {
   background: var(--bg-hover);
   color: var(--fg-primary);
   border-color: var(--fg-muted);
   text-decoration: none;
+  transform: translateY(-1px);
+}
+.about-link:active {
+  transform: translateY(0);
 }
 .about-link svg {
   width: 14px;

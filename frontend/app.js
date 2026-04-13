@@ -6758,7 +6758,14 @@
   function openSettingsPanel(tab) {
     settingsPanelTab = tab || 'settings';
     settingsPanelOpen = true;
-    document.getElementById('settingsOverlay').classList.add('active');
+    const overlay = document.getElementById('settingsOverlay');
+    overlay.classList.add('active');
+    // Ensure the sliding underline element exists
+    if (!overlay.querySelector('.settings-tab-underline')) {
+      const underline = document.createElement('div');
+      underline.className = 'settings-tab-underline';
+      overlay.querySelector('.settings-tabs').appendChild(underline);
+    }
     switchSettingsTab(settingsPanelTab);
     // Fetch config if not cached
     if (!cachedConfig) {
@@ -6778,12 +6785,23 @@
 
   function switchSettingsTab(tab) {
     settingsPanelTab = tab;
+    let activeBtn = null;
     document.querySelectorAll('.settings-tab').forEach(function(t) {
-      t.classList.toggle('active', t.dataset.tab === tab);
+      const isActive = t.dataset.tab === tab;
+      t.classList.toggle('active', isActive);
+      if (isActive) activeBtn = t;
     });
     document.querySelectorAll('.settings-pane').forEach(function(p) {
       p.classList.toggle('active', p.dataset.pane === tab);
     });
+    // Position the sliding underline
+    const underline = document.querySelector('.settings-tab-underline');
+    if (underline && activeBtn) {
+      const tabsRect = activeBtn.parentElement.getBoundingClientRect();
+      const btnRect = activeBtn.getBoundingClientRect();
+      underline.style.left = (btnRect.left - tabsRect.left) + 'px';
+      underline.style.width = btnRect.width + 'px';
+    }
   }
 
   function updatePillIndicator(indicatorId, values, current) {
@@ -6805,6 +6823,7 @@
 
     // Display section
     html += '<div class="settings-section-label">Display</div>';
+    html += '<div class="settings-display-group">';
 
     // Theme row
     html += '<div class="settings-display-row">';
@@ -6832,9 +6851,11 @@
       html += '<button class="settings-pill-btn' + active + '" data-settings-width="' + w + '">' + w.charAt(0).toUpperCase() + w.slice(1) + '</button>';
     });
     html += '</div></div>';
+    html += '</div>'; // close settings-display-group
 
     // Configuration section
     html += '<div class="settings-section-label">Configuration</div>';
+    html += '<div class="config-cards">';
 
     // Update card (shown only when an update is available)
     if (cfg.latest_version && cfg.version && cfg.latest_version !== cfg.version && !cfg.no_update_check) {
@@ -6860,7 +6881,7 @@
         html += '<span class="config-card-value">' + escapeHtml(display) + '</span>';
         html += '</div></div>';
       } else {
-        html += '<div class="config-card config-card--red"><div class="config-card-header">';
+        html += '<div class="config-card config-card--red config-card--unconfigured"><div class="config-card-header">';
         html += '<span class="config-card-icon" style="color:var(--red)">&#9675;</span>';
         html += '<span class="config-card-title">Account</span>';
         html += '</div>';
@@ -6878,7 +6899,7 @@
       html += '<span class="config-card-value"><code>' + escapeHtml(cfg.agent_cmd || cfg.agent_name || '') + '</code></span>';
       html += '</div></div>';
     } else {
-      html += '<div class="config-card config-card--orange"><div class="config-card-header">';
+      html += '<div class="config-card config-card--orange config-card--unconfigured"><div class="config-card-header">';
       html += '<span class="config-card-icon" style="color:var(--yellow)">&#9675;</span>';
       html += '<span class="config-card-title">Agent Command</span>';
       html += '</div>';
@@ -6915,7 +6936,7 @@
         }
       } else {
         const available = (cfg.integrations_available || []).join(' \u00b7 ');
-        html += '<div class="config-card config-card--blue"><div class="config-card-header">';
+        html += '<div class="config-card config-card--blue config-card--unconfigured"><div class="config-card-header">';
         html += '<span class="config-card-icon" style="color:var(--accent)">&#128161;</span>';
         html += '<span class="config-card-title">AI Integration</span>';
         html += '<span class="config-card-badge">Recommended</span>';
@@ -6937,12 +6958,13 @@
       html += '<span class="config-card-value">' + escapeHtml(hostname) + '</span>';
       html += '</div></div>';
     } else {
-      html += '<div class="config-card config-card--gray"><div class="config-card-header">';
+      html += '<div class="config-card config-card--gray config-card--unconfigured"><div class="config-card-header">';
       html += '<span class="config-card-icon" style="color:var(--fg-muted)">&mdash;</span>';
       html += '<span class="config-card-title">Share</span>';
       html += '<span class="config-card-value">Disabled</span>';
       html += '</div></div>';
     }
+    html += '</div>'; // close config-cards
 
     pane.innerHTML = html;
 
@@ -6973,8 +6995,12 @@
       btn.addEventListener('click', function() {
         const text = btn.dataset.copy;
         navigator.clipboard.writeText(text).then(function() {
-          btn.textContent = 'Copied!';
-          setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+          btn.textContent = '\u2713 Copied';
+          btn.classList.add('copied');
+          setTimeout(function() {
+            btn.textContent = 'Copy';
+            btn.classList.remove('copied');
+          }, 1500);
         });
       });
     });
