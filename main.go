@@ -1185,6 +1185,14 @@ func killDaemonOnApproval(approved bool, pid int) {
 	}
 }
 
+// cleanupOnApproval deletes the review file when the review is approved
+// and cleanup is enabled.
+func cleanupOnApproval(approved bool, reviewPath string, cleanupEnabled bool) {
+	if approved && cleanupEnabled && reviewPath != "" {
+		os.Remove(reviewPath)
+	}
+}
+
 func runPlan(args []string) {
 	pc := resolvePlanConfig(args)
 	content := readPlanContent(pc)
@@ -1216,6 +1224,7 @@ func runPlan(args []string) {
 
 	approved := runReviewClient(entry)
 	killDaemonOnApproval(approved, entry.PID)
+	cleanupOnApproval(approved, entry.ReviewPath, LoadConfig(cwd).CleanupOnApproveEnabled())
 }
 
 type planHookEvent struct {
@@ -1325,6 +1334,7 @@ func runPlanHook() {
 
 	approved, prompt := runReviewClientRaw(entry)
 	killDaemonOnApproval(approved, entry.PID)
+	cleanupOnApproval(approved, entry.ReviewPath, LoadConfig(cwd).CleanupOnApproveEnabled())
 	emitHookDecision(approved, prompt)
 }
 
@@ -1408,6 +1418,7 @@ func runReview(args []string) {
 
 	approved := runReviewClient(entry)
 	killDaemonOnApproval(approved, entry.PID)
+	cleanupOnApproval(approved, entry.ReviewPath, LoadConfig(cwd).CleanupOnApproveEnabled())
 }
 
 // runReviewClient connects to a running daemon/server, blocks until the user

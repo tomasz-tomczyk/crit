@@ -868,3 +868,41 @@ func TestDeleteStaleReviews(t *testing.T) {
 		t.Error("stale review file should be deleted")
 	}
 }
+
+func TestCleanupOnApproval_DeletesReviewFile(t *testing.T) {
+	dir := t.TempDir()
+	reviewPath := filepath.Join(dir, "review.json")
+	os.WriteFile(reviewPath, []byte(`{"branch":"main"}`), 0644)
+
+	// approved=true with cleanup enabled should delete the file.
+	cleanupOnApproval(true, reviewPath, true)
+
+	if _, err := os.Stat(reviewPath); !os.IsNotExist(err) {
+		t.Error("expected review file to be deleted after approval")
+	}
+}
+
+func TestCleanupOnApproval_KeepsFileWhenNotApproved(t *testing.T) {
+	dir := t.TempDir()
+	reviewPath := filepath.Join(dir, "review.json")
+	os.WriteFile(reviewPath, []byte(`{"branch":"main"}`), 0644)
+
+	cleanupOnApproval(false, reviewPath, true)
+
+	if _, err := os.Stat(reviewPath); os.IsNotExist(err) {
+		t.Error("expected review file to still exist when not approved")
+	}
+}
+
+func TestCleanupOnApproval_KeepsFileWhenDisabled(t *testing.T) {
+	dir := t.TempDir()
+	reviewPath := filepath.Join(dir, "review.json")
+	os.WriteFile(reviewPath, []byte(`{"branch":"main"}`), 0644)
+
+	// approved=true but cleanup disabled — file should stay.
+	cleanupOnApproval(true, reviewPath, false)
+
+	if _, err := os.Stat(reviewPath); os.IsNotExist(err) {
+		t.Error("expected review file to still exist when cleanup is disabled")
+	}
+}
