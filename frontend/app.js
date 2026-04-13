@@ -6824,7 +6824,7 @@
 
     // Width row
     html += '<div class="settings-display-row">';
-    html += '<span class="settings-display-label">Content Width <span style="font-weight:400;color:var(--fg-muted)">(file &amp; unified)</span></span>';
+    html += '<span class="settings-display-label">Content Width <span style="font-weight:400;color:var(--fg-muted)">(file mode)</span></span>';
     html += '<div class="settings-pill settings-pill--width" id="settingsWidthPill" role="group" aria-label="Content width">';
     html += '<div class="settings-pill-indicator" id="settingsWidthIndicator"></div>';
     ['compact', 'default', 'wide'].forEach(function(w) {
