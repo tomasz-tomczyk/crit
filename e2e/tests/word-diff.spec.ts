@@ -142,18 +142,20 @@ test.describe('Word Diff — Theme Integration', () => {
     await loadPage(page);
     const section = goSection(page);
 
-    // Force light theme first
-    const lightBtn = page.locator('.theme-pill-btn[data-for-theme="light"]');
-    await lightBtn.click();
+    // Force light theme first via settings panel
+    await page.click('#settingsToggle');
+    await page.click('[data-settings-theme="light"]');
+    await page.keyboard.press('Escape');
 
     const wordAdd = section.locator('.diff-split-side.addition .diff-word-add').first();
     await expect(wordAdd).toBeVisible();
 
     const lightBg = await wordAdd.evaluate(el => getComputedStyle(el).backgroundColor);
 
-    // Switch to dark theme
-    const darkBtn = page.locator('.theme-pill-btn[data-for-theme="dark"]');
-    await darkBtn.click();
+    // Switch to dark theme via settings panel
+    await page.click('#settingsToggle');
+    await page.click('[data-settings-theme="dark"]');
+    await page.keyboard.press('Escape');
 
     // Color should change
     await expect(async () => {

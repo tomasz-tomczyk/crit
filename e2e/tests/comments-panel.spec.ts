@@ -194,12 +194,13 @@ test.describe('Comments Panel — Git Mode', () => {
     await expect(fileNames).toHaveCount(2);
   });
 
-  test('keyboard shortcut in shortcuts overlay', async ({ page }) => {
+  test('keyboard shortcut in shortcuts panel', async ({ page }) => {
     await loadPage(page);
     await page.keyboard.press('?');
-    const overlay = page.locator('.shortcuts-overlay.active');
-    await expect(overlay).toBeVisible();
-    await expect(overlay).toContainText('Toggle comments panel');
+    const overlay = page.locator('.settings-overlay');
+    await expect(overlay).toHaveClass(/active/);
+    const pane = page.locator('.settings-pane[data-pane="shortcuts"]');
+    await expect(pane).toContainText('Toggle comments panel');
   });
 
   // --- Resolved / carried-forward comment tests ---

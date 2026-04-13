@@ -191,49 +191,6 @@
   --yellow-border: rgba(154, 103, 0, 0.16);
 }
 
-/* ===== Theme Pill (system / light / dark toggle) ===== */
-.theme-pill {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  border-radius: 9999px;
-}
-.theme-pill-indicator {
-  position: absolute;
-  width: 33.333%;
-  height: 100%;
-  border-radius: 9999px;
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
-  left: 0;
-  transition: left 0.15s ease;
-  pointer-events: none;
-}
-html[data-theme="light"] .theme-pill-indicator { left: 33.333%; }
-html[data-theme="dark"]  .theme-pill-indicator { left: 66.666%; }
-.theme-pill-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  padding: 8px 0;
-  cursor: pointer;
-  background: none;
-  border: none;
-  color: var(--fg-muted);
-  position: relative;
-  z-index: 1;
-  transition: color 0.15s;
-}
-.theme-pill-btn:hover { color: var(--fg-primary); }
-.theme-pill-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-radius: 9999px; }
-html:not([data-theme])  .theme-pill-btn[data-for-theme="system"],
-html[data-theme="light"] .theme-pill-btn[data-for-theme="light"],
-html[data-theme="dark"]  .theme-pill-btn[data-for-theme="dark"] { color: var(--accent); }
-.theme-pill-btn svg { width: 16px; height: 16px; display: block; }
-
 /* ===== highlight.js Dark Theme (GitHub Dark Dimmed) =====
    Default (system dark) — applies when no data-theme is set */
 .hljs{color:#adbac7;background:#22272e}

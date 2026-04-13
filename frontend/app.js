@@ -129,10 +129,14 @@
   let waitingHasComments = false;
   let pendingUpdates = [];
   let pendingUpdatesVersion = '';
-  let updateModalEl = null;
+
   let reviewComments = []; // review-level (general) comments
   let reviewCommentFormActive = false; // is the review comment form open?
   let reviewCommentEditingId = null; // id of review comment being edited, or null
+
+  let settingsPanelOpen = false;
+  let settingsPanelTab = 'settings';
+  let cachedConfig = null; // populated on first panel open
 
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
   let diffScope = getCookie('crit-diff-scope') || 'all'; // 'all', 'branch', 'staged', or 'unstaged'
@@ -442,6 +446,7 @@
   // ===== Init =====
   async function init() {
     initTheme();
+    initWidth();
 
     // Measure actual header height and set CSS variable for sticky offsets
     function updateHeaderHeight() {
@@ -575,13 +580,6 @@
         commitDropdownEl.style.display = 'none';
         diffCommit = '';
       }
-    }
-
-    // Hide mode-specific shortcuts
-    if (session.mode === 'git') {
-      document.querySelectorAll('.shortcut-filemode-only').forEach(function(el) { el.style.display = 'none'; });
-    } else {
-      document.querySelectorAll('.shortcut-git-only').forEach(function(el) { el.style.display = 'none'; });
     }
 
     updateHeaderRound();
@@ -6162,12 +6160,10 @@
     const tocEl = document.getElementById('toc');
     const listEl = tocEl.querySelector('.toc-list');
     const toggleBtn = document.getElementById('tocToggle');
-    const tocShortcut = document.querySelector('.shortcut-toc-only');
     listEl.innerHTML = '';
 
     function hideToc() {
       toggleBtn.style.display = 'none';
-      if (tocShortcut) tocShortcut.style.display = 'none';
     }
 
     // TOC only for single-file markdown reviews
@@ -6191,7 +6187,6 @@
       return;
     }
     toggleBtn.style.display = '';
-    if (tocShortcut) tocShortcut.style.display = '';
 
     // Restore TOC open/closed state from cookie
     if (getCookie('crit-toc') === 'open') {
@@ -6306,134 +6301,29 @@
     else if (choice === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
     else document.documentElement.removeAttribute('data-theme');
 
-    document.querySelectorAll('.theme-pill-btn').forEach(function(btn) {
-      const forTheme = btn.getAttribute('data-for-theme');
-      btn.classList.toggle('active', forTheme === choice);
-    });
-
     // Re-initialize mermaid diagrams with updated theme
     if (typeof mermaid !== 'undefined') {
       mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme() });
       try { mermaid.run(); } catch (_) {}
     }
-
-    const indicator = document.querySelector('.theme-pill-indicator');
-    if (indicator) {
-      if (choice === 'system') indicator.style.left = '0%';
-      else if (choice === 'light') indicator.style.left = '33.333%';
-      else indicator.style.left = '66.666%';
-    }
   };
 
-  document.querySelectorAll('.theme-pill-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      applyTheme(btn.getAttribute('data-for-theme'));
-    });
-  });
-
-  // ===== Update Modal =====
-  let updateEscapeHandler = null;
-
-  function closeUpdateModal() {
-    if (updateModalEl) {
-      updateModalEl.remove();
-      updateModalEl = null;
-    }
-    if (updateEscapeHandler) {
-      document.removeEventListener('keydown', updateEscapeHandler);
-      updateEscapeHandler = null;
-    }
+  // ===== Width =====
+  function initWidth() {
+    const saved = getCookie('crit-width') || 'default';
+    applyWidth(saved);
   }
 
-  function showUpdateModal() {
-    closeUpdateModal();
-
-    var overlay = document.createElement('div');
-    overlay.className = 'update-overlay';
-
-    let itemsHtml = '';
-    pendingUpdates.forEach(function(u) {
-      const lines = u.hint.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
-      let cmdsHtml = '';
-      lines.forEach(function(line) {
-        // Separate label prefix from command — look for ":" delimiter
-        let prefix = '';
-        let cmd = line;
-        const colonIdx = line.indexOf(':');
-        if (colonIdx > 0 && colonIdx < line.length - 1 && !/^https?:/.test(line)) {
-          prefix = line.substring(0, colonIdx).trim();
-          cmd = line.substring(colonIdx + 1).trim();
-        }
-        if (prefix) {
-          cmdsHtml += '<div class="update-item-prefix">' + escapeHtml(prefix) + '</div>';
-        }
-        cmdsHtml += '<div class="update-item-cmd">'
-          + '<code>' + escapeHtml(cmd) + '</code>'
-          + '<button class="update-item-copy" title="Copy command" aria-label="Copy command" data-cmd="' + escapeHtml(cmd).replace(/"/g, '&quot;') + '">'
-          + ICON_CLIPBOARD
-          + '</button>'
-          + '</div>';
-      });
-      let labelHtml = escapeHtml(u.label);
-      if (u.labelUrl) {
-        labelHtml += '. <a class="update-item-release-link" href="' + escapeHtml(u.labelUrl) + '" target="_blank" rel="noopener">See release notes</a>';
-      }
-      itemsHtml += '<div class="update-item">'
-        + '<div class="update-item-label">' + labelHtml + '</div>'
-        + cmdsHtml
-        + '</div>';
-    });
-
-    overlay.innerHTML =
-      '<div class="update-dialog" role="dialog" aria-modal="true" aria-label="Updates available">' +
-        '<h3>' +
-          '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0l-3-3m3 3l3-3"/><path d="M2.5 11v1.75c0 .69.56 1.25 1.25 1.25h8.5c.69 0 1.25-.56 1.25-1.25V11"/></svg>' +
-          'Updates Available' +
-        '</h3>' +
-        '<div class="update-items">' + itemsHtml + '</div>' +
-        '<div class="update-dialog-actions">' +
-          '<button class="btn btn-sm" id="updateDismissBtn">Don\u2019t remind me</button>' +
-          '<button class="btn btn-sm" id="updateCloseBtn">Close</button>' +
-        '</div>' +
-      '</div>';
-
-    document.body.appendChild(overlay);
-    updateModalEl = overlay;
-    overlay.querySelector('#updateCloseBtn').focus();
-
-    // Copy buttons
-    overlay.querySelectorAll('.update-item-copy').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        var cmd = this.getAttribute('data-cmd');
-        navigator.clipboard.writeText(cmd).catch(function() {});
-        this.innerHTML = ICON_CHECK_SMALL;
-        var self = this;
-        setTimeout(function() { self.innerHTML = ICON_CLIPBOARD; }, 2000);
-      });
-    });
-
-    // Close on overlay background click
-    overlay.addEventListener('click', function(e) {
-      if (e.target === overlay) closeUpdateModal();
-    });
-    updateEscapeHandler = function(e) {
-      if (e.key === 'Escape') closeUpdateModal();
-    };
-    document.addEventListener('keydown', updateEscapeHandler);
-    overlay.querySelector('#updateCloseBtn').addEventListener('click', closeUpdateModal);
-    overlay.querySelector('#updateDismissBtn').addEventListener('click', function() {
-      setCookie('crit-updates-dismissed', pendingUpdatesVersion);
-      document.getElementById('updateBtn').style.display = 'none';
-      closeUpdateModal();
-    });
+  function applyWidth(choice) {
+    setCookie('crit-width', choice);
+    if (choice === 'compact') document.documentElement.setAttribute('data-width', 'compact');
+    else if (choice === 'wide') document.documentElement.setAttribute('data-width', 'wide');
+    else document.documentElement.setAttribute('data-width', 'default');
   }
 
+  // ===== Update Button =====
   document.getElementById('updateBtn').addEventListener('click', function() {
-    if (updateModalEl) {
-      closeUpdateModal();
-    } else {
-      showUpdateModal();
-    }
+    openSettingsPanel('settings');
   });
 
   // ===== Diff Mode Toggle (Split / Unified) =====
@@ -6864,14 +6754,366 @@
     renderCommentsPanel();
   });
 
-  // ===== Keyboard Shortcuts =====
-  function toggleShortcutsOverlay() {
-    document.getElementById('shortcutsOverlay').classList.toggle('active');
+  // ===== Settings Panel =====
+  function openSettingsPanel(tab) {
+    settingsPanelTab = tab || 'settings';
+    settingsPanelOpen = true;
+    const overlay = document.getElementById('settingsOverlay');
+    overlay.classList.add('active');
+    // Ensure the sliding underline element exists
+    if (!overlay.querySelector('.settings-tab-underline')) {
+      const underline = document.createElement('div');
+      underline.className = 'settings-tab-underline';
+      overlay.querySelector('.settings-tabs').appendChild(underline);
+    }
+    switchSettingsTab(settingsPanelTab);
+    // Fetch config if not cached
+    if (!cachedConfig) {
+      fetch('/api/config').then(function(r) { return r.json(); }).then(function(cfg) {
+        cachedConfig = cfg;
+        renderSettingsPane(cfg);
+        renderAboutPane(cfg);
+      });
+    }
+    renderShortcutsPane();
   }
 
-  document.getElementById('shortcutsToggle').addEventListener('click', toggleShortcutsOverlay);
-  document.getElementById('shortcutsOverlay').addEventListener('click', function(e) {
-    if (e.target === this) toggleShortcutsOverlay();
+  function closeSettingsPanel() {
+    settingsPanelOpen = false;
+    document.getElementById('settingsOverlay').classList.remove('active');
+  }
+
+  function switchSettingsTab(tab) {
+    settingsPanelTab = tab;
+    let activeBtn = null;
+    document.querySelectorAll('.settings-tab').forEach(function(t) {
+      const isActive = t.dataset.tab === tab;
+      t.classList.toggle('active', isActive);
+      if (isActive) activeBtn = t;
+    });
+    document.querySelectorAll('.settings-pane').forEach(function(p) {
+      p.classList.toggle('active', p.dataset.pane === tab);
+    });
+    // Position the sliding underline
+    const underline = document.querySelector('.settings-tab-underline');
+    if (underline && activeBtn) {
+      const tabsRect = activeBtn.parentElement.getBoundingClientRect();
+      const btnRect = activeBtn.getBoundingClientRect();
+      underline.style.left = (btnRect.left - tabsRect.left) + 'px';
+      underline.style.width = btnRect.width + 'px';
+    }
+  }
+
+  function updatePillIndicator(indicatorId, values, current) {
+    const indicator = document.getElementById(indicatorId);
+    if (!indicator) return;
+    const idx = values.indexOf(current);
+    if (idx >= 0) {
+      indicator.style.left = (idx * (100 / values.length)) + '%';
+      indicator.style.width = (100 / values.length) + '%';
+    }
+  }
+
+  function renderSettingsPane(cfg) {
+    const pane = document.getElementById('settingsPane');
+    const currentTheme = getCookie('crit-theme') || 'system';
+    const currentWidth = getCookie('crit-width') || 'default';
+
+    let html = '';
+
+    // Display section
+    html += '<div class="settings-section-label">Display</div>';
+    html += '<div class="settings-display-group">';
+
+    // Theme row
+    html += '<div class="settings-display-row">';
+    html += '<span class="settings-display-label">Theme</span>';
+    html += '<div class="settings-pill settings-pill--theme" id="settingsThemePill" role="group" aria-label="Theme">';
+    html += '<div class="settings-pill-indicator" id="settingsThemeIndicator"></div>';
+    const themeIcons = {
+      system: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v5.5A2.25 2.25 0 0 1 11.75 12h-1.312c.1.128.21.248.328.36a.75.75 0 0 1 .234.545v.345a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-.345a.75.75 0 0 1 .234-.545c.118-.111.228-.232.328-.36H4.25A2.25 2.25 0 0 1 2 9.75v-5.5Zm2.25-.75a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h7.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75h-7.5Z" clip-rule="evenodd"/></svg>',
+      light: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z"/></svg>',
+      dark: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M14.438 10.148c.19-.425-.321-.787-.748-.601A5.5 5.5 0 0 1 6.453 2.31c.186-.427-.176-.938-.6-.748a6.501 6.501 0 1 0 8.585 8.586Z"/></svg>'
+    };
+    ['system', 'light', 'dark'].forEach(function(theme) {
+      const active = theme === currentTheme ? ' active' : '';
+      html += '<button class="settings-pill-btn' + active + '" data-settings-theme="' + theme + '" title="' + theme.charAt(0).toUpperCase() + theme.slice(1) + ' theme">' + themeIcons[theme] + '</button>';
+    });
+    html += '</div></div>';
+
+    // Width row
+    html += '<div class="settings-display-row">';
+    html += '<span class="settings-display-label">Content Width <span style="font-weight:400;color:var(--fg-muted)">(file mode)</span></span>';
+    html += '<div class="settings-pill settings-pill--width" id="settingsWidthPill" role="group" aria-label="Content width">';
+    html += '<div class="settings-pill-indicator" id="settingsWidthIndicator"></div>';
+    ['compact', 'default', 'wide'].forEach(function(w) {
+      const active = w === currentWidth ? ' active' : '';
+      html += '<button class="settings-pill-btn' + active + '" data-settings-width="' + w + '">' + w.charAt(0).toUpperCase() + w.slice(1) + '</button>';
+    });
+    html += '</div></div>';
+    html += '</div>'; // close settings-display-group
+
+    // Configuration section
+    html += '<div class="settings-section-label">Configuration</div>';
+    html += '<div class="config-cards">';
+
+    // Update card (shown only when an update is available)
+    if (cfg.latest_version && cfg.version && cfg.latest_version !== cfg.version && !cfg.no_update_check) {
+      const upgradeCmd = 'brew update && brew upgrade crit';
+      const releaseUrl = 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + escapeHtml(cfg.latest_version);
+      html += '<div class="config-card config-card--orange"><div class="config-card-header">';
+      html += '<span class="config-card-icon" style="color:var(--yellow)">&#11014;</span>';
+      html += '<span class="config-card-title">Update available</span>';
+      html += '<span class="config-card-value">v' + escapeHtml(cfg.latest_version) + '</span>';
+      html += '</div>';
+      html += '<div class="config-card-cmd"><span>$ ' + escapeHtml(upgradeCmd) + '</span><button class="config-card-copy" data-copy="' + escapeHtml(upgradeCmd) + '">Copy</button></div>';
+      html += '<div class="config-card-body"><a class="about-link" href="' + releaseUrl + '" target="_blank" rel="noopener">Release notes</a></div>';
+      html += '</div>';
+    }
+
+    // Account card (only show if sharing is enabled)
+    if (cfg.share_url) {
+      if (cfg.auth_logged_in) {
+        const display = cfg.auth_user_email || cfg.auth_user_name || 'Logged in';
+        html += '<div class="config-card config-card--green"><div class="config-card-header">';
+        html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
+        html += '<span class="config-card-title">Account</span>';
+        html += '<span class="config-card-value">' + escapeHtml(display) + '</span>';
+        html += '</div></div>';
+      } else {
+        html += '<div class="config-card config-card--red config-card--unconfigured"><div class="config-card-header">';
+        html += '<span class="config-card-icon" style="color:var(--red)">&#9675;</span>';
+        html += '<span class="config-card-title">Account</span>';
+        html += '</div>';
+        html += '<div class="config-card-body">Not logged in. Sign in to link reviews to your account and track review history.</div>';
+        html += '<div class="config-card-cmd"><span>$ crit auth login</span><button class="config-card-copy" data-copy="crit auth login">Copy</button></div>';
+        html += '</div>';
+      }
+    }
+
+    // Agent Command card
+    if (cfg.agent_cmd_enabled) {
+      html += '<div class="config-card config-card--green"><div class="config-card-header">';
+      html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
+      html += '<span class="config-card-title">Agent Command</span>';
+      html += '<span class="config-card-value"><code>' + escapeHtml(cfg.agent_cmd || cfg.agent_name || '') + '</code></span>';
+      html += '</div></div>';
+    } else {
+      html += '<div class="config-card config-card--orange config-card--unconfigured"><div class="config-card-header">';
+      html += '<span class="config-card-icon" style="color:var(--yellow)">&#9675;</span>';
+      html += '<span class="config-card-title">Agent Command</span>';
+      html += '</div>';
+      html += '<div class="config-card-body">Edit <code>~/.crit.config.json</code> and set <code>agent_cmd</code> to send comments directly to your AI agent. <a href="https://github.com/tomasz-tomczyk/crit#send-to-agent-experimental" target="_blank" rel="noopener" style="color:var(--accent)">Learn more</a></div>';
+      html += '<div class="config-card-snippet">{"agent_cmd": "claude -p"}\n// Also: "opencode ask", "aider --message"</div>';
+      html += '</div>';
+    }
+
+    // Integration card (hidden if no_integration_check)
+    if (!cfg.no_integration_check) {
+      const integrations = cfg.integrations || [];
+      const anyInstalled = cfg.any_integration_installed;
+      if (anyInstalled) {
+        const current = integrations.filter(function(i) { return i.status === 'current'; });
+        const stale = integrations.filter(function(i) { return i.status === 'stale'; });
+        if (stale.length > 0) {
+          const si = stale[0];
+          const name = si.agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+          html += '<div class="config-card config-card--yellow"><div class="config-card-header">';
+          html += '<span class="config-card-icon" style="color:var(--yellow)">&#9888;</span>';
+          html += '<span class="config-card-title">AI Integration</span>';
+          html += '<span class="config-card-value">' + escapeHtml(name) + ' (update available)</span>';
+          html += '</div>';
+          const hintCmd = si.hint.replace(/^Run:\s*/, '');
+          html += '<div class="config-card-cmd"><span>$ ' + escapeHtml(hintCmd) + '</span><button class="config-card-copy" data-copy="' + escapeHtml(hintCmd) + '">Copy</button></div>';
+          html += '</div>';
+        } else if (current.length > 0) {
+          const name = current[0].agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+          html += '<div class="config-card config-card--green"><div class="config-card-header">';
+          html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
+          html += '<span class="config-card-title">AI Integration</span>';
+          html += '<span class="config-card-value">' + escapeHtml(name) + ' (up to date)</span>';
+          html += '</div></div>';
+        }
+      } else {
+        const available = (cfg.integrations_available || []).join(' \u00b7 ');
+        html += '<div class="config-card config-card--blue config-card--unconfigured"><div class="config-card-header">';
+        html += '<span class="config-card-icon" style="color:var(--accent)">&#128161;</span>';
+        html += '<span class="config-card-title">AI Integration</span>';
+        html += '<span class="config-card-badge">Recommended</span>';
+        html += '</div>';
+        html += '<div class="config-card-body">Install a plugin so your AI agent can launch crit, read comments, and iterate.</div>';
+        html += '<div class="config-card-cmd"><span>$ crit install claude-code</span><button class="config-card-copy" data-copy="crit install claude-code">Copy</button></div>';
+        if (available) html += '<div class="config-card-agents">Also: ' + escapeHtml(available) + '</div>';
+        html += '</div>';
+      }
+    }
+
+    // Share card
+    if (cfg.share_url) {
+      let hostname;
+      try { hostname = new URL(cfg.share_url).hostname; } catch (_) { hostname = cfg.share_url; }
+      html += '<div class="config-card config-card--green"><div class="config-card-header">';
+      html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
+      html += '<span class="config-card-title">Share</span>';
+      html += '<span class="config-card-value">' + escapeHtml(hostname) + '</span>';
+      html += '</div></div>';
+    } else {
+      html += '<div class="config-card config-card--gray config-card--unconfigured"><div class="config-card-header">';
+      html += '<span class="config-card-icon" style="color:var(--fg-muted)">&mdash;</span>';
+      html += '<span class="config-card-title">Share</span>';
+      html += '<span class="config-card-value">Disabled</span>';
+      html += '</div></div>';
+    }
+    html += '</div>'; // close config-cards
+
+    pane.innerHTML = html;
+
+    // Wire up theme pill clicks
+    pane.querySelectorAll('[data-settings-theme]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        const theme = btn.dataset.settingsTheme;
+        applyTheme(theme);
+        pane.querySelectorAll('[data-settings-theme]').forEach(function(b) { b.classList.toggle('active', b.dataset.settingsTheme === theme); });
+        updatePillIndicator('settingsThemeIndicator', ['system', 'light', 'dark'], theme);
+      });
+    });
+    updatePillIndicator('settingsThemeIndicator', ['system', 'light', 'dark'], currentTheme);
+
+    // Wire up width pill clicks
+    pane.querySelectorAll('[data-settings-width]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        const w = btn.dataset.settingsWidth;
+        applyWidth(w);
+        pane.querySelectorAll('[data-settings-width]').forEach(function(b) { b.classList.toggle('active', b.dataset.settingsWidth === w); });
+        updatePillIndicator('settingsWidthIndicator', ['compact', 'default', 'wide'], w);
+      });
+    });
+    updatePillIndicator('settingsWidthIndicator', ['compact', 'default', 'wide'], currentWidth);
+
+    // Wire up copy buttons
+    pane.querySelectorAll('.config-card-copy').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        const text = btn.dataset.copy;
+        navigator.clipboard.writeText(text).then(function() {
+          btn.textContent = '\u2713 Copied';
+          btn.classList.add('copied');
+          setTimeout(function() {
+            btn.textContent = 'Copy';
+            btn.classList.remove('copied');
+          }, 1500);
+        });
+      });
+    });
+  }
+
+  function renderShortcutsPane() {
+    const pane = document.getElementById('shortcutsPane');
+    let html = '';
+
+    const groups = [
+      { label: 'Navigation', shortcuts: [
+        { key: '<kbd>j</kbd>', action: 'Next block' },
+        { key: '<kbd>k</kbd>', action: 'Previous block' },
+        { key: '<kbd>]</kbd>', action: 'Next comment' },
+        { key: '<kbd>[</kbd>', action: 'Previous comment' },
+        { key: '<kbd>n</kbd>', action: 'Next change', mode: 'file mode' },
+        { key: '<kbd>N</kbd>', action: 'Previous change', mode: 'file mode' },
+      ]},
+      { label: 'Comments', shortcuts: [
+        { key: '<kbd>c</kbd>', action: 'Comment on focused block' },
+        { key: '<kbd>e</kbd>', action: 'Edit comment on focused block' },
+        { key: '<kbd>d</kbd>', action: 'Delete comment on focused block' },
+        { key: '<kbd>G</kbd>', action: 'General comment' },
+        { key: '<kbd>Ctrl</kbd>+<kbd>Enter</kbd>', action: 'Submit comment' },
+      ]},
+      { label: 'Review', shortcuts: [
+        { key: '<kbd>Shift</kbd>+<kbd>F</kbd>', action: 'Finish review' },
+        { key: '<kbd>Shift</kbd>+<kbd>C</kbd>', action: 'Toggle comments panel' },
+        { key: '<kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd>', action: 'Switch scope', mode: 'git mode' },
+      ]},
+      { label: 'View', shortcuts: [
+        { key: '<kbd>t</kbd>', action: 'Toggle table of contents', mode: 'file mode' },
+        { key: '<kbd>Esc</kbd>', action: 'Cancel / clear focus' },
+        { key: '<kbd>?</kbd>', action: 'Toggle this panel' },
+      ]},
+    ];
+
+    groups.forEach(function(group) {
+      html += '<div class="shortcuts-group-label">' + group.label + '</div>';
+      html += '<table class="shortcuts-table">';
+      group.shortcuts.forEach(function(s) {
+        const modeTag = s.mode ? '<span class="shortcut-mode-badge">' + s.mode + '</span>' : '';
+        html += '<tr><td>' + s.key + '</td><td>' + s.action + modeTag + '</td></tr>';
+      });
+      html += '</table>';
+    });
+
+    pane.innerHTML = html;
+  }
+
+  function renderAboutPane(cfg) {
+    const pane = document.getElementById('aboutPane');
+    let html = '';
+
+    // Version header
+    html += '<div class="about-header">';
+    html += '<h2>Crit</h2>';
+    const ver = cfg.version || 'dev';
+    html += '<div class="about-version">' + escapeHtml(ver) + '</div>';
+    if (!cfg.no_update_check) {
+      if (cfg.latest_version && cfg.version && cfg.latest_version !== cfg.version) {
+        html += '<div class="about-badge about-badge--update">Update available: ' + escapeHtml(cfg.latest_version) + '</div>';
+      } else if (cfg.version && cfg.version !== 'dev') {
+        html += '<div class="about-badge about-badge--current">Up to date</div>';
+      }
+    }
+    html += '</div>';
+
+    // Session info
+    html += '<div class="settings-section-label">Current Session</div>';
+    html += '<div class="about-session"><div class="about-session-grid">';
+    html += '<span class="about-session-label">Mode</span><span class="about-session-value">' + (session.mode || 'unknown') + '</span>';
+    if (session.mode === 'git' && session.branch) {
+      html += '<span class="about-session-label">Branch</span><span class="about-session-value">' + escapeHtml(session.branch) + '</span>';
+    }
+    if (session.base_ref) {
+      html += '<span class="about-session-label">Base</span><span class="about-session-value">' + escapeHtml(session.base_branch_name || session.base_ref) + '</span>';
+    }
+    html += '<span class="about-session-label">Round</span><span class="about-session-value">' + (session.review_round || 1) + '</span>';
+    html += '<span class="about-session-label">Files</span><span class="about-session-value">' + (session.files ? session.files.length : 0) + ' changed</span>';
+    if (cfg.review_path) {
+      html += '<span class="about-session-label">Review file</span><span class="about-session-value"><code>' + escapeHtml(cfg.review_path) + '</code></span>';
+    }
+    html += '</div></div>';
+
+    // Links
+    html += '<div class="settings-section-label">Links</div>';
+    html += '<div class="about-links">';
+    html += '<a class="about-link" href="https://crit.md" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v4M5.5 3h5M3 7h10v6.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V7Z"/></svg>Homepage</a>';
+    html += '<a class="about-link" href="https://github.com/tomasz-tomczyk/crit" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>GitHub</a>';
+    html += '<a class="about-link" href="https://github.com/tomasz-tomczyk/crit/releases" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"/></svg>Changelog</a>';
+    html += '</div>';
+
+    pane.innerHTML = html;
+  }
+
+  // Gear icon opens Settings tab
+  document.getElementById('settingsToggle').addEventListener('click', function() {
+    if (settingsPanelOpen) closeSettingsPanel();
+    else openSettingsPanel('settings');
+  });
+
+  // Close button
+  document.getElementById('settingsClose').addEventListener('click', closeSettingsPanel);
+
+  // Click outside to close
+  document.getElementById('settingsOverlay').addEventListener('click', function(e) {
+    if (e.target === this) closeSettingsPanel();
+  });
+
+  // Tab switching
+  document.querySelectorAll('.settings-tab[data-tab]').forEach(function(tab) {
+    tab.addEventListener('click', function() { switchSettingsTab(tab.dataset.tab); });
   });
 
   document.getElementById('noChangesOverlay').addEventListener('click', function(e) {
@@ -6900,10 +7142,14 @@
       return;
     }
 
-    if (document.getElementById('shortcutsOverlay').classList.contains('active')) {
-      if (e.key === 'Escape' || e.key === '?') {
+    if (settingsPanelOpen) {
+      if (e.key === 'Escape') {
         e.preventDefault();
-        toggleShortcutsOverlay();
+        closeSettingsPanel();
+      } else if (e.key === '?') {
+        e.preventDefault();
+        if (settingsPanelTab === 'shortcuts') closeSettingsPanel();
+        else switchSettingsTab('shortcuts');
       }
       return;
     }
@@ -7051,7 +7297,7 @@
       }
       case '?': {
         e.preventDefault();
-        toggleShortcutsOverlay();
+        openSettingsPanel('shortcuts');
         break;
       }
       case 'Escape': {

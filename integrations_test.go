@@ -253,6 +253,94 @@ func TestPrintStaleWarnings_WithStale(t *testing.T) {
 	}
 }
 
+func TestDetectInstalledIntegrations(t *testing.T) {
+	tmpDir := t.TempDir()
+	projectDir := filepath.Join(tmpDir, "project")
+	homeDir := filepath.Join(tmpDir, "home")
+	os.MkdirAll(projectDir, 0o755)
+	os.MkdirAll(homeDir, 0o755)
+
+	// No integrations installed — should return empty
+	result := detectInstalledIntegrations(projectDir, homeDir)
+	if len(result) != 0 {
+		t.Errorf("expected 0 integrations, got %d", len(result))
+	}
+
+	// Install a current integration file
+	sourceFiles := integrationMap["claude-code"]
+	if len(sourceFiles) == 0 {
+		t.Fatal("no claude-code integration files defined")
+	}
+	sourceContent, err := integrationsFS.ReadFile(sourceFiles[0].source)
+	if err != nil {
+		t.Fatalf("reading embedded source: %v", err)
+	}
+	dest := filepath.Join(projectDir, sourceFiles[0].dest)
+	os.MkdirAll(filepath.Dir(dest), 0o755)
+	os.WriteFile(dest, sourceContent, 0o644)
+
+	result = detectInstalledIntegrations(projectDir, homeDir)
+	if len(result) == 0 {
+		t.Fatal("expected at least 1 integration, got 0")
+	}
+	found := false
+	for _, r := range result {
+		if r.Agent == "claude-code" && r.Status == "current" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected claude-code with status current, got %+v", result)
+	}
+
+	// Write a stale file
+	os.WriteFile(dest, []byte("stale content"), 0o644)
+	result = detectInstalledIntegrations(projectDir, homeDir)
+	found = false
+	for _, r := range result {
+		if r.Agent == "claude-code" && r.Status == "stale" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected claude-code with status stale, got %+v", result)
+	}
+}
+
+func TestDetectInstalledIntegrations_DedupsPerAgent(t *testing.T) {
+	tmpDir := t.TempDir()
+	projectDir := filepath.Join(tmpDir, "project")
+	homeDir := filepath.Join(tmpDir, "home")
+	os.MkdirAll(projectDir, 0o755)
+	os.MkdirAll(homeDir, 0o755)
+
+	// Install same integration in both project and home — should only appear once
+	sourceFiles := integrationMap["claude-code"]
+	if len(sourceFiles) == 0 {
+		t.Fatal("no claude-code integration files defined")
+	}
+	sourceContent, err := integrationsFS.ReadFile(sourceFiles[0].source)
+	if err != nil {
+		t.Fatalf("reading embedded source: %v", err)
+	}
+	for _, dir := range []string{projectDir, homeDir} {
+		dest := filepath.Join(dir, sourceFiles[0].dest)
+		os.MkdirAll(filepath.Dir(dest), 0o755)
+		os.WriteFile(dest, sourceContent, 0o644)
+	}
+
+	result := detectInstalledIntegrations(projectDir, homeDir)
+	count := 0
+	for _, r := range result {
+		if r.Agent == "claude-code" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 claude-code entry (deduped), got %d", count)
+	}
+}
+
 func TestRunCheck_NoStale(t *testing.T) {
 	// runCheck uses os.Getwd() and os.UserHomeDir(), so we just verify it doesn't panic
 	// when called in a temp dir with no installed integrations

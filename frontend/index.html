@@ -75,24 +75,12 @@
       <button class="toggle-btn active" data-mode="split" title="Split diff">Split</button>
       <button class="toggle-btn" data-mode="unified" title="Unified diff">Unified</button>
     </div>
-    <button class="theme-toggle" id="shortcutsToggle" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M6.75 6.5a1.25 1.25 0 0 1 2.5 0c0 .69-.56 1.25-1.25 1.25V9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8" cy="11.25" r="0.625" fill="currentColor" stroke="none"/></svg>
+    <button class="theme-toggle" id="settingsToggle" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.429 1.525a3.5 3.5 0 0 1 1.142 0c.036.003.108.036.137.146l.289 1.105c.147.56.55.967.997 1.189.174.086.341.183.501.29.417.278.97.423 1.53.27l1.102-.303c.11-.03.175.016.195.046.219.31.41.641.573.989.014.031.022.11-.059.19l-.815.806c-.411.406-.562.957-.53 1.456a4.6 4.6 0 0 1 0 .582c-.032.499.119 1.05.53 1.456l.815.806c.08.08.073.159.059.19a6 6 0 0 1-.573.99c-.02.029-.086.074-.195.045l-1.103-.303c-.559-.153-1.112-.008-1.529.27-.16.107-.327.204-.5.29-.449.222-.851.628-.998 1.189l-.289 1.105c-.029.11-.101.143-.137.146a3.5 3.5 0 0 1-1.142 0c-.036-.003-.108-.037-.137-.146l-.289-1.105c-.147-.56-.55-.967-.997-1.189a4 4 0 0 1-.501-.29c-.417-.278-.97-.423-1.53-.27l-1.102.303c-.11.03-.175-.016-.195-.046a6 6 0 0 1-.573-.989c-.014-.031-.022-.11.059-.19l.815-.806c.411-.406.562-.957.53-1.456a4.6 4.6 0 0 1 0-.582c.032-.499-.119-1.05-.53-1.456l-.815-.806c-.08-.08-.073-.159-.059-.19a6 6 0 0 1 .573-.99c.02-.029.086-.074.195-.045l1.103.303c.559.153 1.112.008 1.529-.27.16-.107.327-.204.5-.29.449-.222.851-.628.998-1.189l.289-1.105c.029-.11.101-.143.137-.146M8 0a4.5 4.5 0 0 0-1.46.243 1.5 1.5 0 0 0-1.088 1.158l-.289 1.105a1 1 0 0 1-.249.432 3 3 0 0 0-.37.215 1 1 0 0 1-.473.083l-1.103-.303a1.5 1.5 0 0 0-1.53.463 7 7 0 0 0-.688 1.186 1.5 1.5 0 0 0 .442 1.621l.815.806a1 1 0 0 1 .168.474 3.6 3.6 0 0 0 0 .428 1 1 0 0 1-.168.474l-.815.806a1.5 1.5 0 0 0-.442 1.621c.17.434.378.846.618 1.236a1.5 1.5 0 0 0 1.6.413l1.103-.303a1 1 0 0 1 .473.083c.121.065.24.137.37.215a1 1 0 0 1 .249.432l.289 1.105a1.5 1.5 0 0 0 1.088 1.158A4.5 4.5 0 0 0 8 16a4.5 4.5 0 0 0 1.46-.243 1.5 1.5 0 0 0 1.088-1.158l.289-1.105a1 1 0 0 1 .249-.432 3 3 0 0 0 .37-.215 1 1 0 0 1 .473-.083l1.103.303a1.5 1.5 0 0 0 1.53-.463c.24-.39.447-.802.617-1.236a1.5 1.5 0 0 0-.442-1.621l-.815-.806a1 1 0 0 1-.168-.474 3.6 3.6 0 0 0 0-.428 1 1 0 0 1 .168-.474l.815-.806a1.5 1.5 0 0 0 .442-1.621 7 7 0 0 0-.688-1.186 1.5 1.5 0 0 0-1.53-.463l-1.103.303a1 1 0 0 1-.473-.083 3 3 0 0 0-.37-.215 1 1 0 0 1-.249-.432l-.289-1.105A1.5 1.5 0 0 0 9.46.243 4.5 4.5 0 0 0 8 0M5.5 8a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0M8 6.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3" clip-rule="evenodd"/></svg>
     </button>
     <button class="theme-toggle" id="tocToggle" title="Table of contents" aria-label="Table of contents">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke-linecap="round"/></svg>
     </button>
-    <div class="theme-pill" role="group" aria-label="Theme">
-      <div class="theme-pill-indicator"></div>
-      <button class="theme-pill-btn" data-for-theme="system" title="System theme" role="radio" aria-label="System theme">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v5.5A2.25 2.25 0 0 1 11.75 12h-1.312c.1.128.21.248.328.36a.75.75 0 0 1 .234.545v.345a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-.345a.75.75 0 0 1 .234-.545c.118-.111.228-.232.328-.36H4.25A2.25 2.25 0 0 1 2 9.75v-5.5Zm2.25-.75a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h7.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75h-7.5Z" clip-rule="evenodd"/></svg>
-      </button>
-      <button class="theme-pill-btn" data-for-theme="light" title="Light theme" role="radio" aria-label="Light theme">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z"/></svg>
-      </button>
-      <button class="theme-pill-btn" data-for-theme="dark" title="Dark theme" role="radio" aria-label="Dark theme">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14.438 10.148c.19-.425-.321-.787-.748-.601A5.5 5.5 0 0 1 6.453 2.31c.186-.427-.176-.938-.6-.748a6.501 6.501 0 1 0 8.585 8.586Z"/></svg>
-      </button>
-    </div>
     <button class="btn" id="shareBtn" style="display:none">Share</button>
     <button class="btn btn-primary" id="finishBtn">Approve</button>
   </div>
@@ -183,28 +171,19 @@
   </div>
 </div>
 
-<div class="shortcuts-overlay" id="shortcutsOverlay">
-  <div class="shortcuts-dialog">
-    <h3>Keyboard Shortcuts</h3>
-    <table class="shortcuts-table">
-      <tr><td><kbd>j</kbd></td><td>Next block</td></tr>
-      <tr><td><kbd>k</kbd></td><td>Previous block</td></tr>
-      <tr><td><kbd>]</kbd></td><td>Next comment</td></tr>
-      <tr><td><kbd>[</kbd></td><td>Previous comment</td></tr>
-      <tr><td><kbd>c</kbd></td><td>Comment on focused block</td></tr>
-      <tr><td><kbd>e</kbd></td><td>Edit comment on focused block</td></tr>
-      <tr><td><kbd>d</kbd></td><td>Delete comment on focused block</td></tr>
-      <tr class="shortcut-filemode-only"><td><kbd>n</kbd></td><td>Next change</td></tr>
-      <tr class="shortcut-filemode-only"><td><kbd>N</kbd></td><td>Previous change</td></tr>
-      <tr><td><kbd>G</kbd></td><td>General comment</td></tr>
-      <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>Finish review</td></tr>
-      <tr><td><kbd>Shift</kbd>+<kbd>C</kbd></td><td>Toggle comments panel</td></tr>
-      <tr class="shortcut-toc-only"><td><kbd>t</kbd></td><td>Toggle table of contents</td></tr>
-      <tr><td><kbd>Esc</kbd></td><td>Cancel / clear focus</td></tr>
-      <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Submit comment</td></tr>
-      <tr class="shortcut-git-only"><td><kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd></td><td>Switch scope: All / Branch / Staged / Unstaged</td></tr>
-      <tr><td><kbd>?</kbd></td><td>Toggle this help</td></tr>
-    </table>
+<div class="settings-overlay" id="settingsOverlay">
+  <div class="settings-dialog">
+    <div class="settings-tabs">
+      <button class="settings-tab active" data-tab="settings">Settings</button>
+      <button class="settings-tab" data-tab="shortcuts">Shortcuts</button>
+      <button class="settings-tab" data-tab="about">About</button>
+      <button class="settings-tab-close" id="settingsClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="settings-content">
+      <div class="settings-pane active" data-pane="settings" id="settingsPane"></div>
+      <div class="settings-pane" data-pane="shortcuts" id="shortcutsPane"></div>
+      <div class="settings-pane" data-pane="about" id="aboutPane"></div>
+    </div>
   </div>
 </div>
 

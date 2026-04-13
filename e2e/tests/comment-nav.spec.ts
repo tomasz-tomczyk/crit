@@ -242,9 +242,10 @@ test.describe('Comment Navigation — shortcuts overlay', () => {
 
     await page.keyboard.press('?');
 
-    const overlay = page.locator('#shortcutsOverlay');
+    const overlay = page.locator('.settings-overlay');
     await expect(overlay).toHaveClass(/active/);
-    await expect(overlay).toContainText(']');
-    await expect(overlay).toContainText('[');
+    const pane = page.locator('.settings-pane[data-pane="shortcuts"]');
+    await expect(pane).toContainText(']');
+    await expect(pane).toContainText('[');
   });
 });

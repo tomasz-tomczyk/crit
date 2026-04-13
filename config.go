@@ -23,6 +23,8 @@ type Config struct {
 	NoUpdateCheck      bool     `json:"no_update_check,omitempty"`
 	AgentCmd           string   `json:"agent_cmd,omitempty"`
 	AuthToken          string   `json:"auth_token,omitempty"`
+	AuthUserName       string   `json:"auth_user_name,omitempty"`
+	AuthUserEmail      string   `json:"auth_user_email,omitempty"`
 	CleanupOnApprove   *bool    `json:"cleanup_on_approve,omitempty"`
 }
 

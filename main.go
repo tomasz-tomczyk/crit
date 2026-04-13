@@ -1591,6 +1591,7 @@ type serverConfig struct {
 	agentCmd           string
 	planDir            string // managed storage directory for plan mode
 	planName           string // display name for plan content
+	cfg                Config // full resolved config for the settings panel
 }
 
 // serverFlagSet holds the parsed flag values before config resolution.
@@ -1728,6 +1729,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		files:              sf.fileArgs,
 		planDir:            sf.planDir,
 		planName:           sf.planName,
+		cfg:                cfg,
 	}, nil
 }
 
@@ -1840,7 +1842,13 @@ func runServe(args []string) {
 		daemonFatal(pipe, "Error creating server: %v", err)
 	}
 
+	// Set config-dependent fields for the settings panel
+	srv.cfg = sc.cfg
 	cwd, _ := resolvedCWD()
+	srv.projectDir = cwd
+	if home, err := os.UserHomeDir(); err == nil {
+		srv.homeDir = home
+	}
 	key := serveSessionKey(sc)
 	branch := ""
 	if IsGitRepo() {
@@ -1853,6 +1861,7 @@ func runServe(args []string) {
 	} else {
 		reviewPath, _ = reviewFilePath(key)
 	}
+	srv.reviewPath = reviewPath
 	if err := writeSessionFile(key, sessionEntry{
 		PID:        os.Getpid(),
 		Port:       addr.Port,
@@ -1952,7 +1961,6 @@ func runServe(args []string) {
 	if !sc.noUpdateCheck && os.Getenv("CRIT_NO_UPDATE_CHECK") == "" {
 		go srv.CheckForUpdates()
 	}
-
 	srv.SetSession(session)
 
 	if session.Mode == "git" {
