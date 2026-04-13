@@ -2078,6 +2078,10 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   color: var(--fg-secondary);
   border-bottom: 1px solid var(--border);
 }
+.shortcuts-table td:first-child {
+  width: 180px;
+  white-space: nowrap;
+}
 .shortcuts-table tr:last-child td { border-bottom: none; }
 .shortcuts-table kbd {
   display: inline-block;
@@ -2160,42 +2164,30 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .about-links {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  gap: 8px;
 }
 .about-link {
-  color: var(--fg-secondary);
+  color: var(--fg-muted);
   text-decoration: none;
   font-size: 13px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 6px 12px;
   border-radius: 6px;
-  transition: background 0.12s, color 0.12s;
+  border: 1px solid var(--border);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 .about-link:hover {
   background: var(--bg-hover);
   color: var(--fg-primary);
+  border-color: var(--fg-muted);
   text-decoration: none;
 }
 .about-link svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
-  color: var(--fg-muted);
-}
-.about-link:hover svg {
-  color: var(--fg-secondary);
-}
-.about-link-arrow {
-  margin-left: auto;
-  color: var(--fg-muted);
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-.about-link:hover .about-link-arrow {
-  opacity: 1;
 }
 
 /* ===== Loading State ===== */
