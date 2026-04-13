@@ -2015,7 +2015,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 /* Section headers */
 .settings-section-label {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   color: var(--fg-muted);
   letter-spacing: 0.5px;
@@ -2070,7 +2070,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   position: relative;
   z-index: 1;
   transition: color 0.15s;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
 }
 .settings-pill-btn:hover { color: var(--fg-primary); }
@@ -2114,10 +2114,10 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .config-card-value code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
 }
 .config-card-badge {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--accent);
   background: var(--bg-secondary);
   padding: 2px 8px;
@@ -2136,7 +2136,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border-radius: 4px;
   padding: 8px 12px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--green);
   display: flex;
   align-items: center;
@@ -2144,7 +2144,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   gap: 8px;
 }
 .config-card-copy {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--fg-muted);
   cursor: pointer;
   background: none;
@@ -2160,7 +2160,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border-radius: 4px;
   padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.8;
   color: var(--fg-secondary);
   white-space: pre;
@@ -2168,13 +2168,13 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .config-card-agents {
   margin-top: 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--fg-muted);
 }
 
 /* Shortcuts table (inside settings panel) */
 .shortcuts-group-label {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   color: var(--fg-muted);
   letter-spacing: 0.5px;
@@ -2208,7 +2208,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .shortcut-mode-badge {
   display: inline-block;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--fg-muted);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -2238,7 +2238,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   margin-top: 8px;
   padding: 4px 12px;
   border-radius: 12px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 .about-badge--current {
@@ -2253,7 +2253,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
-  font-size: 12px;
+  font-size: 13px;
   margin-bottom: 20px;
 }
 .about-session-grid {
@@ -2269,7 +2269,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .about-session-value code {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--accent);
   word-break: break-all;
 }

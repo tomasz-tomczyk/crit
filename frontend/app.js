@@ -6892,8 +6892,8 @@
       html += '<span class="config-card-icon" style="color:#d29922">&#9675;</span>';
       html += '<span class="config-card-title">Agent Command</span>';
       html += '</div>';
-      html += '<div class="config-card-body">Edit <code>~/.crit.config.json</code> and set <code>agent_cmd</code> to send comments directly to your AI agent. <a href="https://github.com/tomasz-tomczyk/crit#agent-integration" target="_blank" rel="noopener" style="color:var(--accent)">Learn more</a></div>';
-      html += '<div class="config-card-snippet">// ~/.crit.config.json\n{"agent_cmd": "claude -p"}\n// Also: "opencode ask", "aider --message"</div>';
+      html += '<div class="config-card-body">Edit <code>~/.crit.config.json</code> and set <code>agent_cmd</code> to send comments directly to your AI agent. <a href="https://github.com/tomasz-tomczyk/crit#send-to-agent-experimental" target="_blank" rel="noopener" style="color:var(--accent)">Learn more</a></div>';
+      html += '<div class="config-card-snippet">{"agent_cmd": "claude -p"}\n// Also: "opencode ask", "aider --message"</div>';
       html += '</div>';
     }
 
