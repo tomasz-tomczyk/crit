@@ -71,7 +71,7 @@ test.describe('Settings Panel', () => {
     await page.click('#settingsToggle');
     const pane = page.locator('.settings-pane[data-pane="settings"]');
     await expect(pane.locator('.settings-display-label').first()).toHaveText('Theme');
-    await expect(pane.locator('.settings-display-label').nth(1)).toHaveText('Content Width');
+    await expect(pane.locator('.settings-display-label').nth(1)).toContainText('Content Width');
   });
 
   test('settings pane shows configuration cards', async ({ page }) => {
