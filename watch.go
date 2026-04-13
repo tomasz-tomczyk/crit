@@ -266,6 +266,8 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 		EndLine:        old.EndLine,
 		Side:           old.Side,
 		Body:           old.Body,
+		Quote:          old.Quote,
+		QuoteOffset:    old.QuoteOffset,
 		Author:         old.Author,
 		Scope:          old.Scope,
 		CreatedAt:      old.CreatedAt,

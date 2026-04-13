@@ -1934,8 +1934,8 @@ func TestCarryForwardComment(t *testing.T) {
 	if carried.ReviewRound != 1 {
 		t.Errorf("ReviewRound = %d, want 1", carried.ReviewRound)
 	}
-	if carried.Quote != "" {
-		t.Errorf("Quote = %q, should not be carried forward", carried.Quote)
+	if carried.Quote != "func foo() {}" {
+		t.Errorf("Quote = %q, want %q", carried.Quote, "func foo() {}")
 	}
 }
 

@@ -343,3 +343,33 @@ func TestCarryForwardComments_NoDuplicateOnDisk(t *testing.T) {
 		}
 	}
 }
+
+func TestCarryForwardComment_PreservesQuote(t *testing.T) {
+	offset := 5
+	old := Comment{
+		ID:          "c_old",
+		StartLine:   10,
+		EndLine:     10,
+		Body:        "Fix this",
+		Quote:       "the quoted text",
+		QuoteOffset: &offset,
+		Author:      "Tomasz",
+		Scope:       "line",
+		CreatedAt:   "2026-04-13T10:00:00Z",
+		UpdatedAt:   "2026-04-13T10:00:00Z",
+		Resolved:    true,
+		ReviewRound: 1,
+		Replies: []Reply{
+			{ID: "rp_1", Body: "Done", Author: "Agent"},
+		},
+	}
+
+	carried := carryForwardComment(old, "c_new", "2026-04-13T11:00:00Z")
+
+	if carried.Quote != "the quoted text" {
+		t.Errorf("Quote not preserved: got %q", carried.Quote)
+	}
+	if carried.QuoteOffset == nil || *carried.QuoteOffset != 5 {
+		t.Error("QuoteOffset not preserved")
+	}
+}
