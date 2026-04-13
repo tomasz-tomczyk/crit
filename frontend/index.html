@@ -75,24 +75,12 @@
       <button class="toggle-btn active" data-mode="split" title="Split diff">Split</button>
       <button class="toggle-btn" data-mode="unified" title="Unified diff">Unified</button>
     </div>
-    <button class="theme-toggle" id="shortcutsToggle" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M6.75 6.5a1.25 1.25 0 0 1 2.5 0c0 .69-.56 1.25-1.25 1.25V9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8" cy="11.25" r="0.625" fill="currentColor" stroke="none"/></svg>
+    <button class="theme-toggle" id="settingsToggle" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true"><path d="M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M6.69 1.763a.5.5 0 0 1 .492-.413h1.636a.5.5 0 0 1 .492.413l.209 1.253a5.5 5.5 0 0 1 1.09.633l1.198-.4a.5.5 0 0 1 .585.213l.818 1.415a.5.5 0 0 1-.093.626l-.99.853a5.5 5.5 0 0 1 0 1.266l.99.853a.5.5 0 0 1 .093.626l-.818 1.415a.5.5 0 0 1-.585.213l-1.198-.4a5.5 5.5 0 0 1-1.09.633l-.21 1.253a.5.5 0 0 1-.491.413H7.182a.5.5 0 0 1-.492-.413l-.209-1.253a5.5 5.5 0 0 1-1.09-.633l-1.198.4a.5.5 0 0 1-.585-.213L2.79 10.9a.5.5 0 0 1 .093-.626l.99-.853a5.5 5.5 0 0 1 0-1.266l-.99-.853a.5.5 0 0 1-.093-.626l.818-1.415a.5.5 0 0 1 .585-.213l1.198.4a5.5 5.5 0 0 1 1.09-.633Z" stroke-linejoin="round"/></svg>
     </button>
     <button class="theme-toggle" id="tocToggle" title="Table of contents" aria-label="Table of contents">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke-linecap="round"/></svg>
     </button>
-    <div class="theme-pill" role="group" aria-label="Theme">
-      <div class="theme-pill-indicator"></div>
-      <button class="theme-pill-btn" data-for-theme="system" title="System theme" role="radio" aria-label="System theme">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v5.5A2.25 2.25 0 0 1 11.75 12h-1.312c.1.128.21.248.328.36a.75.75 0 0 1 .234.545v.345a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-.345a.75.75 0 0 1 .234-.545c.118-.111.228-.232.328-.36H4.25A2.25 2.25 0 0 1 2 9.75v-5.5Zm2.25-.75a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h7.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75h-7.5Z" clip-rule="evenodd"/></svg>
-      </button>
-      <button class="theme-pill-btn" data-for-theme="light" title="Light theme" role="radio" aria-label="Light theme">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z"/></svg>
-      </button>
-      <button class="theme-pill-btn" data-for-theme="dark" title="Dark theme" role="radio" aria-label="Dark theme">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14.438 10.148c.19-.425-.321-.787-.748-.601A5.5 5.5 0 0 1 6.453 2.31c.186-.427-.176-.938-.6-.748a6.501 6.501 0 1 0 8.585 8.586Z"/></svg>
-      </button>
-    </div>
     <button class="btn" id="shareBtn" style="display:none">Share</button>
     <button class="btn btn-primary" id="finishBtn">Approve</button>
   </div>
@@ -183,28 +171,19 @@
   </div>
 </div>
 
-<div class="shortcuts-overlay" id="shortcutsOverlay">
-  <div class="shortcuts-dialog">
-    <h3>Keyboard Shortcuts</h3>
-    <table class="shortcuts-table">
-      <tr><td><kbd>j</kbd></td><td>Next block</td></tr>
-      <tr><td><kbd>k</kbd></td><td>Previous block</td></tr>
-      <tr><td><kbd>]</kbd></td><td>Next comment</td></tr>
-      <tr><td><kbd>[</kbd></td><td>Previous comment</td></tr>
-      <tr><td><kbd>c</kbd></td><td>Comment on focused block</td></tr>
-      <tr><td><kbd>e</kbd></td><td>Edit comment on focused block</td></tr>
-      <tr><td><kbd>d</kbd></td><td>Delete comment on focused block</td></tr>
-      <tr class="shortcut-filemode-only"><td><kbd>n</kbd></td><td>Next change</td></tr>
-      <tr class="shortcut-filemode-only"><td><kbd>N</kbd></td><td>Previous change</td></tr>
-      <tr><td><kbd>G</kbd></td><td>General comment</td></tr>
-      <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>Finish review</td></tr>
-      <tr><td><kbd>Shift</kbd>+<kbd>C</kbd></td><td>Toggle comments panel</td></tr>
-      <tr class="shortcut-toc-only"><td><kbd>t</kbd></td><td>Toggle table of contents</td></tr>
-      <tr><td><kbd>Esc</kbd></td><td>Cancel / clear focus</td></tr>
-      <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Submit comment</td></tr>
-      <tr class="shortcut-git-only"><td><kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd></td><td>Switch scope: All / Branch / Staged / Unstaged</td></tr>
-      <tr><td><kbd>?</kbd></td><td>Toggle this help</td></tr>
-    </table>
+<div class="settings-overlay" id="settingsOverlay">
+  <div class="settings-dialog">
+    <div class="settings-tabs">
+      <button class="settings-tab active" data-tab="settings">Settings</button>
+      <button class="settings-tab" data-tab="shortcuts">Shortcuts</button>
+      <button class="settings-tab" data-tab="about">About</button>
+      <button class="settings-tab-close" id="settingsClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="settings-content">
+      <div class="settings-pane active" data-pane="settings" id="settingsPane"></div>
+      <div class="settings-pane" data-pane="shortcuts" id="shortcutsPane"></div>
+      <div class="settings-pane" data-pane="about" id="aboutPane"></div>
+    </div>
   </div>
 </div>
 
