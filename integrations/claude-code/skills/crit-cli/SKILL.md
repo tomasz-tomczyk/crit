@@ -19,13 +19,13 @@ After a crit review session, comments are in `.crit.json`. Comments have three s
 {
   "review_comments": [
     {
-      "id": "r0",
+      "id": "r_f1e2d3",
       "body": "Overall the architecture looks good",
       "scope": "review",
       "author": "User Name",
       "resolved": false,
       "replies": [
-        { "id": "r0-r1", "body": "Thanks, addressed the minor issues", "author": "Claude" }
+        { "id": "rp_b4a5c6", "body": "Thanks, addressed the minor issues", "author": "Claude" }
       ]
     }
   ],
@@ -33,7 +33,7 @@ After a crit review session, comments are in `.crit.json`. Comments have three s
     "path/to/file.go": {
       "comments": [
         {
-          "id": "c1",
+          "id": "c_a1b2c3",
           "start_line": 5,
           "end_line": 10,
           "body": "Comment text",
@@ -41,7 +41,7 @@ After a crit review session, comments are in `.crit.json`. Comments have three s
           "author": "User Name",
           "resolved": false,
           "replies": [
-            { "id": "c1-r1", "body": "Fixed by extracting to helper", "author": "Claude" }
+            { "id": "rp_c7d8e9", "body": "Fixed by extracting to helper", "author": "Claude" }
           ]
         }
       ]
@@ -65,18 +65,32 @@ After a crit review session, comments are in `.crit.json`. Comments have three s
 After addressing a comment, reply to it using the CLI:
 
 ```bash
-crit comment --reply-to c1 --author 'Claude Code' 'Fixed by extracting to helper'
-crit comment --reply-to r0 --author 'Claude Code' 'All issues addressed'
+crit comment --reply-to c_a1b2c3 --author 'Claude Code' 'Fixed by extracting to helper'
+crit comment --reply-to r_f1e2d3 --author 'Claude Code' 'All issues addressed'
 ```
 
-This adds a reply to the comment thread. Works for both file comment IDs (`c1`, `c2`, ...) and review comment IDs (`r0`, `r1`, ...). Resolving is a user action — do not mark comments resolved from AI.
+This adds a reply to the comment thread. Works for both file comment IDs (e.g. `c_a1b2c3`) and review comment IDs (e.g. `r_f1e2d3`). Resolving is a user action — do not mark comments resolved from AI.
+
+**Multi-file disambiguation**: Comment IDs are unique per session, but if you encounter an error like "comment found in multiple files", use `--path` to specify which file:
+
+```bash
+crit comment --reply-to c_a1b2c3 --path src/auth.go --author 'Claude Code' 'Fixed the null check'
+```
+
+In `--json` bulk mode, use the `file` field on the reply entry:
+
+```bash
+echo '[{"reply_to": "c_a1b2c3", "file": "src/auth.go", "body": "Fixed"}]' | crit comment --json --author 'Claude Code'
+```
+
+Review-level comment IDs (`r_XXXXXX`) are globally unique and never need disambiguation.
 
 ### Plan mode comments
 
 When reviewing plans (via `crit plan` or the ExitPlanMode hook), `.crit.json` is stored in `~/.crit/plans/<slug>/` — not the project root. Use `--plan <slug>` so `crit comment` finds the right file:
 
 ```bash
-crit comment --plan my-plan-2026-03-23 --reply-to c1 --author 'Claude Code' 'Updated the plan'
+crit comment --plan my-plan-2026-03-23 --reply-to c_a1b2c3 --author 'Claude Code' 'Updated the plan'
 ```
 
 The `--plan` flag resolves to the plan storage directory automatically. The slug is shown in the review feedback prompt. **Always use `--plan` when responding to plan review comments** — without it, `crit comment` looks in the project root and won't find the comments.
@@ -110,8 +124,8 @@ crit comment --author 'Claude Code' 'Overall architecture looks solid'
 crit comment --author 'Claude Code' src/auth.go 'This file needs restructuring'
 crit comment --author 'Claude Code' src/auth.go:42 'Missing null check on user.session — will panic if session expired'
 crit comment --author 'Claude Code' src/handler.go:15-28 'This error is swallowed silently'
-crit comment --reply-to c1 --author 'Claude Code' 'Added null check on line 42'
-crit comment --reply-to r0 --author 'Claude Code' 'All issues addressed'
+crit comment --reply-to c_a1b2c3 --author 'Claude Code' 'Added null check on line 42'
+crit comment --reply-to r_f1e2d3 --author 'Claude Code' 'All issues addressed'
 ```
 
 Rules:
@@ -133,8 +147,8 @@ echo '[
   {"path": "session.go", "body": "restructure", "scope": "file"},
   {"file": "src/auth.go", "line": 42, "body": "Missing null check"},
   {"file": "src/auth.go", "line": "50-55", "body": "Extract to helper"},
-  {"reply_to": "c1", "body": "Fixed — added null check"},
-  {"reply_to": "r0", "body": "Done"}
+  {"reply_to": "c_a1b2c3", "body": "Fixed — added null check"},
+  {"reply_to": "r_f1e2d3", "body": "Done"}
 ]' | crit comment --json --author 'Claude Code'
 ```
 
@@ -142,14 +156,14 @@ JSON schema per entry:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `file` | string | yes (line comment) | Relative file path |
+| `file` | string | yes (line comment) / no (reply) | Relative file path. For replies, disambiguates when the same ID exists in multiple files |
 | `path` | string | alt for `file` | Alias for `file`; when used with no `line`, infers file-level |
 | `line` | int/string | yes (line comment) | Start line (`42`) or range (`"45-47"`) |
 | `end_line` | int | no | End line (defaults to `line`) |
 | `body` | string | yes | Comment text |
 | `author` | string | no | Per-entry override (falls back to `--author`) |
 | `scope` | string | no | `"review"`, `"file"`, or omit to infer from context |
-| `reply_to` | string | yes (reply) | Comment ID (`"c1"` or `"r0"`) |
+| `reply_to` | string | yes (reply) | Comment ID (e.g. `"c_a1b2c3"` or `"r_f1e2d3"`) |
 | `resolve` | bool | no | Mark the parent comment resolved (user action — don't set from AI) |
 
 Scope inference when `scope` is omitted:
