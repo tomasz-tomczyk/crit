@@ -582,13 +582,6 @@
       }
     }
 
-    // Hide mode-specific shortcuts
-    if (session.mode === 'git') {
-      document.querySelectorAll('.shortcut-filemode-only').forEach(function(el) { el.style.display = 'none'; });
-    } else {
-      document.querySelectorAll('.shortcut-git-only').forEach(function(el) { el.style.display = 'none'; });
-    }
-
     updateHeaderRound();
     document.title = session.mode === 'git'
       ? 'Crit — ' + (session.branch || 'review')
@@ -6167,12 +6160,10 @@
     const tocEl = document.getElementById('toc');
     const listEl = tocEl.querySelector('.toc-list');
     const toggleBtn = document.getElementById('tocToggle');
-    const tocShortcut = document.querySelector('.shortcut-toc-only');
     listEl.innerHTML = '';
 
     function hideToc() {
       toggleBtn.style.display = 'none';
-      if (tocShortcut) tocShortcut.style.display = 'none';
     }
 
     // TOC only for single-file markdown reviews
@@ -6834,7 +6825,7 @@
 
     // Width row
     html += '<div class="settings-display-row">';
-    html += '<span class="settings-display-label">Content Width <span style="font-weight:400;font-size:12px;color:var(--fg-muted)">(file mode only)</span></span>';
+    html += '<span class="settings-display-label">Content Width</span>';
     html += '<div class="settings-pill settings-pill--width" id="settingsWidthPill" role="group" aria-label="Content width">';
     html += '<div class="settings-pill-indicator" id="settingsWidthIndicator"></div>';
     ['compact', 'default', 'wide'].forEach(function(w) {
@@ -6851,7 +6842,7 @@
       const upgradeCmd = 'brew update && brew upgrade crit';
       const releaseUrl = 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + escapeHtml(cfg.latest_version);
       html += '<div class="config-card config-card--orange"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:#d29922">&#11014;</span>';
+      html += '<span class="config-card-icon" style="color:var(--yellow)">&#11014;</span>';
       html += '<span class="config-card-title">Update available</span>';
       html += '<span class="config-card-value">v' + escapeHtml(cfg.latest_version) + '</span>';
       html += '</div>';
@@ -6865,13 +6856,13 @@
       if (cfg.auth_logged_in) {
         const display = cfg.auth_user_email || cfg.auth_user_name || 'Logged in';
         html += '<div class="config-card config-card--green"><div class="config-card-header">';
-        html += '<span class="config-card-icon" style="color:var(--diff-add-fg,#3fb950)">&#10003;</span>';
+        html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
         html += '<span class="config-card-title">Account</span>';
         html += '<span class="config-card-value">' + escapeHtml(display) + '</span>';
         html += '</div></div>';
       } else {
         html += '<div class="config-card config-card--red"><div class="config-card-header">';
-        html += '<span class="config-card-icon" style="color:var(--diff-del-fg,#f85149)">&#9675;</span>';
+        html += '<span class="config-card-icon" style="color:var(--red)">&#9675;</span>';
         html += '<span class="config-card-title">Account</span>';
         html += '</div>';
         html += '<div class="config-card-body">Not logged in. Sign in to link reviews to your account and track review history.</div>';
@@ -6883,13 +6874,13 @@
     // Agent Command card
     if (cfg.agent_cmd_enabled) {
       html += '<div class="config-card config-card--green"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--diff-add-fg,#3fb950)">&#10003;</span>';
+      html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
       html += '<span class="config-card-title">Agent Command</span>';
       html += '<span class="config-card-value"><code>' + escapeHtml(cfg.agent_cmd || cfg.agent_name || '') + '</code></span>';
       html += '</div></div>';
     } else {
       html += '<div class="config-card config-card--orange"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:#d29922">&#9675;</span>';
+      html += '<span class="config-card-icon" style="color:var(--yellow)">&#9675;</span>';
       html += '<span class="config-card-title">Agent Command</span>';
       html += '</div>';
       html += '<div class="config-card-body">Edit <code>~/.crit.config.json</code> and set <code>agent_cmd</code> to send comments directly to your AI agent. <a href="https://github.com/tomasz-tomczyk/crit#send-to-agent-experimental" target="_blank" rel="noopener" style="color:var(--accent)">Learn more</a></div>';
@@ -6908,7 +6899,7 @@
           const si = stale[0];
           const name = si.agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
           html += '<div class="config-card config-card--yellow"><div class="config-card-header">';
-          html += '<span class="config-card-icon" style="color:#d29922">&#9888;</span>';
+          html += '<span class="config-card-icon" style="color:var(--yellow)">&#9888;</span>';
           html += '<span class="config-card-title">AI Integration</span>';
           html += '<span class="config-card-value">' + escapeHtml(name) + ' (update available)</span>';
           html += '</div>';
@@ -6918,7 +6909,7 @@
         } else if (current.length > 0) {
           const name = current[0].agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
           html += '<div class="config-card config-card--green"><div class="config-card-header">';
-          html += '<span class="config-card-icon" style="color:var(--diff-add-fg,#3fb950)">&#10003;</span>';
+          html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
           html += '<span class="config-card-title">AI Integration</span>';
           html += '<span class="config-card-value">' + escapeHtml(name) + ' (up to date)</span>';
           html += '</div></div>';
@@ -6942,7 +6933,7 @@
       let hostname;
       try { hostname = new URL(cfg.share_url).hostname; } catch (_) { hostname = cfg.share_url; }
       html += '<div class="config-card config-card--green"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--diff-add-fg,#3fb950)">&#10003;</span>';
+      html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
       html += '<span class="config-card-title">Share</span>';
       html += '<span class="config-card-value">' + escapeHtml(hostname) + '</span>';
       html += '</div></div>';
