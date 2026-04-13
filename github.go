@@ -817,7 +817,7 @@ func appendReply(cj *CritJSON, commentID, body, author string, resolve bool, fil
 	}
 
 	if len(foundPaths) > 1 {
-		return fmt.Errorf("comment %q found in multiple files (%s); specify the file with \"file\" field",
+		return fmt.Errorf("comment %q found in multiple files (%s); use --path <file> to disambiguate",
 			commentID, strings.Join(foundPaths, ", "))
 	}
 	if !found {
