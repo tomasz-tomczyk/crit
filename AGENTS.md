@@ -112,11 +112,12 @@ Two-level JSON config files, merged (project overrides global):
 - **Global**: `~/.crit.config.json` — user-wide defaults
 - **Project**: `.crit.config.json` in repo root — per-project overrides
 
-Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `agent_cmd`.
+Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `agent_cmd`, `cleanup_on_approve`.
 
 - `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to `git config user.name` if not set
 - `agent_cmd` specifies the shell command to invoke when sending a comment to an AI agent (e.g. `"claude -p"`, `"opencode ask"`) — **global config only**; project-level `.crit.config.json` cannot override this for security reasons
+- `cleanup_on_approve` (default: `true`) — when the reviewer approves with no unresolved comments, automatically delete the review file from `~/.crit/reviews/`. Set to `false` to preserve review history.
 - `ignore_patterns` are unioned (both global and project patterns apply)
 - Pattern types: `*.ext` (extension), `dir/` (directory prefix), `exact.file` (filename), `path/*.ext` (glob)
 - CLI flags override config file values

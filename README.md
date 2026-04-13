@@ -264,6 +264,7 @@ crit config --help                             # document all config keys
   "author": "John",
   "agent_cmd": "claude -p",
   "auth_token": "",
+  "cleanup_on_approve": true,
   "ignore_patterns": [".crit.json"]
 }
 ```
