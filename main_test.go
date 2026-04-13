@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // TestSubcommandDispatch_Help verifies that help flags are recognized.
@@ -300,9 +303,25 @@ func TestHelperProcess_CommentJSON(t *testing.T) {
 
 // TestRunComment_JSONFlagMixed verifies that --json handles mixed comments and replies.
 func TestRunComment_JSONFlagMixed(t *testing.T) {
+	// Step 1: Create a comment and capture its ID
+	tmp := t.TempDir()
+	err := addCommentToCritJSON("main.go", 1, 1, "comment", "TestBot", tmp)
+	if err != nil {
+		t.Fatalf("setup comment: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(tmp, ".crit.json"))
+	if err != nil {
+		t.Fatalf("read .crit.json: %v", err)
+	}
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+	commentID := cj.Files["main.go"].Comments[0].ID
+
+	// Step 2: Run --json with a new comment + reply to the existing comment
+	input := fmt.Sprintf(`[{"file":"main.go","line":5,"body":"another"},{"reply_to":%q,"body":"reply","resolve":true}]`, commentID)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcess_CommentJSONMix$", "--")
-	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
-	cmd.Stdin = strings.NewReader(`[{"file":"main.go","line":1,"body":"comment"},{"reply_to":"c1","body":"reply","resolve":true}]`)
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1", "TEST_OUTPUT_DIR="+tmp)
+	cmd.Stdin = strings.NewReader(input)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("process exited with error: %v\noutput: %s", err, out)
@@ -316,7 +335,10 @@ func TestHelperProcess_CommentJSONMix(t *testing.T) {
 	if os.Getenv("GO_TEST_HELPER") != "1" {
 		return
 	}
-	tmp := t.TempDir()
+	tmp := os.Getenv("TEST_OUTPUT_DIR")
+	if tmp == "" {
+		tmp = t.TempDir()
+	}
 	runComment([]string{"--json", "--output", tmp, "--author", "TestBot"})
 }
 
@@ -761,5 +783,88 @@ func TestResolvePlanConfig_NameOnly(t *testing.T) {
 	}
 	if !pc.stdinExpected {
 		t.Error("expected stdinExpected=true when no file arg")
+	}
+}
+
+func TestCountComments(t *testing.T) {
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"a.go": {Comments: []Comment{
+				{ID: "c1", Resolved: false},
+				{ID: "c2", Resolved: true},
+			}},
+			"b.go": {Comments: []Comment{
+				{ID: "c3", Resolved: false},
+			}},
+		},
+		ReviewComments: []Comment{
+			{ID: "r1", Resolved: true},
+		},
+	}
+	unresolved, resolved := countComments(cj)
+	if unresolved != 2 {
+		t.Errorf("unresolved = %d, want 2", unresolved)
+	}
+	if resolved != 2 {
+		t.Errorf("resolved = %d, want 2", resolved)
+	}
+}
+
+func TestFindStaleReviews(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a review file with an old updated_at.
+	oldTime := time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	cj := CritJSON{
+		Branch:      "old-branch",
+		UpdatedAt:   oldTime,
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {Comments: []Comment{{ID: "c1"}}},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	if err := os.WriteFile(filepath.Join(dir, "stale123.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a recent review file.
+	recentCJ := CritJSON{
+		Branch:      "recent-branch",
+		UpdatedAt:   time.Now().UTC().Format(time.RFC3339),
+		ReviewRound: 1,
+		Files:       map[string]CritJSONFile{},
+	}
+	recentData, _ := json.MarshalIndent(recentCJ, "", "  ")
+	if err := os.WriteFile(filepath.Join(dir, "recent456.json"), recentData, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	stale := findStaleReviews(dir, 7)
+	if len(stale) != 1 {
+		t.Fatalf("expected 1 stale review, got %d", len(stale))
+	}
+	if stale[0].branch != "old-branch" {
+		t.Errorf("branch = %q, want %q", stale[0].branch, "old-branch")
+	}
+	if stale[0].comments != 1 {
+		t.Errorf("comments = %d, want 1", stale[0].comments)
+	}
+}
+
+func TestDeleteStaleReviews(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+	if err := os.WriteFile(path, []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	stale := []staleReview{{key: "test", path: path}}
+	deleted := deleteStaleReviews(stale)
+	if deleted != 1 {
+		t.Errorf("deleted = %d, want 1", deleted)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("stale review file should be deleted")
 	}
 }

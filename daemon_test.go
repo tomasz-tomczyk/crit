@@ -13,47 +13,47 @@ import (
 )
 
 func TestSessionKey_Deterministic(t *testing.T) {
-	k1 := sessionKey("/tmp/repo", []string{"plan.md"})
-	k2 := sessionKey("/tmp/repo", []string{"plan.md"})
+	k1 := sessionKey("/tmp/repo", "main", []string{"plan.md"})
+	k2 := sessionKey("/tmp/repo", "main", []string{"plan.md"})
 	if k1 != k2 {
 		t.Errorf("same inputs produced different keys: %s vs %s", k1, k2)
 	}
 }
 
 func TestSessionKey_DifferentArgs(t *testing.T) {
-	k1 := sessionKey("/tmp/repo", nil)
-	k2 := sessionKey("/tmp/repo", []string{"plan.md"})
+	k1 := sessionKey("/tmp/repo", "main", nil)
+	k2 := sessionKey("/tmp/repo", "main", []string{"plan.md"})
 	if k1 == k2 {
 		t.Errorf("different args produced same key: %s", k1)
 	}
 }
 
 func TestSessionKey_SortedArgs(t *testing.T) {
-	k1 := sessionKey("/tmp/repo", []string{"a.md", "b.md"})
-	k2 := sessionKey("/tmp/repo", []string{"b.md", "a.md"})
+	k1 := sessionKey("/tmp/repo", "main", []string{"a.md", "b.md"})
+	k2 := sessionKey("/tmp/repo", "main", []string{"b.md", "a.md"})
 	if k1 != k2 {
 		t.Errorf("arg order should not matter: %s vs %s", k1, k2)
 	}
 }
 
 func TestSessionKey_DifferentCWD(t *testing.T) {
-	k1 := sessionKey("/tmp/repo1", nil)
-	k2 := sessionKey("/tmp/repo2", nil)
+	k1 := sessionKey("/tmp/repo1", "main", nil)
+	k2 := sessionKey("/tmp/repo2", "main", nil)
 	if k1 == k2 {
 		t.Errorf("different CWDs produced same key: %s", k1)
 	}
 }
 
 func TestSessionKey_NilVsEmpty(t *testing.T) {
-	k1 := sessionKey("/tmp/repo", nil)
-	k2 := sessionKey("/tmp/repo", []string{})
+	k1 := sessionKey("/tmp/repo", "main", nil)
+	k2 := sessionKey("/tmp/repo", "main", []string{})
 	if k1 != k2 {
 		t.Errorf("nil and empty args should produce same key: %s vs %s", k1, k2)
 	}
 }
 
 func TestSessionKey_Length(t *testing.T) {
-	k := sessionKey("/tmp/repo", nil)
+	k := sessionKey("/tmp/repo", "main", nil)
 	if len(k) != 12 {
 		t.Errorf("expected key length 12, got %d: %s", len(k), k)
 	}

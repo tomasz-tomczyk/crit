@@ -57,6 +57,8 @@ var commandDispatch = map[string]func([]string){
 	"plan-hook": func([]string) { runPlanHook() },
 	"auth":      runAuth,
 	"stop":      runStop,
+	"status":    runStatus,
+	"cleanup":   runCleanup,
 	"_serve":    runServe,
 }
 
@@ -153,18 +155,18 @@ func printQR(url string, showQR bool) {
 	}
 }
 
-func runShareExisting(existingCfg CritJSON, critDir string, files []shareFile, sharePaths []string, authToken string, showQR bool) {
+func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, sharePaths []string, authToken string, showQR bool) {
 	localIDs := buildLocalIDSet(existingCfg)
 	localFingerprints := buildLocalFingerprints(existingCfg)
 	if webComments, err := fetchNewWebComments(existingCfg.ShareURL, localIDs, localFingerprints, authToken); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not pull remote comments: %v\n", err)
 	} else if len(webComments) > 0 {
-		if err := mergeWebComments(critDir, webComments); err != nil {
+		if err := mergeWebComments(critPath, webComments); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not merge remote comments: %v\n", err)
 		}
 	}
 
-	allComments, _ := loadCommentsForUpsert(critDir, sharePaths)
+	allComments, _ := loadCommentsForUpsert(critPath, sharePaths)
 
 	result, err := upsertShareToWeb(existingCfg, files, allComments, authToken)
 	if err != nil {
@@ -172,7 +174,7 @@ func runShareExisting(existingCfg CritJSON, critDir string, files []shareFile, s
 		os.Exit(1)
 	}
 
-	if err := updateShareState(critDir, computeShareHash(files, allComments), result.ReviewRound); err != nil {
+	if err := updateShareState(critPath, computeShareHash(files, allComments), result.ReviewRound); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state: %v\n", err)
 	}
 	if result.Changed {
@@ -184,8 +186,8 @@ func runShareExisting(existingCfg CritJSON, critDir string, files []shareFile, s
 	printQR(result.URL, showQR)
 }
 
-func runShareNew(critDir string, files []shareFile, filePaths []string, svcURL, authToken string, showQR bool) {
-	comments, reviewRound := loadCommentsForShare(critDir, filePaths)
+func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL, authToken string, showQR bool) {
+	comments, reviewRound := loadCommentsForShare(critPath, filePaths)
 
 	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken)
 	if err != nil {
@@ -193,12 +195,12 @@ func runShareNew(critDir string, files []shareFile, filePaths []string, svcURL, 
 		os.Exit(1)
 	}
 
-	if err := persistShareState(critDir, url, deleteToken, shareScope(filePaths)); err != nil {
+	if err := persistShareState(critPath, url, deleteToken, shareScope(filePaths)); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state to .crit.json: %v\n", err)
 	}
 
-	initialComments, _ := loadCommentsForUpsert(critDir, filePaths)
-	_ = updateShareState(critDir, computeShareHash(files, initialComments), reviewRound)
+	initialComments, _ := loadCommentsForUpsert(critPath, filePaths)
+	_ = updateShareState(critPath, computeShareHash(files, initialComments), reviewRound)
 
 	fmt.Println(url)
 	printQR(url, showQR)
@@ -221,7 +223,7 @@ func runShare(args []string) {
 
 	files := loadShareFiles(sf.files)
 
-	critDir, err := resolveCritDir(sf.outputDir)
+	critPath, err := resolveReviewPath(sf.outputDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -232,12 +234,12 @@ func runShare(args []string) {
 		sharePaths[i] = f.Path
 	}
 
-	if existingCfg, ok := loadExistingShareCfg(critDir, sharePaths); ok {
-		runShareExisting(existingCfg, critDir, files, sharePaths, authToken, sf.showQR)
+	if existingCfg, ok := loadExistingShareCfg(critPath, sharePaths); ok {
+		runShareExisting(existingCfg, critPath, files, sharePaths, authToken, sf.showQR)
 		return
 	}
 
-	runShareNew(critDir, files, sharePaths, sf.svcURL, authToken, sf.showQR)
+	runShareNew(critPath, files, sharePaths, sf.svcURL, authToken, sf.showQR)
 }
 
 func parseFetchOutputDir(args []string) string {
@@ -263,25 +265,6 @@ func parseFetchOutputDir(args []string) string {
 	return outputDir
 }
 
-func loadCritJSONForFetch(critDir string) CritJSON {
-	critPath := filepath.Join(critDir, ".crit.json")
-	data, err := os.ReadFile(critPath)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error: no .crit.json found. Run `crit share` first.")
-		os.Exit(1)
-	}
-	var cj CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid .crit.json: %v\n", err)
-		os.Exit(1)
-	}
-	if cj.ShareURL == "" {
-		fmt.Fprintln(os.Stderr, "Error: no share URL in .crit.json. Run `crit share` first.")
-		os.Exit(1)
-	}
-	return cj
-}
-
 func printFetchedComments(webComments []webComment) {
 	fmt.Printf("Fetched %d new comment(s) into .crit.json\n", len(webComments))
 	for _, wc := range webComments {
@@ -298,16 +281,52 @@ func printFetchedComments(webComments []webComment) {
 	}
 }
 
+// highestWebIndex returns the highest numeric suffix among "web-N" comment IDs
+// in a CritJSON structure. This ensures new web comment IDs are globally unique.
+func highestWebIndex(cj CritJSON) int {
+	max := 0
+	for _, f := range cj.Files {
+		for _, c := range f.Comments {
+			if strings.HasPrefix(c.ID, "web-") {
+				if n, err := strconv.Atoi(strings.TrimPrefix(c.ID, "web-")); err == nil && n > max {
+					max = n
+				}
+			}
+		}
+	}
+	for _, c := range cj.ReviewComments {
+		if strings.HasPrefix(c.ID, "web-") {
+			if n, err := strconv.Atoi(strings.TrimPrefix(c.ID, "web-")); err == nil && n > max {
+				max = n
+			}
+		}
+	}
+	return max
+}
+
 func runFetch(args []string) {
 	outputDir := parseFetchOutputDir(args)
 
-	critDir, err := resolveCritDir(outputDir)
+	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	cj := loadCritJSONForFetch(critDir)
+	data, readErr := os.ReadFile(critPath)
+	if readErr != nil {
+		fmt.Fprintln(os.Stderr, "Error: no review file found. Run `crit share` first.")
+		os.Exit(1)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid review file: %v\n", err)
+		os.Exit(1)
+	}
+	if cj.ShareURL == "" {
+		fmt.Fprintln(os.Stderr, "Error: no share URL in review file. Run `crit share` first.")
+		os.Exit(1)
+	}
 
 	authToken := resolveAuthToken(loadShareConfig())
 	localIDs := buildLocalIDSet(cj)
@@ -324,8 +343,37 @@ func runFetch(args []string) {
 		return
 	}
 
-	if err := mergeWebComments(critDir, webComments); err != nil {
-		fmt.Fprintf(os.Stderr, "Error merging comments: %v\n", err)
+	// Merge web comments into the review file
+	if cj.Files == nil {
+		cj.Files = make(map[string]CritJSONFile)
+	}
+	webCount := highestWebIndex(cj)
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, wc := range webComments {
+		webCount++
+		c := Comment{
+			ID:          fmt.Sprintf("web-%d", webCount),
+			StartLine:   wc.StartLine,
+			EndLine:     wc.EndLine,
+			Body:        wc.Body,
+			Quote:       wc.Quote,
+			Author:      wc.AuthorDisplayName,
+			Scope:       wc.Scope,
+			ReviewRound: wc.ReviewRound,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if wc.Scope == "review" {
+			cj.ReviewComments = append(cj.ReviewComments, c)
+		} else {
+			entry := cj.Files[wc.FilePath]
+			entry.Comments = append(entry.Comments, c)
+			cj.Files[wc.FilePath] = entry
+		}
+	}
+	cj.UpdatedAt = now
+	if err := saveCritJSON(critPath, cj); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving review file: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -362,24 +410,23 @@ func runUnpublish(args []string) {
 	unpubSvcURL = resolveShareURL(unpubSvcURL, unpubCfg)
 	unpubAuthToken := resolveAuthToken(unpubCfg)
 
-	critDir, err := resolveCritDir(unpubOutputDir)
+	critPath, err := resolveReviewPath(unpubOutputDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	critPath := filepath.Join(critDir, ".crit.json")
 	data, err := os.ReadFile(critPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error: no .crit.json found. Nothing to unpublish.")
+		fmt.Fprintln(os.Stderr, "Error: no review file found. Nothing to unpublish.")
 		os.Exit(1)
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid .crit.json: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: invalid review file: %v\n", err)
 		os.Exit(1)
 	}
 	if cj.DeleteToken == "" {
-		fmt.Fprintln(os.Stderr, "No shared review found in .crit.json — nothing to unpublish.")
+		fmt.Fprintln(os.Stderr, "No shared review found — nothing to unpublish.")
 		return
 	}
 
@@ -388,8 +435,14 @@ func runUnpublish(args []string) {
 		os.Exit(1)
 	}
 
-	if err := clearShareState(critDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not clear share state from .crit.json: %v\n", err)
+	// Clear share state from the review file
+	cj.ShareURL = ""
+	cj.DeleteToken = ""
+	cj.ShareScope = ""
+	cj.LastShareHash = ""
+	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := saveCritJSON(critPath, cj); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not clear share state: %v\n", err)
 	}
 
 	fmt.Println("Review unpublished.")
@@ -474,27 +527,6 @@ func parsePullFlags(args []string) pullFlags {
 	return f
 }
 
-func loadOrCreateCritJSON(critDir string) CritJSON {
-	var cj CritJSON
-	if data, err := os.ReadFile(filepath.Join(critDir, ".crit.json")); err == nil {
-		if err := json.Unmarshal(data, &cj); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: existing .crit.json is invalid, starting fresh: %v\n", err)
-		}
-	}
-	if cj.Files == nil {
-		cj.Files = make(map[string]CritJSONFile)
-		cj.Branch = CurrentBranch()
-		cfg := LoadConfig(critDir)
-		base := cfg.BaseBranch
-		if base == "" {
-			base = DefaultBranch()
-		}
-		cj.BaseRef, _ = MergeBase(base)
-		cj.ReviewRound = 1
-	}
-	return cj
-}
-
 func runPull(args []string) {
 	if err := requireGH(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -515,12 +547,28 @@ func runPull(args []string) {
 		os.Exit(1)
 	}
 
-	critDir, err := resolveCritDir(f.outputDir)
+	critPath, err := resolveReviewPath(f.outputDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	cj := loadOrCreateCritJSON(critDir)
+	var cj CritJSON
+	if data, readErr := os.ReadFile(critPath); readErr == nil {
+		if jsonErr := json.Unmarshal(data, &cj); jsonErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: existing review file is invalid, starting fresh: %v\n", jsonErr)
+		}
+	}
+	if cj.Files == nil {
+		cj.Files = make(map[string]CritJSONFile)
+		cj.Branch = CurrentBranch()
+		cfg := LoadConfig("")
+		base := cfg.BaseBranch
+		if base == "" {
+			base = DefaultBranch()
+		}
+		cj.BaseRef, _ = MergeBase(base)
+		cj.ReviewRound = 1
+	}
 
 	added := mergeGHComments(&cj, ghComments)
 
@@ -529,12 +577,12 @@ func runPull(args []string) {
 		return
 	}
 
-	if err := writeCritJSON(cj, f.outputDir); err != nil {
+	if err := saveCritJSON(critPath, cj); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("Pulled %d comments from PR #%d into .crit.json\n", added, prNumber)
+	fmt.Printf("Pulled %d comments from PR #%d into %s\n", added, prNumber, critPath)
 	fmt.Println("Run 'crit' to view them in the browser.")
 }
 
@@ -657,19 +705,19 @@ func runPush(args []string) {
 		os.Exit(1)
 	}
 
-	critDir, err := resolveCritDir(f.outputDir)
+	critPath, err := resolveReviewPath(f.outputDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	data, err := os.ReadFile(filepath.Join(critDir, ".crit.json"))
+	data, err := os.ReadFile(critPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: no .crit.json found. Run a crit review first.\n")
+		fmt.Fprintf(os.Stderr, "Error: no review file found. Run a crit review first.\n")
 		os.Exit(1)
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid .crit.json: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: invalid review file: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -700,7 +748,6 @@ func runPush(args []string) {
 
 	replyIDs := postPushReplies(prNumber, allReplies)
 
-	critPath := filepath.Join(critDir, ".crit.json")
 	if err := updateCritJSONWithGitHubIDs(critPath, commentIDs, replyIDs); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to update .crit.json with GitHub IDs: %v\n", err)
 	}
@@ -1006,11 +1053,10 @@ func fileExistsOnDiskOrSession(path string, outputDir string) bool {
 		}
 	}
 	// Check if it exists in .crit.json
-	root, err := resolveCritDir(outputDir)
+	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
 		return false
 	}
-	critPath := filepath.Join(root, ".crit.json")
 	cj, err := loadCritJSON(critPath)
 	if err != nil {
 		return false
@@ -1328,7 +1374,11 @@ func runReview(args []string) {
 	}
 
 	cwd, _ := resolvedCWD()
-	key := sessionKey(cwd, sc.files)
+	branch := ""
+	if IsGitRepo() {
+		branch = CurrentBranch()
+	}
+	key := sessionKey(cwd, branch, sc.files)
 
 	// Check for running daemon with the same session key
 	entry, alive := findAliveSession(key)
@@ -1454,7 +1504,11 @@ func runStop(args []string) {
 		return
 	}
 
-	key := sessionKey(cwd, fileArgs)
+	branch := ""
+	if IsGitRepo() {
+		branch = CurrentBranch()
+	}
+	key := sessionKey(cwd, branch, fileArgs)
 	if err := stopDaemon(key); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -1677,7 +1731,11 @@ func serveSessionKey(sc *serverConfig) string {
 	if sc.planDir != "" {
 		return planSessionKey(cwd, sc.planName)
 	}
-	return sessionKey(cwd, sc.files)
+	branch := ""
+	if IsGitRepo() {
+		branch = CurrentBranch()
+	}
+	return sessionKey(cwd, branch, sc.files)
 }
 
 func checkStaleIntegrations(sc *serverConfig, srv *Server, cwd string) {
@@ -1738,12 +1796,25 @@ func runServe(args []string) {
 
 	cwd, _ := resolvedCWD()
 	key := serveSessionKey(sc)
+	branch := ""
+	if IsGitRepo() {
+		branch = CurrentBranch()
+	}
+	var reviewPath string
+	if sc.outputDir != "" {
+		abs, _ := filepath.Abs(sc.outputDir)
+		reviewPath = filepath.Join(abs, ".crit.json")
+	} else {
+		reviewPath, _ = reviewFilePath(key)
+	}
 	if err := writeSessionFile(key, sessionEntry{
-		PID:       os.Getpid(),
-		Port:      addr.Port,
-		CWD:       cwd,
-		Args:      sc.files,
-		StartedAt: time.Now().UTC().Format(time.RFC3339),
+		PID:        os.Getpid(),
+		Port:       addr.Port,
+		CWD:        cwd,
+		Args:       sc.files,
+		Branch:     branch,
+		ReviewPath: reviewPath,
+		StartedAt:  time.Now().UTC().Format(time.RFC3339),
 	}); err != nil {
 		daemonFatal(pipe, "Error writing session file: %v", err)
 	}
@@ -1818,6 +1889,18 @@ func runServe(args []string) {
 	applySessionOverrides(session, sc)
 	session.CLIArgs = sc.files
 
+	// Set centralized review file path
+	if sc.outputDir == "" {
+		session.ReviewFilePath = reviewPath
+	}
+
+	// Migrate legacy .crit.json if needed
+	if sc.outputDir == "" && session.RepoRoot != "" {
+		if migrateRepoCritJSON(session.RepoRoot, reviewPath) {
+			fmt.Fprintf(os.Stderr, "Migrated .crit.json to %s\n", reviewPath)
+		}
+	}
+
 	checkStaleIntegrations(sc, srv, cwd)
 
 	srv.SetSession(session)
@@ -1840,9 +1923,322 @@ func runServe(args []string) {
 	session.Shutdown()
 	session.WriteFiles()
 
+	if session.ReviewFilePath != "" {
+		fmt.Fprintf(os.Stderr, "Review file: %s\n", session.ReviewFilePath)
+	}
+
 	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(shutCtx)
+}
+
+func runStatus(args []string) {
+	jsonOutput := false
+	for _, arg := range args {
+		if arg == "--json" {
+			jsonOutput = true
+		}
+	}
+
+	cwd, err := resolvedCWD()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	branch := ""
+	if IsGitRepo() {
+		branch = CurrentBranch()
+	}
+
+	sessions, keys := listSessionsForCWD(cwd)
+	var matchedSession *sessionEntry
+	for i, s := range sessions {
+		if s.Branch == branch || (branch == "" && len(sessions) == 1) {
+			matchedSession = &sessions[i]
+			_ = keys[i]
+			break
+		}
+	}
+
+	var revPath string
+	if matchedSession != nil && matchedSession.ReviewPath != "" {
+		revPath = matchedSession.ReviewPath
+	} else {
+		key := sessionKey(cwd, branch, nil)
+		revPath, _ = reviewFilePath(key)
+	}
+
+	revExists := false
+	if _, statErr := os.Stat(revPath); statErr == nil {
+		revExists = true
+	}
+
+	if jsonOutput {
+		printStatusJSON(branch, revPath, revExists, matchedSession)
+		return
+	}
+
+	printStatusHuman(branch, revPath, revExists, matchedSession)
+}
+
+func printStatusJSON(branch, revPath string, revExists bool, session *sessionEntry) {
+	result := map[string]interface{}{
+		"branch":             branch,
+		"review_file":        revPath,
+		"review_file_exists": revExists,
+	}
+	daemon := map[string]interface{}{"running": false}
+	if session != nil {
+		daemon["running"] = true
+		daemon["pid"] = session.PID
+		daemon["port"] = session.Port
+	}
+	result["daemon"] = daemon
+
+	if revExists {
+		addReviewStats(result, revPath)
+	}
+
+	data, _ := json.MarshalIndent(result, "", "  ")
+	fmt.Println(string(data))
+}
+
+func addReviewStats(result map[string]interface{}, revPath string) {
+	data, err := os.ReadFile(revPath)
+	if err != nil {
+		return
+	}
+	var cj CritJSON
+	if json.Unmarshal(data, &cj) != nil {
+		return
+	}
+	result["round"] = cj.ReviewRound
+	unresolved, resolved := countComments(cj)
+	result["comments"] = map[string]int{
+		"unresolved": unresolved,
+		"resolved":   resolved,
+	}
+}
+
+func printStatusHuman(branch, revPath string, revExists bool, session *sessionEntry) {
+	if branch != "" {
+		fmt.Printf("Branch:      %s\n", branch)
+	}
+	fmt.Printf("Review file: %s\n", revPath)
+	if session != nil {
+		fmt.Printf("Daemon:      running (PID %d, port %d)\n", session.PID, session.Port)
+	} else {
+		fmt.Println("Daemon:      not running")
+	}
+	if !revExists {
+		return
+	}
+	data, err := os.ReadFile(revPath)
+	if err != nil {
+		return
+	}
+	var cj CritJSON
+	if json.Unmarshal(data, &cj) != nil {
+		return
+	}
+	fmt.Printf("Round:       %d\n", cj.ReviewRound)
+	unresolved, resolved := countComments(cj)
+	fmt.Printf("Comments:    %d unresolved, %d resolved\n", unresolved, resolved)
+}
+
+func countComments(cj CritJSON) (unresolved, resolved int) {
+	for _, f := range cj.Files {
+		for _, c := range f.Comments {
+			if c.Resolved {
+				resolved++
+			} else {
+				unresolved++
+			}
+		}
+	}
+	for _, c := range cj.ReviewComments {
+		if c.Resolved {
+			resolved++
+		} else {
+			unresolved++
+		}
+	}
+	return
+}
+
+func runCleanup(args []string) {
+	days := 7
+	force := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--days":
+			if i+1 < len(args) {
+				i++
+				d, err := strconv.Atoi(args[i])
+				if err != nil || d < 0 {
+					fmt.Fprintf(os.Stderr, "Error: invalid --days value\n")
+					os.Exit(1)
+				}
+				days = d
+			}
+		case "--force":
+			force = true
+		default:
+			fmt.Fprintf(os.Stderr, "Usage: crit cleanup [--days N] [--force]\n")
+			os.Exit(1)
+		}
+	}
+
+	revDir, err := reviewsDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	stale := findStaleReviews(revDir, days)
+	if len(stale) == 0 {
+		fmt.Println("No stale review files found.")
+		return
+	}
+
+	fmt.Printf("Found %d stale review file%s:\n", len(stale), plural(len(stale)))
+	for _, s := range stale {
+		ageDays := int(s.age.Hours() / 24)
+		branchInfo := ""
+		if s.branch != "" {
+			branchInfo = s.branch + ", "
+		}
+		fmt.Printf("  %s  (%s%d days old, %d comment%s)\n", s.path, branchInfo, ageDays, s.comments, plural(s.comments))
+	}
+
+	if !force {
+		fmt.Print("Delete all? [y/N] ")
+		var answer string
+		fmt.Scanln(&answer)
+		answer = strings.ToLower(strings.TrimSpace(answer))
+		if answer != "y" && answer != "yes" {
+			fmt.Println("Aborted.")
+			return
+		}
+	}
+
+	deleted := deleteStaleReviews(stale)
+	fmt.Printf("Deleted %d review file%s.\n", deleted, plural(deleted))
+}
+
+type staleReview struct {
+	key      string
+	path     string
+	branch   string
+	age      time.Duration
+	comments int
+}
+
+func findStaleReviews(revDir string, days int) []staleReview {
+	entries, err := os.ReadDir(revDir)
+	if err != nil {
+		return nil
+	}
+
+	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	activeSessions := buildActiveSessionSet()
+
+	var stale []staleReview
+	for _, de := range entries {
+		if !strings.HasSuffix(de.Name(), ".json") {
+			continue
+		}
+		key := strings.TrimSuffix(de.Name(), ".json")
+		if activeSessions[key] {
+			continue
+		}
+		if sr, ok := checkStaleReview(revDir, de, key, cutoff); ok {
+			stale = append(stale, sr)
+		}
+	}
+	return stale
+}
+
+func buildActiveSessionSet() map[string]bool {
+	sessDir, _ := sessionsDir()
+	active := make(map[string]bool)
+	sessEntries, err := os.ReadDir(sessDir)
+	if err != nil {
+		return active
+	}
+	for _, se := range sessEntries {
+		if !strings.HasSuffix(se.Name(), ".json") {
+			continue
+		}
+		key := strings.TrimSuffix(se.Name(), ".json")
+		data, err := os.ReadFile(filepath.Join(sessDir, se.Name()))
+		if err != nil {
+			continue
+		}
+		var entry sessionEntry
+		if json.Unmarshal(data, &entry) == nil && isDaemonAlive(entry) {
+			active[key] = true
+		}
+	}
+	return active
+}
+
+func checkStaleReview(revDir string, de os.DirEntry, key string, cutoff time.Time) (staleReview, bool) {
+	path := filepath.Join(revDir, de.Name())
+	info, err := de.Info()
+	if err != nil {
+		return staleReview{}, false
+	}
+
+	var updatedAt time.Time
+	var branch string
+	var commentCount int
+	if data, readErr := os.ReadFile(path); readErr == nil {
+		var cj CritJSON
+		if json.Unmarshal(data, &cj) == nil {
+			branch = cj.Branch
+			if t, parseErr := time.Parse(time.RFC3339, cj.UpdatedAt); parseErr == nil {
+				updatedAt = t
+			}
+			for _, f := range cj.Files {
+				commentCount += len(f.Comments)
+			}
+			commentCount += len(cj.ReviewComments)
+		}
+	}
+	if updatedAt.IsZero() {
+		updatedAt = info.ModTime()
+	}
+
+	if !updatedAt.Before(cutoff) {
+		return staleReview{}, false
+	}
+	return staleReview{
+		key:      key,
+		path:     path,
+		branch:   branch,
+		age:      time.Since(updatedAt),
+		comments: commentCount,
+	}, true
+}
+
+func deleteStaleReviews(stale []staleReview) int {
+	sessDir, _ := sessionsDir()
+	deleted := 0
+	for _, s := range stale {
+		if err := os.Remove(s.path); err != nil {
+			fmt.Fprintf(os.Stderr, "Error deleting %s: %v\n", s.path, err)
+			continue
+		}
+		deleted++
+		if sessDir != "" {
+			os.Remove(filepath.Join(sessDir, s.key+".json"))
+			os.Remove(filepath.Join(sessDir, s.key+".lock"))
+			os.Remove(filepath.Join(sessDir, s.key+".log"))
+		}
+	}
+	return deleted
 }
 
 func printHelp() {
@@ -1868,6 +2264,8 @@ Usage:
   crit auth logout                           Log out and revoke token
   crit auth whoami                           Show current user info
   crit install <agent>                       Install integration files for an AI coding tool
+  crit status [--json]                        Print session info (review file, daemon, comments)
+  crit cleanup [--days N] [--force]           Delete stale review files (default: 7 days)
   crit check                                 Check if installed integrations are up to date
   crit config [--generate]                    Show resolved configuration
   crit help                                  Show this help message

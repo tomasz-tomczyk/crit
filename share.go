@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -209,24 +208,23 @@ func buildShareFromSession(s *Session) ([]shareFile, []shareComment, int) {
 	return files, comments, s.ReviewRound
 }
 
-// loadCommentsForShare reads .crit.json from dir and returns shareComment entries
+// loadCommentsForShare reads the review file at critPath and returns shareComment entries
 // for the given file paths, plus the review round. Resolved comments are excluded.
-func loadCommentsForShare(dir string, filePaths []string) ([]shareComment, int) {
-	return loadCommentsFromCritJSON(dir, filePaths, false, false)
+func loadCommentsForShare(critPath string, filePaths []string) ([]shareComment, int) {
+	return loadCommentsFromCritJSON(critPath, filePaths, false, false)
 }
 
 // loadCommentsForUpsert loads unresolved comments with ExternalID set for
 // round-trip tracking. Resolved comments are excluded — same as initial share.
-func loadCommentsForUpsert(dir string, filePaths []string) ([]shareComment, int) {
-	return loadCommentsFromCritJSON(dir, filePaths, false, true)
+func loadCommentsForUpsert(critPath string, filePaths []string) ([]shareComment, int) {
+	return loadCommentsFromCritJSON(critPath, filePaths, false, true)
 }
 
-// loadCommentsFromCritJSON reads .crit.json from dir and returns shareComment entries
-// for the given file paths, plus the review round. When includeResolved is true,
+// loadCommentsFromCritJSON reads the review file at critPath and returns shareComment
+// entries for the given file paths, plus the review round. When includeResolved is true,
 // resolved comments are included. When setExternalID is true, ExternalID is set
 // from the local comment ID for round-trip tracking.
-func loadCommentsFromCritJSON(dir string, filePaths []string, includeResolved bool, setExternalID bool) ([]shareComment, int) {
-	critPath := filepath.Join(dir, ".crit.json")
+func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolved bool, setExternalID bool) ([]shareComment, int) {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
 		return nil, 1
@@ -476,8 +474,7 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, 
 }
 
 // loadExistingShareCfg returns the full CritJSON if a matching share exists (same file scope).
-func loadExistingShareCfg(dir string, paths []string) (CritJSON, bool) {
-	critPath := filepath.Join(dir, ".crit.json")
+func loadExistingShareCfg(critPath string, paths []string) (CritJSON, bool) {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
 		return CritJSON{}, false
@@ -513,10 +510,9 @@ func buildLocalIDSet(cj CritJSON) map[string]bool {
 	return ids
 }
 
-// mergeWebComments adds web-reviewer comments into .crit.json under their respective files
-// or into review_comments for review-level (scope:"review") comments.
-func mergeWebComments(dir string, newComments []webComment) error {
-	critPath := filepath.Join(dir, ".crit.json")
+// mergeWebComments adds web-reviewer comments into the review file under their respective
+// files or into review_comments for review-level (scope:"review") comments.
+func mergeWebComments(critPath string, newComments []webComment) error {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
 		return err
@@ -573,9 +569,8 @@ func mergeWebComments(dir string, newComments []webComment) error {
 	return saveCritJSON(critPath, cj)
 }
 
-// updateShareState writes LastShareHash and ReviewRound back to .crit.json.
-func updateShareState(dir string, hash string, reviewRound int) error {
-	critPath := filepath.Join(dir, ".crit.json")
+// updateShareState writes LastShareHash and ReviewRound back to the review file.
+func updateShareState(critPath string, hash string, reviewRound int) error {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
 		return err
@@ -590,10 +585,9 @@ func updateShareState(dir string, hash string, reviewRound int) error {
 	return saveCritJSON(critPath, cj)
 }
 
-// persistShareState writes the share URL, delete token, and scope hash to .crit.json,
+// persistShareState writes the share URL, delete token, and scope hash to the review file,
 // preserving any existing content.
-func persistShareState(dir string, shareURL string, deleteToken string, scope string) error {
-	critPath := filepath.Join(dir, ".crit.json")
+func persistShareState(critPath string, shareURL string, deleteToken string, scope string) error {
 	var cj CritJSON
 	if data, err := os.ReadFile(critPath); err == nil {
 		_ = json.Unmarshal(data, &cj)
@@ -609,9 +603,8 @@ func persistShareState(dir string, shareURL string, deleteToken string, scope st
 	return saveCritJSON(critPath, cj)
 }
 
-// clearShareState removes share URL and delete token from .crit.json.
-func clearShareState(dir string) error {
-	critPath := filepath.Join(dir, ".crit.json")
+// clearShareState removes share URL and delete token from the review file.
+func clearShareState(critPath string) error {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
 		return nil // no .crit.json, nothing to clear

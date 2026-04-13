@@ -64,7 +64,7 @@ func TestLoadCommentsForUpsert_ExcludesResolved(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, round := loadCommentsForUpsert(dir, []string{"plan.md"})
+	comments, round := loadCommentsForUpsert(filepath.Join(dir, ".crit.json"), []string{"plan.md"})
 	if round != 1 {
 		t.Errorf("expected round 1, got %d", round)
 	}
@@ -93,7 +93,7 @@ func TestLoadCommentsForUpsert_SetsExternalID(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, _ := loadCommentsForUpsert(dir, []string{"main.go"})
+	comments, _ := loadCommentsForUpsert(filepath.Join(dir, ".crit.json"), []string{"main.go"})
 	if len(comments) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(comments))
 	}
@@ -120,7 +120,7 @@ func TestLoadCommentsForUpsert_ReviewLevelComments(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, _ := loadCommentsForUpsert(dir, []string{"plan.md"})
+	comments, _ := loadCommentsForUpsert(filepath.Join(dir, ".crit.json"), []string{"plan.md"})
 
 	// Should have 2 comments: 1 file-level + 1 unresolved review-level
 	if len(comments) != 2 {
@@ -405,7 +405,7 @@ func TestLoadCommentsForFiles(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
 
 	// Only load unresolved comments for plan.md (c1 and c2, not c3)
-	comments, round := loadCommentsForShare(dir, []string{"plan.md"})
+	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"})
 	if round != 2 {
 		t.Errorf("expected round 2, got %d", round)
 	}
@@ -417,13 +417,13 @@ func TestLoadCommentsForFiles(t *testing.T) {
 	}
 
 	// Load for both files — 3 unresolved (c1, c2, c4), not 5 total
-	comments, _ = loadCommentsForShare(dir, []string{"plan.md", "other.go"})
+	comments, _ = loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md", "other.go"})
 	if len(comments) != 3 {
 		t.Fatalf("expected 3 unresolved comments, got %d", len(comments))
 	}
 
 	// Load for nonexistent file
-	comments, round = loadCommentsForShare(dir, []string{"nope.md"})
+	comments, round = loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"nope.md"})
 	if len(comments) != 0 {
 		t.Errorf("expected 0 comments, got %d", len(comments))
 	}
@@ -434,7 +434,7 @@ func TestLoadCommentsForFiles(t *testing.T) {
 
 func TestLoadCommentsForFiles_NoCritJSON(t *testing.T) {
 	dir := t.TempDir()
-	comments, round := loadCommentsForShare(dir, []string{"plan.md"})
+	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"})
 	if len(comments) != 0 {
 		t.Errorf("expected 0 comments, got %d", len(comments))
 	}
@@ -447,7 +447,7 @@ func TestPersistShareState(t *testing.T) {
 	dir := t.TempDir()
 
 	// Persist to new .crit.json
-	err := persistShareState(dir, "https://crit.md/r/abc", "tok_123", "")
+	err := persistShareState(filepath.Join(dir, ".crit.json"), "https://crit.md/r/abc", "tok_123", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -479,7 +479,7 @@ func TestPersistShareState_PreservesExisting(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
 
 	// Persist share state
-	err := persistShareState(dir, "https://crit.md/r/def", "tok_456", "")
+	err := persistShareState(filepath.Join(dir, ".crit.json"), "https://crit.md/r/def", "tok_456", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -581,7 +581,7 @@ func TestClearShareState(t *testing.T) {
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
 
-	err := clearShareState(dir)
+	err := clearShareState(filepath.Join(dir, ".crit.json"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -837,7 +837,7 @@ func TestLoadExistingShareCfg(t *testing.T) {
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	os.WriteFile(critPath, data, 0644)
 
-	cfg, ok := loadExistingShareCfg(dir, []string{"anything.md"})
+	cfg, ok := loadExistingShareCfg(critPath, []string{"anything.md"})
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -851,7 +851,7 @@ func TestLoadExistingShareCfg(t *testing.T) {
 
 func TestLoadExistingShareCfg_NoCritJSON(t *testing.T) {
 	dir := t.TempDir()
-	_, ok := loadExistingShareCfg(dir, []string{"plan.md"})
+	_, ok := loadExistingShareCfg(filepath.Join(dir, ".crit.json"), []string{"plan.md"})
 	if ok {
 		t.Error("expected ok=false when no .crit.json exists")
 	}
@@ -864,7 +864,7 @@ func TestLoadExistingShareCfg_NoShareState(t *testing.T) {
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	os.WriteFile(critPath, data, 0644)
 
-	_, ok := loadExistingShareCfg(dir, []string{"plan.md"})
+	_, ok := loadExistingShareCfg(critPath, []string{"plan.md"})
 	if ok {
 		t.Error("expected ok=false when no share URL set")
 	}
@@ -884,13 +884,13 @@ func TestLoadExistingShareCfg_ScopeMismatch(t *testing.T) {
 	os.WriteFile(critPath, data, 0644)
 
 	// Different file set — should NOT return share state
-	_, ok := loadExistingShareCfg(dir, []string{"new-plan.md"})
+	_, ok := loadExistingShareCfg(critPath, []string{"new-plan.md"})
 	if ok {
 		t.Error("expected ok=false for mismatched scope")
 	}
 
 	// Same file set — should return share state
-	cfg, ok := loadExistingShareCfg(dir, []string{"old-plan.md"})
+	cfg, ok := loadExistingShareCfg(critPath, []string{"old-plan.md"})
 	if !ok {
 		t.Fatal("expected ok=true for matching scope")
 	}

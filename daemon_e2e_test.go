@@ -47,8 +47,8 @@ func TestDaemonLifecycle(t *testing.T) {
 	homeDir := t.TempDir()
 	homeDir, _ = filepath.EvalSymlinks(homeDir)
 
-	// Compute expected session key (cwd=repoDir, args=[])
-	key := sessionKey(repoDir, nil)
+	// Compute expected session key (cwd=repoDir, branch=main, args=[])
+	key := sessionKey(repoDir, "main", nil)
 	sessDir := filepath.Join(homeDir, ".crit", "sessions")
 	sessionPath := filepath.Join(sessDir, key+".json")
 

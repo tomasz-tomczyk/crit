@@ -26,7 +26,7 @@ func TestWatchFileMtimes_CommentNotLostOnFileChange(t *testing.T) {
 		Mode:        "files",
 		RepoRoot:    dir,
 		ReviewRound: 1,
-		nextID:      1,
+
 		Files: []*FileEntry{
 			{
 				Path:     "plan.md",
@@ -80,7 +80,7 @@ func TestWatchFileMtimes_ConcurrentAddDuringChange(t *testing.T) {
 		Mode:        "files",
 		RepoRoot:    dir,
 		ReviewRound: 1,
-		nextID:      1,
+
 		Files: []*FileEntry{
 			{
 				Path:     "plan.md",

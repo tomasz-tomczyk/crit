@@ -22,10 +22,10 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 	}
 
 	session := &Session{
-		Mode:          "files",
-		RepoRoot:      dir,
-		ReviewRound:   1,
-		nextID:        1,
+		Mode:        "files",
+		RepoRoot:    dir,
+		ReviewRound: 1,
+
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 		Files: []*FileEntry{
@@ -1919,10 +1919,10 @@ func TestReadinessGate_Returns200AfterSetSession(t *testing.T) {
 	os.WriteFile(path, []byte("hello\n"), 0644)
 
 	session := &Session{
-		Mode:          "files",
-		RepoRoot:      dir,
-		ReviewRound:   1,
-		nextID:        1,
+		Mode:        "files",
+		RepoRoot:    dir,
+		ReviewRound: 1,
+
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 		Files: []*FileEntry{

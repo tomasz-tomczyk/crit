@@ -22,6 +22,16 @@ type Config struct {
 	NoIntegrationCheck bool     `json:"no_integration_check,omitempty"`
 	AgentCmd           string   `json:"agent_cmd,omitempty"`
 	AuthToken          string   `json:"auth_token,omitempty"`
+	CleanupOnApprove   *bool    `json:"cleanup_on_approve,omitempty"`
+}
+
+// CleanupOnApproveEnabled returns whether review files should be cleaned up
+// when a review is approved. Defaults to true if not explicitly set.
+func (c Config) CleanupOnApproveEnabled() bool {
+	if c.CleanupOnApprove != nil {
+		return *c.CleanupOnApprove
+	}
+	return true
 }
 
 // String returns a human-readable JSON representation of the resolved config.
@@ -52,7 +62,8 @@ func defaultConfig() generatedConfig {
 			".crit.json",
 			".crit/",
 		},
-		AgentCmd: "",
+		AgentCmd:         "",
+		CleanupOnApprove: true,
 	}
 }
 
@@ -70,6 +81,7 @@ type generatedConfig struct {
 	IgnorePatterns     []string `json:"ignore_patterns"`
 	NoIntegrationCheck bool     `json:"no_integration_check"`
 	AgentCmd           string   `json:"agent_cmd"`
+	CleanupOnApprove   bool     `json:"cleanup_on_approve"`
 }
 
 func (c generatedConfig) String() string {
@@ -88,6 +100,7 @@ type configPresence struct {
 	NoOpen             bool
 	Quiet              bool
 	NoIntegrationCheck bool
+	CleanupOnApprove   bool
 }
 
 // loadConfigFile reads and parses a single JSON config file.
@@ -113,6 +126,7 @@ func loadConfigFile(path string) (Config, configPresence, error) {
 	_, presence.NoOpen = raw["no_open"]
 	_, presence.Quiet = raw["quiet"]
 	_, presence.NoIntegrationCheck = raw["no_integration_check"]
+	_, presence.CleanupOnApprove = raw["cleanup_on_approve"]
 
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
@@ -149,6 +163,9 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	}
 	if projectPresence.NoIntegrationCheck {
 		merged.NoIntegrationCheck = project.NoIntegrationCheck
+	}
+	if projectPresence.CleanupOnApprove {
+		merged.CleanupOnApprove = project.CleanupOnApprove
 	}
 	// auth_token is global-only (like agent_cmd) — project config cannot override
 	// Union ignore patterns
