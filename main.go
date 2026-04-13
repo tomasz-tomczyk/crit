@@ -1519,8 +1519,41 @@ func runStop(args []string) {
 	if IsGitRepo() {
 		branch = CurrentBranch()
 	}
-	key := sessionKey(cwd, branch, fileArgs)
-	if err := stopDaemon(key); err != nil {
+
+	// If file args were given, use the exact key (user knows which session).
+	if len(fileArgs) > 0 {
+		key := sessionKey(cwd, branch, fileArgs)
+		if err := stopDaemon(key); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Daemon stopped.")
+		return
+	}
+
+	// No file args: try exact key first (git-mode session with no args).
+	key := sessionKey(cwd, branch, nil)
+	if entry, _ := readSessionFile(key); entry.PID > 0 {
+		if err := stopDaemon(key); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Daemon stopped.")
+		return
+	}
+
+	// Exact key not found — fall back to scanning by cwd + branch.
+	_, foundKey, matchCount := findSessionForCWDBranch(cwd, branch)
+	if matchCount > 1 {
+		fmt.Fprintf(os.Stderr, "Error: multiple daemons running on branch %q. Use 'crit stop --all' or specify file args.\n", branch)
+		os.Exit(1)
+	}
+	if matchCount == 0 {
+		fmt.Fprintln(os.Stderr, "Error: no running daemon found for current directory and branch.")
+		os.Exit(1)
+	}
+
+	if err := stopDaemon(foundKey); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

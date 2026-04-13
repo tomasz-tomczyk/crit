@@ -388,3 +388,98 @@ func TestIsDaemonAlive_AcceptsCritResponse(t *testing.T) {
 		t.Error("isDaemonAlive should return true for valid crit health response")
 	}
 }
+
+func TestFindSessionForCWDBranch_MatchesByBranch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cwd := "/tmp/myrepo"
+
+	// Create a mock HTTP server that responds to /api/health
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts.Close()
+	port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
+
+	// Write a session with file args (simulates "crit README.md")
+	writeSessionFile("abc123def456", sessionEntry{
+		PID:        os.Getpid(),
+		Port:       port,
+		CWD:        cwd,
+		Args:       []string{"README.md"},
+		Branch:     "main",
+		ReviewPath: "/tmp/reviews/abc123def456.json",
+	})
+
+	// findSessionForCWDBranch should find it by cwd + branch
+	entry, key, matchCount := findSessionForCWDBranch(cwd, "main")
+	if matchCount != 1 {
+		t.Fatalf("expected matchCount 1, got %d", matchCount)
+	}
+	if key != "abc123def456" {
+		t.Errorf("expected key abc123def456, got %s", key)
+	}
+	if entry.Port != port {
+		t.Errorf("expected port %d, got %d", port, entry.Port)
+	}
+}
+
+func TestFindSessionForCWDBranch_NoBranchMatch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cwd := "/tmp/myrepo"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts.Close()
+	port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
+
+	writeSessionFile("abc123def456", sessionEntry{
+		PID:    os.Getpid(),
+		Port:   port,
+		CWD:    cwd,
+		Branch: "feature/other",
+	})
+
+	_, _, matchCount := findSessionForCWDBranch(cwd, "main")
+	if matchCount != 0 {
+		t.Errorf("expected matchCount 0, got %d", matchCount)
+	}
+}
+
+func TestFindSessionForCWDBranch_MultipleMatches(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cwd := "/tmp/myrepo"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts.Close()
+	port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
+
+	// Two sessions on same branch (different file args)
+	writeSessionFile("session1aaaa", sessionEntry{
+		PID:    os.Getpid(),
+		Port:   port,
+		CWD:    cwd,
+		Args:   []string{"README.md"},
+		Branch: "main",
+	})
+	writeSessionFile("session2bbbb", sessionEntry{
+		PID:    os.Getpid(),
+		Port:   port,
+		CWD:    cwd,
+		Branch: "main",
+	})
+
+	// Should return matchCount > 1 when ambiguous
+	_, _, matchCount := findSessionForCWDBranch(cwd, "main")
+	if matchCount != 2 {
+		t.Errorf("expected matchCount 2 for ambiguous case, got %d", matchCount)
+	}
+}

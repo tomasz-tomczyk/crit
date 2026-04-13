@@ -235,6 +235,23 @@ func listSessionsForCWD(cwd string) ([]sessionEntry, []string) {
 	return alive, keys
 }
 
+// findSessionForCWDBranch scans all alive sessions for the given cwd and branch.
+// Returns the session, its key, and the number of branch matches found.
+// The session and key are only valid when matchCount == 1.
+func findSessionForCWDBranch(cwd, branch string) (entry sessionEntry, key string, matchCount int) {
+	sessions, keys := listSessionsForCWD(cwd)
+	var matched []int
+	for i, s := range sessions {
+		if s.Branch == branch {
+			matched = append(matched, i)
+		}
+	}
+	if len(matched) == 1 {
+		return sessions[matched[0]], keys[matched[0]], 1
+	}
+	return sessionEntry{}, "", len(matched)
+}
+
 // isDaemonAlive checks if the daemon process is running AND responding to HTTP.
 // After PID recycling, a different process could listen on the same port,
 // so we validate that the response body contains {"status":"ok"}.
