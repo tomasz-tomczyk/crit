@@ -626,24 +626,9 @@ func TestCheckForUpdates(t *testing.T) {
 
 	s, _ := newTestServer(t)
 	s.currentVersion = "v1.0.0"
+	s.githubAPIURL = gh.URL
 
-	// Test the parsing logic via our mock
-	req, _ := http.NewRequest("GET", gh.URL+"/repos/tomasz-tomczyk/crit/releases/latest", nil)
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var release struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		t.Fatal(err)
-	}
-	s.versionMu.Lock()
-	s.latestVersion = release.TagName
-	s.versionMu.Unlock()
+	s.CheckForUpdates()
 
 	s.versionMu.RLock()
 	got := s.latestVersion
@@ -652,16 +637,48 @@ func TestCheckForUpdates(t *testing.T) {
 		t.Errorf("latestVersion = %q, want v9.9.9", got)
 	}
 
-	// Verify config reflects it
-	req2 := httptest.NewRequest("GET", "/api/config", nil)
-	w2 := httptest.NewRecorder()
-	s.ServeHTTP(w2, req2)
+	// Verify config API reflects it
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
 	var cfg map[string]any
-	if err := json.Unmarshal(w2.Body.Bytes(), &cfg); err != nil {
+	if err := json.Unmarshal(w.Body.Bytes(), &cfg); err != nil {
 		t.Fatal(err)
 	}
 	if cfg["latest_version"] != "v9.9.9" {
 		t.Errorf("config latest_version = %v, want v9.9.9", cfg["latest_version"])
+	}
+}
+
+func TestCheckForUpdates_SkipsDevVersion(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.currentVersion = "dev"
+	s.CheckForUpdates()
+
+	s.versionMu.RLock()
+	got := s.latestVersion
+	s.versionMu.RUnlock()
+	if got != "" {
+		t.Errorf("latestVersion should be empty for dev builds, got %q", got)
+	}
+}
+
+func TestCheckForUpdates_HandlesServerError(t *testing.T) {
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer gh.Close()
+
+	s, _ := newTestServer(t)
+	s.currentVersion = "v1.0.0"
+	s.githubAPIURL = gh.URL
+	s.CheckForUpdates()
+
+	s.versionMu.RLock()
+	got := s.latestVersion
+	s.versionMu.RUnlock()
+	if got != "" {
+		t.Errorf("latestVersion should be empty on server error, got %q", got)
 	}
 }
 

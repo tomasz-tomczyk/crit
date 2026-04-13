@@ -35,6 +35,7 @@ type Server struct {
 	latestVersion     string
 	versionMu         sync.RWMutex
 	staleIntegrations []staleFile
+	githubAPIURL      string // override for testing; defaults to "https://api.github.com"
 	port              int
 	status            *Status
 	ready             atomic.Bool
@@ -157,8 +158,12 @@ func (s *Server) CheckForUpdates() {
 	if s.currentVersion == "" || s.currentVersion == "dev" {
 		return
 	}
+	base := s.githubAPIURL
+	if base == "" {
+		base = "https://api.github.com"
+	}
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get("https://api.github.com/repos/tomasz-tomczyk/crit/releases/latest")
+	resp, err := client.Get(base + "/repos/tomasz-tomczyk/crit/releases/latest")
 	if err != nil {
 		return
 	}
