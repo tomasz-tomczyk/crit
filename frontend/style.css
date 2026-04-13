@@ -2081,9 +2081,9 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .settings-pill--theme .settings-pill-btn { width: 32px; padding: 8px 0; }
 .settings-pill--theme .settings-pill-btn svg { width: 16px; height: 16px; display: block; }
 
-/* Width pill: 3 text buttons */
+/* Width pill: 3 equal-width text buttons */
 .settings-pill--width .settings-pill-indicator { width: 33.333%; }
-.settings-pill--width .settings-pill-btn { padding: 6px 16px; }
+.settings-pill--width .settings-pill-btn { padding: 6px 0; width: 72px; text-align: center; }
 
 /* Config cards */
 .config-card {

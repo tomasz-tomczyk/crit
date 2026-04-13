@@ -6910,7 +6910,8 @@
           html += '<span class="config-card-title">AI Integration</span>';
           html += '<span class="config-card-value">' + escapeHtml(name) + ' (update available)</span>';
           html += '</div>';
-          html += '<div class="config-card-cmd"><span>$ ' + escapeHtml(si.hint) + '</span><button class="config-card-copy" data-copy="' + escapeHtml(si.hint) + '">Copy</button></div>';
+          const hintCmd = si.hint.replace(/^Run:\s*/, '');
+          html += '<div class="config-card-cmd"><span>$ ' + escapeHtml(hintCmd) + '</span><button class="config-card-copy" data-copy="' + escapeHtml(hintCmd) + '">Copy</button></div>';
           html += '</div>';
         } else if (current.length > 0) {
           const name = current[0].agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
@@ -7013,7 +7014,7 @@
         { key: '<kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd>', action: 'Switch scope', mode: 'git mode' },
       ]},
       { label: 'View', shortcuts: [
-        { key: '<kbd>t</kbd>', action: 'Toggle table of contents', mode: 'single-file' },
+        { key: '<kbd>t</kbd>', action: 'Toggle table of contents', mode: 'file mode' },
         { key: '<kbd>Esc</kbd>', action: 'Cancel / clear focus' },
         { key: '<kbd>?</kbd>', action: 'Toggle this panel' },
       ]},
