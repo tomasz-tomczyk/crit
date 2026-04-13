@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -137,4 +138,116 @@ func TestWatchFileMtimes_ConcurrentAddDuringChange(t *testing.T) {
 	_ = f.Comments // access under lock — no race
 	_ = f.FileHash
 	s.mu.RUnlock()
+}
+
+// TestCarryForwardAllComments_NoDuplicateOnDisk verifies that carried-forward
+// comments don't produce duplicates when WriteFiles merges with disk state.
+// The old comment ID must be tracked as deleted so mergeFileSnapshotIntoCritJSON
+// skips it, leaving only the new carried-forward copy.
+func TestCarryForwardAllComments_NoDuplicateOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	reviewPath := filepath.Join(dir, "review.json")
+
+	s := &Session{
+		Mode:           "git",
+		RepoRoot:       dir,
+		ReviewFilePath: reviewPath,
+		Files: []*FileEntry{
+			{
+				Path:     "main.go",
+				AbsPath:  filepath.Join(dir, "main.go"),
+				Status:   "modified",
+				FileType: "code",
+				Comments: []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old1",
+						StartLine: 10,
+						EndLine:   10,
+						Body:      "Fix this",
+						Author:    "Tomasz",
+						Scope:     "line",
+						CreatedAt: "2026-04-13T10:00:00Z",
+						UpdatedAt: "2026-04-13T10:00:00Z",
+						Resolved:  true,
+						Replies: []Reply{
+							{ID: "rp_1", Body: "Fixed", Author: "Agent", CreatedAt: "2026-04-13T10:01:00Z"},
+						},
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	// Write the "old" version to disk (simulates the state before round-complete).
+	oldCJ := CritJSON{
+		Branch:      "main",
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{
+						ID:        "c_old1",
+						StartLine: 10,
+						EndLine:   10,
+						Body:      "Fix this",
+						Author:    "Tomasz",
+						Scope:     "line",
+						CreatedAt: "2026-04-13T10:00:00Z",
+						UpdatedAt: "2026-04-13T10:00:00Z",
+						Resolved:  true,
+						Replies: []Reply{
+							{ID: "rp_1", Body: "Fixed", Author: "Agent", CreatedAt: "2026-04-13T10:01:00Z"},
+						},
+					},
+				},
+			},
+		},
+	}
+	data, err := json.MarshalIndent(oldCJ, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reviewPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run carry-forward (simulates what handleRoundCompleteGit does).
+	s.mu.Lock()
+	s.carryForwardAllComments()
+	s.mu.Unlock()
+
+	// Verify in-memory state: exactly 1 comment with a NEW id.
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 carried-forward comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if carried.ID == "c_old1" {
+		t.Error("carried-forward comment should have a new ID")
+	}
+	if !carried.CarriedForward {
+		t.Error("expected CarriedForward=true")
+	}
+
+	// Now write to disk (this is where the duplicate appears without the fix).
+	s.WriteFiles()
+
+	diskData, err := os.ReadFile(reviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var diskCJ CritJSON
+	if err := json.Unmarshal(diskData, &diskCJ); err != nil {
+		t.Fatal(err)
+	}
+
+	diskComments := diskCJ.Files["main.go"].Comments
+	if len(diskComments) != 1 {
+		t.Errorf("expected 1 comment on disk after WriteFiles, got %d", len(diskComments))
+		for _, c := range diskComments {
+			t.Logf("  id=%s carried_forward=%v resolved=%v", c.ID, c.CarriedForward, c.Resolved)
+		}
+	}
 }

@@ -288,8 +288,10 @@ func (s *Session) carryForwardAllComments() {
 		}
 		for _, c := range f.PreviousComments {
 			carried := carryForwardComment(c, randomCommentID(), now)
-
 			f.Comments = append(f.Comments, carried)
+			// Track the old ID as deleted so mergeFileSnapshotIntoCritJSON
+			// won't re-add the original from disk alongside the carried-forward copy.
+			s.trackDeletedComment(f.Path, c.ID)
 		}
 	}
 }
