@@ -20,6 +20,7 @@ type Config struct {
 	BaseBranch         string   `json:"base_branch,omitempty"`
 	IgnorePatterns     []string `json:"ignore_patterns,omitempty"`
 	NoIntegrationCheck bool     `json:"no_integration_check,omitempty"`
+	NoUpdateCheck      bool     `json:"no_update_check,omitempty"`
 	AgentCmd           string   `json:"agent_cmd,omitempty"`
 	AuthToken          string   `json:"auth_token,omitempty"`
 	CleanupOnApprove   *bool    `json:"cleanup_on_approve,omitempty"`
@@ -80,6 +81,7 @@ type generatedConfig struct {
 	BaseBranch         string   `json:"base_branch"`
 	IgnorePatterns     []string `json:"ignore_patterns"`
 	NoIntegrationCheck bool     `json:"no_integration_check"`
+	NoUpdateCheck      bool     `json:"no_update_check"`
 	AgentCmd           string   `json:"agent_cmd"`
 	CleanupOnApprove   bool     `json:"cleanup_on_approve"`
 }
@@ -100,6 +102,7 @@ type configPresence struct {
 	NoOpen             bool
 	Quiet              bool
 	NoIntegrationCheck bool
+	NoUpdateCheck      bool
 	CleanupOnApprove   bool
 }
 
@@ -126,6 +129,7 @@ func loadConfigFile(path string) (Config, configPresence, error) {
 	_, presence.NoOpen = raw["no_open"]
 	_, presence.Quiet = raw["quiet"]
 	_, presence.NoIntegrationCheck = raw["no_integration_check"]
+	_, presence.NoUpdateCheck = raw["no_update_check"]
 	_, presence.CleanupOnApprove = raw["cleanup_on_approve"]
 
 	if err := json.Unmarshal(data, &cfg); err != nil {
@@ -163,6 +167,9 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	}
 	if projectPresence.NoIntegrationCheck {
 		merged.NoIntegrationCheck = project.NoIntegrationCheck
+	}
+	if projectPresence.NoUpdateCheck {
+		merged.NoUpdateCheck = project.NoUpdateCheck
 	}
 	if projectPresence.CleanupOnApprove {
 		merged.CleanupOnApprove = project.CleanupOnApprove

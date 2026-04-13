@@ -1554,6 +1554,7 @@ type serverConfig struct {
 	ignorePatterns     []string
 	files              []string // explicit file arguments (empty = git mode)
 	noIntegrationCheck bool
+	noUpdateCheck      bool
 	agentCmd           string
 	planDir            string // managed storage directory for plan mode
 	planName           string // display name for plan content
@@ -1689,6 +1690,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		author:             cfg.Author,
 		ignorePatterns:     ignorePatterns,
 		noIntegrationCheck: cfg.NoIntegrationCheck,
+		noUpdateCheck:      cfg.NoUpdateCheck,
 		agentCmd:           cfg.AgentCmd,
 		files:              sf.fileArgs,
 		planDir:            sf.planDir,
@@ -1913,6 +1915,10 @@ func runServe(args []string) {
 	}
 
 	checkStaleIntegrations(sc, srv, cwd)
+
+	if !sc.noUpdateCheck && os.Getenv("CRIT_NO_UPDATE_CHECK") == "" {
+		go srv.CheckForUpdates()
+	}
 
 	srv.SetSession(session)
 
