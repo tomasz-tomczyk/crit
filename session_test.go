@@ -3459,4 +3459,3 @@ func TestSession_WriteFiles_IncludesResolvedComments(t *testing.T) {
 		t.Error("resolved state should be persisted to .crit.json")
 	}
 }
-
