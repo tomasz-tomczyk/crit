@@ -325,7 +325,6 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 		s.Files = append(s.Files, fe)
 	}
 
-	s.loadCritJSON()
 	return s, nil
 }
 
@@ -448,7 +447,6 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 		s.Files = append(s.Files, fe)
 	}
 
-	s.loadCritJSON()
 	return s, nil
 }
 

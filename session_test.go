@@ -3459,3 +3459,211 @@ func TestSession_WriteFiles_IncludesResolvedComments(t *testing.T) {
 		t.Error("resolved state should be persisted to .crit.json")
 	}
 }
+
+func TestLoadCritJSON_RestoresShareState(t *testing.T) {
+	s := newTestSession(t)
+
+	// Compute the share scope for this session's files.
+	paths := make([]string, len(s.Files))
+	for i, f := range s.Files {
+		paths[i] = f.Path
+	}
+	scope := shareScope(paths)
+
+	// Write a review file with share state.
+	reviewPath := filepath.Join(s.RepoRoot, "review.json")
+	cj := CritJSON{
+		Branch:      "main",
+		BaseRef:     "abc123",
+		UpdatedAt:   time.Now().Format(time.RFC3339),
+		ReviewRound: 1,
+		ShareURL:    "https://crit.example.com/review/abc",
+		DeleteToken: "tok_secret123",
+		ShareScope:  scope,
+		Files:       map[string]CritJSONFile{},
+	}
+	data, err := json.Marshal(cj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, reviewPath, string(data))
+
+	// Point the session at the review file and load.
+	s.ReviewFilePath = reviewPath
+	s.loadCritJSON()
+
+	if s.sharedURL != "https://crit.example.com/review/abc" {
+		t.Errorf("sharedURL = %q, want %q", s.sharedURL, "https://crit.example.com/review/abc")
+	}
+	if s.deleteToken != "tok_secret123" {
+		t.Errorf("deleteToken = %q, want %q", s.deleteToken, "tok_secret123")
+	}
+	if s.shareScope != scope {
+		t.Errorf("shareScope = %q, want %q", s.shareScope, scope)
+	}
+}
+
+func TestLoadCritJSON_ShareScopeMismatch(t *testing.T) {
+	s := newTestSession(t)
+
+	// Write a review file with a share scope that does not match this session.
+	reviewPath := filepath.Join(s.RepoRoot, "review.json")
+	cj := CritJSON{
+		ShareURL:    "https://crit.example.com/review/old",
+		DeleteToken: "tok_old",
+		ShareScope:  "mismatched_scope_value",
+		Files:       map[string]CritJSONFile{},
+	}
+	data, err := json.Marshal(cj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, reviewPath, string(data))
+
+	s.ReviewFilePath = reviewPath
+	s.loadCritJSON()
+
+	// Share state should NOT be loaded because the scope doesn't match.
+	if s.sharedURL != "" {
+		t.Errorf("sharedURL = %q, want empty (scope mismatch)", s.sharedURL)
+	}
+	if s.deleteToken != "" {
+		t.Errorf("deleteToken = %q, want empty (scope mismatch)", s.deleteToken)
+	}
+}
+
+func TestLoadCritJSON_LegacyNoScope(t *testing.T) {
+	s := newTestSession(t)
+
+	// Legacy .crit.json without ShareScope — should load unconditionally.
+	reviewPath := filepath.Join(s.RepoRoot, "review.json")
+	cj := CritJSON{
+		ShareURL:    "https://crit.example.com/review/legacy",
+		DeleteToken: "tok_legacy",
+		Files:       map[string]CritJSONFile{},
+	}
+	data, err := json.Marshal(cj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, reviewPath, string(data))
+
+	s.ReviewFilePath = reviewPath
+	s.loadCritJSON()
+
+	if s.sharedURL != "https://crit.example.com/review/legacy" {
+		t.Errorf("sharedURL = %q, want %q", s.sharedURL, "https://crit.example.com/review/legacy")
+	}
+	if s.deleteToken != "tok_legacy" {
+		t.Errorf("deleteToken = %q, want %q", s.deleteToken, "tok_legacy")
+	}
+}
+
+func TestCreateSession_LoadsShareFromReviewPath(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Create a file on a feature branch so git mode detects changes.
+	runGit(t, dir, "checkout", "-b", "feat-share")
+	writeFile(t, filepath.Join(dir, "new.md"), "# New\n\nContent\n")
+	runGit(t, dir, "add", "new.md")
+	runGit(t, dir, "commit", "-m", "add new.md")
+
+	// Prepare a review file with share state.
+	reviewPath := filepath.Join(t.TempDir(), "review.json")
+	scope := shareScope([]string{"new.md"})
+	cj := CritJSON{
+		Branch:      "feat-share",
+		BaseRef:     "abc",
+		UpdatedAt:   time.Now().Format(time.RFC3339),
+		ReviewRound: 2,
+		ShareURL:    "https://crit.example.com/review/shared",
+		DeleteToken: "tok_shared",
+		ShareScope:  scope,
+		Files:       map[string]CritJSONFile{},
+	}
+	data, err := json.Marshal(cj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, reviewPath, string(data))
+
+	// Change to the repo dir so git operations work.
+	orig, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(orig) })
+
+	sc := &serverConfig{
+		reviewPath: reviewPath,
+	}
+	session, err := createSession(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if session.ReviewFilePath != reviewPath {
+		t.Errorf("ReviewFilePath = %q, want %q", session.ReviewFilePath, reviewPath)
+	}
+	if session.sharedURL != "https://crit.example.com/review/shared" {
+		t.Errorf("sharedURL = %q, want %q", session.sharedURL, "https://crit.example.com/review/shared")
+	}
+	if session.deleteToken != "tok_shared" {
+		t.Errorf("deleteToken = %q, want %q", session.deleteToken, "tok_shared")
+	}
+	if session.ReviewRound != 2 {
+		t.Errorf("ReviewRound = %d, want 2", session.ReviewRound)
+	}
+}
+
+func TestCreateSession_FilesMode_LoadsShareFromReviewPath(t *testing.T) {
+	dir := initTestRepo(t)
+	mdPath := filepath.Join(dir, "doc.md")
+	writeFile(t, mdPath, "# Doc\n\nHello\n")
+
+	// createSession -> NewSessionFromFiles will resolve the path relative to
+	// the git repo root. Compute the expected relative path so we can build
+	// a matching share scope.
+	orig, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(orig) })
+
+	// NewSessionFromFiles resolves paths relative to repo root ("doc.md").
+	scope := shareScope([]string{"doc.md"})
+
+	// Prepare a review file with share state.
+	reviewPath := filepath.Join(t.TempDir(), "review.json")
+	cj := CritJSON{
+		ShareURL:    "https://crit.example.com/review/files",
+		DeleteToken: "tok_files",
+		ShareScope:  scope,
+		ReviewRound: 3,
+		Files:       map[string]CritJSONFile{},
+	}
+	data, err := json.Marshal(cj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, reviewPath, string(data))
+
+	sc := &serverConfig{
+		files:      []string{"doc.md"},
+		reviewPath: reviewPath,
+	}
+	session, err := createSession(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if session.sharedURL != "https://crit.example.com/review/files" {
+		t.Errorf("sharedURL = %q, want %q", session.sharedURL, "https://crit.example.com/review/files")
+	}
+	if session.deleteToken != "tok_files" {
+		t.Errorf("deleteToken = %q, want %q", session.deleteToken, "tok_files")
+	}
+	if session.ReviewRound != 3 {
+		t.Errorf("ReviewRound = %d, want 3", session.ReviewRound)
+	}
+}

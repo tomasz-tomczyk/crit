@@ -1600,6 +1600,7 @@ type serverConfig struct {
 	agentCmd           string
 	planDir            string // managed storage directory for plan mode
 	planName           string // display name for plan content
+	reviewPath         string // centralized review file path (~/.crit/reviews/<key>.json)
 	cfg                Config // full resolved config for the settings panel
 }
 
@@ -1733,13 +1734,26 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 }
 
 func createSession(sc *serverConfig) (*Session, error) {
+	var session *Session
+	var err error
 	if len(sc.files) == 0 {
 		if !IsGitRepo() {
 			return nil, fmt.Errorf("not in a git repository and no files specified")
 		}
-		return NewSessionFromGit(sc.ignorePatterns)
+		session, err = NewSessionFromGit(sc.ignorePatterns)
+	} else {
+		session, err = NewSessionFromFiles(sc.files, sc.ignorePatterns)
 	}
-	return NewSessionFromFiles(sc.files, sc.ignorePatterns)
+	if err != nil {
+		return nil, err
+	}
+	// Set ReviewFilePath before loadCritJSON so it reads from the centralized
+	// review file, not the legacy repo-root .crit.json.
+	if sc.reviewPath != "" {
+		session.ReviewFilePath = sc.reviewPath
+		session.loadCritJSON()
+	}
+	return session, nil
 }
 
 func applySessionOverrides(session *Session, sc *serverConfig) {
@@ -1853,21 +1867,20 @@ func runServe(args []string) {
 	if IsGitRepo() {
 		branch = CurrentBranch()
 	}
-	var reviewPath string
 	if sc.outputDir != "" {
 		abs, _ := filepath.Abs(sc.outputDir)
-		reviewPath = filepath.Join(abs, ".crit.json")
+		sc.reviewPath = filepath.Join(abs, ".crit.json")
 	} else {
-		reviewPath, _ = reviewFilePath(key)
+		sc.reviewPath, _ = reviewFilePath(key)
 	}
-	srv.reviewPath = reviewPath
+	srv.reviewPath = sc.reviewPath
 	if err := writeSessionFile(key, sessionEntry{
 		PID:        os.Getpid(),
 		Port:       addr.Port,
 		CWD:        cwd,
 		Args:       sc.files,
 		Branch:     branch,
-		ReviewPath: reviewPath,
+		ReviewPath: sc.reviewPath,
 		StartedAt:  time.Now().UTC().Format(time.RFC3339),
 	}); err != nil {
 		daemonFatal(pipe, "Error writing session file: %v", err)
@@ -1942,11 +1955,6 @@ func runServe(args []string) {
 	}
 	applySessionOverrides(session, sc)
 	session.CLIArgs = sc.files
-
-	// Set centralized review file path
-	if sc.outputDir == "" {
-		session.ReviewFilePath = reviewPath
-	}
 
 	checkStaleIntegrations(sc, srv, cwd)
 
