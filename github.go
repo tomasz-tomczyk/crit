@@ -227,7 +227,7 @@ func appendNewGHReplies(comments []Comment, ci int, childReplies []ghComment) in
 			continue
 		}
 		comments[ci].Replies = append(comments[ci].Replies, Reply{
-			ID:        newReplyID(),
+			ID:        randomReplyID(),
 			Body:      r.Body,
 			Author:    r.User.Login,
 			CreatedAt: r.CreatedAt,
@@ -275,7 +275,7 @@ func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment
 	if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
 		for _, r := range childReplies {
 			comment.Replies = append(comment.Replies, Reply{
-				ID:        newReplyID(),
+				ID:        randomReplyID(),
 				Body:      r.Body,
 				Author:    r.User.Login,
 				CreatedAt: r.CreatedAt,
@@ -773,7 +773,7 @@ func appendReply(cj *CritJSON, commentID, body, author string, resolve bool, fil
 	for i, c := range cj.ReviewComments {
 		if c.ID == commentID {
 			reply := Reply{
-				ID:        newReplyID(),
+				ID:        randomReplyID(),
 				Body:      body,
 				Author:    author,
 				CreatedAt: now,
@@ -800,7 +800,7 @@ func appendReply(cj *CritJSON, commentID, body, author string, resolve bool, fil
 				if !found {
 					found = true
 					reply := Reply{
-						ID:        newReplyID(),
+						ID:        randomReplyID(),
 						Body:      body,
 						Author:    author,
 						CreatedAt: now,

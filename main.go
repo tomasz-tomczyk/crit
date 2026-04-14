@@ -218,7 +218,7 @@ func runShare(args []string) {
 	}
 
 	cfg := loadShareConfig()
-	sf.svcURL = resolveShareURL(sf.svcURL, cfg)
+	sf.svcURL = resolveShareURL(sf.svcURL, cfg, defaultShareURL)
 	authToken := resolveAuthToken(cfg)
 
 	files := loadShareFiles(sf.files)
@@ -407,7 +407,7 @@ func runUnpublish(args []string) {
 	}
 
 	unpubCfg := loadShareConfig()
-	unpubSvcURL = resolveShareURL(unpubSvcURL, unpubCfg)
+	unpubSvcURL = resolveShareURL(unpubSvcURL, unpubCfg, defaultShareURL)
 	unpubAuthToken := resolveAuthToken(unpubCfg)
 
 	critPath, err := resolveReviewPath(unpubOutputDir)
@@ -436,12 +436,7 @@ func runUnpublish(args []string) {
 	}
 
 	// Clear share state from the review file
-	cj.ShareURL = ""
-	cj.DeleteToken = ""
-	cj.ShareScope = ""
-	cj.LastShareHash = ""
-	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	if err := saveCritJSON(critPath, cj); err != nil {
+	if err := clearShareState(critPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not clear share state: %v\n", err)
 	}
 
@@ -1338,30 +1333,38 @@ func runPlanHook() {
 	emitHookDecision(approved, prompt)
 }
 
+// waitForDaemonReady polls the daemon's /api/session endpoint until it stops
+// returning 503 Service Unavailable (session not yet initialized). Returns the
+// last response status code and body, or an error if the daemon is unreachable
+// or the 5-minute deadline expires.
+func waitForDaemonReady(client *http.Client, port int) (statusCode int, body []byte, err error) {
+	deadline := time.Now().Add(5 * time.Minute)
+	for {
+		resp, reqErr := client.Get(fmt.Sprintf("http://localhost:%d/api/session", port))
+		if reqErr != nil {
+			return 0, nil, fmt.Errorf("could not reach daemon on port %d: %w", port, reqErr)
+		}
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			return resp.StatusCode, respBody, nil
+		}
+		if time.Now().After(deadline) {
+			return 0, nil, fmt.Errorf("daemon did not become ready within 5 minutes")
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 // runReviewClientRaw is like runReviewClient but returns (approved, prompt)
 // without writing to stdout — used by runPlanHook to construct hookSpecificOutput.
 func runReviewClientRaw(entry sessionEntry) (approved bool, prompt string) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 
 	// Wait for the server to finish initializing before calling review-cycle.
-	// The daemon signals readiness as soon as the port is bound, but session
-	// creation (git operations) may still be in progress.
-	initDeadline := time.Now().Add(5 * time.Minute)
-	for {
-		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/session", entry.Port))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "crit plan-hook: could not reach daemon: %v\n", err)
-			return true, ""
-		}
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusServiceUnavailable {
-			break
-		}
-		if time.Now().After(initDeadline) {
-			fmt.Fprintf(os.Stderr, "crit plan-hook: daemon did not become ready within 5 minutes\n")
-			return true, ""
-		}
-		time.Sleep(500 * time.Millisecond)
+	if _, _, err := waitForDaemonReady(client, entry.Port); err != nil {
+		fmt.Fprintf(os.Stderr, "crit plan-hook: %v\n", err)
+		return true, ""
 	}
 
 	resp, err := client.Post(
@@ -1450,37 +1453,21 @@ func runReviewClient(entry sessionEntry) (approved bool) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 
 	// Wait for the server to finish initializing before calling review-cycle.
-	// The daemon signals readiness as soon as the port is bound, but session
-	// creation (git operations) may still be in progress.
-	initDeadline := time.Now().Add(5 * time.Minute)
-	for {
-		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/session", entry.Port))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: could not reach crit daemon on port %d: %v\n", entry.Port, err)
-			os.Exit(1)
+	statusCode, body, err := waitForDaemonReady(client, entry.Port)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	if statusCode == http.StatusInternalServerError {
+		var status struct {
+			Message string `json:"message"`
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode == http.StatusServiceUnavailable {
-			if time.Now().After(initDeadline) {
-				fmt.Fprintf(os.Stderr, "Error: server did not finish initializing within 5 minutes\n")
-				os.Exit(1)
-			}
-			time.Sleep(500 * time.Millisecond)
-			continue
+		if json.Unmarshal(body, &status) == nil && status.Message != "" {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", status.Message)
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", body)
 		}
-		if resp.StatusCode == http.StatusInternalServerError {
-			var status struct {
-				Message string `json:"message"`
-			}
-			if json.Unmarshal(body, &status) == nil && status.Message != "" {
-				fmt.Fprintf(os.Stderr, "Error: %s\n", status.Message)
-			} else {
-				fmt.Fprintf(os.Stderr, "Error: %s\n", body)
-			}
-			os.Exit(1)
-		}
-		break
+		os.Exit(1)
 	}
 
 	resp, err := client.Post(
@@ -1499,7 +1486,7 @@ func runReviewClient(entry sessionEntry) (approved bool) {
 		os.Exit(1)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err = io.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
 		os.Exit(1)
@@ -1679,22 +1666,12 @@ func resolvePort(flagPort, cfgPort int) int {
 	return cfgPort
 }
 
-func resolveShareURLFromEnv(flagURL, cfgURL string) string {
-	if flagURL != "" {
-		return flagURL
-	}
-	if envShare, ok := os.LookupEnv("CRIT_SHARE_URL"); ok {
-		return envShare
-	}
-	return cfgURL
-}
-
 func applyConfigDefaults(sf *serverFlagSet, cfg Config) {
 	sf.port = resolvePort(sf.port, cfg.Port)
 	if !sf.noOpen && cfg.NoOpen {
 		sf.noOpen = true
 	}
-	sf.shareURL = resolveShareURLFromEnv(sf.shareURL, cfg.ShareURL)
+	sf.shareURL = resolveShareURL(sf.shareURL, cfg, "")
 	if !sf.quiet && cfg.Quiet {
 		sf.quiet = true
 	}

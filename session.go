@@ -668,7 +668,7 @@ func (s *Session) AddReviewCommentReply(commentID, body, author string) (Reply, 
 		if c.ID == commentID {
 			now := time.Now().UTC().Format(time.RFC3339)
 			r := Reply{
-				ID:        newReplyID(),
+				ID:        randomReplyID(),
 				Body:      body,
 				Author:    author,
 				CreatedAt: now,
@@ -792,11 +792,6 @@ func (s *Session) trackDeletedComment(filePath, id string) {
 	s.deletedCommentIDs[filePath][id] = struct{}{}
 }
 
-// newReplyID generates a random reply ID (e.g. "rp_d7e2a0").
-func newReplyID() string {
-	return randomReplyID()
-}
-
 // RefreshFileContent re-reads all file content from disk.
 func (s *Session) RefreshFileContent() {
 	s.mu.Lock()
@@ -829,7 +824,7 @@ func (s *Session) AddReply(filePath, commentID, body, author string) (Reply, boo
 		if c.ID == commentID {
 			now := time.Now().UTC().Format(time.RFC3339)
 			r := Reply{
-				ID:        newReplyID(),
+				ID:        randomReplyID(),
 				Body:      body,
 				Author:    author,
 				CreatedAt: now,

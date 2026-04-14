@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -61,7 +62,7 @@ func parseAuthLoginFlags(args []string) authLoginFlags {
 func runAuthLogin(args []string) {
 	flags := parseAuthLoginFlags(args)
 	cfg := loadShareConfig()
-	serverURL := resolveShareURL("", cfg)
+	serverURL := resolveShareURL("", cfg, defaultShareURL)
 	existingToken := resolveAuthToken(cfg)
 
 	if existingToken != "" && !flags.force {
@@ -319,7 +320,7 @@ func runAuthLogout(args []string) {
 		return
 	}
 
-	serverURL := resolveShareURL("", cfg)
+	serverURL := resolveShareURL("", cfg, defaultShareURL)
 	revoked := revokeToken(serverURL, token)
 
 	if err := removeAuthToken(); err != nil {
@@ -370,7 +371,7 @@ func runAuthWhoami(args []string) {
 		return
 	}
 
-	serverURL := resolveShareURL("", cfg)
+	serverURL := resolveShareURL("", cfg, defaultShareURL)
 	name, email, err := fetchWhoami(serverURL, token)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  Token is invalid or revoked. Run 'crit auth login' to re-authenticate.\n")
@@ -421,7 +422,7 @@ func fetchWhoami(serverURL string, token string) (string, string, error) {
 
 // errHintAlreadyShown is a sentinel error used by showLoginHint to skip
 // the write when the hint was already shown.
-var errHintAlreadyShown = fmt.Errorf("login hint already shown")
+var errHintAlreadyShown = errors.New("login hint already shown")
 
 // showLoginHint prints a one-time hint about crit auth login after anonymous shares.
 // Uses saveGlobalConfig for both read and write to avoid TOCTOU races.
@@ -434,7 +435,7 @@ func showLoginHint() {
 		m["login_hint_shown"] = json.RawMessage("true")
 		return nil
 	})
-	if err != nil && err != errHintAlreadyShown {
+	if err != nil && !errors.Is(err, errHintAlreadyShown) {
 		// Silently ignore config errors — this is a best-effort hint.
 		_ = err
 	}
