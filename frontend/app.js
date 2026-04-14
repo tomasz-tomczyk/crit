@@ -6852,8 +6852,9 @@
       html += '<div class="config-card config-card--green"><div class="config-card-header">';
       html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
       html += '<span class="config-card-title">Agent Command</span>';
-      html += '<span class="config-card-value"><code>' + escapeHtml(cfg.agent_cmd || cfg.agent_name || '') + '</code></span>';
-      html += '</div></div>';
+      html += '</div>';
+      html += '<div class="config-card-cmd-value"><code>' + escapeHtml(cfg.agent_cmd || cfg.agent_name || '') + '</code></div>';
+      html += '</div>';
     } else {
       html += '<div class="config-card config-card--orange config-card--unconfigured"><div class="config-card-header">';
       html += '<span class="config-card-icon" style="color:var(--yellow)">&#9675;</span>';
@@ -6879,8 +6880,19 @@
           html += '<span class="config-card-title">AI Integration</span>';
           html += '<span class="config-card-value">' + escapeHtml(name) + ' (update available)</span>';
           html += '</div>';
-          const hintCmd = si.hint.replace(/^Run:\s*/, '');
-          html += '<div class="config-card-cmd"><span>$ ' + escapeHtml(hintCmd) + '</span><button class="config-card-copy" data-copy="' + escapeHtml(hintCmd) + '">Copy</button></div>';
+          const hintLines = si.hint.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+          hintLines.forEach(function(line) {
+            const parts = line.split('|');
+            let label = '';
+            let cmd = line.replace(/^Run:\s*/i, '');
+            if (parts.length === 2) {
+              label = parts[0];
+              cmd = parts[1];
+            }
+            html += '<div class="config-card-cmd">';
+            if (label) html += '<span class="config-card-cmd-label">' + escapeHtml(label) + '</span>';
+            html += '<span>$ ' + escapeHtml(cmd) + '</span><button class="config-card-copy" data-copy="' + escapeHtml(cmd) + '">Copy</button></div>';
+          });
           html += '</div>';
         } else if (current.length > 0) {
           const name = current[0].agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
@@ -6910,7 +6922,7 @@
       try { hostname = new URL(cfg.share_url).hostname; } catch (_) { hostname = cfg.share_url; }
       html += '<div class="config-card config-card--green"><div class="config-card-header">';
       html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
-      html += '<span class="config-card-title">Share</span>';
+      html += '<span class="config-card-title">Sharing enabled</span>';
       html += '<span class="config-card-value">' + escapeHtml(hostname) + '</span>';
       html += '</div></div>';
     } else {

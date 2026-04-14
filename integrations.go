@@ -60,7 +60,7 @@ func toolDirFromDest(dest string) string {
 
 // marketplaceUpdateHint returns tool-specific advice for updating a marketplace plugin.
 var marketplaceUpdateHints = map[string]string{
-	".claude": "In Claude Code: /plugin marketplace update crit\n    Then run: claude plugin update crit@crit",
+	".claude": "In Claude Code|/plugin marketplace update crit\nIn terminal|claude plugin update crit@crit",
 	".cursor": "Update the crit plugin in Cursor settings",
 }
 
@@ -238,7 +238,7 @@ func printStaleWarnings(stale []staleFile) int {
 			continue
 		}
 		seen[k] = true
-		fmt.Fprintf(os.Stderr, "Note: %s integration outdated (%s). %s\n", s.agent, s.dest, s.updateHint())
+		fmt.Fprintf(os.Stderr, "Note: %s integration outdated (%s). %s\n", s.agent, s.dest, strings.ReplaceAll(s.updateHint(), "|", ": "))
 	}
 	return len(seen)
 }
@@ -274,6 +274,8 @@ func runCheck() {
 		}
 		seenHints[hint] = true
 		fmt.Fprintf(os.Stderr, "  outdated: %s\n", s.dest)
-		fmt.Fprintf(os.Stderr, "    → %s\n\n", hint)
+		// Replace label|cmd separators with ": " for terminal display
+		termHint := strings.ReplaceAll(hint, "|", ": ")
+		fmt.Fprintf(os.Stderr, "    → %s\n\n", termHint)
 	}
 }
