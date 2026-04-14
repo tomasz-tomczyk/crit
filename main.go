@@ -1342,6 +1342,28 @@ func runPlanHook() {
 // without writing to stdout — used by runPlanHook to construct hookSpecificOutput.
 func runReviewClientRaw(entry sessionEntry) (approved bool, prompt string) {
 	client := &http.Client{Timeout: 24 * time.Hour}
+
+	// Wait for the server to finish initializing before calling review-cycle.
+	// The daemon signals readiness as soon as the port is bound, but session
+	// creation (git operations) may still be in progress.
+	initDeadline := time.Now().Add(5 * time.Minute)
+	for {
+		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/session", entry.Port))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "crit plan-hook: could not reach daemon: %v\n", err)
+			return true, ""
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			break
+		}
+		if time.Now().After(initDeadline) {
+			fmt.Fprintf(os.Stderr, "crit plan-hook: daemon did not become ready within 5 minutes\n")
+			return true, ""
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
 	resp, err := client.Post(
 		fmt.Sprintf("http://localhost:%d/api/review-cycle", entry.Port),
 		"application/json",

@@ -379,6 +379,12 @@ When the agent runs `crit` (or calls `POST /api/round-complete`):
 5. **`crit stop`**: kills the daemon for current cwd (no args). `crit stop --all` kills all daemons for current cwd
 6. **Idle timeout**: daemon exits after 1 hour of no HTTP activity
 
+### Deferred Initialization & Readiness
+
+The daemon signals readiness (via the OS pipe) as soon as the HTTP port is bound, but session initialization (git operations, file reads) continues in the background. Until `SetSession()` is called, most endpoints return **503 Service Unavailable**.
+
+**Any client code that connects to a daemon must poll `/api/session` until it stops returning 503 before calling other endpoints.** See `runReviewClient` and `runReviewClientRaw` for the canonical readiness loop pattern. Skipping this poll causes race conditions where endpoints return 503, and error-fallback paths may silently allow/approve when they shouldn't.
+
 ### Session Registry
 
 Daemon state lives in `~/.crit/sessions/` with one file per session, keyed by `sha256(cwd + "\0" + branch + "\0" + sorted(args))[:12]`:

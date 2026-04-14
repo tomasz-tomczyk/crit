@@ -3,11 +3,14 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -904,5 +907,108 @@ func TestCleanupOnApproval_KeepsFileWhenDisabled(t *testing.T) {
 
 	if _, err := os.Stat(reviewPath); os.IsNotExist(err) {
 		t.Error("expected review file to still exist when cleanup is disabled")
+	}
+}
+
+// TestRunReviewClientRaw_WaitsForReadiness verifies that runReviewClientRaw
+// polls /api/session until the daemon is ready (non-503) before hitting
+// /api/review-cycle. Regression test for the plan-hook auto-approve bug where
+// review-cycle was called immediately after daemon start, got 503, and
+// allowed through on error.
+func TestRunReviewClientRaw_WaitsForReadiness(t *testing.T) {
+	var sessionCalls atomic.Int32
+	var reviewCycleCalled atomic.Bool
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/session":
+			n := sessionCalls.Add(1)
+			if n <= 2 {
+				// First two calls return 503 (still initializing)
+				w.WriteHeader(http.StatusServiceUnavailable)
+				json.NewEncoder(w).Encode(map[string]string{"status": "loading"})
+				return
+			}
+			// Third call: ready
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+
+		case "/api/review-cycle":
+			reviewCycleCalled.Store(true)
+			// Verify session was polled past the 503 phase
+			if sessionCalls.Load() < 3 {
+				t.Errorf("review-cycle called after only %d session polls, expected >=3", sessionCalls.Load())
+			}
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]any{"approved": true, "prompt": ""})
+
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	// Extract port from test server URL
+	port := 0
+	fmt.Sscanf(ts.URL, "http://127.0.0.1:%d", &port)
+	if port == 0 {
+		fmt.Sscanf(ts.URL, "http://localhost:%d", &port)
+	}
+	if port == 0 {
+		t.Fatalf("could not parse port from test server URL: %s", ts.URL)
+	}
+
+	entry := sessionEntry{Port: port}
+	approved, _ := runReviewClientRaw(entry)
+
+	if !reviewCycleCalled.Load() {
+		t.Error("review-cycle was never called")
+	}
+	if !approved {
+		t.Error("expected approved=true")
+	}
+	if n := sessionCalls.Load(); n < 3 {
+		t.Errorf("expected at least 3 session polls (2x503 + 1x200), got %d", n)
+	}
+}
+
+// TestRunReviewClientRaw_NoReadinessDelay verifies that when the daemon is
+// already ready, runReviewClientRaw proceeds immediately without extra delay.
+func TestRunReviewClientRaw_NoReadinessDelay(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/session":
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		case "/api/review-cycle":
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]any{"approved": false, "prompt": "fix this"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	port := 0
+	fmt.Sscanf(ts.URL, "http://127.0.0.1:%d", &port)
+	if port == 0 {
+		fmt.Sscanf(ts.URL, "http://localhost:%d", &port)
+	}
+	if port == 0 {
+		t.Fatalf("could not parse port from test server URL: %s", ts.URL)
+	}
+
+	start := time.Now()
+	approved, prompt := runReviewClientRaw(sessionEntry{Port: port})
+	elapsed := time.Since(start)
+
+	if approved {
+		t.Error("expected approved=false")
+	}
+	if prompt != "fix this" {
+		t.Errorf("expected prompt='fix this', got %q", prompt)
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("took %v, expected near-instant when daemon is already ready", elapsed)
 	}
 }
