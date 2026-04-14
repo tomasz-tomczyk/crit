@@ -1343,31 +1343,6 @@ func (s *Session) critJSONPath() string {
 	return filepath.Join(s.RepoRoot, ".crit.json")
 }
 
-// migrateRepoCritJSON copies a legacy <repo>/.crit.json to the centralized
-// review file path if the centralized file doesn't exist yet.
-// Returns true if migration occurred.
-func migrateRepoCritJSON(repoRoot, reviewFilePath string) bool {
-	if repoRoot == "" || reviewFilePath == "" {
-		return false
-	}
-	legacyPath := filepath.Join(repoRoot, ".crit.json")
-	if _, err := os.Stat(legacyPath); os.IsNotExist(err) {
-		return false
-	}
-	if _, err := os.Stat(reviewFilePath); err == nil {
-		return false // centralized file already exists
-	}
-	data, err := os.ReadFile(legacyPath)
-	if err != nil {
-		return false
-	}
-	if err := atomicWriteFile(reviewFilePath, data, 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to migrate .crit.json: %v\n", err)
-		return false
-	}
-	return true
-}
-
 // writeFilesSnapshot holds all session state needed to write .crit.json,
 // captured under lock so that disk I/O can happen without holding the lock.
 type writeFilesSnapshot struct {

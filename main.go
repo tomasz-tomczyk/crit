@@ -1948,13 +1948,6 @@ func runServe(args []string) {
 		session.ReviewFilePath = reviewPath
 	}
 
-	// Migrate legacy .crit.json if needed
-	if sc.outputDir == "" && session.RepoRoot != "" {
-		if migrateRepoCritJSON(session.RepoRoot, reviewPath) {
-			fmt.Fprintf(os.Stderr, "Migrated .crit.json to %s\n", reviewPath)
-		}
-	}
-
 	checkStaleIntegrations(sc, srv, cwd)
 
 	if !sc.noUpdateCheck && os.Getenv("CRIT_NO_UPDATE_CHECK") == "" {
