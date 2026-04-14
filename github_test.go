@@ -972,7 +972,6 @@ func TestAddReplyToCritJSON_NotFound(t *testing.T) {
 	}
 }
 
-
 func TestCritJSONToGHComments_SkipsAlreadyPushed(t *testing.T) {
 	cj := CritJSON{
 		Files: map[string]CritJSONFile{
