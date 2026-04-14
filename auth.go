@@ -436,7 +436,6 @@ func showLoginHint() {
 		return nil
 	})
 	if err != nil && !errors.Is(err, errHintAlreadyShown) {
-		// Silently ignore config errors — this is a best-effort hint.
-		_ = err
+		// best-effort; ignore error
 	}
 }

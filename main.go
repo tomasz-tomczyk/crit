@@ -281,29 +281,6 @@ func printFetchedComments(webComments []webComment) {
 	}
 }
 
-// highestWebIndex returns the highest numeric suffix among "web-N" comment IDs
-// in a CritJSON structure. This ensures new web comment IDs are globally unique.
-func highestWebIndex(cj CritJSON) int {
-	max := 0
-	for _, f := range cj.Files {
-		for _, c := range f.Comments {
-			if strings.HasPrefix(c.ID, "web-") {
-				if n, err := strconv.Atoi(strings.TrimPrefix(c.ID, "web-")); err == nil && n > max {
-					max = n
-				}
-			}
-		}
-	}
-	for _, c := range cj.ReviewComments {
-		if strings.HasPrefix(c.ID, "web-") {
-			if n, err := strconv.Atoi(strings.TrimPrefix(c.ID, "web-")); err == nil && n > max {
-				max = n
-			}
-		}
-	}
-	return max
-}
-
 func runFetch(args []string) {
 	outputDir := parseFetchOutputDir(args)
 
@@ -343,36 +320,7 @@ func runFetch(args []string) {
 		return
 	}
 
-	// Merge web comments into the review file
-	if cj.Files == nil {
-		cj.Files = make(map[string]CritJSONFile)
-	}
-	webCount := highestWebIndex(cj)
-	now := time.Now().UTC().Format(time.RFC3339)
-	for _, wc := range webComments {
-		webCount++
-		c := Comment{
-			ID:          fmt.Sprintf("web-%d", webCount),
-			StartLine:   wc.StartLine,
-			EndLine:     wc.EndLine,
-			Body:        wc.Body,
-			Quote:       wc.Quote,
-			Author:      wc.AuthorDisplayName,
-			Scope:       wc.Scope,
-			ReviewRound: wc.ReviewRound,
-			CreatedAt:   now,
-			UpdatedAt:   now,
-		}
-		if wc.Scope == "review" {
-			cj.ReviewComments = append(cj.ReviewComments, c)
-		} else {
-			entry := cj.Files[wc.FilePath]
-			entry.Comments = append(entry.Comments, c)
-			cj.Files[wc.FilePath] = entry
-		}
-	}
-	cj.UpdatedAt = now
-	if err := saveCritJSON(critPath, cj); err != nil {
+	if err := mergeWebComments(critPath, webComments); err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving review file: %v\n", err)
 		os.Exit(1)
 	}

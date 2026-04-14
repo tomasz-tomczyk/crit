@@ -427,41 +427,6 @@ func findLegacyReviewPath(cwd string) (string, bool) {
 	return "", false
 }
 
-// resolveCritDir returns the directory where .crit.json should be read/written.
-// If outputDir is non-empty it is used directly. Otherwise falls back to repo root then CWD.
-// Deprecated: use resolveReviewPath for centralized storage support.
-func resolveCritDir(outputDir string) (string, error) {
-	if outputDir != "" {
-		abs, err := filepath.Abs(outputDir)
-		if err != nil {
-			return "", fmt.Errorf("resolving output directory: %w", err)
-		}
-		return abs, nil
-	}
-	// When crit is launched as "crit file.md" outside a git repo, .crit.json
-	// is written to filepath.Dir(file.md). Inside a git repo, it goes to the
-	// repo root. Mirror the session's logic so crit comment finds the right
-	// .crit.json without needing --output.
-	if cwd, err := resolvedCWD(); err == nil {
-		if sessions, _ := listSessionsForCWD(cwd); len(sessions) == 1 && len(sessions[0].Args) > 0 {
-			// In a git repo, .crit.json lives at the repo root, not next
-			// to the file. Only use the file-relative path outside git.
-			if root, err := RepoRoot(); err == nil {
-				return root, nil
-			}
-			return filepath.Dir(filepath.Join(sessions[0].CWD, sessions[0].Args[0])), nil
-		}
-	}
-	root, err := RepoRoot()
-	if err != nil {
-		root, err = os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("getting working directory: %w", err)
-		}
-	}
-	return root, nil
-}
-
 // writeCritJSON resolves the review path and writes a CritJSON via saveCritJSON.
 func writeCritJSON(cj CritJSON, outputDir string) error {
 	path, err := resolveReviewPath(outputDir)

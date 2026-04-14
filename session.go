@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -20,9 +19,11 @@ import (
 // when the user expands them in the UI. Only applies when >threshold files.
 const lazyFileThreshold = 100
 
-// fileHash returns a stable hash string for file content.
+// fileHash returns a stable, prefixed hash string for file content tracking.
+// It delegates to computeFileHash and adds a "sha256:" prefix to distinguish
+// the hash algorithm used.
 func fileHash(data []byte) string {
-	return fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+	return "sha256:" + computeFileHash(data)
 }
 
 // randomID generates a random ID with the given prefix using crypto/rand.

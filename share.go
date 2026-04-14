@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -512,6 +513,29 @@ func buildLocalIDSet(cj CritJSON) map[string]bool {
 		}
 	}
 	return ids
+}
+
+// highestWebIndex returns the highest numeric suffix among "web-N" comment IDs
+// in a CritJSON structure. This ensures new web comment IDs are globally unique.
+func highestWebIndex(cj CritJSON) int {
+	max := 0
+	for _, f := range cj.Files {
+		for _, c := range f.Comments {
+			if strings.HasPrefix(c.ID, "web-") {
+				if n, err := strconv.Atoi(strings.TrimPrefix(c.ID, "web-")); err == nil && n > max {
+					max = n
+				}
+			}
+		}
+	}
+	for _, c := range cj.ReviewComments {
+		if strings.HasPrefix(c.ID, "web-") {
+			if n, err := strconv.Atoi(strings.TrimPrefix(c.ID, "web-")); err == nil && n > max {
+				max = n
+			}
+		}
+	}
+	return max
 }
 
 // mergeWebComments adds web-reviewer comments into the review file under their respective
