@@ -435,7 +435,5 @@ func showLoginHint() {
 		m["login_hint_shown"] = json.RawMessage("true")
 		return nil
 	})
-	if err != nil && !errors.Is(err, errHintAlreadyShown) {
-		// best-effort; ignore error
-	}
+	_ = err // best-effort hint; non-hint errors are also harmless
 }
