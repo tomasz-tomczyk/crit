@@ -1302,8 +1302,7 @@ func buildAgentPrompt(c Comment, filePath string) string {
 	}
 	b.WriteString("Address this comment. If it requires a code change, make the edit.\n\n" +
 		"IMPORTANT: Do NOT run `crit comment` or `crit` commands. " +
-		"Just print your response to stdout — it will be posted as a reply automatically.\n" +
-		"If the comment is fully addressed, start your response with RESOLVED: (e.g., \"RESOLVED: Fixed the typo on line 5.\").\n")
+		"Just print your response to stdout — it will be posted as a reply automatically.\n")
 	return b.String()
 }
 
@@ -1351,15 +1350,6 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		return
 	}
 
-	// Check for RESOLVED: anywhere in response (agent may add preamble)
-	resolved := false
-	upper := strings.ToUpper(response)
-	if idx := strings.Index(upper, "RESOLVED:"); idx >= 0 {
-		resolved = true
-		// Keep text after RESOLVED: as the reply, discard preamble
-		response = strings.TrimSpace(response[idx+len("RESOLVED:"):])
-	}
-
 	author := agentName(s.agentCmd)
 	log.Printf("agent-request %s: completed, posting reply (%d bytes)\nResponse: %s\nStderr: %s", commentID, len(response), response, stderr.String())
 	// Try original path first, then search all files (path may have changed during agent run)
@@ -1375,12 +1365,6 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 	if !ok {
 		log.Printf("agent-request %s: failed to add reply (comment not found in file %q)", commentID, filePath)
 	} else {
-		if resolved {
-			// AddReply resets Resolved to false, so we re-set it here.
-			// Both operations use scheduleWrite with a 200ms debounce,
-			// so the final resolved=true state will be persisted.
-			s.session.SetCommentResolved(filePath, commentID, true)
-		}
 		// Re-read content (and file list/diffs in git mode) so next fetch returns updated data
 		s.session.RefreshFileContent()
 		if s.session.Mode == "git" {

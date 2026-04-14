@@ -196,8 +196,7 @@ Agents need tool permissions to edit files on your behalf. How you grant them de
 
 1. The agent receives the comment text, quoted text (if text was selected), file path, and line range on **stdin**.
 2. The agent's **stdout** is captured and posted as a reply to the comment automatically.
-3. If the agent starts its response with `RESOLVED:`, the comment is **auto-resolved**.
-4. If the agent edits files, Crit detects the changes via **file watching** and updates the UI.
+3. If the agent edits files, Crit detects the changes via **file watching** and updates the UI.
 
 #### Live threads
 
