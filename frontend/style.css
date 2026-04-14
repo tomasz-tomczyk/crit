@@ -3660,7 +3660,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .live-thread-badge {
   font-size: 10px;
   font-weight: 600;
-  color: #34d399;
+  color: var(--green);
   background: rgba(52, 211, 153, 0.1);
   padding: 1px 6px;
   border-radius: 3px;
