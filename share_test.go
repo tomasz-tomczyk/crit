@@ -938,7 +938,7 @@ func TestResolveShareURL(t *testing.T) {
 				t.Setenv("CRIT_SHARE_URL", "")
 				os.Unsetenv("CRIT_SHARE_URL")
 			}
-			got := resolveShareURL(tt.flag, Config{})
+			got := resolveShareURL(tt.flag, Config{}, defaultShareURL)
 			if got != tt.expected {
 				t.Errorf("resolveShareURL(%q) = %q, want %q", tt.flag, got, tt.expected)
 			}

@@ -11,10 +11,13 @@ import (
 	"os"
 	"path"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
+
+// defaultShareURL is the production crit-web service URL, used as the fallback
+// when no share URL is configured via flag, env, or config.
+const defaultShareURL = "https://crit.md"
 
 // shareScope computes a hash of sorted file paths, used to detect when
 // share state belongs to a different file set.
@@ -195,6 +198,7 @@ func buildShareFromSession(s *Session) ([]shareFile, []shareComment, int) {
 				Body:      c.Body,
 				Quote:     c.Quote,
 				Author:    c.Author,
+				Scope:     c.Scope,
 			}
 			if c.ReviewRound >= 1 {
 				sc.ReviewRound = c.ReviewRound
@@ -527,19 +531,7 @@ func mergeWebComments(critPath string, newComments []webComment) error {
 
 	// Find the highest existing web-N index so new IDs are globally unique
 	// even if earlier ones were deleted from .crit.json.
-	webCount := 0
-	for _, f := range cj.Files {
-		for _, c := range f.Comments {
-			if n, err := strconv.Atoi(strings.TrimPrefix(c.ID, "web-")); err == nil && strings.HasPrefix(c.ID, "web-") && n > webCount {
-				webCount = n
-			}
-		}
-	}
-	for _, c := range cj.ReviewComments {
-		if n, err := strconv.Atoi(strings.TrimPrefix(c.ID, "web-")); err == nil && strings.HasPrefix(c.ID, "web-") && n > webCount {
-			webCount = n
-		}
-	}
+	webCount := highestWebIndex(cj)
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, wc := range newComments {
@@ -603,7 +595,9 @@ func persistShareState(critPath string, shareURL string, deleteToken string, sco
 	return saveCritJSON(critPath, cj)
 }
 
-// clearShareState removes share URL and delete token from the review file.
+// clearShareState removes share URL, delete token, share scope, and last-share
+// hash from the review file. It is the single source of truth for "undo share
+// metadata" — used by both the unpublish CLI path and tests.
 func clearShareState(critPath string) error {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
@@ -616,6 +610,7 @@ func clearShareState(critPath string) error {
 	cj.ShareURL = ""
 	cj.DeleteToken = ""
 	cj.ShareScope = ""
+	cj.LastShareHash = ""
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
 	return saveCritJSON(critPath, cj)
@@ -634,9 +629,12 @@ func loadShareConfig() Config {
 	return LoadConfig(cfgDir)
 }
 
-// resolveShareURL resolves the share service URL from flag > env > config > default.
+// resolveShareURL resolves the share service URL from flag > env > config > fallback.
 // cfg is the already-loaded Config so callers avoid redundant config parsing.
-func resolveShareURL(flagValue string, cfg Config) string {
+// fallback is returned when no other source provides a value (typically
+// "https://crit.md" for share/auth commands, or "" for the serve path where an
+// empty URL means "sharing not configured").
+func resolveShareURL(flagValue string, cfg Config, fallback string) string {
 	if flagValue != "" {
 		return flagValue
 	}
@@ -646,7 +644,7 @@ func resolveShareURL(flagValue string, cfg Config) string {
 	if cfg.ShareURL != "" {
 		return cfg.ShareURL
 	}
-	return "https://crit.md"
+	return fallback
 }
 
 // resolveAuthToken returns the auth token from env > config.
