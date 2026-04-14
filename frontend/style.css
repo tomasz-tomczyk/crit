@@ -2050,6 +2050,19 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   font-family: var(--font-mono);
   font-size: 13px;
 }
+.config-card-cmd-value {
+  margin-top: 8px;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg-secondary);
+  word-break: break-all;
+}
+.config-card-cmd-value code {
+  font-family: inherit;
+}
 .config-card-badge {
   font-size: 12px;
   color: var(--accent);
@@ -2071,11 +2084,18 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   padding: 8px 12px;
   font-family: var(--font-mono);
   font-size: 13px;
-  color: var(--green);
+  color: var(--fg-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+.config-card-cmd-label {
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  margin-right: 8px;
+  flex-shrink: 0;
 }
 .config-card-copy {
   font-size: 12px;
