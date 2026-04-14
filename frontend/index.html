@@ -145,14 +145,14 @@
   </div>
 </div>
 
-<div class="waiting-overlay" id="waitingOverlay">
+<div class="waiting-overlay" id="waitingOverlay" role="dialog" aria-modal="true" aria-labelledby="waitingHeading">
   <div class="waiting-dialog">
     <div class="waiting-spinner"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-    <h3>Review Complete</h3>
+    <h3 id="waitingHeading">Review Complete</h3>
     <p id="waitingMessage"></p>
     <p class="waiting-edits" id="waitingEdits"></p>
     <div class="waiting-prompt" id="waitingPrompt"></div>
-    <button class="btn btn-sm" style="margin-top: 8px;" id="waitingClipboard"></button>
+    <button class="btn btn-sm" style="margin-top: 8px;" id="waitingClipboard" aria-label="Copy prompt to clipboard"></button>
     <button class="btn btn-sm" id="backToEditing" style="margin-top: 16px;">Back to editing</button>
   </div>
 </div>
@@ -171,18 +171,18 @@
   </div>
 </div>
 
-<div class="settings-overlay" id="settingsOverlay">
+<div class="settings-overlay" id="settingsOverlay" role="dialog" aria-modal="true" aria-label="Settings">
   <div class="settings-dialog">
-    <div class="settings-tabs">
-      <button class="settings-tab active" data-tab="settings">Settings</button>
-      <button class="settings-tab" data-tab="shortcuts">Shortcuts</button>
-      <button class="settings-tab" data-tab="about">About</button>
+    <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+      <button class="settings-tab active" data-tab="settings" role="tab" aria-selected="true" aria-controls="settingsPane" id="tab-settings">Settings</button>
+      <button class="settings-tab" data-tab="shortcuts" role="tab" aria-selected="false" aria-controls="shortcutsPane" id="tab-shortcuts">Shortcuts</button>
+      <button class="settings-tab" data-tab="about" role="tab" aria-selected="false" aria-controls="aboutPane" id="tab-about">About</button>
       <button class="settings-tab-close" id="settingsClose" aria-label="Close">&times;</button>
     </div>
     <div class="settings-content">
-      <div class="settings-pane active" data-pane="settings" id="settingsPane"></div>
-      <div class="settings-pane" data-pane="shortcuts" id="shortcutsPane"></div>
-      <div class="settings-pane" data-pane="about" id="aboutPane"></div>
+      <div class="settings-pane active" data-pane="settings" id="settingsPane" role="tabpanel" aria-labelledby="tab-settings"></div>
+      <div class="settings-pane" data-pane="shortcuts" id="shortcutsPane" role="tabpanel" aria-labelledby="tab-shortcuts"></div>
+      <div class="settings-pane" data-pane="about" id="aboutPane" role="tabpanel" aria-labelledby="tab-about"></div>
     </div>
   </div>
 </div>

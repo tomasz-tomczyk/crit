@@ -70,7 +70,6 @@ body {
   border: 1px solid var(--accent-bg);
   padding: 3px 10px;
   border-radius: 6px;
-  box-sizing: border-box;
   height: 24px;
 }
 .branch-icon {
@@ -127,7 +126,6 @@ body {
 .base-branch-picker.open .base-branch-menu { display: block; }
 .base-branch-search {
   width: 100%;
-  box-sizing: border-box;
   padding: 8px 10px;
   font-size: 12px;
   font-family: var(--font-mono);
@@ -1401,7 +1399,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   color: var(--fg-primary);
   font-family: var(--font-body);
   font-size: 13px;
-  box-sizing: border-box;
   cursor: text;
 }
 
@@ -1433,7 +1430,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   font-family: var(--font-body);
   font-size: 13px;
   resize: vertical;
-  box-sizing: border-box;
 }
 
 .reply-textarea:focus {
@@ -1648,7 +1644,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .save-template-input {
   width: 100%;
-  box-sizing: border-box;
   padding: 8px 10px;
   font-family: var(--font-body);
   font-size: 13px;
@@ -2354,7 +2349,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 @media (max-width: 600px) {
   .toc, #tocToggle { display: none !important; }
-  #shortcutsToggle { display: none !important; }
   .comments-panel, .pr-panel { display: none !important; }
   .header { padding: 10px 14px; }
   .header-context { display: none; }
@@ -3096,8 +3090,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   color: var(--accent);
 }
 
-.file-body {
-}
 /* Shared toggle-btn base (used by file-header-toggle, scope-toggle, diff-mode-toggle) */
 .toggle-btn {
   background: transparent;
@@ -3450,8 +3442,8 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .diff-split-side.deletion .diff-gutter-num { background: var(--diff-del-gutter); }
 .diff-split-side.addition .diff-gutter-num { background: var(--diff-add-gutter); }
 .diff-split-side.has-comment .diff-gutter-num { background: transparent; }
-.diff-container.split .comment-block { padding-left: 48px; width: 50%; max-width: none; margin: 0; box-sizing: border-box; }
-.diff-container.split .comment-form-wrapper { padding-left: 48px; width: 50%; max-width: none; margin: 0; box-sizing: border-box; }
+.diff-container.split .comment-block { padding-left: 48px; width: 50%; max-width: none; margin: 0; }
+.diff-container.split .comment-form-wrapper { padding-left: 48px; width: 50%; max-width: none; margin: 0; }
 .diff-container.split .comment-block.diff-comment-right,
 .diff-container.split .comment-form-wrapper.diff-comment-right { margin-left: 50%; }
 
@@ -3687,10 +3679,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   50% { opacity: 0; }
 }
 
-/* Disabled state in live threads — hide edit only, keep delete */
-.live-thread .comment-actions .edit-btn {
-  display: none;
-}
 .live-thread.agent-pending .reply-input,
 .live-thread.agent-pending .reply-textarea {
   opacity: 0.5;

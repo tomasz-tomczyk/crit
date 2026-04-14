@@ -16,23 +16,23 @@
 
   // ===== File Reference Inline Rule =====
   commentMd.inline.ruler.push('file_ref', function(state, silent) {
-    var start = state.pos;
-    var max = state.posMax;
+    const start = state.pos;
+    const max = state.posMax;
     if (state.src.charCodeAt(start) !== 0x40 /* @ */) return false;
     if (start > 0 && !/\s/.test(state.src[start - 1])) return false;
-    var end = start + 1;
+    let end = start + 1;
     while (end < max && /[a-zA-Z0-9._\-\/]/.test(state.src[end])) end++;
-    var path = state.src.substring(start + 1, end);
+    const path = state.src.substring(start + 1, end);
     if (path.length === 0 || (path.indexOf('.') === -1 && path.indexOf('/') === -1)) return false;
     if (!silent) {
-      var token = state.push('file_ref', '', 0);
+      const token = state.push('file_ref', '', 0);
       token.content = path;
     }
     state.pos = end;
     return true;
   });
   commentMd.renderer.rules.file_ref = function(tokens, idx) {
-    var path = tokens[idx].content;
+    const path = tokens[idx].content;
     return '<span class="file-ref">' + escapeHtml(path) + '</span>';
   };
 
@@ -241,9 +241,9 @@
     }
 
     // Split into eager and lazy batches
-    var eager = [];
-    var lazy = [];
-    for (var i = 0; i < fileInfos.length; i++) {
+    const eager = [];
+    const lazy = [];
+    for (let i = 0; i < fileInfos.length; i++) {
       if (fileInfos[i].lazy) {
         lazy.push(fileInfos[i]);
       } else {
@@ -252,10 +252,10 @@
     }
 
     // Load eager files fully
-    var eagerFiles = await Promise.all(eager.map(function(fi) { return loadSingleFile(fi, scope); }));
+    const eagerFiles = await Promise.all(eager.map(function(fi) { return loadSingleFile(fi, scope); }));
 
     // Create lightweight placeholders for lazy files
-    var lazyFiles = lazy.map(function(fi) {
+    const lazyFiles = lazy.map(function(fi) {
       return {
         path: fi.path,
         status: fi.status,
@@ -282,7 +282,7 @@
 
   // Load a single file's content, comments, and diff from the API.
   async function loadSingleFile(fi, scope) {
-    var diffUrl = '/api/file/diff?path=' + enc(fi.path);
+    let diffUrl = '/api/file/diff?path=' + enc(fi.path);
     if (scope && scope !== 'all') {
       diffUrl += '&scope=' + enc(scope);
     }
@@ -314,8 +314,8 @@
     };
 
     // Mark large diffs for deferred rendering
-    var diffLineCount = 0;
-    for (var h = 0; h < f.diffHunks.length; h++) {
+    let diffLineCount = 0;
+    for (let h = 0; h < f.diffHunks.length; h++) {
       diffLineCount += (f.diffHunks[h].Lines || []).length;
     }
     f.diffTooLarge = diffLineCount > 1000;
@@ -397,15 +397,15 @@
   }
 
   async function fetchWhenReady(url) {
-    var start = Date.now();
-    var maxWait = 5 * 60 * 1000; // 5 minutes
+    const start = Date.now();
+    const maxWait = 5 * 60 * 1000; // 5 minutes
     while (true) {
-      var r;
+      let r;
       try {
         r = await fetch(url);
       } catch (_) {
         // Network error — server may have shut down during init
-        var el = document.getElementById('filesContainer');
+        const el = document.getElementById('filesContainer');
         if (el) {
           el.innerHTML =
             '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">' +
@@ -417,8 +417,8 @@
         if (Date.now() - start > maxWait) {
           throw new Error('Server did not finish initializing within 5 minutes');
         }
-        var elapsed = Math.round((Date.now() - start) / 1000);
-        var loadingEl = document.getElementById('filesContainer');
+        const elapsed = Math.round((Date.now() - start) / 1000);
+        const loadingEl = document.getElementById('filesContainer');
         if (loadingEl) {
           loadingEl.innerHTML =
             '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">' +
@@ -428,9 +428,9 @@
         continue;
       }
       if (r.status === 500) {
-        var body = {};
+        let body = {};
         try { body = await r.json(); } catch (_) {}
-        var msg = body.message || 'Server initialization failed';
+        const msg = body.message || 'Server initialization failed';
         document.getElementById('filesContainer').innerHTML =
           '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">' +
           msg + '</div>';
@@ -532,7 +532,7 @@
     // PR overview panel toggle
     if (configRes.pr_url && configRes.pr_number) {
       prData = configRes;
-      var prToggle = document.getElementById('prToggle');
+      const prToggle = document.getElementById('prToggle');
       prToggle.style.display = '';
       document.getElementById('prToggleNumber').textContent = '#' + configRes.pr_number;
       if (configRes.pr_is_draft) prToggle.classList.add('pr-toggle-draft');
@@ -785,9 +785,7 @@
         html: '<pre><code class="language-mermaid">' + escapeHtml(token.content) + '</code></pre>',
         isEmpty: false, cssClass: 'mermaid-block'
       });
-      coveredUpTo = blockEnd;
-      coveredUpTo = addGapLineBlocks(blocks, sourceLines, coveredUpTo, blockEnd);
-      return coveredUpTo;
+      return addGapLineBlocks(blocks, sourceLines, blockEnd, blockEnd);
     }
 
     let highlighted = '';
@@ -1023,7 +1021,7 @@
 
       // Lists: split into per-item blocks
       if (token.type === 'bullet_list_open' || token.type === 'ordered_list_open') {
-        var listResult = handleListToken(tokens, i, token, md, blocks, sourceLines, coveredUpTo, blockEnd);
+        const listResult = handleListToken(tokens, i, token, md, blocks, sourceLines, coveredUpTo, blockEnd);
         i = listResult.nextIndex;
         coveredUpTo = listResult.coveredUpTo;
         continue;
@@ -1031,7 +1029,7 @@
 
       // Tables: split into per-row blocks
       if (token.type === 'table_open') {
-        var tableResult = handleTableToken(tokens, i, md, blocks, sourceLines, coveredUpTo, blockEnd);
+        const tableResult = handleTableToken(tokens, i, md, blocks, sourceLines, coveredUpTo, blockEnd);
         i = tableResult.nextIndex;
         coveredUpTo = tableResult.coveredUpTo;
         continue;
@@ -1039,7 +1037,7 @@
 
       // Blockquotes: split into child blocks
       if (token.type === 'blockquote_open') {
-        var bqResult = handleBlockquoteToken(tokens, i, md, blocks, sourceLines, coveredUpTo, blockStart, blockEnd);
+        const bqResult = handleBlockquoteToken(tokens, i, md, blocks, sourceLines, coveredUpTo, blockStart, blockEnd);
         i = bqResult.nextIndex;
         coveredUpTo = bqResult.coveredUpTo;
         continue;
@@ -1657,7 +1655,7 @@
 
           // Re-render this file section in place
           section.classList.remove('file-section-loading');
-          var newSection = renderFileSection(file);
+          const newSection = renderFileSection(file);
           newSection.open = section.open;
           section.replaceWith(newSection);
 
@@ -1667,6 +1665,8 @@
           rebuildNavList();
         }).catch(function() {
           file._lazyLoading = false;
+          // Guard against stale DOM node: only re-attach if still in the document
+          if (!section.isConnected) return;
           section.classList.remove('file-section-loading');
           section.addEventListener('toggle', onLazyExpand);
         });
@@ -3160,35 +3160,44 @@
   }
 
   // ===== Comment Helpers =====
-  function buildCommentsMap(comments) {
-    const map = {};
+
+  // Single-pass builder that produces all three comment index structures:
+  //   commentsMap: { end_line → [comment] }          (document view)
+  //   diffCommentsMap: { "end_line:side" → [comment] } (diff view)
+  //   commentedRangeSet: Set<"line:side">              (highlight ranges)
+  function buildCommentIndices(comments) {
+    const commentsMap = {};
+    const diffCommentsMap = {};
+    const rangeSet = new Set();
     for (const c of comments) {
-      const key = c.end_line;
-      if (!map[key]) map[key] = [];
-      map[key].push(c);
+      // commentsMap — keyed by end_line only
+      const lineKey = c.end_line;
+      if (!commentsMap[lineKey]) commentsMap[lineKey] = [];
+      commentsMap[lineKey].push(c);
+      // diffCommentsMap — keyed by "end_line:side"
+      const sideKey = c.end_line + ':' + (c.side || '');
+      if (!diffCommentsMap[sideKey]) diffCommentsMap[sideKey] = [];
+      diffCommentsMap[sideKey].push(c);
+      // commentedRangeSet — only unresolved, non-file-scope comments
+      if (!c.resolved && c.scope !== 'file') {
+        const side = c.side || '';
+        for (let ln = c.start_line; ln <= c.end_line; ln++) rangeSet.add(ln + ':' + side);
+      }
     }
-    return map;
+    return { commentsMap: commentsMap, diffCommentsMap: diffCommentsMap, rangeSet: rangeSet };
+  }
+
+  // Convenience wrappers that maintain the existing call-site API
+  function buildCommentsMap(comments) {
+    return buildCommentIndices(comments).commentsMap;
   }
 
   function buildDiffCommentsMap(comments) {
-    // Key by "line:side" to distinguish old-side vs new-side comments on the same line number
-    const map = {};
-    for (const c of comments) {
-      const key = c.end_line + ':' + (c.side || '');
-      if (!map[key]) map[key] = [];
-      map[key].push(c);
-    }
-    return map;
+    return buildCommentIndices(comments).diffCommentsMap;
   }
 
   function buildCommentedRangeSet(comments) {
-    const set = new Set();
-    for (const c of comments) {
-      if (c.resolved || c.scope === 'file') continue;
-      const side = c.side || '';
-      for (let ln = c.start_line; ln <= c.end_line; ln++) set.add(ln + ':' + side);
-    }
-    return set;
+    return buildCommentIndices(comments).rangeSet;
   }
 
   // For unified diff: build a Set of visual indices that should have has-comment.
@@ -3869,8 +3878,8 @@
 
     function highlightItem() {
       if (!dropdown) return;
-      var items = dropdown.children;
-      for (var i = 0; i < items.length; i++) {
+      const items = dropdown.children;
+      for (let i = 0; i < items.length; i++) {
         items[i].classList.toggle('active', i === activeIndex);
       }
       if (activeIndex >= 0 && items[activeIndex]) {
@@ -3879,13 +3888,13 @@
     }
 
     function selectItem(filePath) {
-      var val = textarea.value;
-      var cursor = textarea.selectionStart;
-      var before = val.substring(0, triggerStart);
-      var after = val.substring(cursor);
-      var insertion = '@' + filePath + ' ';
+      const val = textarea.value;
+      const cursor = textarea.selectionStart;
+      const before = val.substring(0, triggerStart);
+      const after = val.substring(cursor);
+      const insertion = '@' + filePath + ' ';
       textarea.value = before + insertion + after;
-      var newCursor = before.length + insertion.length;
+      const newCursor = before.length + insertion.length;
       textarea.selectionStart = textarea.selectionEnd = newCursor;
       textarea.focus();
       hideDropdown();
@@ -3925,19 +3934,28 @@
 
     attachFilePicker(textarea);
 
+    const doSubmit = opts.onSubmit
+      ? function() { opts.onSubmit(textarea.value); }
+      : function() { submitComment(textarea.value, formObj); };
+    const doCancel = opts.onCancel
+      ? function() { opts.onCancel(); }
+      : function() { cancelComment(formObj); };
+
     textarea.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         e.stopPropagation();
-        submitComment(textarea.value, formObj);
+        doSubmit();
       } else if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
-        cancelComment(formObj);
+        doCancel();
       }
     });
 
-    textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value, formObj); });
+    if (!opts.onSubmit) {
+      textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value, formObj); });
+    }
 
     const actions = document.createElement('div');
     actions.className = 'comment-form-actions';
@@ -3945,12 +3963,12 @@
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-sm';
     cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', function() { cancelComment(formObj); });
+    cancelBtn.addEventListener('click', doCancel);
 
     const submitBtn = document.createElement('button');
     submitBtn.className = 'btn btn-sm btn-primary';
     submitBtn.textContent = opts.submitText;
-    submitBtn.addEventListener('click', function() { submitComment(textarea.value, formObj); });
+    submitBtn.addEventListener('click', doSubmit);
 
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
@@ -4317,14 +4335,14 @@
     wrapper.className = opts.wrapperClass || 'comment-block';
 
     const card = document.createElement('div');
-    var cardClass = 'comment-card';
+    let cardClass = 'comment-card';
     if (opts.cardClassExtra) cardClass += ' ' + opts.cardClassExtra;
     card.className = cardClass;
     card.dataset.commentId = comment.id;
 
     // Collapse state — live threads never auto-collapse
-    var liveOrPending = isLiveThread(comment) || pendingAgentRequests.has(comment.id);
-    var isCollapsed = liveOrPending ? false
+    const liveOrPending = isLiveThread(comment) || pendingAgentRequests.has(comment.id);
+    const isCollapsed = liveOrPending ? false
       : opts.collapseDefault
         ? (commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true)
         : (commentCollapseOverrides[comment.id] === true);
@@ -4355,7 +4373,7 @@
     }
     if (comment.review_round >= 1) {
       const roundBadge = document.createElement('span');
-      var rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
+      const rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
       roundBadge.className = 'comment-round-badge' + rc;
       roundBadge.textContent = 'R' + comment.review_round;
       headerLeft.appendChild(roundBadge);
@@ -4430,7 +4448,7 @@
       return createInlineEditor(comment, filePath);
     }
 
-    var parts = buildCommentCard(comment, filePath, {
+    const parts = buildCommentCard(comment, filePath, {
       wrapperClass: 'comment-block',
       cardClassExtra: comment.carried_forward ? 'carried-forward' : '',
       collapseDefault: false,
@@ -4494,11 +4512,11 @@
 
       const replyActions = document.createElement('div');
       replyActions.className = 'reply-actions';
-      var replyEditBtn = document.createElement('button');
+      const replyEditBtn = document.createElement('button');
       replyEditBtn.title = 'Edit';
       replyEditBtn.innerHTML = ICON_EDIT;
       replyEditBtn.addEventListener('click', function(e) { e.stopPropagation(); editReply(comment.id, reply.id, filePath); });
-      var replyDeleteBtn = document.createElement('button');
+      const replyDeleteBtn = document.createElement('button');
       replyDeleteBtn.className = 'delete-btn';
       replyDeleteBtn.title = 'Delete';
       replyDeleteBtn.innerHTML = ICON_DELETE;
@@ -4551,7 +4569,7 @@
         // Diff view: diff lines with data-diff-line-num
         // Filter by side to avoid matching the wrong line in unified diff
         // (deleted and added lines can share the same line number)
-        var commentSide = comment.side || '';
+        const commentSide = comment.side || '';
         sectionEl.querySelectorAll('[data-diff-file-path="' + CSS.escape(file.path) + '"][data-diff-line-num="' + ln + '"]').forEach(function(el) {
           if (el.dataset.diffSide !== commentSide) return;
           const content = el.querySelector('.diff-content');
@@ -4581,7 +4599,7 @@
       let quoteIdx = -1;
       // Use quote_offset when available to disambiguate duplicate substrings
       if (comment.quote_offset != null) {
-        var candidateIdx = comment.quote_offset;
+        const candidateIdx = comment.quote_offset;
         if (normalizedFull.slice(candidateIdx, candidateIdx + normalizedQuote.length) === normalizedQuote) {
           quoteIdx = candidateIdx;
         }
@@ -4677,7 +4695,7 @@
         : 'Lines ' + comment.start_line + '-' + comment.end_line;
       headerText = 'Editing comment on ' + lineRef;
     }
-    var formEl = createCommentFormUI({
+    const formEl = createCommentFormUI({
       formObj: formObj,
       headerText: headerText,
       submitText: 'Update Comment',
@@ -4687,7 +4705,7 @@
 
     // Keep replies visible below the edit form, inside the form's card
     if (comment.replies && comment.replies.length > 0) {
-      var formCard = formEl.querySelector('.comment-form');
+      const formCard = formEl.querySelector('.comment-form');
       if (formCard) {
         formCard.appendChild(renderReplyList(comment, filePath));
       }
@@ -4732,7 +4750,7 @@
       ? '/api/comment/' + commentId + '/resolve?path=' + enc(filePath)
       : '/api/review-comment/' + commentId + '/resolve';
     try {
-      var res = await fetch(url, {
+      const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resolved: resolved }),
@@ -4877,94 +4895,31 @@
   }
 
   function createReviewCommentFormUI() {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'comment-form-wrapper';
-
-    const form = document.createElement('div');
-    form.className = 'comment-form';
-
-    const textarea = document.createElement('textarea');
-    textarea.placeholder = 'Leave a comment... (Ctrl+Enter to submit, Escape to cancel)';
-
-    textarea.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        e.stopPropagation();
-        addReviewComment(textarea.value);
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        cancelReviewCommentForm();
-      }
+    const formObj = { scope: 'review', filePath: '', startLine: 0, endLine: 0, formKey: 'review:new' };
+    return createCommentFormUI({
+      formObj: formObj,
+      headerText: 'Comment',
+      submitText: 'Submit',
+      initialBody: '',
+      autoFocus: false,
+      onSubmit: function(body) { addReviewComment(body); },
+      onCancel: function() { cancelReviewCommentForm(); },
     });
-
-    const actions = document.createElement('div');
-    actions.className = 'comment-form-actions';
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'btn btn-sm';
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', function() { cancelReviewCommentForm(); });
-
-    const submitBtn = document.createElement('button');
-    submitBtn.className = 'btn btn-sm btn-primary';
-    submitBtn.textContent = 'Submit';
-    submitBtn.addEventListener('click', function() { addReviewComment(textarea.value); });
-
-    actions.appendChild(cancelBtn);
-    actions.appendChild(submitBtn);
-
-    form.appendChild(textarea);
-    form.appendChild(actions);
-    wrapper.appendChild(form);
-
-    return wrapper;
   }
 
   function createReviewCommentEditor(comment) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'comment-form-wrapper panel-comment-block';
-
-    const form = document.createElement('div');
-    form.className = 'comment-form';
-
-    const textarea = document.createElement('textarea');
-    textarea.placeholder = 'Edit comment...';
-    textarea.value = comment.body;
-
-    textarea.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        e.stopPropagation();
-        updateReviewComment(comment.id, textarea.value);
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        cancelReviewCommentForm();
-      }
+    const formObj = { scope: 'review', filePath: '', startLine: 0, endLine: 0, editingId: comment.id, formKey: 'review:' + comment.id };
+    const el = createCommentFormUI({
+      formObj: formObj,
+      headerText: 'Editing comment',
+      submitText: 'Save',
+      initialBody: comment.body,
+      autoFocus: true,
+      onSubmit: function(body) { updateReviewComment(comment.id, body); },
+      onCancel: function() { cancelReviewCommentForm(); },
     });
-
-    const actions = document.createElement('div');
-    actions.className = 'comment-form-actions';
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'btn btn-sm';
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', function() { cancelReviewCommentForm(); });
-
-    const saveBtn = document.createElement('button');
-    saveBtn.className = 'btn btn-sm btn-primary';
-    saveBtn.textContent = 'Save';
-    saveBtn.addEventListener('click', function() { updateReviewComment(comment.id, textarea.value); });
-
-    actions.appendChild(cancelBtn);
-    actions.appendChild(saveBtn);
-
-    form.appendChild(textarea);
-    form.appendChild(actions);
-    wrapper.appendChild(form);
-
-    return wrapper;
+    el.classList.add('panel-comment-block');
+    return el;
   }
 
   async function refreshReviewComments() {
@@ -5044,7 +4999,7 @@
     form.className = 'reply-form';
 
     // Check if this comment is pending agent response
-    var isPending = pendingAgentRequests.has(commentId);
+    const isPending = pendingAgentRequests.has(commentId);
 
     const input = document.createElement('input');
     input.type = 'text';
@@ -5107,13 +5062,13 @@
     });
 
     submitBtn.addEventListener('click', async function() {
-      var body = textarea.value.trim();
+      const body = textarea.value.trim();
       if (!body) return;
       submitBtn.disabled = true;
       try {
-        var payload = { body: body };
+        const payload = { body: body };
         if (configAuthor) payload.author = configAuthor;
-        var res = await fetch('/api/comment/' + commentId + '/replies?path=' + enc(filePath), {
+        const res = await fetch('/api/comment/' + commentId + '/replies?path=' + enc(filePath), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -5122,8 +5077,8 @@
         userActedThisRound = true;
 
         // In live threads, also send the reply to the agent
-        var file = getFileByPath(filePath);
-        var comment = file && file.comments ? file.comments.find(function(c) { return c.id === commentId; }) : null;
+        const file = getFileByPath(filePath);
+        const comment = file && file.comments ? file.comments.find(function(c) { return c.id === commentId; }) : null;
         if (comment && (isLiveThread(comment) || pendingAgentRequests.has(commentId))) {
           pendingAgentRequests.add(commentId);
           fetch('/api/agent/request', {
@@ -5164,7 +5119,7 @@
   }
 
   function createResolvedElement(comment, filePath) {
-    var parts = buildCommentCard(comment, filePath, {
+    const parts = buildCommentCard(comment, filePath, {
       wrapperClass: 'comment-block',
       cardClassExtra: 'resolved-card',
       collapseDefault: true,
@@ -5240,7 +5195,7 @@
     const commentsOpen = commentsPanel && !commentsPanel.classList.contains('comments-panel-hidden');
     const prOpen = prPanel && !prPanel.classList.contains('pr-panel-hidden');
     const tocBaseRight = 16;
-    var panelWidth = 0;
+    let panelWidth = 0;
     if (commentsOpen && commentsPanel) panelWidth = commentsPanel.offsetWidth;
     if (prOpen && prPanel) panelWidth = prPanel.offsetWidth;
     toc.style.right = panelWidth > 0 ? (panelWidth + tocBaseRight) + 'px' : '';
@@ -5263,12 +5218,12 @@
     const isGeneral = !filePath;
     const isResolved = comment.resolved;
 
-    var cardClassExtra = [
+    const cardClassExtra = [
       isResolved ? 'resolved-card' : '',
       comment.carried_forward ? 'carried-forward' : '',
     ].filter(Boolean).join(' ');
 
-    var parts = buildCommentCard(comment, filePath || '', {
+    const parts = buildCommentCard(comment, filePath || '', {
       wrapperClass: 'comment-block panel-comment-block',
       cardClassExtra: cardClassExtra,
       collapseDefault: isResolved,
@@ -5445,8 +5400,8 @@
 
   // ===== PR Overview Panel =====
   function togglePRPanel() {
-    var panel = document.getElementById('prPanel');
-    var isHidden = panel.classList.contains('pr-panel-hidden');
+    const panel = document.getElementById('prPanel');
+    const isHidden = panel.classList.contains('pr-panel-hidden');
     panel.classList.toggle('pr-panel-hidden');
     // Close comments panel if opening PR panel
     if (isHidden) {
@@ -5457,19 +5412,19 @@
   }
 
   function renderPRPanel() {
-    var panel = document.getElementById('prPanel');
+    const panel = document.getElementById('prPanel');
     if (panel.classList.contains('pr-panel-hidden')) return;
-    var pr = prData;
+    const pr = prData;
     if (!pr) return;
 
-    var body = document.getElementById('prPanelBody');
+    const body = document.getElementById('prPanelBody');
     body.innerHTML = '';
 
     // PR title row with close button
-    var linkSection = document.createElement('div');
+    const linkSection = document.createElement('div');
     linkSection.className = 'pr-panel-link-section';
 
-    var prLink = document.createElement('a');
+    const prLink = document.createElement('a');
     prLink.className = 'pr-panel-pr-link';
     prLink.href = pr.pr_url;
     prLink.target = '_blank';
@@ -5478,7 +5433,7 @@
       '<span class="pr-panel-pr-title-text">' + escapeHtml(pr.pr_title || 'Pull Request') + ' <span class="pr-panel-pr-number">#' + pr.pr_number + '</span></span>';
     linkSection.appendChild(prLink);
 
-    var closeBtn = document.createElement('button');
+    const closeBtn = document.createElement('button');
     closeBtn.className = 'pr-panel-close';
     closeBtn.title = 'Close';
     closeBtn.setAttribute('aria-label', 'Close PR panel');
@@ -5492,23 +5447,23 @@
     body.appendChild(linkSection);
 
     // State badge + meta
-    var metaSection = document.createElement('div');
+    const metaSection = document.createElement('div');
     metaSection.className = 'pr-panel-meta';
 
-    var stateLabel = (pr.pr_state || 'OPEN').toUpperCase();
-    var stateClass = 'pr-panel-state';
+    const stateLabel = (pr.pr_state || 'OPEN').toUpperCase();
+    let stateClass = 'pr-panel-state';
     if (stateLabel === 'MERGED') stateClass += ' pr-panel-state-merged';
     else if (stateLabel === 'CLOSED') stateClass += ' pr-panel-state-closed';
     else stateClass += ' pr-panel-state-open';
     if (pr.pr_is_draft) stateClass += ' pr-panel-state-draft';
 
-    var stateBadge = document.createElement('span');
+    const stateBadge = document.createElement('span');
     stateBadge.className = stateClass;
     stateBadge.textContent = pr.pr_is_draft ? 'Draft' : stateLabel.charAt(0) + stateLabel.slice(1).toLowerCase();
     metaSection.appendChild(stateBadge);
 
     if (pr.pr_author) {
-      var authorEl = document.createElement('span');
+      const authorEl = document.createElement('span');
       authorEl.className = 'pr-panel-author';
       authorEl.textContent = pr.pr_author;
       metaSection.appendChild(authorEl);
@@ -5518,7 +5473,7 @@
 
     // Branch info
     if (pr.pr_head_ref && pr.pr_base_ref) {
-      var branchInfo = document.createElement('div');
+      const branchInfo = document.createElement('div');
       branchInfo.className = 'pr-panel-branches';
       branchInfo.innerHTML =
         '<span class="pr-panel-branch">' + escapeHtml(pr.pr_head_ref) + '</span>' +
@@ -5528,11 +5483,11 @@
     }
 
     // Stats
-    var statsSection = document.createElement('div');
+    const statsSection = document.createElement('div');
     statsSection.className = 'pr-panel-stats';
 
     if (pr.pr_changed_files !== undefined) {
-      var filesStat = document.createElement('span');
+      const filesStat = document.createElement('span');
       filesStat.className = 'pr-panel-stat';
       filesStat.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>' +
         pr.pr_changed_files + ' file' + (pr.pr_changed_files !== 1 ? 's' : '');
@@ -5540,7 +5495,7 @@
     }
 
     if (pr.pr_additions !== undefined || pr.pr_deletions !== undefined) {
-      var diffStat = document.createElement('span');
+      const diffStat = document.createElement('span');
       diffStat.className = 'pr-panel-stat';
       diffStat.innerHTML =
         '<span class="pr-panel-additions">+' + (pr.pr_additions || 0) + '</span>' +
@@ -5552,15 +5507,15 @@
 
     // Description (PR body)
     if (pr.pr_body && pr.pr_body.trim()) {
-      var descSection = document.createElement('div');
+      const descSection = document.createElement('div');
       descSection.className = 'pr-panel-description';
 
-      var descTitle = document.createElement('div');
+      const descTitle = document.createElement('div');
       descTitle.className = 'pr-panel-section-title';
       descTitle.textContent = 'Description';
       descSection.appendChild(descTitle);
 
-      var descBody = document.createElement('div');
+      const descBody = document.createElement('div');
       descBody.className = 'pr-panel-description-body';
       descBody.innerHTML = commentMd.render(pr.pr_body);
       descSection.appendChild(descBody);
@@ -5656,9 +5611,9 @@
 
   async function resolveAllAndFinish() {
     // Resolve all unresolved file comments
-    for (var fi = 0; fi < files.length; fi++) {
-      var fileComments = files[fi].comments || [];
-      for (var ci = 0; ci < fileComments.length; ci++) {
+    for (let fi = 0; fi < files.length; fi++) {
+      const fileComments = files[fi].comments || [];
+      for (let ci = 0; ci < fileComments.length; ci++) {
         if (!fileComments[ci].resolved) {
           try {
             await fetch('/api/comment/' + fileComments[ci].id + '/resolve?path=' + enc(files[fi].path), {
@@ -5671,7 +5626,7 @@
       }
     }
     // Resolve all unresolved review comments
-    for (var ri = 0; ri < reviewComments.length; ri++) {
+    for (let ri = 0; ri < reviewComments.length; ri++) {
       if (!reviewComments[ri].resolved) {
         try {
           await fetch('/api/review-comment/' + reviewComments[ri].id + '/resolve', {
@@ -5713,17 +5668,17 @@
     // Check if user took no action but there are unresolved comments.
     // Only warn when ALL unresolved comments are carried-forward (from a previous round)
     // and the user hasn't added, edited, resolved, or replied to anything this round.
-    var unresolvedCount = 0;
-    var hasNewComments = false;
-    for (var fi = 0; fi < files.length; fi++) {
+    let unresolvedCount = 0;
+    let hasNewComments = false;
+    for (let fi = 0; fi < files.length; fi++) {
       if (!files[fi].comments) continue;
-      for (var ci = 0; ci < files[fi].comments.length; ci++) {
-        var c = files[fi].comments[ci];
+      for (let ci = 0; ci < files[fi].comments.length; ci++) {
+        const c = files[fi].comments[ci];
         if (!c.resolved) unresolvedCount++;
         if (!c.carried_forward) hasNewComments = true;
       }
     }
-    for (var ri = 0; ri < reviewComments.length; ri++) {
+    for (let ri = 0; ri < reviewComments.length; ri++) {
       if (!reviewComments[ri].resolved) unresolvedCount++;
       if (!reviewComments[ri].carried_forward) hasNewComments = true;
     }
@@ -5847,46 +5802,13 @@
 
     source.addEventListener('comments-changed', async function() {
       try {
+        // Only re-fetch comments data, not file content or diffs (those only
+        // change on file-changed events). This reduces O(3N) to O(N) requests.
         await Promise.all(files.map(async function(f) {
-          // Lazy files: fetch only comments (not full diff)
-          if (f.lazy) {
-            return fetch('/api/file/comments?path=' + enc(f.path))
-              .then(function(r) { return r.ok ? r.json() : []; })
-              .then(function(comments) { f.comments = Array.isArray(comments) ? comments : []; })
-              .catch(function() {});
-          }
-          var fetches = [
-            fetch('/api/file/comments?path=' + enc(f.path))
-              .then(function(r) { return r.ok ? r.json() : []; })
-              .catch(function() { return []; }),
-            fetch('/api/file?path=' + enc(f.path))
-              .then(function(r) { return r.ok ? r.json() : null; })
-              .catch(function() { return null; }),
-            fetch('/api/file/diff?path=' + enc(f.path)
-              + (diffScope && diffScope !== 'all' ? '&scope=' + enc(diffScope) : '')
-              + (diffCommit ? '&commit=' + enc(diffCommit) : ''))
-              .then(function(r) { return r.ok ? r.json() : null; })
-              .catch(function() { return null; }),
-          ];
-          const [commentsRes, fileRes, diffRes] = await Promise.all(fetches);
-          f.comments = Array.isArray(commentsRes) ? commentsRes : [];
-          if (fileRes && fileRes.content !== undefined && fileRes.content !== f.content) {
-            f.content = fileRes.content;
-            // Rebuild parsed blocks from new content
-            if (f.fileType === 'markdown') {
-              var parsed = parseMarkdown(f.content);
-              f.lineBlocks = parsed.blocks;
-              f.tocItems = parsed.tocItems;
-            } else if (f.fileType === 'code' && session.mode !== 'git') {
-              f.lineBlocks = buildCodeLineBlocks(f);
-            }
-            if (f.fileType === 'code') {
-              f.highlightCache = preHighlightFile(f);
-            }
-          }
-          if (diffRes && Array.isArray(diffRes.hunks)) {
-            f.diffHunks = diffRes.hunks;
-          }
+          return fetch('/api/file/comments?path=' + enc(f.path))
+            .then(function(r) { return r.ok ? r.json() : []; })
+            .then(function(comments) { f.comments = Array.isArray(comments) ? comments : []; })
+            .catch(function() {});
         }));
         // Also refresh review-level comments
         try {
@@ -5894,12 +5816,12 @@
           if (rcRes.ok) reviewComments = await rcRes.json();
         } catch (_) {}
         // Save form drafts and focused element before re-render
-        var focusedFormKey = null;
-        var focusedSelStart = 0;
-        var focusedSelEnd = 0;
-        var activeEl = document.activeElement;
+        let focusedFormKey = null;
+        let focusedSelStart = 0;
+        let focusedSelEnd = 0;
+        const activeEl = document.activeElement;
         if (activeEl && activeEl.tagName === 'TEXTAREA') {
-          var formEl = activeEl.closest('.comment-form');
+          const formEl = activeEl.closest('.comment-form');
           if (formEl) {
             focusedFormKey = formEl.dataset.formKey;
             focusedSelStart = activeEl.selectionStart;
@@ -5915,7 +5837,7 @@
         updateTreeCommentBadges();
         // Restore focus
         if (focusedFormKey) {
-          var ta = document.querySelector('.comment-form[data-form-key="' + focusedFormKey + '"] textarea');
+          const ta = document.querySelector('.comment-form[data-form-key="' + focusedFormKey + '"] textarea');
           if (ta) {
             ta.focus();
             ta.selectionStart = focusedSelStart;
@@ -5937,7 +5859,7 @@
       showDisconnected();
     });
 
-    var sseErrorCount = 0;
+    let sseErrorCount = 0;
     source.addEventListener('message', function() { sseErrorCount = 0; });
     source.addEventListener('file-changed', function() { sseErrorCount = 0; });
     source.addEventListener('comments-changed', function() { sseErrorCount = 0; });
@@ -5992,6 +5914,9 @@
 
     const overlay = document.createElement('div');
     overlay.className = 'share-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Share review');
     overlay.innerHTML =
       '<div class="share-dialog">' +
         '<h3><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.25 5.5l-5.5 5.5-3.5-3.5"/></svg>Review shared</h3>' +
@@ -6267,7 +6192,7 @@
 
   // ===== Mermaid =====
   function getMermaidTheme() {
-    var dataTheme = document.documentElement.getAttribute('data-theme');
+    const dataTheme = document.documentElement.getAttribute('data-theme');
     if (dataTheme === 'light') return 'default';
     if (dataTheme === 'dark') return 'dark';
     // System theme: check prefers-color-scheme
@@ -6385,8 +6310,8 @@
     }
 
     list.innerHTML = commitList.map(function(c) {
-      var active = c.sha === diffCommit ? ' active' : '';
-      var time = c.date ? '<span class="commit-picker-item-time">' + relativeTime(c.date) + '</span>' : '';
+      const active = c.sha === diffCommit ? ' active' : '';
+      const time = c.date ? '<span class="commit-picker-item-time">' + relativeTime(c.date) + '</span>' : '';
       return '<div class="commit-picker-item' + active + '" data-commit="' + c.sha + '">'
         + '<span class="commit-picker-item-sha">' + escapeHtml(c.short_sha) + '</span>'
         + '<span class="commit-picker-item-msg">' + escapeHtml(c.message.length > 40 ? c.message.slice(0, 40) + '\u2026' : c.message) + '</span>'
@@ -6450,7 +6375,7 @@
     await reloadForScope();
   });
 
-  var reloadInFlight = null;
+  let reloadInFlight = null;
   async function reloadForScope() {
     if (reloadInFlight) return reloadInFlight;
     reloadInFlight = (async function() {
@@ -6497,7 +6422,7 @@
 
   // ===== Base Branch Picker =====
   const baseBranchPickerEl = document.getElementById('baseBranchPicker');
-  var baseBranchBtnEl = document.getElementById('baseBranchBtn');
+  const baseBranchBtnEl = document.getElementById('baseBranchBtn');
   let baseBranches = [];
   let currentBaseBranch = ''; // display name of the current base branch
   const branchPicker = { highlightedIdx: -1 }; // keyboard-highlighted item index
@@ -6527,7 +6452,7 @@
   }
 
   function updateHighlight() {
-    var items = getVisibleItems();
+    const items = getVisibleItems();
     items.forEach(function(el, i) {
       el.classList.toggle('highlighted', i === branchPicker.highlightedIdx);
     });
@@ -6537,14 +6462,14 @@
   }
 
   function renderBaseBranchList(filter) {
-    var list = document.getElementById('baseBranchList');
-    var filtered = baseBranches;
+    const list = document.getElementById('baseBranchList');
+    let filtered = baseBranches;
     if (filter) {
-      var lower = filter.toLowerCase();
+      const lower = filter.toLowerCase();
       filtered = baseBranches.filter(function(b) { return b.toLowerCase().indexOf(lower) !== -1; });
     }
     list.innerHTML = filtered.map(function(b) {
-      var active = b === currentBaseBranch ? ' active' : '';
+      const active = b === currentBaseBranch ? ' active' : '';
       return '<div class="base-branch-item' + active + '" data-branch="' + escapeHtml(b) + '">' + escapeHtml(b) + '</div>';
     }).join('');
     if (filtered.length === 0) {
@@ -6561,18 +6486,18 @@
     }
     baseBranchPickerEl.classList.remove('open');
     baseBranchBtnEl.setAttribute('aria-expanded', 'false');
-    var previousBranch = currentBaseBranch;
-    var previousLabel = document.getElementById('baseBranchLabel').textContent;
+    const previousBranch = currentBaseBranch;
+    const previousLabel = document.getElementById('baseBranchLabel').textContent;
     document.getElementById('baseBranchLabel').textContent = branch;
     currentBaseBranch = branch;
     try {
-      var res = await fetch('/api/base-branch', {
+      const res = await fetch('/api/base-branch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ branch: branch }),
       });
       if (!res.ok) {
-        var errText = await res.text();
+        const errText = await res.text();
         console.error('Failed to change base branch:', errText);
         currentBaseBranch = previousBranch;
         document.getElementById('baseBranchLabel').textContent = previousLabel;
@@ -6592,10 +6517,10 @@
   // Toggle dropdown
   document.getElementById('baseBranchBtn').addEventListener('click', function() {
     baseBranchPickerEl.classList.toggle('open');
-    var isOpen = baseBranchPickerEl.classList.contains('open');
+    const isOpen = baseBranchPickerEl.classList.contains('open');
     baseBranchBtnEl.setAttribute('aria-expanded', String(isOpen));
     if (isOpen) {
-      var search = document.getElementById('baseBranchSearch');
+      const search = document.getElementById('baseBranchSearch');
       search.value = '';
       branchPicker.highlightedIdx = -1;
       renderBaseBranchList();
@@ -6611,7 +6536,7 @@
   // Keyboard navigation in search input
   document.getElementById('baseBranchSearch').addEventListener('keydown', function(e) {
     e.stopPropagation();
-    var items = getVisibleItems();
+    const items = getVisibleItems();
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       branchPicker.highlightedIdx = Math.min(branchPicker.highlightedIdx + 1, items.length - 1);
@@ -6625,7 +6550,7 @@
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (branchPicker.highlightedIdx >= 0 && branchPicker.highlightedIdx < items.length) {
-        var branch = items[branchPicker.highlightedIdx].dataset.branch;
+        const branch = items[branchPicker.highlightedIdx].dataset.branch;
         if (branch) selectBaseBranch(branch);
       }
     } else if (e.key === 'Escape') {
@@ -6653,9 +6578,9 @@
 
   // Item selection via click
   document.getElementById('baseBranchList').addEventListener('click', function(e) {
-    var item = e.target.closest('.base-branch-item');
+    const item = e.target.closest('.base-branch-item');
     if (!item) return;
-    var branch = item.dataset.branch;
+    const branch = item.dataset.branch;
     if (branch) selectBaseBranch(branch);
   });
 
@@ -6673,34 +6598,34 @@
   });
 
   // ===== Comment Navigation =====
-  var navCommentId = null;
-  var navHighlightTimer;
+  let navCommentId = null;
+  let navHighlightTimer;
 
   function navigateToComment(direction) {
-    var panel = document.getElementById('commentsPanel');
-    var container = document.getElementById('filesContainer');
-    var cards = Array.from(container.querySelectorAll('.comment-card')).filter(function(card) {
+    const panel = document.getElementById('commentsPanel');
+    const container = document.getElementById('filesContainer');
+    const cards = Array.from(container.querySelectorAll('.comment-card')).filter(function(card) {
       return !panel || !panel.contains(card);
     });
     if (cards.length === 0) return;
 
-    var header = document.querySelector('.header');
-    var headerHeight = header ? header.offsetHeight : 52;
+    const header = document.querySelector('.header');
+    const headerHeight = header ? header.offsetHeight : 52;
 
     // Find current position by stored comment ID (immune to smooth-scroll race conditions)
-    var idx = -1;
+    let idx = -1;
     if (navCommentId) {
-      for (var i = 0; i < cards.length; i++) {
+      for (let i = 0; i < cards.length; i++) {
         if (cards[i].dataset.commentId === navCommentId) { idx = i; break; }
       }
     }
 
-    var targetIdx;
+    let targetIdx;
     if (direction === 1) {
       if (idx < 0) {
         // First use: pick first card below the header area by viewport position
         targetIdx = -1;
-        for (var j = 0; j < cards.length; j++) {
+        for (let j = 0; j < cards.length; j++) {
           if (cards[j].getBoundingClientRect().top > headerHeight + 8) { targetIdx = j; break; }
         }
         if (targetIdx < 0) targetIdx = 0;
@@ -6711,7 +6636,7 @@
       targetIdx = idx <= 0 ? cards.length - 1 : idx - 1;
     }
 
-    var target = cards[targetIdx];
+    const target = cards[targetIdx];
     navCommentId = target.dataset.commentId;
 
     if (navHighlightTimer) {
@@ -6721,10 +6646,10 @@
       });
     }
 
-    var rect = target.getBoundingClientRect();
-    var fileSection = target.closest('.file-section');
-    var fileHeader = fileSection ? fileSection.querySelector('.file-header') : null;
-    var fileHeaderHeight = fileHeader ? fileHeader.offsetHeight : 0;
+    const rect = target.getBoundingClientRect();
+    const fileSection = target.closest('.file-section');
+    const fileHeader = fileSection ? fileSection.querySelector('.file-header') : null;
+    const fileHeaderHeight = fileHeader ? fileHeader.offsetHeight : 0;
     window.scrollTo({ top: rect.top + window.scrollY - headerHeight - fileHeaderHeight - 16, behavior: 'smooth' });
     target.classList.add('comment-nav-highlight');
     navHighlightTimer = setTimeout(function() { target.classList.remove('comment-nav-highlight'); navHighlightTimer = null; }, 1000);
@@ -6776,19 +6701,50 @@
       });
     }
     renderShortcutsPane();
+    // Trap focus inside the settings dialog
+    trapFocusIn(overlay);
+  }
+
+  let focusTrapCleanup = null;
+
+  function trapFocusIn(container) {
+    releaseFocusTrap();
+    function handler(e) {
+      if (e.key !== 'Tab') return;
+      const focusable = container.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
+    container.addEventListener('keydown', handler);
+    focusTrapCleanup = function() { container.removeEventListener('keydown', handler); };
+    // Focus the first focusable element
+    const firstFocusable = container.querySelector('button:not([disabled]), [href], input:not([disabled])');
+    if (firstFocusable) requestAnimationFrame(function() { firstFocusable.focus(); });
+  }
+
+  function releaseFocusTrap() {
+    if (focusTrapCleanup) { focusTrapCleanup(); focusTrapCleanup = null; }
   }
 
   function closeSettingsPanel() {
     settingsPanelOpen = false;
+    releaseFocusTrap();
     document.getElementById('settingsOverlay').classList.remove('active');
   }
 
   function switchSettingsTab(tab) {
     settingsPanelTab = tab;
     let activeBtn = null;
-    document.querySelectorAll('.settings-tab').forEach(function(t) {
+    document.querySelectorAll('.settings-tab[role="tab"]').forEach(function(t) {
       const isActive = t.dataset.tab === tab;
       t.classList.toggle('active', isActive);
+      t.setAttribute('aria-selected', String(isActive));
       if (isActive) activeBtn = t;
     });
     document.querySelectorAll('.settings-pane').forEach(function(p) {
@@ -7351,7 +7307,7 @@
           // Try both document view (.line-block) and diff view elements.
           // Also collect content elements in order for offset computation.
           let fullText = '';
-          var contentEls = [];
+          const contentEls = [];
           for (let ln = range.startLine; ln <= range.endLine; ln++) {
             // Document view
             document.querySelectorAll('.line-block[data-file-path]').forEach(function(el) {
@@ -7366,7 +7322,7 @@
               }
             });
             // Diff view — filter by side so unified diff doesn't double-count
-            var selSide = range.side || '';
+            const selSide = range.side || '';
             document.querySelectorAll('[data-diff-file-path][data-diff-line-num="' + ln + '"]').forEach(function(el) {
               if (el.dataset.diffFilePath !== range.filePath) return;
               if (el.dataset.diffSide !== selSide) return;
@@ -7388,18 +7344,18 @@
             // substrings (e.g. "foo foo foo" — selecting the last "foo").
             try {
               // Determine which end of the selection comes first in document order
-              var selRange = selection.getRangeAt(0);
-              var startContainer = selRange.startContainer;
-              var startOff = selRange.startOffset;
+              const selRange = selection.getRangeAt(0);
+              const startContainer = selRange.startContainer;
+              const startOff = selRange.startOffset;
 
               // Walk content elements to find total chars before selection start
-              var charsBefore = 0;
-              var foundEl = false;
-              for (var ci = 0; ci < contentEls.length; ci++) {
+              let charsBefore = 0;
+              let foundEl = false;
+              for (let ci = 0; ci < contentEls.length; ci++) {
                 if (contentEls[ci].contains(startContainer)) {
                   // Walk text nodes in this element up to the start node
-                  var walker = document.createTreeWalker(contentEls[ci], NodeFilter.SHOW_TEXT, null);
-                  var tn;
+                  const walker = document.createTreeWalker(contentEls[ci], NodeFilter.SHOW_TEXT, null);
+                  let tn;
                   while ((tn = walker.nextNode())) {
                     if (tn === startContainer) {
                       charsBefore += startOff;
@@ -7415,13 +7371,13 @@
 
               if (foundEl) {
                 // Build the raw text up to charsBefore, then normalize to get offset
-                var rawAll = '';
-                var rawUpTo = charsBefore;
-                for (var ri = 0; ri < contentEls.length; ri++) {
+                let rawAll = '';
+                const rawUpTo = charsBefore;
+                for (let ri = 0; ri < contentEls.length; ri++) {
                   rawAll += contentEls[ri].textContent;
                   if (contentEls[ri].contains(startContainer)) break;
                 }
-                var textBefore = rawAll.slice(0, rawUpTo);
+                const textBefore = rawAll.slice(0, rawUpTo);
                 quoteOffset = textBefore.replace(/\s+/g, ' ').trimStart().length;
               }
             } catch (_) { /* offset is a nice-to-have */ }
