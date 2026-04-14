@@ -480,10 +480,13 @@
     agentEnabled = configRes.agent_cmd_enabled || false;
     agentName = configRes.agent_name || 'agent';
 
-    if (shareURL && session.mode !== 'git') {
+    if (shareURL) {
       const shareBtn = document.getElementById('shareBtn');
       shareBtn.style.display = '';
-      if (hostedURL) {
+      if (session.mode === 'git') {
+        shareBtn.disabled = true;
+        shareBtn.title = 'Sharing is not available in git mode';
+      } else if (hostedURL) {
         setShareButtonState('shared');
       }
     }
@@ -1961,6 +1964,13 @@
     return container;
   }
 
+  function buildContentClasses(block) {
+    let classes = 'line-content';
+    if (block.isEmpty) classes += ' empty-line';
+    if (block.cssClass) classes += ' ' + block.cssClass;
+    return classes;
+  }
+
   // Render a single block for the unified diff view.
   // When commentable=true, includes gutter, keyboard nav, comments. Otherwise read-only.
   function renderUnifiedBlock(block, diffClass, file, commentable, blockIndex, commentsMap, commentRangeSet) {
@@ -2016,10 +2026,7 @@
     lineBlockEl.insertBefore(gutter, lineBlockEl.firstChild);
 
     const contentEl = document.createElement('div');
-    let contentClasses = 'line-content';
-    if (block.isEmpty) contentClasses += ' empty-line';
-    if (block.cssClass) contentClasses += ' ' + block.cssClass;
-    contentEl.className = contentClasses;
+    contentEl.className = buildContentClasses(block);
     let html = block.wordDiffHtml || block.html;
     html = processTaskLists(html);
     html = rewriteImageSrcs(html);
@@ -2251,10 +2258,7 @@
 
       // Content
       const content = document.createElement('div');
-      let contentClasses = 'line-content';
-      if (block.isEmpty) contentClasses += ' empty-line';
-      if (block.cssClass) contentClasses += ' ' + block.cssClass;
-      content.className = contentClasses;
+      content.className = buildContentClasses(block);
       let html = block.html;
       html = processTaskLists(html);
       html = rewriteImageSrcs(html);
@@ -5701,10 +5705,15 @@
       await navigator.clipboard.writeText(prompt);
       const el = document.getElementById('waitingClipboard');
       el.textContent = '\u2713 Copied';
+      el.setAttribute('aria-label', 'Copied');
+      announceCopy();
       el.classList.remove('clipboard-confirm');
       void el.offsetWidth;
       el.classList.add('clipboard-confirm');
-      setTimeout(function() { el.textContent = 'Copy prompt'; }, 2000);
+      setTimeout(function() {
+        el.textContent = 'Copy prompt';
+        el.setAttribute('aria-label', 'Copy prompt');
+      }, 2000);
     } catch (_) {}
   });
 
@@ -5923,7 +5932,7 @@
         '<div class="share-dialog-qr" id="modalQR"></div>' +
         '<div class="share-dialog-url">' +
           '<span>' + escapeHtml(hostedURL) + '</span>' +
-          '<button class="copy-icon-btn" id="modalCopyBtn" title="Copy link">' +
+          '<button class="copy-icon-btn" id="modalCopyBtn" title="Copy link" aria-label="Copy link">' +
             ICON_CLIPBOARD +
           '</button>' +
         '</div>' +
@@ -5960,8 +5969,13 @@
     overlay.querySelector('#modalCopyBtn').addEventListener('click', function() {
       navigator.clipboard.writeText(hostedURL).catch(function() {});
       this.innerHTML = ICON_CHECK_SMALL;
+      this.setAttribute('aria-label', 'Copied');
+      announceCopy();
       const copyBtn = this;
-      setTimeout(function() { copyBtn.innerHTML = ICON_CLIPBOARD; }, 2000);
+      setTimeout(function() {
+        copyBtn.innerHTML = ICON_CLIPBOARD;
+        copyBtn.setAttribute('aria-label', 'Copy link');
+      }, 2000);
     });
 
     if (deleteToken) {
@@ -6008,7 +6022,7 @@
         '<span>Unpublish failed: ' + escapeHtml(err.message) + '</span>' +
         '<div class="toast-actions">' +
           '<button class="toast-btn toast-btn-filled" id="shareUnpublishRetryBtn">Retry</button>' +
-          '<button class="toast-btn toast-btn-ghost" onclick="dismissToast(\'share\')">Dismiss</button>' +
+          '<button class="toast-btn toast-btn-ghost" data-dismiss-toast="share">Dismiss</button>' +
         '</div>');
       el.querySelector('#shareUnpublishRetryBtn').addEventListener('click', function() {
         dismissToast('share');
@@ -6048,7 +6062,7 @@
         '<span>Share failed: ' + escapeHtml(err.message) + '</span>' +
         '<div class="toast-actions">' +
           '<button class="toast-btn toast-btn-filled" id="shareRetryBtn">Retry</button>' +
-          '<button class="toast-btn toast-btn-ghost" onclick="dismissToast(\'share\')">Dismiss</button>' +
+          '<button class="toast-btn toast-btn-ghost" data-dismiss-toast="share">Dismiss</button>' +
         '</div>');
       el.querySelector('#shareRetryBtn').addEventListener('click', function() {
         dismissToast('share');
@@ -6056,6 +6070,12 @@
       });
     }
   });
+
+  // Announce copy action to screen readers via live region
+  function announceCopy() {
+    const el = document.getElementById('copyStatus');
+    if (el) { el.textContent = ''; el.textContent = 'Copied to clipboard'; }
+  }
 
   // ===== Toast System =====
   function showToast(id, type, content, opts) {
@@ -6072,13 +6092,18 @@
     return el;
   }
 
-  // Global for onclick handlers in toast HTML
-  window.dismissToast = function(id) {
+  function dismissToast(id) {
     const el = document.getElementById('toast-' + id);
     if (!el) return;
     el.classList.add('toast-out');
     el.addEventListener('animationend', function() { el.remove(); }, { once: true });
-  };
+  }
+
+  // Event delegation for toast dismiss buttons (replaces inline onclick)
+  document.getElementById('toastContainer').addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-dismiss-toast]');
+    if (btn) dismissToast(btn.dataset.dismissToast);
+  });
 
   // ===== Table of Contents =====
   function buildToc() {
@@ -6964,9 +6989,12 @@
         const text = btn.dataset.copy;
         navigator.clipboard.writeText(text).then(function() {
           btn.textContent = '\u2713 Copied';
+          btn.setAttribute('aria-label', 'Copied');
+          announceCopy();
           btn.classList.add('copied');
           setTimeout(function() {
             btn.textContent = 'Copy';
+            btn.setAttribute('aria-label', 'Copy');
             btn.classList.remove('copied');
           }, 1500);
         });
@@ -7082,6 +7110,20 @@
   // Tab switching
   document.querySelectorAll('.settings-tab[data-tab]').forEach(function(tab) {
     tab.addEventListener('click', function() { switchSettingsTab(tab.dataset.tab); });
+  });
+
+  // Arrow key navigation for ARIA tabs pattern
+  document.querySelector('.settings-tabs[role="tablist"]').addEventListener('keydown', function(e) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const tabs = Array.from(this.querySelectorAll('.settings-tab[data-tab]'));
+    const current = tabs.findIndex(function(t) { return t.getAttribute('aria-selected') === 'true'; });
+    if (current === -1) return;
+    let next = e.key === 'ArrowRight' ? current + 1 : current - 1;
+    if (next < 0) next = tabs.length - 1;
+    if (next >= tabs.length) next = 0;
+    e.preventDefault();
+    switchSettingsTab(tabs[next].dataset.tab);
+    tabs[next].focus();
   });
 
   document.getElementById('noChangesOverlay').addEventListener('click', function(e) {
