@@ -51,9 +51,9 @@ It launches Crit, waits for your review; your agent acts on the feedback and you
 
 ## Demo
 
-A 5-minute walkthrough of plan review and branch review.
+A 2-minute walkthrough of plan review and branch review.
 
-[![Crit demo](https://github.com/user-attachments/assets/dec9c069-9a99-4254-9b05-6d8db30820ed)](https://www.youtube.com/watch?v=XRjkRpXuLJc)
+[![Crit demo](images/video-thumbnail.png)](https://www.youtube.com/watch?v=LHwfdvePf5A)
 
 ## Usage
 
