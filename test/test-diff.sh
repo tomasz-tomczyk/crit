@@ -31,6 +31,11 @@ if [ ! -f "$BINARY" ]; then
   go build -o crit .
 fi
 
+# Kill any stale processes on test ports
+for port in "$PORT" "$((PORT + 1))"; do
+  lsof -ti tcp:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
+done
+
 # Reset the copy to v1 and remove any stale .crit.json
 cp test/notification-plan.md "$FILE"
 rm -f .crit.json
@@ -162,13 +167,19 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Wait for the server to be ready
-for i in $(seq 1 20); do
-  if curl -sf "http://127.0.0.1:$PORT/api/session" > /dev/null 2>&1; then
-    break
-  fi
-  sleep 0.5
+# Wait for servers to be ready (poll until /api/session returns 200, not 503)
+for port_to_wait in "$PORT" "$WORD_DIFF_PORT"; do
+  for i in $(seq 1 40); do
+    if curl -sf "http://127.0.0.1:$port_to_wait/api/session" > /dev/null 2>&1; then
+      break
+    fi
+    sleep 0.5
+  done
 done
+
+# Clear any leftover comments from previous runs (the daemon persists
+# reviews to ~/.crit/reviews/ — re-running without this accumulates dupes)
+curl -sf -X DELETE "http://127.0.0.1:$PORT/api/comments" > /dev/null
 
 # Determine the file path as the server sees it
 FILE_PATH=$(curl -sf "http://127.0.0.1:$PORT/api/session" | python3 -c "
@@ -181,46 +192,45 @@ for f in s['files']:
 ")
 ENCODED_PATH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$FILE_PATH'))")
 
-# Seed 4 comments via the API
-curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" \
+# Seed 5 comments via the API — capture IDs for threading replies
+C1=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" \
   -H 'Content-Type: application/json' \
   -d '{
     "start_line": 20, "end_line": 20,
     "body": "Redis Streams will lose the queue on restart if AOF isn'\''t enabled. Worth checking before we commit. We'\''re already on AWS — SQS gives us durable delivery without needing to think about Redis persistence config."
-  }' > /dev/null
+  }' | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
-curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" \
+C2=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" \
   -H 'Content-Type: application/json' \
   -d '{
     "start_line": 61, "end_line": 62,
     "body": "Even on the internal network we should have some protection on this endpoint. A buggy upstream service could spam `/send` and flood user inboxes with no rate limiting in place.\n\nAt minimum the MVP checklist should include:\n\n- A shared secret header (e.g. `X-Internal-Token`)\n- Rate limiting per caller\n\n**These are not optional** — a single misconfigured upstream can take down the notification pipeline."
-  }' > /dev/null
+  }' | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
-curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" \
+C3=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" \
   -H 'Content-Type: application/json' \
   -d '{
     "start_line": 121, "end_line": 121,
     "body": "2 hours is a long tail for webhook consumers. If my endpoint is down I'\''d want a failure signal faster so I can investigate. Most webhook systems cap at 30-60 minutes. Recommend dropping this to 30 minutes max."
-  }' > /dev/null
+  }' | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
-curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" \
+C4=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" \
   -H 'Content-Type: application/json' \
   -d '{
     "start_line": 158, "end_line": 159,
     "body": "This is blocking the migration. metadata JSONB is currently unbounded — someone will try to store a 10MB blob in it. We need a cap in the schema before migrations run. Suggest 64KB and enforce with a CHECK constraint."
-  }' > /dev/null
+  }' | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
-# Fetch comment IDs (they're randomly generated, not sequential)
-COMMENT_IDS=$(curl -sf "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" | python3 -c "
-import json, sys
-comments = json.load(sys.stdin)
-for c in comments:
-    print(c['id'])
-")
-C2=$(echo "$COMMENT_IDS" | sed -n '2p')
-C4=$(echo "$COMMENT_IDS" | sed -n '4p')
+# Comment on the Code Standards heading — replicates the screenshot scenario
+# where comments + deletion markers interrupt formatted markdown sections
+C5=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 162, "end_line": 162,
+    "body": "These standards are good but we should split them into a separate doc once we'\''re past MVP. Having them inline in the plan adds noise for anyone skimming the implementation steps."
+  }' | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
-# Seed replies on comments to exercise threading
+# Seed replies on comments to exercise threading (use captured IDs)
 curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/$C2/replies?path=$ENCODED_PATH" \
   -H 'Content-Type: application/json' \
   -d '{
@@ -253,7 +263,7 @@ curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/$C4/replies?path=$ENCODED_P
 REVIEW_FILE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/finish" | python3 -c "import json, sys; print(json.load(sys.stdin)['review_file'])")
 
 echo ""
-echo "Crit is running at http://127.0.0.1:$PORT with 4 comments + 4 replies."
+echo "Crit is running at http://127.0.0.1:$PORT with 5 comments + 4 replies."
 echo "Browse them in the browser, then press Enter to simulate the agent editing the file."
 read -r
 
@@ -344,9 +354,11 @@ echo "Three views running:"
 echo "  1. Markdown diff (inter-round):  http://127.0.0.1:$PORT"
 echo "  2. Code diff (word-level):       http://127.0.0.1:$WORD_DIFF_PORT"
 echo ""
-echo "Instance 1: diff view with resolved comments + threaded replies."
+echo "Instance 1: diff view with resolved comments + threaded replies + deletion markers."
 echo "            Comment #2 (resolved): 2 agent replies — visible when expanded."
 echo "            Comment #4 (unresolved): 2 replies (agent + reviewer) — visible inline."
+echo "            Comment #5 (on Code Standards heading): tests formatting near deletion markers."
+echo "            Scroll to bottom: deletion markers interrupt the markdown code fence."
 echo "Instance 2: word-level diff + orphaned comments on helpers.go"
 echo "            helpers.go was added then deleted — should appear as a phantom"
 echo "            section with 'Removed' badge, 2 outdated comments (1 file-level,"
