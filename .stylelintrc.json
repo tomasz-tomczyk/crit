@@ -1,0 +1,19 @@
+{
+  "rules": {
+    "block-no-empty": true,
+    "color-no-invalid-hex": true,
+    "declaration-block-no-duplicate-properties": true,
+    "no-duplicate-selectors": true
+  },
+  "overrides": [
+    {
+      "files": ["frontend/style.css"],
+      "rules": {
+        "color-named": "never",
+        "declaration-property-value-disallowed-list": {
+          "/^color|^background|^border/": ["/^#/", "/^rgba/", "/^rgb/"]
+        }
+      }
+    }
+  ]
+}

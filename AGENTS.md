@@ -489,3 +489,36 @@ When reviewing this project, apply these filters to avoid false positives:
 | File                            | Description                                                                                                                                                                                                                                                  |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `~/.crit/reviews/<key>.json`    | Centralized review data — structured JSON with per-file comments and review-level comments, read by AI agents. Comments have a `scope` field: `"line"` (inline), `"file"` (file-level), or `"review"` (general). Review-level comments live in the top-level `review_comments` array. Use `crit status` to see the active review file path. |
+
+## Common Mistakes (from audit history)
+
+These issues have been found repeatedly in AI-generated code for this project. Check each one before considering work complete. Only items NOT caught by automated tooling (golangci-lint, ESLint, Stylelint, axe-core) are listed here.
+
+### Go Backend
+1. Forgetting to clear review-level comments when clearing file comments
+2. Missing fields in struct construction (silent data loss)
+3. Creating wrapper functions that just delegate to another function
+4. Inline reimplementation of existing helper functions
+5. Mixing `git status --porcelain` and `git diff --name-status` inconsistently
+6. Not validating daemon health check response body
+
+### Frontend JS
+1. Missing `aria-label` on icon-only buttons (axe-core catches this in E2E, but prevent at source)
+2. Not checking `response.ok` after `fetch()`
+3. Not resetting navigation state on context changes
+4. SSE handlers re-fetching more data than changed
+5. Async operations without dedup guards when triggerable from multiple sources
+6. `.remove()` on elements with CSS exit animations (use animationend)
+
+### Frontend CSS
+1. Not defining new CSS variables in all 4 theme blocks
+2. Leaving dead selectors after renaming CSS classes or DOM element IDs
+3. Referencing undefined CSS variables (check-css-vars.sh catches this in pre-commit)
+
+## Context Compaction
+
+When compacting, always preserve:
+- The list of files modified in this session
+- Any unresolved review comments or crit feedback
+- The current phase of any multi-phase workflow (review, ship, audit)
+- Which worktree you're working in

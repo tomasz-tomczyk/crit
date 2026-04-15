@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -257,7 +258,8 @@ func FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHunk, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		// Exit code 1 means diff found changes (normal), check for actual errors
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			// git diff exits 1 when there are differences
 		} else {
 			return nil, fmt.Errorf("git diff failed: %w", err)
@@ -335,11 +337,11 @@ func FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
 	}
 	out, err := cmd.Output()
 	if err != nil {
-		exitErr, ok := err.(*exec.ExitError)
+		var exitErr *exec.ExitError
 		switch {
-		case ok && exitErr.ExitCode() == 1:
+		case errors.As(err, &exitErr) && exitErr.ExitCode() == 1:
 			// git diff exits 1 when there are differences — not an error
-		case ok && exitErr.ExitCode() == 128:
+		case errors.As(err, &exitErr) && exitErr.ExitCode() == 128:
 			// sha^ failed (root commit) — diff against the empty tree
 			emptyTree := "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 			cmd2 := exec.Command("git", "diff", "--no-color", emptyTree+".."+sha, "--", path)
@@ -348,7 +350,8 @@ func FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
 			}
 			out, err = cmd2.Output()
 			if err != nil {
-				if exitErr2, ok := err.(*exec.ExitError); ok && exitErr2.ExitCode() == 1 {
+				var exitErr2 *exec.ExitError
+				if errors.As(err, &exitErr2) && exitErr2.ExitCode() == 1 {
 					// differences found
 				} else {
 					return nil, fmt.Errorf("git diff (root commit) failed: %w", err)
@@ -494,7 +497,7 @@ func AllTrackedFiles(dir string) ([]string, error) {
 	}
 	out2, err := cmd2.Output()
 	if err != nil {
-		return files, nil // non-fatal: return tracked only
+		return files, nil //nolint:nilerr // non-fatal: return tracked files only
 	}
 	for _, line := range strings.Split(strings.TrimSpace(string(out2)), "\n") {
 		if line == "" {
@@ -529,7 +532,7 @@ func WalkFiles(root string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // best-effort walk: skip inaccessible entries
 		}
 		if d.IsDir() {
 			name := d.Name()
@@ -540,7 +543,7 @@ func WalkFiles(root string) ([]string, error) {
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // skip files with unresolvable relative paths
 		}
 		files = append(files, rel)
 		return nil
@@ -647,7 +650,8 @@ func fileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		// Exit code 1 means diff found changes (normal), check for actual errors
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			// git diff exits 1 when there are differences
 		} else {
 			return nil, fmt.Errorf("git diff failed: %w", err)
@@ -669,7 +673,8 @@ func fileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string) ([]DiffH
 	}
 	out, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			// git diff exits 1 when there are differences
 		} else {
 			return nil, fmt.Errorf("git diff failed: %w", err)
@@ -722,7 +727,8 @@ func DiffNumstatDir(baseRef, dir string) (map[string]NumstatEntry, error) {
 	}
 	out, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			// git diff exits 1 when there are differences — normal
 		} else {
 			return nil, fmt.Errorf("git diff --numstat failed: %w", err)
@@ -792,21 +798,22 @@ func ParseUnifiedDiff(diff string) []DiffHunk {
 			continue
 		}
 
-		if strings.HasPrefix(line, "+") {
+		switch {
+		case strings.HasPrefix(line, "+"):
 			current.Lines = append(current.Lines, DiffLine{
 				Type:    "add",
 				Content: strings.TrimPrefix(line, "+"),
 				NewNum:  newLine,
 			})
 			newLine++
-		} else if strings.HasPrefix(line, "-") {
+		case strings.HasPrefix(line, "-"):
 			current.Lines = append(current.Lines, DiffLine{
 				Type:    "del",
 				Content: strings.TrimPrefix(line, "-"),
 				OldNum:  oldLine,
 			})
 			oldLine++
-		} else if strings.HasPrefix(line, " ") {
+		case strings.HasPrefix(line, " "):
 			current.Lines = append(current.Lines, DiffLine{
 				Type:    "context",
 				Content: strings.TrimPrefix(line, " "),
@@ -815,7 +822,7 @@ func ParseUnifiedDiff(diff string) []DiffHunk {
 			})
 			oldLine++
 			newLine++
-		} else if line == "" && oldLine < current.OldStart+current.OldCount {
+		case line == "" && oldLine < current.OldStart+current.OldCount:
 			// Bare empty line within expected hunk bounds — treat as blank context line.
 			// Git outputs these when diff.suppressBlankEmpty is set, stripping the
 			// leading space from blank context lines. We check bounds to avoid treating
@@ -828,7 +835,7 @@ func ParseUnifiedDiff(diff string) []DiffHunk {
 			})
 			oldLine++
 			newLine++
-		} else if line == `\ No newline at end of file` {
+		case line == `\ No newline at end of file`:
 			// Skip this marker
 			continue
 		}

@@ -8,7 +8,7 @@
     typographer: true,
     highlight: function(str, lang) {
       if (lang && hljs.getLanguage(lang)) {
-        try { return hljs.highlight(str, { language: lang }).value; } catch (_) {}
+        try { return hljs.highlight(str, { language: lang }).value; } catch {}
       }
       return '';
     }
@@ -103,7 +103,7 @@
     linkify: true,
     highlight: function(str, lang) {
       if (lang && hljs.getLanguage(lang)) {
-        try { return hljs.highlight(str, { language: lang }).value; } catch (_) {}
+        try { return hljs.highlight(str, { language: lang }).value; } catch {}
       }
       return '';
     }
@@ -153,7 +153,7 @@
   let prData = null;     // PR metadata from /api/config (set once on load)
   let agentEnabled = false;
   let agentName = 'agent';
-  let pendingAgentRequests = new Set();
+  const pendingAgentRequests = new Set();
 
   // Track manually toggled collapse state (comment ID → boolean, true = collapsed)
   const commentCollapseOverrides = {};
@@ -360,7 +360,7 @@
     for (let i = 0; i < files.length; i++) {
       if (files[i].viewed) viewed[files[i].path] = true;
     }
-    try { localStorage.setItem(viewedStorageKey(), JSON.stringify(viewed)); } catch (_) {}
+    try { localStorage.setItem(viewedStorageKey(), JSON.stringify(viewed)); } catch {}
   }
 
   function restoreViewedState() {
@@ -370,7 +370,7 @@
         files[i].viewed = !!data[files[i].path];
         if (files[i].viewed) files[i].collapsed = true;
       }
-    } catch (_) {}
+    } catch {}
   }
 
   function toggleViewed(filePath) {
@@ -403,7 +403,7 @@
       let r;
       try {
         r = await fetch(url);
-      } catch (_) {
+      } catch {
         // Network error — server may have shut down during init
         const el = document.getElementById('filesContainer');
         if (el) {
@@ -429,7 +429,7 @@
       }
       if (r.status === 500) {
         let body = {};
-        try { body = await r.json(); } catch (_) {}
+        try { body = await r.json(); } catch {}
         const msg = body.message || 'Server initialization failed';
         document.getElementById('filesContainer').innerHTML =
           '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">' +
@@ -470,7 +470,7 @@
     // Fire-and-forget: verify file list endpoint is available for @-mention autocomplete
     fetch('/api/files/list')
       .then(r => { if (r.ok) filePickerReady = true; })
-      .catch(() => {});
+      .catch(() => { /* fire-and-forget */ });
 
     // Config
     shareURL = configRes.share_url || '';
@@ -660,7 +660,7 @@
         result.push(lines[i]);
       }
       return result;
-    } catch (_) {
+    } catch {
       return null;
     }
   }
@@ -676,7 +676,7 @@
     if (lang && hljs.getLanguage(lang)) {
       try {
         return hljs.highlight(content, { language: lang, ignoreIllegals: true }).value;
-      } catch (_) {}
+      } catch {}
     }
     return escapeHtml(content);
   }
@@ -705,12 +705,12 @@
 
   function splitHighlightedCode(html) {
     const result = [];
-    let openSpans = [];
+    const openSpans = [];
     const lines = html.split('\n');
     for (let i = 0; i < lines.length; i++) {
-      let prefix = openSpans.map(s => s).join('');
-      let line = lines[i];
-      let fullLine = prefix + line;
+      const prefix = openSpans.map(s => s).join('');
+      const line = lines[i];
+      const fullLine = prefix + line;
 
       // Track open/close spans
       const opens = line.match(/<span[^>]*>/g) || [];
@@ -719,7 +719,7 @@
       for (let c = 0; c < closes.length; c++) openSpans.pop();
 
       // Close any open spans at end of line
-      let suffix = '</span>'.repeat(openSpans.length);
+      const suffix = '</span>'.repeat(openSpans.length);
       result.push(fullLine + suffix);
     }
     return result;
@@ -793,7 +793,7 @@
 
     let highlighted = '';
     if (lang && hljs.getLanguage(lang)) {
-      try { highlighted = hljs.highlight(token.content, { language: lang }).value; } catch (_) {}
+      try { highlighted = hljs.highlight(token.content, { language: lang }).value; } catch {}
     }
     if (!highlighted) highlighted = escapeHtml(token.content);
 
@@ -848,7 +848,7 @@
         const itemCloseIdx = findCloseToken(tokens, j);
 
         if (itemMap) {
-          coveredUpTo = addGapLineBlocks(blocks, sourceLines, coveredUpTo, itemMap[0]);
+          addGapLineBlocks(blocks, sourceLines, coveredUpTo, itemMap[0]);
           let effectiveEnd = itemMap[1];
           while (effectiveEnd > itemMap[0] + 1 && sourceLines[effectiveEnd - 1].trim() === '') {
             effectiveEnd--;
@@ -920,7 +920,6 @@
               blocks.push({ startLine: ln + 1, endLine: ln + 1, html: lineText === '' ? '' : escapeHtml(lineText), isEmpty: lineText === '' });
             }
           }
-          coveredUpTo = trMap[0];
 
           const trTokens = tokens.slice(j, trCloseIdx + 1);
           const section = inThead ? 'thead' : 'tbody';
@@ -968,7 +967,7 @@
       const childMap = tokens[j].map;
       let childCloseIdx = j;
       if (tokens[j].nesting === 1) childCloseIdx = findCloseToken(tokens, j);
-      coveredUpTo = addGapLineBlocks(blocks, sourceLines, coveredUpTo, childMap[0]);
+      addGapLineBlocks(blocks, sourceLines, coveredUpTo, childMap[0]);
       const childTokens = tokens.slice(j, childCloseIdx + 1);
       const childHtml = '<blockquote>' +
         md.renderer.render(childTokens, md.options, {}) +
@@ -1054,7 +1053,7 @@
       let html;
       try {
         html = md.renderer.render(blockTokens, md.options, {});
-      } catch (e) {
+      } catch {
         html = escapeHtml(blockTokens.map(t => t.content || '').join(''));
       }
 
@@ -1067,7 +1066,7 @@
       coveredUpTo = blockEnd;
     }
 
-    coveredUpTo = addGapLineBlocks(blocks, sourceLines, coveredUpTo, totalLines);
+    addGapLineBlocks(blocks, sourceLines, coveredUpTo, totalLines);
     return blocks;
   }
 
@@ -1529,8 +1528,8 @@
       // User scrolled manually — find next/prev relative to viewport position
       if (dir > 0) {
         for (let i = 0; i < changeGroups.length; i++) {
-          let rect = changeGroups[i].elements[0].getBoundingClientRect();
-          let elCenter = (rect.top + rect.bottom) / 2;
+          const rect = changeGroups[i].elements[0].getBoundingClientRect();
+          const elCenter = (rect.top + rect.bottom) / 2;
           if (elCenter > viewCenter + threshold) { targetIdx = i; break; }
         }
         if (targetIdx === -1) targetIdx = 0;
@@ -1576,7 +1575,7 @@
 
   // Re-render only a single file section (preserves scroll position)
   function saveOpenFormContent(filePath) {
-    let fileForms = getFormsForFile(filePath);
+    const fileForms = getFormsForFile(filePath);
     for (let i = 0; i < fileForms.length; i++) {
       const ta = document.querySelector('.comment-form[data-form-key="' + fileForms[i].formKey + '"] textarea');
       if (ta) fileForms[i].draftBody = ta.value;
@@ -1713,7 +1712,7 @@
         const btn = e.target.closest('.toggle-btn');
         if (!btn) return;
         e.preventDefault(); // Don't toggle the <details>
-        let fileForms = getFormsForFile(file.path);
+        const fileForms = getFormsForFile(file.path);
         fileForms.forEach(function(f) { removeForm(f.formKey); });
         if (activeFilePath === file.path) {
           selectionStart = null;
@@ -1858,7 +1857,7 @@
   }
 
   function applyBlockSelectionState(el, filePath, startLine, endLine, blockIndex) {
-    let fileForms = getFormsForFile(filePath);
+    const fileForms = getFormsForFile(filePath);
     const hasForm = fileForms.some(function(f) {
       return !f.editingId && startLine >= f.startLine && endLine <= f.endLine;
     });
@@ -1893,7 +1892,7 @@
     const container = document.createElement('div');
     container.className = 'diff-view';
 
-    let lineSets = buildDiffLineSetFromHunks(file.diffHunks);
+    const lineSets = buildDiffLineSetFromHunks(file.diffHunks);
     const prevBlocks = annotateBlocks(file.previousLineBlocks, lineSets.removed);
     const currBlocks = annotateBlocks(file.lineBlocks, lineSets.added);
 
@@ -1917,8 +1916,8 @@
     container.appendChild(rightLabel);
 
     // Two-pointer merge for horizontal alignment
-    let commentsMap = buildCommentsMap(file.comments);
-    let commentRangeSet = buildCommentedRangeSet(file.comments);
+    const commentsMap = buildCommentsMap(file.comments);
+    const commentRangeSet = buildCommentedRangeSet(file.comments);
     let oldIdx = 0, newIdx = 0;
 
     while (oldIdx < prevBlocks.length || newIdx < currBlocks.length) {
@@ -2063,8 +2062,8 @@
     const oldBlocks = file.previousLineBlocks;
     const newBlocks = file.lineBlocks;
 
-    let commentsMap = buildCommentsMap(file.comments);
-    let commentRangeSet = buildCommentedRangeSet(file.comments);
+    const commentsMap = buildCommentsMap(file.comments);
+    const commentRangeSet = buildCommentedRangeSet(file.comments);
 
     // Two-pointer merge: walk both block lists simultaneously
     let oldIdx = 0;
@@ -2795,7 +2794,7 @@
       }
 
       // Merge: prev hunk + context lines + next hunk → single hunk
-      let hunks = file.diffHunks;
+      const hunks = file.diffHunks;
       const merged = {
         OldStart: hunks[prevIdx].OldStart,
         NewStart: hunks[prevIdx].NewStart,
@@ -2828,7 +2827,7 @@
     const key = lineNum + ':' + (side || '');
     const lineComments = commentsMap[key] || [];
     for (const comment of lineComments) {
-      let el = comment.resolved
+      const el = comment.resolved
         ? createResolvedElement(comment, filePath)
         : createCommentElement(comment, filePath);
       if (side === 'old') el.classList.add('diff-comment-left');
@@ -2842,9 +2841,9 @@
     const fileForms = getFormsForFile(filePath);
     for (let fi = 0; fi < fileForms.length; fi++) {
       const form = fileForms[fi];
-      let formSide = form.side || '';
+      const formSide = form.side || '';
       if (!form.editingId && form.endLine === lineNum && formSide === (side || '')) {
-        let el = createCommentForm(form);
+        const el = createCommentForm(form);
         if (formSide === 'old') el.classList.add('diff-comment-left');
         else el.classList.add('diff-comment-right');
         container.appendChild(el);
@@ -2880,7 +2879,7 @@
       const wordDiffMap = buildHunkWordDiffs(hunk);
 
       for (let li = 0; li < hunk.Lines.length; li++) {
-        let line = hunk.Lines[li];
+        const line = hunk.Lines[li];
         const lineEl = document.createElement('div');
         lineEl.className = 'diff-line';
         if (line.Type === 'add') lineEl.classList.add('addition');
@@ -3106,7 +3105,7 @@
     const leftContent = document.createElement('div');
     leftContent.className = 'diff-content';
     if (left) {
-      let hlHtml = highlightDiffLine(left.content, left.num, 'old', file.highlightCache, file.lang);
+      const hlHtml = highlightDiffLine(left.content, left.num, 'old', file.highlightCache, file.lang);
       leftContent.innerHTML = left.wordRanges ? applyWordDiffToHtml(hlHtml, left.wordRanges, 'diff-word-del') : hlHtml;
     }
     if (!left) leftEl.classList.add('empty');
@@ -3360,7 +3359,7 @@
       const btn = col.querySelector('.diff-comment-btn');
       if (!btn) continue;
       const lineNum = parseInt(btn.dataset.lineNum);
-      let side = btn.dataset.side || '';
+      const side = btn.dataset.side || '';
       const visualIdx = btn.dataset.visualIdx !== undefined ? parseInt(btn.dataset.visualIdx) : undefined;
       if (!lineNum) continue;
 
@@ -3470,7 +3469,7 @@
           filePath: lineBlock.dataset.filePath,
           startLine: parseInt(lineBlock.dataset.startLine),
           endLine: parseInt(lineBlock.dataset.endLine),
-          blockIndex: lineBlock.dataset.blockIndex != null ? parseInt(lineBlock.dataset.blockIndex) : null,
+          blockIndex: lineBlock.dataset.blockIndex !== undefined ? parseInt(lineBlock.dataset.blockIndex) : null,
           side: undefined
         };
       }
@@ -3509,7 +3508,7 @@
 
     // Determine afterBlockIndex: use the larger blockIndex (form appears after last block in range)
     let afterBlockIndex = null;
-    if (anchorInfo.blockIndex != null && focusInfo.blockIndex != null) {
+    if (anchorInfo.blockIndex !== null && focusInfo.blockIndex !== null) {
       afterBlockIndex = Math.max(anchorInfo.blockIndex, focusInfo.blockIndex);
     }
 
@@ -3594,7 +3593,7 @@
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) return parsed;
       }
-    } catch (_) {}
+    } catch {}
     return [];
   }
 
@@ -3625,7 +3624,7 @@
       del.addEventListener('click', function(e) {
         e.preventDefault();
         e.stopPropagation();
-        let t = getTemplates();
+        const t = getTemplates();
         t.splice(i, 1);
         saveTemplates(t);
         populateTemplateBar(bar, textarea);
@@ -3918,7 +3917,7 @@
 
   // ===== Comment Form =====
   function createCommentFormUI(opts) {
-    let formObj = opts.formObj;
+    const formObj = opts.formObj;
 
     const wrapper = document.createElement('div');
     wrapper.className = 'comment-form-wrapper';
@@ -4046,7 +4045,7 @@
   }
 
   function getOldSideLinesFromHunks(file, startLine, endLine) {
-    let lines = [];
+    const lines = [];
     if (!file.diffHunks) return lines;
     for (let h = 0; h < file.diffHunks.length; h++) {
       const hunkLines = file.diffHunks[h].Lines || [];
@@ -4062,8 +4061,8 @@
   }
 
   function insertSuggestion(textarea) {
-    let key = textarea.dataset.formKey;
-    let formObj = activeForms.find(function(f) { return f.formKey === key; });
+    const key = textarea.dataset.formKey;
+    const formObj = activeForms.find(function(f) { return f.formKey === key; });
     if (!formObj) return;
     const file = getFileByPath(formObj.filePath);
     if (!file) return;
@@ -4116,7 +4115,7 @@
           payload.end_line = formObj.endLine;
         }
         if (formObj.quote) payload.quote = formObj.quote;
-        if (formObj.quoteOffset != null) payload.quote_offset = formObj.quoteOffset;
+        if (formObj.quoteOffset !== null && formObj.quoteOffset !== undefined) payload.quote_offset = formObj.quoteOffset;
         if (formObj.side) payload.side = formObj.side;
         if (configAuthor) payload.author = configAuthor;
         const res = await fetch('/api/file/comments?path=' + enc(filePath), {
@@ -4169,7 +4168,7 @@
   }
 
   // ===== Draft Autosave =====
-  let draftTimers = {};
+  const draftTimers = {};
 
   function getDraftKey(formObj) {
     if (!formObj) return null;
@@ -4178,7 +4177,7 @@
 
   function saveDraft(body, formObj) {
     if (!formObj) return;
-    let key = getDraftKey(formObj);
+    const key = getDraftKey(formObj);
     if (!key) return;
     try {
       localStorage.setItem(key, JSON.stringify({
@@ -4192,26 +4191,26 @@
         body: body,
         savedAt: Date.now()
       }));
-    } catch (_) {}
+    } catch {}
   }
 
   function debouncedSaveDraft(body, formObj) {
     if (!formObj) return;
-    let key = formObj.formKey;
+    const key = formObj.formKey;
     clearTimeout(draftTimers[key]);
     draftTimers[key] = setTimeout(function() { saveDraft(body, formObj); }, 500);
   }
 
   function clearDraft(formObj) {
     if (!formObj) return;
-    let key = formObj.formKey;
+    const key = formObj.formKey;
     if (draftTimers[key]) {
       clearTimeout(draftTimers[key]);
       delete draftTimers[key];
     }
     const draftKey = getDraftKey(formObj);
     if (draftKey) {
-      try { localStorage.removeItem(draftKey); } catch (_) {}
+      try { localStorage.removeItem(draftKey); } catch {}
     }
   }
 
@@ -4274,7 +4273,7 @@
 
         restored = true;
         localStorage.removeItem(key);
-      } catch (_) {
+      } catch {
         localStorage.removeItem(key);
       }
     }
@@ -4566,7 +4565,7 @@
           const e = parseInt(el.dataset.endLine);
           if (s <= ln && e >= ln) {
             // Get the content div (skip gutter)
-            let content = el.querySelector('.line-content');
+            const content = el.querySelector('.line-content');
             if (content && contentEls.indexOf(content) === -1) contentEls.push(content);
           }
         });
@@ -4602,7 +4601,7 @@
       const normalizedFull = fullText.replace(/\s+/g, ' ');
       let quoteIdx = -1;
       // Use quote_offset when available to disambiguate duplicate substrings
-      if (comment.quote_offset != null) {
+      if (comment.quote_offset !== null && comment.quote_offset !== undefined) {
         const candidateIdx = comment.quote_offset;
         if (normalizedFull.slice(candidateIdx, candidateIdx + normalizedQuote.length) === normalizedQuote) {
           quoteIdx = candidateIdx;
@@ -4694,7 +4693,7 @@
     if (comment.scope === 'file') {
       headerText = 'Editing file comment';
     } else {
-      let lineRef = comment.start_line === comment.end_line
+      const lineRef = comment.start_line === comment.end_line
         ? 'Line ' + comment.start_line
         : 'Lines ' + comment.start_line + '-' + comment.end_line;
       headerText = 'Editing comment on ' + lineRef;
@@ -5607,8 +5606,8 @@
         clipEl.classList.remove('clipboard-confirm');
       }
 
-      try { await navigator.clipboard.writeText(prompt); } catch (_) {}
-    } catch (_) {}
+      try { await navigator.clipboard.writeText(prompt); } catch {}
+    } catch {}
 
     setUIState('waiting');
   }
@@ -5625,7 +5624,7 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ resolved: true }),
             });
-          } catch (_) {}
+          } catch {}
         }
       }
     }
@@ -5638,7 +5637,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ resolved: true }),
           });
-        } catch (_) {}
+        } catch {}
       }
     }
     await doFinishReview();
@@ -5714,7 +5713,7 @@
         el.textContent = 'Copy prompt';
         el.setAttribute('aria-label', 'Copy prompt');
       }, 2000);
-    } catch (_) {}
+    } catch {}
   });
 
   // ===== SSE Client =====
@@ -5806,7 +5805,7 @@
             document.getElementById('waitingMessage').textContent = 'Waiting for your agent to finish...';
           }
         }
-      } catch (_) {}
+      } catch {}
     });
 
     source.addEventListener('comments-changed', async function() {
@@ -5817,13 +5816,13 @@
           return fetch('/api/file/comments?path=' + enc(f.path))
             .then(function(r) { return r.ok ? r.json() : []; })
             .then(function(comments) { f.comments = Array.isArray(comments) ? comments : []; })
-            .catch(function() {});
+            .catch(function() { /* ignore fetch errors */ });
         }));
         // Also refresh review-level comments
         try {
           const rcRes = await fetch('/api/comments');
           if (rcRes.ok) reviewComments = await rcRes.json();
-        } catch (_) {}
+        } catch {}
         // Save form drafts and focused element before re-render
         let focusedFormKey = null;
         let focusedSelStart = 0;
@@ -5952,7 +5951,7 @@
         const qrEl = document.getElementById('modalQR');
         if (qrEl) qrEl.innerHTML = svg;
       })
-      .catch(function() {});
+      .catch(function() { /* QR fetch is optional */ });
 
     // Close on overlay background click
     overlay.addEventListener('click', function(e) {
@@ -5967,7 +5966,7 @@
     overlay.querySelector('#modalCloseBtn').addEventListener('click', closeShareModal);
 
     overlay.querySelector('#modalCopyBtn').addEventListener('click', function() {
-      navigator.clipboard.writeText(hostedURL).catch(function() {});
+      navigator.clipboard.writeText(hostedURL).catch(function() { /* clipboard may be unavailable */ });
       this.innerHTML = ICON_CHECK_SMALL;
       this.setAttribute('aria-label', 'Copied');
       announceCopy();
@@ -6004,7 +6003,7 @@
     const btn = document.getElementById('confirmUnpublishBtn');
     if (btn) { btn.textContent = 'Unpublishing\u2026'; btn.disabled = true; }
     try {
-      let resp = await fetch(shareURL + '/api/reviews', {
+      const resp = await fetch(shareURL + '/api/reviews', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ delete_token: deleteToken }),
@@ -6013,12 +6012,12 @@
       if (!alreadyDeleted && !resp.ok) throw new Error('Server error ' + resp.status);
       hostedURL = '';
       deleteToken = '';
-      fetch('/api/share-url', { method: 'DELETE' }).catch(function() {});
+      fetch('/api/share-url', { method: 'DELETE' }).catch(function() { /* fire-and-forget */ });
       closeShareModal();
       setShareButtonState('default');
     } catch (err) {
       closeShareModal();
-      let el = showToast('share', 'error',
+      const el = showToast('share', 'error',
         '<span>Unpublish failed: ' + escapeHtml(err.message) + '</span>' +
         '<div class="toast-actions">' +
           '<button class="toast-btn toast-btn-filled" id="shareUnpublishRetryBtn">Retry</button>' +
@@ -6058,7 +6057,7 @@
       showShareModal();
     } catch (err) {
       setShareButtonState('default');
-      let el = showToast('share', 'error',
+      const el = showToast('share', 'error',
         '<span>Share failed: ' + escapeHtml(err.message) + '</span>' +
         '<div class="toast-actions">' +
           '<button class="toast-btn toast-btn-filled" id="shareRetryBtn">Retry</button>' +
@@ -6123,7 +6122,7 @@
     }
 
     // Gather TOC from all markdown files
-    let allItems = [];
+    const allItems = [];
     for (const f of files) {
       if (f.tocItems && f.tocItems.length > 0) {
         for (const item of f.tocItems) {
@@ -6236,7 +6235,7 @@
       container.textContent = code.textContent;
       pre.replaceWith(container);
     });
-    try { mermaid.run(); } catch (_) {}
+    try { mermaid.run(); } catch {}
   }
 
   // ===== Theme =====
@@ -6254,7 +6253,7 @@
     // Re-initialize mermaid diagrams with updated theme
     if (typeof mermaid !== 'undefined') {
       mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme() });
-      try { mermaid.run(); } catch (_) {}
+      try { mermaid.run(); } catch {}
     }
   };
 
@@ -6315,7 +6314,7 @@
       }
       commitDropdownEl.style.display = '';
       renderCommitPicker();
-    } catch (e) {
+    } catch {
       commitDropdownEl.style.display = 'none';
     }
   }
@@ -6384,7 +6383,7 @@
   document.getElementById('scopeToggle').addEventListener('click', async function(e) {
     const btn = e.target.closest('.toggle-btn');
     if (!btn || btn.disabled || btn.classList.contains('active')) return;
-    let scope = btn.dataset.scope;
+    const scope = btn.dataset.scope;
     diffScope = scope;
     navCommentId = null;
     setCookie('crit-diff-scope', scope);
@@ -6465,7 +6464,7 @@
       }
       baseBranchPickerEl.style.display = '';
       renderBaseBranchList();
-    } catch (e) {
+    } catch {
       baseBranchPickerEl.classList.remove('open');
       baseBranchPickerEl.style.display = 'none';
       document.getElementById('baseBranchArrow').style.display = 'none';
@@ -6944,7 +6943,7 @@
     // Share card
     if (cfg.share_url) {
       let hostname;
-      try { hostname = new URL(cfg.share_url).hostname; } catch (_) { hostname = cfg.share_url; }
+      try { hostname = new URL(cfg.share_url).hostname; } catch { hostname = cfg.share_url; }
       html += '<div class="config-card config-card--green"><div class="config-card-header">';
       html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
       html += '<span class="config-card-title">Sharing enabled</span>';
@@ -7174,12 +7173,12 @@
         let curIdx = focusedElement ? allNav.indexOf(focusedElement) : -1;
         if (curIdx === -1 && focusedElement) {
           // Stale ref after re-render — find nearest match by data attributes
-          let fp = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
-          let bi = focusedElement.dataset.blockIndex;
+          const fp = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
+          const bi = focusedElement.dataset.blockIndex;
           const dln = focusedElement.dataset.diffLineNum;
           for (let ni = 0; ni < allNav.length; ni++) {
             const n = allNav[ni];
-            if (fp && bi != null && n.dataset.filePath === fp && n.dataset.blockIndex === bi) { curIdx = ni; break; }
+            if (fp && bi !== undefined && n.dataset.filePath === fp && n.dataset.blockIndex === bi) { curIdx = ni; break; }
             if (fp && dln && n.dataset.diffFilePath === fp && n.dataset.diffLineNum === dln) { curIdx = ni; break; }
           }
         }
@@ -7207,12 +7206,12 @@
         e.preventDefault();
         if (!focusedElement) return;
         // Markdown line block
-        if (focusedElement.dataset.filePath && focusedElement.dataset.blockIndex != null) {
-          let fp = focusedElement.dataset.filePath;
+        if (focusedElement.dataset.filePath && focusedElement.dataset.blockIndex !== undefined) {
+          const fp = focusedElement.dataset.filePath;
           const bi = parseInt(focusedElement.dataset.blockIndex);
           const file = getFileByPath(fp);
           if (!file || !file.lineBlocks) return;
-          let block = file.lineBlocks[bi];
+          const block = file.lineBlocks[bi];
           openForm({ filePath: fp, afterBlockIndex: bi, startLine: block.startLine, endLine: block.endLine, editingId: null });
         }
         // Diff line
@@ -7234,13 +7233,13 @@
         if (!file || !file.comments || file.comments.length === 0) return;
         // Find comments for the focused line
         let comment = null;
-        if (focusedElement.dataset.blockIndex != null) {
+        if (focusedElement.dataset.blockIndex !== undefined) {
           const block = file.lineBlocks[parseInt(focusedElement.dataset.blockIndex)];
           if (block) {
             comment = file.comments.find(function(c) { return c.end_line >= block.startLine && c.end_line <= block.endLine; });
           }
         } else if (focusedElement.dataset.diffLineNum) {
-          let ln = parseInt(focusedElement.dataset.diffLineNum);
+          const ln = parseInt(focusedElement.dataset.diffLineNum);
           const sd = focusedElement.dataset.diffSide || '';
           comment = file.comments.find(function(c) { return c.end_line === ln && (c.side || '') === sd; });
         }
@@ -7366,9 +7365,9 @@
             // Document view
             document.querySelectorAll('.line-block[data-file-path]').forEach(function(el) {
               if (el.dataset.filePath !== range.filePath) return;
-              const s = parseInt(el.dataset.startLine), e = parseInt(el.dataset.endLine);
-              if (s <= ln && e >= ln) {
-                let content = el.querySelector('.line-content');
+              const s = parseInt(el.dataset.startLine), endLn = parseInt(el.dataset.endLine);
+              if (s <= ln && endLn >= ln) {
+                const content = el.querySelector('.line-content');
                 if (content && contentEls.indexOf(content) === -1) {
                   fullText += (fullText ? '\n' : '') + content.textContent.trim();
                   contentEls.push(content);
@@ -7434,10 +7433,10 @@
                 const textBefore = rawAll.slice(0, rawUpTo);
                 quoteOffset = textBefore.replace(/\s+/g, ' ').trimStart().length;
               }
-            } catch (_) { /* offset is a nice-to-have */ }
+            } catch { /* offset is a nice-to-have */ }
           }
         }
-      } catch (_) { /* quote is a nice-to-have, don't break form opening */ }
+      } catch { /* quote is a nice-to-have, don't break form opening */ }
 
       // Clear the browser selection — the form is the interaction now
       selection.removeAllRanges();

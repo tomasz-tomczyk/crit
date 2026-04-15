@@ -29,11 +29,12 @@ func ComputeLineDiff(oldContent, newContent string) []DiffEntry {
 	}
 	for i := 1; i <= m; i++ {
 		for j := 1; j <= n; j++ {
-			if oldLines[i-1] == newLines[j-1] {
+			switch {
+			case oldLines[i-1] == newLines[j-1]:
 				dp[i][j] = dp[i-1][j-1] + 1
-			} else if dp[i-1][j] >= dp[i][j-1] {
+			case dp[i-1][j] >= dp[i][j-1]:
 				dp[i][j] = dp[i-1][j]
-			} else {
+			default:
 				dp[i][j] = dp[i][j-1]
 			}
 		}
@@ -43,14 +44,15 @@ func ComputeLineDiff(oldContent, newContent string) []DiffEntry {
 	var reversed []DiffEntry
 	i, j := m, n
 	for i > 0 || j > 0 {
-		if i > 0 && j > 0 && oldLines[i-1] == newLines[j-1] {
+		switch {
+		case i > 0 && j > 0 && oldLines[i-1] == newLines[j-1]:
 			reversed = append(reversed, DiffEntry{Type: "unchanged", OldLine: i, NewLine: j, Text: newLines[j-1]})
 			i--
 			j--
-		} else if j > 0 && (i == 0 || dp[i][j-1] >= dp[i-1][j]) {
+		case j > 0 && (i == 0 || dp[i][j-1] >= dp[i-1][j]):
 			reversed = append(reversed, DiffEntry{Type: "added", NewLine: j, Text: newLines[j-1]})
 			j--
-		} else {
+		default:
 			reversed = append(reversed, DiffEntry{Type: "removed", OldLine: i, Text: oldLines[i-1]})
 			i--
 		}

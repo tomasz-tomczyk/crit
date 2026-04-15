@@ -8,12 +8,27 @@ linters:
     - ineffassign
     - misspell
     - staticcheck
+    - nilerr
+    - gocritic
+    - errorlint
+    - unparam
+  settings:
+    gocyclo:
+      min-complexity: 15
   exclusions:
     rules:
       - linters: [staticcheck]
         text: "QF"
       - linters: [gocyclo]
-        text: "runComment|mergeExternalCritJSON|bulkAddCommentsToCritJSON|runPush"
+        text: "runComment|mergeExternalCritJSON|bulkAddCommentsToCritJSON|runPush|runServe"
+      - linters: [gocyclo]
+        path: "_test\\.go"
+      - linters: [gocyclo]
+        path: "node_modules/"
+      - linters: [unparam]
+        path: "_test\\.go"
+      - linters: [nilerr, gocritic, errorlint, unparam]
+        path: "node_modules/"
 
 formatters:
   enable:

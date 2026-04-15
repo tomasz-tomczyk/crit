@@ -76,11 +76,12 @@ func (s *Status) FileUpdated(editCount int) {
 // RoundReady prints the new round summary with resolved/open counts.
 func (s *Status) RoundReady(round, resolved, open int) {
 	line := fmt.Sprintf("Round %d: diff ready", round)
-	if resolved > 0 && open > 0 {
+	switch {
+	case resolved > 0 && open > 0:
 		line += " — " + s.green(fmt.Sprintf("%d resolved", resolved)) + fmt.Sprintf(", %d open", open)
-	} else if resolved > 0 {
+	case resolved > 0:
 		line += " — " + s.green(fmt.Sprintf("%d resolved", resolved))
-	} else if open > 0 {
+	case open > 0:
 		line += fmt.Sprintf(" — %d open", open)
 	}
 	fmt.Fprintf(s.w, "%s %s\n", s.arrow(), line)
