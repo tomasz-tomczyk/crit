@@ -850,7 +850,7 @@ func ParseUnifiedDiff(diff string) []DiffHunk {
 // WorkingTreeFingerprint returns a string representing the current working tree state.
 // Compare consecutive calls to detect changes.
 func WorkingTreeFingerprint() string {
-	cmd := exec.Command("git", "status", "--porcelain")
+	cmd := exec.Command("git", "--no-optional-locks", "status", "--porcelain")
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
