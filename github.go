@@ -353,33 +353,8 @@ func resolveReviewPath(outputDir string) (string, error) {
 		return "", err
 	}
 
-	// Check daemon registry for running sessions — exact CWD match.
-	sessions, _ := listSessionsForCWD(cwd)
-	if len(sessions) == 1 && sessions[0].ReviewPath != "" {
-		return sessions[0].ReviewPath, nil
-	}
-	if len(sessions) > 1 {
-		path := resolveReviewPathFromSessions(sessions)
-		if path != "" {
-			return path, nil
-		}
-	}
-
-	// Fallback: match by git repo root (handles subdirectory mismatch —
-	// e.g. daemon started from repo/api but crit comment run from repo/).
-	if len(sessions) == 0 && IsGitRepo() {
-		if repoRoot, rootErr := RepoRoot(); rootErr == nil && repoRoot != cwd {
-			repoSessions, _ := listSessionsForRepoRoot(repoRoot)
-			if len(repoSessions) == 1 && repoSessions[0].ReviewPath != "" {
-				return repoSessions[0].ReviewPath, nil
-			}
-			if len(repoSessions) > 1 {
-				path := resolveReviewPathFromSessions(repoSessions)
-				if path != "" {
-					return path, nil
-				}
-			}
-		}
+	if path := resolveReviewPathFromDaemon(cwd); path != "" {
+		return path, nil
 	}
 
 	// No daemon — compute centralized path.
@@ -394,6 +369,40 @@ func resolveReviewPath(outputDir string) (string, error) {
 	}
 
 	return path, nil
+}
+
+// resolveReviewPathFromDaemon checks the daemon registry for a running session
+// and returns its review path. Tries exact CWD match first, then falls back to
+// matching by git repo root (handles subdirectory mismatch — e.g. daemon started
+// from repo/api but crit comment run from repo/).
+func resolveReviewPathFromDaemon(cwd string) string {
+	sessions, _ := listSessionsForCWD(cwd)
+	if path := pickReviewPath(sessions); path != "" {
+		return path
+	}
+
+	// Fallback: match by git repo root.
+	if len(sessions) == 0 && IsGitRepo() {
+		if repoRoot, err := RepoRoot(); err == nil && repoRoot != cwd {
+			repoSessions, _ := listSessionsForRepoRoot(repoRoot)
+			if path := pickReviewPath(repoSessions); path != "" {
+				return path
+			}
+		}
+	}
+	return ""
+}
+
+// pickReviewPath selects a review path from a list of sessions.
+// Returns the path if exactly one session has one, or defers to branch matching for multiple.
+func pickReviewPath(sessions []sessionEntry) string {
+	if len(sessions) == 1 && sessions[0].ReviewPath != "" {
+		return sessions[0].ReviewPath
+	}
+	if len(sessions) > 1 {
+		return resolveReviewPathFromSessions(sessions)
+	}
+	return ""
 }
 
 // resolveReviewPathFromSessions picks the best ReviewPath from multiple daemon sessions.
