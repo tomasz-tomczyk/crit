@@ -3,19 +3,19 @@
 package main
 
 var integrationHashes = map[string]string{
-	"integrations/aider/CONVENTIONS.md":                    "00191f3971e2e7b50f7911fbe55343a7ceea36fbb27a529856d5680d97e9aebb",
+	"integrations/aider/CONVENTIONS.md":                    "6216d823423d01803bd772b477e3d536fc31adf96b838c519a86660ed31ba9b5",
 	"integrations/claude-code/.claude-plugin/plugin.json":  "005dadcbce1bee1c5b80a50d7a2290932272489b2fdf2e85767d3a65810adf71",
 	"integrations/claude-code/hooks/hooks.json":            "beba2c8bd252637ff31b57ed868e4d56135e1a3f429f872befbd2d34b834512b",
-	"integrations/claude-code/skills/crit-cli/SKILL.md":    "5fb3460c3243a1b2faeb1c53c4566b5738c4ce912e4e4306a55260d55fefc734",
+	"integrations/claude-code/skills/crit-cli/SKILL.md":    "52ac121563590bb6ad79326857b91f30c03d9f5d67ee2abe0e691d2740eb376d",
 	"integrations/claude-code/skills/crit/SKILL.md":        "0f0a37418a7947b2088b8c279b83acc933f2e52bdacab6c9f7b60892403cce41",
-	"integrations/cline/crit.md":                           "883dbfc1e9954c1c360118908bb3f5b1968ce6c75e4bab38e45a7ce832f6ec9d",
-	"integrations/codex/skills/crit-cli/SKILL.md":          "1ec4ef95068615f9eac9008240abf0e1a1674275dc30f48b7300daacb31f5ee0",
+	"integrations/cline/crit.md":                           "bb35e99106f6009c9e2545f7b2a401323be1b5713bf50c45565349bfe02d3f03",
+	"integrations/codex/skills/crit-cli/SKILL.md":          "69f9af302514896d6053c1c6ea9b122b961b430e5c846d28d323217713be0cd6",
 	"integrations/codex/skills/crit/SKILL.md":              "b44e981ec31c3b3e6f246fbc6bf36636d1d4b0d8dadb7b0c6ab78aec17a4b5cd",
-	"integrations/cursor/skills/crit-cli/SKILL.md":         "83527f353bba57007c281d3c6853f8bc9701adad7aa16d3ecf87cefd0b5bfaa2",
+	"integrations/cursor/skills/crit-cli/SKILL.md":         "8922023b167d3fd0934b15dd371d3f40627f4557326cb783453e90d5a5ba7e49",
 	"integrations/cursor/skills/crit/SKILL.md":             "9d88c2d0dbd5a1dad4ba99bc60e04a515ec830e02a0af99ab4e7b2b2193e7644",
-	"integrations/github-copilot/skills/crit-cli/SKILL.md": "522f14e812f12a7550cc25295b5f9ab5c5dfbc8dcf0f1d87dd4bbd3b6b180932",
+	"integrations/github-copilot/skills/crit-cli/SKILL.md": "d1fcf9d6ae902766940c0bec10d273b5ad05b8100c566c48489030bf3c81b90c",
 	"integrations/github-copilot/skills/crit/SKILL.md":     "f61c61346c9f2e92b047bed1fdc2f2823ca925e38bc192d3087dc5badbfd937f",
-	"integrations/opencode/SKILL.md":                       "b5f199b9fba6dadae28c121f3a1759eb1ec587bf4830d03088ebf2cdbd8303e1",
+	"integrations/opencode/SKILL.md":                       "ed3d518fa116890278db68038d475f3972efbc7f2199db75be55e2a59086b2f0",
 	"integrations/opencode/crit.md":                        "2c9a9f348f3336e5d9f2cc071d7ea0a9653ee2c609b7ed39ea1d940a197a4ca7",
-	"integrations/windsurf/crit.md":                        "4caa2d5018efe51a326034aacd8780127f71b8df889ad5da8c4aa77aacd954e3",
+	"integrations/windsurf/crit.md":                        "8971143aab9f8e573d06902df46383089e725d3b176c41d723e9cf5ce1d59543",
 }

@@ -8,7 +8,7 @@
 #   2. Seeds 4 review comments + 4 threaded replies via the API
 #   3. Waits for you to press Enter (browse the comments + replies first)
 #   4. Swaps in test-plan-v2.md to simulate agent edits
-#   5. Marks some comments as resolved in .crit.json
+#   5. Marks some comments as resolved in the review file
 #   6. Signals round-complete so the diff + resolved comments appear
 #
 # Threading coverage:
@@ -239,7 +239,7 @@ curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/c4/replies?path=$ENCODED_PA
     "author": "reviewer"
   }' > /dev/null
 
-# Finish the review to write .crit.json
+# Finish the review to write the review file
 REVIEW_FILE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/finish" | python3 -c "import json, sys; print(json.load(sys.stdin)['review_file'])")
 
 echo ""
@@ -253,7 +253,7 @@ cp test/test-plan-v2.md "$FILE"
 # Give the file watcher one tick to detect the change (polls every 1s).
 sleep 1.5
 
-# Mark 3 of 4 comments as resolved in .crit.json (comment #4 stays open)
+# Mark 3 of 4 comments as resolved in the review file (comment #4 stays open)
 python3 - "$REVIEW_FILE" <<'PYEOF'
 import json, sys
 path = sys.argv[1]

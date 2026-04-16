@@ -339,7 +339,6 @@ func mergeGHComments(cj *CritJSON, ghComments []ghComment) int {
 //  3. If one daemon matches, use its ReviewPath
 //  4. If multiple daemons match, use the one matching current branch
 //  5. If no daemon found, compute the centralized path: ~/.crit/reviews/<key>.json
-//  6. Fallback: repo root/.crit.json (legacy compat for old files)
 func resolveReviewPath(outputDir string) (string, error) {
 	if outputDir != "" {
 		abs, err := filepath.Abs(outputDir)
@@ -377,17 +376,6 @@ func resolveReviewPath(outputDir string) (string, error) {
 		return "", err
 	}
 
-	// If centralized file exists, use it.
-	if _, err := os.Stat(path); err == nil {
-		return path, nil
-	}
-
-	// Check legacy repo root (fallback for old .crit.json files).
-	if legacyPath, ok := findLegacyReviewPath(cwd); ok {
-		return legacyPath, nil
-	}
-
-	// Return centralized path (will be created on first write).
 	return path, nil
 }
 
@@ -406,25 +394,6 @@ func resolveReviewPathFromSessions(sessions []sessionEntry) string {
 		}
 	}
 	return ""
-}
-
-// findLegacyReviewPath checks for a .crit.json file at the repo root (git) or cwd (non-git).
-func findLegacyReviewPath(cwd string) (string, bool) {
-	if IsGitRepo() {
-		root, rootErr := RepoRoot()
-		if rootErr == nil {
-			legacyPath := filepath.Join(root, ".crit.json")
-			if _, err := os.Stat(legacyPath); err == nil {
-				return legacyPath, true
-			}
-		}
-	} else {
-		legacyPath := filepath.Join(cwd, ".crit.json")
-		if _, err := os.Stat(legacyPath); err == nil {
-			return legacyPath, true
-		}
-	}
-	return "", false
 }
 
 // writeCritJSON resolves the review path and writes a CritJSON via saveCritJSON.
@@ -491,7 +460,7 @@ func postGHReply(prNumber int, parentGHID int64, body string) (int64, error) {
 	return resp.ID, nil
 }
 
-// critJSONToGHComments converts .crit.json comments to GitHub review comment format.
+// critJSONToGHComments converts review file comments to GitHub review comment format.
 // Returns the list of comments suitable for the GitHub "create review" API.
 func critJSONToGHComments(cj CritJSON) []map[string]any {
 	var result []map[string]any
@@ -612,7 +581,7 @@ type replyKey struct {
 	BodyPrefix string
 }
 
-// updateCritJSONWithGitHubIDs writes GitHub IDs back to .crit.json after a push.
+// updateCritJSONWithGitHubIDs writes GitHub IDs back to the review file after a push.
 // commentIDs maps "path:endLine" -> GitHubID for root comments.
 // replyIDs maps replyKey -> GitHubID for replies.
 func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, replyIDs map[replyKey]int64) error {
@@ -661,12 +630,12 @@ func truncateStr(s string, n int) string {
 	return string(r[:n])
 }
 
-// loadCritJSON reads .crit.json from disk, or returns a fresh CritJSON if the file doesn't exist.
+// loadCritJSON reads the review file from disk, or returns a fresh CritJSON if the file doesn't exist.
 func loadCritJSON(critPath string) (CritJSON, error) {
 	var cj CritJSON
 	if data, err := os.ReadFile(critPath); err == nil {
 		if err := json.Unmarshal(data, &cj); err != nil {
-			return cj, fmt.Errorf("invalid existing .crit.json: %w", err)
+			return cj, fmt.Errorf("invalid existing review file: %w", err)
 		}
 	} else if os.IsNotExist(err) {
 		branch := CurrentBranch()
@@ -683,7 +652,7 @@ func loadCritJSON(critPath string) (CritJSON, error) {
 			Files:       make(map[string]CritJSONFile),
 		}
 	} else {
-		return cj, fmt.Errorf("reading .crit.json: %w", err)
+		return cj, fmt.Errorf("reading review file: %w", err)
 	}
 	return cj, nil
 }
@@ -787,15 +756,15 @@ func appendReply(cj *CritJSON, commentID, body, author string, resolve bool, fil
 	}
 	if !found {
 		if filterPath != "" {
-			return fmt.Errorf("comment %q not found in file %q in .crit.json", commentID, filterPath)
+			return fmt.Errorf("comment %q not found in file %q in review file", commentID, filterPath)
 		}
-		return fmt.Errorf("comment %q not found in .crit.json", commentID)
+		return fmt.Errorf("comment %q not found in review file", commentID)
 	}
 	return nil
 }
 
-// addCommentToCritJSON appends a comment to .crit.json for the given file and line range.
-// Creates .crit.json if it doesn't exist. Appends to existing comments if it does.
+// addCommentToCritJSON appends a comment to the review file for the given file and line range.
+// Creates the review file if it doesn't exist. Appends to existing comments if it does.
 // Works in both git repos and plain directories (file mode).
 // outputDir overrides the default location (repo root or CWD) when non-empty.
 func addCommentToCritJSON(filePath string, startLine, endLine int, body string, author string, outputDir string) error {
@@ -818,7 +787,7 @@ func addCommentToCritJSON(filePath string, startLine, endLine int, body string, 
 	return saveCritJSON(critPath, cj)
 }
 
-// addReplyToCritJSON adds a reply to an existing comment in .crit.json.
+// addReplyToCritJSON adds a reply to an existing comment in the review file.
 // It searches all files for the comment ID. If resolve is true, it also marks the comment as resolved.
 func addReplyToCritJSON(commentID, body, author string, resolve bool, outputDir string, filterPath string) error {
 	critPath, err := resolveReviewPath(outputDir)
@@ -902,7 +871,7 @@ func (e *BulkCommentEntry) UnmarshalJSON(data []byte) error {
 
 // bulkAddCommentsToCritJSON applies multiple comments and replies in a single load-save cycle.
 // globalAuthor is used when an entry doesn't specify its own author.
-// outputDir overrides the .crit.json location (empty = repo root or CWD).
+// outputDir overrides the review file location (empty = centralized storage).
 func processBulkEntry(cj *CritJSON, i int, e BulkCommentEntry, globalAuthor string) error {
 	if e.Body == "" {
 		return fmt.Errorf("entry %d: body is required", i)

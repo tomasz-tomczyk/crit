@@ -1,6 +1,6 @@
 ---
 name: crit-cli
-description: Use when working with crit CLI commands, .crit.json files, addressing review comments, leaving inline code review comments, sharing reviews via crit share/unpublish, pushing reviews to GitHub PRs, or pulling PR comments locally. Covers crit comment, crit share, crit unpublish, crit pull, crit push, .crit.json format, and resolution workflow.
+description: Use when working with crit CLI commands, review files, addressing review comments, leaving inline code review comments, sharing reviews via crit share/unpublish, pushing reviews to GitHub PRs, or pulling PR comments locally. Covers crit comment, crit share, crit unpublish, crit pull, crit push, review file format, and resolution workflow.
 user-invocable: false
 ---
 
@@ -8,9 +8,9 @@ user-invocable: false
 
 > If a plan was just written and the user said `/crit` or `crit`, invoke the `/crit` command — do not use this reference skill. This skill covers CLI operations like `crit comment`, `crit pull/push`, and `crit share`.
 
-## .crit.json Format
+## Review File Format
 
-After a crit review session, comments are in `.crit.json`. Comments have three scopes:
+After a crit review session, comments are in the review file (see `crit status` for the path). Comments have three scopes:
 
 - **Line comments** (`scope: "line"`) — tied to specific lines in a file, stored in `files.<path>.comments`
 - **File comments** (`scope: "file"`) — about a file overall, stored in `files.<path>.comments` with `start_line: 0`
@@ -87,7 +87,7 @@ echo '[{"reply_to": "c_a1b2c3", "file": "src/auth.go", "body": "Fixed"}]' | crit
 Review-level comment IDs (`r_XXXXXX`) are globally unique and never need disambiguation.
 ### Plan mode comments
 
-When reviewing plans (via `crit plan` or the ExitPlanMode hook), `.crit.json` is stored in `~/.crit/plans/<slug>/` — not the project root. Use `--plan <slug>` so `crit comment` finds the right file:
+When reviewing plans (via `crit plan` or the ExitPlanMode hook), the review file is stored in `~/.crit/plans/<slug>/`. Use `--plan <slug>` so `crit comment` finds the right file:
 
 ```bash
 crit comment --plan my-plan-2026-03-23 --reply-to c_a1b2c3 --author 'Claude Code' 'Updated the plan'
@@ -97,7 +97,7 @@ The `--plan` flag resolves to the plan storage directory automatically. The slug
 
 ## Leaving Comments with crit comment CLI
 
-Use `crit comment` to add review comments to `.crit.json` programmatically — no browser needed:
+Use `crit comment` to add review comments to the review file programmatically — no browser needed:
 
 ```bash
 # Review-level comment (general feedback, not tied to any file)
@@ -133,7 +133,7 @@ Rules:
 - **Paths** are relative to the current working directory
 - **Line numbers** reference the file as it exists on disk (1-indexed), not diff line numbers
 - **Comments are appended** — calling `crit comment` multiple times adds to the list, never replaces
-- **No setup needed** — `crit comment` creates `.crit.json` automatically if it doesn't exist
+- **No setup needed** — `crit comment` creates the review file automatically if it doesn't exist
 - **Do NOT run `crit` after leaving comments** — that triggers a new review round
 
 ### Bulk commenting (recommended for multiple comments)
@@ -172,15 +172,15 @@ Scope inference when `scope` is omitted:
 - Has `file`/`path` and `line` → line-level
 
 Benefits over individual `crit comment` calls:
-- **Atomic** — one write to `.crit.json`, no partial state
+- **Atomic** — one write to the review file, no partial state
 - **Faster** — single process invocation instead of N
 - **Safer** — no race conditions with concurrent crit processes
 
 ## GitHub PR Integration
 
 ```bash
-crit pull [pr-number]                                    # Fetch PR review comments into .crit.json
-crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post .crit.json comments as a GitHub PR review
+crit pull [pr-number]                                    # Fetch PR review comments into the review file
+crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post review comments as a GitHub PR review
 ```
 
 Requires `gh` CLI installed and authenticated. PR number is auto-detected from the current branch, or pass it explicitly.
@@ -208,7 +208,7 @@ crit share --share-url https://crit.md <file>  # Explicit share URL
 Rules:
 - **No server needed** — `crit share` reads files directly from disk
 - **`--qr` is terminal-only** — only use when the user has a real terminal with monospace font rendering. Do not use in mobile apps (e.g. Claude Code mobile), web chat UIs, or any environment where Unicode block characters won't render correctly
-- **Comments included** — if `.crit.json` exists, comments for the shared files are included automatically
+- **Comments included** — if the review file exists, comments for the shared files are included automatically
 - **Relay the output** — always copy the URL (and QR code if `--qr` was used) from the command output and include it directly in your response to the user. Do not make them dig through tool output
-- **State persisted** — share URL and delete token are saved to `.crit.json`
-- **Unpublish reads `.crit.json`** — uses the stored delete token to remove the review
+- **State persisted** — share URL and delete token are saved to the review file
+- **Unpublish reads the review file** — uses the stored delete token to remove the review

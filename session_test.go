@@ -3532,10 +3532,10 @@ func TestLoadCritJSON_ShareScopeMismatch(t *testing.T) {
 	}
 }
 
-func TestLoadCritJSON_LegacyNoScope(t *testing.T) {
+func TestLoadCritJSON_NoScope(t *testing.T) {
 	s := newTestSession(t)
 
-	// Legacy .crit.json without ShareScope — should load unconditionally.
+	// Review file without ShareScope — should load unconditionally.
 	reviewPath := filepath.Join(s.RepoRoot, "review.json")
 	cj := CritJSON{
 		ShareURL:    "https://crit.example.com/review/legacy",

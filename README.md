@@ -36,7 +36,7 @@ See [`integrations/`](integrations/) for all install methods and details.
 
 ### Plugin install (Claude Code)
 
-For the full experience - installs globally with a `/crit` command plus a `crit` skill that auto-activates when your agent works with `.crit.json`, `crit comment`, `crit pull/push`, etc:
+For the full experience - installs globally with a `/crit` command plus a `crit` skill that auto-activates when your agent works with review files, `crit comment`, `crit pull/push`, etc:
 
 ```
 /plugin marketplace add tomasz-tomczyk/crit
@@ -103,7 +103,7 @@ Select lines and use "Insert suggestion" to pre-fill the comment with the origin
 
 ### Finish review: agent notified automatically
 
-When you click "Finish Review", Crit writes `.crit.json` and notifies your agent If your agent was listening, it picks up the prompt automatically - no copy-paste needed.
+When you click "Finish Review", Crit writes the review file and notifies your agent If your agent was listening, it picks up the prompt automatically - no copy-paste needed.
 
 ### Programmatic comments
 
@@ -266,7 +266,7 @@ All keys are optional — omit any you don't need.
 | `output`               | string   | repo root or file dir      | Output directory for review files. Reviews are stored in `~/.crit/reviews/` by default.                                                                                                 |
 | `author`               | string   | `git config user.name`     | Author name shown on comments. Falls back to your git user name.                                                                                                                        |
 | `base_branch`          | string   | auto-detected              | Base branch to diff against (e.g. `"main"`, `"develop"`). Overrides auto-detection.                                                                                                     |
-| `ignore_patterns`      | string[] | `[".crit.json", ".crit/"]` | File patterns to exclude from git-mode file lists. Global and project patterns are merged.                                                                                              |
+| `ignore_patterns`      | string[] | `[".crit/"]` | File patterns to exclude from git-mode file lists. Global and project patterns are merged.                                                                                              |
 | `agent_cmd`            | string   | `""`                       | Shell command for "Send to agent" (e.g. `"claude -p"`). **Global config only** — project config cannot set this for security reasons. See [Send to agent](#send-to-agent-experimental). |
 | `auth_token`           | string   | `""`                       | Authentication token for crit.md. Set automatically by `crit auth login`. **Global config only.**                                                                                       |
 | `cleanup_on_approve`   | bool     | `true`                     | Automatically delete the review file when you approve with no unresolved comments. Set to `false` to preserve review history.                                                           |

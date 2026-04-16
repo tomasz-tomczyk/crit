@@ -15,7 +15,7 @@ paths:
 ## Code Organization
 - This is `package main`. Do NOT export functions/types unless required by tests in `_test.go` files.
 - Never create wrapper functions that just call another function with the same signature.
-- Route all .crit.json writes through `saveCritJSON()`. Never write directly.
+- Route all review file writes through `saveCritJSON()`. Never write directly.
 - Before implementing logic inline, search for existing helper functions that do the same thing.
 - After replacing a function with a new implementation, delete the old function AND its tests in the same PR.
 

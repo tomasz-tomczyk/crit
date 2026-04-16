@@ -153,7 +153,7 @@ type Session struct {
 	BaseRef        string
 	BaseBranchName string // display name of the base branch (e.g. "production", "master")
 	RepoRoot       string
-	OutputDir      string // custom output directory for .crit.json (empty = RepoRoot)
+	OutputDir      string // custom output directory for the review file (empty = RepoRoot)
 	ReviewFilePath string // centralized review file path (~/.crit/reviews/<key>.json)
 	PlanDir        string // managed storage dir for plan mode (empty for git/files)
 	ReviewRound    int
@@ -185,7 +185,7 @@ type Session struct {
 
 }
 
-// CritJSON is the on-disk format for .crit.json.
+// CritJSON is the on-disk format for review files.
 type CritJSON struct {
 	Branch         string                  `json:"branch"`
 	BaseRef        string                  `json:"base_ref"`
@@ -199,7 +199,7 @@ type CritJSON struct {
 	Files          map[string]CritJSONFile `json:"files"`
 }
 
-// CritJSONFile is the per-file section in .crit.json.
+// CritJSONFile is the per-file section in review files.
 type CritJSONFile struct {
 	Status   string    `json:"status"`
 	FileHash string    `json:"file_hash"`
@@ -1156,7 +1156,7 @@ func (s *Session) SetAwaitingFirstReview(v bool) {
 // comments and sending a signal to the watcher goroutine. The ReviewRound counter
 // is NOT incremented here — it is deferred to the watcher's handleRoundComplete*
 // handler, which increments it only after comments have been carried forward from
-// .crit.json. This prevents a TOCTOU race where GetSessionInfo could observe the
+// the review file. This prevents a TOCTOU race where GetSessionInfo could observe the
 // new round number before carry-forward is complete, returning empty comments.
 func (s *Session) SignalRoundComplete() {
 	s.mu.Lock()
@@ -1181,16 +1181,16 @@ func (s *Session) SignalRoundComplete() {
 
 // ClearAllComments removes all comments from all files and resets comment IDs and review round.
 // Used by the E2E test cleanup endpoint to return the server to a clean initial state.
-// It also removes .crit.json from s.Files and deletes the review file from disk
-// (centralized storage under ~/.crit/reviews/ or legacy repo-local .crit.json).
+// It also removes the review file entry from s.Files and deletes the review file from disk
+// (centralized storage under ~/.crit/reviews/).
 func (s *Session) ClearAllComments() {
 	s.mu.Lock()
-	// Cancel any pending debounced write so it cannot recreate .crit.json after we delete it.
+	// Cancel any pending debounced write so it cannot recreate the review file after we delete it.
 	if s.writeTimer != nil {
 		s.writeTimer.Stop()
 	}
 	s.writeGen++
-	// Reset all file state and drop the .crit.json entry from the file list.
+	// Reset all file state and drop the review file entry from the file list.
 	filtered := make([]*FileEntry, 0, len(s.Files))
 	for _, f := range s.Files {
 		if filepath.Base(f.Path) == ".crit.json" {
@@ -1330,7 +1330,7 @@ func (s *Session) scheduleWrite() {
 	})
 }
 
-// critJSONPath returns the path to the .crit.json file.
+// critJSONPath returns the path to the review file.
 func (s *Session) critJSONPath() string {
 	if s.OutputDir != "" {
 		return filepath.Join(s.OutputDir, ".crit.json")
@@ -1342,7 +1342,7 @@ func (s *Session) critJSONPath() string {
 	return filepath.Join(s.RepoRoot, ".crit.json")
 }
 
-// writeFilesSnapshot holds all session state needed to write .crit.json,
+// writeFilesSnapshot holds all session state needed to write the review file,
 // captured under lock so that disk I/O can happen without holding the lock.
 type writeFilesSnapshot struct {
 	critPath       string
@@ -1367,7 +1367,7 @@ type writeFileSnapshot struct {
 	deletedIDs map[string]struct{} // comment IDs deleted in-memory, skip during merge
 }
 
-// handleExternalDeletion checks if .crit.json was deleted externally and clears
+// handleExternalDeletion checks if the review file was deleted externally and clears
 // in-memory comments if so. Returns true if the file was deleted.
 func (s *Session) handleExternalDeletion(critPath string) bool {
 	s.mu.RLock()
@@ -1409,13 +1409,13 @@ func (s *Session) clearAllCommentData() {
 	}
 }
 
-// buildCritJSON loads existing .crit.json from disk, applies the snapshot metadata,
+// buildCritJSON loads the existing review file from disk, applies the snapshot metadata,
 // and merges per-file comments.
 func buildCritJSON(snap writeFilesSnapshot) CritJSON {
 	cj := CritJSON{Files: make(map[string]CritJSONFile)}
 	if data, err := os.ReadFile(snap.critPath); err == nil {
 		if unmarshalErr := json.Unmarshal(data, &cj); unmarshalErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: corrupt .crit.json, starting fresh: %v\n", unmarshalErr)
+			fmt.Fprintf(os.Stderr, "Warning: corrupt review file, starting fresh: %v\n", unmarshalErr)
 		}
 		if cj.Files == nil {
 			cj.Files = make(map[string]CritJSONFile)
@@ -1477,7 +1477,7 @@ func critJSONIsEmpty(cj CritJSON) bool {
 		cj.ShareURL == "" && cj.DeleteToken == "" && cj.ShareScope == ""
 }
 
-// WriteFiles writes the .crit.json file to disk.
+// WriteFiles writes the review file to disk.
 //
 // The implementation snapshots all needed session state under RLock, then
 // releases the lock before doing any disk I/O (ReadFile, Stat, WriteFile).
@@ -1509,11 +1509,11 @@ func (s *Session) WriteFiles() {
 
 	data, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error marshaling .crit.json: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error marshaling review file: %v\n", err)
 		return
 	}
 	if err := atomicWriteFile(snap.critPath, data, 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing .crit.json: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error writing review file: %v\n", err)
 		return
 	}
 	if info, err := os.Stat(snap.critPath); err == nil {
@@ -1567,7 +1567,7 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 	return snap
 }
 
-// handleCritJSONDeleted clears all in-memory comment state when .crit.json
+// handleCritJSONDeleted clears all in-memory comment state when the review file
 // has been deleted. Returns true unconditionally to signal the deletion.
 func (s *Session) handleCritJSONDeleted() bool {
 	s.clearAllCommentData()
@@ -1772,7 +1772,7 @@ func (s *Session) mergeExternalCritJSON() bool {
 	return changed
 }
 
-// loadCritJSON loads comments and share state from an existing .crit.json.
+// loadCritJSON loads comments and share state from an existing review file.
 func (s *Session) loadCritJSON() {
 	data, err := os.ReadFile(s.critJSONPath())
 	if err != nil {
@@ -1794,8 +1794,8 @@ func (s *Session) loadCritJSON() {
 			s.deleteToken = cj.DeleteToken
 			s.shareScope = cj.ShareScope
 		}
-	} else {
-		// Legacy .crit.json without scope — load unconditionally for backwards compat.
+	} else if cj.ShareURL != "" {
+		// No scope recorded — load unconditionally.
 		s.sharedURL = cj.ShareURL
 		s.deleteToken = cj.DeleteToken
 	}

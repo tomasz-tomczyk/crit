@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A single-binary Go CLI tool that opens a browser-based UI for reviewing code changes and markdown files with GitHub PR-style inline commenting. Supports multi-file review with git diff rendering and structured `.crit.json` output for AI coding agents.
+A single-binary Go CLI tool that opens a browser-based UI for reviewing code changes and markdown files with GitHub PR-style inline commenting. Supports multi-file review with git diff rendering and structured review file output for AI coding agents.
 
 ## Project Structure
 
@@ -10,10 +10,10 @@ A single-binary Go CLI tool that opens a browser-based UI for reviewing code cha
 crit/
 ├── main.go              # Entry point: subcommand dispatcher + individual runX() functions
 ├── server.go            # HTTP handlers: REST API (session, file, comments CRUD, finish, share, config)
-├── session.go           # Core state: multi-file session, comment storage, .crit.json persistence, SSE
+├── session.go           # Core state: multi-file session, comment storage, review file persistence, SSE
 ├── watch.go             # File/git watching, round-complete handlers, comment carry-forward
 ├── git.go               # Git integration: branch detection, changed files, diff parsing
-├── github.go            # GitHub PR sync: fetch/post PR comments, crit comment CLI, .crit.json I/O
+├── github.go            # GitHub PR sync: fetch/post PR comments, crit comment CLI, review file I/O
 ├── config.go            # Config file loading: ~/.crit.config.json + .crit.config.json merge, ignore patterns
 ├── diff.go              # LCS-based line diff for inter-round markdown comparison
 ├── status.go            # Terminal status output formatting
@@ -60,15 +60,15 @@ crit/
 5. **markdown-it for parsing** — chosen because it provides `token.map` (source line mappings per block)
 6. **Block-level splitting** — lists, code blocks, tables, blockquotes are split into per-item/per-line/per-row blocks so each source line is independently commentable
 7. **Diff hunk rendering** — code files show git diffs with dual gutters (old/new line numbers)
-8. **Comments reference source line numbers** — stored in structured `.crit.json` with per-file sections
-9. **Real-time output** — `.crit.json` written on every comment change (200ms debounce)
+8. **Comments reference source line numbers** — stored in the review file (`~/.crit/reviews/<key>.json`) with per-file sections
+9. **Real-time output** — review file written on every comment change (200ms debounce)
 10. **GitHub-style gutter interaction** — click-and-drag on line numbers to select ranges
 11. **File watching** — git mode polls `git status --porcelain`; files mode polls mtimes; reloads via SSE
 12. **Localhost only** — server binds to `127.0.0.1`, no CORS headers needed
 13. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both. Exception: `agent_cmd` is global-only and cannot be set by project config (prevents malicious repos from hijacking the agent command)
-14. **GitHub PR sync** — `crit pull` / `crit push` bridge between `.crit.json` and GitHub PR review comments via `gh` CLI
-15. **Headless CLI comment** — `crit comment` writes directly to `.crit.json` without starting the server; SSE notifies any running server
-16. **Comment threading** — comments support nested replies and a `resolved` boolean. Agents reply with `crit comment --reply-to <id> --resolve`. The `.crit.json` schema nests replies inside each comment's `replies` array.
+14. **GitHub PR sync** — `crit pull` / `crit push` bridge between the review file and GitHub PR review comments via `gh` CLI
+15. **Headless CLI comment** — `crit comment` writes directly to the review file without starting the server; SSE notifies any running server
+16. **Comment threading** — comments support nested replies and a `resolved` boolean. Agents reply with `crit comment --reply-to <id> --resolve`. The review file schema nests replies inside each comment's `replies` array.
 17. **Commit selection** — in git mode, a sidebar lists individual commits. Selecting one scopes the file list and diffs to that commit only.
 18. **Centralized review storage** — review data stored in `~/.crit/reviews/<key>.json` (keyed by cwd + branch + args). `crit status` shows the review file path; `crit cleanup` removes stale reviews.
 
@@ -92,9 +92,9 @@ crit stop                     # Stop the daemon for current directory
 crit stop --all               # Stop all daemons for current directory
 crit status [--json]          # Show review file path, daemon status, comment stats
 crit cleanup [--days N] [--force]  # Delete stale review files from ~/.crit/reviews/
-crit pull [pr-number]         # Fetch GitHub PR comments into .crit.json
-crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post .crit.json comments as a GitHub PR review
-crit comment <path>:<line[-end]> <body>         # Add a comment to .crit.json (no server needed)
+crit pull [pr-number]         # Fetch GitHub PR comments into the review file
+crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post review comments as a GitHub PR review
+crit comment <path>:<line[-end]> <body>         # Add a comment to the review file (no server needed)
 crit comment --reply-to <id> [--resolve] <body> # Reply to a comment (optionally mark resolved)
 crit comment --json [--author <name>]           # Bulk add comments from stdin JSON
 crit share <file> [file...]   # Share files to crit-web, print URL
@@ -126,8 +126,8 @@ Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_
 
 Requires `gh` CLI installed and authenticated.
 
-- `crit pull` fetches PR review comments (RIGHT-side only) and merges them into `.crit.json`, deduplicating by author+lines+body
-- `crit push` reads `.crit.json` and posts unresolved comments as a GitHub PR review
+- `crit pull` fetches PR review comments (RIGHT-side only) and merges them into the review file, deduplicating by author+lines+body
+- `crit push` reads the review file and posts unresolved comments as a GitHub PR review
 - `crit push --dry-run` shows what would be posted without actually creating the review
 - `crit push --event approve` submits an approval; `--event request-changes` requests changes (default: `comment`)
 - `crit push -m 'message'` adds a review-level body message
@@ -256,11 +256,11 @@ Session-scoped:
 
 - `GET  /api/session` — session metadata: mode, branch, baseRef, reviewRound, file list with stats
 - `GET  /api/config` — returns `{share_url, hosted_url, delete_token, version, latest_version}`
-- `POST /api/finish` — write `.crit.json`, return prompt for agent
+- `POST /api/finish` — write review file, return prompt for agent
 - `GET  /api/events` — SSE stream (file-changed, edit-detected, server-shutdown events)
 - `GET  /api/wait-for-event` — long-poll that blocks until finish, returns event JSON (used by `crit` in daemon mode)
 - `POST /api/round-complete` — agent signals all edits are done; triggers new round
-- `POST /api/share-url` — persist `{url, delete_token}` to `.crit.json` after upload
+- `POST /api/share-url` — persist `{url, delete_token}` to the review file after upload
 - `DELETE /api/share-url` — unpublish: calls crit-web DELETE and clears local persisted URL
 - `POST /api/agent/request` — send a comment to the configured agent command (requires `agent_cmd` config)
 - `GET  /api/commits` — list commits between base ref and HEAD (git mode only)
@@ -354,7 +354,7 @@ Sharing is opt-in. When `--share-url` (or `CRIT_SHARE_URL` env var, or `share_ur
 
 - The Share button appears in the header.
 - Clicking it POSTs the current document + comments to `{share_url}/api/reviews` (crit-web API).
-- The response `{url, delete_token}` is persisted to `.crit.json` via `POST /api/share-url`.
+- The response `{url, delete_token}` is persisted to the review file via `POST /api/share-url`.
 - A share-notice banner shows the URL with Copy / Unpublish actions.
 - Unpublish calls `DELETE {share_url}/api/reviews?delete_token=...` then clears local state.
 

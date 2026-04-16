@@ -2,11 +2,11 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
 import { clearAllComments, loadPage, switchToDocumentView } from './helpers';
 
-// Find a non-crit.json file path from the session (e.g., plan.md or handler.js)
+// Find a file path from the session (e.g., plan.md or handler.js)
 async function getTestFilePath(request: APIRequestContext): Promise<string> {
   const sessionRes = await request.get('/api/session');
   const session = await sessionRes.json();
-  const file = session.files.find((f: any) => f.path !== '.crit.json' && f.status !== 'deleted');
+  const file = session.files.find((f: any) => f.status !== 'deleted');
   return file?.path || session.files[0].path;
 }
 
@@ -134,7 +134,7 @@ test.describe('Multi-Round — API', () => {
       data: { start_line: 1, end_line: 1, body: 'Unresolved comment' },
     });
 
-    // Finish to write .crit.json
+    // Finish to write the review file
     await request.post('/api/finish');
 
     // Signal round complete and wait for processing
@@ -157,12 +157,12 @@ test.describe('Multi-Round — API', () => {
       data: { start_line: 1, end_line: 1, body: 'Will be resolved' },
     });
 
-    // Finish to write .crit.json (get the path from response)
+    // Finish to write the review file (get the path from response)
     const finishRes = await request.post('/api/finish');
     const finishData = await finishRes.json();
     const critJsonPath = finishData.review_file;
 
-    // Simulate agent marking comment as resolved by editing .crit.json
+    // Simulate agent marking comment as resolved by editing the review file
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
     for (const fileKey of Object.keys(critJson.files)) {
       for (const comment of critJson.files[fileKey].comments) {
@@ -186,13 +186,13 @@ test.describe('Multi-Round — API', () => {
 
   test('file list is preserved after round-complete', async ({ request }) => {
     const before = await request.get('/api/session').then(r => r.json());
-    const filesBefore = before.files.map((f: any) => f.path).filter((p: string) => p !== '.crit.json').sort();
+    const filesBefore = before.files.map((f: any) => f.path).sort();
 
     await request.post('/api/round-complete');
     await waitForRound(request, before.review_round);
 
     const after = await request.get('/api/session').then(r => r.json());
-    const filesAfter = after.files.map((f: any) => f.path).filter((p: string) => p !== '.crit.json').sort();
+    const filesAfter = after.files.map((f: any) => f.path).sort();
 
     expect(filesAfter).toEqual(filesBefore);
   });
@@ -238,7 +238,7 @@ test.describe('Multi-Round — API', () => {
 test.describe('Multi-Round — Frontend', () => {
   test.beforeEach(async ({ page, request }) => {
     // Reset server to reviewing state in case a previous test left it in
-    // waiting/finished state. Without this, clearAllComments writes .crit.json,
+    // waiting/finished state. Without this, clearAllComments writes the review file,
     // the file watcher detects the change, and emits edit-detected SSE events
     // that can overwrite UI text in the next test.
     await request.post('/api/round-complete');
@@ -347,11 +347,11 @@ test.describe('Multi-Round — Frontend', () => {
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    // Click Finish to write .crit.json and enter waiting state
+    // Click Finish to write the review file and enter waiting state
     await page.locator('#finishBtn').click();
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
 
-    // Finish already wrote .crit.json; read the path from the finish response
+    // Finish already wrote the review file; read the path from the finish response
     const finishRes = await request.post('/api/finish');
     const finishData = await finishRes.json();
     const critJsonPath = finishData.review_file;
@@ -393,7 +393,7 @@ test.describe('Multi-Round — Frontend', () => {
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    // Click Finish to write .crit.json and enter waiting state
+    // Click Finish to write the review file and enter waiting state
     await page.locator('#finishBtn').click();
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
 
@@ -436,7 +436,7 @@ test.describe('Multi-Round — Frontend', () => {
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    // Click Finish to write .crit.json and enter waiting state
+    // Click Finish to write the review file and enter waiting state
     await page.locator('#finishBtn').click();
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
 
@@ -472,8 +472,8 @@ test.describe('Multi-Round — Frontend', () => {
   });
 
   test('viewed state persists across round-complete', async ({ page, request }) => {
-    // Mark the first non-.crit.json file as viewed
-    const section = page.locator('.file-section').filter({ hasNotText: '.crit.json' }).first();
+    // Mark the first file as viewed
+    const section = page.locator('.file-section').first();
     const viewedCheckbox = section.locator('.file-header-viewed input');
     await viewedCheckbox.check();
     await expect(viewedCheckbox).toBeChecked();
@@ -489,8 +489,8 @@ test.describe('Multi-Round — Frontend', () => {
   });
 
   test('file sections are re-rendered after round-complete', async ({ page, request }) => {
-    // Count non-.crit.json file sections before (its presence depends on disk state)
-    const sections = page.locator('.file-section').filter({ hasNotText: '.crit.json' });
+    // Count file sections before
+    const sections = page.locator('.file-section');
     const sectionsBefore = await sections.count();
 
     // Trigger round-complete
@@ -517,11 +517,11 @@ test.describe('Multi-Round — Frontend', () => {
     // With an unresolved comment, button should say "Finish Review"
     await expect(page.locator('#finishBtn')).toHaveText('Finish Review');
 
-    // Click Finish to write .crit.json
+    // Click Finish to write the review file
     await page.locator('#finishBtn').click();
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
 
-    // Read .crit.json path and mark comment as resolved
+    // Read review file path and mark comment as resolved
     const finishRes = await request.post('/api/finish');
     const finishData = await finishRes.json();
     const critJsonPath = finishData.review_file;

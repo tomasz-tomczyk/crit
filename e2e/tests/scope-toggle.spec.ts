@@ -58,10 +58,9 @@ test.describe('Scope Toggle', () => {
   test('switching to unstaged scope shows only unstaged files', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'unstaged');
-    // Unstaged: config.yaml (and possibly .crit.json which is also untracked)
-    const nonCritSections = page.locator('.file-section').filter({ hasNotText: '.crit.json' });
+    // Unstaged: config.yaml only
     await expect(async () => {
-      await expect(nonCritSections).toHaveCount(1);
+      await expect(page.locator('.file-section')).toHaveCount(1);
     }).toPass({ timeout: 5000 });
     await expect(page.locator('.file-section', { hasText: 'config.yaml' })).toBeVisible();
   });

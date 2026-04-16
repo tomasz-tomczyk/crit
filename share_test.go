@@ -828,7 +828,7 @@ func TestLoadExistingShareCfg(t *testing.T) {
 	dir := t.TempDir()
 	critPath := filepath.Join(dir, ".crit.json")
 
-	// Legacy .crit.json without scope — loads unconditionally
+	// Review file without scope — loads unconditionally
 	cj := CritJSON{
 		ShareURL:    "https://crit.md/r/existing",
 		DeleteToken: "del-token-123",

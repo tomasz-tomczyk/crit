@@ -860,7 +860,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	if totalComments > 0 && unresolvedComments > 0 {
 		if s.session.Mode == "plan" {
 			// Plan mode: concise feedback for the hook workflow.
-			// Claude revises the plan text directly — no need for crit comment or .crit.json instructions.
+			// Claude revises the plan text directly — no need for crit comment or review file instructions.
 			prompt = s.buildPlanFeedback(critJSON)
 		} else {
 			prompt = fmt.Sprintf(
@@ -908,7 +908,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildPlanFeedback formats review feedback for plan mode.
-// Points to .crit.json and hints at crit-cli skill, without inlining every comment.
+// Points to the review file and hints at crit-cli skill, without inlining every comment.
 func (s *Server) buildPlanFeedback(critJSON string) string {
 	// Extract slug from PlanDir (last path component)
 	slug := filepath.Base(s.session.PlanDir)

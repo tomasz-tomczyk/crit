@@ -10,7 +10,7 @@ async function waitForRound(request: APIRequestContext, previousRound: number) {
   }).toPass({ timeout: 5000 });
 }
 
-// Finish round, mark all comments as resolved in .crit.json, then complete the round.
+// Finish round, mark all comments as resolved in the review file, then complete the round.
 async function finishAndResolve(request: APIRequestContext) {
   const session = await request.get('/api/session').then(r => r.json());
   const currentRound = session.review_round;
@@ -71,7 +71,7 @@ test.describe('Comment Count Badge', () => {
     const countEl = page.locator('#commentCount');
     const badgeEl = page.locator('#commentCountNumber');
 
-    // Add a comment, resolve it via .crit.json, then complete the round
+    // Add a comment, resolve it via the review file, then complete the round
     await addComment(request, mdPath, 1, 'Will be resolved');
     await finishAndResolve(request);
 
@@ -178,7 +178,7 @@ test.describe('Comment Count Badge', () => {
     const countEl = page.locator('#commentCount');
     const badgeEl = page.locator('#commentCountNumber');
 
-    // Add a comment, resolve it via .crit.json, then complete the round
+    // Add a comment, resolve it via the review file, then complete the round
     await addComment(request, mdPath, 1, 'Will be resolved');
     await finishAndResolve(request);
 

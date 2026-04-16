@@ -113,7 +113,7 @@ func printShareUsage() {
 	fmt.Fprintln(os.Stderr, "Usage: crit share [--output <dir>] [--share-url <url>] [--qr] <file> [file...]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Shares files to crit-web and prints the review URL.")
-	fmt.Fprintln(os.Stderr, "Comments from .crit.json are included automatically.")
+	fmt.Fprintln(os.Stderr, "Comments from the review file are included automatically.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Examples:")
 	fmt.Fprintln(os.Stderr, "  crit share plan.md")
@@ -196,7 +196,7 @@ func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL,
 	}
 
 	if err := persistShareState(critPath, url, deleteToken, shareScope(filePaths)); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not save share state to .crit.json: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: could not save share state to review file: %v\n", err)
 	}
 
 	initialComments, _ := loadCommentsForUpsert(critPath, filePaths)
@@ -257,7 +257,7 @@ func parseFetchOutputDir(args []string) string {
 		default:
 			fmt.Fprintln(os.Stderr, "Usage: crit fetch [--output <dir>]")
 			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "Fetches comments added on crit-web into .crit.json.")
+			fmt.Fprintln(os.Stderr, "Fetches comments added on crit-web into the review file.")
 			fmt.Fprintln(os.Stderr, "Requires a prior `crit share` so a share URL is recorded.")
 			os.Exit(1)
 		}
@@ -266,7 +266,7 @@ func parseFetchOutputDir(args []string) string {
 }
 
 func printFetchedComments(webComments []webComment) {
-	fmt.Printf("Fetched %d new comment(s) into .crit.json\n", len(webComments))
+	fmt.Printf("Fetched %d new comment(s) into review file\n", len(webComments))
 	for _, wc := range webComments {
 		runes := []rune(wc.Body)
 		body := wc.Body
@@ -692,7 +692,7 @@ func runPush(args []string) {
 	replyIDs := postPushReplies(prNumber, allReplies)
 
 	if err := updateCritJSONWithGitHubIDs(critPath, commentIDs, replyIDs); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to update .crit.json with GitHub IDs: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: failed to update review file with GitHub IDs: %v\n", err)
 	}
 }
 
@@ -843,7 +843,7 @@ func runCommentClear(outputDir string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("Cleared .crit.json")
+	fmt.Println("Cleared review file")
 }
 
 func printCommentUsage() {
@@ -981,7 +981,7 @@ func looksLikeLineSpec(s string) bool {
 	return err == nil
 }
 
-// fileExistsOnDiskOrSession checks if a path exists as a file on disk or in .crit.json.
+// fileExistsOnDiskOrSession checks if a path exists as a file on disk or in the review file.
 func fileExistsOnDiskOrSession(path string, outputDir string) bool {
 	// Check disk first (relative to cwd)
 	if info, err := os.Stat(path); err == nil && !info.IsDir() {
@@ -996,7 +996,7 @@ func fileExistsOnDiskOrSession(path string, outputDir string) bool {
 			}
 		}
 	}
-	// Check if it exists in .crit.json
+	// Check if it exists in the review file
 	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
 		return false
@@ -1587,8 +1587,8 @@ func parseServerFlags(args []string) serverFlagSet {
 	showVersion := fs.Bool("version", false, "Print version and exit")
 	fs.BoolVar(showVersion, "v", false, "Print version and exit (shorthand)")
 	shareURL := fs.String("share-url", "", "Base URL of hosted Crit service for sharing reviews (overrides CRIT_SHARE_URL env var)")
-	outputDir := fs.String("output", "", "Output directory for .crit.json (default: repo root or file directory)")
-	fs.StringVar(outputDir, "o", "", "Output directory for .crit.json (shorthand)")
+	outputDir := fs.String("output", "", "Output directory for review file (default: repo root or file directory)")
+	fs.StringVar(outputDir, "o", "", "Output directory for review file (shorthand)")
 	quiet := fs.Bool("quiet", false, "Suppress status output")
 	fs.BoolVar(quiet, "q", false, "Suppress status output (shorthand)")
 	noIgnore := fs.Bool("no-ignore", false, "Disable all ignore patterns from config files")
@@ -1710,7 +1710,7 @@ func createSession(sc *serverConfig) (*Session, error) {
 		return nil, err
 	}
 	// Set ReviewFilePath before loadCritJSON so it reads from the centralized
-	// review file, not the legacy repo-root .crit.json.
+	// review file.
 	if sc.reviewPath != "" {
 		session.ReviewFilePath = sc.reviewPath
 		session.loadCritJSON()
@@ -2269,15 +2269,15 @@ Usage:
   crit <file|dir> [...]                      Review specific files or directories
   crit stop [files...]                       Stop the daemon for current directory (and args)
   crit stop --all                            Stop all daemons for current directory
-  crit comment <path>:<line[-end]> <body>    Add a review comment to .crit.json
+  crit comment <path>:<line[-end]> <body>    Add a review comment
   crit comment --reply-to <id> [--resolve] [--author <name>] <body>  Reply to a comment
   crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON
-  crit comment --clear                       Remove all comments from .crit.json
+  crit comment --clear                       Remove all comments from the review file
   crit share <file> [file...]                Share files to crit-web and print the URL
-  crit fetch [--output <dir>]               Fetch comments from crit-web into .crit.json
+  crit fetch [--output <dir>]               Fetch comments from crit-web into the review file
   crit unpublish                             Remove a shared review from crit-web
-  crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments to .crit.json
-  crit push [--dry-run] [--event <type>] [-m <msg>] [-o <dir>] [pr-number]  Post .crit.json comments to a GitHub PR
+  crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments into the review file
+  crit push [--dry-run] [--event <type>] [-m <msg>] [-o <dir>] [pr-number]  Post review comments to a GitHub PR
   crit plan --name <slug> <file>             Review a plan file (manages versioned copies)
   crit plan --name <slug>                    Read plan from stdin
   crit auth login                            Log in to crit-web via browser
@@ -2295,7 +2295,7 @@ Usage:
 
 Options:
   -p, --port <port>           Port to listen on (default: random)
-  -o, --output <dir>          Output directory for .crit.json
+  -o, --output <dir>          Output directory for review file
       --no-open               Don't auto-open browser
       --no-ignore             Disable all file ignore patterns
   -q, --quiet                 Suppress status output
@@ -2342,7 +2342,7 @@ Available keys:
   no_open           bool      Don't auto-open browser (default: false)
   share_url         string    Share service URL
   quiet             bool      Suppress status output (default: false)
-  output            string    Output directory for .crit.json
+  output            string    Output directory for review file
   author            string    Your name for comments (default: git config user.name)
   base_branch       string    Base branch to diff against (overrides auto-detection)
   ignore_patterns        []string  Gitignore-style patterns to exclude files from review

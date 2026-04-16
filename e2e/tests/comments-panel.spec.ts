@@ -209,12 +209,12 @@ test.describe('Comments Panel — Git Mode', () => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Will be resolved');
 
-    // Finish to write .crit.json
+    // Finish to write the review file
     const finishRes = await request.post('/api/finish');
     const finishData = await finishRes.json();
     const critJsonPath = finishData.review_file;
 
-    // Mark comment as resolved in .crit.json
+    // Mark comment as resolved in the review file
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
     for (const fileKey of Object.keys(critJson.files)) {
       for (const comment of critJson.files[fileKey].comments) {
@@ -262,7 +262,7 @@ test.describe('Comments Panel — Git Mode', () => {
 
     await loadPage(page);
 
-    // After round-complete, .crit.json appears in session, so mdSection helper
+    // After round-complete, the review file appears in session, so mdSection helper
     // can match multiple sections. Use the plan.md section by ID directly.
     const mdSectionById = page.locator('#file-section-plan\\.md');
     const docBtn = mdSectionById.locator('.file-header-toggle .toggle-btn[data-mode="document"]');

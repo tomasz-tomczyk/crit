@@ -30,7 +30,7 @@ Run `crit` (it starts the daemon if needed, opens the browser, and blocks until 
 crit
 ```
 
-**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read `.crit.json` early. `crit` blocks until the user clicks Finish Review — that is how you know they are done.
+**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. `crit` blocks until the user clicks Finish Review — that is how you know they are done.
 
 ## After review
 
@@ -51,7 +51,7 @@ Only proceed after the user approves (finishes a round with zero comments).
 
 ## Leaving comments programmatically
 
-Use `crit comment` to add review comments to `.crit.json` without opening the browser:
+Use `crit comment` to add review comments to the review file without opening the browser:
 
 ```bash
 crit comment --author 'Windsurf' '<body>'                          # Review-level comment
@@ -62,7 +62,7 @@ crit comment --reply-to c_a1b2c3 --author 'Windsurf' '<body>'  # Reply to file c
 crit comment --reply-to r_f1e2d3 --author 'Windsurf' '<body>'  # Reply to review comment
 ```
 
-Paths are relative, line numbers are 1-indexed, comments are appended (never replaced). Creates `.crit.json` automatically if it doesn't exist.
+Paths are relative, line numbers are 1-indexed, comments are appended (never replaced). Creates the review file automatically if it doesn't exist.
 
 ## Sharing Reviews
 
@@ -85,16 +85,16 @@ crit share --share-url https://crit.md <file>  # Explicit share URL
 Rules:
 - **No server needed** — `crit share` reads files directly from disk
 - **`--qr` is terminal-only** — only use when the user has a real terminal with monospace font rendering. Do not use in mobile apps (e.g. Claude Code mobile), web chat UIs, or any environment where Unicode block characters won't render correctly
-- **Comments included** — if `.crit.json` exists, comments for the shared files are included automatically
+- **Comments included** — if the review file exists, comments for the shared files are included automatically
 - **Relay the output** — always copy the URL (and QR code if `--qr` was used) from the command output and include it directly in your response to the user. Do not make them dig through tool output
-- **State persisted** — share URL and delete token are saved to `.crit.json`
-- **Unpublish reads `.crit.json`** — uses the stored delete token to remove the review
+- **State persisted** — share URL and delete token are saved to the review file
+- **Unpublish reads the review file** — uses the stored delete token to remove the review
 
 ## GitHub PR Integration
 
 ```bash
-crit pull [pr-number]                                    # Fetch PR comments into .crit.json
-crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post .crit.json comments as PR review
+crit pull [pr-number]                                    # Fetch PR comments into the review file
+crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post review comments as PR review
 ```
 
 Requires `gh` CLI. PR number auto-detected from current branch. Event types for `--event`: `comment` (default), `approve`, `request-changes`.

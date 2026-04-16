@@ -166,7 +166,7 @@ func (s *Session) watchGit(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
-			// Check for external .crit.json changes (e.g. crit comment).
+			// Check for external review file changes (e.g. crit comment).
 			s.mergeExternalCritJSON()
 
 			fp := WorkingTreeFingerprint()
@@ -200,7 +200,7 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
-			// Check for external .crit.json changes (e.g. crit comment).
+			// Check for external review file changes (e.g. crit comment).
 			s.mergeExternalCritJSON()
 
 			s.mu.RLock()
@@ -399,13 +399,13 @@ func (s *Session) emitRoundStatus(edits int) {
 	s.status.RoundReady(round, resolved, open)
 }
 
-// loadResolvedComments reads .crit.json to pick up resolved fields the agent wrote.
+// loadResolvedComments reads the review file to pick up resolved fields the agent wrote.
 func (s *Session) loadResolvedComments() {
 	critPath := s.critJSONPath()
 	info, statErr := os.Stat(critPath)
 	data, err := os.ReadFile(critPath)
 	if err != nil {
-		// No .crit.json — clear all PreviousComments
+		// No review file — clear all PreviousComments
 		s.mu.Lock()
 		for _, f := range s.Files {
 			f.PreviousComments = nil
@@ -431,7 +431,7 @@ func (s *Session) loadResolvedComments() {
 	s.reviewComments = cj.ReviewComments
 	// Record the current mtime so mergeExternalCritJSON does not re-process
 	// this same file. Without this, the file watcher could detect the
-	// externally-written .crit.json (e.g. from a test or crit comment) as a
+	// externally-written review file (e.g. from a test or crit comment) as a
 	// new change and wipe comments that were added via the API after the
 	// round completed.
 	if statErr == nil {

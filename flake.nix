@@ -18,7 +18,7 @@
             src = self;
             vendorHash = "sha256-n2yA86hAhSipIhQw9HSKubCVT4RrPdau+/Ve7ebrevc=";
             # Tests run in dedicated CI jobs (test + e2e); the Nix sandbox's
-            # /build TMPDIR cleanup races with the debounced .crit.json writer.
+            # /build TMPDIR cleanup races with the debounced review file writer.
             doCheck = false;
             ldflags = [ "-s" "-w" "-X main.version=${version}" ];
             meta = with nixpkgs.lib; {

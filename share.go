@@ -32,7 +32,7 @@ func shareScope(paths []string) string {
 
 // computeShareHash returns a short stable hash of the current share state:
 // file contents (for change detection) and comment resolution states.
-// If the hash equals LastShareHash in .crit.json, nothing has changed since
+// If the hash equals LastShareHash in the review file, nothing has changed since
 // the last push and no new round is needed.
 func computeShareHash(files []shareFile, comments []shareComment) string {
 	sorted := make([]shareFile, len(files))
@@ -338,7 +338,7 @@ func buildLocalFingerprints(cj CritJSON) map[string]bool {
 // i.e., when the agent calls `crit share <files>` after applying changes from
 // the crit-web prompt. This captures any web-reviewer comments added after the
 // prompt was generated (e.g., a late-arriving review) so they appear in local
-// .crit.json before the next round is pushed.
+// the review file before the next round is pushed.
 //
 // shareURL is the full review URL, e.g. "https://crit.md/r/abc123".
 func fetchNewWebComments(shareURL string, localIDs map[string]bool, localFingerprints map[string]bool, authToken string) ([]webComment, error) {
@@ -545,7 +545,7 @@ func mergeWebComments(critPath string, newComments []webComment) error {
 	}
 
 	// Find the highest existing web-N index so new IDs are globally unique
-	// even if earlier ones were deleted from .crit.json.
+	// even if earlier ones were deleted from the review file.
 	webCount := highestWebIndex(cj)
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -616,11 +616,11 @@ func persistShareState(critPath string, shareURL string, deleteToken string, sco
 func clearShareState(critPath string) error {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
-		return nil //nolint:nilerr // no .crit.json file means nothing to clear
+		return nil //nolint:nilerr // no review file means nothing to clear
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
-		return fmt.Errorf("invalid .crit.json: %w", err)
+		return fmt.Errorf("invalid review file: %w", err)
 	}
 	cj.ShareURL = ""
 	cj.DeleteToken = ""

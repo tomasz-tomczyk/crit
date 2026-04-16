@@ -329,8 +329,8 @@ func TestLoadConfigRuntimeDefaults(t *testing.T) {
 	if cfg.ShareURL != "https://crit.md" {
 		t.Errorf("ShareURL = %q, want runtime default https://crit.md", cfg.ShareURL)
 	}
-	wantPatterns := []string{".crit.json", ".crit/"}
-	if len(cfg.IgnorePatterns) != len(wantPatterns) || cfg.IgnorePatterns[0] != wantPatterns[0] || cfg.IgnorePatterns[1] != wantPatterns[1] {
+	wantPatterns := []string{".crit/"}
+	if len(cfg.IgnorePatterns) != len(wantPatterns) || cfg.IgnorePatterns[0] != wantPatterns[0] {
 		t.Errorf("IgnorePatterns = %v, want %v", cfg.IgnorePatterns, wantPatterns)
 	}
 }
@@ -365,8 +365,8 @@ func TestLoadConfigRuntimeDefaultsOverriddenByGlobal(t *testing.T) {
 		t.Errorf("ShareURL = %q, want custom global value", cfg.ShareURL)
 	}
 	// ignore_patterns not set in any config — default applies
-	wantPatterns := []string{".crit.json", ".crit/"}
-	if len(cfg.IgnorePatterns) != len(wantPatterns) || cfg.IgnorePatterns[0] != wantPatterns[0] || cfg.IgnorePatterns[1] != wantPatterns[1] {
+	wantPatterns := []string{".crit/"}
+	if len(cfg.IgnorePatterns) != len(wantPatterns) || cfg.IgnorePatterns[0] != wantPatterns[0] {
 		t.Errorf("IgnorePatterns = %v, want %v", cfg.IgnorePatterns, wantPatterns)
 	}
 }

@@ -28,7 +28,7 @@ This installs integration files into your project. Safe to re-run — existing f
 
 For the full experience, install via the plugin marketplace. This gives you:
 - A `/crit` slash command for the review loop
-- A `crit` skill that auto-activates when working with `.crit.json`, `crit comment`, `crit pull/push`, etc.
+- A `crit` skill that auto-activates when working with review files, `crit comment`, `crit pull/push`, etc.
 
 ```
 /plugin marketplace add tomasz-tomczyk/crit
@@ -46,7 +46,7 @@ The marketplace manifest lives at the repo root (`.claude-plugin/marketplace.jso
 | **Good for** | Teams — everyone gets the integration | Individual users — works across all projects |
 | **Setup** | Run once per project | Install once, works everywhere |
 
-Both approaches give you the `/crit` slash command. The plugin marketplace additionally installs the `crit-cli` skill which auto-teaches the agent about `crit comment`, `.crit.json` format, `crit pull/push`, and resolution workflow.
+Both approaches give you the `/crit` slash command. The plugin marketplace additionally installs the `crit-cli` skill which auto-teaches the agent about `crit comment`, review file format, `crit pull/push`, and resolution workflow.
 
 ## What these do
 
@@ -54,10 +54,10 @@ All integrations follow the same pattern:
 
 1. **Plan first** — the agent writes an implementation plan as a markdown file before writing any code
 2. **Launch Crit** — the agent runs `crit $PLAN_FILE` to open the plan for review in your browser
-3. **Address feedback** — after review, the agent reads `.crit.json` to find your inline comments and revises the plan
+3. **Address feedback** — after review, the agent reads the review file to find your inline comments and revises the plan
 4. **Implement after approval** — only after you approve does the agent write code
 
 Each integration also teaches the agent about:
 - **`crit comment`** — leave inline review comments programmatically without opening the browser
-- **`.crit.json` format** — how to read comments, resolve them with threaded replies
+- **review file format** — how to read comments, resolve them with threaded replies
 - **`crit pull/push`** — sync reviews with GitHub PRs (push supports `--event approve|request-changes|comment`)
