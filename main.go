@@ -711,46 +711,47 @@ func parseCommentFlags(args []string) commentFlags {
 	var f commentFlags
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if arg == "--plan" {
+		switch {
+		case arg == "--plan":
 			if i+1 >= len(args) {
 				fmt.Fprintf(os.Stderr, "Error: --plan requires a slug\n")
 				os.Exit(1)
 			}
 			i++
 			f.plan = args[i]
-		} else if arg == "--output" || arg == "-o" {
+		case arg == "--output" || arg == "-o":
 			if i+1 >= len(args) {
 				fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
 				os.Exit(1)
 			}
 			i++
 			f.outputDir = args[i]
-		} else if arg == "--author" {
+		case arg == "--author":
 			if i+1 >= len(args) {
 				fmt.Fprintf(os.Stderr, "Error: --author requires a value\n")
 				os.Exit(1)
 			}
 			i++
 			f.author = args[i]
-		} else if arg == "--reply-to" {
+		case arg == "--reply-to":
 			if i+1 >= len(args) {
 				fmt.Fprintf(os.Stderr, "Error: --reply-to requires a comment ID\n")
 				os.Exit(1)
 			}
 			i++
 			f.replyTo = args[i]
-		} else if arg == "--resolve" {
+		case arg == "--resolve":
 			f.resolve = true
-		} else if arg == "--path" {
+		case arg == "--path":
 			if i+1 >= len(args) {
 				fmt.Fprintf(os.Stderr, "Error: --path requires a value\n")
 				os.Exit(1)
 			}
 			i++
 			f.path = args[i]
-		} else if arg == "--json" {
+		case arg == "--json":
 			f.json = true
-		} else {
+		default:
 			f.args = append(f.args, arg)
 		}
 	}
@@ -1394,6 +1395,23 @@ func runReview(args []string) {
 	cleanupOnApproval(approved, entry.ReviewPath, LoadConfig(cwd).CleanupOnApproveEnabled())
 }
 
+// readReviewCycleResponse reads and closes the response body, returning an
+// error for non-success status codes. This avoids exitAfterDefer by ensuring
+// the body is closed before the caller decides to os.Exit.
+func readReviewCycleResponse(resp *http.Response) ([]byte, error) {
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusGatewayTimeout {
+		return nil, fmt.Errorf("timeout waiting for review")
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+	return body, nil
+}
+
 // runReviewClient connects to a running daemon/server, blocks until the user
 // finishes reviewing, prints feedback to stdout, and returns whether the
 // review was approved (no unresolved comments).
@@ -1427,16 +1445,10 @@ func runReviewClient(entry sessionEntry) (approved bool) {
 		fmt.Fprintf(os.Stderr, "Error: could not reach crit daemon on port %d: %v\n", entry.Port, err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusGatewayTimeout {
-		fmt.Fprintln(os.Stderr, "Timeout waiting for review")
-		os.Exit(1)
-	}
-
-	body, err = io.ReadAll(resp.Body)
+	body, err = readReviewCycleResponse(resp)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -1638,6 +1650,8 @@ func applyConfigDefaults(sf *serverFlagSet, cfg Config) {
 // resolveServerConfig parses flags, loads config files, and resolves the
 // final server configuration from all sources (CLI > env > config > defaults).
 // Returns nil when the command should exit early (e.g. --version).
+//
+//nolint:unparam // error return is future-proofing for config validation
 func resolveServerConfig(args []string) (*serverConfig, error) {
 	sf := parseServerFlags(args)
 

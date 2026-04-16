@@ -1348,18 +1348,14 @@ func TestDiffNumstat(t *testing.T) {
 
 	if s, ok := stats["stats.go"]; !ok {
 		t.Fatal("missing stats.go in numstat output")
-	} else {
-		if s.Additions != 5 || s.Deletions != 1 {
-			t.Errorf("stats.go: got +%d/-%d, want +5/-1", s.Additions, s.Deletions)
-		}
+	} else if s.Additions != 5 || s.Deletions != 1 {
+		t.Errorf("stats.go: got +%d/-%d, want +5/-1", s.Additions, s.Deletions)
 	}
 
 	if s, ok := stats["newfile.txt"]; !ok {
 		t.Fatal("missing newfile.txt in numstat output")
-	} else {
-		if s.Additions != 3 || s.Deletions != 0 {
-			t.Errorf("newfile.txt: got +%d/-%d, want +3/-0", s.Additions, s.Deletions)
-		}
+	} else if s.Additions != 3 || s.Deletions != 0 {
+		t.Errorf("newfile.txt: got +%d/-%d, want +3/-0", s.Additions, s.Deletions)
 	}
 }
 
@@ -1384,9 +1380,7 @@ func TestDiffNumstatBinary(t *testing.T) {
 
 	if s, ok := stats["image.png"]; !ok {
 		t.Fatal("missing image.png in numstat output")
-	} else {
-		if s.Additions != 0 || s.Deletions != 0 {
-			t.Errorf("image.png: got +%d/-%d, want +0/-0", s.Additions, s.Deletions)
-		}
+	} else if s.Additions != 0 || s.Deletions != 0 {
+		t.Errorf("image.png: got +%d/-%d, want +0/-0", s.Additions, s.Deletions)
 	}
 }

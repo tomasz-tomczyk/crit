@@ -579,7 +579,7 @@ func createGHReview(prNumber int, comments []map[string]any, message string, eve
 	}
 	idMap := make(map[string]int64)
 	if err := json.Unmarshal(stdout.Bytes(), &reviewResp); err != nil || reviewResp.ID == 0 {
-		return idMap, nil // non-fatal: review was created, just can't map IDs
+		return idMap, nil //nolint:nilerr // non-fatal: review was created, just can't map IDs
 	}
 
 	// Fetch this review's comments and zip with our input to map IDs by position.
@@ -588,7 +588,7 @@ func createGHReview(prNumber int, comments []map[string]any, message string, eve
 		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews/%d/comments", prNumber, reviewResp.ID),
 	).Output()
 	if err != nil {
-		return idMap, nil // non-fatal
+		return idMap, nil //nolint:nilerr // non-fatal: review was created, comment ID mapping is best-effort
 	}
 	var reviewComments []struct {
 		ID int64 `json:"id"`

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -88,8 +89,8 @@ func TestRunComment_MissingArgs(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected non-zero exit for missing comment args")
 	}
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
 		t.Fatalf("expected ExitError, got %T", err)
 	}
 	if exitErr.ExitCode() == 0 {

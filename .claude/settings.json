@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'REMINDERS (things linters dont catch): 1) Verify all struct fields mapped. 2) Check response.ok after fetch(). 3) Reset nav state on context changes. 4) Dedup guards for multi-source async ops. 5) Define CSS vars in all 4 theme blocks.'"
+          }
+        ]
+      }
+    ]
+  }
+}

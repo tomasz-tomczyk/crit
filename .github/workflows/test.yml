@@ -32,6 +32,22 @@ jobs:
         with:
           version: latest
 
+  lint-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm ci
+      - name: ESLint
+        run: npx eslint frontend/app.js
+      - name: Stylelint
+        run: npx stylelint "frontend/*.css"
+      - name: CSS variable validation
+        run: bash scripts/check-css-vars.sh
+
   unit:
     runs-on: ubuntu-latest
     steps:
@@ -42,6 +58,16 @@ jobs:
           go-version-file: go.mod
 
       - run: go test ./...
+
+      - name: Check coverage threshold
+        run: |
+          go test -coverprofile=coverage.out ./...
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Coverage: $COVERAGE%"
+          if (( $(echo "$COVERAGE < 58" | bc -l) )); then
+            echo "::error::Coverage $COVERAGE% is below 58% threshold"
+            exit 1
+          fi
 
   e2e:
     runs-on: ubuntu-latest

@@ -225,11 +225,39 @@ func loadCommentsForUpsert(critPath string, filePaths []string) ([]shareComment,
 	return loadCommentsFromCritJSON(critPath, filePaths, false, true)
 }
 
+// commentToShareComment converts a Comment into a shareComment, applying the
+// includeResolved and setExternalID flags. The filePath and scope fields are
+// set by the caller based on context.
+func commentToShareComment(c Comment, filePath, scope string, includeResolved, setExternalID bool) shareComment {
+	sc := shareComment{
+		File:      filePath,
+		StartLine: c.StartLine,
+		EndLine:   c.EndLine,
+		Body:      c.Body,
+		Quote:     c.Quote,
+		Author:    c.Author,
+		Scope:     scope,
+	}
+	if includeResolved {
+		sc.Resolved = c.Resolved
+	}
+	if setExternalID {
+		sc.ExternalID = c.ID
+	}
+	if c.ReviewRound >= 1 {
+		sc.ReviewRound = c.ReviewRound
+	}
+	for _, r := range c.Replies {
+		sc.Replies = append(sc.Replies, shareReply{Body: r.Body, Author: r.Author})
+	}
+	return sc
+}
+
 // loadCommentsFromCritJSON reads the review file at critPath and returns shareComment
 // entries for the given file paths, plus the review round. When includeResolved is true,
 // resolved comments are included. When setExternalID is true, ExternalID is set
 // from the local comment ID for round-trip tracking.
-func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolved bool, setExternalID bool) ([]shareComment, int) {
+func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolved, setExternalID bool) ([]shareComment, int) {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
 		return nil, 1
@@ -258,52 +286,15 @@ func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolv
 			if !includeResolved && c.Resolved {
 				continue
 			}
-			sc := shareComment{
-				File:      filePath,
-				StartLine: c.StartLine,
-				EndLine:   c.EndLine,
-				Body:      c.Body,
-				Quote:     c.Quote,
-				Author:    c.Author,
-				Scope:     c.Scope,
-			}
-			if includeResolved {
-				sc.Resolved = c.Resolved
-			}
-			if setExternalID {
-				sc.ExternalID = c.ID
-			}
-			if c.ReviewRound >= 1 {
-				sc.ReviewRound = c.ReviewRound
-			}
-			for _, r := range c.Replies {
-				sc.Replies = append(sc.Replies, shareReply{Body: r.Body, Author: r.Author})
-			}
-			comments = append(comments, sc)
+			scope := c.Scope
+			comments = append(comments, commentToShareComment(c, filePath, scope, includeResolved, setExternalID))
 		}
 	}
 	for _, c := range cj.ReviewComments {
 		if !includeResolved && c.Resolved {
 			continue
 		}
-		sc := shareComment{
-			Body:   c.Body,
-			Author: c.Author,
-			Scope:  "review",
-		}
-		if includeResolved {
-			sc.Resolved = c.Resolved
-		}
-		if setExternalID {
-			sc.ExternalID = c.ID
-		}
-		if c.ReviewRound >= 1 {
-			sc.ReviewRound = c.ReviewRound
-		}
-		for _, r := range c.Replies {
-			sc.Replies = append(sc.Replies, shareReply{Body: r.Body, Author: r.Author})
-		}
-		comments = append(comments, sc)
+		comments = append(comments, commentToShareComment(c, "", "review", includeResolved, setExternalID))
 	}
 	return comments, round
 }
@@ -625,7 +616,7 @@ func persistShareState(critPath string, shareURL string, deleteToken string, sco
 func clearShareState(critPath string) error {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
-		return nil // no .crit.json, nothing to clear
+		return nil //nolint:nilerr // no .crit.json file means nothing to clear
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {

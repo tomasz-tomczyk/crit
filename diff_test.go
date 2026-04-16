@@ -210,11 +210,12 @@ func TestDiffEntriesToHunks_SeparateHunks(t *testing.T) {
 	for i := 1; i <= 30; i++ {
 		line := fmt.Sprintf("line%d", i)
 		oldLines = append(oldLines, line)
-		if i == 5 {
+		switch i {
+		case 5:
 			newLines = append(newLines, "changed5")
-		} else if i == 25 {
+		case 25:
 			newLines = append(newLines, "changed25")
-		} else {
+		default:
 			newLines = append(newLines, line)
 		}
 	}

@@ -45,7 +45,7 @@ func resolvedCWD() (string, error) {
 	}
 	resolved, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
-		return cwd, nil // fall back to unresolved
+		return cwd, nil //nolint:nilerr // best-effort: fall back to unresolved path
 	}
 	return resolved, nil
 }
@@ -416,6 +416,7 @@ func readPortFromPipe(readEnd *os.File) (portCh chan int, errCh chan error) {
 	return portCh, errCh
 }
 
+//nolint:unparam // error return is kept for consistent startDaemon select-case handling
 func handleDaemonReady(key string, port, pid int, readEnd *os.File, cmd *exec.Cmd) (sessionEntry, error) {
 	readEnd.Close()
 	cmd.Process.Release()
@@ -434,6 +435,7 @@ func handleDaemonReady(key string, port, pid int, readEnd *os.File, cmd *exec.Cm
 	return entry, nil
 }
 
+//nolint:unparam // sessionEntry return is kept for consistent startDaemon select-case handling
 func handleDaemonPipeError(key string, readErr error, readEnd *os.File, cmd *exec.Cmd, exited chan error) (sessionEntry, error) {
 	readEnd.Close()
 	// Wait briefly for daemon exit — pipe EOF usually means it already crashed.
@@ -449,7 +451,7 @@ func handleDaemonPipeError(key string, readErr error, readEnd *os.File, cmd *exe
 	if msg != "" {
 		return sessionEntry{}, fmt.Errorf("daemon exited: %s", msg)
 	}
-	return sessionEntry{}, fmt.Errorf("daemon startup failed: %v", readErr)
+	return sessionEntry{}, fmt.Errorf("daemon startup failed: %w", readErr)
 }
 
 // startDaemon spawns a crit _serve process in the background and waits for it to be ready.
@@ -502,7 +504,7 @@ func startDaemon(key string, args []string) (sessionEntry, error) {
 		if msg != "" {
 			return sessionEntry{}, fmt.Errorf("daemon exited: %s", msg)
 		}
-		return sessionEntry{}, fmt.Errorf("daemon exited: %v", err)
+		return sessionEntry{}, fmt.Errorf("daemon exited: %w", err)
 
 	case <-time.After(10 * time.Second):
 		readEnd.Close()
@@ -590,12 +592,12 @@ func stopDaemon(key string) error {
 	proc, err := os.FindProcess(entry.PID)
 	if err != nil {
 		removeSessionFile(key)
-		return nil
+		return nil //nolint:nilerr // process not found, session already cleaned up
 	}
 
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
 		removeSessionFile(key)
-		return nil // already gone
+		return nil //nolint:nilerr // process already gone, cleanup is sufficient
 	}
 
 	// Poll for process exit, escalate to SIGKILL if needed

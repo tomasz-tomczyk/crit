@@ -457,7 +457,7 @@ func walkDirectory(dir string, ignorePatterns []string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil // skip files we can't access
+			return nil //nolint:nilerr // best-effort walk: skip inaccessible entries
 		}
 		name := d.Name()
 

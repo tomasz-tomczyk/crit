@@ -31,4 +31,31 @@ if ! go test ./... 2>&1; then
     exit 1
 fi
 
+# Check JS linting
+if command -v npx >/dev/null 2>&1 && [ -f eslint.config.mjs ]; then
+    echo "  Running ESLint..."
+    if ! npx eslint frontend/app.js 2>&1; then
+        echo "  FAIL: ESLint issues found"
+        exit 1
+    fi
+fi
+
+# Check CSS linting
+if command -v npx >/dev/null 2>&1 && [ -f .stylelintrc.json ]; then
+    echo "  Running Stylelint..."
+    if ! npx stylelint "frontend/*.css" 2>&1; then
+        echo "  FAIL: Stylelint issues found"
+        exit 1
+    fi
+fi
+
+# Check CSS variable definitions
+if [ -f scripts/check-css-vars.sh ]; then
+    echo "  Checking CSS variables..."
+    if ! bash scripts/check-css-vars.sh 2>&1; then
+        echo "  FAIL: Undefined CSS variables found"
+        exit 1
+    fi
+fi
+
 echo "Pre-commit checks passed."
