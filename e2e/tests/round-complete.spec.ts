@@ -793,14 +793,13 @@ test.describe('No-Changes Confirmation', () => {
     const round1 = (await request.get('/api/session').then(r => r.json())).review_round;
     await request.post('/api/round-complete');
     await waitForRound(request, round1);
+    await loadPage(page);
 
     // Resolve only the first comment via API
     const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`).then(r => r.json());
     await request.put(`/api/comment/${comments[0].id}/resolve?path=${encodeURIComponent(filePath)}`, {
       data: { resolved: true },
     });
-
-    await loadPage(page);
 
     // Click finish — one comment still unresolved, no new feedback → confirmation
     await page.locator('#finishBtn').click();
