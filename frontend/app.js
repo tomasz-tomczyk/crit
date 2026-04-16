@@ -819,7 +819,9 @@
     }
 
     let highlighted = '';
-    if (lang && hljs.getLanguage(lang)) {
+    // Skip hljs for markdown fences — syntax highlighting (bold headings,
+    // italic emphasis) makes raw markdown source look half-rendered.
+    if (lang && lang !== 'markdown' && lang !== 'md' && hljs.getLanguage(lang)) {
       try { highlighted = hljs.highlight(token.content, { language: lang }).value; } catch {}
     }
     if (!highlighted) highlighted = escapeHtml(token.content);

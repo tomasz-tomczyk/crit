@@ -163,3 +163,29 @@ The worker emits structured JSON logs for every delivery attempt. Key metrics to
 - Is there a maximum size we need to enforce on the `metadata` field? The schema is
   currently unbounded and this should be decided before the migration runs.
 - Do we need a way for users to test their webhook endpoint from the UI?
+
+## Code Standards
+
+The following rules should be saved as `.claude/rules/notification-service.md`:
+
+```markdown
+---
+paths:
+  - "src/**/*.go"
+  - "internal/*.go"
+---
+
+# Notification Service Rules
+
+## Input Validation
+
+- `*_id` fields — validate as *UUID* before any database query
+- Timestamps — always use *UTC*, never local time
+- Request bodies — enforce `Content-Type: application/json`; reject `text/plain`
+
+## Naming Conventions
+
+- REST endpoints: lowercase with hyphens (`/read-all`, not `/readAll`)
+- Database columns: `snake_case` with *descriptive* names
+- Environment variables: `SCREAMING_SNAKE_CASE`
+```

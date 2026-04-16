@@ -158,3 +158,41 @@ signed with the user's webhook secret. Receivers should verify this before proce
 - Is there a maximum size we need to enforce on the `metadata` field? The schema is
   currently unbounded and this should be decided before the migration runs.
 - Do we need a way for users to test their webhook endpoint from the UI?
+
+## Code Standards
+
+The following rules should be saved as `.claude/rules/notification-service.md`:
+
+```markdown
+---
+paths:
+  - "src/**/*.go"
+  - "internal/*.go"
+---
+
+# Notification Service Rules
+
+## Input Validation
+
+- `*_id` fields — validate as *UUID* before any database query
+- Timestamps — always use *UTC*, never local time
+- Request bodies — enforce `Content-Type: application/json`; reject `text/plain`
+
+## Error Handling
+
+- Always check `response.ok` after `fetch()` calls. Throw on *unexpected* statuses.
+- Every async operation must have error recovery that *restores interactivity*.
+- Never call `.remove()` directly on elements with CSS exit animations.
+
+## Naming Conventions
+
+- REST endpoints: lowercase with hyphens (`/read-all`, not `/readAll`)
+- Database columns: `snake_case` with *descriptive* names
+- Environment variables: `SCREAMING_SNAKE_CASE`
+
+## Observability
+
+- All *external* calls must emit structured logs with `request_id`, `duration_ms`, and `status`
+- Use `slog.With()` to attach context — never string concatenation
+- Metric names follow `service.subsystem.metric` pattern (e.g., `notifications.delivery.latency_ms`)
+```
