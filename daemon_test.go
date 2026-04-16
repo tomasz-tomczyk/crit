@@ -554,3 +554,42 @@ func TestListSessionsForRepoRoot_NoPartialMatch(t *testing.T) {
 		t.Errorf("expected 0 sessions (no partial match), got %d", len(entries))
 	}
 }
+
+func TestCleanOrphanedSessions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	sessDir := filepath.Join(home, ".crit", "sessions")
+
+	// Create a session file with a dead PID (PID that cannot exist).
+	deadEntry := sessionEntry{PID: 999999999, Port: 12345, CWD: "/tmp/repo"}
+	if err := writeSessionFile("deadpid12345", deadEntry); err != nil {
+		t.Fatalf("writeSessionFile: %v", err)
+	}
+
+	// Create a session file with a live PID (our own process).
+	// isDaemonAlive also checks HTTP, so this will fail the HTTP probe and
+	// be treated as dead. Use an httptest server to keep it alive.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts.Close()
+	port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
+
+	liveEntry := sessionEntry{PID: os.Getpid(), Port: port, CWD: "/tmp/repo"}
+	if err := writeSessionFile("livepid12345", liveEntry); err != nil {
+		t.Fatalf("writeSessionFile: %v", err)
+	}
+
+	cleanOrphanedSessions()
+
+	// Dead PID session should be removed.
+	if _, err := os.Stat(filepath.Join(sessDir, "deadpid12345.json")); !os.IsNotExist(err) {
+		t.Error("expected dead PID session file to be removed")
+	}
+
+	// Live PID session should still exist.
+	if _, err := os.Stat(filepath.Join(sessDir, "livepid12345.json")); err != nil {
+		t.Error("expected live PID session file to still exist")
+	}
+}

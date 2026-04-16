@@ -663,3 +663,33 @@ func stopAllDaemonsForCWD(cwd string) {
 		stopDaemon(key)
 	}
 }
+
+// cleanOrphanedSessions removes session files whose daemon PID is dead.
+// It silently ignores all errors — intended for best-effort background use.
+func cleanOrphanedSessions() {
+	sessDir, err := sessionsDir()
+	if err != nil {
+		return
+	}
+	entries, err := os.ReadDir(sessDir)
+	if err != nil {
+		return
+	}
+	for _, de := range entries {
+		if !strings.HasSuffix(de.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(sessDir, de.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var entry sessionEntry
+		if json.Unmarshal(data, &entry) != nil {
+			continue
+		}
+		if !isDaemonAlive(entry) {
+			os.Remove(path)
+		}
+	}
+}

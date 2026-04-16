@@ -1129,6 +1129,35 @@ func killDaemonOnApproval(approved bool, pid int) {
 	}
 }
 
+// backgroundCleanup silently removes stale review files and orphaned session
+// files. It is intended to be called as a goroutine from review entry points
+// so it adds zero perceived latency. All errors are swallowed — no output is
+// written to stdout or stderr.
+func backgroundCleanup() {
+	revDir, err := reviewsDir()
+	if err == nil {
+		stale := findStaleReviews(revDir, 14)
+		deleteStaleReviewsSilent(stale)
+	}
+	cleanOrphanedSessions()
+}
+
+// deleteStaleReviewsSilent is like deleteStaleReviews but swallows all errors.
+// Used by backgroundCleanup to avoid any output to stderr.
+func deleteStaleReviewsSilent(stale []staleReview) {
+	sessDir, _ := sessionsDir()
+	for _, s := range stale {
+		if os.Remove(s.path) != nil {
+			continue
+		}
+		if sessDir != "" {
+			os.Remove(filepath.Join(sessDir, s.key+".json"))
+			os.Remove(filepath.Join(sessDir, s.key+".lock"))
+			os.Remove(filepath.Join(sessDir, s.key+".log"))
+		}
+	}
+}
+
 // cleanupOnApproval deletes the review file when the review is approved
 // and cleanup is enabled.
 func cleanupOnApproval(approved bool, reviewPath string, cleanupEnabled bool) {
@@ -1138,6 +1167,8 @@ func cleanupOnApproval(approved bool, reviewPath string, cleanupEnabled bool) {
 }
 
 func runPlan(args []string) {
+	go backgroundCleanup()
+
 	pc := resolvePlanConfig(args)
 	content := readPlanContent(pc)
 
@@ -1224,6 +1255,8 @@ func emitHookDecision(approved bool, prompt string) {
 // opens a crit review session, and writes a hookSpecificOutput JSON
 // decision (allow/deny) to stdout.
 func runPlanHook() {
+	go backgroundCleanup()
+
 	var event planHookEvent
 	if err := json.NewDecoder(os.Stdin).Decode(&event); err != nil {
 		fmt.Fprintf(os.Stderr, "crit plan-hook: could not parse stdin: %v\n", err)
@@ -1346,6 +1379,8 @@ func runReviewClientRaw(entry sessionEntry) (approved bool, prompt string) {
 }
 
 func runReview(args []string) {
+	go backgroundCleanup()
+
 	// Parse args to extract file args (stripping flags like --port, --no-open).
 	// The session key must use only file args to match what runServe computes.
 	sc, err := resolveServerConfig(args)
