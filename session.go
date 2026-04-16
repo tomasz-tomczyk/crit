@@ -105,6 +105,10 @@ type FileEntry struct {
 	// Stats for lazy files (populated from git diff --numstat)
 	LazyAdditions int `json:"-"`
 	LazyDeletions int `json:"-"`
+
+	// Orphaned: file has comments in the review file but is no longer in the session's
+	// file list (e.g., added on branch then deleted). No content or diff available.
+	Orphaned bool `json:"-"`
 }
 
 // ensureLoaded loads content and diff hunks for a lazy file on first access.
@@ -1817,6 +1821,30 @@ func (s *Session) loadCritJSON() {
 		}
 	}
 
+	// Detect orphaned paths: files in the review file with comments but not in the session.
+	knownPaths := make(map[string]bool, len(s.Files))
+	for _, f := range s.Files {
+		knownPaths[f.Path] = true
+	}
+	for path, cf := range cj.Files {
+		if knownPaths[path] || len(cf.Comments) == 0 {
+			continue
+		}
+		fe := &FileEntry{
+			Path:     path,
+			Status:   "removed",
+			FileType: detectFileType(path),
+			Comments: cf.Comments,
+			Orphaned: true,
+		}
+		for i := range fe.Comments {
+			if fe.Comments[i].Scope == "" {
+				fe.Comments[i].Scope = "line"
+			}
+		}
+		s.Files = append(s.Files, fe)
+	}
+
 	// Restore review-level comments.
 	s.reviewComments = cj.ReviewComments
 
@@ -2007,6 +2035,7 @@ type SessionFileInfo struct {
 	Additions    int    `json:"additions"`
 	Deletions    int    `json:"deletions"`
 	Lazy         bool   `json:"lazy,omitempty"`
+	Orphaned     bool   `json:"orphaned,omitempty"`
 }
 
 // GetSessionInfo returns a snapshot of session metadata.
@@ -2036,6 +2065,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 			FileType:     f.FileType,
 			CommentCount: len(f.Comments),
 			Lazy:         f.Lazy,
+			Orphaned:     f.Orphaned,
 		}
 		if f.Lazy {
 			// Use pre-computed stats from git diff --numstat

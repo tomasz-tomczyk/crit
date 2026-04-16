@@ -3667,3 +3667,169 @@ func TestCreateSession_FilesMode_LoadsShareFromReviewPath(t *testing.T) {
 		t.Errorf("ReviewRound = %d, want 3", session.ReviewRound)
 	}
 }
+
+func TestLoadCritJSON_OrphanedComments(t *testing.T) {
+	dir := initTestRepo(t)
+	branch := "main"
+
+	// Create session with just one file
+	writeFile(t, filepath.Join(dir, "existing.md"), "# Hello")
+	s := &Session{
+		Mode:     "git",
+		Branch:   branch,
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{Path: "existing.md", AbsPath: filepath.Join(dir, "existing.md"), Status: "modified", FileType: "markdown"},
+		},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Write a review file with comments on both existing and orphaned paths
+	critPath := s.critJSONPath()
+	cj := CritJSON{
+		Branch:      branch,
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"existing.md": {
+				Status: "modified",
+				Comments: []Comment{
+					{ID: "c_exist1", Body: "comment on existing", Scope: "line", StartLine: 1, EndLine: 1},
+				},
+			},
+			"removed.go": {
+				Status: "added",
+				Comments: []Comment{
+					{ID: "c_orphan1", Body: "file-level comment", Scope: "file"},
+					{ID: "c_orphan2", Body: "line comment on removed file", Scope: "line", StartLine: 5, EndLine: 10},
+				},
+			},
+		},
+	}
+	data, err := json.Marshal(cj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(critPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(critPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s.loadCritJSON()
+
+	// Should now have 2 files
+	if len(s.Files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(s.Files))
+	}
+
+	// Find the orphaned file
+	var orphaned *FileEntry
+	for _, f := range s.Files {
+		if f.Path == "removed.go" {
+			orphaned = f
+			break
+		}
+	}
+	if orphaned == nil {
+		t.Fatal("orphaned file not found in session")
+	}
+	if !orphaned.Orphaned {
+		t.Error("expected Orphaned=true")
+	}
+	if orphaned.Status != "removed" {
+		t.Errorf("expected status 'removed', got %q", orphaned.Status)
+	}
+	if orphaned.FileType != "code" {
+		t.Errorf("expected file type 'code', got %q", orphaned.FileType)
+	}
+	if len(orphaned.Comments) != 2 {
+		t.Errorf("expected 2 comments, got %d", len(orphaned.Comments))
+	}
+
+	// Existing file should still have its comment
+	var existing *FileEntry
+	for _, f := range s.Files {
+		if f.Path == "existing.md" {
+			existing = f
+			break
+		}
+	}
+	if len(existing.Comments) != 1 {
+		t.Errorf("expected 1 comment on existing file, got %d", len(existing.Comments))
+	}
+}
+
+func TestLoadCritJSON_OrphanedNoComments(t *testing.T) {
+	dir := initTestRepo(t)
+
+	s := &Session{
+		Mode:     "git",
+		Branch:   "main",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{Path: "existing.md", AbsPath: filepath.Join(dir, "existing.md"), Status: "modified", FileType: "markdown"},
+		},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	critPath := s.critJSONPath()
+	cj := CritJSON{
+		Branch:      "main",
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"existing.md": {Status: "modified"},
+			"removed.go":  {Status: "added", Comments: []Comment{}}, // no comments
+		},
+	}
+	data, _ := json.Marshal(cj)
+	os.MkdirAll(filepath.Dir(critPath), 0o755)
+	os.WriteFile(critPath, data, 0o644)
+
+	s.loadCritJSON()
+
+	if len(s.Files) != 1 {
+		t.Fatalf("expected 1 file (no phantom for empty comments), got %d", len(s.Files))
+	}
+}
+
+func TestGetSessionInfo_OrphanedField(t *testing.T) {
+	s := &Session{
+		Mode:   "git",
+		Branch: "main",
+		Files: []*FileEntry{
+			{Path: "real.go", Status: "modified", FileType: "code"},
+			{Path: "gone.go", Status: "removed", FileType: "code", Orphaned: true,
+				Comments: []Comment{{ID: "c1", Body: "orphaned", Scope: "file"}}},
+		},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	info := s.GetSessionInfo()
+	if len(info.Files) != 2 {
+		t.Fatalf("expected 2 files in session info, got %d", len(info.Files))
+	}
+
+	var orphanedInfo *SessionFileInfo
+	for i := range info.Files {
+		if info.Files[i].Path == "gone.go" {
+			orphanedInfo = &info.Files[i]
+			break
+		}
+	}
+	if orphanedInfo == nil {
+		t.Fatal("orphaned file not in session info")
+	}
+	if !orphanedInfo.Orphaned {
+		t.Error("expected Orphaned=true in session info")
+	}
+	if orphanedInfo.Status != "removed" {
+		t.Errorf("expected status 'removed', got %q", orphanedInfo.Status)
+	}
+	if orphanedInfo.CommentCount != 1 {
+		t.Errorf("expected comment count 1, got %d", orphanedInfo.CommentCount)
+	}
+}
