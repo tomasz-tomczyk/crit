@@ -282,6 +282,32 @@
 
   // Load a single file's content, comments, and diff from the API.
   async function loadSingleFile(fi, scope) {
+    // Orphaned files have no content or diff — only fetch comments
+    if (fi.orphaned) {
+      const comments = await fetch('/api/file/comments?path=' + enc(fi.path))
+        .then(function(r) { return r.ok ? r.json() : []; })
+        .catch(function() { return []; });
+      return {
+        path: fi.path,
+        status: fi.status,
+        fileType: fi.file_type,
+        content: '',
+        previousContent: '',
+        comments: Array.isArray(comments) ? comments : [],
+        diffHunks: [],
+        lineBlocks: null,
+        previousLineBlocks: null,
+        tocItems: [],
+        collapsed: false,
+        viewMode: 'document',
+        additions: 0,
+        deletions: 0,
+        lazy: false,
+        orphaned: true,
+        diffTooLarge: false,
+        diffLoaded: false,
+      };
+    }
     let diffUrl = '/api/file/diff?path=' + enc(fi.path);
     if (scope && scope !== 'all') {
       diffUrl += '&scope=' + enc(scope);
@@ -311,6 +337,7 @@
       additions: fi.additions || 0,
       deletions: fi.deletions || 0,
       lazy: false,
+      orphaned: false,
     };
 
     // Mark large diffs for deferred rendering
@@ -1242,6 +1269,11 @@
         '<circle cx="11.5" cy="11.5" r="1.5" fill="var(--bg-secondary)"/>' +
         '</svg>';
     }
+    if (status === 'removed') {
+      return '<svg class="tree-file-status-icon removed" viewBox="0 0 16 16">' + doc +
+        '<rect x="8" y="8" width="7" height="7" rx="1.5" fill="var(--fg-dimmed)"/>' +
+        '<path d="M10 10.5l3 3m0-3l-3 3" stroke="var(--bg-secondary)" stroke-width="1.2" fill="none"/></svg>';
+    }
     // renamed or other
     return '<svg class="tree-file-status-icon" viewBox="0 0 16 16">' + doc + '</svg>';
   }
@@ -1680,10 +1712,12 @@
     const dirPath = dirParts.length > 0 ? dirParts.join('/') + '/' : '';
 
     // In file mode, hide the badge (status like "modified" is only meaningful in git mode)
-    const showBadge = session.mode === 'git';
+    // Exception: orphaned files always show their "Removed" badge
+    const showBadge = session.mode === 'git' || file.orphaned;
     let badgeLabel = file.status.charAt(0).toUpperCase() + file.status.slice(1);
     if (file.status === 'untracked') badgeLabel = 'New';
     if (file.status === 'added') badgeLabel = 'New File';
+    if (file.status === 'removed') badgeLabel = 'Removed';
 
     // In single-file file mode, hide the file header (filename is shown in the header bar)
     const singleFileMode = session.mode !== 'git' && files.length === 1;
@@ -1742,18 +1776,20 @@
       }
     }
 
-    // File comment button
-    const fileCommentBtn = document.createElement('button');
-    fileCommentBtn.className = 'file-comment-btn';
-    fileCommentBtn.title = 'Add file-level comment';
-    fileCommentBtn.setAttribute('aria-label', 'Add file-level comment');
-    fileCommentBtn.innerHTML = ICON_COMMENT;
-    fileCommentBtn.addEventListener('click', function(e) {
-      e.stopPropagation(); // Don't toggle the <details>
-      e.preventDefault();
-      openFileCommentForm(file.path);
-    });
-    header.appendChild(fileCommentBtn);
+    // File comment button — not for orphaned files (no point adding comments to removed files)
+    if (!file.orphaned) {
+      const fileCommentBtn = document.createElement('button');
+      fileCommentBtn.className = 'file-comment-btn';
+      fileCommentBtn.title = 'Add file-level comment';
+      fileCommentBtn.setAttribute('aria-label', 'Add file-level comment');
+      fileCommentBtn.innerHTML = ICON_COMMENT;
+      fileCommentBtn.addEventListener('click', function(e) {
+        e.stopPropagation(); // Don't toggle the <details>
+        e.preventDefault();
+        openFileCommentForm(file.path);
+      });
+      header.appendChild(fileCommentBtn);
+    }
 
     // Viewed checkbox
     const viewedLabel = document.createElement('label');
@@ -1771,20 +1807,34 @@
     section.appendChild(header);
 
     // File-level comments container (between header and file body)
-    const fileComments = file.comments.filter(function(c) { return c.scope === 'file'; });
+    // For orphaned files, render ALL comments here (no line blocks to anchor to)
+    const isOrphaned = file.orphaned;
+    const fileComments = isOrphaned
+      ? file.comments
+      : file.comments.filter(function(c) { return c.scope === 'file'; });
     const fileForm = getFormsForFile(file.path).find(function(f) { return f.scope === 'file'; });
-    if (fileComments.length > 0 || fileForm) {
+    if (fileComments.length > 0 || (fileForm && !isOrphaned)) {
       const fileCommentsContainer = document.createElement('div');
       fileCommentsContainer.className = 'file-comments';
       for (let ci = 0; ci < fileComments.length; ci++) {
         const comment = fileComments[ci];
+        let el;
         if (comment.resolved) {
-          fileCommentsContainer.appendChild(createResolvedElement(comment, file.path));
+          el = createResolvedElement(comment, file.path);
         } else {
-          fileCommentsContainer.appendChild(createCommentElement(comment, file.path));
+          el = createCommentElement(comment, file.path);
         }
+        if (isOrphaned) {
+          el.classList.add('outdated-comment');
+          const badge = document.createElement('span');
+          badge.className = 'outdated-badge';
+          badge.textContent = 'Outdated';
+          const headerLeft = el.querySelector('.comment-header-left');
+          if (headerLeft) headerLeft.appendChild(badge);
+        }
+        fileCommentsContainer.appendChild(el);
       }
-      if (fileForm) {
+      if (fileForm && !isOrphaned) {
         fileCommentsContainer.appendChild(createFileCommentForm(fileForm));
       }
       section.appendChild(fileCommentsContainer);
@@ -1796,7 +1846,12 @@
 
     const showDiff = file.viewMode === 'diff' || (file.fileType === 'code' && session.mode === 'git');
 
-    if (file.status === 'deleted' && (!file.diffHunks || file.diffHunks.length === 0)) {
+    if (file.orphaned) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'diff-deleted-placeholder orphaned-placeholder';
+      placeholder.textContent = 'This file is no longer part of the review.';
+      body.appendChild(placeholder);
+    } else if (file.status === 'deleted' && (!file.diffHunks || file.diffHunks.length === 0)) {
       const deleted = document.createElement('div');
       deleted.className = 'diff-deleted-placeholder';
       deleted.textContent = 'This file was deleted.';

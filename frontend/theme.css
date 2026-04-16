@@ -67,6 +67,11 @@
   --badge-modified-bg: rgba(224, 175, 104, 0.12);
   --badge-deleted-bg: rgba(247, 118, 142, 0.12);
   --live-badge-bg: rgba(52, 211, 153, 0.1);
+  --badge-removed-bg: rgba(169, 177, 214, 0.12);
+  --badge-removed-color: var(--fg-dimmed);
+  --badge-removed-border: color-mix(in srgb, var(--fg-dimmed) 20%, transparent);
+  --outdated-border: var(--yellow);
+  --outdated-bg: rgba(224, 175, 104, 0.06);
   --author-0-bg: rgba(110,160,230,0.15);
   --author-0-border: rgba(110,160,230,0.35);
   --author-0-fg: #7ab0f0;
@@ -150,6 +155,11 @@
     --badge-modified-bg: rgba(154, 103, 0, 0.08);
     --badge-deleted-bg: rgba(207, 34, 46, 0.08);
     --live-badge-bg: rgba(26, 127, 55, 0.08);
+    --badge-removed-bg: rgba(100, 100, 100, 0.08);
+    --badge-removed-color: var(--fg-dimmed);
+    --badge-removed-border: color-mix(in srgb, var(--fg-dimmed) 15%, transparent);
+    --outdated-border: var(--yellow);
+    --outdated-bg: rgba(154, 103, 0, 0.04);
     --author-0-bg: rgba(26,95,160,0.10);
     --author-0-border: rgba(26,95,160,0.25);
     --author-0-fg: #1a5fa0;
@@ -233,6 +243,11 @@
   --badge-modified-bg: rgba(224, 175, 104, 0.12);
   --badge-deleted-bg: rgba(247, 118, 142, 0.12);
   --live-badge-bg: rgba(52, 211, 153, 0.1);
+  --badge-removed-bg: rgba(169, 177, 214, 0.12);
+  --badge-removed-color: var(--fg-dimmed);
+  --badge-removed-border: color-mix(in srgb, var(--fg-dimmed) 20%, transparent);
+  --outdated-border: var(--yellow);
+  --outdated-bg: rgba(224, 175, 104, 0.06);
   --author-0-bg: rgba(110,160,230,0.15);
   --author-0-border: rgba(110,160,230,0.35);
   --author-0-fg: #7ab0f0;
@@ -315,6 +330,11 @@
   --badge-modified-bg: rgba(154, 103, 0, 0.08);
   --badge-deleted-bg: rgba(207, 34, 46, 0.08);
   --live-badge-bg: rgba(26, 127, 55, 0.08);
+  --badge-removed-bg: rgba(100, 100, 100, 0.08);
+  --badge-removed-color: var(--fg-dimmed);
+  --badge-removed-border: color-mix(in srgb, var(--fg-dimmed) 15%, transparent);
+  --outdated-border: var(--yellow);
+  --outdated-bg: rgba(154, 103, 0, 0.04);
   --author-0-bg: rgba(26,95,160,0.10);
   --author-0-border: rgba(26,95,160,0.25);
   --author-0-fg: #1a5fa0;
