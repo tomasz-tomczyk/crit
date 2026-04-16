@@ -972,6 +972,106 @@ func TestAddReplyToCritJSON_NotFound(t *testing.T) {
 	}
 }
 
+func TestAddReplyToCritJSON_FallbackByCommentID(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Create the reviews directory with a review file containing the target comment.
+	reviewDir := filepath.Join(home, ".crit", "reviews")
+	os.MkdirAll(reviewDir, 0755)
+	targetCJ := CritJSON{
+		Branch:      "feat",
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{ID: "c_target", StartLine: 10, EndLine: 10, Body: "Fix this", CreatedAt: "2025-01-01T00:00:00Z", UpdatedAt: "2025-01-01T00:00:00Z"},
+				},
+			},
+		},
+	}
+	targetData, _ := json.MarshalIndent(targetCJ, "", "  ")
+	os.WriteFile(filepath.Join(reviewDir, "correct.json"), targetData, 0644)
+
+	// Create a local outputDir with a different review file that does NOT contain the comment.
+	localDir := t.TempDir()
+	localCJ := CritJSON{Branch: "other", ReviewRound: 1, Files: map[string]CritJSONFile{}}
+	localData, _ := json.MarshalIndent(localCJ, "", "  ")
+	os.WriteFile(filepath.Join(localDir, ".crit.json"), localData, 0644)
+
+	// Reply should fall back to the review file containing c_target.
+	err := addReplyToCritJSON("c_target", "Done, fixed", "agent", false, localDir, "")
+	if err != nil {
+		t.Fatalf("expected fallback to find comment, got error: %v", err)
+	}
+
+	// Verify reply was written to the correct review file.
+	data, _ := os.ReadFile(filepath.Join(reviewDir, "correct.json"))
+	var result CritJSON
+	json.Unmarshal(data, &result)
+	comments := result.Files["main.go"].Comments
+	if len(comments[0].Replies) != 1 {
+		t.Fatalf("expected 1 reply in fallback file, got %d", len(comments[0].Replies))
+	}
+	if comments[0].Replies[0].Body != "Done, fixed" {
+		t.Errorf("reply body = %q", comments[0].Replies[0].Body)
+	}
+
+	// Verify the local file was NOT modified.
+	localData2, _ := os.ReadFile(filepath.Join(localDir, ".crit.json"))
+	var localResult CritJSON
+	json.Unmarshal(localData2, &localResult)
+	if len(localResult.Files) != 0 {
+		t.Error("local review file should not have been modified")
+	}
+}
+
+func TestFindReviewFileByCommentID_NotInAnyFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	reviewDir := filepath.Join(home, ".crit", "reviews")
+	os.MkdirAll(reviewDir, 0755)
+
+	cj := CritJSON{Files: map[string]CritJSONFile{
+		"test.md": {Comments: []Comment{{ID: "c_abc", StartLine: 1, EndLine: 1, Body: "x"}}},
+	}}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(filepath.Join(reviewDir, "review1.json"), data, 0644)
+
+	_, err := findReviewFileByCommentID("c_nonexistent", "/excluded.json")
+	if err == nil {
+		t.Fatal("expected error for comment not in any file")
+	}
+	if !strings.Contains(err.Error(), "not found in any") {
+		t.Errorf("error = %q", err.Error())
+	}
+}
+
+func TestFindReviewFileByCommentID_InReviewComments(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	reviewDir := filepath.Join(home, ".crit", "reviews")
+	os.MkdirAll(reviewDir, 0755)
+
+	cj := CritJSON{
+		ReviewComments: []Comment{{ID: "r_review1", Body: "General feedback"}},
+		Files:          map[string]CritJSONFile{},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(filepath.Join(reviewDir, "review1.json"), data, 0644)
+
+	path, err := findReviewFileByCommentID("r_review1", "/excluded.json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if filepath.Base(path) != "review1.json" {
+		t.Errorf("expected review1.json, got %s", filepath.Base(path))
+	}
+}
+
 func TestCritJSONToGHComments_SkipsAlreadyPushed(t *testing.T) {
 	cj := CritJSON{
 		Files: map[string]CritJSONFile{

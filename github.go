@@ -353,16 +353,8 @@ func resolveReviewPath(outputDir string) (string, error) {
 		return "", err
 	}
 
-	// Check daemon registry for running sessions.
-	sessions, _ := listSessionsForCWD(cwd)
-	if len(sessions) == 1 && sessions[0].ReviewPath != "" {
-		return sessions[0].ReviewPath, nil
-	}
-	if len(sessions) > 1 {
-		path := resolveReviewPathFromSessions(sessions)
-		if path != "" {
-			return path, nil
-		}
+	if path := resolveReviewPathFromDaemon(cwd); path != "" {
+		return path, nil
 	}
 
 	// No daemon — compute centralized path.
@@ -377,6 +369,40 @@ func resolveReviewPath(outputDir string) (string, error) {
 	}
 
 	return path, nil
+}
+
+// resolveReviewPathFromDaemon checks the daemon registry for a running session
+// and returns its review path. Tries exact CWD match first, then falls back to
+// matching by git repo root (handles subdirectory mismatch — e.g. daemon started
+// from repo/api but crit comment run from repo/).
+func resolveReviewPathFromDaemon(cwd string) string {
+	sessions, _ := listSessionsForCWD(cwd)
+	if path := pickReviewPath(sessions); path != "" {
+		return path
+	}
+
+	// Fallback: match by git repo root.
+	if len(sessions) == 0 && IsGitRepo() {
+		if repoRoot, err := RepoRoot(); err == nil && repoRoot != cwd {
+			repoSessions, _ := listSessionsForRepoRoot(repoRoot)
+			if path := pickReviewPath(repoSessions); path != "" {
+				return path
+			}
+		}
+	}
+	return ""
+}
+
+// pickReviewPath selects a review path from a list of sessions.
+// Returns the path if exactly one session has one, or defers to branch matching for multiple.
+func pickReviewPath(sessions []sessionEntry) string {
+	if len(sessions) == 1 && sessions[0].ReviewPath != "" {
+		return sessions[0].ReviewPath
+	}
+	if len(sessions) > 1 {
+		return resolveReviewPathFromSessions(sessions)
+	}
+	return ""
 }
 
 // resolveReviewPathFromSessions picks the best ReviewPath from multiple daemon sessions.
@@ -801,9 +827,89 @@ func addReplyToCritJSON(commentID, body, author string, resolve bool, outputDir 
 	}
 
 	if err := appendReply(&cj, commentID, body, author, resolve, filterPath); err != nil {
+		// Only fall back to scanning when the comment genuinely wasn't found.
+		// Don't fall back for ambiguity errors ("found in multiple files").
+		if strings.Contains(err.Error(), "not found") {
+			if altPath, err2 := findReviewFileByCommentID(commentID, critPath); err2 == nil {
+				altCJ, loadErr := loadCritJSON(altPath)
+				if loadErr != nil {
+					return err // return original error
+				}
+				if replyErr := appendReply(&altCJ, commentID, body, author, resolve, filterPath); replyErr != nil {
+					return err // return original error
+				}
+				fmt.Fprintf(os.Stderr, "Note: comment %s found in %s (not the resolved review file)\n", commentID, filepath.Base(altPath))
+				return saveCritJSON(altPath, altCJ)
+			}
+		}
 		return err
 	}
 	return saveCritJSON(critPath, cj)
+}
+
+// findReviewFileByCommentID scans all review files in ~/.crit/reviews/ for the given
+// comment ID, skipping excludePath. Returns the path if found in exactly one file.
+func findReviewFileByCommentID(commentID string, excludePath string) (string, error) {
+	dir, err := reviewsDir()
+	if err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+
+	var matchPath string
+	for _, de := range entries {
+		if !strings.HasSuffix(de.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, de.Name())
+		if path == excludePath {
+			continue
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			continue
+		}
+		if reviewFileContainsComment(data, commentID) {
+			if matchPath != "" {
+				return "", fmt.Errorf("comment %q found in multiple review files", commentID)
+			}
+			matchPath = path
+		}
+	}
+	if matchPath == "" {
+		return "", fmt.Errorf("comment %q not found in any review file", commentID)
+	}
+	return matchPath, nil
+}
+
+// reviewFileContainsComment does a quick check if a review JSON file contains
+// a comment with the given ID. Uses string search first as a fast path to
+// avoid parsing files that definitely don't contain the ID.
+func reviewFileContainsComment(data []byte, commentID string) bool {
+	// Fast path: if the ID string doesn't appear at all, skip JSON parsing.
+	if !bytes.Contains(data, []byte(commentID)) {
+		return false
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return false
+	}
+	for _, c := range cj.ReviewComments {
+		if c.ID == commentID {
+			return true
+		}
+	}
+	for _, cf := range cj.Files {
+		for _, c := range cf.Comments {
+			if c.ID == commentID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // clearCritJSON removes the review file from the resolved path or outputDir.

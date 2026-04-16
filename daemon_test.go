@@ -483,3 +483,74 @@ func TestFindSessionForCWDBranch_MultipleMatches(t *testing.T) {
 		t.Errorf("expected matchCount 2 for ambiguous case, got %d", matchCount)
 	}
 }
+
+func TestListSessionsForRepoRoot_MatchesSubdirectories(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repoRoot := "/tmp/myrepo"
+
+	// Create mock HTTP servers for alive sessions
+	ts1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts1.Close()
+	port1, _ := strconv.Atoi(ts1.URL[strings.LastIndex(ts1.URL, ":")+1:])
+
+	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts2.Close()
+	port2, _ := strconv.Atoi(ts2.URL[strings.LastIndex(ts2.URL, ":")+1:])
+
+	ts3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts3.Close()
+	port3, _ := strconv.Atoi(ts3.URL[strings.LastIndex(ts3.URL, ":")+1:])
+
+	pid := os.Getpid()
+
+	// Session started from repo/api subdirectory
+	writeSessionFile("sub1", sessionEntry{PID: pid, Port: port1, CWD: repoRoot + "/api", Branch: "feat", ReviewPath: "/reviews/sub1.json"})
+	// Session started from repo root
+	writeSessionFile("sub2", sessionEntry{PID: pid, Port: port2, CWD: repoRoot, Branch: "main", ReviewPath: "/reviews/sub2.json"})
+	// Session from a completely different repo
+	writeSessionFile("other", sessionEntry{PID: pid, Port: port3, CWD: "/tmp/other-repo", Branch: "main", ReviewPath: "/reviews/other.json"})
+
+	entries, keys := listSessionsForRepoRoot(repoRoot)
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 sessions for repo root, got %d", len(entries))
+	}
+
+	// Verify both repo sessions found, other excluded
+	foundKeys := map[string]bool{}
+	for _, k := range keys {
+		foundKeys[k] = true
+	}
+	if !foundKeys["sub1"] || !foundKeys["sub2"] {
+		t.Errorf("expected keys sub1 and sub2, got %v", keys)
+	}
+	if foundKeys["other"] {
+		t.Error("should not include session from different repo")
+	}
+}
+
+func TestListSessionsForRepoRoot_NoPartialMatch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts.Close()
+	port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
+
+	// /tmp/myrepo-extended should NOT match /tmp/myrepo
+	writeSessionFile("extended", sessionEntry{PID: os.Getpid(), Port: port, CWD: "/tmp/myrepo-extended", Branch: "main"})
+
+	entries, _ := listSessionsForRepoRoot("/tmp/myrepo")
+	if len(entries) != 0 {
+		t.Errorf("expected 0 sessions (no partial match), got %d", len(entries))
+	}
+}
