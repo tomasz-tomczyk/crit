@@ -70,7 +70,7 @@ crit comment --reply-to c_a1b2c3 --author 'Copilot' 'Fixed by extracting to help
 crit comment --reply-to r_f1e2d3 --author 'Copilot' 'All issues addressed'
 ```
 
-This adds a reply to the comment thread. Works for both file comment IDs (e.g. `c_a1b2c3`) and review comment IDs (e.g. `r_f1e2d3`). Resolving is a user action — do not mark comments resolved from AI.
+This adds a reply to the comment thread. Works for both file comment IDs (e.g. `c_a1b2c3`) and review comment IDs (e.g. `r_f1e2d3`). Only use `--resolve` when the user explicitly asks you to resolve a comment — never resolve proactively.
 
 **Multi-file disambiguation**: Comment IDs are unique per session, but if you encounter an error like "comment found in multiple files", use `--path` to specify which file:
 
@@ -112,9 +112,8 @@ crit comment --author 'Copilot' <path>:<line> '<body>'
 # Line comment (range)
 crit comment --author 'Copilot' <path>:<start>-<end> '<body>'
 
-# Reply to an existing comment (with optional --resolve)
+# Reply to an existing comment
 crit comment --reply-to <id> --author 'Copilot' '<body>'
-crit comment --reply-to <id> --resolve --author 'Copilot' '<body>'
 ```
 
 Examples:
@@ -164,7 +163,7 @@ JSON schema per entry:
 | `author` | string | no | Per-entry override (falls back to `--author`) |
 | `scope` | string | no | `"review"`, `"file"`, or omit to infer from context |
 | `reply_to` | string | yes (reply) | Comment ID (e.g. `"c_a1b2c3"` or `"r_f1e2d3"`) |
-| `resolve` | bool | no | Mark the parent comment resolved (user action — don't set from AI) |
+| `resolve` | bool | no | Only set when user explicitly asks to resolve — never resolve proactively |
 
 Scope inference when `scope` is omitted:
 - Has `reply_to` → reply
