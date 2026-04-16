@@ -1854,6 +1854,47 @@ func (s *Session) loadCritJSON() {
 	}
 }
 
+// restoreOrphanedComments reads the review file and creates phantom FileEntry
+// objects for any paths that have comments but aren't in s.Files.
+// Safe to call multiple times — existing entries (including previous orphans) are skipped.
+// Must be called with s.mu NOT held (acquires the lock internally).
+func (s *Session) restoreOrphanedComments() {
+	data, err := os.ReadFile(s.critJSONPath())
+	if err != nil {
+		return
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	knownPaths := make(map[string]bool, len(s.Files))
+	for _, f := range s.Files {
+		knownPaths[f.Path] = true
+	}
+	for path, cf := range cj.Files {
+		if knownPaths[path] || len(cf.Comments) == 0 {
+			continue
+		}
+		fe := &FileEntry{
+			Path:     path,
+			Status:   "removed",
+			FileType: detectFileType(path),
+			Comments: cf.Comments,
+			Orphaned: true,
+		}
+		for i := range fe.Comments {
+			if fe.Comments[i].Scope == "" {
+				fe.Comments[i].Scope = "line"
+			}
+		}
+		s.Files = append(s.Files, fe)
+	}
+}
+
 // SSE subscriber management
 
 // Subscribe registers a new SSE subscriber.

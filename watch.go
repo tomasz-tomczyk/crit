@@ -343,6 +343,13 @@ func (s *Session) handleRoundCompleteGit() {
 	s.mu.Lock()
 	s.rereadFileContents(false)
 	s.carryForwardAllComments()
+	s.mu.Unlock()
+
+	// Restore phantom entries for files that disappeared but have comments in the review file.
+	// Must be called outside s.mu.Lock since it acquires the lock internally.
+	s.restoreOrphanedComments()
+
+	s.mu.Lock()
 	s.ReviewRound++
 	s.mu.Unlock()
 
@@ -366,6 +373,9 @@ func (s *Session) handleRoundCompleteFiles() {
 	s.mu.Lock()
 	s.carryForwardAllComments()
 	s.mu.Unlock()
+
+	// Restore phantom entries for files that disappeared but have comments in the review file.
+	s.restoreOrphanedComments()
 
 	// Re-read all file contents and update hashes
 	// (snapshot markdown PreviousContent in case watcher hasn't polled yet)

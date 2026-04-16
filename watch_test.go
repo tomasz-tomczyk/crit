@@ -373,3 +373,90 @@ func TestCarryForwardComment_PreservesQuote(t *testing.T) {
 		t.Error("QuoteOffset not preserved")
 	}
 }
+
+func TestRestoreOrphanedComments(t *testing.T) {
+	dir := t.TempDir()
+
+	s := &Session{
+		Mode:     "git",
+		Branch:   "main",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{Path: "existing.md", AbsPath: filepath.Join(dir, "existing.md"), Status: "modified", FileType: "markdown"},
+		},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Write a review file with comments on an orphaned path
+	critPath := s.critJSONPath()
+	cj := CritJSON{
+		Branch:      "main",
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"existing.md": {
+				Status:   "modified",
+				Comments: []Comment{{ID: "c1", Body: "still here", Scope: "line", StartLine: 1, EndLine: 1}},
+			},
+			"temp.go": {
+				Status: "added",
+				Comments: []Comment{
+					{ID: "c_temp1", Body: "this will be orphaned", Scope: "file"},
+				},
+			},
+		},
+	}
+	data, err := json.Marshal(cj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(critPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(critPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify temp.go is NOT in s.Files
+	for _, f := range s.Files {
+		if f.Path == "temp.go" {
+			t.Fatal("temp.go should not be in session files before restore")
+		}
+	}
+
+	// Restore orphaned comments
+	s.restoreOrphanedComments()
+
+	// temp.go should now be in s.Files as orphaned
+	var orphaned *FileEntry
+	for _, f := range s.Files {
+		if f.Path == "temp.go" {
+			orphaned = f
+			break
+		}
+	}
+	if orphaned == nil {
+		t.Fatal("orphaned file not restored")
+	}
+	if !orphaned.Orphaned {
+		t.Error("expected Orphaned=true")
+	}
+	if orphaned.Status != "removed" {
+		t.Errorf("expected status 'removed', got %q", orphaned.Status)
+	}
+	if len(orphaned.Comments) != 1 {
+		t.Errorf("expected 1 comment, got %d", len(orphaned.Comments))
+	}
+
+	// Calling again should NOT duplicate
+	s.restoreOrphanedComments()
+	count := 0
+	for _, f := range s.Files {
+		if f.Path == "temp.go" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 temp.go entry after double restore, got %d", count)
+	}
+}
