@@ -1194,10 +1194,10 @@ func (s *Session) ClearAllComments() {
 		s.writeTimer.Stop()
 	}
 	s.writeGen++
-	// Reset all file state and drop the review file entry from the file list.
+	// Reset all file state, drop the review file entry and orphaned phantom entries.
 	filtered := make([]*FileEntry, 0, len(s.Files))
 	for _, f := range s.Files {
-		if filepath.Base(f.Path) == ".crit.json" {
+		if filepath.Base(f.Path) == ".crit.json" || f.Orphaned {
 			continue
 		}
 		f.Comments = []Comment{}
