@@ -1226,6 +1226,7 @@ func (s *Session) ClearAllComments() {
 	s.ReviewRound = 1
 	s.lastCritJSONMtime = time.Time{}
 	s.pendingWrite = false
+	s.waitingForAgent = false
 	critPath := s.critJSONPath()
 	s.mu.Unlock()
 	// Delete the review file from disk (centralized or legacy path).
