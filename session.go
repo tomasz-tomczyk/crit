@@ -1822,28 +1822,7 @@ func (s *Session) loadCritJSON() {
 	}
 
 	// Detect orphaned paths: files in the review file with comments but not in the session.
-	knownPaths := make(map[string]bool, len(s.Files))
-	for _, f := range s.Files {
-		knownPaths[f.Path] = true
-	}
-	for path, cf := range cj.Files {
-		if knownPaths[path] || len(cf.Comments) == 0 {
-			continue
-		}
-		fe := &FileEntry{
-			Path:     path,
-			Status:   "removed",
-			FileType: detectFileType(path),
-			Comments: cf.Comments,
-			Orphaned: true,
-		}
-		for i := range fe.Comments {
-			if fe.Comments[i].Scope == "" {
-				fe.Comments[i].Scope = "line"
-			}
-		}
-		s.Files = append(s.Files, fe)
-	}
+	s.appendOrphanedFiles(cj.Files)
 
 	// Restore review-level comments.
 	s.reviewComments = cj.ReviewComments
@@ -1870,12 +1849,18 @@ func (s *Session) restoreOrphanedComments() {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.appendOrphanedFiles(cj.Files)
+}
 
+// appendOrphanedFiles creates phantom FileEntry objects for paths in critFiles
+// that have comments but no matching entry in s.Files. Must be called with
+// s.mu held or during init (before concurrent access).
+func (s *Session) appendOrphanedFiles(critFiles map[string]CritJSONFile) {
 	knownPaths := make(map[string]bool, len(s.Files))
 	for _, f := range s.Files {
 		knownPaths[f.Path] = true
 	}
-	for path, cf := range cj.Files {
+	for path, cf := range critFiles {
 		if knownPaths[path] || len(cf.Comments) == 0 {
 			continue
 		}
