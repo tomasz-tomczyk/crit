@@ -210,29 +210,39 @@ curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" \
     "body": "This is blocking the migration. metadata JSONB is currently unbounded — someone will try to store a 10MB blob in it. We need a cap in the schema before migrations run. Suggest 64KB and enforce with a CHECK constraint."
   }' > /dev/null
 
+# Fetch comment IDs (they're randomly generated, not sequential)
+COMMENT_IDS=$(curl -sf "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" | python3 -c "
+import json, sys
+comments = json.load(sys.stdin)
+for c in comments:
+    print(c['id'])
+")
+C2=$(echo "$COMMENT_IDS" | sed -n '2p')
+C4=$(echo "$COMMENT_IDS" | sed -n '4p')
+
 # Seed replies on comments to exercise threading
-curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/c2/replies?path=$ENCODED_PATH" \
+curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/$C2/replies?path=$ENCODED_PATH" \
   -H 'Content-Type: application/json' \
   -d '{
     "body": "Agreed on the shared secret. I'\''ll add `X-Internal-Token` validation to the middleware before the endpoint goes live.",
     "author": "agent"
   }' > /dev/null
 
-curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/c2/replies?path=$ENCODED_PATH" \
+curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/$C2/replies?path=$ENCODED_PATH" \
   -H 'Content-Type: application/json' \
   -d '{
     "body": "Rate limiting is done — added a per-caller sliding window (100 req/min). The token header is enforced in middleware now too.\n\nSee the updated endpoint spec at line 62.",
     "author": "agent"
   }' > /dev/null
 
-curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/c4/replies?path=$ENCODED_PATH" \
+curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/$C4/replies?path=$ENCODED_PATH" \
   -H 'Content-Type: application/json' \
   -d '{
     "body": "64KB sounds right. I'\''ll add a CHECK constraint in the migration. Should we also add an application-level validation in the changeset?",
     "author": "agent"
   }' > /dev/null
 
-curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/c4/replies?path=$ENCODED_PATH" \
+curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/$C4/replies?path=$ENCODED_PATH" \
   -H 'Content-Type: application/json' \
   -d '{
     "body": "Yes — belt and suspenders. CHECK constraint in Postgres + `validate_length(:metadata_json, max: 65536)` in the changeset. The DB constraint is the safety net if someone bypasses the app layer.",
@@ -278,16 +288,69 @@ PYEOF
 echo "Signalling round-complete..."
 curl -sf -X POST "http://127.0.0.1:$PORT/api/round-complete" > /dev/null
 
+# --- Orphaned comments on the word-diff (git-mode) instance ---
+# Wait for the word-diff server to be ready
+for i in $(seq 1 20); do
+  if curl -sf "http://127.0.0.1:$WORD_DIFF_PORT/api/session" > /dev/null 2>&1; then
+    break
+  fi
+  sleep 0.5
+done
+
+# Create a temporary file, commit it so it shows up in the diff
+cat > "$WORD_DIFF_DIR/helpers.go" << 'GOEOF'
+package main
+
+// FormatBytes returns a human-readable byte size string.
+func FormatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+GOEOF
+git -C "$WORD_DIFF_DIR" add helpers.go && git -C "$WORD_DIFF_DIR" commit -q -m "add helpers"
+
+# Signal round-complete so crit picks up the new file
+curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/round-complete" > /dev/null
+sleep 1
+
+# Add comments on the helpers file: one file-level, one line-scoped
+curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/file/comments?path=helpers.go" \
+  -H 'Content-Type: application/json' \
+  -d '{"body": "Do we really need a custom byte formatter? There are stdlib options.", "scope": "file"}' > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/file/comments?path=helpers.go" \
+  -H 'Content-Type: application/json' \
+  -d '{"start_line": 5, "end_line": 8, "body": "This will overflow for values above exabyte range. Use math.Log instead of the loop."}' > /dev/null
+
+# Finish to persist comments to the review file
+curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/finish" > /dev/null
+
+# Now delete the file and amend the commit so there is no net diff
+git -C "$WORD_DIFF_DIR" rm -q helpers.go && git -C "$WORD_DIFF_DIR" commit -q -m "remove helpers"
+
+# Signal round-complete — helpers.go disappears from git diff, comments become orphaned
+curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/round-complete" > /dev/null
+
 echo ""
-echo "Two crit instances running:"
+echo "Three views running:"
 echo "  1. Markdown diff (inter-round):  http://127.0.0.1:$PORT"
 echo "  2. Code diff (word-level):       http://127.0.0.1:$WORD_DIFF_PORT"
 echo ""
 echo "Instance 1: diff view with resolved comments + threaded replies."
 echo "            Comment #2 (resolved): 2 agent replies — visible when expanded."
 echo "            Comment #4 (unresolved): 2 replies (agent + reviewer) — visible inline."
-echo "Instance 2: verify word-level diff — paired lines like fmt.Println → log.Printf"
-echo "            should show changed tokens highlighted."
+echo "Instance 2: word-level diff + orphaned comments on helpers.go"
+echo "            helpers.go was added then deleted — should appear as a phantom"
+echo "            section with 'Removed' badge, 2 outdated comments (1 file-level,"
+echo "            1 line-scoped), and full resolve/edit/delete support."
 echo ""
 echo "Press Enter to stop both servers."
 read -r
