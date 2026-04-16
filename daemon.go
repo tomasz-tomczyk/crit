@@ -252,6 +252,46 @@ func findSessionForCWDBranch(cwd, branch string) (entry sessionEntry, key string
 	return sessionEntry{}, "", len(matched)
 }
 
+// listSessionsForRepoRoot returns alive sessions whose CWD is within the given
+// git repository root. This handles the case where `crit` was started from a
+// subdirectory (e.g. repo/api) but `crit comment` is run from a different
+// subdirectory or the repo root itself.
+func listSessionsForRepoRoot(repoRoot string) ([]sessionEntry, []string) {
+	dir, err := sessionsDir()
+	if err != nil {
+		return nil, nil
+	}
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, nil
+	}
+	prefix := repoRoot + string(filepath.Separator)
+	var alive []sessionEntry
+	var keys []string
+	for _, de := range dirEntries {
+		if !strings.HasSuffix(de.Name(), ".json") {
+			continue
+		}
+		key := strings.TrimSuffix(de.Name(), ".json")
+		data, err := os.ReadFile(filepath.Join(dir, de.Name()))
+		if err != nil {
+			continue
+		}
+		var entry sessionEntry
+		if err := json.Unmarshal(data, &entry); err != nil {
+			continue
+		}
+		if entry.CWD != repoRoot && !strings.HasPrefix(entry.CWD, prefix) {
+			continue
+		}
+		if isDaemonAlive(entry) {
+			alive = append(alive, entry)
+			keys = append(keys, key)
+		}
+	}
+	return alive, keys
+}
+
 // isDaemonAlive checks if the daemon process is running AND responding to HTTP.
 // After PID recycling, a different process could listen on the same port,
 // so we validate that the response body contains {"status":"ok"}.
