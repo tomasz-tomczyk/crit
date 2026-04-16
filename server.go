@@ -878,6 +878,9 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	approved := unresolvedComments == 0
+	if !approved {
+		s.session.setWaitingForAgent(true)
+	}
 
 	writeJSON(w, map[string]any{
 		"status":      "finished",

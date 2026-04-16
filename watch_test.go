@@ -374,6 +374,70 @@ func TestCarryForwardComment_PreservesQuote(t *testing.T) {
 	}
 }
 
+// TestWatchGit_SkipsGitStatusWhenNotWaiting verifies that watchGit does not
+// detect edits when waitingForAgent is false, and does detect them once
+// waitingForAgent is set to true.
+func TestWatchGit_SkipsGitStatusWhenNotWaiting(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Create a feature branch so we have a known base
+	runGit(t, dir, "checkout", "-b", "feat")
+	writeFile(t, filepath.Join(dir, "file.go"), "package main\n")
+	runGit(t, dir, "add", "file.go")
+	runGit(t, dir, "commit", "-m", "add file")
+
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		Branch:      "feat",
+		BaseRef:     "main",
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{
+				Path:     "file.go",
+				AbsPath:  filepath.Join(dir, "file.go"),
+				Status:   "modified",
+				FileType: "code",
+				Comments: []Comment{},
+			},
+		},
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	stop := make(chan struct{})
+	defer close(stop)
+
+	// Start watchGit with waitingForAgent = false (default).
+	// WorkingTreeFingerprint uses cwd, so chdir before starting.
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+	go s.watchGit(stop)
+
+	// Create an untracked file — this changes git status --porcelain output.
+	time.Sleep(500 * time.Millisecond) // let watcher start
+	writeFile(t, filepath.Join(dir, "untracked1.txt"), "hello\n")
+
+	// Wait for a couple of watcher ticks — should NOT detect edits.
+	time.Sleep(2500 * time.Millisecond)
+	if edits := s.GetPendingEdits(); edits != 0 {
+		t.Errorf("expected 0 edits while not waiting for agent, got %d", edits)
+	}
+
+	// Now set waitingForAgent = true and wait for the baseline tick.
+	s.setWaitingForAgent(true)
+	time.Sleep(1500 * time.Millisecond) // baseline tick
+
+	// Create another new file to change the fingerprint from the baseline.
+	writeFile(t, filepath.Join(dir, "untracked2.txt"), "world\n")
+	time.Sleep(2500 * time.Millisecond)
+
+	if edits := s.GetPendingEdits(); edits == 0 {
+		t.Error("expected edits > 0 after setting waitingForAgent = true")
+	}
+}
+
 func TestRestoreOrphanedComments(t *testing.T) {
 	dir := t.TempDir()
 

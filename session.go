@@ -185,6 +185,7 @@ type Session struct {
 	lastRoundEdits      int
 	lastCritJSONMtime   time.Time // mtime after our last WriteFiles(); used to detect external changes
 	awaitingFirstReview bool      // true until first review-cycle completes
+	waitingForAgent     bool      // true between finish (with unresolved comments) and round-complete
 	browserClients      int32     // number of connected SSE browser clients (atomic)
 
 }
@@ -1156,6 +1157,20 @@ func (s *Session) SetAwaitingFirstReview(v bool) {
 	s.awaitingFirstReview = v
 }
 
+// setWaitingForAgent marks whether the session is in the "waiting for agent edits" phase.
+func (s *Session) setWaitingForAgent(v bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.waitingForAgent = v
+}
+
+// isWaitingForAgent returns true if the session is waiting for agent edits.
+func (s *Session) isWaitingForAgent() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.waitingForAgent
+}
+
 // SignalRoundComplete prepares the session for a new round by clearing current
 // comments and sending a signal to the watcher goroutine. The ReviewRound counter
 // is NOT incremented here — it is deferred to the watcher's handleRoundComplete*
@@ -1171,6 +1186,7 @@ func (s *Session) SignalRoundComplete() {
 	s.pendingWrite = false
 	s.lastRoundEdits = s.pendingEdits
 	s.pendingEdits = 0
+	s.waitingForAgent = false
 	// Clear comments on all files.
 	// ReviewRound is incremented later by the watcher after carry-forward.
 	for _, f := range s.Files {

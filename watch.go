@@ -155,11 +155,16 @@ func (s *Session) Watch(stop <-chan struct{}) {
 
 // watchGit polls `git status --porcelain` for working tree changes.
 // Used in git mode (no-args invocation).
+//
+// Git status polling only runs during the "waiting for agent" phase (between
+// POST /api/finish and POST /api/round-complete). mergeExternalCritJSON runs
+// on every tick since it only uses os.Stat.
 func (s *Session) watchGit(stop <-chan struct{}) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	lastFP := WorkingTreeFingerprint()
+	var lastFP string
+	wasWaiting := false
 
 	for {
 		select {
@@ -169,7 +174,19 @@ func (s *Session) watchGit(stop <-chan struct{}) {
 			// Check for external review file changes (e.g. crit comment).
 			s.mergeExternalCritJSON()
 
+			// Only poll git status while waiting for the agent to make edits.
+			if !s.isWaitingForAgent() {
+				wasWaiting = false
+				continue
+			}
+
 			fp := WorkingTreeFingerprint()
+			if !wasWaiting {
+				// Just entered waiting state — establish baseline.
+				lastFP = fp
+				wasWaiting = true
+				continue
+			}
 			if fp == lastFP {
 				continue
 			}
