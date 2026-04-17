@@ -589,11 +589,11 @@ func displayPushDryRun(ghComments []map[string]interface{}, allReplies []ghReply
 		fmt.Printf("  Review body: %s\n\n", message)
 	}
 	for _, c := range ghComments {
-		path := c["path"].(string)
-		line := c["line"].(int)
-		body := c["body"].(string)
-		if sl, ok := c["start_line"]; ok {
-			fmt.Printf("  %s:%d-%d\n", path, sl.(int), line)
+		path, _ := c["path"].(string)
+		line, _ := c["line"].(int)
+		body, _ := c["body"].(string)
+		if sl, ok := c["start_line"].(int); ok {
+			fmt.Printf("  %s:%d-%d\n", path, sl, line)
 		} else {
 			fmt.Printf("  %s:%d\n", path, line)
 		}

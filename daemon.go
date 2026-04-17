@@ -232,9 +232,7 @@ func listSessionsForCWD(cwd string) ([]sessionEntry, []string) {
 			alive = append(alive, entry)
 			keys = append(keys, key)
 		} else {
-			os.Remove(filepath.Join(dir, de.Name()))
-			os.Remove(filepath.Join(dir, key+".log"))
-			os.Remove(filepath.Join(dir, key+".lock"))
+			removeSessionFile(key)
 		}
 	}
 	return alive, keys
@@ -695,6 +693,9 @@ func cleanOrphanedSessions() {
 		}
 		if !isDaemonAlive(entry) {
 			os.Remove(path)
+			key := strings.TrimSuffix(de.Name(), ".json")
+			os.Remove(filepath.Join(sessDir, key+".log"))
+			os.Remove(filepath.Join(sessDir, key+".lock"))
 		}
 	}
 }
