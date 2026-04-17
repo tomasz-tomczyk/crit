@@ -3457,33 +3457,63 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border: 1px solid var(--yellow-border);
   white-space: nowrap;
 }
+/* Drifted anchor context — original content callout */
 .drifted-context {
-  margin: 0 12px;
+  margin: 0 14px;
   font-size: 12px;
 }
-.drifted-context summary {
+.drifted-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  padding: 3px 0;
   cursor: pointer;
   color: var(--fg-muted);
+  font-family: inherit;
   font-size: 11px;
-  user-select: none;
-  padding: 2px 0;
+  line-height: 1;
+  transition: color 0.15s;
 }
-.drifted-context summary:hover {
+.drifted-toggle:hover {
   color: var(--fg-dimmed);
+}
+.drifted-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.drifted-chevron {
+  display: inline-block;
+  font-size: 8px;
+  transition: transform 0.15s ease;
+}
+.drifted-context.expanded .drifted-chevron {
+  transform: rotate(90deg);
+}
+.drifted-panel {
+  margin-top: 6px;
+  border-left: 2px solid var(--border);
+  border-radius: 0 4px 4px 0;
+  background: var(--bg-hover);
+  overflow: hidden;
 }
 .drifted-anchor-text {
   font-family: var(--font-mono);
   font-size: 11px;
+  line-height: 1.5;
   color: var(--fg-dimmed);
-  background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 8px;
-  margin: 4px 0 0 0;
+  padding: 8px 10px;
+  margin: 0;
   overflow: auto;
-  max-height: 160px;
+  max-height: 200px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* Hide drifted context when comment card is collapsed */
+.comment-card.collapsed .drifted-context {
+  display: none;
 }
 .diff-large-placeholder {
   padding: 48px 24px;

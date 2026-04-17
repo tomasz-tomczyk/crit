@@ -4509,15 +4509,39 @@
     if (comment.drifted && comment.anchor) {
       const driftedCtx = document.createElement('div');
       driftedCtx.className = 'drifted-context';
-      const details = document.createElement('details');
-      const summary = document.createElement('summary');
-      summary.textContent = 'Original content';
-      details.appendChild(summary);
+
+      const toggle = document.createElement('button');
+      toggle.className = 'drifted-toggle';
+      toggle.type = 'button';
+      const chevron = document.createElement('span');
+      chevron.className = 'drifted-chevron';
+      chevron.textContent = '\u25b6';
+      toggle.appendChild(chevron);
+      const toggleLabel = document.createElement('span');
+      toggleLabel.textContent = 'Original content';
+      toggle.appendChild(toggleLabel);
+
+      const panelId = 'drifted-panel-' + comment.id;
+      const panel = document.createElement('div');
+      panel.className = 'drifted-panel';
+      panel.id = panelId;
+      panel.hidden = true;
       const pre = document.createElement('pre');
       pre.className = 'drifted-anchor-text';
       pre.textContent = comment.anchor;
-      details.appendChild(pre);
-      driftedCtx.appendChild(details);
+      panel.appendChild(pre);
+
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.setAttribute('aria-controls', panelId);
+      toggle.addEventListener('click', () => {
+        const expanded = !panel.hidden;
+        panel.hidden = expanded;
+        driftedCtx.classList.toggle('expanded', !expanded);
+        toggle.setAttribute('aria-expanded', String(!expanded));
+      });
+
+      driftedCtx.appendChild(toggle);
+      driftedCtx.appendChild(panel);
       card.appendChild(driftedCtx);
     }
 
