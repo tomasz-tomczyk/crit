@@ -2955,7 +2955,7 @@
       return container;
     }
 
-    const commentsMap = buildDiffCommentsMap(file.comments);
+    const { diffCommentsMap: commentsMap } = buildCommentIndices(file.comments);
     const commentVisualSet = buildUnifiedCommentVisualSet(hunks, file.comments);
     let visualIdx = 0; // sequential index for unified drag (old/new nums are different spaces)
 
