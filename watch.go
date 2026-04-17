@@ -367,9 +367,6 @@ func (s *Session) handleRoundCompleteGit() {
 			f.PreviousContent = f.Content
 		}
 	}
-	s.mu.Unlock()
-
-	s.mu.Lock()
 	s.rereadFileContents(false)
 	s.mu.Unlock()
 
@@ -534,13 +531,14 @@ func abs(x int) int {
 // points at the anchor text. If not, it searches the new content for the anchor.
 // Returns the corrected (start, end) and whether the comment has drifted.
 func verifyAndCorrectPosition(newLines []string, anchor string, lcsStart, lcsEnd int) (start, end, drifted int) {
-	anchorLen := lcsEnd - lcsStart + 1
+	anchorLines := strings.Split(anchor, "\n")
+	anchorLen := len(anchorLines)
 
 	// Check if the LCS position still matches.
-	if lcsStart >= 1 && lcsEnd <= len(newLines) {
-		candidate := strings.Join(newLines[lcsStart-1:lcsEnd], "\n")
+	if lcsStart >= 1 && lcsStart+anchorLen-1 <= len(newLines) {
+		candidate := strings.Join(newLines[lcsStart-1:lcsStart+anchorLen-1], "\n")
 		if candidate == anchor {
-			return lcsStart, lcsEnd, 0
+			return lcsStart, lcsStart + anchorLen - 1, 0
 		}
 	}
 
@@ -552,6 +550,32 @@ func verifyAndCorrectPosition(newLines []string, anchor string, lcsStart, lcsEnd
 
 	// Anchor not found anywhere — mark drifted, keep LCS position.
 	return lcsStart, lcsEnd, 1
+}
+
+// remapLines translates old start/end line numbers through the LCS line map,
+// falling back to the original positions and clamping to [1, maxLine].
+func remapLines(lineMap map[int]int, oldStart, oldEnd, maxLine int) (int, int) {
+	s := lineMap[oldStart]
+	e := lineMap[oldEnd]
+	if s == 0 {
+		s = oldStart
+	}
+	if e == 0 {
+		e = oldEnd
+	}
+	if s > maxLine {
+		s = maxLine
+	}
+	if e > maxLine {
+		e = maxLine
+	}
+	if s < 1 {
+		s = 1
+	}
+	if e < s {
+		e = s
+	}
+	return s, e
 }
 
 // carryForwardComments maps comments from the previous round
@@ -602,26 +626,7 @@ func (s *Session) carryForwardComments() {
 				f.Comments = append(f.Comments, carried)
 				continue
 			}
-			newStart := lineMap[c.StartLine]
-			newEnd := lineMap[c.EndLine]
-			if newStart == 0 {
-				newStart = c.StartLine
-			}
-			if newEnd == 0 {
-				newEnd = c.EndLine
-			}
-			if newStart > newLineCount {
-				newStart = newLineCount
-			}
-			if newEnd > newLineCount {
-				newEnd = newLineCount
-			}
-			if newStart < 1 {
-				newStart = 1
-			}
-			if newEnd < newStart {
-				newEnd = newStart
-			}
+			newStart, newEnd := remapLines(lineMap, c.StartLine, c.EndLine, newLineCount)
 			carried := carryForwardComment(c, randomCommentID(), now)
 			carried.StartLine = newStart
 			carried.EndLine = newEnd

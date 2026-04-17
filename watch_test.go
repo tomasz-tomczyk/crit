@@ -799,3 +799,60 @@ func TestCarryForward_AnchorMultilineRange(t *testing.T) {
 		t.Error("expected Drifted=false")
 	}
 }
+
+func TestCarryForward_AnchorLenFromAnchorNotLCS(t *testing.T) {
+	// Regression: anchorLen must come from the anchor text, not the LCS span.
+	// If LCS maps old lines 2-4 to new lines 5-10 (gap lines inserted between),
+	// the end line should still be 5+3-1=7 (3-line anchor), not 5+6-1=10.
+	dir := t.TempDir()
+	mdPath := filepath.Join(dir, "plan.md")
+
+	oldContent := "Header\nLine A\nLine B\nLine C\nFooter\n"
+	// New content: anchor block exists but LCS may map start/end with a gap.
+	// Insert lines between where LCS puts start vs end to create divergence.
+	newContent := "Header\nExtra1\nExtra2\nExtra3\nLine A\nLine B\nLine C\nExtra4\nFooter\n"
+	os.WriteFile(mdPath, []byte(newContent), 0644)
+
+	s := &Session{
+		Mode:     "files",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "plan.md",
+				AbsPath:         mdPath,
+				Status:          "modified",
+				FileType:        "markdown",
+				Content:         newContent,
+				PreviousContent: oldContent,
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old",
+						StartLine: 2,
+						EndLine:   4,
+						Body:      "Review this",
+						Anchor:    "Line A\nLine B\nLine C",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	// Anchor is 3 lines, so end should be start+2 regardless of LCS span.
+	if carried.StartLine != 5 || carried.EndLine != 7 {
+		t.Errorf("expected lines 5-7, got start=%d end=%d", carried.StartLine, carried.EndLine)
+	}
+	if carried.Drifted {
+		t.Error("expected Drifted=false — anchor found in file")
+	}
+}
