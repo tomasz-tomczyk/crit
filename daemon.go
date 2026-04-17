@@ -500,7 +500,7 @@ func handleDaemonPipeError(key string, readErr error, readEnd *os.File, cmd *exe
 }
 
 // startDaemon spawns a crit _serve process in the background and waits for it to be ready.
-// The key must match what the daemon computes in runServe (sessionKey(cwd, fileArgs)).
+// The key must match what the daemon computes in runServe (sessionKey(cwd, branch, fileArgs)).
 // Raw args (including flags) are passed through to _serve which parses them itself.
 // Uses an OS pipe (FD 3) for the daemon to signal readiness by writing its port number.
 func startDaemon(key string, args []string) (sessionEntry, error) {
