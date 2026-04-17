@@ -1500,6 +1500,9 @@ func runReviewClient(entry sessionEntry) (approved bool) {
 	return false
 }
 
+// TODO: runStop, runStatus, and other subcommands use DetectVCS("") for auto-detection.
+// The --vcs flag from the main server command is not threaded through to these subcommands yet.
+// This is acceptable for v1 since subcommands primarily need to locate the daemon, not run VCS ops.
 func runStop(args []string) {
 	all := false
 	var fileArgs []string
@@ -1741,7 +1744,7 @@ func createSession(sc *serverConfig) (*Session, error) {
 	if len(sc.files) == 0 {
 		vcs := DetectVCS(sc.vcsOverride)
 		if vcs == nil {
-			return nil, fmt.Errorf("not in a git repository and no files specified")
+			return nil, fmt.Errorf("not in a version-controlled repository and no files specified")
 		}
 		session, err = NewSessionFromVCS(vcs, sc.ignorePatterns)
 	} else {

@@ -220,30 +220,6 @@ type CritJSONFile struct {
 	Comments []Comment `json:"comments"`
 }
 
-// detectGitChanges resolves the base ref and returns the list of changed files.
-func detectGitChanges(root string, ignorePatterns []string) (branch, baseRef, resolvedBase string, changes []FileChange, err error) {
-	branch = CurrentBranch()
-	resolvedBase = DefaultBranch()
-	if branch != resolvedBase {
-		baseRef, _ = MergeBase(resolvedBase)
-	}
-
-	if baseRef != "" {
-		changes, err = changedFilesFromBaseInDir(baseRef, root)
-	} else {
-		changes, err = changedFilesOnDefaultInDir(root)
-	}
-	if err != nil {
-		return "", "", "", nil, fmt.Errorf("detecting changes: %w", err)
-	}
-	changes = filterIgnored(changes, ignorePatterns)
-
-	if len(changes) == 0 {
-		return "", "", "", nil, fmt.Errorf("no changed files detected (after applying ignore patterns)")
-	}
-	return branch, baseRef, resolvedBase, changes, nil
-}
-
 // populateLazyFile fills stats for a file that will be loaded on demand.
 func populateLazyFile(fe *FileEntry, fc FileChange, numstats map[string]NumstatEntry) {
 	fe.Lazy = true
@@ -290,58 +266,10 @@ func populateEagerFile(fe *FileEntry, fc FileChange, baseRef, root string) bool 
 }
 
 // NewSessionFromGit creates a session by auto-detecting changed files via git.
-// The base branch is read from DefaultBranch(), which respects the package-level
-// defaultBranchOverride set by resolveServerConfig() when --base-branch is given.
-// We use the global rather than a parameter so that RefreshFileList() during
-// multi-round reviews picks up the same override automatically.
+// It delegates to NewSessionFromVCS with a GitVCS backend.
+// Retained for test compatibility; production code uses NewSessionFromVCS directly.
 func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
-	root, err := RepoRoot()
-	if err != nil {
-		return nil, fmt.Errorf("not a git repository: %w", err)
-	}
-
-	branch, baseRef, resolvedBase, changes, err := detectGitChanges(root, ignorePatterns)
-	if err != nil {
-		return nil, err
-	}
-
-	s := &Session{
-		VCS:                 &GitVCS{},
-		Mode:                "git",
-		Branch:              branch,
-		BaseRef:             baseRef,
-		BaseBranchName:      resolvedBase,
-		RepoRoot:            root,
-		ReviewRound:         1,
-		IgnorePatterns:      ignorePatterns,
-		subscribers:         make(map[chan SSEEvent]struct{}),
-		roundComplete:       make(chan struct{}, 1),
-		awaitingFirstReview: true,
-	}
-
-	var numstats map[string]NumstatEntry
-	if len(changes) > lazyFileThreshold && baseRef != "" {
-		numstats, _ = DiffNumstatDir(baseRef, root)
-	}
-
-	for i, fc := range changes {
-		absPath := filepath.Join(root, fc.Path)
-		fe := &FileEntry{
-			Path:     fc.Path,
-			AbsPath:  absPath,
-			Status:   fc.Status,
-			FileType: detectFileType(fc.Path),
-		}
-
-		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
-			populateLazyFile(fe, fc, numstats)
-		} else if !populateEagerFile(fe, fc, baseRef, root) {
-			continue
-		}
-		s.Files = append(s.Files, fe)
-	}
-
-	return s, nil
+	return NewSessionFromVCS(&GitVCS{}, ignorePatterns)
 }
 
 // detectVCSChanges resolves the base ref and returns the list of changed files using the VCS interface.
