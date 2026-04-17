@@ -7287,7 +7287,7 @@
       { label: 'Review', shortcuts: [
         { key: '<kbd>Shift</kbd>+<kbd>F</kbd>', action: 'Finish review' },
         { key: '<kbd>Shift</kbd>+<kbd>C</kbd>', action: 'Toggle comments panel' },
-        { key: '<kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd>', action: 'Switch scope', mode: 'git mode' },
+        { key: '<kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd>', action: 'Switch scope', mode: 'vcs mode' },
       ]},
       { label: 'View', shortcuts: [
         { key: '<kbd>t</kbd>', action: 'Toggle table of contents', mode: 'file mode' },
@@ -7330,7 +7330,7 @@
     // Session info
     html += '<div class="settings-section-label">Current Session</div>';
     html += '<div class="about-session"><div class="about-session-grid">';
-    html += '<span class="about-session-label">Mode</span><span class="about-session-value">' + (session.mode || 'unknown') + '</span>';
+    html += '<span class="about-session-label">Mode</span><span class="about-session-value">' + (session.vcs_name || session.mode || 'unknown') + '</span>';
     if (session.mode === 'git' && session.branch) {
       html += '<span class="about-session-label">Branch</span><span class="about-session-value">' + escapeHtml(session.branch) + '</span>';
     }
