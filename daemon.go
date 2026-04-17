@@ -50,8 +50,10 @@ func resolvedCWD() (string, error) {
 	return resolved, nil
 }
 
-// sessionKey returns a deterministic hash for cwd + branch + args, used as the session filename.
-// Format: sha256(cwd + "\0" + branch + "\0" + arg1 + "\0" + arg2 + ...)[:12]
+// sessionKey returns a deterministic hash used as the session filename.
+// Git mode (no args): sha256(cwd + "\0" + branch)[:12] — branch-scoped because diffs depend on it.
+// File mode (args present): sha256(cwd + "\0" + arg1 + "\0" + arg2 + ...)[:12] — branch-independent
+// because file reviews are not tied to a specific branch.
 func sessionKey(cwd string, branch string, args []string) string {
 	sorted := make([]string, len(args))
 	copy(sorted, args)
@@ -59,7 +61,10 @@ func sessionKey(cwd string, branch string, args []string) string {
 	h := sha256.New()
 	h.Write([]byte(cwd))
 	h.Write([]byte{0})
-	h.Write([]byte(branch))
+	if len(sorted) == 0 {
+		// Git mode: include branch so different branches get separate sessions.
+		h.Write([]byte(branch))
+	}
 	for _, a := range sorted {
 		h.Write([]byte{0})
 		h.Write([]byte(a))

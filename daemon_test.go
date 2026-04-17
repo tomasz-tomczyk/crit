@@ -52,6 +52,22 @@ func TestSessionKey_NilVsEmpty(t *testing.T) {
 	}
 }
 
+func TestSessionKey_FileMode_BranchIndependent(t *testing.T) {
+	k1 := sessionKey("/tmp/repo", "main", []string{"plan.md"})
+	k2 := sessionKey("/tmp/repo", "feature-x", []string{"plan.md"})
+	if k1 != k2 {
+		t.Errorf("file-mode key should be branch-independent: %s vs %s", k1, k2)
+	}
+}
+
+func TestSessionKey_GitMode_BranchDependent(t *testing.T) {
+	k1 := sessionKey("/tmp/repo", "main", nil)
+	k2 := sessionKey("/tmp/repo", "feature-x", nil)
+	if k1 == k2 {
+		t.Errorf("git-mode key should differ by branch: %s", k1)
+	}
+}
+
 func TestSessionKey_Length(t *testing.T) {
 	k := sessionKey("/tmp/repo", "main", nil)
 	if len(k) != 12 {
