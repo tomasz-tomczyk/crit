@@ -150,6 +150,7 @@ func (fe *FileEntry) ensureLoaded(repoRoot, baseRef string) error {
 
 // Session is the top-level state manager for a multi-file review.
 type Session struct {
+	VCS            VCS // nil for non-VCS sessions (e.g. files mode without a repo)
 	Files          []*FileEntry
 	Mode           string   // "files" (explicit markdown files) or "git" (auto-detected from git)
 	CLIArgs        []string // original file arguments passed on the command line (empty for git mode)
@@ -303,6 +304,7 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 	}
 
 	s := &Session{
+		VCS:                 &GitVCS{},
 		Mode:                "git",
 		Branch:              branch,
 		BaseRef:             baseRef,
@@ -318,6 +320,82 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 	var numstats map[string]NumstatEntry
 	if len(changes) > lazyFileThreshold && baseRef != "" {
 		numstats, _ = DiffNumstatDir(baseRef, root)
+	}
+
+	for i, fc := range changes {
+		absPath := filepath.Join(root, fc.Path)
+		fe := &FileEntry{
+			Path:     fc.Path,
+			AbsPath:  absPath,
+			Status:   fc.Status,
+			FileType: detectFileType(fc.Path),
+		}
+
+		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
+			populateLazyFile(fe, fc, numstats)
+		} else if !populateEagerFile(fe, fc, baseRef, root) {
+			continue
+		}
+		s.Files = append(s.Files, fe)
+	}
+
+	return s, nil
+}
+
+// detectVCSChanges resolves the base ref and returns the list of changed files using the VCS interface.
+func detectVCSChanges(vcs VCS, root string, ignorePatterns []string) (branch, baseRef, resolvedBase string, changes []FileChange, err error) {
+	branch = vcs.CurrentBranch()
+	resolvedBase = vcs.DefaultBranch()
+	if branch != resolvedBase {
+		baseRef, _ = vcs.MergeBase(resolvedBase)
+	}
+
+	if baseRef != "" {
+		changes, err = vcs.ChangedFilesFromBaseInDir(baseRef, root)
+	} else {
+		changes, err = vcs.ChangedFilesOnDefaultInDir(root)
+	}
+	if err != nil {
+		return "", "", "", nil, fmt.Errorf("detecting changes: %w", err)
+	}
+	changes = filterIgnored(changes, ignorePatterns)
+
+	if len(changes) == 0 {
+		return "", "", "", nil, fmt.Errorf("no changed files detected (after applying ignore patterns)")
+	}
+	return branch, baseRef, resolvedBase, changes, nil
+}
+
+// NewSessionFromVCS creates a session by auto-detecting changed files using the given VCS backend.
+// This is the VCS-agnostic equivalent of NewSessionFromGit.
+func NewSessionFromVCS(vcs VCS, ignorePatterns []string) (*Session, error) {
+	root, err := vcs.RepoRoot()
+	if err != nil {
+		return nil, fmt.Errorf("not a %s repository: %w", vcs.Name(), err)
+	}
+
+	branch, baseRef, resolvedBase, changes, err := detectVCSChanges(vcs, root, ignorePatterns)
+	if err != nil {
+		return nil, err
+	}
+
+	s := &Session{
+		VCS:                 vcs,
+		Mode:                "git",
+		Branch:              branch,
+		BaseRef:             baseRef,
+		BaseBranchName:      resolvedBase,
+		RepoRoot:            root,
+		ReviewRound:         1,
+		IgnorePatterns:      ignorePatterns,
+		subscribers:         make(map[chan SSEEvent]struct{}),
+		roundComplete:       make(chan struct{}, 1),
+		awaitingFirstReview: true,
+	}
+
+	var numstats map[string]NumstatEntry
+	if len(changes) > lazyFileThreshold && baseRef != "" {
+		numstats, _ = vcs.DiffNumstat(baseRef, root)
 	}
 
 	for i, fc := range changes {
@@ -2077,6 +2155,7 @@ func (s *Session) GetFileDiffSnapshot(path string) (map[string]any, bool) {
 // SessionInfo returns metadata about the session for the API.
 type SessionInfo struct {
 	Mode            string            `json:"mode"` // "files" or "git"
+	VCSName         string            `json:"vcs_name,omitempty"`
 	Branch          string            `json:"branch"`
 	BaseRef         string            `json:"base_ref"`
 	BaseBranchName  string            `json:"base_branch_name,omitempty"`
@@ -2107,8 +2186,14 @@ func (s *Session) GetSessionInfo() SessionInfo {
 	reviewComments := make([]Comment, len(s.reviewComments))
 	copy(reviewComments, s.reviewComments)
 
+	var vcsName string
+	if s.VCS != nil {
+		vcsName = s.VCS.Name()
+	}
+
 	info := SessionInfo{
 		Mode:           s.Mode,
+		VCSName:        vcsName,
 		Branch:         s.Branch,
 		BaseRef:        s.BaseRef,
 		BaseBranchName: s.BaseBranchName,
