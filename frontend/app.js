@@ -112,12 +112,14 @@
     if (document.visibilityState === 'visible') clearTabBadge();
   });
 
-  // Expose for tests (kept minimal — E2E may use these directly per spec fallback).
-  window.__critTabBadge = {
-    set: setTabBadge,
-    clear: clearTabBadge,
-    isActive: function() { return badgeActive; },
-  };
+  // Expose for tests — only when ?test query param is present.
+  if (location.search.includes('test')) {
+    window.__critTabBadge = {
+      set: setTabBadge,
+      clear: clearTabBadge,
+      isActive: function() { return badgeActive; },
+    };
+  }
 
   (function() {
     const defaultFence = commentMd.renderer.rules.fence;
@@ -2011,8 +2013,7 @@
     container.appendChild(rightLabel);
 
     // Two-pointer merge for horizontal alignment
-    const commentsMap = buildCommentsMap(file.comments);
-    const commentRangeSet = buildCommentedRangeSet(file.comments);
+    const { commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
     let oldIdx = 0, newIdx = 0;
 
     while (oldIdx < prevBlocks.length || newIdx < currBlocks.length) {
@@ -2157,8 +2158,7 @@
     const oldBlocks = file.previousLineBlocks;
     const newBlocks = file.lineBlocks;
 
-    const commentsMap = buildCommentsMap(file.comments);
-    const commentRangeSet = buildCommentedRangeSet(file.comments);
+    const { commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
 
     // Two-pointer merge: walk both block lists simultaneously
     let oldIdx = 0;
@@ -2271,9 +2271,7 @@
     container.className = 'document-wrapper' + (file.fileType === 'code' ? ' code-document' : '');
     if (!file.lineBlocks) return container;
 
-    const commentsMap = buildCommentsMap(file.comments);
-
-    const commentRangeSet = buildCommentedRangeSet(file.comments);
+    const { commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
 
     const changeInfo = (file.viewMode === 'document' && session.mode !== 'git') ? getChangeInfo(file) : null;
     // Build a map of afterLine -> deletion marker for quick lookup
@@ -3060,8 +3058,7 @@
       return container;
     }
 
-    const commentsMap = buildDiffCommentsMap(file.comments);
-    const commentRangeSet = buildCommentedRangeSet(file.comments);
+    const { diffCommentsMap: commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
 
     for (let hi = 0; hi < hunks.length; hi++) {
       const hunk = hunks[hi];

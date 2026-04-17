@@ -405,11 +405,6 @@ body {
   from { opacity: 1; transform: translateY(0) scale(1); }
   to { opacity: 0; transform: translateY(8px) scale(0.98); }
 }
-.toast.success {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  color: var(--fg-secondary);
-}
 .toast.error {
   background: var(--toast-error-bg);
   border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
@@ -436,10 +431,6 @@ body {
 .toast-btn-filled {
   color: var(--bg-primary);
 }
-.toast.success .toast-btn-filled {
-  background: var(--green);
-}
-.toast.success .toast-btn-filled:hover { filter: brightness(1.1); }
 .toast.error .toast-btn-filled {
   background: var(--red);
 }
@@ -2067,7 +2058,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .config-card-cmd-label {
   color: var(--fg-muted);
-  font-family: var(--font-sans);
+  font-family: var(--font-body);
   font-size: 11px;
   margin-right: 8px;
   flex-shrink: 0;

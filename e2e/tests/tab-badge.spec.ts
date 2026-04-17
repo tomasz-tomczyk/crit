@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments } from './helpers';
 
 // The bullet prefix the app prepends to document.title when the badge is active.
 const BADGE_PREFIX = '\u25CF ';
@@ -21,8 +21,10 @@ async function setVisibility(page: Page, visible: boolean) {
   }, visible);
 }
 
-// Wait until the page has exposed the tab-badge test hook (script loaded).
-async function waitForBadgeReady(page: Page) {
+// Load the page with ?test query param so the tab-badge test hook is exposed.
+async function loadPageWithTestParam(page: Page) {
+  await page.goto('/?test');
+  await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
   await page.waitForFunction(() => !!(window as unknown as { __critTabBadge?: unknown }).__critTabBadge);
 }
 
@@ -32,8 +34,7 @@ test.describe('Tab-Ready Indicator', () => {
   });
 
   test('title prefixed on file-changed when tab hidden', async ({ page, request }) => {
-    await loadPage(page);
-    await waitForBadgeReady(page);
+    await loadPageWithTestParam(page);
     const originalTitle = await page.title();
     expect(originalTitle.startsWith(BADGE_PREFIX)).toBe(false);
 
@@ -47,8 +48,7 @@ test.describe('Tab-Ready Indicator', () => {
   });
 
   test('no prefix when tab visible during round-complete', async ({ page, request }) => {
-    await loadPage(page);
-    await waitForBadgeReady(page);
+    await loadPageWithTestParam(page);
 
     // Force visible state so test behaves identically in headed and headless runs.
     await setVisibility(page, true);
@@ -62,8 +62,7 @@ test.describe('Tab-Ready Indicator', () => {
   });
 
   test('prefix clears when visibility returns to visible', async ({ page, request }) => {
-    await loadPage(page);
-    await waitForBadgeReady(page);
+    await loadPageWithTestParam(page);
 
     await setVisibility(page, false);
     await request.post('/api/round-complete');
@@ -75,8 +74,7 @@ test.describe('Tab-Ready Indicator', () => {
   });
 
   test('rapid set/clear cycles end in the correct state', async ({ page }) => {
-    await loadPage(page);
-    await waitForBadgeReady(page);
+    await loadPageWithTestParam(page);
 
     // Direct helper calls — exercises idempotency without SSE races.
     await page.evaluate(() => {
