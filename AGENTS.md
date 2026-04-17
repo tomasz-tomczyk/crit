@@ -70,7 +70,7 @@ crit/
 15. **Headless CLI comment** — `crit comment` writes directly to the review file without starting the server; SSE notifies any running server
 16. **Comment threading** — comments support nested replies and a `resolved` boolean. Agents reply with `crit comment --reply-to <id> --resolve`. The review file schema nests replies inside each comment's `replies` array.
 17. **Commit selection** — in git mode, a sidebar lists individual commits. Selecting one scopes the file list and diffs to that commit only.
-18. **Centralized review storage** — review data stored in `~/.crit/reviews/<key>.json` (keyed by cwd + branch + args). `crit status` shows the review file path; `crit cleanup` removes stale reviews.
+18. **Centralized review storage** — review data stored in `~/.crit/reviews/<key>.json` (keyed by cwd + branch for git mode, cwd + args for file mode). `crit status` shows the review file path; `crit cleanup` removes stale reviews.
 
 ## Build & Run
 
@@ -387,7 +387,7 @@ The daemon signals readiness (via the OS pipe) as soon as the HTTP port is bound
 
 ### Session Registry
 
-Daemon state lives in `~/.crit/sessions/` with one file per session, keyed by `sha256(cwd + "\0" + branch + "\0" + sorted(args))[:12]`:
+Daemon state lives in `~/.crit/sessions/` with one file per session. Git mode (no args): `sha256(cwd + "\0" + branch)[:12]`. File mode (args present): `sha256(cwd + "\0" + args...)[:12]` — branch is excluded because file reviews are not branch-dependent:
 
 ```
 ~/.crit/sessions/
