@@ -39,6 +39,7 @@ After a crit review session, comments are in the review file (see `crit status` 
           "end_line": 10,
           "body": "Comment text",
           "quote": "the specific words selected",
+          "anchor": "The sessions table needs a complete rewrite...",
           "author": "User Name",
           "resolved": false,
           "replies": [
@@ -57,6 +58,8 @@ After a crit review session, comments are in the review file (see `crit status` 
 - **File comments** are in the same per-file array but have `start_line: 0, end_line: 0, scope: "file"`
 - **Review comments** are in the top-level `review_comments` array (not tied to any file)
 - `quote` (optional): the specific text the reviewer selected — narrows the comment's scope within the line range. When present, focus your changes on the quoted text rather than the entire line range
+- `anchor` (present on line comments): the full text of the commented lines when the comment was placed. When your edits shift line numbers, use the anchor text to locate the current position of the content rather than trusting `start_line`/`end_line` which may be stale after edits
+- `drifted`: if `true`, the original content was removed or heavily rewritten — the line numbers are approximate at best
 - `resolved`: `false` or **missing** — both mean unresolved. Only `true` means resolved.
 - Address each unresolved comment by editing the relevant file at the referenced location
 - Before acting on a comment, check its `replies` array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change

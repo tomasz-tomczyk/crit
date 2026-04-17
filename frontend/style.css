@@ -3457,6 +3457,34 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border: 1px solid var(--yellow-border);
   white-space: nowrap;
 }
+.drifted-context {
+  margin: 0 12px;
+  font-size: 12px;
+}
+.drifted-context summary {
+  cursor: pointer;
+  color: var(--fg-muted);
+  font-size: 11px;
+  user-select: none;
+  padding: 2px 0;
+}
+.drifted-context summary:hover {
+  color: var(--fg-dimmed);
+}
+.drifted-anchor-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-dimmed);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 4px 0 0 0;
+  overflow: auto;
+  max-height: 160px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .diff-large-placeholder {
   padding: 48px 24px;
   text-align: center;

@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
-# test-diff.sh — Simulate a multi-round diff view with resolved comments and threaded replies.
+# test-diff.sh — Simulate multi-round reviews with comments, threading, and carry-forward.
 #
 # Usage: ./test/test-diff.sh [port]
 #
-# What this does:
-#   1. Resets test-plan-copy.md to v1 and starts crit on that file
-#   2. Seeds 4 review comments + 4 threaded replies via the API
-#   3. Waits for you to press Enter (browse the comments + replies first)
-#   4. Swaps in test-plan-v2.md to simulate agent edits
-#   5. Marks some comments as resolved in the review file
-#   6. Signals round-complete so the diff + resolved comments appear
+# Starts 4 server instances:
+#   1. Markdown diff (port):     resolved comments + threaded replies + deletion markers
+#   2. Code diff (port+1):       word-level diff + orphaned comments on removed files
+#   3. Carry-forward file-mode (port+2): comment positioning across content changes
+#   4. Carry-forward git-mode (port+3):  same carry-forward test in git context
 #
-# Threading coverage:
-#   - Comment #2 gets 2 agent replies, then is resolved → test expanded resolved with replies
-#   - Comment #4 gets 2 replies (agent + reviewer), stays unresolved → test active threading
+# Flow:
+#   1. Starts all servers, seeds comments on instances 1, 3, and 4
+#   2. Waits for Enter (browse the comments first)
+#   3. Swaps content to v2 on instances 1, 3, 4; resolves some comments on instance 1
+#   4. Signals round-complete on all instances
+#   5. Instance 2 gets orphaned-file comments seeded post-round
+#   6. Shows expected carry-forward results, waits for Enter to stop
 
 set -e
 
@@ -32,7 +34,7 @@ if [ ! -f "$BINARY" ]; then
 fi
 
 # Kill any stale processes on test ports
-for port in "$PORT" "$((PORT + 1))"; do
+for port in "$PORT" "$((PORT + 1))" "$((PORT + 2))" "$((PORT + 3))"; do
   lsof -ti tcp:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 
@@ -221,18 +223,57 @@ echo "Starting git-mode crit for word-level diff on port $WORD_DIFF_PORT..."
 (cd "$WORD_DIFF_DIR" && "$ROOT/$BINARY" --port "$WORD_DIFF_PORT" --no-open) &
 WORD_DIFF_PID=$!
 
+# --- Carry-forward: file-mode test ---
+CF_FILE_PORT=$((PORT + 2))
+CF_FILE="test/carry-forward-copy.md"
+cp test/carry-forward-v1.md "$CF_FILE"
+
+echo "Starting file-mode carry-forward test on port $CF_FILE_PORT..."
+"$BINARY" --port "$CF_FILE_PORT" --no-open "$CF_FILE" &
+CF_FILE_PID=$!
+
+# --- Carry-forward: git-mode test ---
+CF_GIT_PORT=$((PORT + 3))
+CF_GIT_DIR=$(mktemp -d)
+
+# Base: minimal stub on main
+git -C "$CF_GIT_DIR" init -q
+cat > "$CF_GIT_DIR/plan.md" << 'MDEOF'
+# Database Migration Plan
+
+## Overview
+
+Placeholder for the migration plan.
+MDEOF
+git -C "$CF_GIT_DIR" add -A && git -C "$CF_GIT_DIR" commit -q -m "initial stub"
+
+# Feature branch: full v1 content
+git -C "$CF_GIT_DIR" checkout -q -b feature/migration
+cp test/carry-forward-v1.md "$CF_GIT_DIR/plan.md"
+git -C "$CF_GIT_DIR" add -A && git -C "$CF_GIT_DIR" commit -q -m "add full migration plan"
+
+echo "Starting git-mode carry-forward test on port $CF_GIT_PORT..."
+(cd "$CF_GIT_DIR" && "$ROOT/$BINARY" --port "$CF_GIT_PORT" --no-open) &
+CF_GIT_PID=$!
+
 cleanup() {
   kill "$CRIT_PID" 2>/dev/null || true
   kill "$WORD_DIFF_PID" 2>/dev/null || true
+  kill "$CF_FILE_PID" 2>/dev/null || true
+  kill "$CF_GIT_PID" 2>/dev/null || true
   wait "$CRIT_PID" 2>/dev/null || true
   wait "$WORD_DIFF_PID" 2>/dev/null || true
+  wait "$CF_FILE_PID" 2>/dev/null || true
+  wait "$CF_GIT_PID" 2>/dev/null || true
   rm -f .crit.json
+  rm -f "$CF_FILE"
   rm -rf "$WORD_DIFF_DIR"
+  rm -rf "$CF_GIT_DIR"
 }
 trap cleanup EXIT INT TERM
 
 # Wait for servers to be ready (poll until /api/session returns 200, not 503)
-for port_to_wait in "$PORT" "$WORD_DIFF_PORT"; do
+for port_to_wait in "$PORT" "$WORD_DIFF_PORT" "$CF_FILE_PORT" "$CF_GIT_PORT"; do
   for i in $(seq 1 40); do
     if curl -sf "http://127.0.0.1:$port_to_wait/api/session" > /dev/null 2>&1; then
       break
@@ -326,9 +367,118 @@ curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/$C4/replies?path=$ENCODED_P
 # Finish the review to write the review file
 REVIEW_FILE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/finish" | python3 -c "import json, sys; print(json.load(sys.stdin)['review_file'])")
 
+# --- Seed carry-forward comments (file-mode) ---
+curl -sf -X DELETE "http://127.0.0.1:$CF_FILE_PORT/api/comments" > /dev/null
+
+CF_FILE_PATH=$(curl -sf "http://127.0.0.1:$CF_FILE_PORT/api/session" | python3 -c "
+import json, sys
+s = json.load(sys.stdin)
+for f in s['files']:
+    if f['path'] != '.crit.json':
+        print(f['path'])
+        break
+")
+CF_FILE_ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$CF_FILE_PATH'))")
+
+# C1: Lines 31-32 — sessions table description. Should shift to 39-40 in v2.
+curl -sf -X POST "http://127.0.0.1:$CF_FILE_PORT/api/file/comments?path=$CF_FILE_ENCODED" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 31, "end_line": 32,
+    "body": "The description says \"complete rewrite\" but the SQL below looks like a straightforward new table. Is there a data migration from the old sessions table? That'\''s the risky part."
+  }' > /dev/null
+
+# C2: Line 67 — Backfill step. Should shift to 76 in v2.
+curl -sf -X POST "http://127.0.0.1:$CF_FILE_PORT/api/file/comments?path=$CF_FILE_ENCODED" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 67, "end_line": 67,
+    "body": "Backfilling from feature_flags is fragile — what if the flag was never set for some users? We need a default value strategy for missing entries."
+  }' > /dev/null
+
+# C3: Lines 75-79 — Rollback plan. This section is REMOVED in v2 → should be outdated.
+curl -sf -X POST "http://127.0.0.1:$CF_FILE_PORT/api/file/comments?path=$CF_FILE_ENCODED" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 75, "end_line": 79,
+    "body": "Step 3 says \"restore from backup if data corruption detected\" but how do we detect corruption? We need a verification query that runs post-swap to confirm data integrity before declaring success."
+  }' > /dev/null
+
+# C4: Line 85 — Performance section. Content is REWRITTEN in v2 → should be drifted.
+curl -sf -X POST "http://127.0.0.1:$CF_FILE_PORT/api/file/comments?path=$CF_FILE_ENCODED" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 85, "end_line": 85,
+    "body": "\"Will grow rapidly\" is too vague. How many rows per month? We need concrete numbers to size the partitions and set retention policies correctly."
+  }' > /dev/null
+
+# C5: Line 103 — Risks. Should shift to 112 in v2.
+curl -sf -X POST "http://127.0.0.1:$CF_FILE_PORT/api/file/comments?path=$CF_FILE_ENCODED" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 103, "end_line": 103,
+    "body": "Have we actually measured the lock duration for a table swap on our dataset size? The difference between \"brief\" and \"30 seconds\" matters a lot for a Saturday maintenance window."
+  }' > /dev/null
+
+# Finish to persist
+curl -sf -X POST "http://127.0.0.1:$CF_FILE_PORT/api/finish" > /dev/null
+
+# --- Seed carry-forward comments (git-mode) — same lines, same content ---
+CF_GIT_PATH="plan.md"
+CF_GIT_ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$CF_GIT_PATH'))")
+
+curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/file/comments?path=$CF_GIT_ENCODED" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 31, "end_line": 32,
+    "body": "[git-mode] Sessions table: same comment as file-mode. Should shift to 39-40."
+  }' > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/file/comments?path=$CF_GIT_ENCODED" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 67, "end_line": 67,
+    "body": "[git-mode] Backfill step: should shift to 76."
+  }' > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/file/comments?path=$CF_GIT_ENCODED" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 75, "end_line": 79,
+    "body": "[git-mode] Rollback plan: this section is REMOVED in v2 — should be outdated."
+  }' > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/file/comments?path=$CF_GIT_ENCODED" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 85, "end_line": 85,
+    "body": "[git-mode] Performance: content is REWRITTEN in v2 — should be drifted."
+  }' > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/file/comments?path=$CF_GIT_ENCODED" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 103, "end_line": 103,
+    "body": "[git-mode] Risks: should shift to 112."
+  }' > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/finish" > /dev/null
+
 echo ""
-echo "Crit is running at http://127.0.0.1:$PORT with 5 comments + 4 replies."
-echo "Browse them in the browser, then press Enter to simulate the agent editing the file."
+echo "Servers running:"
+echo "  1. Markdown diff:             http://127.0.0.1:$PORT"
+echo "  2. Code diff (word-level):    http://127.0.0.1:$WORD_DIFF_PORT"
+echo "  3. Carry-forward (file-mode): http://127.0.0.1:$CF_FILE_PORT"
+echo "  4. Carry-forward (git-mode):  http://127.0.0.1:$CF_GIT_PORT"
+echo ""
+echo "Carry-forward comments placed on v1 content (instances 3 & 4):"
+echo "  C1 (lines 31-32): sessions table description"
+echo "  C2 (line 67):     backfill migration step"
+echo "  C3 (lines 75-79): rollback plan (REMOVED in v2)"
+echo "  C4 (line 85):     performance section (REWRITTEN in v2)"
+echo "  C5 (line 103):    risk about lock duration"
+echo ""
+echo "Press Enter to simulate agent edits (swap v2 content + round-complete on all)."
 read -r
 
 echo "Swapping in v2 content..."
@@ -361,6 +511,15 @@ PYEOF
 
 echo "Signalling round-complete..."
 curl -sf -X POST "http://127.0.0.1:$PORT/api/round-complete" > /dev/null
+
+# --- Carry-forward: swap to v2 and round-complete ---
+echo "Swapping carry-forward content to v2..."
+cp test/carry-forward-v2.md "$CF_FILE"
+cp test/carry-forward-v2.md "$CF_GIT_DIR/plan.md"
+sleep 1.5
+
+curl -sf -X POST "http://127.0.0.1:$CF_FILE_PORT/api/round-complete" > /dev/null
+curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/round-complete" > /dev/null
 
 # --- Orphaned comments on the word-diff (git-mode) instance ---
 # Wait for the word-diff server to be ready
@@ -414,9 +573,11 @@ git -C "$WORD_DIFF_DIR" rm -q helpers.go && git -C "$WORD_DIFF_DIR" commit -q -m
 curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/round-complete" > /dev/null
 
 echo ""
-echo "Three views running:"
+echo "Four views running:"
 echo "  1. Markdown diff (inter-round):  http://127.0.0.1:$PORT"
 echo "  2. Code diff (word-level):       http://127.0.0.1:$WORD_DIFF_PORT"
+echo "  3. Carry-forward (file-mode):    http://127.0.0.1:$CF_FILE_PORT"
+echo "  4. Carry-forward (git-mode):     http://127.0.0.1:$CF_GIT_PORT"
 echo ""
 echo "Instance 1: diff view with resolved comments + threaded replies + deletion markers."
 echo "            Comment #2 (resolved): 2 agent replies — visible when expanded."
@@ -427,6 +588,13 @@ echo "Instance 2: word-level diff + orphaned comments on helpers.go"
 echo "            helpers.go was added then deleted — should appear as a phantom"
 echo "            section with 'Removed' badge, 2 outdated comments (1 file-level,"
 echo "            1 line-scoped), and full resolve/edit/delete support."
+echo "Instances 3+4: carry-forward comment positioning after v1 → v2 content change."
+echo "            Expected results (switch to Document view on instance 3):"
+echo "              C1 (v1:31-32 → v2:39-40): 'sessions table' — should follow content down"
+echo "              C2 (v1:67    → v2:76):     'Backfill'        — should follow content down"
+echo "              C3 (v1:75-79):             Rollback plan     — REMOVED, should be outdated"
+echo "              C4 (v1:85):                'grow rapidly'    — REWRITTEN, should be drifted"
+echo "              C5 (v1:103   → v2:112):    'Large table'     — should follow content down"
 echo ""
-echo "Press Enter to stop both servers."
+echo "Press Enter to stop all servers."
 read -r

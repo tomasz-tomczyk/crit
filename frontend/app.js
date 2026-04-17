@@ -4485,6 +4485,14 @@
       headerLeft.appendChild(badge);
     }
 
+    if (comment.drifted) {
+      wrapper.classList.add('outdated-comment');
+      const driftedBadge = document.createElement('span');
+      driftedBadge.className = 'outdated-badge';
+      driftedBadge.textContent = 'Drifted';
+      headerLeft.appendChild(driftedBadge);
+    }
+
     const actions = document.createElement('div');
     actions.className = 'comment-actions';
 
@@ -4496,6 +4504,23 @@
     bodyEl.innerHTML = commentMd.render(comment.body, filePath ? buildCommentEnv(comment, filePath) : undefined);
 
     card.appendChild(header);
+
+    // Drifted anchor context — show original content that was commented on
+    if (comment.drifted && comment.anchor) {
+      const driftedCtx = document.createElement('div');
+      driftedCtx.className = 'drifted-context';
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = 'Original content';
+      details.appendChild(summary);
+      const pre = document.createElement('pre');
+      pre.className = 'drifted-anchor-text';
+      pre.textContent = comment.anchor;
+      details.appendChild(pre);
+      driftedCtx.appendChild(details);
+      card.appendChild(driftedCtx);
+    }
+
     card.appendChild(bodyEl);
 
     // Render replies

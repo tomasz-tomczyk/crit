@@ -61,6 +61,8 @@ type Comment struct {
 	Body           string  `json:"body"`
 	Quote          string  `json:"quote,omitempty"`
 	QuoteOffset    *int    `json:"quote_offset,omitempty"`
+	Anchor         string  `json:"anchor,omitempty"`
+	Drifted        bool    `json:"drifted,omitempty"`
 	Author         string  `json:"author,omitempty"`
 	Scope          string  `json:"scope,omitempty"`
 	CreatedAt      string  `json:"created_at"`
@@ -548,6 +550,23 @@ func (s *Session) FileByPath(path string) *FileEntry {
 	return nil
 }
 
+// extractAnchor returns the joined text of lines[startLine..endLine] (1-indexed)
+// from the given content. Returns empty string if lines are out of range.
+func extractAnchor(content string, startLine, endLine int) string {
+	if startLine <= 0 || endLine < startLine || content == "" {
+		return ""
+	}
+	lines := splitLines(content)
+	if startLine > len(lines) {
+		return ""
+	}
+	end := endLine
+	if end > len(lines) {
+		end = len(lines)
+	}
+	return strings.Join(lines[startLine-1:end], "\n")
+}
+
 // AddComment adds a comment to a specific file.
 func (s *Session) AddComment(filePath string, startLine, endLine int, side, body, quote, author string) (Comment, bool) {
 	s.mu.Lock()
@@ -564,6 +583,7 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 		Side:        side,
 		Body:        body,
 		Quote:       quote,
+		Anchor:      extractAnchor(f.Content, startLine, endLine),
 		Author:      author,
 		Scope:       "line",
 		CreatedAt:   now,

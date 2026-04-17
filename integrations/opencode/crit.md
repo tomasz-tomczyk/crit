@@ -52,14 +52,14 @@ The file contains structured JSON with comments per file:
   "files": {
     "plan.md": {
       "comments": [
-        { "id": "c_a1b2c3", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "resolved": false }
+        { "id": "c_a1b2c3", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "anchor": "The sessions table needs a complete rewrite...", "resolved": false }
       ]
     }
   }
 }
 ```
 
-Identify all comments where `"resolved": false` or where the `resolved` field is missing (missing means unresolved). If a comment has a `"quote"` field, it contains the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range.
+Identify all comments where `"resolved": false` or where the `resolved` field is missing (missing means unresolved). If a comment has a `"quote"` field, it contains the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range. If a comment has an `"anchor"` field, use it to locate the current position of the content rather than trusting `start_line`/`end_line` which may be stale after edits. If `"drifted": true`, the original content was removed or heavily rewritten — the line numbers are approximate at best.
 
 Before acting on a comment, check its `replies` array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change.
 

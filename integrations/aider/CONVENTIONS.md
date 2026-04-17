@@ -34,7 +34,7 @@ crit
 
 ## After review
 
-The crit stdout output includes the review file path. Read that file to find the user's inline comments. Comments have three scopes: line comments in `files.<path>.comments` (with `start_line`/`end_line`), file comments (same array, `scope: "file"`, lines are 0), and review comments in the top-level `review_comments` array (`scope: "review"`, not tied to any file). Address each unresolved comment by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --author 'Aider' '<what you did>'`. This works for both file comment IDs (e.g. `c_a1b2c3`) and review comment IDs (e.g. `r_f1e2d3`).
+The crit stdout output includes the review file path. Read that file to find the user's inline comments. Comments have three scopes: line comments in `files.<path>.comments` (with `start_line`/`end_line`), file comments (same array, `scope: "file"`, lines are 0), and review comments in the top-level `review_comments` array (`scope: "review"`, not tied to any file). Line comments include an `anchor` field containing the full text of the commented lines when the comment was placed — use this to locate the current position of the content rather than trusting `start_line`/`end_line` which may be stale after edits. If `drifted: true`, the original content was removed or heavily rewritten and line numbers are approximate. Address each unresolved comment by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --author 'Aider' '<what you did>'`. This works for both file comment IDs (e.g. `c_a1b2c3`) and review comment IDs (e.g. `r_f1e2d3`).
 
 When addressing multiple comments, use `--json` to reply to them all in one call:
 

@@ -710,16 +710,30 @@ func appendComment(cj *CritJSON, filePath string, startLine, endLine int, body, 
 		}
 	}
 
+	// Populate anchor from the file on disk.
+	anchor := readAnchorFromDisk(filePath, startLine, endLine)
+
 	cf.Comments = append(cf.Comments, Comment{
 		ID:        randomCommentID(),
 		StartLine: startLine,
 		EndLine:   endLine,
 		Body:      body,
+		Anchor:    anchor,
 		Author:    author,
 		CreatedAt: now,
 		UpdatedAt: now,
 	})
 	cj.Files[filePath] = cf
+}
+
+// readAnchorFromDisk reads the file from disk and extracts lines startLine..endLine
+// as the anchor text. Returns empty string on any error or if the file is not found.
+func readAnchorFromDisk(filePath string, startLine, endLine int) string {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return ""
+	}
+	return extractAnchor(string(data), startLine, endLine)
 }
 
 // appendReply adds a reply to an existing comment in the CritJSON struct in memory.

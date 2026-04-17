@@ -2207,3 +2207,74 @@ func TestAppendReply_AmbiguousID(t *testing.T) {
 		}
 	})
 }
+
+func TestAddCommentToCritJSON_PopulatesAnchor(t *testing.T) {
+	dir := initTestRepo(t)
+	oldDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldDir)
+
+	// Write a file with known content.
+	writeFile(t, filepath.Join(dir, "hello.go"), "package main\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n")
+
+	if err := addCommentToCritJSON("hello.go", 3, 4, "Fix this function", "Bot", dir); err != nil {
+		t.Fatalf("addCommentToCritJSON: %v", err)
+	}
+
+	critPath, _ := resolveReviewPath(dir)
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		t.Fatalf("read review file: %v", err)
+	}
+
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	comments := cj.Files["hello.go"].Comments
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+
+	want := "func main() {\n\tfmt.Println(\"hello\")"
+	if comments[0].Anchor != want {
+		t.Errorf("Anchor = %q, want %q", comments[0].Anchor, want)
+	}
+}
+
+func TestBulkAddCommentsToCritJSON_PopulatesAnchor(t *testing.T) {
+	dir := initTestRepo(t)
+	oldDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldDir)
+
+	writeFile(t, filepath.Join(dir, "server.go"), "package main\n\nimport \"net/http\"\n\nfunc handler() {}\n")
+
+	entries := []BulkCommentEntry{
+		{File: "server.go", Line: 3, Body: "Why this import?"},
+	}
+	if err := bulkAddCommentsToCritJSON(entries, "Bot", dir); err != nil {
+		t.Fatalf("bulkAddCommentsToCritJSON: %v", err)
+	}
+
+	critPath, _ := resolveReviewPath(dir)
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		t.Fatalf("read review file: %v", err)
+	}
+
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	comments := cj.Files["server.go"].Comments
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+
+	if comments[0].Anchor != "import \"net/http\"" {
+		t.Errorf("Anchor = %q, want %q", comments[0].Anchor, "import \"net/http\"")
+	}
+}

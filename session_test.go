@@ -3833,3 +3833,79 @@ func TestGetSessionInfo_OrphanedField(t *testing.T) {
 		t.Errorf("expected comment count 1, got %d", orphanedInfo.CommentCount)
 	}
 }
+
+func TestAddComment_PopulatesAnchor(t *testing.T) {
+	s := newTestSession(t)
+	// plan.md content: "# Plan\n\n## Step 1\n\nDo the thing\n"
+	// Lines: 1="# Plan", 2="", 3="## Step 1", 4="", 5="Do the thing"
+	c, ok := s.AddComment("plan.md", 3, 5, "", "Rethink this", "", "")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	want := "## Step 1\n\nDo the thing"
+	if c.Anchor != want {
+		t.Errorf("Anchor = %q, want %q", c.Anchor, want)
+	}
+}
+
+func TestAddComment_AnchorSingleLine(t *testing.T) {
+	s := newTestSession(t)
+	c, ok := s.AddComment("plan.md", 1, 1, "", "Fix title", "", "")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	if c.Anchor != "# Plan" {
+		t.Errorf("Anchor = %q, want %q", c.Anchor, "# Plan")
+	}
+}
+
+func TestAddComment_NoAnchorForFileComment(t *testing.T) {
+	s := newTestSession(t)
+	c, ok := s.AddFileComment("plan.md", "Overall feedback", "reviewer")
+	if !ok {
+		t.Fatal("AddFileComment failed")
+	}
+	if c.Anchor != "" {
+		t.Errorf("file-level comment should not have anchor, got %q", c.Anchor)
+	}
+}
+
+func TestAddComment_NoAnchorForReviewComment(t *testing.T) {
+	s := newTestSession(t)
+	c := s.AddReviewComment("General feedback", "reviewer")
+	if c.Anchor != "" {
+		t.Errorf("review-level comment should not have anchor, got %q", c.Anchor)
+	}
+}
+
+func TestExtractAnchor(t *testing.T) {
+	content := "line1\nline2\nline3\nline4\nline5"
+
+	tests := []struct {
+		name       string
+		start, end int
+		want       string
+	}{
+		{"single line", 2, 2, "line2"},
+		{"range", 2, 4, "line2\nline3\nline4"},
+		{"first line", 1, 1, "line1"},
+		{"last line", 5, 5, "line5"},
+		{"out of range", 6, 6, ""},
+		{"zero start", 0, 1, ""},
+		{"end beyond file", 4, 10, "line4\nline5"},
+		{"empty content", 1, 1, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := content
+			if tt.name == "empty content" {
+				c = ""
+			}
+			got := extractAnchor(c, tt.start, tt.end)
+			if got != tt.want {
+				t.Errorf("extractAnchor(%d, %d) = %q, want %q", tt.start, tt.end, got, tt.want)
+			}
+		})
+	}
+}
