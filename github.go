@@ -436,8 +436,8 @@ func resolveReviewPath(outputDir string) (string, error) {
 
 	// No daemon — compute centralized path.
 	branch := ""
-	if IsGitRepo() {
-		branch = CurrentBranch()
+	if vcs := DetectVCS(""); vcs != nil {
+		branch = vcs.CurrentBranch()
 	}
 	key := sessionKey(cwd, branch, nil)
 	path, err := reviewFilePath(key)
@@ -458,9 +458,13 @@ func resolveReviewPathFromDaemon(cwd string) string {
 		return path
 	}
 
-	// Fallback: match by git repo root.
-	if len(sessions) == 0 && IsGitRepo() {
-		if repoRoot, err := RepoRoot(); err == nil && repoRoot != cwd {
+	// Fallback: match by VCS repo root.
+	if len(sessions) == 0 {
+		vcs := DetectVCS("")
+		if vcs == nil {
+			return ""
+		}
+		if repoRoot, err := vcs.RepoRoot(); err == nil && repoRoot != cwd {
 			repoSessions, _ := listSessionsForRepoRoot(repoRoot)
 			if path := pickReviewPath(repoSessions); path != "" {
 				return path

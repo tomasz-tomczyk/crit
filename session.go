@@ -455,19 +455,20 @@ func expandAndDedupPaths(paths []string, ignorePatterns []string) ([]string, err
 	return unique, nil
 }
 
-// resolveGitContext returns git repo state for file-mode sessions.
-func resolveGitContext() (root, branch, baseRef, baseBranchName string) {
-	if !IsGitRepo() {
-		return "", "", "", ""
+// resolveGitContext returns VCS repo state for file-mode sessions.
+func resolveGitContext() (root, branch, baseRef, baseBranchName string, vcs VCS) {
+	vcs = DetectVCS("")
+	if vcs == nil {
+		return "", "", "", "", nil
 	}
-	root, _ = RepoRoot()
-	branch = CurrentBranch()
-	resolvedBase := DefaultBranch()
+	root, _ = vcs.RepoRoot()
+	branch = vcs.CurrentBranch()
+	resolvedBase := vcs.DefaultBranch()
 	baseBranchName = resolvedBase
 	if branch != resolvedBase {
-		baseRef, _ = MergeBase(resolvedBase)
+		baseRef, _ = vcs.MergeBase(resolvedBase)
 	}
-	return root, branch, baseRef, baseBranchName
+	return root, branch, baseRef, baseBranchName, vcs
 }
 
 // NewSessionFromFiles creates a session from explicitly provided file or directory paths.
@@ -487,12 +488,13 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 		return nil, fmt.Errorf("no files found")
 	}
 
-	root, branch, baseRef, baseBranchName := resolveGitContext()
+	root, branch, baseRef, baseBranchName, vcs := resolveGitContext()
 	if root == "" {
 		root = filepath.Dir(expandedPaths[0])
 	}
 
 	s := &Session{
+		VCS:                 vcs,
 		Mode:                "files",
 		Branch:              branch,
 		BaseRef:             baseRef,
@@ -528,10 +530,10 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 			Comments: []Comment{},
 		}
 
-		if IsGitRepo() {
-			hunks, diffErr := fileDiffUnified(relPath, baseRef, root)
+		if vcs != nil {
+			hunks, diffErr := vcs.FileDiffUnified(relPath, baseRef, root)
 			if diffErr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", relPath, diffErr)
+				fmt.Fprintf(os.Stderr, "Warning: diff failed for %s: %v\n", relPath, diffErr)
 			} else {
 				fe.DiffHunks = hunks
 			}
@@ -1160,6 +1162,7 @@ func (s *Session) EnsureFileEntry(path string) bool {
 	}
 	repoRoot := s.RepoRoot
 	baseRef := s.BaseRef
+	vcs := s.VCS
 	s.mu.RUnlock()
 
 	if repoRoot == "" {
@@ -1172,9 +1175,12 @@ func (s *Session) EnsureFileEntry(path string) bool {
 		return false
 	}
 
-	// Determine the file's git status via a single-file diff against baseRef
+	// Determine the file's VCS status via a single-file diff against baseRef
 	// (avoids running full ChangedFiles which diffs ALL files).
-	status := fileStatusInRepo(path, repoRoot, baseRef)
+	status := "modified"
+	if vcs != nil {
+		status = vcs.FileStatusInRepo(path, baseRef, repoRoot)
+	}
 
 	fe := &FileEntry{
 		Path:     path,
@@ -1189,8 +1195,8 @@ func (s *Session) EnsureFileEntry(path string) bool {
 	// Generate diff hunks
 	if status == "added" || status == "untracked" {
 		fe.DiffHunks = FileDiffUnifiedNewFile(fe.Content)
-	} else if status != "deleted" {
-		if hunks, err := fileDiffUnified(path, baseRef, repoRoot); err == nil {
+	} else if status != "deleted" && vcs != nil {
+		if hunks, err := vcs.FileDiffUnified(path, baseRef, repoRoot); err == nil {
 			fe.DiffHunks = hunks
 		}
 	}
@@ -1429,25 +1435,29 @@ func (s *Session) ClearAllComments() {
 func (s *Session) ChangeBaseBranch(branch string) error {
 	s.mu.RLock()
 	mode := s.Mode
+	vcs := s.VCS
 	s.mu.RUnlock()
 	if mode != "git" {
 		return fmt.Errorf("base branch can only be changed in git mode")
 	}
+	if vcs == nil {
+		return fmt.Errorf("no VCS available")
+	}
 
 	// Compute merge-base with the new branch (try both local and remote ref)
-	mb, err := MergeBase(branch)
+	mb, err := vcs.MergeBase(branch)
 	if err != nil {
-		mb, err = MergeBase("origin/" + branch)
+		mb, err = vcs.MergeBase("origin/" + branch)
 		if err != nil {
 			return fmt.Errorf("cannot compute merge-base with %s: %w", branch, err)
 		}
 	}
 
 	// Save old state for rollback
-	oldOverride := getDefaultBranchOverride()
+	oldOverride := vcs.GetDefaultBranchOverride()
 
-	// Update the global override so ChangedFiles() uses the new base
-	setDefaultBranchOverride(branch)
+	// Update the override so ChangedFiles() uses the new base
+	vcs.SetDefaultBranchOverride(branch)
 
 	s.mu.Lock()
 	oldBaseRef := s.BaseRef
@@ -1470,13 +1480,13 @@ func (s *Session) ChangeBaseBranch(branch string) error {
 	// Re-detect changed files with new base
 	var changes []FileChange
 	if currentBranch != branch {
-		changes, err = changedFilesFromBaseInDir(mb, repoRoot)
+		changes, err = vcs.ChangedFilesFromBaseInDir(mb, repoRoot)
 	} else {
-		changes, err = changedFilesOnDefaultInDir(repoRoot)
+		changes, err = vcs.ChangedFilesOnDefaultInDir(repoRoot)
 	}
 	if err != nil {
 		// Rollback all state
-		setDefaultBranchOverride(oldOverride)
+		vcs.SetDefaultBranchOverride(oldOverride)
 		s.mu.Lock()
 		s.BaseRef = oldBaseRef
 		s.BaseBranchName = oldBaseBranchName
@@ -1506,7 +1516,7 @@ func (s *Session) ChangeBaseBranch(branch string) error {
 			}
 		}
 		if fc.Status != "added" && fc.Status != "untracked" {
-			if hunks, diffErr := fileDiffUnified(fc.Path, mb, repoRoot); diffErr == nil {
+			if hunks, diffErr := vcs.FileDiffUnified(fc.Path, mb, repoRoot); diffErr == nil {
 				fe.DiffHunks = hunks
 			}
 		} else {
@@ -2391,16 +2401,16 @@ func availableScopes(baseRef string) []string {
 }
 
 // GetCommits returns the list of commits between the base ref and HEAD.
-// Returns nil for non-git sessions or when no base ref is set.
+// Returns nil for non-VCS sessions or when no base ref is set.
 func (s *Session) GetCommits() []CommitInfo {
 	s.mu.RLock()
-	if s.Mode != "git" || s.BaseRef == "" {
+	if s.Mode != "git" || s.BaseRef == "" || s.VCS == nil {
 		s.mu.RUnlock()
 		return nil
 	}
-	baseRef, repoRoot := s.BaseRef, s.RepoRoot
+	baseRef, repoRoot, vcs := s.BaseRef, s.RepoRoot, s.VCS
 	s.mu.RUnlock()
-	commits, err := CommitLog(baseRef, repoRoot)
+	commits, err := vcs.CommitLog(baseRef, repoRoot)
 	if err != nil {
 		return nil
 	}

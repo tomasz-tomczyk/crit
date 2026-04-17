@@ -616,8 +616,13 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 	sess := s.session.Load()
 	sess.mu.RLock()
 	repoRoot := sess.RepoRoot
+	vcs := sess.VCS
 	sess.mu.RUnlock()
-	branches, err := RemoteBranches(repoRoot)
+	if vcs == nil {
+		writeJSON(w, []string{})
+		return
+	}
+	branches, err := vcs.RemoteBranches(repoRoot)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1140,9 +1145,13 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 	var paths []string
 	var err error
 
-	// Try git first (works in both "git" and "files" mode when inside a repo),
-	// fall back to filesystem walk for non-git directories.
-	paths, err = AllTrackedFiles(sess.RepoRoot)
+	// Try VCS first (works in both "git" and "files" mode when inside a repo),
+	// fall back to filesystem walk for non-VCS directories.
+	if sess.VCS != nil {
+		paths, err = sess.VCS.AllTrackedFiles(sess.RepoRoot)
+	} else {
+		err = fmt.Errorf("no VCS")
+	}
 	if err != nil {
 		paths, err = WalkFiles(sess.RepoRoot)
 	}

@@ -612,8 +612,8 @@ func clearShareState(critPath string) error {
 // Used by share/fetch/unpublish commands to avoid redundant config parsing.
 func loadShareConfig() Config {
 	cfgDir := ""
-	if IsGitRepo() {
-		cfgDir, _ = RepoRoot()
+	if vcs := DetectVCS(""); vcs != nil {
+		cfgDir, _ = vcs.RepoRoot()
 	}
 	if cfgDir == "" {
 		cfgDir, _ = os.Getwd()

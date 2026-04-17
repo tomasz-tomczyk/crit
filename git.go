@@ -534,6 +534,7 @@ var skipDirs = map[string]bool{
 	"vendor":       true,
 	"__pycache__":  true,
 	".git":         true,
+	".sl":          true,
 	"dist":         true,
 	"build":        true,
 	"_build":       true,
