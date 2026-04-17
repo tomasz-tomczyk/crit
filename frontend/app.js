@@ -3287,19 +3287,6 @@
     return { commentsMap: commentsMap, diffCommentsMap: diffCommentsMap, rangeSet: rangeSet };
   }
 
-  // Convenience wrappers that maintain the existing call-site API
-  function buildCommentsMap(comments) {
-    return buildCommentIndices(comments).commentsMap;
-  }
-
-  function buildDiffCommentsMap(comments) {
-    return buildCommentIndices(comments).diffCommentsMap;
-  }
-
-  function buildCommentedRangeSet(comments) {
-    return buildCommentIndices(comments).rangeSet;
-  }
-
   // For unified diff: build a Set of visual indices that should have has-comment.
   // This handles interleaved add/del lines correctly by using sequential position.
   function buildUnifiedCommentVisualSet(hunks, comments) {
