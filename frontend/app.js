@@ -2954,11 +2954,16 @@
             const inCurrentDrag = diffDragState && unifiedVisualStart !== null && unifiedVisualEnd !== null &&
                 visualIdx >= unifiedVisualStart && visualIdx <= unifiedVisualEnd;
             const formSide = activeForms.length > 0 ? (activeForms[activeForms.length - 1].side || '') : '';
+            // Match against the line's number in the form's space (OldNum for old-side, NewNum otherwise)
+            // so context lines participate in old-side range selections.
+            const relevantNum = formSide === 'old' ? line.OldNum : line.NewNum;
             const inCurrentForm = !diffDragState && selectionStart !== null && selectionEnd !== null &&
-                lineSide === formSide && commentLineNum >= selectionStart && commentLineNum <= selectionEnd;
+                relevantNum > 0 && relevantNum >= selectionStart && relevantNum <= selectionEnd;
             const inCurrentSelUnified = inCurrentDrag || inCurrentForm;
             const hasFormUnified = getFormsForFile(file.path).some(function(f) {
-              return !f.editingId && commentLineNum >= f.startLine && commentLineNum <= f.endLine && (f.side || '') === lineSide;
+              const fSide = f.side || '';
+              const fNum = fSide === 'old' ? line.OldNum : line.NewNum;
+              return !f.editingId && fNum > 0 && fNum >= f.startLine && fNum <= f.endLine;
             });
             if (inCurrentSelUnified) { lineEl.classList.add('selected'); }
             if (hasFormUnified && !inCurrentSelUnified) { lineEl.classList.add('form-selected'); }

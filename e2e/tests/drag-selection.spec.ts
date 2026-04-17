@@ -314,4 +314,57 @@ test.describe('Diff Drag Selection — Unified Mode', () => {
     const count = await selectedLines.count();
     expect(count).toBeGreaterThanOrEqual(1);
   });
+
+  test('unified drag from deletion spans across context lines after release', async ({ page }) => {
+    // Regression: dragging from a deletion anchor across context + another deletion
+    // should keep the full old-side range highlighted after mouseup, not collapse
+    // to only the deletion lines.
+    const section = goSection(page);
+    await expect(section).toBeVisible();
+
+    // Find two deletion lines separated by at least one context line in between.
+    const pair = await section.evaluate((sec) => {
+      const lines = Array.from(sec.querySelectorAll('.diff-container.unified .diff-line'));
+      let firstDel = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].classList.contains('deletion')) {
+          if (firstDel === -1) { firstDel = i; continue; }
+          // Check at least one context line between firstDel and i
+          for (let j = firstDel + 1; j < i; j++) {
+            const cls = lines[j].classList;
+            if (!cls.contains('deletion') && !cls.contains('addition')) {
+              return { first: firstDel, last: i };
+            }
+          }
+        }
+      }
+      return null;
+    });
+    if (!pair) test.skip(true, 'fixture needs two deletions with context between');
+
+    const allLines = section.locator('.diff-container.unified .diff-line');
+    const firstDel = allLines.nth(pair!.first);
+    const lastDel = allLines.nth(pair!.last);
+
+    await firstDel.scrollIntoViewIfNeeded();
+    await firstDel.hover();
+    const firstBtn = firstDel.locator('.diff-comment-btn');
+    await expect(firstBtn).toBeAttached();
+    const secondBtn = lastDel.locator('.diff-comment-btn');
+
+    await dragBetween(page, firstBtn, secondBtn);
+
+    await expect(page.locator('.comment-form')).toBeVisible();
+
+    // After mouseup, context lines between the deletions should still be highlighted
+    // (not just the deletion endpoints). Before the fix, inCurrentForm filtered by
+    // side so only deletion lines kept the .selected class after the drag released.
+    const selectedContext = section.locator(
+      '.diff-container.unified .diff-line.selected:not(.deletion):not(.addition)'
+    );
+    await expect(async () => {
+      const n = await selectedContext.count();
+      expect(n).toBeGreaterThan(0);
+    }).toPass();
+  });
 });

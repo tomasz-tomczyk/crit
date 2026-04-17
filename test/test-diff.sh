@@ -97,6 +97,39 @@ defmodule MyApp.Accounts do
 end
 EXEOF
 
+# Scheduler file — exercises unified-diff gutter drag starting from a deletion line.
+# v1 → v2 produces three deletion/addition pairs separated by context lines; drag
+# the + gutter from the first deletion to the last to verify the selection spans
+# context lines (not collapsed to deletions only).
+cat > "$WORD_DIFF_DIR/scheduler.ex" << 'EXEOF'
+defmodule Vetspire.DistributedWorker.Scheduler do
+  use GenServer
+
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  def init(opts) do
+    {:ok, %{dynamic_supervisor: opts[:sup], owned: %{}}}
+  end
+
+  def handle_call({:schedule, task_id, child_spec}, _from, state) do
+    owned = state.owned
+
+    case DynamicSupervisor.start_child(state.dynamic_supervisor, child_spec) do
+      {:ok, pid} ->
+        Map.put(owned, task_id, {pid, Process.monitor(pid)})
+
+      {:ok, pid, _info} ->
+        Map.put(owned, task_id, {pid, Process.monitor(pid)})
+
+      {:error, {:already_started, pid}} ->
+        Map.put(owned, task_id, {pid, Process.monitor(pid)})
+    end
+  end
+end
+EXEOF
+
 git -C "$WORD_DIFF_DIR" add -A && git -C "$WORD_DIFF_DIR" commit -q -m "initial"
 
 # Modify the file to produce good word-level diff pairs
@@ -148,6 +181,37 @@ defmodule MyApp.Accounts do
         |> validate_required([:password, :password_confirmation])
         |> validate_length(:password, min: 8)
         |> validate_confirmation(:password)
+  end
+end
+EXEOF
+
+# Modify scheduler.ex — Map.put → track/3, producing three paired del/add blocks
+# separated by context lines. This is the target for the unified-diff gutter drag test.
+cat > "$WORD_DIFF_DIR/scheduler.ex" << 'EXEOF'
+defmodule Vetspire.DistributedWorker.Scheduler do
+  use GenServer
+
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  def init(opts) do
+    {:ok, %{dynamic_supervisor: opts[:sup], owned: %{}}}
+  end
+
+  def handle_call({:schedule, task_id, child_spec}, _from, state) do
+    owned = state.owned
+
+    case DynamicSupervisor.start_child(state.dynamic_supervisor, child_spec) do
+      {:ok, pid} ->
+        track(owned, task_id, pid)
+
+      {:ok, pid, _info} ->
+        track(owned, task_id, pid)
+
+      {:error, {:already_started, pid}} ->
+        track(owned, task_id, pid)
+    end
   end
 end
 EXEOF
