@@ -170,11 +170,17 @@ type Session struct {
 	// prevents mergeFileSnapshotIntoCritJSON from re-adding them from disk.
 	deletedCommentIDs map[string]map[string]struct{}
 
-	mu                  sync.RWMutex
-	subscribers         map[chan SSEEvent]struct{}
-	subMu               sync.Mutex
-	writeTimer          *time.Timer
-	writeGen            int
+	mu          sync.RWMutex
+	subscribers map[chan SSEEvent]struct{}
+	subMu       sync.Mutex
+	writeTimer  *time.Timer
+	writeGen    int
+	// writeMu serializes debounced WriteFiles() calls with ClearAllComments
+	// so a stale in-flight write cannot recreate the review file after it has
+	// been deleted. time.Timer.Stop() does not wait for callbacks already
+	// executing, so the writeGen check alone is not sufficient to prevent a
+	// snapshot-taken-before-clear from resurrecting the file.
+	writeMu             sync.Mutex
 	pendingWrite        bool
 	sharedURL           string
 	deleteToken         string
@@ -1204,6 +1210,12 @@ func (s *Session) SignalRoundComplete() {
 // It also removes the review file entry from s.Files and deletes the review file from disk
 // (centralized storage under ~/.crit/reviews/).
 func (s *Session) ClearAllComments() {
+	// Hold writeMu for the duration so any in-flight debounced write must
+	// finish (and observe the new writeGen) before we proceed. Without this,
+	// a WriteFiles() call that passed the gen check a moment ago could
+	// atomicWriteFile the old snapshot back onto disk after os.Remove below.
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	s.mu.Lock()
 	// Cancel any pending debounced write so it cannot recreate the review file after we delete it.
 	if s.writeTimer != nil {
@@ -1341,6 +1353,12 @@ func (s *Session) scheduleWrite() {
 	}
 	gen := s.writeGen
 	s.writeTimer = time.AfterFunc(200*time.Millisecond, func() {
+		// Serialize debounced writes with ClearAllComments so a stale
+		// in-flight write cannot recreate the review file after we've
+		// deleted it. ClearAllComments bumps writeGen under writeMu, so
+		// once we hold the mutex the gen check reflects the final state.
+		s.writeMu.Lock()
+		defer s.writeMu.Unlock()
 		s.mu.RLock()
 		if s.writeGen != gen {
 			s.mu.RUnlock()
