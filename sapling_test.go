@@ -126,6 +126,54 @@ func TestParseSaplingCommitLog(t *testing.T) {
 	}
 }
 
+func TestParseRemoteBookmarks(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "empty input",
+			input: "",
+			want:  nil,
+		},
+		{
+			name:  "single bookmark",
+			input: "main   abc123def456",
+			want:  []string{"main"},
+		},
+		{
+			name:  "multiple bookmarks",
+			input: "main   abc123\nrelease   def456\ndev   789abc",
+			want:  []string{"main", "release", "dev"},
+		},
+		{
+			name:  "empty lines",
+			input: "main   abc123\n\n\nrelease   def456\n",
+			want:  []string{"main", "release"},
+		},
+		{
+			name:  "whitespace only lines",
+			input: "main   abc123\n   \nrelease   def456",
+			want:  []string{"main", "release"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseRemoteBookmarks(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d bookmarks, want %d\ngot:  %v\nwant: %v", len(got), len(tt.want), got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("bookmark[%d]: got %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestDetectVCS_SaplingOverride(t *testing.T) {
 	for _, override := range []string{"sl", "sapling"} {
 		v := DetectVCS(override)

@@ -76,8 +76,19 @@ func (s *Session) RefreshFileList() {
 		return
 	}
 
-	// ChangedFiles shells out to VCS — no lock needed
-	changes, err := ChangedFiles()
+	// Shell out to VCS for changed files — no lock held.
+	s.mu.RLock()
+	baseRef := s.BaseRef
+	repoRoot := s.RepoRoot
+	s.mu.RUnlock()
+
+	var changes []FileChange
+	var err error
+	if vcs.CurrentBranch() == vcs.DefaultBranch() {
+		changes, err = vcs.ChangedFilesOnDefaultInDir(repoRoot)
+	} else {
+		changes, err = vcs.ChangedFilesFromBaseInDir(baseRef, repoRoot)
+	}
 	if err != nil {
 		return
 	}
@@ -91,8 +102,6 @@ func (s *Session) RefreshFileList() {
 	for _, f := range s.Files {
 		existing[f.Path] = f
 	}
-	repoRoot := s.RepoRoot
-	baseRef := s.BaseRef
 	s.mu.RUnlock()
 
 	// Fetch numstats if we might need them for lazy files
@@ -173,6 +182,11 @@ func (s *Session) watchGit(stop <-chan struct{}) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	// Read VCS once under lock — it doesn't change after session init.
+	s.mu.RLock()
+	vcs := s.VCS
+	s.mu.RUnlock()
+
 	var lastFP string
 	wasWaiting := false
 
@@ -191,8 +205,8 @@ func (s *Session) watchGit(stop <-chan struct{}) {
 			}
 
 			var fp string
-			if s.VCS != nil {
-				fp = s.VCS.WorkingTreeFingerprint()
+			if vcs != nil {
+				fp = vcs.WorkingTreeFingerprint()
 			} else {
 				fp = WorkingTreeFingerprint()
 			}
