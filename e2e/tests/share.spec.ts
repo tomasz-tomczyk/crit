@@ -2,16 +2,14 @@ import { test, expect } from '@playwright/test';
 import { loadPage } from './helpers';
 
 // ============================================================
-// Share Feature — Git Mode (share button disabled in git mode with tooltip)
+// Share Feature — Git Mode (share button hidden in git mode)
 // ============================================================
 test.describe('Share — Git Mode', () => {
-  test('share button is disabled in git mode', async ({ page }) => {
+  test('share button is hidden in git mode', async ({ page }) => {
     await loadPage(page);
 
     const shareBtn = page.locator('#shareBtn');
-    await expect(shareBtn).toBeVisible();
-    await expect(shareBtn).toBeDisabled();
-    await expect(shareBtn).toHaveAttribute('title', /not available in git mode/i);
+    await expect(shareBtn).toBeHidden();
   });
 
   test('config API returns default share_url', async ({ request }) => {

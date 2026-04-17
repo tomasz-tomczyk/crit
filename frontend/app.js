@@ -547,13 +547,10 @@
     agentEnabled = configRes.agent_cmd_enabled || false;
     agentName = configRes.agent_name || 'agent';
 
-    if (shareURL) {
+    if (shareURL && session.mode !== 'git') {
       const shareBtn = document.getElementById('shareBtn');
       shareBtn.style.display = '';
-      if (session.mode === 'git') {
-        shareBtn.disabled = true;
-        shareBtn.title = 'Sharing is not available in git mode';
-      } else if (hostedURL) {
+      if (hostedURL) {
         setShareButtonState('shared');
       }
     }
