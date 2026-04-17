@@ -99,14 +99,12 @@ func DetectVCS(vcsOverride string) VCS {
 	case "git":
 		return &GitVCS{}
 	case "sl", "sapling":
-		// TODO: return &SaplingVCS{} once implemented
-		return nil
+		return &SaplingVCS{}
 	}
 
 	// Auto-detect: check for .sl/ first since Sapling repos on top of git have both.
 	if hasSLDir() {
-		// TODO: return &SaplingVCS{} once implemented
-		return nil
+		return &SaplingVCS{}
 	}
 
 	if IsGitRepo() {
