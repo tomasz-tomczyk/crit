@@ -78,6 +78,30 @@ func TestMergeGHComments_BasicConversion(t *testing.T) {
 	}
 }
 
+func TestGHVersionSupportsSlurp(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    bool
+	}{
+		{name: "older than 2.48.0", version: "gh version 2.47.0 (2025-01-01)\n", want: false},
+		{name: "exactly 2.48.0", version: "gh version 2.48.0 (2025-01-01)\n", want: true},
+		{name: "newer patch release", version: "gh version 2.48.1 (2025-01-01)\n", want: true},
+		{name: "newer minor release", version: "gh version 2.49.0 (2025-01-01)\n", want: true},
+		{name: "prefixed version", version: "gh version v2.48.0 (2025-01-01)\n", want: true},
+		{name: "prerelease", version: "gh version 2.48.0-rc1 (2025-01-01)\n", want: true},
+		{name: "invalid output", version: "not a gh version", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ghVersionSupportsSlurp(tt.version); got != tt.want {
+				t.Fatalf("ghVersionSupportsSlurp(%q) = %v, want %v", tt.version, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMergeGHComments_FiltersLeftSide(t *testing.T) {
 	comments := []ghComment{
 		{ID: 1, Path: "old.go", Line: 5, Side: "LEFT", Body: "old code comment"},

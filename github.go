@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -136,9 +137,58 @@ func detectPRInfo() *PRInfo {
 
 // fetchPRComments fetches all review comments for a PR.
 func fetchPRComments(prNumber int) ([]ghComment, error) {
-	// Use --paginate --slurp to collect all pages into a single JSON structure.
-	// --slurp wraps each page into an outer array: [[page1...], [page2...], ...]
-	// So we unmarshal into [][]ghComment and flatten.
+	if ghSupportsAPISlurp() {
+		return fetchPRCommentsWithSlurp(prNumber)
+	}
+	// TODO: Remove this compatibility path once Crit requires gh v2.48.0+,
+	// which added `gh api --slurp`.
+	return fetchPRCommentsWithoutSlurp(prNumber)
+}
+
+func ghSupportsAPISlurp() bool {
+	out, err := exec.Command("gh", "version").Output()
+	if err != nil {
+		return false
+	}
+	return ghVersionSupportsSlurp(string(out))
+}
+
+func ghVersionSupportsSlurp(versionOutput string) bool {
+	fields := strings.Fields(versionOutput)
+	if len(fields) < 3 || fields[0] != "gh" || fields[1] != "version" {
+		return false
+	}
+	return versionAtLeast(fields[2], 2, 48, 0)
+}
+
+func versionAtLeast(version string, wantMajor, wantMinor, wantPatch int) bool {
+	core := strings.SplitN(strings.TrimPrefix(version, "v"), "-", 2)[0]
+	parts := strings.Split(core, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return false
+	}
+	patch, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return false
+	}
+	if major != wantMajor {
+		return major > wantMajor
+	}
+	if minor != wantMinor {
+		return minor > wantMinor
+	}
+	return patch >= wantPatch
+}
+
+func fetchPRCommentsWithSlurp(prNumber int) ([]ghComment, error) {
 	out, err := exec.Command("gh", "api",
 		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", prNumber),
 		"--paginate",
@@ -152,11 +202,37 @@ func fetchPRComments(prNumber int) ([]ghComment, error) {
 	if err := json.Unmarshal(out, &pages); err != nil {
 		return nil, fmt.Errorf("parsing PR comments: %w", err)
 	}
+
 	var comments []ghComment
 	for _, page := range pages {
 		comments = append(comments, page...)
 	}
 	return comments, nil
+}
+
+func fetchPRCommentsWithoutSlurp(prNumber int) ([]ghComment, error) {
+	out, err := exec.Command("gh", "api",
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", prNumber),
+		"--paginate",
+		"--jq",
+		".[]",
+	).Output()
+	if err != nil {
+		return nil, fmt.Errorf("fetching PR comments: %w", err)
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(out))
+	var comments []ghComment
+	for {
+		var c ghComment
+		if err := dec.Decode(&c); err != nil {
+			if err == io.EOF {
+				return comments, nil
+			}
+			return nil, fmt.Errorf("parsing PR comments: %w", err)
+		}
+		comments = append(comments, c)
+	}
 }
 
 // isDuplicateGHComment checks if a GitHub comment already exists in the comment list.
