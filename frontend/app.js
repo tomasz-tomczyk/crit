@@ -81,6 +81,44 @@
     return html;
   }
 
+  // ===== Tab-Ready Indicator =====
+  // Prepends a bullet to document.title when a review round completes while
+  // the tab is hidden. Clears on visibilitychange → visible.
+  const BADGE_PREFIX = '\u25CF ';
+  let baseTitle = document.title;
+  let badgeActive = false;
+
+  // Set the page title, preserving the badge prefix if currently active.
+  function setDocumentTitle(nextBase) {
+    baseTitle = nextBase;
+    document.title = badgeActive ? BADGE_PREFIX + baseTitle : baseTitle;
+  }
+
+  function setTabBadge() {
+    if (badgeActive) return;
+    badgeActive = true;
+    if (!document.title.startsWith(BADGE_PREFIX)) {
+      document.title = BADGE_PREFIX + baseTitle;
+    }
+  }
+
+  function clearTabBadge() {
+    if (!badgeActive) return;
+    badgeActive = false;
+    document.title = baseTitle;
+  }
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') clearTabBadge();
+  });
+
+  // Expose for tests (kept minimal — E2E may use these directly per spec fallback).
+  window.__critTabBadge = {
+    set: setTabBadge,
+    clear: clearTabBadge,
+    isActive: function() { return badgeActive; },
+  };
+
   (function() {
     const defaultFence = commentMd.renderer.rules.fence;
     commentMd.renderer.rules.fence = function(tokens, idx, options, env, self) {
@@ -613,9 +651,9 @@
     }
 
     updateHeaderRound();
-    document.title = session.mode === 'git'
+    setDocumentTitle(session.mode === 'git'
       ? 'Crit — ' + (session.branch || 'review')
-      : 'Crit — ' + (session.files || []).map(f => f.path).join(', ');
+      : 'Crit — ' + (session.files || []).map(f => f.path).join(', '));
 
     files = await loadAllFileData(session.files || [], diffScope);
 
@@ -5846,6 +5884,9 @@
         updateViewedCount();
         updateTreeViewedState();
         setUIState('reviewing');
+        // Signal "ready" in the tab bar if the user has tabbed away.
+        // Cleared by the visibilitychange listener when they return.
+        if (document.visibilityState !== 'visible') setTabBadge();
       } catch (err) {
         console.error('Error handling file-changed:', err);
       }
