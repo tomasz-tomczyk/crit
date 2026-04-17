@@ -95,6 +95,9 @@ func (g *GitVCS) UserName() string {
 	return strings.TrimSpace(string(out))
 }
 
+// FileStatusInRepo returns the status of a single file relative to baseRef.
+// Note: the VCS interface uses (path, baseRef, dir) order while the underlying
+// fileStatusInRepo uses (path, repoRoot, baseRef) — arguments are reordered here.
 func (g *GitVCS) FileStatusInRepo(path, baseRef, repoRoot string) string {
 	return fileStatusInRepo(path, repoRoot, baseRef)
 }

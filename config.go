@@ -175,7 +175,10 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	if projectPresence.CleanupOnApprove {
 		merged.CleanupOnApprove = project.CleanupOnApprove
 	}
-	// auth_token is global-only (like agent_cmd) — project config cannot override
+	// Security: agent_cmd is intentionally NOT merged from project config.
+	// It must remain global-only to prevent untrusted project configs from
+	// overriding the agent command.
+	// auth_token is global-only (like agent_cmd) — project config cannot override.
 	// Union ignore patterns
 	merged.IgnorePatterns = append(merged.IgnorePatterns, project.IgnorePatterns...)
 	return merged

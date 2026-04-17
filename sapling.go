@@ -6,11 +6,14 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 // SaplingVCS implements VCS for Sapling SCM repositories.
 type SaplingVCS struct {
-	defaultBranch string
+	defaultBranchOnce sync.Once
+	defaultBranch     string
+	defaultBranchMu   sync.RWMutex // protects defaultBranch when set via override
 }
 
 func (s *SaplingVCS) Name() string { return "sl" }
@@ -40,21 +43,38 @@ func (s *SaplingVCS) CurrentBranch() string {
 }
 
 // DefaultBranch returns the cached default branch, detecting it on first call.
+// If an override is set, it is returned immediately without caching.
 func (s *SaplingVCS) DefaultBranch() string {
-	if s.defaultBranch != "" {
-		return s.defaultBranch
+	s.defaultBranchMu.RLock()
+	override := s.defaultBranch
+	s.defaultBranchMu.RUnlock()
+	if override != "" {
+		return override
 	}
-	s.defaultBranch = detectSaplingDefaultBranch()
+	s.defaultBranchOnce.Do(func() {
+		s.defaultBranchMu.Lock()
+		// Double-check: an override may have been set between RUnlock and Do.
+		if s.defaultBranch == "" {
+			s.defaultBranch = detectSaplingDefaultBranch()
+		}
+		s.defaultBranchMu.Unlock()
+	})
+	s.defaultBranchMu.RLock()
+	defer s.defaultBranchMu.RUnlock()
 	return s.defaultBranch
 }
 
 // SetDefaultBranchOverride overrides the default branch detection.
 func (s *SaplingVCS) SetDefaultBranchOverride(branch string) {
+	s.defaultBranchMu.Lock()
 	s.defaultBranch = branch
+	s.defaultBranchMu.Unlock()
 }
 
 // GetDefaultBranchOverride returns the current default branch override, if any.
 func (s *SaplingVCS) GetDefaultBranchOverride() string {
+	s.defaultBranchMu.RLock()
+	defer s.defaultBranchMu.RUnlock()
 	return s.defaultBranch
 }
 
@@ -139,7 +159,7 @@ func (s *SaplingVCS) FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHun
 
 // FileDiffForCommit returns diff hunks for a file in a single commit.
 func (s *SaplingVCS) FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
-	parentRev := sha + "^"
+	parentRev := sha + "~1"
 	cmd := exec.Command("sl", "diff", "-r", parentRev, "-r", sha, path)
 	if dir != "" {
 		cmd.Dir = dir
@@ -169,6 +189,8 @@ func (s *SaplingVCS) CommitLog(baseRef, dir string) ([]CommitInfo, error) {
 		return nil, nil
 	}
 	revset := fmt.Sprintf("%s::. - %s", baseRef, baseRef)
+	// The \\n in Go string literals produce literal \n characters, which Sapling's
+	// template engine interprets as newlines (field separators in the output).
 	tpl := "{node}\\n{node|short}\\n{desc|firstline}\\n{author|user}\\n{date|isodate}\\n---\\n"
 	args := []string{"log", "-r", revset, "-T", tpl}
 	out, err := slCommandInDir(dir, args...)
@@ -179,6 +201,9 @@ func (s *SaplingVCS) CommitLog(baseRef, dir string) ([]CommitInfo, error) {
 }
 
 // WorkingTreeFingerprint returns a string representing the current working tree state.
+// Note: `sl status` output may vary with locale settings on some systems.
+// This is acceptable for change-detection (comparing consecutive calls) but
+// should not be used as a stable hash key.
 func (s *SaplingVCS) WorkingTreeFingerprint() string {
 	out, err := exec.Command("sl", "status").Output()
 	if err != nil {
@@ -226,6 +251,9 @@ func (s *SaplingVCS) RemoteBranches(dir string) ([]string, error) {
 
 // DiffNumstat returns per-file addition/deletion counts.
 func (s *SaplingVCS) DiffNumstat(baseRef, dir string) (map[string]NumstatEntry, error) {
+	if baseRef == "" {
+		return nil, nil
+	}
 	out, err := slCommandInDir(dir, "diff", "--stat", "-r", baseRef)
 	if err != nil {
 		return nil, err
@@ -322,7 +350,11 @@ func parseRemoteBookmarks(output string) []string {
 	var names []string
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		line = strings.TrimRight(line, "\r")
-		name := strings.TrimSpace(strings.Fields(line)[0])
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		name := fields[0]
 		if name != "" {
 			names = append(names, name)
 		}
