@@ -12,3 +12,8 @@ node_modules/
 
 # Playwright test artifacts
 test-results/
+
+# Agents: Codex, Claude etc
+.codex
+.agents
+.mcp.json
