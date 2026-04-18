@@ -1141,20 +1141,31 @@ func (s *Session) GetShareState() (string, string) {
 func (s *Session) LoadShareFilesFromDisk() []shareFile {
 	s.mu.RLock()
 	type fileInfo struct {
-		path     string
-		absPath  string
-		status   string
-		orphaned bool
+		path                  string
+		absPath               string
+		status                string
+		orphaned              bool
+		hasUnresolvedComments bool
 	}
-	infos := make([]fileInfo, len(s.Files))
-	for i, f := range s.Files {
-		infos[i] = fileInfo{path: f.Path, absPath: f.AbsPath, status: f.Status, orphaned: f.Orphaned}
+	infos := make([]fileInfo, 0, len(s.Files))
+	for _, f := range s.Files {
+		hasUnresolved := false
+		for _, c := range f.Comments {
+			if !c.Resolved {
+				hasUnresolved = true
+				break
+			}
+		}
+		infos = append(infos, fileInfo{path: f.Path, absPath: f.AbsPath, status: f.Status, orphaned: f.Orphaned, hasUnresolvedComments: hasUnresolved})
 	}
 	s.mu.RUnlock()
 
 	var files []shareFile
 	for _, fi := range infos {
 		if fi.orphaned {
+			if !fi.hasUnresolvedComments {
+				continue // skip orphaned files with no unresolved comments
+			}
 			files = append(files, shareFile{
 				Path:     fi.path,
 				Status:   fi.status,
