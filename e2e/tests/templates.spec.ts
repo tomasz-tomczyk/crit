@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { clearAllComments, loadPage, mdSection, switchToDocumentView } from './helpers';
 
 // Helper: open comment form on the first markdown line block
-async function openCommentForm(page: any) {
+async function openCommentForm(page: import('@playwright/test').Page) {
   const section = mdSection(page);
   const lineBlock = section.locator('.line-block').first();
   await lineBlock.hover();
@@ -13,7 +13,7 @@ async function openCommentForm(page: any) {
 }
 
 // Helper: clear template cookie
-async function clearTemplates(page: any) {
+async function clearTemplates(page: import('@playwright/test').Page) {
   await page.evaluate(() => {
     document.cookie = 'crit-templates=; path=/; max-age=0';
   });
