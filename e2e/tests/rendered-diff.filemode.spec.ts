@@ -124,7 +124,7 @@ test.describe('Rendered Diff — File Mode — Split View', () => {
     const leftSide = section.locator('.diff-view-side').nth(0);
     const removedBlocks = leftSide.locator('.line-block.diff-removed');
     const count = await removedBlocks.count();
-    // Our modification replaces existing lines, so there should be removed blocks
+    // The modification appends content, so removed blocks may or may not exist
     expect(count).toBeGreaterThanOrEqual(0);
   });
 
@@ -364,11 +364,21 @@ test.describe('Rendered Diff — File Mode — Paragraph Reflow Word Diff', () =
       expect(s.review_round).toBeGreaterThanOrEqual(2);
     }).toPass({ timeout: 5000 });
 
-    // Now write v2 content (SQS insertion + reflow) and trigger another round
+    // Now write v2 content (SQS insertion + reflow) and trigger another round.
+    // The file watcher polls every 1s and must detect the edit before
+    // round-complete snapshots previousContent. Wait for the watcher to
+    // register the change by polling the file/diff endpoint for mtime changes,
+    // then trigger round-complete once.
     const v2Content = v1Content.replace(v1Para, v2Para);
     fs.writeFileSync(planPath, v2Content);
-    // Wait for file watcher to detect the change
-    await new Promise(r => setTimeout(r, 1500));
+    // Poll until the file watcher detects the edit (sleep inside retry loop is
+    // the documented exception to the no-setTimeout rule).
+    await expect(async () => {
+      await new Promise(r => setTimeout(r, 500));
+      const fileRes = await request.get('/api/file?path=plan.md');
+      const file = await fileRes.json();
+      expect(file.content).toContain('SQS');
+    }).toPass({ timeout: 5000 });
     await request.post('/api/round-complete');
     await expect(async () => {
       const diffRes = await request.get('/api/file/diff?path=plan.md');

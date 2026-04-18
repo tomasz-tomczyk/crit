@@ -36,31 +36,4 @@ test.describe('Page Loading', () => {
   });
 });
 
-test.describe('File Tree', () => {
-  test('files have correct status icons', async ({ page }) => {
-    await loadPage(page);
-
-    // Added files: plan.md, handler.js, and config.yaml (untracked)
-    const addedIcons = page.locator('.tree-file-status-icon.added');
-    await expect(addedIcons).toHaveCount(3);
-
-    // Deleted file: deleted.txt
-    const deletedIcons = page.locator('.tree-file-status-icon.deleted');
-    await expect(deletedIcons).toHaveCount(1);
-
-    // Modified files: server.go and utils.go (staged modification)
-    const modifiedIcons = page.locator('.tree-file-status-icon.modified');
-    await expect(modifiedIcons).toHaveCount(2);
-  });
-
-  test('file tree header shows +/- stats', async ({ page }) => {
-    await loadPage(page);
-
-    const stats = page.locator('#fileTreeStats');
-    await expect(stats).toBeVisible();
-    // Should contain the file count and addition/deletion stats
-    await expect(stats).not.toBeEmpty();
-    // Stats should show a "+" number for additions
-    await expect(stats.locator('.tree-stat-add')).toBeVisible();
-  });
-});
+// File tree status icons and stats are covered by file-tree.spec.ts
