@@ -1735,9 +1735,18 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		files:              sf.fileArgs,
 		planDir:            sf.planDir,
 		planName:           sf.planName,
-		vcsOverride:        sf.vcsOverride,
+		vcsOverride:        resolveVCSOverride(sf.vcsOverride, cfg.VCS),
 		cfg:                cfg,
 	}, nil
+}
+
+// resolveVCSOverride returns the effective VCS override.
+// --vcs flag takes precedence over config "vcs" field.
+func resolveVCSOverride(flag, config string) string {
+	if flag != "" {
+		return flag
+	}
+	return config
 }
 
 func createSession(sc *serverConfig) (*Session, error) {
@@ -2021,8 +2030,10 @@ func runStatus(args []string) {
 		os.Exit(1)
 	}
 
+	vcsName := ""
 	branch := ""
 	if vcs := DetectVCS(""); vcs != nil {
+		vcsName = vcs.Name()
 		branch = vcs.CurrentBranch()
 	}
 
@@ -2050,15 +2061,16 @@ func runStatus(args []string) {
 	}
 
 	if jsonOutput {
-		printStatusJSON(branch, revPath, revExists, matchedSession)
+		printStatusJSON(vcsName, branch, revPath, revExists, matchedSession)
 		return
 	}
 
-	printStatusHuman(branch, revPath, revExists, matchedSession)
+	printStatusHuman(vcsName, branch, revPath, revExists, matchedSession)
 }
 
-func printStatusJSON(branch, revPath string, revExists bool, session *sessionEntry) {
+func printStatusJSON(vcsName, branch, revPath string, revExists bool, session *sessionEntry) {
 	result := map[string]interface{}{
+		"vcs":                vcsName,
 		"branch":             branch,
 		"review_file":        revPath,
 		"review_file_exists": revExists,
@@ -2096,7 +2108,10 @@ func addReviewStats(result map[string]interface{}, revPath string) {
 	}
 }
 
-func printStatusHuman(branch, revPath string, revExists bool, session *sessionEntry) {
+func printStatusHuman(vcsName, branch, revPath string, revExists bool, session *sessionEntry) {
+	if vcsName != "" {
+		fmt.Printf("VCS:         %s\n", vcsName)
+	}
 	if branch != "" {
 		fmt.Printf("Branch:      %s\n", branch)
 	}
