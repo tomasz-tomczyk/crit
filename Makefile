@@ -34,7 +34,10 @@ test-diff:
 	./test/test-diff.sh
 
 test-share-sync: build
-	go test -tags integration -run TestShareSyncIntegration -v -count=1 ./...
+	go test -tags integration -run TestShareSync -v -count=1 ./...
+
+e2e-share:
+	./scripts/e2e-share.sh
 
 test-daemon:
 	./test/test-daemon-reuse.sh
@@ -55,4 +58,4 @@ e2e-failed:
 e2e-report:
 	cd e2e && npx playwright show-report
 
-.PHONY: build build-all generate verify-generate update-deps test setup-hooks clean test-diff test-share-sync test-daemon test-plan-daemon e2e e2e-failed e2e-report
+.PHONY: build build-all generate verify-generate update-deps test setup-hooks clean test-diff test-share-sync e2e-share test-daemon test-plan-daemon e2e e2e-failed e2e-report
