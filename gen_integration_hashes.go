@@ -5,6 +5,7 @@ package main
 import (
 	"crypto/sha256"
 	"fmt"
+	"go/format"
 	"os"
 	"path/filepath"
 	"sort"
@@ -53,7 +54,15 @@ func main() {
 	}
 	b.WriteString("}\n")
 
-	if err := os.WriteFile("integration_hashes_gen.go", []byte(b.String()), 0o644); err != nil {
+	// Format with the current Go version's gofmt so the output is stable
+	// regardless of which gofmt version checks it later.
+	formatted, err := format.Source([]byte(b.String()))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error formatting generated code: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := os.WriteFile("integration_hashes_gen.go", formatted, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing generated file: %v\n", err)
 		os.Exit(1)
 	}
