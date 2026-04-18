@@ -358,6 +358,16 @@ Sharing is opt-in. When `--share-url` (or `CRIT_SHARE_URL` env var, or `share_ur
 - A share-notice banner shows the URL with Copy / Unpublish actions.
 - Unpublish calls `DELETE {share_url}/api/reviews?delete_token=...` then clears local state.
 
+### Share Integration Tests
+
+`share_integration_test.go` contains end-to-end tests for the crit ↔ crit-web share flow (build tag: `integration`). When modifying share logic, the share payload, comment sync, or any crit-web interaction:
+
+1. **Run the tests**: `make e2e-share` (or `./scripts/e2e-share.sh`)
+2. **Add new test cases** for any new share functionality — name them `TestShareSync*`
+3. **Verify on web**: tests log review URLs; use `./scripts/e2e-share.sh --serve` to start crit-web and inspect reviews in browser
+
+Requires a local crit-web checkout at `../crit-web` and PostgreSQL. See `scripts/AGENTS.md` for full details.
+
 ## Multi-Round Review
 
 When the agent runs `crit` (or calls `POST /api/round-complete`):
