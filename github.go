@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -226,7 +227,7 @@ func fetchPRCommentsWithoutSlurp(prNumber int) ([]ghComment, error) {
 	for {
 		var c ghComment
 		if err := dec.Decode(&c); err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return comments, nil
 			}
 			return nil, fmt.Errorf("parsing PR comments: %w", err)
