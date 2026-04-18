@@ -26,6 +26,7 @@ type Config struct {
 	AuthUserName       string   `json:"auth_user_name,omitempty"`
 	AuthUserEmail      string   `json:"auth_user_email,omitempty"`
 	CleanupOnApprove   *bool    `json:"cleanup_on_approve,omitempty"`
+	VCS                string   `json:"vcs,omitempty"` // preferred VCS backend: "git", "sl"
 }
 
 // CleanupOnApproveEnabled returns whether review files should be cleaned up

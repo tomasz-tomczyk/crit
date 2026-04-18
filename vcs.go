@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -91,7 +93,8 @@ type VCS interface {
 }
 
 // DetectVCS returns the appropriate VCS backend for the current directory.
-// If vcsOverride is set ("git", "sl", or "sapling"), that backend is used directly.
+// If vcsOverride is set ("git", "sl", or "sapling"), that backend is preferred
+// but falls back to git if the requested backend isn't available.
 // Otherwise, auto-detection checks for .sl/ first (Sapling on git repos has both),
 // then falls back to git. Returns nil if no VCS is detected.
 func DetectVCS(vcsOverride string) VCS {
@@ -99,15 +102,29 @@ func DetectVCS(vcsOverride string) VCS {
 	case "git":
 		return &GitVCS{}
 	case "sl", "sapling":
-		return &SaplingVCS{}
+		if _, err := exec.LookPath("sl"); err == nil {
+			return &SaplingVCS{}
+		}
+		fmt.Fprintf(os.Stderr, "Warning: vcs=%q requested but sl not in PATH, falling back to git\n", vcsOverride)
+		if IsGitRepo() {
+			return &GitVCS{}
+		}
+		return nil
 	}
 
 	// Auto-detect: check for .sl/ first since Sapling repos on top of git have both.
 	if hasSLDir() {
-		return &SaplingVCS{}
+		if _, err := exec.LookPath("sl"); err == nil {
+			return &SaplingVCS{}
+		}
 	}
 
 	if IsGitRepo() {
+		// Check if Sapling metadata exists under .git/sl — this means sl was used
+		// here but it's primarily a git repo. Hint but don't switch automatically.
+		if hasGitSLDir() {
+			fmt.Fprintf(os.Stderr, "Hint: Sapling detected. Use --vcs sl or set \"vcs\": \"sl\" in config to use Sapling.\n")
+		}
 		return &GitVCS{}
 	}
 
@@ -120,8 +137,33 @@ func hasSLDir() bool {
 	if err != nil {
 		return false
 	}
+	return hasSLDirFrom(dir)
+}
+
+// hasSLDirFrom checks whether a .sl/ directory exists at or above the given directory.
+func hasSLDirFrom(dir string) bool {
 	for {
 		if info, err := os.Stat(filepath.Join(dir, ".sl")); err == nil && info.IsDir() {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return false
+}
+
+// hasGitSLDir checks whether .git/sl/ exists at or above the current directory,
+// indicating Sapling has been used in a git repo.
+func hasGitSLDir() bool {
+	dir, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	for {
+		if info, err := os.Stat(filepath.Join(dir, ".git", "sl")); err == nil && info.IsDir() {
 			return true
 		}
 		parent := filepath.Dir(dir)

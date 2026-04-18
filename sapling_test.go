@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+)
 
 // Compile-time interface compliance check.
 var _ VCS = &SaplingVCS{}
@@ -178,10 +183,44 @@ func TestDetectVCS_SaplingOverride(t *testing.T) {
 	for _, override := range []string{"sl", "sapling"} {
 		v := DetectVCS(override)
 		if v == nil {
-			t.Fatalf("DetectVCS(%q) = nil, want *SaplingVCS", override)
+			// Falls back to git if sl not in PATH — that's fine
+			t.Skipf("DetectVCS(%q) returned nil (sl likely not in PATH)", override)
 		}
-		if _, ok := v.(*SaplingVCS); !ok {
-			t.Errorf("DetectVCS(%q) returned %T, want *SaplingVCS", override, v)
+		// If sl is in PATH, should return SaplingVCS; otherwise GitVCS fallback
+		if _, hasSL := exec.LookPath("sl"); hasSL == nil {
+			if _, ok := v.(*SaplingVCS); !ok {
+				t.Errorf("DetectVCS(%q) returned %T, want *SaplingVCS", override, v)
+			}
 		}
+	}
+}
+
+func TestHasSLDirFrom_DetectsDotSL(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "nested", "repo")
+	if err := os.MkdirAll(filepath.Join(root, ".sl"), 0o755); err != nil {
+		t.Fatalf("mkdir .sl: %v", err)
+	}
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatalf("mkdir child: %v", err)
+	}
+	if !hasSLDirFrom(child) {
+		t.Fatal("expected hasSLDirFrom to detect .sl metadata")
+	}
+}
+
+func TestHasSLDirFrom_DoesNotDetectDotGitSL(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "nested", "repo")
+	if err := os.MkdirAll(filepath.Join(root, ".git", "sl"), 0o755); err != nil {
+		t.Fatalf("mkdir .git/sl: %v", err)
+	}
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatalf("mkdir child: %v", err)
+	}
+	// .git/sl should NOT trigger hasSLDirFrom — it's handled separately
+	// as a hint, not as auto-detection
+	if hasSLDirFrom(child) {
+		t.Fatal("hasSLDirFrom should not detect .git/sl as Sapling metadata")
 	}
 }
