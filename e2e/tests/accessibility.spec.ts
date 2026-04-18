@@ -12,10 +12,8 @@ test.describe('Accessibility', () => {
 
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])
-      // Pre-existing issues to fix separately:
-      // - color-contrast: 74 elements need contrast adjustments
-      // - nested-interactive: 6 nested interactive controls
-      .disableRules(['color-contrast', 'nested-interactive'])
+      // nested-interactive: 6 nested interactive controls (tracked separately)
+      .disableRules(['nested-interactive'])
       .analyze();
 
     const violations = results.violations.map(v => ({
@@ -26,5 +24,19 @@ test.describe('Accessibility', () => {
     }));
 
     expect(violations).toEqual([]);
+  });
+
+  test('should have no color contrast violations in dark theme', async ({ page }) => {
+    await page.waitForSelector('.file-section');
+    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+    await page.waitForTimeout(100);
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa'])
+      .disableRules(['nested-interactive'])
+      .analyze();
+
+    const contrast = results.violations.find(v => v.id === 'color-contrast');
+    expect(contrast?.nodes ?? []).toEqual([]);
   });
 });
