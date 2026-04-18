@@ -601,75 +601,25 @@ func TestClearShareState(t *testing.T) {
 	}
 }
 
-func TestBuildShareFromSession(t *testing.T) {
-	s := &Session{
-		ReviewRound: 3,
-		Files: []*FileEntry{
-			{
-				Path:    "plan.md",
-				Content: "# Plan",
-				Comments: []Comment{
-					{ID: "c1", StartLine: 1, EndLine: 1, Body: "Open comment", Author: "Alice", Quote: "# Plan"},
-					{ID: "c2", StartLine: 2, EndLine: 2, Body: "Resolved comment", Author: "Bob", Resolved: true},
-					{ID: "c3", StartLine: 3, EndLine: 3, Body: "Another open", Author: "Alice", ReviewRound: 2},
-				},
-			},
-			{
-				Path:    "src/main.go",
-				Content: "package main",
-				Comments: []Comment{
-					{ID: "c4", StartLine: 10, EndLine: 15, Body: "All resolved", Resolved: true},
-				},
-			},
-		},
-	}
-
-	files, comments, round := buildShareFromSession(s)
-	if round != 3 {
-		t.Errorf("expected round 3, got %d", round)
-	}
-	if len(files) != 2 {
-		t.Fatalf("expected 2 files, got %d", len(files))
-	}
-	if files[0].Path != "plan.md" || files[0].Content != "# Plan" {
-		t.Errorf("unexpected first file: %+v", files[0])
-	}
-	// Only unresolved comments: c1 and c3
-	if len(comments) != 2 {
-		t.Fatalf("expected 2 unresolved comments, got %d", len(comments))
-	}
-	if comments[0].Body != "Open comment" {
-		t.Errorf("expected first comment body 'Open comment', got %s", comments[0].Body)
-	}
-	if comments[0].Quote != "# Plan" {
-		t.Errorf("expected first comment quote '# Plan', got %s", comments[0].Quote)
-	}
-	if comments[1].ReviewRound != 2 {
-		t.Errorf("expected review_round 2 on second comment, got %d", comments[1].ReviewRound)
-	}
-}
-
-func TestBuildShareFromSession_NoComments(t *testing.T) {
-	s := &Session{
-		ReviewRound: 1,
-		Files: []*FileEntry{
-			{Path: "readme.md", Content: "# Hello"},
-		},
-	}
-
-	files, comments, round := buildShareFromSession(s)
-	if round != 1 {
-		t.Errorf("expected round 1, got %d", round)
-	}
-	if len(files) != 1 {
-		t.Fatalf("expected 1 file, got %d", len(files))
-	}
-	if len(comments) != 0 {
-		t.Errorf("expected 0 comments, got %d", len(comments))
-	}
-}
-
 func TestHandleShare_Success(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write file on disk
+	os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan"), 0644)
+
+	// Write review file with comments (one unresolved, one resolved)
+	cj := CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"plan.md": {Comments: []Comment{
+				{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix this"},
+				{ID: "c2", StartLine: 2, EndLine: 2, Body: "Done", Resolved: true},
+			}},
+		},
+	}
+	data, _ := json.Marshal(cj)
+	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+
 	// Mock crit-web server
 	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
@@ -690,15 +640,12 @@ func TestHandleShare_Success(t *testing.T) {
 	defer critWeb.Close()
 
 	sess := &Session{
+		OutputDir:   dir,
 		ReviewRound: 1,
 		Files: []*FileEntry{
 			{
 				Path:    "plan.md",
-				Content: "# Plan",
-				Comments: []Comment{
-					{ID: "c1", StartLine: 1, EndLine: 1, Body: "Fix this"},
-					{ID: "c2", StartLine: 2, EndLine: 2, Body: "Done", Resolved: true},
-				},
+				AbsPath: filepath.Join(dir, "plan.md"),
 			},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
@@ -726,6 +673,11 @@ func TestHandleShare_Success(t *testing.T) {
 }
 
 func TestHandleShare_ShareServiceError(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write file on disk
+	os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan"), 0644)
+
 	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "internal error"})
@@ -733,9 +685,10 @@ func TestHandleShare_ShareServiceError(t *testing.T) {
 	defer critWeb.Close()
 
 	sess := &Session{
+		OutputDir:   dir,
 		ReviewRound: 1,
 		Files: []*FileEntry{
-			{Path: "plan.md", Content: "# Plan"},
+			{Path: "plan.md", AbsPath: filepath.Join(dir, "plan.md")},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
@@ -989,52 +942,6 @@ func TestBuildSharePayload_WithReplies(t *testing.T) {
 	}
 	if cs[0].Replies[1].Author != "Alice" {
 		t.Errorf("expected reply author 'Alice', got %q", cs[0].Replies[1].Author)
-	}
-}
-
-func TestBuildShareFromSession_WithReplies(t *testing.T) {
-	s := &Session{
-		Files: []*FileEntry{{
-			Path:    "f.md",
-			Content: "hello",
-			Comments: []Comment{{
-				ID: "c1", StartLine: 1, EndLine: 1, Body: "fix",
-				Author: "Alice",
-				Replies: []Reply{
-					{ID: "c1-r1", Body: "done", Author: "Bob"},
-				},
-			}},
-		}},
-		ReviewRound: 1,
-	}
-	_, comments, _ := buildShareFromSession(s)
-	if len(comments) != 1 {
-		t.Fatalf("expected 1 comment, got %d", len(comments))
-	}
-	if len(comments[0].Replies) != 1 {
-		t.Fatalf("expected 1 reply, got %d", len(comments[0].Replies))
-	}
-	if comments[0].Replies[0].Body != "done" {
-		t.Errorf("expected reply body 'done', got %q", comments[0].Replies[0].Body)
-	}
-}
-
-func TestBuildShareFromSession_SkipsResolvedWithReplies(t *testing.T) {
-	s := &Session{
-		Files: []*FileEntry{{
-			Path:    "f.md",
-			Content: "hello",
-			Comments: []Comment{{
-				ID: "c1", StartLine: 1, EndLine: 1, Body: "old issue",
-				Resolved: true,
-				Replies:  []Reply{{ID: "c1-r1", Body: "fixed"}},
-			}},
-		}},
-		ReviewRound: 1,
-	}
-	_, comments, _ := buildShareFromSession(s)
-	if len(comments) != 0 {
-		t.Fatalf("expected 0 comments (resolved should be skipped), got %d", len(comments))
 	}
 }
 

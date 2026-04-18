@@ -339,11 +339,23 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	files, comments, reviewRound := buildShareFromSession(s.session)
+	// Read file content from disk and comments from the review file.
+	// This uses the same disk-based path as `crit share` (CLI), ensuring
+	// a single source of truth for the share payload. The review file is
+	// kept current by saveCritJSON (200ms debounce on every comment change).
+	files := s.session.LoadShareFilesFromDisk()
 	if len(files) == 0 {
 		http.Error(w, "no files in session", http.StatusBadRequest)
 		return
 	}
+
+	filePaths := make([]string, len(files))
+	for i, f := range files {
+		filePaths[i] = f.Path
+	}
+
+	critPath := s.session.critJSONPath()
+	comments, reviewRound := loadCommentsForShare(critPath, filePaths)
 
 	url, deleteToken, err := shareFilesToWeb(files, comments, s.shareURL, reviewRound, s.authToken)
 	if err != nil {
@@ -353,12 +365,8 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	paths := make([]string, len(files))
-	for i, f := range files {
-		paths[i] = f.Path
-	}
 	s.session.SetSharedURLAndToken(url, deleteToken)
-	s.session.SetShareScope(shareScope(paths))
+	s.session.SetShareScope(shareScope(filePaths))
 	writeJSON(w, map[string]any{"url": url, "delete_token": deleteToken})
 }
 

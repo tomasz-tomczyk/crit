@@ -179,40 +179,6 @@ func setBearer(req *http.Request, token string) {
 	}
 }
 
-// buildShareFromSession extracts files and unresolved comments from a live session.
-func buildShareFromSession(s *Session) ([]shareFile, []shareComment, int) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	var files []shareFile
-	var comments []shareComment
-	for _, f := range s.Files {
-		files = append(files, shareFile{Path: f.Path, Content: f.Content})
-		for _, c := range f.Comments {
-			if c.Resolved {
-				continue
-			}
-			sc := shareComment{
-				File:      f.Path,
-				StartLine: c.StartLine,
-				EndLine:   c.EndLine,
-				Body:      c.Body,
-				Quote:     c.Quote,
-				Author:    c.Author,
-				Scope:     c.Scope,
-			}
-			if c.ReviewRound >= 1 {
-				sc.ReviewRound = c.ReviewRound
-			}
-			for _, r := range c.Replies {
-				sc.Replies = append(sc.Replies, shareReply{Body: r.Body, Author: r.Author})
-			}
-			comments = append(comments, sc)
-		}
-	}
-	return files, comments, s.ReviewRound
-}
-
 // loadCommentsForShare reads the review file at critPath and returns shareComment entries
 // for the given file paths, plus the review round. Resolved comments are excluded.
 func loadCommentsForShare(critPath string, filePaths []string) ([]shareComment, int) {

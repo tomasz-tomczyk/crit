@@ -1134,6 +1134,36 @@ func (s *Session) GetShareState() (string, string) {
 	return s.sharedURL, s.deleteToken
 }
 
+// LoadShareFilesFromDisk reads file content from disk for all session files,
+// returning share-ready file entries. Deleted files are skipped since they
+// have no on-disk content to share.
+func (s *Session) LoadShareFilesFromDisk() []shareFile {
+	s.mu.RLock()
+	type fileInfo struct {
+		path    string
+		absPath string
+		status  string
+	}
+	infos := make([]fileInfo, len(s.Files))
+	for i, f := range s.Files {
+		infos[i] = fileInfo{path: f.Path, absPath: f.AbsPath, status: f.Status}
+	}
+	s.mu.RUnlock()
+
+	var files []shareFile
+	for _, fi := range infos {
+		if fi.status == "deleted" {
+			continue
+		}
+		data, err := os.ReadFile(fi.absPath)
+		if err != nil {
+			continue // file may have been removed since session started
+		}
+		files = append(files, shareFile{Path: fi.path, Content: string(data)})
+	}
+	return files
+}
+
 // GetDeleteToken returns the stored delete token.
 func (s *Session) GetDeleteToken() string {
 	s.mu.RLock()
