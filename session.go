@@ -1167,9 +1167,8 @@ func (s *Session) LoadShareFilesFromDisk() []shareFile {
 				continue // skip orphaned files with no unresolved comments
 			}
 			files = append(files, shareFile{
-				Path:     fi.path,
-				Status:   fi.status,
-				Orphaned: true,
+				Path:   fi.path,
+				Status: "removed",
 			})
 			continue
 		}

@@ -1364,9 +1364,6 @@ func TestShareSyncOrphanedFile(t *testing.T) {
 	if orphanedFile["status"] != "removed" {
 		t.Errorf("orphaned file status = %v, want 'removed'", orphanedFile["status"])
 	}
-	if orphanedFile["orphaned"] != true {
-		t.Errorf("orphaned file orphaned = %v, want true", orphanedFile["orphaned"])
-	}
 	if orphanedFile["content"] != "" {
 		t.Errorf("orphaned file content should be empty, got %v", orphanedFile["content"])
 	}
@@ -1376,9 +1373,6 @@ func TestShareSyncOrphanedFile(t *testing.T) {
 	}
 	if activeFile["status"] != "modified" {
 		t.Errorf("active file status = %v, want 'modified'", activeFile["status"])
-	}
-	if _, hasOrphaned := activeFile["orphaned"]; hasOrphaned {
-		t.Error("active file should not have orphaned key")
 	}
 
 	// Verify comment on orphaned file is in the payload

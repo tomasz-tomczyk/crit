@@ -45,7 +45,7 @@ func computeShareHash(files []shareFile, comments []shareComment) string {
 
 	h := sha256.New()
 	for _, f := range sorted {
-		fmt.Fprintf(h, "file:%s:%s:%s:%v\n", f.Path, f.Content, f.Status, f.Orphaned)
+		fmt.Fprintf(h, "file:%s:%s:%s\n", f.Path, f.Content, f.Status)
 	}
 	for _, c := range sortedC {
 		fmt.Fprintf(h, "comment:%s:%v\n", c.ExternalID, c.Resolved)
@@ -54,11 +54,12 @@ func computeShareHash(files []shareFile, comments []shareComment) string {
 }
 
 // shareFile represents a file to be shared.
+// Status values: "added", "modified", "deleted", "renamed", "removed".
+// "removed" means the file is orphaned (no longer in the review but has comments).
 type shareFile struct {
-	Path     string `json:"path"`
-	Content  string `json:"content"`
-	Status   string `json:"status,omitempty"`
-	Orphaned bool   `json:"orphaned,omitempty"`
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Status  string `json:"status,omitempty"`
 }
 
 // shareReply represents a reply to include in the shared review.
@@ -89,9 +90,6 @@ func buildSharePayload(files []shareFile, comments []shareComment, reviewRound i
 		entry := map[string]any{"path": f.Path, "content": f.Content}
 		if f.Status != "" {
 			entry["status"] = f.Status
-		}
-		if f.Orphaned {
-			entry["orphaned"] = true
 		}
 		fileList[i] = entry
 	}
@@ -394,9 +392,6 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, 
 		entry := map[string]any{"path": f.Path, "content": f.Content}
 		if f.Status != "" {
 			entry["status"] = f.Status
-		}
-		if f.Orphaned {
-			entry["orphaned"] = true
 		}
 		fileList[i] = entry
 	}

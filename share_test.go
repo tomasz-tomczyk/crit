@@ -751,9 +751,6 @@ func TestHandleShare_OrphanedFileIncluded(t *testing.T) {
 	if orphanedFile["status"] != "removed" {
 		t.Errorf("expected status 'removed', got %v", orphanedFile["status"])
 	}
-	if orphanedFile["orphaned"] != true {
-		t.Errorf("expected orphaned=true, got %v", orphanedFile["orphaned"])
-	}
 	if orphanedFile["content"] != "" {
 		t.Errorf("expected empty content for orphaned file, got %v", orphanedFile["content"])
 	}
@@ -1010,7 +1007,7 @@ func TestShareScope(t *testing.T) {
 func TestBuildSharePayload_WithStatusAndOrphaned(t *testing.T) {
 	files := []shareFile{
 		{Path: "active.go", Content: "package main", Status: "modified"},
-		{Path: "removed.go", Content: "", Status: "removed", Orphaned: true},
+		{Path: "removed.go", Content: "", Status: "removed"},
 		{Path: "nostat.md", Content: "# Hello"},
 	}
 	payload := buildSharePayload(files, nil, 1)
@@ -1027,16 +1024,9 @@ func TestBuildSharePayload_WithStatusAndOrphaned(t *testing.T) {
 	if pFiles[0]["status"] != "modified" {
 		t.Errorf("expected status 'modified', got %v", pFiles[0]["status"])
 	}
-	if _, hasOrphaned := pFiles[0]["orphaned"]; hasOrphaned {
-		t.Error("non-orphaned file should not have orphaned key")
-	}
-
-	// Orphaned file
+	// Orphaned file — status "removed", no separate orphaned field
 	if pFiles[1]["status"] != "removed" {
 		t.Errorf("expected status 'removed', got %v", pFiles[1]["status"])
-	}
-	if pFiles[1]["orphaned"] != true {
-		t.Errorf("expected orphaned=true, got %v", pFiles[1]["orphaned"])
 	}
 
 	// File without status — key should be absent
@@ -1058,7 +1048,10 @@ func TestLoadShareFilesFromDisk_OrphanedFiles(t *testing.T) {
 		Files: []*FileEntry{
 			{Path: "active.go", AbsPath: activePath, Status: "modified"},
 			{Path: "removed.go", Status: "removed", Orphaned: true, Comments: []Comment{
-				{ID: "c1", Body: "old comment"},
+				{ID: "c1", Body: "unresolved comment"},
+			}},
+			{Path: "resolved-removed.go", Status: "removed", Orphaned: true, Comments: []Comment{
+				{ID: "c2", Body: "resolved comment", Resolved: true},
 			}},
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
@@ -1084,9 +1077,6 @@ func TestLoadShareFilesFromDisk_OrphanedFiles(t *testing.T) {
 	if orphaned == nil {
 		t.Fatal("orphaned file not found in share files")
 	}
-	if !orphaned.Orphaned {
-		t.Error("expected Orphaned=true")
-	}
 	if orphaned.Status != "removed" {
 		t.Errorf("expected status 'removed', got %q", orphaned.Status)
 	}
@@ -1099,9 +1089,6 @@ func TestLoadShareFilesFromDisk_OrphanedFiles(t *testing.T) {
 	}
 	if active.Status != "modified" {
 		t.Errorf("expected status 'modified', got %q", active.Status)
-	}
-	if active.Orphaned {
-		t.Error("expected Orphaned=false for active file")
 	}
 	if active.Content != "package main" {
 		t.Errorf("expected content 'package main', got %q", active.Content)
