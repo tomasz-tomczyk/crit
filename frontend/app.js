@@ -4424,8 +4424,8 @@
     card.className = cardClass;
     card.dataset.commentId = comment.id;
 
-    // Collapse state — live threads never auto-collapse
-    const liveOrPending = isLiveThread(comment) || pendingAgentRequests.has(comment.id);
+    // Collapse state — live threads stay expanded unless resolved
+    const liveOrPending = !comment.resolved && (isLiveThread(comment) || pendingAgentRequests.has(comment.id));
     const isCollapsed = liveOrPending ? false
       : opts.collapseDefault
         ? (commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true)

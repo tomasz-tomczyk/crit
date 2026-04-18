@@ -252,4 +252,31 @@ test.describe('Comment Threading', () => {
     await expect(card.locator('.reply-body')).toContainText('Fixed it');
     await expect(card.locator('.reply-input')).toBeVisible();
   });
+
+  test('resolving a live thread collapses it', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    const comment = await addComment(request, mdPath, 1, 'Fix this bug');
+
+    // Add an agent reply to make it a "live thread" (agent_cmd is "echo", so agent name is "echo")
+    await request.post(`/api/comment/${comment.id}/replies?path=${encodeURIComponent(mdPath)}`, {
+      data: { body: 'Fixed it', author: 'echo' },
+    });
+
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
+
+    // Live thread should be expanded (not collapsed)
+    await expect(card).not.toHaveClass(/collapsed/);
+
+    // Hover and resolve
+    await card.hover();
+    await card.locator('.comment-actions button[title="Resolve"]').click();
+
+    // After resolving, card should collapse even though it was a live thread
+    await expect(section.locator('.comment-card.collapsed')).toHaveCount(1);
+  });
 });
