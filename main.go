@@ -1591,6 +1591,7 @@ type serverConfig struct {
 	authToken          string
 	outputDir          string
 	author             string
+	baseBranch         string   // --base-branch override for diff base
 	ignorePatterns     []string
 	files              []string // explicit file arguments (empty = git mode)
 	noIntegrationCheck bool
@@ -1726,6 +1727,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		authToken:          cfg.AuthToken,
 		outputDir:          sf.outputDir,
 		author:             cfg.Author,
+		baseBranch:         sf.baseBranch,
 		ignorePatterns:     ignorePatterns,
 		noIntegrationCheck: cfg.NoIntegrationCheck,
 		noUpdateCheck:      cfg.NoUpdateCheck,
@@ -1746,12 +1748,21 @@ func createSession(sc *serverConfig) (*Session, error) {
 		if vcs == nil {
 			return nil, fmt.Errorf("not in a version-controlled repository and no files specified")
 		}
+		if sc.baseBranch != "" {
+			vcs.SetDefaultBranchOverride(sc.baseBranch)
+		}
 		session, err = NewSessionFromVCS(vcs, sc.ignorePatterns)
 	} else {
 		session, err = NewSessionFromFiles(sc.files, sc.ignorePatterns)
 	}
 	if err != nil {
 		return nil, err
+	}
+	// Apply --base-branch override to the session's VCS instance. This covers
+	// files mode where resolveGitContext creates a fresh VCS that doesn't have
+	// the override yet. For Sapling, the instance-level field must be set.
+	if sc.baseBranch != "" && session.VCS != nil {
+		session.VCS.SetDefaultBranchOverride(sc.baseBranch)
 	}
 	// Set ReviewFilePath before loadCritJSON so it reads from the centralized
 	// review file.

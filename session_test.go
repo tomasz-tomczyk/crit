@@ -2639,7 +2639,7 @@ func TestEnsureLoaded(t *testing.T) {
 		t.Fatal("expected no diff hunks before ensureLoaded")
 	}
 
-	err := fe.ensureLoaded(dir, base)
+	err := fe.ensureLoaded(dir, base, nil)
 	if err != nil {
 		t.Fatalf("ensureLoaded failed: %v", err)
 	}
@@ -2658,7 +2658,7 @@ func TestEnsureLoaded(t *testing.T) {
 	}
 
 	// Second call is a no-op (sync.Once)
-	err = fe.ensureLoaded(dir, base)
+	err = fe.ensureLoaded(dir, base, nil)
 	if err != nil {
 		t.Fatalf("second ensureLoaded should not fail: %v", err)
 	}
@@ -2670,7 +2670,7 @@ func TestEnsureLoadedNotLazy(t *testing.T) {
 		Content: "already loaded",
 		Lazy:    false,
 	}
-	err := fe.ensureLoaded("/tmp", "abc123")
+	err := fe.ensureLoaded("/tmp", "abc123", nil)
 	if err != nil {
 		t.Fatalf("ensureLoaded on non-lazy file should be no-op, got: %v", err)
 	}

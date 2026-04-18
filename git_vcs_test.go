@@ -26,3 +26,10 @@ func TestGitVCS_SkipDirNames(t *testing.T) {
 		t.Errorf("SkipDirNames() = %v, want [.git]", dirs)
 	}
 }
+
+func TestDetectVCS_GitOverride(t *testing.T) {
+	vcs := DetectVCS("git")
+	if vcs == nil || vcs.Name() != "git" {
+		t.Errorf("DetectVCS(\"git\") should return GitVCS, got %v", vcs)
+	}
+}

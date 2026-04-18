@@ -115,7 +115,9 @@ type FileEntry struct {
 
 // ensureLoaded loads content and diff hunks for a lazy file on first access.
 // For non-lazy files, this is an immediate no-op.
-func (fe *FileEntry) ensureLoaded(repoRoot, baseRef string) error {
+// The vcs parameter is used for computing diffs; pass nil to fall back to
+// the git package-level functions (backward compat for tests).
+func (fe *FileEntry) ensureLoaded(repoRoot, baseRef string, vcs VCS) error {
 	if !fe.Lazy {
 		return nil
 	}
@@ -136,18 +138,32 @@ func (fe *FileEntry) ensureLoaded(repoRoot, baseRef string) error {
 			} else {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
-				hunks, err := fileDiffUnifiedCtx(ctx, fe.Path, baseRef, repoRoot)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", fe.Path, err)
-				} else {
-					fe.DiffHunks = hunks
-				}
+				fe.loadDiff(ctx, repoRoot, baseRef, vcs)
 			}
 		}
 
 		fe.Lazy = false
 	})
 	return fe.loadErr
+}
+
+// loadDiff computes diff hunks via the VCS interface or git package-level fallback.
+func (fe *FileEntry) loadDiff(ctx context.Context, repoRoot, baseRef string, vcs VCS) {
+	if vcs != nil {
+		hunks, err := vcs.FileDiffUnifiedCtx(ctx, fe.Path, baseRef, repoRoot)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: diff failed for %s: %v\n", fe.Path, err)
+		} else {
+			fe.DiffHunks = hunks
+		}
+		return
+	}
+	hunks, err := fileDiffUnifiedCtx(ctx, fe.Path, baseRef, repoRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", fe.Path, err)
+	} else {
+		fe.DiffHunks = hunks
+	}
 }
 
 // Session is the top-level state manager for a multi-file review.
@@ -238,7 +254,9 @@ func populateLazyFile(fe *FileEntry, fc FileChange, numstats map[string]NumstatE
 }
 
 // populateEagerFile reads content and computes diffs for a file loaded at startup.
-func populateEagerFile(fe *FileEntry, fc FileChange, baseRef, root string) bool {
+// The vcs parameter is used for computing diffs; pass nil to fall back to
+// the git package-level functions.
+func populateEagerFile(fe *FileEntry, fc FileChange, baseRef, root string, vcs VCS) bool {
 	if fc.Status != "deleted" {
 		data, err := os.ReadFile(fe.AbsPath)
 		if err != nil {
@@ -252,17 +270,31 @@ func populateEagerFile(fe *FileEntry, fc FileChange, baseRef, root string) bool 
 		if fc.Status == "added" || fc.Status == "untracked" {
 			fe.DiffHunks = FileDiffUnifiedNewFile(fe.Content)
 		} else {
-			hunks, err := fileDiffUnified(fc.Path, baseRef, root)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", fc.Path, err)
-			} else {
-				fe.DiffHunks = hunks
-			}
+			populateEagerFileDiff(fe, fc, baseRef, root, vcs)
 		}
 	}
 
 	fe.Comments = []Comment{}
 	return true
+}
+
+// populateEagerFileDiff computes diff hunks for an eager-loaded file.
+func populateEagerFileDiff(fe *FileEntry, fc FileChange, baseRef, root string, vcs VCS) {
+	if vcs != nil {
+		hunks, err := vcs.FileDiffUnified(fc.Path, baseRef, root)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: diff failed for %s: %v\n", fc.Path, err)
+		} else {
+			fe.DiffHunks = hunks
+		}
+		return
+	}
+	hunks, err := fileDiffUnified(fc.Path, baseRef, root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", fc.Path, err)
+	} else {
+		fe.DiffHunks = hunks
+	}
 }
 
 // NewSessionFromGit creates a session by auto-detecting changed files via git.
@@ -339,7 +371,7 @@ func NewSessionFromVCS(vcs VCS, ignorePatterns []string) (*Session, error) {
 
 		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
 			populateLazyFile(fe, fc, numstats)
-		} else if !populateEagerFile(fe, fc, baseRef, root) {
+		} else if !populateEagerFile(fe, fc, baseRef, root, vcs) {
 			continue
 		}
 		s.Files = append(s.Files, fe)
@@ -2052,10 +2084,11 @@ func (s *Session) GetFileSnapshot(path string) (map[string]any, bool) {
 	}
 	repoRoot := s.RepoRoot
 	baseRef := s.BaseRef
+	vcs := s.VCS
 	s.mu.RUnlock()
 
 	// Load content on demand for lazy files
-	if err := f.ensureLoaded(repoRoot, baseRef); err != nil {
+	if err := f.ensureLoaded(repoRoot, baseRef, vcs); err != nil {
 		return nil, false
 	}
 
@@ -2107,10 +2140,11 @@ func (s *Session) GetFileDiffSnapshot(path string) (map[string]any, bool) {
 	}
 	repoRoot := s.RepoRoot
 	baseRef := s.BaseRef
+	vcs := s.VCS
 	s.mu.RUnlock()
 
 	// Load content + diffs on demand for lazy files
-	if err := f.ensureLoaded(repoRoot, baseRef); err != nil {
+	if err := f.ensureLoaded(repoRoot, baseRef, vcs); err != nil {
 		return nil, false
 	}
 
@@ -2179,6 +2213,8 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		vcsName = s.VCS.Name()
 	}
 
+	vcs := s.VCS
+
 	info := SessionInfo{
 		Mode:           s.Mode,
 		VCSName:        vcsName,
@@ -2190,7 +2226,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		Cwd:            s.RepoRoot,
 	}
 
-	info.AvailableScopes = cachedAvailableScopes(info.BaseRef)
+	info.AvailableScopes = cachedAvailableScopes(info.BaseRef, vcs)
 
 	for _, f := range s.Files {
 		fi := SessionFileInfo{
@@ -2236,8 +2272,8 @@ var (
 const scopeCacheTTL = 2 * time.Second
 
 // cachedAvailableScopes returns availableScopes results, using a 2-second cache
-// to avoid running git commands on every /api/session poll.
-func cachedAvailableScopes(baseRef string) []string {
+// to avoid running VCS commands on every /api/session poll.
+func cachedAvailableScopes(baseRef string, vcs VCS) []string {
 	scopeCacheMu.Lock()
 	defer scopeCacheMu.Unlock()
 
@@ -2248,7 +2284,7 @@ func cachedAvailableScopes(baseRef string) []string {
 		return result
 	}
 
-	scopes := availableScopes(baseRef)
+	scopes := availableScopes(baseRef, vcs)
 	scopeCacheBaseRef = baseRef
 	scopeCacheResult = scopes
 	scopeCacheExpiry = now.Add(scopeCacheTTL)
@@ -2259,19 +2295,24 @@ func cachedAvailableScopes(baseRef string) []string {
 }
 
 // availableScopes returns the list of scopes that have files.
-// Only includes a scope if git reports changes for it.
-func availableScopes(baseRef string) []string {
+// Only includes a scope if the VCS reports changes for it.
+func availableScopes(baseRef string, vcs VCS) []string {
 	scopes := []string{"all"}
+	if vcs == nil {
+		return scopes
+	}
 	if baseRef != "" {
-		if files, err := changedFilesBranch(baseRef); err == nil && len(files) > 0 {
+		if files, err := vcs.ChangedFilesScoped("branch", baseRef); err == nil && len(files) > 0 {
 			scopes = append(scopes, "branch")
 		}
 	}
-	if files, err := changedFilesStaged(); err == nil && len(files) > 0 {
-		scopes = append(scopes, "staged")
-	}
-	if files, err := changedFilesUnstaged(); err == nil && len(files) > 0 {
-		scopes = append(scopes, "unstaged")
+	if vcs.HasStagingArea() {
+		if files, err := vcs.ChangedFilesScoped("staged", baseRef); err == nil && len(files) > 0 {
+			scopes = append(scopes, "staged")
+		}
+		if files, err := vcs.ChangedFilesScoped("unstaged", baseRef); err == nil && len(files) > 0 {
+			scopes = append(scopes, "unstaged")
+		}
 	}
 	return scopes
 }
@@ -2295,6 +2336,7 @@ func (s *Session) GetCommits() []CommitInfo {
 
 // scopedSessionSnapshot holds session state read under lock for scoped queries.
 type scopedSessionSnapshot struct {
+	vcs            VCS
 	baseRef        string
 	baseBranchName string
 	repoRoot       string
@@ -2323,6 +2365,7 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 	copy(rc, s.reviewComments)
 
 	return scopedSessionSnapshot{
+		vcs:            s.VCS,
 		baseRef:        s.BaseRef,
 		baseBranchName: s.BaseBranchName,
 		repoRoot:       s.RepoRoot,
@@ -2336,9 +2379,12 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 	}
 }
 
-func scopedHunks(fc FileChange, scope, commit, baseRef, repoRoot string) []DiffHunk {
+func scopedHunks(fc FileChange, scope, commit, baseRef, repoRoot string, vcs VCS) []DiffHunk {
+	if vcs == nil {
+		return nil
+	}
 	if commit != "" {
-		h, err := FileDiffForCommit(fc.Path, commit, repoRoot)
+		h, err := vcs.FileDiffForCommit(fc.Path, commit, repoRoot)
 		if err == nil {
 			return h
 		}
@@ -2351,7 +2397,7 @@ func scopedHunks(fc FileChange, scope, commit, baseRef, repoRoot string) []DiffH
 		}
 		return nil
 	}
-	h, err := FileDiffScoped(fc.Path, scope, baseRef, repoRoot)
+	h, err := vcs.FileDiffScoped(fc.Path, scope, baseRef, repoRoot)
 	if err == nil {
 		return h
 	}
@@ -2389,16 +2435,20 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 		BaseRef:         snap.baseRef,
 		BaseBranchName:  snap.baseBranchName,
 		ReviewRound:     snap.reviewRound,
-		AvailableScopes: availableScopes(snap.baseRef),
+		AvailableScopes: availableScopes(snap.baseRef, snap.vcs),
 		ReviewComments:  snap.reviewComments,
+	}
+
+	if snap.vcs == nil {
+		return info
 	}
 
 	var changes []FileChange
 	var err error
 	if commit != "" {
-		changes, err = ChangedFilesForCommit(commit, snap.repoRoot)
+		changes, err = snap.vcs.ChangedFilesForCommit(commit, snap.repoRoot)
 	} else {
-		changes, err = ChangedFilesScoped(scope, snap.baseRef)
+		changes, err = snap.vcs.ChangedFilesScoped(scope, snap.baseRef)
 	}
 	if err != nil || len(changes) == 0 {
 		return info
@@ -2422,7 +2472,7 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 			continue
 		}
 
-		hunks := scopedHunks(fc, scope, commit, snap.baseRef, snap.repoRoot)
+		hunks := scopedHunks(fc, scope, commit, snap.baseRef, snap.repoRoot, snap.vcs)
 		fi.Additions, fi.Deletions = countHunkStats(hunks)
 		info.Files = append(info.Files, fi)
 	}
@@ -2436,13 +2486,14 @@ func (s *Session) loadScopedFileState(path, scope string) (status, content, base
 	f := s.fileByPathLocked(path)
 	baseRef = s.BaseRef
 	repoRoot = s.RepoRoot
+	vcs := s.VCS
 	if f != nil {
 		status = f.Status
 	}
 	s.mu.RUnlock()
 
 	if f != nil {
-		if err := f.ensureLoaded(repoRoot, baseRef); err == nil {
+		if err := f.ensureLoaded(repoRoot, baseRef, vcs); err == nil {
 			s.mu.RLock()
 			content = f.Content
 			s.mu.RUnlock()
@@ -2456,11 +2507,13 @@ func (s *Session) loadScopedFileState(path, scope string) (status, content, base
 	absPath := filepath.Join(repoRoot, path)
 	if data, err := os.ReadFile(absPath); err == nil {
 		content = string(data)
-		if changes, err := ChangedFilesScoped(scope, baseRef); err == nil {
-			for _, fc := range changes {
-				if fc.Path == path {
-					status = fc.Status
-					break
+		if vcs != nil {
+			if changes, err := vcs.ChangedFilesScoped(scope, baseRef); err == nil {
+				for _, fc := range changes {
+					if fc.Path == path {
+						status = fc.Status
+						break
+					}
 				}
 			}
 		}
@@ -2468,21 +2521,25 @@ func (s *Session) loadScopedFileState(path, scope string) (status, content, base
 	return status, content, baseRef, repoRoot
 }
 
-func computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoRoot string) []DiffHunk {
-	if commit != "" {
-		h, err := FileDiffForCommit(path, commit, repoRoot)
-		if err == nil {
-			return h
-		}
-		return nil
-	}
+func computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoRoot string, vcs VCS) []DiffHunk {
+	// Pure content-based diffs don't need VCS.
 	if status == "untracked" && (scope == "unstaged" || scope == "all" || scope == "") {
 		return FileDiffUnifiedNewFile(content)
 	}
 	if status == "added" && scope != "unstaged" {
 		return FileDiffUnifiedNewFile(content)
 	}
-	h, err := FileDiffScoped(path, scope, baseRef, repoRoot)
+	if vcs == nil {
+		return nil
+	}
+	if commit != "" {
+		h, err := vcs.FileDiffForCommit(path, commit, repoRoot)
+		if err == nil {
+			return h
+		}
+		return nil
+	}
+	h, err := vcs.FileDiffScoped(path, scope, baseRef, repoRoot)
 	if err == nil {
 		return h
 	}
@@ -2499,7 +2556,11 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string) (map[str
 
 	status, content, baseRef, repoRoot := s.loadScopedFileState(path, scope)
 
-	hunks := computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoRoot)
+	s.mu.RLock()
+	vcs := s.VCS
+	s.mu.RUnlock()
+
+	hunks := computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoRoot, vcs)
 	if hunks == nil {
 		hunks = []DiffHunk{}
 	}
