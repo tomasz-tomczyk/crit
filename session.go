@@ -1135,23 +1135,33 @@ func (s *Session) GetShareState() (string, string) {
 }
 
 // LoadShareFilesFromDisk reads file content from disk for all session files,
-// returning share-ready file entries. Deleted files are skipped since they
-// have no on-disk content to share.
+// returning share-ready file entries. Orphaned files (removed between rounds)
+// are included with empty content and the orphaned flag set so crit-web can
+// render them with the appropriate status badge.
 func (s *Session) LoadShareFilesFromDisk() []shareFile {
 	s.mu.RLock()
 	type fileInfo struct {
-		path    string
-		absPath string
-		status  string
+		path     string
+		absPath  string
+		status   string
+		orphaned bool
 	}
 	infos := make([]fileInfo, len(s.Files))
 	for i, f := range s.Files {
-		infos[i] = fileInfo{path: f.Path, absPath: f.AbsPath, status: f.Status}
+		infos[i] = fileInfo{path: f.Path, absPath: f.AbsPath, status: f.Status, orphaned: f.Orphaned}
 	}
 	s.mu.RUnlock()
 
 	var files []shareFile
 	for _, fi := range infos {
+		if fi.orphaned {
+			files = append(files, shareFile{
+				Path:     fi.path,
+				Status:   fi.status,
+				Orphaned: true,
+			})
+			continue
+		}
 		if fi.status == "deleted" {
 			continue
 		}
@@ -1159,7 +1169,7 @@ func (s *Session) LoadShareFilesFromDisk() []shareFile {
 		if err != nil {
 			continue // file may have been removed since session started
 		}
-		files = append(files, shareFile{Path: fi.path, Content: string(data)})
+		files = append(files, shareFile{Path: fi.path, Content: string(data), Status: fi.status})
 	}
 	return files
 }

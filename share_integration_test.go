@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path"
@@ -1292,4 +1293,104 @@ func TestShareSyncFullLifecycle(t *testing.T) {
 	}
 
 	t.Logf("Full lifecycle passed across 3 rounds. Review: %s", extractURL(t, output1))
+}
+
+// TestShareSyncOrphanedFile verifies that orphaned file metadata (status + orphaned flag)
+// is correctly delivered to crit-web in the share payload. The test captures the actual
+// payload sent to the share service and verifies its structure.
+func TestShareSyncOrphanedFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a live file
+	planPath := filepath.Join(dir, "plan.md")
+	if err := os.WriteFile(planPath, []byte("# Plan\n\nActive content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Capture the payload sent to the share service
+	var receivedPayload map[string]any
+	mockWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&receivedPayload)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"url":          "https://example.com/r/orphan-test",
+			"delete_token": "tok_orphan",
+		})
+	}))
+	defer mockWeb.Close()
+
+	// Build share files with an orphaned entry (simulating what LoadShareFilesFromDisk produces)
+	files := []shareFile{
+		{Path: "plan.md", Content: "# Plan\n\nActive content\n", Status: "modified"},
+		{Path: "old-code.go", Content: "", Status: "removed", Orphaned: true},
+	}
+	comments := []shareComment{
+		{File: "old-code.go", StartLine: 1, EndLine: 1, Body: "this was important", Scope: "line"},
+	}
+
+	url, _, err := shareFilesToWeb(files, comments, mockWeb.URL, 1, "")
+	if err != nil {
+		t.Fatalf("sharing with orphaned file failed: %v", err)
+	}
+	if url != "https://example.com/r/orphan-test" {
+		t.Fatalf("expected mock URL, got: %s", url)
+	}
+
+	// Verify the payload sent to crit-web includes both files with correct metadata
+	rawFiles, ok := receivedPayload["files"].([]any)
+	if !ok {
+		t.Fatal("expected files array in payload")
+	}
+	if len(rawFiles) != 2 {
+		t.Fatalf("expected 2 files in payload, got %d", len(rawFiles))
+	}
+
+	// Find and verify the orphaned file
+	var orphanedFile map[string]any
+	var activeFile map[string]any
+	for _, rf := range rawFiles {
+		f := rf.(map[string]any)
+		switch f["path"] {
+		case "old-code.go":
+			orphanedFile = f
+		case "plan.md":
+			activeFile = f
+		}
+	}
+
+	if orphanedFile == nil {
+		t.Fatal("orphaned file 'old-code.go' not found in payload")
+	}
+	if orphanedFile["status"] != "removed" {
+		t.Errorf("orphaned file status = %v, want 'removed'", orphanedFile["status"])
+	}
+	if orphanedFile["orphaned"] != true {
+		t.Errorf("orphaned file orphaned = %v, want true", orphanedFile["orphaned"])
+	}
+	if orphanedFile["content"] != "" {
+		t.Errorf("orphaned file content should be empty, got %v", orphanedFile["content"])
+	}
+
+	if activeFile == nil {
+		t.Fatal("active file 'plan.md' not found in payload")
+	}
+	if activeFile["status"] != "modified" {
+		t.Errorf("active file status = %v, want 'modified'", activeFile["status"])
+	}
+	if _, hasOrphaned := activeFile["orphaned"]; hasOrphaned {
+		t.Error("active file should not have orphaned key")
+	}
+
+	// Verify comment on orphaned file is in the payload
+	rawComments, _ := receivedPayload["comments"].([]any)
+	if len(rawComments) != 1 {
+		t.Fatalf("expected 1 comment in payload, got %d", len(rawComments))
+	}
+	c := rawComments[0].(map[string]any)
+	if c["file"] != "old-code.go" {
+		t.Errorf("comment file = %v, want 'old-code.go'", c["file"])
+	}
+	if c["body"] != "this was important" {
+		t.Errorf("comment body = %v, want 'this was important'", c["body"])
+	}
 }

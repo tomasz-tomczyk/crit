@@ -207,7 +207,7 @@ func TestBuildSharePayload_SingleFile(t *testing.T) {
 	payload := buildSharePayload(files, nil, 1)
 
 	// Multi-file format is always used
-	pFiles, ok := payload["files"].([]map[string]string)
+	pFiles, ok := payload["files"].([]map[string]any)
 	if !ok {
 		t.Fatal("expected files array in payload")
 	}
@@ -239,7 +239,7 @@ func TestBuildSharePayload_MultiFile(t *testing.T) {
 	}
 	payload := buildSharePayload(files, nil, 2)
 
-	pFiles := payload["files"].([]map[string]string)
+	pFiles := payload["files"].([]map[string]any)
 	if len(pFiles) != 2 {
 		t.Fatalf("expected 2 files, got %d", len(pFiles))
 	}
@@ -672,6 +672,93 @@ func TestHandleShare_Success(t *testing.T) {
 	}
 }
 
+func TestHandleShare_OrphanedFileIncluded(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a live file on disk
+	os.WriteFile(filepath.Join(dir, "active.go"), []byte("package main"), 0644)
+
+	// Write review file with comments on the orphaned file
+	cj := CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"removed.go": {
+				Status: "removed",
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "orphaned comment"},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(cj)
+	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+
+	// Mock crit-web server that captures the payload
+	var receivedPayload map[string]any
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&receivedPayload)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"url":          "https://crit.md/r/orphan123",
+			"delete_token": "tok_orphan",
+		})
+	}))
+	defer critWeb.Close()
+
+	sess := &Session{
+		OutputDir:   dir,
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{Path: "active.go", AbsPath: filepath.Join(dir, "active.go"), Status: "modified"},
+			{Path: "removed.go", Status: "removed", Orphaned: true, Comments: []Comment{
+				{ID: "c1", StartLine: 1, EndLine: 1, Body: "orphaned comment"},
+			}},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	srv := &Server{session: sess, shareURL: critWeb.URL}
+	srv.ready.Store(true)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
+	w := httptest.NewRecorder()
+	srv.handleShare(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify the payload sent to crit-web includes both files
+	rawFiles, ok := receivedPayload["files"].([]any)
+	if !ok {
+		t.Fatal("expected files array in payload")
+	}
+	if len(rawFiles) != 2 {
+		t.Fatalf("expected 2 files (1 active + 1 orphaned), got %d", len(rawFiles))
+	}
+
+	// Find the orphaned file in the payload
+	var orphanedFile map[string]any
+	for _, rf := range rawFiles {
+		f := rf.(map[string]any)
+		if f["path"] == "removed.go" {
+			orphanedFile = f
+		}
+	}
+	if orphanedFile == nil {
+		t.Fatal("orphaned file 'removed.go' not found in share payload")
+	}
+	if orphanedFile["status"] != "removed" {
+		t.Errorf("expected status 'removed', got %v", orphanedFile["status"])
+	}
+	if orphanedFile["orphaned"] != true {
+		t.Errorf("expected orphaned=true, got %v", orphanedFile["orphaned"])
+	}
+	if orphanedFile["content"] != "" {
+		t.Errorf("expected empty content for orphaned file, got %v", orphanedFile["content"])
+	}
+}
+
 func TestHandleShare_ShareServiceError(t *testing.T) {
 	dir := t.TempDir()
 
@@ -917,6 +1004,107 @@ func TestShareScope(t *testing.T) {
 	h4 := shareScope([]string{})
 	if h4 == "" {
 		t.Error("empty file set should still produce a hash")
+	}
+}
+
+func TestBuildSharePayload_WithStatusAndOrphaned(t *testing.T) {
+	files := []shareFile{
+		{Path: "active.go", Content: "package main", Status: "modified"},
+		{Path: "removed.go", Content: "", Status: "removed", Orphaned: true},
+		{Path: "nostat.md", Content: "# Hello"},
+	}
+	payload := buildSharePayload(files, nil, 1)
+
+	pFiles, ok := payload["files"].([]map[string]any)
+	if !ok {
+		t.Fatal("expected files array in payload")
+	}
+	if len(pFiles) != 3 {
+		t.Fatalf("expected 3 files, got %d", len(pFiles))
+	}
+
+	// File with status set
+	if pFiles[0]["status"] != "modified" {
+		t.Errorf("expected status 'modified', got %v", pFiles[0]["status"])
+	}
+	if _, hasOrphaned := pFiles[0]["orphaned"]; hasOrphaned {
+		t.Error("non-orphaned file should not have orphaned key")
+	}
+
+	// Orphaned file
+	if pFiles[1]["status"] != "removed" {
+		t.Errorf("expected status 'removed', got %v", pFiles[1]["status"])
+	}
+	if pFiles[1]["orphaned"] != true {
+		t.Errorf("expected orphaned=true, got %v", pFiles[1]["orphaned"])
+	}
+
+	// File without status — key should be absent
+	if _, hasStatus := pFiles[2]["status"]; hasStatus {
+		t.Error("file without status should not have status key")
+	}
+}
+
+func TestLoadShareFilesFromDisk_OrphanedFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a live file
+	activePath := filepath.Join(dir, "active.go")
+	if err := os.WriteFile(activePath, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &Session{
+		Files: []*FileEntry{
+			{Path: "active.go", AbsPath: activePath, Status: "modified"},
+			{Path: "removed.go", Status: "removed", Orphaned: true, Comments: []Comment{
+				{ID: "c1", Body: "old comment"},
+			}},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	files := sess.LoadShareFilesFromDisk()
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+
+	// Find the orphaned file
+	var orphaned *shareFile
+	var active *shareFile
+	for i := range files {
+		if files[i].Path == "removed.go" {
+			orphaned = &files[i]
+		}
+		if files[i].Path == "active.go" {
+			active = &files[i]
+		}
+	}
+
+	if orphaned == nil {
+		t.Fatal("orphaned file not found in share files")
+	}
+	if !orphaned.Orphaned {
+		t.Error("expected Orphaned=true")
+	}
+	if orphaned.Status != "removed" {
+		t.Errorf("expected status 'removed', got %q", orphaned.Status)
+	}
+	if orphaned.Content != "" {
+		t.Errorf("expected empty content for orphaned file, got %q", orphaned.Content)
+	}
+
+	if active == nil {
+		t.Fatal("active file not found in share files")
+	}
+	if active.Status != "modified" {
+		t.Errorf("expected status 'modified', got %q", active.Status)
+	}
+	if active.Orphaned {
+		t.Error("expected Orphaned=false for active file")
+	}
+	if active.Content != "package main" {
+		t.Errorf("expected content 'package main', got %q", active.Content)
 	}
 }
 
