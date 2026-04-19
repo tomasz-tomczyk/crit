@@ -4388,8 +4388,8 @@
 
   // ===== Agent Button =====
   function isLiveThread(comment) {
-    if (!agentEnabled || !comment.replies) return false;
-    return comment.replies.some(function(r) { return r.author === agentName; });
+    if (!agentEnabled) return false;
+    return !!comment.live;
   }
 
   function checkAgentReplies(comments) {
