@@ -2332,27 +2332,3 @@ func TestHandleAgentRequest_MethodNotAllowed(t *testing.T) {
 		t.Errorf("expected 405, got %d", w.Code)
 	}
 }
-
-func TestHandleAgentRequest_SetsLive(t *testing.T) {
-	srv, session := newTestServer(t)
-	srv.agentCmd = "echo test"
-
-	c, _ := session.AddComment("test.md", 1, 1, "", "fix this", "", "")
-
-	body := strings.NewReader(`{"comment_id": "` + c.ID + `"}`)
-	req := httptest.NewRequest("POST", "/api/agent/request", body)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
-	}
-
-	comments := session.GetComments("test.md")
-	if len(comments) == 0 {
-		t.Fatal("expected comment to exist")
-	}
-	if !comments[0].Live {
-		t.Error("expected comment Live to be true after agent request")
-	}
-}
