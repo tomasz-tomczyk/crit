@@ -68,6 +68,7 @@ type Comment struct {
 	CreatedAt      string  `json:"created_at"`
 	UpdatedAt      string  `json:"updated_at"`
 	Resolved       bool    `json:"resolved,omitempty"`
+	Live           bool    `json:"live,omitempty"`
 	CarriedForward bool    `json:"carried_forward,omitempty"`
 	ReviewRound    int     `json:"review_round,omitempty"`
 	Replies        []Reply `json:"replies,omitempty"`
@@ -789,6 +790,24 @@ func (s *Session) SetCommentResolved(filePath, id string, resolved bool) (Commen
 		}
 	}
 	return Comment{}, false
+}
+
+// SetCommentLive marks a comment as live (sent to an agent).
+func (s *Session) SetCommentLive(filePath, id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.fileByPathLocked(filePath)
+	if f == nil {
+		return false
+	}
+	for i, c := range f.Comments {
+		if c.ID == id {
+			f.Comments[i].Live = true
+			s.scheduleWrite()
+			return true
+		}
+	}
+	return false
 }
 
 // DeleteComment deletes a comment from a specific file.

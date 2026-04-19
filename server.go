@@ -1275,6 +1275,8 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.session.SetCommentLive(filePath, comment.ID)
+
 	prompt := buildAgentPrompt(comment, filePath)
 
 	// Run agent command asynchronously

@@ -69,6 +69,15 @@ func TestHandleAgentRequest_Success(t *testing.T) {
 	if resp["status"] != "accepted" {
 		t.Errorf("status = %v, want accepted", resp["status"])
 	}
+
+	// Verify the comment is marked as live
+	comments := session.GetComments("test.md")
+	if len(comments) == 0 {
+		t.Fatal("expected comment to exist")
+	}
+	if !comments[0].Live {
+		t.Error("expected comment Live to be true after agent request")
+	}
 }
 
 func TestAgentName_Codex(t *testing.T) {
