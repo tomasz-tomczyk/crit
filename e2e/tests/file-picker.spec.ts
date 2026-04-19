@@ -42,21 +42,29 @@ test.describe('File Picker Autocomplete — Git Mode', () => {
   test('file picker filters results as you type', async ({ page }) => {
     const textarea = await openCommentForm(page);
 
+    // Wait for the final filtered API response after typing the full query.
+    // pressSequentially fires a fetch per keystroke; without waiting for the
+    // last one (q=server), the dropdown may still show intermediate results
+    // (e.g. q=s) — causing a race condition that flakes in CI.
+    const filteredResponse = page.waitForResponse(resp =>
+      resp.url().includes('/api/files/list') &&
+      resp.url().includes('q=server') &&
+      resp.status() === 200
+    );
     await textarea.pressSequentially('@server');
+    await filteredResponse;
 
     const dropdown = page.locator('.file-picker-dropdown');
     await expect(dropdown).toBeVisible();
 
     // All visible items should contain "server" (case-insensitive)
-    await expect(async () => {
-      const items = dropdown.locator('.file-picker-item');
-      await expect(items.first()).toBeVisible();
-      const count = await items.count();
-      for (let i = 0; i < count; i++) {
-        const text = await items.nth(i).textContent();
-        expect(text!.toLowerCase()).toContain('server');
-      }
-    }).toPass();
+    const items = dropdown.locator('.file-picker-item');
+    await expect(items.first()).toBeVisible();
+    const count = await items.count();
+    for (let i = 0; i < count; i++) {
+      const text = await items.nth(i).textContent();
+      expect(text!.toLowerCase()).toContain('server');
+    }
   });
 
   test('selecting a file inserts path into textarea', async ({ page }) => {
