@@ -314,6 +314,7 @@
         lazy: true,
         diffTooLarge: false,
         diffLoaded: false,
+        fileHash: '',
       };
     });
 
@@ -346,6 +347,7 @@
         orphaned: true,
         diffTooLarge: false,
         diffLoaded: false,
+        fileHash: '',
       };
     }
     let diffUrl = '/api/file/diff?path=' + enc(fi.path);
@@ -378,6 +380,7 @@
       deletions: fi.deletions || 0,
       lazy: false,
       orphaned: false,
+      fileHash: fileRes.file_hash || '',
     };
 
     // Mark large diffs for deferred rendering
@@ -5895,6 +5898,7 @@
             collapsed: files[pi].collapsed,
             diffLoaded: files[pi].diffLoaded,
             viewed: files[pi].viewed,
+            fileHash: files[pi].fileHash,
           };
         }
 
@@ -5913,11 +5917,12 @@
         for (let fi = 0; fi < files.length; fi++) {
           const prev = prevState[files[fi].path];
           if (prev) {
+            const contentChanged = prev.fileHash && files[fi].fileHash && prev.fileHash !== files[fi].fileHash;
             files[fi].viewMode = prev.viewMode;
             // Lazy files must stay collapsed — they have no content to render
-            if (!files[fi].lazy) files[fi].collapsed = prev.collapsed;
+            if (!files[fi].lazy && !contentChanged) files[fi].collapsed = prev.collapsed;
             if (prev.diffLoaded) files[fi].diffLoaded = prev.diffLoaded;
-            if (prev.viewed) files[fi].viewed = true;
+            if (prev.viewed && !contentChanged) files[fi].viewed = true;
           }
         }
 
