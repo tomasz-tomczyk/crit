@@ -1,5 +1,23 @@
 import { test, expect } from '@playwright/test';
-import { loadPage } from './helpers';
+import * as fs from 'fs';
+import { execSync } from 'child_process';
+import { clearAllComments, loadPage } from './helpers';
+
+// Read fixture state written by setup-fixtures.sh
+function readFixtureState(): { fixtureDir: string } {
+  const raw = fs.readFileSync('/tmp/crit-e2e-state-3123', 'utf8');
+  const env: Record<string, string> = {};
+  for (const line of raw.trim().split('\n')) {
+    const eq = line.indexOf('=');
+    if (eq >= 0) {
+      env[line.slice(0, eq)] = line.slice(eq + 1);
+    }
+  }
+  if (!env['CRIT_FIXTURE_DIR']) {
+    throw new Error('CRIT_FIXTURE_DIR not set in state file');
+  }
+  return { fixtureDir: env['CRIT_FIXTURE_DIR'] };
+}
 
 // ============================================================
 // Viewed Checkbox — Git Mode
@@ -115,6 +133,46 @@ test.describe('Viewed Checkbox — Git Mode', () => {
 
     const reloadedCheckbox = page.locator('#file-section-plan\\.md .file-header-viewed input[type="checkbox"]');
     await expect(reloadedCheckbox).toBeChecked();
+  });
+  test('viewed state resets when file content changes between rounds', async ({ page, request }) => {
+    // Reset server state
+    await request.post('/api/round-complete');
+    await clearAllComments(request);
+    await loadPage(page);
+
+    const { fixtureDir } = readFixtureState();
+
+    // Mark plan.md as viewed
+    const section = page.locator('#file-section-plan\\.md');
+    const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
+    await checkbox.click();
+    await expect(checkbox).toBeChecked();
+    await expect(section).not.toHaveAttribute('open', '');
+
+    // Verify tree indicator shows viewed
+    const treeFile = page.locator('.tree-file', {
+      has: page.locator('.tree-file-name', { hasText: 'plan.md' }),
+    });
+    await expect(treeFile).toHaveClass(/viewed/);
+
+    // Modify plan.md on disk and commit the change
+    const planPath = `${fixtureDir}/plan.md`;
+    const original = fs.readFileSync(planPath, 'utf8');
+    fs.writeFileSync(planPath, original + '\n## Added by test\n\nNew content.\n');
+    execSync('git add plan.md && git commit -q -m "test: modify plan.md"', { cwd: fixtureDir });
+
+    // Trigger round-complete so the server picks up the file change
+    await request.post('/api/round-complete');
+
+    // Wait for UI to refresh — the viewed checkbox should be unchecked
+    await expect(checkbox).not.toBeChecked({ timeout: 5_000 });
+
+    // File section should be open (uncollapsed)
+    await expect(section).toHaveAttribute('open', '');
+
+    // Tree view should no longer show the viewed indicator
+    await expect(treeFile).not.toHaveClass(/viewed/);
+    await expect(treeFile.locator('.tree-viewed-check')).toHaveCount(0);
   });
 });
 

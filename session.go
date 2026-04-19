@@ -2070,6 +2070,7 @@ func (s *Session) GetFileSnapshot(path string) (map[string]any, bool) {
 		"status":    f.Status,
 		"file_type": f.FileType,
 		"content":   f.Content,
+		"file_hash": f.FileHash,
 	}, true
 }
 
@@ -2098,6 +2099,7 @@ func (s *Session) GetFileSnapshotFromDisk(path string) (map[string]any, bool) {
 		"status":    "modified",
 		"file_type": detectFileType(path),
 		"content":   string(data),
+		"file_hash": fileHash(data),
 	}, true
 }
 
