@@ -272,7 +272,7 @@ test.describe('Comment Threading', () => {
     await expect(card).toBeVisible();
 
     // Live thread should be expanded (not collapsed) and have live-thread styling
-    await expect(section.locator('.comment-wrapper.live-thread')).toHaveCount(1);
+    await expect(section.locator('.comment-block.live-thread')).toHaveCount(1);
     await expect(card).not.toHaveClass(/collapsed/);
 
     // Hover and resolve
