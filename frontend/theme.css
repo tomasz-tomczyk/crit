@@ -11,7 +11,6 @@
   --bg-secondary: #16171f;
   --bg-tertiary: #262940;
   --bg-hover: #2d3150;
-  --bg-gutter: #131420;
   --fg: #c0caf5;
   --fg-primary: #c0caf5;
   --fg-secondary: #a9b1d6;
@@ -97,7 +96,6 @@
     --bg-secondary: #f5f5f5;
     --bg-tertiary: #eeeeee;
     --bg-hover: #e8e8e8;
-    --bg-gutter: #f0f0f0;
     --fg: #24292f;
     --fg-primary: #24292f;
     --fg-secondary: #57606a;
@@ -183,7 +181,6 @@
   --bg-secondary: #16171f;
   --bg-tertiary: #262940;
   --bg-hover: #2d3150;
-  --bg-gutter: #131420;
   --fg: #c0caf5;
   --fg-primary: #c0caf5;
   --fg-secondary: #a9b1d6;
@@ -268,7 +265,6 @@
   --bg-secondary: #f5f5f5;
   --bg-tertiary: #eeeeee;
   --bg-hover: #e8e8e8;
-  --bg-gutter: #f0f0f0;
   --fg: #24292f;
   --fg-primary: #24292f;
   --fg-secondary: #57606a;
@@ -306,9 +302,7 @@
   --yellow-subtle: rgba(122, 88, 0, 0.06);
   --yellow-bg: rgba(122, 88, 0, 0.1);
   --yellow-border: rgba(122, 88, 0, 0.16);
-  --btn-primary-bg: #0860c7;
-  --btn-primary-fg: #fff;
-  --btn-primary-border: #0860c7;
+  --fg-on-accent: #fff;
   --overlay-bg: rgba(0,0,0,0.5);
   --overlay-bg-heavy: rgba(0,0,0,0.6);
   --btn-danger-hover-bg: rgba(207, 34, 46, 0.08);
