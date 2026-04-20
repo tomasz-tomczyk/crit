@@ -436,6 +436,95 @@ func TestChangedFilesBranch(t *testing.T) {
 	}
 }
 
+// TestMergeBase_OriginMain verifies that MergeBase("origin/main") works correctly
+// when a feature branch is based on origin/main and local main is behind.
+// This is the scenario from https://github.com/tomasz-tomczyk/crit/issues/313.
+func TestMergeBase_OriginMain(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Set up a bare remote and push main
+	bare := t.TempDir()
+	runGit(t, bare, "init", "--bare")
+	runGit(t, dir, "remote", "add", "origin", bare)
+	runGit(t, dir, "push", "origin", "main")
+
+	// Record local main's commit
+	localMainSHA := runGit(t, dir, "rev-parse", "main")
+
+	// Advance origin/main by committing on main and pushing, then resetting local main back
+	writeFile(t, filepath.Join(dir, "upstream.go"), "package main\n")
+	runGit(t, dir, "add", "upstream.go")
+	runGit(t, dir, "commit", "-m", "upstream commit")
+	runGit(t, dir, "push", "origin", "main")
+	// Reset local main back to simulate not fast-forwarding
+	runGit(t, dir, "reset", "--hard", localMainSHA)
+
+	// Fetch in the original repo so origin/main is ahead of local main
+	runGit(t, dir, "fetch", "origin")
+	originMainSHA := runGit(t, dir, "rev-parse", "origin/main")
+
+	// Sanity: origin/main should be ahead of local main
+	if localMainSHA == originMainSHA {
+		t.Fatal("origin/main should be ahead of local main")
+	}
+
+	// Create a feature branch based on origin/main (the reporter's workflow)
+	runGit(t, dir, "checkout", "-b", "feature/test", "origin/main")
+	writeFile(t, filepath.Join(dir, "feature.go"), "package main\n")
+	runGit(t, dir, "add", "feature.go")
+	runGit(t, dir, "commit", "-m", "feature commit")
+
+	// MergeBase against "origin/main" should give origin/main's SHA (tight diff)
+	mb, err := MergeBase("origin/main")
+	if err != nil {
+		t.Fatalf("MergeBase(origin/main) failed: %v", err)
+	}
+	if mb != originMainSHA {
+		t.Errorf("MergeBase(origin/main) = %s, want %s", mb[:12], originMainSHA[:12])
+	}
+
+	// MergeBase against local "main" gives the older SHA (bloated diff)
+	mbLocal, err := MergeBase("main")
+	if err != nil {
+		t.Fatalf("MergeBase(main) failed: %v", err)
+	}
+	if mbLocal != localMainSHA {
+		t.Errorf("MergeBase(main) = %s, want %s", mbLocal[:12], localMainSHA[:12])
+	}
+
+	// changedFilesBranch with origin/main merge-base should only show feature.go
+	changes, err := changedFilesBranch(mb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]string{}
+	for _, c := range changes {
+		paths[c.Path] = c.Status
+	}
+	if _, ok := paths["feature.go"]; !ok {
+		t.Errorf("feature.go missing from changes: %v", paths)
+	}
+	if _, ok := paths["upstream.go"]; ok {
+		t.Errorf("upstream.go should NOT appear when diffing against origin/main")
+	}
+
+	// changedFilesBranch with local main merge-base incorrectly shows upstream.go too
+	changesLocal, err := changedFilesBranch(mbLocal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localPaths := map[string]string{}
+	for _, c := range changesLocal {
+		localPaths[c.Path] = c.Status
+	}
+	if _, ok := localPaths["upstream.go"]; !ok {
+		t.Errorf("upstream.go should appear when diffing against stale local main")
+	}
+}
+
 func TestChangedFilesBranch_EmptyBaseRef(t *testing.T) {
 	dir := initTestRepo(t)
 	origDir, _ := os.Getwd()
