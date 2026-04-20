@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"os"
 	"os/exec"
 	"path"
@@ -1295,61 +1295,43 @@ func TestShareSyncFullLifecycle(t *testing.T) {
 	t.Logf("Full lifecycle passed across 3 rounds. Review: %s", extractURL(t, output1))
 }
 
-// TestShareSyncOrphanedFile verifies that orphaned file metadata (status + orphaned flag)
-// is correctly delivered to crit-web in the share payload. The test captures the actual
-// payload sent to the share service and verifies its structure.
+// TestShareSyncOrphanedFile verifies the full end-to-end flow for orphaned files:
+// share a review with an active file and an orphaned file (with unresolved comments),
+// then verify crit-web stores both files and their comments correctly.
+//
+// This uses shareFilesToWeb directly because orphaned files are shared via the
+// browser share path (LoadShareFilesFromDisk on a live session), not the CLI
+// `crit share` command (which reads files from disk — orphaned files don't exist on disk).
 func TestShareSyncOrphanedFile(t *testing.T) {
-	dir := t.TempDir()
+	baseURL := critWebURL(t)
 
-	// Create a live file
-	planPath := filepath.Join(dir, "plan.md")
-	if err := os.WriteFile(planPath, []byte("# Plan\n\nActive content\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Capture the payload sent to the share service
-	var receivedPayload map[string]any
-	mockWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&receivedPayload)
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
-			"url":          "https://example.com/r/orphan-test",
-			"delete_token": "tok_orphan",
-		})
-	}))
-	defer mockWeb.Close()
-
-	// Build share files with an orphaned entry (simulating what LoadShareFilesFromDisk produces)
+	// Build the share payload as LoadShareFilesFromDisk would produce it:
+	// an active file with content and an orphaned file with empty content + "removed" status.
 	files := []shareFile{
 		{Path: "plan.md", Content: "# Plan\n\nActive content\n", Status: "modified"},
 		{Path: "old-code.go", Content: "", Status: "removed"},
 	}
 	comments := []shareComment{
-		{File: "old-code.go", StartLine: 1, EndLine: 1, Body: "this was important", Scope: "line"},
+		{File: "old-code.go", StartLine: 10, EndLine: 12,
+			Body: "this logic was important — where did it move?", Scope: "line"},
+		{File: "old-code.go", Body: "file-level note about removal", Scope: "file"},
 	}
 
-	url, _, err := shareFilesToWeb(files, comments, mockWeb.URL, 1, "")
+	url, _, err := shareFilesToWeb(files, comments, baseURL, 2, "")
 	if err != nil {
 		t.Fatalf("sharing with orphaned file failed: %v", err)
 	}
-	if url != "https://example.com/r/orphan-test" {
-		t.Fatalf("expected mock URL, got: %s", url)
+	t.Logf("  → Review: %s", url)
+	token := path.Base(url)
+
+	// Verify document on crit-web has both files
+	webFiles := documentFromAPI(t, baseURL, token)
+	if len(webFiles) != 2 {
+		t.Fatalf("expected 2 files on web, got %d", len(webFiles))
 	}
 
-	// Verify the payload sent to crit-web includes both files with correct metadata
-	rawFiles, ok := receivedPayload["files"].([]any)
-	if !ok {
-		t.Fatal("expected files array in payload")
-	}
-	if len(rawFiles) != 2 {
-		t.Fatalf("expected 2 files in payload, got %d", len(rawFiles))
-	}
-
-	// Find and verify the orphaned file
-	var orphanedFile map[string]any
-	var activeFile map[string]any
-	for _, rf := range rawFiles {
-		f := rf.(map[string]any)
+	var orphanedFile, activeFile map[string]any
+	for _, f := range webFiles {
 		switch f["path"] {
 		case "old-code.go":
 			orphanedFile = f
@@ -1358,33 +1340,57 @@ func TestShareSyncOrphanedFile(t *testing.T) {
 		}
 	}
 
-	if orphanedFile == nil {
-		t.Fatal("orphaned file 'old-code.go' not found in payload")
-	}
-	if orphanedFile["status"] != "removed" {
-		t.Errorf("orphaned file status = %v, want 'removed'", orphanedFile["status"])
-	}
-	if orphanedFile["content"] != "" {
-		t.Errorf("orphaned file content should be empty, got %v", orphanedFile["content"])
-	}
-
+	// Verify active file
 	if activeFile == nil {
-		t.Fatal("active file 'plan.md' not found in payload")
+		t.Fatal("active file 'plan.md' not found on web")
 	}
-	if activeFile["status"] != "modified" {
-		t.Errorf("active file status = %v, want 'modified'", activeFile["status"])
+	if s, _ := activeFile["status"].(string); s != "modified" {
+		t.Errorf("active file status = %q, want 'modified'", s)
 	}
 
-	// Verify comment on orphaned file is in the payload
-	rawComments, _ := receivedPayload["comments"].([]any)
-	if len(rawComments) != 1 {
-		t.Fatalf("expected 1 comment in payload, got %d", len(rawComments))
+	// Verify orphaned file metadata
+	if orphanedFile == nil {
+		t.Fatal("orphaned file 'old-code.go' not found on web")
 	}
-	c := rawComments[0].(map[string]any)
-	if c["file"] != "old-code.go" {
-		t.Errorf("comment file = %v, want 'old-code.go'", c["file"])
+	if s, _ := orphanedFile["status"].(string); s != "removed" {
+		t.Errorf("orphaned file status = %q, want 'removed'", s)
 	}
-	if c["body"] != "this was important" {
-		t.Errorf("comment body = %v, want 'this was important'", c["body"])
+	if c, _ := orphanedFile["content"].(string); c != "" {
+		t.Errorf("orphaned file content should be empty, got %q", c)
+	}
+
+	// Verify comments on the orphaned file made it to crit-web
+	webComments := commentsFromAPI(t, baseURL, token)
+
+	var lineComment, fileComment *webComment
+	for i, c := range webComments {
+		if c.FilePath == "old-code.go" {
+			switch c.Scope {
+			case "line":
+				lineComment = &webComments[i]
+			case "file":
+				fileComment = &webComments[i]
+			}
+		}
+	}
+
+	if lineComment == nil {
+		t.Fatal("line comment on orphaned file not found on web")
+	}
+	if lineComment.Body != "this logic was important — where did it move?" {
+		t.Errorf("line comment body = %q", lineComment.Body)
+	}
+	if lineComment.StartLine != 10 || lineComment.EndLine != 12 {
+		t.Errorf("line comment position = %d-%d, want 10-12", lineComment.StartLine, lineComment.EndLine)
+	}
+
+	if fileComment == nil {
+		t.Fatal("file-level comment on orphaned file not found on web")
+	}
+	if fileComment.Body != "file-level note about removal" {
+		t.Errorf("file comment body = %q", fileComment.Body)
+	}
+	if fileComment.Scope != "file" {
+		t.Errorf("file comment scope = %q, want 'file'", fileComment.Scope)
 	}
 }
