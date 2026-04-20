@@ -243,11 +243,11 @@ func FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHunk, error) {
 		if baseRef == "" {
 			return nil, nil
 		}
-		cmd = exec.Command("git", "diff", "--no-color", baseRef+"..HEAD", "--", path)
+		cmd = exec.Command("git", "diff", "--no-color", "--no-ext-diff", baseRef+"..HEAD", "--", path)
 	case "staged":
-		cmd = exec.Command("git", "diff", "--no-color", "--cached", "--", path)
+		cmd = exec.Command("git", "diff", "--no-color", "--no-ext-diff", "--cached", "--", path)
 	case "unstaged":
-		cmd = exec.Command("git", "diff", "--no-color", "--", path)
+		cmd = exec.Command("git", "diff", "--no-color", "--no-ext-diff", "--", path)
 	default:
 		return fileDiffUnified(path, baseRef, dir)
 	}
@@ -331,7 +331,7 @@ func ChangedFilesForCommit(sha, dir string) ([]FileChange, error) {
 // The dir parameter sets the working directory for the git command.
 // For the initial (root) commit, sha^ is undefined so we diff against the empty tree.
 func FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
-	cmd := exec.Command("git", "diff", "--no-color", sha+"^.."+sha, "--", path)
+	cmd := exec.Command("git", "diff", "--no-color", "--no-ext-diff", sha+"^.."+sha, "--", path)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -344,7 +344,7 @@ func FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
 		case errors.As(err, &exitErr) && exitErr.ExitCode() == 128:
 			// sha^ failed (root commit) — diff against the empty tree
 			emptyTree := "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-			cmd2 := exec.Command("git", "diff", "--no-color", emptyTree+".."+sha, "--", path)
+			cmd2 := exec.Command("git", "diff", "--no-color", "--no-ext-diff", emptyTree+".."+sha, "--", path)
 			if dir != "" {
 				cmd2.Dir = dir
 			}
@@ -640,9 +640,9 @@ func dedup(changes []FileChange) []FileChange {
 func fileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
 	var cmd *exec.Cmd
 	if baseRef == "" {
-		cmd = exec.Command("git", "diff", "--no-color", "HEAD", "--", path)
+		cmd = exec.Command("git", "diff", "--no-color", "--no-ext-diff", "HEAD", "--", path)
 	} else {
-		cmd = exec.Command("git", "diff", "--no-color", baseRef, "--", path)
+		cmd = exec.Command("git", "diff", "--no-color", "--no-ext-diff", baseRef, "--", path)
 	}
 	if dir != "" {
 		cmd.Dir = dir
@@ -664,9 +664,9 @@ func fileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
 func fileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string) ([]DiffHunk, error) {
 	var cmd *exec.Cmd
 	if baseRef == "" {
-		cmd = exec.CommandContext(ctx, "git", "diff", "--no-color", "HEAD", "--", path)
+		cmd = exec.CommandContext(ctx, "git", "diff", "--no-color", "--no-ext-diff", "HEAD", "--", path)
 	} else {
-		cmd = exec.CommandContext(ctx, "git", "diff", "--no-color", baseRef, "--", path)
+		cmd = exec.CommandContext(ctx, "git", "diff", "--no-color", "--no-ext-diff", baseRef, "--", path)
 	}
 	if dir != "" {
 		cmd.Dir = dir
