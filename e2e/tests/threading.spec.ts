@@ -257,10 +257,12 @@ test.describe('Comment Threading', () => {
     const mdPath = await getMdPath(request);
     const comment = await addComment(request, mdPath, 1, 'Fix this bug');
 
-    // Add an agent reply to make it a "live thread" (agent_cmd is "echo", so agent name is "echo")
-    await request.post(`/api/comment/${comment.id}/replies?path=${encodeURIComponent(mdPath)}`, {
-      data: { body: 'Fixed it', author: 'echo' },
+    // Send comment to agent — this sets comment.live = true server-side
+    // (agent_cmd is "echo", so the request succeeds and adds an agent reply)
+    const agentRes = await request.post('/api/agent/request', {
+      data: { comment_id: comment.id, file_path: mdPath },
     });
+    expect(agentRes.ok()).toBeTruthy();
 
     await loadPage(page);
     await switchToDocumentView(page);
@@ -269,7 +271,8 @@ test.describe('Comment Threading', () => {
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
-    // Live thread should be expanded (not collapsed)
+    // Live thread should be expanded (not collapsed) and have live-thread styling
+    await expect(section.locator('.comment-wrapper.live-thread')).toHaveCount(1);
     await expect(card).not.toHaveClass(/collapsed/);
 
     // Hover and resolve
