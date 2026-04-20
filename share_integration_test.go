@@ -1322,7 +1322,7 @@ func TestShareSyncOrphanedFile(t *testing.T) {
 	// Build share files with an orphaned entry (simulating what LoadShareFilesFromDisk produces)
 	files := []shareFile{
 		{Path: "plan.md", Content: "# Plan\n\nActive content\n", Status: "modified"},
-		{Path: "old-code.go", Content: "", Status: "removed", Orphaned: true},
+		{Path: "old-code.go", Content: "", Status: "removed"},
 	}
 	comments := []shareComment{
 		{File: "old-code.go", StartLine: 1, EndLine: 1, Body: "this was important", Scope: "line"},
