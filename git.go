@@ -721,7 +721,7 @@ type NumstatEntry struct {
 // DiffNumstatDir runs git diff --numstat against the given base ref and returns per-file stats.
 // If dir is non-empty, git runs in that directory.
 func DiffNumstatDir(baseRef, dir string) (map[string]NumstatEntry, error) {
-	cmd := exec.Command("git", "diff", "--numstat", baseRef)
+	cmd := exec.Command("git", "diff", "--no-ext-diff", "--numstat", baseRef)
 	if dir != "" {
 		cmd.Dir = dir
 	}
