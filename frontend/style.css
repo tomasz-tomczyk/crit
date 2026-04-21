@@ -1394,7 +1394,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   background: var(--comment-bg);
   color: var(--fg-primary);
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: 14px;
   resize: vertical;
 }
 
