@@ -48,7 +48,6 @@ async function findNonHunkLine(request: APIRequestContext, filePath: string): Pr
 // ============================================================
 test.describe('Outdated Diff Comments', () => {
   test.beforeEach(async ({ request }) => {
-    await request.post('/api/round-complete');
     await clearAllComments(request);
   });
 

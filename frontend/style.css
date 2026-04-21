@@ -3447,6 +3447,10 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   color: var(--fg-dimmed);
   padding: 12px 16px;
 }
+.outdated-diff-comments {
+  border-top: 1px solid var(--border);
+  padding: 8px 0;
+}
 .outdated-badge {
   font-size: 10px;
   font-weight: 600;
