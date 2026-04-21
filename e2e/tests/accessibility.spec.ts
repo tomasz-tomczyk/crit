@@ -30,8 +30,8 @@ test.describe('Accessibility', () => {
     await page.waitForSelector('.file-section');
     await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
     await page.waitForFunction(() => {
-      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim();
-      return bg === '#1a1b26';
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--crit-bg-page').trim();
+      return bg === '#0e0f13';
     });
 
     const results = await new AxeBuilder({ page })
@@ -47,8 +47,8 @@ test.describe('Accessibility', () => {
     await page.waitForSelector('.file-section');
     await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
     await page.waitForFunction(() => {
-      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim();
-      return bg === '#fafafa';
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--crit-bg-page').trim();
+      return bg === '#ffffff';
     });
 
     const results = await new AxeBuilder({ page })

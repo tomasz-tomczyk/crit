@@ -7,11 +7,11 @@ set -e
 # ── Allowlists ──────────────────────────────────────────────────────────────
 
 # Variables set dynamically via JS or intentionally unreferenced
-DEAD_VAR_ALLOWLIST="--font-sans --header-height"
+DEAD_VAR_ALLOWLIST="--font-sans --header-height --crit-border-strong --crit-dur-base --crit-dur-slow --crit-ease-in --crit-ease-out --crit-editor-bg-gutter --crit-fg-muted --crit-fg-secondary --crit-r-sm --crit-r-xl"
 
 # Variables that legitimately exist in only some theme blocks (e.g. hljs vars
 # are scoped to their own selector blocks, not the 4 custom-property blocks)
-BLOCK_ALLOWLIST=""
+BLOCK_ALLOWLIST="--crit-dur-base --crit-dur-fast --crit-dur-slow --crit-ease --crit-ease-in --crit-ease-out --crit-focus --crit-font-body --crit-font-mono --crit-r-lg --crit-r-md --crit-r-sm --crit-r-xl"
 
 # ── Extract refs and defs ───────────────────────────────────────────────────
 
@@ -164,13 +164,13 @@ BLOCK_ALLOW=$(echo "$BLOCK_ALLOW" | sort -u)
 ERRORS=""
 for var in $ALL_THEME_VARS; do
     # Skip allowlisted vars
-    if [ -n "$BLOCK_ALLOW" ] && echo "$BLOCK_ALLOW" | grep -qxF "$var"; then
+    if [ -n "$BLOCK_ALLOW" ] && echo "$BLOCK_ALLOW" | grep -qxF -- "$var"; then
         continue
     fi
 
     MISSING_BLOCKS=""
     for block in root system-light dark light; do
-        if ! printf '%s\n' "$BLOCK_VARS" | grep -qxF "${block}	${var}"; then
+        if ! printf '%s\n' "$BLOCK_VARS" | grep -qxF -- "${block}	${var}"; then
             MISSING_BLOCKS="$MISSING_BLOCKS $block"
         fi
     done

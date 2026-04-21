@@ -481,7 +481,7 @@
         const el = document.getElementById('filesContainer');
         if (el) {
           el.innerHTML =
-            '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">' +
+            '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">' +
             'Server disconnected</div>';
         }
         throw new Error('Server disconnected');
@@ -494,7 +494,7 @@
         const loadingEl = document.getElementById('filesContainer');
         if (loadingEl) {
           loadingEl.innerHTML =
-            '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">' +
+            '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">' +
             'Initializing\u2026 (' + elapsed + 's)</div>';
         }
         await new Promise(function(resolve) { setTimeout(resolve, 500); });
@@ -505,7 +505,7 @@
         try { body = await r.json(); } catch {}
         const msg = body.message || 'Server initialization failed';
         document.getElementById('filesContainer').innerHTML =
-          '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">' +
+          '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">' +
           msg + '</div>';
         throw new Error(msg);
       }
@@ -530,7 +530,7 @@
     window.addEventListener('resize', updateHeaderHeight);
 
     document.getElementById('filesContainer').innerHTML =
-      '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">Loading...</div>';
+      '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>';
 
     const [sessionRes, configRes] = await Promise.all([
       fetchWhenReady('/api/session?scope=' + enc(diffScope)).then(r => r.json()),
@@ -1300,24 +1300,24 @@
     const doc = '<path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/>';
     if (status === 'added' || status === 'untracked') {
       return '<svg class="tree-file-status-icon added" viewBox="0 0 16 16">' + doc +
-        '<rect x="8" y="8" width="7" height="7" rx="1.5" fill="var(--green)"/>' +
-        '<path d="M11.5 10v1.5H13v1h-1.5V14h-1v-1.5H9v-1h1.5V10z" fill="var(--bg-secondary)"/></svg>';
+        '<rect x="8" y="8" width="7" height="7" rx="1.5" fill="var(--crit-green)"/>' +
+        '<path d="M11.5 10v1.5H13v1h-1.5V14h-1v-1.5H9v-1h1.5V10z" fill="var(--crit-editor-bg-card)"/></svg>';
     }
     if (status === 'deleted') {
       return '<svg class="tree-file-status-icon deleted" viewBox="0 0 16 16">' + doc +
-        '<rect x="8" y="8" width="7" height="7" rx="1.5" fill="var(--red)"/>' +
-        '<path d="M9.5 11.5h4v1h-4z" fill="var(--bg-secondary)"/></svg>';
+        '<rect x="8" y="8" width="7" height="7" rx="1.5" fill="var(--crit-red)"/>' +
+        '<path d="M9.5 11.5h4v1h-4z" fill="var(--crit-editor-bg-card)"/></svg>';
     }
     if (status === 'modified') {
       return '<svg class="tree-file-status-icon modified" viewBox="0 0 16 16">' + doc +
-        '<circle cx="11.5" cy="11.5" r="3.5" fill="var(--yellow)"/>' +
-        '<circle cx="11.5" cy="11.5" r="1.5" fill="var(--bg-secondary)"/>' +
+        '<circle cx="11.5" cy="11.5" r="3.5" fill="var(--crit-yellow)"/>' +
+        '<circle cx="11.5" cy="11.5" r="1.5" fill="var(--crit-editor-bg-card)"/>' +
         '</svg>';
     }
     if (status === 'removed') {
       return '<svg class="tree-file-status-icon removed" viewBox="0 0 16 16">' + doc +
-        '<rect x="8" y="8" width="7" height="7" rx="1.5" fill="var(--fg-dimmed)"/>' +
-        '<path d="M10 10.5l3 3m0-3l-3 3" stroke="var(--bg-secondary)" stroke-width="1.2" fill="none"/></svg>';
+        '<rect x="8" y="8" width="7" height="7" rx="1.5" fill="var(--crit-editor-fg-muted)"/>' +
+        '<path d="M10 10.5l3 3m0-3l-3 3" stroke="var(--crit-editor-bg-card)" stroke-width="1.2" fill="none"/></svg>';
     }
     // renamed or other
     return '<svg class="tree-file-status-icon" viewBox="0 0 16 16">' + doc + '</svg>';
@@ -1782,7 +1782,7 @@
 
     header.innerHTML =
       '<div class="file-header-chevron"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z"/></svg></div>' +
-      '<svg class="file-header-icon" viewBox="0 0 16 16" fill="var(--fg-dimmed)"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>' +
+      '<svg class="file-header-icon" viewBox="0 0 16 16" fill="var(--crit-editor-fg-muted)"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>' +
       '<span class="file-header-name"><span class="dir">' + escapeHtml(dirPath) + '</span>' + escapeHtml(fileName) + '</span>' +
       (showBadge ? '<span class="file-header-badge ' + escapeHtml(file.status) + '">' + escapeHtml(badgeLabel) + '</span>' : '') +
       (file.additions || file.deletions ? '<span class="file-header-stats">' +
@@ -6668,7 +6668,7 @@
       try {
         activeReplyForms.clear();
         document.getElementById('filesContainer').innerHTML =
-          '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">Loading...</div>';
+          '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>';
 
         let sessionUrl = '/api/session?scope=' + enc(diffScope);
         if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
@@ -6684,7 +6684,7 @@
 
         if (!session.files || session.files.length === 0) {
           document.getElementById('filesContainer').innerHTML =
-            '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">No ' + diffScope + ' changes</div>';
+            '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">No ' + diffScope + ' changes</div>';
           files = [];
           renderFileTree();
           updateCommentCount();
@@ -6760,7 +6760,7 @@
       return '<div class="base-branch-item' + active + '" data-branch="' + escapeHtml(b) + '">' + escapeHtml(b) + '</div>';
     }).join('');
     if (filtered.length === 0) {
-      list.innerHTML = '<div style="padding: 8px 10px; font-size: 12px; color: var(--fg-muted);">No matching branches</div>';
+      list.innerHTML = '<div style="padding: 8px 10px; font-size: 12px; color: var(--crit-editor-fg-muted);">No matching branches</div>';
     }
     branchPicker.highlightedIdx = -1;
   }
@@ -7086,7 +7086,7 @@
 
     // Width row
     html += '<div class="settings-display-row">';
-    html += '<span class="settings-display-label">Content Width <span style="font-weight:400;color:var(--fg-muted)">(file mode)</span></span>';
+    html += '<span class="settings-display-label">Content Width <span style="font-weight:400;color:var(--crit-editor-fg-muted)">(file mode)</span></span>';
     html += '<div class="settings-pill settings-pill--width" id="settingsWidthPill" role="group" aria-label="Content width">';
     html += '<div class="settings-pill-indicator" id="settingsWidthIndicator"></div>';
     ['compact', 'default', 'wide'].forEach(function(w) {
@@ -7105,7 +7105,7 @@
       const upgradeCmd = 'brew update && brew upgrade crit';
       const releaseUrl = 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + escapeHtml(cfg.latest_version);
       html += '<div class="config-card config-card--orange"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--yellow)">&#11014;</span>';
+      html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#11014;</span>';
       html += '<span class="config-card-title">Update available</span>';
       html += '<span class="config-card-value">v' + escapeHtml(cfg.latest_version) + '</span>';
       html += '</div>';
@@ -7119,13 +7119,13 @@
       if (cfg.auth_logged_in) {
         const display = cfg.auth_user_email || cfg.auth_user_name || 'Logged in';
         html += '<div class="config-card config-card--green"><div class="config-card-header">';
-        html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
+        html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
         html += '<span class="config-card-title">Account</span>';
         html += '<span class="config-card-value">' + escapeHtml(display) + '</span>';
         html += '</div></div>';
       } else {
         html += '<div class="config-card config-card--red config-card--unconfigured"><div class="config-card-header">';
-        html += '<span class="config-card-icon" style="color:var(--red)">&#9675;</span>';
+        html += '<span class="config-card-icon" style="color:var(--crit-red)">&#9675;</span>';
         html += '<span class="config-card-title">Account</span>';
         html += '</div>';
         html += '<div class="config-card-body">Not logged in. Sign in to link reviews to your account and track review history.</div>';
@@ -7137,17 +7137,17 @@
     // Agent Command card
     if (cfg.agent_cmd_enabled) {
       html += '<div class="config-card config-card--green"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
+      html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
       html += '<span class="config-card-title">Agent Command</span>';
       html += '</div>';
       html += '<div class="config-card-cmd-value"><code>' + escapeHtml(cfg.agent_cmd || cfg.agent_name || '') + '</code></div>';
       html += '</div>';
     } else {
       html += '<div class="config-card config-card--orange config-card--unconfigured"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--yellow)">&#9675;</span>';
+      html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#9675;</span>';
       html += '<span class="config-card-title">Agent Command</span>';
       html += '</div>';
-      html += '<div class="config-card-body">Edit <code>~/.crit.config.json</code> and set <code>agent_cmd</code> to send comments directly to your AI agent. <a href="https://github.com/tomasz-tomczyk/crit#send-to-agent-experimental" target="_blank" rel="noopener" style="color:var(--accent)">Learn more</a></div>';
+      html += '<div class="config-card-body">Edit <code>~/.crit.config.json</code> and set <code>agent_cmd</code> to send comments directly to your AI agent. <a href="https://github.com/tomasz-tomczyk/crit#send-to-agent-experimental" target="_blank" rel="noopener" style="color:var(--crit-brand)">Learn more</a></div>';
       html += '<div class="config-card-snippet">{"agent_cmd": "claude -p"}\n// Also: "opencode ask", "aider --message"</div>';
       html += '</div>';
     }
@@ -7163,7 +7163,7 @@
           const si = stale[0];
           const name = si.agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
           html += '<div class="config-card config-card--yellow"><div class="config-card-header">';
-          html += '<span class="config-card-icon" style="color:var(--yellow)">&#9888;</span>';
+          html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#9888;</span>';
           html += '<span class="config-card-title">AI Integration</span>';
           html += '<span class="config-card-value">' + escapeHtml(name) + ' (update available)</span>';
           html += '</div>';
@@ -7184,7 +7184,7 @@
         } else if (current.length > 0) {
           const name = current[0].agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
           html += '<div class="config-card config-card--green"><div class="config-card-header">';
-          html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
+          html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
           html += '<span class="config-card-title">AI Integration</span>';
           html += '<span class="config-card-value">' + escapeHtml(name) + ' (up to date)</span>';
           html += '</div></div>';
@@ -7192,7 +7192,7 @@
       } else {
         const available = (cfg.integrations_available || []).join(' \u00b7 ');
         html += '<div class="config-card config-card--blue config-card--unconfigured"><div class="config-card-header">';
-        html += '<span class="config-card-icon" style="color:var(--accent)">&#128161;</span>';
+        html += '<span class="config-card-icon" style="color:var(--crit-brand)">&#128161;</span>';
         html += '<span class="config-card-title">AI Integration</span>';
         html += '<span class="config-card-badge">Recommended</span>';
         html += '</div>';
@@ -7208,13 +7208,13 @@
       let hostname;
       try { hostname = new URL(cfg.share_url).hostname; } catch { hostname = cfg.share_url; }
       html += '<div class="config-card config-card--green"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--green)">&#10003;</span>';
+      html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
       html += '<span class="config-card-title">Sharing enabled</span>';
       html += '<span class="config-card-value">' + escapeHtml(hostname) + '</span>';
       html += '</div></div>';
     } else {
       html += '<div class="config-card config-card--gray config-card--unconfigured"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--fg-muted)">&mdash;</span>';
+      html += '<span class="config-card-icon" style="color:var(--crit-editor-fg-muted)">&mdash;</span>';
       html += '<span class="config-card-title">Share</span>';
       html += '<span class="config-card-value">Disabled</span>';
       html += '</div></div>';

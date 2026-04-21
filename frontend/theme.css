@@ -1,4 +1,7 @@
 /* ===== Theme Variables =====
+   Migrated to crit design system tokens (v2).
+   Brand tokens (--crit-*) for header/chrome/CTAs.
+   Editor tokens (--crit-editor-*) for review content area (Tokyo Night).
    Each theme defines the full set of CSS custom properties.
    To add a new theme: add a [data-theme="your-theme"] block below,
    add an hljs color block at the bottom, and add a button to the theme pill in index.html.
@@ -7,68 +10,129 @@
 /* ===== Default (dark) =====
    These :root values are the fallback when prefers-color-scheme is unsupported. */
 :root {
-  --bg-primary: #1a1b26;
-  --bg-secondary: #16171f;
-  --bg-tertiary: #262940;
-  --bg-hover: #2d3150;
-  --fg: #c0caf5;
-  --fg-primary: #c0caf5;
-  --fg-secondary: #a9b1d6;
-  --fg-muted: #868fba;
-  --fg-dimmed: #9ea6c8;
-  --accent: #7aa2f7;
-  --accent-hover: #89b4fa;
-  --accent-subtle: rgba(122, 162, 247, 0.1);
-  --accent-bg: rgba(122, 162, 247, 0.15);
-  --green: #9ece6a;
-  --red: #f7768e;
-  --orange: #ff9e64;
-  --yellow: #e0af68;
-  --purple: #a371f7;
-  --border: #292e42;
-  --border-comment: #3d59a1;
-  --comment-bg: #1a1f36;
-  --comment-range-bg: rgba(210, 153, 34, 0.13);
-  --shadow: 0 2px 8px rgba(0,0,0,0.3);
-  --code-bg: #1e2030;
-  --table-stripe: rgba(122, 162, 247, 0.04);
-  --blockquote-border: #3d59a1;
-  --blockquote-bg: rgba(61, 89, 161, 0.08);
-  --scrollbar-bg: #1a1b26;
-  --scrollbar-thumb: #3b4261;
-  --diff-add-bg: rgba(158, 206, 106, 0.08);
-  --diff-add-line-bg: rgba(158, 206, 106, 0.18);
-  --diff-del-bg: rgba(247, 118, 142, 0.06);
-  --diff-del-line-bg: rgba(247, 118, 142, 0.14);
-  --diff-add-gutter: rgba(158, 206, 106, 0.12);
-  --diff-del-gutter: rgba(247, 118, 142, 0.08);
-  --diff-word-add-bg: rgba(63, 185, 80, 0.18);
-  --diff-word-del-bg: rgba(248, 81, 73, 0.18);
-  --badge-resolved-bg: rgba(158, 206, 106, 0.12);
-  --yellow-subtle: rgba(224, 175, 104, 0.08);
-  --yellow-bg: rgba(224, 175, 104, 0.14);
-  --yellow-border: rgba(224, 175, 104, 0.2);
-  --fg-on-accent: #1a1b26;
-  --overlay-bg: rgba(0,0,0,0.5);
-  --overlay-bg-heavy: rgba(0,0,0,0.6);
-  --btn-danger-hover-bg: rgba(247, 118, 142, 0.1);
-  --toast-error-bg: rgba(247, 118, 142, 0.14);
-  --toast-ghost-hover-bg: rgba(255,255,255,0.06);
-  --btn-success-border: rgba(158, 206, 106, 0.35);
-  --btn-success-hover-bg: rgba(158, 206, 106, 0.08);
-  --share-confirm-bg: rgba(247, 118, 142, 0.08);
-  --share-confirm-border: rgba(247, 118, 142, 0.15);
-  --change-flash-bg: rgba(255, 158, 100, 0.15);
-  --resolve-hover-bg: rgba(158, 206, 106, 0.1);
-  --quote-highlight-bg: rgba(250, 200, 60, 0.12);
-  --quote-highlight-border: rgba(250, 200, 60, 0.4);
-  --qr-bg: #fff;
-  --badge-modified-bg: rgba(224, 175, 104, 0.12);
-  --badge-deleted-bg: rgba(247, 118, 142, 0.10);
-  --live-badge-bg: rgba(52, 211, 153, 0.1);
-  --badge-removed-bg: rgba(169, 177, 214, 0.12);
-  --badge-removed-color: var(--fg-dimmed);
-  --badge-removed-border: color-mix(in srgb, var(--fg-dimmed) 20%, transparent);
+  /* ---- Brand surfaces (header, chrome, CTAs) ---- */
+  --crit-bg-page:     #0e0f13;
+  --crit-bg-card:     #171922;
+  --crit-bg-elevated: #242835;
+
+  /* ---- Brand foreground ---- */
+  --crit-fg-primary:   #e8ebf5;
+  --crit-fg-secondary: #9ba3bf;
+  --crit-fg-muted:     #646c85;
+  --crit-fg-on-brand:  #ffffff;
+
+  /* ---- Brand colors ---- */
+  --crit-brand:         #85aaf8;
+  --crit-brand-hover:   #94bcfb;
+  --crit-brand-subtle:  rgba(133, 170, 248, 0.10);
+  --crit-brand-bg:      rgba(133, 170, 248, 0.15);
+  --crit-brand-cta:       #406fcc;
+  --crit-brand-cta-hover: #4574cc;
+
+  /* ---- Editor surfaces (Tokyo Night) ---- */
+  --crit-editor-bg:          #1a1b26;
+  --crit-editor-bg-card:     #16171f;
+  --crit-editor-bg-elevated: #262940;
+  --crit-editor-bg-hover:    #2d3150;
+  --crit-editor-bg-gutter:   #131420;
+  --crit-editor-code-bg:     #1e2030;
+  --crit-editor-comment-bg:  #1a1f36;
+
+  /* ---- Editor foreground ---- */
+  --crit-editor-fg:           #c0caf5;
+  --crit-editor-fg-secondary: #a9b1d6;
+  --crit-editor-fg-muted:     #9aa1c8;
+
+  /* ---- Editor scrollbar ---- */
+  --crit-editor-scrollbar-bg:    #1a1b26;
+  --crit-editor-scrollbar-thumb: #3b4261;
+
+  /* ---- Semantic colors ---- */
+  --crit-green:  #56d364;
+  --crit-red:    #f7768e;
+  --crit-orange: #ff9e64;
+  --crit-yellow: #e0af68;
+  --crit-purple: #a371f7;
+
+  /* ---- Borders ---- */
+  --crit-border:         #232632;
+  --crit-border-strong:  #2f3342;
+  --crit-border-comment: #3d59a1;
+
+  /* ---- Radii ---- */
+  --crit-r-sm: 4px;
+  --crit-r-md: 6px;
+  --crit-r-lg: 8px;
+  --crit-r-xl: 12px;
+
+  /* ---- Shadow ---- */
+  --crit-shadow: 0 2px 8px rgba(0,0,0,0.3);
+
+  /* ---- Motion ---- */
+  --crit-dur-fast:   120ms;
+  --crit-dur-base:   180ms;
+  --crit-dur-slow:   280ms;
+  --crit-ease:       cubic-bezier(0.2, 0.6, 0.2, 1);
+  --crit-ease-in:    cubic-bezier(0.4, 0, 1, 1);
+  --crit-ease-out:   cubic-bezier(0, 0, 0.2, 1);
+
+  /* ---- Focus ring ---- */
+  --crit-focus: 0 0 0 2px var(--crit-bg-page), 0 0 0 4px var(--crit-brand);
+
+  /* ---- Fonts ---- */
+  --crit-font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --crit-font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+
+  /* ---- Editor-specific: diff highlights ---- */
+  --crit-diff-add-bg:       rgba(86, 211, 100, 0.08);
+  --crit-diff-add-line-bg:  rgba(86, 211, 100, 0.18);
+  --crit-diff-del-bg:       rgba(247, 118, 142, 0.06);
+  --crit-diff-del-line-bg:  rgba(247, 118, 142, 0.14);
+  --crit-diff-add-gutter:   rgba(86, 211, 100, 0.12);
+  --crit-diff-del-gutter:   rgba(247, 118, 142, 0.08);
+  --crit-diff-word-add-bg:  rgba(63, 185, 80, 0.18);
+  --crit-diff-word-del-bg:  rgba(248, 81, 73, 0.18);
+
+  /* ---- Editor-specific: comment range ---- */
+  --crit-comment-range-bg: rgba(210, 153, 34, 0.13);
+
+  /* ---- Editor-specific: table ---- */
+  --crit-table-stripe: rgba(133, 170, 248, 0.04);
+
+  /* ---- Editor-specific: blockquote ---- */
+  --crit-blockquote-border: #3d59a1;
+  --crit-blockquote-bg:     rgba(61, 89, 161, 0.08);
+
+  /* ---- Badge backgrounds ---- */
+  --crit-badge-resolved-bg:  rgba(86, 211, 100, 0.12);
+  --crit-badge-modified-bg:  rgba(224, 175, 104, 0.12);
+  --crit-badge-deleted-bg:   rgba(247, 118, 142, 0.10);
+  --crit-badge-removed-bg:   rgba(169, 177, 214, 0.12);
+  --crit-badge-removed-color: var(--crit-editor-fg-secondary);
+  --crit-badge-removed-border: color-mix(in srgb, var(--crit-editor-fg-secondary) 20%, transparent);
+  --crit-live-badge-bg:      rgba(52, 211, 153, 0.1);
+
+  /* ---- Yellow states ---- */
+  --crit-yellow-subtle: rgba(224, 175, 104, 0.08);
+  --crit-yellow-bg:     rgba(224, 175, 104, 0.14);
+  --crit-yellow-border: rgba(224, 175, 104, 0.2);
+
+  /* ---- UI states ---- */
+  --crit-overlay-bg:       rgba(0,0,0,0.5);
+  --crit-overlay-bg-heavy: rgba(0,0,0,0.6);
+  --crit-btn-danger-hover-bg:  rgba(247, 118, 142, 0.1);
+  --crit-toast-error-bg:       rgba(247, 118, 142, 0.14);
+  --crit-toast-ghost-hover-bg: rgba(255,255,255,0.06);
+  --crit-btn-success-border:   rgba(86, 211, 100, 0.35);
+  --crit-btn-success-hover-bg: rgba(86, 211, 100, 0.08);
+  --crit-share-confirm-bg:     rgba(247, 118, 142, 0.08);
+  --crit-share-confirm-border: rgba(247, 118, 142, 0.15);
+  --crit-change-flash-bg:      rgba(255, 158, 100, 0.15);
+  --crit-resolve-hover-bg:     rgba(86, 211, 100, 0.1);
+  --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.12);
+  --crit-quote-highlight-border: rgba(250, 200, 60, 0.4);
+  --crit-qr-bg: #fff;
+
   --author-0-bg: rgba(110,160,230,0.15);
   --author-0-border: rgba(110,160,230,0.35);
   --author-0-fg: #7ab0f0;
@@ -92,68 +156,99 @@
 /* ===== System preference: light ===== */
 @media (prefers-color-scheme: light) {
   html:not([data-theme]) {
-    --bg-primary: #fafafa;
-    --bg-secondary: #f5f5f5;
-    --bg-tertiary: #eeeeee;
-    --bg-hover: #e8e8e8;
-    --fg: #24292f;
-    --fg-primary: #24292f;
-    --fg-secondary: #57606a;
-    --fg-muted: #656d76;
-    --fg-dimmed: #586069;
-    --accent: #0860c7;
-    --accent-hover: #0550ae;
-    --accent-subtle: rgba(9, 105, 218, 0.08);
-    --accent-bg: rgba(9, 105, 218, 0.12);
-    --green: #176d2e;
-    --red: #b91c28;
-    --orange: #bc4c00;
-    --yellow: #7a5800;
-    --purple: #8250df;
-    --border: #d8dee4;
-    --border-comment: #0969da;
-    --comment-bg: #f0f6ff;
-    --comment-range-bg: rgba(210, 153, 34, 0.15);
-    --shadow: 0 2px 8px rgba(0,0,0,0.08);
-    --code-bg: #f5f5f5;
-    --table-stripe: rgba(0, 0, 0, 0.02);
-    --blockquote-border: #0969da;
-    --blockquote-bg: rgba(9, 105, 218, 0.04);
-    --scrollbar-bg: #fafafa;
-    --scrollbar-thumb: #d0d0d0;
-    --diff-add-bg: rgba(26, 127, 55, 0.06);
-    --diff-add-line-bg: rgba(26, 127, 55, 0.14);
-    --diff-del-bg: rgba(207, 34, 46, 0.04);
-    --diff-del-line-bg: rgba(207, 34, 46, 0.1);
-    --diff-add-gutter: rgba(26, 127, 55, 0.1);
-    --diff-del-gutter: rgba(207, 34, 46, 0.06);
-    --diff-word-add-bg: rgba(26, 127, 55, 0.15);
-    --diff-word-del-bg: rgba(207, 34, 46, 0.15);
-    --badge-resolved-bg: rgba(26, 127, 55, 0.1);
-    --yellow-subtle: rgba(122, 88, 0, 0.06);
-    --yellow-bg: rgba(122, 88, 0, 0.1);
-    --yellow-border: rgba(122, 88, 0, 0.16);
-    --fg-on-accent: #fff;
-    --overlay-bg: rgba(0,0,0,0.5);
-    --overlay-bg-heavy: rgba(0,0,0,0.6);
-    --btn-danger-hover-bg: rgba(207, 34, 46, 0.08);
-    --toast-error-bg: rgba(207, 34, 46, 0.1);
-    --toast-ghost-hover-bg: rgba(0,0,0,0.04);
-    --btn-success-border: rgba(26, 127, 55, 0.3);
-    --btn-success-hover-bg: rgba(26, 127, 55, 0.06);
-    --share-confirm-bg: rgba(207, 34, 46, 0.06);
-    --share-confirm-border: rgba(207, 34, 46, 0.12);
-    --change-flash-bg: rgba(188, 76, 0, 0.12);
-    --resolve-hover-bg: rgba(26, 127, 55, 0.08);
-    --quote-highlight-bg: rgba(250, 200, 60, 0.18);
-    --quote-highlight-border: rgba(200, 160, 30, 0.45);
-    --qr-bg: #fff;
-    --badge-modified-bg: rgba(122, 88, 0, 0.08);
-    --badge-deleted-bg: rgba(207, 34, 46, 0.05);
-    --live-badge-bg: rgba(26, 127, 55, 0.08);
-    --badge-removed-bg: rgba(100, 100, 100, 0.08);
-    --badge-removed-color: var(--fg-dimmed);
-    --badge-removed-border: color-mix(in srgb, var(--fg-dimmed) 15%, transparent);
+    /* ---- Brand surfaces ---- */
+    --crit-bg-page:     #ffffff;
+    --crit-bg-card:     #f3f4f6;
+    --crit-bg-elevated: #e8eaed;
+
+    /* ---- Brand foreground ---- */
+    --crit-fg-primary:   #1a1d23;
+    --crit-fg-secondary: #57606a;
+    --crit-fg-muted:     #8892a6;
+    --crit-fg-on-brand:  #ffffff;
+
+    /* ---- Brand colors ---- */
+    --crit-brand:         #2960bc;
+    --crit-brand-hover:   #396ec6;
+    --crit-brand-subtle:  rgba(41,96,188,0.08);
+    --crit-brand-bg:      rgba(41,96,188,0.12);
+    --crit-brand-cta:       #3a72d4;
+    --crit-brand-cta-hover: #3568c8;
+
+    /* ---- Editor surfaces (light) ---- */
+    --crit-editor-bg:          #fafafa;
+    --crit-editor-bg-card:     #f5f5f5;
+    --crit-editor-bg-elevated: #eeeeee;
+    --crit-editor-bg-hover:    #e8e8e8;
+    --crit-editor-bg-gutter:   #f0f0f0;
+    --crit-editor-code-bg:     #f5f5f5;
+    --crit-editor-comment-bg:  #f0f6ff;
+
+    /* ---- Editor foreground (light) ---- */
+    --crit-editor-fg:           #24292f;
+    --crit-editor-fg-secondary: #57606a;
+    --crit-editor-fg-muted:     #5a626b;
+
+    /* ---- Editor scrollbar (light) ---- */
+    --crit-editor-scrollbar-bg:    #ffffff;
+    --crit-editor-scrollbar-thumb: #d0d0d0;
+
+    /* ---- Semantic colors ---- */
+    --crit-green:  #166f30;
+    --crit-red:    #c41f2a;
+    --crit-orange: #bc4c00;
+    --crit-yellow: #7a5800;
+    --crit-purple: #8250df;
+
+    /* ---- Borders ---- */
+    --crit-border:         #d8dee4;
+    --crit-border-strong:  #bac3cf;
+    --crit-border-comment: #0969da;
+
+    --crit-shadow: 0 2px 8px rgba(0,0,0,0.08);
+
+    /* ---- Diff highlights (light) ---- */
+    --crit-diff-add-bg:       rgba(22, 111, 48, 0.06);
+    --crit-diff-add-line-bg:  rgba(22, 111, 48, 0.14);
+    --crit-diff-del-bg:       rgba(196, 31, 42, 0.04);
+    --crit-diff-del-line-bg:  rgba(196, 31, 42, 0.1);
+    --crit-diff-add-gutter:   rgba(22, 111, 48, 0.1);
+    --crit-diff-del-gutter:   rgba(196, 31, 42, 0.06);
+    --crit-diff-word-add-bg:  rgba(22, 111, 48, 0.15);
+    --crit-diff-word-del-bg:  rgba(196, 31, 42, 0.15);
+
+    --crit-comment-range-bg: rgba(210, 153, 34, 0.15);
+    --crit-table-stripe: rgba(0, 0, 0, 0.02);
+    --crit-blockquote-border: #0969da;
+    --crit-blockquote-bg:     rgba(9, 105, 218, 0.04);
+
+    --crit-badge-resolved-bg:  rgba(22, 111, 48, 0.1);
+    --crit-badge-modified-bg:  rgba(122, 88, 0, 0.08);
+    --crit-badge-deleted-bg:   rgba(196, 31, 42, 0.05);
+    --crit-badge-removed-bg:   rgba(100, 100, 100, 0.08);
+    --crit-badge-removed-color: var(--crit-editor-fg-secondary);
+    --crit-badge-removed-border: color-mix(in srgb, var(--crit-editor-fg-secondary) 15%, transparent);
+    --crit-live-badge-bg:      rgba(22, 111, 48, 0.08);
+
+    --crit-yellow-subtle: rgba(122, 88, 0, 0.06);
+    --crit-yellow-bg:     rgba(122, 88, 0, 0.1);
+    --crit-yellow-border: rgba(122, 88, 0, 0.16);
+
+    --crit-overlay-bg:       rgba(0,0,0,0.5);
+    --crit-overlay-bg-heavy: rgba(0,0,0,0.6);
+    --crit-btn-danger-hover-bg:  rgba(196, 31, 42, 0.08);
+    --crit-toast-error-bg:       rgba(196, 31, 42, 0.1);
+    --crit-toast-ghost-hover-bg: rgba(0,0,0,0.04);
+    --crit-btn-success-border:   rgba(22, 111, 48, 0.3);
+    --crit-btn-success-hover-bg: rgba(22, 111, 48, 0.06);
+    --crit-share-confirm-bg:     rgba(196, 31, 42, 0.06);
+    --crit-share-confirm-border: rgba(196, 31, 42, 0.12);
+    --crit-change-flash-bg:      rgba(188, 76, 0, 0.12);
+    --crit-resolve-hover-bg:     rgba(22, 111, 48, 0.08);
+    --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.18);
+    --crit-quote-highlight-border: rgba(200, 160, 30, 0.45);
+    --crit-qr-bg: #fff;
+
     --author-0-bg: rgba(26,95,160,0.10);
     --author-0-border: rgba(26,95,160,0.25);
     --author-0-fg: #1a5fa0;
@@ -177,68 +272,99 @@
 
 /* ===== Dark (explicit) ===== */
 [data-theme="dark"] {
-  --bg-primary: #1a1b26;
-  --bg-secondary: #16171f;
-  --bg-tertiary: #262940;
-  --bg-hover: #2d3150;
-  --fg: #c0caf5;
-  --fg-primary: #c0caf5;
-  --fg-secondary: #a9b1d6;
-  --fg-muted: #868fba;
-  --fg-dimmed: #9ea6c8;
-  --accent: #7aa2f7;
-  --accent-hover: #89b4fa;
-  --accent-subtle: rgba(122, 162, 247, 0.1);
-  --accent-bg: rgba(122, 162, 247, 0.15);
-  --green: #9ece6a;
-  --red: #f7768e;
-  --orange: #ff9e64;
-  --yellow: #e0af68;
-  --purple: #a371f7;
-  --border: #292e42;
-  --border-comment: #3d59a1;
-  --comment-bg: #1a1f36;
-  --comment-range-bg: rgba(210, 153, 34, 0.13);
-  --shadow: 0 2px 8px rgba(0,0,0,0.3);
-  --code-bg: #1e2030;
-  --table-stripe: rgba(122, 162, 247, 0.04);
-  --blockquote-border: #3d59a1;
-  --blockquote-bg: rgba(61, 89, 161, 0.08);
-  --scrollbar-bg: #1a1b26;
-  --scrollbar-thumb: #3b4261;
-  --diff-add-bg: rgba(158, 206, 106, 0.08);
-  --diff-add-line-bg: rgba(158, 206, 106, 0.18);
-  --diff-del-bg: rgba(247, 118, 142, 0.06);
-  --diff-del-line-bg: rgba(247, 118, 142, 0.14);
-  --diff-add-gutter: rgba(158, 206, 106, 0.12);
-  --diff-del-gutter: rgba(247, 118, 142, 0.08);
-  --diff-word-add-bg: rgba(63, 185, 80, 0.18);
-  --diff-word-del-bg: rgba(248, 81, 73, 0.18);
-  --badge-resolved-bg: rgba(158, 206, 106, 0.12);
-  --yellow-subtle: rgba(224, 175, 104, 0.08);
-  --yellow-bg: rgba(224, 175, 104, 0.14);
-  --yellow-border: rgba(224, 175, 104, 0.2);
-  --fg-on-accent: #1a1b26;
-  --overlay-bg: rgba(0,0,0,0.5);
-  --overlay-bg-heavy: rgba(0,0,0,0.6);
-  --btn-danger-hover-bg: rgba(247, 118, 142, 0.1);
-  --toast-error-bg: rgba(247, 118, 142, 0.14);
-  --toast-ghost-hover-bg: rgba(255,255,255,0.06);
-  --btn-success-border: rgba(158, 206, 106, 0.35);
-  --btn-success-hover-bg: rgba(158, 206, 106, 0.08);
-  --share-confirm-bg: rgba(247, 118, 142, 0.08);
-  --share-confirm-border: rgba(247, 118, 142, 0.15);
-  --change-flash-bg: rgba(255, 158, 100, 0.15);
-  --resolve-hover-bg: rgba(158, 206, 106, 0.1);
-  --quote-highlight-bg: rgba(250, 200, 60, 0.12);
-  --quote-highlight-border: rgba(250, 200, 60, 0.4);
-  --qr-bg: #fff;
-  --badge-modified-bg: rgba(224, 175, 104, 0.12);
-  --badge-deleted-bg: rgba(247, 118, 142, 0.10);
-  --live-badge-bg: rgba(52, 211, 153, 0.1);
-  --badge-removed-bg: rgba(169, 177, 214, 0.12);
-  --badge-removed-color: var(--fg-dimmed);
-  --badge-removed-border: color-mix(in srgb, var(--fg-dimmed) 20%, transparent);
+  /* ---- Brand surfaces ---- */
+  --crit-bg-page:     #0e0f13;
+  --crit-bg-card:     #171922;
+  --crit-bg-elevated: #242835;
+
+  /* ---- Brand foreground ---- */
+  --crit-fg-primary:   #e8ebf5;
+  --crit-fg-secondary: #9ba3bf;
+  --crit-fg-muted:     #646c85;
+  --crit-fg-on-brand:  #ffffff;
+
+  /* ---- Brand colors ---- */
+  --crit-brand:         #85aaf8;
+  --crit-brand-hover:   #94bcfb;
+  --crit-brand-subtle:  rgba(133, 170, 248, 0.10);
+  --crit-brand-bg:      rgba(133, 170, 248, 0.15);
+  --crit-brand-cta:       #406fcc;
+  --crit-brand-cta-hover: #4574cc;
+
+  /* ---- Editor surfaces (Tokyo Night) ---- */
+  --crit-editor-bg:          #1a1b26;
+  --crit-editor-bg-card:     #16171f;
+  --crit-editor-bg-elevated: #262940;
+  --crit-editor-bg-hover:    #2d3150;
+  --crit-editor-bg-gutter:   #131420;
+  --crit-editor-code-bg:     #1e2030;
+  --crit-editor-comment-bg:  #1a1f36;
+
+  /* ---- Editor foreground ---- */
+  --crit-editor-fg:           #c0caf5;
+  --crit-editor-fg-secondary: #a9b1d6;
+  --crit-editor-fg-muted:     #9aa1c8;
+
+  /* ---- Editor scrollbar ---- */
+  --crit-editor-scrollbar-bg:    #1a1b26;
+  --crit-editor-scrollbar-thumb: #3b4261;
+
+  /* ---- Semantic colors ---- */
+  --crit-green:  #56d364;
+  --crit-red:    #f7768e;
+  --crit-orange: #ff9e64;
+  --crit-yellow: #e0af68;
+  --crit-purple: #a371f7;
+
+  /* ---- Borders ---- */
+  --crit-border:         #232632;
+  --crit-border-strong:  #2f3342;
+  --crit-border-comment: #3d59a1;
+
+  --crit-shadow: 0 2px 8px rgba(0,0,0,0.3);
+
+  /* ---- Diff highlights ---- */
+  --crit-diff-add-bg:       rgba(86, 211, 100, 0.08);
+  --crit-diff-add-line-bg:  rgba(86, 211, 100, 0.18);
+  --crit-diff-del-bg:       rgba(247, 118, 142, 0.06);
+  --crit-diff-del-line-bg:  rgba(247, 118, 142, 0.14);
+  --crit-diff-add-gutter:   rgba(86, 211, 100, 0.12);
+  --crit-diff-del-gutter:   rgba(247, 118, 142, 0.08);
+  --crit-diff-word-add-bg:  rgba(63, 185, 80, 0.18);
+  --crit-diff-word-del-bg:  rgba(248, 81, 73, 0.18);
+
+  --crit-comment-range-bg: rgba(210, 153, 34, 0.13);
+  --crit-table-stripe: rgba(133, 170, 248, 0.04);
+  --crit-blockquote-border: #3d59a1;
+  --crit-blockquote-bg:     rgba(61, 89, 161, 0.08);
+
+  --crit-badge-resolved-bg:  rgba(86, 211, 100, 0.12);
+  --crit-badge-modified-bg:  rgba(224, 175, 104, 0.12);
+  --crit-badge-deleted-bg:   rgba(247, 118, 142, 0.10);
+  --crit-badge-removed-bg:   rgba(169, 177, 214, 0.12);
+  --crit-badge-removed-color: var(--crit-editor-fg-secondary);
+  --crit-badge-removed-border: color-mix(in srgb, var(--crit-editor-fg-secondary) 20%, transparent);
+  --crit-live-badge-bg:      rgba(52, 211, 153, 0.1);
+
+  --crit-yellow-subtle: rgba(224, 175, 104, 0.08);
+  --crit-yellow-bg:     rgba(224, 175, 104, 0.14);
+  --crit-yellow-border: rgba(224, 175, 104, 0.2);
+
+  --crit-overlay-bg:       rgba(0,0,0,0.5);
+  --crit-overlay-bg-heavy: rgba(0,0,0,0.6);
+  --crit-btn-danger-hover-bg:  rgba(247, 118, 142, 0.1);
+  --crit-toast-error-bg:       rgba(247, 118, 142, 0.14);
+  --crit-toast-ghost-hover-bg: rgba(255,255,255,0.06);
+  --crit-btn-success-border:   rgba(86, 211, 100, 0.35);
+  --crit-btn-success-hover-bg: rgba(86, 211, 100, 0.08);
+  --crit-share-confirm-bg:     rgba(247, 118, 142, 0.08);
+  --crit-share-confirm-border: rgba(247, 118, 142, 0.15);
+  --crit-change-flash-bg:      rgba(255, 158, 100, 0.15);
+  --crit-resolve-hover-bg:     rgba(86, 211, 100, 0.1);
+  --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.12);
+  --crit-quote-highlight-border: rgba(250, 200, 60, 0.4);
+  --crit-qr-bg: #fff;
+
   --author-0-bg: rgba(110,160,230,0.15);
   --author-0-border: rgba(110,160,230,0.35);
   --author-0-fg: #7ab0f0;
@@ -261,68 +387,99 @@
 
 /* ===== Light (explicit) ===== */
 [data-theme="light"] {
-  --bg-primary: #fafafa;
-  --bg-secondary: #f5f5f5;
-  --bg-tertiary: #eeeeee;
-  --bg-hover: #e8e8e8;
-  --fg: #24292f;
-  --fg-primary: #24292f;
-  --fg-secondary: #57606a;
-  --fg-muted: #656d76;
-  --fg-dimmed: #586069;
-  --accent: #0860c7;
-  --accent-hover: #0550ae;
-  --accent-subtle: rgba(9, 105, 218, 0.08);
-  --accent-bg: rgba(9, 105, 218, 0.12);
-  --green: #176d2e;
-  --red: #b91c28;
-  --orange: #bc4c00;
-  --yellow: #7a5800;
-  --purple: #8250df;
-  --border: #d8dee4;
-  --border-comment: #0969da;
-  --comment-bg: #f0f6ff;
-  --comment-range-bg: rgba(210, 153, 34, 0.15);
-  --shadow: 0 2px 8px rgba(0,0,0,0.08);
-  --code-bg: #f5f5f5;
-  --table-stripe: rgba(0, 0, 0, 0.02);
-  --blockquote-border: #0969da;
-  --blockquote-bg: rgba(9, 105, 218, 0.04);
-  --scrollbar-bg: #fafafa;
-  --scrollbar-thumb: #d0d0d0;
-  --diff-add-bg: rgba(26, 127, 55, 0.06);
-  --diff-add-line-bg: rgba(26, 127, 55, 0.14);
-  --diff-del-bg: rgba(207, 34, 46, 0.04);
-  --diff-del-line-bg: rgba(207, 34, 46, 0.1);
-  --diff-add-gutter: rgba(26, 127, 55, 0.1);
-  --diff-del-gutter: rgba(207, 34, 46, 0.06);
-  --diff-word-add-bg: rgba(26, 127, 55, 0.15);
-  --diff-word-del-bg: rgba(207, 34, 46, 0.15);
-  --badge-resolved-bg: rgba(26, 127, 55, 0.1);
-  --yellow-subtle: rgba(122, 88, 0, 0.06);
-  --yellow-bg: rgba(122, 88, 0, 0.1);
-  --yellow-border: rgba(122, 88, 0, 0.16);
-  --fg-on-accent: #fff;
-  --overlay-bg: rgba(0,0,0,0.5);
-  --overlay-bg-heavy: rgba(0,0,0,0.6);
-  --btn-danger-hover-bg: rgba(207, 34, 46, 0.08);
-  --toast-error-bg: rgba(207, 34, 46, 0.1);
-  --toast-ghost-hover-bg: rgba(0,0,0,0.04);
-  --btn-success-border: rgba(26, 127, 55, 0.3);
-  --btn-success-hover-bg: rgba(26, 127, 55, 0.06);
-  --share-confirm-bg: rgba(207, 34, 46, 0.06);
-  --share-confirm-border: rgba(207, 34, 46, 0.12);
-  --change-flash-bg: rgba(188, 76, 0, 0.12);
-  --resolve-hover-bg: rgba(26, 127, 55, 0.08);
-  --quote-highlight-bg: rgba(250, 200, 60, 0.18);
-  --quote-highlight-border: rgba(200, 160, 30, 0.45);
-  --qr-bg: #fff;
-  --badge-modified-bg: rgba(122, 88, 0, 0.08);
-  --badge-deleted-bg: rgba(207, 34, 46, 0.05);
-  --live-badge-bg: rgba(26, 127, 55, 0.08);
-  --badge-removed-bg: rgba(100, 100, 100, 0.08);
-  --badge-removed-color: var(--fg-dimmed);
-  --badge-removed-border: color-mix(in srgb, var(--fg-dimmed) 15%, transparent);
+  /* ---- Brand surfaces ---- */
+  --crit-bg-page:     #ffffff;
+  --crit-bg-card:     #f3f4f6;
+  --crit-bg-elevated: #e8eaed;
+
+  /* ---- Brand foreground ---- */
+  --crit-fg-primary:   #1a1d23;
+  --crit-fg-secondary: #57606a;
+  --crit-fg-muted:     #8892a6;
+  --crit-fg-on-brand:  #ffffff;
+
+  /* ---- Brand colors ---- */
+  --crit-brand:         #2960bc;
+  --crit-brand-hover:   #396ec6;
+  --crit-brand-subtle:  rgba(41,96,188,0.08);
+  --crit-brand-bg:      rgba(41,96,188,0.12);
+  --crit-brand-cta:       #3a72d4;
+  --crit-brand-cta-hover: #3568c8;
+
+  /* ---- Editor surfaces (light) ---- */
+  --crit-editor-bg:          #fafafa;
+  --crit-editor-bg-card:     #f5f5f5;
+  --crit-editor-bg-elevated: #eeeeee;
+  --crit-editor-bg-hover:    #e8e8e8;
+  --crit-editor-bg-gutter:   #f0f0f0;
+  --crit-editor-code-bg:     #f5f5f5;
+  --crit-editor-comment-bg:  #f0f6ff;
+
+  /* ---- Editor foreground (light) ---- */
+  --crit-editor-fg:           #24292f;
+  --crit-editor-fg-secondary: #57606a;
+  --crit-editor-fg-muted:     #5a626b;
+
+  /* ---- Editor scrollbar (light) ---- */
+  --crit-editor-scrollbar-bg:    #ffffff;
+  --crit-editor-scrollbar-thumb: #d0d0d0;
+
+  /* ---- Semantic colors ---- */
+  --crit-green:  #166f30;
+  --crit-red:    #c41f2a;
+  --crit-orange: #bc4c00;
+  --crit-yellow: #7a5800;
+  --crit-purple: #8250df;
+
+  /* ---- Borders ---- */
+  --crit-border:         #d8dee4;
+  --crit-border-strong:  #bac3cf;
+  --crit-border-comment: #0969da;
+
+  --crit-shadow: 0 2px 8px rgba(0,0,0,0.08);
+
+  /* ---- Diff highlights (light) ---- */
+  --crit-diff-add-bg:       rgba(22, 111, 48, 0.06);
+  --crit-diff-add-line-bg:  rgba(22, 111, 48, 0.14);
+  --crit-diff-del-bg:       rgba(196, 31, 42, 0.04);
+  --crit-diff-del-line-bg:  rgba(196, 31, 42, 0.1);
+  --crit-diff-add-gutter:   rgba(22, 111, 48, 0.1);
+  --crit-diff-del-gutter:   rgba(196, 31, 42, 0.06);
+  --crit-diff-word-add-bg:  rgba(22, 111, 48, 0.15);
+  --crit-diff-word-del-bg:  rgba(196, 31, 42, 0.15);
+
+  --crit-comment-range-bg: rgba(210, 153, 34, 0.15);
+  --crit-table-stripe: rgba(0, 0, 0, 0.02);
+  --crit-blockquote-border: #0969da;
+  --crit-blockquote-bg:     rgba(9, 105, 218, 0.04);
+
+  --crit-badge-resolved-bg:  rgba(22, 111, 48, 0.1);
+  --crit-badge-modified-bg:  rgba(122, 88, 0, 0.08);
+  --crit-badge-deleted-bg:   rgba(196, 31, 42, 0.05);
+  --crit-badge-removed-bg:   rgba(100, 100, 100, 0.08);
+  --crit-badge-removed-color: var(--crit-editor-fg-secondary);
+  --crit-badge-removed-border: color-mix(in srgb, var(--crit-editor-fg-secondary) 15%, transparent);
+  --crit-live-badge-bg:      rgba(22, 111, 48, 0.08);
+
+  --crit-yellow-subtle: rgba(122, 88, 0, 0.06);
+  --crit-yellow-bg:     rgba(122, 88, 0, 0.1);
+  --crit-yellow-border: rgba(122, 88, 0, 0.16);
+
+  --crit-overlay-bg:       rgba(0,0,0,0.5);
+  --crit-overlay-bg-heavy: rgba(0,0,0,0.6);
+  --crit-btn-danger-hover-bg:  rgba(196, 31, 42, 0.08);
+  --crit-toast-error-bg:       rgba(196, 31, 42, 0.1);
+  --crit-toast-ghost-hover-bg: rgba(0,0,0,0.04);
+  --crit-btn-success-border:   rgba(22, 111, 48, 0.3);
+  --crit-btn-success-hover-bg: rgba(22, 111, 48, 0.06);
+  --crit-share-confirm-bg:     rgba(196, 31, 42, 0.06);
+  --crit-share-confirm-border: rgba(196, 31, 42, 0.12);
+  --crit-change-flash-bg:      rgba(188, 76, 0, 0.12);
+  --crit-resolve-hover-bg:     rgba(22, 111, 48, 0.08);
+  --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.18);
+  --crit-quote-highlight-border: rgba(200, 160, 30, 0.45);
+  --crit-qr-bg: #fff;
+
   --author-0-bg: rgba(26,95,160,0.10);
   --author-0-border: rgba(26,95,160,0.25);
   --author-0-fg: #1a5fa0;
@@ -352,9 +509,9 @@
 .hljs-selector-tag{color:#73daca}
 .hljs-keyword,.hljs-title,.hljs-title.function_,.hljs-title.class_,.hljs-title.class_.inherited__,.hljs-subst,.hljs-property{color:#7dcfff}
 .hljs-quote,.hljs-string,.hljs-symbol,.hljs-bullet,.hljs-addition{color:#9ece6a}
-.hljs-code,.hljs-formula,.hljs-section{color:#7aa2f7}
+.hljs-code,.hljs-formula,.hljs-section{color:#85aaf8}
 .hljs-keyword,.hljs-operator,.hljs-attr,.hljs-name,.hljs-char.escape_{color:#bb9af7}
-.hljs-comment,.hljs-meta{color:#868fba}
+.hljs-comment,.hljs-meta{color:#9aa1c8}
 .hljs-punctuation{color:#c0caf5}
 .hljs-emphasis{font-style:italic}
 .hljs-strong{font-weight:bold}
@@ -369,9 +526,9 @@
 [data-theme="dark"] .hljs-selector-tag{color:#73daca}
 [data-theme="dark"] .hljs-keyword,[data-theme="dark"] .hljs-title,[data-theme="dark"] .hljs-title.function_,[data-theme="dark"] .hljs-title.class_,[data-theme="dark"] .hljs-title.class_.inherited__,[data-theme="dark"] .hljs-subst,[data-theme="dark"] .hljs-property{color:#7dcfff}
 [data-theme="dark"] .hljs-quote,[data-theme="dark"] .hljs-string,[data-theme="dark"] .hljs-symbol,[data-theme="dark"] .hljs-bullet,[data-theme="dark"] .hljs-addition{color:#9ece6a}
-[data-theme="dark"] .hljs-code,[data-theme="dark"] .hljs-formula,[data-theme="dark"] .hljs-section{color:#7aa2f7}
+[data-theme="dark"] .hljs-code,[data-theme="dark"] .hljs-formula,[data-theme="dark"] .hljs-section{color:#85aaf8}
 [data-theme="dark"] .hljs-keyword,[data-theme="dark"] .hljs-operator,[data-theme="dark"] .hljs-attr,[data-theme="dark"] .hljs-name,[data-theme="dark"] .hljs-char.escape_{color:#bb9af7}
-[data-theme="dark"] .hljs-comment,[data-theme="dark"] .hljs-meta{color:#868fba}
+[data-theme="dark"] .hljs-comment,[data-theme="dark"] .hljs-meta{color:#9aa1c8}
 [data-theme="dark"] .hljs-punctuation{color:#c0caf5}
 [data-theme="dark"] .hljs-emphasis{font-style:italic}
 [data-theme="dark"] .hljs-strong{font-weight:bold}
@@ -384,7 +541,7 @@
   html:not([data-theme]) .hljs{color:#24292e;background:#fff}
   html:not([data-theme]) .hljs-doctag,html:not([data-theme]) .hljs-keyword,html:not([data-theme]) .hljs-meta .hljs-keyword,html:not([data-theme]) .hljs-template-tag,html:not([data-theme]) .hljs-template-variable,html:not([data-theme]) .hljs-type,html:not([data-theme]) .hljs-variable.language_,html:not([data-theme]) .hljs-tag{color:#b91c28}
   html:not([data-theme]) .hljs-title,html:not([data-theme]) .hljs-title.class_,html:not([data-theme]) .hljs-title.class_.inherited__,html:not([data-theme]) .hljs-title.function_{color:#6f42c1}
-  html:not([data-theme]) .hljs-attr,html:not([data-theme]) .hljs-attribute,html:not([data-theme]) .hljs-literal,html:not([data-theme]) .hljs-meta,html:not([data-theme]) .hljs-number,html:not([data-theme]) .hljs-operator,html:not([data-theme]) .hljs-selector-attr,html:not([data-theme]) .hljs-selector-class,html:not([data-theme]) .hljs-selector-id,html:not([data-theme]) .hljs-variable,html:not([data-theme]) .hljs-params,html:not([data-theme]) .hljs-link,html:not([data-theme]) .hljs-property,html:not([data-theme]) .hljs-char.escape_{color:#005cc5}
+  html:not([data-theme]) .hljs-attr,html:not([data-theme]) .hljs-attribute,html:not([data-theme]) .hljs-literal,html:not([data-theme]) .hljs-meta,html:not([data-theme]) .hljs-number,html:not([data-theme]) .hljs-operator,html:not([data-theme]) .hljs-selector-attr,html:not([data-theme]) .hljs-selector-class,html:not([data-theme]) .hljs-selector-id,html:not([data-theme]) .hljs-variable,html:not([data-theme]) .hljs-params,html:not([data-theme]) .hljs-link,html:not([data-theme]) .hljs-property,html:not([data-theme]) .hljs-char.escape_{color:#0054b5}
   html:not([data-theme]) .hljs-meta .hljs-string,html:not([data-theme]) .hljs-regexp,html:not([data-theme]) .hljs-string{color:#032f62}
   html:not([data-theme]) .hljs-built_in,html:not([data-theme]) .hljs-symbol{color:#b94600}
   html:not([data-theme]) .hljs-code,html:not([data-theme]) .hljs-comment,html:not([data-theme]) .hljs-formula{color:#5d6570}
@@ -403,7 +560,7 @@
 [data-theme="light"] .hljs{color:#24292e;background:#fff}
 [data-theme="light"] .hljs-doctag,[data-theme="light"] .hljs-keyword,[data-theme="light"] .hljs-meta .hljs-keyword,[data-theme="light"] .hljs-template-tag,[data-theme="light"] .hljs-template-variable,[data-theme="light"] .hljs-type,[data-theme="light"] .hljs-variable.language_,[data-theme="light"] .hljs-tag{color:#b91c28}
 [data-theme="light"] .hljs-title,[data-theme="light"] .hljs-title.class_,[data-theme="light"] .hljs-title.class_.inherited__,[data-theme="light"] .hljs-title.function_{color:#6f42c1}
-[data-theme="light"] .hljs-attr,[data-theme="light"] .hljs-attribute,[data-theme="light"] .hljs-literal,[data-theme="light"] .hljs-meta,[data-theme="light"] .hljs-number,[data-theme="light"] .hljs-operator,[data-theme="light"] .hljs-selector-attr,[data-theme="light"] .hljs-selector-class,[data-theme="light"] .hljs-selector-id,[data-theme="light"] .hljs-variable,[data-theme="light"] .hljs-params,[data-theme="light"] .hljs-link,[data-theme="light"] .hljs-property,[data-theme="light"] .hljs-char.escape_{color:#005cc5}
+[data-theme="light"] .hljs-attr,[data-theme="light"] .hljs-attribute,[data-theme="light"] .hljs-literal,[data-theme="light"] .hljs-meta,[data-theme="light"] .hljs-number,[data-theme="light"] .hljs-operator,[data-theme="light"] .hljs-selector-attr,[data-theme="light"] .hljs-selector-class,[data-theme="light"] .hljs-selector-id,[data-theme="light"] .hljs-variable,[data-theme="light"] .hljs-params,[data-theme="light"] .hljs-link,[data-theme="light"] .hljs-property,[data-theme="light"] .hljs-char.escape_{color:#0054b5}
 [data-theme="light"] .hljs-meta .hljs-string,[data-theme="light"] .hljs-regexp,[data-theme="light"] .hljs-string{color:#032f62}
 [data-theme="light"] .hljs-built_in,[data-theme="light"] .hljs-symbol{color:#b94600}
 [data-theme="light"] .hljs-code,[data-theme="light"] .hljs-comment,[data-theme="light"] .hljs-formula{color:#5d6570}
