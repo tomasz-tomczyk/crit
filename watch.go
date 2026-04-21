@@ -361,7 +361,7 @@ func (s *Session) handleRoundCompleteGit() {
 	s.RefreshFileList()
 
 	// Snapshot PreviousContent before re-reading for all files with comments.
-	// Markdown uses LCS + anchor verification; code files use anchor-only search.
+	// LCS + anchor verification is used for all file types.
 	s.mu.Lock()
 	for _, f := range s.Files {
 		if f.PreviousContent == "" && len(f.PreviousComments) > 0 {
@@ -371,7 +371,7 @@ func (s *Session) handleRoundCompleteGit() {
 	s.rereadFileContents(false)
 	s.mu.Unlock()
 
-	// Run carry-forward: LCS + anchor for markdown, anchor-only for code files.
+	// Run LCS-based carry-forward with anchor verification for all file types.
 	s.carryForwardComments()
 
 	// Carry forward remaining files (code files, or markdown files without PreviousContent).
@@ -600,6 +600,11 @@ func (s *Session) carryForwardComments() {
 
 // carryForwardFileComments remaps comments for a single file using LCS line
 // mapping with anchor-based verification and correction.
+//
+// Old-side comments (c.Side == "old") reference the base ref, not the working
+// tree. Their line numbers and anchor text are stable across rounds (the base
+// ref doesn't change), so they are carried forward at their original positions
+// without LCS remapping or anchor search.
 func (s *Session) carryForwardFileComments(f *FileEntry) {
 	s.mu.RLock()
 	prevContent := f.PreviousContent
@@ -627,7 +632,10 @@ func (s *Session) carryForwardFileComments(f *FileEntry) {
 	for _, c := range prevComments {
 		s.trackDeletedComment(f.Path, c.ID)
 
-		if c.Scope == "file" {
+		// File-level and old-side comments keep their original positions.
+		// File-level comments have no line references. Old-side comments
+		// reference the base ref which doesn't change between rounds.
+		if c.Scope == "file" || c.Side == "old" {
 			f.Comments = append(f.Comments, carryForwardComment(c, randomCommentID(), now))
 			continue
 		}

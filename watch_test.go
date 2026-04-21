@@ -1146,3 +1146,65 @@ func TestCarryForwardComments_CodeFileFileLevelComment(t *testing.T) {
 		t.Error("expected CarriedForward=true")
 	}
 }
+
+func TestCarryForwardComments_CodeFileOldSidePreservesPosition(t *testing.T) {
+	// Old-side comments have line numbers referencing the base ref, not the
+	// working tree. Their anchor text comes from deleted lines that don't exist
+	// in the working tree. LCS remapping and anchor search against the working
+	// tree would corrupt these comments. They must be carried forward at their
+	// original positions unchanged.
+	dir := t.TempDir()
+	goPath := filepath.Join(dir, "main.go")
+	// Working tree: the old function was replaced.
+	oldContent := "package main\n\nfunc old() {\n\t// legacy\n}\n\nfunc helper() {}\n"
+	newContent := "package main\n\nimport \"fmt\"\n\nfunc new() {\n\tfmt.Println(\"new\")\n}\n\nfunc helper() {}\n"
+	writeFile(t, goPath, newContent)
+
+	s := &Session{
+		Mode:     "git",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "main.go",
+				AbsPath:         goPath,
+				Status:          "modified",
+				FileType:        "code",
+				Content:         newContent,
+				PreviousContent: oldContent,
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old_side",
+						StartLine: 3,
+						EndLine:   3,
+						Side:      "old",
+						Body:      "Why was this removed?",
+						Anchor:    "func old() {",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	// Old-side comment must keep its original position (line 3 in the base ref).
+	if carried.StartLine != 3 || carried.EndLine != 3 {
+		t.Errorf("old-side comment should stay at original position: expected line 3, got start=%d end=%d",
+			carried.StartLine, carried.EndLine)
+	}
+	if carried.Drifted {
+		t.Error("old-side comment should not be marked Drifted")
+	}
+	if carried.Side != "old" {
+		t.Errorf("Side should be preserved as %q, got %q", "old", carried.Side)
+	}
+}
