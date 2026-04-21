@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { clearAllComments, loadPage, goSection } from './helpers';
+import { clearAllComments, loadPage, goSection, addComment } from './helpers';
 
 // Get the server.go file path from the session
 async function getServerGoPath(request: APIRequestContext): Promise<string> {
@@ -31,6 +31,7 @@ async function getRenderedDiffKeys(request: APIRequestContext, filePath: string)
 // Find a new-side line number that is NOT in any diff hunk for the file
 async function findNonHunkLine(request: APIRequestContext, filePath: string): Promise<number> {
   const keys = await getRenderedDiffKeys(request, filePath);
+  expect(keys.size).toBeGreaterThan(0); // Guard: diff must have real hunks
   // Pick a line number that's not in any hunk. Start from 1000.
   for (let n = 1000; n < 2000; n++) {
     if (!keys.has(n + ':')) return n;
@@ -58,9 +59,7 @@ test.describe('Outdated Diff Comments', () => {
     // This simulates what happens when a comment was on a line that existed in
     // a previous round's diff but the agent removed that change.
     const nonHunkLine = await findNonHunkLine(request, filePath);
-    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: nonHunkLine, end_line: nonHunkLine, body: 'This line was removed from the diff' },
-    });
+    await addComment(request, filePath, nonHunkLine, 'This line was removed from the diff');
 
     await loadPage(page);
     const section = goSection(page);
@@ -79,10 +78,7 @@ test.describe('Outdated Diff Comments', () => {
     const filePath = await getServerGoPath(request);
     const nonHunkLine = await findNonHunkLine(request, filePath);
 
-    const commentResp = await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: nonHunkLine, end_line: nonHunkLine, body: 'Resolve me after outdated' },
-    });
-    const comment = await commentResp.json();
+    const comment = await addComment(request, filePath, nonHunkLine, 'Resolve me after outdated');
 
     await loadPage(page);
     const section = goSection(page);
@@ -106,9 +102,7 @@ test.describe('Outdated Diff Comments', () => {
     const filePath = await getServerGoPath(request);
     const nonHunkLine = await findNonHunkLine(request, filePath);
 
-    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: nonHunkLine, end_line: nonHunkLine, body: 'Panel outdated check' },
-    });
+    await addComment(request, filePath, nonHunkLine, 'Panel outdated check');
 
     await loadPage(page);
 
@@ -139,9 +133,7 @@ test.describe('Outdated Diff Comments', () => {
     }
     expect(inHunkLine).toBeGreaterThan(0);
 
-    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: inHunkLine, end_line: inHunkLine, body: 'Normal diff comment' },
-    });
+    await addComment(request, filePath, inHunkLine, 'Normal diff comment');
 
     await loadPage(page);
     const section = goSection(page);
@@ -157,10 +149,7 @@ test.describe('Outdated Diff Comments', () => {
     const filePath = await getServerGoPath(request);
     const nonHunkLine = await findNonHunkLine(request, filePath);
 
-    const commentResp = await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: nonHunkLine, end_line: nonHunkLine, body: 'Editable outdated comment' },
-    });
-    const comment = await commentResp.json();
+    const comment = await addComment(request, filePath, nonHunkLine, 'Editable outdated comment');
 
     await loadPage(page);
     const section = goSection(page);
