@@ -200,10 +200,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	s.versionMu.RLock()
 	latestVersion := s.latestVersion
 	s.versionMu.RUnlock()
+	sess := s.session.Load()
 	resp := map[string]interface{}{
 		"share_url":         s.shareURL,
-		"hosted_url":        s.session.Load().GetSharedURL(),
-		"delete_token":      s.session.Load().GetDeleteToken(),
+		"hosted_url":        sess.GetSharedURL(),
+		"delete_token":      sess.GetDeleteToken(),
 		"version":           s.currentVersion,
 		"latest_version":    latestVersion,
 		"author":            s.author,
