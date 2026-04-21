@@ -14,54 +14,157 @@ type DiffEntry struct {
 }
 
 // ComputeLineDiff computes a line-level diff between oldContent and newContent
-// using the LCS (Longest Common Subsequence) algorithm. Each line is classified
-// as "unchanged", "added", or "removed".
+// using Hirschberg's algorithm (divide-and-conquer LCS in O(n) space).
+// Each line is classified as "unchanged", "added", or "removed".
 func ComputeLineDiff(oldContent, newContent string) []DiffEntry {
 	oldLines := splitLines(oldContent)
 	newLines := splitLines(newContent)
+	return hirschbergDiff(oldLines, newLines, 0, 0)
+}
 
-	m, n := len(oldLines), len(newLines)
+// hirschbergDiff computes the diff between old[0:len(old)] and new[0:len(new)]
+// using Hirschberg's divide-and-conquer algorithm. oldOff and newOff are the
+// 0-based offsets into the original arrays, used to compute 1-based line numbers.
+func hirschbergDiff(old, new []string, oldOff, newOff int) []DiffEntry {
+	m, n := len(old), len(new)
 
-	// Build LCS table
-	dp := make([][]int, m+1)
-	for i := range dp {
-		dp[i] = make([]int, n+1)
+	if m == 0 {
+		return allAdded(new, newOff)
 	}
-	for i := 1; i <= m; i++ {
+	if n == 0 {
+		return allRemoved(old, oldOff)
+	}
+	if m == 1 {
+		return diffSingleOld(old[0], new, oldOff, newOff)
+	}
+
+	mid := m / 2
+
+	// Forward: LCS row scores for old[0:mid] vs new
+	topRow := lcsForwardRow(old[:mid], new)
+	// Backward: LCS row scores for old[mid:] vs new (reversed)
+	botRow := lcsBackwardRow(old[mid:], new)
+
+	// Find the split point in new that maximizes topRow[k] + botRow[n-k]
+	bestK := 0
+	bestScore := topRow[0] + botRow[n]
+	for k := 1; k <= n; k++ {
+		score := topRow[k] + botRow[n-k]
+		if score > bestScore {
+			bestScore = score
+			bestK = k
+		}
+	}
+
+	// Recurse on two halves
+	left := hirschbergDiff(old[:mid], new[:bestK], oldOff, newOff)
+	right := hirschbergDiff(old[mid:], new[bestK:], oldOff+mid, newOff+bestK)
+	return append(left, right...)
+}
+
+// diffSingleOld handles the base case where old has exactly one line.
+// It finds the first occurrence in new that matches, emitting adds before,
+// the unchanged match, and adds after. If no match, emits a removal then all adds.
+func diffSingleOld(oldLine string, new []string, oldOff, newOff int) []DiffEntry {
+	matchIdx := -1
+	for i, line := range new {
+		if line == oldLine {
+			matchIdx = i
+			break
+		}
+	}
+
+	if matchIdx < 0 {
+		entries := make([]DiffEntry, 0, 1+len(new))
+		entries = append(entries, DiffEntry{Type: "removed", OldLine: oldOff + 1, Text: oldLine})
+		for i, line := range new {
+			entries = append(entries, DiffEntry{Type: "added", NewLine: newOff + i + 1, Text: line})
+		}
+		return entries
+	}
+
+	entries := make([]DiffEntry, 0, len(new))
+	for i := 0; i < matchIdx; i++ {
+		entries = append(entries, DiffEntry{Type: "added", NewLine: newOff + i + 1, Text: new[i]})
+	}
+	entries = append(entries, DiffEntry{
+		Type: "unchanged", OldLine: oldOff + 1, NewLine: newOff + matchIdx + 1, Text: oldLine,
+	})
+	for i := matchIdx + 1; i < len(new); i++ {
+		entries = append(entries, DiffEntry{Type: "added", NewLine: newOff + i + 1, Text: new[i]})
+	}
+	return entries
+}
+
+// allAdded returns DiffEntry slices for all-added lines.
+func allAdded(lines []string, offset int) []DiffEntry {
+	entries := make([]DiffEntry, len(lines))
+	for i, line := range lines {
+		entries[i] = DiffEntry{Type: "added", NewLine: offset + i + 1, Text: line}
+	}
+	return entries
+}
+
+// allRemoved returns DiffEntry slices for all-removed lines.
+func allRemoved(lines []string, offset int) []DiffEntry {
+	entries := make([]DiffEntry, len(lines))
+	for i, line := range lines {
+		entries[i] = DiffEntry{Type: "removed", OldLine: offset + i + 1, Text: line}
+	}
+	return entries
+}
+
+// lcsForwardRow computes the last row of the LCS table for old vs new
+// scanning forward. Returns a slice of length len(new)+1.
+func lcsForwardRow(old, new []string) []int {
+	n := len(new)
+	prev := make([]int, n+1)
+	curr := make([]int, n+1)
+	for _, oldLine := range old {
 		for j := 1; j <= n; j++ {
 			switch {
-			case oldLines[i-1] == newLines[j-1]:
-				dp[i][j] = dp[i-1][j-1] + 1
-			case dp[i-1][j] >= dp[i][j-1]:
-				dp[i][j] = dp[i-1][j]
+			case oldLine == new[j-1]:
+				curr[j] = prev[j-1] + 1
+			case prev[j] >= curr[j-1]:
+				curr[j] = prev[j]
 			default:
-				dp[i][j] = dp[i][j-1]
+				curr[j] = curr[j-1]
 			}
 		}
-	}
-
-	// Backtrack to build diff (collect in reverse, then flip)
-	var reversed []DiffEntry
-	i, j := m, n
-	for i > 0 || j > 0 {
-		switch {
-		case i > 0 && j > 0 && oldLines[i-1] == newLines[j-1]:
-			reversed = append(reversed, DiffEntry{Type: "unchanged", OldLine: i, NewLine: j, Text: newLines[j-1]})
-			i--
-			j--
-		case j > 0 && (i == 0 || dp[i][j-1] >= dp[i-1][j]):
-			reversed = append(reversed, DiffEntry{Type: "added", NewLine: j, Text: newLines[j-1]})
-			j--
-		default:
-			reversed = append(reversed, DiffEntry{Type: "removed", OldLine: i, Text: oldLines[i-1]})
-			i--
+		prev, curr = curr, prev
+		// Zero out curr for reuse
+		for j := range curr {
+			curr[j] = 0
 		}
 	}
-	// Reverse to get forward order
-	for left, right := 0, len(reversed)-1; left < right; left, right = left+1, right-1 {
-		reversed[left], reversed[right] = reversed[right], reversed[left]
+	return prev
+}
+
+// lcsBackwardRow computes the last row of the LCS table for old vs new
+// scanning backward (i.e., LCS of reversed sequences). Returns a slice of
+// length len(new)+1 where result[k] is the LCS length of old reversed vs
+// the last k elements of new.
+func lcsBackwardRow(old, new []string) []int {
+	n := len(new)
+	prev := make([]int, n+1)
+	curr := make([]int, n+1)
+	for i := len(old) - 1; i >= 0; i-- {
+		for j := n - 1; j >= 0; j-- {
+			switch {
+			case old[i] == new[j]:
+				curr[n-j] = prev[n-j-1] + 1
+			case prev[n-j] >= curr[n-j-1]:
+				curr[n-j] = prev[n-j]
+			default:
+				curr[n-j] = curr[n-j-1]
+			}
+		}
+		prev, curr = curr, prev
+		for j := range curr {
+			curr[j] = 0
+		}
 	}
-	return reversed
+	return prev
 }
 
 // MapOldLineToNew builds a mapping from old line numbers to new line numbers
