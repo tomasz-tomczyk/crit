@@ -204,6 +204,73 @@ func TestDiffEntriesToHunks_AllNew(t *testing.T) {
 	}
 }
 
+// generateCodeLines builds n lines of code-like content (function signatures,
+// assignments, comments) to produce realistic benchmark inputs.
+func generateCodeLines(n int, seed string) []string {
+	lines := make([]string, n)
+	for i := range lines {
+		switch i % 5 {
+		case 0:
+			lines[i] = fmt.Sprintf("func %s_%d() {", seed, i)
+		case 1:
+			lines[i] = fmt.Sprintf("\tx := %d // initialize", i)
+		case 2:
+			lines[i] = fmt.Sprintf("\tfmt.Println(%q, x)", seed)
+		case 3:
+			lines[i] = fmt.Sprintf("\treturn // %s line %d", seed, i)
+		default:
+			lines[i] = "}"
+		}
+	}
+	return lines
+}
+
+// mutateLines returns a copy of lines with ~20% changed: a mix of
+// modifications, insertions, and deletions spread evenly across the input.
+func mutateLines(lines []string) []string {
+	out := make([]string, 0, len(lines)+len(lines)/10)
+	for i, line := range lines {
+		switch {
+		case i%15 == 3: // ~7% deleted
+			continue
+		case i%15 == 7: // ~7% modified
+			out = append(out, line+" // modified")
+		case i%15 == 11: // ~7% inserted (original kept + new line)
+			out = append(out, line)
+			out = append(out, fmt.Sprintf("\t// inserted after line %d", i))
+		default:
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func BenchmarkComputeLineDiff(b *testing.B) {
+	sizes := []struct {
+		name string
+		n    int
+	}{
+		{"100_lines", 100},
+		{"1000_lines", 1000},
+		{"5000_lines", 5000},
+	}
+
+	for _, sz := range sizes {
+		oldLines := generateCodeLines(sz.n, "old")
+		newLines := mutateLines(oldLines)
+		oldContent := strings.Join(oldLines, "\n")
+		newContent := strings.Join(newLines, "\n")
+
+		b.Run(sz.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				ComputeLineDiff(oldContent, newContent)
+			}
+		})
+	}
+}
+
 func TestDiffEntriesToHunks_SeparateHunks(t *testing.T) {
 	// Changes far apart should produce separate hunks (gap > 2*context lines)
 	var oldLines, newLines []string
