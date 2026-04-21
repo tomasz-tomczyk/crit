@@ -576,6 +576,17 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 	if f == nil {
 		return Comment{}, false
 	}
+
+	// For old-side comments, line numbers reference the base version of the file,
+	// not the working tree. Extract anchor from the base ref content.
+	var anchor string
+	if side == "old" && s.BaseRef != "" {
+		baseContent := fileContentAtRef(filePath, s.BaseRef, s.RepoRoot)
+		anchor = extractAnchor(baseContent, startLine, endLine)
+	} else {
+		anchor = extractAnchor(f.Content, startLine, endLine)
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339)
 	c := Comment{
 		ID:          randomCommentID(),
@@ -584,7 +595,7 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 		Side:        side,
 		Body:        body,
 		Quote:       quote,
-		Anchor:      extractAnchor(f.Content, startLine, endLine),
+		Anchor:      anchor,
 		Author:      author,
 		Scope:       "line",
 		CreatedAt:   now,

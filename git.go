@@ -165,6 +165,21 @@ func MergeBase(base string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// fileContentAtRef returns the content of a file at the given git ref.
+// Returns empty string on any error (file doesn't exist at ref, not a git repo, etc.).
+func fileContentAtRef(path, ref, dir string) string {
+	if ref == "" {
+		return ""
+	}
+	cmd := exec.Command("git", "show", ref+":"+path)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
 // ChangedFiles returns the list of files changed in the current working state.
 // On the default branch: staged + unstaged + untracked files.
 // On a feature branch: all changes since the merge base with the default branch + untracked.

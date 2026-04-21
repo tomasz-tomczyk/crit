@@ -3878,6 +3878,57 @@ func TestAddComment_NoAnchorForReviewComment(t *testing.T) {
 	}
 }
 
+func TestAddComment_OldSideAnchorFromBase(t *testing.T) {
+	// Old-side comments reference the base version's line numbers.
+	// extractAnchor should fall back to git show <baseRef>:<path> for the anchor.
+	dir := initTestRepo(t)
+
+	// Create a file on the base branch with known content.
+	goPath := filepath.Join(dir, "main.go")
+	writeFile(t, goPath, "package main\n\nfunc deleted() {\n\t// old code\n}\n")
+	runGit(t, dir, "add", "main.go")
+	runGit(t, dir, "commit", "-m", "add main.go")
+	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+
+	// Create feature branch and modify the file (removing the old function).
+	runGit(t, dir, "checkout", "-b", "feat")
+	writeFile(t, goPath, "package main\n\nfunc newFunc() {\n\t// new code\n}\n")
+	runGit(t, dir, "add", "main.go")
+	runGit(t, dir, "commit", "-m", "replace function")
+
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		BaseRef:     baseRef,
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files: []*FileEntry{
+			{
+				Path:     "main.go",
+				AbsPath:  goPath,
+				Status:   "modified",
+				FileType: "code",
+				Content:  "package main\n\nfunc newFunc() {\n\t// new code\n}\n",
+				Comments: []Comment{},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	// Comment on old-side line 3 ("func deleted() {") — this line doesn't exist
+	// in the working tree, so anchor must come from the base ref.
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+	c, ok := s.AddComment("main.go", 3, 3, "old", "Why was this removed?", "", "reviewer")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	if c.Anchor != "func deleted() {" {
+		t.Errorf("old-side Anchor = %q, want %q", c.Anchor, "func deleted() {")
+	}
+}
+
 func TestExtractAnchor(t *testing.T) {
 	content := "line1\nline2\nline3\nline4\nline5"
 

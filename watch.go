@@ -360,18 +360,18 @@ func (s *Session) handleRoundCompleteGit() {
 	// Refresh file list (agent may have created/deleted files)
 	s.RefreshFileList()
 
-	// Snapshot markdown PreviousContent before re-reading, then carry forward
-	// with LCS + anchor verification (same as files mode).
+	// Snapshot PreviousContent before re-reading for all files with comments.
+	// Markdown uses LCS + anchor verification; code files use anchor-only search.
 	s.mu.Lock()
 	for _, f := range s.Files {
-		if f.FileType == "markdown" && f.PreviousContent == "" {
+		if f.PreviousContent == "" && len(f.PreviousComments) > 0 {
 			f.PreviousContent = f.Content
 		}
 	}
 	s.rereadFileContents(false)
 	s.mu.Unlock()
 
-	// Run LCS-based carry-forward for markdown files (with anchor verification).
+	// Run carry-forward: LCS + anchor for markdown, anchor-only for code files.
 	s.carryForwardComments()
 
 	// Carry forward remaining files (code files, or markdown files without PreviousContent).
@@ -579,69 +579,71 @@ func remapLines(lineMap map[int]int, oldStart, oldEnd, maxLine int) (int, int) {
 	return s, e
 }
 
-// carryForwardComments maps comments from the previous round
-// to the new document positions for markdown files.
+// carryForwardComments maps comments from the previous round to new document
+// positions using LCS line mapping + anchor verification. Works for all file
+// types (markdown and code) that have PreviousContent and PreviousComments.
+// Files without PreviousContent are left for carryForwardAllComments.
 func (s *Session) carryForwardComments() {
 	s.mu.RLock()
 	var toProcess []*FileEntry
 	for _, f := range s.Files {
-		if f.FileType == "markdown" && f.PreviousContent != "" {
+		if f.PreviousContent != "" && len(f.PreviousComments) > 0 {
 			toProcess = append(toProcess, f)
 		}
 	}
 	s.mu.RUnlock()
 
 	for _, f := range toProcess {
-		s.mu.RLock()
-		prevContent := f.PreviousContent
-		currContent := f.Content
-		prevComments := make([]Comment, len(f.PreviousComments))
-		copy(prevComments, f.PreviousComments)
-		s.mu.RUnlock()
+		s.carryForwardFileComments(f)
+	}
+}
 
-		if len(prevComments) == 0 {
+// carryForwardFileComments remaps comments for a single file using LCS line
+// mapping with anchor-based verification and correction.
+func (s *Session) carryForwardFileComments(f *FileEntry) {
+	s.mu.RLock()
+	prevContent := f.PreviousContent
+	currContent := f.Content
+	prevComments := make([]Comment, len(f.PreviousComments))
+	copy(prevComments, f.PreviousComments)
+	s.mu.RUnlock()
+
+	if len(prevComments) == 0 {
+		return
+	}
+
+	entries := ComputeLineDiff(prevContent, currContent)
+	lineMap := MapOldLineToNew(entries)
+
+	newLines := splitLines(currContent)
+	newLineCount := len(newLines)
+	if newLineCount == 0 {
+		newLineCount = 1
+	}
+
+	s.mu.Lock()
+	f.Comments = nil // Clear before carry-forward to prevent duplicates
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, c := range prevComments {
+		s.trackDeletedComment(f.Path, c.ID)
+
+		if c.Scope == "file" {
+			f.Comments = append(f.Comments, carryForwardComment(c, randomCommentID(), now))
 			continue
 		}
+		newStart, newEnd := remapLines(lineMap, c.StartLine, c.EndLine, newLineCount)
+		carried := carryForwardComment(c, randomCommentID(), now)
+		carried.StartLine = newStart
+		carried.EndLine = newEnd
 
-		entries := ComputeLineDiff(prevContent, currContent)
-		lineMap := MapOldLineToNew(entries)
-
-		newLines := splitLines(currContent)
-		newLineCount := len(newLines)
-		if newLineCount == 0 {
-			newLineCount = 1
+		if c.Anchor != "" {
+			corrStart, corrEnd, drift := verifyAndCorrectPosition(newLines, c.Anchor, newStart, newEnd)
+			carried.StartLine = corrStart
+			carried.EndLine = corrEnd
+			carried.Drifted = drift != 0
 		}
 
-		s.mu.Lock()
-		f.Comments = nil // Clear before carry-forward to prevent duplicates
-		now := time.Now().UTC().Format(time.RFC3339)
-		for _, c := range prevComments {
-			// Track the old ID as deleted so mergeFileSnapshotIntoCritJSON
-			// won't re-add the original from disk alongside the carried-forward copy.
-			s.trackDeletedComment(f.Path, c.ID)
-
-			// File-level comments have no line references — carry forward as-is.
-			if c.Scope == "file" {
-				carried := carryForwardComment(c, randomCommentID(), now)
-
-				f.Comments = append(f.Comments, carried)
-				continue
-			}
-			newStart, newEnd := remapLines(lineMap, c.StartLine, c.EndLine, newLineCount)
-			carried := carryForwardComment(c, randomCommentID(), now)
-			carried.StartLine = newStart
-			carried.EndLine = newEnd
-
-			// Anchor-based verification and correction.
-			if c.Anchor != "" {
-				corrStart, corrEnd, drift := verifyAndCorrectPosition(newLines, c.Anchor, newStart, newEnd)
-				carried.StartLine = corrStart
-				carried.EndLine = corrEnd
-				carried.Drifted = drift != 0
-			}
-
-			f.Comments = append(f.Comments, carried)
-		}
-		s.mu.Unlock()
+		f.Comments = append(f.Comments, carried)
 	}
+	s.mu.Unlock()
 }
