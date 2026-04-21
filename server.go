@@ -23,7 +23,7 @@ import (
 
 // Server handles HTTP requests for the crit review UI.
 type Server struct {
-	session           *Session
+	session           atomic.Pointer[Session]
 	mux               *http.ServeMux
 	assets            fs.FS
 	shareURL          string
@@ -39,7 +39,6 @@ type Server struct {
 	githubAPIURL      string // override for testing; defaults to "https://api.github.com"
 	port              int
 	status            *Status
-	ready             atomic.Bool
 	initErr           atomic.Pointer[error]
 	projectDir        string
 	homeDir           string
@@ -54,7 +53,10 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 		return nil, fmt.Errorf("loading frontend assets: %w", err)
 	}
 
-	s := &Server{session: session, assets: assets, shareURL: shareURL, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port}
+	s := &Server{assets: assets, shareURL: shareURL, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port}
+	if session != nil {
+		s.session.Store(session)
+	}
 
 	mux := http.NewServeMux()
 
@@ -92,9 +94,6 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 
 	s.mux = mux
-	if session != nil {
-		s.ready.Store(true)
-	}
 	return s, nil
 }
 
@@ -105,7 +104,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // requireReady returns false and writes a 503 or 500 response if the server
 // is not yet initialized. Handlers that depend on session data call this first.
 func (s *Server) requireReady(w http.ResponseWriter) bool {
-	if s.ready.Load() {
+	if s.session.Load() != nil {
 		return true
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -138,9 +137,10 @@ func (s *Server) withReady(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // SetSession attaches a fully initialized session and marks the server as ready.
+// Uses atomic.Pointer to ensure the session pointer is visible to all goroutines
+// immediately after store, which is critical on weakly-ordered architectures (ARM64).
 func (s *Server) SetSession(session *Session) {
-	s.session = session
-	s.ready.Store(true)
+	s.session.Store(session)
 }
 
 // SetPRInfo updates the PR metadata after the session is already ready.
@@ -202,8 +202,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	s.versionMu.RUnlock()
 	resp := map[string]interface{}{
 		"share_url":         s.shareURL,
-		"hosted_url":        s.session.GetSharedURL(),
-		"delete_token":      s.session.GetDeleteToken(),
+		"hosted_url":        s.session.Load().GetSharedURL(),
+		"delete_token":      s.session.Load().GetDeleteToken(),
 		"version":           s.currentVersion,
 		"latest_version":    latestVersion,
 		"author":            s.author,
@@ -289,7 +289,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	}
 	scope := r.URL.Query().Get("scope")
 	commit := r.URL.Query().Get("commit")
-	writeJSON(w, s.session.GetSessionInfoScoped(scope, commit))
+	writeJSON(w, s.session.Load().GetSessionInfoScoped(scope, commit))
 }
 
 func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
@@ -304,11 +304,11 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
-		s.session.SetSharedURLAndToken(body.URL, body.DeleteToken)
+		s.session.Load().SetSharedURLAndToken(body.URL, body.DeleteToken)
 		writeJSON(w, map[string]string{"ok": "true"})
 
 	case http.MethodDelete:
-		s.session.SetSharedURLAndToken("", "")
+		s.session.Load().SetSharedURLAndToken("", "")
 		w.WriteHeader(http.StatusNoContent)
 
 	default:
@@ -331,7 +331,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 	// Idempotent: if already shared, return the existing URL without calling crit-web.
 	// Uses GetShareState() to read both fields under a single lock (avoids TOCTOU race
 	// where a concurrent DELETE /api/share-url could clear the token between two calls).
-	if existingURL, existingToken := s.session.GetShareState(); existingURL != "" {
+	if existingURL, existingToken := s.session.Load().GetShareState(); existingURL != "" {
 		writeJSON(w, map[string]any{
 			"url":          existingURL,
 			"delete_token": existingToken,
@@ -343,7 +343,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 	// This uses the same disk-based path as `crit share` (CLI), ensuring
 	// a single source of truth for the share payload. The review file is
 	// kept current by saveCritJSON (200ms debounce on every comment change).
-	files := s.session.LoadShareFilesFromDisk()
+	files := s.session.Load().LoadShareFilesFromDisk()
 	if len(files) == 0 {
 		http.Error(w, "no files in session", http.StatusBadRequest)
 		return
@@ -354,7 +354,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		filePaths[i] = f.Path
 	}
 
-	critPath := s.session.critJSONPath()
+	critPath := s.session.Load().critJSONPath()
 	comments, reviewRound := loadCommentsForShare(critPath, filePaths)
 
 	url, deleteToken, err := shareFilesToWeb(files, comments, s.shareURL, reviewRound, s.authToken)
@@ -365,8 +365,8 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.session.SetSharedURLAndToken(url, deleteToken)
-	s.session.SetShareScope(shareScope(filePaths))
+	s.session.Load().SetSharedURLAndToken(url, deleteToken)
+	s.session.Load().SetShareScope(shareScope(filePaths))
 	writeJSON(w, map[string]any{"url": url, "delete_token": deleteToken})
 }
 
@@ -382,11 +382,11 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path query parameter required", http.StatusBadRequest)
 		return
 	}
-	snapshot, ok := s.session.GetFileSnapshot(path)
+	snapshot, ok := s.session.Load().GetFileSnapshot(path)
 	if !ok {
 		// File not in session (e.g. scoped view showing a file added after startup).
 		// Try to serve it directly from disk.
-		snapshot, ok = s.session.GetFileSnapshotFromDisk(path)
+		snapshot, ok = s.session.Load().GetFileSnapshotFromDisk(path)
 		if !ok {
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
@@ -410,7 +410,7 @@ func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	scope := r.URL.Query().Get("scope")
 	commit := r.URL.Query().Get("commit")
-	snapshot, ok := s.session.GetFileDiffSnapshotScoped(path, scope, commit)
+	snapshot, ok := s.session.Load().GetFileDiffSnapshotScoped(path, scope, commit)
 	if !ok {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
@@ -429,7 +429,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		comments := s.session.GetComments(path)
+		comments := s.session.Load().GetComments(path)
 		writeJSON(w, comments)
 
 	case http.MethodPost:
@@ -455,10 +455,10 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 		// Ensure the file is registered in the session. Files that appear after
 		// startup (e.g. user creates a new file while reviewing) may be visible in
 		// scoped views but not yet in s.Files.
-		s.session.EnsureFileEntry(path)
+		s.session.Load().EnsureFileEntry(path)
 
 		if req.Scope == "file" {
-			c, ok := s.session.AddFileComment(path, req.Body, req.Author)
+			c, ok := s.session.Load().AddFileComment(path, req.Body, req.Author)
 			if !ok {
 				http.Error(w, "File not found", http.StatusNotFound)
 				return
@@ -473,7 +473,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		c, ok := s.session.AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body, req.Quote, req.Author)
+		c, ok := s.session.Load().AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body, req.Quote, req.Author)
 		if !ok {
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
@@ -554,7 +554,7 @@ func (s *Server) handleFileCommentResolve(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	c, ok := s.session.SetCommentResolved(path, commentID, req.Resolved)
+	c, ok := s.session.Load().SetCommentResolved(path, commentID, req.Resolved)
 	if !ok {
 		http.Error(w, "Comment not found", http.StatusNotFound)
 		return
@@ -578,7 +578,7 @@ func (s *Server) handleFileCommentUpdate(w http.ResponseWriter, r *http.Request,
 			http.Error(w, "Comment body is required", http.StatusBadRequest)
 			return
 		}
-		c, ok := s.session.UpdateComment(path, id, req.Body)
+		c, ok := s.session.Load().UpdateComment(path, id, req.Body)
 		if !ok {
 			http.Error(w, "Comment not found", http.StatusNotFound)
 			return
@@ -586,7 +586,7 @@ func (s *Server) handleFileCommentUpdate(w http.ResponseWriter, r *http.Request,
 		writeJSON(w, c)
 
 	case http.MethodDelete:
-		if !s.session.DeleteComment(path, id) {
+		if !s.session.Load().DeleteComment(path, id) {
 			http.Error(w, "Comment not found", http.StatusNotFound)
 			return
 		}
@@ -602,7 +602,7 @@ func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	commits := s.session.GetCommits()
+	commits := s.session.Load().GetCommits()
 	writeJSON(w, commits)
 }
 
@@ -612,9 +612,10 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	s.session.mu.RLock()
-	repoRoot := s.session.RepoRoot
-	s.session.mu.RUnlock()
+	sess := s.session.Load()
+	sess.mu.RLock()
+	repoRoot := sess.RepoRoot
+	sess.mu.RUnlock()
 	branches, err := RemoteBranches(repoRoot)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -636,7 +637,7 @@ func (s *Server) handleBaseBranch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request: branch is required", http.StatusBadRequest)
 		return
 	}
-	if err := s.session.ChangeBaseBranch(body.Branch); err != nil {
+	if err := s.session.Load().ChangeBaseBranch(body.Branch); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -710,13 +711,13 @@ func handleReplyCRUD(w http.ResponseWriter, r *http.Request, replyID string, ops
 func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePath, commentID, replyID string) {
 	handleReplyCRUD(w, r, replyID, replyOps{
 		add: func(body, author string) (Reply, bool) {
-			return s.session.AddReply(filePath, commentID, body, author)
+			return s.session.Load().AddReply(filePath, commentID, body, author)
 		},
 		update: func(rid, body string) (Reply, bool) {
-			return s.session.UpdateReply(filePath, commentID, rid, body)
+			return s.session.Load().UpdateReply(filePath, commentID, rid, body)
 		},
 		delete: func(rid string) bool {
-			return s.session.DeleteReply(filePath, commentID, rid)
+			return s.session.Load().DeleteReply(filePath, commentID, rid)
 		},
 	})
 }
@@ -724,13 +725,13 @@ func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePa
 func (s *Server) handleReviewCommentReplyRoute(w http.ResponseWriter, r *http.Request, commentID, replyID string) {
 	handleReplyCRUD(w, r, replyID, replyOps{
 		add: func(body, author string) (Reply, bool) {
-			return s.session.AddReviewCommentReply(commentID, body, author)
+			return s.session.Load().AddReviewCommentReply(commentID, body, author)
 		},
 		update: func(rid, body string) (Reply, bool) {
-			return s.session.UpdateReviewCommentReply(commentID, rid, body)
+			return s.session.Load().UpdateReviewCommentReply(commentID, rid, body)
 		},
 		delete: func(rid string) bool {
-			return s.session.DeleteReviewCommentReply(commentID, rid)
+			return s.session.Load().DeleteReviewCommentReply(commentID, rid)
 		},
 	})
 }
@@ -738,7 +739,7 @@ func (s *Server) handleReviewCommentReplyRoute(w http.ResponseWriter, r *http.Re
 func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		comments := s.session.GetReviewComments()
+		comments := s.session.Load().GetReviewComments()
 		writeJSON(w, comments)
 
 	case http.MethodPost:
@@ -755,12 +756,12 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Comment body is required", http.StatusBadRequest)
 			return
 		}
-		c := s.session.AddReviewComment(req.Body, req.Author)
+		c := s.session.Load().AddReviewComment(req.Body, req.Author)
 		w.WriteHeader(http.StatusCreated)
 		writeJSON(w, c)
 
 	case http.MethodDelete:
-		s.session.ClearAllComments()
+		s.session.Load().ClearAllComments()
 		writeJSON(w, map[string]string{"status": "ok"})
 
 	default:
@@ -800,7 +801,7 @@ func (s *Server) handleReviewCommentResolve(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	c, ok := s.session.ResolveReviewComment(commentID, req.Resolved)
+	c, ok := s.session.Load().ResolveReviewComment(commentID, req.Resolved)
 	if !ok {
 		http.Error(w, "Comment not found", http.StatusNotFound)
 		return
@@ -824,7 +825,7 @@ func (s *Server) handleReviewCommentUpdate(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "Comment body is required", http.StatusBadRequest)
 			return
 		}
-		c, ok := s.session.UpdateReviewComment(id, req.Body)
+		c, ok := s.session.Load().UpdateReviewComment(id, req.Body)
 		if !ok {
 			http.Error(w, "Comment not found", http.StatusNotFound)
 			return
@@ -832,7 +833,7 @@ func (s *Server) handleReviewCommentUpdate(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, c)
 
 	case http.MethodDelete:
-		if !s.session.DeleteReviewComment(id) {
+		if !s.session.Load().DeleteReviewComment(id) {
 			http.Error(w, "Comment not found", http.StatusNotFound)
 			return
 		}
@@ -848,7 +849,7 @@ func (s *Server) handleRoundComplete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	s.session.SignalRoundComplete()
+	s.session.Load().SignalRoundComplete()
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
@@ -858,15 +859,16 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.session.WriteFiles()
+	sess := s.session.Load()
+	sess.WriteFiles()
 
-	totalComments := s.session.TotalCommentCount()
-	newComments := s.session.NewCommentCount()
-	unresolvedComments := s.session.UnresolvedCommentCount()
-	critJSON := s.session.critJSONPath()
+	totalComments := sess.TotalCommentCount()
+	newComments := sess.NewCommentCount()
+	unresolvedComments := sess.UnresolvedCommentCount()
+	critJSON := sess.critJSONPath()
 	prompt := ""
 	if totalComments > 0 && unresolvedComments > 0 {
-		if s.session.Mode == "plan" {
+		if sess.Mode == "plan" {
 			// Plan mode: concise feedback for the hook workflow.
 			// Claude revises the plan text directly — no need for crit comment or review file instructions.
 			prompt = s.buildPlanFeedback(critJSON)
@@ -879,7 +881,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 					"Before acting, check each comment's replies array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change. "+
 					"For each comment, reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> \"<explanation>\"`. "+
 					"When done run: `%s`",
-				critJSON, s.session.ReinvokeCommand())
+				critJSON, sess.ReinvokeCommand())
 		}
 	} else if totalComments > 0 && unresolvedComments == 0 {
 		prompt = "All comments are resolved — no changes needed, please proceed."
@@ -887,7 +889,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 
 	approved := unresolvedComments == 0
 	if !approved {
-		s.session.setWaitingForAgent(true)
+		sess.setWaitingForAgent(true)
 	}
 
 	writeJSON(w, map[string]any{
@@ -903,13 +905,13 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		"prompt":   prompt,
 		"approved": approved,
 	})
-	s.session.notify(SSEEvent{
+	sess.notify(SSEEvent{
 		Type:    "finish",
 		Content: string(eventData),
 	})
 
 	if s.status != nil {
-		round := s.session.GetReviewRound()
+		round := sess.GetReviewRound()
 		s.status.RoundFinished(round, newComments, unresolvedComments > 0)
 		if unresolvedComments > 0 {
 			s.status.WaitingForAgent()
@@ -922,7 +924,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 // Points to the review file and hints at crit-cli skill, without inlining every comment.
 func (s *Server) buildPlanFeedback(critJSON string) string {
 	// Extract slug from PlanDir (last path component)
-	slug := filepath.Base(s.session.PlanDir)
+	slug := filepath.Base(s.session.Load().PlanDir)
 	return fmt.Sprintf(
 		"Plan review feedback — revise the plan to address the review comments. "+
 			"Comments are in %s — grouped per file with start_line/end_line referencing the source. "+
@@ -938,8 +940,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	browserClients := false
-	if s.ready.Load() {
-		browserClients = s.session.HasBrowserClients()
+	if sess := s.session.Load(); sess != nil {
+		browserClients = sess.HasBrowserClients()
 	}
 	writeJSON(w, map[string]any{
 		"status":          "ok",
@@ -957,22 +959,24 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sess := s.session.Load()
+
 	// Subscribe BEFORE round-complete to avoid missing the finish event
 	// if the user clicks "Finish Review" in the brief window between
 	// SignalRoundComplete and Subscribe.
-	ch := s.session.Subscribe()
-	defer s.session.Unsubscribe(ch)
+	ch := sess.Subscribe()
+	defer sess.Unsubscribe(ch)
 
-	if !s.session.IsAwaitingFirstReview() {
+	if !sess.IsAwaitingFirstReview() {
 		// Agent finished changes — signal round-complete so browser refreshes
-		s.session.SignalRoundComplete()
+		sess.SignalRoundComplete()
 	}
 
 	for {
 		select {
 		case event := <-ch:
 			if event.Type == "finish" {
-				s.session.SetAwaitingFirstReview(false)
+				sess.SetAwaitingFirstReview(false)
 				// Parse the structured finish event data
 				var finishData struct {
 					Prompt   string `json:"prompt"`
@@ -981,7 +985,7 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 				json.Unmarshal([]byte(event.Content), &finishData)
 				writeJSON(w, map[string]any{
 					"status":      "finished",
-					"review_file": s.session.critJSONPath(),
+					"review_file": sess.critJSONPath(),
 					"prompt":      finishData.Prompt,
 					"approved":    finishData.Approved,
 				})
@@ -1000,8 +1004,9 @@ func (s *Server) handleWaitForEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ch := s.session.Subscribe()
-	defer s.session.Unsubscribe(ch)
+	sess := s.session.Load()
+	ch := sess.Subscribe()
+	defer sess.Unsubscribe(ch)
 
 	for {
 		select {
@@ -1034,11 +1039,12 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	flusher.Flush()
 
-	s.session.BrowserConnect()
-	defer s.session.BrowserDisconnect()
+	sess := s.session.Load()
+	sess.BrowserConnect()
+	defer sess.BrowserDisconnect()
 
-	ch := s.session.Subscribe()
-	defer s.session.Unsubscribe(ch)
+	ch := sess.Subscribe()
+	defer sess.Unsubscribe(ch)
 
 	for {
 		select {
@@ -1067,7 +1073,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	baseDir := s.session.RepoRoot
+	baseDir := s.session.Load().RepoRoot
 	fullPath := filepath.Join(baseDir, reqPath)
 	cleanPath, err := filepath.EvalSymlinks(fullPath)
 	if err != nil {
@@ -1129,21 +1135,22 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sess := s.session.Load()
 	var paths []string
 	var err error
 
 	// Try git first (works in both "git" and "files" mode when inside a repo),
 	// fall back to filesystem walk for non-git directories.
-	paths, err = AllTrackedFiles(s.session.RepoRoot)
+	paths, err = AllTrackedFiles(sess.RepoRoot)
 	if err != nil {
-		paths, err = WalkFiles(s.session.RepoRoot)
+		paths, err = WalkFiles(sess.RepoRoot)
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	paths = filterPathsIgnored(paths, s.session.IgnorePatterns)
+	paths = filterPathsIgnored(paths, sess.IgnorePatterns)
 
 	query := r.URL.Query().Get("q")
 	const maxResults = 10
@@ -1269,13 +1276,13 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	comment, filePath, found := s.session.FindCommentByID(body.CommentID, body.FilePath)
+	comment, filePath, found := s.session.Load().FindCommentByID(body.CommentID, body.FilePath)
 	if !found {
 		http.Error(w, "Comment not found", http.StatusNotFound)
 		return
 	}
 
-	s.session.SetCommentLive(filePath, comment.ID)
+	s.session.Load().SetCommentLive(filePath, comment.ID)
 
 	prompt := buildAgentPrompt(comment, filePath)
 
@@ -1345,7 +1352,8 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 	if !hasPlaceholder {
 		cmd.Stdin = strings.NewReader(prompt)
 	}
-	cmd.Dir = s.session.RepoRoot
+	sess := s.session.Load()
+	cmd.Dir = sess.RepoRoot
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -1366,10 +1374,10 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 	author := agentName(s.agentCmd)
 	log.Printf("agent-request %s: completed, posting reply (%d bytes)\nResponse: %s\nStderr: %s", commentID, len(response), response, stderr.String())
 	// Try original path first, then search all files (path may have changed during agent run)
-	_, ok := s.session.AddReply(filePath, commentID, response, author)
+	_, ok := sess.AddReply(filePath, commentID, response, author)
 	if !ok {
-		if _, actualPath, found := s.session.FindCommentByID(commentID, ""); found {
-			_, ok = s.session.AddReply(actualPath, commentID, response, author)
+		if _, actualPath, found := sess.FindCommentByID(commentID, ""); found {
+			_, ok = sess.AddReply(actualPath, commentID, response, author)
 			if ok {
 				filePath = actualPath
 			}
@@ -1379,12 +1387,12 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		log.Printf("agent-request %s: failed to add reply (comment not found in file %q)", commentID, filePath)
 	} else {
 		// Re-read content (and file list/diffs in git mode) so next fetch returns updated data
-		s.session.RefreshFileContent()
-		if s.session.Mode == "git" {
-			s.session.RefreshFileList()
-			s.session.RefreshDiffs()
+		sess.RefreshFileContent()
+		if sess.Mode == "git" {
+			sess.RefreshFileList()
+			sess.RefreshDiffs()
 		}
-		s.session.notify(SSEEvent{Type: "comments-changed"})
+		sess.notify(SSEEvent{Type: "comments-changed"})
 	}
 }
 

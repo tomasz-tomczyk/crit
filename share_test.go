@@ -651,8 +651,8 @@ func TestHandleShare_Success(t *testing.T) {
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
 
-	srv := &Server{session: sess, shareURL: critWeb.URL}
-	srv.ready.Store(true)
+	srv := &Server{shareURL: critWeb.URL}
+	srv.session.Store(sess)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
 	w := httptest.NewRecorder()
@@ -717,8 +717,8 @@ func TestHandleShare_OrphanedFileIncluded(t *testing.T) {
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
 
-	srv := &Server{session: sess, shareURL: critWeb.URL}
-	srv.ready.Store(true)
+	srv := &Server{shareURL: critWeb.URL}
+	srv.session.Store(sess)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
 	w := httptest.NewRecorder()
@@ -777,8 +777,8 @@ func TestHandleShare_ShareServiceError(t *testing.T) {
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
 
-	srv := &Server{session: sess, shareURL: critWeb.URL}
-	srv.ready.Store(true)
+	srv := &Server{shareURL: critWeb.URL}
+	srv.session.Store(sess)
 	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
 	w := httptest.NewRecorder()
 	srv.handleShare(w, req)
@@ -794,8 +794,8 @@ func TestHandleShare_ShareServiceError(t *testing.T) {
 }
 
 func TestHandleShare_NoShareURL(t *testing.T) {
-	srv := &Server{session: &Session{}, shareURL: ""}
-	srv.ready.Store(true)
+	srv := &Server{shareURL: ""}
+	srv.session.Store(&Session{})
 	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
 	w := httptest.NewRecorder()
 	srv.handleShare(w, req)
@@ -806,7 +806,8 @@ func TestHandleShare_NoShareURL(t *testing.T) {
 }
 
 func TestHandleShare_WrongMethod(t *testing.T) {
-	srv := &Server{session: &Session{}, shareURL: "https://crit.md"}
+	srv := &Server{shareURL: "https://crit.md"}
+	srv.session.Store(&Session{})
 	req := httptest.NewRequest(http.MethodGet, "/api/share", nil)
 	w := httptest.NewRecorder()
 	srv.handleShare(w, req)
@@ -837,8 +838,8 @@ func TestHandleShare_AlreadyShared(t *testing.T) {
 	}
 	sess.SetSharedURLAndToken("https://crit.md/r/existing", "existing-del-token")
 
-	srv := &Server{session: sess, shareURL: mockServer.URL}
-	srv.ready.Store(true)
+	srv := &Server{shareURL: mockServer.URL}
+	srv.session.Store(sess)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
 	w := httptest.NewRecorder()

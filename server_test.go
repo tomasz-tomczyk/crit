@@ -1633,7 +1633,7 @@ func TestReviewCommentRepliesAPI(t *testing.T) {
 	}
 
 	// Verify reply is gone by checking the comment
-	comments := srv.session.GetReviewComments()
+	comments := srv.session.Load().GetReviewComments()
 	if len(comments) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(comments))
 	}
