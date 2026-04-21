@@ -195,6 +195,9 @@
   let agentName = 'agent';
   const pendingAgentRequests = new Set();
 
+  // Track active reply form state so it survives DOM re-renders (commentId → { text })
+  const activeReplyForms = new Map();
+
   // Track manually toggled collapse state (comment ID → boolean, true = collapsed)
   const commentCollapseOverrides = {};
 
@@ -1653,6 +1656,18 @@
     for (let i = 0; i < fileForms.length; i++) {
       const ta = document.querySelector('.comment-form[data-form-key="' + fileForms[i].formKey + '"] textarea');
       if (ta) fileForms[i].draftBody = ta.value;
+    }
+    // Save expanded reply form state before DOM re-render
+    const section = document.getElementById('file-section-' + filePath);
+    if (section) {
+      const expandedForms = section.querySelectorAll('.reply-form.expanded');
+      for (let i = 0; i < expandedForms.length; i++) {
+        const card = expandedForms[i].closest('.comment-card');
+        if (card && card.dataset.commentId) {
+          const ta = expandedForms[i].querySelector('.reply-textarea');
+          activeReplyForms.set(card.dataset.commentId, { text: ta ? ta.value : '' });
+        }
+      }
     }
   }
 
@@ -5205,6 +5220,7 @@
       input.replaceWith(textarea);
       form.appendChild(buttons);
       textarea.focus();
+      activeReplyForms.set(commentId, { text: textarea.value });
     }
 
     function collapse() {
@@ -5213,9 +5229,15 @@
       textarea.replaceWith(input);
       input.value = '';
       if (buttons.parentNode) buttons.remove();
+      activeReplyForms.delete(commentId);
     }
 
     input.addEventListener('focus', expand);
+
+    // Keep reply form state in sync for surviving re-renders
+    textarea.addEventListener('input', function() {
+      activeReplyForms.set(commentId, { text: textarea.value });
+    });
 
     cancelBtn.addEventListener('click', collapse);
 
@@ -5259,6 +5281,7 @@
           });
         }
 
+        activeReplyForms.delete(commentId);
         refreshFileComments(filePath);
       } catch (err) {
         console.error('Failed to add reply:', err);
@@ -5281,6 +5304,15 @@
         }
       }
     });
+
+    // Restore saved reply form state after DOM re-render
+    const saved = activeReplyForms.get(commentId);
+    if (saved && saved.text) {
+      form.classList.add('expanded');
+      textarea.value = saved.text;
+      input.replaceWith(textarea);
+      form.appendChild(buttons);
+    }
 
     return form;
   }
@@ -5929,6 +5961,7 @@
         files.sort(fileSortComparator);
 
         activeForms = [];
+        activeReplyForms.clear();
         activeFilePath = null;
         selectionStart = null;
         selectionEnd = null;
@@ -6573,6 +6606,7 @@
     if (reloadInFlight) return reloadInFlight;
     reloadInFlight = (async function() {
       try {
+        activeReplyForms.clear();
         document.getElementById('filesContainer').innerHTML =
           '<div class="loading" style="padding: 40px; text-align: center; color: var(--fg-muted);">Loading...</div>';
 

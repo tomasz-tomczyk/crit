@@ -282,4 +282,34 @@ test.describe('Comment Threading', () => {
     // After resolving, card should collapse even though it was a live thread
     await expect(section.locator('.comment-card.collapsed')).toHaveCount(1);
   });
+
+  test('reply form persists expanded state and text when opening a new comment form on same file', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Review this');
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
+
+    // Expand reply input and type text
+    await card.locator('.reply-input').click();
+    await expect(card.locator('.reply-textarea')).toBeFocused();
+    await card.locator('.reply-textarea').fill('draft reply text');
+    await expect(card.locator('.reply-form-buttons')).toBeVisible();
+
+    // Open a new comment form on a different line of the SAME file to trigger re-render
+    const thirdLineBlock = section.locator('.line-block').nth(2);
+    await thirdLineBlock.hover();
+    await section.locator('.line-comment-gutter').nth(2).click();
+
+    // Verify the new comment form opened
+    await expect(section.locator('.comment-form')).toBeVisible();
+
+    // Verify reply form survived the re-render
+    await expect(card.locator('.reply-form.expanded')).toBeVisible();
+    await expect(card.locator('.reply-textarea')).toHaveValue('draft reply text');
+    await expect(card.locator('.reply-form-buttons')).toBeVisible();
+  });
 });
