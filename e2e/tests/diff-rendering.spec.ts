@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loadPage } from './helpers';
+import { goSection, loadPage } from './helpers';
 
 test.describe('Diff Rendering — Split Mode (default)', () => {
   test('shows split diff by default', async ({ page }) => {
@@ -72,6 +72,26 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
     await expect(spacer).toContainText('unchanged line');
   });
 
+  test('shows a spacer before the first hunk when the file has leading unchanged lines', async ({ page }) => {
+    await loadPage(page);
+
+    const serverSection = goSection(page);
+    await expect(serverSection).toBeVisible();
+
+    const firstSpacer = serverSection.locator('.diff-spacer').first();
+    await expect(firstSpacer).toBeVisible();
+
+    const firstHeader = serverSection.locator('.diff-hunk-header').first();
+    await expect(firstHeader).toBeVisible();
+
+    await expect.poll(async () => {
+      return firstHeader.evaluate((el) => el.previousElementSibling?.className || '');
+    }).toContain('diff-spacer');
+
+    await firstSpacer.click();
+    await expect(firstHeader.locator('.hunk-text')).toContainText('@@ -1,');
+  });
+
   test('clicking spacer expands context lines', async ({ page }) => {
     await loadPage(page);
 
@@ -81,10 +101,10 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
 
     // Count spacers before click
     const spacersBefore = serverSection.locator('.diff-spacer');
-    const spacerCountBefore = await spacersBefore.count();
-    expect(spacerCountBefore).toBeGreaterThan(0);
+    await expect(spacersBefore).not.toHaveCount(0);
 
     // Count diff rows before expansion
+    const spacerCountBefore = await spacersBefore.count();
     const rowsBefore = await serverSection.locator('.diff-split-row').count();
 
     // Click the first spacer
@@ -92,8 +112,7 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
     await firstSpacer.click();
 
     // After clicking, the spacer count should decrease by 1 (it gets merged)
-    const spacerCountAfter = await serverSection.locator('.diff-spacer').count();
-    expect(spacerCountAfter).toBeLessThan(spacerCountBefore);
+    await expect(serverSection.locator('.diff-spacer')).toHaveCount(spacerCountBefore - 1);
 
     // More rows should be visible after expansion
     const rowsAfter = await serverSection.locator('.diff-split-row').count();

@@ -2858,11 +2858,43 @@
   }
 
   // Helper: render hunk spacer
-  // prevIdx/nextIdx are indices into file.diffHunks so we can merge on expand
+  // prevIdx/nextIdx are indices into file.diffHunks so we can merge on expand.
+  // When prevHunk is null, this renders the leading unchanged block before the first hunk.
+  function buildMergedHunkHeader(oldStart, oldCount, newStart, newCount, originalHeader) {
+    const suffixMatch = originalHeader && originalHeader.match(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(.*)$/);
+    const suffix = suffixMatch ? suffixMatch[1] : '';
+    return '@@ -' + oldStart + ',' + oldCount + ' +' + newStart + ',' + newCount + ' @@' + suffix;
+  }
+
+  function mergeDiffHunks(leftHunk, rightHunk, contextLines) {
+    const oldStart = leftHunk ? leftHunk.OldStart : 1;
+    const newStart = leftHunk ? leftHunk.NewStart : 1;
+    const mergedLines = (leftHunk ? leftHunk.Lines : []).concat(contextLines, rightHunk.Lines);
+    const maxOldNum = mergedLines.reduce(function(max, line) {
+      return line.OldNum > max ? line.OldNum : max;
+    }, 0);
+    const maxNewNum = mergedLines.reduce(function(max, line) {
+      return line.NewNum > max ? line.NewNum : max;
+    }, 0);
+    const oldCount = oldStart > 0 && maxOldNum >= oldStart ? (maxOldNum - oldStart + 1) : 0;
+    const newCount = newStart > 0 && maxNewNum >= newStart ? (maxNewNum - newStart + 1) : 0;
+    const headerSource = leftHunk ? leftHunk.Header : rightHunk.Header;
+    return {
+      OldStart: oldStart,
+      OldCount: oldCount,
+      NewStart: newStart,
+      NewCount: newCount,
+      Header: buildMergedHunkHeader(oldStart, oldCount, newStart, newCount, headerSource),
+      Lines: mergedLines,
+    };
+  }
+
   function renderDiffSpacer(prevHunk, nextHunk, file, prevIdx, nextIdx) {
-    const prevNewEnd = prevHunk.NewStart + prevHunk.NewCount;
-    const prevOldEnd = prevHunk.OldStart + prevHunk.OldCount;
-    const gap = nextHunk.NewStart - prevNewEnd;
+    const gapStartNew = prevHunk ? prevHunk.NewStart + prevHunk.NewCount : 1;
+    const gapStartOld = prevHunk ? prevHunk.OldStart + prevHunk.OldCount : 1;
+    const gap = prevHunk
+      ? nextHunk.NewStart - gapStartNew
+      : Math.max(nextHunk.NewStart, nextHunk.OldStart) - 1;
     if (gap <= 0) return null;
     const spacer = document.createElement('div');
     spacer.className = 'diff-spacer';
@@ -2877,25 +2909,17 @@
       // Build context lines to bridge the gap
       const contextLines = [];
       for (let i = 0; i < gap; i++) {
-        const newLineNum = prevNewEnd + i;
-        const oldLineNum = prevOldEnd + i;
+        const newLineNum = gapStartNew + i;
+        const oldLineNum = gapStartOld + i;
         const text = newLineNum <= contentLines.length ? contentLines[newLineNum - 1] : '';
         contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
       }
 
-      // Merge: prev hunk + context lines + next hunk → single hunk
       const hunks = file.diffHunks;
-      const merged = {
-        OldStart: hunks[prevIdx].OldStart,
-        NewStart: hunks[prevIdx].NewStart,
-        Header: hunks[prevIdx].Header,
-        Lines: hunks[prevIdx].Lines.concat(contextLines, hunks[nextIdx].Lines)
-      };
-      merged.OldCount = (hunks[nextIdx].OldStart + hunks[nextIdx].OldCount) - merged.OldStart;
-      merged.NewCount = (hunks[nextIdx].NewStart + hunks[nextIdx].NewCount) - merged.NewStart;
-
-      // Replace prevIdx with merged, remove nextIdx
-      hunks.splice(prevIdx, 2, merged);
+      const merged = mergeDiffHunks(prevHunk, hunks[nextIdx], contextLines);
+      const spliceStart = prevHunk ? prevIdx : nextIdx;
+      const spliceCount = prevHunk ? 2 : 1;
+      hunks.splice(spliceStart, spliceCount, merged);
 
       // Re-render from data model so all lines get proper interaction
       renderFileByPath(file.path);
@@ -2959,10 +2983,10 @@
     for (let hi = 0; hi < hunks.length; hi++) {
       const hunk = hunks[hi];
 
-      if (hi > 0) {
-        const spacer = renderDiffSpacer(hunks[hi - 1], hunk, file, hi - 1, hi);
-        if (spacer) container.appendChild(spacer);
-      }
+      const spacer = hi === 0
+        ? renderDiffSpacer(null, hunk, file, -1, hi)
+        : renderDiffSpacer(hunks[hi - 1], hunk, file, hi - 1, hi);
+      if (spacer) container.appendChild(spacer);
 
       container.appendChild(renderDiffHunkHeader(hunk));
 
@@ -3060,10 +3084,10 @@
     for (let hi = 0; hi < hunks.length; hi++) {
       const hunk = hunks[hi];
 
-      if (hi > 0) {
-        const spacer = renderDiffSpacer(hunks[hi - 1], hunk, file, hi - 1, hi);
-        if (spacer) container.appendChild(spacer);
-      }
+      const spacer = hi === 0
+        ? renderDiffSpacer(null, hunk, file, -1, hi)
+        : renderDiffSpacer(hunks[hi - 1], hunk, file, hi - 1, hi);
+      if (spacer) container.appendChild(spacer);
 
       container.appendChild(renderDiffHunkHeader(hunk));
 
