@@ -2944,6 +2944,62 @@
     }
   }
 
+  // Helper: render comments whose line keys don't appear in any diff hunk.
+  // These are "outdated" — the comment exists but the line is gone from the current diff.
+  function appendOutdatedDiffComments(container, file, commentsMap, hunks) {
+    // Build set of all end_line:side keys present in the diff hunks
+    const renderedKeys = new Set();
+    for (const hunk of hunks) {
+      for (const line of hunk.Lines) {
+        if (line.Type === 'del' && line.OldNum) {
+          renderedKeys.add(line.OldNum + ':old');
+        }
+        if (line.Type === 'add' && line.NewNum) {
+          renderedKeys.add(line.NewNum + ':');
+        }
+        if (line.Type === 'context') {
+          if (line.OldNum) renderedKeys.add(line.OldNum + ':old');
+          if (line.NewNum) renderedKeys.add(line.NewNum + ':');
+        }
+      }
+    }
+
+    // Collect comments whose keys were not rendered
+    const outdatedComments = [];
+    for (const key of Object.keys(commentsMap)) {
+      if (!renderedKeys.has(key)) {
+        for (const comment of commentsMap[key]) {
+          if (comment.scope !== 'file') {
+            outdatedComments.push(comment);
+          }
+        }
+      }
+    }
+
+    if (outdatedComments.length === 0) return;
+
+    // Render outdated comments section at the bottom of the diff
+    const section = document.createElement('div');
+    section.className = 'outdated-diff-comments';
+
+    for (const comment of outdatedComments) {
+      const el = comment.resolved
+        ? createResolvedElement(comment, file.path)
+        : createCommentElement(comment, file.path);
+      el.classList.add('outdated-comment');
+      const headerLeft = el.querySelector('.comment-header-left');
+      if (headerLeft) {
+        const badge = document.createElement('span');
+        badge.className = 'outdated-badge';
+        badge.textContent = 'Outdated';
+        headerLeft.appendChild(badge);
+      }
+      section.appendChild(el);
+    }
+
+    container.appendChild(section);
+  }
+
   // ===== Unified diff (interleaved lines, single pane) =====
   function renderDiffUnified(file) {
     const container = document.createElement('div');
@@ -3043,6 +3099,8 @@
         visualIdx++;
       }
     }
+
+    appendOutdatedDiffComments(container, file, commentsMap, hunks);
 
     return container;
   }
@@ -3163,6 +3221,8 @@
         }
       }
     }
+
+    appendOutdatedDiffComments(container, file, commentsMap, hunks);
 
     return container;
   }
