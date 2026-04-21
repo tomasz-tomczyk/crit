@@ -122,11 +122,12 @@ func lcsForwardRow(old, new []string) []int {
 	curr := make([]int, n+1)
 	for _, oldLine := range old {
 		for j := 1; j <= n; j++ {
-			if oldLine == new[j-1] {
+			switch {
+			case oldLine == new[j-1]:
 				curr[j] = prev[j-1] + 1
-			} else if prev[j] >= curr[j-1] {
+			case prev[j] >= curr[j-1]:
 				curr[j] = prev[j]
-			} else {
+			default:
 				curr[j] = curr[j-1]
 			}
 		}
@@ -149,11 +150,12 @@ func lcsBackwardRow(old, new []string) []int {
 	curr := make([]int, n+1)
 	for i := len(old) - 1; i >= 0; i-- {
 		for j := n - 1; j >= 0; j-- {
-			if old[i] == new[j] {
+			switch {
+			case old[i] == new[j]:
 				curr[n-j] = prev[n-j-1] + 1
-			} else if prev[n-j] >= curr[n-j-1] {
+			case prev[n-j] >= curr[n-j-1]:
 				curr[n-j] = prev[n-j]
-			} else {
+			default:
 				curr[n-j] = curr[n-j-1]
 			}
 		}
