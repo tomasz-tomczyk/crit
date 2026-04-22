@@ -1397,7 +1397,7 @@ func (s *Session) ClearAllComments() {
 // ChangeBaseBranch changes the diff base to the given branch, recomputes merge-base,
 // rebuilds the file list with new diffs, and notifies connected browsers via SSE.
 // Comments are preserved for files that still appear in the new diff.
-func (s *Session) ChangeBaseBranch(branch string) error {
+func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // inherent complexity: rollback, recompute diffs, preserve comments
 	s.mu.RLock()
 	mode := s.Mode
 	vcs := s.VCS

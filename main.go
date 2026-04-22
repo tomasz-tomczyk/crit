@@ -1591,7 +1591,7 @@ type serverConfig struct {
 	authToken          string
 	outputDir          string
 	author             string
-	baseBranch         string   // --base-branch override for diff base
+	baseBranch         string // --base-branch override for diff base
 	ignorePatterns     []string
 	files              []string // explicit file arguments (empty = git mode)
 	noIntegrationCheck bool

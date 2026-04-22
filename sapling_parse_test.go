@@ -6,9 +6,9 @@ import (
 
 func TestParseSaplingStatus(t *testing.T) {
 	tests := []struct {
-		name string
+		name  string
 		input string
-		want []FileChange
+		want  []FileChange
 	}{
 		{
 			name:  "empty input",
@@ -51,7 +51,7 @@ func TestParseSaplingStatus(t *testing.T) {
 			want:  nil,
 		},
 		{
-			name: "multiple files mixed statuses",
+			name:  "multiple files mixed statuses",
 			input: "M src/main.go\nA src/new.go\nR src/old.go\n? notes.txt\n! vanished.go",
 			want: []FileChange{
 				{Path: "src/main.go", Status: "modified"},
@@ -62,7 +62,7 @@ func TestParseSaplingStatus(t *testing.T) {
 			},
 		},
 		{
-			name: "ignored and clean files filtered from mixed input",
+			name:  "ignored and clean files filtered from mixed input",
 			input: "M keep.go\nI skip.o\nC clean.go\nA also_keep.go",
 			want: []FileChange{
 				{Path: "keep.go", Status: "modified"},

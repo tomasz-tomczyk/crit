@@ -231,7 +231,7 @@ func (s *SaplingVCS) AllTrackedFiles(dir string) ([]string, error) {
 
 	untrackedOut, err := slCommandInDir(dir, "status", "-u")
 	if err != nil {
-		return files, nil
+		return files, nil //nolint:nilerr // graceful: return tracked files even if untracked listing fails
 	}
 	for _, fc := range parseSaplingStatus(untrackedOut) {
 		files = append(files, fc.Path)
@@ -244,7 +244,7 @@ func (s *SaplingVCS) AllTrackedFiles(dir string) ([]string, error) {
 func (s *SaplingVCS) RemoteBranches(dir string) ([]string, error) {
 	out, err := slCommandInDir(dir, "bookmark", "--list", "--remote")
 	if err != nil {
-		return nil, nil
+		return nil, nil //nolint:nilerr // graceful: remote bookmarks may not be available
 	}
 	return parseRemoteBookmarks(out), nil
 }
