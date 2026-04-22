@@ -132,7 +132,134 @@ defmodule Vetspire.DistributedWorker.Scheduler do
 end
 EXEOF
 
+# server.go v1 — large file with helpers in the middle to produce spacer gaps in the diff.
+# Changes happen in imports (top) and main() (bottom); the middle helpers stay unchanged,
+# creating folded spacers between the hunks.
+cat > "$WORD_DIFF_DIR/server.go" << 'GOEOF'
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+// respondJSON writes a JSON response with the given status code.
+func respondJSON(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	fmt.Fprint(w, body)
+}
+
+// logRequest logs the incoming request method and path.
+func logRequest(r *http.Request) {
+	fmt.Printf("%s %s\n", r.Method, r.URL.Path)
+}
+
+func main() {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		fmt.Fprintf(w, "Hello, %s!", r.URL.Path[1:])
+	})
+
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
+
+	http.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		respondJSON(w, http.StatusOK, `{"version":"1.0.0"}`)
+	})
+
+	http.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		respondJSON(w, http.StatusOK, `{"ready":true}`)
+	})
+
+	fmt.Println("Server starting on :8080")
+	http.ListenAndServe(":8080", nil)
+}
+GOEOF
+
 git -C "$WORD_DIFF_DIR" add -A && git -C "$WORD_DIFF_DIR" commit -q -m "initial"
+
+# Modify server.go — imports + authMiddleware + main changes produce 3 hunks
+# with spacer gaps over the unchanged respondJSON/logRequest and /version/ready handlers
+cat > "$WORD_DIFF_DIR/server.go" << 'GOEOF'
+package main
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+)
+
+// respondJSON writes a JSON response with the given status code.
+func respondJSON(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	fmt.Fprint(w, body)
+}
+
+// logRequest logs the incoming request method and path.
+func logRequest(r *http.Request) {
+	fmt.Printf("%s %s\n", r.Method, r.URL.Path)
+}
+
+// authMiddleware checks for a valid API key in the Authorization header.
+func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key := r.Header.Get("Authorization")
+		if !strings.HasPrefix(key, "Bearer ") {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	http.HandleFunc("/", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		name := r.URL.Path[1:]
+		if name == "" {
+			name = "world"
+		}
+		fmt.Fprintf(w, "Hello, %s!", name)
+	}))
+
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	})
+
+	http.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		respondJSON(w, http.StatusOK, `{"version":"1.0.0"}`)
+	})
+
+	http.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		respondJSON(w, http.StatusOK, `{"ready":true}`)
+	})
+
+	log.Printf("Server starting on :%s", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatal(err)
+	}
+}
+GOEOF
+git -C "$WORD_DIFF_DIR" add server.go && git -C "$WORD_DIFF_DIR" commit -q -m "add auth middleware"
 
 # Modify the file to produce good word-level diff pairs
 cat > "$WORD_DIFF_DIR/main.go" << 'GOEOF'
@@ -464,12 +591,38 @@ curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/file/comments?path=$CF_GIT_E
 
 curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/finish" > /dev/null
 
+# --- Folded-line comment on the code diff instance (#317) ---
+# server.go has spacer gaps between hunks. Line 15 (fmt.Fprint in respondJSON)
+# falls inside the gap between the import hunk and the authMiddleware hunk.
+# The fix auto-expands the spacer so the comment appears at the correct position.
+curl -sf -X DELETE "http://127.0.0.1:$WORD_DIFF_PORT/api/comments" > /dev/null
+
+FOLDED_C=$(curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/file/comments?path=server.go" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 15, "end_line": 15,
+    "body": "This helper always sets Content-Type to application/json. Should we add a text/plain variant for health endpoints that return non-JSON?"
+  }' | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+
+curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/comment/$FOLDED_C/replies?path=server.go" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "body": "Good call. I'\''ll add a `respondText` helper for the health endpoint. The JSON wrapper is overkill for a simple \"ok\" string.",
+    "author": "agent"
+  }' > /dev/null
+
 echo ""
 echo "Servers running:"
 echo "  1. Markdown diff:             http://127.0.0.1:$PORT"
 echo "  2. Code diff (word-level):    http://127.0.0.1:$WORD_DIFF_PORT"
 echo "  3. Carry-forward (file-mode): http://127.0.0.1:$CF_FILE_PORT"
 echo "  4. Carry-forward (git-mode):  http://127.0.0.1:$CF_GIT_PORT"
+echo ""
+echo "Instance 2 — folded-line comment (#317):"
+echo "  server.go has a comment on line 15 (inside respondJSON), which is in a"
+echo "  spacer gap between the import and authMiddleware hunks. The spacer should"
+echo "  auto-expand so the comment + agent reply are visible inline."
+echo "  Open the All Comments panel (Shift+C) and click the comment to scroll to it."
 echo ""
 echo "Carry-forward comments placed on v1 content (instances 3 & 4):"
 echo "  C1 (lines 31-32): sessions table description"
@@ -584,7 +737,9 @@ echo "            Comment #2 (resolved): 2 agent replies — visible when expand
 echo "            Comment #4 (unresolved): 2 replies (agent + reviewer) — visible inline."
 echo "            Comment #5 (on Code Standards heading): tests formatting near deletion markers."
 echo "            Scroll to bottom: deletion markers interrupt the markdown code fence."
-echo "Instance 2: word-level diff + orphaned comments on helpers.go"
+echo "Instance 2: word-level diff + folded-line comment (#317) + orphaned comments"
+echo "            server.go: comment on line 15 should be at its correct position"
+echo "            (spacer auto-expanded), NOT in an outdated section."
 echo "            helpers.go was added then deleted — should appear as a phantom"
 echo "            section with 'Removed' badge, 2 outdated comments (1 file-level,"
 echo "            1 line-scoped), and full resolve/edit/delete support."
