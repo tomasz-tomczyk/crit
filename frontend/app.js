@@ -2875,6 +2875,59 @@
     });
   }
 
+  // Pre-expand spacer gaps that contain comments so comments render inline
+  // instead of falling through to the "outdated" section. Modifies file.diffHunks in place.
+  function expandHunksForComments(file) {
+    const hunks = file.diffHunks;
+    if (!hunks || hunks.length < 2 || !file.content) return;
+    const comments = file.comments || [];
+    const lineComments = comments.filter(function(c) { return c.scope !== 'file'; });
+    if (lineComments.length === 0) return;
+
+    const contentLines = file.content.split('\n');
+
+    // Work backwards so splicing doesn't shift indices we haven't visited yet
+    for (let i = hunks.length - 1; i > 0; i--) {
+      const prevHunk = hunks[i - 1];
+      const nextHunk = hunks[i];
+      const prevNewEnd = prevHunk.NewStart + prevHunk.NewCount;
+      const prevOldEnd = prevHunk.OldStart + prevHunk.OldCount;
+      const gap = nextHunk.NewStart - prevNewEnd;
+      if (gap <= 0) continue;
+
+      // Check if any comment targets a line in this gap
+      const hasComment = lineComments.some(function(c) {
+        if (c.side === 'old') {
+          // Old-side comment: check old line number range
+          const gapOldStart = prevOldEnd;
+          const gapOldEnd = nextHunk.OldStart - 1;
+          return c.end_line >= gapOldStart && c.end_line <= gapOldEnd;
+        }
+        // New-side comment: check new line number range
+        return c.end_line >= prevNewEnd && c.end_line < nextHunk.NewStart;
+      });
+      if (!hasComment) continue;
+
+      // Merge: same logic as the spacer click handler
+      const contextLines = [];
+      for (let j = 0; j < gap; j++) {
+        const newLineNum = prevNewEnd + j;
+        const oldLineNum = prevOldEnd + j;
+        const text = newLineNum <= contentLines.length ? contentLines[newLineNum - 1] : '';
+        contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
+      }
+      const merged = {
+        OldStart: prevHunk.OldStart,
+        NewStart: prevHunk.NewStart,
+        Header: prevHunk.Header,
+        Lines: prevHunk.Lines.concat(contextLines, nextHunk.Lines)
+      };
+      merged.OldCount = (nextHunk.OldStart + nextHunk.OldCount) - merged.OldStart;
+      merged.NewCount = (nextHunk.NewStart + nextHunk.NewCount) - merged.NewStart;
+      hunks.splice(i - 1, 2, merged);
+    }
+  }
+
   // Helper: render hunk spacer
   // prevIdx/nextIdx are indices into file.diffHunks so we can merge on expand
   function renderDiffSpacer(prevHunk, nextHunk, file, prevIdx, nextIdx) {
@@ -3020,6 +3073,8 @@
     const container = document.createElement('div');
     container.className = 'diff-container unified';
 
+    expandHunksForComments(file);
+
     const hunks = file.diffHunks || [];
     if (hunks.length === 0) {
       container.innerHTML = '<div class="diff-no-changes">No changes</div>';
@@ -3124,6 +3179,8 @@
   function renderDiffSplit(file) {
     const container = document.createElement('div');
     container.className = 'diff-container split';
+
+    expandHunksForComments(file);
 
     const hunks = file.diffHunks || [];
     if (hunks.length === 0) {
