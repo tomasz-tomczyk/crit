@@ -67,6 +67,7 @@ func defaultConfig() generatedConfig {
 		},
 		AgentCmd:         "",
 		CleanupOnApprove: true,
+		VCS:              "",
 	}
 }
 
@@ -86,6 +87,7 @@ type generatedConfig struct {
 	NoUpdateCheck      bool     `json:"no_update_check"`
 	AgentCmd           string   `json:"agent_cmd"`
 	CleanupOnApprove   bool     `json:"cleanup_on_approve"`
+	VCS                string   `json:"vcs"`
 }
 
 func (c generatedConfig) String() string {
@@ -167,6 +169,9 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	if project.BaseBranch != "" {
 		merged.BaseBranch = project.BaseBranch
 	}
+	if project.VCS != "" {
+		merged.VCS = project.VCS
+	}
 	if projectPresence.NoIntegrationCheck {
 		merged.NoIntegrationCheck = project.NoIntegrationCheck
 	}
@@ -221,10 +226,20 @@ func LoadConfig(projectDir string) Config {
 		merged.IgnorePatterns = []string{".crit/"}
 	}
 
-	// 5. Fall back to git user.name if no author configured
+	// 5. Fall back to VCS user name if no author configured.
+	// Try the configured VCS first, then fall back to the other.
 	if merged.Author == "" {
-		if out, err := exec.Command("git", "config", "user.name").Output(); err == nil {
-			merged.Author = strings.TrimSpace(string(out))
+		switch merged.VCS {
+		case "sl", "sapling":
+			merged.Author = slUserName()
+			if merged.Author == "" {
+				merged.Author = gitUserName()
+			}
+		default:
+			merged.Author = gitUserName()
+			if merged.Author == "" {
+				merged.Author = slUserName()
+			}
 		}
 	}
 
@@ -269,6 +284,29 @@ func saveGlobalConfig(apply func(m map[string]json.RawMessage) error) error {
 	}
 	data = append(data, '\n')
 	return os.WriteFile(path, data, 0o600)
+}
+
+// gitUserName returns the git-configured user name, or empty string on error.
+func gitUserName() string {
+	out, err := exec.Command("git", "config", "user.name").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// slUserName returns the Sapling-configured user name, or empty string on error.
+// Strips the email suffix ("Name <email>" -> "Name").
+func slUserName() string {
+	out, err := exec.Command("sl", "config", "ui.username").Output()
+	if err != nil {
+		return ""
+	}
+	name := strings.TrimSpace(string(out))
+	if idx := strings.Index(name, " <"); idx >= 0 {
+		name = name[:idx]
+	}
+	return name
 }
 
 // matchPattern checks if a file path matches an ignore pattern.

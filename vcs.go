@@ -81,6 +81,9 @@ type VCS interface {
 	// UserName returns the VCS-configured user name.
 	UserName() string
 
+	// FileContentAtRef returns the content of a file at a given ref/revision.
+	FileContentAtRef(path, ref, dir string) (string, error)
+
 	// FileStatusInRepo returns the status of a single file relative to baseRef.
 	FileStatusInRepo(path, baseRef, dir string) string
 

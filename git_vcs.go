@@ -95,6 +95,12 @@ func (g *GitVCS) UserName() string {
 	return strings.TrimSpace(string(out))
 }
 
+// FileContentAtRef returns the content of a file at the given git ref.
+func (g *GitVCS) FileContentAtRef(path, ref, dir string) (string, error) {
+	content := fileContentAtRef(path, ref, dir)
+	return content, nil
+}
+
 // FileStatusInRepo returns the status of a single file relative to baseRef.
 // Note: the VCS interface uses (path, baseRef, dir) order while the underlying
 // fileStatusInRepo uses (path, repoRoot, baseRef) — arguments are reordered here.

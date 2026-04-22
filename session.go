@@ -621,7 +621,12 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 	// not the working tree. Extract anchor from the base ref content.
 	var anchor string
 	if side == "old" && s.BaseRef != "" {
-		baseContent := fileContentAtRef(filePath, s.BaseRef, s.RepoRoot)
+		var baseContent string
+		if s.VCS != nil {
+			baseContent, _ = s.VCS.FileContentAtRef(filePath, s.BaseRef, s.RepoRoot)
+		} else {
+			baseContent = fileContentAtRef(filePath, s.BaseRef, s.RepoRoot)
+		}
 		anchor = extractAnchor(baseContent, startLine, endLine)
 	} else {
 		anchor = extractAnchor(f.Content, startLine, endLine)

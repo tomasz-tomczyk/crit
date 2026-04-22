@@ -158,9 +158,9 @@ func (s *SaplingVCS) FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHun
 }
 
 // FileDiffForCommit returns diff hunks for a file in a single commit.
+// Uses --change which handles initial commits (no parent) correctly.
 func (s *SaplingVCS) FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
-	parentRev := sha + "~1"
-	cmd := exec.Command("sl", "diff", "-r", parentRev, "-r", sha, path)
+	cmd := exec.Command("sl", "diff", "--change", sha, path)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -275,8 +275,27 @@ func (s *SaplingVCS) UserName() string {
 	return name
 }
 
+// FileContentAtRef returns the content of a file at the given Sapling revision.
+func (s *SaplingVCS) FileContentAtRef(path, ref, dir string) (string, error) {
+	if ref == "" {
+		return "", nil
+	}
+	cmd := exec.Command("sl", "cat", "-r", ref, path)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("sl cat -r %s %s: %w", ref, path, err)
+	}
+	return string(out), nil
+}
+
 // FileStatusInRepo returns the status of a single file relative to baseRef.
 func (s *SaplingVCS) FileStatusInRepo(path, baseRef, dir string) string {
+	if baseRef == "" {
+		return "modified"
+	}
 	out, err := slCommandInDir(dir, "status", "--rev", baseRef, path)
 	if err != nil {
 		return ""

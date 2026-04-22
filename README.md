@@ -272,6 +272,7 @@ All keys are optional — omit any you don't need.
 | `cleanup_on_approve`   | bool     | `true`                     | Automatically delete the review file when you approve with no unresolved comments. Set to `false` to preserve review history.                                                           |
 | `no_update_check`      | bool     | `false`                    | Don't check for new versions on startup.                                                                                                                                                |
 | `no_integration_check` | bool     | `false`                    | Skip the integration config freshness check on startup.                                                                                                                                 |
+| `vcs`                  | string   | auto-detected              | Preferred VCS backend: `"git"`, `"sl"`. When set, crit uses this VCS instead of auto-detecting. Falls back to git if the configured VCS isn't available. Can also be set via `--vcs` CLI flag (flag takes precedence over config). |
 
 ### CLI flags
 
@@ -283,6 +284,7 @@ All keys are optional — omit any you don't need.
 | `--output`      | `-o`  | `output`              | Output directory for review files      |
 | `--quiet`       | `-q`  | `quiet`               | Suppress status output                 |
 | `--base-branch` |       | `base_branch`         | Base branch to diff against            |
+| `--vcs`         |       | `vcs`                 | VCS backend (`git` or `sl`)            |
 | `--no-ignore`   |       |                       | Temporarily bypass all ignore patterns |
 | `--version`     | `-v`  |                       | Print version and exit                 |
 
