@@ -259,7 +259,8 @@ func main() {
 	}
 }
 GOEOF
-git -C "$WORD_DIFF_DIR" add server.go && git -C "$WORD_DIFF_DIR" commit -q -m "add auth middleware"
+# server.go v2 is left as an uncommitted working-tree change (like the other files)
+# so crit shows it in the diff view with spacer gaps between hunks.
 
 # Modify the file to produce good word-level diff pairs
 cat > "$WORD_DIFF_DIR/main.go" << 'GOEOF'
@@ -592,22 +593,22 @@ curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/file/comments?path=$CF_GIT_E
 curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/finish" > /dev/null
 
 # --- Folded-line comment on the code diff instance (#317) ---
-# server.go has spacer gaps between hunks. Line 15 (fmt.Fprint in respondJSON)
-# falls inside the gap between the import hunk and the authMiddleware hunk.
-# The fix auto-expands the spacer so the comment appears at the correct position.
+# server.go has spacer gaps between hunks. Line 59 (respondJSON call in /version
+# handler) falls in the gap between the /health hunk and the startup-code hunk.
+# The fix auto-expands that spacer so the comment appears at its correct position.
 curl -sf -X DELETE "http://127.0.0.1:$WORD_DIFF_PORT/api/comments" > /dev/null
 
 FOLDED_C=$(curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/file/comments?path=server.go" \
   -H 'Content-Type: application/json' \
   -d '{
-    "start_line": 15, "end_line": 15,
-    "body": "This helper always sets Content-Type to application/json. Should we add a text/plain variant for health endpoints that return non-JSON?"
+    "start_line": 59, "end_line": 59,
+    "body": "Should we version this via a build-time variable instead of hardcoding `1.0.0`? We already inject the version in main.go via ldflags."
   }' | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
 curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/comment/$FOLDED_C/replies?path=server.go" \
   -H 'Content-Type: application/json' \
   -d '{
-    "body": "Good call. I'\''ll add a `respondText` helper for the health endpoint. The JSON wrapper is overkill for a simple \"ok\" string.",
+    "body": "Good catch — I'\''ll wire it up to the same `version` var. The `/version` endpoint will return the real build version instead of a hardcoded string.",
     "author": "agent"
   }' > /dev/null
 
@@ -619,9 +620,10 @@ echo "  3. Carry-forward (file-mode): http://127.0.0.1:$CF_FILE_PORT"
 echo "  4. Carry-forward (git-mode):  http://127.0.0.1:$CF_GIT_PORT"
 echo ""
 echo "Instance 2 — folded-line comment (#317):"
-echo "  server.go has a comment on line 15 (inside respondJSON), which is in a"
-echo "  spacer gap between the import and authMiddleware hunks. The spacer should"
+echo "  server.go has a comment on line 59 (/version handler), which is in a"
+echo "  spacer gap between the /health and startup-code hunks. The spacer should"
 echo "  auto-expand so the comment + agent reply are visible inline."
+echo "  The first spacer (respondJSON/logRequest) stays folded — no comments there."
 echo "  Open the All Comments panel (Shift+C) and click the comment to scroll to it."
 echo ""
 echo "Carry-forward comments placed on v1 content (instances 3 & 4):"
@@ -738,7 +740,7 @@ echo "            Comment #4 (unresolved): 2 replies (agent + reviewer) — visi
 echo "            Comment #5 (on Code Standards heading): tests formatting near deletion markers."
 echo "            Scroll to bottom: deletion markers interrupt the markdown code fence."
 echo "Instance 2: word-level diff + folded-line comment (#317) + orphaned comments"
-echo "            server.go: comment on line 15 should be at its correct position"
+echo "            server.go: comment on line 59 should be at its correct position"
 echo "            (spacer auto-expanded), NOT in an outdated section."
 echo "            helpers.go was added then deleted — should appear as a phantom"
 echo "            section with 'Removed' badge, 2 outdated comments (1 file-level,"
