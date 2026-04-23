@@ -2976,6 +2976,120 @@
     return spacer;
   }
 
+  // Helper: render leading spacer (before first hunk when it doesn't start at line 1)
+  function renderLeadingSpacer(firstHunk, file) {
+    // Only show if the first hunk doesn't start at line 1
+    if (firstHunk.NewStart <= 1 && firstHunk.OldStart <= 1) return null;
+    // For pure insertion (OldCount===0) or pure deletion (NewCount===0), git uses
+    // position-after semantics for the zero-count side — ignore it for gap calculation.
+    const newGap = firstHunk.NewCount > 0 ? firstHunk.NewStart - 1 : Infinity;
+    const oldGap = firstHunk.OldCount > 0 ? firstHunk.OldStart - 1 : Infinity;
+    const gap = Math.min(newGap, oldGap);
+    if (gap <= 0 || gap === Infinity) return null;
+
+    const EXPAND_STEP = 20;
+    const expandCount = Math.min(gap, EXPAND_STEP);
+
+    const spacer = document.createElement('div');
+    spacer.className = 'diff-spacer diff-spacer-leading';
+    spacer.setAttribute('aria-label', 'Expand ' + expandCount + ' unchanged lines above');
+    spacer.innerHTML =
+      '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/></svg>' +
+      'Expand ' + expandCount + ' unchanged line' + (expandCount === 1 ? '' : 's');
+
+    spacer.addEventListener('click', function() {
+      if (!file.content) return;
+      const contentLines = file.content.split('\n');
+      const hunks = file.diffHunks;
+      const hunk = hunks[0];
+
+      // Expand from the bottom of the gap upward (closest to the hunk first)
+      // For pure insertion/deletion, derive the zero-count side's start from the other side
+      const startNewLine = hunk.NewCount > 0 ? hunk.NewStart - expandCount : hunk.NewStart;
+      const startOldLine = hunk.OldCount > 0 ? hunk.OldStart - expandCount : hunk.OldStart;
+      const contextLines = [];
+      for (let i = 0; i < expandCount; i++) {
+        const newLineNum = startNewLine + i;
+        const oldLineNum = startOldLine + i;
+        const text = newLineNum > 0 && newLineNum <= contentLines.length ? contentLines[newLineNum - 1] : '';
+        contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
+      }
+
+      // Prepend context lines to the first hunk and adjust its start/count
+      hunk.Lines = contextLines.concat(hunk.Lines);
+      hunk.OldStart = startOldLine;
+      hunk.NewStart = startNewLine;
+      hunk.OldCount += expandCount;
+      hunk.NewCount += expandCount;
+
+      // Recompute the header to reflect updated line numbers, preserving any suffix (e.g. function name)
+      const headerSuffix = (hunk.Header.match(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(.*)$/) || [])[1] || '';
+      hunk.Header = '@@ -' + hunk.OldStart + ',' + hunk.OldCount + ' +' + hunk.NewStart + ',' + hunk.NewCount + ' @@' + headerSuffix;
+
+      renderFileByPath(file.path);
+    });
+
+    return spacer;
+  }
+
+  // Helper: render trailing spacer (after last hunk when it doesn't reach EOF)
+  function renderTrailingSpacer(lastHunk, file) {
+    if (!file.content) return null;
+    const contentLines = file.content.split('\n');
+    // Files ending with a newline produce an extra empty element; don't count it
+    let totalNewLines = contentLines.length;
+    if (totalNewLines > 0 && contentLines[totalNewLines - 1] === '') totalNewLines--;
+
+    const lastNewEnd = lastHunk.NewStart + lastHunk.NewCount;
+    const gap = totalNewLines - lastNewEnd + 1;
+    if (gap <= 0) return null;
+
+    const EXPAND_STEP = 20;
+    const expandCount = Math.min(gap, EXPAND_STEP);
+
+    const spacer = document.createElement('div');
+    spacer.className = 'diff-spacer diff-spacer-trailing';
+    spacer.setAttribute('aria-label', 'Expand ' + expandCount + ' unchanged lines below');
+    spacer.innerHTML =
+      '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/></svg>' +
+      'Expand ' + expandCount + ' unchanged line' + (expandCount === 1 ? '' : 's');
+
+    spacer.addEventListener('click', function() {
+      if (!file.content) return;
+      const lines = file.content.split('\n');
+      let totalLines = lines.length;
+      if (totalLines > 0 && lines[totalLines - 1] === '') totalLines--;
+      const hunks = file.diffHunks;
+      const hunk = hunks[hunks.length - 1];
+
+      const hunkNewEnd = hunk.NewStart + hunk.NewCount;
+      const hunkOldEnd = hunk.OldStart + hunk.OldCount;
+      const remaining = totalLines - hunkNewEnd + 1;
+      const count = Math.min(remaining, EXPAND_STEP);
+
+      const contextLines = [];
+      for (let i = 0; i < count; i++) {
+        const newLineNum = hunkNewEnd + i;
+        const oldLineNum = hunkOldEnd + i;
+        const text = newLineNum <= lines.length ? lines[newLineNum - 1] : '';
+        contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
+      }
+
+      // Append context lines to the last hunk and adjust its count
+      hunk.Lines = hunk.Lines.concat(contextLines);
+      hunk.OldCount += count;
+      hunk.NewCount += count;
+
+      // Recompute the header to reflect updated line counts, preserving any suffix (e.g. function name)
+      const headerSuffix = (hunk.Header.match(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(.*)$/) || [])[1] || '';
+      hunk.Header = '@@ -' + hunk.OldStart + ',' + hunk.OldCount + ' +' + hunk.NewStart + ',' + hunk.NewCount + ' @@' + headerSuffix;
+
+      renderFileByPath(file.path);
+    });
+
+    return spacer;
+  }
+
   // Helper: render hunk header
   function renderDiffHunkHeader(hunk) {
     const hunkHeader = document.createElement('div');
@@ -3129,6 +3243,10 @@
     const commentVisualSet = buildUnifiedCommentVisualSet(hunks, file.comments);
     let visualIdx = 0; // sequential index for unified drag (old/new nums are different spaces)
 
+    // Leading spacer before first hunk
+    const leadingSpacer = renderLeadingSpacer(hunks[0], file);
+    if (leadingSpacer) container.appendChild(leadingSpacer);
+
     for (let hi = 0; hi < hunks.length; hi++) {
       const hunk = hunks[hi];
 
@@ -3214,6 +3332,10 @@
       }
     }
 
+    // Trailing spacer after last hunk
+    const trailingSpacerUnified = renderTrailingSpacer(hunks[hunks.length - 1], file);
+    if (trailingSpacerUnified) container.appendChild(trailingSpacerUnified);
+
     appendOutdatedDiffComments(container, file, commentsMap, hunks);
 
     return container;
@@ -3235,6 +3357,10 @@
     autoExpandSmallGaps(file);
 
     const { diffCommentsMap: commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
+
+    // Leading spacer before first hunk
+    const leadingSpacerSplit = renderLeadingSpacer(hunks[0], file);
+    if (leadingSpacerSplit) container.appendChild(leadingSpacerSplit);
 
     for (let hi = 0; hi < hunks.length; hi++) {
       const hunk = hunks[hi];
@@ -3339,6 +3465,10 @@
         }
       }
     }
+
+    // Trailing spacer after last hunk
+    const trailingSpacerSplit = renderTrailingSpacer(hunks[hunks.length - 1], file);
+    if (trailingSpacerSplit) container.appendChild(trailingSpacerSplit);
 
     appendOutdatedDiffComments(container, file, commentsMap, hunks);
 

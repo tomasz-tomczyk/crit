@@ -19,8 +19,8 @@ test.describe('Auto-expand small gaps — Split Mode', () => {
     await expect(section).toBeVisible();
 
     // server.go has gaps of 8 and 5 lines between its 3 hunks — both ≤ 8,
-    // so no spacers should be rendered at all
-    await expect(section.locator('.diff-spacer')).toHaveCount(0);
+    // so no inter-hunk spacers should be rendered (leading/trailing spacers may still appear)
+    await expect(section.locator('.diff-spacer:not(.diff-spacer-leading):not(.diff-spacer-trailing)')).toHaveCount(0);
   });
 
   test('auto-expanded context lines render with correct line numbers', async ({ page }) => {
@@ -113,7 +113,7 @@ test.describe('Auto-expand small gaps — Unified Mode', () => {
     const section = serverSection(page);
     await expect(section).toBeVisible();
 
-    await expect(section.locator('.diff-spacer')).toHaveCount(0);
+    await expect(section.locator('.diff-spacer:not(.diff-spacer-leading):not(.diff-spacer-trailing)')).toHaveCount(0);
   });
 
   test('auto-expanded context lines in unified mode have correct line numbers', async ({ page }) => {
