@@ -99,12 +99,8 @@ test.describe('Syntax Highlighting — Expanded Context', () => {
     await loadPage(page);
     const section = goSection(page);
 
-    // Expand a spacer
-    const spacer = section.locator('.diff-spacer').first();
-    await expect(spacer).toBeVisible();
-    await spacer.click();
-
-    // Find a context line in the expanded area and check for spans
+    // server.go's small gaps are auto-expanded, so context lines are already
+    // visible without clicking a spacer. Find a context line and check for spans.
     const rows = section.locator('.diff-split-row');
     const count = await rows.count();
     let foundHighlighted = false;

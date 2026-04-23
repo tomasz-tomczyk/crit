@@ -65,8 +65,13 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
   test('spacer shows "Expand" between hunks', async ({ page }) => {
     await loadPage(page);
 
-    // server.go has a multi-hunk diff, so spacers should exist
-    const spacer = page.locator('.diff-spacer').first();
+    // routes.go has a large gap (>8 lines) between hunks, so a spacer should exist.
+    // Click on it in the file tree to expand and lazy-load its content.
+    const treeEntry = page.locator('.tree-file-name', { hasText: 'routes.go' });
+    await treeEntry.click();
+
+    const routesSection = page.locator('#file-section-routes\\.go');
+    const spacer = routesSection.locator('.diff-spacer').first();
     await expect(spacer).toBeVisible();
     await expect(spacer).toContainText('Expand');
     await expect(spacer).toContainText('unchanged line');
@@ -75,46 +80,55 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
   test('clicking spacer expands context lines', async ({ page }) => {
     await loadPage(page);
 
-    // Find the server.go section which has multi-hunk diffs with spacers
-    const serverSection = page.locator('#file-section-server\\.go');
-    await expect(serverSection).toBeVisible();
+    // routes.go has a large gap between hunks — use it for spacer expansion testing
+    const treeEntry = page.locator('.tree-file-name', { hasText: 'routes.go' });
+    await treeEntry.click();
+
+    const routesSection = page.locator('#file-section-routes\\.go');
 
     // Count spacers before click
-    const spacersBefore = serverSection.locator('.diff-spacer');
+    const spacersBefore = routesSection.locator('.diff-spacer');
+    await expect(spacersBefore.first()).toBeVisible();
     const spacerCountBefore = await spacersBefore.count();
     expect(spacerCountBefore).toBeGreaterThan(0);
 
     // Count diff rows before expansion
-    const rowsBefore = await serverSection.locator('.diff-split-row').count();
+    const rowsBefore = await routesSection.locator('.diff-split-row').count();
 
     // Click the first spacer
     const firstSpacer = spacersBefore.first();
     await firstSpacer.click();
 
     // After clicking, the spacer count should decrease by 1 (it gets merged)
-    const spacerCountAfter = await serverSection.locator('.diff-spacer').count();
-    expect(spacerCountAfter).toBeLessThan(spacerCountBefore);
+    await expect(async () => {
+      const spacerCountAfter = await routesSection.locator('.diff-spacer').count();
+      expect(spacerCountAfter).toBeLessThan(spacerCountBefore);
+    }).toPass();
 
     // More rows should be visible after expansion
-    const rowsAfter = await serverSection.locator('.diff-split-row').count();
+    const rowsAfter = await routesSection.locator('.diff-split-row').count();
     expect(rowsAfter).toBeGreaterThan(rowsBefore);
   });
 
   test('expanded lines have comment gutter (+ button) on hover', async ({ page }) => {
     await loadPage(page);
 
-    const serverSection = page.locator('#file-section-server\\.go');
-    const spacer = serverSection.locator('.diff-spacer').first();
+    // routes.go has a large gap spacer for expansion testing
+    const treeEntry = page.locator('.tree-file-name', { hasText: 'routes.go' });
+    await treeEntry.click();
+
+    const routesSection = page.locator('#file-section-routes\\.go');
+    const spacer = routesSection.locator('.diff-spacer').first();
     await expect(spacer).toBeVisible();
 
     // Click the spacer to expand context lines
     await spacer.click();
 
     // Wait for re-render — new rows should appear
-    await expect(serverSection.locator('.diff-split-row').first()).toBeVisible();
+    await expect(routesSection.locator('.diff-split-row').first()).toBeVisible();
 
     // Hover over one of the split sides in the section — the comment button should become visible
-    const splitSide = serverSection.locator('.diff-split-side').first();
+    const splitSide = routesSection.locator('.diff-split-side').first();
     await splitSide.hover();
 
     const commentBtn = splitSide.locator('.diff-comment-btn');

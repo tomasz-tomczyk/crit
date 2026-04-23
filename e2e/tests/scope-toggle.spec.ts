@@ -39,8 +39,8 @@ test.describe('Scope Toggle', () => {
   test('switching to branch scope shows only committed files', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'branch');
-    // Branch: server.go, deleted.txt, plan.md, handler.js (4 committed)
-    await expect(page.locator('.file-section')).toHaveCount(4);
+    // Branch: server.go, deleted.txt, plan.md, handler.js, routes.go (5 committed)
+    await expect(page.locator('.file-section')).toHaveCount(5);
     await expect(page.locator('.file-section', { hasText: 'server.go' })).toBeVisible();
     await expect(page.locator('.file-section', { hasText: 'plan.md' })).toBeVisible();
   });

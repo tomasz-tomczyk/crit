@@ -5,16 +5,21 @@ function serverSection(page: Page) {
   return page.locator('#file-section-server\\.go');
 }
 
-// Expand the first spacer in server.go and return the section locator
-async function expandFirstSpacer(page: Page) {
+// Get the server.go section with context lines already visible.
+// Small gaps (≤ 8 lines) are auto-expanded, so context lines between
+// hunks are rendered immediately without clicking a spacer.
+async function getServerSectionWithContext(page: Page) {
   const section = serverSection(page);
   await expect(section).toBeVisible();
-  const spacer = section.locator('.diff-spacer').first();
-  await expect(spacer).toBeVisible();
-  await spacer.click();
-  // Wait for expanded rows to appear
+  // Wait for split rows to appear
   await expect(section.locator('.diff-split-row').first()).toBeVisible();
   return section;
+}
+
+// Legacy alias: server.go's small gaps are auto-expanded, so context lines
+// are visible immediately. This just returns the server.go section.
+async function expandFirstSpacer(page: Page) {
+  return getServerSectionWithContext(page);
 }
 
 // Find a context line on the right (new) side — a row where right side
@@ -225,12 +230,7 @@ test.describe('Expanded Context Comments — Unified Mode', () => {
     const section = serverSection(page);
     await expect(section).toBeVisible();
 
-    // Expand spacer in unified mode
-    const spacer = section.locator('.diff-spacer').first();
-    await expect(spacer).toBeVisible();
-    await spacer.click();
-
-    // Find a context line (not addition, not deletion) in unified mode
+    // Context lines between auto-expanded small gaps are already visible
     const contextLine = section.locator('.diff-container.unified .diff-line:not(.addition):not(.deletion)').first();
     await expect(contextLine).toBeVisible();
     await contextLine.hover();
@@ -252,10 +252,7 @@ test.describe('Expanded Context Comments — Unified Mode', () => {
   test('edit comment on expanded context line in unified mode', async ({ page }) => {
     const section = serverSection(page);
 
-    const spacer = section.locator('.diff-spacer').first();
-    await expect(spacer).toBeVisible();
-    await spacer.click();
-
+    // Context lines are already visible from auto-expansion
     const contextLine = section.locator('.diff-container.unified .diff-line:not(.addition):not(.deletion)').first();
     await contextLine.hover();
     await contextLine.locator('.diff-comment-btn').click();
@@ -278,10 +275,7 @@ test.describe('Expanded Context Comments — Unified Mode', () => {
   test('delete comment on expanded context line in unified mode', async ({ page }) => {
     const section = serverSection(page);
 
-    const spacer = section.locator('.diff-spacer').first();
-    await expect(spacer).toBeVisible();
-    await spacer.click();
-
+    // Context lines are already visible from auto-expansion
     const contextLine = section.locator('.diff-container.unified .diff-line:not(.addition):not(.deletion)').first();
     await contextLine.hover();
     await contextLine.locator('.diff-comment-btn').click();

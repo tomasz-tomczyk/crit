@@ -1734,6 +1734,7 @@
           file.previousContent = loaded.previousContent;
           file.comments = loaded.comments;
           file.diffHunks = loaded.diffHunks;
+          file._autoExpandDone = false;
           file.lineBlocks = loaded.lineBlocks;
           file.previousLineBlocks = loaded.previousLineBlocks;
           file.tocItems = loaded.tocItems;
@@ -3016,6 +3017,47 @@
   }
 
   // ===== Unified diff (interleaved lines, single pane) =====
+  // Pre-process diffHunks: merge adjacent hunks where the gap between them
+  // is ≤ 8 unchanged lines. This removes visual noise from tiny spacers.
+  // Mutates file.diffHunks in place so it only runs once per file.
+  function autoExpandSmallGaps(file) {
+    if (!file.content || !file.diffHunks || file.diffHunks.length < 2) return;
+    if (file._autoExpandDone) return;
+    file._autoExpandDone = true;
+
+    const contentLines = file.content.split('\n');
+    const hunks = file.diffHunks;
+    let i = 0;
+    while (i < hunks.length - 1) {
+      const prevNewEnd = hunks[i].NewStart + hunks[i].NewCount;
+      const prevOldEnd = hunks[i].OldStart + hunks[i].OldCount;
+      const gap = hunks[i + 1].NewStart - prevNewEnd;
+      if (gap > 0 && gap <= 8) {
+        // Build context lines to bridge the gap
+        const contextLines = [];
+        for (let j = 0; j < gap; j++) {
+          const newLineNum = prevNewEnd + j;
+          const oldLineNum = prevOldEnd + j;
+          const text = newLineNum <= contentLines.length ? contentLines[newLineNum - 1] : '';
+          contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
+        }
+        // Merge: prev hunk + context lines + next hunk → single hunk
+        const merged = {
+          OldStart: hunks[i].OldStart,
+          NewStart: hunks[i].NewStart,
+          Header: hunks[i].Header,
+          Lines: hunks[i].Lines.concat(contextLines, hunks[i + 1].Lines)
+        };
+        merged.OldCount = (hunks[i + 1].OldStart + hunks[i + 1].OldCount) - merged.OldStart;
+        merged.NewCount = (hunks[i + 1].NewStart + hunks[i + 1].NewCount) - merged.NewStart;
+        // Replace both with merged — don't increment i to check merged against next
+        hunks.splice(i, 2, merged);
+      } else {
+        i++;
+      }
+    }
+  }
+
   function renderDiffUnified(file) {
     const container = document.createElement('div');
     container.className = 'diff-container unified';
@@ -3025,6 +3067,8 @@
       container.innerHTML = '<div class="diff-no-changes">No changes</div>';
       return container;
     }
+
+    autoExpandSmallGaps(file);
 
     const { diffCommentsMap: commentsMap } = buildCommentIndices(file.comments);
     const commentVisualSet = buildUnifiedCommentVisualSet(hunks, file.comments);
@@ -3130,6 +3174,8 @@
       container.innerHTML = '<div class="diff-no-changes">No changes</div>';
       return container;
     }
+
+    autoExpandSmallGaps(file);
 
     const { diffCommentsMap: commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
 
