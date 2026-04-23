@@ -3377,6 +3377,32 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .diff-spacer:hover { background: var(--crit-editor-bg-hover); color: var(--crit-editor-fg-muted); }
 .diff-spacer svg { width: 12px; height: 12px; }
 
+/* Incremental expand: directional controls for large gaps */
+.diff-spacer .expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--crit-border);
+  border-radius: var(--crit-r-sm);
+  background: var(--crit-editor-bg);
+  color: var(--crit-editor-fg-muted);
+  cursor: pointer;
+  transition: background var(--crit-dur-fast), color var(--crit-dur-fast);
+}
+.diff-spacer .expand-btn:hover {
+  background: var(--crit-brand-subtle);
+  color: var(--crit-brand);
+  border-color: var(--crit-brand);
+}
+.diff-spacer .expand-btn svg { width: 14px; height: 14px; }
+.diff-spacer .expand-label {
+  flex: 1;
+  text-align: center;
+}
+
 /* ===== Unified Diff (interleaved lines) ===== */
 .diff-container.unified .diff-line {
   display: flex;

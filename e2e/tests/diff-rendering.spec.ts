@@ -62,18 +62,17 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
     await expect(placeholder).toHaveText('This file was deleted.');
   });
 
-  test('spacer shows "Expand" between hunks', async ({ page }) => {
+  test('spacer shows unchanged line count between hunks', async ({ page }) => {
     await loadPage(page);
 
-    // routes.go has a large gap (>8 lines) between hunks, so a spacer should exist.
-    // Click on it in the file tree to expand and lazy-load its content.
+    // routes.go has a large gap (>20 lines) between hunks, so a spacer should exist
+    // with directional expand controls and an unchanged line count.
     const treeEntry = page.locator('.tree-file-name', { hasText: 'routes.go' });
     await treeEntry.click();
 
     const routesSection = page.locator('#file-section-routes\\.go');
     const spacer = routesSection.locator('.diff-spacer').first();
     await expect(spacer).toBeVisible();
-    await expect(spacer).toContainText('Expand');
     await expect(spacer).toContainText('unchanged line');
   });
 
@@ -86,28 +85,22 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
 
     const routesSection = page.locator('#file-section-routes\\.go');
 
-    // Count spacers before click
-    const spacersBefore = routesSection.locator('.diff-spacer');
-    await expect(spacersBefore.first()).toBeVisible();
-    const spacerCountBefore = await spacersBefore.count();
-    expect(spacerCountBefore).toBeGreaterThan(0);
+    // routes.go has a large gap (>20 lines) — spacer shows directional controls
+    const spacer = routesSection.locator('.diff-spacer').first();
+    await expect(spacer).toBeVisible();
 
     // Count diff rows before expansion
     const rowsBefore = await routesSection.locator('.diff-split-row').count();
 
-    // Click the first spacer
-    const firstSpacer = spacersBefore.first();
-    await firstSpacer.click();
-
-    // After clicking, the spacer count should decrease by 1 (it gets merged)
-    await expect(async () => {
-      const spacerCountAfter = await routesSection.locator('.diff-spacer').count();
-      expect(spacerCountAfter).toBeLessThan(spacerCountBefore);
-    }).toPass();
+    // Click the expand-down button to reveal context lines
+    const expandDown = spacer.locator('[aria-label="Expand 20 lines down"]');
+    await expandDown.click();
 
     // More rows should be visible after expansion
-    const rowsAfter = await routesSection.locator('.diff-split-row').count();
-    expect(rowsAfter).toBeGreaterThan(rowsBefore);
+    await expect(async () => {
+      const rowsAfter = await routesSection.locator('.diff-split-row').count();
+      expect(rowsAfter).toBeGreaterThan(rowsBefore);
+    }).toPass();
   });
 
   test('expanded lines have comment gutter (+ button) on hover', async ({ page }) => {
@@ -121,8 +114,9 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
     const spacer = routesSection.locator('.diff-spacer').first();
     await expect(spacer).toBeVisible();
 
-    // Click the spacer to expand context lines
-    await spacer.click();
+    // Click expand-down button to expand context lines
+    const expandDown = spacer.locator('[aria-label="Expand 20 lines down"]');
+    await expandDown.click();
 
     // Wait for re-render — new rows should appear
     await expect(routesSection.locator('.diff-split-row').first()).toBeVisible();

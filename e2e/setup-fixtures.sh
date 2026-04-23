@@ -81,8 +81,9 @@ func Capitalize(s string) string {
 }
 GOFILE
 
-# routes.go — will produce a multi-hunk diff with a large gap (>8 unchanged lines)
-# between changed areas, so spacers remain after auto-expansion of small gaps.
+# routes.go — will produce a multi-hunk diff with a large gap (>20 unchanged lines)
+# between changed areas, so spacers remain after auto-expansion of small gaps
+# and incremental diff expansion can be tested.
 cat > routes.go << 'GOFILE'
 package main
 
@@ -109,7 +110,23 @@ func handleTags(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func handleCategories(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
 func handleSearch(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleNotifications(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleProfile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -239,10 +256,11 @@ GOFILE
 # Delete deleted.txt
 rm deleted.txt
 
-# Modify routes.go to produce a multi-hunk diff with a large gap (>8 unchanged lines)
-# between hunks. This ensures spacers remain visible for testing after auto-expansion.
+# Modify routes.go to produce a multi-hunk diff with a large gap (>20 unchanged lines)
+# between hunks. This ensures spacers remain visible for testing after auto-expansion
+# and incremental diff expansion can be tested.
 # Hunk 1: change imports (top). Hunk 2: add new route + function (bottom).
-# The 10+ unchanged handler functions in between create a gap >8 lines.
+# The 10+ unchanged handler functions in between create a gap >20 lines.
 cat > routes.go << 'GOFILE'
 package main
 
@@ -273,7 +291,23 @@ func handleTags(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func handleCategories(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
 func handleSearch(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleNotifications(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleProfile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -348,6 +382,71 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 - **Week 2**: Validation endpoint + tests
 - **Week 3**: Dashboard UI for key management
 MDFILE
+
+# Modify routes.go: change beginning and end, leave large middle gap (>20 unchanged lines)
+cat > routes.go << 'GOFILE'
+package main
+
+import (
+	"log"
+	"net/http"
+)
+
+func setupRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/users", handleUsers)
+	mux.HandleFunc("/api/posts", handlePosts)
+	mux.HandleFunc("/api/health", handleHealth)
+}
+
+func handleUsers(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handlePosts(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleComments(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleTags(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleCategories(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleSearch(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleNotifications(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleProfile(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleDashboard(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleAnalytics(w http.ResponseWriter, r *http.Request) {
+	log.Println("analytics endpoint hit")
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+GOFILE
 
 git add -A
 git commit -q -m "feat: add auth middleware and plan"

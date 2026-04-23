@@ -161,16 +161,17 @@ test.describe('Large gaps still show spacer', () => {
     await loadPage(page);
   });
 
-  test('large gaps (> 8 lines) still show spacer with expand text', async ({ page }) => {
-    // routes.go has a gap of >8 unchanged lines between its two hunks,
-    // so the spacer should still be visible after auto-expansion.
+  test('large gaps (> 8 lines) still show spacer with unchanged line count', async ({ page }) => {
+    // routes.go has a gap of >20 unchanged lines between its two hunks,
+    // so the spacer should still be visible after auto-expansion, showing
+    // directional expand controls and the unchanged line count.
     const treeEntry = page.locator('.tree-file-name', { hasText: 'routes.go' });
     await treeEntry.click();
 
     const routesSection = page.locator('#file-section-routes\\.go');
     const spacer = routesSection.locator('.diff-spacer').first();
     await expect(spacer).toBeVisible();
-    await expect(spacer).toContainText('Expand');
+    await expect(spacer).toContainText('unchanged line');
   });
 });
 

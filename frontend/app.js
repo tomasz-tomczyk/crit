@@ -2885,8 +2885,6 @@
     const lineComments = comments.filter(function(c) { return c.scope !== 'file'; });
     if (lineComments.length === 0) return;
 
-    const contentLines = file.content.split('\n');
-
     // Work backwards so splicing doesn't shift indices we haven't visited yet
     for (let i = hunks.length - 1; i > 0; i--) {
       const prevHunk = hunks[i - 1];
@@ -2910,13 +2908,7 @@
       if (!hasComment) continue;
 
       // Merge: same logic as the spacer click handler
-      const contextLines = [];
-      for (let j = 0; j < gap; j++) {
-        const newLineNum = prevNewEnd + j;
-        const oldLineNum = prevOldEnd + j;
-        const text = newLineNum <= contentLines.length ? contentLines[newLineNum - 1] : '';
-        contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
-      }
+      const contextLines = buildContextLines(file, prevNewEnd, prevOldEnd, gap);
       const merged = {
         OldStart: prevHunk.OldStart,
         NewStart: prevHunk.NewStart,
@@ -2929,49 +2921,149 @@
     }
   }
 
-  // Helper: render hunk spacer
-  // prevIdx/nextIdx are indices into file.diffHunks so we can merge on expand
-  function renderDiffSpacer(prevHunk, nextHunk, file, prevIdx, nextIdx) {
+  // Helper: build context lines from file content for a range of line numbers
+  function buildContextLines(file, newStart, oldStart, count) {
+    const contentLines = file.content ? file.content.split('\n') : [];
+    const lines = [];
+    for (let i = 0; i < count; i++) {
+      const newLineNum = newStart + i;
+      const oldLineNum = oldStart + i;
+      const text = newLineNum <= contentLines.length ? contentLines[newLineNum - 1] : '';
+      lines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
+    }
+    return lines;
+  }
+
+  // Build a hunk header string from numeric fields, preserving any suffix
+  // (e.g. function name) from the original header.
+  function buildHunkHeader(oldStart, oldCount, newStart, newCount, origHeader) {
+    let suffix = '';
+    if (origHeader) {
+      const m = origHeader.match(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(.*)$/);
+      if (m) suffix = m[1];
+    }
+    return '@@ -' + oldStart + ',' + oldCount + ' +' + newStart + ',' + newCount + ' @@' + suffix;
+  }
+
+  // Expand N context lines downward from the previous hunk (top of gap).
+  // Inserts a bridge hunk after prevIdx.
+  function expandDown(file, prevIdx, count) {
+    if (!file.content) return;
+    const hunks = file.diffHunks;
+    const prevHunk = hunks[prevIdx];
+    const prevNewEnd = prevHunk.NewStart + prevHunk.NewCount;
+    const prevOldEnd = prevHunk.OldStart + prevHunk.OldCount;
+
+    const lines = buildContextLines(file, prevNewEnd, prevOldEnd, count);
+    const bridge = {
+      OldStart: prevOldEnd,
+      OldCount: count,
+      NewStart: prevNewEnd,
+      NewCount: count,
+      Header: buildHunkHeader(prevOldEnd, count, prevNewEnd, count, ''),
+      Lines: lines
+    };
+    hunks.splice(prevIdx + 1, 0, bridge);
+    renderFileByPath(file.path);
+  }
+
+  // Expand N context lines upward from the next hunk (bottom of gap).
+  // Inserts a bridge hunk before nextIdx.
+  function expandUp(file, nextIdx, count) {
+    if (!file.content) return;
+    const hunks = file.diffHunks;
+    const nextHunk = hunks[nextIdx];
+    const startNew = nextHunk.NewStart - count;
+    const startOld = nextHunk.OldStart - count;
+
+    const lines = buildContextLines(file, startNew, startOld, count);
+    const bridge = {
+      OldStart: startOld,
+      OldCount: count,
+      NewStart: startNew,
+      NewCount: count,
+      Header: buildHunkHeader(startOld, count, startNew, count, ''),
+      Lines: lines
+    };
+    hunks.splice(nextIdx, 0, bridge);
+    renderFileByPath(file.path);
+  }
+
+  // Expand all remaining context lines in a gap, merging prev + context + next into one hunk.
+  function expandAll(file, prevIdx, nextIdx) {
+    if (!file.content) return;
+    const hunks = file.diffHunks;
+    const prevHunk = hunks[prevIdx];
+    const nextHunk = hunks[nextIdx];
     const prevNewEnd = prevHunk.NewStart + prevHunk.NewCount;
     const prevOldEnd = prevHunk.OldStart + prevHunk.OldCount;
     const gap = nextHunk.NewStart - prevNewEnd;
+
+    const contextLines = buildContextLines(file, prevNewEnd, prevOldEnd, gap);
+    const mergedOldCount = (nextHunk.OldStart + nextHunk.OldCount) - prevHunk.OldStart;
+    const mergedNewCount = (nextHunk.NewStart + nextHunk.NewCount) - prevHunk.NewStart;
+    const merged = {
+      OldStart: prevHunk.OldStart,
+      OldCount: mergedOldCount,
+      NewStart: prevHunk.NewStart,
+      NewCount: mergedNewCount,
+      Header: buildHunkHeader(prevHunk.OldStart, mergedOldCount, prevHunk.NewStart, mergedNewCount, prevHunk.Header),
+      Lines: prevHunk.Lines.concat(contextLines, nextHunk.Lines)
+    };
+    hunks.splice(prevIdx, nextIdx - prevIdx + 1, merged);
+    renderFileByPath(file.path);
+  }
+
+  const EXPAND_STEP = 20;
+
+  // Helper: render hunk spacer with incremental expansion
+  // prevIdx/nextIdx are indices into file.diffHunks
+  function renderDiffSpacer(prevHunk, nextHunk, file, prevIdx, nextIdx) {
+    const prevNewEnd = prevHunk.NewStart + prevHunk.NewCount;
+    const gap = nextHunk.NewStart - prevNewEnd;
     if (gap <= 0) return null;
+
     const spacer = document.createElement('div');
     spacer.className = 'diff-spacer';
-    spacer.innerHTML =
-      '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/></svg>' +
-      'Expand ' + gap + ' unchanged line' + (gap === 1 ? '' : 's');
 
-    spacer.addEventListener('click', function() {
-      if (!file.content) return;
-      const contentLines = file.content.split('\n');
+    if (gap <= EXPAND_STEP) {
+      // Small gap: single click expands all (original behavior)
+      spacer.innerHTML =
+        '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/></svg>' +
+        'Expand ' + gap + ' unchanged line' + (gap === 1 ? '' : 's');
+      spacer.addEventListener('click', function() {
+        expandAll(file, prevIdx, nextIdx);
+      });
+    } else {
+      // Large gap: show expand-down (top) and expand-up (bottom) controls
+      const downBtn = document.createElement('button');
+      downBtn.className = 'expand-btn expand-down';
+      downBtn.setAttribute('aria-label', 'Expand 20 lines down');
+      downBtn.innerHTML =
+        '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 10.5a.75.75 0 0 1-.53-.22l-3.5-3.5a.75.75 0 0 1 1.06-1.06L8 8.69l2.97-2.97a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-.53.22z"/></svg>';
+      downBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        expandDown(file, prevIdx, EXPAND_STEP);
+      });
 
-      // Build context lines to bridge the gap
-      const contextLines = [];
-      for (let i = 0; i < gap; i++) {
-        const newLineNum = prevNewEnd + i;
-        const oldLineNum = prevOldEnd + i;
-        const text = newLineNum <= contentLines.length ? contentLines[newLineNum - 1] : '';
-        contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
-      }
+      const label = document.createElement('span');
+      label.className = 'expand-label';
+      label.textContent = gap + ' unchanged line' + (gap === 1 ? '' : 's');
 
-      // Merge: prev hunk + context lines + next hunk → single hunk
-      const hunks = file.diffHunks;
-      const merged = {
-        OldStart: hunks[prevIdx].OldStart,
-        NewStart: hunks[prevIdx].NewStart,
-        Header: hunks[prevIdx].Header,
-        Lines: hunks[prevIdx].Lines.concat(contextLines, hunks[nextIdx].Lines)
-      };
-      merged.OldCount = (hunks[nextIdx].OldStart + hunks[nextIdx].OldCount) - merged.OldStart;
-      merged.NewCount = (hunks[nextIdx].NewStart + hunks[nextIdx].NewCount) - merged.NewStart;
+      const upBtn = document.createElement('button');
+      upBtn.className = 'expand-btn expand-up';
+      upBtn.setAttribute('aria-label', 'Expand 20 lines up');
+      upBtn.innerHTML =
+        '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 5.5a.75.75 0 0 1 .53.22l3.5 3.5a.75.75 0 0 1-1.06 1.06L8 7.31 5.03 10.28a.75.75 0 0 1-1.06-1.06l3.5-3.5A.75.75 0 0 1 8 5.5z"/></svg>';
+      upBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        expandUp(file, nextIdx, EXPAND_STEP);
+      });
 
-      // Replace prevIdx with merged, remove nextIdx
-      hunks.splice(prevIdx, 2, merged);
-
-      // Re-render from data model so all lines get proper interaction
-      renderFileByPath(file.path);
-    });
+      spacer.appendChild(downBtn);
+      spacer.appendChild(label);
+      spacer.appendChild(upBtn);
+    }
 
     return spacer;
   }
@@ -2987,7 +3079,6 @@
     const gap = Math.min(newGap, oldGap);
     if (gap <= 0 || gap === Infinity) return null;
 
-    const EXPAND_STEP = 20;
     const expandCount = Math.min(gap, EXPAND_STEP);
 
     const spacer = document.createElement('div');
@@ -3022,9 +3113,7 @@
       hunk.OldCount += expandCount;
       hunk.NewCount += expandCount;
 
-      // Recompute the header to reflect updated line numbers, preserving any suffix (e.g. function name)
-      const headerSuffix = (hunk.Header.match(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(.*)$/) || [])[1] || '';
-      hunk.Header = '@@ -' + hunk.OldStart + ',' + hunk.OldCount + ' +' + hunk.NewStart + ',' + hunk.NewCount + ' @@' + headerSuffix;
+      hunk.Header = buildHunkHeader(hunk.OldStart, hunk.OldCount, hunk.NewStart, hunk.NewCount, hunk.Header);
 
       renderFileByPath(file.path);
     });
@@ -3044,7 +3133,6 @@
     const gap = totalNewLines - lastNewEnd + 1;
     if (gap <= 0) return null;
 
-    const EXPAND_STEP = 20;
     const expandCount = Math.min(gap, EXPAND_STEP);
 
     const spacer = document.createElement('div');
@@ -3080,9 +3168,7 @@
       hunk.OldCount += count;
       hunk.NewCount += count;
 
-      // Recompute the header to reflect updated line counts, preserving any suffix (e.g. function name)
-      const headerSuffix = (hunk.Header.match(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(.*)$/) || [])[1] || '';
-      hunk.Header = '@@ -' + hunk.OldStart + ',' + hunk.OldCount + ' +' + hunk.NewStart + ',' + hunk.NewCount + ' @@' + headerSuffix;
+      hunk.Header = buildHunkHeader(hunk.OldStart, hunk.OldCount, hunk.NewStart, hunk.NewCount, hunk.Header);
 
       renderFileByPath(file.path);
     });
