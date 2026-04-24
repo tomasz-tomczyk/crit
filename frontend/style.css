@@ -1679,20 +1679,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   font-size: 13px;
   color: var(--crit-finish-body-fg);
 }
-.main-layout.is-finished::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-  background: var(--crit-finish-scrim);
-  pointer-events: none;
-  animation: disconnected-scrim-in 0.6s ease 0.15s both;
-  backdrop-filter: blur(0.5px);
-}
-@keyframes disconnected-scrim-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
 
 /* ===== Waiting Overlay ===== */
 .waiting-overlay {

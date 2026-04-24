@@ -6503,8 +6503,6 @@
     banner.style.top = header.offsetHeight + 'px';
     header.insertAdjacentElement('afterend', banner);
 
-    const mainLayout = document.querySelector('.main-layout');
-    if (mainLayout) mainLayout.classList.add('is-finished');
   }
 
   // ===== Share =====
