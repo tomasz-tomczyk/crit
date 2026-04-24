@@ -66,7 +66,7 @@ test.describe('Comments Panel — Git Mode', () => {
     await page.keyboard.press('Shift+C');
 
     await expect(page.locator('.comments-panel-empty')).toBeVisible();
-    await expect(page.locator('.comments-panel-empty')).toContainText('No unresolved comments');
+    await expect(page.locator('.comments-panel-empty')).toContainText('No comments yet');
   });
 
   test('panel shows comment cards', async ({ page, request }) => {
@@ -232,8 +232,8 @@ test.describe('Comments Panel — Git Mode', () => {
     await loadPage(page);
     await page.keyboard.press('Shift+C');
 
-    // Toggle show resolved
-    await page.locator('.comments-panel-switch-track').click();
+    // Switch to Resolved filter
+    await page.locator('#commentsFilterPill .toggle-btn[data-filter="resolved"]').click();
 
     const card = panelCards(page).first();
     await expect(card).toBeVisible();
@@ -272,8 +272,8 @@ test.describe('Comments Panel — Git Mode', () => {
 
     await page.keyboard.press('Shift+C');
 
-    // Show resolved comments
-    await page.locator('.comments-panel-switch-track').click();
+    // Switch to Resolved filter
+    await page.locator('#commentsFilterPill .toggle-btn[data-filter="resolved"]').click();
     await expect(panelCards(page)).toHaveCount(1);
 
     // Click the resolved card

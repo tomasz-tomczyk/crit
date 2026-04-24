@@ -2576,25 +2576,45 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .comments-panel::-webkit-scrollbar-thumb { background: var(--crit-editor-scrollbar-thumb); border-radius: 3px; }
 .comments-panel-hidden { display: none; }
 
+/* Two-row panel header */
 .comments-panel-header {
-  padding: 12px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   border-bottom: 1px solid var(--crit-border);
   flex-shrink: 0;
 }
+.comments-panel-header-row1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 0;
+}
+.comments-panel-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .comments-panel-title {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: var(--crit-editor-fg);
+}
+.comments-panel-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--crit-editor-fg-muted);
+  background: var(--crit-editor-bg-elevated);
+  border-radius: 9999px;
+  line-height: 1;
 }
 .comments-panel-header-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 .comments-panel-add-btn {
   background: none;
@@ -2603,9 +2623,9 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   cursor: pointer;
   font-size: 11px;
   font-weight: 500;
-  padding: 2px 8px;
+  padding: 3px 8px;
   border-radius: 4px;
-  line-height: 1.4;
+  line-height: 1;
 }
 .comments-panel-add-btn:hover { background: var(--crit-editor-bg-hover); color: var(--crit-editor-fg); border-color: var(--crit-editor-fg-muted); }
 .comments-panel-close {
@@ -2613,12 +2633,56 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border: none;
   color: var(--crit-editor-fg-muted);
   cursor: pointer;
-  font-size: 14px;
-  padding: 2px 6px;
+  font-size: 11px;
+  padding: 2px 4px;
   border-radius: 4px;
   line-height: 1;
 }
 .comments-panel-close:hover { background: var(--crit-editor-bg-hover); color: var(--crit-editor-fg); }
+
+.comments-panel-header-row2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px 12px;
+}
+
+/* Comments filter — reuses .scope-toggle + .toggle-btn */
+.comments-filter-toggle {
+  display: inline-flex;
+  background: var(--crit-editor-bg-elevated);
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 1px;
+}
+.comments-filter-toggle .toggle-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.comments-filter-toggle .filter-count {
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+/* Expand all / Collapse all link */
+.comments-panel-expand-all {
+  background: none;
+  border: none;
+  color: var(--crit-editor-fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  transition: color 0.15s;
+  white-space: nowrap;
+}
+.comments-panel-expand-all:hover { color: var(--crit-editor-fg); }
 
 /* Panel comment cards — real .comment-card inside the panel */
 .panel-comment-block {
@@ -2638,57 +2702,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .comments-panel-body > .comment-form-wrapper .comment-form {
   margin: 0;
-}
-
-/* Filter bar with custom switch */
-.comments-panel-filter {
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--crit-border);
-  flex-shrink: 0;
-}
-.comments-panel-switch {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  user-select: none;
-}
-.comments-panel-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
-.comments-panel-switch-track {
-  position: relative;
-  width: 28px;
-  height: 16px;
-  background: var(--crit-editor-bg-elevated);
-  border-radius: 8px;
-  border: 1px solid var(--crit-border);
-  transition: background 0.2s, border-color 0.2s;
-  flex-shrink: 0;
-}
-.comments-panel-switch-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 10px;
-  height: 10px;
-  background: var(--crit-editor-fg-muted);
-  border-radius: 50%;
-  transition: transform 0.2s, background 0.2s;
-}
-.comments-panel-switch input:checked + .comments-panel-switch-track {
-  background: var(--crit-brand-subtle);
-  border-color: var(--crit-brand);
-}
-.comments-panel-switch input:checked + .comments-panel-switch-track .comments-panel-switch-thumb {
-  transform: translateX(12px);
-  background: var(--crit-brand);
-}
-.comments-panel-switch input:focus-visible + .comments-panel-switch-track {
-  outline: 2px solid var(--crit-brand);
-  outline-offset: 1px;
-}
-.comments-panel-switch-text {
-  font-size: 12px;
-  color: var(--crit-editor-fg-muted);
 }
 
 /* Panel body */
@@ -2719,14 +2732,44 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   border-top: 1px solid var(--crit-border);
 }
 .comments-panel-file-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 10px 12px 2px;
   font-family: var(--crit-font-mono);
   font-size: 11px;
   font-weight: 500;
   color: var(--crit-editor-fg-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.comments-panel-file-name:hover {
+  color: var(--crit-editor-fg);
+}
+.comments-panel-file-chevron {
+  flex-shrink: 0;
+  font-size: 9px;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+.comments-panel-file-group.collapsed .comments-panel-file-chevron {
+  transform: rotate(-90deg);
+}
+.comments-panel-file-name-text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+}
+.comments-panel-file-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--crit-editor-fg-muted);
+  opacity: 0.6;
+  margin-left: auto;
+}
+.comments-panel-file-group.collapsed .comments-panel-file-cards {
+  display: none;
 }
 
 .comment-card-highlight {

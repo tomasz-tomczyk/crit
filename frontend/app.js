@@ -5886,19 +5886,45 @@
     return parts.wrapper;
   }
 
+  // Track active filter: 'all', 'open', 'resolved'
+  let commentsActiveFilter = 'all';
+
   function renderCommentsPanel() {
     const panel = document.getElementById('commentsPanel');
     if (panel.classList.contains('comments-panel-hidden')) return;
 
-    const showResolved = document.getElementById('showResolvedToggle').checked;
     const body = document.getElementById('commentsPanelBody');
     const savedScroll = body.scrollTop;
     body.innerHTML = '';
 
-    // Show/hide the filter bar only when resolved comments exist
-    const hasResolved = files.some(function(f) { return f.comments.some(function(c) { return c.resolved; }); })
-      || reviewComments.some(function(c) { return c.resolved; });
-    document.getElementById('commentsPanelFilter').style.display = hasResolved ? '' : 'none';
+    // Compute counts
+    const allFileComments = files.reduce(function(acc, f) { return acc.concat(f.comments); }, []);
+    const allComments = reviewComments.concat(allFileComments);
+    const totalCount = allComments.length;
+    const openCount = allComments.filter(function(c) { return !c.resolved; }).length;
+    const resolvedCount = allComments.filter(function(c) { return c.resolved; }).length;
+
+    // Update count badge
+    const badge = document.getElementById('commentsPanelCountBadge');
+    if (badge) badge.textContent = totalCount;
+
+    // Update pill counts
+    const pillBtns = document.querySelectorAll('#commentsFilterPill .toggle-btn');
+    pillBtns.forEach(function(btn) {
+      const countEl = btn.querySelector('.filter-count');
+      if (!countEl) return;
+      const f = btn.dataset.filter;
+      if (f === 'all') countEl.textContent = totalCount;
+      else if (f === 'open') countEl.textContent = openCount;
+      else if (f === 'resolved') countEl.textContent = resolvedCount;
+    });
+
+    // Filter function based on active pill
+    const visibleFilter = function(c) {
+      if (commentsActiveFilter === 'open') return !c.resolved;
+      if (commentsActiveFilter === 'resolved') return c.resolved;
+      return true;
+    };
 
     let hasComments = false;
 
@@ -5908,40 +5934,34 @@
     }
 
     // Render review-level (general) comments first
-    const visibleReviewComments = reviewComments.filter(function(c) {
-      return showResolved ? true : !c.resolved;
-    });
+    const visibleReviewComments = reviewComments.filter(visibleFilter);
     if (visibleReviewComments.length > 0) {
       hasComments = true;
       const group = document.createElement('div');
       group.className = 'comments-panel-file-group';
 
-      const groupName = document.createElement('div');
-      groupName.className = 'comments-panel-file-name';
-      groupName.textContent = 'Review';
-      group.appendChild(groupName);
+      group.appendChild(createFileGroupHeader('Review', visibleReviewComments.length, group));
 
+      const cards = document.createElement('div');
+      cards.className = 'comments-panel-file-cards';
       for (let j = 0; j < visibleReviewComments.length; j++) {
         const comment = visibleReviewComments[j];
-        // If editing this comment, show editor instead
         if (reviewCommentEditingId === comment.id) {
-          group.appendChild(createReviewCommentEditor(comment));
+          cards.appendChild(createReviewCommentEditor(comment));
           continue;
         }
-        group.appendChild(createPanelCommentCard(comment, null));
+        cards.appendChild(createPanelCommentCard(comment, null));
       }
+      group.appendChild(cards);
       body.appendChild(group);
     }
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const visibleComments = file.comments.filter(function(c) {
-        return showResolved ? true : !c.resolved;
-      });
+      const visibleComments = file.comments.filter(visibleFilter);
       if (visibleComments.length === 0) continue;
       hasComments = true;
 
-      // Sort by start_line
       visibleComments.sort(function(a, b) { return a.start_line - b.start_line; });
 
       const group = document.createElement('div');
@@ -5949,28 +5969,96 @@
 
       // File name header (only in multi-file mode)
       if (files.length > 1) {
-        const fileName = document.createElement('div');
-        fileName.className = 'comments-panel-file-name';
-        fileName.textContent = file.path;
-        fileName.title = file.path;
-        group.appendChild(fileName);
+        group.appendChild(createFileGroupHeader(file.path, visibleComments.length, group));
       }
 
+      const cards = document.createElement('div');
+      cards.className = 'comments-panel-file-cards';
       for (let j = 0; j < visibleComments.length; j++) {
         const comment = visibleComments[j];
-        group.appendChild(createPanelCommentCard(comment, file.path));
+        cards.appendChild(createPanelCommentCard(comment, file.path));
       }
-
+      group.appendChild(cards);
       body.appendChild(group);
     }
 
     if (!hasComments && !reviewCommentFormActive) {
       const empty = document.createElement('div');
       empty.className = 'comments-panel-empty';
-      empty.textContent = showResolved ? 'No comments yet' : 'No unresolved comments';
+      const emptyMsg = commentsActiveFilter === 'open' ? 'No open comments' : commentsActiveFilter === 'resolved' ? 'No resolved comments' : 'No comments yet';
+      empty.textContent = emptyMsg;
       body.appendChild(empty);
     }
     body.scrollTop = savedScroll;
+    updateExpandAllLabel();
+  }
+
+  function createFileGroupHeader(label, count, groupEl) {
+    const groupName = document.createElement('div');
+    groupName.className = 'comments-panel-file-name';
+    groupName.setAttribute('role', 'button');
+    groupName.setAttribute('tabindex', '0');
+    groupName.setAttribute('aria-expanded', 'true');
+
+    const chevron = document.createElement('span');
+    chevron.className = 'comments-panel-file-chevron';
+    chevron.textContent = '\u25BC';
+    groupName.appendChild(chevron);
+
+    const nameText = document.createElement('span');
+    nameText.className = 'comments-panel-file-name-text';
+    nameText.textContent = label;
+    nameText.title = label;
+    groupName.appendChild(nameText);
+
+    const countEl = document.createElement('span');
+    countEl.className = 'comments-panel-file-count';
+    countEl.textContent = count;
+    groupName.appendChild(countEl);
+
+    groupName.addEventListener('click', function() {
+      groupEl.classList.toggle('collapsed');
+      const expanded = !groupEl.classList.contains('collapsed');
+      groupName.setAttribute('aria-expanded', String(expanded));
+    });
+
+    groupName.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        groupName.click();
+      }
+    });
+
+    return groupName;
+  }
+
+  function updateExpandAllLabel() {
+    const btn = document.getElementById('commentsPanelExpandAll');
+    if (!btn) return;
+    const panelCards = document.querySelectorAll('#commentsPanelBody .comment-card');
+    const inlineCards = document.querySelectorAll('.comment-block:not(.panel-comment-block) .comment-card');
+    const allCards = Array.from(panelCards).concat(Array.from(inlineCards));
+    const anyExpanded = allCards.some(function(c) { return !c.classList.contains('collapsed'); });
+    btn.textContent = anyExpanded ? 'Collapse all' : 'Expand all';
+  }
+
+  function toggleExpandAllComments() {
+    const panelCards = document.querySelectorAll('#commentsPanelBody .comment-card');
+    const inlineCards = document.querySelectorAll('.comment-block:not(.panel-comment-block) .comment-card');
+    const allCards = Array.from(panelCards).concat(Array.from(inlineCards));
+    const anyExpanded = allCards.some(function(c) { return !c.classList.contains('collapsed'); });
+
+    allCards.forEach(function(card) {
+      if (anyExpanded) {
+        card.classList.add('collapsed');
+      } else {
+        card.classList.remove('collapsed');
+      }
+      const id = card.dataset.commentId;
+      if (id) commentCollapseOverrides[id] = anyExpanded;
+    });
+
+    updateExpandAllLabel();
   }
 
   function scrollToComment(commentId, filePath) {
@@ -7314,8 +7402,20 @@
     togglePRPanel();
   });
 
-  document.getElementById('showResolvedToggle').addEventListener('change', function() {
+  // Segmented pill filter
+  document.getElementById('commentsFilterPill').addEventListener('click', function(e) {
+    const btn = e.target.closest('.toggle-btn');
+    if (!btn) return;
+    commentsActiveFilter = btn.dataset.filter;
+    document.querySelectorAll('#commentsFilterPill .toggle-btn').forEach(function(b) { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
+    btn.classList.add('active');
+    btn.setAttribute('aria-pressed', 'true');
     renderCommentsPanel();
+  });
+
+  // Expand all / Collapse all
+  document.getElementById('commentsPanelExpandAll').addEventListener('click', function() {
+    toggleExpandAllComments();
   });
 
   // ===== Settings Panel =====
