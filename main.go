@@ -317,6 +317,7 @@ func runFetch(args []string) {
 
 	if len(webComments) == 0 {
 		fmt.Println("No new comments.")
+		fmt.Printf("Review file: %s\n", critPath)
 		return
 	}
 
@@ -326,6 +327,7 @@ func runFetch(args []string) {
 	}
 
 	printFetchedComments(webComments)
+	fmt.Printf("Review file: %s\n", critPath)
 }
 
 func runUnpublish(args []string) {
