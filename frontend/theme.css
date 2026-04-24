@@ -484,7 +484,6 @@
   --crit-yellow-border: rgba(122, 88, 0, 0.16);
 
   /* ---- Finish/disconnected state ---- */
-  --crit-finish-bg:          #f8f9fc;
   --crit-finish-pill-bg:     rgba(22, 127, 48, 0.08);
   --crit-finish-pill-border: rgba(22, 127, 48, 0.18);
   --crit-finish-pill-fg:     #167f30;
