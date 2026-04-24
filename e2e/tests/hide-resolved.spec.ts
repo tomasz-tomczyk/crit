@@ -83,7 +83,7 @@ test.describe('Hide Resolved', () => {
 
     // Open comments panel and show resolved
     await page.keyboard.press('Shift+C');
-    await page.locator('.comments-panel-switch-track').click();
+    await page.locator('label.comments-panel-switch:has(#showResolvedToggle) .comments-panel-switch-track').click();
 
     // Panel comment cards should still be visible
     const panelCards = page.locator('.panel-comment-block .comment-card');
