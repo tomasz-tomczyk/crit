@@ -128,20 +128,25 @@
   </div>
   <div class="comments-panel comments-panel-hidden" id="commentsPanel">
     <div class="comments-panel-header">
-      <span class="comments-panel-title">Comments</span>
-      <div class="comments-panel-header-actions">
-        <button class="comments-panel-add-btn" id="panelAddCommentBtn" title="Add a general comment (G)">+ Add</button>
-        <button class="comments-panel-close" title="Close comments panel" aria-label="Close comments panel">&#x2715;</button>
+      <div class="comments-panel-header-row1">
+        <div class="comments-panel-header-left">
+          <span class="comments-panel-title">Comments</span>
+          <span class="comments-panel-count-badge" id="commentsPanelCountBadge">0</span>
+        </div>
+        <div class="comments-panel-header-actions">
+          <button class="comments-panel-add-btn" id="panelAddCommentBtn" title="Add a general comment (G)">+ Add</button>
+          <button class="comments-panel-close" title="Close comments panel" aria-label="Close comments panel">&#x2715;</button>
+        </div>
       </div>
-    </div>
-    <div class="comments-panel-filter" id="commentsPanelFilter" style="display:none">
-      <label class="comments-panel-switch">
-        <input type="checkbox" id="showResolvedToggle">
-        <span class="comments-panel-switch-track">
-          <span class="comments-panel-switch-thumb"></span>
-        </span>
-        <span class="comments-panel-switch-text">Show resolved</span>
-      </label>
+      <div class="comments-panel-header-row2">
+        <div class="comments-filter-pill" id="commentsFilterPill" role="group" aria-label="Filter comments">
+          <div class="comments-filter-pill-indicator" id="commentsFilterIndicator"></div>
+          <button class="comments-filter-pill-btn active" data-filter="all">All <span class="filter-count">0</span></button>
+          <button class="comments-filter-pill-btn" data-filter="open">Open <span class="filter-count">0</span></button>
+          <button class="comments-filter-pill-btn" data-filter="resolved">Resolved <span class="filter-count">0</span></button>
+        </div>
+        <button class="comments-panel-expand-all" id="commentsPanelExpandAll">Expand all</button>
+      </div>
     </div>
     <div class="comments-panel-body" id="commentsPanelBody" aria-live="polite" aria-label="Comments list"></div>
   </div>
