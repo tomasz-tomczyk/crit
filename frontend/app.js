@@ -5909,7 +5909,7 @@
     if (badge) badge.textContent = totalCount;
 
     // Update pill counts
-    var pillBtns = document.querySelectorAll('#commentsFilterPill .comments-filter-pill-btn');
+    var pillBtns = document.querySelectorAll('#commentsFilterPill .toggle-btn');
     pillBtns.forEach(function(btn) {
       var countEl = btn.querySelector('.filter-count');
       if (!countEl) return;
@@ -5918,7 +5918,6 @@
       else if (f === 'open') countEl.textContent = openCount;
       else if (f === 'resolved') countEl.textContent = resolvedCount;
     });
-    updateCommentsFilterIndicator();
 
     // Filter function based on active pill
     var visibleFilter = function(c) {
@@ -6019,18 +6018,6 @@
     });
 
     return groupName;
-  }
-
-  function updateCommentsFilterIndicator() {
-    var indicator = document.getElementById('commentsFilterIndicator');
-    var pill = document.getElementById('commentsFilterPill');
-    if (!indicator || !pill) return;
-    var activeBtn = pill.querySelector('.comments-filter-pill-btn.active');
-    if (!activeBtn) return;
-    var pillRect = pill.getBoundingClientRect();
-    var btnRect = activeBtn.getBoundingClientRect();
-    indicator.style.left = (btnRect.left - pillRect.left) + 'px';
-    indicator.style.width = btnRect.width + 'px';
   }
 
   function updateExpandAllLabel() {
@@ -7405,12 +7392,11 @@
 
   // Segmented pill filter
   document.getElementById('commentsFilterPill').addEventListener('click', function(e) {
-    var btn = e.target.closest('.comments-filter-pill-btn');
+    var btn = e.target.closest('.toggle-btn');
     if (!btn) return;
     commentsActiveFilter = btn.dataset.filter;
-    document.querySelectorAll('#commentsFilterPill .comments-filter-pill-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('#commentsFilterPill .toggle-btn').forEach(function(b) { b.classList.remove('active'); });
     btn.classList.add('active');
-    updateCommentsFilterIndicator();
     renderCommentsPanel();
   });
 

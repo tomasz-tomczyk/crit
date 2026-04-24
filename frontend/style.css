@@ -2647,44 +2647,23 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   padding: 10px 16px 12px;
 }
 
-/* Segmented pill filter */
-.comments-filter-pill {
-  position: relative;
+/* Comments filter — reuses .scope-toggle + .toggle-btn */
+.comments-filter-toggle {
   display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--crit-border);
-  background: var(--crit-bg-card);
-  border-radius: 9999px;
-}
-.comments-filter-pill-indicator {
-  position: absolute;
-  height: 100%;
-  border-radius: 9999px;
   background: var(--crit-editor-bg-elevated);
   border: 1px solid var(--crit-border);
-  transition: left 0.2s cubic-bezier(0.4, 0, 0.2, 1), width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: none;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 1px;
 }
-.comments-filter-pill-btn {
+.comments-filter-toggle .toggle-btn {
+  font-size: 11px;
+  padding: 3px 10px;
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 4px;
-  padding: 4px 10px;
-  cursor: pointer;
-  background: none;
-  border: none;
-  color: var(--crit-editor-fg-muted);
-  position: relative;
-  z-index: 1;
-  transition: color 0.15s;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
 }
-.comments-filter-pill-btn:hover { color: var(--crit-editor-fg); }
-.comments-filter-pill-btn.active { color: var(--crit-brand); }
-.comments-filter-pill-btn .filter-count {
+.comments-filter-toggle .filter-count {
   font-weight: 400;
   opacity: 0.7;
 }
