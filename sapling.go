@@ -12,8 +12,9 @@ import (
 // SaplingVCS implements VCS for Sapling SCM repositories.
 type SaplingVCS struct {
 	defaultBranchOnce sync.Once
-	defaultBranch     string
-	defaultBranchMu   sync.RWMutex // protects defaultBranch when set via override
+	defaultBranch     string       // auto-detected value (set via sync.Once)
+	overrideBranch    string       // explicit override (empty = no override)
+	defaultBranchMu   sync.RWMutex // protects defaultBranch and overrideBranch
 }
 
 func (s *SaplingVCS) Name() string { return "sl" }
@@ -46,7 +47,7 @@ func (s *SaplingVCS) CurrentBranch() string {
 // If an override is set, it is returned immediately without caching.
 func (s *SaplingVCS) DefaultBranch() string {
 	s.defaultBranchMu.RLock()
-	override := s.defaultBranch
+	override := s.overrideBranch
 	s.defaultBranchMu.RUnlock()
 	if override != "" {
 		return override
@@ -54,28 +55,32 @@ func (s *SaplingVCS) DefaultBranch() string {
 	s.defaultBranchOnce.Do(func() {
 		s.defaultBranchMu.Lock()
 		// Double-check: an override may have been set between RUnlock and Do.
-		if s.defaultBranch == "" {
+		if s.overrideBranch == "" {
 			s.defaultBranch = detectSaplingDefaultBranch()
 		}
 		s.defaultBranchMu.Unlock()
 	})
 	s.defaultBranchMu.RLock()
 	defer s.defaultBranchMu.RUnlock()
+	if s.overrideBranch != "" {
+		return s.overrideBranch
+	}
 	return s.defaultBranch
 }
 
 // SetDefaultBranchOverride overrides the default branch detection.
 func (s *SaplingVCS) SetDefaultBranchOverride(branch string) {
 	s.defaultBranchMu.Lock()
-	s.defaultBranch = branch
+	s.overrideBranch = branch
 	s.defaultBranchMu.Unlock()
 }
 
 // GetDefaultBranchOverride returns the current default branch override, if any.
+// Returns empty string when no override is set (matching GitVCS behavior).
 func (s *SaplingVCS) GetDefaultBranchOverride() string {
 	s.defaultBranchMu.RLock()
 	defer s.defaultBranchMu.RUnlock()
-	return s.defaultBranch
+	return s.overrideBranch
 }
 
 // MergeBase returns the common ancestor between the working copy and ref.
