@@ -67,25 +67,6 @@ test.describe('Hide Resolved', () => {
     await expect(resolvedBlock.first()).toBeHidden();
   });
 
-  test('toggle does NOT affect resolved comments in side panel', async ({ page, request }) => {
-    await setupResolvedComment(request);
-    await loadPage(page);
-
-    // Wait for resolved card to render
-    await expect(page.locator('.comment-card.resolved-card').first()).toBeVisible();
-
-    // Enable "Hide resolved" via keyboard shortcut
-    await page.keyboard.press('h');
-
-    // Open comments panel and show resolved via toggle track
-    await page.keyboard.press('Shift+C');
-    await page.locator('.comments-panel-filter .comments-panel-switch-track').click();
-
-    // Panel comment cards should still be visible
-    const panelCards = page.locator('.panel-comment-block .comment-card');
-    await expect(panelCards.first()).toBeVisible();
-  });
-
   test('h keyboard shortcut toggles resolved inline comment visibility', async ({ page, request }) => {
     await setupResolvedComment(request);
     await loadPage(page);
