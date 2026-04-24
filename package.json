@@ -9,7 +9,7 @@
     "update-deps": "bun run copy-deps.js"
   },
   "devDependencies": {
-    "eslint": "^10.2.0",
+    "eslint": "^10.2.1",
     "stylelint": "^17.9.0"
   }
 }
