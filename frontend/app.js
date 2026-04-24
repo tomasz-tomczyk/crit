@@ -672,6 +672,7 @@
     updateCommentCount();
     updateViewedCount();
     restoreDrafts();
+    applyHideResolved();
   }
 
   // Show/hide the Toggle Diff button and Split/Unified toggle in file mode
@@ -1528,6 +1529,7 @@
     // Re-attach intersection observer for file tree active tracking
     setupTreeObserver();
     rebuildNavList();
+    applyHideResolved();
   }
 
   function rebuildNavList() {
@@ -1680,6 +1682,7 @@
     oldSection.replaceWith(renderFileSection(file));
     renderMermaidBlocks();
     rebuildNavList();
+    applyHideResolved();
   }
 
   function renderFileSection(file) {
@@ -7499,6 +7502,16 @@
     }
   }
 
+  function applyHideResolved() {
+    const hide = localStorage.getItem('crit-hide-resolved') === 'true';
+    document.querySelectorAll('.comment-block:not(.panel-comment-block)').forEach(function(block) {
+      const card = block.querySelector('.resolved-card');
+      if (card) {
+        block.style.display = hide ? 'none' : '';
+      }
+    });
+  }
+
   function updatePillIndicator(indicatorId, values, current) {
     const indicator = document.getElementById(indicatorId);
     if (!indicator) return;
@@ -7546,6 +7559,17 @@
       html += '<button class="settings-pill-btn' + active + '" data-settings-width="' + w + '">' + w.charAt(0).toUpperCase() + w.slice(1) + '</button>';
     });
     html += '</div></div>';
+
+    // Hide resolved row
+    const hideResolved = localStorage.getItem('crit-hide-resolved') === 'true';
+    html += '<div class="settings-display-row">';
+    html += '<span class="settings-display-label">Hide resolved</span>';
+    html += '<label class="comments-panel-switch">';
+    html += '<input type="checkbox" id="hideResolvedToggle" aria-label="Hide resolved"' + (hideResolved ? ' checked' : '') + '>';
+    html += '<span class="comments-panel-switch-track"><span class="comments-panel-switch-thumb"></span></span>';
+    html += '</label>';
+    html += '</div>';
+
     html += '</div>'; // close settings-display-group
 
     // Configuration section
@@ -7697,6 +7721,15 @@
     });
     updatePillIndicator('settingsWidthIndicator', ['compact', 'default', 'wide'], currentWidth);
 
+    // Wire up hide-resolved toggle
+    const hideResolvedToggle = pane.querySelector('#hideResolvedToggle');
+    if (hideResolvedToggle) {
+      hideResolvedToggle.addEventListener('change', function() {
+        localStorage.setItem('crit-hide-resolved', hideResolvedToggle.checked ? 'true' : 'false');
+        applyHideResolved();
+      });
+    }
+
     // Wire up copy buttons
     pane.querySelectorAll('.config-card-copy').forEach(function(btn) {
       btn.addEventListener('click', function() {
@@ -7743,6 +7776,7 @@
       ]},
       { label: 'View', shortcuts: [
         { key: '<kbd>t</kbd>', action: 'Toggle table of contents', mode: 'file mode' },
+        { key: '<kbd>h</kbd>', action: 'Toggle hide resolved' },
         { key: '<kbd>Esc</kbd>', action: 'Cancel / clear focus' },
         { key: '<kbd>?</kbd>', action: 'Toggle this panel' },
       ]},
@@ -7977,6 +8011,15 @@
       case 'C': {
         e.preventDefault();
         toggleCommentsPanel();
+        break;
+      }
+      case 'h': {
+        e.preventDefault();
+        const currentHide = localStorage.getItem('crit-hide-resolved') === 'true';
+        localStorage.setItem('crit-hide-resolved', currentHide ? 'false' : 'true');
+        applyHideResolved();
+        const ht = document.getElementById('hideResolvedToggle');
+        if (ht) ht.checked = !currentHide;
         break;
       }
       case 't': {
