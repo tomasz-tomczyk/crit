@@ -3017,13 +3017,13 @@
   const EXPAND_STEP = 20;
 
   // SVG icon paths for expand controls (GitHub-style)
-  var ICON_EXPAND_DOWN = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 10.5a.75.75 0 0 1-.53-.22l-3.5-3.5a.75.75 0 0 1 1.06-1.06L8 8.69l2.97-2.97a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-.53.22z"/></svg>';
-  var ICON_EXPAND_UP = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 5.5a.75.75 0 0 1 .53.22l3.5 3.5a.75.75 0 0 1-1.06 1.06L8 7.31 5.03 10.28a.75.75 0 0 1-1.06-1.06l3.5-3.5A.75.75 0 0 1 8 5.5z"/></svg>';
-  var ICON_EXPAND_ALL = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8.177 14.323l2.896-2.896a.25.25 0 0 0-.177-.427H8.75V9.25a.75.75 0 0 0-1.5 0V11H5.104a.25.25 0 0 0-.177.427l2.896 2.896a.25.25 0 0 0 .354 0zM7.823 1.677L4.927 4.573a.25.25 0 0 0 .177.427H7.25V6.75a.75.75 0 0 0 1.5 0V5h2.146a.25.25 0 0 0 .177-.427L8.177 1.677a.25.25 0 0 0-.354 0z"/></svg>';
+  const ICON_EXPAND_DOWN = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 10.5a.75.75 0 0 1-.53-.22l-3.5-3.5a.75.75 0 0 1 1.06-1.06L8 8.69l2.97-2.97a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-.53.22z"/></svg>';
+  const ICON_EXPAND_UP = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 5.5a.75.75 0 0 1 .53.22l3.5 3.5a.75.75 0 0 1-1.06 1.06L8 7.31 5.03 10.28a.75.75 0 0 1-1.06-1.06l3.5-3.5A.75.75 0 0 1 8 5.5z"/></svg>';
+  const ICON_EXPAND_ALL = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8.177 14.323l2.896-2.896a.25.25 0 0 0-.177-.427H8.75V9.25a.75.75 0 0 0-1.5 0V11H5.104a.25.25 0 0 0-.177.427l2.896 2.896a.25.25 0 0 0 .354 0zM7.823 1.677L4.927 4.573a.25.25 0 0 0 .177.427H7.25V6.75a.75.75 0 0 0 1.5 0V5h2.146a.25.25 0 0 0 .177-.427L8.177 1.677a.25.25 0 0 0-.354 0z"/></svg>';
 
   // Helper: create a single expand button element
   function createExpandBtn(iconHtml, ariaLabel, handler) {
-    var btn = document.createElement('button');
+    const btn = document.createElement('button');
     btn.className = 'expand-btn';
     btn.setAttribute('aria-label', ariaLabel);
     btn.innerHTML = iconHtml;
@@ -3036,17 +3036,17 @@
 
   // Helper: build the spacer DOM structure with gutter + hunk text
   function buildSpacerElement(className, hunkHeaderText, buttons) {
-    var spacer = document.createElement('div');
+    const spacer = document.createElement('div');
     spacer.className = className;
 
-    var gutter = document.createElement('div');
+    const gutter = document.createElement('div');
     gutter.className = 'expand-gutter';
-    for (var i = 0; i < buttons.length; i++) {
+    for (let i = 0; i < buttons.length; i++) {
       gutter.appendChild(buttons[i]);
     }
     spacer.appendChild(gutter);
 
-    var text = document.createElement('span');
+    const text = document.createElement('span');
     text.className = 'spacer-hunk-text';
     text.textContent = hunkHeaderText || '';
     spacer.appendChild(text);
@@ -3062,7 +3062,7 @@
     const gap = nextHunk.NewStart - prevNewEnd;
     if (gap <= 0) return null;
 
-    var buttons = [];
+    const buttons = [];
 
     if (gap <= EXPAND_STEP) {
       // Small gap: single bidirectional button expands all
@@ -3096,7 +3096,7 @@
 
     const expandCount = Math.min(gap, EXPAND_STEP);
 
-    var buttons = [];
+    const buttons = [];
     buttons.push(createExpandBtn(ICON_EXPAND_UP, 'Expand ' + expandCount + ' lines above', function() {
       if (!file.content) return;
       const contentLines = file.content.split('\n');
@@ -3139,7 +3139,7 @@
 
     const expandCount = Math.min(gap, EXPAND_STEP);
 
-    var buttons = [];
+    const buttons = [];
     buttons.push(createExpandBtn(ICON_EXPAND_DOWN, 'Expand ' + expandCount + ' lines below', function() {
       if (!file.content) return;
       const lines = file.content.split('\n');
