@@ -412,60 +412,6 @@ Review data lives in `~/.crit/reviews/<key>.json` (same key as the session).
 
 Internal command: `crit _serve` runs the server in foreground (used by daemon spawning, not user-facing).
 
-## Releasing
-
-Releases are fully automated via GitHub Actions (`.github/workflows/release.yml`). To cut a release:
-
-Before tagging, bump the version in `flake.nix`:
-
-```nix
-version = "0.x.y";
-```
-
-**Nix vendor hash**: `flake.nix` also contains a pinned `vendorHash`. Whenever Go dependencies change (`go.mod`/`go.sum`), this hash must be updated. The release workflow runs `nix build .` and will fail with the correct replacement hash if it's stale. To update locally: set `vendorHash = pkgs.lib.fakeHash;`, run `nix build .`, and copy the hash from the error output.
-
-Then commit, tag, and push:
-
-```bash
-git add flake.nix && git commit -m "chore: bump Nix flake version to v0.x.y"
-git tag v0.x.y && git push origin main v0.x.y
-```
-
-Pushing the tag triggers the workflow, which:
-
-1. Runs tests (including Nix build verification)
-2. Cross-compiles binaries for darwin/linux (arm64/amd64) with the version injected via ldflags
-3. Generates SHA256 checksums
-4. Creates a GitHub release with auto-generated notes and all binaries attached
-5. Updates the Homebrew tap formula (`tomasz-tomczyk/homebrew-tap`)
-
-The version string lives in `main.go` as `var version = "dev"` and is overridden at build time. There is no version constant to update manually — the tag is the single source of truth.
-
-### Release Notes
-
-After CI creates the release, update it with proper release notes using `gh release edit`. List each change as a bullet point:
-
-- PRs: link to the PR (e.g., `[#4](https://github.com/tomasz-tomczyk/crit/pull/4)`)
-- Direct commits: link to the commit with short SHA (e.g., ``[`e283708`](https://github.com/tomasz-tomczyk/crit/commit/<full-sha>)``)
-- Exclude the version bump commit itself
-- End with a Full Changelog compare link
-
-To gather changes: `git log v<prev>..v<new> --oneline --no-merges` and `gh pr list --state merged` to match commits to PRs.
-
-Example:
-
-```bash
-gh release edit v0.x.y --notes "$(cat <<'EOF'
-## What's Changed
-
-- Description of change ([#N](https://github.com/tomasz-tomczyk/crit/pull/N))
-- Description of change ([`abcdef0`](https://github.com/tomasz-tomczyk/crit/commit/<full-sha>))
-
-**Full Changelog**: https://github.com/tomasz-tomczyk/crit/compare/v0.x.y-1...v0.x.y
-EOF
-)"
-```
-
 ## Code Conventions & Review Standards
 
 When reviewing or writing code for this project, apply these calibrated standards:
