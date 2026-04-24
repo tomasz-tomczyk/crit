@@ -3361,46 +3361,88 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .diff-word-add { background: var(--crit-diff-word-add-bg); border-radius: 2px; padding: 0 1px; }
 .diff-word-del { background: var(--crit-diff-word-del-bg); border-radius: 2px; padding: 0 1px; }
+/* GitHub-style expand spacer: icon gutter on left, hunk header text on right */
 .diff-spacer {
   display: flex;
-  align-items: center;
-  padding: 4px 24px;
-  font-size: 11px;
+  align-items: stretch;
+  font-size: 12px;
   color: var(--crit-editor-fg-muted);
   background: var(--crit-editor-bg-card);
   border-top: 1px solid var(--crit-border);
   border-bottom: 1px solid var(--crit-border);
-  cursor: pointer;
-  gap: 8px;
-  transition: background 0.1s;
+  min-height: 0;
+  cursor: default;
 }
-.diff-spacer:hover { background: var(--crit-editor-bg-hover); color: var(--crit-editor-fg-muted); }
-.diff-spacer svg { width: 12px; height: 12px; }
 
-/* Incremental expand: directional controls for large gaps */
-.diff-spacer .expand-btn {
-  display: inline-flex;
+/* Left column: narrow gutter containing vertically stacked expand buttons */
+.diff-spacer .expand-gutter {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 24px;
+  width: 100px;
+  flex-shrink: 0;
+  gap: 0;
+  background: var(--crit-brand-subtle);
+}
+
+/* Individual expand button in the gutter */
+.diff-spacer .expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
   height: 20px;
   padding: 0;
-  border: 1px solid var(--crit-border);
-  border-radius: var(--crit-r-sm);
-  background: var(--crit-editor-bg);
+  border: none;
+  background: transparent;
   color: var(--crit-editor-fg-muted);
   cursor: pointer;
-  transition: background var(--crit-dur-fast), color var(--crit-dur-fast);
+  opacity: 0.5;
+  transition: opacity var(--crit-dur-fast), color var(--crit-dur-fast), background var(--crit-dur-fast);
 }
 .diff-spacer .expand-btn:hover {
-  background: var(--crit-brand-subtle);
+  opacity: 1;
   color: var(--crit-brand);
-  border-color: var(--crit-brand);
+  background: var(--crit-brand-bg);
 }
-.diff-spacer .expand-btn svg { width: 14px; height: 14px; }
-.diff-spacer .expand-label {
+.diff-spacer .expand-btn:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--crit-brand);
+  outline-offset: -2px;
+}
+.diff-spacer .expand-btn svg { width: 16px; height: 16px; }
+
+/* On spacer hover, make all buttons more visible */
+.diff-spacer:hover .expand-btn { opacity: 0.8; }
+.diff-spacer:hover .expand-btn:hover { opacity: 1; }
+
+/* Right column: hunk header text */
+.diff-spacer .spacer-hunk-text {
   flex: 1;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-family: var(--crit-font-mono);
+  font-size: 12px;
+  color: var(--crit-brand);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Single-button spacers (leading/trailing) are compact */
+.diff-spacer-leading {
+  border-top: none;
+}
+.diff-spacer-trailing {
+  border-bottom: none;
+}
+.diff-spacer-leading .expand-gutter,
+.diff-spacer-trailing .expand-gutter {
+  justify-content: center;
 }
 
 /* ===== Unified Diff (interleaved lines) ===== */
