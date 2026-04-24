@@ -39,8 +39,8 @@ See [`integrations/`](integrations/) for all install methods and details.
 For the full experience - installs globally with a `/crit` command plus a `crit` skill that auto-activates when your agent works with review files, `crit comment`, `crit pull/push`, etc:
 
 ```
-/plugin marketplace add tomasz-tomczyk/crit
-/plugin install crit
+claude plugin marketplace add tomasz-tomczyk/crit
+claude plugin install crit@crit
 ```
 
 ### `/crit` command

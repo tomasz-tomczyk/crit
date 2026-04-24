@@ -31,8 +31,8 @@ For the full experience, install via the plugin marketplace. This gives you:
 - A `crit` skill that auto-activates when working with review files, `crit comment`, `crit pull/push`, etc.
 
 ```
-/plugin marketplace add tomasz-tomczyk/crit
-/plugin install crit
+claude plugin marketplace add tomasz-tomczyk/crit
+claude plugin install crit@crit
 ```
 
 The marketplace manifest lives at the repo root (`.claude-plugin/marketplace.json`) and points to the plugin files in `integrations/claude-code/`.
