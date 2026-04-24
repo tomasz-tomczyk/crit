@@ -44,12 +44,15 @@ test.describe('Hide Resolved', () => {
     await page.click('#settingsToggle');
     const pane = page.locator('.settings-pane[data-pane="settings"]');
     await expect(pane.locator('.settings-display-label').filter({ hasText: 'Hide resolved' })).toBeVisible();
-    await expect(pane.locator('#hideResolvedToggle')).toBeVisible();
+    await expect(pane.locator('#hideResolvedToggle')).toBeAttached();
   });
 
   test('toggle hides resolved inline comments', async ({ page, request }) => {
     await setupResolvedComment(request);
     await loadPage(page);
+
+    // Wait for resolved card to appear at page level before using composite locator
+    await expect(page.locator('.comment-card.resolved-card').first()).toBeVisible();
 
     // Resolved inline comment block should be visible by default
     const resolvedBlock = page.locator('.comment-block:not(.panel-comment-block)').filter({
@@ -59,7 +62,7 @@ test.describe('Hide Resolved', () => {
 
     // Enable "Hide resolved" via settings
     await page.click('#settingsToggle');
-    await page.locator('#hideResolvedToggle').check();
+    await page.locator('label.comments-panel-switch:has(#hideResolvedToggle) .comments-panel-switch-track').click();
 
     // Resolved inline comment block should now be hidden
     await expect(resolvedBlock.first()).toBeHidden();
@@ -69,9 +72,12 @@ test.describe('Hide Resolved', () => {
     await setupResolvedComment(request);
     await loadPage(page);
 
+    // Wait for resolved card to appear at page level
+    await expect(page.locator('.comment-card.resolved-card').first()).toBeVisible();
+
     // Enable "Hide resolved"
     await page.click('#settingsToggle');
-    await page.locator('#hideResolvedToggle').check();
+    await page.locator('label.comments-panel-switch:has(#hideResolvedToggle) .comments-panel-switch-track').click();
     // Close settings
     await page.keyboard.press('Escape');
 
