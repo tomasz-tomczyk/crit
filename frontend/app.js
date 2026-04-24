@@ -5996,6 +5996,9 @@
   function createFileGroupHeader(label, count, groupEl) {
     const groupName = document.createElement('div');
     groupName.className = 'comments-panel-file-name';
+    groupName.setAttribute('role', 'button');
+    groupName.setAttribute('tabindex', '0');
+    groupName.setAttribute('aria-expanded', 'true');
 
     const chevron = document.createElement('span');
     chevron.className = 'comments-panel-file-chevron';
@@ -6015,6 +6018,15 @@
 
     groupName.addEventListener('click', function() {
       groupEl.classList.toggle('collapsed');
+      const expanded = !groupEl.classList.contains('collapsed');
+      groupName.setAttribute('aria-expanded', String(expanded));
+    });
+
+    groupName.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        groupName.click();
+      }
     });
 
     return groupName;
@@ -7395,8 +7407,9 @@
     const btn = e.target.closest('.toggle-btn');
     if (!btn) return;
     commentsActiveFilter = btn.dataset.filter;
-    document.querySelectorAll('#commentsFilterPill .toggle-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('#commentsFilterPill .toggle-btn').forEach(function(b) { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
     btn.classList.add('active');
+    btn.setAttribute('aria-pressed', 'true');
     renderCommentsPanel();
   });
 
