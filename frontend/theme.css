@@ -122,7 +122,6 @@
   --crit-finish-pill-border: rgba(86, 211, 100, 0.20);
   --crit-finish-pill-fg:     #56d364;
   --crit-finish-body-fg:     #9ba3bf;
-  --crit-finish-scrim:       rgba(14, 15, 19, 0.55);
 
   /* ---- UI states ---- */
   --crit-overlay-bg:       rgba(0,0,0,0.5);
@@ -245,7 +244,6 @@
     --crit-finish-pill-border: rgba(22, 127, 48, 0.18);
     --crit-finish-pill-fg:     #167f30;
     --crit-finish-body-fg:     #5a6275;
-    --crit-finish-scrim:       rgba(245, 246, 250, 0.60);
 
     --crit-overlay-bg:       rgba(0,0,0,0.5);
     --crit-btn-danger-hover-bg:  rgba(196, 31, 42, 0.08);
@@ -367,7 +365,6 @@
   --crit-finish-pill-border: rgba(86, 211, 100, 0.20);
   --crit-finish-pill-fg:     #56d364;
   --crit-finish-body-fg:     #9ba3bf;
-  --crit-finish-scrim:       rgba(14, 15, 19, 0.55);
 
   --crit-overlay-bg:       rgba(0,0,0,0.5);
   --crit-btn-danger-hover-bg:  rgba(247, 118, 142, 0.1);
@@ -488,7 +485,6 @@
   --crit-finish-pill-border: rgba(22, 127, 48, 0.18);
   --crit-finish-pill-fg:     #167f30;
   --crit-finish-body-fg:     #5a6275;
-  --crit-finish-scrim:       rgba(245, 246, 250, 0.60);
 
   --crit-overlay-bg:       rgba(0,0,0,0.5);
   --crit-btn-danger-hover-bg:  rgba(196, 31, 42, 0.08);
