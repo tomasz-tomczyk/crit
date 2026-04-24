@@ -4,3 +4,6 @@ root-deps = "cp -R {{ primary_worktree_path }}/node_modules {{ worktree_path }}/
 
 [[pre-start]]
 e2e-deps = "cp -R {{ primary_worktree_path }}/e2e/node_modules {{ worktree_path }}/e2e/node_modules"
+
+[post-start]
+mise-trust = "mise trust ."

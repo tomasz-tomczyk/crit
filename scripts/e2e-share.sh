@@ -61,7 +61,7 @@ if [ "$SKIP_WEB" = false ]; then
   # Reset DB to clean state
   MIX_ENV=dev mix ecto.reset --quiet 2>/dev/null || mix ecto.setup --quiet
   # Start Phoenix in background on the test port
-  PORT=$WEB_PORT SELFHOSTED=true ADMIN_PASSWORD=test mix phx.server &
+  E2E=true PORT=$WEB_PORT SELFHOSTED=true ADMIN_PASSWORD=test mix phx.server &
   WEB_PID=$!
   cd "$CRIT_DIR"
 
