@@ -2504,45 +2504,8 @@
     return pairs;
   }
 
-  // Compute LCS membership for two token arrays.
-  // Returns { oldKeep: boolean[], newKeep: boolean[] } where true = token is in LCS (unchanged).
-  function computeTokenLCS(oldTokens, newTokens) {
-    const m = oldTokens.length;
-    const n = newTokens.length;
-    const dp = [];
-    for (let i = 0; i <= m; i++) {
-      dp[i] = new Array(n + 1).fill(0);
-    }
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
-        if (oldTokens[i - 1] === newTokens[j - 1]) {
-          dp[i][j] = dp[i - 1][j - 1] + 1;
-        } else {
-          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-        }
-      }
-    }
-    const oldKeep = new Array(m).fill(false);
-    const newKeep = new Array(n).fill(false);
-    let i = m, j = n;
-    while (i > 0 && j > 0) {
-      if (oldTokens[i - 1] === newTokens[j - 1]) {
-        oldKeep[i - 1] = true;
-        newKeep[j - 1] = true;
-        i--; j--;
-      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-        i--;
-      } else {
-        j--;
-      }
-    }
-    return { oldKeep: oldKeep, newKeep: newKeep };
-  }
-
-  // Compute word-level diff between two lines using token LCS.
-  // Tokenizes into words/punctuation, finds the longest common subsequence,
-  // then builds character ranges for changed tokens.
-  // This produces whole-word highlights (like GitHub) instead of character-level fragments.
+  // Compute word-level diff between two lines using diff-match-patch.
+  // Runs character-level diff with semantic cleanup to produce word-aligned highlights.
   // Returns { oldRanges, newRanges } where each range is [startCharIdx, endCharIdx] in the raw text.
   // Returns null if lines are too long, identical, or completely different.
   function wordDiff(oldLine, newLine) {
@@ -2554,46 +2517,33 @@
     // Identical lines — no diff needed
     if (oldLine === newLine) return null;
 
-    const oldTokens = tokenize(oldLine);
-    const newTokens = tokenize(newLine);
-    if (oldTokens.length === 0 && newTokens.length === 0) return null;
-    // Skip if token counts are huge (LCS is O(m*n))
-    if (oldTokens.length > 200 || newTokens.length > 200) return null;
+    const dmp = window.DiffMatchPatch;
+    const diffs = dmp.cleanupSemantic(dmp.makeDiff(oldLine, newLine));
 
-    const result = computeTokenLCS(oldTokens, newTokens);
-    const oldKeep = result.oldKeep;
-    const newKeep = result.newKeep;
+    // Build character ranges from diff tuples.
+    // DIFF_DELETE (-1) tuples advance old position, DIFF_INSERT (1) advance new,
+    // DIFF_EQUAL (0) advances both.
+    const oldRanges = [];
+    const newRanges = [];
+    let oldIdx = 0;
+    let newIdx = 0;
 
-    // If everything changed (no LCS), skip — lines probably don't correspond
-    const oldUnchanged = oldKeep.filter(Boolean).length;
-    const newUnchanged = newKeep.filter(Boolean).length;
-    if (oldUnchanged === 0 && newUnchanged === 0) return null;
-    // If nothing changed, skip
-    if (oldUnchanged === oldTokens.length && newUnchanged === newTokens.length) return null;
+    for (let i = 0; i < diffs.length; i++) {
+      const op = diffs[i][0];
+      const text = diffs[i][1];
+      const len = text.length;
 
-    // Build character ranges for changed tokens.
-    // Adjacent changed tokens merge into one range automatically.
-    function buildRanges(tokens, keep) {
-      const ranges = [];
-      let charIdx = 0;
-      let rangeStart = -1;
-      for (let i = 0; i < tokens.length; i++) {
-        if (!keep[i]) {
-          if (rangeStart === -1) rangeStart = charIdx;
-        } else {
-          if (rangeStart !== -1) {
-            ranges.push([rangeStart, charIdx]);
-            rangeStart = -1;
-          }
-        }
-        charIdx += tokens[i].length;
+      if (op === dmp.DIFF_EQUAL) {
+        oldIdx += len;
+        newIdx += len;
+      } else if (op === dmp.DIFF_DELETE) {
+        oldRanges.push([oldIdx, oldIdx + len]);
+        oldIdx += len;
+      } else if (op === dmp.DIFF_INSERT) {
+        newRanges.push([newIdx, newIdx + len]);
+        newIdx += len;
       }
-      if (rangeStart !== -1) ranges.push([rangeStart, charIdx]);
-      return ranges;
     }
-
-    const oldRanges = buildRanges(oldTokens, oldKeep);
-    const newRanges = buildRanges(newTokens, newKeep);
 
     if (oldRanges.length === 0 && newRanges.length === 0) return null;
 

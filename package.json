@@ -2,6 +2,7 @@
   "private": true,
   "dependencies": {
     "@highlightjs/cdn-assets": "^11.11.1",
+    "@sanity/diff-match-patch": "^3.2.0",
     "markdown-it": "^14.1.1",
     "mermaid": "^11.14.0"
   },
@@ -9,6 +10,7 @@
     "update-deps": "bun run copy-deps.js"
   },
   "devDependencies": {
+    "esbuild": "^0.28.0",
     "eslint": "^10.2.1",
     "stylelint": "^17.9.0"
   }
