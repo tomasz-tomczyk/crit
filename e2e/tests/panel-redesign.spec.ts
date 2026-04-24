@@ -244,46 +244,53 @@ test.describe('Panel Redesign', () => {
   // ----------------------------------------------------------
   // 5. Expand all / Collapse all toggle
   // ----------------------------------------------------------
-  test('Expand all button label starts as "Expand all"', async ({ page, request }) => {
+  test('Expand all button label starts as "Collapse all" when cards are expanded', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Test comment');
     await loadPage(page);
     await openPanel(page);
 
-    await expect(expandAllBtn(page)).toHaveText('Expand all');
+    // Cards start expanded, so the button offers to collapse
+    await expect(expandAllBtn(page)).toHaveText('Collapse all');
   });
 
-  test('clicking Expand all expands cards and label changes to Collapse all', async ({ page, request }) => {
+  test('clicking Collapse all collapses cards and label changes to Expand all', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Comment to expand');
     await loadPage(page);
     await openPanel(page);
 
-    // Click Expand all
-    await expandAllBtn(page).click();
+    // Cards start expanded; button says "Collapse all"
     await expect(expandAllBtn(page)).toHaveText('Collapse all');
 
-    // Cards should not have collapsed class
+    // Click Collapse all
+    await expandAllBtn(page).click();
+    await expect(expandAllBtn(page)).toHaveText('Expand all');
+
+    // Cards should have collapsed class
     const cards = panelCards(page);
     await expect(cards).toHaveCount(1);
-    await expect(cards.first()).not.toHaveClass(/collapsed/);
+    await expect(cards.first()).toHaveClass(/collapsed/);
   });
 
-  test('clicking Collapse all collapses cards and label reverts', async ({ page, request }) => {
+  test('clicking Expand all after collapse expands cards and label reverts', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Comment to collapse');
     await loadPage(page);
     await openPanel(page);
 
-    // Expand then collapse
+    // Cards start expanded; collapse them first
+    await expect(expandAllBtn(page)).toHaveText('Collapse all');
+    await expandAllBtn(page).click();
+    await expect(expandAllBtn(page)).toHaveText('Expand all');
+    await expect(panelCards(page).first()).toHaveClass(/collapsed/);
+
+    // Expand all again
     await expandAllBtn(page).click();
     await expect(expandAllBtn(page)).toHaveText('Collapse all');
 
-    await expandAllBtn(page).click();
-    await expect(expandAllBtn(page)).toHaveText('Expand all');
-
-    // Cards should have collapsed class
-    await expect(panelCards(page).first()).toHaveClass(/collapsed/);
+    // Cards should not have collapsed class
+    await expect(panelCards(page).first()).not.toHaveClass(/collapsed/);
   });
 
   // ----------------------------------------------------------
@@ -300,8 +307,7 @@ test.describe('Panel Redesign', () => {
     const inlineCard = mdSection(page).locator('.comment-card[data-comment-id]').first();
     await expect(inlineCard).toBeVisible();
 
-    // Expand all first (ensure everything is expanded)
-    await expandAllBtn(page).click();
+    // Cards start expanded; button says "Collapse all"
     await expect(expandAllBtn(page)).toHaveText('Collapse all');
     await expect(inlineCard).not.toHaveClass(/collapsed/);
 
@@ -321,9 +327,10 @@ test.describe('Panel Redesign', () => {
     const inlineCard = mdSection(page).locator('.comment-card[data-comment-id]').first();
     await expect(inlineCard).toBeVisible();
 
-    // Collapse all first
+    // Cards start expanded; collapse them first
+    await expect(expandAllBtn(page)).toHaveText('Collapse all');
     await expandAllBtn(page).click();
-    await expandAllBtn(page).click();
+    await expect(expandAllBtn(page)).toHaveText('Expand all');
     await expect(inlineCard).toHaveClass(/collapsed/);
 
     // Expand all — inline card should be expanded again
