@@ -1897,6 +1897,7 @@ func TestCarryForwardComment(t *testing.T) {
 		Resolved:       true,
 		CarriedForward: false,
 		ReviewRound:    1,
+		GitHubID:       98765,
 	}
 
 	carried := carryForwardComment(old, "c42", "2026-02-01T00:00:00Z")
@@ -1936,6 +1937,9 @@ func TestCarryForwardComment(t *testing.T) {
 	}
 	if carried.Quote != "func foo() {}" {
 		t.Errorf("Quote = %q, want %q", carried.Quote, "func foo() {}")
+	}
+	if carried.GitHubID != 98765 {
+		t.Errorf("GitHubID = %d, want 98765", carried.GitHubID)
 	}
 }
 

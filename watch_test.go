@@ -374,6 +374,26 @@ func TestCarryForwardComment_PreservesQuote(t *testing.T) {
 	}
 }
 
+func TestCarryForwardComment_PreservesGitHubID(t *testing.T) {
+	old := Comment{
+		ID:        "c_old",
+		StartLine: 10,
+		EndLine:   10,
+		Body:      "Fix this",
+		Author:    "reviewer",
+		Scope:     "line",
+		CreatedAt: "2026-04-13T10:00:00Z",
+		UpdatedAt: "2026-04-13T10:00:00Z",
+		GitHubID:  12345,
+	}
+
+	carried := carryForwardComment(old, "c_new", "2026-04-13T11:00:00Z")
+
+	if carried.GitHubID != 12345 {
+		t.Errorf("GitHubID = %d, want 12345", carried.GitHubID)
+	}
+}
+
 // TestWatchGit_SkipsGitStatusWhenNotWaiting verifies that watchGit does not
 // detect edits when waitingForAgent is false, and does detect them once
 // waitingForAgent is set to true.

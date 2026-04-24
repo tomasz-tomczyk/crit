@@ -324,6 +324,7 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 		Live:           old.Live,
 		ReviewRound:    old.ReviewRound,
 		Replies:        old.Replies,
+		GitHubID:       old.GitHubID,
 	}
 }
 
