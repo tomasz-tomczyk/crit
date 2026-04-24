@@ -1636,32 +1636,22 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 
 
-/* ===== Disconnected Overlay ===== */
-.disconnected-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--crit-overlay-bg-heavy);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-}
-.disconnected-dialog {
-  background: var(--crit-editor-bg);
-  border: 1px solid var(--crit-border);
-  border-radius: 12px;
-  padding: 32px 40px;
+/* ===== Disconnected Banner ===== */
+.disconnected-banner {
+  position: sticky;
+  z-index: 99;
+  padding: 6px 24px;
+  background: var(--crit-yellow-bg);
+  border-bottom: 1px solid var(--crit-yellow-border);
   text-align: center;
-  color: var(--crit-editor-fg);
-  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--crit-yellow);
+  animation: disconnected-banner-in 0.3s ease-out;
 }
-.disconnected-title {
-  font-size: 20px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.disconnected-message {
-  color: var(--crit-editor-fg-secondary);
+@keyframes disconnected-banner-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* ===== Waiting Overlay ===== */

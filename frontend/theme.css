@@ -119,7 +119,6 @@
 
   /* ---- UI states ---- */
   --crit-overlay-bg:       rgba(0,0,0,0.5);
-  --crit-overlay-bg-heavy: rgba(0,0,0,0.6);
   --crit-btn-danger-hover-bg:  rgba(247, 118, 142, 0.1);
   --crit-toast-error-bg:       rgba(247, 118, 142, 0.14);
   --crit-toast-ghost-hover-bg: rgba(255,255,255,0.06);
@@ -235,7 +234,6 @@
     --crit-yellow-border: rgba(122, 88, 0, 0.16);
 
     --crit-overlay-bg:       rgba(0,0,0,0.5);
-    --crit-overlay-bg-heavy: rgba(0,0,0,0.6);
     --crit-btn-danger-hover-bg:  rgba(196, 31, 42, 0.08);
     --crit-toast-error-bg:       rgba(196, 31, 42, 0.1);
     --crit-toast-ghost-hover-bg: rgba(0,0,0,0.04);
@@ -351,7 +349,6 @@
   --crit-yellow-border: rgba(224, 175, 104, 0.2);
 
   --crit-overlay-bg:       rgba(0,0,0,0.5);
-  --crit-overlay-bg-heavy: rgba(0,0,0,0.6);
   --crit-btn-danger-hover-bg:  rgba(247, 118, 142, 0.1);
   --crit-toast-error-bg:       rgba(247, 118, 142, 0.14);
   --crit-toast-ghost-hover-bg: rgba(255,255,255,0.06);
@@ -466,7 +463,6 @@
   --crit-yellow-border: rgba(122, 88, 0, 0.16);
 
   --crit-overlay-bg:       rgba(0,0,0,0.5);
-  --crit-overlay-bg-heavy: rgba(0,0,0,0.6);
   --crit-btn-danger-hover-bg:  rgba(196, 31, 42, 0.08);
   --crit-toast-error-bg:       rgba(196, 31, 42, 0.1);
   --crit-toast-ghost-hover-bg: rgba(0,0,0,0.04);

@@ -6463,13 +6463,12 @@
   }
 
   function showDisconnected() {
-    const overlay = document.createElement('div');
-    overlay.className = 'disconnected-overlay';
-    const box = document.createElement('div');
-    box.className = 'disconnected-dialog';
-    box.innerHTML = '<div class="disconnected-title">Server stopped</div><div class="disconnected-message">You can close this tab.</div>';
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
+    const header = document.querySelector('.header');
+    const banner = document.createElement('div');
+    banner.className = 'disconnected-banner';
+    banner.textContent = 'Server stopped \u2014 you can safely close this tab';
+    banner.style.top = header.offsetHeight + 'px';
+    header.insertAdjacentElement('afterend', banner);
   }
 
   // ===== Share =====
