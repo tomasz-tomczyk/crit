@@ -62,18 +62,18 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
     await expect(placeholder).toHaveText('This file was deleted.');
   });
 
-  test('spacer shows unchanged line count between hunks', async ({ page }) => {
+  test('spacer shows hunk header between hunks', async ({ page }) => {
     await loadPage(page);
 
     // routes.go has a large gap (>20 lines) between hunks, so a spacer should exist
-    // with directional expand controls and an unchanged line count.
+    // with directional expand controls and the @@ hunk header text.
     const treeEntry = page.locator('.tree-file-name', { hasText: 'routes.go' });
     await treeEntry.click();
 
     const routesSection = page.locator('#file-section-routes\\.go');
     const spacer = routesSection.locator('.diff-spacer').first();
     await expect(spacer).toBeVisible();
-    await expect(spacer).toContainText('unchanged line');
+    await expect(spacer.locator('.spacer-hunk-text')).toContainText('@@');
   });
 
   test('clicking spacer expands context lines', async ({ page }) => {

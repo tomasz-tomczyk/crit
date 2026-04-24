@@ -3016,59 +3016,74 @@
 
   const EXPAND_STEP = 20;
 
-  // Helper: render hunk spacer with incremental expansion
+  // SVG icon paths for expand controls (GitHub-style)
+  const ICON_EXPAND_DOWN = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 10.5a.75.75 0 0 1-.53-.22l-3.5-3.5a.75.75 0 0 1 1.06-1.06L8 8.69l2.97-2.97a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-.53.22z"/></svg>';
+  const ICON_EXPAND_UP = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 5.5a.75.75 0 0 1 .53.22l3.5 3.5a.75.75 0 0 1-1.06 1.06L8 7.31 5.03 10.28a.75.75 0 0 1-1.06-1.06l3.5-3.5A.75.75 0 0 1 8 5.5z"/></svg>';
+  const ICON_EXPAND_ALL = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8.177 14.323l2.896-2.896a.25.25 0 0 0-.177-.427H8.75V9.25a.75.75 0 0 0-1.5 0V11H5.104a.25.25 0 0 0-.177.427l2.896 2.896a.25.25 0 0 0 .354 0zM7.823 1.677L4.927 4.573a.25.25 0 0 0 .177.427H7.25V6.75a.75.75 0 0 0 1.5 0V5h2.146a.25.25 0 0 0 .177-.427L8.177 1.677a.25.25 0 0 0-.354 0z"/></svg>';
+
+  // Helper: create a single expand button element
+  function createExpandBtn(iconHtml, ariaLabel, handler) {
+    const btn = document.createElement('button');
+    btn.className = 'expand-btn';
+    btn.setAttribute('aria-label', ariaLabel);
+    btn.innerHTML = iconHtml;
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      handler();
+    });
+    return btn;
+  }
+
+  // Helper: build the spacer DOM structure with gutter + hunk text
+  function buildSpacerElement(className, hunkHeaderText, buttons) {
+    const spacer = document.createElement('div');
+    spacer.className = className;
+
+    const gutter = document.createElement('div');
+    gutter.className = 'expand-gutter';
+    for (let i = 0; i < buttons.length; i++) {
+      gutter.appendChild(buttons[i]);
+    }
+    spacer.appendChild(gutter);
+
+    const text = document.createElement('span');
+    text.className = 'spacer-hunk-text';
+    text.textContent = hunkHeaderText || '';
+    spacer.appendChild(text);
+
+    return spacer;
+  }
+
+  // Helper: render hunk spacer with incremental expansion (GitHub-style)
   // prevIdx/nextIdx are indices into file.diffHunks
+  // Returns spacer element (embeds the next hunk's header text) or null
   function renderDiffSpacer(prevHunk, nextHunk, file, prevIdx, nextIdx) {
     const prevNewEnd = prevHunk.NewStart + prevHunk.NewCount;
     const gap = nextHunk.NewStart - prevNewEnd;
     if (gap <= 0) return null;
 
-    const spacer = document.createElement('div');
-    spacer.className = 'diff-spacer';
+    const buttons = [];
 
     if (gap <= EXPAND_STEP) {
-      // Small gap: single click expands all (original behavior)
-      spacer.innerHTML =
-        '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/></svg>' +
-        'Expand ' + gap + ' unchanged line' + (gap === 1 ? '' : 's');
-      spacer.addEventListener('click', function() {
+      // Small gap: single bidirectional button expands all
+      buttons.push(createExpandBtn(ICON_EXPAND_ALL, 'Expand all ' + gap + ' lines', function() {
         expandAll(file, prevIdx, nextIdx);
-      });
+      }));
     } else {
-      // Large gap: show expand-down (top) and expand-up (bottom) controls
-      const downBtn = document.createElement('button');
-      downBtn.className = 'expand-btn expand-down';
-      downBtn.setAttribute('aria-label', 'Expand 20 lines down');
-      downBtn.innerHTML =
-        '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 10.5a.75.75 0 0 1-.53-.22l-3.5-3.5a.75.75 0 0 1 1.06-1.06L8 8.69l2.97-2.97a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-.53.22z"/></svg>';
-      downBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
+      // Large gap: two stacked buttons — down, up (GitHub-style)
+      buttons.push(createExpandBtn(ICON_EXPAND_DOWN, 'Expand ' + EXPAND_STEP + ' lines down', function() {
         expandDown(file, prevIdx, EXPAND_STEP);
-      });
-
-      const label = document.createElement('span');
-      label.className = 'expand-label';
-      label.textContent = gap + ' unchanged line' + (gap === 1 ? '' : 's');
-
-      const upBtn = document.createElement('button');
-      upBtn.className = 'expand-btn expand-up';
-      upBtn.setAttribute('aria-label', 'Expand 20 lines up');
-      upBtn.innerHTML =
-        '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 5.5a.75.75 0 0 1 .53.22l3.5 3.5a.75.75 0 0 1-1.06 1.06L8 7.31 5.03 10.28a.75.75 0 0 1-1.06-1.06l3.5-3.5A.75.75 0 0 1 8 5.5z"/></svg>';
-      upBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
+      }));
+      buttons.push(createExpandBtn(ICON_EXPAND_UP, 'Expand ' + EXPAND_STEP + ' lines up', function() {
         expandUp(file, nextIdx, EXPAND_STEP);
-      });
-
-      spacer.appendChild(downBtn);
-      spacer.appendChild(label);
-      spacer.appendChild(upBtn);
+      }));
     }
 
-    return spacer;
+    return buildSpacerElement('diff-spacer', nextHunk.Header || '', buttons);
   }
 
   // Helper: render leading spacer (before first hunk when it doesn't start at line 1)
+  // Returns the spacer element (includes the first hunk's header text)
   function renderLeadingSpacer(firstHunk, file) {
     // Only show if the first hunk doesn't start at line 1
     if (firstHunk.NewStart <= 1 && firstHunk.OldStart <= 1) return null;
@@ -3081,21 +3096,14 @@
 
     const expandCount = Math.min(gap, EXPAND_STEP);
 
-    const spacer = document.createElement('div');
-    spacer.className = 'diff-spacer diff-spacer-leading';
-    spacer.setAttribute('aria-label', 'Expand ' + expandCount + ' unchanged lines above');
-    spacer.innerHTML =
-      '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/></svg>' +
-      'Expand ' + expandCount + ' unchanged line' + (expandCount === 1 ? '' : 's');
-
-    spacer.addEventListener('click', function() {
+    const buttons = [];
+    buttons.push(createExpandBtn(ICON_EXPAND_UP, 'Expand ' + expandCount + ' lines above', function() {
       if (!file.content) return;
       const contentLines = file.content.split('\n');
       const hunks = file.diffHunks;
       const hunk = hunks[0];
 
       // Expand from the bottom of the gap upward (closest to the hunk first)
-      // For pure insertion/deletion, derive the zero-count side's start from the other side
       const startNewLine = hunk.NewCount > 0 ? hunk.NewStart - expandCount : hunk.NewStart;
       const startOldLine = hunk.OldCount > 0 ? hunk.OldStart - expandCount : hunk.OldStart;
       const contextLines = [];
@@ -3106,26 +3114,22 @@
         contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
       }
 
-      // Prepend context lines to the first hunk and adjust its start/count
       hunk.Lines = contextLines.concat(hunk.Lines);
       hunk.OldStart = startOldLine;
       hunk.NewStart = startNewLine;
       hunk.OldCount += expandCount;
       hunk.NewCount += expandCount;
-
       hunk.Header = buildHunkHeader(hunk.OldStart, hunk.OldCount, hunk.NewStart, hunk.NewCount, hunk.Header);
-
       renderFileByPath(file.path);
-    });
+    }));
 
-    return spacer;
+    return buildSpacerElement('diff-spacer diff-spacer-leading', firstHunk.Header || '', buttons);
   }
 
   // Helper: render trailing spacer (after last hunk when it doesn't reach EOF)
   function renderTrailingSpacer(lastHunk, file) {
     if (!file.content) return null;
     const contentLines = file.content.split('\n');
-    // Files ending with a newline produce an extra empty element; don't count it
     let totalNewLines = contentLines.length;
     if (totalNewLines > 0 && contentLines[totalNewLines - 1] === '') totalNewLines--;
 
@@ -3135,14 +3139,8 @@
 
     const expandCount = Math.min(gap, EXPAND_STEP);
 
-    const spacer = document.createElement('div');
-    spacer.className = 'diff-spacer diff-spacer-trailing';
-    spacer.setAttribute('aria-label', 'Expand ' + expandCount + ' unchanged lines below');
-    spacer.innerHTML =
-      '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/></svg>' +
-      'Expand ' + expandCount + ' unchanged line' + (expandCount === 1 ? '' : 's');
-
-    spacer.addEventListener('click', function() {
+    const buttons = [];
+    buttons.push(createExpandBtn(ICON_EXPAND_DOWN, 'Expand ' + expandCount + ' lines below', function() {
       if (!file.content) return;
       const lines = file.content.split('\n');
       let totalLines = lines.length;
@@ -3163,17 +3161,14 @@
         contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
       }
 
-      // Append context lines to the last hunk and adjust its count
       hunk.Lines = hunk.Lines.concat(contextLines);
       hunk.OldCount += count;
       hunk.NewCount += count;
-
       hunk.Header = buildHunkHeader(hunk.OldStart, hunk.OldCount, hunk.NewStart, hunk.NewCount, hunk.Header);
-
       renderFileByPath(file.path);
-    });
+    }));
 
-    return spacer;
+    return buildSpacerElement('diff-spacer diff-spacer-trailing', '', buttons);
   }
 
   // Helper: render hunk header
@@ -3329,19 +3324,30 @@
     const commentVisualSet = buildUnifiedCommentVisualSet(hunks, file.comments);
     let visualIdx = 0; // sequential index for unified drag (old/new nums are different spaces)
 
-    // Leading spacer before first hunk
+    // Leading spacer before first hunk (includes hunk header text)
     const leadingSpacer = renderLeadingSpacer(hunks[0], file);
     if (leadingSpacer) container.appendChild(leadingSpacer);
 
     for (let hi = 0; hi < hunks.length; hi++) {
       const hunk = hunks[hi];
+      let spacerRendered = false;
 
       if (hi > 0) {
         const spacer = renderDiffSpacer(hunks[hi - 1], hunk, file, hi - 1, hi);
-        if (spacer) container.appendChild(spacer);
+        if (spacer) {
+          container.appendChild(spacer);
+          spacerRendered = true;
+        }
       }
 
-      container.appendChild(renderDiffHunkHeader(hunk));
+      // Skip standalone hunk header when:
+      // - a spacer (which embeds the header) was rendered, or
+      // - the leading spacer covers the first hunk, or
+      // - this hunk is contiguous with the previous one (e.g. bridge hunks from expand)
+      const contiguous = hi > 0 && (hunks[hi - 1].NewStart + hunks[hi - 1].NewCount) >= hunk.NewStart;
+      if (!spacerRendered && !(hi === 0 && leadingSpacer) && !contiguous) {
+        container.appendChild(renderDiffHunkHeader(hunk));
+      }
 
       const wordDiffMap = buildHunkWordDiffs(hunk);
 
@@ -3444,19 +3450,30 @@
 
     const { diffCommentsMap: commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
 
-    // Leading spacer before first hunk
+    // Leading spacer before first hunk (includes hunk header text)
     const leadingSpacerSplit = renderLeadingSpacer(hunks[0], file);
     if (leadingSpacerSplit) container.appendChild(leadingSpacerSplit);
 
     for (let hi = 0; hi < hunks.length; hi++) {
       const hunk = hunks[hi];
+      let spacerRenderedSplit = false;
 
       if (hi > 0) {
         const spacer = renderDiffSpacer(hunks[hi - 1], hunk, file, hi - 1, hi);
-        if (spacer) container.appendChild(spacer);
+        if (spacer) {
+          container.appendChild(spacer);
+          spacerRenderedSplit = true;
+        }
       }
 
-      container.appendChild(renderDiffHunkHeader(hunk));
+      // Skip standalone hunk header when:
+      // - a spacer (which embeds the header) was rendered, or
+      // - the leading spacer covers the first hunk, or
+      // - this hunk is contiguous with the previous one (e.g. bridge hunks from expand)
+      const contiguousSplit = hi > 0 && (hunks[hi - 1].NewStart + hunks[hi - 1].NewCount) >= hunk.NewStart;
+      if (!spacerRenderedSplit && !(hi === 0 && leadingSpacerSplit) && !contiguousSplit) {
+        container.appendChild(renderDiffHunkHeader(hunk));
+      }
 
       // Group hunk lines into segments: runs of context, or runs of del+add (change pairs)
       const segments = [];
