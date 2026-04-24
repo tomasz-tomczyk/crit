@@ -230,6 +230,46 @@ func seedCommentAt(t *testing.T, baseURL, token, file, body string, startLine, e
 	}
 }
 
+// seedCommentGetID seeds a comment and returns its crit-web ID (for use with seedReply).
+func seedCommentGetID(t *testing.T, baseURL, token, file, body string, startLine, endLine int) string {
+	t.Helper()
+	payload, _ := json.Marshal(map[string]any{
+		"file": file, "start_line": startLine, "end_line": endLine, "body": body,
+	})
+	resp, err := http.Post(baseURL+"/api/reviews/"+token+"/seed-comment", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("seed-comment failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("seed-comment returned %d", resp.StatusCode)
+	}
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decoding seed-comment response: %v", err)
+	}
+	return result.ID
+}
+
+// seedReply seeds a reply to an existing comment on crit-web.
+func seedReply(t *testing.T, baseURL, token, commentID, body string) {
+	t.Helper()
+	payload, _ := json.Marshal(map[string]any{"body": body})
+	resp, err := http.Post(
+		baseURL+"/api/reviews/"+token+"/seed-reply/"+commentID,
+		"application/json", bytes.NewReader(payload),
+	)
+	if err != nil {
+		t.Fatalf("seed-reply failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("seed-reply returned %d", resp.StatusCode)
+	}
+}
+
 // seedReviewComment seeds a review-level (file-agnostic) comment on crit-web.
 func seedReviewComment(t *testing.T, baseURL, token, body string) {
 	t.Helper()
@@ -1392,5 +1432,166 @@ func TestShareSyncOrphanedFile(t *testing.T) {
 	}
 	if fileComment.Scope != "file" {
 		t.Errorf("file comment scope = %q, want 'file'", fileComment.Scope)
+	}
+}
+
+// TestShareSyncFetchReplies verifies that replies to web-authored comments
+// are fetched back into the local .crit.json when running crit fetch (via re-share).
+func TestShareSyncFetchReplies(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+
+	// Share a simple review
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+
+	output := critShareCmd(t, binary, baseURL, dir, "plan.md")
+	logReview(t, output)
+	token := extractToken(t, output)
+
+	// Seed a comment on crit-web and add two replies to it
+	commentID := seedCommentGetID(t, baseURL, token, "plan.md", "needs more detail", 3, 3)
+	seedReply(t, baseURL, token, commentID, "first reply from web")
+	seedReply(t, baseURL, token, commentID, "second reply from web")
+
+	// Update content to force a re-share (triggers fetch)
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1 (revised)\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	critShareCmd(t, binary, baseURL, dir, "plan.md")
+
+	// Verify the web comment was fetched with its replies
+	cj := readCritJSON(t, dir)
+	var webComment *Comment
+	for i, c := range cj.Files["plan.md"].Comments {
+		if strings.HasPrefix(c.ID, "web-") && c.Body == "needs more detail" {
+			webComment = &cj.Files["plan.md"].Comments[i]
+			break
+		}
+	}
+	if webComment == nil {
+		t.Fatal("web comment 'needs more detail' not found in local .crit.json")
+	}
+
+	// This is the core assertion: replies must be present
+	if len(webComment.Replies) != 2 {
+		t.Fatalf("expected 2 replies on web comment, got %d", len(webComment.Replies))
+	}
+
+	replyBodies := map[string]bool{}
+	for _, r := range webComment.Replies {
+		replyBodies[r.Body] = true
+	}
+	if !replyBodies["first reply from web"] {
+		t.Error("missing reply 'first reply from web'")
+	}
+	if !replyBodies["second reply from web"] {
+		t.Error("missing reply 'second reply from web'")
+	}
+
+	// Verify reply authors are set
+	for _, r := range webComment.Replies {
+		if r.Author == "" {
+			t.Errorf("reply %q has empty author", r.Body)
+		}
+	}
+
+	t.Logf("Fetch replies test passed. Review: %s", extractURL(t, output))
+}
+
+// TestShareSyncFetchRepliesOnExistingComments verifies that when a shared comment
+// (with external_id) gets replies on crit-web, those replies are fetched back.
+// This tests the case where the comment already exists locally (not a new web comment).
+// Note: the first share (POST) doesn't set external_id — only upsert (PUT) does.
+// So we need to re-share once to set external_ids before seeding the reply.
+func TestShareSyncFetchRepliesOnExistingComments(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+
+	// Share a review with a local comment
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Comments: []Comment{
+					{ID: "c1", StartLine: 3, EndLine: 3, Body: "local comment", Scope: "line",
+						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+				},
+			},
+		},
+	})
+
+	output := critShareCmd(t, binary, baseURL, dir, "plan.md")
+	logReview(t, output)
+	token := extractToken(t, output)
+
+	// Re-share with a content change so the upsert (PUT) sets external_id on the comment.
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1 (v2)\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	critShareCmd(t, binary, baseURL, dir, "plan.md")
+
+	// Now the comment on crit-web has external_id "c1". Find its crit-web internal ID.
+	resp, err := http.Get(fmt.Sprintf("%s/api/reviews/%s/comments", baseURL, token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var full []struct {
+		ID         string `json:"id"`
+		ExternalID string `json:"external_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&full); err != nil {
+		t.Fatalf("decoding comments: %v", err)
+	}
+	var webID string
+	for _, f := range full {
+		if f.ExternalID == "c1" {
+			webID = f.ID
+			break
+		}
+	}
+	if webID == "" {
+		t.Fatalf("could not find crit-web ID for comment with external_id c1, got: %+v", full)
+	}
+
+	// Add a reply on crit-web to the shared comment
+	seedReply(t, baseURL, token, webID, "web reply to local comment")
+
+	// Update content and re-share again to trigger fetch with reply updates
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1 (v3)\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	critShareCmd(t, binary, baseURL, dir, "plan.md")
+
+	// Verify the local comment now has the reply
+	cj := readCritJSON(t, dir)
+	var localComment *Comment
+	for i, c := range cj.Files["plan.md"].Comments {
+		if c.ID == "c1" {
+			localComment = &cj.Files["plan.md"].Comments[i]
+			break
+		}
+	}
+	if localComment == nil {
+		t.Fatal("local comment c1 not found after re-share")
+	}
+
+	replyFound := false
+	for _, r := range localComment.Replies {
+		if r.Body == "web reply to local comment" {
+			replyFound = true
+			break
+		}
+	}
+	if !replyFound {
+		t.Errorf("expected reply 'web reply to local comment' on comment c1, got replies: %+v", localComment.Replies)
 	}
 }

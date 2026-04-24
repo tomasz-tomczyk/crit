@@ -289,18 +289,25 @@ func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolv
 	return comments, round
 }
 
+// webReply is the shape of a reply nested inside a webComment.
+type webReply struct {
+	Body              string `json:"body"`
+	AuthorDisplayName string `json:"author_display_name"`
+}
+
 // webComment is the shape of a comment returned by GET /api/reviews/:token/comments.
 type webComment struct {
-	Body              string `json:"body"`
-	FilePath          string `json:"file_path"`
-	StartLine         int    `json:"start_line"`
-	EndLine           int    `json:"end_line"`
-	ReviewRound       int    `json:"review_round"`
-	Resolved          bool   `json:"resolved"`
-	ExternalID        string `json:"external_id"`
-	AuthorDisplayName string `json:"author_display_name"`
-	Quote             string `json:"quote"`
-	Scope             string `json:"scope"`
+	Body              string     `json:"body"`
+	FilePath          string     `json:"file_path"`
+	StartLine         int        `json:"start_line"`
+	EndLine           int        `json:"end_line"`
+	ReviewRound       int        `json:"review_round"`
+	Resolved          bool       `json:"resolved"`
+	ExternalID        string     `json:"external_id"`
+	AuthorDisplayName string     `json:"author_display_name"`
+	Quote             string     `json:"quote"`
+	Scope             string     `json:"scope"`
+	Replies           []webReply `json:"replies"`
 }
 
 // buildLocalFingerprints returns a set of body+file+line fingerprints for all
@@ -321,53 +328,57 @@ func buildLocalFingerprints(cj CritJSON) map[string]bool {
 	return fps
 }
 
-// fetchNewWebComments fetches comments from crit-web and returns only those
-// not already present locally (identified by external_id or body+line fingerprint).
-//
-// Called automatically inside runShare when an existing ShareURL is detected —
-// i.e., when the agent calls `crit share <files>` after applying changes from
-// the crit-web prompt. This captures any web-reviewer comments added after the
-// prompt was generated (e.g., a late-arriving review) so they appear in local
-// the review file before the next round is pushed.
-//
-// shareURL is the full review URL, e.g. "https://crit.md/r/abc123".
-func fetchNewWebComments(shareURL string, localIDs map[string]bool, localFingerprints map[string]bool, authToken string) ([]webComment, error) {
+// fetchWebCommentsResult holds both new comments and reply updates for existing ones.
+type fetchWebCommentsResult struct {
+	NewComments  []webComment
+	ReplyUpdates map[string][]webReply // external_id -> replies from web
+}
+
+// fetchWebComments fetches all comments from crit-web, returning new comments
+// and reply updates for existing comments that have replies added on the web.
+func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprints map[string]bool, authToken string) (fetchWebCommentsResult, error) {
+	var result fetchWebCommentsResult
+	result.ReplyUpdates = make(map[string][]webReply)
+
 	token := path.Base(shareURL)
 	u, err := url.Parse(shareURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid share URL: %w", err)
+		return result, fmt.Errorf("invalid share URL: %w", err)
 	}
 	apiURL := u.Scheme + "://" + u.Host + "/api/reviews/" + token + "/comments"
 
 	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return result, fmt.Errorf("creating request: %w", err)
 	}
 	setBearer(req, authToken)
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetching remote comments: %w", err)
+		return result, fmt.Errorf("fetching remote comments: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil // review gone
+		return result, nil // review gone
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("remote comments returned status %d", resp.StatusCode)
+		return result, fmt.Errorf("remote comments returned status %d", resp.StatusCode)
 	}
 
 	var all []webComment
 	if err := json.NewDecoder(resp.Body).Decode(&all); err != nil {
-		return nil, fmt.Errorf("decoding remote comments: %w", err)
+		return result, fmt.Errorf("decoding remote comments: %w", err)
 	}
 
-	var newOnes []webComment
 	for _, wc := range all {
 		if wc.ExternalID != "" && localIDs[wc.ExternalID] {
-			continue // already have this locally by ID
+			// Comment exists locally — check for new replies from web
+			if len(wc.Replies) > 0 {
+				result.ReplyUpdates[wc.ExternalID] = wc.Replies
+			}
+			continue
 		}
 		if wc.ExternalID == "" {
 			fp := fmt.Sprintf("%s|%s|%d|%d", wc.Body, wc.FilePath, wc.StartLine, wc.EndLine)
@@ -375,9 +386,9 @@ func fetchNewWebComments(shareURL string, localIDs map[string]bool, localFingerp
 				continue // web-authored comment already imported
 			}
 		}
-		newOnes = append(newOnes, wc)
+		result.NewComments = append(result.NewComments, wc)
 	}
-	return newOnes, nil
+	return result, nil
 }
 
 // upsertResult holds the response from an upsert (PUT) to crit-web.
@@ -528,7 +539,8 @@ func highestWebIndex(cj CritJSON) int {
 
 // mergeWebComments adds web-reviewer comments into the review file under their respective
 // files or into review_comments for review-level (scope:"review") comments.
-func mergeWebComments(critPath string, newComments []webComment) error {
+// It also merges reply updates for existing comments identified by external_id.
+func mergeWebComments(critPath string, newComments []webComment, replyUpdates ...map[string][]webReply) error {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
 		return err
@@ -548,6 +560,13 @@ func mergeWebComments(critPath string, newComments []webComment) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, wc := range newComments {
 		webCount++
+		var replies []Reply
+		for _, wr := range wc.Replies {
+			replies = append(replies, Reply{
+				Body:   wr.Body,
+				Author: wr.AuthorDisplayName,
+			})
+		}
 		c := Comment{
 			ID:          fmt.Sprintf("web-%d", webCount),
 			StartLine:   wc.StartLine,
@@ -557,6 +576,7 @@ func mergeWebComments(critPath string, newComments []webComment) error {
 			Author:      wc.AuthorDisplayName,
 			Scope:       wc.Scope,
 			ReviewRound: wc.ReviewRound,
+			Replies:     replies,
 			CreatedAt:   now,
 			UpdatedAt:   now,
 		}
@@ -569,8 +589,51 @@ func mergeWebComments(critPath string, newComments []webComment) error {
 		}
 	}
 
+	// Merge reply updates for existing comments (matched by external_id).
+	if len(replyUpdates) > 0 && len(replyUpdates[0]) > 0 {
+		updates := replyUpdates[0]
+		for filePath, cf := range cj.Files {
+			for i, c := range cf.Comments {
+				if webReplies, ok := updates[c.ID]; ok {
+					cj.Files[filePath] = mergeRepliesIntoFile(cf, i, webReplies)
+					cf = cj.Files[filePath]
+				}
+			}
+		}
+		for i, c := range cj.ReviewComments {
+			if webReplies, ok := updates[c.ID]; ok {
+				cj.ReviewComments[i] = mergeRepliesIntoComment(c, webReplies)
+			}
+		}
+	}
+
 	cj.UpdatedAt = now
 	return saveCritJSON(critPath, cj)
+}
+
+// mergeRepliesIntoFile updates a comment at index i in a CritJSONFile with web replies,
+// deduplicating by body to avoid adding replies that already exist locally.
+func mergeRepliesIntoFile(cf CritJSONFile, i int, webReplies []webReply) CritJSONFile {
+	cf.Comments[i] = mergeRepliesIntoComment(cf.Comments[i], webReplies)
+	return cf
+}
+
+// mergeRepliesIntoComment merges web replies into a comment, deduplicating by body.
+func mergeRepliesIntoComment(c Comment, webReplies []webReply) Comment {
+	existing := make(map[string]bool)
+	for _, r := range c.Replies {
+		existing[r.Body] = true
+	}
+	for _, wr := range webReplies {
+		if existing[wr.Body] {
+			continue
+		}
+		c.Replies = append(c.Replies, Reply{
+			Body:   wr.Body,
+			Author: wr.AuthorDisplayName,
+		})
+	}
+	return c
 }
 
 // updateShareState writes LastShareHash and ReviewRound back to the review file.

@@ -158,10 +158,10 @@ func printQR(url string, showQR bool) {
 func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, sharePaths []string, authToken string, showQR bool) {
 	localIDs := buildLocalIDSet(existingCfg)
 	localFingerprints := buildLocalFingerprints(existingCfg)
-	if webComments, err := fetchNewWebComments(existingCfg.ShareURL, localIDs, localFingerprints, authToken); err != nil {
+	if fetched, err := fetchWebComments(existingCfg.ShareURL, localIDs, localFingerprints, authToken); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not pull remote comments: %v\n", err)
-	} else if len(webComments) > 0 {
-		if err := mergeWebComments(critPath, webComments); err != nil {
+	} else if len(fetched.NewComments) > 0 || len(fetched.ReplyUpdates) > 0 {
+		if err := mergeWebComments(critPath, fetched.NewComments, fetched.ReplyUpdates); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not merge remote comments: %v\n", err)
 		}
 	}
@@ -310,24 +310,32 @@ func runFetch(args []string) {
 	localIDs := buildLocalIDSet(cj)
 	localFingerprints := buildLocalFingerprints(cj)
 
-	webComments, err := fetchNewWebComments(cj.ShareURL, localIDs, localFingerprints, authToken)
+	fetched, err := fetchWebComments(cj.ShareURL, localIDs, localFingerprints, authToken)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error fetching remote comments: %v\n", err)
 		os.Exit(1)
 	}
 
-	if len(webComments) == 0 {
+	if len(fetched.NewComments) == 0 && len(fetched.ReplyUpdates) == 0 {
 		fmt.Println("No new comments.")
 		fmt.Printf("Review file: %s\n", critPath)
 		return
 	}
 
-	if err := mergeWebComments(critPath, webComments); err != nil {
+	if err := mergeWebComments(critPath, fetched.NewComments, fetched.ReplyUpdates); err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving review file: %v\n", err)
 		os.Exit(1)
 	}
 
-	printFetchedComments(webComments)
+	printFetchedComments(fetched.NewComments)
+	if len(fetched.ReplyUpdates) > 0 {
+		replyCount := 0
+		for _, replies := range fetched.ReplyUpdates {
+			replyCount += len(replies)
+		}
+		fmt.Printf("Updated %d comment(s) with new replies.\n", len(fetched.ReplyUpdates))
+		_ = replyCount
+	}
 	fmt.Printf("Review file: %s\n", critPath)
 }
 
