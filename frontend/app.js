@@ -6484,13 +6484,27 @@
   }
 
   function showDisconnected() {
-    const overlay = document.createElement('div');
-    overlay.className = 'disconnected-overlay';
-    const box = document.createElement('div');
-    box.className = 'disconnected-dialog';
-    box.innerHTML = '<div class="disconnected-title">Server stopped</div><div class="disconnected-message">You can close this tab.</div>';
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
+    const header = document.querySelector('.header');
+    const banner = document.createElement('div');
+    banner.className = 'disconnected-banner';
+    banner.setAttribute('role', 'status');
+    banner.setAttribute('aria-live', 'polite');
+
+    const pill = document.createElement('div');
+    pill.className = 'disconnected-pill';
+    pill.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="currentColor" opacity="0.18"/><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.25"/><path d="M4.5 7.1 L6.3 8.9 L9.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Session complete';
+
+    const text = document.createElement('span');
+    text.className = 'disconnected-text';
+    text.textContent = 'Server stopped \u2014 your review is now read only. Safe to close this tab.';
+
+    banner.appendChild(pill);
+    banner.appendChild(text);
+    banner.style.top = header.offsetHeight + 'px';
+    header.insertAdjacentElement('afterend', banner);
+
+    const mainLayout = document.querySelector('.main-layout');
+    if (mainLayout) mainLayout.classList.add('is-finished');
   }
 
   // ===== Share =====

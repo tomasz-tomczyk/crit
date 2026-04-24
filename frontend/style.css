@@ -1636,32 +1636,62 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 
 
-/* ===== Disconnected Overlay ===== */
-.disconnected-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--crit-overlay-bg-heavy);
+/* ===== Disconnected Banner ===== */
+.disconnected-banner {
+  position: sticky;
+  z-index: 99;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  gap: 12px;
+  padding: 10px 24px;
+  background: var(--crit-bg-card);
+  border-bottom: 1px solid var(--crit-border);
+  animation: disconnected-banner-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-.disconnected-dialog {
-  background: var(--crit-editor-bg);
-  border: 1px solid var(--crit-border);
-  border-radius: 12px;
-  padding: 32px 40px;
-  text-align: center;
-  color: var(--crit-editor-fg);
-  font-family: inherit;
+@keyframes disconnected-banner-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-.disconnected-title {
-  font-size: 20px;
+.disconnected-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 7px;
+  background: var(--crit-finish-pill-bg);
+  border: 1px solid var(--crit-finish-pill-border);
+  border-radius: 100px;
+  font-size: 11px;
   font-weight: 600;
-  margin-bottom: 8px;
+  letter-spacing: 0.01em;
+  color: var(--crit-finish-pill-fg);
+  flex-shrink: 0;
 }
-.disconnected-message {
-  color: var(--crit-editor-fg-secondary);
+.disconnected-pill svg {
+  flex-shrink: 0;
+  animation: disconnected-check-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) 0.25s both;
+}
+@keyframes disconnected-check-pop {
+  from { transform: scale(0.5); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.disconnected-text {
+  font-size: 13px;
+  color: var(--crit-finish-body-fg);
+}
+.main-layout.is-finished::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: var(--crit-finish-scrim);
+  pointer-events: none;
+  animation: disconnected-scrim-in 0.6s ease 0.15s both;
+  backdrop-filter: blur(0.5px);
+}
+@keyframes disconnected-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* ===== Waiting Overlay ===== */
