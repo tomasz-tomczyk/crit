@@ -4595,6 +4595,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ body: body.trim() })
         });
+        if (!res.ok) throw new Error('Server returned ' + res.status);
         const updated = await res.json();
         const idx = file.comments.findIndex(c => c.id === formObj.editingId);
         if (idx >= 0) file.comments[idx] = updated;
@@ -4618,6 +4619,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
+        if (!res.ok) throw new Error('Server returned ' + res.status);
         const newComment = await res.json();
         file.comments.push(newComment);
         created = newComment;
@@ -6199,9 +6201,11 @@
       }
 
       try { await navigator.clipboard.writeText(prompt); } catch {}
-    } catch {}
-
-    setUIState('waiting');
+      setUIState('waiting');
+    } catch (err) {
+      console.error('Error finishing review:', err);
+      showMiniToast('Failed to finish review');
+    }
   }
 
   async function resolveAllAndFinish() {
