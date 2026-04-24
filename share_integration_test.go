@@ -1317,7 +1317,7 @@ func TestShareSyncOrphanedFile(t *testing.T) {
 		{File: "old-code.go", Body: "file-level note about removal", Scope: "file"},
 	}
 
-	url, _, err := shareFilesToWeb(files, comments, baseURL, 2, "")
+	url, _, err := shareFilesToWeb(files, comments, baseURL, 2, "", nil)
 	if err != nil {
 		t.Fatalf("sharing with orphaned file failed: %v", err)
 	}

@@ -84,7 +84,7 @@ type shareComment struct {
 }
 
 // buildSharePayload constructs the JSON payload for POST /api/reviews.
-func buildSharePayload(files []shareFile, comments []shareComment, reviewRound int) map[string]any {
+func buildSharePayload(files []shareFile, comments []shareComment, reviewRound int, cliArgs []string) map[string]any {
 	fileList := make([]map[string]any, len(files))
 	for i, f := range files {
 		entry := map[string]any{"path": f.Path, "content": f.Content}
@@ -96,16 +96,20 @@ func buildSharePayload(files []shareFile, comments []shareComment, reviewRound i
 	if comments == nil {
 		comments = []shareComment{}
 	}
-	return map[string]any{
+	payload := map[string]any{
 		"files":        fileList,
 		"review_round": reviewRound,
 		"comments":     comments,
 	}
+	if len(cliArgs) > 0 {
+		payload["cli_args"] = cliArgs
+	}
+	return payload
 }
 
 // shareFilesToWeb uploads files to a crit-web instance and returns the share URL and delete token.
-func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string, reviewRound int, authToken string) (string, string, error) {
-	payload := buildSharePayload(files, comments, reviewRound)
+func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string, reviewRound int, authToken string, cliArgs []string) (string, string, error) {
+	payload := buildSharePayload(files, comments, reviewRound, cliArgs)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", "", fmt.Errorf("marshaling payload: %w", err)
@@ -144,6 +148,19 @@ func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string
 		return "", "", fmt.Errorf("decoding share response: %w", err)
 	}
 	return result.URL, result.DeleteToken, nil
+}
+
+// loadCliArgsFromReviewFile reads the review file and returns the stored cli_args.
+func loadCliArgsFromReviewFile(critPath string) []string {
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		return nil
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return nil
+	}
+	return cj.CliArgs
 }
 
 // unpublishFromWeb deletes a shared review from a crit-web instance.
@@ -401,6 +418,9 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, 
 		"files":        fileList,
 		"comments":     comments,
 		"review_round": cfg.ReviewRound,
+	}
+	if len(cfg.CliArgs) > 0 {
+		payload["cli_args"] = cfg.CliArgs
 	}
 
 	body, err := json.Marshal(payload)

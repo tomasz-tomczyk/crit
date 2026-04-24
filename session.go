@@ -227,6 +227,7 @@ type CritJSON struct {
 	ShareScope     string                  `json:"share_scope,omitempty"`
 	LastShareHash  string                  `json:"last_share_hash,omitempty"`
 	ReviewComments []Comment               `json:"review_comments,omitempty"`
+	CliArgs        []string                `json:"cli_args,omitempty"`
 	Files          map[string]CritJSONFile `json:"files"`
 }
 
@@ -1546,6 +1547,7 @@ type writeFilesSnapshot struct {
 	deleteToken    string
 	shareScope     string
 	reviewComments []Comment
+	cliArgs        []string
 	// Per-file data needed for the merge. We copy comments so the snapshot
 	// is independent of later in-memory mutations.
 	files []writeFileSnapshot
@@ -1621,6 +1623,7 @@ func buildCritJSON(snap writeFilesSnapshot) CritJSON {
 	cj.DeleteToken = snap.deleteToken
 	cj.ShareScope = snap.shareScope
 	cj.ReviewComments = snap.reviewComments
+	cj.CliArgs = snap.cliArgs
 
 	for _, fs := range snap.files {
 		mergeFileSnapshotIntoCritJSON(&cj, fs)
@@ -1736,6 +1739,7 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 		deleteToken:    s.deleteToken,
 		shareScope:     s.shareScope,
 		reviewComments: rc,
+		cliArgs:        s.CLIArgs,
 		files:          make([]writeFileSnapshot, len(s.Files)),
 	}
 	for i, f := range s.Files {
