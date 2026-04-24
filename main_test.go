@@ -1013,3 +1013,77 @@ func TestRunReviewClientRaw_NoReadinessDelay(t *testing.T) {
 		t.Errorf("took %v, expected near-instant when daemon is already ready", elapsed)
 	}
 }
+
+// TestFetch_PrintsReviewFilePath verifies that crit fetch prints the review
+// file path in both the "no new comments" and "fetched N comments" cases.
+func TestFetch_PrintsReviewFilePath(t *testing.T) {
+	tests := []struct {
+		name        string
+		comments    []webComment
+		wantContain string
+	}{
+		{
+			name:        "no new comments",
+			comments:    nil,
+			wantContain: "No new comments.",
+		},
+		{
+			name: "with new comments",
+			comments: []webComment{
+				{Body: "fix this", FilePath: "main.go", StartLine: 10, EndLine: 10, Scope: "line"},
+			},
+			wantContain: "Fetched 1 new comment(s)",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(tc.comments)
+			}))
+			defer ts.Close()
+
+			tmpDir := t.TempDir()
+			cj := CritJSON{
+				ShareURL: ts.URL + "/r/test123",
+				Files:    map[string]CritJSONFile{},
+			}
+			data, err := json.Marshal(cj)
+			if err != nil {
+				t.Fatal(err)
+			}
+			critPath := filepath.Join(tmpDir, ".crit.json")
+			if err := os.WriteFile(critPath, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_Fetch", "--")
+			cmd.Env = append(os.Environ(),
+				"GO_TEST_HELPER=1",
+				"GO_TEST_FETCH_OUTPUT_DIR="+tmpDir,
+			)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("fetch exited with error: %v\noutput: %s", err, out)
+			}
+			output := string(out)
+
+			if !strings.Contains(output, tc.wantContain) {
+				t.Errorf("expected output to contain %q, got:\n%s", tc.wantContain, output)
+			}
+			wantPath := "Review file: " + critPath
+			if !strings.Contains(output, wantPath) {
+				t.Errorf("expected output to contain %q, got:\n%s", wantPath, output)
+			}
+		})
+	}
+}
+
+func TestHelperProcess_Fetch(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	outputDir := os.Getenv("GO_TEST_FETCH_OUTPUT_DIR")
+	runFetch([]string{"--output", outputDir})
+}
