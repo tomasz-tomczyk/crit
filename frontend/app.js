@@ -7402,9 +7402,9 @@
   }
 
   function applyHideResolved() {
-    var hide = localStorage.getItem('crit-hide-resolved') === 'true';
+    const hide = localStorage.getItem('crit-hide-resolved') === 'true';
     document.querySelectorAll('.comment-block:not(.panel-comment-block)').forEach(function(block) {
-      var card = block.querySelector('.resolved-card');
+      const card = block.querySelector('.resolved-card');
       if (card) {
         block.style.display = hide ? 'none' : '';
       }
@@ -7460,7 +7460,7 @@
     html += '</div></div>';
 
     // Hide resolved row
-    var hideResolved = localStorage.getItem('crit-hide-resolved') === 'true';
+    const hideResolved = localStorage.getItem('crit-hide-resolved') === 'true';
     html += '<div class="settings-display-row">';
     html += '<span class="settings-display-label">Hide resolved</span>';
     html += '<label class="comments-panel-switch">';
@@ -7621,7 +7621,7 @@
     updatePillIndicator('settingsWidthIndicator', ['compact', 'default', 'wide'], currentWidth);
 
     // Wire up hide-resolved toggle
-    var hideResolvedToggle = pane.querySelector('#hideResolvedToggle');
+    const hideResolvedToggle = pane.querySelector('#hideResolvedToggle');
     if (hideResolvedToggle) {
       hideResolvedToggle.addEventListener('change', function() {
         localStorage.setItem('crit-hide-resolved', hideResolvedToggle.checked ? 'true' : 'false');
@@ -7914,10 +7914,10 @@
       }
       case 'h': {
         e.preventDefault();
-        var currentHide = localStorage.getItem('crit-hide-resolved') === 'true';
+        const currentHide = localStorage.getItem('crit-hide-resolved') === 'true';
         localStorage.setItem('crit-hide-resolved', currentHide ? 'false' : 'true');
         applyHideResolved();
-        var ht = document.getElementById('hideResolvedToggle');
+        const ht = document.getElementById('hideResolvedToggle');
         if (ht) ht.checked = !currentHide;
         break;
       }
