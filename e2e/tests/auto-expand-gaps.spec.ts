@@ -94,9 +94,11 @@ test.describe('Auto-expand small gaps — Split Mode', () => {
     const section = serverSection(page);
     await expect(section).toBeVisible();
 
-    // With all gaps ≤ 8, all hunks merge into one, so only one hunk header
+    // With all gaps ≤ 8, all hunks merge into one contiguous block.
+    // The leading spacer embeds the first hunk's header, and subsequent
+    // hunks are contiguous — so no standalone hunk headers are rendered.
     const hunkHeaders = section.locator('.diff-hunk-header');
-    await expect(hunkHeaders).toHaveCount(1);
+    await expect(hunkHeaders).toHaveCount(0);
   });
 });
 
@@ -161,17 +163,18 @@ test.describe('Large gaps still show spacer', () => {
     await loadPage(page);
   });
 
-  test('large gaps (> 8 lines) still show spacer with unchanged line count', async ({ page }) => {
+  test('large gaps (> 8 lines) still show spacer with expand controls', async ({ page }) => {
     // routes.go has a gap of >20 unchanged lines between its two hunks,
     // so the spacer should still be visible after auto-expansion, showing
-    // directional expand controls and the unchanged line count.
+    // directional expand controls and the hunk header text.
     const treeEntry = page.locator('.tree-file-name', { hasText: 'routes.go' });
     await treeEntry.click();
 
     const routesSection = page.locator('#file-section-routes\\.go');
     const spacer = routesSection.locator('.diff-spacer').first();
     await expect(spacer).toBeVisible();
-    await expect(spacer).toContainText('unchanged line');
+    // Spacer now embeds the @@ hunk header instead of "unchanged line" text
+    await expect(spacer.locator('.spacer-hunk-text')).toContainText('@@');
   });
 });
 
@@ -191,13 +194,14 @@ test.describe('Auto-expand does not break other files', () => {
     await expect(additionSide.first()).toBeVisible();
   });
 
-  test('auto-expanded file still renders hunk header', async ({ page }) => {
+  test('auto-expanded file still renders hunk header in spacer', async ({ page }) => {
     const section = serverSection(page);
     await expect(section).toBeVisible();
 
-    // Should have at least one hunk header even after merging
-    const hunkHeader = section.locator('.diff-hunk-header');
-    await expect(hunkHeader.first()).toBeVisible();
-    await expect(hunkHeader.first().locator('.hunk-text')).toContainText('@@');
+    // After merging, standalone hunk headers are suppressed — the leading
+    // spacer embeds the first hunk's @@ header text instead.
+    const leadingSpacer = section.locator('.diff-spacer-leading');
+    await expect(leadingSpacer).toBeVisible();
+    await expect(leadingSpacer.locator('.spacer-hunk-text')).toContainText('@@');
   });
 });

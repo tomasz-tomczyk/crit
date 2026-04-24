@@ -39,27 +39,20 @@ test.describe('Incremental Expand — Split Mode (default)', () => {
     const spacer = section.locator('.diff-spacer').first();
     await expect(spacer).toBeVisible();
 
-    // Get original spacer text to know the gap size
-    const spacerText = await spacer.textContent();
-    const gapMatch = spacerText?.match(/(\d+)/);
-    expect(gapMatch).toBeTruthy();
-    const originalGap = parseInt(gapMatch![1], 10);
-    expect(originalGap).toBeGreaterThan(20);
-
     // Click expand-down
     const expandDown = spacer.locator('[aria-label="Expand 20 lines down"]');
     await expandDown.click();
 
-    // After expansion, more rows should be visible
+    // After expansion, 20 more rows should be visible
     await expect(async () => {
       const rowsAfter = await section.locator('.diff-split-row').count();
       expect(rowsAfter).toBe(rowsBefore + 20);
     }).toPass();
 
-    // A spacer should still exist with updated remaining count
+    // A spacer should still exist (gap was > 20, so remainder > 0)
     const remainingSpacer = section.locator('.diff-spacer').first();
     await expect(remainingSpacer).toBeVisible();
-    await expect(remainingSpacer).toContainText(`${originalGap - 20}`);
+    await expect(remainingSpacer.locator('.spacer-hunk-text')).toContainText('@@');
   });
 
   test('clicking expand-up reveals 20 lines above next hunk', async ({ page }) => {
@@ -91,22 +84,28 @@ test.describe('Incremental Expand — Split Mode (default)', () => {
     await expect(remainingSpacer).toContainText(`${originalGap - 20}`);
   });
 
-  test('after partial expansion, spacer shows updated remaining count', async ({ page }) => {
+  test('after partial expansion, spacer still shows expand controls', async ({ page }) => {
     const section = routesSection(page);
     await expect(section).toBeVisible();
 
+    const rowsBefore = await section.locator('.diff-split-row').count();
+
     const spacer = section.locator('.diff-spacer').first();
-    const spacerText = await spacer.textContent();
-    const originalGap = parseInt(spacerText!.match(/(\d+)/)![1], 10);
+    await expect(spacer).toBeVisible();
 
     // Expand down first
     await spacer.locator('[aria-label="Expand 20 lines down"]').click();
 
-    // Spacer should show remaining gap
-    const remainingGap = originalGap - 20;
-    await expect(section.locator('.diff-spacer').first()).toContainText(
-      `${remainingGap}`
-    );
+    // After expansion, 20 more rows should be visible
+    await expect(async () => {
+      const rowsAfter = await section.locator('.diff-split-row').count();
+      expect(rowsAfter).toBe(rowsBefore + 20);
+    }).toPass();
+
+    // Spacer should still exist with hunk header text and expand controls
+    const remainingSpacer = section.locator('.diff-spacer').first();
+    await expect(remainingSpacer).toBeVisible();
+    await expect(remainingSpacer.locator('.expand-gutter .expand-btn')).toHaveCount(2);
   });
 
 });
@@ -144,22 +143,19 @@ test.describe('Incremental Expand — Unified Mode', () => {
     const linesBefore = await section.locator('.diff-line').count();
 
     const spacer = section.locator('.diff-spacer').first();
-    const spacerText = await spacer.textContent();
-    const originalGap = parseInt(spacerText!.match(/(\d+)/)![1], 10);
-    expect(originalGap).toBeGreaterThan(20);
+    await expect(spacer).toBeVisible();
 
     await spacer.locator('[aria-label="Expand 20 lines down"]').click();
 
-    // After expansion, more diff lines should be visible
+    // After expansion, 20 more diff lines should be visible
     await expect(async () => {
       const linesAfter = await section.locator('.diff-line').count();
       expect(linesAfter).toBe(linesBefore + 20);
     }).toPass();
 
-    // Spacer should still exist with updated count
-    await expect(section.locator('.diff-spacer').first()).toContainText(
-      `${originalGap - 20}`
-    );
+    // Spacer should still exist with hunk header text
+    await expect(section.locator('.diff-spacer').first()).toBeVisible();
+    await expect(section.locator('.diff-spacer').first().locator('.spacer-hunk-text')).toContainText('@@');
   });
 
   test('clicking expand-up in unified mode adds context lines', async ({ page }) => {

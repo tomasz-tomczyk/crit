@@ -43,7 +43,8 @@ test.describe('Leading Spacer — Split Mode', () => {
 
     const leadingSpacer = section.locator('.diff-spacer-leading');
     await expect(leadingSpacer).toBeVisible();
-    await expect(leadingSpacer).toContainText('Expand');
+    // Leading spacer now has an expand button inside .expand-gutter instead of text
+    await expect(leadingSpacer.locator('.expand-gutter .expand-btn')).toBeVisible();
   });
 
   test('no leading spacer when first hunk starts at line 1 (new file)', async ({ page }) => {
@@ -65,7 +66,8 @@ test.describe('Leading Spacer — Split Mode', () => {
 
     const leadingSpacer = section.locator('.diff-spacer-leading');
     await expect(leadingSpacer).toBeVisible();
-    await leadingSpacer.click();
+    // Click the expand button inside the leading spacer
+    await leadingSpacer.locator('.expand-gutter .expand-btn').click();
 
     // After clicking, more rows should appear
     await expect(async () => {
@@ -83,7 +85,7 @@ test.describe('Leading Spacer — Split Mode', () => {
 
     // For utils.go, the gap before the first hunk is small (< 20 lines),
     // so one click should expand all and remove the spacer.
-    await leadingSpacer.click();
+    await leadingSpacer.locator('.expand-gutter .expand-btn').click();
 
     await expect(section.locator('.diff-spacer-leading')).toHaveCount(0);
   });
@@ -95,7 +97,9 @@ test.describe('Leading Spacer — Split Mode', () => {
     // server.go hunk starts at line 2, so there's a 1-line gap (package main)
     const leadingSpacer = section.locator('.diff-spacer-leading');
     await expect(leadingSpacer).toBeVisible();
-    await expect(leadingSpacer).toContainText('Expand 1 unchanged line');
+    // Leading spacer now has an expand button and embeds the hunk header
+    await expect(leadingSpacer.locator('.expand-gutter .expand-btn')).toBeVisible();
+    await expect(leadingSpacer.locator('.spacer-hunk-text')).toContainText('@@');
   });
 });
 
@@ -141,7 +145,8 @@ test.describe('Leading Spacer — Unified Mode', () => {
 
     const leadingSpacer = section.locator('.diff-spacer-leading');
     await expect(leadingSpacer).toBeVisible();
-    await expect(leadingSpacer).toContainText('Expand');
+    // Leading spacer now has an expand button inside .expand-gutter instead of text
+    await expect(leadingSpacer.locator('.expand-gutter .expand-btn')).toBeVisible();
   });
 
   test('clicking leading spacer in unified mode reveals context lines', async ({ page }) => {
@@ -153,7 +158,8 @@ test.describe('Leading Spacer — Unified Mode', () => {
 
     const leadingSpacer = section.locator('.diff-spacer-leading');
     await expect(leadingSpacer).toBeVisible();
-    await leadingSpacer.click();
+    // Click the expand button inside the leading spacer
+    await leadingSpacer.locator('.expand-gutter .expand-btn').click();
 
     await expect(async () => {
       const countAfter = await section.locator('.diff-line').count();
@@ -204,7 +210,8 @@ test.describe('Leading Spacer — Expanded Lines Are Commentable', () => {
 
     const leadingSpacer = section.locator('.diff-spacer-leading');
     await expect(leadingSpacer).toBeVisible();
-    await leadingSpacer.click();
+    // Click the expand button inside the leading spacer
+    await leadingSpacer.locator('.expand-gutter .expand-btn').click();
 
     // Wait for re-render
     await expect(section.locator('.diff-spacer-leading')).toHaveCount(0);
