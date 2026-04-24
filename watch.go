@@ -14,7 +14,6 @@ func (s *Session) RefreshDiffs() {
 	// Snapshot file list and baseRef under read lock
 	s.mu.RLock()
 	type fileSnapshot struct {
-		entry   *FileEntry
 		path    string
 		status  string
 		content string
@@ -25,7 +24,6 @@ func (s *Session) RefreshDiffs() {
 			continue
 		}
 		snapshots = append(snapshots, fileSnapshot{
-			entry:   f,
 			path:    f.Path,
 			status:  f.Status,
 			content: f.Content,
@@ -38,7 +36,7 @@ func (s *Session) RefreshDiffs() {
 
 	// Compute diffs without holding any lock
 	type diffResult struct {
-		entry *FileEntry
+		path  string
 		hunks []DiffHunk
 	}
 	results := make([]diffResult, 0, len(snapshots))
@@ -54,13 +52,18 @@ func (s *Session) RefreshDiffs() {
 				hunks = h
 			}
 		}
-		results = append(results, diffResult{entry: snap.entry, hunks: hunks})
+		results = append(results, diffResult{path: snap.path, hunks: hunks})
 	}
 
-	// Assign results under write lock
+	// Assign results under write lock — look up by path, not stale pointer
 	s.mu.Lock()
 	for _, r := range results {
-		r.entry.DiffHunks = r.hunks
+		for _, f := range s.Files {
+			if f.Path == r.path {
+				f.DiffHunks = r.hunks
+				break
+			}
+		}
 	}
 	s.mu.Unlock()
 }
