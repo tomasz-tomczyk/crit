@@ -204,7 +204,7 @@ func TestBuildSharePayload_SingleFile(t *testing.T) {
 	files := []shareFile{
 		{Path: "plan.md", Content: "# My Plan\n\nStep 1: do the thing"},
 	}
-	payload := buildSharePayload(files, nil, 1)
+	payload := buildSharePayload(files, nil, 1, nil)
 
 	// Multi-file format is always used
 	pFiles, ok := payload["files"].([]map[string]any)
@@ -237,7 +237,7 @@ func TestBuildSharePayload_MultiFile(t *testing.T) {
 		{Path: "plan.md", Content: "# Plan"},
 		{Path: "src/main.go", Content: "package main"},
 	}
-	payload := buildSharePayload(files, nil, 2)
+	payload := buildSharePayload(files, nil, 2, nil)
 
 	pFiles := payload["files"].([]map[string]any)
 	if len(pFiles) != 2 {
@@ -255,7 +255,7 @@ func TestBuildSharePayload_WithComments(t *testing.T) {
 	comments := []shareComment{
 		{File: "plan.md", StartLine: 1, EndLine: 3, Body: "Needs more detail", Author: "Claude"},
 	}
-	payload := buildSharePayload(files, comments, 1)
+	payload := buildSharePayload(files, comments, 1, nil)
 
 	pComments := payload["comments"].([]shareComment)
 	if len(pComments) != 1 {
@@ -296,7 +296,7 @@ func TestShareFilesToWeb_Success(t *testing.T) {
 	defer server.Close()
 
 	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	url, token, err := shareFilesToWeb(files, nil, server.URL, 1, "")
+	url, token, err := shareFilesToWeb(files, nil, server.URL, 1, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestShareFilesToWeb_ServerError(t *testing.T) {
 	defer server.Close()
 
 	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	_, _, err := shareFilesToWeb(files, nil, server.URL, 1, "")
+	_, _, err := shareFilesToWeb(files, nil, server.URL, 1, "", nil)
 	if err == nil {
 		t.Fatal("expected error for server error response")
 	}
@@ -324,7 +324,7 @@ func TestShareFilesToWeb_ServerError(t *testing.T) {
 
 func TestShareFilesToWeb_NetworkError(t *testing.T) {
 	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	_, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1, "")
+	_, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1, "", nil)
 	if err == nil {
 		t.Fatal("expected error for unreachable server")
 	}
@@ -1011,7 +1011,7 @@ func TestBuildSharePayload_WithStatusAndOrphaned(t *testing.T) {
 		{Path: "removed.go", Content: "", Status: "removed"},
 		{Path: "nostat.md", Content: "# Hello"},
 	}
-	payload := buildSharePayload(files, nil, 1)
+	payload := buildSharePayload(files, nil, 1, nil)
 
 	pFiles, ok := payload["files"].([]map[string]any)
 	if !ok {
@@ -1105,7 +1105,7 @@ func TestBuildSharePayload_WithReplies(t *testing.T) {
 			{Body: "verified", Author: "Alice"},
 		},
 	}}
-	payload := buildSharePayload(files, comments, 1)
+	payload := buildSharePayload(files, comments, 1, nil)
 	cs := payload["comments"].([]shareComment)
 	if len(cs) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(cs))
@@ -1121,6 +1121,75 @@ func TestBuildSharePayload_WithReplies(t *testing.T) {
 	}
 }
 
+func TestBuildSharePayload_WithCliArgs(t *testing.T) {
+	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
+
+	t.Run("included when provided", func(t *testing.T) {
+		args := []string{"plan.md", "notes.md"}
+		payload := buildSharePayload(files, nil, 1, args)
+		got, ok := payload["cli_args"].([]string)
+		if !ok {
+			t.Fatal("expected cli_args in payload")
+		}
+		if len(got) != 2 || got[0] != "plan.md" || got[1] != "notes.md" {
+			t.Errorf("unexpected cli_args: %v", got)
+		}
+	})
+
+	t.Run("omitted when nil", func(t *testing.T) {
+		payload := buildSharePayload(files, nil, 1, nil)
+		if _, ok := payload["cli_args"]; ok {
+			t.Error("cli_args should be absent when nil")
+		}
+	})
+
+	t.Run("omitted when empty", func(t *testing.T) {
+		payload := buildSharePayload(files, nil, 1, []string{})
+		if _, ok := payload["cli_args"]; ok {
+			t.Error("cli_args should be absent when empty")
+		}
+	})
+}
+
+func TestLoadCliArgsFromReviewFile(t *testing.T) {
+	t.Run("reads args from valid file", func(t *testing.T) {
+		dir := t.TempDir()
+		critPath := filepath.Join(dir, "review.json")
+		cj := CritJSON{
+			Branch:  "main",
+			CliArgs: []string{"plan.md", "design.md"},
+			Files:   map[string]CritJSONFile{},
+		}
+		data, _ := json.Marshal(cj)
+		os.WriteFile(critPath, data, 0644)
+
+		got := loadCliArgsFromReviewFile(critPath)
+		if len(got) != 2 || got[0] != "plan.md" || got[1] != "design.md" {
+			t.Errorf("expected [plan.md design.md], got %v", got)
+		}
+	})
+
+	t.Run("returns nil for missing file", func(t *testing.T) {
+		got := loadCliArgsFromReviewFile("/nonexistent/path.json")
+		if got != nil {
+			t.Errorf("expected nil, got %v", got)
+		}
+	})
+
+	t.Run("returns nil for file without cli_args", func(t *testing.T) {
+		dir := t.TempDir()
+		critPath := filepath.Join(dir, "review.json")
+		cj := CritJSON{Branch: "main", Files: map[string]CritJSONFile{}}
+		data, _ := json.Marshal(cj)
+		os.WriteFile(critPath, data, 0644)
+
+		got := loadCliArgsFromReviewFile(critPath)
+		if got != nil {
+			t.Errorf("expected nil, got %v", got)
+		}
+	})
+}
+
 func TestShareFilesToWeb_SendsBearerToken(t *testing.T) {
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1134,7 +1203,7 @@ func TestShareFilesToWeb_SendsBearerToken(t *testing.T) {
 	defer server.Close()
 
 	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	shareFilesToWeb(files, nil, server.URL, 1, "crit_testtoken")
+	shareFilesToWeb(files, nil, server.URL, 1, "crit_testtoken", nil)
 	if gotAuth != "Bearer crit_testtoken" {
 		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
 	}

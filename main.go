@@ -188,8 +188,9 @@ func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, 
 
 func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL, authToken string, showQR bool) {
 	comments, reviewRound := loadCommentsForShare(critPath, filePaths)
+	cliArgs := loadCliArgsFromReviewFile(critPath)
 
-	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken)
+	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

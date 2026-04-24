@@ -357,8 +357,9 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 
 	critPath := s.session.Load().critJSONPath()
 	comments, reviewRound := loadCommentsForShare(critPath, filePaths)
+	cliArgs := loadCliArgsFromReviewFile(critPath)
 
-	url, deleteToken, err := shareFilesToWeb(files, comments, s.shareURL, reviewRound, s.authToken)
+	url, deleteToken, err := shareFilesToWeb(files, comments, s.shareURL, reviewRound, s.authToken, cliArgs)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
