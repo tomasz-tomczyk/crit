@@ -161,15 +161,15 @@ func TestFetchNewWebComments_FiltersLocalComments(t *testing.T) {
 	defer srv.Close()
 
 	localIDs := map[string]bool{"c1": true}
-	got, err := fetchNewWebComments(srv.URL+"/r/testtoken", localIDs, nil, "")
+	result, err := fetchWebComments(srv.URL+"/r/testtoken", localIDs, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("expected 1 new comment, got %d", len(got))
+	if len(result.NewComments) != 1 {
+		t.Fatalf("expected 1 new comment, got %d", len(result.NewComments))
 	}
-	if got[0].Body != "web reviewer note" {
-		t.Errorf("expected body 'web reviewer note', got %q", got[0].Body)
+	if result.NewComments[0].Body != "web reviewer note" {
+		t.Errorf("expected body 'web reviewer note', got %q", result.NewComments[0].Body)
 	}
 }
 
@@ -179,12 +179,12 @@ func TestFetchNewWebComments_404ReturnsNil(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := fetchNewWebComments(srv.URL+"/r/gone", nil, nil, "")
+	result, err := fetchWebComments(srv.URL+"/r/gone", nil, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error for 404: %v", err)
 	}
-	if got != nil {
-		t.Errorf("expected nil for 404, got %v", got)
+	if result.NewComments != nil {
+		t.Errorf("expected nil for 404, got %v", result.NewComments)
 	}
 }
 
@@ -194,7 +194,7 @@ func TestFetchNewWebComments_ServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := fetchNewWebComments(srv.URL+"/r/broken", nil, nil, "")
+	_, err := fetchWebComments(srv.URL+"/r/broken", nil, nil, "")
 	if err == nil {
 		t.Fatal("expected error for 500 response")
 	}
@@ -1231,7 +1231,7 @@ func TestFetchNewWebComments_SendsBearerToken(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fetchNewWebComments(srv.URL+"/r/tok", nil, nil, "crit_testtoken")
+	fetchWebComments(srv.URL+"/r/tok", nil, nil, "crit_testtoken")
 	if gotAuth != "Bearer crit_testtoken" {
 		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
 	}
