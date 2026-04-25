@@ -63,6 +63,27 @@ test.describe('TOC Refresh on File Change — Single File Mode', () => {
     await expect(tocList.locator('a', { hasText: 'Authentication Plan' })).toHaveCount(0);
   });
 
+  test('TOC button and panel hide when all headings are removed', async ({ page, request }) => {
+    await loadPage(page);
+
+    // Open TOC so the panel is visible — sets up the regression scenario
+    const toggle = page.locator('#tocToggle');
+    await toggle.click();
+    const toc = page.locator('#toc');
+    await expect(toc).not.toHaveClass(/toc-hidden/);
+
+    // Replace plan.md with content that has no headings at all
+    const planPath = path.join(fixtureDir, 'plan.md');
+    fs.writeFileSync(planPath, 'Just a paragraph.\n\nNo headings here at all.\n');
+
+    // Trigger round-complete so the frontend rebuilds the TOC
+    await request.post('/api/round-complete');
+
+    // Toggle button should hide and panel should re-hide itself
+    await expect(toggle).toBeHidden({ timeout: 5000 });
+    await expect(toc).toHaveClass(/toc-hidden/);
+  });
+
   test('TOC updates when a heading is added after round-complete', async ({ page, request }) => {
     await loadPage(page);
 

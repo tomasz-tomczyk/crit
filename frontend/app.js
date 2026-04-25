@@ -6818,6 +6818,7 @@
 
     function hideToc() {
       toggleBtn.style.display = 'none';
+      tocEl.classList.add('toc-hidden');
     }
 
     // TOC only for single-file markdown reviews
