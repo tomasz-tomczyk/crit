@@ -2302,3 +2302,100 @@ func TestBulkAddCommentsToCritJSON_PopulatesAnchor(t *testing.T) {
 		t.Errorf("Anchor = %q, want %q", comments[0].Anchor, "import \"net/http\"")
 	}
 }
+
+// --- processBulkReviewEntry tests ---
+
+func TestProcessBulkReviewEntry_ReviewScope(t *testing.T) {
+	cj := CritJSON{Files: map[string]CritJSONFile{}}
+	e := BulkCommentEntry{Body: "overall looks good", Scope: "review"}
+	err := processBulkReviewEntry(&cj, 0, e, "reviewer")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cj.ReviewComments) != 1 {
+		t.Fatalf("expected 1 review comment, got %d", len(cj.ReviewComments))
+	}
+	if cj.ReviewComments[0].Body != "overall looks good" {
+		t.Errorf("body = %q, want 'overall looks good'", cj.ReviewComments[0].Body)
+	}
+	if cj.ReviewComments[0].Author != "reviewer" {
+		t.Errorf("author = %q, want 'reviewer'", cj.ReviewComments[0].Author)
+	}
+}
+
+func TestProcessBulkReviewEntry_WithLineRejectsNoFile(t *testing.T) {
+	cj := CritJSON{Files: map[string]CritJSONFile{}}
+	e := BulkCommentEntry{Body: "bad", Scope: "review", Line: 5}
+	err := processBulkReviewEntry(&cj, 0, e, "author")
+	if err == nil {
+		t.Error("expected error when review entry has line number")
+	}
+}
+
+func TestProcessBulkReviewEntry_NonReviewScopeWithFile(t *testing.T) {
+	cj := CritJSON{Files: map[string]CritJSONFile{}}
+	// When scope != "review" but File/Path are set, it errors because
+	// file-scoped comments should go through processBulkFileOrLineEntry.
+	e := BulkCommentEntry{Body: "bad", Scope: "line", File: "test.go"}
+	err := processBulkReviewEntry(&cj, 1, e, "author")
+	if err == nil {
+		t.Error("expected error when non-review scope has file set")
+	}
+}
+
+func TestProcessBulkReviewEntry_NoFileFallsThrough(t *testing.T) {
+	cj := CritJSON{Files: map[string]CritJSONFile{}}
+	// When no file/path is set and scope is not "review", it still adds a review comment.
+	e := BulkCommentEntry{Body: "general feedback", Scope: "line"}
+	err := processBulkReviewEntry(&cj, 0, e, "author")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cj.ReviewComments) != 1 {
+		t.Errorf("expected 1 review comment, got %d", len(cj.ReviewComments))
+	}
+}
+
+// --- addFileCommentToCritJSON additional tests ---
+
+func TestAddFileCommentToCritJSON_Success(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "test.go"), "package main\n")
+
+	// Create initial crit.json.
+	cj := CritJSON{
+		Branch:  "main",
+		BaseRef: "abc",
+		Files:   map[string]CritJSONFile{},
+	}
+	critPath := filepath.Join(dir, ".crit.json")
+	data, _ := json.Marshal(cj)
+	os.WriteFile(critPath, data, 0644)
+
+	err := addFileCommentToCritJSON("test.go", "file-level feedback", "reviewer", dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Re-read and verify.
+	data, err = os.ReadFile(critPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result CritJSON
+	json.Unmarshal(data, &result)
+
+	cf, ok := result.Files["test.go"]
+	if !ok {
+		t.Fatal("expected test.go in files")
+	}
+	if len(cf.Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(cf.Comments))
+	}
+	if cf.Comments[0].Body != "file-level feedback" {
+		t.Errorf("body = %q", cf.Comments[0].Body)
+	}
+	if cf.Comments[0].Scope != "file" {
+		t.Errorf("scope = %q, want file", cf.Comments[0].Scope)
+	}
+}

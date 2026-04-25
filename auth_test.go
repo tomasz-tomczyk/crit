@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -459,6 +461,227 @@ func TestShowLoginHint_PreservesExistingConfig(t *testing.T) {
 	json.Unmarshal(data, &raw)
 	if _, ok := raw["share_url"]; !ok {
 		t.Error("share_url should be preserved after showLoginHint")
+	}
+}
+
+// TestRunAuth_Dispatch verifies the runAuth dispatch logic via subprocess
+// (printAuthUsage calls os.Exit).
+func TestRunAuth_Dispatch_NoArgs(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_AuthNoArgs", "--")
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected non-zero exit for auth with no args")
+	}
+}
+
+func TestHelperProcess_AuthNoArgs(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	runAuth(nil)
+}
+
+func TestRunAuth_Dispatch_UnknownCommand(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_AuthUnknown", "--")
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected non-zero exit for auth with unknown command")
+	}
+}
+
+func TestHelperProcess_AuthUnknown(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	runAuth([]string{"invalid-command"})
+}
+
+// TestRunAuthWhoami_NotLoggedIn verifies whoami output when no token is set.
+func TestRunAuthWhoami_NotLoggedIn(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_AuthWhoamiNotLoggedIn", "--")
+	home := t.TempDir()
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1", "HOME="+home)
+	// Ensure CRIT_AUTH_TOKEN is not set
+	var env []string
+	for _, e := range cmd.Env {
+		if !strings.HasPrefix(e, "CRIT_AUTH_TOKEN=") {
+			env = append(env, e)
+		}
+	}
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("whoami exited with error: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(string(out), "Not logged in") {
+		t.Errorf("expected 'Not logged in' message, got: %s", out)
+	}
+}
+
+func TestHelperProcess_AuthWhoamiNotLoggedIn(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	runAuthWhoami(nil)
+}
+
+// TestRunAuthLogout_NotLoggedIn verifies logout output when no token is set.
+func TestRunAuthLogout_NotLoggedIn(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_AuthLogoutNotLoggedIn", "--")
+	home := t.TempDir()
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1", "HOME="+home)
+	var env []string
+	for _, e := range cmd.Env {
+		if !strings.HasPrefix(e, "CRIT_AUTH_TOKEN=") {
+			env = append(env, e)
+		}
+	}
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("logout exited with error: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(string(out), "Not logged in") {
+		t.Errorf("expected 'Not logged in' message, got: %s", out)
+	}
+}
+
+func TestHelperProcess_AuthLogoutNotLoggedIn(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	runAuthLogout(nil)
+}
+
+// TestRunAuthLogout_EnvToken verifies logout message when token is from env var.
+func TestRunAuthLogout_EnvToken(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_AuthLogoutEnvToken", "--")
+	home := t.TempDir()
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1", "HOME="+home, "CRIT_AUTH_TOKEN=crit_env_token")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("logout exited with error: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(string(out), "CRIT_AUTH_TOKEN") {
+		t.Errorf("expected env var message, got: %s", out)
+	}
+}
+
+func TestHelperProcess_AuthLogoutEnvToken(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	runAuthLogout(nil)
+}
+
+func TestParseAuthLoginFlags(t *testing.T) {
+	tests := []struct {
+		name  string
+		args  []string
+		force bool
+	}{
+		{"no flags", nil, false},
+		{"empty args", []string{}, false},
+		{"force flag", []string{"--force"}, true},
+		{"force with other args", []string{"--verbose", "--force"}, true},
+		{"unknown flags ignored", []string{"--unknown"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := parseAuthLoginFlags(tt.args)
+			if f.force != tt.force {
+				t.Errorf("force = %v, want %v", f.force, tt.force)
+			}
+		})
+	}
+}
+
+func TestRevokeToken_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	if revokeToken(srv.URL, "crit_tok") {
+		t.Error("expected revokeToken to return false for 500")
+	}
+}
+
+func TestFetchWhoami_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, _, err := fetchWhoami(srv.URL, "crit_tok")
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+}
+
+func TestFetchWhoami_NetworkError(t *testing.T) {
+	_, _, err := fetchWhoami("http://127.0.0.1:1", "crit_tok")
+	if err == nil {
+		t.Fatal("expected error for unreachable server")
+	}
+}
+
+func TestFetchWhoami_NameOnly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{
+			"name": "Tomasz",
+		})
+	}))
+	defer srv.Close()
+
+	name, email, err := fetchWhoami(srv.URL, "crit_tok")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if name != "Tomasz" {
+		t.Errorf("name = %q, want Tomasz", name)
+	}
+	if email != "" {
+		t.Errorf("email = %q, want empty", email)
+	}
+}
+
+func TestRequestDeviceCode_NotFoundNoBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		// No JSON body — just 404
+	}))
+	defer srv.Close()
+
+	_, err := requestDeviceCode(srv.URL)
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+	if got := err.Error(); got != "login is not available on this server" {
+		t.Errorf("error = %q, want default message", got)
+	}
+}
+
+func TestRequestDeviceCode_AcceptsHTTP200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"device_code":               "dc_200",
+			"verification_uri_complete": "https://crit.md/auth/cli?code=sc_200",
+			"interval":                  10,
+			"expires_in":                600,
+		})
+	}))
+	defer srv.Close()
+
+	code, err := requestDeviceCode(srv.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if code.DeviceCode != "dc_200" {
+		t.Errorf("device_code = %q, want dc_200", code.DeviceCode)
 	}
 }
 

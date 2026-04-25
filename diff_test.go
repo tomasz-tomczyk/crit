@@ -294,3 +294,43 @@ func TestDiffEntriesToHunks_SeparateHunks(t *testing.T) {
 		t.Errorf("expected 2 separate hunks for distant changes, got %d", len(hunks))
 	}
 }
+
+func TestMapOldLineToNew_AllRemoved(t *testing.T) {
+	// Old: a, b, c  →  New: (empty)
+	entries := ComputeLineDiff("a\nb\nc", "")
+	m := MapOldLineToNew(entries)
+	// All old lines were removed, so each should map to 0 (no corresponding new line).
+	for i := 1; i <= 3; i++ {
+		if got, exists := m[i]; !exists {
+			t.Errorf("m[%d] missing, expected an entry for removed line", i)
+		} else if got != 0 {
+			t.Errorf("m[%d] = %d, want 0 for removed line", i, got)
+		}
+	}
+}
+
+func TestMapOldLineToNew_AllAdded(t *testing.T) {
+	// Old: (empty)  →  New: a, b, c
+	entries := ComputeLineDiff("", "a\nb\nc")
+	m := MapOldLineToNew(entries)
+	// No old lines to map, map should be empty or contain no old-line entries.
+	if len(m) != 0 {
+		t.Errorf("expected empty map for all-added, got %d entries", len(m))
+	}
+}
+
+func TestMapOldLineToNew_MixedOperations(t *testing.T) {
+	// Old: a, b, c, d, e  →  New: a, x, c, y, e
+	entries := ComputeLineDiff("a\nb\nc\nd\ne", "a\nx\nc\ny\ne")
+	m := MapOldLineToNew(entries)
+	// a:1→1, b:2→removed (maps to next: 3 or x:2), c:3→3, d:4→removed (maps to next: 5 or y:4), e:5→5
+	if m[1] != 1 {
+		t.Errorf("m[1] = %d, want 1", m[1])
+	}
+	if m[3] != 3 {
+		t.Errorf("m[3] = %d, want 3", m[3])
+	}
+	if m[5] != 5 {
+		t.Errorf("m[5] = %d, want 5", m[5])
+	}
+}

@@ -571,6 +571,329 @@ func TestListSessionsForRepoRoot_NoPartialMatch(t *testing.T) {
 	}
 }
 
+func TestAtomicWriteFile_Success(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "test.txt")
+	data := []byte("hello world")
+
+	if err := atomicWriteFile(target, data, 0644); err != nil {
+		t.Fatalf("atomicWriteFile: %v", err)
+	}
+
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("reading target: %v", err)
+	}
+	if string(got) != "hello world" {
+		t.Errorf("content = %q, want %q", string(got), "hello world")
+	}
+
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Mode().Perm() != 0644 {
+		t.Errorf("permissions = %o, want 0644", info.Mode().Perm())
+	}
+}
+
+func TestAtomicWriteFile_CreatesDirectories(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "sub", "dir", "test.txt")
+
+	if err := atomicWriteFile(target, []byte("nested"), 0600); err != nil {
+		t.Fatalf("atomicWriteFile: %v", err)
+	}
+
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("reading: %v", err)
+	}
+	if string(got) != "nested" {
+		t.Errorf("content = %q, want %q", string(got), "nested")
+	}
+}
+
+func TestAtomicWriteFile_OverwriteExisting(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "overwrite.txt")
+
+	// Write initial content
+	if err := atomicWriteFile(target, []byte("first"), 0644); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+
+	// Overwrite
+	if err := atomicWriteFile(target, []byte("second"), 0644); err != nil {
+		t.Fatalf("overwrite: %v", err)
+	}
+
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("reading: %v", err)
+	}
+	if string(got) != "second" {
+		t.Errorf("content = %q, want %q", string(got), "second")
+	}
+}
+
+func TestAtomicWriteFile_NoTempFilesLeftBehind(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "clean.txt")
+
+	if err := atomicWriteFile(target, []byte("clean"), 0644); err != nil {
+		t.Fatalf("atomicWriteFile: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	for _, de := range entries {
+		if strings.HasSuffix(de.Name(), ".tmp") {
+			t.Errorf("temp file left behind: %s", de.Name())
+		}
+	}
+}
+
+func TestAtomicWriteFile_RestrictivePermissions(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "secret.txt")
+
+	if err := atomicWriteFile(target, []byte("secret"), 0600); err != nil {
+		t.Fatalf("atomicWriteFile: %v", err)
+	}
+
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("permissions = %o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestReadPortFromPipe_ValidPort(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+
+	portCh, errCh := readPortFromPipe(r)
+
+	// Write a valid port
+	fmt.Fprintln(w, "8080")
+	w.Close()
+
+	select {
+	case port := <-portCh:
+		if port != 8080 {
+			t.Errorf("port = %d, want 8080", port)
+		}
+	case err := <-errCh:
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReadPortFromPipe_ErrorPrefix(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+
+	portCh, errCh := readPortFromPipe(r)
+
+	fmt.Fprintln(w, "error:port already in use")
+	w.Close()
+
+	select {
+	case <-portCh:
+		t.Fatal("expected error, not port")
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected non-nil error")
+		}
+		if !strings.Contains(err.Error(), "port already in use") {
+			t.Errorf("error = %q, want to contain 'port already in use'", err.Error())
+		}
+	}
+}
+
+func TestReadPortFromPipe_InvalidPort(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+
+	portCh, errCh := readPortFromPipe(r)
+
+	fmt.Fprintln(w, "notanumber")
+	w.Close()
+
+	select {
+	case <-portCh:
+		t.Fatal("expected error for invalid port")
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected non-nil error")
+		}
+	}
+}
+
+func TestReadPortFromPipe_ClosedWithoutWriting(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+
+	portCh, errCh := readPortFromPipe(r)
+	w.Close() // Close without writing anything
+
+	select {
+	case <-portCh:
+		t.Fatal("expected error when pipe closed without writing")
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected non-nil error")
+		}
+	}
+}
+
+func TestSignalReadiness(t *testing.T) {
+	t.Run("writes port to pipe", func(t *testing.T) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("pipe: %v", err)
+		}
+
+		signalReadiness(w, 3456)
+
+		var got int
+		fmt.Fscanf(r, "%d", &got)
+		r.Close()
+
+		if got != 3456 {
+			t.Errorf("read port = %d, want 3456", got)
+		}
+	})
+
+	t.Run("noop when pipe is nil", func(t *testing.T) {
+		// Should not panic
+		signalReadiness(nil, 3456)
+	})
+}
+
+func TestReadDaemonLog(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	t.Run("reads trimmed log content", func(t *testing.T) {
+		key := "logtest123456"
+		logPath, err := sessionLogPath(key)
+		if err != nil {
+			t.Fatalf("sessionLogPath: %v", err)
+		}
+		os.MkdirAll(filepath.Dir(logPath), 0700)
+		os.WriteFile(logPath, []byte("  error: something bad happened  \n"), 0644)
+
+		msg := readDaemonLog(key)
+		if msg != "error: something bad happened" {
+			t.Errorf("readDaemonLog = %q, want trimmed content", msg)
+		}
+	})
+
+	t.Run("returns empty for missing log", func(t *testing.T) {
+		msg := readDaemonLog("nonexistent123")
+		if msg != "" {
+			t.Errorf("readDaemonLog = %q, want empty", msg)
+		}
+	})
+}
+
+func TestOpenReadyPipe_NoEnvVar(t *testing.T) {
+	t.Setenv("_CRIT_READY_FD", "")
+	os.Unsetenv("_CRIT_READY_FD")
+
+	pipe := openReadyPipe()
+	if pipe != nil {
+		pipe.Close()
+		t.Error("expected nil when _CRIT_READY_FD is not set")
+	}
+}
+
+func TestOpenReadyPipe_WrongValue(t *testing.T) {
+	t.Setenv("_CRIT_READY_FD", "99")
+
+	pipe := openReadyPipe()
+	if pipe != nil {
+		pipe.Close()
+		t.Error("expected nil when _CRIT_READY_FD is not 3")
+	}
+}
+
+func TestSessionLogPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	path, err := sessionLogPath("abc123def456")
+	if err != nil {
+		t.Fatalf("sessionLogPath: %v", err)
+	}
+	want := filepath.Join(home, ".crit", "sessions", "abc123def456.log")
+	if path != want {
+		t.Errorf("path = %q, want %q", path, want)
+	}
+}
+
+func TestReviewFilePath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	path, err := reviewFilePath("mykey123456")
+	if err != nil {
+		t.Fatalf("reviewFilePath: %v", err)
+	}
+	want := filepath.Join(home, ".crit", "reviews", "mykey123456.json")
+	if path != want {
+		t.Errorf("path = %q, want %q", path, want)
+	}
+}
+
+func TestIsDaemonAlive_NegativePID(t *testing.T) {
+	if isDaemonAlive(sessionEntry{PID: -1, Port: 9999}) {
+		t.Error("negative PID should not be alive")
+	}
+}
+
+func TestIsDaemonAlive_NoPort(t *testing.T) {
+	if isDaemonAlive(sessionEntry{PID: os.Getpid(), Port: 0}) {
+		t.Error("port 0 should not be alive")
+	}
+}
+
+func TestRemoveSessionFile_CleansUpAssociatedFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	key := "cleanup12345a"
+	sessDir := filepath.Join(home, ".crit", "sessions")
+	os.MkdirAll(sessDir, 0700)
+
+	// Create session file and associated files
+	os.WriteFile(filepath.Join(sessDir, key+".json"), []byte("{}"), 0644)
+	os.WriteFile(filepath.Join(sessDir, key+".log"), []byte("log"), 0644)
+	os.WriteFile(filepath.Join(sessDir, key+".lock"), []byte(""), 0644)
+
+	removeSessionFile(key)
+
+	for _, ext := range []string{".json", ".log", ".lock"} {
+		path := filepath.Join(sessDir, key+ext)
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be removed", path)
+		}
+	}
+}
+
 func TestCleanOrphanedSessions(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
