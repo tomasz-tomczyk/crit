@@ -4219,3 +4219,513 @@ func TestHandleCritJSONDeleted(t *testing.T) {
 		t.Error("deletedCommentIDs should be nil")
 	}
 }
+
+// --- GetShareScope / SetShareScope tests ---
+
+func TestGetShareScope(t *testing.T) {
+	s := &Session{
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	// Initially empty.
+	if got := s.GetShareScope(); got != "" {
+		t.Errorf("initial share scope = %q, want empty", got)
+	}
+
+	// Set and retrieve.
+	s.SetShareScope("abc123")
+	if got := s.GetShareScope(); got != "abc123" {
+		t.Errorf("share scope = %q, want abc123", got)
+	}
+
+	// Overwrite.
+	s.SetShareScope("def456")
+	if got := s.GetShareScope(); got != "def456" {
+		t.Errorf("share scope = %q, want def456", got)
+	}
+}
+
+// --- availableScopes tests ---
+
+func TestAvailableScopes_NilVCS(t *testing.T) {
+	scopes := availableScopes("main", nil)
+	if len(scopes) != 1 || scopes[0] != "all" {
+		t.Errorf("expected [all] for nil VCS, got %v", scopes)
+	}
+}
+
+func TestAvailableScopes_EmptyBaseRef(t *testing.T) {
+	dir := initTestRepo(t)
+	// Create a file and stage it.
+	writeFile(t, filepath.Join(dir, "staged.go"), "package main")
+	runGit(t, dir, "add", "staged.go")
+
+	// Use a real GitVCS pointed at the test repo.
+	// Need to chdir for GitVCS to work.
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	vcs := &GitVCS{}
+	scopes := availableScopes("", vcs)
+	// With empty baseRef, "branch" scope should not be added.
+	for _, s := range scopes {
+		if s == "branch" {
+			t.Error("branch scope should not appear with empty baseRef")
+		}
+	}
+	// "all" should always be present.
+	if scopes[0] != "all" {
+		t.Errorf("first scope should be 'all', got %q", scopes[0])
+	}
+}
+
+// --- GetSessionInfoScoped tests ---
+
+func TestGetSessionInfoScoped_EmptyScope(t *testing.T) {
+	s := newTestSession(t)
+	s.Mode = "files"
+
+	info := s.GetSessionInfoScoped("", "")
+	if info.Mode != "files" {
+		t.Errorf("mode = %q, want files", info.Mode)
+	}
+	// Should delegate to GetSessionInfo, which returns file list.
+	if len(info.Files) == 0 {
+		t.Error("expected at least one file in session info")
+	}
+}
+
+func TestGetSessionInfoScoped_AllScope(t *testing.T) {
+	s := newTestSession(t)
+	s.Mode = "files"
+
+	info := s.GetSessionInfoScoped("all", "")
+	if info.Mode != "files" {
+		t.Errorf("mode = %q, want files", info.Mode)
+	}
+}
+
+func TestGetSessionInfoScoped_PlanMode(t *testing.T) {
+	s := &Session{
+		Mode:        "plan",
+		PlanDir:     "/tmp/test-plan",
+		RepoRoot:    t.TempDir(),
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files: []*FileEntry{
+			{Path: "plan.md", FileType: "markdown", Content: "# Plan", Comments: []Comment{}},
+		},
+	}
+
+	info := s.GetSessionInfoScoped("branch", "")
+	if info.Mode != "plan" {
+		t.Errorf("mode = %q, want plan", info.Mode)
+	}
+}
+
+func TestGetSessionInfoScoped_GitScopeNoVCS(t *testing.T) {
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    t.TempDir(),
+		Branch:      "feature",
+		BaseRef:     "main",
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{},
+	}
+
+	info := s.GetSessionInfoScoped("branch", "")
+	// No VCS means no files can be resolved.
+	if len(info.Files) != 0 {
+		t.Errorf("expected 0 files without VCS, got %d", len(info.Files))
+	}
+	if info.Mode != "git" {
+		t.Errorf("mode = %q, want git", info.Mode)
+	}
+}
+
+// --- emitRoundStatus tests ---
+
+func TestEmitRoundStatus_NilStatus(t *testing.T) {
+	s := &Session{
+		status:      nil,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{},
+	}
+	// Should be a no-op, not panic.
+	s.emitRoundStatus(5)
+}
+
+func TestEmitRoundStatus_WithStatus(t *testing.T) {
+	var buf strings.Builder
+	s := &Session{
+		status:      &Status{w: &buf, color: false},
+		ReviewRound: 2,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files: []*FileEntry{
+			{
+				Path: "plan.md",
+				PreviousComments: []Comment{
+					{ID: "c1", Resolved: true},
+					{ID: "c2", Resolved: false},
+					{ID: "c3", Resolved: false},
+				},
+			},
+		},
+	}
+
+	s.emitRoundStatus(3)
+
+	output := buf.String()
+	if output == "" {
+		t.Error("expected status output, got empty")
+	}
+}
+
+// --- Shutdown tests ---
+
+func TestShutdown(t *testing.T) {
+	s := &Session{
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+	ch := s.Subscribe()
+	defer s.Unsubscribe(ch)
+
+	s.Shutdown()
+
+	select {
+	case event := <-ch:
+		if event.Type != "server-shutdown" {
+			t.Errorf("event type = %q, want server-shutdown", event.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no shutdown event received")
+	}
+}
+
+// --- BrowserDisconnect tests ---
+
+func TestBrowserConnectDisconnect(t *testing.T) {
+	s := &Session{
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	if s.HasBrowserClients() {
+		t.Error("initially should have no browser clients")
+	}
+
+	s.BrowserConnect()
+	if !s.HasBrowserClients() {
+		t.Error("after connect, should have browser clients")
+	}
+
+	s.BrowserDisconnect()
+	if s.HasBrowserClients() {
+		t.Error("after disconnect, should have no browser clients")
+	}
+
+	// BrowserDisconnect should not go below 0.
+	s.BrowserDisconnect()
+	if s.HasBrowserClients() {
+		t.Error("double disconnect should still show no clients")
+	}
+}
+
+// --- mergeReviewCommentsFromDisk tests ---
+
+func TestMergeReviewCommentsFromDisk_AddNew(t *testing.T) {
+	s := &Session{
+		reviewComments: []Comment{
+			{ID: "r1", Body: "existing"},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	diskComments := []Comment{
+		{ID: "r1", Body: "existing"},
+		{ID: "r2", Body: "new from disk"},
+	}
+
+	changed := s.mergeReviewCommentsFromDisk(diskComments)
+	if !changed {
+		t.Error("expected changed=true when adding new comment")
+	}
+	if len(s.reviewComments) != 2 {
+		t.Errorf("expected 2 comments, got %d", len(s.reviewComments))
+	}
+}
+
+func TestMergeReviewCommentsFromDisk_RemoveDeleted(t *testing.T) {
+	s := &Session{
+		reviewComments: []Comment{
+			{ID: "r1", Body: "keep"},
+			{ID: "r2", Body: "will be deleted"},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Disk only has r1 — r2 was deleted externally.
+	diskComments := []Comment{
+		{ID: "r1", Body: "keep"},
+	}
+
+	changed := s.mergeReviewCommentsFromDisk(diskComments)
+	if !changed {
+		t.Error("expected changed=true when removing deleted comment")
+	}
+	if len(s.reviewComments) != 1 {
+		t.Errorf("expected 1 comment, got %d", len(s.reviewComments))
+	}
+	if s.reviewComments[0].ID != "r1" {
+		t.Errorf("expected r1, got %s", s.reviewComments[0].ID)
+	}
+}
+
+func TestMergeReviewCommentsFromDisk_NoChange(t *testing.T) {
+	s := &Session{
+		reviewComments: []Comment{
+			{ID: "r1", Body: "same"},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	diskComments := []Comment{
+		{ID: "r1", Body: "same"},
+	}
+
+	changed := s.mergeReviewCommentsFromDisk(diskComments)
+	if changed {
+		t.Error("expected changed=false when nothing changed")
+	}
+}
+
+func TestMergeReviewCommentsFromDisk_ResolvedStateSync(t *testing.T) {
+	s := &Session{
+		reviewComments: []Comment{
+			{ID: "r1", Body: "note", Resolved: false},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	diskComments := []Comment{
+		{ID: "r1", Body: "note", Resolved: true},
+	}
+
+	changed := s.mergeReviewCommentsFromDisk(diskComments)
+	if !changed {
+		t.Error("expected changed=true when resolved state changes")
+	}
+	if !s.reviewComments[0].Resolved {
+		t.Error("expected resolved=true after merge")
+	}
+}
+
+func TestMergeReviewCommentsFromDisk_NewReplies(t *testing.T) {
+	s := &Session{
+		reviewComments: []Comment{
+			{ID: "r1", Body: "note", Replies: []Reply{{ID: "rp1", Body: "existing reply"}}},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	diskComments := []Comment{
+		{ID: "r1", Body: "note", Replies: []Reply{
+			{ID: "rp1", Body: "existing reply"},
+			{ID: "rp2", Body: "new reply from disk"},
+		}},
+	}
+
+	changed := s.mergeReviewCommentsFromDisk(diskComments)
+	if !changed {
+		t.Error("expected changed=true when new replies added")
+	}
+	if len(s.reviewComments[0].Replies) != 2 {
+		t.Errorf("expected 2 replies, got %d", len(s.reviewComments[0].Replies))
+	}
+}
+
+// --- filterDeletedReviewComments tests ---
+
+func TestFilterDeletedReviewComments_NoneDeleted(t *testing.T) {
+	s := &Session{
+		reviewComments: []Comment{
+			{ID: "r1"}, {ID: "r2"},
+		},
+	}
+	diskComments := []Comment{
+		{ID: "r1"}, {ID: "r2"},
+	}
+	changed := s.filterDeletedReviewComments(diskComments)
+	if changed {
+		t.Error("expected no change when all comments exist on disk")
+	}
+}
+
+func TestFilterDeletedReviewComments_SomeDeleted(t *testing.T) {
+	s := &Session{
+		reviewComments: []Comment{
+			{ID: "r1"}, {ID: "r2"}, {ID: "r3"},
+		},
+	}
+	diskComments := []Comment{
+		{ID: "r1"}, {ID: "r3"},
+	}
+	changed := s.filterDeletedReviewComments(diskComments)
+	if !changed {
+		t.Error("expected change when comment deleted from disk")
+	}
+	if len(s.reviewComments) != 2 {
+		t.Errorf("expected 2 comments, got %d", len(s.reviewComments))
+	}
+}
+
+// --- computeScopedDiffHunks tests ---
+
+func TestComputeScopedDiffHunks_UntrackedFile(t *testing.T) {
+	hunks := computeScopedDiffHunks("test.go", "unstaged", "", "untracked", "package main\n", "", "", nil)
+	if len(hunks) == 0 {
+		t.Error("expected hunks for untracked file")
+	}
+}
+
+func TestComputeScopedDiffHunks_AddedFileAllScope(t *testing.T) {
+	hunks := computeScopedDiffHunks("test.go", "all", "", "added", "package main\n", "", "", nil)
+	if len(hunks) == 0 {
+		t.Error("expected hunks for added file with all scope")
+	}
+}
+
+func TestComputeScopedDiffHunks_AddedFileUnstagedScope(t *testing.T) {
+	// scope=unstaged + status=added => does not use FileDiffUnifiedNewFile
+	hunks := computeScopedDiffHunks("test.go", "unstaged", "", "added", "package main\n", "", "", nil)
+	// No VCS to fall back on, should return nil.
+	if hunks != nil {
+		t.Error("expected nil hunks for added file with unstaged scope and no VCS")
+	}
+}
+
+func TestComputeScopedDiffHunks_NilVCS(t *testing.T) {
+	hunks := computeScopedDiffHunks("test.go", "branch", "", "modified", "package main\n", "main", "/tmp", nil)
+	if hunks != nil {
+		t.Error("expected nil hunks with no VCS")
+	}
+}
+
+// --- scopedHunks tests ---
+
+func TestScopedHunks_NilVCS(t *testing.T) {
+	fc := FileChange{Path: "test.go", Status: "modified"}
+	hunks := scopedHunks(fc, "branch", "", "main", "/tmp", nil)
+	if hunks != nil {
+		t.Error("expected nil hunks with nil VCS")
+	}
+}
+
+func TestScopedHunks_AddedFile(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "new.go"), "package main\n\nfunc main() {}\n")
+	runGit(t, dir, "add", "new.go")
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	fc := FileChange{Path: "new.go", Status: "added"}
+	hunks := scopedHunks(fc, "branch", "", "main", dir, &GitVCS{})
+	if len(hunks) == 0 {
+		t.Error("expected hunks for added file showing full content")
+	}
+}
+
+func TestScopedHunks_UntrackedFile(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "untracked.go"), "package main\n")
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	fc := FileChange{Path: "untracked.go", Status: "untracked"}
+	hunks := scopedHunks(fc, "all", "", "", dir, &GitVCS{})
+	if len(hunks) == 0 {
+		t.Error("expected hunks for untracked file")
+	}
+}
+
+// --- GetSessionInfoScoped with git VCS ---
+
+func TestGetSessionInfoScoped_GitBranchScope(t *testing.T) {
+	dir := initTestRepo(t)
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, filepath.Join(dir, "new.go"), "package main\n\nfunc main() {}\n")
+	runGit(t, dir, "add", "new.go")
+	runGit(t, dir, "commit", "-m", "add new file")
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		Branch:      "feature",
+		BaseRef:     "main",
+		VCS:         &GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{},
+	}
+
+	info := s.GetSessionInfoScoped("branch", "")
+	if info.Mode != "git" {
+		t.Errorf("mode = %q, want git", info.Mode)
+	}
+	if len(info.Files) == 0 {
+		t.Error("expected files in branch scope")
+	}
+	found := false
+	for _, f := range info.Files {
+		if f.Path == "new.go" {
+			found = true
+			if f.Status != "added" {
+				t.Errorf("new.go status = %q, want added", f.Status)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected new.go in branch scope files")
+	}
+}
+
+func TestGetSessionInfoScoped_CommitScope(t *testing.T) {
+	dir := initTestRepo(t)
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, filepath.Join(dir, "new.go"), "package main\n\nfunc main() {}\n")
+	runGit(t, dir, "add", "new.go")
+	runGit(t, dir, "commit", "-m", "add new file")
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Get the commit SHA.
+	sha := runGit(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		Branch:      "feature",
+		BaseRef:     "main",
+		VCS:         &GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{},
+	}
+
+	info := s.GetSessionInfoScoped("", sha)
+	if len(info.Files) == 0 {
+		t.Error("expected files when scoped to specific commit")
+	}
+}

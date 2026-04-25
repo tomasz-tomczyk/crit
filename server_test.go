@@ -2332,3 +2332,1190 @@ func TestHandleAgentRequest_MethodNotAllowed(t *testing.T) {
 		t.Errorf("expected 405, got %d", w.Code)
 	}
 }
+
+// --- handleCommits tests ---
+
+func TestHandleCommits_GET(t *testing.T) {
+	srv, session := newTestServer(t)
+
+	// Session with Mode "files" and no VCS — returns null/nil.
+	session.mu.Lock()
+	session.Mode = "files"
+	session.mu.Unlock()
+
+	req := httptest.NewRequest("GET", "/api/commits", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("GET /api/commits: status = %d, want 200", w.Code)
+	}
+	// Non-git session returns null (no commits).
+	body := strings.TrimSpace(w.Body.String())
+	if body != "null" {
+		t.Errorf("expected null for non-git session, got %s", body)
+	}
+}
+
+func TestHandleCommits_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/commits", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestHandleCommits_GitMode(t *testing.T) {
+	dir := initTestRepo(t)
+	// Create a feature branch with a commit.
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, filepath.Join(dir, "new.go"), "package main")
+	runGit(t, dir, "add", "new.go")
+	runGit(t, dir, "commit", "-m", "add new file")
+
+	session := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		Branch:      "feature",
+		BaseRef:     "main",
+		VCS:         &GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{},
+	}
+
+	srv, err := NewServer(session, frontendFS, "", "", "", "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/commits", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var commits []CommitInfo
+	if err := json.Unmarshal(w.Body.Bytes(), &commits); err != nil {
+		t.Fatalf("JSON decode: %v", err)
+	}
+	if len(commits) == 0 {
+		t.Error("expected at least one commit")
+	}
+}
+
+// --- handleBranches tests ---
+
+func TestHandleBranches_NoVCS(t *testing.T) {
+	srv, session := newTestServer(t)
+	// Ensure VCS is nil (files mode).
+	session.mu.Lock()
+	session.VCS = nil
+	session.mu.Unlock()
+
+	req := httptest.NewRequest("GET", "/api/branches", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var branches []string
+	if err := json.Unmarshal(w.Body.Bytes(), &branches); err != nil {
+		t.Fatalf("JSON decode: %v", err)
+	}
+	if len(branches) != 0 {
+		t.Errorf("expected empty branches for no VCS, got %v", branches)
+	}
+}
+
+func TestHandleBranches_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/branches", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestHandleBranches_WithGitVCS(t *testing.T) {
+	dir := initTestRepo(t)
+
+	session := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		VCS:         &GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{},
+	}
+
+	srv, err := NewServer(session, frontendFS, "", "", "", "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/branches", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	// No remotes in test repo, so empty list is expected.
+	var branches []string
+	if err := json.Unmarshal(w.Body.Bytes(), &branches); err != nil {
+		t.Fatalf("JSON decode: %v", err)
+	}
+}
+
+// --- handleBaseBranch tests ---
+
+func TestHandleBaseBranch_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/base-branch", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestHandleBaseBranch_EmptyBranch(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`{"branch": ""}`)
+	req := httptest.NewRequest("POST", "/api/base-branch", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for empty branch", w.Code)
+	}
+}
+
+func TestHandleBaseBranch_InvalidJSON(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`not json`)
+	req := httptest.NewRequest("POST", "/api/base-branch", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for invalid JSON", w.Code)
+	}
+}
+
+// --- handleQR tests ---
+
+func TestHandleQR_Success(t *testing.T) {
+	srv, _ := newTestServer(t)
+	// Note: /api/qr is NOT guarded by withReady, so it works even without a session.
+	noSessionSrv, err := NewServer(nil, frontendFS, "", "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = srv // keep reference for potential use
+
+	req := httptest.NewRequest("GET", "/api/qr?url=https://crit.md/r/test123", nil)
+	w := httptest.NewRecorder()
+	noSessionSrv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200, body = %s", w.Code, w.Body.String())
+	}
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "image/svg+xml" {
+		t.Errorf("Content-Type = %q, want image/svg+xml", contentType)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "<svg") {
+		t.Error("response should contain SVG markup")
+	}
+	if !strings.Contains(body, "<rect") {
+		t.Error("response should contain rect elements for QR modules")
+	}
+}
+
+func TestHandleQR_MissingURL(t *testing.T) {
+	srv, err := NewServer(nil, frontendFS, "", "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/api/qr", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for missing url param", w.Code)
+	}
+}
+
+func TestHandleQR_MethodNotAllowed(t *testing.T) {
+	srv, err := NewServer(nil, frontendFS, "", "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/api/qr", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleEvents (SSE) tests ---
+
+func TestHandleEvents_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/events", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestHandleEvents_SSEHeaders(t *testing.T) {
+	srv, session := newTestServer(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest("GET", "/api/events", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		srv.ServeHTTP(w, req)
+		close(done)
+	}()
+
+	// Send an event then cancel.
+	time.Sleep(50 * time.Millisecond)
+	session.notify(SSEEvent{Type: "comments-changed"})
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+
+	// Verify SSE headers.
+	ct := w.Header().Get("Content-Type")
+	if ct != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want text/event-stream", ct)
+	}
+	cc := w.Header().Get("Cache-Control")
+	if cc != "no-cache" {
+		t.Errorf("Cache-Control = %q, want no-cache", cc)
+	}
+	conn := w.Header().Get("Connection")
+	if conn != "keep-alive" {
+		t.Errorf("Connection = %q, want keep-alive", conn)
+	}
+
+	// Verify event data was written.
+	body := w.Body.String()
+	if !strings.Contains(body, "event: comments-changed") {
+		t.Errorf("expected SSE event in body, got: %s", body)
+	}
+}
+
+// --- buildPlanFeedback tests ---
+
+func TestBuildPlanFeedback(t *testing.T) {
+	session := &Session{
+		Mode:        "plan",
+		PlanDir:     "/tmp/plans/my-feature",
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+	srv, err := NewServer(session, frontendFS, "", "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := srv.buildPlanFeedback("/home/user/.crit/reviews/abc123.json")
+
+	if !strings.Contains(result, "my-feature") {
+		t.Errorf("expected slug 'my-feature' in feedback, got: %s", result)
+	}
+	if !strings.Contains(result, "/home/user/.crit/reviews/abc123.json") {
+		t.Errorf("expected critJSON path in feedback, got: %s", result)
+	}
+	if !strings.Contains(result, "crit comment --plan") {
+		t.Errorf("expected crit comment hint in feedback, got: %s", result)
+	}
+}
+
+// --- handleFileCommentResolve tests ---
+
+func TestHandleFileCommentResolve(t *testing.T) {
+	srv, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "fix this bug", "", "")
+
+	tests := []struct {
+		name       string
+		resolved   bool
+		wantStatus int
+	}{
+		{"resolve", true, 200},
+		{"unresolve", false, 200},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"resolved": %v}`, tt.resolved)
+			req := httptest.NewRequest("PUT", "/api/comment/"+c.ID+"/resolve?path=test.md", strings.NewReader(body))
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+			if w.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d, body = %s", w.Code, tt.wantStatus, w.Body.String())
+			}
+			var result Comment
+			json.Unmarshal(w.Body.Bytes(), &result)
+			if result.Resolved != tt.resolved {
+				t.Errorf("resolved = %v, want %v", result.Resolved, tt.resolved)
+			}
+		})
+	}
+}
+
+func TestHandleFileCommentResolve_NotFound(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`{"resolved": true}`)
+	req := httptest.NewRequest("PUT", "/api/comment/nonexistent/resolve?path=test.md", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleFileCommentResolve_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/comment/c1/resolve?path=test.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestHandleFileCommentResolve_InvalidBody(t *testing.T) {
+	srv, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "fix this", "", "")
+
+	req := httptest.NewRequest("PUT", "/api/comment/"+c.ID+"/resolve?path=test.md", strings.NewReader("not json"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for invalid JSON", w.Code)
+	}
+}
+
+// --- handleReviewCommentResolve tests ---
+
+func TestHandleReviewCommentResolve(t *testing.T) {
+	srv, session := newTestServer(t)
+	c := session.AddReviewComment("general note", "")
+
+	tests := []struct {
+		name     string
+		resolved bool
+	}{
+		{"resolve", true},
+		{"unresolve", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"resolved": %v}`, tt.resolved)
+			req := httptest.NewRequest("PUT", "/api/review-comment/"+c.ID+"/resolve", strings.NewReader(body))
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+			if w.Code != 200 {
+				t.Errorf("[%s] status = %d, want 200, body = %s", tt.name, w.Code, w.Body.String())
+			}
+			var result Comment
+			json.Unmarshal(w.Body.Bytes(), &result)
+			if result.Resolved != tt.resolved {
+				t.Errorf("resolved = %v, want %v", result.Resolved, tt.resolved)
+			}
+		})
+	}
+}
+
+func TestHandleReviewCommentResolve_NotFound(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`{"resolved": true}`)
+	req := httptest.NewRequest("PUT", "/api/review-comment/nonexistent/resolve", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleReviewCommentResolve_InvalidBody(t *testing.T) {
+	srv, session := newTestServer(t)
+	c := session.AddReviewComment("note", "")
+
+	req := httptest.NewRequest("PUT", "/api/review-comment/"+c.ID+"/resolve", strings.NewReader("not json"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleReviewCommentResolve_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/review-comment/c1/resolve", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleReviewCommentUpdate tests ---
+
+func TestHandleReviewCommentUpdate_DELETE(t *testing.T) {
+	srv, session := newTestServer(t)
+	c := session.AddReviewComment("delete me", "")
+
+	req := httptest.NewRequest("DELETE", "/api/review-comment/"+c.ID, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 204 {
+		t.Errorf("DELETE: status = %d, want 204", w.Code)
+	}
+
+	// Verify deleted.
+	comments := session.GetReviewComments()
+	if len(comments) != 0 {
+		t.Errorf("expected 0 comments after delete, got %d", len(comments))
+	}
+}
+
+func TestHandleReviewCommentUpdate_DELETE_NotFound(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("DELETE", "/api/review-comment/nonexistent", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleReviewCommentUpdate_PUT_NotFound(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`{"body": "updated"}`)
+	req := httptest.NewRequest("PUT", "/api/review-comment/nonexistent", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleReviewCommentUpdate_PUT_EmptyBody(t *testing.T) {
+	srv, session := newTestServer(t)
+	c := session.AddReviewComment("original", "")
+
+	body := strings.NewReader(`{"body": ""}`)
+	req := httptest.NewRequest("PUT", "/api/review-comment/"+c.ID, body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for empty body", w.Code)
+	}
+}
+
+func TestHandleReviewCommentUpdate_PUT_InvalidJSON(t *testing.T) {
+	srv, session := newTestServer(t)
+	c := session.AddReviewComment("original", "")
+
+	req := httptest.NewRequest("PUT", "/api/review-comment/"+c.ID, strings.NewReader("not json"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleReviewCommentUpdate_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/review-comment/c1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleReplyCRUD additional tests ---
+
+func TestHandleReplyCRUD_PUT_EmptyBody(t *testing.T) {
+	srv, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "original", "", "")
+	reply, _ := session.AddReply("test.md", c.ID, "first reply", "agent")
+
+	body := strings.NewReader(`{"body": ""}`)
+	req := httptest.NewRequest("PUT", "/api/comment/"+c.ID+"/replies/"+reply.ID+"?path=test.md", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for empty reply body", w.Code)
+	}
+}
+
+func TestHandleReplyCRUD_PUT_InvalidJSON(t *testing.T) {
+	srv, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "original", "", "")
+	reply, _ := session.AddReply("test.md", c.ID, "first reply", "agent")
+
+	req := httptest.NewRequest("PUT", "/api/comment/"+c.ID+"/replies/"+reply.ID+"?path=test.md", strings.NewReader("bad"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for invalid JSON", w.Code)
+	}
+}
+
+func TestHandleReplyCRUD_PUT_NotFound(t *testing.T) {
+	srv, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "original", "", "")
+
+	body := strings.NewReader(`{"body": "updated"}`)
+	req := httptest.NewRequest("PUT", "/api/comment/"+c.ID+"/replies/nonexistent?path=test.md", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404 for nonexistent reply", w.Code)
+	}
+}
+
+func TestHandleReplyCRUD_DELETE_NotFound(t *testing.T) {
+	srv, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "original", "", "")
+
+	req := httptest.NewRequest("DELETE", "/api/comment/"+c.ID+"/replies/nonexistent?path=test.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleReplyCRUD_POST_EmptyBody(t *testing.T) {
+	srv, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "original", "", "")
+
+	body := strings.NewReader(`{"body": "", "author": "agent"}`)
+	req := httptest.NewRequest("POST", "/api/comment/"+c.ID+"/replies?path=test.md", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for empty reply body", w.Code)
+	}
+}
+
+func TestHandleReplyCRUD_POST_InvalidJSON(t *testing.T) {
+	srv, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "original", "", "")
+
+	req := httptest.NewRequest("POST", "/api/comment/"+c.ID+"/replies?path=test.md", strings.NewReader("bad json"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for invalid JSON", w.Code)
+	}
+}
+
+func TestHandleReplyCRUD_MethodNotAllowed(t *testing.T) {
+	srv, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "original", "", "")
+
+	req := httptest.NewRequest("PATCH", "/api/comment/"+c.ID+"/replies?path=test.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- Review comment reply CRUD additional tests ---
+
+func TestReviewCommentReplyCRUD_PUT_EmptyBody(t *testing.T) {
+	srv, session := newTestServer(t)
+	c := session.AddReviewComment("note", "")
+	reply, _ := session.AddReviewCommentReply(c.ID, "reply text", "agent")
+
+	body := strings.NewReader(`{"body": ""}`)
+	req := httptest.NewRequest("PUT", "/api/review-comment/"+c.ID+"/replies/"+reply.ID, body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for empty reply body", w.Code)
+	}
+}
+
+func TestReviewCommentReplyCRUD_PUT_NotFound(t *testing.T) {
+	srv, session := newTestServer(t)
+	c := session.AddReviewComment("note", "")
+
+	body := strings.NewReader(`{"body": "updated"}`)
+	req := httptest.NewRequest("PUT", "/api/review-comment/"+c.ID+"/replies/nonexistent", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestReviewCommentReplyCRUD_DELETE_NotFound(t *testing.T) {
+	srv, session := newTestServer(t)
+	c := session.AddReviewComment("note", "")
+
+	req := httptest.NewRequest("DELETE", "/api/review-comment/"+c.ID+"/replies/nonexistent", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestReviewCommentReplyCRUD_POST_EmptyBody(t *testing.T) {
+	srv, session := newTestServer(t)
+	c := session.AddReviewComment("note", "")
+
+	body := strings.NewReader(`{"body": "", "author": "agent"}`)
+	req := httptest.NewRequest("POST", "/api/review-comment/"+c.ID+"/replies", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestReviewCommentReplyCRUD_POST_InvalidJSON(t *testing.T) {
+	srv, session := newTestServer(t)
+	c := session.AddReviewComment("note", "")
+
+	req := httptest.NewRequest("POST", "/api/review-comment/"+c.ID+"/replies", strings.NewReader("bad"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+// --- handleFileCommentUpdate additional tests ---
+
+func TestHandleFileCommentUpdate_DELETE(t *testing.T) {
+	srv, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "delete me", "", "")
+
+	req := httptest.NewRequest("DELETE", "/api/comment/"+c.ID+"?path=test.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Errorf("DELETE: status = %d, want 200", w.Code)
+	}
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["status"] != "deleted" {
+		t.Errorf("expected status 'deleted', got %v", resp)
+	}
+}
+
+func TestHandleFileCommentUpdate_DELETE_NotFound(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("DELETE", "/api/comment/nonexistent?path=test.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleFileCommentUpdate_PUT_NotFound(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`{"body": "updated"}`)
+	req := httptest.NewRequest("PUT", "/api/comment/nonexistent?path=test.md", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleFileCommentUpdate_PUT_InvalidJSON(t *testing.T) {
+	srv, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "original", "", "")
+
+	req := httptest.NewRequest("PUT", "/api/comment/"+c.ID+"?path=test.md", strings.NewReader("bad"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleFileCommentUpdate_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("PATCH", "/api/comment/c1?path=test.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleHealth additional tests ---
+
+func TestHandleHealth_WithBrowserClients(t *testing.T) {
+	srv, session := newTestServer(t)
+	session.BrowserConnect()
+	defer session.BrowserDisconnect()
+
+	req := httptest.NewRequest("GET", "/api/health", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["browser_clients"] != true {
+		t.Errorf("browser_clients = %v, want true", resp["browser_clients"])
+	}
+}
+
+func TestHandleHealth_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/health", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleFinish additional tests ---
+
+func TestHandleFinish_AllResolved(t *testing.T) {
+	srv, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "fix this", "", "")
+	session.SetCommentResolved("test.md", c.ID, true)
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	prompt, _ := resp["prompt"].(string)
+	if !strings.Contains(prompt, "resolved") {
+		t.Errorf("expected 'resolved' in prompt, got: %s", prompt)
+	}
+	if resp["approved"] != true {
+		t.Errorf("approved = %v, want true", resp["approved"])
+	}
+}
+
+func TestHandleFinish_PlanMode(t *testing.T) {
+	session := &Session{
+		Mode:        "plan",
+		PlanDir:     "/tmp/plans/test-plan",
+		RepoRoot:    t.TempDir(),
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files: []*FileEntry{
+			{
+				Path:     "plan.md",
+				AbsPath:  "/tmp/plan.md",
+				Status:   "added",
+				FileType: "markdown",
+				Content:  "# Plan",
+				Comments: []Comment{{ID: "c1", Body: "needs work", StartLine: 1, EndLine: 1}},
+			},
+		},
+	}
+	srv, err := NewServer(session, frontendFS, "", "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	prompt, _ := resp["prompt"].(string)
+	if !strings.Contains(prompt, "crit comment --plan") {
+		t.Errorf("plan mode finish should mention crit comment --plan, got: %s", prompt)
+	}
+}
+
+func TestHandleFinish_WithStatus(t *testing.T) {
+	var buf strings.Builder
+	session := &Session{
+		Mode:        "files",
+		RepoRoot:    t.TempDir(),
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files: []*FileEntry{
+			{
+				Path:     "test.md",
+				AbsPath:  "/tmp/test.md",
+				Status:   "added",
+				FileType: "markdown",
+				Content:  "hello",
+				Comments: []Comment{{ID: "c1", Body: "fix", StartLine: 1, EndLine: 1}},
+			},
+		},
+	}
+	srv, err := NewServer(session, frontendFS, "", "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Set status on the Server, not the Session.
+	srv.status = &Status{w: &buf, color: false}
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	output := buf.String()
+	if output == "" {
+		t.Error("expected status output")
+	}
+}
+
+func TestHandleFinish_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleFileComments additional tests ---
+
+func TestHandleFileComments_POST_FileScope(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`{"body": "file-level note", "scope": "file"}`)
+	req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 201 {
+		t.Fatalf("status = %d, want 201, body = %s", w.Code, w.Body.String())
+	}
+	var c Comment
+	json.Unmarshal(w.Body.Bytes(), &c)
+	if c.Scope != "file" {
+		t.Errorf("scope = %q, want file", c.Scope)
+	}
+}
+
+func TestHandleFileComments_POST_EmptyBody(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`{"body": "", "start_line": 1, "end_line": 1}`)
+	req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleFileComments_POST_InvalidLineRange(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`{"body": "test", "start_line": 0, "end_line": 1}`)
+	req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for invalid line range", w.Code)
+	}
+}
+
+func TestHandleFileComments_POST_EndBeforeStart(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`{"body": "test", "start_line": 5, "end_line": 2}`)
+	req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for end < start", w.Code)
+	}
+}
+
+func TestHandleFileComments_POST_InvalidJSON(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", strings.NewReader("bad"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleFileComments_MissingPath(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/file/comments", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for missing path", w.Code)
+	}
+}
+
+func TestHandleFileComments_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("DELETE", "/api/file/comments?path=test.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleConfig additional tests ---
+
+func TestHandleConfig_WithAuthToken(t *testing.T) {
+	session := &Session{
+		Mode:        "files",
+		RepoRoot:    t.TempDir(),
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{},
+	}
+	srv, err := NewServer(session, frontendFS, "https://crit.md", "test-token", "tester", "v2.0.0", 3000, "claude -p")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["agent_cmd_enabled"] != true {
+		t.Error("expected agent_cmd_enabled=true")
+	}
+	if resp["auth_logged_in"] != true {
+		t.Error("expected auth_logged_in=true")
+	}
+}
+
+// --- handleSession scope tests ---
+
+func TestHandleSession_WithScope(t *testing.T) {
+	dir := initTestRepo(t)
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, filepath.Join(dir, "new.go"), "package main\n")
+	runGit(t, dir, "add", "new.go")
+	runGit(t, dir, "commit", "-m", "add new file")
+
+	session := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		Branch:      "feature",
+		BaseRef:     "main",
+		VCS:         &GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{},
+	}
+
+	srv, err := NewServer(session, frontendFS, "", "", "", "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/session?scope=branch", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["mode"] != "git" {
+		t.Errorf("mode = %v, want git", resp["mode"])
+	}
+}
+
+// --- handleReviewComments additional tests ---
+
+func TestHandleReviewComments_POST_EmptyBody(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := strings.NewReader(`{"body": ""}`)
+	req := httptest.NewRequest("POST", "/api/comments", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for empty body", w.Code)
+	}
+}
+
+func TestHandleReviewComments_POST_InvalidJSON(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/comments", strings.NewReader("bad"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleReviewComments_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("PUT", "/api/comments", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleCommentByID additional tests ---
+
+func TestHandleCommentByID_EmptyID(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("PUT", "/api/comment/", strings.NewReader(`{"body": "test"}`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for empty ID", w.Code)
+	}
+}
+
+// --- handleReviewCommentByID additional tests ---
+
+func TestHandleReviewCommentByID_EmptyID(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("PUT", "/api/review-comment/", strings.NewReader(`{"body": "test"}`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for empty ID", w.Code)
+	}
+}
+
+// --- handleFileDiff additional tests ---
+
+func TestHandleFileDiff_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/file/diff?path=test.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleFile additional tests ---
+
+func TestHandleFile_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/file?path=test.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleSession with commit parameter ---
+
+func TestHandleSession_WithCommit(t *testing.T) {
+	dir := initTestRepo(t)
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, filepath.Join(dir, "new.go"), "package main\n")
+	runGit(t, dir, "add", "new.go")
+	runGit(t, dir, "commit", "-m", "add new file")
+	sha := runGit(t, dir, "rev-parse", "HEAD")
+
+	session := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		Branch:      "feature",
+		BaseRef:     "main",
+		VCS:         &GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{},
+	}
+
+	srv, err := NewServer(session, frontendFS, "", "", "", "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/session?commit="+sha, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	files, ok := resp["files"].([]any)
+	if !ok {
+		t.Fatal("expected files array in response")
+	}
+	if len(files) == 0 {
+		t.Error("expected files when scoped to specific commit")
+	}
+}
+
+func TestHandleSession_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/session", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleFiles additional tests ---
+
+func TestHandleFiles_EmptyPath(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/files/", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for empty path", w.Code)
+	}
+}
+
+func TestHandleFiles_PathTraversal_DotDot(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/files/../../../etc/passwd", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	// Should return 400 or 403.
+	if w.Code == 200 {
+		t.Error("path traversal should not return 200")
+	}
+}

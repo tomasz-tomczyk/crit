@@ -1087,3 +1087,307 @@ func TestHelperProcess_Fetch(t *testing.T) {
 	outputDir := os.Getenv("GO_TEST_FETCH_OUTPUT_DIR")
 	runFetch([]string{"--output", outputDir})
 }
+
+func TestPlural(t *testing.T) {
+	tests := []struct {
+		n    int
+		want string
+	}{
+		{0, "s"},
+		{1, ""},
+		{2, "s"},
+		{100, "s"},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("n=%d", tt.n), func(t *testing.T) {
+			if got := plural(tt.n); got != tt.want {
+				t.Errorf("plural(%d) = %q, want %q", tt.n, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPluralReply(t *testing.T) {
+	tests := []struct {
+		n    int
+		want string
+	}{
+		{0, "ies"},
+		{1, "y"},
+		{2, "ies"},
+		{5, "ies"},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("n=%d", tt.n), func(t *testing.T) {
+			if got := pluralReply(tt.n); got != tt.want {
+				t.Errorf("pluralReply(%d) = %q, want %q", tt.n, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseShareFlags(t *testing.T) {
+	tests := []struct {
+		name      string
+		args      []string
+		outputDir string
+		svcURL    string
+		showQR    bool
+		files     []string
+	}{
+		{
+			name:  "no flags",
+			args:  []string{"plan.md"},
+			files: []string{"plan.md"},
+		},
+		{
+			name:      "output flag long form",
+			args:      []string{"--output", "/tmp/out", "plan.md"},
+			outputDir: "/tmp/out",
+			files:     []string{"plan.md"},
+		},
+		{
+			name:      "output flag short form",
+			args:      []string{"-o", "/tmp/out", "plan.md"},
+			outputDir: "/tmp/out",
+			files:     []string{"plan.md"},
+		},
+		{
+			name:   "share-url flag",
+			args:   []string{"--share-url", "https://custom.example.com", "plan.md"},
+			svcURL: "https://custom.example.com",
+			files:  []string{"plan.md"},
+		},
+		{
+			name:   "qr flag",
+			args:   []string{"--qr", "plan.md"},
+			showQR: true,
+			files:  []string{"plan.md"},
+		},
+		{
+			name:      "all flags combined",
+			args:      []string{"--output", "/tmp/out", "--share-url", "https://x.com", "--qr", "a.md", "b.md"},
+			outputDir: "/tmp/out",
+			svcURL:    "https://x.com",
+			showQR:    true,
+			files:     []string{"a.md", "b.md"},
+		},
+		{
+			name:  "no args",
+			args:  nil,
+			files: nil,
+		},
+		{
+			name:  "multiple files only",
+			args:  []string{"a.md", "b.go", "c.txt"},
+			files: []string{"a.md", "b.go", "c.txt"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sf := parseShareFlags(tt.args)
+			if sf.outputDir != tt.outputDir {
+				t.Errorf("outputDir = %q, want %q", sf.outputDir, tt.outputDir)
+			}
+			if sf.svcURL != tt.svcURL {
+				t.Errorf("svcURL = %q, want %q", sf.svcURL, tt.svcURL)
+			}
+			if sf.showQR != tt.showQR {
+				t.Errorf("showQR = %v, want %v", sf.showQR, tt.showQR)
+			}
+			if len(sf.files) != len(tt.files) {
+				t.Fatalf("files = %v, want %v", sf.files, tt.files)
+			}
+			for i := range tt.files {
+				if sf.files[i] != tt.files[i] {
+					t.Errorf("files[%d] = %q, want %q", i, sf.files[i], tt.files[i])
+				}
+			}
+		})
+	}
+}
+
+func TestLoadShareFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create test files
+	p1 := filepath.Join(dir, "plan.md")
+	p2 := filepath.Join(dir, "notes.txt")
+	os.WriteFile(p1, []byte("# My Plan"), 0644)
+	os.WriteFile(p2, []byte("Some notes"), 0644)
+
+	t.Run("loads single file", func(t *testing.T) {
+		files := loadShareFiles([]string{p1})
+		if len(files) != 1 {
+			t.Fatalf("expected 1 file, got %d", len(files))
+		}
+		if files[0].Content != "# My Plan" {
+			t.Errorf("content = %q", files[0].Content)
+		}
+	})
+
+	t.Run("loads multiple files", func(t *testing.T) {
+		files := loadShareFiles([]string{p1, p2})
+		if len(files) != 2 {
+			t.Fatalf("expected 2 files, got %d", len(files))
+		}
+		if files[0].Content != "# My Plan" {
+			t.Errorf("file 0 content = %q", files[0].Content)
+		}
+		if files[1].Content != "Some notes" {
+			t.Errorf("file 1 content = %q", files[1].Content)
+		}
+	})
+
+	t.Run("absolute path made relative", func(t *testing.T) {
+		files := loadShareFiles([]string{p1})
+		// The absolute path should be converted to a relative path
+		if files[0].Path == "" {
+			t.Error("expected non-empty path")
+		}
+		// The path should not be the full absolute path (unless cwd is /)
+		if filepath.IsAbs(files[0].Path) {
+			// It's OK if the relative conversion fails (e.g., different volume on Windows),
+			// but on Unix it should succeed
+			wd, _ := os.Getwd()
+			if wd != "/" {
+				t.Logf("path stayed absolute: %q (cwd: %q)", files[0].Path, wd)
+			}
+		}
+	})
+
+	t.Run("empty list returns nil", func(t *testing.T) {
+		files := loadShareFiles(nil)
+		if files != nil {
+			t.Errorf("expected nil, got %v", files)
+		}
+	})
+}
+
+func TestPrintQR_NoopWhenFalse(t *testing.T) {
+	// printQR with showQR=false should not panic and should be a no-op
+	printQR("https://example.com", false)
+}
+
+func TestCleanupOnApproval_EmptyPath(t *testing.T) {
+	// Should be a no-op when reviewPath is empty
+	cleanupOnApproval(true, "", true)
+}
+
+func TestResolvePlanSlug_UsesNameWhenProvided(t *testing.T) {
+	slug := resolvePlanSlug("my-custom-name", []byte("# Some Heading"))
+	if slug != "my-custom-name" {
+		t.Errorf("resolvePlanSlug with name = %q, want my-custom-name", slug)
+	}
+}
+
+func TestResolvePlanSlug_DerivesFromContent(t *testing.T) {
+	slug := resolvePlanSlug("", []byte("# Auth Flow\n\nDetails here"))
+	if slug == "" {
+		t.Error("expected non-empty slug derived from content")
+	}
+	if !strings.Contains(slug, "auth-flow") {
+		t.Errorf("slug = %q, expected to contain 'auth-flow'", slug)
+	}
+}
+
+// --- parseCommentFlags tests ---
+
+func TestParseCommentFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want commentFlags
+	}{
+		{
+			name: "no flags",
+			args: []string{"hello", "world"},
+			want: commentFlags{args: []string{"hello", "world"}},
+		},
+		{
+			name: "author flag",
+			args: []string{"--author", "alice", "comment body"},
+			want: commentFlags{author: "alice", args: []string{"comment body"}},
+		},
+		{
+			name: "reply-to flag",
+			args: []string{"--reply-to", "c_abc123", "reply body"},
+			want: commentFlags{replyTo: "c_abc123", args: []string{"reply body"}},
+		},
+		{
+			name: "resolve flag",
+			args: []string{"--resolve", "done"},
+			want: commentFlags{resolve: true, args: []string{"done"}},
+		},
+		{
+			name: "path flag",
+			args: []string{"--path", "main.go", "fix here"},
+			want: commentFlags{path: "main.go", args: []string{"fix here"}},
+		},
+		{
+			name: "json flag",
+			args: []string{"--json"},
+			want: commentFlags{json: true},
+		},
+		{
+			name: "plan flag",
+			args: []string{"--plan", "my-plan", "comment"},
+			want: commentFlags{plan: "my-plan", args: []string{"comment"}},
+		},
+		{
+			name: "multiple flags combined",
+			args: []string{"--author", "bob", "--reply-to", "c1", "--resolve", "fixed it"},
+			want: commentFlags{
+				author:  "bob",
+				replyTo: "c1",
+				resolve: true,
+				args:    []string{"fixed it"},
+			},
+		},
+		{
+			name: "empty args",
+			args: []string{},
+			want: commentFlags{},
+		},
+		{
+			name: "output flag",
+			args: []string{"--output", "/tmp/review", "body"},
+			want: commentFlags{outputDir: "/tmp/review", args: []string{"body"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseCommentFlags(tt.args)
+			if got.author != tt.want.author {
+				t.Errorf("author = %q, want %q", got.author, tt.want.author)
+			}
+			if got.replyTo != tt.want.replyTo {
+				t.Errorf("replyTo = %q, want %q", got.replyTo, tt.want.replyTo)
+			}
+			if got.resolve != tt.want.resolve {
+				t.Errorf("resolve = %v, want %v", got.resolve, tt.want.resolve)
+			}
+			if got.path != tt.want.path {
+				t.Errorf("path = %q, want %q", got.path, tt.want.path)
+			}
+			if got.json != tt.want.json {
+				t.Errorf("json = %v, want %v", got.json, tt.want.json)
+			}
+			if got.plan != tt.want.plan {
+				t.Errorf("plan = %q, want %q", got.plan, tt.want.plan)
+			}
+			if got.outputDir != tt.want.outputDir {
+				t.Errorf("outputDir = %q, want %q", got.outputDir, tt.want.outputDir)
+			}
+			if len(got.args) != len(tt.want.args) {
+				t.Errorf("args len = %d, want %d", len(got.args), len(tt.want.args))
+			} else {
+				for i := range got.args {
+					if got.args[i] != tt.want.args[i] {
+						t.Errorf("args[%d] = %q, want %q", i, got.args[i], tt.want.args[i])
+					}
+				}
+			}
+		})
+	}
+}

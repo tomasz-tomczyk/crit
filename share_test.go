@@ -1474,6 +1474,200 @@ func TestMergeRepliesIntoComment(t *testing.T) {
 	})
 }
 
+func TestResolveAuthToken(t *testing.T) {
+	tests := []struct {
+		name      string
+		envToken  string
+		envSet    bool
+		cfgToken  string
+		wantToken string
+	}{
+		{
+			name:      "env takes priority over config",
+			envToken:  "env_token",
+			envSet:    true,
+			cfgToken:  "cfg_token",
+			wantToken: "env_token",
+		},
+		{
+			name:      "config used when no env",
+			envSet:    false,
+			cfgToken:  "cfg_token",
+			wantToken: "cfg_token",
+		},
+		{
+			name:      "empty when nothing set",
+			envSet:    false,
+			cfgToken:  "",
+			wantToken: "",
+		},
+		{
+			name:      "empty env string still counts as set",
+			envToken:  "",
+			envSet:    true,
+			cfgToken:  "cfg_token",
+			wantToken: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envSet {
+				t.Setenv("CRIT_AUTH_TOKEN", tt.envToken)
+			} else {
+				t.Setenv("CRIT_AUTH_TOKEN", "")
+				os.Unsetenv("CRIT_AUTH_TOKEN")
+			}
+			cfg := Config{AuthToken: tt.cfgToken}
+			got := resolveAuthToken(cfg)
+			if got != tt.wantToken {
+				t.Errorf("resolveAuthToken() = %q, want %q", got, tt.wantToken)
+			}
+		})
+	}
+}
+
+func TestCommentToShareComment(t *testing.T) {
+	t.Run("basic conversion", func(t *testing.T) {
+		c := Comment{
+			ID:          "c1",
+			StartLine:   10,
+			EndLine:     15,
+			Body:        "fix this",
+			Quote:       "old code",
+			Author:      "Alice",
+			ReviewRound: 2,
+		}
+		sc := commentToShareComment(c, "main.go", "line", false, false)
+		if sc.File != "main.go" {
+			t.Errorf("File = %q, want main.go", sc.File)
+		}
+		if sc.StartLine != 10 || sc.EndLine != 15 {
+			t.Errorf("lines = %d-%d, want 10-15", sc.StartLine, sc.EndLine)
+		}
+		if sc.Body != "fix this" {
+			t.Errorf("Body = %q", sc.Body)
+		}
+		if sc.Quote != "old code" {
+			t.Errorf("Quote = %q", sc.Quote)
+		}
+		if sc.Author != "Alice" {
+			t.Errorf("Author = %q", sc.Author)
+		}
+		if sc.ReviewRound != 2 {
+			t.Errorf("ReviewRound = %d, want 2", sc.ReviewRound)
+		}
+		if sc.Scope != "line" {
+			t.Errorf("Scope = %q, want line", sc.Scope)
+		}
+	})
+
+	t.Run("includes resolved when flag set", func(t *testing.T) {
+		c := Comment{Resolved: true}
+		sc := commentToShareComment(c, "", "", true, false)
+		if !sc.Resolved {
+			t.Error("expected Resolved=true when includeResolved=true")
+		}
+	})
+
+	t.Run("excludes resolved when flag not set", func(t *testing.T) {
+		c := Comment{Resolved: true}
+		sc := commentToShareComment(c, "", "", false, false)
+		if sc.Resolved {
+			t.Error("expected Resolved=false when includeResolved=false")
+		}
+	})
+
+	t.Run("sets external ID when flag set", func(t *testing.T) {
+		c := Comment{ID: "c123"}
+		sc := commentToShareComment(c, "", "", false, true)
+		if sc.ExternalID != "c123" {
+			t.Errorf("ExternalID = %q, want c123", sc.ExternalID)
+		}
+	})
+
+	t.Run("omits external ID when flag not set", func(t *testing.T) {
+		c := Comment{ID: "c123"}
+		sc := commentToShareComment(c, "", "", false, false)
+		if sc.ExternalID != "" {
+			t.Errorf("ExternalID = %q, want empty", sc.ExternalID)
+		}
+	})
+
+	t.Run("converts replies", func(t *testing.T) {
+		c := Comment{
+			Body: "note",
+			Replies: []Reply{
+				{Body: "done", Author: "Bob"},
+				{Body: "verified", Author: "Alice"},
+			},
+		}
+		sc := commentToShareComment(c, "f.md", "", false, false)
+		if len(sc.Replies) != 2 {
+			t.Fatalf("expected 2 replies, got %d", len(sc.Replies))
+		}
+		if sc.Replies[0].Body != "done" || sc.Replies[0].Author != "Bob" {
+			t.Errorf("reply[0] = %+v", sc.Replies[0])
+		}
+	})
+
+	t.Run("review round zero omitted", func(t *testing.T) {
+		c := Comment{ReviewRound: 0}
+		sc := commentToShareComment(c, "", "", false, false)
+		if sc.ReviewRound != 0 {
+			t.Errorf("ReviewRound = %d, want 0 (omitted for round 0)", sc.ReviewRound)
+		}
+	})
+}
+
+func TestMergeWebComments(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit.json")
+
+	// Setup initial review file
+	cj := CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {Comments: []Comment{
+				{ID: "c1", Body: "existing", StartLine: 1, EndLine: 1},
+			}},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(critPath, data, 0644)
+
+	// Merge new comments
+	newComments := []webComment{
+		{Body: "web comment", FilePath: "main.go", StartLine: 5, EndLine: 5, AuthorDisplayName: "Web User"},
+		{Body: "review note", Scope: "review", AuthorDisplayName: "Reviewer"},
+	}
+	if err := mergeWebComments(critPath, newComments); err != nil {
+		t.Fatalf("mergeWebComments: %v", err)
+	}
+
+	// Read back and verify
+	data, _ = os.ReadFile(critPath)
+	var result CritJSON
+	json.Unmarshal(data, &result)
+
+	mainComments := result.Files["main.go"].Comments
+	if len(mainComments) != 2 {
+		t.Fatalf("expected 2 comments in main.go, got %d", len(mainComments))
+	}
+	if mainComments[1].Body != "web comment" {
+		t.Errorf("new comment body = %q", mainComments[1].Body)
+	}
+	if mainComments[1].ID != "web-1" {
+		t.Errorf("new comment ID = %q, want web-1", mainComments[1].ID)
+	}
+
+	if len(result.ReviewComments) != 1 {
+		t.Fatalf("expected 1 review comment, got %d", len(result.ReviewComments))
+	}
+	if result.ReviewComments[0].Body != "review note" {
+		t.Errorf("review comment body = %q", result.ReviewComments[0].Body)
+	}
+}
+
 func TestBuildLocalFingerprints(t *testing.T) {
 	t.Run("file comments with path body lines", func(t *testing.T) {
 		cj := CritJSON{

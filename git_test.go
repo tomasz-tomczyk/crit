@@ -1473,3 +1473,50 @@ func TestDiffNumstatBinary(t *testing.T) {
 		t.Errorf("image.png: got +%d/-%d, want +0/-0", s.Additions, s.Deletions)
 	}
 }
+
+func TestFileDiffForCommit_RootCommit(t *testing.T) {
+	dir := initTestRepo(t)
+	// Get the initial (root) commit SHA.
+	sha := runGit(t, dir, "rev-parse", "HEAD")
+
+	hunks, err := FileDiffForCommit("README.md", sha, dir)
+	if err != nil {
+		t.Fatalf("FileDiffForCommit on root commit: %v", err)
+	}
+	if len(hunks) == 0 {
+		t.Error("expected hunks for root commit diff")
+	}
+}
+
+func TestFileDiffForCommit_NormalCommit(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "README.md"), "# Test\n\nUpdated content\n")
+	runGit(t, dir, "add", "README.md")
+	runGit(t, dir, "commit", "-m", "update readme")
+	sha := runGit(t, dir, "rev-parse", "HEAD")
+
+	hunks, err := FileDiffForCommit("README.md", sha, dir)
+	if err != nil {
+		t.Fatalf("FileDiffForCommit: %v", err)
+	}
+	if len(hunks) == 0 {
+		t.Error("expected hunks for modified file commit")
+	}
+}
+
+func TestFileDiffForCommit_FileNotInCommit(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "other.go"), "package main")
+	runGit(t, dir, "add", "other.go")
+	runGit(t, dir, "commit", "-m", "add other")
+	sha := runGit(t, dir, "rev-parse", "HEAD")
+
+	// README.md was not changed in this commit.
+	hunks, err := FileDiffForCommit("README.md", sha, dir)
+	if err != nil {
+		t.Fatalf("FileDiffForCommit: %v", err)
+	}
+	if len(hunks) != 0 {
+		t.Errorf("expected 0 hunks for file not in commit, got %d", len(hunks))
+	}
+}
