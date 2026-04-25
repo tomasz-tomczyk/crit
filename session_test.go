@@ -3964,3 +3964,258 @@ func TestExtractAnchor(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterDeletedComments(t *testing.T) {
+	tests := []struct {
+		name         string
+		memComments  []Comment
+		diskComments []Comment
+		wantChanged  bool
+		wantCount    int
+	}{
+		{
+			name: "disk subset removes extras",
+			memComments: []Comment{
+				{ID: "c1", Body: "keep"},
+				{ID: "c2", Body: "remove"},
+				{ID: "c3", Body: "also remove"},
+			},
+			diskComments: []Comment{
+				{ID: "c1", Body: "keep"},
+			},
+			wantChanged: true,
+			wantCount:   1,
+		},
+		{
+			name: "matching comments no-op",
+			memComments: []Comment{
+				{ID: "c1", Body: "a"},
+				{ID: "c2", Body: "b"},
+			},
+			diskComments: []Comment{
+				{ID: "c1", Body: "a"},
+				{ID: "c2", Body: "b"},
+			},
+			wantChanged: false,
+			wantCount:   2,
+		},
+		{
+			name: "all deleted",
+			memComments: []Comment{
+				{ID: "c1", Body: "gone"},
+				{ID: "c2", Body: "also gone"},
+			},
+			diskComments: []Comment{},
+			wantChanged:  true,
+			wantCount:    0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &FileEntry{
+				Comments: make([]Comment, len(tt.memComments)),
+			}
+			copy(f.Comments, tt.memComments)
+			changed := filterDeletedComments(f, tt.diskComments)
+			if changed != tt.wantChanged {
+				t.Errorf("changed = %v, want %v", changed, tt.wantChanged)
+			}
+			if len(f.Comments) != tt.wantCount {
+				t.Errorf("len(Comments) = %d, want %d", len(f.Comments), tt.wantCount)
+			}
+		})
+	}
+}
+
+func TestMergeReviewCommentRepliesAndState(t *testing.T) {
+	t.Run("new reply added", func(t *testing.T) {
+		s := &Session{
+			reviewComments: []Comment{
+				{ID: "r1", Body: "original", Replies: []Reply{
+					{ID: "rep1", Body: "existing reply"},
+				}},
+			},
+			subscribers: make(map[chan SSEEvent]struct{}),
+		}
+		dc := Comment{
+			ID:   "r1",
+			Body: "original",
+			Replies: []Reply{
+				{ID: "rep1", Body: "existing reply"},
+				{ID: "rep2", Body: "new reply"},
+			},
+		}
+		changed := s.mergeReviewCommentRepliesAndState(dc)
+		if !changed {
+			t.Error("expected changed=true when new reply added")
+		}
+		if len(s.reviewComments[0].Replies) != 2 {
+			t.Fatalf("expected 2 replies, got %d", len(s.reviewComments[0].Replies))
+		}
+		if s.reviewComments[0].Replies[1].ID != "rep2" {
+			t.Errorf("expected new reply ID rep2, got %q", s.reviewComments[0].Replies[1].ID)
+		}
+	})
+
+	t.Run("duplicate reply skipped", func(t *testing.T) {
+		s := &Session{
+			reviewComments: []Comment{
+				{ID: "r1", Body: "original", Replies: []Reply{
+					{ID: "rep1", Body: "reply"},
+				}},
+			},
+			subscribers: make(map[chan SSEEvent]struct{}),
+		}
+		dc := Comment{
+			ID:   "r1",
+			Body: "original",
+			Replies: []Reply{
+				{ID: "rep1", Body: "reply"},
+			},
+		}
+		changed := s.mergeReviewCommentRepliesAndState(dc)
+		if changed {
+			t.Error("expected changed=false for duplicate reply")
+		}
+		if len(s.reviewComments[0].Replies) != 1 {
+			t.Fatalf("expected 1 reply, got %d", len(s.reviewComments[0].Replies))
+		}
+	})
+
+	t.Run("resolved state propagated", func(t *testing.T) {
+		s := &Session{
+			reviewComments: []Comment{
+				{ID: "r1", Body: "original", Resolved: false},
+			},
+			subscribers: make(map[chan SSEEvent]struct{}),
+		}
+		dc := Comment{ID: "r1", Body: "original", Resolved: true}
+		changed := s.mergeReviewCommentRepliesAndState(dc)
+		if !changed {
+			t.Error("expected changed=true when resolved state differs")
+		}
+		if !s.reviewComments[0].Resolved {
+			t.Error("expected Resolved=true after merge")
+		}
+	})
+
+	t.Run("no matching comment returns false", func(t *testing.T) {
+		s := &Session{
+			reviewComments: []Comment{
+				{ID: "r1", Body: "original"},
+			},
+			subscribers: make(map[chan SSEEvent]struct{}),
+		}
+		dc := Comment{ID: "r999", Body: "nonexistent"}
+		changed := s.mergeReviewCommentRepliesAndState(dc)
+		if changed {
+			t.Error("expected changed=false for non-matching comment ID")
+		}
+	})
+}
+
+func TestCountHunkStats(t *testing.T) {
+	tests := []struct {
+		name           string
+		hunks          []DiffHunk
+		wantAdditions  int
+		wantDeletions  int
+	}{
+		{
+			name:          "empty hunks",
+			hunks:         []DiffHunk{},
+			wantAdditions: 0,
+			wantDeletions: 0,
+		},
+		{
+			name: "mixed lines",
+			hunks: []DiffHunk{{
+				Lines: []DiffLine{
+					{Type: "add", Content: "new line"},
+					{Type: "del", Content: "old line"},
+					{Type: "context", Content: "unchanged"},
+					{Type: "add", Content: "another new"},
+				},
+			}},
+			wantAdditions: 2,
+			wantDeletions: 1,
+		},
+		{
+			name: "multiple hunks",
+			hunks: []DiffHunk{
+				{Lines: []DiffLine{
+					{Type: "add", Content: "a"},
+					{Type: "add", Content: "b"},
+				}},
+				{Lines: []DiffLine{
+					{Type: "del", Content: "c"},
+					{Type: "del", Content: "d"},
+					{Type: "del", Content: "e"},
+				}},
+			},
+			wantAdditions: 2,
+			wantDeletions: 3,
+		},
+		{
+			name: "context only",
+			hunks: []DiffHunk{{
+				Lines: []DiffLine{
+					{Type: "context", Content: "line1"},
+					{Type: "context", Content: "line2"},
+				},
+			}},
+			wantAdditions: 0,
+			wantDeletions: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			add, del := countHunkStats(tt.hunks)
+			if add != tt.wantAdditions {
+				t.Errorf("additions = %d, want %d", add, tt.wantAdditions)
+			}
+			if del != tt.wantDeletions {
+				t.Errorf("deletions = %d, want %d", del, tt.wantDeletions)
+			}
+		})
+	}
+}
+
+func TestHandleCritJSONDeleted(t *testing.T) {
+	s := &Session{
+		Files: []*FileEntry{
+			{
+				Path: "plan.md",
+				Comments: []Comment{
+					{ID: "c1", Body: "some comment"},
+					{ID: "c2", Body: "another comment"},
+				},
+			},
+			{
+				Path:     "main.go",
+				Comments: []Comment{{ID: "c3", Body: "code comment"}},
+			},
+		},
+		reviewComments:    []Comment{{ID: "r1", Body: "review level"}},
+		deletedCommentIDs: map[string]map[string]struct{}{"plan.md": {"old": {}}},
+		subscribers:       make(map[chan SSEEvent]struct{}),
+		roundComplete:     make(chan struct{}, 1),
+	}
+
+	result := s.handleCritJSONDeleted()
+	if !result {
+		t.Error("handleCritJSONDeleted should always return true")
+	}
+
+	for _, f := range s.Files {
+		if len(f.Comments) != 0 {
+			t.Errorf("file %s should have 0 comments, got %d", f.Path, len(f.Comments))
+		}
+	}
+	if len(s.reviewComments) != 0 {
+		t.Errorf("reviewComments should be empty, got %d", len(s.reviewComments))
+	}
+	if s.deletedCommentIDs != nil {
+		t.Error("deletedCommentIDs should be nil")
+	}
+}

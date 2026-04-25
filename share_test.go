@@ -1273,3 +1273,258 @@ func TestSetBearer_NoopWhenEmpty(t *testing.T) {
 		t.Errorf("expected empty Authorization header, got %q", got)
 	}
 }
+
+func TestBuildLocalIDSet(t *testing.T) {
+	tests := []struct {
+		name    string
+		cj      CritJSON
+		wantIDs []string
+	}{
+		{
+			name: "file comments only",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"plan.md": {Comments: []Comment{
+						{ID: "c1", Body: "a"},
+						{ID: "c2", Body: "b"},
+					}},
+				},
+			},
+			wantIDs: []string{"c1", "c2"},
+		},
+		{
+			name: "review comments only",
+			cj: CritJSON{
+				Files:          map[string]CritJSONFile{},
+				ReviewComments: []Comment{{ID: "r1", Body: "review note"}},
+			},
+			wantIDs: []string{"r1"},
+		},
+		{
+			name: "both file and review comments",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"main.go": {Comments: []Comment{{ID: "c1", Body: "fix"}}},
+				},
+				ReviewComments: []Comment{{ID: "r1", Body: "overall"}},
+			},
+			wantIDs: []string{"c1", "r1"},
+		},
+		{
+			name: "empty",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{},
+			},
+			wantIDs: []string{},
+		},
+		{
+			name: "skips empty IDs",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"f.md": {Comments: []Comment{
+						{ID: "", Body: "no id"},
+						{ID: "c1", Body: "has id"},
+					}},
+				},
+			},
+			wantIDs: []string{"c1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ids := buildLocalIDSet(tt.cj)
+			if len(ids) != len(tt.wantIDs) {
+				t.Fatalf("got %d IDs, want %d", len(ids), len(tt.wantIDs))
+			}
+			for _, id := range tt.wantIDs {
+				if !ids[id] {
+					t.Errorf("expected ID %q in set", id)
+				}
+			}
+		})
+	}
+}
+
+func TestHighestWebIndex(t *testing.T) {
+	tests := []struct {
+		name string
+		cj   CritJSON
+		want int
+	}{
+		{
+			name: "no web IDs",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"f.md": {Comments: []Comment{{ID: "c1"}, {ID: "c2"}}},
+				},
+			},
+			want: 0,
+		},
+		{
+			name: "single web ID in file",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"f.md": {Comments: []Comment{{ID: "web-5"}}},
+				},
+			},
+			want: 5,
+		},
+		{
+			name: "mixed file and review web IDs",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"f.md": {Comments: []Comment{{ID: "web-3"}, {ID: "c1"}}},
+				},
+				ReviewComments: []Comment{{ID: "web-7"}, {ID: "r1"}},
+			},
+			want: 7,
+		},
+		{
+			name: "non-numeric prefix skipped",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"f.md": {Comments: []Comment{{ID: "web-abc"}, {ID: "web-2"}}},
+				},
+			},
+			want: 2,
+		},
+		{
+			name: "empty",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{},
+			},
+			want: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := highestWebIndex(tt.cj)
+			if got != tt.want {
+				t.Errorf("highestWebIndex() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMergeRepliesIntoComment(t *testing.T) {
+	t.Run("new reply added", func(t *testing.T) {
+		c := Comment{
+			ID:   "c1",
+			Body: "fix this",
+			Replies: []Reply{
+				{ID: "r1", Body: "done"},
+			},
+		}
+		webReplies := []webReply{
+			{Body: "verified", AuthorDisplayName: "Alice"},
+		}
+		result := mergeRepliesIntoComment(c, webReplies)
+		if len(result.Replies) != 2 {
+			t.Fatalf("expected 2 replies, got %d", len(result.Replies))
+		}
+		if result.Replies[1].Body != "verified" {
+			t.Errorf("expected reply body 'verified', got %q", result.Replies[1].Body)
+		}
+		if result.Replies[1].Author != "Alice" {
+			t.Errorf("expected author 'Alice', got %q", result.Replies[1].Author)
+		}
+	})
+
+	t.Run("duplicate reply skipped", func(t *testing.T) {
+		c := Comment{
+			ID:   "c1",
+			Body: "fix this",
+			Replies: []Reply{
+				{ID: "r1", Body: "done"},
+			},
+		}
+		webReplies := []webReply{
+			{Body: "done", AuthorDisplayName: "Bob"},
+		}
+		result := mergeRepliesIntoComment(c, webReplies)
+		if len(result.Replies) != 1 {
+			t.Fatalf("expected 1 reply (duplicate skipped), got %d", len(result.Replies))
+		}
+	})
+
+	t.Run("empty web replies", func(t *testing.T) {
+		c := Comment{
+			ID:      "c1",
+			Body:    "note",
+			Replies: []Reply{{ID: "r1", Body: "existing"}},
+		}
+		result := mergeRepliesIntoComment(c, nil)
+		if len(result.Replies) != 1 {
+			t.Fatalf("expected 1 reply, got %d", len(result.Replies))
+		}
+	})
+
+	t.Run("empty existing replies", func(t *testing.T) {
+		c := Comment{ID: "c1", Body: "note"}
+		webReplies := []webReply{
+			{Body: "new reply", AuthorDisplayName: "Eve"},
+		}
+		result := mergeRepliesIntoComment(c, webReplies)
+		if len(result.Replies) != 1 {
+			t.Fatalf("expected 1 reply, got %d", len(result.Replies))
+		}
+		if result.Replies[0].Body != "new reply" {
+			t.Errorf("expected body 'new reply', got %q", result.Replies[0].Body)
+		}
+	})
+}
+
+func TestBuildLocalFingerprints(t *testing.T) {
+	t.Run("file comments with path body lines", func(t *testing.T) {
+		cj := CritJSON{
+			Files: map[string]CritJSONFile{
+				"plan.md": {Comments: []Comment{
+					{ID: "c1", Body: "fix this", StartLine: 5, EndLine: 10},
+				}},
+			},
+		}
+		fps := buildLocalFingerprints(cj)
+		key := "fix this|plan.md|5|10"
+		if !fps[key] {
+			t.Errorf("expected fingerprint %q in set", key)
+		}
+		if len(fps) != 1 {
+			t.Errorf("expected 1 fingerprint, got %d", len(fps))
+		}
+	})
+
+	t.Run("review comments with body only", func(t *testing.T) {
+		cj := CritJSON{
+			Files:          map[string]CritJSONFile{},
+			ReviewComments: []Comment{{ID: "r1", Body: "overall note"}},
+		}
+		fps := buildLocalFingerprints(cj)
+		key := "overall note||0|0"
+		if !fps[key] {
+			t.Errorf("expected fingerprint %q in set", key)
+		}
+	})
+
+	t.Run("both file and review comments", func(t *testing.T) {
+		cj := CritJSON{
+			Files: map[string]CritJSONFile{
+				"main.go": {Comments: []Comment{
+					{ID: "c1", Body: "refactor", StartLine: 1, EndLine: 3},
+				}},
+			},
+			ReviewComments: []Comment{{ID: "r1", Body: "looks good"}},
+		}
+		fps := buildLocalFingerprints(cj)
+		if len(fps) != 2 {
+			t.Errorf("expected 2 fingerprints, got %d", len(fps))
+		}
+	})
+
+	t.Run("empty CritJSON", func(t *testing.T) {
+		cj := CritJSON{Files: map[string]CritJSONFile{}}
+		fps := buildLocalFingerprints(cj)
+		if len(fps) != 0 {
+			t.Errorf("expected 0 fingerprints, got %d", len(fps))
+		}
+	})
+}

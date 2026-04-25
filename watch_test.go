@@ -1228,3 +1228,146 @@ func TestCarryForwardComments_CodeFileOldSidePreservesPosition(t *testing.T) {
 		t.Errorf("Side should be preserved as %q, got %q", "old", carried.Side)
 	}
 }
+
+func TestFindAnchorInLines(t *testing.T) {
+	tests := []struct {
+		name           string
+		lines          []string
+		anchor         string
+		preferredStart int
+		want           int
+	}{
+		{
+			name:           "no match returns 0",
+			lines:          []string{"alpha", "beta", "gamma"},
+			anchor:         "delta",
+			preferredStart: 1,
+			want:           0,
+		},
+		{
+			name:           "single match",
+			lines:          []string{"alpha", "beta", "gamma"},
+			anchor:         "beta",
+			preferredStart: 1,
+			want:           2,
+		},
+		{
+			name:           "multiple matches picks closest to preferred",
+			lines:          []string{"x", "y", "x", "y", "x"},
+			anchor:         "x",
+			preferredStart: 5,
+			want:           5,
+		},
+		{
+			name:           "multiple matches picks closest lower",
+			lines:          []string{"x", "y", "x", "y", "x"},
+			anchor:         "x",
+			preferredStart: 2,
+			want:           1,
+		},
+		{
+			name:           "empty anchor returns 0",
+			lines:          []string{"alpha", "beta"},
+			anchor:         "",
+			preferredStart: 1,
+			want:           0,
+		},
+		{
+			name:           "multi-line anchor",
+			lines:          []string{"a", "b", "c", "a", "b", "d"},
+			anchor:         "a\nb",
+			preferredStart: 4,
+			want:           4,
+		},
+		{
+			name:           "anchor longer than lines returns 0",
+			lines:          []string{"a"},
+			anchor:         "a\nb",
+			preferredStart: 1,
+			want:           0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := findAnchorInLines(tt.lines, tt.anchor, tt.preferredStart)
+			if got != tt.want {
+				t.Errorf("findAnchorInLines() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRemapLines(t *testing.T) {
+	tests := []struct {
+		name     string
+		lineMap  map[int]int
+		oldStart int
+		oldEnd   int
+		maxLine  int
+		wantS    int
+		wantE    int
+	}{
+		{
+			name:     "both lines in map",
+			lineMap:  map[int]int{5: 7, 10: 12},
+			oldStart: 5,
+			oldEnd:   10,
+			maxLine:  20,
+			wantS:    7,
+			wantE:    12,
+		},
+		{
+			name:     "neither in map falls back to original",
+			lineMap:  map[int]int{},
+			oldStart: 3,
+			oldEnd:   8,
+			maxLine:  20,
+			wantS:    3,
+			wantE:    8,
+		},
+		{
+			name:     "start exceeds maxLine gets clamped",
+			lineMap:  map[int]int{},
+			oldStart: 25,
+			oldEnd:   30,
+			maxLine:  10,
+			wantS:    10,
+			wantE:    10,
+		},
+		{
+			name:     "end less than start gets corrected",
+			lineMap:  map[int]int{5: 10, 8: 4},
+			oldStart: 5,
+			oldEnd:   8,
+			maxLine:  20,
+			wantS:    10,
+			wantE:    10,
+		},
+		{
+			name:     "start below 1 gets clamped to 1",
+			lineMap:  map[int]int{1: 0},
+			oldStart: 1,
+			oldEnd:   5,
+			maxLine:  20,
+			wantS:    1,
+			wantE:    5,
+		},
+		{
+			name:     "only start in map",
+			lineMap:  map[int]int{3: 6},
+			oldStart: 3,
+			oldEnd:   7,
+			maxLine:  20,
+			wantS:    6,
+			wantE:    7,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, e := remapLines(tt.lineMap, tt.oldStart, tt.oldEnd, tt.maxLine)
+			if s != tt.wantS || e != tt.wantE {
+				t.Errorf("remapLines() = (%d, %d), want (%d, %d)", s, e, tt.wantS, tt.wantE)
+			}
+		})
+	}
+}
