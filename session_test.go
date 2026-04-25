@@ -4116,10 +4116,10 @@ func TestMergeReviewCommentRepliesAndState(t *testing.T) {
 
 func TestCountHunkStats(t *testing.T) {
 	tests := []struct {
-		name           string
-		hunks          []DiffHunk
-		wantAdditions  int
-		wantDeletions  int
+		name          string
+		hunks         []DiffHunk
+		wantAdditions int
+		wantDeletions int
 	}{
 		{
 			name:          "empty hunks",
