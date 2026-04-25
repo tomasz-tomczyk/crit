@@ -23,3 +23,5 @@ ignore:
   - "e2e/"
   - "node_modules/"
   - "integrations/"
+  - "gen_integration_hashes.go"
+  - "integration_hashes_gen.go"
