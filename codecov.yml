@@ -1,0 +1,25 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: 80%
+
+flags:
+  unit:
+    paths:
+      - "!e2e/"
+      - "!frontend/"
+  e2e:
+    paths:
+      - "!e2e/"
+      - "!frontend/"
+
+ignore:
+  - "frontend/"
+  - "e2e/"
+  - "node_modules/"
+  - "integrations/"

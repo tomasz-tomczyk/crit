@@ -60,15 +60,6 @@ jobs:
       - name: Run tests with coverage
         run: go test -coverprofile=coverage.out -covermode=atomic ./...
 
-      - name: Check coverage threshold
-        run: |
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "Coverage: $COVERAGE%"
-          if (( $(echo "$COVERAGE < 58" | bc -l) )); then
-            echo "::error::Coverage $COVERAGE% is below 58% threshold"
-            exit 1
-          fi
-
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
