@@ -57,17 +57,24 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - run: go test ./...
+      - name: Run tests with coverage
+        run: go test -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Check coverage threshold
         run: |
-          go test -coverprofile=coverage.out ./...
           COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "Coverage: $COVERAGE%"
           if (( $(echo "$COVERAGE < 58" | bc -l) )); then
             echo "::error::Coverage $COVERAGE% is below 58% threshold"
             exit 1
           fi
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.out
+          flags: unit
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   e2e:
     runs-on: ubuntu-latest
@@ -104,9 +111,32 @@ jobs:
         working-directory: e2e
         run: npx playwright install-deps chromium
 
+      - name: Build crit with coverage instrumentation
+        run: |
+          mkdir -p /tmp/crit-coverdir
+          go build -cover -o /tmp/crit-cover-bin .
+
       - name: Run E2E tests
         working-directory: e2e
         run: bash run.sh
+        env:
+          CRIT_BIN: /tmp/crit-cover-bin
+          GOCOVERDIR: /tmp/crit-coverdir
+
+      - name: Convert E2E coverage data
+        if: always()
+        run: |
+          if [ -d /tmp/crit-coverdir ] && ls /tmp/crit-coverdir/*.* >/dev/null 2>&1; then
+            go tool covdata textfmt -i=/tmp/crit-coverdir -o=e2e-coverage.out
+          fi
+
+      - name: Upload E2E coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          files: e2e-coverage.out
+          flags: e2e
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload test results
         if: failure()
