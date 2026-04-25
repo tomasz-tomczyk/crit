@@ -666,3 +666,76 @@ func TestLoadConfig_OutputField(t *testing.T) {
 		t.Errorf("Output = %q, want /tmp/output", cfg.Output)
 	}
 }
+
+func TestCleanupOnApproveEnabled(t *testing.T) {
+	trueVal := true
+	falseVal := false
+
+	tests := []struct {
+		name string
+		cfg  Config
+		want bool
+	}{
+		{
+			name: "nil pointer defaults to true",
+			cfg:  Config{CleanupOnApprove: nil},
+			want: true,
+		},
+		{
+			name: "explicit true",
+			cfg:  Config{CleanupOnApprove: &trueVal},
+			want: true,
+		},
+		{
+			name: "explicit false",
+			cfg:  Config{CleanupOnApprove: &falseVal},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.CleanupOnApproveEnabled()
+			if got != tt.want {
+				t.Errorf("CleanupOnApproveEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDefaultConfig(t *testing.T) {
+	cfg := defaultConfig()
+
+	if cfg.Port != 0 {
+		t.Errorf("Port = %d, want 0", cfg.Port)
+	}
+	if cfg.NoOpen {
+		t.Error("NoOpen should be false")
+	}
+	if cfg.ShareURL != "https://crit.md" {
+		t.Errorf("ShareURL = %q, want https://crit.md", cfg.ShareURL)
+	}
+	if !cfg.CleanupOnApprove {
+		t.Error("CleanupOnApprove should be true")
+	}
+	if len(cfg.IgnorePatterns) != 4 {
+		t.Fatalf("IgnorePatterns has %d entries, want 4", len(cfg.IgnorePatterns))
+	}
+	expectedPatterns := map[string]bool{
+		"*.lock":    true,
+		"*.min.js":  true,
+		"*.min.css": true,
+		".crit/":    true,
+	}
+	for _, p := range cfg.IgnorePatterns {
+		if !expectedPatterns[p] {
+			t.Errorf("unexpected pattern %q", p)
+		}
+	}
+
+	// Verify the output is valid JSON via the String method
+	s := cfg.String()
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		t.Errorf("defaultConfig().String() is not valid JSON: %v", err)
+	}
+}
