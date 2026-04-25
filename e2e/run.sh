@@ -9,11 +9,15 @@ SINGLE_PORT="${CRIT_TEST_SINGLE_PORT:-3125}"
 NOGIT_PORT="${CRIT_TEST_NOGIT_PORT:-3126}"
 MULTI_PORT="${CRIT_TEST_MULTI_PORT:-3127}"
 
-# Build crit once
-BIN_DIR=$(mktemp -d)
-trap 'rm -rf "$BIN_DIR"' EXIT
-export CRIT_BIN="$BIN_DIR/crit"
-(cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
+# Build crit once (skip if CRIT_BIN already points to an existing binary, e.g. CI coverage builds)
+if [ -n "${CRIT_BIN:-}" ] && [ -f "$CRIT_BIN" ]; then
+  echo "Using pre-built binary: $CRIT_BIN"
+else
+  BIN_DIR=$(mktemp -d)
+  trap 'rm -rf "$BIN_DIR"' EXIT
+  export CRIT_BIN="$BIN_DIR/crit"
+  (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
+fi
 
 # Kill any stale processes on our test ports before starting fresh
 for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT"; do
@@ -36,7 +40,7 @@ MULTI_PID=$!
 cleanup() {
   kill "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" 2>/dev/null || true
   wait "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" 2>/dev/null || true
-  rm -rf "$BIN_DIR"
+  rm -rf "${BIN_DIR:-}"
 }
 trap cleanup EXIT
 
