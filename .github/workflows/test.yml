@@ -58,7 +58,9 @@ jobs:
           go-version-file: go.mod
 
       - name: Run tests with coverage
-        run: go test -coverprofile=coverage.out -covermode=atomic ./...
+        run: |
+          PKGS=$(go list ./... | grep -v /node_modules/)
+          go test -coverprofile=coverage.out -covermode=atomic $PKGS
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6
