@@ -40,7 +40,7 @@ MULTI_PID=$!
 cleanup() {
   kill "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" 2>/dev/null || true
   wait "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" 2>/dev/null || true
-  rm -rf "$BIN_DIR"
+  rm -rf "${BIN_DIR:-}"
 }
 trap cleanup EXIT
 
