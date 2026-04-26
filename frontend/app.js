@@ -7426,7 +7426,7 @@
     const btns = Array.from(filterPillEl.querySelectorAll('.toggle-btn'));
     const currentIdx = btns.findIndex(function(b) { return b === document.activeElement; });
     if (currentIdx === -1) return;
-    let nextIdx = null;
+    let nextIdx;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       nextIdx = (currentIdx + 1) % btns.length;
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
