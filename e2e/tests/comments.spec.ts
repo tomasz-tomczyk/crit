@@ -375,6 +375,8 @@ test.describe('Cross-File Comments', () => {
     // Form should be open
     await expect(serverSection.locator('.comment-form')).toBeVisible();
     await expect(page.locator('.comment-form')).toHaveCount(1);
+    // Fill so it isn't auto-closed when the second form opens
+    await serverSection.locator('.comment-form textarea').fill('first');
 
     // Now open comment form on handler.js
     const handlerSection = jsSection(page);

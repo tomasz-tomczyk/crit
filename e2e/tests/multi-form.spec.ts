@@ -41,6 +41,27 @@ test.describe('Multi-Form Comments', () => {
     await expect(secondForm.locator('textarea')).toBeFocused();
   });
 
+  test('opening a new comment form closes existing empty form', async ({ page }) => {
+    // Open form on server.go (leave empty)
+    const goSec = goSection(page);
+    const goAddition = goSec.locator('.diff-split-side.addition').first();
+    await goAddition.hover();
+    await goAddition.locator('.diff-comment-btn').click();
+    await expect(goSec.locator('.comment-form')).toBeVisible();
+
+    // Open form on handler.js without filling first
+    const jsSec = jsSection(page);
+    const jsAddition = jsSec.locator('.diff-split-side.addition').first();
+    await jsAddition.scrollIntoViewIfNeeded();
+    await jsAddition.hover();
+    await jsAddition.locator('.diff-comment-btn').click();
+
+    // First (empty) form should be closed; only second visible
+    await expect(jsSec.locator('.comment-form')).toBeVisible();
+    await expect(goSec.locator('.comment-form')).toHaveCount(0);
+    await expect(page.locator('.comment-form')).toHaveCount(1);
+  });
+
   test('submitting one form does not affect other open forms', async ({ page }) => {
     // Open form on server.go
     const goSec = goSection(page);
@@ -213,6 +234,8 @@ test.describe('Multi-Form Comments', () => {
     await firstLineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
     await expect(section.locator('.comment-form')).toHaveCount(1);
+    // Fill so it isn't auto-closed when the second form opens
+    await section.locator('.comment-form textarea').fill('first');
 
     // Open second form on a different line
     const thirdLineBlock = section.locator('.line-block').nth(2);
@@ -242,6 +265,8 @@ test.describe('Multi-Form Comments', () => {
     await firstAdd.hover();
     await firstAdd.locator('.diff-comment-btn').click();
     await expect(goSec.locator('.comment-form')).toHaveCount(1);
+    // Fill so it isn't auto-closed when the second form opens
+    await goSec.locator('.comment-form textarea').fill('first');
 
     // Open form on second addition
     await secondAdd.scrollIntoViewIfNeeded();
