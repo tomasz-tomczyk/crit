@@ -192,14 +192,6 @@
     document.body.classList.toggle('hide-resolved', hideResolvedState);
   }
 
-  // Comments-panel filter ('all' | 'open' | 'resolved'), persisted as cookie.
-  function getCommentsFilter() {
-    const v = getCookie('crit-comments-filter');
-    return (v === 'open' || v === 'resolved') ? v : 'all';
-  }
-  function setCommentsFilter(v) {
-    setCookie('crit-comments-filter', v);
-  }
   let diffCommit = '';
   let commitList = [];
   let diffActive = false; // rendered diff view toggle for file mode
@@ -5870,9 +5862,9 @@
     return parts.wrapper;
   }
 
-  // Track active filter: 'all', 'open', 'resolved'. Persisted via localStorage
-  // (see getCommentsFilter / setCommentsFilter accessors).
-  let commentsActiveFilter = getCommentsFilter();
+  // Track active filter: 'all', 'open', 'resolved'. In-memory only —
+  // sticky filter would hide new open comments on a new review session.
+  let commentsActiveFilter = 'all';
 
   function renderCommentsPanel() {
     const panel = document.getElementById('commentsPanel');
@@ -7415,7 +7407,6 @@
     const btn = e.target.closest('.toggle-btn');
     if (!btn) return;
     commentsActiveFilter = btn.dataset.filter;
-    setCommentsFilter(commentsActiveFilter);
     document.querySelectorAll('#commentsFilterPill .toggle-btn').forEach(function(b) { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
     btn.classList.add('active');
     btn.setAttribute('aria-pressed', 'true');
