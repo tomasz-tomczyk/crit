@@ -356,10 +356,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	critPath := s.session.Load().critJSONPath()
-	comments, reviewRound := loadCommentsForShare(critPath, filePaths)
-	cliArgs := loadCliArgsFromReviewFile(critPath)
-
-	url, deleteToken, err := shareFilesToWeb(files, comments, s.shareURL, reviewRound, s.authToken, cliArgs)
+	res, err := shareReviewFiles(critPath, files, filePaths, s.shareURL, s.authToken)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
@@ -367,9 +364,9 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.session.Load().SetSharedURLAndToken(url, deleteToken)
+	s.session.Load().SetSharedURLAndToken(res.URL, res.DeleteToken)
 	s.session.Load().SetShareScope(shareScope(filePaths))
-	writeJSON(w, map[string]any{"url": url, "delete_token": deleteToken})
+	writeJSON(w, map[string]any{"url": res.URL, "delete_token": res.DeleteToken})
 }
 
 // handleFile returns file content + metadata for a single file.

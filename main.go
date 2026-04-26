@@ -157,8 +157,8 @@ func printQR(url string, showQR bool) {
 
 func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, sharePaths []string, authToken string, showQR bool) {
 	localIDs := buildLocalIDSet(existingCfg)
-	localFingerprints := buildLocalFingerprints(existingCfg)
-	if fetched, err := fetchWebComments(existingCfg.ShareURL, localIDs, localFingerprints, authToken); err != nil {
+	localFingerprints, localFingerprintIDs := buildLocalFingerprintIndex(existingCfg)
+	if fetched, err := fetchWebComments(existingCfg.ShareURL, localIDs, localFingerprints, localFingerprintIDs, authToken); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not pull remote comments: %v\n", err)
 	} else if len(fetched.NewComments) > 0 || len(fetched.ReplyUpdates) > 0 {
 		if err := mergeWebComments(critPath, fetched.NewComments, fetched.ReplyUpdates); err != nil {
@@ -187,24 +187,21 @@ func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, 
 }
 
 func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL, authToken string, showQR bool) {
-	comments, reviewRound := loadCommentsForShare(critPath, filePaths)
-	cliArgs := loadCliArgsFromReviewFile(critPath)
-
-	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs)
+	res, err := shareReviewFiles(critPath, files, filePaths, svcURL, authToken)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := persistShareState(critPath, url, deleteToken, shareScope(filePaths)); err != nil {
+	if err := persistShareState(critPath, res.URL, res.DeleteToken, shareScope(filePaths)); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state to review file: %v\n", err)
 	}
 
 	initialComments, _ := loadCommentsForUpsert(critPath, filePaths)
-	_ = updateShareState(critPath, computeShareHash(files, initialComments), reviewRound)
+	_ = updateShareState(critPath, computeShareHash(files, initialComments), res.ReviewRound)
 
-	fmt.Println(url)
-	printQR(url, showQR)
+	fmt.Println(res.URL)
+	printQR(res.URL, showQR)
 
 	if authToken == "" {
 		showLoginHint()
@@ -308,9 +305,9 @@ func runFetch(args []string) {
 
 	authToken := resolveAuthToken(loadShareConfig())
 	localIDs := buildLocalIDSet(cj)
-	localFingerprints := buildLocalFingerprints(cj)
+	localFingerprints, localFingerprintIDs := buildLocalFingerprintIndex(cj)
 
-	fetched, err := fetchWebComments(cj.ShareURL, localIDs, localFingerprints, authToken)
+	fetched, err := fetchWebComments(cj.ShareURL, localIDs, localFingerprints, localFingerprintIDs, authToken)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error fetching remote comments: %v\n", err)
 		os.Exit(1)
@@ -333,8 +330,7 @@ func runFetch(args []string) {
 		for _, replies := range fetched.ReplyUpdates {
 			replyCount += len(replies)
 		}
-		fmt.Printf("Updated %d comment(s) with new replies.\n", len(fetched.ReplyUpdates))
-		_ = replyCount
+		fmt.Printf("Updated %d comment(s) with %d new reply(ies).\n", len(fetched.ReplyUpdates), replyCount)
 	}
 	fmt.Printf("Review file: %s\n", critPath)
 }
