@@ -5891,7 +5891,8 @@
       const f = btn.dataset.filter;
       const isActive = f === commentsActiveFilter;
       btn.classList.toggle('active', isActive);
-      btn.setAttribute('aria-pressed', String(isActive));
+      btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
+      btn.setAttribute('tabindex', isActive ? '0' : '-1');
       const countEl = btn.querySelector('.filter-count');
       if (!countEl) return;
       if (f === 'all') countEl.textContent = totalCount;
@@ -7402,15 +7403,43 @@
     togglePRPanel();
   });
 
-  // Segmented pill filter
-  document.getElementById('commentsFilterPill').addEventListener('click', function(e) {
-    const btn = e.target.closest('.toggle-btn');
+  // Segmented pill filter (radiogroup with roving tabindex)
+  const filterPillEl = document.getElementById('commentsFilterPill');
+  function activateFilterBtn(btn, focus) {
     if (!btn) return;
     commentsActiveFilter = btn.dataset.filter;
-    document.querySelectorAll('#commentsFilterPill .toggle-btn').forEach(function(b) { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
-    btn.classList.add('active');
-    btn.setAttribute('aria-pressed', 'true');
+    filterPillEl.querySelectorAll('.toggle-btn').forEach(function(b) {
+      const active = b === btn;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-checked', active ? 'true' : 'false');
+      b.setAttribute('tabindex', active ? '0' : '-1');
+    });
+    if (focus) btn.focus();
     renderCommentsPanel();
+  }
+  filterPillEl.addEventListener('click', function(e) {
+    const btn = e.target.closest('.toggle-btn');
+    if (!btn) return;
+    activateFilterBtn(btn, false);
+  });
+  filterPillEl.addEventListener('keydown', function(e) {
+    const btns = Array.from(filterPillEl.querySelectorAll('.toggle-btn'));
+    const currentIdx = btns.findIndex(function(b) { return b === document.activeElement; });
+    if (currentIdx === -1) return;
+    let nextIdx = null;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      nextIdx = (currentIdx + 1) % btns.length;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      nextIdx = (currentIdx - 1 + btns.length) % btns.length;
+    } else if (e.key === 'Home') {
+      nextIdx = 0;
+    } else if (e.key === 'End') {
+      nextIdx = btns.length - 1;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    activateFilterBtn(btns[nextIdx], true);
   });
 
   // Expand all / Collapse all

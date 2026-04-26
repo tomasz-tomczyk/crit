@@ -139,10 +139,10 @@
         </div>
       </div>
       <div class="comments-panel-header-row2">
-        <div class="comments-filter-toggle" id="commentsFilterPill" role="group" aria-label="Filter comments">
-          <button type="button" class="toggle-btn active" data-filter="all" aria-pressed="true">All <span class="filter-count">0</span></button>
-          <button type="button" class="toggle-btn" data-filter="open" aria-pressed="false">Open <span class="filter-count">0</span></button>
-          <button type="button" class="toggle-btn" data-filter="resolved" aria-pressed="false">Resolved <span class="filter-count">0</span></button>
+        <div class="comments-filter-toggle" id="commentsFilterPill" role="radiogroup" aria-label="Filter comments">
+          <button type="button" class="toggle-btn active" data-filter="all" role="radio" aria-checked="true" tabindex="0">All <span class="filter-count">0</span></button>
+          <button type="button" class="toggle-btn" data-filter="open" role="radio" aria-checked="false" tabindex="-1">Open <span class="filter-count">0</span></button>
+          <button type="button" class="toggle-btn" data-filter="resolved" role="radio" aria-checked="false" tabindex="-1">Resolved <span class="filter-count">0</span></button>
         </div>
         <button type="button" class="comments-panel-expand-all" id="commentsPanelExpandAll" aria-pressed="false">Expand all</button>
       </div>
