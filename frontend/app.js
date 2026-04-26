@@ -180,6 +180,18 @@
 
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
   let diffScope = getCookie('crit-diff-scope') || 'all'; // 'all', 'branch', 'staged', or 'unstaged'
+
+  // Single source of truth for hide-resolved state. Persisted as a cookie
+  // (not localStorage) so the setting survives random-port server restarts —
+  // localStorage is scoped per origin (incl. port), cookies are host-scoped.
+  let hideResolvedState = getCookie('crit-hide-resolved') === 'true';
+  function isHideResolved() { return hideResolvedState; }
+  function setHideResolved(v) {
+    hideResolvedState = !!v;
+    setCookie('crit-hide-resolved', hideResolvedState ? 'true' : 'false');
+    document.body.classList.toggle('hide-resolved', hideResolvedState);
+  }
+
   let diffCommit = '';
   let commitList = [];
   let diffActive = false; // rendered diff view toggle for file mode
@@ -1801,8 +1813,8 @@
       const toggle = document.createElement('div');
       toggle.className = 'file-header-toggle';
       toggle.innerHTML =
-        '<button class="toggle-btn' + (file.viewMode === 'document' ? ' active' : '') + '" data-mode="document">Document</button>' +
-        '<button class="toggle-btn' + (file.viewMode === 'diff' ? ' active' : '') + '" data-mode="diff">Diff</button>';
+        '<button type="button" class="toggle-btn' + (file.viewMode === 'document' ? ' active' : '') + '" data-mode="document">Document</button>' +
+        '<button type="button" class="toggle-btn' + (file.viewMode === 'diff' ? ' active' : '') + '" data-mode="diff">Diff</button>';
       toggle.addEventListener('click', function(e) {
         const btn = e.target.closest('.toggle-btn');
         if (!btn) return;
@@ -2428,17 +2440,6 @@
 
   // ===== Word-Level Diff =====
 
-  // Split a line into tokens for similarity comparison.
-  function tokenize(line) {
-    const tokens = [];
-    const re = /[\w]+|[^\w]/g;
-    let match;
-    while ((match = re.exec(line)) !== null) {
-      tokens.push(match[0]);
-    }
-    return tokens;
-  }
-
   // Compute similarity between two strings using token multiset Dice coefficient.
   // Returns 0–1 (1 = identical tokens, 0 = nothing in common).
   // Only counts word tokens (identifiers, numbers) — single punctuation characters
@@ -2447,9 +2448,12 @@
   function lineSimilarity(a, b) {
     if (a === b) return 1;
     if (!a || !b) return 0;
-    const wordRe = /^\w+$/;
-    const tokA = tokenize(a).filter(function(t) { return wordRe.test(t); });
-    const tokB = tokenize(b).filter(function(t) { return wordRe.test(t); });
+    // \w+ matches word tokens directly — no need for a separate tokenize pass
+    // followed by a filter (the previous custom LCS path used tokenize for
+    // more, but after the @sanity/diff-match-patch swap this is the only call
+    // site, so it is inlined).
+    const tokA = a.match(/\w+/g) || [];
+    const tokB = b.match(/\w+/g) || [];
     if (tokA.length === 0 && tokB.length === 0) return 1;
     if (tokA.length === 0 || tokB.length === 0) return 0;
     const counts = {};
@@ -3633,7 +3637,7 @@
     const commentsMap = {};
     const diffCommentsMap = {};
     const rangeSet = new Set();
-    const hideResolved = localStorage.getItem('crit-hide-resolved') === 'true';
+    const hideResolved = isHideResolved();
     for (const c of comments) {
       // commentsMap — keyed by end_line only
       const lineKey = c.end_line;
@@ -3665,7 +3669,7 @@
       }
     }
     const set = new Set();
-    const hideResolved = localStorage.getItem('crit-hide-resolved') === 'true';
+    const hideResolved = isHideResolved();
     for (const c of comments) {
       if (c.scope === 'file') continue;
       if (hideResolved && c.resolved) continue;
@@ -5858,7 +5862,8 @@
     return parts.wrapper;
   }
 
-  // Track active filter: 'all', 'open', 'resolved'
+  // Track active filter: 'all', 'open', 'resolved'. In-memory only —
+  // sticky filter would hide new open comments on a new review session.
   let commentsActiveFilter = 'all';
 
   function renderCommentsPanel() {
@@ -5880,12 +5885,15 @@
     const badge = document.getElementById('commentsPanelCountBadge');
     if (badge) badge.textContent = totalCount;
 
-    // Update pill counts
+    // Update pill counts and sync active-state to persisted filter
     const pillBtns = document.querySelectorAll('#commentsFilterPill .toggle-btn');
     pillBtns.forEach(function(btn) {
+      const f = btn.dataset.filter;
+      const isActive = f === commentsActiveFilter;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-pressed', String(isActive));
       const countEl = btn.querySelector('.filter-count');
       if (!countEl) return;
-      const f = btn.dataset.filter;
       if (f === 'all') countEl.textContent = totalCount;
       else if (f === 'open') countEl.textContent = openCount;
       else if (f === 'resolved') countEl.textContent = resolvedCount;
@@ -5975,6 +5983,7 @@
     const chevron = document.createElement('span');
     chevron.className = 'comments-panel-file-chevron';
     chevron.textContent = '\u25BC';
+    chevron.setAttribute('aria-hidden', 'true');
     groupName.appendChild(chevron);
 
     const nameText = document.createElement('span');
@@ -6004,20 +6013,24 @@
     return groupName;
   }
 
+  // All comment cards across the inline document/diff views and the side panel.
+  function getAllCommentCards() {
+    const panelCards = document.querySelectorAll('#commentsPanelBody .comment-card');
+    const inlineCards = document.querySelectorAll('.comment-block:not(.panel-comment-block) .comment-card');
+    return Array.from(panelCards).concat(Array.from(inlineCards));
+  }
+
   function updateExpandAllLabel() {
     const btn = document.getElementById('commentsPanelExpandAll');
     if (!btn) return;
-    const panelCards = document.querySelectorAll('#commentsPanelBody .comment-card');
-    const inlineCards = document.querySelectorAll('.comment-block:not(.panel-comment-block) .comment-card');
-    const allCards = Array.from(panelCards).concat(Array.from(inlineCards));
+    const allCards = getAllCommentCards();
     const anyExpanded = allCards.some(function(c) { return !c.classList.contains('collapsed'); });
     btn.textContent = anyExpanded ? 'Collapse all' : 'Expand all';
+    btn.setAttribute('aria-pressed', String(anyExpanded));
   }
 
   function toggleExpandAllComments() {
-    const panelCards = document.querySelectorAll('#commentsPanelBody .comment-card');
-    const inlineCards = document.querySelectorAll('.comment-block:not(.panel-comment-block) .comment-card');
-    const allCards = Array.from(panelCards).concat(Array.from(inlineCards));
+    const allCards = getAllCommentCards();
     const anyExpanded = allCards.some(function(c) { return !c.classList.contains('collapsed'); });
 
     allCards.forEach(function(card) {
@@ -6544,6 +6557,9 @@
   }
 
   function showDisconnected() {
+    // Idempotent: bail if a banner is already present.
+    if (document.querySelector('.disconnected-banner')) return;
+
     const header = document.querySelector('.header');
     const banner = document.createElement('div');
     banner.className = 'disconnected-banner';
@@ -6560,9 +6576,20 @@
 
     banner.appendChild(pill);
     banner.appendChild(text);
-    banner.style.top = header.offsetHeight + 'px';
     header.insertAdjacentElement('afterend', banner);
 
+    // Sticky offset is driven by the --crit-header-height CSS variable, kept
+    // in sync by ResizeObserver below — no inline style, so resize is handled.
+    const setHeaderVar = function() {
+      document.documentElement.style.setProperty('--crit-header-height', header.offsetHeight + 'px');
+    };
+    setHeaderVar();
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(setHeaderVar);
+      ro.observe(header);
+    } else {
+      window.addEventListener('resize', setHeaderVar);
+    }
   }
 
   // ===== Share =====
@@ -7473,13 +7500,9 @@
   }
 
   function applyHideResolved() {
-    const hide = localStorage.getItem('crit-hide-resolved') === 'true';
-    document.querySelectorAll('.comment-block:not(.panel-comment-block)').forEach(function(block) {
-      const card = block.querySelector('.resolved-card');
-      if (card) {
-        block.style.display = hide ? 'none' : '';
-      }
-    });
+    // State -> CSS via body class. Visibility rules live in style.css under
+    // `body.hide-resolved .comment-block:has(.resolved-card)`. No DOM walk.
+    document.body.classList.toggle('hide-resolved', isHideResolved());
   }
 
   function updatePillIndicator(indicatorId, values, current) {
@@ -7515,7 +7538,7 @@
     };
     ['system', 'light', 'dark'].forEach(function(theme) {
       const active = theme === currentTheme ? ' active' : '';
-      html += '<button class="settings-pill-btn' + active + '" data-settings-theme="' + theme + '" title="' + theme.charAt(0).toUpperCase() + theme.slice(1) + ' theme">' + themeIcons[theme] + '</button>';
+      html += '<button type="button" class="settings-pill-btn' + active + '" data-settings-theme="' + theme + '" title="' + theme.charAt(0).toUpperCase() + theme.slice(1) + ' theme">' + themeIcons[theme] + '</button>';
     });
     html += '</div></div>';
 
@@ -7526,12 +7549,12 @@
     html += '<div class="settings-pill-indicator" id="settingsWidthIndicator"></div>';
     ['compact', 'default', 'wide'].forEach(function(w) {
       const active = w === currentWidth ? ' active' : '';
-      html += '<button class="settings-pill-btn' + active + '" data-settings-width="' + w + '">' + w.charAt(0).toUpperCase() + w.slice(1) + '</button>';
+      html += '<button type="button" class="settings-pill-btn' + active + '" data-settings-width="' + w + '">' + w.charAt(0).toUpperCase() + w.slice(1) + '</button>';
     });
     html += '</div></div>';
 
     // Hide resolved row
-    const hideResolved = localStorage.getItem('crit-hide-resolved') === 'true';
+    const hideResolved = isHideResolved();
     html += '<div class="settings-display-row">';
     html += '<span class="settings-display-label">Hide resolved comments</span>';
     html += '<label class="comments-panel-switch">';
@@ -7695,7 +7718,7 @@
     const hideResolvedToggle = pane.querySelector('#hideResolvedToggle');
     if (hideResolvedToggle) {
       hideResolvedToggle.addEventListener('change', function() {
-        localStorage.setItem('crit-hide-resolved', hideResolvedToggle.checked ? 'true' : 'false');
+        setHideResolved(hideResolvedToggle.checked);
         renderAllFiles();
       });
     }
@@ -7985,11 +8008,10 @@
       }
       case 'h': {
         e.preventDefault();
-        const currentHide = localStorage.getItem('crit-hide-resolved') === 'true';
-        localStorage.setItem('crit-hide-resolved', currentHide ? 'false' : 'true');
+        setHideResolved(!isHideResolved());
         renderAllFiles();
         const ht = document.getElementById('hideResolvedToggle');
-        if (ht) ht.checked = !currentHide;
+        if (ht) ht.checked = isHideResolved();
         break;
       }
       case 't': {
