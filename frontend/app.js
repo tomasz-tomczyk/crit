@@ -3633,6 +3633,7 @@
     const commentsMap = {};
     const diffCommentsMap = {};
     const rangeSet = new Set();
+    const hideResolved = localStorage.getItem('crit-hide-resolved') === 'true';
     for (const c of comments) {
       // commentsMap — keyed by end_line only
       const lineKey = c.end_line;
@@ -3642,8 +3643,9 @@
       const sideKey = c.end_line + ':' + (c.side || '');
       if (!diffCommentsMap[sideKey]) diffCommentsMap[sideKey] = [];
       diffCommentsMap[sideKey].push(c);
-      // commentedRangeSet — only unresolved, non-file-scope comments
-      if (!c.resolved && c.scope !== 'file') {
+      // commentedRangeSet — non-file-scope comments; skip resolved when the
+      // hide-resolved toggle is on so the line highlight tracks card visibility.
+      if (c.scope !== 'file' && !(hideResolved && c.resolved)) {
         const side = c.side || '';
         for (let ln = c.start_line; ln <= c.end_line; ln++) rangeSet.add(ln + ':' + side);
       }
@@ -3663,8 +3665,10 @@
       }
     }
     const set = new Set();
+    const hideResolved = localStorage.getItem('crit-hide-resolved') === 'true';
     for (const c of comments) {
       if (c.scope === 'file') continue;
+      if (hideResolved && c.resolved) continue;
       const side = c.side || '';
       let startIdx = -1, endIdx = -1;
       for (let i = 0; i < lines.length; i++) {
@@ -7677,7 +7681,7 @@
     if (hideResolvedToggle) {
       hideResolvedToggle.addEventListener('change', function() {
         localStorage.setItem('crit-hide-resolved', hideResolvedToggle.checked ? 'true' : 'false');
-        applyHideResolved();
+        renderAllFiles();
       });
     }
 
@@ -7968,7 +7972,7 @@
         e.preventDefault();
         const currentHide = localStorage.getItem('crit-hide-resolved') === 'true';
         localStorage.setItem('crit-hide-resolved', currentHide ? 'false' : 'true');
-        applyHideResolved();
+        renderAllFiles();
         const ht = document.getElementById('hideResolvedToggle');
         if (ht) ht.checked = !currentHide;
         break;
