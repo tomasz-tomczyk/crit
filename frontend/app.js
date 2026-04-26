@@ -3963,6 +3963,18 @@
     return { filePath, startLine, endLine, afterBlockIndex, side };
   }
 
+  function closeEmptyForms(exceptKey) {
+    const toClose = [];
+    activeForms.forEach(function(f) {
+      if (f.formKey === exceptKey) return;
+      if (f.editingId) return; // never auto-close edit-in-progress forms
+      const ta = document.querySelector('.comment-form[data-form-key="' + f.formKey + '"] textarea');
+      const text = ta ? ta.value : (f.draftBody || '');
+      if (!text.trim()) toClose.push(f);
+    });
+    toClose.forEach(function(f) { cancelComment(f); });
+  }
+
   function openForm(newForm) {
     const fk = formKey(newForm);
     const existing = activeForms.find(function(f) { return f.formKey === fk; });
@@ -3974,6 +3986,7 @@
       focusCommentTextarea(existing.formKey);
       return;
     }
+    closeEmptyForms(fk);
     addForm(newForm);
     activeFilePath = newForm.filePath;
     selectionStart = newForm.startLine;
@@ -3997,6 +4010,7 @@
       focusCommentTextarea(existing.formKey);
       return;
     }
+    closeEmptyForms(fk);
     addForm(newForm);
     renderFileByPath(filePath);
     focusCommentTextarea(newForm.formKey);
@@ -5633,6 +5647,7 @@
         }
 
         activeReplyForms.delete(commentId);
+        collapse();
         refreshFileComments(filePath);
       } catch (err) {
         console.error('Failed to add reply:', err);

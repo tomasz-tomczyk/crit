@@ -75,6 +75,78 @@ test.describe('Comment Threading', () => {
     await expect(section.locator('.reply-body')).toContainText('Addressed this');
   });
 
+  test('reply form collapses and clears after successful submit', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Review this');
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
+
+    await card.locator('.reply-input').click();
+    await card.locator('.reply-textarea').fill('Addressed this');
+    await card.locator('.reply-form .btn-primary').click();
+
+    // Reply rendered
+    await expect(section.locator('.comment-reply')).toHaveCount(1);
+
+    // Form should collapse back to compact input, NOT remain expanded with re-populated text
+    await expect(card.locator('.reply-input')).toBeVisible();
+    await expect(card.locator('.reply-form.expanded')).toHaveCount(0);
+    await expect(card.locator('.reply-textarea')).toHaveCount(0);
+    await expect(card.locator('.reply-input')).toHaveValue('');
+  });
+
+  test('opening a new reply form closes other empty expanded reply forms', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'First comment');
+    await addComment(request, mdPath, 2, 'Second comment');
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const firstCard = section.locator('.comment-card').filter({ hasText: 'First comment' });
+    const secondCard = section.locator('.comment-card').filter({ hasText: 'Second comment' });
+    await expect(firstCard).toBeVisible();
+    await expect(secondCard).toBeVisible();
+
+    // Expand first reply form (leave empty)
+    await firstCard.locator('.reply-input').click();
+    await expect(firstCard.locator('.reply-form.expanded')).toHaveCount(1);
+
+    // Expand second reply form
+    await secondCard.locator('.reply-input').click();
+    await expect(secondCard.locator('.reply-form.expanded')).toHaveCount(1);
+
+    // First (empty) reply form should collapse
+    await expect(firstCard.locator('.reply-form.expanded')).toHaveCount(0);
+    await expect(firstCard.locator('.reply-input')).toBeVisible();
+  });
+
+  test('opening a new reply form keeps other reply forms with text', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'First comment');
+    await addComment(request, mdPath, 2, 'Second comment');
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const firstCard = section.locator('.comment-card').filter({ hasText: 'First comment' });
+    const secondCard = section.locator('.comment-card').filter({ hasText: 'Second comment' });
+
+    await firstCard.locator('.reply-input').click();
+    await firstCard.locator('.reply-textarea').fill('draft reply');
+
+    await secondCard.locator('.reply-input').click();
+
+    // Both reply forms expanded; first retains its text
+    await expect(firstCard.locator('.reply-form.expanded')).toHaveCount(1);
+    await expect(secondCard.locator('.reply-form.expanded')).toHaveCount(1);
+    await expect(firstCard.locator('.reply-textarea')).toHaveValue('draft reply');
+  });
+
   test('reply form supports Ctrl+Enter submit', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Check this');
