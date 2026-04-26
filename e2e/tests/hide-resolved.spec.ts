@@ -106,8 +106,11 @@ test.describe('Hide Resolved', () => {
     });
     await expect(resolvedBlockAfter.first()).toBeHidden();
 
-    // Verify localStorage value
-    const stored = await page.evaluate(() => localStorage.getItem('crit-hide-resolved'));
+    // Verify cookie value
+    const stored = await page.evaluate(() => {
+      const match = document.cookie.match(/(?:^|;\s*)crit-hide-resolved=([^;]+)/);
+      return match ? decodeURIComponent(match[1]) : null;
+    });
     expect(stored).toBe('true');
   });
 });
