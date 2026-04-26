@@ -143,241 +143,253 @@ func TestLoadCommentsForUpsert_ReviewLevelComments(t *testing.T) {
 	}
 }
 
-func TestFetchNewWebComments_FiltersLocalComments(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode([]map[string]any{
-			{
-				"body": "web reviewer note", "file_path": "plan.md",
-				"start_line": 5, "end_line": 5, "review_round": 1,
-				"resolved": false, "external_id": nil,
-			},
-			{
-				"body": "existing local", "file_path": "plan.md",
-				"start_line": 1, "end_line": 1, "review_round": 1,
-				"resolved": false, "external_id": "c1",
-			},
+func TestFetchWebComments(t *testing.T) {
+	t.Run("filters local comments by external_id", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"body": "web reviewer note", "file_path": "plan.md",
+					"start_line": 5, "end_line": 5, "review_round": 1,
+					"resolved": false, "external_id": nil,
+				},
+				{
+					"body": "existing local", "file_path": "plan.md",
+					"start_line": 1, "end_line": 1, "review_round": 1,
+					"resolved": false, "external_id": "c1",
+				},
+			})
+		}))
+		defer srv.Close()
+
+		localIDs := map[string]bool{"c1": true}
+		result, err := fetchWebComments(srv.URL+"/r/testtoken", localIDs, nil, nil, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result.NewComments) != 1 {
+			t.Fatalf("expected 1 new comment, got %d", len(result.NewComments))
+		}
+		if result.NewComments[0].Body != "web reviewer note" {
+			t.Errorf("expected body 'web reviewer note', got %q", result.NewComments[0].Body)
+		}
+	})
+
+	t.Run("404 returns no comments without error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		result, err := fetchWebComments(srv.URL+"/r/gone", nil, nil, nil, "")
+		if err != nil {
+			t.Fatalf("unexpected error for 404: %v", err)
+		}
+		if result.NewComments != nil {
+			t.Errorf("expected nil for 404, got %v", result.NewComments)
+		}
+	})
+
+	t.Run("server error propagates", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+
+		if _, err := fetchWebComments(srv.URL+"/r/broken", nil, nil, nil, ""); err == nil {
+			t.Fatal("expected error for 500 response")
+		}
+	})
+}
+
+func TestBuildSharePayload(t *testing.T) {
+	t.Run("single file", func(t *testing.T) {
+		files := []shareFile{
+			{Path: "plan.md", Content: "# My Plan\n\nStep 1: do the thing"},
+		}
+		payload := buildSharePayload(files, nil, 1, nil)
+
+		pFiles, ok := payload["files"].([]map[string]any)
+		if !ok {
+			t.Fatal("expected files array in payload")
+		}
+		if len(pFiles) != 1 {
+			t.Fatalf("expected 1 file, got %d", len(pFiles))
+		}
+		if pFiles[0]["path"] != "plan.md" {
+			t.Errorf("expected path plan.md, got %s", pFiles[0]["path"])
+		}
+		if pFiles[0]["content"] != "# My Plan\n\nStep 1: do the thing" {
+			t.Errorf("unexpected content: %s", pFiles[0]["content"])
+		}
+		if payload["review_round"] != 1 {
+			t.Errorf("expected review_round 1, got %v", payload["review_round"])
+		}
+		comments, ok := payload["comments"].([]shareComment)
+		if !ok {
+			t.Fatal("expected comments array")
+		}
+		if len(comments) != 0 {
+			t.Errorf("expected 0 comments, got %d", len(comments))
+		}
+	})
+
+	t.Run("multi file", func(t *testing.T) {
+		files := []shareFile{
+			{Path: "plan.md", Content: "# Plan"},
+			{Path: "src/main.go", Content: "package main"},
+		}
+		payload := buildSharePayload(files, nil, 2, nil)
+
+		pFiles := payload["files"].([]map[string]any)
+		if len(pFiles) != 2 {
+			t.Fatalf("expected 2 files, got %d", len(pFiles))
+		}
+		if payload["review_round"] != 2 {
+			t.Errorf("expected review_round 2, got %v", payload["review_round"])
+		}
+	})
+
+	t.Run("with comments", func(t *testing.T) {
+		files := []shareFile{
+			{Path: "plan.md", Content: "# Plan"},
+		}
+		comments := []shareComment{
+			{File: "plan.md", StartLine: 1, EndLine: 3, Body: "Needs more detail", Author: "Claude"},
+		}
+		payload := buildSharePayload(files, comments, 1, nil)
+
+		pComments := payload["comments"].([]shareComment)
+		if len(pComments) != 1 {
+			t.Fatalf("expected 1 comment, got %d", len(pComments))
+		}
+		if pComments[0].Author != "Claude" {
+			t.Errorf("expected author Claude, got %s", pComments[0].Author)
+		}
+	})
+}
+
+func TestShareFilesToWeb(t *testing.T) {
+	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
+
+	t.Run("success", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				t.Errorf("expected POST, got %s", r.Method)
+			}
+			if r.URL.Path != "/api/reviews" {
+				t.Errorf("expected /api/reviews, got %s", r.URL.Path)
+			}
+			if r.Header.Get("Content-Type") != "application/json" {
+				t.Errorf("expected application/json content type")
+			}
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("failed to decode request body: %v", err)
+			}
+			pf, ok := payload["files"].([]any)
+			if !ok || len(pf) != 1 {
+				t.Fatalf("expected 1 file in payload")
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"url":          "https://crit.md/r/abc123",
+				"delete_token": "tok_secret",
+			})
+		}))
+		defer srv.Close()
+
+		url, token, err := shareFilesToWeb(files, nil, srv.URL, 1, "", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if url != "https://crit.md/r/abc123" {
+			t.Errorf("expected url https://crit.md/r/abc123, got %s", url)
+		}
+		if token != "tok_secret" {
+			t.Errorf("expected token tok_secret, got %s", token)
+		}
+	})
+
+	t.Run("server error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "content too large"})
+		}))
+		defer srv.Close()
+
+		if _, _, err := shareFilesToWeb(files, nil, srv.URL, 1, "", nil); err == nil {
+			t.Fatal("expected error for server error response")
+		}
+	})
+
+	t.Run("network error", func(t *testing.T) {
+		if _, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1, "", nil); err == nil {
+			t.Fatal("expected error for unreachable server")
+		}
+	})
+}
+
+func TestUnpublishFromWeb(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    int
+		respBody  map[string]string
+		token     string
+		wantErr   bool
+		assertReq bool // when true, verify method/path/delete_token
+	}{
+		{
+			name:      "success",
+			status:    http.StatusNoContent,
+			token:     "tok_secret",
+			assertReq: true,
+		},
+		{
+			name:     "server error",
+			status:   http.StatusInternalServerError,
+			respBody: map[string]string{"error": "internal error"},
+			token:    "bad_token",
+			wantErr:  true,
+		},
+		{
+			// 404 treated as "already deleted" — idempotent.
+			name:   "already deleted",
+			status: http.StatusNotFound,
+			token:  "old_token",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tt.assertReq {
+					if r.Method != http.MethodDelete {
+						t.Errorf("expected DELETE, got %s", r.Method)
+					}
+					if r.URL.Path != "/api/reviews" {
+						t.Errorf("expected /api/reviews, got %s", r.URL.Path)
+					}
+					var body map[string]string
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					if body["delete_token"] != tt.token {
+						t.Errorf("expected delete_token %q, got %q", tt.token, body["delete_token"])
+					}
+				}
+				w.WriteHeader(tt.status)
+				if tt.respBody != nil {
+					_ = json.NewEncoder(w).Encode(tt.respBody)
+				}
+			}))
+			defer srv.Close()
+
+			err := unpublishFromWeb(srv.URL, tt.token, "")
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 		})
-	}))
-	defer srv.Close()
-
-	localIDs := map[string]bool{"c1": true}
-	result, err := fetchWebComments(srv.URL+"/r/testtoken", localIDs, nil, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.NewComments) != 1 {
-		t.Fatalf("expected 1 new comment, got %d", len(result.NewComments))
-	}
-	if result.NewComments[0].Body != "web reviewer note" {
-		t.Errorf("expected body 'web reviewer note', got %q", result.NewComments[0].Body)
-	}
-}
-
-func TestFetchNewWebComments_404ReturnsNil(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer srv.Close()
-
-	result, err := fetchWebComments(srv.URL+"/r/gone", nil, nil, "")
-	if err != nil {
-		t.Fatalf("unexpected error for 404: %v", err)
-	}
-	if result.NewComments != nil {
-		t.Errorf("expected nil for 404, got %v", result.NewComments)
-	}
-}
-
-func TestFetchNewWebComments_ServerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	_, err := fetchWebComments(srv.URL+"/r/broken", nil, nil, "")
-	if err == nil {
-		t.Fatal("expected error for 500 response")
-	}
-}
-
-func TestBuildSharePayload_SingleFile(t *testing.T) {
-	files := []shareFile{
-		{Path: "plan.md", Content: "# My Plan\n\nStep 1: do the thing"},
-	}
-	payload := buildSharePayload(files, nil, 1, nil)
-
-	// Multi-file format is always used
-	pFiles, ok := payload["files"].([]map[string]any)
-	if !ok {
-		t.Fatal("expected files array in payload")
-	}
-	if len(pFiles) != 1 {
-		t.Fatalf("expected 1 file, got %d", len(pFiles))
-	}
-	if pFiles[0]["path"] != "plan.md" {
-		t.Errorf("expected path plan.md, got %s", pFiles[0]["path"])
-	}
-	if pFiles[0]["content"] != "# My Plan\n\nStep 1: do the thing" {
-		t.Errorf("unexpected content: %s", pFiles[0]["content"])
-	}
-	if payload["review_round"] != 1 {
-		t.Errorf("expected review_round 1, got %v", payload["review_round"])
-	}
-	comments, ok := payload["comments"].([]shareComment)
-	if !ok {
-		t.Fatal("expected comments array")
-	}
-	if len(comments) != 0 {
-		t.Errorf("expected 0 comments, got %d", len(comments))
-	}
-}
-
-func TestBuildSharePayload_MultiFile(t *testing.T) {
-	files := []shareFile{
-		{Path: "plan.md", Content: "# Plan"},
-		{Path: "src/main.go", Content: "package main"},
-	}
-	payload := buildSharePayload(files, nil, 2, nil)
-
-	pFiles := payload["files"].([]map[string]any)
-	if len(pFiles) != 2 {
-		t.Fatalf("expected 2 files, got %d", len(pFiles))
-	}
-	if payload["review_round"] != 2 {
-		t.Errorf("expected review_round 2, got %v", payload["review_round"])
-	}
-}
-
-func TestBuildSharePayload_WithComments(t *testing.T) {
-	files := []shareFile{
-		{Path: "plan.md", Content: "# Plan"},
-	}
-	comments := []shareComment{
-		{File: "plan.md", StartLine: 1, EndLine: 3, Body: "Needs more detail", Author: "Claude"},
-	}
-	payload := buildSharePayload(files, comments, 1, nil)
-
-	pComments := payload["comments"].([]shareComment)
-	if len(pComments) != 1 {
-		t.Fatalf("expected 1 comment, got %d", len(pComments))
-	}
-	if pComments[0].Author != "Claude" {
-		t.Errorf("expected author Claude, got %s", pComments[0].Author)
-	}
-}
-
-func TestShareFilesToWeb_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("expected POST, got %s", r.Method)
-		}
-		if r.URL.Path != "/api/reviews" {
-			t.Errorf("expected /api/reviews, got %s", r.URL.Path)
-		}
-		if r.Header.Get("Content-Type") != "application/json" {
-			t.Errorf("expected application/json content type")
-		}
-
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("failed to decode request body: %v", err)
-		}
-		files, ok := payload["files"].([]any)
-		if !ok || len(files) != 1 {
-			t.Fatalf("expected 1 file in payload")
-		}
-
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
-			"url":          "https://crit.md/r/abc123",
-			"delete_token": "tok_secret",
-		})
-	}))
-	defer server.Close()
-
-	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	url, token, err := shareFilesToWeb(files, nil, server.URL, 1, "", nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if url != "https://crit.md/r/abc123" {
-		t.Errorf("expected url https://crit.md/r/abc123, got %s", url)
-	}
-	if token != "tok_secret" {
-		t.Errorf("expected token tok_secret, got %s", token)
-	}
-}
-
-func TestShareFilesToWeb_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		json.NewEncoder(w).Encode(map[string]string{"error": "content too large"})
-	}))
-	defer server.Close()
-
-	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	_, _, err := shareFilesToWeb(files, nil, server.URL, 1, "", nil)
-	if err == nil {
-		t.Fatal("expected error for server error response")
-	}
-}
-
-func TestShareFilesToWeb_NetworkError(t *testing.T) {
-	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	_, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1, "", nil)
-	if err == nil {
-		t.Fatal("expected error for unreachable server")
-	}
-}
-
-func TestUnpublishFromWeb_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodDelete {
-			t.Errorf("expected DELETE, got %s", r.Method)
-		}
-		if r.URL.Path != "/api/reviews" {
-			t.Errorf("expected /api/reviews, got %s", r.URL.Path)
-		}
-
-		var body map[string]string
-		json.NewDecoder(r.Body).Decode(&body)
-		if body["delete_token"] != "tok_secret" {
-			t.Errorf("expected delete_token tok_secret, got %s", body["delete_token"])
-		}
-
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-
-	err := unpublishFromWeb(server.URL, "tok_secret", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestUnpublishFromWeb_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "internal error"})
-	}))
-	defer server.Close()
-
-	err := unpublishFromWeb(server.URL, "bad_token", "")
-	if err == nil {
-		t.Fatal("expected error for server error")
-	}
-}
-
-func TestUnpublishFromWeb_AlreadyDeleted(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
-
-	// 404 is treated as "already deleted" — not an error (idempotent)
-	err := unpublishFromWeb(server.URL, "old_token", "")
-	if err != nil {
-		t.Fatalf("not-found should not be an error (already deleted): %v", err)
 	}
 }
 
@@ -1223,7 +1235,7 @@ func TestUnpublishFromWeb_SendsBearerToken(t *testing.T) {
 	}
 }
 
-func TestFetchNewWebComments_SendsBearerToken(t *testing.T) {
+func TestFetchWebComments_SendsBearerToken(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
@@ -1231,7 +1243,7 @@ func TestFetchNewWebComments_SendsBearerToken(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fetchWebComments(srv.URL+"/r/tok", nil, nil, "crit_testtoken")
+	fetchWebComments(srv.URL+"/r/tok", nil, nil, nil, "crit_testtoken")
 	if gotAuth != "Bearer crit_testtoken" {
 		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
 	}
@@ -1640,7 +1652,7 @@ func TestMergeWebComments(t *testing.T) {
 		{Body: "web comment", FilePath: "main.go", StartLine: 5, EndLine: 5, AuthorDisplayName: "Web User"},
 		{Body: "review note", Scope: "review", AuthorDisplayName: "Reviewer"},
 	}
-	if err := mergeWebComments(critPath, newComments); err != nil {
+	if err := mergeWebComments(critPath, newComments, nil); err != nil {
 		t.Fatalf("mergeWebComments: %v", err)
 	}
 
@@ -1721,4 +1733,98 @@ func TestBuildLocalFingerprints(t *testing.T) {
 			t.Errorf("expected 0 fingerprints, got %d", len(fps))
 		}
 	})
+}
+
+// TestFetchWebComments_FingerprintMatchPreservesReplies guards the bug where a
+// web comment that matched a previously-imported web-N comment by fingerprint
+// silently dropped any new replies attached to it.
+func TestFetchWebComments_FingerprintMatchPreservesReplies(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{
+			{
+				"body":         "web-authored note",
+				"file_path":    "plan.md",
+				"start_line":   3,
+				"end_line":     3,
+				"review_round": 1,
+				"resolved":     false,
+				"external_id":  nil,
+				"replies": []map[string]any{
+					{"body": "follow-up reply", "author_display_name": "Alice"},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	// Local already has the matching comment imported as web-1 (no replies yet).
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"plan.md": {Comments: []Comment{{
+				ID:        "web-1",
+				Body:      "web-authored note",
+				StartLine: 3,
+				EndLine:   3,
+			}}},
+		},
+	}
+	fps, fpIDs := buildLocalFingerprintIndex(cj)
+
+	result, err := fetchWebComments(srv.URL+"/r/tok", buildLocalIDSet(cj), fps, fpIDs, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.NewComments) != 0 {
+		t.Errorf("expected 0 new comments (fingerprint dedupe), got %d", len(result.NewComments))
+	}
+	replies, ok := result.ReplyUpdates["web-1"]
+	if !ok {
+		t.Fatalf("expected ReplyUpdates entry for web-1, got %v", result.ReplyUpdates)
+	}
+	if len(replies) != 1 || replies[0].Body != "follow-up reply" {
+		t.Errorf("unexpected replies for web-1: %+v", replies)
+	}
+}
+
+// TestMergeWebComments_AppliesReplyUpdates ensures that mergeWebComments
+// persists reply updates onto an existing comment matched by ID.
+func TestMergeWebComments_AppliesReplyUpdates(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit.json")
+
+	cj := CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {Comments: []Comment{{
+				ID:        "c1",
+				Body:      "look here",
+				StartLine: 10,
+				EndLine:   10,
+			}}},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	if err := os.WriteFile(critPath, data, 0o644); err != nil {
+		t.Fatalf("write crit json: %v", err)
+	}
+
+	updates := map[string][]webReply{
+		"c1": {{Body: "thanks", AuthorDisplayName: "Bob"}},
+	}
+	if err := mergeWebComments(critPath, nil, updates); err != nil {
+		t.Fatalf("mergeWebComments: %v", err)
+	}
+
+	out, _ := os.ReadFile(critPath)
+	var got CritJSON
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	comments := got.Files["main.go"].Comments
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if len(comments[0].Replies) != 1 || comments[0].Replies[0].Body != "thanks" {
+		t.Errorf("expected merged reply, got %+v", comments[0].Replies)
+	}
 }

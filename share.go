@@ -107,6 +107,33 @@ func buildSharePayload(files []shareFile, comments []shareComment, reviewRound i
 	return payload
 }
 
+// shareReviewFilesResult is the outcome of a fresh share upload.
+type shareReviewFilesResult struct {
+	URL         string
+	DeleteToken string
+	ReviewRound int
+	Comments    []shareComment
+}
+
+// shareReviewFiles loads comments + cli_args from the review file at critPath
+// and POSTs the files to crit-web. Used by both the CLI (`crit share`) and the
+// server's POST /api/share endpoint so payload wiring stays in one place.
+func shareReviewFiles(critPath string, files []shareFile, filePaths []string, svcURL, authToken string) (shareReviewFilesResult, error) {
+	comments, reviewRound := loadCommentsForShare(critPath, filePaths)
+	cliArgs := loadCliArgsFromReviewFile(critPath)
+
+	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs)
+	if err != nil {
+		return shareReviewFilesResult{}, err
+	}
+	return shareReviewFilesResult{
+		URL:         url,
+		DeleteToken: deleteToken,
+		ReviewRound: reviewRound,
+		Comments:    comments,
+	}, nil
+}
+
 // shareFilesToWeb uploads files to a crit-web instance and returns the share URL and delete token.
 func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string, reviewRound int, authToken string, cliArgs []string) (string, string, error) {
 	payload := buildSharePayload(files, comments, reviewRound, cliArgs)
@@ -151,13 +178,19 @@ func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string
 }
 
 // loadCliArgsFromReviewFile reads the review file and returns the stored cli_args.
+// A missing file is treated as "no args"; other read or unmarshal errors are
+// logged to stderr so they don't silently disappear.
 func loadCliArgsFromReviewFile(critPath string) []string {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "warning: failed to load cli_args from review file: %v\n", err)
+		}
 		return nil
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to load cli_args from review file: %v\n", err)
 		return nil
 	}
 	return cj.CliArgs
@@ -314,18 +347,34 @@ type webComment struct {
 // local comments. Used to deduplicate web-authored comments (which have no
 // ExternalID) on repeated shares.
 func buildLocalFingerprints(cj CritJSON) map[string]bool {
+	fps, _ := buildLocalFingerprintIndex(cj)
+	return fps
+}
+
+// buildLocalFingerprintIndex returns both the fingerprint set and a map from
+// fingerprint to local comment ID. The ID map lets callers look up the local
+// comment when a web comment matches by fingerprint (so replies can be merged
+// instead of dropped).
+func buildLocalFingerprintIndex(cj CritJSON) (map[string]bool, map[string]string) {
 	fps := make(map[string]bool)
+	ids := make(map[string]string)
 	for path, f := range cj.Files {
 		for _, c := range f.Comments {
 			key := fmt.Sprintf("%s|%s|%d|%d", c.Body, path, c.StartLine, c.EndLine)
 			fps[key] = true
+			if c.ID != "" {
+				ids[key] = c.ID
+			}
 		}
 	}
 	for _, c := range cj.ReviewComments {
 		key := fmt.Sprintf("%s||0|0", c.Body)
 		fps[key] = true
+		if c.ID != "" {
+			ids[key] = c.ID
+		}
 	}
-	return fps
+	return fps, ids
 }
 
 // fetchWebCommentsResult holds both new comments and reply updates for existing ones.
@@ -336,7 +385,10 @@ type fetchWebCommentsResult struct {
 
 // fetchWebComments fetches all comments from crit-web, returning new comments
 // and reply updates for existing comments that have replies added on the web.
-func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprints map[string]bool, authToken string) (fetchWebCommentsResult, error) {
+// localFingerprintIDs maps body+file+line fingerprints to the local comment ID,
+// so that web comments matching a previously-imported web-N comment by
+// fingerprint can have their replies merged instead of dropped.
+func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprints map[string]bool, localFingerprintIDs map[string]string, authToken string) (fetchWebCommentsResult, error) {
 	var result fetchWebCommentsResult
 	result.ReplyUpdates = make(map[string][]webReply)
 
@@ -383,7 +435,12 @@ func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprin
 		if wc.ExternalID == "" {
 			fp := fmt.Sprintf("%s|%s|%d|%d", wc.Body, wc.FilePath, wc.StartLine, wc.EndLine)
 			if localFingerprints[fp] {
-				continue // web-authored comment already imported
+				// Web-authored comment already imported as web-N. Capture
+				// any new replies before discarding the duplicate body.
+				if localID, ok := localFingerprintIDs[fp]; ok && len(wc.Replies) > 0 {
+					result.ReplyUpdates[localID] = wc.Replies
+				}
+				continue
 			}
 		}
 		result.NewComments = append(result.NewComments, wc)
@@ -540,7 +597,8 @@ func highestWebIndex(cj CritJSON) int {
 // mergeWebComments adds web-reviewer comments into the review file under their respective
 // files or into review_comments for review-level (scope:"review") comments.
 // It also merges reply updates for existing comments identified by external_id.
-func mergeWebComments(critPath string, newComments []webComment, replyUpdates ...map[string][]webReply) error {
+// Pass nil for replyUpdates to skip reply merging.
+func mergeWebComments(critPath string, newComments []webComment, replyUpdates map[string][]webReply) error {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
 		return err
@@ -590,32 +648,24 @@ func mergeWebComments(critPath string, newComments []webComment, replyUpdates ..
 	}
 
 	// Merge reply updates for existing comments (matched by external_id).
-	if len(replyUpdates) > 0 && len(replyUpdates[0]) > 0 {
-		updates := replyUpdates[0]
+	if len(replyUpdates) > 0 {
 		for filePath, cf := range cj.Files {
-			for i, c := range cf.Comments {
-				if webReplies, ok := updates[c.ID]; ok {
-					cj.Files[filePath] = mergeRepliesIntoFile(cf, i, webReplies)
-					cf = cj.Files[filePath]
+			for i := range cf.Comments {
+				if webReplies, ok := replyUpdates[cf.Comments[i].ID]; ok {
+					cf.Comments[i] = mergeRepliesIntoComment(cf.Comments[i], webReplies)
 				}
 			}
+			cj.Files[filePath] = cf
 		}
-		for i, c := range cj.ReviewComments {
-			if webReplies, ok := updates[c.ID]; ok {
-				cj.ReviewComments[i] = mergeRepliesIntoComment(c, webReplies)
+		for i := range cj.ReviewComments {
+			if webReplies, ok := replyUpdates[cj.ReviewComments[i].ID]; ok {
+				cj.ReviewComments[i] = mergeRepliesIntoComment(cj.ReviewComments[i], webReplies)
 			}
 		}
 	}
 
 	cj.UpdatedAt = now
 	return saveCritJSON(critPath, cj)
-}
-
-// mergeRepliesIntoFile updates a comment at index i in a CritJSONFile with web replies,
-// deduplicating by body to avoid adding replies that already exist locally.
-func mergeRepliesIntoFile(cf CritJSONFile, i int, webReplies []webReply) CritJSONFile {
-	cf.Comments[i] = mergeRepliesIntoComment(cf.Comments[i], webReplies)
-	return cf
 }
 
 // mergeRepliesIntoComment merges web replies into a comment, deduplicating by body.
