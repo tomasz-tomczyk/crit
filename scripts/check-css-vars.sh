@@ -7,7 +7,7 @@ set -e
 # ── Allowlists ──────────────────────────────────────────────────────────────
 
 # Variables set dynamically via JS or intentionally unreferenced
-DEAD_VAR_ALLOWLIST="--font-sans --header-height --crit-border-strong --crit-dur-base --crit-dur-slow --crit-ease-in --crit-ease-out --crit-editor-bg-gutter --crit-fg-muted --crit-fg-secondary --crit-r-sm --crit-r-xl"
+DEAD_VAR_ALLOWLIST="--font-sans --header-height --crit-border-strong --crit-dur-base --crit-dur-slow --crit-ease-in --crit-ease-out --crit-editor-bg-gutter --crit-fg-muted --crit-fg-secondary --crit-header-height --crit-r-sm --crit-r-xl"
 
 # Variables that legitimately exist in only some theme blocks (e.g. hljs vars
 # are scoped to their own selector blocks, not the 4 custom-property blocks)

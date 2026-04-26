@@ -181,24 +181,24 @@
   let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
   let diffScope = getCookie('crit-diff-scope') || 'all'; // 'all', 'branch', 'staged', or 'unstaged'
 
-  // Single source of truth for hide-resolved state. Initialized from
-  // localStorage on boot; localStorage is the persisted view, this var is
-  // the authoritative in-memory value. Mutate via setHideResolved() only.
-  let hideResolvedState = localStorage.getItem('crit-hide-resolved') === 'true';
+  // Single source of truth for hide-resolved state. Persisted as a cookie
+  // (not localStorage) so the setting survives random-port server restarts —
+  // localStorage is scoped per origin (incl. port), cookies are host-scoped.
+  let hideResolvedState = getCookie('crit-hide-resolved') === 'true';
   function isHideResolved() { return hideResolvedState; }
   function setHideResolved(v) {
     hideResolvedState = !!v;
-    localStorage.setItem('crit-hide-resolved', hideResolvedState ? 'true' : 'false');
+    setCookie('crit-hide-resolved', hideResolvedState ? 'true' : 'false');
     document.body.classList.toggle('hide-resolved', hideResolvedState);
   }
 
-  // Comments-panel filter ('all' | 'open' | 'resolved'), persisted.
+  // Comments-panel filter ('all' | 'open' | 'resolved'), persisted as cookie.
   function getCommentsFilter() {
-    const v = localStorage.getItem('crit-comments-filter');
+    const v = getCookie('crit-comments-filter');
     return (v === 'open' || v === 'resolved') ? v : 'all';
   }
   function setCommentsFilter(v) {
-    localStorage.setItem('crit-comments-filter', v);
+    setCookie('crit-comments-filter', v);
   }
   let diffCommit = '';
   let commitList = [];

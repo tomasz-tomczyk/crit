@@ -1986,7 +1986,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 }
 .comments-panel-switch input:checked ~ .comments-panel-switch-track .comments-panel-switch-thumb {
   left: 18px;
-  background: #fff;
+  background: var(--crit-fg-on-brand);
 }
 .comments-panel-switch input:focus-visible ~ .comments-panel-switch-track {
   outline: 2px solid var(--crit-brand);
