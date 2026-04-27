@@ -351,6 +351,10 @@ inputs.crit.url = "github:tomasz-tomczyk/crit";
 
 Grab the latest binary for your platform from [Releases](https://github.com/tomasz-tomczyk/crit/releases).
 
+### Docker (sandboxed agents)
+
+For running crit alongside an AI agent inside a container, with the review UI reachable from your host browser, see [`integrations/docker/`](integrations/docker/). Includes a working `Dockerfile` + `entrypoint.sh` that bridges crit's loopback-bound server via `socat` so `docker -p` forwarding works without changing crit's threat model.
+
 ## Acknowledgements
 
 Crit embeds the following open-source libraries:
