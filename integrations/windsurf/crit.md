@@ -1,3 +1,8 @@
+---
+trigger: model_decision
+description: Use crit to review plans and code changes inline before writing implementation code.
+---
+
 # Crit - Review Agent Output
 
 Before implementing any non-trivial feature, write an implementation plan as a markdown file.

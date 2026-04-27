@@ -443,7 +443,14 @@ func runInstall(args []string) {
 
 	target := args[0]
 	if target == "all" {
+		cwd, _ := os.Getwd()
+		home, _ := os.UserHomeDir()
+		global := isGlobalInstall(cwd, home)
 		for _, name := range availableIntegrations() {
+			if name == "windsurf" && global {
+				fmt.Fprintln(os.Stderr, "  Skipped: windsurf (no global install supported — run from a project)")
+				continue
+			}
 			installIntegration(name, force)
 		}
 	} else {
@@ -2495,10 +2502,31 @@ func printVersion() {
 	fmt.Println("Inline code review for AI agent workflows")
 }
 
+// globalDestKind selects how an integration's globalDest is interpreted.
+type globalDestKind int
+
+const (
+	// globalDestNone means the integration has no separate global path —
+	// use dest joined to home (the default for global installs).
+	globalDestNone globalDestKind = iota
+	// globalDestRelHome: globalDest is relative to $HOME.
+	globalDestRelHome
+	// globalDestDocuments: globalDest is relative to the platform Documents
+	// directory (used by Cline).
+	globalDestDocuments
+	// globalDestAbsolute: globalDest is an absolute path used verbatim.
+	globalDestAbsolute
+)
+
 type integration struct {
 	source string // path inside integrations/ embed
 	dest   string // destination relative to cwd
 	hint   string // usage hint printed after install
+	// globalDest, when set together with a non-zero globalDestKind, overrides
+	// dest in global mode (cwd == $HOME). The kind determines how it's
+	// resolved (see globalDestKind).
+	globalDest     string
+	globalDestKind globalDestKind
 }
 
 var integrationMap = map[string][]integration{
@@ -2511,18 +2539,23 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/cursor/skills/crit-cli/SKILL.md", dest: ".cursor/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Cursor agents when needed"},
 	},
 	"opencode": {
+		// command stays at ~/.opencode/commands/ globally (works there)
 		{source: "integrations/opencode/crit.md", dest: ".opencode/commands/crit.md", hint: "Run /crit in OpenCode to start a review loop"},
-		{source: "integrations/opencode/SKILL.md", dest: ".opencode/skills/crit/SKILL.md", hint: "The crit skill is available to OpenCode agents when needed"},
+		// opencode does NOT read ~/.opencode/skills/ globally — redirect to ~/.agents/skills/
+		{source: "integrations/opencode/SKILL.md", dest: ".opencode/skills/crit/SKILL.md", globalDest: ".agents/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit skill is available to OpenCode agents when needed"},
 	},
 	"windsurf": {
+		// windsurf has no per-tool global rules dir — global install rejected in installIntegration.
 		{source: "integrations/windsurf/crit.md", dest: ".windsurf/rules/crit.md", hint: "Windsurf will suggest Crit when writing plans"},
 	},
 	"github-copilot": {
-		{source: "integrations/github-copilot/skills/crit/SKILL.md", dest: ".github/skills/crit/SKILL.md", hint: "Run /crit in GitHub Copilot to start a review loop"},
-		{source: "integrations/github-copilot/skills/crit-cli/SKILL.md", dest: ".github/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to GitHub Copilot agents when needed"},
+		// Copilot does NOT read ~/.github/skills/ globally — redirect to ~/.agents/skills/
+		{source: "integrations/github-copilot/skills/crit/SKILL.md", dest: ".github/skills/crit/SKILL.md", globalDest: ".agents/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /crit in GitHub Copilot to start a review loop"},
+		{source: "integrations/github-copilot/skills/crit-cli/SKILL.md", dest: ".github/skills/crit-cli/SKILL.md", globalDest: ".agents/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to GitHub Copilot agents when needed"},
 	},
 	"cline": {
-		{source: "integrations/cline/crit.md", dest: ".clinerules/crit.md", hint: "Cline will suggest Crit when writing plans"},
+		// Cline does NOT read ~/.clinerules/ globally — redirect to platform Documents dir.
+		{source: "integrations/cline/crit.md", dest: ".clinerules/crit.md", globalDest: "Cline/Rules/crit.md", globalDestKind: globalDestDocuments, hint: "Cline will suggest Crit when writing plans"},
 	},
 	"codex": {
 		{source: "integrations/codex/skills/crit/SKILL.md", dest: ".agents/skills/crit/SKILL.md", hint: "Use $crit in Codex to start a review loop"},
@@ -2531,10 +2564,83 @@ var integrationMap = map[string][]integration{
 }
 
 func availableIntegrations() []string {
-	return []string{"claude-code", "codex", "cursor", "opencode", "windsurf", "github-copilot", "cline"}
+	return []string{"claude-code", "codex", "cursor", "opencode", "windsurf", "github-copilot", "cline", "aider"}
+}
+
+// isGlobalInstall reports whether the install should be treated as global
+// (user-wide) rather than project-scoped. True when cwd == $HOME.
+func isGlobalInstall(cwd, home string) bool {
+	if cwd == "" || home == "" {
+		return false
+	}
+	a, errA := filepath.Abs(cwd)
+	b, errB := filepath.Abs(home)
+	if errA != nil || errB != nil {
+		return cwd == home
+	}
+	return a == b
+}
+
+// resolveGlobalDest expands an integration's globalDest into an absolute
+// path according to its globalDestKind.
+func resolveGlobalDest(kind globalDestKind, globalDest, home string) (string, error) {
+	switch kind {
+	case globalDestAbsolute:
+		return globalDest, nil
+	case globalDestDocuments:
+		return filepath.Join(documentsDir(home), globalDest), nil
+	case globalDestRelHome, globalDestNone:
+		if filepath.IsAbs(globalDest) {
+			return globalDest, nil
+		}
+		return filepath.Join(home, globalDest), nil
+	default:
+		return "", fmt.Errorf("unknown globalDestKind %d", kind)
+	}
+}
+
+// xdgUserDirFn is the seam used by documentsDir to query xdg-user-dir.
+// Tests override this; production code uses the default that shells out.
+var xdgUserDirFn = xdgUserDir
+
+// documentsDir returns the platform Documents directory for the current user.
+//
+//	macOS:   $HOME/Documents
+//	Linux:   $(xdg-user-dir DOCUMENTS), falling back to $HOME/Documents.
+//	         If xdg-user-dir returns $HOME (its documented behavior when
+//	         user-dirs.dirs is missing), we treat that as "no answer" and
+//	         fall back to $HOME/Documents to avoid polluting the home dir.
+//	Windows: filepath.Join(home, "Documents") — the real MyDocuments folder
+//	         can differ; querying FOLDERID_Documents needs x/sys/windows.
+//	         The $USERPROFILE\Documents convention is a pragmatic default.
+func documentsDir(home string) string {
+	if runtime.GOOS == "linux" {
+		path, err := xdgUserDirFn("DOCUMENTS")
+		if err == nil && path != "" && path != home {
+			return path
+		}
+	}
+	return filepath.Join(home, "Documents")
+}
+
+// xdgUserDir shells out to the xdg-user-dir binary to query a user dir.
+// Returns ("", error) if the binary is missing or returns non-zero. The
+// returned path is whitespace-trimmed; it may equal $HOME when the spec
+// says no user-dirs.dirs entry exists — callers must handle that case.
+func xdgUserDir(name string) (string, error) {
+	out, err := exec.Command("xdg-user-dir", name).Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 func installIntegration(name string, force bool) {
+	if name == "aider" {
+		installAider(force)
+		return
+	}
+
 	files, ok := integrationMap[name]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "Unknown agent: %s\n\nAvailable agents:\n", name)
@@ -2544,49 +2650,79 @@ func installIntegration(name string, force bool) {
 		os.Exit(1)
 	}
 
+	cwd, _ := os.Getwd()
+	home, _ := os.UserHomeDir()
+	global := isGlobalInstall(cwd, home)
+
+	if name == "windsurf" && global {
+		fmt.Fprintln(os.Stderr, "Error: windsurf does not support a global per-tool install.")
+		fmt.Fprintln(os.Stderr, "Windsurf only loads a single ~/.codeium/windsurf/memories/global_rules.md (6k char cap),")
+		fmt.Fprintln(os.Stderr, "not a per-tool rules directory. Run `crit install windsurf` from a project directory")
+		fmt.Fprintln(os.Stderr, "instead, which writes .windsurf/rules/crit.md (workspace-scoped).")
+		os.Exit(1)
+	}
+
 	var hints []string
 	for _, f := range files {
-		if !force {
-			if _, err := os.Stat(f.dest); err == nil {
-				fmt.Printf("  Skipped:   %s (already exists, use --force to overwrite)\n", f.dest)
-				if f.hint != "" {
-					hints = append(hints, f.hint)
-				}
-				continue
-			}
-		}
-
-		data, err := integrationsFS.ReadFile(f.source)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading embedded file %s: %v\n", f.source, err)
-			os.Exit(1)
-		}
-
-		dir := filepath.Dir(f.dest)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating directory %s: %v\n", dir, err)
-			os.Exit(1)
-		}
-
-		if err := os.WriteFile(f.dest, data, 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", f.dest, err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("  Installed: %s\n", f.dest)
+		dest := destFor(f, global, home, name)
+		installOneFile(f, dest, force)
 		if f.hint != "" {
 			hints = append(hints, f.hint)
 		}
 	}
-	seenHints := make(map[string]bool)
+	printUniqueHints(hints)
+	fmt.Println()
+}
+
+// destFor returns the destination path for an integration file, accounting
+// for global vs project install mode.
+func destFor(f integration, global bool, home, name string) string {
+	if global && f.globalDest != "" {
+		resolved, err := resolveGlobalDest(f.globalDestKind, f.globalDest, home)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error resolving global destination for %s: %v\n", name, err)
+			os.Exit(1)
+		}
+		return resolved
+	}
+	return f.dest
+}
+
+// installOneFile copies a single embedded integration file to dest, skipping
+// if it already exists (unless force is set). Exits on I/O errors.
+func installOneFile(f integration, dest string, force bool) {
+	if !force {
+		if _, err := os.Stat(dest); err == nil {
+			fmt.Printf("  Skipped:   %s (already exists, use --force to overwrite)\n", dest)
+			return
+		}
+	}
+	data, err := integrationsFS.ReadFile(f.source)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading embedded file %s: %v\n", f.source, err)
+		os.Exit(1)
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating directory %s: %v\n", filepath.Dir(dest), err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(dest, data, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", dest, err)
+		os.Exit(1)
+	}
+	fmt.Printf("  Installed: %s\n", dest)
+}
+
+// printUniqueHints prints each hint once, in the order it first appeared.
+func printUniqueHints(hints []string) {
+	seen := make(map[string]bool)
 	for _, hint := range hints {
-		if seenHints[hint] {
+		if seen[hint] {
 			continue
 		}
-		seenHints[hint] = true
+		seen[hint] = true
 		fmt.Printf("  %s\n", hint)
 	}
-	fmt.Println()
 }
 
 func openBrowser(url string) {

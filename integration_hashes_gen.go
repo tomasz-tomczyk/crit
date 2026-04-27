@@ -17,5 +17,5 @@ var integrationHashes = map[string]string{
 	"integrations/github-copilot/skills/crit/SKILL.md":     "0fb4bd2f18a227b8df97461af35705af316194fc2b6c98417df939ef5131a41d",
 	"integrations/opencode/SKILL.md":                       "0108dc63d805c67b98ab9821d88b95c27eb60efe60744f2c8b92befa59852666",
 	"integrations/opencode/crit.md":                        "8ddb447a66ed27c1dad6d76683ed020c09356f541f0782c7db3852641c6ac5f9",
-	"integrations/windsurf/crit.md":                        "43a429cf941add9c0bf6f0578abd84729adc58c747ae5125323144efa261a137",
+	"integrations/windsurf/crit.md":                        "f94b4046cbaf912bf1644917bfcd0199992c90c2c1f9145a9eb6572c835051e3",
 }
