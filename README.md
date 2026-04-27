@@ -50,6 +50,10 @@ Claude Code, Cursor, OpenCode, and GitHub Copilot support a `/crit` slash comman
 
 It launches Crit, waits for your review; your agent acts on the feedback and you go back and forth until the work is approved.
 
+### Sandboxed agents (Docker)
+
+Running your agent in a container? Crit binds `127.0.0.1` by design — see [`integrations/docker/`](integrations/docker/) for a working `Dockerfile` + `entrypoint.sh` that bridges the loopback server to a host-reachable port via `socat`, so you can review from your host browser while the agent stays sandboxed.
+
 ## Demo
 
 A 2-minute walkthrough of plan review and branch review.
