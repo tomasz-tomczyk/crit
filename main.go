@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -155,10 +156,15 @@ func printQR(url string, showQR bool) {
 	}
 }
 
-func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, sharePaths []string, authToken string, showQR bool) {
+func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, sharePaths []string, authToken, fallbackAuthor string, showQR bool) {
 	localIDs := buildLocalIDSet(existingCfg)
 	localFingerprints, localFingerprintIDs := buildLocalFingerprintIndex(existingCfg)
 	if fetched, err := fetchWebComments(existingCfg.ShareURL, localIDs, localFingerprints, localFingerprintIDs, authToken); err != nil {
+		if errors.Is(err, errShareUnauthorized) {
+			clearAuthIdentity()
+			fmt.Fprintln(os.Stderr, "Auth token rejected by server; cleared local credentials. Run 'crit auth login' to re-authenticate.")
+			os.Exit(1)
+		}
 		fmt.Fprintf(os.Stderr, "warning: could not pull remote comments: %v\n", err)
 	} else if len(fetched.NewComments) > 0 || len(fetched.ReplyUpdates) > 0 {
 		if err := mergeWebComments(critPath, fetched.NewComments, fetched.ReplyUpdates); err != nil {
@@ -166,10 +172,14 @@ func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, 
 		}
 	}
 
-	allComments, _ := loadCommentsForUpsert(critPath, sharePaths)
+	allComments, _ := loadCommentsForUpsert(critPath, sharePaths, fallbackAuthor)
 
 	result, err := upsertShareToWeb(existingCfg, files, allComments, authToken)
 	if err != nil {
+		if errors.Is(err, errShareUnauthorized) {
+			clearAuthIdentity()
+			fmt.Fprintln(os.Stderr, "Auth token rejected by server; cleared local credentials. Run 'crit auth login' to re-authenticate.")
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -186,9 +196,13 @@ func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, 
 	printQR(result.URL, showQR)
 }
 
-func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL, authToken string, showQR bool) {
-	res, err := shareReviewFiles(critPath, files, filePaths, svcURL, authToken)
+func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor string, showQR bool) {
+	res, err := shareReviewFiles(critPath, files, filePaths, svcURL, authToken, fallbackAuthor)
 	if err != nil {
+		if errors.Is(err, errShareUnauthorized) {
+			clearAuthIdentity()
+			fmt.Fprintln(os.Stderr, "Auth token rejected by server; cleared local credentials. Run 'crit auth login' to re-authenticate.")
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -197,7 +211,7 @@ func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL,
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state to review file: %v\n", err)
 	}
 
-	initialComments, _ := loadCommentsForUpsert(critPath, filePaths)
+	initialComments, _ := loadCommentsForUpsert(critPath, filePaths, fallbackAuthor)
 	_ = updateShareState(critPath, computeShareHash(files, initialComments), res.ReviewRound)
 
 	fmt.Println(res.URL)
@@ -217,7 +231,12 @@ func runShare(args []string) {
 
 	cfg := loadShareConfig()
 	sf.svcURL = resolveShareURL(sf.svcURL, cfg, defaultShareURL)
-	authToken := resolveAuthToken(cfg)
+	cfg.AuthToken = resolveAuthToken(cfg)
+	// If we have a token but no cached user id, fetch it from /api/auth/whoami
+	// before building the share payload so authenticated comments carry the
+	// user id. Best-effort: failures fall through to anonymous attribution.
+	lazyBackfillAuthUserID(&cfg)
+	authToken := cfg.AuthToken
 
 	files := loadShareFiles(sf.files)
 
@@ -233,11 +252,11 @@ func runShare(args []string) {
 	}
 
 	if existingCfg, ok := loadExistingShareCfg(critPath, sharePaths); ok {
-		runShareExisting(existingCfg, critPath, files, sharePaths, authToken, sf.showQR)
+		runShareExisting(existingCfg, critPath, files, sharePaths, authToken, cfg.Author, sf.showQR)
 		return
 	}
 
-	runShareNew(critPath, files, sharePaths, sf.svcURL, authToken, sf.showQR)
+	runShareNew(critPath, files, sharePaths, sf.svcURL, authToken, cfg.Author, sf.showQR)
 }
 
 func parseFetchOutputDir(args []string) string {
@@ -309,6 +328,11 @@ func runFetch(args []string) {
 
 	fetched, err := fetchWebComments(cj.ShareURL, localIDs, localFingerprints, localFingerprintIDs, authToken)
 	if err != nil {
+		if errors.Is(err, errShareUnauthorized) {
+			clearAuthIdentity()
+			fmt.Fprintln(os.Stderr, "Auth token rejected by server; cleared local credentials. Run 'crit auth login' to re-authenticate.")
+			os.Exit(1)
+		}
 		fmt.Fprintf(os.Stderr, "Error fetching remote comments: %v\n", err)
 		os.Exit(1)
 	}
@@ -706,6 +730,7 @@ func runPush(args []string) {
 type commentFlags struct {
 	outputDir string
 	author    string
+	userID    string
 	replyTo   string
 	resolve   bool
 	path      string
@@ -780,14 +805,19 @@ func resolveCommentFlags(f *commentFlags) {
 		}
 	}
 
-	// Resolve author: --author flag > config > VCS user.name
+	// Resolve author: --author flag > config > VCS user.name.
+	// Stamp AuthUserID alongside the author so authenticated comments
+	// carry the user identity into the share payload.
+	cfgDir, _ := os.Getwd()
+	if vcs := DetectVCS(""); vcs != nil {
+		cfgDir, _ = vcs.RepoRoot()
+	}
+	cfg := LoadConfig(cfgDir)
 	if f.author == "" {
-		cfgDir, _ := os.Getwd()
-		if vcs := DetectVCS(""); vcs != nil {
-			cfgDir, _ = vcs.RepoRoot()
-		}
-		cfg := LoadConfig(cfgDir)
 		f.author = cfg.Author
+	}
+	if f.userID == "" {
+		f.userID = cfg.AuthUserID
 	}
 }
 
@@ -804,7 +834,7 @@ func runCommentJSON(f commentFlags) {
 		os.Exit(1)
 	}
 
-	if err := bulkAddCommentsToCritJSON(entries, f.author, f.outputDir); err != nil {
+	if err := bulkAddCommentsToCritJSON(entries, f.author, f.userID, f.outputDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -834,7 +864,7 @@ func runCommentReply(f commentFlags) {
 		os.Exit(1)
 	}
 	replyBody := strings.Join(f.args, " ")
-	if err := addReplyToCritJSON(f.replyTo, replyBody, f.author, f.resolve, f.outputDir, f.path); err != nil {
+	if err := addReplyToCritJSON(f.replyTo, replyBody, f.author, f.userID, f.resolve, f.outputDir, f.path); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -877,7 +907,7 @@ func printCommentUsage() {
 	os.Exit(1)
 }
 
-func runCommentLineLevel(loc string, commentArgs []string, author, outputDir string) {
+func runCommentLineLevel(loc string, commentArgs []string, author, userID, outputDir string) {
 	colonIdx := strings.LastIndex(loc, ":")
 	lineSpec := loc[colonIdx+1:]
 	filePath := loc[:colonIdx]
@@ -903,7 +933,7 @@ func runCommentLineLevel(loc string, commentArgs []string, author, outputDir str
 		startLine, endLine = n, n
 	}
 	body := strings.Join(commentArgs[1:], " ")
-	if err := addCommentToCritJSON(filePath, startLine, endLine, body, author, outputDir); err != nil {
+	if err := addCommentToCritJSON(filePath, startLine, endLine, body, author, userID, outputDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -936,7 +966,7 @@ func runComment(args []string) {
 	// 1 arg: review-level comment
 	if len(f.args) == 1 {
 		body := f.args[0]
-		if err := addReviewCommentToCritJSON(body, f.author, f.outputDir); err != nil {
+		if err := addReviewCommentToCritJSON(body, f.author, f.userID, f.outputDir); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -948,7 +978,7 @@ func runComment(args []string) {
 	loc := f.args[0]
 	colonIdx := strings.LastIndex(loc, ":")
 	if colonIdx > 0 && looksLikeLineSpec(loc[colonIdx+1:]) {
-		runCommentLineLevel(loc, f.args, f.author, f.outputDir)
+		runCommentLineLevel(loc, f.args, f.author, f.userID, f.outputDir)
 		return
 	}
 
@@ -957,7 +987,7 @@ func runComment(args []string) {
 		candidatePath := f.args[0]
 		if fileExistsOnDiskOrSession(candidatePath, f.outputDir) {
 			body := strings.Join(f.args[1:], " ")
-			if err := addFileCommentToCritJSON(candidatePath, body, f.author, f.outputDir); err != nil {
+			if err := addFileCommentToCritJSON(candidatePath, body, f.author, f.userID, f.outputDir); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}

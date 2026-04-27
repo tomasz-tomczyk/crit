@@ -64,7 +64,7 @@ func TestLoadCommentsForUpsert_ExcludesResolved(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, round := loadCommentsForUpsert(filepath.Join(dir, ".crit.json"), []string{"plan.md"})
+	comments, round := loadCommentsForUpsert(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
 	if round != 1 {
 		t.Errorf("expected round 1, got %d", round)
 	}
@@ -93,7 +93,7 @@ func TestLoadCommentsForUpsert_SetsExternalID(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, _ := loadCommentsForUpsert(filepath.Join(dir, ".crit.json"), []string{"main.go"})
+	comments, _ := loadCommentsForUpsert(filepath.Join(dir, ".crit.json"), []string{"main.go"}, "")
 	if len(comments) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(comments))
 	}
@@ -120,7 +120,7 @@ func TestLoadCommentsForUpsert_ReviewLevelComments(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, _ := loadCommentsForUpsert(filepath.Join(dir, ".crit.json"), []string{"plan.md"})
+	comments, _ := loadCommentsForUpsert(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
 
 	// Should have 2 comments: 1 file-level + 1 unresolved review-level
 	if len(comments) != 2 {
@@ -417,7 +417,7 @@ func TestLoadCommentsForFiles(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
 
 	// Only load unresolved comments for plan.md (c1 and c2, not c3)
-	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"})
+	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
 	if round != 2 {
 		t.Errorf("expected round 2, got %d", round)
 	}
@@ -429,13 +429,13 @@ func TestLoadCommentsForFiles(t *testing.T) {
 	}
 
 	// Load for both files — 3 unresolved (c1, c2, c4), not 5 total
-	comments, _ = loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md", "other.go"})
+	comments, _ = loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md", "other.go"}, "")
 	if len(comments) != 3 {
 		t.Fatalf("expected 3 unresolved comments, got %d", len(comments))
 	}
 
 	// Load for nonexistent file
-	comments, round = loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"nope.md"})
+	comments, round = loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"nope.md"}, "")
 	if len(comments) != 0 {
 		t.Errorf("expected 0 comments, got %d", len(comments))
 	}
@@ -446,7 +446,7 @@ func TestLoadCommentsForFiles(t *testing.T) {
 
 func TestLoadCommentsForFiles_NoCritJSON(t *testing.T) {
 	dir := t.TempDir()
-	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"})
+	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
 	if len(comments) != 0 {
 		t.Errorf("expected 0 comments, got %d", len(comments))
 	}
@@ -1549,7 +1549,7 @@ func TestCommentToShareComment(t *testing.T) {
 			Author:      "Alice",
 			ReviewRound: 2,
 		}
-		sc := commentToShareComment(c, "main.go", "line", false, false)
+		sc := commentToShareComment(c, "main.go", "line", "", false, false)
 		if sc.File != "main.go" {
 			t.Errorf("File = %q, want main.go", sc.File)
 		}
@@ -1575,7 +1575,7 @@ func TestCommentToShareComment(t *testing.T) {
 
 	t.Run("includes resolved when flag set", func(t *testing.T) {
 		c := Comment{Resolved: true}
-		sc := commentToShareComment(c, "", "", true, false)
+		sc := commentToShareComment(c, "", "", "", true, false)
 		if !sc.Resolved {
 			t.Error("expected Resolved=true when includeResolved=true")
 		}
@@ -1583,7 +1583,7 @@ func TestCommentToShareComment(t *testing.T) {
 
 	t.Run("excludes resolved when flag not set", func(t *testing.T) {
 		c := Comment{Resolved: true}
-		sc := commentToShareComment(c, "", "", false, false)
+		sc := commentToShareComment(c, "", "", "", false, false)
 		if sc.Resolved {
 			t.Error("expected Resolved=false when includeResolved=false")
 		}
@@ -1591,7 +1591,7 @@ func TestCommentToShareComment(t *testing.T) {
 
 	t.Run("sets external ID when flag set", func(t *testing.T) {
 		c := Comment{ID: "c123"}
-		sc := commentToShareComment(c, "", "", false, true)
+		sc := commentToShareComment(c, "", "", "", false, true)
 		if sc.ExternalID != "c123" {
 			t.Errorf("ExternalID = %q, want c123", sc.ExternalID)
 		}
@@ -1599,7 +1599,7 @@ func TestCommentToShareComment(t *testing.T) {
 
 	t.Run("omits external ID when flag not set", func(t *testing.T) {
 		c := Comment{ID: "c123"}
-		sc := commentToShareComment(c, "", "", false, false)
+		sc := commentToShareComment(c, "", "", "", false, false)
 		if sc.ExternalID != "" {
 			t.Errorf("ExternalID = %q, want empty", sc.ExternalID)
 		}
@@ -1613,7 +1613,7 @@ func TestCommentToShareComment(t *testing.T) {
 				{Body: "verified", Author: "Alice"},
 			},
 		}
-		sc := commentToShareComment(c, "f.md", "", false, false)
+		sc := commentToShareComment(c, "f.md", "", "", false, false)
 		if len(sc.Replies) != 2 {
 			t.Fatalf("expected 2 replies, got %d", len(sc.Replies))
 		}
@@ -1624,7 +1624,7 @@ func TestCommentToShareComment(t *testing.T) {
 
 	t.Run("review round zero omitted", func(t *testing.T) {
 		c := Comment{ReviewRound: 0}
-		sc := commentToShareComment(c, "", "", false, false)
+		sc := commentToShareComment(c, "", "", "", false, false)
 		if sc.ReviewRound != 0 {
 			t.Errorf("ReviewRound = %d, want 0 (omitted for round 0)", sc.ReviewRound)
 		}

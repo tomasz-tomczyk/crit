@@ -25,6 +25,7 @@ type Config struct {
 	AuthToken          string   `json:"auth_token,omitempty"`
 	AuthUserName       string   `json:"auth_user_name,omitempty"`
 	AuthUserEmail      string   `json:"auth_user_email,omitempty"`
+	AuthUserID         string   `json:"auth_user_id,omitempty"`
 	CleanupOnApprove   *bool    `json:"cleanup_on_approve,omitempty"`
 	VCS                string   `json:"vcs,omitempty"` // preferred VCS backend: "git", "sl"
 }
@@ -283,7 +284,10 @@ func saveGlobalConfig(apply func(m map[string]json.RawMessage) error) error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0o600)
+	// atomicWriteFile (defined in daemon.go) writes via temp + fsync + rename.
+	// Critical for the global config because it holds the bearer token —
+	// a crash mid-write would otherwise truncate it.
+	return atomicWriteFile(path, data, 0o600)
 }
 
 // gitUserName returns the git-configured user name, or empty string on error.

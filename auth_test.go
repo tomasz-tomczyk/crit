@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -385,15 +386,15 @@ func TestFetchWhoami_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	name, email, err := fetchWhoami(srv.URL, "crit_tok")
+	who, err := fetchWhoami(context.Background(), srv.URL, "crit_tok")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if name != "Tomasz" {
-		t.Errorf("name = %q, want Tomasz", name)
+	if who.Name != "Tomasz" {
+		t.Errorf("name = %q, want Tomasz", who.Name)
 	}
-	if email != "tomasz@example.com" {
-		t.Errorf("email = %q", email)
+	if who.Email != "tomasz@example.com" {
+		t.Errorf("email = %q", who.Email)
 	}
 }
 
@@ -403,7 +404,7 @@ func TestFetchWhoami_Unauthorized(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, err := fetchWhoami(srv.URL, "bad_token")
+	_, err := fetchWhoami(context.Background(), srv.URL, "bad_token")
 	if err == nil {
 		t.Fatal("expected error for 401")
 	}
@@ -615,14 +616,14 @@ func TestFetchWhoami_ServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, err := fetchWhoami(srv.URL, "crit_tok")
+	_, err := fetchWhoami(context.Background(), srv.URL, "crit_tok")
 	if err == nil {
 		t.Fatal("expected error for 500")
 	}
 }
 
 func TestFetchWhoami_NetworkError(t *testing.T) {
-	_, _, err := fetchWhoami("http://127.0.0.1:1", "crit_tok")
+	_, err := fetchWhoami(context.Background(), "http://127.0.0.1:1", "crit_tok")
 	if err == nil {
 		t.Fatal("expected error for unreachable server")
 	}
@@ -636,15 +637,15 @@ func TestFetchWhoami_NameOnly(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	name, email, err := fetchWhoami(srv.URL, "crit_tok")
+	who, err := fetchWhoami(context.Background(), srv.URL, "crit_tok")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if name != "Tomasz" {
-		t.Errorf("name = %q, want Tomasz", name)
+	if who.Name != "Tomasz" {
+		t.Errorf("name = %q, want Tomasz", who.Name)
 	}
-	if email != "" {
-		t.Errorf("email = %q, want empty", email)
+	if who.Email != "" {
+		t.Errorf("email = %q, want empty", who.Email)
 	}
 }
 
