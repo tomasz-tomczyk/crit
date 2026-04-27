@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -19,6 +20,12 @@ import (
 // defaultShareURL is the production crit-web service URL, used as the fallback
 // when no share URL is configured via flag, env, or config.
 const defaultShareURL = "https://crit.md"
+
+// errShareUnauthorized indicates the share endpoint rejected the bearer token.
+// Callers wrap this and inspect with errors.Is so they can clear the cached
+// auth identity (token + user id + name + email) on top-level share/upsert
+// failures.
+var errShareUnauthorized = errors.New("auth token rejected by share service")
 
 // shareScope computes a hash of sorted file paths, used to detect when
 // share state belongs to a different file set.
@@ -64,8 +71,10 @@ type shareFile struct {
 
 // shareReply represents a reply to include in the shared review.
 type shareReply struct {
-	Body   string `json:"body"`
-	Author string `json:"author_display_name,omitempty"`
+	Body       string `json:"body"`
+	Author     string `json:"author_display_name,omitempty"`
+	UserID     string `json:"user_id,omitempty"`
+	ExternalID string `json:"external_id,omitempty"`
 }
 
 // shareComment represents a comment to include in the shared review.
@@ -76,6 +85,7 @@ type shareComment struct {
 	Body        string       `json:"body"`
 	Quote       string       `json:"quote,omitempty"`
 	Author      string       `json:"author_display_name,omitempty"`
+	UserID      string       `json:"user_id,omitempty"`
 	Scope       string       `json:"scope,omitempty"`
 	ReviewRound int          `json:"review_round,omitempty"`
 	Replies     []shareReply `json:"replies,omitempty"`
@@ -118,8 +128,8 @@ type shareReviewFilesResult struct {
 // shareReviewFiles loads comments + cli_args from the review file at critPath
 // and POSTs the files to crit-web. Used by both the CLI (`crit share`) and the
 // server's POST /api/share endpoint so payload wiring stays in one place.
-func shareReviewFiles(critPath string, files []shareFile, filePaths []string, svcURL, authToken string) (shareReviewFilesResult, error) {
-	comments, reviewRound := loadCommentsForShare(critPath, filePaths)
+func shareReviewFiles(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor string) (shareReviewFilesResult, error) {
+	comments, reviewRound := loadCommentsForShare(critPath, filePaths, fallbackAuthor)
 	cliArgs := loadCliArgsFromReviewFile(critPath)
 
 	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs)
@@ -156,6 +166,9 @@ func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		return "", "", errShareUnauthorized
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		var errBody struct {
 			Error string `json:"error"`
@@ -238,27 +251,40 @@ func setBearer(req *http.Request, token string) {
 
 // loadCommentsForShare reads the review file at critPath and returns shareComment entries
 // for the given file paths, plus the review round. Resolved comments are excluded.
-func loadCommentsForShare(critPath string, filePaths []string) ([]shareComment, int) {
-	return loadCommentsFromCritJSON(critPath, filePaths, false, false)
+// fallbackAuthor is used when a comment has no Author set (typically cfg.Author).
+//
+// ExternalID is set on the initial-share path so the server persists it on first
+// insert. This is what enables the round-trip carry-forward of `user_id` on a
+// later PUT/upsert: replace_comments matches incoming attrs.external_id against
+// the existing-by-external_id map and preserves the verified user_id when the
+// re-sharer is anonymous (rules #3/#4 of the attribution table).
+func loadCommentsForShare(critPath string, filePaths []string, fallbackAuthor string) ([]shareComment, int) {
+	return loadCommentsFromCritJSON(critPath, filePaths, false, true, fallbackAuthor)
 }
 
 // loadCommentsForUpsert loads unresolved comments with ExternalID set for
 // round-trip tracking. Resolved comments are excluded — same as initial share.
-func loadCommentsForUpsert(critPath string, filePaths []string) ([]shareComment, int) {
-	return loadCommentsFromCritJSON(critPath, filePaths, false, true)
+func loadCommentsForUpsert(critPath string, filePaths []string, fallbackAuthor string) ([]shareComment, int) {
+	return loadCommentsFromCritJSON(critPath, filePaths, false, true, fallbackAuthor)
 }
 
 // commentToShareComment converts a Comment into a shareComment, applying the
 // includeResolved and setExternalID flags. The filePath and scope fields are
-// set by the caller based on context.
-func commentToShareComment(c Comment, filePath, scope string, includeResolved, setExternalID bool) shareComment {
+// set by the caller based on context. fallbackAuthor is used when c.Author is
+// empty (typically cfg.Author).
+func commentToShareComment(c Comment, filePath, scope, fallbackAuthor string, includeResolved, setExternalID bool) shareComment {
+	author := c.Author
+	if author == "" {
+		author = fallbackAuthor
+	}
 	sc := shareComment{
 		File:      filePath,
 		StartLine: c.StartLine,
 		EndLine:   c.EndLine,
 		Body:      c.Body,
 		Quote:     c.Quote,
-		Author:    c.Author,
+		Author:    author,
+		UserID:    c.UserID,
 		Scope:     scope,
 	}
 	if includeResolved {
@@ -271,7 +297,15 @@ func commentToShareComment(c Comment, filePath, scope string, includeResolved, s
 		sc.ReviewRound = c.ReviewRound
 	}
 	for _, r := range c.Replies {
-		sc.Replies = append(sc.Replies, shareReply{Body: r.Body, Author: r.Author})
+		ra := r.Author
+		if ra == "" {
+			ra = fallbackAuthor
+		}
+		sr := shareReply{Body: r.Body, Author: ra, UserID: r.UserID}
+		if setExternalID {
+			sr.ExternalID = r.ID
+		}
+		sc.Replies = append(sc.Replies, sr)
 	}
 	return sc
 }
@@ -279,8 +313,9 @@ func commentToShareComment(c Comment, filePath, scope string, includeResolved, s
 // loadCommentsFromCritJSON reads the review file at critPath and returns shareComment
 // entries for the given file paths, plus the review round. When includeResolved is true,
 // resolved comments are included. When setExternalID is true, ExternalID is set
-// from the local comment ID for round-trip tracking.
-func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolved, setExternalID bool) ([]shareComment, int) {
+// from the local comment ID for round-trip tracking. fallbackAuthor fills missing
+// Author fields (typically cfg.Author).
+func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolved, setExternalID bool, fallbackAuthor string) ([]shareComment, int) {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
 		return nil, 1
@@ -310,14 +345,14 @@ func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolv
 				continue
 			}
 			scope := c.Scope
-			comments = append(comments, commentToShareComment(c, filePath, scope, includeResolved, setExternalID))
+			comments = append(comments, commentToShareComment(c, filePath, scope, fallbackAuthor, includeResolved, setExternalID))
 		}
 	}
 	for _, c := range cj.ReviewComments {
 		if !includeResolved && c.Resolved {
 			continue
 		}
-		comments = append(comments, commentToShareComment(c, "", "review", includeResolved, setExternalID))
+		comments = append(comments, commentToShareComment(c, "", "review", fallbackAuthor, includeResolved, setExternalID))
 	}
 	return comments, round
 }
@@ -326,9 +361,14 @@ func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolv
 type webReply struct {
 	Body              string `json:"body"`
 	AuthorDisplayName string `json:"author_display_name"`
+	UserID            string `json:"user_id"`
 }
 
 // webComment is the shape of a comment returned by GET /api/reviews/:token/comments.
+// AuthorIdentity is retained for compatibility with existing crit-web responses
+// and is treated as a session-owner token for anonymous web visitors. UserID
+// is the verified user id, set when the comment was authored by a logged-in
+// user (either CLI with bearer token or LiveView while signed in).
 type webComment struct {
 	Body              string     `json:"body"`
 	FilePath          string     `json:"file_path"`
@@ -338,6 +378,8 @@ type webComment struct {
 	Resolved          bool       `json:"resolved"`
 	ExternalID        string     `json:"external_id"`
 	AuthorDisplayName string     `json:"author_display_name"`
+	AuthorIdentity    string     `json:"author_identity"`
+	UserID            string     `json:"user_id"`
 	Quote             string     `json:"quote"`
 	Scope             string     `json:"scope"`
 	Replies           []webReply `json:"replies"`
@@ -415,6 +457,9 @@ func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprin
 	if resp.StatusCode == http.StatusNotFound {
 		return result, nil // review gone
 	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return result, errShareUnauthorized
+	}
 	if resp.StatusCode != http.StatusOK {
 		return result, fmt.Errorf("remote comments returned status %d", resp.StatusCode)
 	}
@@ -425,27 +470,41 @@ func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprin
 	}
 
 	for _, wc := range all {
-		if wc.ExternalID != "" && localIDs[wc.ExternalID] {
-			// Comment exists locally — check for new replies from web
-			if len(wc.Replies) > 0 {
-				result.ReplyUpdates[wc.ExternalID] = wc.Replies
-			}
+		if dropDuplicateWebComment(wc, localIDs, localFingerprints, localFingerprintIDs, result.ReplyUpdates) {
 			continue
-		}
-		if wc.ExternalID == "" {
-			fp := fmt.Sprintf("%s|%s|%d|%d", wc.Body, wc.FilePath, wc.StartLine, wc.EndLine)
-			if localFingerprints[fp] {
-				// Web-authored comment already imported as web-N. Capture
-				// any new replies before discarding the duplicate body.
-				if localID, ok := localFingerprintIDs[fp]; ok && len(wc.Replies) > 0 {
-					result.ReplyUpdates[localID] = wc.Replies
-				}
-				continue
-			}
 		}
 		result.NewComments = append(result.NewComments, wc)
 	}
 	return result, nil
+}
+
+// dropDuplicateWebComment returns true if wc is already represented locally
+// (by external_id or fingerprint match) and therefore should not be appended
+// to NewComments. Any new replies on the duplicate are recorded in updates.
+func dropDuplicateWebComment(
+	wc webComment,
+	localIDs map[string]bool,
+	localFingerprints map[string]bool,
+	localFingerprintIDs map[string]string,
+	updates map[string][]webReply,
+) bool {
+	if wc.ExternalID != "" && localIDs[wc.ExternalID] {
+		if len(wc.Replies) > 0 {
+			updates[wc.ExternalID] = wc.Replies
+		}
+		return true
+	}
+	if wc.ExternalID != "" {
+		return false
+	}
+	fp := fmt.Sprintf("%s|%s|%d|%d", wc.Body, wc.FilePath, wc.StartLine, wc.EndLine)
+	if !localFingerprints[fp] {
+		return false
+	}
+	if localID, ok := localFingerprintIDs[fp]; ok && len(wc.Replies) > 0 {
+		updates[localID] = wc.Replies
+	}
+	return true
 }
 
 // upsertResult holds the response from an upsert (PUT) to crit-web.
@@ -511,7 +570,7 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return result, fmt.Errorf("crit-web rejected the request — check your auth_token in config")
+		return result, errShareUnauthorized
 	}
 	if resp.StatusCode >= 400 {
 		return result, fmt.Errorf("upsert failed with status %d", resp.StatusCode)
@@ -623,6 +682,7 @@ func mergeWebComments(critPath string, newComments []webComment, replyUpdates ma
 			replies = append(replies, Reply{
 				Body:   wr.Body,
 				Author: wr.AuthorDisplayName,
+				UserID: wr.UserID,
 			})
 		}
 		c := Comment{
@@ -632,6 +692,7 @@ func mergeWebComments(critPath string, newComments []webComment, replyUpdates ma
 			Body:        wc.Body,
 			Quote:       wc.Quote,
 			Author:      wc.AuthorDisplayName,
+			UserID:      wc.UserID,
 			Scope:       wc.Scope,
 			ReviewRound: wc.ReviewRound,
 			Replies:     replies,
@@ -681,6 +742,7 @@ func mergeRepliesIntoComment(c Comment, webReplies []webReply) Comment {
 		c.Replies = append(c.Replies, Reply{
 			Body:   wr.Body,
 			Author: wr.AuthorDisplayName,
+			UserID: wr.UserID,
 		})
 	}
 	return c

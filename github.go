@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 )
 
@@ -26,6 +28,9 @@ type ghComment struct {
 	User      struct {
 		Login string `json:"login"`
 	} `json:"user"`
+	// Note: GitHub's /pulls/.../comments REST endpoint returns only `login`
+	// per user. We resolve the display name lazily via /users/{login} —
+	// see userNameCache.
 	CreatedAt   string `json:"created_at"`
 	InReplyToID int64  `json:"in_reply_to_id"`
 }
@@ -79,8 +84,55 @@ type PRInfo struct {
 }
 
 // prAuthor is used to unmarshal the nested author field from gh output.
+// Name is GitHub's optional display name; we prefer it over Login when set.
 type prAuthor struct {
 	Login string `json:"login"`
+	Name  string `json:"name"`
+}
+
+// displayName returns name when set, falling back to login. Used to convert
+// GitHub-imported author identities into the friendlier display string we
+// pass through to crit-web.
+func displayName(login, name string) string {
+	if strings.TrimSpace(name) != "" {
+		return name
+	}
+	return login
+}
+
+// userNameCache memoizes login → display-name lookups for the duration of a
+// single `crit pull`. The /pulls/.../comments REST payload only returns
+// `login`, so we hit /users/{login} once per unique commenter.
+type userNameCache map[string]string
+
+// lookup returns the display name for a login, fetching from GitHub on cache
+// miss. On any error or missing name, returns login (always a valid fallback).
+//
+// Under `go test`, the network call is skipped entirely — tests that want to
+// exercise display-name resolution should pre-populate the cache before
+// invoking the merge functions.
+func (c userNameCache) lookup(login string) string {
+	if login == "" {
+		return ""
+	}
+	if cached, ok := c[login]; ok {
+		return cached
+	}
+	if testing.Testing() {
+		c[login] = login
+		return login
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gh", "api", "users/"+login, "--jq", ".name // \"\"").Output()
+	if err != nil {
+		c[login] = login
+		return login
+	}
+	name := strings.TrimSpace(string(out))
+	resolved := displayName(login, name)
+	c[login] = resolved
+	return resolved
 }
 
 // prInfoRaw mirrors the gh JSON output shape (author is nested).
@@ -131,7 +183,7 @@ func detectPRInfo() *PRInfo {
 		Additions:    raw.Additions,
 		Deletions:    raw.Deletions,
 		ChangedFiles: raw.ChangedFiles,
-		AuthorLogin:  raw.Author.Login,
+		AuthorLogin:  displayName(raw.Author.Login, raw.Author.Name),
 		CreatedAt:    raw.CreatedAt,
 	}
 }
@@ -297,7 +349,7 @@ func separateRootsAndReplies(ghComments []ghComment) ([]ghComment, map[int64][]g
 }
 
 // appendNewGHReplies adds non-duplicate replies to an existing comment, returning how many were added.
-func appendNewGHReplies(comments []Comment, ci int, childReplies []ghComment) int {
+func appendNewGHReplies(comments []Comment, ci int, childReplies []ghComment, names userNameCache) int {
 	added := 0
 	for _, r := range childReplies {
 		if isDuplicateGHReply(comments[ci].Replies, r.ID) {
@@ -306,7 +358,7 @@ func appendNewGHReplies(comments []Comment, ci int, childReplies []ghComment) in
 		comments[ci].Replies = append(comments[ci].Replies, Reply{
 			ID:        randomReplyID(),
 			Body:      r.Body,
-			Author:    r.User.Login,
+			Author:    names.lookup(r.User.Login),
 			CreatedAt: r.CreatedAt,
 			GitHubID:  r.ID,
 		})
@@ -316,7 +368,7 @@ func appendNewGHReplies(comments []Comment, ci int, childReplies []ghComment) in
 }
 
 // mergeRootComment handles a single root ghComment: either deduplicates or creates it.
-func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment, now string) int {
+func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment, now string, names userNameCache) int {
 	cf, ok := cj.Files[gc.Path]
 	if !ok {
 		cf = CritJSONFile{Status: "modified", Comments: []Comment{}}
@@ -327,12 +379,14 @@ func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment
 		startLine = gc.Line
 	}
 
-	if isDuplicateGHComment(cf.Comments, gc.ID, gc.User.Login, startLine, gc.Line, gc.Body) {
+	authorName := names.lookup(gc.User.Login)
+
+	if isDuplicateGHComment(cf.Comments, gc.ID, authorName, startLine, gc.Line, gc.Body) {
 		added := 0
 		if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
 			for ci, c := range cf.Comments {
 				if c.GitHubID == gc.ID {
-					added = appendNewGHReplies(cf.Comments, ci, childReplies)
+					added = appendNewGHReplies(cf.Comments, ci, childReplies, names)
 					break
 				}
 			}
@@ -344,7 +398,7 @@ func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment
 	commentID := randomCommentID()
 	comment := Comment{
 		ID: commentID, StartLine: startLine, EndLine: gc.Line,
-		Body: gc.Body, Author: gc.User.Login, CreatedAt: gc.CreatedAt,
+		Body: gc.Body, Author: authorName, CreatedAt: gc.CreatedAt,
 		UpdatedAt: now, GitHubID: gc.ID,
 	}
 
@@ -354,7 +408,7 @@ func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment
 			comment.Replies = append(comment.Replies, Reply{
 				ID:        randomReplyID(),
 				Body:      r.Body,
-				Author:    r.User.Login,
+				Author:    names.lookup(r.User.Login),
 				CreatedAt: r.CreatedAt,
 				GitHubID:  r.ID,
 			})
@@ -368,7 +422,7 @@ func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment
 }
 
 // mergeOrphanReplies processes replies whose parent was already in cj from a previous pull.
-func mergeOrphanReplies(cj *CritJSON, roots []ghComment, replyMap map[int64][]ghComment) int {
+func mergeOrphanReplies(cj *CritJSON, roots []ghComment, replyMap map[int64][]ghComment, names userNameCache) int {
 	rootIDs := make(map[int64]struct{}, len(roots))
 	for _, gc := range roots {
 		rootIDs[gc.ID] = struct{}{}
@@ -384,7 +438,7 @@ func mergeOrphanReplies(cj *CritJSON, roots []ghComment, replyMap map[int64][]gh
 			continue
 		}
 		cf := cj.Files[filePath]
-		added += appendNewGHReplies(cf.Comments, ci, childReplies)
+		added += appendNewGHReplies(cf.Comments, ci, childReplies, names)
 		cj.Files[filePath] = cf
 	}
 	return added
@@ -395,6 +449,14 @@ func mergeOrphanReplies(cj *CritJSON, roots []ghComment, replyMap map[int64][]gh
 // Handles threading: root comments become top-level Comments, replies become Reply entries.
 // Deduplicates by GitHubID (preferred) or author+lines+body to prevent duplicates from repeated pulls.
 func mergeGHComments(cj *CritJSON, ghComments []ghComment) int {
+	return mergeGHCommentsWithNames(cj, ghComments, make(userNameCache))
+}
+
+// mergeGHCommentsWithNames is the form of mergeGHComments that lets callers
+// supply a pre-populated cache. Production uses mergeGHComments (fresh
+// cache, lazy /users/{login} lookups). Tests can pre-populate to assert on
+// resolved display names without going to the network.
+func mergeGHCommentsWithNames(cj *CritJSON, ghComments []ghComment, names userNameCache) int {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
@@ -402,9 +464,9 @@ func mergeGHComments(cj *CritJSON, ghComments []ghComment) int {
 
 	added := 0
 	for _, gc := range roots {
-		added += mergeRootComment(cj, gc, replyMap, now)
+		added += mergeRootComment(cj, gc, replyMap, now, names)
 	}
-	added += mergeOrphanReplies(cj, roots, replyMap)
+	added += mergeOrphanReplies(cj, roots, replyMap, names)
 
 	return added
 }
@@ -779,7 +841,7 @@ func saveCritJSON(critPath string, cj CritJSON) error {
 }
 
 // appendComment adds a comment to the CritJSON struct in memory. Does not write to disk.
-func appendComment(cj *CritJSON, filePath string, startLine, endLine int, body, author string) {
+func appendComment(cj *CritJSON, filePath string, startLine, endLine int, body, author, userID string) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
@@ -801,6 +863,7 @@ func appendComment(cj *CritJSON, filePath string, startLine, endLine int, body, 
 		Body:      body,
 		Anchor:    anchor,
 		Author:    author,
+		UserID:    userID,
 		CreatedAt: now,
 		UpdatedAt: now,
 	})
@@ -820,7 +883,7 @@ func readAnchorFromDisk(filePath string, startLine, endLine int) string {
 // appendReply adds a reply to an existing comment in the CritJSON struct in memory.
 // Returns an error if the comment ID is not found or is ambiguous across files.
 // Searches both file comments and review_comments.
-func appendReply(cj *CritJSON, commentID, body, author string, resolve bool, filterPath string) error {
+func appendReply(cj *CritJSON, commentID, body, author, userID string, resolve bool, filterPath string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
@@ -831,6 +894,7 @@ func appendReply(cj *CritJSON, commentID, body, author string, resolve bool, fil
 				ID:        randomReplyID(),
 				Body:      body,
 				Author:    author,
+				UserID:    userID,
 				CreatedAt: now,
 			}
 			cj.ReviewComments[i].Replies = append(cj.ReviewComments[i].Replies, reply)
@@ -858,6 +922,7 @@ func appendReply(cj *CritJSON, commentID, body, author string, resolve bool, fil
 						ID:        randomReplyID(),
 						Body:      body,
 						Author:    author,
+						UserID:    userID,
 						CreatedAt: now,
 					}
 					cf.Comments[i].Replies = append(cf.Comments[i].Replies, reply)
@@ -888,7 +953,7 @@ func appendReply(cj *CritJSON, commentID, body, author string, resolve bool, fil
 // Creates the review file if it doesn't exist. Appends to existing comments if it does.
 // Works in both git repos and plain directories (file mode).
 // outputDir overrides the default location (repo root or CWD) when non-empty.
-func addCommentToCritJSON(filePath string, startLine, endLine int, body string, author string, outputDir string) error {
+func addCommentToCritJSON(filePath string, startLine, endLine int, body string, author, userID string, outputDir string) error {
 	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
 		return err
@@ -904,13 +969,13 @@ func addCommentToCritJSON(filePath string, startLine, endLine int, body string, 
 		return err
 	}
 
-	appendComment(&cj, cleaned, startLine, endLine, body, author)
+	appendComment(&cj, cleaned, startLine, endLine, body, author, userID)
 	return saveCritJSON(critPath, cj)
 }
 
 // addReplyToCritJSON adds a reply to an existing comment in the review file.
 // It searches all files for the comment ID. If resolve is true, it also marks the comment as resolved.
-func addReplyToCritJSON(commentID, body, author string, resolve bool, outputDir string, filterPath string) error {
+func addReplyToCritJSON(commentID, body, author, userID string, resolve bool, outputDir string, filterPath string) error {
 	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
 		return err
@@ -921,7 +986,7 @@ func addReplyToCritJSON(commentID, body, author string, resolve bool, outputDir 
 		return err
 	}
 
-	if err := appendReply(&cj, commentID, body, author, resolve, filterPath); err != nil {
+	if err := appendReply(&cj, commentID, body, author, userID, resolve, filterPath); err != nil {
 		// Only fall back to scanning when the comment genuinely wasn't found.
 		// Don't fall back for ambiguity errors ("found in multiple files").
 		if strings.Contains(err.Error(), "not found") {
@@ -930,7 +995,7 @@ func addReplyToCritJSON(commentID, body, author string, resolve bool, outputDir 
 				if loadErr != nil {
 					return err // return original error
 				}
-				if replyErr := appendReply(&altCJ, commentID, body, author, resolve, filterPath); replyErr != nil {
+				if replyErr := appendReply(&altCJ, commentID, body, author, userID, resolve, filterPath); replyErr != nil {
 					return err // return original error
 				}
 				fmt.Fprintf(os.Stderr, "Note: comment %s found in %s (not the resolved review file)\n", commentID, filepath.Base(altPath))
@@ -1073,7 +1138,7 @@ func (e *BulkCommentEntry) UnmarshalJSON(data []byte) error {
 // bulkAddCommentsToCritJSON applies multiple comments and replies in a single load-save cycle.
 // globalAuthor is used when an entry doesn't specify its own author.
 // outputDir overrides the review file location (empty = centralized storage).
-func processBulkEntry(cj *CritJSON, i int, e BulkCommentEntry, globalAuthor string) error {
+func processBulkEntry(cj *CritJSON, i int, e BulkCommentEntry, globalAuthor, globalUserID string) error {
 	if e.Body == "" {
 		return fmt.Errorf("entry %d: body is required", i)
 	}
@@ -1082,33 +1147,36 @@ func processBulkEntry(cj *CritJSON, i int, e BulkCommentEntry, globalAuthor stri
 	if author == "" {
 		author = globalAuthor
 	}
+	// UserID always comes from the local config — entry-level override would
+	// be a spoof vector. The CLI never trusts a payload-supplied user_id.
+	userID := globalUserID
 
 	if e.ReplyTo != "" {
-		if err := appendReply(cj, e.ReplyTo, e.Body, author, e.Resolve, e.File); err != nil {
+		if err := appendReply(cj, e.ReplyTo, e.Body, author, userID, e.Resolve, e.File); err != nil {
 			return fmt.Errorf("entry %d: %w", i, err)
 		}
 		return nil
 	}
 
 	if e.Scope == "review" || (e.File == "" && e.Path == "" && e.Line <= 0 && e.LineSpec == "") {
-		return processBulkReviewEntry(cj, i, e, author)
+		return processBulkReviewEntry(cj, i, e, author, userID)
 	}
 
-	return processBulkFileOrLineEntry(cj, i, e, author)
+	return processBulkFileOrLineEntry(cj, i, e, author, userID)
 }
 
-func processBulkReviewEntry(cj *CritJSON, i int, e BulkCommentEntry, author string) error {
+func processBulkReviewEntry(cj *CritJSON, i int, e BulkCommentEntry, author, userID string) error {
 	if e.Line > 0 || e.LineSpec != "" {
 		return fmt.Errorf("entry %d: file is required for new comments", i)
 	}
 	if e.Scope != "review" && (e.File != "" || e.Path != "") {
 		return fmt.Errorf("entry %d: file is required for new comments", i)
 	}
-	appendReviewComment(cj, e.Body, author)
+	appendReviewComment(cj, e.Body, author, userID)
 	return nil
 }
 
-func processBulkFileOrLineEntry(cj *CritJSON, i int, e BulkCommentEntry, author string) error {
+func processBulkFileOrLineEntry(cj *CritJSON, i int, e BulkCommentEntry, author, userID string) error {
 	filePath := e.File
 	if filePath == "" {
 		filePath = e.Path
@@ -1123,22 +1191,22 @@ func processBulkFileOrLineEntry(cj *CritJSON, i int, e BulkCommentEntry, author 
 	}
 
 	if e.Scope == "file" {
-		appendFileComment(cj, cleaned, e.Body, author)
+		appendFileComment(cj, cleaned, e.Body, author, userID)
 		return nil
 	}
 
 	if e.Line <= 0 && e.LineSpec == "" {
 		if e.Path != "" && e.File == "" {
-			appendFileComment(cj, cleaned, e.Body, author)
+			appendFileComment(cj, cleaned, e.Body, author, userID)
 			return nil
 		}
 		return fmt.Errorf("entry %d: line must be > 0", i)
 	}
 
-	return processBulkLineComment(cj, i, e, cleaned, author)
+	return processBulkLineComment(cj, i, e, cleaned, author, userID)
 }
 
-func processBulkLineComment(cj *CritJSON, i int, e BulkCommentEntry, cleaned, author string) error {
+func processBulkLineComment(cj *CritJSON, i int, e BulkCommentEntry, cleaned, author, userID string) error {
 	startLine := e.Line
 	endLine := e.EndLine
 
@@ -1157,7 +1225,7 @@ func processBulkLineComment(cj *CritJSON, i int, e BulkCommentEntry, cleaned, au
 		endLine = startLine
 	}
 
-	appendComment(cj, cleaned, startLine, endLine, e.Body, author)
+	appendComment(cj, cleaned, startLine, endLine, e.Body, author, userID)
 	return nil
 }
 
@@ -1180,7 +1248,7 @@ func parseLineSpec(spec string) (start, end int, err error) {
 	return n, n, nil
 }
 
-func bulkAddCommentsToCritJSON(entries []BulkCommentEntry, globalAuthor string, outputDir string) error {
+func bulkAddCommentsToCritJSON(entries []BulkCommentEntry, globalAuthor, globalUserID string, outputDir string) error {
 	if len(entries) == 0 {
 		return fmt.Errorf("no comment entries provided")
 	}
@@ -1196,7 +1264,7 @@ func bulkAddCommentsToCritJSON(entries []BulkCommentEntry, globalAuthor string, 
 	}
 
 	for i, e := range entries {
-		if err := processBulkEntry(&cj, i, e, globalAuthor); err != nil {
+		if err := processBulkEntry(&cj, i, e, globalAuthor, globalUserID); err != nil {
 			return err
 		}
 	}
@@ -1205,7 +1273,7 @@ func bulkAddCommentsToCritJSON(entries []BulkCommentEntry, globalAuthor string, 
 }
 
 // addReviewCommentToCritJSON adds a review-level comment to the review file.
-func addReviewCommentToCritJSON(body, author, outputDir string) error {
+func addReviewCommentToCritJSON(body, author, userID, outputDir string) error {
 	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
 		return err
@@ -1216,12 +1284,12 @@ func addReviewCommentToCritJSON(body, author, outputDir string) error {
 		return err
 	}
 
-	appendReviewComment(&cj, body, author)
+	appendReviewComment(&cj, body, author, userID)
 	return saveCritJSON(critPath, cj)
 }
 
 // addFileCommentToCritJSON adds a file-level comment to the review file.
-func addFileCommentToCritJSON(filePath, body, author, outputDir string) error {
+func addFileCommentToCritJSON(filePath, body, author, userID, outputDir string) error {
 	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
 		return err
@@ -1237,12 +1305,12 @@ func addFileCommentToCritJSON(filePath, body, author, outputDir string) error {
 		return err
 	}
 
-	appendFileComment(&cj, cleaned, body, author)
+	appendFileComment(&cj, cleaned, body, author, userID)
 	return saveCritJSON(critPath, cj)
 }
 
 // appendReviewComment adds a review-level comment to the CritJSON struct in memory.
-func appendReviewComment(cj *CritJSON, body, author string) {
+func appendReviewComment(cj *CritJSON, body, author, userID string) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
@@ -1250,6 +1318,7 @@ func appendReviewComment(cj *CritJSON, body, author string) {
 		ID:        randomReviewCommentID(),
 		Body:      body,
 		Author:    author,
+		UserID:    userID,
 		Scope:     "review",
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -1257,7 +1326,7 @@ func appendReviewComment(cj *CritJSON, body, author string) {
 }
 
 // appendFileComment adds a file-level comment (scope: "file", lines: 0) to the CritJSON struct in memory.
-func appendFileComment(cj *CritJSON, filePath, body, author string) {
+func appendFileComment(cj *CritJSON, filePath, body, author, userID string) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
@@ -1273,6 +1342,7 @@ func appendFileComment(cj *CritJSON, filePath, body, author string) {
 		ID:        randomCommentID(),
 		Body:      body,
 		Author:    author,
+		UserID:    userID,
 		Scope:     "file",
 		CreatedAt: now,
 		UpdatedAt: now,

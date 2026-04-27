@@ -65,7 +65,7 @@ func TestSession_FileByPath(t *testing.T) {
 
 func TestSession_AddComment(t *testing.T) {
 	s := newTestSession(t)
-	c, ok := s.AddComment("plan.md", 1, 3, "", "Rethink this", "", "")
+	c, ok := s.AddComment("plan.md", 1, 3, "", "Rethink this", "", "", "")
 	if !ok {
 		t.Fatal("AddComment failed")
 	}
@@ -84,7 +84,7 @@ func TestSession_AddComment(t *testing.T) {
 
 func TestSession_AddComment_NonexistentFile(t *testing.T) {
 	s := newTestSession(t)
-	_, ok := s.AddComment("nonexistent.go", 1, 1, "", "test", "", "")
+	_, ok := s.AddComment("nonexistent.go", 1, 1, "", "test", "", "", "")
 	if ok {
 		t.Error("expected AddComment to fail for nonexistent file")
 	}
@@ -92,7 +92,7 @@ func TestSession_AddComment_NonexistentFile(t *testing.T) {
 
 func TestSession_UpdateComment(t *testing.T) {
 	s := newTestSession(t)
-	c, _ := s.AddComment("plan.md", 1, 1, "", "original", "", "")
+	c, _ := s.AddComment("plan.md", 1, 1, "", "original", "", "", "")
 	updated, ok := s.UpdateComment("plan.md", c.ID, "updated body")
 	if !ok {
 		t.Fatal("UpdateComment failed")
@@ -112,7 +112,7 @@ func TestSession_UpdateComment_NotFound(t *testing.T) {
 
 func TestSession_DeleteComment(t *testing.T) {
 	s := newTestSession(t)
-	c, _ := s.AddComment("plan.md", 1, 1, "", "to delete", "", "")
+	c, _ := s.AddComment("plan.md", 1, 1, "", "to delete", "", "", "")
 	if !s.DeleteComment("plan.md", c.ID) {
 		t.Fatal("DeleteComment failed")
 	}
@@ -130,7 +130,7 @@ func TestSession_DeleteComment_NotFound(t *testing.T) {
 
 func TestSession_GetComments_ReturnsCopy(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "test", "", "")
+	s.AddComment("plan.md", 1, 1, "", "test", "", "", "")
 	comments := s.GetComments("plan.md")
 	comments[0].Body = "mutated"
 	if s.GetComments("plan.md")[0].Body == "mutated" {
@@ -140,8 +140,8 @@ func TestSession_GetComments_ReturnsCopy(t *testing.T) {
 
 func TestSession_GetAllComments(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "md comment", "", "")
-	s.AddComment("main.go", 1, 1, "", "go comment", "", "")
+	s.AddComment("plan.md", 1, 1, "", "md comment", "", "", "")
+	s.AddComment("main.go", 1, 1, "", "go comment", "", "", "")
 
 	all := s.GetAllComments()
 	if len(all) != 2 {
@@ -154,9 +154,9 @@ func TestSession_GetAllComments(t *testing.T) {
 
 func TestSession_TotalCommentCount(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "one", "", "")
-	s.AddComment("plan.md", 2, 2, "", "two", "", "")
-	s.AddComment("main.go", 1, 1, "", "three", "", "")
+	s.AddComment("plan.md", 1, 1, "", "one", "", "", "")
+	s.AddComment("plan.md", 2, 2, "", "two", "", "", "")
+	s.AddComment("main.go", 1, 1, "", "three", "", "", "")
 
 	if s.TotalCommentCount() != 3 {
 		t.Errorf("TotalCommentCount = %d, want 3", s.TotalCommentCount())
@@ -165,8 +165,8 @@ func TestSession_TotalCommentCount(t *testing.T) {
 
 func TestSession_NewCommentCount(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "new one", "", "")
-	s.AddComment("plan.md", 2, 2, "", "new two", "", "")
+	s.AddComment("plan.md", 1, 1, "", "new one", "", "", "")
+	s.AddComment("plan.md", 2, 2, "", "new two", "", "", "")
 
 	// Simulate carried-forward comments (as happens after round complete)
 	s.mu.Lock()
@@ -231,7 +231,7 @@ func TestSession_UnresolvedCommentCount(t *testing.T) {
 
 func TestSession_WriteFiles(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "fix", "", "")
+	s.AddComment("plan.md", 1, 1, "", "fix", "", "", "")
 
 	flushWrites(s)
 	s.WriteFiles()
@@ -285,7 +285,7 @@ func TestSession_WriteFiles_SharedURLOnly(t *testing.T) {
 
 func TestSession_LoadCritJSON(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "persisted comment", "", "")
+	s.AddComment("plan.md", 1, 1, "", "persisted comment", "", "", "")
 
 	flushWrites(s)
 	s.WriteFiles()
@@ -365,7 +365,7 @@ func TestSession_WriteFiles_PreservesNonSessionFiles(t *testing.T) {
 	}
 
 	// Add a comment on a session file (plan.md) and trigger a write
-	s.AddComment("plan.md", 1, 1, "", "session comment", "", "")
+	s.AddComment("plan.md", 1, 1, "", "session comment", "", "", "")
 	s.WriteFiles()
 
 	// Reload and verify both files are present
@@ -428,8 +428,8 @@ func TestSession_LoadCritJSON_MismatchedHash(t *testing.T) {
 
 func TestSession_SignalRoundComplete(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "fix this", "", "")
-	s.AddComment("main.go", 1, 1, "", "and this", "", "")
+	s.AddComment("plan.md", 1, 1, "", "fix this", "", "", "")
+	s.AddComment("main.go", 1, 1, "", "and this", "", "", "")
 	s.IncrementEdits()
 	s.IncrementEdits()
 
@@ -462,7 +462,7 @@ func TestSession_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c, _ := s.AddComment("plan.md", 1, 1, "", "concurrent", "", "")
+			c, _ := s.AddComment("plan.md", 1, 1, "", "concurrent", "", "", "")
 			s.UpdateComment("plan.md", c.ID, "updated")
 			s.GetComments("plan.md")
 			s.DeleteComment("plan.md", c.ID)
@@ -487,7 +487,7 @@ func TestSession_Subscribe(t *testing.T) {
 
 func TestSession_GetSessionInfo(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "note", "", "")
+	s.AddComment("plan.md", 1, 1, "", "note", "", "", "")
 	s.Files[1].DiffHunks = []DiffHunk{
 		{Lines: []DiffLine{
 			{Type: "add"},
@@ -563,7 +563,7 @@ func TestSession_WriteFiles_OutputDir(t *testing.T) {
 	outDir := t.TempDir()
 	s.OutputDir = outDir
 
-	s.AddComment("plan.md", 1, 1, "", "output dir comment", "", "")
+	s.AddComment("plan.md", 1, 1, "", "output dir comment", "", "", "")
 	flushWrites(s)
 	s.WriteFiles()
 
@@ -593,7 +593,7 @@ func TestSession_LoadCritJSON_OutputDir(t *testing.T) {
 	outDir := t.TempDir()
 	s.OutputDir = outDir
 
-	s.AddComment("plan.md", 1, 1, "", "persisted in output dir", "", "")
+	s.AddComment("plan.md", 1, 1, "", "persisted in output dir", "", "", "")
 	flushWrites(s)
 	s.WriteFiles()
 
@@ -668,8 +668,8 @@ func TestGetFileDiffSnapshotScoped_UntrackedFileUnstagedScope(t *testing.T) {
 
 func TestSession_GlobalCommentIDs(t *testing.T) {
 	s := newTestSession(t)
-	c1, _ := s.AddComment("plan.md", 1, 1, "", "md comment", "", "")
-	c2, _ := s.AddComment("main.go", 1, 1, "", "go comment", "", "")
+	c1, _ := s.AddComment("plan.md", 1, 1, "", "md comment", "", "", "")
+	c2, _ := s.AddComment("main.go", 1, 1, "", "go comment", "", "", "")
 
 	// IDs are globally unique across files
 	if !strings.HasPrefix(c1.ID, "c_") || len(c1.ID) != 8 {
@@ -963,12 +963,12 @@ func TestChangeBaseBranch_CommentsPreserved(t *testing.T) {
 	}
 
 	// Add a comment on feature.go (should survive base branch change)
-	_, ok := session.AddComment("feature.go", 1, 1, "", "keep this comment", "", "")
+	_, ok := session.AddComment("feature.go", 1, 1, "", "keep this comment", "", "", "")
 	if !ok {
 		t.Fatal("AddComment on feature.go failed")
 	}
 	// Add a comment on prod.go (should be lost when switching base to production)
-	_, ok = session.AddComment("prod.go", 1, 1, "", "will disappear", "", "")
+	_, ok = session.AddComment("prod.go", 1, 1, "", "will disappear", "", "", "")
 	if !ok {
 		t.Fatal("AddComment on prod.go failed")
 	}
@@ -1301,7 +1301,7 @@ func TestAddCommentSetsReviewRound(t *testing.T) {
 	s := newTestSession(t)
 	s.ReviewRound = 2
 
-	c, ok := s.AddComment("plan.md", 1, 1, "", "test body", "", "user")
+	c, ok := s.AddComment("plan.md", 1, 1, "", "test body", "", "user", "")
 	if !ok {
 		t.Fatal("AddComment failed")
 	}
@@ -1690,7 +1690,7 @@ func TestSession_AddReply(t *testing.T) {
 		},
 	}
 
-	reply, ok := s.AddReply("test.md", "c1", "Done, fixed it", "agent")
+	reply, ok := s.AddReply("test.md", "c1", "Done, fixed it", "agent", "")
 	if !ok {
 		t.Fatal("AddReply returned false")
 	}
@@ -1728,7 +1728,7 @@ func TestSession_AddReply_UnresolvesComment(t *testing.T) {
 		t.Fatal("expected comment to be resolved before reply")
 	}
 
-	_, ok := s.AddReply("test.md", "c1", "Actually, this needs more work", "reviewer")
+	_, ok := s.AddReply("test.md", "c1", "Actually, this needs more work", "reviewer", "")
 	if !ok {
 		t.Fatal("AddReply returned false")
 	}
@@ -1804,9 +1804,9 @@ func TestSession_AddReply_SequentialIDs(t *testing.T) {
 		},
 	}
 
-	r1, _ := s.AddReply("test.md", "c1", "First reply", "agent")
-	r2, _ := s.AddReply("test.md", "c1", "Second reply", "user")
-	r3, _ := s.AddReply("test.md", "c1", "Third reply", "agent")
+	r1, _ := s.AddReply("test.md", "c1", "First reply", "agent", "")
+	r2, _ := s.AddReply("test.md", "c1", "Second reply", "user", "")
+	r3, _ := s.AddReply("test.md", "c1", "Third reply", "agent", "")
 
 	// All reply IDs should have rp_ prefix and be unique
 	for _, r := range []Reply{r1, r2, r3} {
@@ -1874,7 +1874,7 @@ func TestSession_LoadCritJSON_RestoresReviewRound(t *testing.T) {
 	}
 
 	// New comments should get the restored round number
-	c, ok := s.AddComment("plan.md", 5, 5, "", "round 3 feedback", "", "")
+	c, ok := s.AddComment("plan.md", 5, 5, "", "round 3 feedback", "", "", "")
 	if !ok {
 		t.Fatal("AddComment failed")
 	}
@@ -2173,7 +2173,7 @@ func TestSession_EnsureFileEntry_ThenAddComment(t *testing.T) {
 	}
 
 	// Now AddComment should work
-	c, ok := s.AddComment("runtime.py", 2, 2, "", "Add docstring", "", "reviewer")
+	c, ok := s.AddComment("runtime.py", 2, 2, "", "Add docstring", "", "reviewer", "")
 	if !ok {
 		t.Fatal("AddComment failed after EnsureFileEntry")
 	}
@@ -2263,7 +2263,7 @@ func TestSession_MergeExternalCritJSON_SyncsUnresolve(t *testing.T) {
 
 func TestCommentScopeDefault(t *testing.T) {
 	s := newTestSession(t)
-	c, ok := s.AddComment("plan.md", 1, 1, "", "test body", "", "")
+	c, ok := s.AddComment("plan.md", 1, 1, "", "test body", "", "", "")
 	if !ok {
 		t.Fatal("AddComment failed")
 	}
@@ -2274,7 +2274,7 @@ func TestCommentScopeDefault(t *testing.T) {
 
 func TestAddFileComment(t *testing.T) {
 	s := newTestSession(t)
-	c, ok := s.AddFileComment("plan.md", "this file needs work", "")
+	c, ok := s.AddFileComment("plan.md", "this file needs work", "", "")
 	if !ok {
 		t.Fatal("AddFileComment failed")
 	}
@@ -2292,7 +2292,7 @@ func TestAddFileComment(t *testing.T) {
 
 func TestAddReviewComment(t *testing.T) {
 	s := newTestSession(t)
-	c := s.AddReviewComment("please address all issues", "")
+	c := s.AddReviewComment("please address all issues", "", "")
 	if c.Scope != "review" {
 		t.Errorf("expected scope 'review', got %q", c.Scope)
 	}
@@ -2307,7 +2307,7 @@ func TestAddReviewComment(t *testing.T) {
 
 func TestDeleteReviewComment(t *testing.T) {
 	s := newTestSession(t)
-	c := s.AddReviewComment("temp", "")
+	c := s.AddReviewComment("temp", "", "")
 	if !s.DeleteReviewComment(c.ID) {
 		t.Fatal("DeleteReviewComment failed")
 	}
@@ -2318,7 +2318,7 @@ func TestDeleteReviewComment(t *testing.T) {
 
 func TestUpdateReviewComment(t *testing.T) {
 	s := newTestSession(t)
-	c := s.AddReviewComment("original", "")
+	c := s.AddReviewComment("original", "", "")
 	updated, ok := s.UpdateReviewComment(c.ID, "revised")
 	if !ok {
 		t.Fatal("UpdateReviewComment failed")
@@ -2330,9 +2330,9 @@ func TestUpdateReviewComment(t *testing.T) {
 
 func TestCritJSONIncludesReviewComments(t *testing.T) {
 	s := newTestSession(t)
-	s.AddReviewComment("general feedback", "")
-	s.AddComment("plan.md", 1, 1, "", "line comment", "", "")
-	s.AddFileComment("plan.md", "file comment", "")
+	s.AddReviewComment("general feedback", "", "")
+	s.AddComment("plan.md", 1, 1, "", "line comment", "", "", "")
+	s.AddFileComment("plan.md", "file comment", "", "")
 	s.WriteFiles()
 	data, err := os.ReadFile(s.critJSONPath())
 	if err != nil {
@@ -2356,7 +2356,7 @@ func TestCritJSONIncludesReviewComments(t *testing.T) {
 
 func TestLoadCritJSONRestoresReviewComments(t *testing.T) {
 	s := newTestSession(t)
-	s.AddReviewComment("restored comment", "")
+	s.AddReviewComment("restored comment", "", "")
 	s.WriteFiles()
 	s.reviewComments = nil
 
@@ -2372,9 +2372,9 @@ func TestLoadCritJSONRestoresReviewComments(t *testing.T) {
 
 func TestCommentCountsIncludeReviewComments(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "line", "", "")
-	s.AddFileComment("plan.md", "file", "")
-	s.AddReviewComment("review", "")
+	s.AddComment("plan.md", 1, 1, "", "line", "", "", "")
+	s.AddFileComment("plan.md", "file", "", "")
+	s.AddReviewComment("review", "", "")
 	if got := s.TotalCommentCount(); got != 3 {
 		t.Errorf("TotalCommentCount: expected 3, got %d", got)
 	}
@@ -2385,8 +2385,8 @@ func TestCommentCountsIncludeReviewComments(t *testing.T) {
 
 func TestClearAllCommentsIncludesReview(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "line", "", "")
-	s.AddReviewComment("review", "")
+	s.AddComment("plan.md", 1, 1, "", "line", "", "", "")
+	s.AddReviewComment("review", "", "")
 	s.ClearAllComments()
 	if got := s.TotalCommentCount(); got != 0 {
 		t.Errorf("expected 0 after clear, got %d", got)
@@ -2398,7 +2398,7 @@ func TestClearAllCommentsIncludesReview(t *testing.T) {
 
 func TestReviewCommentsSurviveRound(t *testing.T) {
 	s := newTestSession(t)
-	s.AddReviewComment("carry me forward", "")
+	s.AddReviewComment("carry me forward", "", "")
 	s.WriteFiles()
 
 	// Simulate round: clear in-memory state and reload
@@ -2417,8 +2417,8 @@ func TestReviewCommentsSurviveRound(t *testing.T) {
 
 func TestFileCommentsSurviveRoundWithoutLineMutation(t *testing.T) {
 	s := newTestSession(t)
-	s.AddFileComment("plan.md", "restructure this", "")
-	s.AddComment("plan.md", 1, 1, "", "line comment", "", "")
+	s.AddFileComment("plan.md", "restructure this", "", "")
+	s.AddComment("plan.md", 1, 1, "", "line comment", "", "", "")
 
 	// Simulate round: snapshot previous state
 	s.mu.Lock()
@@ -2475,7 +2475,7 @@ func TestLoadCritJSONDefaultsScope(t *testing.T) {
 
 func TestResolveReviewComment(t *testing.T) {
 	s := newTestSession(t)
-	c := s.AddReviewComment("needs work", "")
+	c := s.AddReviewComment("needs work", "", "")
 	if c.Resolved {
 		t.Error("new review comment should not be resolved")
 	}
@@ -2507,7 +2507,7 @@ func TestResolveReviewComment(t *testing.T) {
 
 func TestResolveReviewCommentAffectsUnresolvedCount(t *testing.T) {
 	s := newTestSession(t)
-	c := s.AddReviewComment("review", "")
+	c := s.AddReviewComment("review", "", "")
 	if got := s.UnresolvedCommentCount(); got != 1 {
 		t.Fatalf("expected 1 unresolved, got %d", got)
 	}
@@ -2520,7 +2520,7 @@ func TestResolveReviewCommentAffectsUnresolvedCount(t *testing.T) {
 func TestFileCommentHasReviewRound(t *testing.T) {
 	s := newTestSession(t)
 	s.ReviewRound = 3
-	c, ok := s.AddFileComment("plan.md", "file-level feedback", "")
+	c, ok := s.AddFileComment("plan.md", "file-level feedback", "", "")
 	if !ok {
 		t.Fatal("AddFileComment failed")
 	}
@@ -2532,7 +2532,7 @@ func TestFileCommentHasReviewRound(t *testing.T) {
 func TestReviewCommentHasReviewRound(t *testing.T) {
 	s := newTestSession(t)
 	s.ReviewRound = 2
-	c := s.AddReviewComment("general feedback", "")
+	c := s.AddReviewComment("general feedback", "", "")
 	if c.ReviewRound != 2 {
 		t.Errorf("expected ReviewRound 2, got %d", c.ReviewRound)
 	}
@@ -2540,8 +2540,8 @@ func TestReviewCommentHasReviewRound(t *testing.T) {
 
 func TestAddReviewCommentReply(t *testing.T) {
 	s := newTestSession(t)
-	c := s.AddReviewComment("needs work", "reviewer")
-	reply, ok := s.AddReviewCommentReply(c.ID, "fixed it", "author")
+	c := s.AddReviewComment("needs work", "reviewer", "")
+	reply, ok := s.AddReviewCommentReply(c.ID, "fixed it", "author", "")
 	if !ok {
 		t.Fatal("AddReviewCommentReply failed")
 	}
@@ -2567,7 +2567,7 @@ func TestAddReviewCommentReply(t *testing.T) {
 
 func TestAddReviewCommentReply_NotFound(t *testing.T) {
 	s := newTestSession(t)
-	_, ok := s.AddReviewCommentReply("nonexistent", "body", "author")
+	_, ok := s.AddReviewCommentReply("nonexistent", "body", "author", "")
 	if ok {
 		t.Error("expected AddReviewCommentReply to return false for nonexistent comment")
 	}
@@ -2575,8 +2575,8 @@ func TestAddReviewCommentReply_NotFound(t *testing.T) {
 
 func TestUpdateReviewCommentReply(t *testing.T) {
 	s := newTestSession(t)
-	c := s.AddReviewComment("needs work", "reviewer")
-	reply, _ := s.AddReviewCommentReply(c.ID, "initial reply", "author")
+	c := s.AddReviewComment("needs work", "reviewer", "")
+	reply, _ := s.AddReviewCommentReply(c.ID, "initial reply", "author", "")
 	updated, ok := s.UpdateReviewCommentReply(c.ID, reply.ID, "updated reply")
 	if !ok {
 		t.Fatal("UpdateReviewCommentReply failed")
@@ -2588,7 +2588,7 @@ func TestUpdateReviewCommentReply(t *testing.T) {
 
 func TestUpdateReviewCommentReply_NotFound(t *testing.T) {
 	s := newTestSession(t)
-	c := s.AddReviewComment("needs work", "reviewer")
+	c := s.AddReviewComment("needs work", "reviewer", "")
 	_, ok := s.UpdateReviewCommentReply(c.ID, "nonexistent", "body")
 	if ok {
 		t.Error("expected UpdateReviewCommentReply to return false for nonexistent reply")
@@ -2597,8 +2597,8 @@ func TestUpdateReviewCommentReply_NotFound(t *testing.T) {
 
 func TestDeleteReviewCommentReply(t *testing.T) {
 	s := newTestSession(t)
-	c := s.AddReviewComment("needs work", "reviewer")
-	reply, _ := s.AddReviewCommentReply(c.ID, "to delete", "author")
+	c := s.AddReviewComment("needs work", "reviewer", "")
+	reply, _ := s.AddReviewCommentReply(c.ID, "to delete", "author", "")
 	if !s.DeleteReviewCommentReply(c.ID, reply.ID) {
 		t.Fatal("DeleteReviewCommentReply failed")
 	}
@@ -2610,7 +2610,7 @@ func TestDeleteReviewCommentReply(t *testing.T) {
 
 func TestDeleteReviewCommentReply_NotFound(t *testing.T) {
 	s := newTestSession(t)
-	c := s.AddReviewComment("needs work", "reviewer")
+	c := s.AddReviewComment("needs work", "reviewer", "")
 	if s.DeleteReviewCommentReply(c.ID, "nonexistent") {
 		t.Error("expected DeleteReviewCommentReply to return false for nonexistent reply")
 	}
@@ -2895,7 +2895,7 @@ func TestDeleteReviewComment_NotReAddedFromDisk(t *testing.T) {
 	}
 
 	// Add a review comment and write to disk
-	rc := s.AddReviewComment("delete this review comment", "")
+	rc := s.AddReviewComment("delete this review comment", "", "")
 	s.WriteFiles()
 
 	// Verify it's on disk
@@ -2999,8 +2999,8 @@ func TestDeleteReviewCommentReply_NotReAddedFromDisk(t *testing.T) {
 	}
 
 	// Add review comment with a reply, then write to disk
-	rc := s.AddReviewComment("parent review comment", "")
-	reply, ok := s.AddReviewCommentReply(rc.ID, "delete this reply", "agent")
+	rc := s.AddReviewComment("parent review comment", "", "")
+	reply, ok := s.AddReviewCommentReply(rc.ID, "delete this reply", "agent", "")
 	if !ok {
 		t.Fatal("AddReviewCommentReply failed")
 	}
@@ -3093,7 +3093,7 @@ func TestExternalCommentStillMerged(t *testing.T) {
 
 func TestSession_SetCommentResolved(t *testing.T) {
 	s := newTestSession(t)
-	c, _ := s.AddComment("plan.md", 1, 1, "", "needs fix", "", "")
+	c, _ := s.AddComment("plan.md", 1, 1, "", "needs fix", "", "", "")
 
 	// Resolve
 	resolved, ok := s.SetCommentResolved("plan.md", c.ID, true)
@@ -3139,8 +3139,8 @@ func TestSession_SetCommentResolved_NotFound(t *testing.T) {
 
 func TestSession_FindCommentByID(t *testing.T) {
 	s := newTestSession(t)
-	c1, _ := s.AddComment("plan.md", 1, 1, "", "md comment", "", "")
-	c2, _ := s.AddComment("main.go", 5, 5, "", "go comment", "", "")
+	c1, _ := s.AddComment("plan.md", 1, 1, "", "md comment", "", "", "")
+	c2, _ := s.AddComment("main.go", 5, 5, "", "go comment", "", "", "")
 
 	// Find with filePath hint
 	found, path, ok := s.FindCommentByID(c1.ID, "plan.md")
@@ -3187,8 +3187,8 @@ func TestSession_ClearAllComments_RemovesCritJSONFromFileList(t *testing.T) {
 	})
 	s.mu.Unlock()
 
-	s.AddComment("plan.md", 1, 1, "", "test", "", "")
-	s.AddReviewComment("review", "")
+	s.AddComment("plan.md", 1, 1, "", "test", "", "", "")
+	s.AddReviewComment("review", "", "")
 
 	if len(s.GetReviewComments()) != 1 {
 		t.Fatal("expected 1 review comment before clear")
@@ -3219,7 +3219,7 @@ func TestSession_ClearAllComments_RemovesCritJSONFromFileList(t *testing.T) {
 
 func TestSession_ClearAllComments_DeletesCritJSONFromDisk(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "test", "", "")
+	s.AddComment("plan.md", 1, 1, "", "test", "", "", "")
 	flushWrites(s)
 	s.WriteFiles()
 
@@ -3238,7 +3238,7 @@ func TestSession_ClearAllComments_DeletesCritJSONFromDisk(t *testing.T) {
 
 func TestSession_HandleExternalDeletion(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "test", "", "")
+	s.AddComment("plan.md", 1, 1, "", "test", "", "", "")
 	flushWrites(s)
 	s.WriteFiles()
 
@@ -3272,9 +3272,9 @@ func TestSession_HandleExternalDeletion_NoMtime(t *testing.T) {
 
 func TestSession_WriteFiles_RoundTrip(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 3, "", "fix formatting", "", "reviewer")
-	s.AddComment("main.go", 2, 2, "RIGHT", "handle error", "func main() {}", "agent")
-	s.AddReviewComment("overall looks good", "reviewer")
+	s.AddComment("plan.md", 1, 3, "", "fix formatting", "", "reviewer", "")
+	s.AddComment("main.go", 2, 2, "RIGHT", "handle error", "func main() {}", "agent", "")
+	s.AddReviewComment("overall looks good", "reviewer", "")
 
 	flushWrites(s)
 	s.WriteFiles()
@@ -3318,7 +3318,7 @@ func TestSession_WriteFiles_RoundTrip(t *testing.T) {
 
 func TestSession_AddComment_PreservesSideAndQuote(t *testing.T) {
 	s := newTestSession(t)
-	c, ok := s.AddComment("main.go", 5, 10, "RIGHT", "fix this", "func main() {}", "reviewer")
+	c, ok := s.AddComment("main.go", 5, 10, "RIGHT", "fix this", "func main() {}", "reviewer", "")
 	if !ok {
 		t.Fatal("AddComment failed")
 	}
@@ -3354,7 +3354,7 @@ func TestSession_AddComment_PreservesSideAndQuote(t *testing.T) {
 
 func TestSession_WriteFiles_ReviewCommentsPersisted(t *testing.T) {
 	s := newTestSession(t)
-	s.AddReviewComment("general note", "reviewer")
+	s.AddReviewComment("general note", "reviewer", "")
 
 	flushWrites(s)
 	s.WriteFiles()
@@ -3380,7 +3380,7 @@ func TestSession_WriteFiles_ReviewCommentsPersisted(t *testing.T) {
 func TestSession_RandomCommentID_Format(t *testing.T) {
 	s := newTestSession(t)
 
-	c, ok := s.AddComment("plan.md", 1, 1, "", "test", "", "")
+	c, ok := s.AddComment("plan.md", 1, 1, "", "test", "", "", "")
 	if !ok {
 		t.Fatal("AddComment failed")
 	}
@@ -3389,7 +3389,7 @@ func TestSession_RandomCommentID_Format(t *testing.T) {
 	}
 
 	// Two comments should get different IDs
-	c2, ok := s.AddComment("plan.md", 2, 2, "", "test2", "", "")
+	c2, ok := s.AddComment("plan.md", 2, 2, "", "test2", "", "", "")
 	if !ok {
 		t.Fatal("AddComment failed")
 	}
@@ -3400,9 +3400,9 @@ func TestSession_RandomCommentID_Format(t *testing.T) {
 
 func TestSession_ClearAllComments(t *testing.T) {
 	s := newTestSession(t)
-	s.AddComment("plan.md", 1, 1, "", "md comment", "", "")
-	s.AddComment("main.go", 1, 1, "", "go comment", "", "")
-	s.AddReviewComment("review comment", "")
+	s.AddComment("plan.md", 1, 1, "", "md comment", "", "", "")
+	s.AddComment("main.go", 1, 1, "", "go comment", "", "", "")
+	s.AddReviewComment("review comment", "", "")
 
 	if s.TotalCommentCount() != 3 {
 		t.Fatalf("precondition: expected 3 comments, got %d", s.TotalCommentCount())
@@ -3426,7 +3426,7 @@ func TestSession_ClearAllComments(t *testing.T) {
 
 func TestSession_AddComment_WithSide(t *testing.T) {
 	s := newTestSession(t)
-	c, ok := s.AddComment("main.go", 5, 10, "RIGHT", "check this", "", "")
+	c, ok := s.AddComment("main.go", 5, 10, "RIGHT", "check this", "", "", "")
 	if !ok {
 		t.Fatal("AddComment with side failed")
 	}
@@ -3440,7 +3440,7 @@ func TestSession_AddComment_WithSide(t *testing.T) {
 
 func TestSession_WriteFiles_IncludesResolvedComments(t *testing.T) {
 	s := newTestSession(t)
-	c, _ := s.AddComment("plan.md", 1, 1, "", "fix", "", "")
+	c, _ := s.AddComment("plan.md", 1, 1, "", "fix", "", "", "")
 	s.SetCommentResolved("plan.md", c.ID, true)
 
 	flushWrites(s)
@@ -3842,7 +3842,7 @@ func TestAddComment_PopulatesAnchor(t *testing.T) {
 	s := newTestSession(t)
 	// plan.md content: "# Plan\n\n## Step 1\n\nDo the thing\n"
 	// Lines: 1="# Plan", 2="", 3="## Step 1", 4="", 5="Do the thing"
-	c, ok := s.AddComment("plan.md", 3, 5, "", "Rethink this", "", "")
+	c, ok := s.AddComment("plan.md", 3, 5, "", "Rethink this", "", "", "")
 	if !ok {
 		t.Fatal("AddComment failed")
 	}
@@ -3854,7 +3854,7 @@ func TestAddComment_PopulatesAnchor(t *testing.T) {
 
 func TestAddComment_AnchorSingleLine(t *testing.T) {
 	s := newTestSession(t)
-	c, ok := s.AddComment("plan.md", 1, 1, "", "Fix title", "", "")
+	c, ok := s.AddComment("plan.md", 1, 1, "", "Fix title", "", "", "")
 	if !ok {
 		t.Fatal("AddComment failed")
 	}
@@ -3865,7 +3865,7 @@ func TestAddComment_AnchorSingleLine(t *testing.T) {
 
 func TestAddComment_NoAnchorForFileComment(t *testing.T) {
 	s := newTestSession(t)
-	c, ok := s.AddFileComment("plan.md", "Overall feedback", "reviewer")
+	c, ok := s.AddFileComment("plan.md", "Overall feedback", "reviewer", "")
 	if !ok {
 		t.Fatal("AddFileComment failed")
 	}
@@ -3876,7 +3876,7 @@ func TestAddComment_NoAnchorForFileComment(t *testing.T) {
 
 func TestAddComment_NoAnchorForReviewComment(t *testing.T) {
 	s := newTestSession(t)
-	c := s.AddReviewComment("General feedback", "reviewer")
+	c := s.AddReviewComment("General feedback", "reviewer", "")
 	if c.Anchor != "" {
 		t.Errorf("review-level comment should not have anchor, got %q", c.Anchor)
 	}
@@ -3924,7 +3924,7 @@ func TestAddComment_OldSideAnchorFromBase(t *testing.T) {
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
-	c, ok := s.AddComment("main.go", 3, 3, "old", "Why was this removed?", "", "reviewer")
+	c, ok := s.AddComment("main.go", 3, 3, "old", "Why was this removed?", "", "reviewer", "")
 	if !ok {
 		t.Fatal("AddComment failed")
 	}

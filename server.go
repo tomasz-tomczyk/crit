@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -27,6 +28,7 @@ type Server struct {
 	mux               *http.ServeMux
 	assets            fs.FS
 	shareURL          string
+	authMu            sync.RWMutex // guards authToken + cfg.Auth* fields
 	authToken         string
 	prInfo            *PRInfo
 	prInfoMu          sync.RWMutex
@@ -213,9 +215,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"agent_cmd":         s.agentCmd,
 
 		// Auth status
-		"auth_logged_in":  s.authToken != "",
-		"auth_user_name":  s.cfg.AuthUserName,
-		"auth_user_email": s.cfg.AuthUserEmail,
+		"auth_logged_in":  s.authLoggedIn(),
+		"auth_user_name":  s.authUserName(),
+		"auth_user_email": s.authUserEmail(),
 
 		// Review file path
 		"review_path": s.reviewPath,
@@ -356,8 +358,12 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	critPath := s.session.Load().critJSONPath()
-	res, err := shareReviewFiles(critPath, files, filePaths, s.shareURL, s.authToken)
+	res, err := shareReviewFiles(critPath, files, filePaths, s.shareURL, s.authTokenSnapshot(), s.author)
 	if err != nil {
+		if errors.Is(err, errShareUnauthorized) {
+			clearAuthIdentity()
+			s.clearAuthState()
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -457,7 +463,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 		s.session.Load().EnsureFileEntry(path)
 
 		if req.Scope == "file" {
-			c, ok := s.session.Load().AddFileComment(path, req.Body, req.Author)
+			c, ok := s.session.Load().AddFileComment(path, req.Body, req.Author, s.authUserID())
 			if !ok {
 				http.Error(w, "File not found", http.StatusNotFound)
 				return
@@ -472,7 +478,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		c, ok := s.session.Load().AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body, req.Quote, req.Author)
+		c, ok := s.session.Load().AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body, req.Quote, req.Author, s.authUserID())
 		if !ok {
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
@@ -715,7 +721,7 @@ func handleReplyCRUD(w http.ResponseWriter, r *http.Request, replyID string, ops
 func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePath, commentID, replyID string) {
 	handleReplyCRUD(w, r, replyID, replyOps{
 		add: func(body, author string) (Reply, bool) {
-			return s.session.Load().AddReply(filePath, commentID, body, author)
+			return s.session.Load().AddReply(filePath, commentID, body, author, s.authUserID())
 		},
 		update: func(rid, body string) (Reply, bool) {
 			return s.session.Load().UpdateReply(filePath, commentID, rid, body)
@@ -729,7 +735,7 @@ func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePa
 func (s *Server) handleReviewCommentReplyRoute(w http.ResponseWriter, r *http.Request, commentID, replyID string) {
 	handleReplyCRUD(w, r, replyID, replyOps{
 		add: func(body, author string) (Reply, bool) {
-			return s.session.Load().AddReviewCommentReply(commentID, body, author)
+			return s.session.Load().AddReviewCommentReply(commentID, body, author, s.authUserID())
 		},
 		update: func(rid, body string) (Reply, bool) {
 			return s.session.Load().UpdateReviewCommentReply(commentID, rid, body)
@@ -760,7 +766,7 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Comment body is required", http.StatusBadRequest)
 			return
 		}
-		c := s.session.Load().AddReviewComment(req.Body, req.Author)
+		c := s.session.Load().AddReviewComment(req.Body, req.Author, s.authUserID())
 		w.WriteHeader(http.StatusCreated)
 		writeJSON(w, c)
 
@@ -1382,10 +1388,10 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 	author := agentName(s.agentCmd)
 	log.Printf("agent-request %s: completed, posting reply (%d bytes)\nResponse: %s\nStderr: %s", commentID, len(response), response, stderr.String())
 	// Try original path first, then search all files (path may have changed during agent run)
-	_, ok := sess.AddReply(filePath, commentID, response, author)
+	_, ok := sess.AddReply(filePath, commentID, response, author, "")
 	if !ok {
 		if _, actualPath, found := sess.FindCommentByID(commentID, ""); found {
-			_, ok = sess.AddReply(actualPath, commentID, response, author)
+			_, ok = sess.AddReply(actualPath, commentID, response, author, "")
 			if ok {
 				filePath = actualPath
 			}
@@ -1402,6 +1408,46 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		}
 		sess.notify(SSEEvent{Type: "comments-changed"})
 	}
+}
+
+func (s *Server) authTokenSnapshot() string {
+	s.authMu.RLock()
+	defer s.authMu.RUnlock()
+	return s.authToken
+}
+
+func (s *Server) authLoggedIn() bool {
+	s.authMu.RLock()
+	defer s.authMu.RUnlock()
+	return s.authToken != ""
+}
+
+func (s *Server) authUserID() string {
+	s.authMu.RLock()
+	defer s.authMu.RUnlock()
+	return s.cfg.AuthUserID
+}
+
+func (s *Server) authUserName() string {
+	s.authMu.RLock()
+	defer s.authMu.RUnlock()
+	return s.cfg.AuthUserName
+}
+
+func (s *Server) authUserEmail() string {
+	s.authMu.RLock()
+	defer s.authMu.RUnlock()
+	return s.cfg.AuthUserEmail
+}
+
+func (s *Server) clearAuthState() {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	s.authToken = ""
+	s.cfg.AuthToken = ""
+	s.cfg.AuthUserID = ""
+	s.cfg.AuthUserName = ""
+	s.cfg.AuthUserEmail = ""
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

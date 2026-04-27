@@ -48,6 +48,7 @@ type Reply struct {
 	ID        string `json:"id"`
 	Body      string `json:"body"`
 	Author    string `json:"author,omitempty"`
+	UserID    string `json:"user_id,omitempty"`
 	CreatedAt string `json:"created_at"`
 	GitHubID  int64  `json:"github_id,omitempty"`
 }
@@ -64,6 +65,7 @@ type Comment struct {
 	Anchor         string  `json:"anchor,omitempty"`
 	Drifted        bool    `json:"drifted,omitempty"`
 	Author         string  `json:"author,omitempty"`
+	UserID         string  `json:"user_id,omitempty"`
 	Scope          string  `json:"scope,omitempty"`
 	CreatedAt      string  `json:"created_at"`
 	UpdatedAt      string  `json:"updated_at"`
@@ -610,7 +612,7 @@ func extractAnchor(content string, startLine, endLine int) string {
 }
 
 // AddComment adds a comment to a specific file.
-func (s *Session) AddComment(filePath string, startLine, endLine int, side, body, quote, author string) (Comment, bool) {
+func (s *Session) AddComment(filePath string, startLine, endLine int, side, body, quote, author, userID string) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f := s.fileByPathLocked(filePath)
@@ -643,6 +645,7 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 		Quote:       quote,
 		Anchor:      anchor,
 		Author:      author,
+		UserID:      userID,
 		Scope:       "line",
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -654,7 +657,7 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 }
 
 // AddFileComment adds a file-level comment (not tied to specific lines).
-func (s *Session) AddFileComment(filePath, body, author string) (Comment, bool) {
+func (s *Session) AddFileComment(filePath, body, author, userID string) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f := s.fileByPathLocked(filePath)
@@ -666,6 +669,7 @@ func (s *Session) AddFileComment(filePath, body, author string) (Comment, bool) 
 		ID:          randomCommentID(),
 		Body:        body,
 		Author:      author,
+		UserID:      userID,
 		Scope:       "file",
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -677,7 +681,7 @@ func (s *Session) AddFileComment(filePath, body, author string) (Comment, bool) 
 }
 
 // AddReviewComment adds a review-level comment (not tied to any file).
-func (s *Session) AddReviewComment(body, author string) Comment {
+func (s *Session) AddReviewComment(body, author, userID string) Comment {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -685,6 +689,7 @@ func (s *Session) AddReviewComment(body, author string) Comment {
 		ID:          randomReviewCommentID(),
 		Body:        body,
 		Author:      author,
+		UserID:      userID,
 		Scope:       "review",
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -749,7 +754,7 @@ func (s *Session) ResolveReviewComment(id string, resolved bool) (Comment, bool)
 }
 
 // AddReviewCommentReply adds a reply to a review-level comment.
-func (s *Session) AddReviewCommentReply(commentID, body, author string) (Reply, bool) {
+func (s *Session) AddReviewCommentReply(commentID, body, author, userID string) (Reply, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, c := range s.reviewComments {
@@ -759,6 +764,7 @@ func (s *Session) AddReviewCommentReply(commentID, body, author string) (Reply, 
 				ID:        randomReplyID(),
 				Body:      body,
 				Author:    author,
+				UserID:    userID,
 				CreatedAt: now,
 			}
 			s.reviewComments[i].Replies = append(s.reviewComments[i].Replies, r)
@@ -919,7 +925,7 @@ func (s *Session) RefreshFileContent() {
 }
 
 // AddReply adds a reply to a specific comment on a file.
-func (s *Session) AddReply(filePath, commentID, body, author string) (Reply, bool) {
+func (s *Session) AddReply(filePath, commentID, body, author, userID string) (Reply, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f := s.fileByPathLocked(filePath)
@@ -933,6 +939,7 @@ func (s *Session) AddReply(filePath, commentID, body, author string) (Reply, boo
 				ID:        randomReplyID(),
 				Body:      body,
 				Author:    author,
+				UserID:    userID,
 				CreatedAt: now,
 			}
 			f.Comments[i].Replies = append(f.Comments[i].Replies, r)

@@ -50,7 +50,7 @@ func TestWatchFileMtimes_CommentNotLostOnFileChange(t *testing.T) {
 	go s.watchFileMtimes(stop)
 
 	// Add a comment while the file hasn't changed — this should persist.
-	_, ok := s.AddComment("plan.md", 1, 1, "", "important feedback", "", "tester")
+	_, ok := s.AddComment("plan.md", 1, 1, "", "important feedback", "", "tester", "")
 	if !ok {
 		t.Fatal("AddComment failed")
 	}
@@ -122,7 +122,7 @@ func TestWatchFileMtimes_ConcurrentAddDuringChange(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 20; j++ {
-				s.AddComment("plan.md", 1, 1, "", "concurrent comment", "", "tester")
+				s.AddComment("plan.md", 1, 1, "", "concurrent comment", "", "tester", "")
 				time.Sleep(50 * time.Millisecond)
 			}
 		}()

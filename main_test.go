@@ -309,7 +309,7 @@ func TestHelperProcess_CommentJSON(t *testing.T) {
 func TestRunComment_JSONFlagMixed(t *testing.T) {
 	// Step 1: Create a comment and capture its ID
 	tmp := t.TempDir()
-	err := addCommentToCritJSON("main.go", 1, 1, "comment", "TestBot", tmp)
+	err := addCommentToCritJSON("main.go", 1, 1, "comment", "TestBot", "", tmp)
 	if err != nil {
 		t.Fatalf("setup comment: %v", err)
 	}
