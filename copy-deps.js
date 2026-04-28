@@ -6,12 +6,32 @@ const dest = "frontend";
 // markdown-it
 cpSync("node_modules/markdown-it/dist/markdown-it.min.js", `${dest}/markdown-it.min.js`);
 
-// highlight.js — bundle core + all languages into a single file
-const core = readFileSync("node_modules/@highlightjs/cdn-assets/highlight.min.js", "utf8");
-const langDir = "node_modules/@highlightjs/cdn-assets/languages";
-const langFiles = readdirSync(langDir).filter(f => f.endsWith(".min.js")).sort();
-const langs = langFiles.map(f => readFileSync(`${langDir}/${f}`, "utf8")).join("\n");
-writeFileSync(`${dest}/highlight.min.js`, core + "\n" + langs);
+// Prism.js — bundle core + every available language in dependency order.
+// Topologically sorted from components.json so each language's `require` deps
+// load first.
+const prismDir = "node_modules/prismjs";
+const prismCompDir = `${prismDir}/components`;
+const prismCore = readFileSync(`${prismDir}/prism.js`, "utf8");
+const prismManifest = JSON.parse(readFileSync(`${prismDir}/components.json`, "utf8")).languages;
+delete prismManifest.meta;
+const prismLangs = [];
+const prismVisited = new Set();
+function visitPrismLang(name) {
+  if (prismVisited.has(name)) return;
+  prismVisited.add(name);
+  const def = prismManifest[name];
+  if (!def) return;
+  let deps = def.require || [];
+  if (typeof deps === "string") deps = [deps];
+  for (const d of deps) visitPrismLang(d);
+  prismLangs.push(name);
+}
+for (const n of Object.keys(prismManifest)) visitPrismLang(n);
+const prismParts = [prismCore];
+for (const l of prismLangs) {
+  prismParts.push(readFileSync(`${prismCompDir}/prism-${l}.min.js`, "utf8"));
+}
+writeFileSync(`${dest}/prism.min.js`, prismParts.join("\n"));
 
 // mermaid
 cpSync("node_modules/mermaid/dist/mermaid.min.js", `${dest}/mermaid.min.js`);
@@ -27,4 +47,4 @@ execSync(`npx esbuild ${dmpEntry} --bundle --format=iife --minify --outfile=${de
 // Clean up temporary entry file
 unlinkSync(dmpEntry);
 
-console.log(`Frontend deps copied to frontend/ (${langFiles.length} highlight.js languages bundled)`);
+console.log(`Frontend deps copied to frontend/ (${prismLangs.length} Prism.js languages bundled)`);

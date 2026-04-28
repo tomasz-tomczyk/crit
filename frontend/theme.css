@@ -4,7 +4,7 @@
    Editor tokens (--crit-editor-*) for review content area (Tokyo Night).
    Each theme defines the full set of CSS custom properties.
    To add a new theme: add a [data-theme="your-theme"] block below,
-   add an hljs color block at the bottom, and add a button to the theme pill in index.html.
+   include the --crit-syn-* variables alongside the brand vars, and add a button to the theme pill in index.html.
 */
 
 /* ===== Default (dark) =====
@@ -156,6 +156,33 @@
   --author-5-bg: rgba(85,200,200,0.15);
   --author-5-border: rgba(85,200,200,0.35);
   --author-5-fg: #60d0d0;
+
+  /* ---- Syntax highlighting (Prism) — Tokyo Night dark ---- */
+  --crit-syn-bg:          #1a1b26;
+  --crit-syn-fg:          #9aa5ce;
+  --crit-syn-comment:     #9aa1c8;
+  --crit-syn-keyword:     #bb9af7;
+  --crit-syn-operator:    #bb9af7;
+  --crit-syn-string:      #9ece6a;
+  --crit-syn-number:      #ff9e64;
+  --crit-syn-boolean:     #ff9e64;
+  --crit-syn-function:    #7dcfff;
+  --crit-syn-class-name:  #7dcfff;
+  --crit-syn-builtin:     #e0af68;
+  --crit-syn-attr-name:   #e0af68;
+  --crit-syn-attr-value:  #9ece6a;
+  --crit-syn-tag:         #f7768e;
+  --crit-syn-selector:    #f7768e;
+  --crit-syn-punctuation: #c0caf5;
+  --crit-syn-property:    #7dcfff;
+  --crit-syn-variable:    #ff9e64;
+  --crit-syn-regex:       #f7768e;
+  --crit-syn-deleted:     #f7768e;
+  --crit-syn-inserted:    #9ece6a;
+  --crit-syn-addition-bg: rgba(158,206,106,0.15);
+  --crit-syn-deletion-bg: rgba(247,118,142,0.15);
+  --crit-syn-section:     #85aaf8;
+  --crit-syn-symbol:      #9ece6a;
 }
 
 /* ===== System preference: light ===== */
@@ -277,6 +304,33 @@
     --author-5-bg: rgba(14,110,110,0.10);
     --author-5-border: rgba(14,110,110,0.25);
     --author-5-fg: #0e6e6e;
+
+    /* ---- Syntax highlighting (Prism) — GitHub light ---- */
+    --crit-syn-bg:          #ffffff;
+    --crit-syn-fg:          #24292e;
+    --crit-syn-comment:     #5d6570;
+    --crit-syn-keyword:     #b91c28;
+    --crit-syn-operator:    #b91c28;
+    --crit-syn-string:      #032f62;
+    --crit-syn-number:      #0054b5;
+    --crit-syn-boolean:     #0054b5;
+    --crit-syn-function:    #6f42c1;
+    --crit-syn-class-name:  #6f42c1;
+    --crit-syn-builtin:     #b94600;
+    --crit-syn-attr-name:   #0054b5;
+    --crit-syn-attr-value:  #032f62;
+    --crit-syn-tag:         #b91c28;
+    --crit-syn-selector:    #b91c28;
+    --crit-syn-punctuation: #24292e;
+    --crit-syn-property:    #0054b5;
+    --crit-syn-variable:    #0054b5;
+    --crit-syn-regex:       #032f62;
+    --crit-syn-deleted:     #b31d28;
+    --crit-syn-inserted:    #22863a;
+    --crit-syn-addition-bg: #f0fff4;
+    --crit-syn-deletion-bg: #ffeef0;
+    --crit-syn-section:     #005cc5;
+    --crit-syn-symbol:      #b94600;
   }
 }
 
@@ -398,6 +452,33 @@
   --author-5-bg: rgba(85,200,200,0.15);
   --author-5-border: rgba(85,200,200,0.35);
   --author-5-fg: #60d0d0;
+
+  /* ---- Syntax highlighting (Prism) — Tokyo Night dark ---- */
+  --crit-syn-bg:          #1a1b26;
+  --crit-syn-fg:          #9aa5ce;
+  --crit-syn-comment:     #9aa1c8;
+  --crit-syn-keyword:     #bb9af7;
+  --crit-syn-operator:    #bb9af7;
+  --crit-syn-string:      #9ece6a;
+  --crit-syn-number:      #ff9e64;
+  --crit-syn-boolean:     #ff9e64;
+  --crit-syn-function:    #7dcfff;
+  --crit-syn-class-name:  #7dcfff;
+  --crit-syn-builtin:     #e0af68;
+  --crit-syn-attr-name:   #e0af68;
+  --crit-syn-attr-value:  #9ece6a;
+  --crit-syn-tag:         #f7768e;
+  --crit-syn-selector:    #f7768e;
+  --crit-syn-punctuation: #c0caf5;
+  --crit-syn-property:    #7dcfff;
+  --crit-syn-variable:    #ff9e64;
+  --crit-syn-regex:       #f7768e;
+  --crit-syn-deleted:     #f7768e;
+  --crit-syn-inserted:    #9ece6a;
+  --crit-syn-addition-bg: rgba(158,206,106,0.15);
+  --crit-syn-deletion-bg: rgba(247,118,142,0.15);
+  --crit-syn-section:     #85aaf8;
+  --crit-syn-symbol:      #9ece6a;
 }
 
 /* ===== Light (explicit) ===== */
@@ -518,78 +599,129 @@
   --author-5-bg: rgba(14,110,110,0.10);
   --author-5-border: rgba(14,110,110,0.25);
   --author-5-fg: #0e6e6e;
+
+  /* ---- Syntax highlighting (Prism) — GitHub light ---- */
+  --crit-syn-bg:          #ffffff;
+  --crit-syn-fg:          #24292e;
+  --crit-syn-comment:     #5d6570;
+  --crit-syn-keyword:     #b91c28;
+  --crit-syn-operator:    #b91c28;
+  --crit-syn-string:      #032f62;
+  --crit-syn-number:      #0054b5;
+  --crit-syn-boolean:     #0054b5;
+  --crit-syn-function:    #6f42c1;
+  --crit-syn-class-name:  #6f42c1;
+  --crit-syn-builtin:     #b94600;
+  --crit-syn-attr-name:   #0054b5;
+  --crit-syn-attr-value:  #032f62;
+  --crit-syn-tag:         #b91c28;
+  --crit-syn-selector:    #b91c28;
+  --crit-syn-punctuation: #24292e;
+  --crit-syn-property:    #0054b5;
+  --crit-syn-variable:    #0054b5;
+  --crit-syn-regex:       #032f62;
+  --crit-syn-deleted:     #b31d28;
+  --crit-syn-inserted:    #22863a;
+  --crit-syn-addition-bg: #f0fff4;
+  --crit-syn-deletion-bg: #ffeef0;
+  --crit-syn-section:     #005cc5;
+  --crit-syn-symbol:      #b94600;
 }
 
-/* ===== highlight.js Dark Theme (Tokyo Night Dark) =====
-   Default (system dark) — applies when no data-theme is set */
-.hljs{color:#9aa5ce;background:#1a1b26}
-.hljs-tag,.hljs-doctag,.hljs-selector-id,.hljs-selector-class,.hljs-regexp,.hljs-template-tag,.hljs-selector-pseudo,.hljs-selector-attr,.hljs-variable.language_,.hljs-deletion{color:#f7768e}
-.hljs-variable,.hljs-template-variable,.hljs-number,.hljs-literal,.hljs-type,.hljs-params,.hljs-link{color:#ff9e64}
-.hljs-built_in,.hljs-attribute{color:#e0af68}
-.hljs-selector-tag{color:#73daca}
-.hljs-keyword,.hljs-title,.hljs-title.function_,.hljs-title.class_,.hljs-title.class_.inherited__,.hljs-subst,.hljs-property{color:#7dcfff}
-.hljs-quote,.hljs-string,.hljs-symbol,.hljs-bullet,.hljs-addition{color:#9ece6a}
-.hljs-code,.hljs-formula,.hljs-section{color:#85aaf8}
-.hljs-keyword,.hljs-operator,.hljs-attr,.hljs-name,.hljs-char.escape_{color:#bb9af7}
-.hljs-comment,.hljs-meta{color:#9aa1c8}
-.hljs-punctuation{color:#c0caf5}
-.hljs-emphasis{font-style:italic}
-.hljs-strong{font-weight:bold}
-.hljs-addition{color:#9ece6a;background-color:rgba(158,206,106,0.15)}
-.hljs-deletion{color:#f7768e;background-color:rgba(247,118,142,0.15)}
-
-/* Explicit dark override */
-[data-theme="dark"] .hljs{color:#9aa5ce;background:#1a1b26}
-[data-theme="dark"] .hljs-tag,[data-theme="dark"] .hljs-doctag,[data-theme="dark"] .hljs-selector-id,[data-theme="dark"] .hljs-selector-class,[data-theme="dark"] .hljs-regexp,[data-theme="dark"] .hljs-template-tag,[data-theme="dark"] .hljs-selector-pseudo,[data-theme="dark"] .hljs-selector-attr,[data-theme="dark"] .hljs-variable.language_,[data-theme="dark"] .hljs-deletion{color:#f7768e}
-[data-theme="dark"] .hljs-variable,[data-theme="dark"] .hljs-template-variable,[data-theme="dark"] .hljs-number,[data-theme="dark"] .hljs-literal,[data-theme="dark"] .hljs-type,[data-theme="dark"] .hljs-params,[data-theme="dark"] .hljs-link{color:#ff9e64}
-[data-theme="dark"] .hljs-built_in,[data-theme="dark"] .hljs-attribute{color:#e0af68}
-[data-theme="dark"] .hljs-selector-tag{color:#73daca}
-[data-theme="dark"] .hljs-keyword,[data-theme="dark"] .hljs-title,[data-theme="dark"] .hljs-title.function_,[data-theme="dark"] .hljs-title.class_,[data-theme="dark"] .hljs-title.class_.inherited__,[data-theme="dark"] .hljs-subst,[data-theme="dark"] .hljs-property{color:#7dcfff}
-[data-theme="dark"] .hljs-quote,[data-theme="dark"] .hljs-string,[data-theme="dark"] .hljs-symbol,[data-theme="dark"] .hljs-bullet,[data-theme="dark"] .hljs-addition{color:#9ece6a}
-[data-theme="dark"] .hljs-code,[data-theme="dark"] .hljs-formula,[data-theme="dark"] .hljs-section{color:#85aaf8}
-[data-theme="dark"] .hljs-keyword,[data-theme="dark"] .hljs-operator,[data-theme="dark"] .hljs-attr,[data-theme="dark"] .hljs-name,[data-theme="dark"] .hljs-char.escape_{color:#bb9af7}
-[data-theme="dark"] .hljs-comment,[data-theme="dark"] .hljs-meta{color:#9aa1c8}
-[data-theme="dark"] .hljs-punctuation{color:#c0caf5}
-[data-theme="dark"] .hljs-emphasis{font-style:italic}
-[data-theme="dark"] .hljs-strong{font-weight:bold}
-[data-theme="dark"] .hljs-addition{color:#9ece6a;background-color:rgba(158,206,106,0.15)}
-[data-theme="dark"] .hljs-deletion{color:#f7768e;background-color:rgba(247,118,142,0.15)}
-
-/* ===== highlight.js Light Theme (GitHub) ===== */
-/* System light — applies when OS prefers light and no data-theme is set */
-@media (prefers-color-scheme: light) {
-  html:not([data-theme]) .hljs{color:#24292e;background:#fff}
-  html:not([data-theme]) .hljs-doctag,html:not([data-theme]) .hljs-keyword,html:not([data-theme]) .hljs-meta .hljs-keyword,html:not([data-theme]) .hljs-template-tag,html:not([data-theme]) .hljs-template-variable,html:not([data-theme]) .hljs-type,html:not([data-theme]) .hljs-variable.language_,html:not([data-theme]) .hljs-tag{color:#b91c28}
-  html:not([data-theme]) .hljs-title,html:not([data-theme]) .hljs-title.class_,html:not([data-theme]) .hljs-title.class_.inherited__,html:not([data-theme]) .hljs-title.function_{color:#6f42c1}
-  html:not([data-theme]) .hljs-attr,html:not([data-theme]) .hljs-attribute,html:not([data-theme]) .hljs-literal,html:not([data-theme]) .hljs-meta,html:not([data-theme]) .hljs-number,html:not([data-theme]) .hljs-operator,html:not([data-theme]) .hljs-selector-attr,html:not([data-theme]) .hljs-selector-class,html:not([data-theme]) .hljs-selector-id,html:not([data-theme]) .hljs-variable,html:not([data-theme]) .hljs-params,html:not([data-theme]) .hljs-link,html:not([data-theme]) .hljs-property,html:not([data-theme]) .hljs-char.escape_{color:#0054b5}
-  html:not([data-theme]) .hljs-meta .hljs-string,html:not([data-theme]) .hljs-regexp,html:not([data-theme]) .hljs-string{color:#032f62}
-  html:not([data-theme]) .hljs-built_in,html:not([data-theme]) .hljs-symbol{color:#b94600}
-  html:not([data-theme]) .hljs-code,html:not([data-theme]) .hljs-comment,html:not([data-theme]) .hljs-formula{color:#5d6570}
-  html:not([data-theme]) .hljs-name,html:not([data-theme]) .hljs-quote,html:not([data-theme]) .hljs-selector-pseudo,html:not([data-theme]) .hljs-selector-tag{color:#116329}
-  html:not([data-theme]) .hljs-subst{color:#24292e}
-  html:not([data-theme]) .hljs-section{color:#005cc5;font-weight:700}
-  html:not([data-theme]) .hljs-bullet{color:#735c0f}
-  html:not([data-theme]) .hljs-punctuation{color:#24292e}
-  html:not([data-theme]) .hljs-emphasis{color:#24292e;font-style:italic}
-  html:not([data-theme]) .hljs-strong{color:#24292e;font-weight:700}
-  html:not([data-theme]) .hljs-addition{color:#22863a;background-color:#f0fff4}
-  html:not([data-theme]) .hljs-deletion{color:#b31d28;background-color:#ffeef0}
+/* ===== Prism.js syntax highlighting =====
+   Token colors come from --crit-syn-* variables defined in each theme block
+   above, so the ruleset itself is theme-agnostic. */
+.prism-code,
+code[class*="language-"],
+pre[class*="language-"] {
+  color: var(--crit-syn-fg);
+  background: transparent;
+}
+.token.comment,
+.token.prolog,
+.token.cdata,
+.token.doctype {
+  color: var(--crit-syn-comment);
+  font-style: italic;
+}
+.token.punctuation {
+  color: var(--crit-syn-punctuation);
+}
+.token.namespace {
+  opacity: 0.7;
+}
+.token.keyword,
+.token.atrule,
+.token.important,
+.token.rule {
+  color: var(--crit-syn-keyword);
+}
+.token.operator,
+.token.entity {
+  color: var(--crit-syn-operator);
+}
+.token.string,
+.token.char,
+.token.attr-value,
+.token.url {
+  color: var(--crit-syn-string);
+}
+.token.number,
+.token.boolean,
+.token.constant {
+  color: var(--crit-syn-number);
+}
+.token.function,
+.token.function-name {
+  color: var(--crit-syn-function);
+}
+.token.class-name,
+.token.title {
+  color: var(--crit-syn-class-name);
+}
+.token.builtin {
+  color: var(--crit-syn-builtin);
+}
+.token.attr-name {
+  color: var(--crit-syn-attr-name);
+}
+.token.tag,
+.token.selector {
+  color: var(--crit-syn-tag);
+}
+.token.property {
+  color: var(--crit-syn-property);
+}
+.token.variable,
+.token.parameter {
+  color: var(--crit-syn-variable);
+}
+.token.regex {
+  color: var(--crit-syn-regex);
+}
+.token.symbol {
+  color: var(--crit-syn-symbol);
+}
+.token.deleted {
+  color: var(--crit-syn-deleted);
+  background-color: var(--crit-syn-deletion-bg);
+}
+.token.inserted {
+  color: var(--crit-syn-inserted);
+  background-color: var(--crit-syn-addition-bg);
+}
+.token.italic {
+  font-style: italic;
+}
+.token.bold,
+.token.important {
+  font-weight: bold;
+}
+.token.title {
+  font-weight: 700;
+}
+.token.section {
+  color: var(--crit-syn-section);
+  font-weight: 700;
 }
 
-/* Explicit light override */
-[data-theme="light"] .hljs{color:#24292e;background:#fff}
-[data-theme="light"] .hljs-doctag,[data-theme="light"] .hljs-keyword,[data-theme="light"] .hljs-meta .hljs-keyword,[data-theme="light"] .hljs-template-tag,[data-theme="light"] .hljs-template-variable,[data-theme="light"] .hljs-type,[data-theme="light"] .hljs-variable.language_,[data-theme="light"] .hljs-tag{color:#b91c28}
-[data-theme="light"] .hljs-title,[data-theme="light"] .hljs-title.class_,[data-theme="light"] .hljs-title.class_.inherited__,[data-theme="light"] .hljs-title.function_{color:#6f42c1}
-[data-theme="light"] .hljs-attr,[data-theme="light"] .hljs-attribute,[data-theme="light"] .hljs-literal,[data-theme="light"] .hljs-meta,[data-theme="light"] .hljs-number,[data-theme="light"] .hljs-operator,[data-theme="light"] .hljs-selector-attr,[data-theme="light"] .hljs-selector-class,[data-theme="light"] .hljs-selector-id,[data-theme="light"] .hljs-variable,[data-theme="light"] .hljs-params,[data-theme="light"] .hljs-link,[data-theme="light"] .hljs-property,[data-theme="light"] .hljs-char.escape_{color:#0054b5}
-[data-theme="light"] .hljs-meta .hljs-string,[data-theme="light"] .hljs-regexp,[data-theme="light"] .hljs-string{color:#032f62}
-[data-theme="light"] .hljs-built_in,[data-theme="light"] .hljs-symbol{color:#b94600}
-[data-theme="light"] .hljs-code,[data-theme="light"] .hljs-comment,[data-theme="light"] .hljs-formula{color:#5d6570}
-[data-theme="light"] .hljs-name,[data-theme="light"] .hljs-quote,[data-theme="light"] .hljs-selector-pseudo,[data-theme="light"] .hljs-selector-tag{color:#116329}
-[data-theme="light"] .hljs-subst{color:#24292e}
-[data-theme="light"] .hljs-section{color:#005cc5;font-weight:700}
-[data-theme="light"] .hljs-bullet{color:#735c0f}
-[data-theme="light"] .hljs-punctuation{color:#24292e}
-[data-theme="light"] .hljs-emphasis{color:#24292e;font-style:italic}
-[data-theme="light"] .hljs-strong{color:#24292e;font-weight:700}
-[data-theme="light"] .hljs-addition{color:#22863a;background-color:#f0fff4}
-[data-theme="light"] .hljs-deletion{color:#b31d28;background-color:#ffeef0}

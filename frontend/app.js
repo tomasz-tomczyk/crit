@@ -7,8 +7,9 @@
     linkify: true,
     typographer: true,
     highlight: function(str, lang) {
-      if (lang && hljs.getLanguage(lang)) {
-        try { return hljs.highlight(str, { language: lang }).value; } catch {}
+      const g = lang && window.Prism && Prism.languages && Prism.languages[lang];
+      if (g) {
+        try { return Prism.highlight(str, g, lang); } catch {}
       }
       return '';
     }
@@ -142,8 +143,9 @@
     typographer: true,
     linkify: true,
     highlight: function(str, lang) {
-      if (lang && hljs.getLanguage(lang)) {
-        try { return hljs.highlight(str, { language: lang }).value; } catch {}
+      const g = lang && window.Prism && Prism.languages && Prism.languages[lang];
+      if (g) {
+        try { return Prism.highlight(str, g, lang); } catch {}
       }
       return '';
     }
@@ -419,6 +421,8 @@
 
     // Parse markdown content into line blocks
     if (f.fileType === 'markdown') {
+      f.lang = 'markdown';
+      f.highlightCache = preHighlightFile(f);
       const parsed = parseMarkdown(f.content);
       f.lineBlocks = parsed.blocks;
       f.tocItems = parsed.tocItems;
@@ -708,34 +712,63 @@
   }
 
   // ===== Syntax Highlighting for Diffs =====
+  // Most extensions resolve via Prism's built-in short-name aliases
+  // (js, py, rb, ts, kt, md, yml, html, xml, svg, dockerfile, etc.).
+  // Only extensions Prism doesn't auto-alias need entries here.
+  const EXT_OVERRIDES = {
+    tf: 'hcl',
+    htm: 'markup',
+    cs: 'csharp',
+    zsh: 'bash',
+    ex: 'elixir', exs: 'elixir',
+    rs: 'rust',
+    h: 'c', hpp: 'cpp',
+    scss: 'css', less: 'css',
+    toml: 'ini',
+    feature: 'gherkin',
+    dockerfile: 'docker',
+  };
+  // Files identified by basename rather than extension.
+  const BASENAME_LANG = {
+    dockerfile: 'docker',
+    makefile: 'makefile',
+    gemfile: 'ruby',
+    rakefile: 'ruby',
+  };
   function langFromPath(filePath) {
-    const ext = (filePath || '').split('.').pop().toLowerCase();
-    const map = {
-      js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
-      go: 'go', py: 'python', rb: 'ruby', rs: 'rust',
-      sql: 'sql', sh: 'bash', bash: 'bash', zsh: 'bash',
-      json: 'json', yaml: 'yaml', yml: 'yaml',
-      html: 'xml', htm: 'xml', xml: 'xml', svg: 'xml',
-      css: 'css', scss: 'css', less: 'css',
-      ex: 'elixir', exs: 'elixir',
-      md: 'markdown', java: 'java', kt: 'kotlin',
-      c: 'c', h: 'c', cpp: 'cpp', hpp: 'cpp',
-      cs: 'csharp', swift: 'swift', php: 'php',
-      r: 'r', lua: 'lua', zig: 'zig', nim: 'nim',
-      toml: 'ini', ini: 'ini', dockerfile: 'dockerfile',
-      makefile: 'makefile', tf: 'hcl',
-    };
-    return map[ext] || null;
+    if (!filePath) return null;
+    const base = filePath.split('/').pop() || '';
+    const baseLower = base.toLowerCase();
+    if (!baseLower.includes('.') && BASENAME_LANG[baseLower]) {
+      return BASENAME_LANG[baseLower];
+    }
+    const ext = baseLower.includes('.') ? baseLower.split('.').pop() : '';
+    if (ext && EXT_OVERRIDES[ext]) return EXT_OVERRIDES[ext];
+    if (ext && Prism.languages[ext]) return ext;
+    return BASENAME_LANG[baseLower] || null;
+  }
+
+  // ===== Prism wrapper — sync, falls back to escaped HTML on missing language =====
+  function highlightWithPrism(code, lang) {
+    if (!lang) return escapeHtml(code);
+    const grammar = window.Prism && Prism.languages && Prism.languages[lang];
+    if (!grammar) return escapeHtml(code);
+    try {
+      return Prism.highlight(code, grammar, lang);
+    } catch {
+      return escapeHtml(code);
+    }
   }
 
   // Pre-highlight file content and return array of highlighted lines (1-indexed).
   // highlightedLines[lineNum] = highlighted HTML for that line.
   function preHighlightFile(file) {
-    if (!file.content || file.fileType !== 'code') return null;
+    if (!file.content || (file.fileType !== 'code' && file.fileType !== 'markdown')) return null;
     const lang = langFromPath(file.path);
-    if (!lang || !hljs.getLanguage(lang)) return null;
+    const grammar = lang && window.Prism && Prism.languages && Prism.languages[lang];
+    if (!grammar) return null;
     try {
-      const highlighted = hljs.highlight(file.content, { language: lang, ignoreIllegals: true }).value;
+      const highlighted = Prism.highlight(file.content, grammar, lang);
       const lines = splitHighlightedCode(highlighted);
       // Return 1-indexed: lines[1] = first line
       const result = [null]; // index 0 unused
@@ -756,9 +789,10 @@
       return highlightCache[lineNum];
     }
     // Fallback: highlight individual line
-    if (lang && hljs.getLanguage(lang)) {
+    const grammar = lang && window.Prism && Prism.languages && Prism.languages[lang];
+    if (grammar) {
       try {
-        return hljs.highlight(content, { language: lang, ignoreIllegals: true }).value;
+        return Prism.highlight(content, grammar, lang);
       } catch {}
     }
     return escapeHtml(content);
@@ -816,9 +850,9 @@
       const lineNum = i + 1;
       let html;
       if (file.highlightCache && file.highlightCache[lineNum]) {
-        html = '<code class="hljs">' + file.highlightCache[lineNum] + '</code>';
+        html = '<code class="prism-code">' + file.highlightCache[lineNum] + '</code>';
       } else {
-        html = '<code class="hljs">' + escapeHtml(lines[i] || '') + '</code>';
+        html = '<code class="prism-code">' + escapeHtml(lines[i] || '') + '</code>';
       }
       blocks.push({
         startLine: lineNum,
@@ -875,10 +909,11 @@
     }
 
     let highlighted = '';
-    // Skip hljs for markdown fences — syntax highlighting (bold headings,
-    // italic emphasis) makes raw markdown source look half-rendered.
-    if (lang && lang !== 'markdown' && lang !== 'md' && hljs.getLanguage(lang)) {
-      try { highlighted = hljs.highlight(token.content, { language: lang }).value; } catch {}
+    // Prism's markdown grammar uses word-boundary anchors so it doesn't
+    // wrongly italicize snake_case identifiers in tables (the hljs bug we hit).
+    const grammar = lang && window.Prism && Prism.languages && Prism.languages[lang];
+    if (grammar) {
+      try { highlighted = Prism.highlight(token.content, grammar, lang); } catch {}
     }
     if (!highlighted) highlighted = escapeHtml(token.content);
 
@@ -901,7 +936,7 @@
       const isLast = (ci === codeLines.length - 1 && blockEnd <= ln);
       blocks.push({
         startLine: ln, endLine: ln,
-        html: '<code class="hljs">' + (codeLines[ci] || '&nbsp;') + '</code>',
+        html: '<code class="prism-code">' + (codeLines[ci] || '&nbsp;') + '</code>',
         isEmpty: false, cssClass: 'code-line' + (isLast ? ' code-last' : '')
       });
       coveredUpTo = ln;
