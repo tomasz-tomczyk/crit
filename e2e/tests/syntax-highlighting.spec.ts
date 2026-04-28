@@ -67,6 +67,25 @@ test.describe('Syntax Highlighting — Split Mode', () => {
   });
 });
 
+test.describe('Syntax Highlighting — hljs alias resolution', () => {
+  test('Gherkin .feature file gets syntax highlighting (hljs alias)', async ({ page }) => {
+    await loadPage(page);
+    const section = page.locator('#file-section-login\\.feature');
+    await expect(section).toBeVisible();
+
+    const additionLine = section.locator('.diff-split-side.addition .diff-content').first();
+    await expect(additionLine).toBeVisible();
+
+    // Gherkin keywords (Feature, Scenario, Given, When, Then) should be tokenized.
+    const spanCount = await additionLine.locator('span').count();
+    expect(spanCount).toBeGreaterThan(0);
+
+    // Confirm hljs class is present somewhere in the section's diff content.
+    const anyHljsClass = await section.locator('.diff-content span[class*="hljs-"]').first();
+    await expect(anyHljsClass).toBeVisible();
+  });
+});
+
 test.describe('Syntax Highlighting — Unified Mode', () => {
   test('Go file has syntax-highlighted code in unified diff', async ({ page }) => {
     await loadPage(page);

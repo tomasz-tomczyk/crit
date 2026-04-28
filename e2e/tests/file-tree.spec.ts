@@ -16,9 +16,9 @@ test.describe('File Tree — Git Mode', () => {
 
   test('file tree lists all files from the session', async ({ page }) => {
     // Git fixture has: plan.md, server.go, handler.js, deleted.txt, routes.go (committed)
-    // + utils.go (staged), config.yaml (untracked) = 7 total
+    // + utils.go, login.feature (staged), config.yaml (untracked) = 8 total
     const treeFiles = page.locator('.tree-file');
-    await expect(treeFiles).toHaveCount(7);
+    await expect(treeFiles).toHaveCount(8);
   });
 
   test('file tree shows correct file names', async ({ page }) => {
@@ -39,7 +39,7 @@ test.describe('File Tree — Git Mode', () => {
   test('file tree header shows file count', async ({ page }) => {
     const stats = page.locator('#fileTreeStats');
     await expect(stats).toBeVisible();
-    await expect(stats).toContainText('6');
+    await expect(stats).toContainText('7');
   });
 
   test('file tree header shows addition stats', async ({ page }) => {
@@ -113,9 +113,9 @@ test.describe('File Tree — Git Mode', () => {
   });
 
   test('file status icons have correct classes', async ({ page }) => {
-    // plan.md, handler.js, and config.yaml (untracked) are added
+    // plan.md, handler.js, login.feature, and config.yaml (untracked) are added
     const addedIcons = page.locator('.tree-file-status-icon.added');
-    await expect(addedIcons).toHaveCount(3);
+    await expect(addedIcons).toHaveCount(4);
 
     // server.go, routes.go, and utils.go (staged modification) are modified
     const modifiedIcons = page.locator('.tree-file-status-icon.modified');

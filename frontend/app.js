@@ -708,24 +708,40 @@
   }
 
   // ===== Syntax Highlighting for Diffs =====
+  // Most extensions are resolved via hljs's built-in alias system
+  // (e.g. .feature → gherkin, .md → markdown, .tsx → typescript, .toml → ini,
+  // .scss → scss, .h/.hpp → c/cpp, .yml → yaml, .kt → kotlin, .rb → ruby,
+  // .dockerfile → dockerfile, .makefile → makefile). Only extensions that hljs
+  // does NOT cover via aliases need entries here.
+  const EXT_OVERRIDES = {
+    tf: 'hcl',         // Terraform — hljs has no .tf alias
+    htm: 'xml',        // hljs aliases html but not htm
+    svg: 'xml',
+    cs: 'csharp',
+    sh: 'bash',
+    zig: 'zig',        // not a built-in alias in our bundle
+    md: 'markdown',    // normalize: callers compare lang against 'markdown'
+  };
+  // Files identified by basename rather than extension.
+  const BASENAME_LANG = {
+    dockerfile: 'dockerfile',
+    makefile: 'makefile',
+    gemfile: 'ruby',
+    rakefile: 'ruby',
+  };
   function langFromPath(filePath) {
-    const ext = (filePath || '').split('.').pop().toLowerCase();
-    const map = {
-      js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
-      go: 'go', py: 'python', rb: 'ruby', rs: 'rust',
-      sql: 'sql', sh: 'bash', bash: 'bash', zsh: 'bash',
-      json: 'json', yaml: 'yaml', yml: 'yaml',
-      html: 'xml', htm: 'xml', xml: 'xml', svg: 'xml',
-      css: 'css', scss: 'css', less: 'css',
-      ex: 'elixir', exs: 'elixir',
-      md: 'markdown', java: 'java', kt: 'kotlin',
-      c: 'c', h: 'c', cpp: 'cpp', hpp: 'cpp',
-      cs: 'csharp', swift: 'swift', php: 'php',
-      r: 'r', lua: 'lua', zig: 'zig', nim: 'nim',
-      toml: 'ini', ini: 'ini', dockerfile: 'dockerfile',
-      makefile: 'makefile', tf: 'hcl',
-    };
-    return map[ext] || null;
+    if (!filePath) return null;
+    const base = filePath.split('/').pop() || '';
+    const baseLower = base.toLowerCase();
+    // Pure basename (no extension) — Dockerfile, Makefile, etc.
+    if (!baseLower.includes('.') && BASENAME_LANG[baseLower]) {
+      return BASENAME_LANG[baseLower];
+    }
+    const ext = baseLower.includes('.') ? baseLower.split('.').pop() : '';
+    if (ext && EXT_OVERRIDES[ext]) return EXT_OVERRIDES[ext];
+    if (ext && hljs.getLanguage(ext)) return ext;
+    // Fall back to basename match (catches Dockerfile.something edge cases too).
+    return BASENAME_LANG[baseLower] || null;
   }
 
   // Pre-highlight file content and return array of highlighted lines (1-indexed).

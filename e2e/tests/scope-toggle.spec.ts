@@ -48,9 +48,9 @@ test.describe('Scope Toggle', () => {
   test('switching to staged scope shows only staged files', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'staged');
-    // Staged: utils.go only
+    // Staged: utils.go, login.feature
     await expect(async () => {
-      await expect(page.locator('.file-section')).toHaveCount(1);
+      await expect(page.locator('.file-section')).toHaveCount(2);
     }).toPass({ timeout: 5000 });
     await expect(page.locator('.file-section', { hasText: 'utils.go' })).toBeVisible();
   });
@@ -68,7 +68,7 @@ test.describe('Scope Toggle', () => {
   test('switching back to all scope restores full file list', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'staged');
-    await expect(page.locator('.file-section')).toHaveCount(1);
+    await expect(page.locator('.file-section')).toHaveCount(2);
     await switchScope(page, 'all');
     await expect(async () => {
       const count = await page.locator('.file-section').count();
@@ -86,17 +86,17 @@ test.describe('Scope Toggle', () => {
   test('scope persists across page reload', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'staged');
-    await expect(page.locator('.file-section')).toHaveCount(1);
+    await expect(page.locator('.file-section')).toHaveCount(2);
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="staged"]')).toHaveClass(/active/);
-    await expect(page.locator('.file-section')).toHaveCount(1);
+    await expect(page.locator('.file-section')).toHaveCount(2);
   });
 
   test('file tree updates when scope changes', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'staged');
-    await expect(page.locator('.tree-file')).toHaveCount(1);
+    await expect(page.locator('.tree-file')).toHaveCount(2);
     await expect(page.locator('.tree-file-name', { hasText: 'utils.go' })).toBeVisible();
   });
 

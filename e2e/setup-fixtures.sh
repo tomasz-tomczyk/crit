@@ -476,6 +476,27 @@ func Reverse(s string) string {
 GOFILE
 git add utils.go
 
+# Stage a new Gherkin feature file (exercises hljs alias resolution for .feature)
+cat > login.feature << 'GHERKIN'
+Feature: User login
+  As a registered user
+  I want to log in to my account
+  So that I can access my dashboard
+
+  Scenario: Successful login with valid credentials
+    Given I am on the login page
+    When I enter "alice@example.com" and "secret123"
+    And I click the "Sign in" button
+    Then I should see the dashboard
+    And I should see "Welcome back, Alice"
+
+  Scenario: Failed login with invalid password
+    Given I am on the login page
+    When I enter "alice@example.com" and "wrong"
+    Then I should see an error message
+GHERKIN
+git add login.feature
+
 # === Unstaged changes (working tree only) ===
 # Create an untracked file
 cat > config.yaml << 'EOF'
