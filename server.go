@@ -22,6 +22,10 @@ import (
 	"rsc.io/qr"
 )
 
+// sseHeartbeatInterval is the cadence for SSE keepalive comments. It's a var
+// so tests can shrink it. 30s comfortably under the server's 60s IdleTimeout.
+var sseHeartbeatInterval = 30 * time.Second
+
 // Server handles HTTP requests for the crit review UI.
 type Server struct {
 	session           atomic.Pointer[Session]
@@ -1049,6 +1053,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	flusher.Flush()
 
+	// Safari won't fire EventSource.onopen until it sees a body byte.
+	fmt.Fprint(w, ":\n\n")
+	flusher.Flush()
+
 	sess := s.session.Load()
 	sess.BrowserConnect()
 	defer sess.BrowserDisconnect()
@@ -1056,10 +1064,16 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ch := sess.Subscribe()
 	defer sess.Unsubscribe(ch)
 
+	heartbeat := time.NewTicker(sseHeartbeatInterval)
+	defer heartbeat.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-heartbeat.C:
+			fmt.Fprint(w, ":\n\n")
+			flusher.Flush()
 		case event, ok := <-ch:
 			if !ok {
 				return

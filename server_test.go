@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -3517,5 +3518,56 @@ func TestHandleFiles_PathTraversal_DotDot(t *testing.T) {
 	// Should return 400 or 403.
 	if w.Code == 200 {
 		t.Error("path traversal should not return 200")
+	}
+}
+
+// TestEvents_SafariCompat verifies the SSE stream sends an immediate `:\n\n`
+// comment frame (so Safari fires onopen) and continues sending heartbeats so
+// the connection isn't closed by the server's IdleTimeout. Both behaviors are
+// invisible to the user when working but produce "Could not connect" errors
+// in Safari when missing.
+func TestEvents_SafariCompat(t *testing.T) {
+	prev := sseHeartbeatInterval
+	sseHeartbeatInterval = 50 * time.Millisecond
+	t.Cleanup(func() { sseHeartbeatInterval = prev })
+
+	srv, _ := newTestServer(t)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", ts.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want text/event-stream", got)
+	}
+
+	buf := make([]byte, 3)
+	if _, err := io.ReadFull(resp.Body, buf); err != nil {
+		t.Fatalf("reading initial frame: %v", err)
+	}
+	if string(buf) != ":\n\n" {
+		t.Errorf("initial frame = %q, want %q (Safari needs a body byte before onopen fires)", buf, ":\n\n")
+	}
+
+	heartbeat := make([]byte, 3)
+	if _, err := io.ReadFull(resp.Body, heartbeat); err != nil {
+		t.Fatalf("reading heartbeat frame: %v", err)
+	}
+	if string(heartbeat) != ":\n\n" {
+		t.Errorf("heartbeat frame = %q, want %q", heartbeat, ":\n\n")
 	}
 }
