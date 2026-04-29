@@ -162,6 +162,7 @@ make e2e-report                                       # View HTML report with sc
   - `single-file-mode` (port 3125) — `setup-fixtures-singlefile.sh` — single markdown file. Runs `*.singlefile.spec.ts`
   - `no-git-mode` (port 3126) — `setup-fixtures-nogit.sh` — file mode without git. Runs `*.nogit.spec.ts`
   - `multi-file-mode` (port 3127) — `setup-fixtures-multifile.sh` — multiple code + markdown files. Runs `*.multifile.spec.ts`
+  - `range-mode` (port 3128) — `setup-fixtures-range-mode.sh` — stacked git fixture booted with `--range A..B`. Runs `*.rangemode.spec.ts`
 - **Real server**: Tests run against the actual compiled `crit` binary — no mocking
 - **Video/trace off by default**: Set `E2E_DEBUG=1` to enable video and trace recording on failure (saved to `e2e/test-results/`)
 - **CI**: E2E tests run on every push to `main` and on PRs via `.github/workflows/test.yml`. Failed test artifacts are uploaded
@@ -226,6 +227,10 @@ make e2e-report                                       # View HTML report with sc
 | `toc-refresh.singlefile.spec.ts`   | single | TOC refresh when file content changes                               |
 | `unstaged-comments.spec.ts`        | git    | Comments on unstaged changes                                        |
 | `nogit.nogit.spec.ts`              | no-git | Git-absence invariants: no branch, no diff toggle, session mode     |
+| `range-loading.rangemode.spec.ts`  | range  | Range mode loads SHA-pinned files only; header label shows range    |
+| `range-comments.rangemode.spec.ts` | range  | Comments authored in range mode are stamped with head_sha+diff_scope|
+| `scope-toggle.rangemode.spec.ts`   | range  | Layer/full-stack toggle visibility + full-stack default-SHA gate    |
+| `focus-switch.rangemode.spec.ts`   | range  | Switching focus to working tree refreshes file list                 |
 
 ### Writing new tests
 
@@ -234,6 +239,7 @@ make e2e-report                                       # View HTML report with sc
 - **Single-file tests**: name as `*.singlefile.spec.ts` — runs against single-file fixture on port 3125
 - **No-git tests**: name as `*.nogit.spec.ts` — runs against the no-git fixture on port 3126
 - **Multi-file tests**: name as `*.multifile.spec.ts` — runs against the multi-file fixture on port 3127
+- **Range-mode tests**: name as `*.rangemode.spec.ts` — runs against the range fixture on port 3128 (stacked git fixture booted with `--range A..B`)
 - **Comment cleanup**: the server persists comments between tests. Use `clearAllComments(request)` in `beforeEach` to reset state — this calls `DELETE /api/comments` (bulk endpoint)
 - **Shared helpers**: import from `./helpers` — provides `clearAllComments`, `loadPage`, `mdSection`, `goSection`, `jsSection`, `switchToDocumentView`, `dragBetween`, `clearFocus`, `addComment`, `getMdPath`
 - **Markdown in git mode**: defaults to diff view. Call `switchToDocumentView()` helper to test document rendering

@@ -50,6 +50,7 @@ type Server struct {
 	homeDir           string
 	cfg               Config
 	reviewPath        string
+	prList            *prListCache // 60s cache for picker "Other PRs"
 }
 
 // NewServer creates a Server with the given session and configuration.
@@ -59,7 +60,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 		return nil, fmt.Errorf("loading frontend assets: %w", err)
 	}
 
-	s := &Server{assets: assets, shareURL: shareURL, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port}
+	s := &Server{assets: assets, shareURL: shareURL, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port, prList: &prListCache{}}
 	if session != nil {
 		s.session.Store(session)
 	}
@@ -80,6 +81,8 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.HandleFunc("/api/events", s.withReady(s.handleEvents))
 	mux.HandleFunc("/api/wait-for-event", s.withReady(s.handleWaitForEvent))
 	mux.HandleFunc("/api/round-complete", s.withReady(s.handleRoundComplete))
+	mux.HandleFunc("/api/focus", s.withReady(s.handleFocus))
+	mux.HandleFunc("/api/picker", s.withReady(s.handlePicker))
 
 	mux.HandleFunc("/api/agent/request", s.withReady(s.handleAgentRequest))
 	mux.HandleFunc("/api/branches", s.withReady(s.handleBranches))
@@ -482,7 +485,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		c, ok := s.session.Load().AddComment(path, req.StartLine, req.EndLine, req.Side, req.Body, req.Quote, req.Author, s.authUserID())
+		c, ok := s.session.Load().AddComment(path, req.StartLine, req.EndLine, normalizeCommentSide(req.Side), req.Body, req.Quote, req.Author, s.authUserID())
 		if !ok {
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
@@ -492,6 +495,24 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// normalizeCommentSide canonicalizes the wire `side` field to crit's internal
+// representation: "" for the new (right) side and "old" for the deletion (left)
+// side. Callers may pass GitHub-style "RIGHT"/"LEFT" (e.g. seeded payloads,
+// pulled PR comments, third-party scripts); without normalization, those values
+// flow into Comment.Side unchanged and cause the frontend's diff renderer to
+// miss them when keying by `lineNumber + ':' + side`, falsely flagging fresh
+// comments as "outdated" on first load.
+func normalizeCommentSide(s string) string {
+	switch strings.ToUpper(s) {
+	case "LEFT", "OLD":
+		return "old"
+	case "RIGHT", "NEW", "":
+		return ""
+	default:
+		return s
 	}
 }
 
@@ -863,7 +884,40 @@ func (s *Server) handleRoundComplete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	s.session.Load().SignalRoundComplete()
+	sess := s.session.Load()
+	sess.mu.RLock()
+	isRange := sess.Focus.Kind == FocusRange
+	sess.mu.RUnlock()
+	if isRange {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "round-complete is not meaningful in range mode",
+		})
+		return
+	}
+	sess.SignalRoundComplete()
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// handleFocus accepts POST /api/focus to switch the session's focus.
+// Body is a JSON Focus payload. Rejects full-stack scope without DefaultSHA
+// with HTTP 400. SetFocus emits SSE focus-changed on success.
+func (s *Server) handleFocus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
+	var req Focus
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.session.Load().SetFocus(req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 

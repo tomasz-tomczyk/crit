@@ -66,8 +66,9 @@ type VCS interface {
 	// FileDiffUnifiedNewFile returns diff hunks showing an entire file as added.
 	FileDiffUnifiedNewFile(path string) ([]DiffHunk, error)
 
-	// CommitLog returns the commits between baseRef and HEAD.
-	CommitLog(baseRef, dir string) ([]CommitInfo, error)
+	// CommitLog returns the commits between baseRef and headRef, newest first.
+	// If headRef is empty, the VCS's working-tree head (e.g. git HEAD) is used.
+	CommitLog(baseRef, headRef, dir string) ([]CommitInfo, error)
 
 	// WorkingTreeFingerprint returns a string representing the current working tree state.
 	WorkingTreeFingerprint() string
@@ -89,6 +90,25 @@ type VCS interface {
 
 	// FileContentAtRef returns the content of a file at a given ref/revision.
 	FileContentAtRef(path, ref, dir string) (string, error)
+
+	// ChangedFilesBetweenSHAs returns the files changed in the range baseSHA..headSHA.
+	// Renames are reported with status "renamed" and the new path. Untracked
+	// working-tree files are NOT included — this is a pure git-history range.
+	ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileChange, error)
+
+	// FileDiffBetweenSHAs returns parsed diff hunks for path in the range
+	// baseSHA..headSHA. Returns nil hunks when there is no diff for that path.
+	FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string) ([]DiffHunk, error)
+
+	// ReadFileAtSHA returns the bytes of path at the given SHA. Returns
+	// (nil, nil) when the file does not exist at that SHA. Errors are
+	// reserved for "command failed" (e.g. invalid ref).
+	ReadFileAtSHA(sha, path, dir string) ([]byte, error)
+
+	// HasObject reports whether the given SHA is reachable as a commit
+	// object in the local store. Used by callers before resolving a range
+	// so they can prompt-fetch missing objects rather than fail mid-render.
+	HasObject(sha, dir string) bool
 
 	// FileStatusInRepo returns the status of a single file relative to baseRef.
 	FileStatusInRepo(path, baseRef, dir string) string

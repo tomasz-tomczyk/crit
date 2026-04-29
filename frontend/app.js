@@ -6267,34 +6267,26 @@
   async function doFinishReview() {
     try {
       const resp = await fetch('/api/finish', { method: 'POST' });
-      if (!resp.ok) throw new Error('finish failed: ' + resp.status);
       const data = await resp.json();
-      const approved = !!data.approved;
-      waitingHasComments = !approved;
+      const hasComments = !!data.prompt;
+      waitingHasComments = hasComments;
       const prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
 
-      const dialog = document.getElementById('waitingDialog');
-      const headingEl = document.getElementById('waitingHeading');
-      const messageEl = document.getElementById('waitingMessage');
-      const clipEl = document.getElementById('waitingClipboard');
-
       document.getElementById('waitingPrompt').textContent = prompt;
-      clipEl.textContent = 'Copy prompt';
-      clipEl.classList.remove('clipboard-confirm');
 
-      // Replay the success-mark draw animation each time we enter approved state.
-      dialog.classList.remove('approved');
-      if (approved) {
-        void dialog.offsetWidth;
-        dialog.classList.add('approved');
-        headingEl.textContent = 'Approved';
-        messageEl.textContent =
-          'Your agent has been notified \u2014 no further action needed. You can close this tab whenever you\u2019re ready.';
-      } else {
-        headingEl.textContent = 'Review Complete';
-        messageEl.innerHTML =
+      if (hasComments) {
+        document.getElementById('waitingMessage').innerHTML =
           'Your agent has been notified. Waiting for updates\u2026' +
           '<span class="waiting-fallback">If your agent wasn\u2019t listening, paste the prompt below.</span>';
+        const clipEl = document.getElementById('waitingClipboard');
+        clipEl.textContent = 'Copy prompt';
+        clipEl.classList.remove('clipboard-confirm');
+      } else {
+        document.getElementById('waitingMessage').textContent =
+          'You can close this browser tab, or leave it open for another round.';
+        const clipEl = document.getElementById('waitingClipboard');
+        clipEl.textContent = 'Copy prompt';
+        clipEl.classList.remove('clipboard-confirm');
       }
 
       try { await navigator.clipboard.writeText(prompt); } catch {}
@@ -6557,6 +6549,39 @@
     });
 
     source.addEventListener('base-changed', function() {
+      reloadForScope();
+      fetchCommits();
+    });
+
+    source.addEventListener('focus-changed', function(e) {
+      try {
+        // Server SSE wraps every event in {type, filename, content} where
+        // `content` is a JSON string carrying the actual payload. Parse the
+        // SSE envelope first, then the inner content for the focus object.
+        const envelope = JSON.parse(e.data || '{}');
+        const inner = envelope.content ? JSON.parse(envelope.content) : envelope;
+        const focus = inner && inner.focus;
+        if (focus) {
+          if (session) {
+            session.focus = focus;
+            // last_range_focus may flip on every focus transition (server
+            // stashes the old range when leaving range mode). Mirror the
+            // server snapshot so renderResumePill sees the latest value.
+            session.last_range_focus = inner.last_range_focus || null;
+          }
+          applyFocusToHeader(focus);
+          // Re-fetch the stack on any range focus transition — the new
+          // focus may live in a different stack, and the breadcrumb's
+          // visibility uses stack.length (not is_stacked) so we need the
+          // server's view either way. Cheap (cached server-side for 60s).
+          if (session && session.mode === 'git' && focus.kind === 'range') {
+            loadStackFromPicker();
+          }
+        }
+      } catch (err) {
+        console.error('focus-changed parse:', err);
+      }
+      // Reuse the same refresh path as base-changed.
       reloadForScope();
       fetchCommits();
     });
@@ -8257,9 +8282,370 @@
     });
   });
 
-  // ===== Start =====
-  init().then(connectSSE).catch(function(err) {
-    console.error('Init failed:', err.message);
+  // ===== Stack breadcrumb + working-tree pill =====
+  //
+  // Replaces the old multi-section focus picker popover with a flatter UI:
+  //   - Stack breadcrumb (in-stack PR navigation) — only when focus is a
+  //     stacked range. Inline DOM, not a popover.
+  //   - Working-tree pill — always visible in range focus (git mode).
+  //
+  // Other PRs / Remote branches are deliberately dropped. The CLI is the
+  // only entry point into range mode from working tree (`crit --pr <N>` or
+  // `crit --range A..B`). See printHelp().
+  const stackChipEl = document.getElementById('stackChip');
+  const stackChipBtnEl = document.getElementById('stackChipBtn');
+  const stackChipLabelEl = document.getElementById('stackChipLabel');
+  const stackPopoverEl = document.getElementById('stackPopover');
+  const stackChipExitEl = document.getElementById('stackChipExit');
+  const resumePrPillEl = document.getElementById('resumePrPill');
+  const diffScopeToggleEl = document.getElementById('diffScopeToggle');
+  const diffAreaHeaderEl = document.getElementById('diffAreaHeader');
+
+  // Cached /api/picker.stack array. We only consume `stack` now — `other_prs`
+  // and `branches` are intentionally unused. Refreshed on focus-changed SSE.
+  let stackCache = null;
+  let pickerLoadInFlight = null;
+
+  // Truncate a label so the chip and popover entries stay readable.
+  function truncateLabel(s, max) {
+    if (!s) return '';
+    if (s.length <= max) return s;
+    return s.slice(0, max - 1) + '\u2026';
+  }
+
+  // entryLabel formats a stack entry as "#<num>: <title>" or "<short branch>".
+  function entryLabel(entry, max) {
+    if (!entry) return '';
+    if (max === undefined || max === null) max = 30;
+    if (entry.pr_number) {
+      let suffix = '';
+      const m = (entry.label || '').match(/^PR #\d+:\s*(.+)$/);
+      if (m && m[1]) suffix = ': ' + m[1];
+      return truncateLabel('#' + entry.pr_number + suffix, max);
+    }
+    return truncateLabel(entry.label || (entry.head_sha ? entry.head_sha.slice(0, 7) : ''), max);
+  }
+
+  // Build the focus payload for switching to a different stack entry.
+  function focusPayloadFromStackEntry(entry, currentFocus) {
+    const fallbackDefault = currentFocus && currentFocus.default_sha ? currentFocus.default_sha : '';
+    const focus = {
+      kind: 'range',
+      base_sha: entry.base_sha,
+      head_sha: entry.head_sha,
+      diff_scope: 'layer',
+      is_stacked: true,
+    };
+    if (entry.pr_number) focus.pr_number = entry.pr_number;
+    if (entry.base_ref_name) focus.base_ref_name = entry.base_ref_name;
+    if (!entry.pr_number && entry.label) focus.label = entry.label;
+    const defaultSHA = entry.default_sha || fallbackDefault;
+    if (defaultSHA) focus.default_sha = defaultSHA;
+    return focus;
+  }
+
+  // ----- Stack chip + popover -----
+  //
+  // Replaces the old horizontal breadcrumb. The chip shows the current
+  // entry's label; clicking it opens a vertical tree popover with all
+  // stack entries plus a default-branch entry that flips diff_scope to
+  // full_stack. Scales to any depth without ellipsising the middle.
+  function chipLabelForFocus(focus) {
+    if (!focus || focus.kind !== 'range') return '';
+    if (Array.isArray(stackCache)) {
+      const cur = stackCache.find(function(e) { return e.head_sha === focus.head_sha; });
+      if (cur) return entryLabel(cur, 24);
+    }
+    if (focus.pr_number) return '#' + focus.pr_number;
+    if (focus.label) return truncateLabel(focus.label, 24);
+    if (focus.head_sha) return focus.head_sha.slice(0, 7);
+    return 'Stack';
+  }
+
+  function isStackChipOpen() {
+    return stackChipEl && stackChipEl.classList.contains('open');
+  }
+  function closeStackChip() {
+    if (!stackChipEl) return;
+    stackChipEl.classList.remove('open');
+    if (stackChipBtnEl) stackChipBtnEl.setAttribute('aria-expanded', 'false');
+  }
+  function openStackChip() {
+    if (!stackChipEl) return;
+    stackChipEl.classList.add('open');
+    if (stackChipBtnEl) stackChipBtnEl.setAttribute('aria-expanded', 'true');
+  }
+
+  // renderStackChip decides whether the chip is visible and paints the
+  // popover contents. The chip hides when stack is < 2 (no navigation
+  // possible). The popover renders a vertical ASCII-tree of all entries.
+  function renderStackChip(focus, stack) {
+    if (!stackChipEl) return;
+    const show = focus && focus.kind === 'range' && Array.isArray(stack) && stack.length > 1;
+    if (!show) {
+      stackChipEl.style.display = 'none';
+      stackPopoverEl.innerHTML = '';
+      closeStackChip();
+      return;
+    }
+    stackChipEl.style.display = '';
+    if (stackChipLabelEl) stackChipLabelEl.textContent = chipLabelForFocus(focus);
+
+    // Filter out the default-branch entry from the linear stack — it's
+    // surfaced separately as the root marker above the tree. Use the focus's
+    // default_sha when available; fall back to per-entry default_sha (stamped
+    // by assignStackBases) so range-mode focuses without a resolved
+    // default_sha still drop the redundant ghost row.
+    const focusDefaultSHA = focus.default_sha || '';
+    const ordered = stack.slice().reverse().filter(function(e) {
+      const dSHA = focusDefaultSHA || e.default_sha || '';
+      return !dSHA || e.head_sha !== dSHA;
+    });
+    const defaultBranchName = (ordered[0] && ordered[0].base_ref_name) || 'main';
+
+    const parts = [];
+    parts.push('<div class="stack-popover-title">Stack</div>');
+
+    // Default-branch entry — non-interactive root marker. The
+    // layer/full-stack toggle in the diff-area header is the canonical
+    // way to switch scopes; clicking here used to flip diff_scope but
+    // that overlapped confusingly with the toggle.
+    parts.push('<span class="stack-popover-item stack-popover-default stack-popover-root" role="presentation">' +
+      '<span class="stack-popover-tree" aria-hidden="true">\u2502 </span>' +
+      '<span class="stack-popover-label">' + escapeHtml(defaultBranchName) + '</span>' +
+      '</span>');
+
+    // Stack entries — base→head, with ├─ / └─ prefixes.
+    ordered.forEach(function(entry, i) {
+      const isLast = i === ordered.length - 1;
+      const tree = isLast ? '\u2514\u2500 ' : '\u251C\u2500 ';
+      const isCurrent = entry.head_sha === focus.head_sha;
+      const label = entryLabel(entry, 40);
+      if (isCurrent) {
+        parts.push('<span class="stack-popover-item stack-popover-current" aria-current="page" role="menuitem"' +
+          ' data-head-sha="' + escapeHtml(entry.head_sha || '') + '">' +
+          '<span class="stack-popover-tree" aria-hidden="true">' + tree + '</span>' +
+          '<span class="stack-popover-label">' + escapeHtml(label) + '</span>' +
+          '<span class="stack-popover-marker">(reviewing)</span>' +
+          '</span>');
+      } else {
+        const payload = focusPayloadFromStackEntry(entry, focus);
+        const aria = entry.pr_number ? ('Switch to PR #' + entry.pr_number) : ('Switch to ' + label);
+        parts.push('<button type="button" class="stack-popover-item" role="menuitem"' +
+          ' data-action="switch"' +
+          ' data-head-sha="' + escapeHtml(entry.head_sha || '') + '"' +
+          ' data-focus-payload="' + escapeHtml(JSON.stringify(payload)) + '"' +
+          ' aria-label="' + escapeHtml(aria) + '">' +
+          '<span class="stack-popover-tree" aria-hidden="true">' + tree + '</span>' +
+          '<span class="stack-popover-label">' + escapeHtml(label) + '</span>' +
+          '</button>');
+      }
+    });
+
+    stackPopoverEl.innerHTML = parts.join('');
+  }
+
+  function renderStackChipExit(focus, mode) {
+    if (!stackChipExitEl) return;
+    const show = mode === 'git' && focus && focus.kind === 'range';
+    stackChipExitEl.style.display = show ? '' : 'none';
+  }
+
+  // renderResumePill shows a "Resume PR #N" (or "Resume A..B" for ranges
+  // without a PR number) affordance whenever the user is in working_tree
+  // mode AND there's a stashed last range focus on the session.
+  function renderResumePill(focus, lastRange, mode) {
+    if (!resumePrPillEl) return;
+    const inWT = focus && (focus.kind === 'working_tree' || !focus.kind);
+    const show = mode === 'git' && inWT && lastRange && lastRange.kind === 'range';
+    if (!show) {
+      resumePrPillEl.style.display = 'none';
+      return;
+    }
+    let label;
+    if (lastRange.pr_number) {
+      label = 'Resume PR #' + lastRange.pr_number;
+    } else {
+      const b = lastRange.base_sha ? lastRange.base_sha.slice(0, 7) : '?';
+      const h = lastRange.head_sha ? lastRange.head_sha.slice(0, 7) : '?';
+      label = 'Resume ' + b + '..' + h;
+    }
+    resumePrPillEl.textContent = label;
+    resumePrPillEl.setAttribute('aria-label', label);
+    resumePrPillEl.style.display = '';
+  }
+
+  function applyFocusToHeader(focus) {
+    const mode = session && session.mode;
+    renderStackChip(focus, stackCache);
+    renderStackChipExit(focus, mode);
+    renderResumePill(focus, session && session.last_range_focus, mode);
+    if (!diffScopeToggleEl) return;
+    // Show layer/full-stack toggle whenever the focus has a resolved
+    // default_sha — broader than is_stacked alone, so local-only stacks
+    // (`crit --range A..B` with a real chain) also get the toggle once
+    // they're upgraded with default_sha via stack-entry navigation.
+    const showScopeToggle = focus && focus.kind === 'range' && (focus.is_stacked || !!focus.default_sha);
+    // Toggle the diff-area header along with the scope toggle so the bar
+    // doesn't render an empty row when the toggle isn't applicable.
+    if (diffAreaHeaderEl) diffAreaHeaderEl.style.display = showScopeToggle ? '' : 'none';
+    if (showScopeToggle) {
+      diffScopeToggleEl.style.display = '';
+      const layerBtn = diffScopeToggleEl.querySelector('[data-diff-scope="layer"]');
+      const fsBtn = diffScopeToggleEl.querySelector('[data-diff-scope="full_stack"]');
+      const active = focus.diff_scope || 'layer';
+      [layerBtn, fsBtn].forEach(function(btn) {
+        if (!btn) return;
+        const isActive = btn.getAttribute('data-diff-scope') === active;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-checked', String(isActive));
+      });
+      if (fsBtn) {
+        if (!focus.default_sha) {
+          fsBtn.setAttribute('disabled', 'disabled');
+          fsBtn.setAttribute('title', 'Requires local checkout');
+        } else {
+          fsBtn.removeAttribute('disabled');
+          fsBtn.setAttribute('title', 'Full-stack (cumulative from default branch)');
+        }
+      }
+    } else {
+      diffScopeToggleEl.style.display = 'none';
+    }
+  }
+
+  // Fetch /api/picker once and cache the stack array. We dedup with an
+  // in-flight promise so concurrent triggers (init + focus-changed SSE) don't
+  // hammer the daemon. Errors are logged but don't block UI — breadcrumb just
+  // stays hidden until the next successful fetch.
+  async function loadStackFromPicker() {
+    if (pickerLoadInFlight) return pickerLoadInFlight;
+    pickerLoadInFlight = (async function() {
+      try {
+        const res = await fetch('/api/picker');
+        if (!res.ok) return;
+        const data = await res.json();
+        stackCache = Array.isArray(data.stack) ? data.stack : [];
+        applyFocusToHeader((session && session.focus) || { kind: 'working_tree' });
+      } catch (err) {
+        console.error('picker fetch failed:', err);
+      } finally {
+        pickerLoadInFlight = null;
+      }
+    })();
+    return pickerLoadInFlight;
+  }
+
+  async function postFocus(focus) {
+    try {
+      const res = await fetch('/api/focus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(focus),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error('Focus switch failed:', text);
+      }
+    } catch (err) {
+      console.error('Focus switch error:', err);
+    }
+  }
+
+  if (stackChipBtnEl) {
+    stackChipBtnEl.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (isStackChipOpen()) closeStackChip();
+      else openStackChip();
+    });
+  }
+  if (stackPopoverEl) {
+    stackPopoverEl.addEventListener('click', function(e) {
+      const btn = e.target.closest('button.stack-popover-item');
+      if (!btn || btn.hasAttribute('disabled')) return;
+      const action = btn.getAttribute('data-action');
+      const focus = session && session.focus;
+      if (!focus || focus.kind !== 'range') return;
+      if (action === 'switch') {
+        const payloadAttr = btn.getAttribute('data-focus-payload');
+        closeStackChip();
+        if (!payloadAttr) return;
+        try {
+          postFocus(JSON.parse(payloadAttr));
+        } catch (err) {
+          console.error('Failed to parse stack popover payload:', err);
+        }
+      }
+    });
+  }
+  // Click-outside + Escape close the popover.
+  document.addEventListener('click', function(e) {
+    if (!isStackChipOpen()) return;
+    if (stackChipEl && !stackChipEl.contains(e.target)) closeStackChip();
   });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && isStackChipOpen()) {
+      closeStackChip();
+      e.stopImmediatePropagation();
+    }
+  });
+
+  if (stackChipExitEl) {
+    stackChipExitEl.addEventListener('click', function(e) {
+      e.stopPropagation();
+      closeStackChip();
+      postFocus({ kind: 'working_tree' });
+    });
+  }
+
+  if (resumePrPillEl) {
+    resumePrPillEl.addEventListener('click', function() {
+      const last = session && session.last_range_focus;
+      if (!last || last.kind !== 'range') return;
+      // Build a minimal range-focus payload from the stashed Focus.
+      const payload = {
+        kind: 'range',
+        base_sha: last.base_sha,
+        head_sha: last.head_sha,
+        diff_scope: last.diff_scope || 'layer',
+      };
+      if (last.pr_number) payload.pr_number = last.pr_number;
+      if (last.default_sha) payload.default_sha = last.default_sha;
+      if (last.is_stacked) payload.is_stacked = true;
+      if (last.label) payload.label = last.label;
+      if (last.base_ref_name) payload.base_ref_name = last.base_ref_name;
+      if (last.head_ref_name) payload.head_ref_name = last.head_ref_name;
+      postFocus(payload);
+    });
+  }
+
+  if (diffScopeToggleEl) {
+    diffScopeToggleEl.addEventListener('click', function(e) {
+      const btn = e.target.closest('button[data-diff-scope]');
+      if (!btn || btn.hasAttribute('disabled')) return;
+      const newScope = btn.getAttribute('data-diff-scope');
+      if (!session || !session.focus || session.focus.kind !== 'range') return;
+      const focus = Object.assign({}, session.focus, { diff_scope: newScope });
+      postFocus(focus);
+    });
+  }
+
+  // ===== Start =====
+  init()
+    .then(function() {
+      if (session) applyFocusToHeader(session.focus || { kind: 'working_tree' });
+      // Pre-fetch /api/picker.stack so the breadcrumb has data without
+      // waiting for the user to do anything. Fire for any range focus in
+      // git mode — the breadcrumb's visibility decision uses stack.length,
+      // not is_stacked, so we need the stack data to know whether to render.
+      const f = session && session.focus;
+      if (session && session.mode === 'git' && f && f.kind === 'range') {
+        loadStackFromPicker();
+      }
+    })
+    .then(connectSSE)
+    .catch(function(err) {
+      console.error('Init failed:', err.message);
+    });
 
 })();

@@ -192,12 +192,17 @@ func (s *SaplingVCS) FileDiffUnifiedNewFile(path string) ([]DiffHunk, error) {
 	return FileDiffUnifiedNewFile(string(data)), nil
 }
 
-// CommitLog returns the commits between baseRef and HEAD.
-func (s *SaplingVCS) CommitLog(baseRef, dir string) ([]CommitInfo, error) {
+// CommitLog returns the commits between baseRef and headRef. When headRef is
+// empty, sapling's current commit (".") is used.
+func (s *SaplingVCS) CommitLog(baseRef, headRef, dir string) ([]CommitInfo, error) {
 	if baseRef == "" {
 		return nil, nil
 	}
-	revset := fmt.Sprintf("%s::. - %s", baseRef, baseRef)
+	head := headRef
+	if head == "" {
+		head = "."
+	}
+	revset := fmt.Sprintf("%s::%s - %s", baseRef, head, baseRef)
 	// The \\n in Go string literals produce literal \n characters, which Sapling's
 	// template engine interprets as newlines (field separators in the output).
 	tpl := "{node}\\n{node|short}\\n{desc|firstline}\\n{author|user}\\n{date|isodate}\\n---\\n"
@@ -314,6 +319,50 @@ func (s *SaplingVCS) FileStatusInRepo(path, baseRef, dir string) string {
 		return ""
 	}
 	return changes[0].Status
+}
+
+// ChangedFilesBetweenSHAs returns the files changed in the range baseSHA..headSHA.
+func (s *SaplingVCS) ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileChange, error) {
+	out, err := slCommandInDir(dir, "status", "--rev", baseSHA, "--rev", headSHA)
+	if err != nil {
+		return nil, err
+	}
+	return parseSaplingStatus(out), nil
+}
+
+// FileDiffBetweenSHAs returns parsed diff hunks for path in the range baseSHA..headSHA.
+func (s *SaplingVCS) FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string) ([]DiffHunk, error) {
+	cmd := exec.Command("sl", "diff", "--rev", baseSHA, "--rev", headSHA, path)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, _ := cmd.Output()
+	return ParseUnifiedDiff(string(out)), nil
+}
+
+// ReadFileAtSHA returns the bytes of path at the given SHA, or (nil, nil)
+// when the path does not exist at that SHA. Sapling exits non-zero on
+// missing paths and on missing SHAs without distinguishing them; we treat
+// any error as "not present" to match the git contract.
+func (s *SaplingVCS) ReadFileAtSHA(sha, path, dir string) ([]byte, error) {
+	cmd := exec.Command("sl", "cat", "-r", sha, path)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, nil //nolint:nilerr // sapling can't distinguish missing path from missing sha; treat both as not present
+	}
+	return out, nil
+}
+
+// HasObject reports whether sha resolves to a commit in the local sapling store.
+func (s *SaplingVCS) HasObject(sha, dir string) bool {
+	cmd := exec.Command("sl", "log", "-r", sha, "-T", "{node}")
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	return cmd.Run() == nil
 }
 
 // HasStagingArea returns false because Sapling has no staging area.

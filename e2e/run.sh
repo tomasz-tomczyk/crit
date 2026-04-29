@@ -8,6 +8,7 @@ FILE_PORT="${CRIT_TEST_FILE_PORT:-3124}"
 SINGLE_PORT="${CRIT_TEST_SINGLE_PORT:-3125}"
 NOGIT_PORT="${CRIT_TEST_NOGIT_PORT:-3126}"
 MULTI_PORT="${CRIT_TEST_MULTI_PORT:-3127}"
+RANGE_PORT="${CRIT_TEST_RANGE_PORT:-3128}"
 
 # Build crit once (skip if CRIT_BIN already points to an existing binary, e.g. CI coverage builds)
 if [ -n "${CRIT_BIN:-}" ] && [ -f "$CRIT_BIN" ]; then
@@ -20,7 +21,7 @@ else
 fi
 
 # Kill any stale processes on our test ports before starting fresh
-for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT"; do
+for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT"; do
   lsof -ti tcp:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 
@@ -36,16 +37,18 @@ bash setup-fixtures-nogit.sh "$NOGIT_PORT" &
 NOGIT_PID=$!
 bash setup-fixtures-multifile.sh "$MULTI_PORT" &
 MULTI_PID=$!
+bash setup-fixtures-range-mode.sh "$RANGE_PORT" &
+RANGE_PID=$!
 
 cleanup() {
-  kill "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" 2>/dev/null || true
-  wait "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" 2>/dev/null || true
+  kill "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" 2>/dev/null || true
+  wait "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" 2>/dev/null || true
   rm -rf "${BIN_DIR:-}"
 }
 trap cleanup EXIT
 
 # Wait for servers to be ready
-for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT"; do
+for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT"; do
   while ! curl -sf "http://localhost:$port/api/session" >/dev/null 2>&1; do
     sleep 0.1
   done
@@ -67,12 +70,15 @@ if [ $# -eq 0 ]; then
   PW4=$!
   npx playwright test --project=multi-file-mode > "$PWLOGS/multi.log" 2>&1 &
   PW5=$!
+  npx playwright test --project=range-mode > "$PWLOGS/range.log" 2>&1 &
+  PW6=$!
 
   wait $PW1 || FAILED=1
   wait $PW2 || FAILED=1
   wait $PW3 || FAILED=1
   wait $PW4 || FAILED=1
   wait $PW5 || FAILED=1
+  wait $PW6 || FAILED=1
 
   # Print results — show summary for passing projects, full output for failures
   for f in "$PWLOGS"/*.log; do

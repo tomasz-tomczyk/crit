@@ -147,6 +147,56 @@ func TestPostFileComment(t *testing.T) {
 	}
 }
 
+// TestPostFileComment_NormalizesSide verifies that GitHub-style "RIGHT"/"LEFT"
+// side values on the wire are normalized to crit's internal representation
+// ("" for new, "old" for deletion). Without this normalization the frontend's
+// diff renderer keys comments by "lineNumber:side" and would falsely flag
+// fresh range-mode comments (seeded with side="RIGHT") as "outdated" because
+// the diff hunk lines key with side="" instead of "RIGHT". Regression for
+// the issue where Instance 5 (range mode) seeded comments rendered with the
+// "outdated" badge on first page load.
+func TestPostFileComment_NormalizesSide(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"RIGHT to empty", "RIGHT", ""},
+		{"right to empty", "right", ""},
+		{"LEFT to old", "LEFT", "old"},
+		{"left to old", "left", "old"},
+		{"old stays old", "old", "old"},
+		{"empty stays empty", "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, session := newTestServer(t)
+			body := `{"start_line":1,"end_line":1,"side":"` + tc.input + `","body":"x"}`
+			req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, req)
+			if w.Code != 201 {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+			var c Comment
+			if err := json.Unmarshal(w.Body.Bytes(), &c); err != nil {
+				t.Fatal(err)
+			}
+			if c.Side != tc.want {
+				t.Errorf("Side = %q, want %q", c.Side, tc.want)
+			}
+			stored := session.GetComments("test.md")
+			if len(stored) != 1 {
+				t.Fatalf("stored %d comments, want 1", len(stored))
+			}
+			if stored[0].Side != tc.want {
+				t.Errorf("stored Side = %q, want %q", stored[0].Side, tc.want)
+			}
+		})
+	}
+}
+
 func TestPostFileComment_EmptyBody(t *testing.T) {
 	s, _ := newTestServer(t)
 	body := `{"start_line":1,"end_line":1,"body":""}`

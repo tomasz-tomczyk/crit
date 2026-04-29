@@ -2314,7 +2314,7 @@ func TestBulkAddCommentsToCritJSON_PopulatesAnchor(t *testing.T) {
 func TestProcessBulkReviewEntry_ReviewScope(t *testing.T) {
 	cj := CritJSON{Files: map[string]CritJSONFile{}}
 	e := BulkCommentEntry{Body: "overall looks good", Scope: "review"}
-	err := processBulkReviewEntry(&cj, 0, e, "reviewer", "")
+	err := processBulkReviewEntry(&cj, 0, e, "reviewer", "", inheritedScope{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2332,7 +2332,7 @@ func TestProcessBulkReviewEntry_ReviewScope(t *testing.T) {
 func TestProcessBulkReviewEntry_WithLineRejectsNoFile(t *testing.T) {
 	cj := CritJSON{Files: map[string]CritJSONFile{}}
 	e := BulkCommentEntry{Body: "bad", Scope: "review", Line: 5}
-	err := processBulkReviewEntry(&cj, 0, e, "author", "")
+	err := processBulkReviewEntry(&cj, 0, e, "author", "", inheritedScope{})
 	if err == nil {
 		t.Error("expected error when review entry has line number")
 	}
@@ -2343,7 +2343,7 @@ func TestProcessBulkReviewEntry_NonReviewScopeWithFile(t *testing.T) {
 	// When scope != "review" but File/Path are set, it errors because
 	// file-scoped comments should go through processBulkFileOrLineEntry.
 	e := BulkCommentEntry{Body: "bad", Scope: "line", File: "test.go"}
-	err := processBulkReviewEntry(&cj, 1, e, "author", "")
+	err := processBulkReviewEntry(&cj, 1, e, "author", "", inheritedScope{})
 	if err == nil {
 		t.Error("expected error when non-review scope has file set")
 	}
@@ -2353,7 +2353,7 @@ func TestProcessBulkReviewEntry_NoFileFallsThrough(t *testing.T) {
 	cj := CritJSON{Files: map[string]CritJSONFile{}}
 	// When no file/path is set and scope is not "review", it still adds a review comment.
 	e := BulkCommentEntry{Body: "general feedback", Scope: "line"}
-	err := processBulkReviewEntry(&cj, 0, e, "author", "")
+	err := processBulkReviewEntry(&cj, 0, e, "author", "", inheritedScope{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2432,10 +2432,106 @@ func TestMergeGHComments_UsesDisplayNameFromCache(t *testing.T) {
 			CreatedAt: "2025-01-01T00:00:00Z"},
 	}
 	names := userNameCache{"alice": "Alice Liddell"}
-	if added := mergeGHCommentsWithNames(&cj, ghComments, names); added != 1 {
+	if added := mergeGHCommentsWithNames(&cj, ghComments, names, inheritedScope{}); added != 1 {
 		t.Fatalf("added = %d, want 1", added)
 	}
 	if got := cj.Files["main.go"].Comments[0].Author; got != "Alice Liddell" {
 		t.Errorf("Author = %q, want Alice Liddell", got)
+	}
+}
+
+// TestMergeGHCommentsScoped_StampsHeadAndLayer verifies the C-1 fix: when
+// mergeGHCommentsScoped is invoked with a non-empty scope (i.e., `crit pull`
+// running inside an active range-mode focus), imported root comments are
+// stamped with HeadSHA + DiffScope=layer so visibleInFocus shows them.
+func TestMergeGHCommentsScoped_StampsHeadAndLayer(t *testing.T) {
+	cj := CritJSON{Files: map[string]CritJSONFile{}}
+	ghComments := []ghComment{
+		{ID: 7, Path: "main.go", Line: 12, Side: "RIGHT", Body: "looks wrong",
+			User: struct {
+				Login string `json:"login"`
+			}{Login: "rev"},
+			CreatedAt: "2025-01-01T00:00:00Z"},
+	}
+	scope := inheritedScope{HeadSHA: "headXYZ", DiffScope: "layer"}
+	if added := mergeGHCommentsScoped(&cj, ghComments, scope); added != 1 {
+		t.Fatalf("added=%d want 1", added)
+	}
+	c := cj.Files["main.go"].Comments[0]
+	if c.HeadSHA != "headXYZ" {
+		t.Errorf("HeadSHA=%q want headXYZ", c.HeadSHA)
+	}
+	if c.DiffScope != "layer" {
+		t.Errorf("DiffScope=%q want layer", c.DiffScope)
+	}
+}
+
+// TestMergeGHCommentsScoped_NoStampWithEmptyScope confirms the legacy
+// working-tree path: when scope is empty (no daemon, no on-disk
+// ActiveDiffScope), pulled comments are NOT stamped, preserving today's
+// behavior.
+func TestMergeGHCommentsScoped_NoStampWithEmptyScope(t *testing.T) {
+	cj := CritJSON{Files: map[string]CritJSONFile{}}
+	ghComments := []ghComment{
+		{ID: 8, Path: "main.go", Line: 3, Side: "RIGHT", Body: "x",
+			User: struct {
+				Login string `json:"login"`
+			}{Login: "u"},
+			CreatedAt: "2025-01-01T00:00:00Z"},
+	}
+	mergeGHCommentsScoped(&cj, ghComments, inheritedScope{})
+	c := cj.Files["main.go"].Comments[0]
+	if c.HeadSHA != "" || c.DiffScope != "" {
+		t.Errorf("comment was stamped despite empty scope: %+v", c)
+	}
+}
+
+// TestResolvePullScope verifies the daemon-probe + on-disk fallback used by
+// `crit pull` and mergeWebComments. Mirrors the precedence in
+// resolveCommentScope (focus_cli.go) but always emits DiffScope=layer.
+func TestResolvePullScope(t *testing.T) {
+	cases := []struct {
+		name        string
+		daemonFocus *Focus
+		diskScope   string
+		wantHead    string
+		wantScope   string
+	}{
+		{name: "no daemon, no disk -> empty (legacy)", wantHead: "", wantScope: ""},
+		{
+			name:        "daemon range/layer -> head + layer",
+			daemonFocus: &Focus{Kind: FocusRange, HeadSHA: "abc", DiffScope: DiffScopeLayer},
+			wantHead:    "abc", wantScope: "layer",
+		},
+		{
+			name:        "daemon range/full-stack -> still layer (pulls anchor to PR diff)",
+			daemonFocus: &Focus{Kind: FocusRange, HeadSHA: "def", DiffScope: DiffScopeFullStack},
+			wantHead:    "def", wantScope: "layer",
+		},
+		{
+			name:        "daemon working-tree -> empty",
+			daemonFocus: &Focus{Kind: FocusWorkingTree},
+			wantHead:    "", wantScope: "",
+		},
+		{
+			name:      "no daemon, disk says layer -> layer with empty head",
+			diskScope: "layer",
+			wantHead:  "", wantScope: "layer",
+		},
+		{
+			name:      "no daemon, disk says full_stack -> still layer",
+			diskScope: "full_stack",
+			wantHead:  "", wantScope: "layer",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withDaemonFocus(t, tc.daemonFocus)
+			cj := &CritJSON{ActiveDiffScope: tc.diskScope}
+			got := resolvePullScope("", cj)
+			if got.HeadSHA != tc.wantHead || got.DiffScope != tc.wantScope {
+				t.Errorf("got=%+v want head=%q scope=%q", got, tc.wantHead, tc.wantScope)
+			}
+		})
 	}
 }

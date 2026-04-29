@@ -224,3 +224,91 @@ func TestHasSLDirFrom_DoesNotDetectDotGitSL(t *testing.T) {
 		t.Fatal("hasSLDirFrom should not detect .git/sl as Sapling metadata")
 	}
 }
+
+// runSL runs an sl subcommand in dir and returns trimmed stdout, failing
+// the test on error. Tests that need a real sapling repo skip if `sl` is
+// missing on PATH.
+func runSL(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("sl", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "HGUSER=test <test@test.com>")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("sl %v failed: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
+// initTestSaplingRepo creates a temp sapling repo with one seed commit.
+// Skips the test when `sl` is missing.
+func initTestSaplingRepo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("sl"); err != nil {
+		t.Skip("sl not installed")
+	}
+	dir := t.TempDir()
+	runSL(t, dir, "init", "--git", ".")
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runSL(t, dir, "commit", "-A", "-m", "seed")
+	return dir
+}
+
+func TestSaplingVCS_ChangedFilesBetweenSHAs(t *testing.T) {
+	dir := initTestSaplingRepo(t)
+	s := &SaplingVCS{}
+	base := runSL(t, dir, "log", "-r", ".", "-T", "{node}")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runSL(t, dir, "commit", "-A", "-m", "add a")
+	head := runSL(t, dir, "log", "-r", ".", "-T", "{node}")
+
+	got, err := s.ChangedFilesBetweenSHAs(base, head, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range got {
+		if c.Path == "a.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a.txt in result, got %+v", got)
+	}
+}
+
+func TestSaplingVCS_ReadFileAtSHA(t *testing.T) {
+	dir := initTestSaplingRepo(t)
+	s := &SaplingVCS{}
+	sha := runSL(t, dir, "log", "-r", ".", "-T", "{node}")
+
+	got, err := s.ReadFileAtSHA(sha, "seed.txt", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "seed\n" {
+		t.Errorf("got %q, want %q", got, "seed\n")
+	}
+
+	// Missing path → nil, nil per contract.
+	got, err = s.ReadFileAtSHA(sha, "nonexistent.txt", dir)
+	if err != nil || got != nil {
+		t.Errorf("missing path: got (%q, %v), want (nil, nil)", got, err)
+	}
+}
+
+func TestSaplingVCS_HasObject(t *testing.T) {
+	dir := initTestSaplingRepo(t)
+	s := &SaplingVCS{}
+	sha := runSL(t, dir, "log", "-r", ".", "-T", "{node}")
+	if !s.HasObject(sha, dir) {
+		t.Errorf("HasObject(%q) = false, want true", sha)
+	}
+	if s.HasObject("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", dir) {
+		t.Error("HasObject(bogus) = true, want false")
+	}
+}

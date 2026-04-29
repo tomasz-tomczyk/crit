@@ -654,6 +654,11 @@ func highestWebIndex(cj CritJSON) int {
 // files or into review_comments for review-level (scope:"review") comments.
 // It also merges reply updates for existing comments identified by external_id.
 // Pass nil for replyUpdates to skip reply merging.
+//
+// When the active focus is a range mode (probed from a running daemon, or
+// inferred from the on-disk ActiveDiffScope), imported comments are stamped
+// with HeadSHA + DiffScope=layer so they pass visibleInFocus in range view.
+// See spec §E "Write path — `mergeWebComments`".
 func mergeWebComments(critPath string, newComments []webComment, replyUpdates map[string][]webReply) error {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
@@ -671,6 +676,8 @@ func mergeWebComments(critPath string, newComments []webComment, replyUpdates ma
 	// even if earlier ones were deleted from the review file.
 	webCount := highestWebIndex(cj)
 
+	scope := resolvePullScope("", &cj)
+
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, wc := range newComments {
 		webCount++
@@ -682,7 +689,7 @@ func mergeWebComments(critPath string, newComments []webComment, replyUpdates ma
 				UserID: wr.UserID,
 			})
 		}
-		c := Comment{
+		c := stampWithFocus(Comment{
 			ID:          fmt.Sprintf("web-%d", webCount),
 			StartLine:   wc.StartLine,
 			EndLine:     wc.EndLine,
@@ -695,7 +702,7 @@ func mergeWebComments(critPath string, newComments []webComment, replyUpdates ma
 			Replies:     replies,
 			CreatedAt:   now,
 			UpdatedAt:   now,
-		}
+		}, scope.asFocus())
 		if wc.Scope == "review" {
 			cj.ReviewComments = append(cj.ReviewComments, c)
 		} else {

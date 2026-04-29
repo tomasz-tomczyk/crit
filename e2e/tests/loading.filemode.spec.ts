@@ -38,6 +38,19 @@ test.describe('File Mode — Page Loading', () => {
     const badges = page.locator('.file-header-badge');
     await expect(badges).toHaveCount(0);
   });
+
+  // The stack breadcrumb and working-tree pill are VCS-aware controls — in
+  // file mode (no git) those concepts don't exist, so both must stay hidden.
+  // Regression for: "picker visible in file mode where it has no meaning."
+  test('stack breadcrumb is hidden in file mode', async ({ page }) => {
+    await loadPage(page);
+    await expect(page.locator('#stackBreadcrumb')).toBeHidden();
+  });
+
+  test('stack chip ✕ exit is hidden in file mode', async ({ page }) => {
+    await loadPage(page);
+    await expect(page.locator('#stackChipExit')).toBeHidden();
+  });
 });
 
 test.describe('File Mode — Markdown Rendering', () => {

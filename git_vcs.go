@@ -67,8 +67,8 @@ func (g *GitVCS) FileDiffUnifiedNewFile(path string) ([]DiffHunk, error) {
 	return FileDiffUnifiedNewFile(string(data)), nil
 }
 
-func (g *GitVCS) CommitLog(baseRef, dir string) ([]CommitInfo, error) {
-	return CommitLog(baseRef, dir)
+func (g *GitVCS) CommitLog(baseRef, headRef, dir string) ([]CommitInfo, error) {
+	return CommitLog(baseRef, headRef, dir)
 }
 
 func (g *GitVCS) WorkingTreeFingerprint() string { return WorkingTreeFingerprint() }
@@ -101,6 +101,26 @@ func (g *GitVCS) UserName() string {
 func (g *GitVCS) FileContentAtRef(path, ref, dir string) (string, error) {
 	content := fileContentAtRef(path, ref, dir)
 	return content, nil
+}
+
+// ChangedFilesBetweenSHAs returns the files changed in the range baseSHA..headSHA.
+func (g *GitVCS) ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileChange, error) {
+	return ChangedFilesBetweenSHAs(baseSHA, headSHA, dir)
+}
+
+// FileDiffBetweenSHAs returns parsed diff hunks for path in the range baseSHA..headSHA.
+func (g *GitVCS) FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string) ([]DiffHunk, error) {
+	return FileDiffBetweenSHAs(path, baseSHA, headSHA, dir)
+}
+
+// ReadFileAtSHA returns the bytes of path at the given SHA.
+func (g *GitVCS) ReadFileAtSHA(sha, path, dir string) ([]byte, error) {
+	return ReadFileAtSHA(sha, path, dir)
+}
+
+// HasObject reports whether sha is reachable as a commit object locally.
+func (g *GitVCS) HasObject(sha, dir string) bool {
+	return HasObject(sha, dir)
 }
 
 // FileStatusInRepo returns the status of a single file relative to baseRef.

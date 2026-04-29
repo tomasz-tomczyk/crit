@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -177,13 +178,20 @@ func isOnDefaultBranch() bool {
 }
 
 // MergeBase returns the merge base commit between HEAD and the given base ref.
+// Falls back to origin/<base> when the local ref is missing — common in
+// worktrees off a bare repo where only the remote-tracking ref exists.
 func MergeBase(base string) (string, error) {
-	cmd := exec.Command("git", "merge-base", "HEAD", base)
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("merge-base failed: %w", err)
+	out, err := exec.Command("git", "merge-base", "HEAD", base).Output()
+	if err == nil {
+		return strings.TrimSpace(string(out)), nil
 	}
-	return strings.TrimSpace(string(out)), nil
+	if !strings.HasPrefix(base, "origin/") {
+		fallback, fbErr := exec.Command("git", "merge-base", "HEAD", "origin/"+base).Output()
+		if fbErr == nil {
+			return strings.TrimSpace(string(fallback)), nil
+		}
+	}
+	return "", fmt.Errorf("merge-base failed: %w", err)
 }
 
 // fileContentAtRef returns the content of a file at the given git ref.
@@ -313,14 +321,19 @@ type CommitInfo struct {
 	Date     string `json:"date"`
 }
 
-// CommitLog returns the commits between baseRef and HEAD, newest first.
-// Returns nil if baseRef is empty.
+// CommitLog returns the commits between baseRef and headRef, newest first.
+// Returns nil if baseRef is empty. When headRef is empty, git's HEAD ref is used
+// (working-tree behavior). Pass an explicit SHA to scope the upper bound — e.g.
+// in range mode where HEAD may point past the focus.
 // The dir parameter sets the working directory for the git command.
-func CommitLog(baseRef, dir string) ([]CommitInfo, error) {
+func CommitLog(baseRef, headRef, dir string) ([]CommitInfo, error) {
 	if baseRef == "" {
 		return nil, nil
 	}
-	cmd := exec.Command("git", "log", "--format=%H%n%h%n%s%n%an%n%aI", baseRef+"..HEAD")
+	if headRef == "" {
+		headRef = "HEAD"
+	}
+	cmd := exec.Command("git", "log", "--format=%H%n%h%n%s%n%an%n%aI", baseRef+".."+headRef)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -472,6 +485,253 @@ func changedFilesFromBaseInDir(baseRef, dir string) ([]FileChange, error) {
 	changes = append(changes, untracked...)
 
 	return dedup(changes), nil
+}
+
+// runGitInDir runs `git <args...>` in dir and returns the stdout. Mirrors the
+// existing inline exec.Command pattern used elsewhere in git.go.
+func runGitInDir(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	return string(out), err
+}
+
+// ResolveDefaultBranchSHA returns the tip SHA of the repo's default branch,
+// preferring the remote (origin) and falling back to local. Returns
+// ("", err) on failure — callers treat that as "full-stack unavailable"
+// rather than fatal.
+func ResolveDefaultBranchSHA(vcs VCS, repoRoot, defaultBranch string) (string, error) {
+	if vcs == nil || defaultBranch == "" {
+		return "", fmt.Errorf("default branch unknown")
+	}
+	if vcs.Name() == "git" {
+		if out, err := runGitInDir(repoRoot, "rev-parse", "--verify", "origin/"+defaultBranch); err == nil {
+			return strings.TrimSpace(out), nil
+		}
+		if out, err := runGitInDir(repoRoot, "rev-parse", "--verify", defaultBranch); err == nil {
+			return strings.TrimSpace(out), nil
+		}
+		return "", fmt.Errorf("could not resolve %s tip", defaultBranch)
+	}
+	// Sapling: try remote bookmark, then local.
+	if out, err := slCommandInDir(repoRoot, "log", "-r", "remote/"+defaultBranch, "-T", "{node}"); err == nil && strings.TrimSpace(out) != "" {
+		return strings.TrimSpace(out), nil
+	}
+	if out, err := slCommandInDir(repoRoot, "log", "-r", defaultBranch, "-T", "{node}"); err == nil && strings.TrimSpace(out) != "" {
+		return strings.TrimSpace(out), nil
+	}
+	return "", fmt.Errorf("could not resolve %s tip", defaultBranch)
+}
+
+// walkAncestors enumerates HEAD-first the recent ancestor SHAs that are
+// candidates for stack stops. Capped at maxDepth.
+func walkAncestors(vcs VCS, repoRoot string, maxDepth int) ([]string, error) {
+	if vcs == nil {
+		return nil, nil
+	}
+	if vcs.Name() == "git" {
+		out, err := runGitInDir(repoRoot, "rev-list", "--first-parent", "-n", strconv.Itoa(maxDepth), "HEAD")
+		if err != nil {
+			return nil, err
+		}
+		return splitNonEmpty(out), nil
+	}
+	// Sapling: ancestors of `.` that are still draft.
+	out, err := slCommandInDir(repoRoot, "log", "-r",
+		fmt.Sprintf("ancestors(., %d) & draft()", maxDepth),
+		"-T", "{node}\n")
+	if err != nil {
+		return nil, err
+	}
+	return splitNonEmpty(out), nil
+}
+
+// localBranchTips returns SHAs that have a useful local label, mapped to that
+// label. For git: refs/heads/ entries. For sapling: bookmarks (when present)
+// plus draft commit first-line descriptions for stack labels.
+func localBranchTips(vcs VCS, repoRoot string) (map[string]string, error) {
+	if vcs == nil {
+		return nil, nil
+	}
+	if vcs.Name() == "git" {
+		out, err := runGitInDir(repoRoot, "for-each-ref", "--format=%(objectname) %(refname:short)", "refs/heads/")
+		if err != nil {
+			return nil, err
+		}
+		result := make(map[string]string)
+		for _, line := range splitNonEmpty(out) {
+			parts := strings.SplitN(line, " ", 2)
+			if len(parts) == 2 {
+				result[parts[0]] = parts[1]
+			}
+		}
+		return result, nil
+	}
+	result := make(map[string]string)
+	if bookmarks, err := slCommandInDir(repoRoot, "bookmarks", "-T", "{node} {bookmark}\n"); err == nil {
+		for _, line := range splitNonEmpty(bookmarks) {
+			parts := strings.SplitN(line, " ", 2)
+			if len(parts) == 2 {
+				result[parts[0]] = parts[1]
+			}
+		}
+	}
+	if drafts, err := slCommandInDir(repoRoot, "log", "-r", "draft()", "-T", "{node} {desc|firstline}\n"); err == nil {
+		for _, line := range splitNonEmpty(drafts) {
+			parts := strings.SplitN(line, " ", 2)
+			if len(parts) == 2 {
+				if _, ok := result[parts[0]]; !ok {
+					result[parts[0]] = parts[1]
+				}
+			}
+		}
+	}
+	return result, nil
+}
+
+// remoteBranchTips returns up to 20 remote branches sorted by recency,
+// excluding the default branch and any HEAD pointers. Caller subtracts SHAs
+// already covered by other picker sections.
+func remoteBranchTips(vcs VCS, repoRoot, defaultBranch string) ([]BranchEntry, error) {
+	if vcs == nil {
+		return nil, nil
+	}
+	if vcs.Name() == "git" {
+		return remoteBranchTipsGit(repoRoot, defaultBranch)
+	}
+	return remoteBranchTipsSapling(repoRoot, defaultBranch)
+}
+
+func remoteBranchTipsGit(repoRoot, defaultBranch string) ([]BranchEntry, error) {
+	out, err := runGitInDir(repoRoot, "for-each-ref",
+		"--sort=-committerdate", "--count=40",
+		"--format=%(objectname) %(refname:short)",
+		"refs/remotes/")
+	if err != nil {
+		return nil, err
+	}
+	var entries []BranchEntry
+	for _, line := range splitNonEmpty(out) {
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name := parts[1]
+		if strings.HasSuffix(name, "/HEAD") {
+			continue
+		}
+		if name == "origin/"+defaultBranch || name == defaultBranch {
+			continue
+		}
+		entries = append(entries, BranchEntry{Name: name, HeadSHA: parts[0]})
+		if len(entries) >= 20 {
+			break
+		}
+	}
+	return entries, nil
+}
+
+func remoteBranchTipsSapling(repoRoot, defaultBranch string) ([]BranchEntry, error) {
+	out, err := slCommandInDir(repoRoot, "log", "-r",
+		"sort(remote(), -date)", "--limit", "40",
+		"-T", "{node} {remotebookmarks}\n")
+	if err != nil {
+		return nil, nil //nolint:nilerr // best-effort; missing is fine
+	}
+	var entries []BranchEntry
+	for _, line := range splitNonEmpty(out) {
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) != 2 || parts[1] == "" {
+			continue
+		}
+		bookmark := strings.SplitN(parts[1], " ", 2)[0]
+		if bookmark == defaultBranch || strings.HasSuffix(bookmark, "/"+defaultBranch) {
+			continue
+		}
+		entries = append(entries, BranchEntry{Name: bookmark, HeadSHA: parts[0]})
+		if len(entries) >= 20 {
+			break
+		}
+	}
+	return entries, nil
+}
+
+// ChangedFilesBetweenSHAs returns the files changed in the range baseSHA..headSHA.
+// Renames are reported with status "renamed" and the new path; the old path is
+// not surfaced (matches existing parseNameStatus behavior).
+// Untracked working-tree files are NOT included — this is a pure git-history range.
+func ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileChange, error) {
+	cmd := exec.Command("git", "diff", "--name-status", "-M", baseSHA+".."+headSHA)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff %s..%s --name-status: %w", baseSHA, headSHA, err)
+	}
+	return parseNameStatus(string(out)), nil
+}
+
+// FileDiffBetweenSHAs returns parsed diff hunks for path in the range
+// baseSHA..headSHA. Returns nil hunks when there is no diff.
+func FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string) ([]DiffHunk, error) {
+	cmd := exec.Command("git", "diff",
+		"--no-color", "--no-ext-diff",
+		baseSHA+".."+headSHA, "--", path)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		// git diff exits 1 when there are differences — that's normal.
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+			return nil, fmt.Errorf("git diff: %w", err)
+		}
+	}
+	return ParseUnifiedDiff(string(out)), nil
+}
+
+// ReadFileAtSHA returns the bytes of path at the given SHA.
+// Returns (nil, nil) when the file does not exist at that SHA (deleted/added cases).
+// Errors are reserved for "git command failed" (e.g. SHA not present locally).
+func ReadFileAtSHA(sha, path, dir string) ([]byte, error) {
+	cmd := exec.Command("git", "show", sha+":"+path)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 128 {
+			// Distinguish "path missing at sha" (not an error) from
+			// "sha missing entirely" (error). git show prints "fatal:
+			// path 'foo' exists on disk, but not in 'sha'" or similar
+			// for missing path; "fatal: bad object sha" for missing sha.
+			msg := strings.TrimSpace(stderr.String())
+			lower := strings.ToLower(msg)
+			if strings.Contains(lower, "path") || strings.Contains(lower, "does not exist") {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("git show %s:%s: %s", sha, path, msg)
+		}
+		return nil, fmt.Errorf("git show %s:%s: %w", sha, path, err)
+	}
+	return out, nil
+}
+
+// HasObject reports whether sha is reachable as a commit object in the local store.
+// Cheap (no walk).
+func HasObject(sha, dir string) bool {
+	cmd := exec.Command("git", "cat-file", "-e", sha+"^{commit}")
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	return cmd.Run() == nil
 }
 
 func untrackedFiles() ([]FileChange, error) {

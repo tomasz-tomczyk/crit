@@ -34,7 +34,7 @@ if [ ! -f "$BINARY" ]; then
 fi
 
 # Kill any stale processes on test ports
-for port in "$PORT" "$((PORT + 1))" "$((PORT + 2))" "$((PORT + 3))"; do
+for port in "$PORT" "$((PORT + 1))" "$((PORT + 2))" "$((PORT + 3))" "$((PORT + 4))" "$((PORT + 5))"; do
   lsof -ti tcp:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 
@@ -384,24 +384,85 @@ echo "Starting git-mode carry-forward test on port $CF_GIT_PORT..."
 (cd "$CF_GIT_DIR" && "$ROOT/$BINARY" --port "$CF_GIT_PORT" --no-open) &
 CF_GIT_PID=$!
 
+# --- Instance 5: Range mode (--range A..B against a stacked git fixture) ---
+# Verifies SHA-pinned diff, on-disk head_sha + diff_scope=layer stamping, and
+# focus-picker round-trip (range -> working tree -> range preserves comments).
+RANGE_PORT=$((PORT + 4))
+RANGE_DIR=$(mktemp -d)
+
+git -C "$RANGE_DIR" init -q -b main
+git -C "$RANGE_DIR" -c user.email=t@t -c user.name=t commit --allow-empty -q -m "main seed"
+RANGE_MAIN_SHA=$(git -C "$RANGE_DIR" rev-parse HEAD)
+
+git -C "$RANGE_DIR" checkout -q -b feat-c
+echo "alpha" > "$RANGE_DIR/a.txt"
+git -C "$RANGE_DIR" add a.txt
+git -C "$RANGE_DIR" -c user.email=t@t -c user.name=t commit -q -m "A: add a.txt"
+RANGE_A_SHA=$(git -C "$RANGE_DIR" rev-parse HEAD)
+
+echo "beta" > "$RANGE_DIR/b.txt"
+git -C "$RANGE_DIR" add b.txt
+git -C "$RANGE_DIR" -c user.email=t@t -c user.name=t commit -q -m "B: add b.txt"
+RANGE_B_SHA=$(git -C "$RANGE_DIR" rev-parse HEAD)
+
+echo "gamma" > "$RANGE_DIR/c.txt"
+git -C "$RANGE_DIR" add c.txt
+git -C "$RANGE_DIR" -c user.email=t@t -c user.name=t commit -q -m "C: add c.txt"
+
+echo "Starting range-mode crit on port $RANGE_PORT (--range A..B)..."
+(cd "$RANGE_DIR" && "$ROOT/$BINARY" --port "$RANGE_PORT" --no-open --range "$RANGE_A_SHA..$RANGE_B_SHA") &
+RANGE_PID=$!
+
+# --- Instance 6: Stacked PR layer/full-stack toggle ---
+# Synthesizes stacked metadata via /api/focus so the diff-scope toggle UI
+# becomes visible without a real gh PR. Seeds per-scope comments to verify
+# lossless toggling and exercises the runPush gate-1 refusal.
+TOGGLE_PORT=$((PORT + 5))
+TOGGLE_DIR=$(mktemp -d)
+
+git -C "$TOGGLE_DIR" init -q -b main
+git -C "$TOGGLE_DIR" -c user.email=t@t -c user.name=t commit --allow-empty -q -m "main seed"
+TOGGLE_MAIN_SHA=$(git -C "$TOGGLE_DIR" rev-parse HEAD)
+
+git -C "$TOGGLE_DIR" checkout -q -b feat-c
+echo "alpha" > "$TOGGLE_DIR/a.txt"
+git -C "$TOGGLE_DIR" add a.txt
+git -C "$TOGGLE_DIR" -c user.email=t@t -c user.name=t commit -q -m "A: add a.txt"
+TOGGLE_A_SHA=$(git -C "$TOGGLE_DIR" rev-parse HEAD)
+
+echo "beta" > "$TOGGLE_DIR/b.txt"
+git -C "$TOGGLE_DIR" add b.txt
+git -C "$TOGGLE_DIR" -c user.email=t@t -c user.name=t commit -q -m "B: add b.txt"
+TOGGLE_B_SHA=$(git -C "$TOGGLE_DIR" rev-parse HEAD)
+
+echo "Starting stacked-toggle crit on port $TOGGLE_PORT (--range A..B)..."
+(cd "$TOGGLE_DIR" && "$ROOT/$BINARY" --port "$TOGGLE_PORT" --no-open --range "$TOGGLE_A_SHA..$TOGGLE_B_SHA") &
+TOGGLE_PID=$!
+
 cleanup() {
   kill "$CRIT_PID" 2>/dev/null || true
   kill "$WORD_DIFF_PID" 2>/dev/null || true
   kill "$CF_FILE_PID" 2>/dev/null || true
   kill "$CF_GIT_PID" 2>/dev/null || true
+  kill "$RANGE_PID" 2>/dev/null || true
+  kill "$TOGGLE_PID" 2>/dev/null || true
   wait "$CRIT_PID" 2>/dev/null || true
   wait "$WORD_DIFF_PID" 2>/dev/null || true
   wait "$CF_FILE_PID" 2>/dev/null || true
   wait "$CF_GIT_PID" 2>/dev/null || true
+  wait "$RANGE_PID" 2>/dev/null || true
+  wait "$TOGGLE_PID" 2>/dev/null || true
   rm -f .crit.json
   rm -f "$CF_FILE"
   rm -rf "$WORD_DIFF_DIR"
   rm -rf "$CF_GIT_DIR"
+  rm -rf "$RANGE_DIR"
+  rm -rf "$TOGGLE_DIR"
 }
 trap cleanup EXIT INT TERM
 
 # Wait for servers to be ready (poll until /api/session returns 200, not 503)
-for port_to_wait in "$PORT" "$WORD_DIFF_PORT" "$CF_FILE_PORT" "$CF_GIT_PORT"; do
+for port_to_wait in "$PORT" "$WORD_DIFF_PORT" "$CF_FILE_PORT" "$CF_GIT_PORT" "$RANGE_PORT" "$TOGGLE_PORT"; do
   for i in $(seq 1 40); do
     if curl -sf "http://127.0.0.1:$port_to_wait/api/session" > /dev/null 2>&1; then
       break
@@ -612,12 +673,117 @@ curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/comment/$FOLDED_C/replies
     "author": "agent"
   }' > /dev/null
 
+# --- Instance 5: seed two layer-scope comments on b.txt + verify stamping ---
+curl -sf -X DELETE "http://127.0.0.1:$RANGE_PORT/api/comments" > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$RANGE_PORT/api/file/comments?path=b.txt" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 1, "end_line": 1, "side": "RIGHT",
+    "body": "First range-mode comment — expect head_sha + diff_scope=layer on disk.",
+    "author": "tester"
+  }' > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$RANGE_PORT/api/file/comments?path=b.txt" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 1, "end_line": 1, "side": "RIGHT",
+    "body": "Second range-mode comment — same scope, different content.",
+    "author": "tester"
+  }' > /dev/null
+
+# Verify on-disk stamping. /api/finish flushes the debounced writer so the
+# review file is guaranteed present and includes our seeded comments.
+RANGE_REVIEW_PATH=$(curl -sf -X POST "http://127.0.0.1:$RANGE_PORT/api/finish" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("review_file",""))')
+if [ -n "$RANGE_REVIEW_PATH" ] && [ -f "$RANGE_REVIEW_PATH" ]; then
+  if python3 - "$RANGE_REVIEW_PATH" "$RANGE_B_SHA" <<'PYEOF'
+import json, sys
+path, want_sha = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    cj = json.load(f)
+ok = True
+for fp, cf in cj.get("files", {}).items():
+    for c in cf.get("comments", []):
+        if c.get("head_sha") != want_sha:
+            print(f"FAIL: {fp} comment head_sha={c.get('head_sha')!r} want {want_sha!r}", file=sys.stderr)
+            ok = False
+        if c.get("diff_scope") != "layer":
+            print(f"FAIL: {fp} comment diff_scope={c.get('diff_scope')!r} want 'layer'", file=sys.stderr)
+            ok = False
+if not ok:
+    sys.exit(1)
+print("Range comments are stamped with head_sha and diff_scope=layer")
+PYEOF
+  then
+    echo "[Instance 5] PASS: on-disk stamping (head_sha + diff_scope=layer)"
+  else
+    echo "[Instance 5] FAIL: on-disk stamping check failed"
+  fi
+else
+  echo "[Instance 5] WARN: review file not found at \"$RANGE_REVIEW_PATH\" — stamping check skipped"
+fi
+
+# --- Instance 6: synthesize stacked focus + per-scope comments + push-gate ---
+curl -sf -X DELETE "http://127.0.0.1:$TOGGLE_PORT/api/comments" > /dev/null
+
+# Promote the range to a "stacked PR" by setting is_stacked + default_sha.
+# This is the only way the layer/full-stack toggle UI becomes visible without
+# a real PR.
+curl -sf -X POST "http://127.0.0.1:$TOGGLE_PORT/api/focus" \
+  -H 'Content-Type: application/json' \
+  -d "{\"kind\":\"range\",\"base_sha\":\"$TOGGLE_A_SHA\",\"head_sha\":\"$TOGGLE_B_SHA\",\"default_sha\":\"$TOGGLE_MAIN_SHA\",\"diff_scope\":\"layer\",\"is_stacked\":true}" > /dev/null
+
+# Seed a layer-scope comment.
+curl -sf -X POST "http://127.0.0.1:$TOGGLE_PORT/api/file/comments?path=b.txt" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 1, "end_line": 1, "side": "RIGHT",
+    "body": "LAYER ONLY — visible only in layer scope.",
+    "author": "tester"
+  }' > /dev/null
+
+# Flip to full-stack and seed a full-stack-scope comment.
+curl -sf -X POST "http://127.0.0.1:$TOGGLE_PORT/api/focus" \
+  -H 'Content-Type: application/json' \
+  -d "{\"kind\":\"range\",\"base_sha\":\"$TOGGLE_A_SHA\",\"head_sha\":\"$TOGGLE_B_SHA\",\"default_sha\":\"$TOGGLE_MAIN_SHA\",\"diff_scope\":\"full_stack\",\"is_stacked\":true}" > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$TOGGLE_PORT/api/file/comments?path=a.txt" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 1, "end_line": 1, "side": "RIGHT",
+    "body": "FULL_STACK ONLY — visible only in full-stack scope.",
+    "author": "tester"
+  }' > /dev/null
+
+# Push-gate assertion: while ActiveDiffScope=full_stack on disk, `crit push`
+# must refuse with the gate-1 message. Wait for the 200ms scheduleWrite to
+# flush ActiveDiffScope to disk.
+sleep 1
+PUSH_OUT=$(cd "$TOGGLE_DIR" && "$ROOT/$BINARY" push --dry-run 999 2>&1 || true)
+if echo "$PUSH_OUT" | grep -q "Switch to Layer diff before posting a platform review"; then
+  echo "[Instance 6] PASS: crit push refuses from full_stack scope (gate 1)"
+elif echo "$PUSH_OUT" | grep -qE "gh CLI not found|gh is not authenticated"; then
+  echo "[Instance 6] SKIP: crit push gate not exercised (gh unavailable). Output:"
+  echo "$PUSH_OUT" | sed 's/^/    /'
+else
+  echo "[Instance 6] FAIL: crit push did NOT refuse from full_stack scope. Output:"
+  echo "$PUSH_OUT" | sed 's/^/    /'
+fi
+
+# Flip back to layer for the reviewer to inspect (matches the "layer is the
+# safe default for browsing" UX).
+curl -sf -X POST "http://127.0.0.1:$TOGGLE_PORT/api/focus" \
+  -H 'Content-Type: application/json' \
+  -d "{\"kind\":\"range\",\"base_sha\":\"$TOGGLE_A_SHA\",\"head_sha\":\"$TOGGLE_B_SHA\",\"default_sha\":\"$TOGGLE_MAIN_SHA\",\"diff_scope\":\"layer\",\"is_stacked\":true}" > /dev/null
+
 echo ""
 echo "Servers running:"
-echo "  1. Markdown diff:             http://127.0.0.1:$PORT"
-echo "  2. Code diff (word-level):    http://127.0.0.1:$WORD_DIFF_PORT"
-echo "  3. Carry-forward (file-mode): http://127.0.0.1:$CF_FILE_PORT"
-echo "  4. Carry-forward (git-mode):  http://127.0.0.1:$CF_GIT_PORT"
+echo "  1. Markdown diff:                 http://127.0.0.1:$PORT"
+echo "  2. Code diff (word-level):        http://127.0.0.1:$WORD_DIFF_PORT"
+echo "  3. Carry-forward (file-mode):     http://127.0.0.1:$CF_FILE_PORT"
+echo "  4. Carry-forward (git-mode):      http://127.0.0.1:$CF_GIT_PORT"
+echo "  5. Range mode (--range A..B):     http://127.0.0.1:$RANGE_PORT"
+echo "  6. Stacked PR (layer/full-stack): http://127.0.0.1:$TOGGLE_PORT"
 echo ""
 echo "Instance 2 — folded-line comment (#317):"
 echo "  server.go has a comment on line 59 (/version handler), which is in a"
@@ -633,7 +799,25 @@ echo "  C3 (lines 75-79): rollback plan (REMOVED in v2)"
 echo "  C4 (line 85):     performance section (REWRITTEN in v2)"
 echo "  C5 (line 103):    risk about lock duration"
 echo ""
-echo "Press Enter to simulate agent edits (swap v2 content + round-complete on all)."
+echo "Instance 5 — Range mode (issue #300):"
+echo "  - File list shows ONLY b.txt (B's diff, not c.txt from the C commit)"
+echo "  - Both seeded comments are visible on b.txt with badge count = 2"
+echo "  - Header label reads <short(A)>..<short(B)> ($(echo "$RANGE_A_SHA" | cut -c1-7)..$(echo "$RANGE_B_SHA" | cut -c1-7))"
+echo "  - Open focus picker → Working tree + local stack entries appear"
+echo "  - Click 'Working tree' → file list shows the working-tree diff;"
+echo "    the seeded range comments DISAPPEAR (different scope)"
+echo "  - Switch back to range → comments REAPPEAR (lossless toggling)"
+echo ""
+echo "Instance 6 — Stacked toggle (synthesized via /api/focus):"
+echo "  - Diff-scope toggle popover visible (because is_stacked=true)"
+echo "  - In layer scope: only 'LAYER ONLY' comment visible; file list = b.txt"
+echo "  - Toggle to full-stack: only 'FULL_STACK ONLY' visible; file list"
+echo "    expands to include a.txt as well"
+echo "  - Both comments persist on disk regardless of toggle"
+echo "  - The push-gate check above ran while in full_stack scope and asserted"
+echo "    that 'crit push --dry-run 999' refuses with the gate-1 message"
+echo ""
+echo "Press Enter to simulate agent edits (swap v2 content + round-complete on instances 1-4)."
 read -r
 
 echo "Swapping in v2 content..."
@@ -728,11 +912,13 @@ git -C "$WORD_DIFF_DIR" rm -q helpers.go && git -C "$WORD_DIFF_DIR" commit -q -m
 curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/round-complete" > /dev/null
 
 echo ""
-echo "Four views running:"
-echo "  1. Markdown diff (inter-round):  http://127.0.0.1:$PORT"
-echo "  2. Code diff (word-level):       http://127.0.0.1:$WORD_DIFF_PORT"
-echo "  3. Carry-forward (file-mode):    http://127.0.0.1:$CF_FILE_PORT"
-echo "  4. Carry-forward (git-mode):     http://127.0.0.1:$CF_GIT_PORT"
+echo "Six views running:"
+echo "  1. Markdown diff (inter-round):   http://127.0.0.1:$PORT"
+echo "  2. Code diff (word-level):        http://127.0.0.1:$WORD_DIFF_PORT"
+echo "  3. Carry-forward (file-mode):     http://127.0.0.1:$CF_FILE_PORT"
+echo "  4. Carry-forward (git-mode):      http://127.0.0.1:$CF_GIT_PORT"
+echo "  5. Range mode (--range A..B):     http://127.0.0.1:$RANGE_PORT"
+echo "  6. Stacked PR (layer/full-stack): http://127.0.0.1:$TOGGLE_PORT"
 echo ""
 echo "Instance 1: diff view with resolved comments + threaded replies + deletion markers."
 echo "            Comment #2 (resolved): 2 agent replies — visible when expanded."
@@ -752,6 +938,14 @@ echo "              C2 (v1:67    → v2:76):     'Backfill'        — should fo
 echo "              C3 (v1:75-79):             Rollback plan     — REMOVED, should be outdated"
 echo "              C4 (v1:85):                'grow rapidly'    — REWRITTEN, should be drifted"
 echo "              C5 (v1:103   → v2:112):    'Large table'     — should follow content down"
+echo "Instance 5: range mode (issue #300) — focus is pinned to A..B, not modified by"
+echo "            this round. File list is still just b.txt. Use the focus picker"
+echo "            to switch to working tree and back; range comments stay tagged with"
+echo "            head_sha = $(echo "$RANGE_B_SHA" | cut -c1-7)."
+echo "Instance 6: stacked toggle — the layer/full-stack diff-scope popover should"
+echo "            still be visible. Toggle: layer shows LAYER ONLY on b.txt;"
+echo "            full-stack shows FULL_STACK ONLY on a.txt. The push-gate"
+echo "            verdict was printed during setup."
 echo ""
 echo "Press Enter to stop all servers."
 read -r

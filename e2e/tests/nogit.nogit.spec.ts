@@ -25,4 +25,17 @@ test.describe('No-Git Mode — Git-absence invariants', () => {
     await loadPage(page);
     await expect(page.locator('.file-section')).not.toHaveCount(0);
   });
+
+  // The stack breadcrumb and working-tree pill are VCS-aware controls. In
+  // no-git mode those concepts don't exist, so both must stay hidden.
+  // Regression for: "picker visible in file mode where it has no meaning."
+  test('stack breadcrumb is hidden in no-git mode', async ({ page }) => {
+    await loadPage(page);
+    await expect(page.locator('#stackBreadcrumb')).toBeHidden();
+  });
+
+  test('stack chip ✕ exit is hidden in no-git mode', async ({ page }) => {
+    await loadPage(page);
+    await expect(page.locator('#stackChipExit')).toBeHidden();
+  });
 });

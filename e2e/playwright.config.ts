@@ -5,6 +5,7 @@ const FILE_PORT = process.env.CRIT_TEST_FILE_PORT || '3124';
 const SINGLE_PORT = process.env.CRIT_TEST_SINGLE_PORT || '3125';
 const NOGIT_PORT = process.env.CRIT_TEST_NOGIT_PORT || '3126';
 const MULTI_PORT = process.env.CRIT_TEST_MULTI_PORT || '3127';
+const RANGE_PORT = process.env.CRIT_TEST_RANGE_PORT || '3128';
 const debug = !!process.env.E2E_DEBUG;
 
 export default defineConfig({
@@ -23,7 +24,7 @@ export default defineConfig({
   projects: [
     {
       name: 'git-mode',
-      testMatch: /^(?!.*\.(filemode|singlefile|multifile|nogit)\.).*\.spec\.ts$/,
+      testMatch: /^(?!.*\.(filemode|singlefile|multifile|nogit|rangemode)\.).*\.spec\.ts$/,
       use: {
         browserName: 'chromium',
         baseURL: `http://localhost:${GIT_PORT}`,
@@ -63,6 +64,14 @@ export default defineConfig({
         baseURL: `http://localhost:${MULTI_PORT}`,
       },
     },
+    {
+      name: 'range-mode',
+      testMatch: /\.rangemode\.spec\.ts$/,
+      use: {
+        browserName: 'chromium',
+        baseURL: `http://localhost:${RANGE_PORT}`,
+      },
+    },
   ],
 
   webServer: [
@@ -97,6 +106,13 @@ export default defineConfig({
     {
       command: `bash setup-fixtures-multifile.sh ${MULTI_PORT}`,
       url: `http://localhost:${MULTI_PORT}/api/session`,
+      reuseExistingServer: true,
+      timeout: 30_000,
+      stdout: 'pipe',
+    },
+    {
+      command: `bash setup-fixtures-range-mode.sh ${RANGE_PORT}`,
+      url: `http://localhost:${RANGE_PORT}/api/session`,
       reuseExistingServer: true,
       timeout: 30_000,
       stdout: 'pipe',

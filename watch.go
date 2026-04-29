@@ -328,6 +328,12 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 		ReviewRound:    old.ReviewRound,
 		Replies:        old.Replies,
 		GitHubID:       old.GitHubID,
+		// Preserve focus-scope tags from the original. Carrying forward must
+		// preserve the comment's authored scope; restamping with the current
+		// focus would silently strip scope tags across rounds.
+		HeadSHA:   old.HeadSHA,
+		DiffScope: old.DiffScope,
+		FocusKey:  old.FocusKey,
 	}
 }
 

@@ -4729,3 +4729,82 @@ func TestGetSessionInfoScoped_CommitScope(t *testing.T) {
 		t.Error("expected files when scoped to specific commit")
 	}
 }
+
+func TestSession_GetCommits_RangeMode(t *testing.T) {
+	dir := initTestRepo(t)
+	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+
+	runGit(t, dir, "checkout", "-b", "feature/get-commits-range")
+	writeFile(t, filepath.Join(dir, "a.go"), "package main\n\nfunc A() {}\n")
+	runGit(t, dir, "add", "a.go")
+	runGit(t, dir, "commit", "-m", "A")
+
+	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n")
+	runGit(t, dir, "add", "b.go")
+	runGit(t, dir, "commit", "-m", "B")
+	shaB := runGit(t, dir, "rev-parse", "HEAD")
+
+	writeFile(t, filepath.Join(dir, "c.go"), "package main\n\nfunc C() {}\n")
+	runGit(t, dir, "add", "c.go")
+	runGit(t, dir, "commit", "-m", "C")
+
+	// Session is in range mode focused on A..B; git HEAD is C.
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		BaseRef:     baseRef,
+		VCS:         &GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Focus: Focus{
+			Kind:    FocusRange,
+			BaseSHA: baseRef,
+			HeadSHA: shaB,
+		},
+	}
+
+	commits := s.GetCommits()
+	if len(commits) != 2 {
+		t.Fatalf("GetCommits() = %d commits, want 2 (B, A); got %+v", len(commits), commits)
+	}
+	for _, c := range commits {
+		if c.Message == "C" {
+			t.Errorf("GetCommits() unexpectedly included commit C (past focus head)")
+		}
+	}
+	if commits[0].Message != "B" || commits[1].Message != "A" {
+		t.Errorf("messages = [%q, %q], want [B, A]", commits[0].Message, commits[1].Message)
+	}
+}
+
+func TestSession_GetCommits_WorkingTreeMode(t *testing.T) {
+	dir := initTestRepo(t)
+	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+
+	runGit(t, dir, "checkout", "-b", "feature/get-commits-wt")
+	writeFile(t, filepath.Join(dir, "a.go"), "package main\n\nfunc A() {}\n")
+	runGit(t, dir, "add", "a.go")
+	runGit(t, dir, "commit", "-m", "A")
+
+	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n")
+	runGit(t, dir, "add", "b.go")
+	runGit(t, dir, "commit", "-m", "B")
+
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		BaseRef:     baseRef,
+		VCS:         &GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Focus:       Focus{Kind: FocusWorkingTree, BaseRef: baseRef},
+	}
+
+	commits := s.GetCommits()
+	if len(commits) != 2 {
+		t.Fatalf("GetCommits() = %d commits, want 2 (B, A); got %+v", len(commits), commits)
+	}
+	if commits[0].Message != "B" || commits[1].Message != "A" {
+		t.Errorf("messages = [%q, %q], want [B, A]", commits[0].Message, commits[1].Message)
+	}
+}

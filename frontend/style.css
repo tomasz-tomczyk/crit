@@ -1729,64 +1729,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   40% { opacity: 1; transform: scale(1.2); }
 }
 
-.success-mark {
-  display: none;
-  width: 56px;
-  height: 56px;
-  margin-bottom: 16px;
-  overflow: visible;
-}
-.success-mark-ring {
-  fill: none;
-  stroke: var(--crit-green);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-dasharray: 176;
-  stroke-dashoffset: 176;
-  transform-origin: 32px 32px;
-  transform: rotate(-90deg);
-  animation: success-ring-draw 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-}
-.success-mark-check {
-  fill: none;
-  stroke: var(--crit-green);
-  stroke-width: 4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 40;
-  stroke-dashoffset: 40;
-  animation: success-check-draw 0.35s cubic-bezier(0.4, 0, 0.2, 1) 0.4s forwards;
-}
-.waiting-dialog.approved .waiting-spinner { display: none; }
-.waiting-dialog.approved #waitingPrompt,
-.waiting-dialog.approved #waitingClipboard { display: none; }
-.waiting-dialog.approved .success-mark {
-  display: inline-block;
-  filter: drop-shadow(0 0 0 transparent);
-  animation: success-glow 1.6s ease-out 0.7s 1;
-}
-@keyframes success-ring-draw {
-  to { stroke-dashoffset: 0; }
-}
-@keyframes success-check-draw {
-  to { stroke-dashoffset: 0; }
-}
-@keyframes success-glow {
-  0%   { filter: drop-shadow(0 0 0 transparent); }
-  35%  { filter: drop-shadow(0 0 18px color-mix(in srgb, var(--crit-green) 55%, transparent)); }
-  100% { filter: drop-shadow(0 0 0 transparent); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .success-mark-ring,
-  .success-mark-check {
-    animation: none;
-    stroke-dashoffset: 0;
-  }
-  .waiting-dialog.approved .success-mark {
-    animation: none;
-  }
-}
-
 .waiting-dialog .waiting-edits {
   font-size: 14px;
   font-weight: 600;
@@ -4061,4 +4003,220 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Stack chip + popover — vertical-tree alternative to the old horizontal
+   breadcrumb. Renders only when the picker reports >1 stack entry.
+   Click chip to toggle popover; click outside or Escape to close. */
+/* Stack chip styled to match the .header-chip (branch indicator):
+   soft brand-tinted background, brand-colored text, integrated padding.
+   The chip is a single visual unit composed of three controls:
+   button (label+chevron, opens popover), exit ✕ (switch to working tree),
+   and the popover positioned beneath. */
+.stack-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 4px 0 10px;
+  font-family: var(--crit-font-mono);
+  font-size: 12px;
+  color: var(--crit-brand);
+  background: var(--crit-brand-subtle);
+  border: 1px solid var(--crit-brand-bg);
+  border-radius: 6px;
+}
+.stack-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.stack-chip-btn:focus-visible {
+  outline: 2px solid var(--crit-brand);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.stack-chip-icon {
+  font-size: 11px;
+  color: var(--crit-brand);
+  opacity: 0.85;
+}
+.stack-chip-label {
+  font-weight: 500;
+}
+.stack-chip-chevron {
+  color: var(--crit-brand);
+  opacity: 0.7;
+  font-size: 10px;
+  transition: transform 120ms ease;
+}
+.stack-chip.open .stack-chip-chevron { transform: rotate(180deg); }
+.stack-chip-exit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-left: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--crit-brand);
+  opacity: 0.7;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.stack-chip-exit:hover {
+  background: var(--crit-brand-bg);
+  opacity: 1;
+}
+.stack-chip-exit:focus-visible {
+  outline: 2px solid var(--crit-brand);
+  outline-offset: 1px;
+  opacity: 1;
+}
+.stack-popover {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 220px;
+  max-width: 360px;
+  padding: 6px;
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  background: var(--crit-bg-card);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.stack-chip.open .stack-popover { display: block; }
+.stack-popover-title {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--crit-editor-fg-muted);
+}
+.stack-popover-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--crit-editor-fg);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.stack-popover-item:hover:not([aria-current]):not(.stack-popover-disabled) {
+  background: var(--crit-editor-bg-hover);
+}
+.stack-popover-item:focus-visible {
+  outline: 2px solid var(--crit-brand);
+  outline-offset: -1px;
+}
+.stack-popover-current {
+  background: var(--crit-brand-bg);
+  font-weight: 600;
+  cursor: default;
+}
+.stack-popover-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.stack-popover-tree {
+  font-family: monospace;
+  color: var(--crit-editor-fg-muted);
+  white-space: pre;
+}
+.stack-popover-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stack-popover-marker {
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--crit-editor-fg-muted);
+}
+
+/* Default-branch entry in the stack popover is a non-interactive root
+   marker — it indicates "stack starts here" but doesn't trigger any
+   action. Scope switching lives in the diff-area layer/full-stack toggle. */
+.stack-popover-root {
+  cursor: default;
+  color: var(--crit-editor-fg-muted);
+}
+.stack-popover-root:hover { background: transparent; }
+
+/* Resume PR pill — visible only in working-tree focus when the session
+   has a stashed last range focus.
+   Click restores that range focus via POST /api/focus. */
+.resume-pr-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--crit-brand);
+  background: var(--crit-brand-bg);
+  color: var(--crit-editor-fg);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.resume-pr-pill:hover {
+  background: var(--crit-editor-bg-hover);
+}
+.resume-pr-pill:focus-visible {
+  outline: 2px solid var(--crit-brand);
+  outline-offset: 1px;
+}
+
+/* Diff scope toggle (layer / full-stack), shown only for stacked PR focus. */
+.diff-scope-toggle {
+  display: inline-flex;
+  background: var(--crit-bg-card);
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.diff-scope-toggle .toggle-btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Diff-area header — host for the diff-scope toggle (per-session, scoped to
+   the diff being viewed; not the global header). */
+.diff-area-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--crit-border);
+  background: var(--crit-editor-bg);
 }
