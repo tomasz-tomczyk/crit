@@ -6268,26 +6268,34 @@
   async function doFinishReview() {
     try {
       const resp = await fetch('/api/finish', { method: 'POST' });
+      if (!resp.ok) throw new Error('finish failed: ' + resp.status);
       const data = await resp.json();
-      const hasComments = !!data.prompt;
-      waitingHasComments = hasComments;
+      const approved = !!data.approved;
+      waitingHasComments = !approved;
       const prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
 
-      document.getElementById('waitingPrompt').textContent = prompt;
+      const dialog = document.getElementById('waitingDialog');
+      const headingEl = document.getElementById('waitingHeading');
+      const messageEl = document.getElementById('waitingMessage');
+      const clipEl = document.getElementById('waitingClipboard');
 
-      if (hasComments) {
-        document.getElementById('waitingMessage').innerHTML =
+      document.getElementById('waitingPrompt').textContent = prompt;
+      clipEl.textContent = 'Copy prompt';
+      clipEl.classList.remove('clipboard-confirm');
+
+      // Replay the success-mark draw animation each time we enter approved state.
+      dialog.classList.remove('approved');
+      if (approved) {
+        void dialog.offsetWidth;
+        dialog.classList.add('approved');
+        headingEl.textContent = 'Approved';
+        messageEl.textContent =
+          'Your agent has been notified \u2014 no further action needed. You can close this tab whenever you\u2019re ready.';
+      } else {
+        headingEl.textContent = 'Review Complete';
+        messageEl.innerHTML =
           'Your agent has been notified. Waiting for updates\u2026' +
           '<span class="waiting-fallback">If your agent wasn\u2019t listening, paste the prompt below.</span>';
-        const clipEl = document.getElementById('waitingClipboard');
-        clipEl.textContent = 'Copy prompt';
-        clipEl.classList.remove('clipboard-confirm');
-      } else {
-        document.getElementById('waitingMessage').textContent =
-          'You can close this browser tab, or leave it open for another round.';
-        const clipEl = document.getElementById('waitingClipboard');
-        clipEl.textContent = 'Copy prompt';
-        clipEl.classList.remove('clipboard-confirm');
       }
 
       try { await navigator.clipboard.writeText(prompt); } catch {}
