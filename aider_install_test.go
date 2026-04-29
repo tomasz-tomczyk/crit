@@ -343,7 +343,9 @@ func TestInstallAider_ProjectMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	installAider(false)
+	if err := installAider(false); err != nil {
+		t.Fatalf("installAider: %v", err)
+	}
 
 	// Conventions file written.
 	convPath := filepath.Join(dir, ".crit", "aider-conventions.md")
@@ -368,7 +370,9 @@ func TestInstallAider_ProjectMode(t *testing.T) {
 
 	// Idempotent: a second install should not change the file.
 	before, _ := os.ReadFile(confPath)
-	installAider(false)
+	if err := installAider(false); err != nil {
+		t.Fatalf("installAider: %v", err)
+	}
 	after, _ := os.ReadFile(confPath)
 	if string(before) != string(after) {
 		t.Errorf("second install not idempotent:\nbefore:\n%s\nafter:\n%s", before, after)

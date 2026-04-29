@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -456,10 +457,16 @@ func runInstall(args []string) {
 				fmt.Fprintln(os.Stderr, "  Skipped: windsurf (no global install supported — run from a project)")
 				continue
 			}
-			installIntegration(name, force)
+			if err := installIntegration(name, force); err != nil {
+				fmt.Fprintf(os.Stderr, "  Failed: %s: %v\n", name, err)
+				continue
+			}
 		}
-	} else {
-		installIntegration(target, force)
+		return
+	}
+	if err := installIntegration(target, force); err != nil {
+		fmt.Fprintln(os.Stderr, "Error: "+err.Error())
+		os.Exit(1)
 	}
 }
 
@@ -2568,8 +2575,18 @@ var integrationMap = map[string][]integration{
 	},
 }
 
+// availableIntegrations returns the sorted list of integration names that
+// `crit install <name>` accepts. Derived from integrationMap keys plus the
+// special-cased "aider" entry (which does not live in the map because its
+// install flow is bespoke — see installAider).
 func availableIntegrations() []string {
-	return []string{"claude-code", "codex", "cursor", "opencode", "windsurf", "github-copilot", "cline", "aider"}
+	names := make([]string, 0, len(integrationMap)+1)
+	for name := range integrationMap {
+		names = append(names, name)
+	}
+	names = append(names, "aider")
+	sort.Strings(names)
+	return names
 }
 
 // isGlobalInstall reports whether the install should be treated as global
@@ -2640,19 +2657,22 @@ func xdgUserDir(name string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func installIntegration(name string, force bool) {
+// installIntegration installs the named agent integration. It returns an
+// error suitable for printing to stderr; callers decide whether to exit or
+// continue (the `install all` loop continues past per-agent failures).
+func installIntegration(name string, force bool) error {
 	if name == "aider" {
-		installAider(force)
-		return
+		return installAider(force)
 	}
 
 	files, ok := integrationMap[name]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "Unknown agent: %s\n\nAvailable agents:\n", name)
+		var b strings.Builder
+		fmt.Fprintf(&b, "unknown agent: %s\n\nAvailable agents:\n", name)
 		for _, a := range availableIntegrations() {
-			fmt.Fprintf(os.Stderr, "  %s\n", a)
+			fmt.Fprintf(&b, "  %s\n", a)
 		}
-		os.Exit(1)
+		return errors.New(strings.TrimRight(b.String(), "\n"))
 	}
 
 	cwd, _ := os.Getwd()
@@ -2660,11 +2680,10 @@ func installIntegration(name string, force bool) {
 	global := isGlobalInstall(cwd, home)
 
 	if name == "windsurf" && global {
-		fmt.Fprintln(os.Stderr, "Error: windsurf does not support a global per-tool install.")
-		fmt.Fprintln(os.Stderr, "Windsurf only loads a single ~/.codeium/windsurf/memories/global_rules.md (6k char cap),")
-		fmt.Fprintln(os.Stderr, "not a per-tool rules directory. Run `crit install windsurf` from a project directory")
-		fmt.Fprintln(os.Stderr, "instead, which writes .windsurf/rules/crit.md (workspace-scoped).")
-		os.Exit(1)
+		return errors.New("windsurf does not support a global per-tool install. " +
+			"Windsurf only loads a single ~/.codeium/windsurf/memories/global_rules.md (6k char cap), " +
+			"not a per-tool rules directory. Run `crit install windsurf` from a project directory " +
+			"instead, which writes .windsurf/rules/crit.md (workspace-scoped)")
 	}
 
 	var hints []string
@@ -2677,6 +2696,7 @@ func installIntegration(name string, force bool) {
 	}
 	printUniqueHints(hints)
 	fmt.Println()
+	return nil
 }
 
 // destFor returns the destination path for an integration file, accounting

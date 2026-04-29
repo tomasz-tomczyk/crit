@@ -41,22 +41,18 @@ func aiderPaths(cwd, home string) aiderInstallPaths {
 }
 
 // installAider implements `crit install aider`. Thin wrapper that resolves
-// cwd/home and delegates to installAiderAt for testability.
-func installAider(force bool) {
+// cwd/home and delegates to installAiderAt for testability. Returns an error
+// suitable for printing to stderr; the caller decides whether to exit.
+func installAider(force bool) error {
 	cwd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: cannot determine working directory: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("cannot determine working directory: %w", err)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: cannot determine home directory: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	if err := installAiderAt(cwd, home, force); err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
-	}
+	return installAiderAt(cwd, home, force)
 }
 
 // installAiderAt is the testable core of installAider. It writes the embedded
