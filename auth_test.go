@@ -726,3 +726,124 @@ func TestPollForToken_Integration(t *testing.T) {
 		t.Errorf("server received %d requests, want 3", got)
 	}
 }
+
+// TestSaveAuthIdentity_OverwritesStaleFields verifies that re-login replaces
+// every identity field, even when the new token response omits some of them.
+// This guards against the prod regression where a previous account's
+// auth_user_id survived a login as a different user, causing the daemon to
+// stamp the wrong user_id into shared comments.
+func TestSaveAuthIdentity_OverwritesStaleFields(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Seed config with stale identity from a previous login (different user).
+	initial := `{
+		"auth_token": "old_token",
+		"auth_user_id": "old-uuid",
+		"auth_user_name": "Old User",
+		"auth_user_email": "old@example.com"
+	}`
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// New login as a different user.
+	newToken := tokenResponse{
+		AccessToken: "new_token",
+		UserID:      "new-uuid",
+		UserName:    "New User",
+		UserEmail:   "new@example.com",
+	}
+	if err := saveAuthIdentity(newToken); err != nil {
+		t.Fatalf("saveAuthIdentity: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, ".crit.config.json"))
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("parsing config: %v", err)
+	}
+
+	check := func(key, want string) {
+		t.Helper()
+		var got string
+		json.Unmarshal(raw[key], &got)
+		if got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+	check("auth_user_id", "new-uuid")
+	check("auth_user_name", "New User")
+	check("auth_user_email", "new@example.com")
+}
+
+// TestSaveAuthIdentity_RemovesFieldsAbsentFromResponse verifies that when the
+// server returns an empty user_id (older crit-web), the existing key is
+// removed from disk rather than silently retained — otherwise the daemon
+// would keep stamping the previous user's id forever.
+func TestSaveAuthIdentity_RemovesFieldsAbsentFromResponse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	initial := `{
+		"auth_user_id": "stale-uuid",
+		"auth_user_name": "Stale User",
+		"auth_user_email": "stale@example.com"
+	}`
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Older server: only returns user_name; no user_id, no user_email.
+	if err := saveAuthIdentity(tokenResponse{
+		AccessToken: "tok",
+		UserName:    "Just Name",
+	}); err != nil {
+		t.Fatalf("saveAuthIdentity: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(home, ".crit.config.json"))
+	var raw map[string]json.RawMessage
+	json.Unmarshal(data, &raw)
+
+	if _, ok := raw["auth_user_id"]; ok {
+		t.Error("auth_user_id should be removed when token response omits it")
+	}
+	if _, ok := raw["auth_user_email"]; ok {
+		t.Error("auth_user_email should be removed when token response omits it")
+	}
+	var name string
+	json.Unmarshal(raw["auth_user_name"], &name)
+	if name != "Just Name" {
+		t.Errorf("auth_user_name = %q, want Just Name", name)
+	}
+}
+
+// TestPollDeviceToken_ParsesUserID verifies the new user_id field on the
+// token response is decoded into tokenResponse.UserID.
+func TestPollDeviceToken_ParsesUserID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{
+			"access_token": "crit_xyz",
+			"token_type":   "bearer",
+			"user_id":      "abc-123",
+			"user_name":    "tomasz",
+			"user_email":   "me@example.com",
+		})
+	}))
+	defer srv.Close()
+
+	result, err := pollDeviceToken(srv.URL, "dc_test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.token.UserID != "abc-123" {
+		t.Errorf("user_id = %q, want abc-123", result.token.UserID)
+	}
+	if result.token.UserEmail != "me@example.com" {
+		t.Errorf("user_email = %q, want me@example.com", result.token.UserEmail)
+	}
+}

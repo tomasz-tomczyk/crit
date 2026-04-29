@@ -92,19 +92,16 @@ func runAuthLogin(args []string) {
 		os.Exit(1)
 	}
 
-	// Cache user identity for the settings panel
-	if token.UserName != "" || token.UserEmail != "" {
-		_ = saveGlobalConfig(func(m map[string]json.RawMessage) error {
-			if token.UserName != "" {
-				name, _ := json.Marshal(token.UserName)
-				m["auth_user_name"] = name
-			}
-			if token.UserEmail != "" {
-				email, _ := json.Marshal(token.UserEmail)
-				m["auth_user_email"] = email
-			}
-			return nil
-		})
+	if err := saveAuthIdentity(token); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to persist auth identity: %v\n", err)
+	}
+
+	// If the server didn't return a user_id (older crit-web), fetch it now via
+	// /api/auth/whoami so the daemon doesn't need to backfill on first share.
+	if token.UserID == "" {
+		freshCfg := loadShareConfig()
+		freshCfg.AuthToken = token.AccessToken
+		lazyBackfillAuthUserID(&freshCfg)
 	}
 
 	greeting := "Logged in."
@@ -172,6 +169,7 @@ func requestDeviceCode(serverURL string) (deviceCodeResponse, error) {
 // tokenResponse holds a successful response from POST /api/device/token.
 type tokenResponse struct {
 	AccessToken string `json:"access_token"`
+	UserID      string `json:"user_id"`
 	UserName    string `json:"user_name"`
 	UserEmail   string `json:"user_email"`
 }
@@ -283,6 +281,28 @@ func clearSpinner(dots int) {
 	if dots > 0 {
 		fmt.Fprint(os.Stderr, "\r"+strings.Repeat(" ", dots+2)+"\r")
 	}
+}
+
+// saveAuthIdentity persists the user identity fields from a token response
+// to the global config. All three fields (auth_user_id, auth_user_name,
+// auth_user_email) are rewritten together so a stale value from a previous
+// account cannot survive a re-login: missing fields in the response remove
+// the corresponding key from disk rather than leaving it untouched.
+func saveAuthIdentity(token tokenResponse) error {
+	return saveGlobalConfig(func(m map[string]json.RawMessage) error {
+		writeOrDelete := func(key, value string) {
+			if value == "" {
+				delete(m, key)
+				return
+			}
+			raw, _ := json.Marshal(value)
+			m[key] = raw
+		}
+		writeOrDelete("auth_user_id", token.UserID)
+		writeOrDelete("auth_user_name", token.UserName)
+		writeOrDelete("auth_user_email", token.UserEmail)
+		return nil
+	})
 }
 
 // saveAuthToken writes the auth_token to the global config file.
