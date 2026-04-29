@@ -1758,10 +1758,10 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   animation: success-check-draw 0.35s cubic-bezier(0.4, 0, 0.2, 1) 0.4s forwards;
 }
 .waiting-dialog.approved .waiting-spinner { display: none; }
-.waiting-dialog.approved .success-mark { display: inline-block; }
 .waiting-dialog.approved #waitingPrompt,
 .waiting-dialog.approved #waitingClipboard { display: none; }
 .waiting-dialog.approved .success-mark {
+  display: inline-block;
   filter: drop-shadow(0 0 0 transparent);
   animation: success-glow 1.6s ease-out 0.7s 1;
 }
