@@ -7,7 +7,8 @@
     "mermaid": "^11.14.0"
   },
   "scripts": {
-    "update-deps": "bun run copy-deps.js"
+    "update-deps": "bun run copy-deps.js",
+    "test:frontend": "node frontend/test-markdown-patch.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.0",

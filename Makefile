@@ -27,6 +27,9 @@ update-deps:
 test:
 	go test ./...
 
+test-frontend:
+	node frontend/test-markdown-patch.mjs
+
 setup-hooks:
 	git config core.hooksPath .githooks
 
@@ -58,4 +61,4 @@ e2e-failed:
 e2e-report:
 	cd e2e && npx playwright show-report
 
-.PHONY: build build-all generate verify-generate update-deps test setup-hooks clean test-diff test-share-sync e2e-share test-daemon test-plan-daemon e2e e2e-failed e2e-report
+.PHONY: build build-all generate verify-generate update-deps test test-frontend setup-hooks clean test-diff test-share-sync e2e-share test-daemon test-plan-daemon e2e e2e-failed e2e-report
