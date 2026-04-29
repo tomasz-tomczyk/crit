@@ -594,17 +594,14 @@
 [data-theme="light"] .hljs-addition{color:#22863a;background-color:#f0fff4}
 [data-theme="light"] .hljs-deletion{color:#b31d28;background-color:#ffeef0}
 
-/* ===== Light-theme AA contrast fixes for diff backgrounds ===== */
-/* Deletion-row gutter line numbers: --crit-editor-fg-muted (#59636e) on #ffcecb fails AA. Darken to fg-default. */
+/* ===== Light-theme AA contrast fixes for diff backgrounds =====
+   - Deletion-row gutter line numbers: --crit-editor-fg-muted on del-gutter bg fails AA.
+   - Word-level deletion span (.diff-word-del) inside hljs color classes: keyword/name/quote/comment fail AA.
+     DOM is .hljs-keyword > .diff-word-del — target the inner span.
+   - Whole-line addition rows: green hljs groups (name/quote/selector) fail AA on add-line bg.
+   All darken to --crit-editor-fg. */
 @media (prefers-color-scheme: light) {
-  html:not([data-theme]) .deletion .diff-gutter-num{color:#1f2328}
-}
-[data-theme="light"] .deletion .diff-gutter-num{color:#1f2328}
-
-/* Word-level deletion span (#ffcecb bg): when .diff-word-del is nested inside an
-   .hljs-* color class, the failing groups are keyword (#cf222e), name/quote (#22863a),
-   and comment (#59636e). DOM is .hljs-keyword > .diff-word-del — target the inner span. */
-@media (prefers-color-scheme: light) {
+  html:not([data-theme]) .deletion .diff-gutter-num,
   html:not([data-theme]) .hljs-doctag > .diff-word-del,
   html:not([data-theme]) .hljs-keyword > .diff-word-del,
   html:not([data-theme]) .hljs-template-tag > .diff-word-del,
@@ -618,8 +615,13 @@
   html:not([data-theme]) .hljs-selector-tag > .diff-word-del,
   html:not([data-theme]) .hljs-code > .diff-word-del,
   html:not([data-theme]) .hljs-comment > .diff-word-del,
-  html:not([data-theme]) .hljs-formula > .diff-word-del{color:#1f2328}
+  html:not([data-theme]) .hljs-formula > .diff-word-del,
+  html:not([data-theme]) .addition .hljs-name,
+  html:not([data-theme]) .addition .hljs-quote,
+  html:not([data-theme]) .addition .hljs-selector-pseudo,
+  html:not([data-theme]) .addition .hljs-selector-tag{color:var(--crit-editor-fg)}
 }
+[data-theme="light"] .deletion .diff-gutter-num,
 [data-theme="light"] .hljs-doctag > .diff-word-del,
 [data-theme="light"] .hljs-keyword > .diff-word-del,
 [data-theme="light"] .hljs-template-tag > .diff-word-del,
@@ -633,17 +635,9 @@
 [data-theme="light"] .hljs-selector-tag > .diff-word-del,
 [data-theme="light"] .hljs-code > .diff-word-del,
 [data-theme="light"] .hljs-comment > .diff-word-del,
-[data-theme="light"] .hljs-formula > .diff-word-del{color:#1f2328}
-
-/* Whole-line addition rows (#dafbe1 bg): green hljs groups (#22863a) fail AA. Darken to fg-default. */
-@media (prefers-color-scheme: light) {
-  html:not([data-theme]) .addition .hljs-name,
-  html:not([data-theme]) .addition .hljs-quote,
-  html:not([data-theme]) .addition .hljs-selector-pseudo,
-  html:not([data-theme]) .addition .hljs-selector-tag{color:#1f2328}
-}
+[data-theme="light"] .hljs-formula > .diff-word-del,
 [data-theme="light"] .addition .hljs-name,
 [data-theme="light"] .addition .hljs-quote,
 [data-theme="light"] .addition .hljs-selector-pseudo,
-[data-theme="light"] .addition .hljs-selector-tag{color:#1f2328}
+[data-theme="light"] .addition .hljs-selector-tag{color:var(--crit-editor-fg)}
 

@@ -158,6 +158,23 @@
     return match ? decodeURIComponent(match[1]) : null;
   }
 
+  // Bind Ctrl/Cmd+Enter (submit) and Escape (cancel) to a text input/textarea.
+  // opts.stopPropagation defaults to true (matches comment-form keydown behavior).
+  function bindSubmitCancelKeys(el, onSubmit, onCancel, opts) {
+    const stop = !opts || opts.stopPropagation !== false;
+    el.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        if (stop) e.stopPropagation();
+        onSubmit(e);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        if (stop) e.stopPropagation();
+        onCancel(e);
+      }
+    });
+  }
+
   // ===== State =====
   let session = {};       // { mode, branch, base_ref, review_round, files: [...] }
   let files = [];         // [{ path, status, fileType, content, diffHunks, comments, lineBlocks, tocItems, collapsed, viewMode }]
@@ -4212,15 +4229,7 @@
     btns.appendChild(saveBtn);
     dialog.appendChild(btns);
 
-    input.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        saveBtn.click();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        cancelBtn.click();
-      }
-    });
+    bindSubmitCancelKeys(input, function() { saveBtn.click(); }, function() { cancelBtn.click(); }, { stopPropagation: false });
 
     overlay.appendChild(dialog);
     overlay.addEventListener('click', function(e) {
@@ -4428,17 +4437,7 @@
       ? function() { opts.onCancel(); }
       : function() { cancelComment(formObj); };
 
-    textarea.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        e.stopPropagation();
-        doSubmit();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        doCancel();
-      }
-    });
+    bindSubmitCancelKeys(textarea, doSubmit, doCancel);
 
     if (!opts.onSubmit) {
       textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value, formObj); });
@@ -5550,17 +5549,7 @@
       refreshFileComments(filePath);
     });
 
-    textarea.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        e.stopPropagation();
-        saveBtn.click();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        cancelBtn.click();
-      }
-    });
+    bindSubmitCancelKeys(textarea, function() { saveBtn.click(); }, function() { cancelBtn.click(); });
   }
 
   async function deleteReply(commentId, replyId, filePath) {
