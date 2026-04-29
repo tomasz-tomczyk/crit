@@ -165,6 +165,34 @@ test.describe('Comment Threading', () => {
     await expect(section.locator('.reply-body')).toContainText('Fixed via Ctrl+Enter');
   });
 
+  test('Ctrl+Enter saves edits to a reply', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    const comment = await addComment(request, mdPath, 1, 'Fix this');
+    await request.post(`/api/comment/${comment.id}/replies?path=${encodeURIComponent(mdPath)}`, {
+      data: { body: 'Original reply', author: 'reviewer' },
+    });
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const reply = section.locator('.comment-reply').first();
+    await expect(reply).toBeVisible();
+
+    // Hover to reveal actions, click Edit
+    await reply.hover();
+    await reply.locator('.reply-actions button[title="Edit"]').click();
+
+    const textarea = reply.locator('textarea');
+    await expect(textarea).toBeVisible();
+    await expect(textarea).toHaveValue('Original reply');
+
+    await textarea.fill('Edited reply via Ctrl+Enter');
+    await textarea.press('Control+Enter');
+
+    await expect(section.locator('.reply-body')).toContainText('Edited reply via Ctrl+Enter');
+    await expect(reply.locator('textarea')).toHaveCount(0);
+  });
+
   test('reply form Cancel collapses without submitting', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Check this');

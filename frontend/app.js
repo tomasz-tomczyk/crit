@@ -5551,6 +5551,18 @@
       userActedThisRound = true;
       refreshFileComments(filePath);
     });
+
+    textarea.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        saveBtn.click();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        cancelBtn.click();
+      }
+    });
   }
 
   async function deleteReply(commentId, replyId, filePath) {
