@@ -635,3 +635,15 @@
 [data-theme="light"] .hljs-comment > .diff-word-del,
 [data-theme="light"] .hljs-formula > .diff-word-del{color:#1f2328}
 
+/* Whole-line addition rows (#dafbe1 bg): green hljs groups (#22863a) fail AA. Darken to fg-default. */
+@media (prefers-color-scheme: light) {
+  html:not([data-theme]) .addition .hljs-name,
+  html:not([data-theme]) .addition .hljs-quote,
+  html:not([data-theme]) .addition .hljs-selector-pseudo,
+  html:not([data-theme]) .addition .hljs-selector-tag{color:#1f2328}
+}
+[data-theme="light"] .addition .hljs-name,
+[data-theme="light"] .addition .hljs-quote,
+[data-theme="light"] .addition .hljs-selector-pseudo,
+[data-theme="light"] .addition .hljs-selector-tag{color:#1f2328}
+

@@ -87,10 +87,6 @@ GET /notifications?limit=20&before=<cursor>
 
 Marks a single notification as read.
 
-### POST /notifications/read-all
-
-Marks all unread notifications as read. Rate limited to 10 requests per minute per user.
-
 ## Worker Design
 
 The delivery worker runs as a separate long-lived process. It reads from the SQS queue
@@ -146,6 +142,13 @@ signed with the user's webhook secret. Receivers should verify this before proce
 - [ ] Integration tests for the delivery pipeline
 - [ ] Runbook: how to inspect and manually retry stuck deliveries
 
+## Monitoring
+
+The worker emits structured JSON logs for every delivery attempt. Key metrics to track:
+- Delivery latency p50/p95/p99 per channel
+- Retry rate per channel
+- Permanently failed delivery rate (should be < 0.1%)
+
 ## Out of Scope
 
 - In-app real-time notifications (WebSockets / SSE) - Phase 2
@@ -160,3 +163,29 @@ signed with the user's webhook secret. Receivers should verify this before proce
 - Is there a maximum size we need to enforce on the `metadata` field? The schema is
   currently unbounded and this should be decided before the migration runs.
 - Do we need a way for users to test their webhook endpoint from the UI?
+
+## Code Standards
+
+The following rules should be saved as `.claude/rules/notification-service.md`:
+
+```markdown
+---
+paths:
+  - "src/**/*.go"
+  - "internal/*.go"
+---
+
+# Notification Service Rules
+
+## Input Validation
+
+- `*_id` fields — validate as *UUID* before any database query
+- Timestamps — always use *UTC*, never local time
+- Request bodies — enforce `Content-Type: application/json`; reject `text/plain`
+
+## Naming Conventions
+
+- REST endpoints: lowercase with hyphens (`/read-all`, not `/readAll`)
+- Database columns: `snake_case` with *descriptive* names
+- Environment variables: `SCREAMING_SNAKE_CASE`
+```
