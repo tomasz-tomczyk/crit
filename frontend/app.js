@@ -406,15 +406,15 @@
     f.diffTooLarge = diffLineCount > 1000;
     f.diffLoaded = !f.diffTooLarge;
 
-    // Pre-highlight code files for diff rendering
-    if (f.fileType === 'code') {
+    // Pre-highlight code and markdown files for diff rendering
+    if (f.fileType === 'code' || f.fileType === 'markdown') {
       f.highlightCache = preHighlightFile(f);
       f.lang = langFromPath(f.path);
+    }
 
-      // In file mode, build line blocks so code files render as document view
-      if (session.mode !== 'git') {
-        f.lineBlocks = buildCodeLineBlocks(f);
-      }
+    // In file mode, build line blocks so code files render as document view
+    if (f.fileType === 'code' && session.mode !== 'git') {
+      f.lineBlocks = buildCodeLineBlocks(f);
     }
 
     // Parse markdown content into line blocks
@@ -747,7 +747,7 @@
   // Pre-highlight file content and return array of highlighted lines (1-indexed).
   // highlightedLines[lineNum] = highlighted HTML for that line.
   function preHighlightFile(file) {
-    if (!file.content || file.fileType !== 'code') return null;
+    if (!file.content) return null;
     const lang = langFromPath(file.path);
     if (!lang || !hljs.getLanguage(lang)) return null;
     try {
@@ -891,9 +891,7 @@
     }
 
     let highlighted = '';
-    // Skip hljs for markdown fences — syntax highlighting (bold headings,
-    // italic emphasis) makes raw markdown source look half-rendered.
-    if (lang && lang !== 'markdown' && lang !== 'md' && hljs.getLanguage(lang)) {
+    if (lang && hljs.getLanguage(lang)) {
       try { highlighted = hljs.highlight(token.content, { language: lang }).value; } catch {}
     }
     if (!highlighted) highlighted = escapeHtml(token.content);
