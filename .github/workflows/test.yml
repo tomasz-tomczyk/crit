@@ -58,6 +58,16 @@ jobs:
       - name: Run frontend smoke tests
         run: node frontend/test-markdown-patch.mjs
 
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Check Nix package build
+        run: ./scripts/check-nix-build.sh
+
   unit:
     runs-on: ubuntu-latest
     steps:
