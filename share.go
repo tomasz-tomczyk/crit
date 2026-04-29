@@ -249,22 +249,19 @@ func setBearer(req *http.Request, token string) {
 	}
 }
 
-// loadCommentsForShare reads the review file at critPath and returns shareComment entries
-// for the given file paths, plus the review round. Resolved comments are excluded.
+// loadCommentsForShare reads the review file at critPath and returns unresolved
+// shareComment entries for the given file paths, plus the review round.
 // fallbackAuthor is used when a comment has no Author set (typically cfg.Author).
 //
-// ExternalID is set on the initial-share path so the server persists it on first
-// insert. This is what enables the round-trip carry-forward of `user_id` on a
-// later PUT/upsert: replace_comments matches incoming attrs.external_id against
-// the existing-by-external_id map and preserves the verified user_id when the
+// ExternalID is set so the server persists it on first insert and matches it
+// on subsequent upserts. This enables round-trip carry-forward of `user_id`:
+// replace_comments matches incoming attrs.external_id against the
+// existing-by-external_id map and preserves the verified user_id when the
 // re-sharer is anonymous (rules #3/#4 of the attribution table).
+//
+// Used for both the initial share and the upsert path — they need identical
+// payloads, so they share this loader.
 func loadCommentsForShare(critPath string, filePaths []string, fallbackAuthor string) ([]shareComment, int) {
-	return loadCommentsFromCritJSON(critPath, filePaths, false, true, fallbackAuthor)
-}
-
-// loadCommentsForUpsert loads unresolved comments with ExternalID set for
-// round-trip tracking. Resolved comments are excluded — same as initial share.
-func loadCommentsForUpsert(critPath string, filePaths []string, fallbackAuthor string) ([]shareComment, int) {
 	return loadCommentsFromCritJSON(critPath, filePaths, false, true, fallbackAuthor)
 }
 

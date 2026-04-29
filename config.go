@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // Config holds all configuration values from config files.
@@ -260,11 +262,21 @@ func globalConfigPath() string {
 // It uses map[string]json.RawMessage to preserve unknown keys.
 // The apply function receives the raw map and should set or delete keys as needed.
 // The file is written with 0600 permissions since it may contain auth_token.
+//
+// A sibling lockfile (`<path>.lock`) is held with flock for the duration of the
+// read-modify-write so concurrent crit invocations (e.g. login + lazy backfill)
+// cannot lose updates. flock is released automatically when the process exits.
 func saveGlobalConfig(apply func(m map[string]json.RawMessage) error) error {
 	path := globalConfigPath()
 	if path == "" {
 		return fmt.Errorf("cannot determine home directory")
 	}
+
+	unlock, err := lockGlobalConfig(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	raw := make(map[string]json.RawMessage)
 	if data, err := os.ReadFile(path); err == nil {
@@ -288,6 +300,38 @@ func saveGlobalConfig(apply func(m map[string]json.RawMessage) error) error {
 	// Critical for the global config because it holds the bearer token —
 	// a crash mid-write would otherwise truncate it.
 	return atomicWriteFile(path, data, 0o600)
+}
+
+// lockGlobalConfig acquires an exclusive flock on `<path>.lock`, mirroring the
+// pattern in acquireSessionLock. Returns an unlock func the caller must defer.
+// Retries with exponential backoff up to a 5s deadline.
+func lockGlobalConfig(path string) (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("creating config dir: %w", err)
+	}
+	lockPath := path + ".lock"
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("opening %s: %w", lockPath, err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	backoff := 50 * time.Millisecond
+	for {
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+			return func() {
+				_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+				_ = f.Close()
+			}, nil
+		}
+		if time.Now().After(deadline) {
+			_ = f.Close()
+			return nil, fmt.Errorf("could not acquire lock on %s within 5s", lockPath)
+		}
+		time.Sleep(backoff)
+		if backoff < 500*time.Millisecond {
+			backoff *= 2
+		}
+	}
 }
 
 // gitUserName returns the git-configured user name, or empty string on error.

@@ -7,13 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"testing"
 	"time"
 )
 
@@ -105,12 +105,26 @@ func displayName(login, name string) string {
 // `login`, so we hit /users/{login} once per unique commenter.
 type userNameCache map[string]string
 
+// fetchGHUserName is the seam used by userNameCache.lookup to resolve a login
+// to a display name via the GitHub API. Tests override this; production code
+// uses the default that shells out to `gh api`.
+var fetchGHUserName = ghAPIUserName
+
+// ghAPIUserName shells out to `gh api users/<login>` and returns the user's
+// display name (empty string if unset).
+func ghAPIUserName(login string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gh", "api", "users/"+login, "--jq", ".name // \"\"").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // lookup returns the display name for a login, fetching from GitHub on cache
-// miss. On any error or missing name, returns login (always a valid fallback).
-//
-// Under `go test`, the network call is skipped entirely — tests that want to
-// exercise display-name resolution should pre-populate the cache before
-// invoking the merge functions.
+// miss. On any error or missing name, returns login (always a valid fallback)
+// and caches that fallback so the warning is logged at most once per login.
 func (c userNameCache) lookup(login string) string {
 	if login == "" {
 		return ""
@@ -118,18 +132,12 @@ func (c userNameCache) lookup(login string) string {
 	if cached, ok := c[login]; ok {
 		return cached
 	}
-	if testing.Testing() {
-		c[login] = login
-		return login
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "gh", "api", "users/"+login, "--jq", ".name // \"\"").Output()
+	name, err := fetchGHUserName(login)
 	if err != nil {
+		log.Printf("warning: gh api users/%s: %v", login, err)
 		c[login] = login
 		return login
 	}
-	name := strings.TrimSpace(string(out))
 	resolved := displayName(login, name)
 	c[login] = resolved
 	return resolved

@@ -98,15 +98,6 @@ func installAiderAt(cwd, home string, force bool) error {
 	return nil
 }
 
-// writeFileMkdir writes data to path, creating parent directories as needed.
-// Use writeFileMkdirAtomic for files where a partial write would be harmful.
-func writeFileMkdir(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
-}
-
 // writeFileMkdirAtomic writes data to path via a same-directory tempfile
 // followed by rename. On POSIX rename is atomic, so a crash mid-write cannot
 // leave a truncated file at path. Parent dirs are created as needed.

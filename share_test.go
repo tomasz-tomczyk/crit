@@ -64,7 +64,7 @@ func TestLoadCommentsForUpsert_ExcludesResolved(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, round := loadCommentsForUpsert(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
+	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
 	if round != 1 {
 		t.Errorf("expected round 1, got %d", round)
 	}
@@ -93,7 +93,7 @@ func TestLoadCommentsForUpsert_SetsExternalID(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, _ := loadCommentsForUpsert(filepath.Join(dir, ".crit.json"), []string{"main.go"}, "")
+	comments, _ := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"main.go"}, "")
 	if len(comments) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(comments))
 	}
@@ -120,7 +120,7 @@ func TestLoadCommentsForUpsert_ReviewLevelComments(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, _ := loadCommentsForUpsert(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
+	comments, _ := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
 
 	// Should have 2 comments: 1 file-level + 1 unresolved review-level
 	if len(comments) != 2 {

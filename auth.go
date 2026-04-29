@@ -470,13 +470,15 @@ func lazyBackfillAuthUserID(cfg *Config) {
 // clearAuthIdentity removes the cached token and user identity fields from the
 // global config. Called when the server returns 401 on a share/upsert.
 func clearAuthIdentity() {
-	_ = saveGlobalConfig(func(m map[string]json.RawMessage) error {
+	if err := saveGlobalConfig(func(m map[string]json.RawMessage) error {
 		delete(m, "auth_token")
 		delete(m, "auth_user_id")
 		delete(m, "auth_user_name")
 		delete(m, "auth_user_email")
 		return nil
-	})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to persist credential clear: %v\n", err)
+	}
 }
 
 // errHintAlreadyShown is a sentinel error used by showLoginHint to skip

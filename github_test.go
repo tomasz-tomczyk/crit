@@ -11,6 +11,12 @@ import (
 	"testing"
 )
 
+// Avoid shelling out to `gh` during tests. Tests that want to exercise
+// display-name resolution should pre-populate userNameCache directly.
+func init() {
+	fetchGHUserName = func(login string) (string, error) { return "", nil }
+}
+
 func TestMergeGHComments_BasicConversion(t *testing.T) {
 	comments := []ghComment{
 		{

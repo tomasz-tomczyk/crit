@@ -156,13 +156,21 @@ func printQR(url string, showQR bool) {
 	}
 }
 
+// handleShareAuthError clears cached credentials and prints the standard
+// re-auth message to stderr when a share-related call returned 401.
+// It does NOT exit; callers decide whether to exit immediately or fall through
+// (e.g. so a subsequent generic "Error: %v" line still gets printed).
+func handleShareAuthError() {
+	clearAuthIdentity()
+	fmt.Fprintln(os.Stderr, "Auth token rejected by server; cleared local credentials. Run 'crit auth login' to re-authenticate.")
+}
+
 func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, sharePaths []string, authToken, fallbackAuthor string, showQR bool) {
 	localIDs := buildLocalIDSet(existingCfg)
 	localFingerprints, localFingerprintIDs := buildLocalFingerprintIndex(existingCfg)
 	if fetched, err := fetchWebComments(existingCfg.ShareURL, localIDs, localFingerprints, localFingerprintIDs, authToken); err != nil {
 		if errors.Is(err, errShareUnauthorized) {
-			clearAuthIdentity()
-			fmt.Fprintln(os.Stderr, "Auth token rejected by server; cleared local credentials. Run 'crit auth login' to re-authenticate.")
+			handleShareAuthError()
 			os.Exit(1)
 		}
 		fmt.Fprintf(os.Stderr, "warning: could not pull remote comments: %v\n", err)
@@ -172,13 +180,12 @@ func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, 
 		}
 	}
 
-	allComments, _ := loadCommentsForUpsert(critPath, sharePaths, fallbackAuthor)
+	allComments, _ := loadCommentsForShare(critPath, sharePaths, fallbackAuthor)
 
 	result, err := upsertShareToWeb(existingCfg, files, allComments, authToken)
 	if err != nil {
 		if errors.Is(err, errShareUnauthorized) {
-			clearAuthIdentity()
-			fmt.Fprintln(os.Stderr, "Auth token rejected by server; cleared local credentials. Run 'crit auth login' to re-authenticate.")
+			handleShareAuthError()
 		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -200,8 +207,7 @@ func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL,
 	res, err := shareReviewFiles(critPath, files, filePaths, svcURL, authToken, fallbackAuthor)
 	if err != nil {
 		if errors.Is(err, errShareUnauthorized) {
-			clearAuthIdentity()
-			fmt.Fprintln(os.Stderr, "Auth token rejected by server; cleared local credentials. Run 'crit auth login' to re-authenticate.")
+			handleShareAuthError()
 		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -211,7 +217,7 @@ func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL,
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state to review file: %v\n", err)
 	}
 
-	initialComments, _ := loadCommentsForUpsert(critPath, filePaths, fallbackAuthor)
+	initialComments, _ := loadCommentsForShare(critPath, filePaths, fallbackAuthor)
 	_ = updateShareState(critPath, computeShareHash(files, initialComments), res.ReviewRound)
 
 	fmt.Println(res.URL)
@@ -329,8 +335,7 @@ func runFetch(args []string) {
 	fetched, err := fetchWebComments(cj.ShareURL, localIDs, localFingerprints, localFingerprintIDs, authToken)
 	if err != nil {
 		if errors.Is(err, errShareUnauthorized) {
-			clearAuthIdentity()
-			fmt.Fprintln(os.Stderr, "Auth token rejected by server; cleared local credentials. Run 'crit auth login' to re-authenticate.")
+			handleShareAuthError()
 			os.Exit(1)
 		}
 		fmt.Fprintf(os.Stderr, "Error fetching remote comments: %v\n", err)
