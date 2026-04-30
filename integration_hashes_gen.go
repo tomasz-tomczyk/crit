@@ -13,6 +13,8 @@ var integrationHashes = map[string]string{
 	"integrations/codex/skills/crit/SKILL.md":              "b3efe8ab6f59a56cf113fa4dbbe863a349f1725c2fd4a9f142e9c4209138dcb4",
 	"integrations/cursor/skills/crit-cli/SKILL.md":         "4be2055a0a04be51867e2d13d33421ff31566c58223bb92e3f87f2132cba44c0",
 	"integrations/cursor/skills/crit/SKILL.md":             "c3b0be65e5e058d7997d9f3239d2c8b6db3c53cfcf22908650d8115ca513f0f0",
+	"integrations/docker/Dockerfile":                       "7657da35225baa2f55e702cae34f80ae62f2e8520d9e84b2aa63cf034b892690",
+	"integrations/docker/entrypoint.sh":                    "f53612f5263323423a8ea1cd8c7a4f514ce2ff03ba6f249ca0cf25cf08395dd1",
 	"integrations/github-copilot/skills/crit-cli/SKILL.md": "de0d65f0d254a457042f80c9397b607e26837df194985d99affd62d192d5ff4d",
 	"integrations/github-copilot/skills/crit/SKILL.md":     "0fb4bd2f18a227b8df97461af35705af316194fc2b6c98417df939ef5131a41d",
 	"integrations/opencode/SKILL.md":                       "0108dc63d805c67b98ab9821d88b95c27eb60efe60744f2c8b92befa59852666",
