@@ -264,9 +264,46 @@ func probeDaemonFocusReal() *Focus {
 	if len(sessions) == 0 {
 		return nil
 	}
-	sess := sessions[0]
+	// Query every daemon for its Focus. When multiple daemons run in the
+	// same cwd (e.g. one reviewing a PR, one reviewing the working tree),
+	// returning sessions[0] would silently stamp `crit comment` with the
+	// wrong scope. Treat ambiguity as "no inheritable focus" so the caller
+	// falls through to the on-disk ActiveDiffScope path — which is the
+	// safer default than guessing.
 	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/session", sess.Port))
+	var rangeFoci []*Focus
+	var workingFoci []*Focus
+	for _, sess := range sessions {
+		f := fetchSessionFocus(client, sess.Port)
+		if f == nil {
+			continue
+		}
+		if f.Kind == FocusRange {
+			rangeFoci = append(rangeFoci, f)
+		} else {
+			workingFoci = append(workingFoci, f)
+		}
+	}
+	// Range focus is the strictly-scoped one — prefer it when uniquely
+	// resolvable. If two daemons both expose a Range focus, ambiguity
+	// wins: return nil and let the caller resolve from disk / explicit flag.
+	if len(rangeFoci) == 1 {
+		return rangeFoci[0]
+	}
+	if len(rangeFoci) > 1 {
+		return nil
+	}
+	if len(workingFoci) == 1 {
+		return workingFoci[0]
+	}
+	return nil
+}
+
+// fetchSessionFocus queries one daemon's /api/session and returns its Focus
+// (nil on any error). Factored out so probeDaemonFocusReal can iterate over
+// every matching daemon without ballooning its complexity.
+func fetchSessionFocus(client *http.Client, port int) *Focus {
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/session", port))
 	if err != nil {
 		return nil
 	}
