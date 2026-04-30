@@ -8396,11 +8396,23 @@
     // default_sha when available; fall back to per-entry default_sha (stamped
     // by assignStackBases) so range-mode focuses without a resolved
     // default_sha still drop the redundant ghost row.
+    // Picker already excludes the literal default branch from `stack`
+    // (see stackTipLabels in picker.go). Older code filtered any entry
+    // whose head_sha matched focus.default_sha as a defensive
+    // duplicate-drop, but with the smart-stack-root semantics
+    // focus.default_sha now points at the stack root (e.g. `staging`)
+    // — a real entry the user wants to see and click. Reverse only.
+    const ordered = stack.slice().reverse();
+    // Resolve the stack-root branch name for the "Full stack" subcopy.
+    // For 2+ layer stacks default_sha matches one of the entries — use
+    // that entry's label. For single-layer stacks (default_sha = main)
+    // there's no matching entry; fall back to 'default branch'.
     const focusDefaultSHA = focus.default_sha || '';
-    const ordered = stack.slice().reverse().filter(function(e) {
-      const dSHA = focusDefaultSHA || e.default_sha || '';
-      return !dSHA || e.head_sha !== dSHA;
-    });
+    let stackRootName = '';
+    if (focusDefaultSHA) {
+      const rootEntry = stack.find(function(e) { return e.head_sha === focusDefaultSHA; });
+      if (rootEntry) stackRootName = entryLabel(rootEntry, 32);
+    }
     const defaultBranchName = (ordered[0] && ordered[0].base_ref_name) || 'main';
 
     const parts = [];
@@ -8449,7 +8461,10 @@
     if (showScope) {
       const activeScope = focus.diff_scope || 'layer';
       const fullStackEnabled = !!focus.default_sha;
-      const dbLabel = defaultBranchName || 'default';
+      // Subcopy mirrors what full-stack actually diffs against: the stack
+      // root (e.g. `staging` for staging-rooted teams) when there's a
+      // multi-layer stack, otherwise the literal default branch.
+      const fullStackBaseName = stackRootName || defaultBranchName || 'default';
       parts.push('<div class="stack-popover-divider" role="separator"></div>');
       parts.push('<div class="stack-popover-title">Compare against</div>');
       parts.push(
@@ -8471,7 +8486,7 @@
           '<span class="stack-popover-scope-radio" aria-hidden="true"></span>' +
           '<span class="stack-popover-scope-text">' +
             '<span class="stack-popover-scope-name">Full stack</span>' +
-            '<span class="stack-popover-scope-sub">All changes from ' + escapeHtml(dbLabel) + ' to here</span>' +
+            '<span class="stack-popover-scope-sub">All changes from ' + escapeHtml(fullStackBaseName) + ' to here</span>' +
           '</span>' +
         '</button>'
       );

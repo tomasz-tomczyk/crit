@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -214,10 +215,23 @@ func TestHandlePicker_DefaultSHAIsStackRootForMultiLayerStacks(t *testing.T) {
 	if len(resp.Stack) < 2 {
 		t.Fatalf("expected 2+ stack entries, got %d: %+v", len(resp.Stack), resp.Stack)
 	}
-	// Every entry must be stamped with the stack-root SHA (alpha), not main.
-	for _, e := range resp.Stack {
-		if e.DefaultSHA != alphaSHA {
-			t.Errorf("entry %q default_sha=%q want alpha (stack root) %q — DefaultSHA must point to the topmost non-default tip, not the literal default branch", e.Label, e.DefaultSHA, alphaSHA)
+	mainSHA := runGit(t, dir, "rev-parse", "main")
+	// Non-topmost entries (gamma, beta) are stamped with the stack root
+	// SHA (alpha). The topmost entry (alpha itself) falls back to the
+	// literal default branch tip — otherwise navigating to alpha would
+	// produce an empty full-stack diff (alpha..alpha). Sort entries by
+	// distance ascending so the test doesn't depend on map order.
+	sort.Slice(resp.Stack, func(i, j int) bool { return resp.Stack[i].Distance < resp.Stack[j].Distance })
+	topIdx := len(resp.Stack) - 1
+	for i, e := range resp.Stack {
+		var want, role string
+		if i == topIdx {
+			want, role = mainSHA, "literal default branch (topmost entry falls back)"
+		} else {
+			want, role = alphaSHA, "stack root alpha"
+		}
+		if e.DefaultSHA != want {
+			t.Errorf("entry[%d]=%q default_sha=%q want %s %q", i, e.Label, e.DefaultSHA, role, want)
 		}
 	}
 }

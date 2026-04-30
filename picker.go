@@ -223,16 +223,20 @@ func assignStackBases(vcs VCS, entries []StackEntry, repoRoot string) []StackEnt
 		return entries
 	}
 	defaultBranch := vcs.DefaultBranch()
-	defaultSHA, _ := ResolveDefaultBranchSHA(vcs, repoRoot, defaultBranch)
-	// Stack root: when there are 2+ entries the topmost (deepest) entry's
-	// HeadSHA is the user's effective root. With a single entry there's
-	// no stack to root, so fall back to the literal default branch.
-	stackRootSHA := defaultSHA
-	if len(entries) >= 2 {
-		stackRootSHA = entries[len(entries)-1].HeadSHA
-	}
+	literalDefaultSHA, _ := ResolveDefaultBranchSHA(vcs, repoRoot, defaultBranch)
+	// Each entry's DefaultSHA = its own effective stack root, computed
+	// as the topmost entry above it. The topmost entry itself falls back
+	// to the literal default branch — its "stack root" is the default
+	// branch (otherwise full-stack of staging would diff staging..staging,
+	// an empty range, when a user navigates to staging in the popover).
+	// For single-entry stacks every entry is topmost, so all fall back.
+	topIdx := len(entries) - 1
 	for i := range entries {
-		entries[i].DefaultSHA = stackRootSHA
+		if i == topIdx {
+			entries[i].DefaultSHA = literalDefaultSHA
+		} else {
+			entries[i].DefaultSHA = entries[topIdx].HeadSHA
+		}
 		if i < len(entries)-1 {
 			entries[i].BaseSHA = entries[i+1].HeadSHA
 			continue
