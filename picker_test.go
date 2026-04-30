@@ -172,6 +172,56 @@ func TestHandlePicker_StackEntriesIncludeDefaultSHA(t *testing.T) {
 	}
 }
 
+// TestHandlePicker_DefaultSHAIsStackRootForMultiLayerStacks verifies that on
+// a stack with 2+ non-default branch tips above main, every entry's
+// DefaultSHA points at the topmost (deepest) entry — the user's effective
+// stack root — rather than the literal default-branch tip. This makes
+// full-stack scope diff against the user's stack root, which for
+// staging-rooted workflows excludes the noise of staging's own history
+// that would otherwise leak into the cumulative diff.
+func TestHandlePicker_DefaultSHAIsStackRootForMultiLayerStacks(t *testing.T) {
+	s, sess := newTestServer(t)
+	dir := initTestRepo(t)
+
+	// Three layers above main: alpha → beta → gamma. Stack root = alpha.
+	runGit(t, dir, "checkout", "-b", "alpha")
+	commitAt(t, dir, "a.txt", "a", "alpha")
+	alphaSHA := runGit(t, dir, "rev-parse", "HEAD")
+
+	runGit(t, dir, "checkout", "-b", "beta")
+	commitAt(t, dir, "b.txt", "b", "beta")
+
+	runGit(t, dir, "checkout", "-b", "gamma")
+	commitAt(t, dir, "c.txt", "c", "gamma")
+
+	sess.mu.Lock()
+	sess.RepoRoot = dir
+	sess.VCS = &GitVCS{}
+	sess.mu.Unlock()
+	s.prList.data = []PRSummary{}
+	s.prList.fetched = time.Now()
+
+	req := httptest.NewRequest("GET", "/api/picker", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var resp pickerResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Stack) < 2 {
+		t.Fatalf("expected 2+ stack entries, got %d: %+v", len(resp.Stack), resp.Stack)
+	}
+	// Every entry must be stamped with the stack-root SHA (alpha), not main.
+	for _, e := range resp.Stack {
+		if e.DefaultSHA != alphaSHA {
+			t.Errorf("entry %q default_sha=%q want alpha (stack root) %q — DefaultSHA must point to the topmost non-default tip, not the literal default branch", e.Label, e.DefaultSHA, alphaSHA)
+		}
+	}
+}
+
 // TestDetectStack_ExcludesStaleBranchesBeforeMergeBase verifies the picker
 // does not surface local branches whose tips lie strictly before the merge-
 // base of HEAD with the default branch. These are stale branches in the

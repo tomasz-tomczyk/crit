@@ -209,18 +209,30 @@ func commitSubjectFor(vcs VCS, repoRoot, sha string) string {
 // or merge-base with the default branch for the deepest entry. Best-effort —
 // errors leave BaseSHA empty.
 //
-// Also stamps DefaultSHA (the default-branch tip) onto every entry. Resolved
-// once per call so the frontend has everything it needs to POST a complete
-// Focus to /api/focus, including future flips to full-stack scope which
-// require DefaultSHA non-empty.
+// Also stamps DefaultSHA onto every entry. DefaultSHA here is the user's
+// *stack root* — the topmost non-default branch tip in the chain — not
+// necessarily the literal default-branch tip. For default-branch-rooted
+// stacks (just one branch above main) the two coincide, so behavior is
+// unchanged. For staging-rooted-style stacks (e.g. main ← staging ←
+// feat-parent ← feat-current) the stack root is staging, and full-stack
+// scope diffs against staging instead of main — eliminating the noise of
+// staging's own history that the user already merged through the parent
+// PR chain. The frontend uses this for full-stack POSTs to /api/focus.
 func assignStackBases(vcs VCS, entries []StackEntry, repoRoot string) []StackEntry {
 	if vcs == nil || len(entries) == 0 {
 		return entries
 	}
 	defaultBranch := vcs.DefaultBranch()
 	defaultSHA, _ := ResolveDefaultBranchSHA(vcs, repoRoot, defaultBranch)
+	// Stack root: when there are 2+ entries the topmost (deepest) entry's
+	// HeadSHA is the user's effective root. With a single entry there's
+	// no stack to root, so fall back to the literal default branch.
+	stackRootSHA := defaultSHA
+	if len(entries) >= 2 {
+		stackRootSHA = entries[len(entries)-1].HeadSHA
+	}
 	for i := range entries {
-		entries[i].DefaultSHA = defaultSHA
+		entries[i].DefaultSHA = stackRootSHA
 		if i < len(entries)-1 {
 			entries[i].BaseSHA = entries[i+1].HeadSHA
 			continue

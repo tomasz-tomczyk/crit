@@ -153,6 +153,80 @@ func TestAutoDetect_LocalStackNoPRPushed(t *testing.T) {
 	}
 }
 
+// TestAutoDetect_LocalStack_DefaultSHAIsStackRoot covers the stack-rooted
+// workflow common at companies that use a long-lived parent branch (e.g.
+// `staging`) which is itself stacked above the repo's default branch
+// (`main`). For such stacks, full-stack scope must diff against the
+// *topmost non-default branch tip* (= the user's effective stack root)
+// rather than the literal default branch — otherwise full-stack drags
+// in dozens of unrelated commits from the parent branch's own history.
+func TestAutoDetect_LocalStack_DefaultSHAIsStackRoot(t *testing.T) {
+	dir := initTestRepo(t)
+	chdir(t, dir)
+	withDetectPRInfo(t, func() *PRInfo { return nil })
+
+	// Three layers above main.
+	runGit(t, dir, "checkout", "-b", "alpha")
+	writeFile(t, dir+"/alpha.txt", "alpha\n")
+	runGit(t, dir, "add", "alpha.txt")
+	runGit(t, dir, "commit", "-m", "alpha")
+	alphaSHA := runGit(t, dir, "rev-parse", "HEAD")
+
+	runGit(t, dir, "checkout", "-b", "beta")
+	writeFile(t, dir+"/beta.txt", "beta\n")
+	runGit(t, dir, "add", "beta.txt")
+	runGit(t, dir, "commit", "-m", "beta")
+	betaSHA := runGit(t, dir, "rev-parse", "HEAD")
+
+	runGit(t, dir, "checkout", "-b", "gamma")
+	writeFile(t, dir+"/gamma.txt", "gamma\n")
+	runGit(t, dir, "add", "gamma.txt")
+	runGit(t, dir, "commit", "-m", "gamma")
+	gammaSHA := runGit(t, dir, "rev-parse", "HEAD")
+
+	got := autoDetectStackedFocus(&GitVCS{}, dir)
+	if got == nil {
+		t.Fatal("expected Range focus from 3-layer local stack, got nil")
+	}
+	if got.HeadSHA != gammaSHA {
+		t.Errorf("HeadSHA=%q want gamma %q", got.HeadSHA, gammaSHA)
+	}
+	if got.BaseSHA != betaSHA {
+		t.Errorf("BaseSHA=%q want beta tip (direct parent) %q", got.BaseSHA, betaSHA)
+	}
+	// The key assertion: DefaultSHA points at the *stack root* (alpha) — the
+	// topmost non-default branch tip ancestor — rather than at the literal
+	// default branch tip. That makes full-stack scope diff against alpha,
+	// excluding the noise of any pre-alpha history that's not part of the
+	// user's stack.
+	if got.DefaultSHA != alphaSHA {
+		t.Errorf("DefaultSHA=%q want alpha (stack root) %q; full-stack would otherwise leak unrelated history", got.DefaultSHA, alphaSHA)
+	}
+}
+
+// TestAutoDetect_LocalStack_DefaultSHAFallsBackToDefaultBranch covers the
+// degenerate single-layer-stack case: feature off main, no intermediate
+// stacked branch. There's no meaningful "stack root" beyond the default
+// branch itself, so DefaultSHA must fall back to main's tip — preserving
+// the original full-stack semantics for non-stacked workflows.
+func TestAutoDetect_LocalStack_DefaultSHAFallsBackToDefaultBranch(t *testing.T) {
+	dir, _, _ := initStackedRepo(t) // 2 layers: main → feature-a → feature-b
+	chdir(t, dir)
+	withDetectPRInfo(t, func() *PRInfo { return nil })
+	mainSHA := runGit(t, dir, "rev-parse", "main")
+
+	got := autoDetectStackedFocus(&GitVCS{}, dir)
+	if got == nil {
+		t.Fatal("expected Range focus, got nil")
+	}
+	// Only one non-default tip in the chain (feature-a), and it's the
+	// BaseSHA. No further non-default tip exists before main, so the
+	// stack root collapses to main itself.
+	if got.DefaultSHA != mainSHA {
+		t.Errorf("DefaultSHA=%q want main %q (no intermediate stack tip means stack root = default branch)", got.DefaultSHA, mainSHA)
+	}
+}
+
 func TestAutoDetect_NoLocalStack_OnDefault(t *testing.T) {
 	dir := initTestRepo(t)
 	chdir(t, dir)

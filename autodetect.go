@@ -119,29 +119,63 @@ func detectLocalStackFocus(vcs VCS, repoRoot string) *Focus {
 	// to the un-gated behavior rather than blocking detection entirely.
 	topic := topicChainSHAs(vcs, repoRoot)
 
-	// Walk parents (skip ancestors[0] = HEAD itself). First match wins.
-	for _, sha := range ancestors[1:] {
-		label, ok := tipLabels[sha]
-		if !ok {
+	// Walk parents (skip ancestors[0] = HEAD itself). The closest tip
+	// becomes BaseSHA (Layer scope's diff base). Then keep walking and
+	// remember the *furthest* non-default tip seen — that's the stack
+	// root, which becomes Full-stack scope's diff base.
+	//
+	// Why: in stacked-on-staging workflows the literal default branch
+	// (master) isn't the meaningful root of the user's stack; staging
+	// is. Diffing master..head shows dozens of unrelated commits from
+	// staging's history that the user already merged via the parent
+	// PR chain. Anchoring full-stack to the topmost stack tip restores
+	// the "everything in MY stack" semantics for these workflows. For
+	// non-stacked branches there's only one match and stackRootSHA
+	// falls back to defaultSHA — Full stack still means master..head.
+	var baseSHA, baseLabel string
+	baseIdx := -1
+	for i, sha := range ancestors[1:] {
+		if _, ok := tipLabels[sha]; !ok {
 			continue
 		}
 		if len(topic) > 0 && !topic[sha] {
 			// Tip is an ancestor of HEAD but also of origin/<default> — stale.
 			continue
 		}
-		return &Focus{
-			Kind:        FocusRange,
-			BaseSHA:     sha,
-			HeadSHA:     headSHA,
-			DefaultSHA:  defaultSHA,
-			Label:       fmt.Sprintf("%s..HEAD", label),
-			BaseRefName: label,
-			HeadRefName: vcs.CurrentBranch(),
-			DiffScope:   DiffScopeLayer,
-			IsStacked:   true,
-		}
+		baseSHA = sha
+		baseLabel = tipLabels[sha]
+		baseIdx = i + 1 // index into ancestors
+		break
 	}
-	return nil
+	if baseSHA == "" {
+		return nil
+	}
+
+	stackRootSHA := defaultSHA
+	for _, sha := range ancestors[baseIdx+1:] {
+		if defaultSHA != "" && sha == defaultSHA {
+			break
+		}
+		if _, ok := tipLabels[sha]; !ok {
+			continue
+		}
+		if len(topic) > 0 && !topic[sha] {
+			continue
+		}
+		stackRootSHA = sha
+	}
+
+	return &Focus{
+		Kind:        FocusRange,
+		BaseSHA:     baseSHA,
+		HeadSHA:     headSHA,
+		DefaultSHA:  stackRootSHA,
+		Label:       fmt.Sprintf("%s..HEAD", baseLabel),
+		BaseRefName: baseLabel,
+		HeadRefName: vcs.CurrentBranch(),
+		DiffScope:   DiffScopeLayer,
+		IsStacked:   true,
+	}
 }
 
 // stackTipLabels returns a map of branch-tip SHA → display label, covering
