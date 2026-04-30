@@ -6474,6 +6474,11 @@
   }
 
   function setUIState(state) {
+    try {
+      const stack = new Error().stack || '';
+      const fc = (window.__fcDiag = window.__fcDiag || []);
+      fc.push('setUIState(' + state + ') @' + Date.now() + ' caller=' + (stack.split('\n')[2] || '').trim());
+    } catch {}
     uiState = state;
     if (state === 'reviewing') waitingHasComments = false;
     const finishBtn = document.getElementById('finishBtn');
@@ -6657,6 +6662,8 @@
     const source = new EventSource('/api/events');
 
     source.addEventListener('file-changed', async function() {
+      const __diag = (window.__fcDiag = window.__fcDiag || []);
+      __diag.push('fc:start ' + Date.now());
       try {
         // Reset action tracking for new round
         userActedThisRound = false;
@@ -6713,19 +6720,42 @@
         navCommentId = null;
 
         saveViewedState();
+        __diag.push('fc:saveViewedState');
         updateHeaderRound();
+        __diag.push('fc:updateHeaderRound');
         updateDiffModeToggle();
+        __diag.push('fc:updateDiffModeToggle');
         renderFileTree();
+        __diag.push('fc:renderFileTree');
         renderAllFiles();
+        __diag.push('fc:renderAllFiles');
         buildToc();
+        __diag.push('fc:buildToc');
         updateCommentCount();
+        __diag.push('fc:updateCommentCount');
         updateViewedCount();
+        __diag.push('fc:updateViewedCount');
         updateTreeViewedState();
+        __diag.push('fc:updateTreeViewedState');
         setUIState('reviewing');
+        __diag.push('fc:setUIState reviewing uiState=' + uiState + ' overlayActive=' + document.getElementById('waitingOverlay').classList.contains('active'));
         // Signal "ready" in the tab bar if the user has tabbed away.
         // Cleared by the visibilitychange listener when they return.
         if (document.visibilityState !== 'visible') setTabBadge();
+        __diag.push('fc:done');
+        // Render diag visibly into DOM so CI artifact captures it.
+        try {
+          let diagEl = document.getElementById('diag-fc-trace');
+          if (!diagEl) {
+            diagEl = document.createElement('div');
+            diagEl.id = 'diag-fc-trace';
+            diagEl.style.cssText = 'position:fixed;top:0;right:0;z-index:99999;background:#0aa;color:#fff;padding:6px;max-width:50vw;white-space:pre;font-size:10px;font-family:monospace;';
+            document.body.appendChild(diagEl);
+          }
+          diagEl.textContent = __diag.slice(-30).join('\n');
+        } catch {}
       } catch (err) {
+        __diag.push('fc:ERROR ' + (err && err.message ? err.message : err));
         console.error('Error handling file-changed:', err);
         // DIAGNOSTIC: surface the error into the DOM so CI artifacts capture it.
         try {
