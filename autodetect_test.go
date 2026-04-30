@@ -224,6 +224,31 @@ func TestAutoDetect_EnvVar_Bypasses(t *testing.T) {
 	}
 }
 
+// TestAutoDetect_LocalStack_StaleTipFiltered verifies that a stale local
+// branch tip whose commit is on the default branch (i.e. ancestor of
+// origin/main) doesn't get promoted to a fake "stack base". Without the
+// topic-chain filter, the feature branch's first-parent walk finds the
+// initial commit, sees a stale branch pointing there, and would return a
+// bogus Range focus pinned at that commit.
+func TestAutoDetect_LocalStack_StaleTipFiltered(t *testing.T) {
+	dir := initTestRepo(t)
+	initialSHA := runGit(t, dir, "rev-parse", "HEAD")
+	// Stale branch left pointing at the initial commit on main.
+	runGit(t, dir, "branch", "stale-merged", initialSHA)
+	// Plain feature branch off main — no real stack.
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, dir+"/x.txt", "x\n")
+	runGit(t, dir, "add", "x.txt")
+	runGit(t, dir, "commit", "-m", "x")
+	chdir(t, dir)
+	withDetectPRInfo(t, func() *PRInfo { return nil })
+
+	got := autoDetectStackedFocus(&GitVCS{}, dir)
+	if got != nil {
+		t.Errorf("expected nil focus when only matching tip is on default branch, got %+v (BaseSHA=%s)", got, got.BaseSHA)
+	}
+}
+
 // TestParseServerFlags_WorkingTree exercises the flag plumbing.
 func TestParseServerFlags_WorkingTree(t *testing.T) {
 	sf := parseServerFlags([]string{"--working-tree"})

@@ -110,10 +110,23 @@ func detectLocalStackFocus(vcs VCS, repoRoot string) *Focus {
 
 	tipLabels := stackTipLabels(vcs, repoRoot, defaultBranch)
 
+	// Filter out tips whose commit is an ancestor of the default branch — i.e.
+	// tips that aren't on the in-progress topic chain. Without this, a stale
+	// local branch left pointing at a commit in main's history would be picked
+	// up as a fake "stack base" even though there's nothing stacked on it.
+	// Mirrors picker.go's topicChainSHAs gate. Pure best-effort: if the gate
+	// can't be computed (no default branch, missing merge-base) we fall back
+	// to the un-gated behavior rather than blocking detection entirely.
+	topic := topicChainSHAs(vcs, repoRoot)
+
 	// Walk parents (skip ancestors[0] = HEAD itself). First match wins.
 	for _, sha := range ancestors[1:] {
 		label, ok := tipLabels[sha]
 		if !ok {
+			continue
+		}
+		if len(topic) > 0 && !topic[sha] {
+			// Tip is an ancestor of HEAD but also of origin/<default> — stale.
 			continue
 		}
 		return &Focus{
