@@ -9140,9 +9140,26 @@
   }
 
   // ===== Start =====
+  function __initDiag(label) {
+    try {
+      const arr = (window.__initDiag = window.__initDiag || []);
+      arr.push(label + ' @' + Date.now());
+      let el = document.getElementById('diag-init-trace');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'diag-init-trace';
+        el.style.cssText = 'position:fixed;bottom:0;left:0;z-index:99999;background:#600;color:#fff;padding:6px;max-width:50vw;white-space:pre;font-size:10px;font-family:monospace;';
+        document.body.appendChild(el);
+      }
+      el.textContent = arr.slice(-30).join('\n');
+    } catch {}
+  }
+  __initDiag('init:about-to-call');
   init()
     .then(function() {
+      __initDiag('init:resolved');
       if (session) applyFocusToHeader(session.focus || { kind: 'working_tree' });
+      __initDiag('init:after-applyFocusToHeader');
       // Pre-fetch /api/picker.stack so the breadcrumb has data without
       // waiting for the user to do anything. Fire for any range focus in
       // git mode — the breadcrumb's visibility decision uses stack.length,
@@ -9151,9 +9168,11 @@
       if (session && session.mode === 'git' && f && f.kind === 'range') {
         loadStackFromPicker();
       }
+      __initDiag('init:before-connectSSE');
     })
-    .then(connectSSE)
+    .then(function() { __initDiag('init:in-then-2'); connectSSE(); __initDiag('init:after-connectSSE'); })
     .catch(function(err) {
+      __initDiag('init:CATCH ' + (err && err.message ? err.message : err) + ' stack=' + (err && err.stack ? err.stack.slice(0, 200) : ''));
       console.error('Init failed:', err.message);
     });
 
