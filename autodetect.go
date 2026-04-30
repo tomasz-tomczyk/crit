@@ -124,46 +124,19 @@ func detectLocalStackFocus(vcs VCS, repoRoot string) *Focus {
 	// remember the *furthest* non-default tip seen — that's the stack
 	// root, which becomes Full-stack scope's diff base.
 	//
-	// Why: in stacked-on-staging workflows the literal default branch
-	// (master) isn't the meaningful root of the user's stack; staging
-	// is. Diffing master..head shows dozens of unrelated commits from
-	// staging's history that the user already merged via the parent
-	// PR chain. Anchoring full-stack to the topmost stack tip restores
-	// the "everything in MY stack" semantics for these workflows. For
+	// Why: in workflows that stack feature work on top of a long-lived
+	// parent branch, the literal default branch isn't the meaningful
+	// root of the user's stack. Diffing default..head shows commits
+	// from the parent branch's history that the user already merged
+	// via the parent PR chain. Anchoring full-stack to the topmost
+	// stack tip restores the "everything in MY stack" semantics. For
 	// non-stacked branches there's only one match and stackRootSHA
-	// falls back to defaultSHA — Full stack still means master..head.
-	var baseSHA, baseLabel string
-	baseIdx := -1
-	for i, sha := range ancestors[1:] {
-		if _, ok := tipLabels[sha]; !ok {
-			continue
-		}
-		if len(topic) > 0 && !topic[sha] {
-			// Tip is an ancestor of HEAD but also of origin/<default> — stale.
-			continue
-		}
-		baseSHA = sha
-		baseLabel = tipLabels[sha]
-		baseIdx = i + 1 // index into ancestors
-		break
-	}
+	// falls back to defaultSHA — Full stack still means default..head.
+	baseSHA, baseLabel, baseIdx := findFirstStackTip(ancestors[1:], tipLabels, topic)
 	if baseSHA == "" {
 		return nil
 	}
-
-	stackRootSHA := defaultSHA
-	for _, sha := range ancestors[baseIdx+1:] {
-		if defaultSHA != "" && sha == defaultSHA {
-			break
-		}
-		if _, ok := tipLabels[sha]; !ok {
-			continue
-		}
-		if len(topic) > 0 && !topic[sha] {
-			continue
-		}
-		stackRootSHA = sha
-	}
+	stackRootSHA := findFurthestStackTip(ancestors[baseIdx+2:], tipLabels, topic, defaultSHA)
 
 	return &Focus{
 		Kind:        FocusRange,
@@ -176,6 +149,50 @@ func detectLocalStackFocus(vcs VCS, repoRoot string) *Focus {
 		DiffScope:   DiffScopeLayer,
 		IsStacked:   true,
 	}
+}
+
+// isLiveStackTip reports whether sha is a non-default branch tip on the
+// user's in-progress topic chain. Used by both detectLocalStackFocus
+// passes (BaseSHA discovery and stack-root walk) to keep the per-iteration
+// branch logic simple.
+func isLiveStackTip(sha string, tipLabels map[string]string, topic map[string]bool) bool {
+	if _, ok := tipLabels[sha]; !ok {
+		return false
+	}
+	if len(topic) > 0 && !topic[sha] {
+		// Tip is an ancestor of HEAD but also of origin/<default> — stale.
+		return false
+	}
+	return true
+}
+
+// findFirstStackTip walks ancestors and returns (sha, label, index) for the
+// first non-default branch tip on the topic chain. Returns ("", "", -1)
+// when nothing matches.
+func findFirstStackTip(ancestors []string, tipLabels map[string]string, topic map[string]bool) (string, string, int) {
+	for i, sha := range ancestors {
+		if isLiveStackTip(sha, tipLabels, topic) {
+			return sha, tipLabels[sha], i
+		}
+	}
+	return "", "", -1
+}
+
+// findFurthestStackTip walks ancestors and returns the SHA of the *last*
+// non-default branch tip seen before reaching the default branch.
+// Falls back to defaultSHA when no further tip is found — that's the
+// "stack root" used by Full-stack scope.
+func findFurthestStackTip(ancestors []string, tipLabels map[string]string, topic map[string]bool, defaultSHA string) string {
+	furthest := defaultSHA
+	for _, sha := range ancestors {
+		if defaultSHA != "" && sha == defaultSHA {
+			break
+		}
+		if isLiveStackTip(sha, tipLabels, topic) {
+			furthest = sha
+		}
+	}
+	return furthest
 }
 
 // stackTipLabels returns a map of branch-tip SHA → display label, covering

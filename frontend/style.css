@@ -4074,11 +4074,11 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   margin-left: 0;
 }
 /* Collapse the inter-chip gap to zero only between the merged segments,
-   without affecting other compare-rail children (resume pill, etc.). */
+   without affecting other compare-rail children (resume pill, etc.).
+   The left border returns at 1px so the seam between branch chip and
+   stack chip reads as a clean divider. */
 .compare-rail.is-stack .header-chip.header-context + .stack-chip {
   margin-left: -6px;
-}
-.compare-rail.is-stack .header-chip.header-context + .stack-chip {
   border-left-width: 1px;
   border-left-color: var(--crit-pill-border);
 }

@@ -76,66 +76,79 @@ func detectStack(vcs VCS, repoRoot string, openPRs []PRSummary) ([]StackEntry, e
 		if gateByTopic && !topicSHAs[sha] {
 			continue
 		}
-		if pr, ok := prByHead[sha]; ok {
-			branchEntries = append(branchEntries, StackEntry{
-				Label:       fmt.Sprintf("PR #%d: %s", pr.Number, pr.Title),
-				PRNumber:    pr.Number,
-				HeadSHA:     sha,
-				BaseRefName: pr.BaseRefName,
-				Distance:    distance,
-			})
+		entry, isBranch := classifyStackSHA(sha, distance, prByHead, branchTips, vcs, repoRoot)
+		if entry == nil {
 			continue
 		}
-		if branch, ok := branchTips[sha]; ok {
-			branchEntries = append(branchEntries, StackEntry{
-				Label:    branch,
-				HeadSHA:  sha,
-				Distance: distance,
-			})
-			continue
+		if isBranch {
+			branchEntries = append(branchEntries, *entry)
+		} else {
+			nakedEntries = append(nakedEntries, *entry)
 		}
-		// Tier 3: naked ancestor commit. Falling through to here means sha
-		// is already known to be on the topic chain — for git the outer
-		// gate at the top of the loop enforces it, and for sapling
-		// walkAncestors only returns draft() commits, which by definition
-		// match topicSHAs (`draft() & ::.`). So no extra topic-chain check
-		// is needed here. Use the first-line subject (truncated) for the
-		// breadcrumb label.
-		subject := commitSubjectFor(vcs, repoRoot, sha)
-		if subject == "" {
-			continue
-		}
-		nakedEntries = append(nakedEntries, StackEntry{
-			Label:    subject,
-			HeadSHA:  sha,
-			Distance: distance,
-		})
 	}
 
-	// Drop naked-commit entries that are subsumed by a branch/PR entry. A
-	// naked commit at distance D is "subsumed" if any tier-1/tier-2 entry
-	// sits at a smaller distance — that branch's history covers the older
-	// commit, so surfacing it as a separate row is just noise. This
-	// matters on long-lived parent branches (e.g. `staging`) whose own
-	// history would otherwise leak into the picker as dozens of unrelated
-	// rows. Naked commits with no closer branch ancestor stay — they're
-	// the user's own unbranched WIP between HEAD and the nearest branch.
+	entries := mergeStackEntries(branchEntries, nakedEntries)
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Distance < entries[j].Distance })
+	return assignStackBases(vcs, entries, repoRoot), nil
+}
+
+// mergeStackEntries combines branch-tier and naked-commit-tier stack
+// entries, dropping any naked entry whose distance from HEAD exceeds the
+// closest branch-tier entry. The dropped entries are commits subsumed by
+// a branch's history (long-lived parent branches would otherwise leak
+// dozens of unrelated commits into the picker as separate rows). Naked
+// commits with no closer branch ancestor stay — they're the user's own
+// unbranched WIP between HEAD and the nearest branch.
+func mergeStackEntries(branchEntries, nakedEntries []StackEntry) []StackEntry {
 	minBranchDist := -1
 	for _, e := range branchEntries {
 		if minBranchDist < 0 || e.Distance < minBranchDist {
 			minBranchDist = e.Distance
 		}
 	}
-	entries := branchEntries
+	out := branchEntries
 	for _, e := range nakedEntries {
 		if minBranchDist >= 0 && e.Distance > minBranchDist {
 			continue
 		}
-		entries = append(entries, e)
+		out = append(out, e)
 	}
+	return out
+}
 
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Distance < entries[j].Distance })
-	return assignStackBases(vcs, entries, repoRoot), nil
+// classifyStackSHA returns a StackEntry for the given SHA along with a flag
+// indicating whether it's a branch-tier entry (tier 1 PR head or tier 2
+// local branch tip) versus a naked-commit-subject fallback. Returns
+// (nil, _) when no label can be derived (no PR, no branch, empty commit
+// subject). Extracted to keep detectStack's per-SHA loop linear.
+func classifyStackSHA(sha string, distance int, prByHead map[string]PRSummary, branchTips map[string]string, vcs VCS, repoRoot string) (*StackEntry, bool) {
+	if pr, ok := prByHead[sha]; ok {
+		return &StackEntry{
+			Label:       fmt.Sprintf("PR #%d: %s", pr.Number, pr.Title),
+			PRNumber:    pr.Number,
+			HeadSHA:     sha,
+			BaseRefName: pr.BaseRefName,
+			Distance:    distance,
+		}, true
+	}
+	if branch, ok := branchTips[sha]; ok {
+		return &StackEntry{
+			Label:    branch,
+			HeadSHA:  sha,
+			Distance: distance,
+		}, true
+	}
+	// Tier 3: naked ancestor commit. Subject lookup may return empty
+	// (e.g. for a commit no longer in the local object store); skip.
+	subject := commitSubjectFor(vcs, repoRoot, sha)
+	if subject == "" {
+		return nil, false
+	}
+	return &StackEntry{
+		Label:    subject,
+		HeadSHA:  sha,
+		Distance: distance,
+	}, false
 }
 
 // topicChainSHAs returns the set of ancestor SHAs that are reachable from
