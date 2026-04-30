@@ -4102,7 +4102,9 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   border-radius: 3px;
 }
 .stack-chip-icon {
-  font-size: 11px;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
   color: var(--crit-pill-fg-muted);
   opacity: 0.85;
 }
@@ -4315,7 +4317,8 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 .resume-pr-pill {
   display: inline-flex;
   align-items: center;
-  padding: 2px 10px;
+  height: 24px;
+  padding: 0 10px;
   border-radius: 999px;
   border: 1px dashed var(--crit-pill-border);
   background: transparent;
@@ -4323,7 +4326,7 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   font-family: var(--crit-font-body);
   font-size: 12px;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1;
   cursor: pointer;
   white-space: nowrap;
   margin-left: 4px;

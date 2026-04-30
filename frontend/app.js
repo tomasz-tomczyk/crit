@@ -8383,15 +8383,34 @@
   function isStackChipOpen() {
     return stackChipEl && stackChipEl.classList.contains('open');
   }
+  // Returns interactive popover items in DOM order. Excludes the
+  // non-interactive root marker and any disabled scope option.
+  function focusableStackPopoverItems() {
+    if (!stackPopoverEl) return [];
+    return Array.from(stackPopoverEl.querySelectorAll('button:not(:disabled)'));
+  }
   function closeStackChip() {
     if (!stackChipEl) return;
+    const wasOpen = stackChipEl.classList.contains('open');
     stackChipEl.classList.remove('open');
     if (stackChipBtnEl) stackChipBtnEl.setAttribute('aria-expanded', 'false');
+    // Return focus to the chip so keyboard users don't lose their place.
+    // Only when we just closed an open popover that has focus inside it.
+    if (wasOpen && stackPopoverEl && stackPopoverEl.contains(document.activeElement) && stackChipBtnEl) {
+      stackChipBtnEl.focus();
+    }
   }
   function openStackChip() {
     if (!stackChipEl) return;
     stackChipEl.classList.add('open');
     if (stackChipBtnEl) stackChipBtnEl.setAttribute('aria-expanded', 'true');
+    // Move focus to the first interactive popover item so the menu is
+    // immediately keyboard-navigable. Defer to the next frame so the
+    // popover render has flushed and items exist.
+    requestAnimationFrame(function() {
+      const items = focusableStackPopoverItems();
+      if (items.length > 0) items[0].focus();
+    });
   }
 
   // renderStackChip decides whether the chip is visible and paints the
@@ -8666,6 +8685,13 @@
       if (isStackChipOpen()) closeStackChip();
       else openStackChip();
     });
+    // ArrowDown / ArrowUp on the chip button opens the popover with
+    // focus already on the first item — standard menu-button pattern.
+    stackChipBtnEl.addEventListener('keydown', function(e) {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      if (!isStackChipOpen()) openStackChip();
+    });
   }
   if (stackPopoverEl) {
     stackPopoverEl.addEventListener('click', function(e) {
@@ -8689,6 +8715,28 @@
         closeStackChip();
         postFocus(Object.assign({}, focus, { diff_scope: newScope }));
       }
+    });
+    // Arrow-key navigation between popover items + Home/End jumps. Tab
+    // continues to work natively (escapes the menu), Escape closes the
+    // popover via the document-level handler.
+    stackPopoverEl.addEventListener('keydown', function(e) {
+      const navKeys = ['ArrowDown', 'ArrowUp', 'Home', 'End'];
+      if (navKeys.indexOf(e.key) === -1) return;
+      const items = focusableStackPopoverItems();
+      if (items.length === 0) return;
+      const currentIdx = items.indexOf(document.activeElement);
+      let nextIdx = currentIdx;
+      if (e.key === 'ArrowDown') {
+        nextIdx = currentIdx < 0 ? 0 : (currentIdx + 1) % items.length;
+      } else if (e.key === 'ArrowUp') {
+        nextIdx = currentIdx <= 0 ? items.length - 1 : currentIdx - 1;
+      } else if (e.key === 'Home') {
+        nextIdx = 0;
+      } else if (e.key === 'End') {
+        nextIdx = items.length - 1;
+      }
+      e.preventDefault();
+      items[nextIdx].focus();
     });
   }
   // Click-outside + Escape close the popover.
