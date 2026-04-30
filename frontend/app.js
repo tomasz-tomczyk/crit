@@ -6474,20 +6474,6 @@
   }
 
   function setUIState(state) {
-    try {
-      const stack = new Error().stack || '';
-      const fc = (window.__fcDiag = window.__fcDiag || []);
-      fc.push('setUIState(' + state + ') @' + Date.now() + ' caller=' + (stack.split('\n')[2] || '').trim());
-      // ALWAYS flush trace to DOM so CI snapshots can see it.
-      let diagEl = document.getElementById('diag-fc-trace');
-      if (!diagEl) {
-        diagEl = document.createElement('div');
-        diagEl.id = 'diag-fc-trace';
-        diagEl.style.cssText = 'position:fixed;top:0;right:0;z-index:99999;background:#0aa;color:#fff;padding:6px;max-width:50vw;white-space:pre;font-size:10px;font-family:monospace;';
-        document.body.appendChild(diagEl);
-      }
-      diagEl.textContent = fc.slice(-40).join('\n');
-    } catch {}
     uiState = state;
     if (state === 'reviewing') waitingHasComments = false;
     const finishBtn = document.getElementById('finishBtn');
@@ -6669,50 +6655,8 @@
 
   function connectSSE() {
     const source = new EventSource('/api/events');
-    // DIAG: log every SSE event type to a global ring buffer + DOM div.
-    const __sseDiag = (window.__sseDiag = window.__sseDiag || []);
-    function __sseLog(label) {
-      __sseDiag.push(label + ' @' + Date.now());
-      try {
-        let el = document.getElementById('diag-sse-trace');
-        if (!el) {
-          el = document.createElement('div');
-          el.id = 'diag-sse-trace';
-          el.style.cssText = 'position:fixed;bottom:0;right:0;z-index:99999;background:#a06;color:#fff;padding:6px;max-width:50vw;white-space:pre;font-size:10px;font-family:monospace;';
-          document.body.appendChild(el);
-        }
-        el.textContent = __sseDiag.slice(-40).join('\n');
-      } catch {}
-    }
-    __sseLog('sse:connect-start readyState=' + source.readyState);
-    source.addEventListener('open', function() { __sseLog('sse:open readyState=' + source.readyState); });
-    source.addEventListener('error', function() { __sseLog('sse:error readyState=' + source.readyState); });
-    source.addEventListener('message', function(e) { __sseLog('sse:message ' + (e && e.data ? String(e.data).slice(0, 30) : '')); });
-    // Wrap addEventListener to log every named-event type registered + delivered.
-    const origAdd = source.addEventListener.bind(source);
-    source.addEventListener = function(type, fn, opts) {
-      return origAdd(type, function(e) {
-        __sseLog('sse:' + type);
-        return fn.apply(this, arguments);
-      }, opts);
-    };
 
     source.addEventListener('file-changed', async function() {
-      const __diag = (window.__fcDiag = window.__fcDiag || []);
-      function __flushDiag(label) {
-        __diag.push(label + ' @' + Date.now());
-        try {
-          let el = document.getElementById('diag-fc-trace');
-          if (!el) {
-            el = document.createElement('div');
-            el.id = 'diag-fc-trace';
-            el.style.cssText = 'position:fixed;top:0;right:0;z-index:99999;background:#0aa;color:#fff;padding:6px;max-width:50vw;white-space:pre;font-size:10px;font-family:monospace;';
-            document.body.appendChild(el);
-          }
-          el.textContent = __diag.slice(-40).join('\n');
-        } catch {}
-      }
-      __flushDiag('fc:start');
       try {
         // Reset action tracking for new round
         userActedThisRound = false;
@@ -6732,17 +6676,13 @@
         // Clear commit filter on round-complete
         diffCommit = '';
 
-        __flushDiag('fc:before-fetch-session');
         // Re-fetch everything on file-changed (round complete)
         const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(r => r.json());
-        __flushDiag('fc:after-fetch-session');
         session = sessionRes;
         reviewComments = sessionRes.review_comments || [];
 
-        __flushDiag('fc:before-loadAllFileData');
         // Reload all files
         files = await loadAllFileData(session.files || [], diffScope);
-        __flushDiag('fc:after-loadAllFileData');
 
         // Restore per-file user state from previous round
         for (let fi = 0; fi < files.length; fi++) {
@@ -6773,53 +6713,20 @@
         navCommentId = null;
 
         saveViewedState();
-        __flushDiag('fc:saveViewedState');
         updateHeaderRound();
-        __flushDiag('fc:updateHeaderRound');
         updateDiffModeToggle();
-        __flushDiag('fc:updateDiffModeToggle');
         renderFileTree();
-        __flushDiag('fc:renderFileTree');
         renderAllFiles();
-        __flushDiag('fc:renderAllFiles');
         buildToc();
-        __flushDiag('fc:buildToc');
         updateCommentCount();
-        __flushDiag('fc:updateCommentCount');
         updateViewedCount();
-        __flushDiag('fc:updateViewedCount');
         updateTreeViewedState();
-        __flushDiag('fc:updateTreeViewedState');
         setUIState('reviewing');
-        __flushDiag('fc:setUIState-reviewing-done overlay=' + document.getElementById('waitingOverlay').classList.contains('active'));
         // Signal "ready" in the tab bar if the user has tabbed away.
         // Cleared by the visibilitychange listener when they return.
         if (document.visibilityState !== 'visible') setTabBadge();
-        __diag.push('fc:done');
-        // Render diag visibly into DOM so CI artifact captures it.
-        try {
-          let diagEl = document.getElementById('diag-fc-trace');
-          if (!diagEl) {
-            diagEl = document.createElement('div');
-            diagEl.id = 'diag-fc-trace';
-            diagEl.style.cssText = 'position:fixed;top:0;right:0;z-index:99999;background:#0aa;color:#fff;padding:6px;max-width:50vw;white-space:pre;font-size:10px;font-family:monospace;';
-            document.body.appendChild(diagEl);
-          }
-          diagEl.textContent = __diag.slice(-30).join('\n');
-        } catch {}
       } catch (err) {
-        __diag.push('fc:ERROR ' + (err && err.message ? err.message : err));
         console.error('Error handling file-changed:', err);
-        // DIAGNOSTIC: surface the error into the DOM so CI artifacts capture it.
-        try {
-          const diag = document.createElement('div');
-          diag.id = 'diag-file-changed-error';
-          diag.setAttribute('data-error', String(err && err.message ? err.message : err));
-          diag.setAttribute('data-stack', String(err && err.stack ? err.stack : '(no stack)'));
-          diag.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:red;color:#fff;padding:10px;max-width:90vw;white-space:pre-wrap;font-size:11px;';
-          diag.textContent = 'FILE-CHANGED ERROR: ' + (err && err.stack ? err.stack : err);
-          document.body.appendChild(diag);
-        } catch {}
       }
     });
 
@@ -9140,26 +9047,9 @@
   }
 
   // ===== Start =====
-  function __initDiag(label) {
-    try {
-      const arr = (window.__initDiag = window.__initDiag || []);
-      arr.push(label + ' @' + Date.now());
-      let el = document.getElementById('diag-init-trace');
-      if (!el) {
-        el = document.createElement('div');
-        el.id = 'diag-init-trace';
-        el.style.cssText = 'position:fixed;bottom:0;left:0;z-index:99999;background:#600;color:#fff;padding:6px;max-width:50vw;white-space:pre;font-size:10px;font-family:monospace;';
-        document.body.appendChild(el);
-      }
-      el.textContent = arr.slice(-30).join('\n');
-    } catch {}
-  }
-  __initDiag('init:about-to-call');
   init()
     .then(function() {
-      __initDiag('init:resolved');
       if (session) applyFocusToHeader(session.focus || { kind: 'working_tree' });
-      __initDiag('init:after-applyFocusToHeader');
       // Pre-fetch /api/picker.stack so the breadcrumb has data without
       // waiting for the user to do anything. Fire for any range focus in
       // git mode — the breadcrumb's visibility decision uses stack.length,
@@ -9168,11 +9058,9 @@
       if (session && session.mode === 'git' && f && f.kind === 'range') {
         loadStackFromPicker();
       }
-      __initDiag('init:before-connectSSE');
     })
-    .then(function() { __initDiag('init:in-then-2'); connectSSE(); __initDiag('init:after-connectSSE'); })
+    .then(connectSSE)
     .catch(function(err) {
-      __initDiag('init:CATCH ' + (err && err.message ? err.message : err) + ' stack=' + (err && err.stack ? err.stack.slice(0, 200) : ''));
       console.error('Init failed:', err.message);
     });
 
