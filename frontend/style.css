@@ -2730,18 +2730,6 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   align-items: center;
   gap: 8px;
 }
-.comments-panel-add-btn {
-  background: none;
-  border: 1px solid var(--crit-border);
-  color: var(--crit-editor-fg-muted);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 500;
-  padding: 3px 8px;
-  border-radius: 4px;
-  line-height: 1;
-}
-.comments-panel-add-btn:hover { background: var(--crit-editor-bg-hover); color: var(--crit-editor-fg); border-color: var(--crit-editor-fg-muted); }
 .comments-panel-close {
   background: none;
   border: none;
@@ -4061,4 +4049,202 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* ===== Review Conversation (top-of-doc section) ===== */
+/* Linear-inspired: no card chrome around the container, no brand rails.
+   Hierarchy is carried by typography, rhythm, and a hairline divider in
+   the sidebar. */
+.review-conversation {
+  max-width: var(--content-width);
+  margin: 20px 24px 24px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.review-conversation[data-doc-layout="centered"] { margin: 20px auto 24px; }
+.review-conversation.collapsed .review-conversation-body { display: none; }
+
+.review-conversation-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  user-select: none;
+}
+.review-conversation.collapsed .review-conversation-header { margin-bottom: 0; }
+.review-conversation-toggle {
+  background: none;
+  border: none;
+  color: var(--crit-editor-fg-muted);
+  cursor: pointer;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  margin-left: -2px;
+  border-radius: var(--crit-r-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--crit-dur-fast) var(--crit-ease),
+              color var(--crit-dur-fast) var(--crit-ease);
+}
+.review-conversation-toggle svg { width: 12px; height: 12px; }
+.review-conversation-toggle:hover { color: var(--crit-editor-fg); }
+.review-conversation.collapsed .review-conversation-toggle { transform: rotate(-90deg); }
+.review-conversation-header .icon {
+  display: inline-flex;
+  color: var(--crit-editor-fg-muted);
+}
+.review-conversation-header .icon svg {
+  width: 13px;
+  height: 13px;
+}
+.review-conversation-header .label {
+  color: var(--crit-editor-fg);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.review-conversation-header .count {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--crit-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--crit-editor-fg-muted);
+  background: none;
+  padding: 0;
+  min-width: 0;
+  height: auto;
+  border-radius: 0;
+}
+
+/* Linear's "calm invitation": ghost button with a dashed plus chip that
+   becomes solid on hover. No solid border around the whole button. */
+.review-conversation-add-more {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--crit-editor-fg-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--crit-r-md);
+  padding: 7px 10px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background var(--crit-dur-fast) var(--crit-ease),
+              color var(--crit-dur-fast) var(--crit-ease),
+              border-color var(--crit-dur-fast) var(--crit-ease);
+}
+.review-conversation-add-more::before {
+  content: "";
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--crit-r-sm);
+  border: 1px dashed var(--crit-border-strong);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%23646c85' stroke-width='1.5' stroke-linecap='round'><path d='M8 5.5v5M5.5 8h5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: center;
+  transition: border-color var(--crit-dur-fast) var(--crit-ease),
+              border-style var(--crit-dur-fast) var(--crit-ease);
+}
+.review-conversation-add-more:hover::before {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%2385aaf8' stroke-width='1.5' stroke-linecap='round'><path d='M8 5.5v5M5.5 8h5'/></svg>");
+  border-style: solid;
+  border-color: var(--crit-brand);
+}
+[data-theme="light"] .review-conversation-add-more::before {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%238892a6' stroke-width='1.5' stroke-linecap='round'><path d='M8 5.5v5M5.5 8h5'/></svg>");
+}
+[data-theme="light"] .review-conversation-add-more:hover::before {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%232960bc' stroke-width='1.5' stroke-linecap='round'><path d='M8 5.5v5M5.5 8h5'/></svg>");
+}
+@media (prefers-color-scheme: light) {
+  html:not([data-theme]) .review-conversation-add-more::before {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%238892a6' stroke-width='1.5' stroke-linecap='round'><path d='M8 5.5v5M5.5 8h5'/></svg>");
+  }
+  html:not([data-theme]) .review-conversation-add-more:hover::before {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%232960bc' stroke-width='1.5' stroke-linecap='round'><path d='M8 5.5v5M5.5 8h5'/></svg>");
+  }
+}
+.review-conversation-add-more:hover {
+  background: var(--crit-editor-bg-hover);
+  color: var(--crit-editor-fg);
+  border-color: var(--crit-border);
+}
+
+/* Threads + form inside the section reuse the same renderers — strip the
+   line-anchored 56px gutter so they span the full section width. */
+.review-conversation .comment-block { padding: 0; margin: 0; }
+.review-conversation .comment-block + .comment-block { margin-top: 10px; }
+.review-conversation .comment-form-wrapper { padding-left: 0; }
+
+/* ===== Tree section: review-conversation row sits in its own section
+   above FILES, separated by the file-tree-header's bottom border. ===== */
+.tree-section--conversation {
+  padding: 8px 4px;
+  flex-shrink: 0;
+}
+.tree-conversation-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  padding: 0 10px;
+  margin: 0 4px;
+  cursor: pointer;
+  color: var(--crit-editor-fg-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--crit-r-md);
+  transition: background var(--crit-dur-fast) var(--crit-ease),
+              color var(--crit-dur-fast) var(--crit-ease);
+}
+.tree-conversation-row:hover {
+  background: var(--crit-editor-bg-hover);
+  color: var(--crit-editor-fg);
+}
+.tree-conversation-row.active {
+  background: var(--crit-brand-subtle);
+  color: var(--crit-editor-fg);
+}
+.tree-conversation-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  color: var(--crit-editor-fg-muted);
+  flex-shrink: 0;
+  transition: color var(--crit-dur-fast) var(--crit-ease);
+}
+.tree-conversation-row:hover .tree-conversation-icon,
+.tree-conversation-row.active .tree-conversation-icon {
+  color: var(--crit-editor-fg-secondary);
+}
+.tree-conversation-icon svg { width: 14px; height: 14px; }
+.tree-conversation-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.005em;
+}
+.tree-conversation-badge {
+  font-family: var(--crit-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--crit-editor-fg-muted);
+  background: none;
+  padding: 0;
+}
+.tree-conversation-row.active .tree-conversation-badge {
+  color: var(--crit-brand);
 }

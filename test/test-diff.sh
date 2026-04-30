@@ -492,6 +492,22 @@ curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/$C4/replies?path=$ENCODED_P
     "author": "reviewer"
   }' > /dev/null
 
+# Seed a couple of review-level (general) comments to exercise the
+# Review Conversation section at the top of the document.
+curl -sf -X POST "http://127.0.0.1:$PORT/api/comments" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "body": "Overall this plan is solid but I think the scope might be too broad for a single round — could we split the SQS migration and the rate-limiting work into separate deliverables?",
+    "author": "reviewer"
+  }' > /dev/null
+
+curl -sf -X POST "http://127.0.0.1:$PORT/api/comments" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "body": "Have we looped in the on-call team about the maintenance window? They'\''ll need to know about the table swap timing.",
+    "author": "reviewer"
+  }' > /dev/null
+
 # Finish the review to write the review file
 REVIEW_FILE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/finish" | python3 -c "import json, sys; print(json.load(sys.stdin)['review_file'])")
 
@@ -589,6 +605,27 @@ curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/file/comments?path=$CF_GIT_E
     "start_line": 103, "end_line": 103,
     "body": "[git-mode] Risks: should shift to 112."
   }' > /dev/null
+
+# Seed review-level comments on the git-mode carry-forward instance —
+# exercises the Review Conversation section in git mode.
+curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/comments" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "body": "[git-mode] General concern: the migration plan keeps pointing at \"Postgres\" without specifying which version. Some of the partitioning syntax assumes 13+.",
+    "author": "reviewer"
+  }' > /dev/null
+
+# Pre-mark one as resolved by toggling via the resolve endpoint.
+RC_RESOLVED=$(curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/comments" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "body": "[git-mode] Should we capture rollback steps as a runbook in addition to the plan? Easy to miss them under time pressure.",
+    "author": "reviewer"
+  }' | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+
+curl -sf -X PUT "http://127.0.0.1:$CF_GIT_PORT/api/review-comment/$RC_RESOLVED/resolve" \
+  -H 'Content-Type: application/json' \
+  -d '{"resolved": true}' > /dev/null
 
 curl -sf -X POST "http://127.0.0.1:$CF_GIT_PORT/api/finish" > /dev/null
 

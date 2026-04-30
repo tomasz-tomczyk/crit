@@ -1333,10 +1333,32 @@
     tree = collapseCommonPrefixes(tree);
     const body = document.getElementById('fileTreeBody');
     body.innerHTML = '';
+
+    // Review Conversation pseudo-row sits in its own section above FILES.
+    const conversationSection = document.getElementById('treeConversationSection');
+    conversationSection.innerHTML = '';
+    conversationSection.appendChild(buildReviewConversationTreeRow());
+
     renderTreeNode(body, tree, 0, '');
 
     // Set up intersection observer for active file tracking
     setupTreeObserver();
+  }
+
+  function buildReviewConversationTreeRow() {
+    const row = document.createElement('div');
+    row.className = 'tree-conversation-row' + (activeTreePath === REVIEW_CONVERSATION_PATH ? ' active' : '');
+    row.dataset.treePath = REVIEW_CONVERSATION_PATH;
+    let inner =
+      '<span class="tree-conversation-icon">' + ICON_REVIEW_CONVERSATION + '</span>' +
+      '<span class="tree-conversation-name">Review conversation</span>';
+    const unresolved = reviewComments.filter(function(c) { return !c.resolved; }).length;
+    if (unresolved > 0) {
+      inner += '<span class="tree-conversation-badge">' + unresolved + '</span>';
+    }
+    row.innerHTML = inner;
+    row.addEventListener('click', scrollToReviewConversation);
+    return row;
   }
 
   function fileStatusIcon(status) {
@@ -1447,13 +1469,13 @@
   function updateTreeActive(filePath) {
     if (filePath === activeTreePath) return;
     activeTreePath = filePath;
-    const allFiles = document.querySelectorAll('.tree-file');
-    for (let i = 0; i < allFiles.length; i++) {
-      allFiles[i].classList.toggle('active', allFiles[i].dataset.treePath === filePath);
+    const allRows = document.querySelectorAll('.tree-file, .tree-conversation-row');
+    for (let i = 0; i < allRows.length; i++) {
+      allRows[i].classList.toggle('active', allRows[i].dataset.treePath === filePath);
     }
     // Scroll active item into view within the tree panel (manual scroll
     // to avoid scrollIntoView affecting ancestor scroll containers)
-    const activeEl = document.querySelector('.tree-file.active');
+    const activeEl = document.querySelector('.tree-file.active, .tree-conversation-row.active');
     if (activeEl) {
       const panel = document.getElementById('fileTreeBody');
       const rect = activeEl.getBoundingClientRect();
@@ -1519,7 +1541,8 @@
   function setupTreeObserver() {
     if (treeObserver) treeObserver.disconnect();
     const sections = document.querySelectorAll('.file-section[id]');
-    if (sections.length === 0) return;
+    const reviewSection = document.getElementById('reviewConversation');
+    if (sections.length === 0 && !reviewSection) return;
 
     treeObserver = new IntersectionObserver(function(entries) {
       // Skip observer updates briefly after a manual scrollToFile click
@@ -1532,13 +1555,19 @@
           const top = entries[i].boundingClientRect.top;
           if (top < bestTop) {
             bestTop = top;
-            bestPath = entries[i].target.id.replace('file-section-', '');
+            const id = entries[i].target.id;
+            bestPath = id === 'reviewConversation'
+              ? REVIEW_CONVERSATION_PATH
+              : id.replace('file-section-', '');
           }
         }
       }
       if (bestPath) updateTreeActive(bestPath);
     }, { rootMargin: '-60px 0px -70% 0px' });
 
+    if (reviewSection && !reviewSection.hidden) {
+      treeObserver.observe(reviewSection);
+    }
     for (let i = 0; i < sections.length; i++) {
       treeObserver.observe(sections[i]);
     }
@@ -1568,6 +1597,9 @@
 
     // Render mermaid diagrams
     renderMermaidBlocks();
+
+    // Render the inline Review Conversation section above filesContainer
+    renderReviewConversation();
 
     // Re-attach intersection observer for file tree active tracking
     setupTreeObserver();
@@ -4002,6 +4034,13 @@
     return { filePath, startLine, endLine, afterBlockIndex, side };
   }
 
+  function closeEmptyReviewForm() {
+    if (!reviewCommentFormActive || reviewCommentEditingId) return;
+    const ta = document.querySelector('#reviewConversation .comment-form textarea');
+    if (ta && ta.value.trim()) return;
+    cancelReviewCommentForm();
+  }
+
   function closeEmptyForms(exceptKey) {
     const toClose = [];
     activeForms.forEach(function(f) {
@@ -4026,6 +4065,7 @@
       return;
     }
     closeEmptyForms(fk);
+    closeEmptyReviewForm();
     addForm(newForm);
     activeFilePath = newForm.filePath;
     selectionStart = newForm.startLine;
@@ -4050,6 +4090,7 @@
       return;
     }
     closeEmptyForms(fk);
+    closeEmptyReviewForm();
     addForm(newForm);
     renderFileByPath(filePath);
     focusCommentTextarea(newForm.formKey);
@@ -4995,9 +5036,9 @@
       card.appendChild(pending);
     }
 
-    // Reply input
-    if (opts.showReplyInput && filePath) {
-      card.appendChild(createReplyInput(comment.id, filePath));
+    // Reply input (filePath empty/null → review-level reply)
+    if (opts.showReplyInput) {
+      card.appendChild(createReplyInput(comment.id, filePath || ''));
     }
 
     if (pendingAgentRequests.has(comment.id) || isLiveThread(comment)) {
@@ -5334,7 +5375,9 @@
       refreshFileComments(filePath);
     } else {
       await refreshReviewComments();
+      renderReviewConversation();
       renderCommentsPanel();
+      renderFileTree();
     }
   }
 
@@ -5381,6 +5424,9 @@
     reviewCommentFormActive = false;
     reviewCommentEditingId = null;
     updateCommentCount();
+    renderReviewConversation();
+    renderCommentsPanel();
+    renderFileTree();
   }
 
   async function updateReviewComment(id, body) {
@@ -5404,6 +5450,8 @@
     reviewCommentFormActive = false;
     reviewCommentEditingId = null;
     updateCommentCount();
+    renderReviewConversation();
+    renderCommentsPanel();
   }
 
   async function deleteReviewComment(id) {
@@ -5419,39 +5467,34 @@
     }
     if (navCommentId === id) navCommentId = null;
     updateCommentCount();
+    renderReviewConversation();
+    renderCommentsPanel();
+    renderFileTree();
   }
 
   function openReviewCommentForm() {
     // No-op if form is already open
     if (reviewCommentFormActive && !reviewCommentEditingId) return;
-    // Open panel if closed
-    const panel = document.getElementById('commentsPanel');
-    if (panel.classList.contains('comments-panel-hidden')) {
-      panel.classList.remove('comments-panel-hidden');
-      updateTocPosition();
-    }
+    closeEmptyForms(null);
     reviewCommentFormActive = true;
     reviewCommentEditingId = null;
+    renderReviewConversation();
     renderCommentsPanel();
-    // Focus the textarea
+    scrollToReviewConversation();
     requestAnimationFrame(function() {
-      const ta = document.querySelector('#commentsPanelBody textarea');
+      const ta = document.querySelector('#reviewConversation textarea');
       if (ta) ta.focus();
     });
   }
 
   function openReviewCommentEditForm(comment) {
-    // Open panel if closed
-    const panel = document.getElementById('commentsPanel');
-    if (panel.classList.contains('comments-panel-hidden')) {
-      panel.classList.remove('comments-panel-hidden');
-      updateTocPosition();
-    }
     reviewCommentFormActive = true;
     reviewCommentEditingId = comment.id;
+    renderReviewConversation();
     renderCommentsPanel();
+    scrollToReviewConversation();
     requestAnimationFrame(function() {
-      const ta = document.querySelector('#commentsPanelBody textarea');
+      const ta = document.querySelector('#reviewConversation textarea');
       if (ta) ta.focus();
     });
   }
@@ -5459,6 +5502,7 @@
   function cancelReviewCommentForm() {
     reviewCommentFormActive = false;
     reviewCommentEditingId = null;
+    renderReviewConversation();
     renderCommentsPanel();
   }
 
@@ -5502,6 +5546,240 @@
     updateCommentCount();
   }
 
+  // ===== Inline Review Conversation Section (top of document) =====
+
+  const REVIEW_CONVERSATION_PATH = '__review_conversation__';
+  const ICON_REVIEW_CONVERSATION =
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6A1.5 1.5 0 0 1 12.5 11H8.5l-3 2.75V11H3.5A1.5 1.5 0 0 1 2 9.5Z"/>' +
+    '</svg>';
+
+  function createReviewConversationCard(comment) {
+    const isResolved = comment.resolved;
+    const cardClassExtra = [
+      isResolved ? 'resolved-card' : '',
+      comment.carried_forward ? 'carried-forward' : '',
+    ].filter(Boolean).join(' ');
+
+    const parts = buildCommentCard(comment, '', {
+      wrapperClass: 'comment-block',
+      cardClassExtra: cardClassExtra,
+      collapseDefault: isResolved,
+      showLineRef: false,
+      showCarriedForward: true,
+      showReplyInput: true,
+    });
+
+    if (isResolved) {
+      const unresolveBtn = document.createElement('button');
+      unresolveBtn.className = 'resolve-btn resolve-btn--active';
+      unresolveBtn.title = 'Unresolve';
+      unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
+      unresolveBtn.innerHTML = ICON_UNRESOLVE + '<span>Unresolve</span>';
+      unresolveBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        toggleResolveStatus(comment.id, 'review', 'unresolve', null);
+      });
+      parts.actions.appendChild(unresolveBtn);
+    } else {
+      const resolveBtn = document.createElement('button');
+      resolveBtn.className = 'resolve-btn';
+      resolveBtn.title = 'Resolve';
+      resolveBtn.setAttribute('aria-label', 'Resolve thread');
+      resolveBtn.innerHTML = ICON_RESOLVE + '<span>Resolve</span>';
+      resolveBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        toggleResolveStatus(comment.id, 'review', 'resolve', null);
+      });
+      parts.actions.appendChild(resolveBtn);
+    }
+
+    const editBtn = document.createElement('button');
+    editBtn.title = 'Edit';
+    editBtn.innerHTML = ICON_EDIT;
+    editBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      openReviewCommentEditForm(comment);
+    });
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'delete-btn';
+    deleteBtn.title = 'Delete';
+    deleteBtn.innerHTML = ICON_DELETE;
+    deleteBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      deleteReviewComment(comment.id);
+    });
+    parts.actions.appendChild(editBtn);
+    parts.actions.appendChild(deleteBtn);
+
+    return parts.wrapper;
+  }
+
+  // Collapse state — host preference, persisted via cookie like other view prefs.
+  function isReviewConversationCollapsed() {
+    return getCookie('crit-review-conversation-collapsed') === '1';
+  }
+  function setReviewConversationCollapsed(collapsed) {
+    setCookie('crit-review-conversation-collapsed', collapsed ? '1' : '0');
+  }
+
+  const ICON_CHEVRON_DOWN =
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">' +
+    '<path d="M4 6l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  function renderReviewConversation() {
+    const section = document.getElementById('reviewConversation');
+    if (!section) return;
+
+    // Hide entirely until session is loaded
+    if (!session || !Array.isArray(files)) {
+      section.hidden = true;
+      return;
+    }
+
+    section.hidden = false;
+    section.innerHTML = '';
+
+    // Match doc layout: file mode centers `.document-wrapper`, so we center the
+    // section too. Git mode renders file-sections full-width, so left-anchor.
+    if (session.mode === 'files') {
+      section.dataset.docLayout = 'centered';
+    } else {
+      delete section.dataset.docLayout;
+    }
+
+    const collapsed = isReviewConversationCollapsed() && !reviewCommentFormActive;
+    section.classList.toggle('collapsed', collapsed);
+
+    // Header — chevron on the left, matching `.tree-folder` and `.comment-card`
+    // collapse conventions elsewhere in the UI.
+    const header = document.createElement('div');
+    header.className = 'review-conversation-header';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'review-conversation-toggle';
+    toggle.title = collapsed ? 'Expand review conversation' : 'Collapse review conversation';
+    toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    toggle.setAttribute('aria-label', toggle.title);
+    toggle.innerHTML = ICON_CHEVRON_DOWN;
+    toggle.addEventListener('click', function() {
+      setReviewConversationCollapsed(!isReviewConversationCollapsed());
+      renderReviewConversation();
+    });
+    header.appendChild(toggle);
+
+    const headerLabel = document.createElement('span');
+    headerLabel.className = 'icon';
+    headerLabel.innerHTML = ICON_REVIEW_CONVERSATION;
+    header.appendChild(headerLabel);
+
+    const labelText = document.createElement('span');
+    labelText.className = 'label';
+    labelText.textContent = 'Review conversation';
+    header.appendChild(labelText);
+
+    // Match the file-tree badge convention: count unresolved (the "needs attention" signal),
+    // not total. Resolved threads are visible but de-emphasised.
+    const unresolvedCount = reviewComments.filter(function(c) { return !c.resolved; }).length;
+    if (unresolvedCount > 0) {
+      const count = document.createElement('span');
+      count.className = 'count';
+      count.textContent = String(unresolvedCount);
+      header.appendChild(count);
+    }
+    section.appendChild(header);
+
+    if (collapsed) return;
+
+    const body = document.createElement('div');
+    body.className = 'review-conversation-body';
+    section.appendChild(body);
+
+    // Threads (existing comments first; the editor renders inline at the matching position)
+    for (const comment of reviewComments) {
+      if (reviewCommentEditingId === comment.id) {
+        body.appendChild(createReviewCommentEditor(comment));
+      } else {
+        body.appendChild(createReviewConversationCard(comment));
+      }
+    }
+
+    // Footer: new-comment form (when active) | "Add comment" ghost button.
+    // The same button is used for both empty and populated states.
+    if (reviewCommentFormActive && !reviewCommentEditingId) {
+      body.appendChild(createReviewCommentFormUI());
+    } else {
+      const addMore = document.createElement('button');
+      addMore.className = 'review-conversation-add-more';
+      if (reviewComments.length === 0) addMore.classList.add('review-conversation-empty');
+      addMore.type = 'button';
+      addMore.textContent = 'Add comment';
+      addMore.addEventListener('click', function() { openReviewCommentForm(); });
+      body.appendChild(addMore);
+    }
+  }
+
+  function scrollToReviewConversation() {
+    // If the user collapsed it, expand on navigate so the target is visible.
+    if (isReviewConversationCollapsed()) {
+      setReviewConversationCollapsed(false);
+      renderReviewConversation();
+    }
+    const section = document.getElementById('reviewConversation');
+    if (!section) return;
+    ignoreTreeObserverUntil = Date.now() + 200;
+    // Only scroll if the section isn't already comfortably in view —
+    // otherwise clicking the in-view "Add comment" button feels jarring.
+    const rect = section.getBoundingClientRect();
+    const headerOffset = (document.querySelector('.app-header') || {}).offsetHeight || 0;
+    if (rect.top < headerOffset || rect.top > window.innerHeight) {
+      section.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
+    updateTreeActive(REVIEW_CONVERSATION_PATH);
+  }
+
+  // Scroll to and flash a specific review-level comment card. Mirrors scrollToComment.
+  function scrollToReviewComment(commentId) {
+    if (isReviewConversationCollapsed()) {
+      setReviewConversationCollapsed(false);
+      renderReviewConversation();
+    }
+    const section = document.getElementById('reviewConversation');
+    if (!section) return;
+    const card = section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
+    if (!card) {
+      scrollToReviewConversation();
+      return;
+    }
+    ignoreTreeObserverUntil = Date.now() + 200;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.remove('comment-card-highlight');
+    void card.offsetWidth;
+    card.classList.add('comment-card-highlight');
+    card.addEventListener('animationend', function() {
+      card.classList.remove('comment-card-highlight');
+    }, { once: true });
+    updateTreeActive(REVIEW_CONVERSATION_PATH);
+  }
+
+  // Build the URL for a reply mutation (edit or delete). filePath empty → review-level.
+  function replyMutationUrl(commentId, replyId, filePath) {
+    return filePath
+      ? '/api/comment/' + commentId + '/replies/' + replyId + '?path=' + enc(filePath)
+      : '/api/review-comment/' + commentId + '/replies/' + replyId;
+  }
+
+  async function refreshAfterReplyChange(filePath) {
+    if (filePath) {
+      refreshFileComments(filePath);
+    } else {
+      await refreshReviewComments();
+      renderReviewConversation();
+      renderCommentsPanel();
+      renderFileTree();
+    }
+  }
+
   async function editReply(commentId, replyId, filePath) {
     const replyEl = document.querySelector('[data-reply-id="' + replyId + '"]');
     if (!replyEl) return;
@@ -5530,23 +5808,24 @@
     btnRow.appendChild(cancelBtn);
     replyEl.appendChild(btnRow);
 
-    cancelBtn.addEventListener('click', () => refreshFileComments(filePath));
+    cancelBtn.addEventListener('click', () => refreshAfterReplyChange(filePath));
     saveBtn.addEventListener('click', async () => {
       const newBody = textarea.value.trim();
       if (!newBody) return;
       try {
-        await fetch('/api/comment/' + commentId + '/replies/' + replyId + '?path=' + enc(filePath), {
+        const res = await fetch(replyMutationUrl(commentId, replyId, filePath), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ body: newBody })
         });
+        if (!res.ok) throw new Error('Server returned ' + res.status);
       } catch (err) {
         console.error('Error editing reply:', err);
         showMiniToast('Failed to edit reply');
         return;
       }
       userActedThisRound = true;
-      refreshFileComments(filePath);
+      refreshAfterReplyChange(filePath);
     });
 
     bindSubmitCancelKeys(textarea, function() { saveBtn.click(); }, function() { cancelBtn.click(); });
@@ -5554,14 +5833,15 @@
 
   async function deleteReply(commentId, replyId, filePath) {
     try {
-      await fetch('/api/comment/' + commentId + '/replies/' + replyId + '?path=' + enc(filePath), {
+      const res = await fetch(replyMutationUrl(commentId, replyId, filePath), {
         method: 'DELETE'
       });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
       userActedThisRound = true;
     } catch (err) {
       console.error('Error deleting reply:', err);
     }
-    refreshFileComments(filePath);
+    refreshAfterReplyChange(filePath);
   }
 
   function createReplyInput(commentId, filePath) {
@@ -5603,6 +5883,8 @@
 
     function expand() {
       if (form.classList.contains('expanded')) return;
+      closeEmptyReviewForm();
+      closeEmptyForms(null);
       form.classList.add('expanded');
       textarea.value = input.value;
       input.replaceWith(textarea);
@@ -5645,7 +5927,10 @@
       try {
         const payload = { body: body };
         if (configAuthor) payload.author = configAuthor;
-        const res = await fetch('/api/comment/' + commentId + '/replies?path=' + enc(filePath), {
+        const url = filePath
+          ? '/api/comment/' + commentId + '/replies?path=' + enc(filePath)
+          : '/api/review-comment/' + commentId + '/replies';
+        const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -5653,25 +5938,27 @@
         if (!res.ok) throw new Error('Server returned ' + res.status);
         userActedThisRound = true;
 
-        // In live threads, also send the reply to the agent
-        const file = getFileByPath(filePath);
-        const comment = file && file.comments ? file.comments.find(function(c) { return c.id === commentId; }) : null;
-        if (comment && (isLiveThread(comment) || pendingAgentRequests.has(commentId))) {
-          pendingAgentRequests.add(commentId);
-          fetch('/api/agent/request', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ comment_id: commentId, file_path: filePath }),
-          }).catch(function(err) {
-            console.error('Error sending reply to agent:', err);
-            pendingAgentRequests.delete(commentId);
-            showMiniToast('Failed to send to agent');
-          });
+        // Live-thread agent dispatch only applies to file-scoped comments.
+        if (filePath) {
+          const file = getFileByPath(filePath);
+          const comment = file && file.comments ? file.comments.find(function(c) { return c.id === commentId; }) : null;
+          if (comment && (isLiveThread(comment) || pendingAgentRequests.has(commentId))) {
+            pendingAgentRequests.add(commentId);
+            fetch('/api/agent/request', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ comment_id: commentId, file_path: filePath }),
+            }).catch(function(err) {
+              console.error('Error sending reply to agent:', err);
+              pendingAgentRequests.delete(commentId);
+              showMiniToast('Failed to send to agent');
+            });
+          }
         }
 
         activeReplyForms.delete(commentId);
         collapse();
-        refreshFileComments(filePath);
+        refreshAfterReplyChange(filePath);
       } catch (err) {
         console.error('Failed to add reply:', err);
         showMiniToast('Failed to save reply');
@@ -5822,50 +6109,13 @@
     });
 
     if (isGeneral) {
-      // General comments: resolve/unresolve, edit, and delete
-      if (isResolved) {
-        const unresolveBtn = document.createElement('button');
-        unresolveBtn.className = 'resolve-btn resolve-btn--active';
-        unresolveBtn.title = 'Unresolve';
-        unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
-        unresolveBtn.innerHTML = ICON_UNRESOLVE + '<span>Unresolve</span>';
-        unresolveBtn.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleResolveStatus(comment.id, 'review', 'unresolve', null);
-        });
-        parts.actions.appendChild(unresolveBtn);
-      } else {
-        const resolveBtn = document.createElement('button');
-        resolveBtn.className = 'resolve-btn';
-        resolveBtn.title = 'Resolve';
-        resolveBtn.setAttribute('aria-label', 'Resolve thread');
-        resolveBtn.innerHTML = ICON_RESOLVE + '<span>Resolve</span>';
-        resolveBtn.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleResolveStatus(comment.id, 'review', 'resolve', null);
-        });
-        parts.actions.appendChild(resolveBtn);
-      }
-      const editBtn = document.createElement('button');
-      editBtn.title = 'Edit';
-      editBtn.innerHTML = ICON_EDIT;
-      editBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        openReviewCommentEditForm(comment);
-      });
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'delete-btn';
-      deleteBtn.title = 'Delete';
-      deleteBtn.innerHTML = ICON_DELETE;
-      deleteBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        deleteReviewComment(comment.id);
-      });
-      parts.actions.appendChild(editBtn);
-      parts.actions.appendChild(deleteBtn);
-    }
-    // File comments are clickable to scroll to inline location
-    if (!isGeneral) {
+      // General comments are edited/resolved/deleted from the inline
+      // Review Conversation section. Panel cards navigate + flash the inline card,
+      // matching the line-comment behaviour.
+      parts.wrapper.style.cursor = 'pointer';
+      parts.wrapper.addEventListener('click', function() { scrollToReviewComment(comment.id); });
+    } else {
+      // File comments are clickable to scroll to inline location
       parts.wrapper.style.cursor = 'pointer';
       parts.wrapper.addEventListener('click', function(e) {
         // Don't scroll if clicking action buttons
@@ -5924,28 +6174,22 @@
 
     let hasComments = false;
 
-    // Render general comment compose form at the top when active
-    if (reviewCommentFormActive && !reviewCommentEditingId) {
-      body.appendChild(createReviewCommentFormUI());
-    }
-
-    // Render review-level (general) comments first
+    // Render review-level (general) comments first.
+    // Note: the compose/edit form is rendered in the inline Review Conversation
+    // section at the top of the document (see renderReviewConversation), not here.
+    // Cards in the panel are read-only mirrors that link back to the inline section.
     const visibleReviewComments = reviewComments.filter(visibleFilter);
     if (visibleReviewComments.length > 0) {
       hasComments = true;
       const group = document.createElement('div');
       group.className = 'comments-panel-file-group';
 
-      group.appendChild(createFileGroupHeader('Review', visibleReviewComments.length, group));
+      group.appendChild(createFileGroupHeader('Review conversation', visibleReviewComments.length, group));
 
       const cards = document.createElement('div');
       cards.className = 'comments-panel-file-cards';
       for (let j = 0; j < visibleReviewComments.length; j++) {
         const comment = visibleReviewComments[j];
-        if (reviewCommentEditingId === comment.id) {
-          cards.appendChild(createReviewCommentEditor(comment));
-          continue;
-        }
         cards.appendChild(createPanelCommentCard(comment, null));
       }
       group.appendChild(cards);
@@ -6261,7 +6505,6 @@
   }
 
   // ===== General Comment Button (in panel header) =====
-  document.getElementById('panelAddCommentBtn').addEventListener('click', openReviewCommentForm);
 
   // ===== Finish Review =====
   async function doFinishReview() {
@@ -7354,7 +7597,7 @@
 
   function navigateToComment(direction) {
     const panel = document.getElementById('commentsPanel');
-    const container = document.getElementById('filesContainer');
+    const container = document.querySelector('.main-content');
     const cards = Array.from(container.querySelectorAll('.comment-card')).filter(function(card) {
       return !panel || !panel.contains(card);
     });
