@@ -269,14 +269,15 @@ func assignStackBases(vcs VCS, entries []StackEntry, repoRoot string) []StackEnt
 // raw error strings inside the picker UI (issue: picker renders gh failures
 // as visible entries).
 type pickerResponse struct {
-	Current       Focus         `json:"current"`
-	Stack         []StackEntry  `json:"stack"`
-	OtherPRs      []PRSummary   `json:"other_prs"`
-	Branches      []BranchEntry `json:"branches"`
-	Errors        []string      `json:"errors,omitempty"`
-	PRListError   string        `json:"pr_list_error,omitempty"`
-	StackError    string        `json:"stack_error,omitempty"`
-	BranchesError string        `json:"branches_error,omitempty"`
+	Current           Focus         `json:"current"`
+	DefaultBranchName string        `json:"default_branch_name,omitempty"`
+	Stack             []StackEntry  `json:"stack"`
+	OtherPRs          []PRSummary   `json:"other_prs"`
+	Branches          []BranchEntry `json:"branches"`
+	Errors            []string      `json:"errors,omitempty"`
+	PRListError       string        `json:"pr_list_error,omitempty"`
+	StackError        string        `json:"stack_error,omitempty"`
+	BranchesError     string        `json:"branches_error,omitempty"`
 }
 
 // handlePicker returns the focus picker payload: current focus, detected stack,
@@ -294,6 +295,9 @@ func (s *Server) handlePicker(w http.ResponseWriter, r *http.Request) {
 	repoRoot := sess.RepoRoot
 	resp.Current = sess.Focus
 	sess.mu.RUnlock()
+	if vcs != nil {
+		resp.DefaultBranchName = vcs.DefaultBranch()
+	}
 
 	openPRs, err := s.openPRsFromCache()
 	if err != nil {

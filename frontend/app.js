@@ -8304,6 +8304,10 @@
   // Cached /api/picker.stack array. We only consume `stack` now — `other_prs`
   // and `branches` are intentionally unused. Refreshed on focus-changed SSE.
   let stackCache = null;
+  // Repo's literal default branch name (e.g. "master" / "main"). Cached
+  // from /api/picker so the popover root marker reflects what the repo
+  // actually calls its default branch instead of hardcoding "main".
+  let defaultBranchNameCache = '';
   let pickerLoadInFlight = null;
 
   // Truncate a label so the chip and popover entries stay readable.
@@ -8413,7 +8417,11 @@
       const rootEntry = stack.find(function(e) { return e.head_sha === focusDefaultSHA; });
       if (rootEntry) stackRootName = entryLabel(rootEntry, 32);
     }
-    const defaultBranchName = (ordered[0] && ordered[0].base_ref_name) || 'main';
+    // Prefer the repo's actual default branch name (e.g. "master") over
+    // guessing from the topmost stack entry's base_ref_name (often empty
+    // for branch-tier entries) or hardcoding 'main'.
+    // defaultBranchNameCache is populated by /api/picker.
+    const defaultBranchName = defaultBranchNameCache || (ordered[0] && ordered[0].base_ref_name) || 'main';
 
     const parts = [];
     parts.push('<div class="stack-popover-title">Stack</div>');
@@ -8584,6 +8592,7 @@
         if (!res.ok) return;
         const data = await res.json();
         stackCache = Array.isArray(data.stack) ? data.stack : [];
+        defaultBranchNameCache = data.default_branch_name || '';
         applyFocusToHeader((session && session.focus) || { kind: 'working_tree' });
       } catch (err) {
         console.error('picker fetch failed:', err);
