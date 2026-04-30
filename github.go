@@ -350,7 +350,7 @@ func ensureSHAFetched(vcs VCS, sha, repoRoot, forkURL string) error {
 		return nil
 	}
 	if vcs.Name() == "sl" {
-		return ensureSHAFetchedSapling(vcs, sha, repoRoot)
+		return ensureSHAFetchedSapling(vcs, sha, repoRoot, forkURL)
 	}
 	if vcs.Name() != "git" {
 		return fmt.Errorf("commit %s not present locally (auto-fetch not supported for vcs=%q)", sha, vcs.Name())
@@ -377,7 +377,14 @@ func ensureSHAFetched(vcs VCS, sha, repoRoot, forkURL string) error {
 // `git fetch origin <sha>` when the repo has both .sl and .git
 // (sapling-on-git). Sapling-on-git stores objects in the underlying git repo,
 // so a git fetch populates them and `sl` will see them on the next HasObject.
-func ensureSHAFetchedSapling(vcs VCS, sha, repoRoot string) error {
+//
+// forkURL is the cross-repo HEAD repository URL when the PR comes from a
+// fork. For sapling-on-git we attempt `git fetch <forkURL> <sha>` as a third
+// step. Pure sapling has no clean cross-repo fetch primitive that takes an
+// arbitrary URL on the command line — `sl pull <url>` only works when the
+// remote is configured — so we surface a clear error telling the user to
+// configure the fork as a path/remote and re-run.
+func ensureSHAFetchedSapling(vcs VCS, sha, repoRoot, forkURL string) error {
 	if err := trySLPull(repoRoot, sha); err == nil &&
 		vcs.HasObject(sha, repoRoot) {
 		return nil
@@ -387,6 +394,18 @@ func ensureSHAFetchedSapling(vcs VCS, sha, repoRoot string) error {
 			vcs.HasObject(sha, repoRoot) {
 			return nil
 		}
+		if forkURL != "" {
+			if err := tryGitFetch(repoRoot, forkURL, sha); err == nil &&
+				vcs.HasObject(sha, repoRoot) {
+				return nil
+			}
+			return fmt.Errorf("commit %s not present locally; tried `sl pull -r %s`, `git fetch origin %s`, and `git fetch %s %s` — manual fetch required", sha, sha, sha, forkURL, sha)
+		}
+	}
+	if forkURL != "" {
+		// Pure sapling, fork PR. We can't drive a cross-repo fetch by URL,
+		// so explain what the user needs to do.
+		return fmt.Errorf("commit %s not present locally; PR head is on fork %s. Pure sapling can't fetch by URL — run `sl pull %s` (configure the fork as a path first if needed) and re-run", sha, forkURL, forkURL)
 	}
 	return fmt.Errorf("commit %s not present locally; tried `sl pull -r %s` and `git fetch origin %s` — run `sl pull` manually with the right source", sha, sha, sha)
 }
