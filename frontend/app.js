@@ -6478,6 +6478,15 @@
       const stack = new Error().stack || '';
       const fc = (window.__fcDiag = window.__fcDiag || []);
       fc.push('setUIState(' + state + ') @' + Date.now() + ' caller=' + (stack.split('\n')[2] || '').trim());
+      // ALWAYS flush trace to DOM so CI snapshots can see it.
+      let diagEl = document.getElementById('diag-fc-trace');
+      if (!diagEl) {
+        diagEl = document.createElement('div');
+        diagEl.id = 'diag-fc-trace';
+        diagEl.style.cssText = 'position:fixed;top:0;right:0;z-index:99999;background:#0aa;color:#fff;padding:6px;max-width:50vw;white-space:pre;font-size:10px;font-family:monospace;';
+        document.body.appendChild(diagEl);
+      }
+      diagEl.textContent = fc.slice(-40).join('\n');
     } catch {}
     uiState = state;
     if (state === 'reviewing') waitingHasComments = false;
@@ -6663,7 +6672,20 @@
 
     source.addEventListener('file-changed', async function() {
       const __diag = (window.__fcDiag = window.__fcDiag || []);
-      __diag.push('fc:start ' + Date.now());
+      function __flushDiag(label) {
+        __diag.push(label + ' @' + Date.now());
+        try {
+          let el = document.getElementById('diag-fc-trace');
+          if (!el) {
+            el = document.createElement('div');
+            el.id = 'diag-fc-trace';
+            el.style.cssText = 'position:fixed;top:0;right:0;z-index:99999;background:#0aa;color:#fff;padding:6px;max-width:50vw;white-space:pre;font-size:10px;font-family:monospace;';
+            document.body.appendChild(el);
+          }
+          el.textContent = __diag.slice(-40).join('\n');
+        } catch {}
+      }
+      __flushDiag('fc:start');
       try {
         // Reset action tracking for new round
         userActedThisRound = false;
@@ -6683,13 +6705,17 @@
         // Clear commit filter on round-complete
         diffCommit = '';
 
+        __flushDiag('fc:before-fetch-session');
         // Re-fetch everything on file-changed (round complete)
         const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(r => r.json());
+        __flushDiag('fc:after-fetch-session');
         session = sessionRes;
         reviewComments = sessionRes.review_comments || [];
 
+        __flushDiag('fc:before-loadAllFileData');
         // Reload all files
         files = await loadAllFileData(session.files || [], diffScope);
+        __flushDiag('fc:after-loadAllFileData');
 
         // Restore per-file user state from previous round
         for (let fi = 0; fi < files.length; fi++) {
@@ -6720,25 +6746,25 @@
         navCommentId = null;
 
         saveViewedState();
-        __diag.push('fc:saveViewedState');
+        __flushDiag('fc:saveViewedState');
         updateHeaderRound();
-        __diag.push('fc:updateHeaderRound');
+        __flushDiag('fc:updateHeaderRound');
         updateDiffModeToggle();
-        __diag.push('fc:updateDiffModeToggle');
+        __flushDiag('fc:updateDiffModeToggle');
         renderFileTree();
-        __diag.push('fc:renderFileTree');
+        __flushDiag('fc:renderFileTree');
         renderAllFiles();
-        __diag.push('fc:renderAllFiles');
+        __flushDiag('fc:renderAllFiles');
         buildToc();
-        __diag.push('fc:buildToc');
+        __flushDiag('fc:buildToc');
         updateCommentCount();
-        __diag.push('fc:updateCommentCount');
+        __flushDiag('fc:updateCommentCount');
         updateViewedCount();
-        __diag.push('fc:updateViewedCount');
+        __flushDiag('fc:updateViewedCount');
         updateTreeViewedState();
-        __diag.push('fc:updateTreeViewedState');
+        __flushDiag('fc:updateTreeViewedState');
         setUIState('reviewing');
-        __diag.push('fc:setUIState reviewing uiState=' + uiState + ' overlayActive=' + document.getElementById('waitingOverlay').classList.contains('active'));
+        __flushDiag('fc:setUIState-reviewing-done overlay=' + document.getElementById('waitingOverlay').classList.contains('active'));
         // Signal "ready" in the tab bar if the user has tabbed away.
         // Cleared by the visibilitychange listener when they return.
         if (document.visibilityState !== 'visible') setTabBadge();
