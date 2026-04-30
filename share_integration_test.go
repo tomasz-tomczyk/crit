@@ -286,6 +286,30 @@ func seedReviewComment(t *testing.T, baseURL, token, body string) {
 	}
 }
 
+// seedReviewCommentGetID seeds a review-level comment and returns its crit-web ID
+// (for use with seedReply on review-level comments).
+func seedReviewCommentGetID(t *testing.T, baseURL, token, body string) string {
+	t.Helper()
+	payload, _ := json.Marshal(map[string]any{
+		"body": body, "scope": "review",
+	})
+	resp, err := http.Post(baseURL+"/api/reviews/"+token+"/seed-comment", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("seed-review-comment failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("seed-review-comment returned %d", resp.StatusCode)
+	}
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decoding seed-review-comment response: %v", err)
+	}
+	return result.ID
+}
+
 // reviewRoundFromAPI fetches the current review_round for a token from crit-web.
 func reviewRoundFromAPI(t *testing.T, baseURL, token string) int {
 	t.Helper()
@@ -1170,6 +1194,69 @@ func TestShareSyncFetchReviewLevelWebComment(t *testing.T) {
 	if !found {
 		t.Errorf("expected review-level web comment in local ReviewComments, got: %+v", cj.ReviewComments)
 	}
+}
+
+// TestShareSyncFetchReviewLevelReplies verifies replies on review-level (general,
+// doc-anchored) comments round-trip through the share flow. This complements
+// TestShareSyncFetchReplies (line-anchored) and TestShareSyncFetchReviewLevelWebComment
+// (review-level body without replies). It locks the parity gap surfaced when
+// crit-web's review-level cards were missing the reply UI even though the API worked.
+func TestShareSyncFetchReviewLevelReplies(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+
+	// Share a simple review.
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+
+	output := critShareCmd(t, binary, baseURL, dir, "plan.md")
+	logReview(t, output)
+	token := extractToken(t, output)
+
+	// Seed a review-level comment on crit-web and reply to it twice from the web.
+	commentID := seedReviewCommentGetID(t, baseURL, token, "general feedback from web")
+	seedReply(t, baseURL, token, commentID, "first review-level reply from web")
+	seedReply(t, baseURL, token, commentID, "second review-level reply from web")
+
+	// Re-share to trigger a fetch.
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1 (revised)\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	critShareCmd(t, binary, baseURL, dir, "plan.md")
+
+	// Verify the review-level comment is in local ReviewComments WITH its replies.
+	cj := readCritJSON(t, dir)
+	var webReview *Comment
+	for i, c := range cj.ReviewComments {
+		if c.Body == "general feedback from web" {
+			webReview = &cj.ReviewComments[i]
+			break
+		}
+	}
+	if webReview == nil {
+		t.Fatalf("review-level web comment not found in local ReviewComments, got: %+v", cj.ReviewComments)
+	}
+	if len(webReview.Replies) != 2 {
+		t.Fatalf("expected 2 replies on review-level web comment, got %d", len(webReview.Replies))
+	}
+	bodies := map[string]bool{}
+	for _, r := range webReview.Replies {
+		bodies[r.Body] = true
+		if r.Author == "" {
+			t.Errorf("review-level reply %q has empty author", r.Body)
+		}
+	}
+	if !bodies["first review-level reply from web"] {
+		t.Error("missing reply 'first review-level reply from web'")
+	}
+	if !bodies["second review-level reply from web"] {
+		t.Error("missing reply 'second review-level reply from web'")
+	}
+
+	t.Logf("Review-level reply round-trip test passed. Review: %s", extractURL(t, output))
 }
 
 // TestShareSyncFullLifecycle exercises the complete round-trip:
