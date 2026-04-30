@@ -6484,6 +6484,16 @@
         if (document.visibilityState !== 'visible') setTabBadge();
       } catch (err) {
         console.error('Error handling file-changed:', err);
+        // DIAGNOSTIC: surface the error into the DOM so CI artifacts capture it.
+        try {
+          const diag = document.createElement('div');
+          diag.id = 'diag-file-changed-error';
+          diag.setAttribute('data-error', String(err && err.message ? err.message : err));
+          diag.setAttribute('data-stack', String(err && err.stack ? err.stack : '(no stack)'));
+          diag.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:red;color:#fff;padding:10px;max-width:90vw;white-space:pre-wrap;font-size:11px;';
+          diag.textContent = 'FILE-CHANGED ERROR: ' + (err && err.stack ? err.stack : err);
+          document.body.appendChild(diag);
+        } catch {}
       }
     });
 
