@@ -525,6 +525,44 @@ func TestMergeBase_OriginMain(t *testing.T) {
 	}
 }
 
+// TestDefaultBaseRef_PrefersOrigin verifies that when origin/<defaultBranch>
+// exists, defaultBaseRef returns it instead of the bare local name. This is
+// the fix for https://github.com/tomasz-tomczyk/crit/issues/377 — auto-detect
+// should diff against the remote-tracking ref so a stale local main doesn't
+// produce a bloated diff.
+func TestDefaultBaseRef_PrefersOrigin(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// No remote yet — should fall back to the bare local name.
+	defaultBranchOnce = sync.Once{}
+	defaultBranchResult = ""
+	if got := defaultBaseRef(); got != "main" {
+		t.Errorf("without remote: defaultBaseRef() = %q, want %q", got, "main")
+	}
+
+	// Add a remote and push so refs/remotes/origin/main exists.
+	bare := t.TempDir()
+	runGit(t, bare, "init", "--bare")
+	runGit(t, dir, "remote", "add", "origin", bare)
+	runGit(t, dir, "push", "origin", "main")
+
+	defaultBranchOnce = sync.Once{}
+	defaultBranchResult = ""
+	if got := defaultBaseRef(); got != "origin/main" {
+		t.Errorf("with remote: defaultBaseRef() = %q, want %q", got, "origin/main")
+	}
+
+	// Override should suppress remote preference — user picked the ref.
+	setDefaultBranchOverride("custom")
+	defer setDefaultBranchOverride("")
+	if got := defaultBaseRef(); got != "custom" {
+		t.Errorf("with override: defaultBaseRef() = %q, want %q", got, "custom")
+	}
+}
+
 func TestChangedFilesBranch_EmptyBaseRef(t *testing.T) {
 	dir := initTestRepo(t)
 	origDir, _ := os.Getwd()

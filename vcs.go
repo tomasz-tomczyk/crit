@@ -33,6 +33,12 @@ type VCS interface {
 	// MergeBase returns the merge-base commit between HEAD and the given ref.
 	MergeBase(ref string) (string, error)
 
+	// DefaultBaseRef returns the best ref to use as the diff base for the
+	// auto-detected default branch. For git, prefers `origin/<branch>` when
+	// the remote-tracking ref exists locally, since the local default branch
+	// is often stale. For Sapling, returns the default branch as-is.
+	DefaultBaseRef() string
+
 	// ChangedFilesOnDefaultInDir returns changed files when on the default branch.
 	ChangedFilesOnDefaultInDir(dir string) ([]FileChange, error)
 

@@ -313,7 +313,7 @@ func detectVCSChanges(vcs VCS, root string, ignorePatterns []string) (branch, ba
 	branch = vcs.CurrentBranch()
 	resolvedBase = vcs.DefaultBranch()
 	if branch != resolvedBase {
-		baseRef, _ = vcs.MergeBase(resolvedBase)
+		baseRef, _ = vcs.MergeBase(vcs.DefaultBaseRef())
 	}
 
 	if baseRef != "" {
@@ -429,7 +429,7 @@ func resolveGitContext() (root, branch, baseRef, baseBranchName string, vcs VCS)
 	resolvedBase := vcs.DefaultBranch()
 	baseBranchName = resolvedBase
 	if branch != resolvedBase {
-		baseRef, _ = vcs.MergeBase(resolvedBase)
+		baseRef, _ = vcs.MergeBase(vcs.DefaultBaseRef())
 	}
 	return root, branch, baseRef, baseBranchName, vcs
 }

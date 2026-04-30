@@ -83,6 +83,10 @@ func (s *SaplingVCS) GetDefaultBranchOverride() string {
 	return s.overrideBranch
 }
 
+// DefaultBaseRef returns the default branch as-is. Sapling has no
+// origin/<branch>-style remote tracking refs analogous to git.
+func (s *SaplingVCS) DefaultBaseRef() string { return s.DefaultBranch() }
+
 // MergeBase returns the common ancestor between the working copy and ref.
 func (s *SaplingVCS) MergeBase(ref string) (string, error) {
 	revset := fmt.Sprintf("ancestor(., %s)", ref)

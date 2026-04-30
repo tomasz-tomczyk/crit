@@ -94,6 +94,27 @@ func getDefaultBranchOverride() string {
 	return defaultBranchOverride
 }
 
+// defaultBaseRef returns the best ref to use as the diff base for the
+// auto-detected default branch. Prefers `origin/<defaultBranch>` when that
+// remote-tracking ref exists locally, otherwise falls back to the bare local
+// branch name. The remote ref is preferred because the local default branch
+// is often stale relative to upstream — leading to misleading diffs that
+// include commits already merged on the remote.
+//
+// If the user has set a base-branch override (via config or CLI), this
+// function honors it as-is, since the user has explicitly chosen a ref.
+func defaultBaseRef() string {
+	branch := DefaultBranch()
+	if getDefaultBranchOverride() != "" {
+		return branch
+	}
+	remote := "origin/" + branch
+	if exec.Command("git", "rev-parse", "--verify", "refs/remotes/"+remote).Run() == nil {
+		return remote
+	}
+	return branch
+}
+
 func detectDefaultBranch() string {
 	// Try remote HEAD first
 	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
@@ -415,8 +436,7 @@ func changedFilesOnDefaultInDir(dir string) ([]FileChange, error) {
 }
 
 func changedFilesOnFeature() ([]FileChange, error) {
-	defaultBranch := DefaultBranch()
-	mergeBase, err := MergeBase(defaultBranch)
+	mergeBase, err := MergeBase(defaultBaseRef())
 	if err != nil {
 		// Fallback to HEAD diff if merge-base fails
 		return changedFilesOnDefault()

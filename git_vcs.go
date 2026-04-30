@@ -25,6 +25,8 @@ func (g *GitVCS) GetDefaultBranchOverride() string { return getDefaultBranchOver
 
 func (g *GitVCS) MergeBase(ref string) (string, error) { return MergeBase(ref) }
 
+func (g *GitVCS) DefaultBaseRef() string { return defaultBaseRef() }
+
 func (g *GitVCS) ChangedFilesOnDefaultInDir(dir string) ([]FileChange, error) {
 	return changedFilesOnDefaultInDir(dir)
 }

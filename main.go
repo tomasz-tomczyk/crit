@@ -557,7 +557,7 @@ func runPull(args []string) {
 		cfg := LoadConfig("")
 		base := cfg.BaseBranch
 		if base == "" {
-			base = DefaultBranch()
+			base = defaultBaseRef()
 		}
 		cj.BaseRef, _ = MergeBase(base)
 		cj.ReviewRound = 1

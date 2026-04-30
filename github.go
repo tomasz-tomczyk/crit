@@ -819,7 +819,7 @@ func loadCritJSON(critPath string) (CritJSON, error) {
 		cfg := LoadConfig(filepath.Dir(critPath))
 		base := cfg.BaseBranch
 		if base == "" {
-			base = DefaultBranch()
+			base = defaultBaseRef()
 		}
 		baseRef, _ := MergeBase(base)
 		cj = CritJSON{
