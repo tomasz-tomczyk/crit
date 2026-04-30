@@ -7457,8 +7457,17 @@
     try {
       const res = await fetch('/api/branches');
       if (!res.ok) return;
-      baseBranches = await res.json();
-      if (!baseBranches || baseBranches.length < 2) {
+      // /api/branches returns JSON `null` when the repo has no remote
+      // branches (server marshals a nil Go slice as null). Coerce to [] so
+      // every consumer can rely on baseBranches being array-shaped —
+      // applyFocusToHeader reads baseBranches.length unconditionally on
+      // every focus update, and a null here threw a TypeError that
+      // short-circuited init's promise chain (which silently skipped the
+      // subsequent `.then(connectSSE)` step, leaving the page without any
+      // SSE listeners attached).
+      const parsed = await res.json();
+      baseBranches = Array.isArray(parsed) ? parsed : [];
+      if (baseBranches.length < 2) {
         baseBranchPickerEl.classList.remove('open');
         baseBranchPickerEl.style.display = 'none';
         document.getElementById('baseBranchArrow').style.display = 'none';
@@ -8841,7 +8850,7 @@
         baseBranchPickerEl.classList.remove('open');
         baseBranchPickerEl.style.display = 'none';
         if (baseBranchArrowEl) baseBranchArrowEl.style.display = 'none';
-      } else if (baseBranches.length >= 2) {
+      } else if (Array.isArray(baseBranches) && baseBranches.length >= 2) {
         baseBranchPickerEl.style.display = '';
         if (baseBranchArrowEl) baseBranchArrowEl.style.display = '';
       }
