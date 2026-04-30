@@ -6669,6 +6669,33 @@
 
   function connectSSE() {
     const source = new EventSource('/api/events');
+    // DIAG: log every SSE event type to a global ring buffer + DOM div.
+    const __sseDiag = (window.__sseDiag = window.__sseDiag || []);
+    function __sseLog(label) {
+      __sseDiag.push(label + ' @' + Date.now());
+      try {
+        let el = document.getElementById('diag-sse-trace');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'diag-sse-trace';
+          el.style.cssText = 'position:fixed;bottom:0;right:0;z-index:99999;background:#a06;color:#fff;padding:6px;max-width:50vw;white-space:pre;font-size:10px;font-family:monospace;';
+          document.body.appendChild(el);
+        }
+        el.textContent = __sseDiag.slice(-40).join('\n');
+      } catch {}
+    }
+    __sseLog('sse:connect-start readyState=' + source.readyState);
+    source.addEventListener('open', function() { __sseLog('sse:open readyState=' + source.readyState); });
+    source.addEventListener('error', function() { __sseLog('sse:error readyState=' + source.readyState); });
+    source.addEventListener('message', function(e) { __sseLog('sse:message ' + (e && e.data ? String(e.data).slice(0, 30) : '')); });
+    // Wrap addEventListener to log every named-event type registered + delivered.
+    const origAdd = source.addEventListener.bind(source);
+    source.addEventListener = function(type, fn, opts) {
+      return origAdd(type, function(e) {
+        __sseLog('sse:' + type);
+        return fn.apply(this, arguments);
+      }, opts);
+    };
 
     source.addEventListener('file-changed', async function() {
       const __diag = (window.__fcDiag = window.__fcDiag || []);
