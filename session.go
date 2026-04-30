@@ -1725,6 +1725,27 @@ func (s *Session) SetFocus(f Focus) error {
 		return err
 	}
 
+	// Hold writeMu across the rest of SetFocus to serialize with the
+	// debounce-timer callback in scheduleWrite. Without this, a timer that
+	// fires after our WriteFiles() flush below — but before
+	// persistActiveDiffScope — would race the swap: it would snapshot the
+	// new Focus's (empty) Files alongside the OLD ActiveDiffScope on disk,
+	// producing a torn intermediate state where comments authored under
+	// the new view appear with the old scope label. The timer callback
+	// also takes writeMu, so blocking it here is sufficient.
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	// Cancel any pending debounce timer outright. WriteFiles below flushes
+	// in-memory state synchronously, so a deferred fire would write nothing
+	// new — but stopping it removes the chance that it sneaks in between
+	// our two locked critical sections (the swap and persistActiveDiffScope).
+	s.mu.Lock()
+	if s.writeTimer != nil {
+		s.writeTimer.Stop()
+	}
+	s.mu.Unlock()
+
 	// Flush any pending debounced WriteFiles BEFORE we replace s.Files.
 	// Without this, recent in-memory comments (authored within the last
 	// 200ms) live only in s.Files and would be lost when buildFilesForFocus
