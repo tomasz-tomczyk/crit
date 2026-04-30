@@ -8472,7 +8472,7 @@
     // layer/full-stack toggle in the diff-area header is the canonical
     // way to switch scopes; clicking here used to flip diff_scope but
     // that overlapped confusingly with the toggle.
-    parts.push('<span class="stack-popover-item stack-popover-root" role="presentation">' +
+    parts.push('<span class="stack-popover-item stack-popover-default stack-popover-root" role="presentation">' +
       '<span class="stack-popover-tree" aria-hidden="true">\u2502 </span>' +
       '<span class="stack-popover-label">' + escapeHtml(defaultBranchName) + '</span>' +
       '</span>');
@@ -8507,7 +8507,12 @@
     // page header doesn't need a second toolbar row for what is a
     // relatively rare action. One-line subcopy explains what each scope
     // means — first-time users always ask "wait, what does Layer mean?"
-    const showScope = focus.is_stacked || !!focus.default_sha;
+    // Scope rows are always rendered in range mode — Layer is the
+    // canonical default. Full stack is disabled (with explanation) when
+    // default_sha is missing, which keeps the option discoverable so the
+    // user understands why they can't reach it rather than wondering
+    // where the option went.
+    const showScope = true;
     if (showScope) {
       const activeScope = focus.diff_scope || 'layer';
       const fullStackEnabled = !!focus.default_sha;

@@ -39,9 +39,11 @@ test('toggling layer→full-stack→layer restores the layer file list', async (
   await expect(page.locator('.tree-file', { hasText: 'b.txt' })).toBeVisible();
   await expect(page.locator('.tree-file', { hasText: 'a.txt' })).toHaveCount(0);
 
-  // Flip via the in-page toggle button so we exercise the same path the
-  // user would.
-  const fullStackBtn = page.locator('#diffScopeToggle button[data-diff-scope="full_stack"]');
+  // Flip via the in-popover scope toggle (the legacy diffScopeToggle bar
+  // was retired; the layer/full-stack radio now lives inside the stack
+  // popover with one-line subcopy).
+  await page.locator('#stackChipBtn').click();
+  const fullStackBtn = page.locator('#stackPopover [data-action="scope"][data-diff-scope="full_stack"]');
   await expect(fullStackBtn).toBeVisible();
   await fullStackBtn.click();
 
@@ -50,7 +52,8 @@ test('toggling layer→full-stack→layer restores the layer file list', async (
   await expect(page.locator('.tree-file', { hasText: 'b.txt' })).toBeVisible();
 
   // Flip back to layer.
-  const layerBtn = page.locator('#diffScopeToggle button[data-diff-scope="layer"]');
+  await page.locator('#stackChipBtn').click();
+  const layerBtn = page.locator('#stackPopover [data-action="scope"][data-diff-scope="layer"]');
   await layerBtn.click();
   await expect(page.locator('.tree-file', { hasText: 'a.txt' })).toHaveCount(0, { timeout: 5_000 });
   await expect(page.locator('.tree-file', { hasText: 'b.txt' })).toBeVisible();

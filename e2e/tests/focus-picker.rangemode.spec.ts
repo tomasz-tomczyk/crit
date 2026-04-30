@@ -76,7 +76,12 @@ test('clicking a different stack entry switches focus and rebuilds file list', a
   await expect(page.locator('.tree-file', { hasText: 'b.txt' })).toHaveCount(0);
 });
 
-test('chip is hidden when stack has 0 or 1 entries', async ({ page, request }) => {
+test('chip stays visible in range mode; popover shows no-stack placeholder', async ({ page, request }) => {
+  // The stack chip is always rendered in range mode — the ✕ exit must
+  // stay reachable, and the chip's label paints from focus data without
+  // waiting for /api/picker. When the picker resolves with an empty
+  // stack, the popover content transitions from "Loading…" to a
+  // "No surrounding stack" placeholder rather than hiding the chip.
   await page.route('**/api/picker', async (route) => {
     const real = await (await request.get('/api/picker')).json();
     real.stack = [];
@@ -87,7 +92,9 @@ test('chip is hidden when stack has 0 or 1 entries', async ({ page, request }) =
     });
   });
   await loadPage(page);
-  await expect(page.locator('#stackChip')).toBeHidden();
+  await expect(page.locator('#stackChip')).toBeVisible();
+  await page.locator('#stackChipBtn').click();
+  await expect(page.locator('#stackPopover')).toContainText(/no surrounding stack/i, { timeout: 5_000 });
 });
 
 test('chip body opens popover; ✕ exit does NOT open popover (clicks independent)', async ({ page, request }) => {

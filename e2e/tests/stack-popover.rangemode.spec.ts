@@ -48,14 +48,18 @@ test('outside click closes the popover', async ({ page }) => {
   await expect(page.locator('#stackPopover')).toBeHidden();
 });
 
-test('current entry is a non-clickable span with reviewing marker', async ({ page }) => {
+test('current entry is a non-clickable span marked aria-current', async ({ page }) => {
   await loadPage(page);
   await page.locator('#stackChipBtn').click();
+  // The current row is a <span> (not a <button>) so it can't be clicked
+  // through to itself. The brand-tinted background + aria-current="page"
+  // are the visual + a11y signals; there is no separate "(reviewing)"
+  // text marker (intentionally removed — the styling already conveys
+  // current state without crowding the row).
   const current = page.locator('#stackPopover .stack-popover-current').filter({ hasNotText: /full stack/i });
   await expect(current).toBeVisible();
   const tag = await current.evaluate((el) => el.tagName.toLowerCase());
   expect(tag).toBe('span');
-  await expect(current).toContainText(/reviewing/i);
   await expect(current).toHaveAttribute('aria-current', 'page');
 });
 
