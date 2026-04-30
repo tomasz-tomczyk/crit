@@ -8546,6 +8546,15 @@
     // /api/focus call, just driven from a different DOM node now.
     if (diffAreaHeaderEl) diffAreaHeaderEl.style.display = 'none';
     if (diffScopeToggleEl) diffScopeToggleEl.style.display = 'none';
+    // Working-tree scope toggle (All / Branch / Staged / Unstaged)
+    // filters by working-tree state vs baseRef — meaningless when the
+    // diff is pinned to BaseSHA..HeadSHA. Hide it in range mode to
+    // prevent confusing half-baked interactions where the file list
+    // gets working-tree-filtered but diffs stay range-pinned.
+    const wtScopeToggleEl = document.getElementById('scopeToggle');
+    if (wtScopeToggleEl && inRange) {
+      wtScopeToggleEl.style.display = 'none';
+    }
   }
 
   // Fetch /api/picker once and cache the stack array. We dedup with an
