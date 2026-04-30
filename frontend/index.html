@@ -116,6 +116,7 @@
 
 <div class="main-layout">
   <div class="file-tree-panel" id="fileTreePanel">
+    <div class="tree-section--conversation" id="treeConversationSection"></div>
     <div class="file-tree-header">
       <span class="file-tree-title">Files</span>
       <span class="file-tree-stats" id="fileTreeStats"></span>
@@ -140,6 +141,7 @@
         <button class="toggle-btn" data-diff-scope="full_stack" type="button" role="radio" aria-checked="false" title="Full-stack (cumulative from default branch)">Full-stack</button>
       </div>
     </div>
+    <div id="reviewConversation" class="review-conversation" hidden></div>
     <div id="filesContainer">
       <div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>
     </div>
@@ -152,7 +154,6 @@
           <span class="comments-panel-count-badge" id="commentsPanelCountBadge">0</span>
         </div>
         <div class="comments-panel-header-actions">
-          <button class="comments-panel-add-btn" id="panelAddCommentBtn" title="Add a general comment (G)">+ Add</button>
           <button class="comments-panel-close" title="Close comments panel" aria-label="Close comments panel">&#x2715;</button>
         </div>
       </div>
