@@ -2535,3 +2535,66 @@ func TestResolvePullScope(t *testing.T) {
 		})
 	}
 }
+
+// TestParsePRViewJSON_ForkPR locks down the parser's handling of fork PRs:
+// isCrossRepository must round-trip and HeadRepoURL must come from
+// headRepository.url so ensureSHAFetched can fall back to the fork remote.
+// This guards against future refactors stripping fields from prJSONFields.
+func TestParsePRViewJSON_ForkPR(t *testing.T) {
+	if !strings.Contains(prJSONFields, "isCrossRepository") {
+		t.Fatalf("prJSONFields missing isCrossRepository: %q", prJSONFields)
+	}
+	if !strings.Contains(prJSONFields, "headRepository") {
+		t.Fatalf("prJSONFields missing headRepository: %q", prJSONFields)
+	}
+	raw := `{
+		"number": 42,
+		"url": "https://github.com/upstream/repo/pull/42",
+		"title": "fork PR",
+		"isDraft": false,
+		"state": "OPEN",
+		"baseRefName": "main",
+		"headRefName": "feature",
+		"baseRefOid": "aaaaaaa",
+		"headRefOid": "bbbbbbb",
+		"isCrossRepository": true,
+		"headRepository": {"url": "https://github.com/contributor/repo"},
+		"author": {"login": "contributor", "name": "Contributor"},
+		"createdAt": "2026-04-30T00:00:00Z"
+	}`
+	info, err := parsePRViewJSON([]byte(raw))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !info.IsCrossRepository {
+		t.Error("IsCrossRepository false; want true")
+	}
+	if info.HeadRepoURL != "https://github.com/contributor/repo" {
+		t.Errorf("HeadRepoURL=%q want fork URL", info.HeadRepoURL)
+	}
+}
+
+// TestParsePRViewJSON_SameRepoPR confirms HeadRepoURL is still populated for
+// same-repo PRs but IsCrossRepository is false, so callers know not to pass
+// the URL as a fallback remote (which would point at the same origin).
+func TestParsePRViewJSON_SameRepoPR(t *testing.T) {
+	raw := `{
+		"number": 7,
+		"url": "https://github.com/owner/repo/pull/7",
+		"isCrossRepository": false,
+		"headRepository": {"url": "https://github.com/owner/repo"},
+		"baseRefName": "main",
+		"headRefName": "feat",
+		"author": {"login": "owner"}
+	}`
+	info, err := parsePRViewJSON([]byte(raw))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if info.IsCrossRepository {
+		t.Error("IsCrossRepository true; want false for same-repo PR")
+	}
+	if info.HeadRepoURL == "" {
+		t.Error("HeadRepoURL empty; want owner/repo URL")
+	}
+}
