@@ -2823,11 +2823,20 @@ func (s *Session) GetSessionInfo() SessionInfo {
 	info.AvailableScopes = cachedAvailableScopes(info.BaseRef, vcs)
 
 	for _, f := range s.Files {
+		visibleCount := countVisibleComments(f.Comments, s.Focus)
+		// Orphaned files are surfaced solely to preserve user comments
+		// across focus changes. When *no* comment on the orphan is
+		// visible in the current focus, the entry is just noise — drop
+		// it so navigating between layers/scopes doesn't litter the
+		// file list with phantom rows from unrelated focuses.
+		if f.Orphaned && visibleCount == 0 {
+			continue
+		}
 		fi := SessionFileInfo{
 			Path:         f.Path,
 			Status:       f.Status,
 			FileType:     f.FileType,
-			CommentCount: countVisibleComments(f.Comments, s.Focus),
+			CommentCount: visibleCount,
 			Lazy:         f.Lazy,
 			Orphaned:     f.Orphaned,
 		}
