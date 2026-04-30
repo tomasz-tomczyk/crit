@@ -2241,6 +2241,16 @@ func runServe(args []string) {
 		go openBrowser(fmt.Sprintf("http://localhost:%d", addr.Port))
 	}
 
+	// Prime the open-PR cache in the background. `gh pr list` can take
+	// 2-5s on large orgs and the picker waits on it; running this during
+	// boot means the first /api/picker call lands on a warm cache instead
+	// of paying the network cost while the user watches the page render.
+	// Best-effort — failures (no gh, no remote, file mode) are silently
+	// dropped; the picker handler still degrades gracefully.
+	if srv.prList != nil {
+		go func() { _, _ = srv.prList.get() }()
+	}
+
 	go runIdleTimeoutChecker(ctx, stop, &idleMu, &lastActivity)
 
 	type sessionResult struct {

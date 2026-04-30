@@ -4241,6 +4241,13 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   background: var(--crit-border);
   margin: 6px 4px;
 }
+.stack-popover-loading {
+  padding: 8px 10px 10px;
+  font-family: var(--crit-font-body);
+  font-size: 12px;
+  color: var(--crit-editor-fg-muted);
+  font-style: italic;
+}
 .stack-popover-scope {
   display: flex;
   align-items: flex-start;

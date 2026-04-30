@@ -8360,7 +8360,11 @@
       const cur = stackCache.find(function(e) { return e.head_sha === focus.head_sha; });
       if (cur) return entryLabel(cur, 24);
     }
+    // No stack data yet (the /api/picker round-trip may take 2+ seconds
+    // because of `gh pr list`). Fall back to fields already on Focus so
+    // the chip's label is correct on first paint.
     if (focus.pr_number) return '#' + focus.pr_number;
+    if (focus.head_ref_name) return truncateLabel(focus.head_ref_name, 24);
     if (focus.label) return truncateLabel(focus.label, 24);
     if (focus.head_sha) return focus.head_sha.slice(0, 7);
     return 'Stack';
@@ -8385,15 +8389,25 @@
   // possible). The popover renders a vertical ASCII-tree of all entries.
   function renderStackChip(focus, stack) {
     if (!stackChipEl) return;
-    const show = focus && focus.kind === 'range' && Array.isArray(stack) && stack.length > 1;
-    if (!show) {
+    const inRange = focus && focus.kind === 'range';
+    if (!inRange) {
       stackChipEl.style.display = 'none';
       stackPopoverEl.innerHTML = '';
       closeStackChip();
       return;
     }
+    // Show the chip immediately from focus data — don't wait for the
+    // /api/picker fetch (which may take 2+ seconds against `gh pr list`).
+    // Without stack ancestry the popover starts as a placeholder; it
+    // refreshes once stackCache is populated.
     stackChipEl.style.display = '';
     if (stackChipLabelEl) stackChipLabelEl.textContent = chipLabelForFocus(focus);
+    const stackReady = Array.isArray(stack) && stack.length > 1;
+    if (!stackReady) {
+      stackPopoverEl.innerHTML = '<div class="stack-popover-title">Stack</div>' +
+        '<div class="stack-popover-loading" role="status" aria-live="polite">Loading stack…</div>';
+      return;
+    }
 
     // Filter out the default-branch entry from the linear stack — it's
     // surfaced separately as the root marker above the tree. Use the focus's
