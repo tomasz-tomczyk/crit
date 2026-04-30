@@ -70,13 +70,14 @@ func detectStack(vcs VCS, repoRoot string, openPRs []PRSummary) ([]StackEntry, e
 	// even when the topic-chain set isn't strictly applied.
 	gateByTopic := vcs != nil && vcs.Name() == "git"
 
-	var entries []StackEntry
+	var branchEntries []StackEntry // tier 1 (PR head) + tier 2 (local branch tip)
+	var nakedEntries []StackEntry  // tier 3 (commit-subject fallback)
 	for sha, distance := range headSet {
 		if gateByTopic && !topicSHAs[sha] {
 			continue
 		}
 		if pr, ok := prByHead[sha]; ok {
-			entries = append(entries, StackEntry{
+			branchEntries = append(branchEntries, StackEntry{
 				Label:       fmt.Sprintf("PR #%d: %s", pr.Number, pr.Title),
 				PRNumber:    pr.Number,
 				HeadSHA:     sha,
@@ -86,7 +87,7 @@ func detectStack(vcs VCS, repoRoot string, openPRs []PRSummary) ([]StackEntry, e
 			continue
 		}
 		if branch, ok := branchTips[sha]; ok {
-			entries = append(entries, StackEntry{
+			branchEntries = append(branchEntries, StackEntry{
 				Label:    branch,
 				HeadSHA:  sha,
 				Distance: distance,
@@ -104,12 +105,35 @@ func detectStack(vcs VCS, repoRoot string, openPRs []PRSummary) ([]StackEntry, e
 		if subject == "" {
 			continue
 		}
-		entries = append(entries, StackEntry{
+		nakedEntries = append(nakedEntries, StackEntry{
 			Label:    subject,
 			HeadSHA:  sha,
 			Distance: distance,
 		})
 	}
+
+	// Drop naked-commit entries that are subsumed by a branch/PR entry. A
+	// naked commit at distance D is "subsumed" if any tier-1/tier-2 entry
+	// sits at a smaller distance — that branch's history covers the older
+	// commit, so surfacing it as a separate row is just noise. This
+	// matters on long-lived parent branches (e.g. `staging`) whose own
+	// history would otherwise leak into the picker as dozens of unrelated
+	// rows. Naked commits with no closer branch ancestor stay — they're
+	// the user's own unbranched WIP between HEAD and the nearest branch.
+	minBranchDist := -1
+	for _, e := range branchEntries {
+		if minBranchDist < 0 || e.Distance < minBranchDist {
+			minBranchDist = e.Distance
+		}
+	}
+	entries := branchEntries
+	for _, e := range nakedEntries {
+		if minBranchDist >= 0 && e.Distance > minBranchDist {
+			continue
+		}
+		entries = append(entries, e)
+	}
+
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Distance < entries[j].Distance })
 	return assignStackBases(vcs, entries, repoRoot), nil
 }

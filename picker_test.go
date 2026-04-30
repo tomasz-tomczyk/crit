@@ -246,6 +246,95 @@ func TestDetectStack_IncludesPostMergeBaseBranchTips(t *testing.T) {
 	}
 }
 
+// TestDetectStack_DropsNakedCommitsBehindBranch verifies that ancestor
+// commits older than the nearest branch tip are filtered out. This prevents
+// long-lived parent-branch history (e.g. `staging` accumulating dozens of
+// commits before reaching the default branch) from polluting the stack
+// popover with naked commit-subject rows.
+func TestDetectStack_DropsNakedCommitsBehindBranch(t *testing.T) {
+	dir := initTestRepo(t)
+	// Diverge "staging" from the default branch and pile noise commits on
+	// it (e.g. unrelated tickets that landed on staging).
+	runGit(t, dir, "checkout", "-b", "staging")
+	commitAt(t, dir, "n1.txt", "n1", "[ABC-100] noise one")
+	commitAt(t, dir, "n2.txt", "n2", "[ABC-101] noise two")
+	commitAt(t, dir, "n3.txt", "n3", "[ABC-102] noise three")
+	// Parent feature branch on top of staging.
+	runGit(t, dir, "checkout", "-b", "feat-parent")
+	commitAt(t, dir, "p.txt", "p", "feat-parent commit")
+	// Current branch on top of feat-parent.
+	runGit(t, dir, "checkout", "-b", "feat-current")
+	commitAt(t, dir, "c.txt", "c", "feat-current commit")
+
+	stack, err := detectStack(&GitVCS{}, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Expected: feat-current (HEAD), feat-parent, staging — and nothing else.
+	wantLabels := map[string]bool{
+		"feat-current": false,
+		"feat-parent":  false,
+		"staging":      false,
+	}
+	forbiddenSubstrings := []string{"ABC-100", "ABC-101", "ABC-102"}
+	for _, e := range stack {
+		if _, ok := wantLabels[e.Label]; ok {
+			wantLabels[e.Label] = true
+			continue
+		}
+		for _, sub := range forbiddenSubstrings {
+			if strings.Contains(e.Label, sub) {
+				t.Errorf("naked commit subject leaked into stack: %q (full entry %+v)", e.Label, e)
+			}
+		}
+	}
+	for label, found := range wantLabels {
+		if !found {
+			t.Errorf("expected %q in stack, got %+v", label, stack)
+		}
+	}
+}
+
+// TestDetectStack_KeepsNakedCommitsAheadOfNearestBranch verifies that naked
+// commits between HEAD and the closest branch tip (e.g. unbranched WIP on
+// top of a feature branch) are preserved — they're the user's exposed work.
+func TestDetectStack_KeepsNakedCommitsAheadOfNearestBranch(t *testing.T) {
+	dir := initTestRepo(t)
+	commitAt(t, dir, "m.txt", "m", "main")
+	runGit(t, dir, "checkout", "-b", "feat")
+	commitAt(t, dir, "f.txt", "f", "feat tip")
+	featTipSHA := runGit(t, dir, "rev-parse", "HEAD")
+	// Detach HEAD so subsequent commits don't drag the feat ref forward —
+	// we want feat to stay an older branch-tip ancestor while new naked
+	// commits land on top.
+	runGit(t, dir, "checkout", "--detach", featTipSHA)
+	commitAt(t, dir, "w1.txt", "w1", "wip one")
+	commitAt(t, dir, "w2.txt", "w2", "wip two")
+
+	stack, err := detectStack(&GitVCS{}, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// feat must appear (tier-2). At least one of the wip commits should
+	// appear as a naked entry — they're between HEAD and feat, so they're
+	// the exposed top of the chain.
+	var sawFeat, sawWip bool
+	for _, e := range stack {
+		if e.Label == "feat" {
+			sawFeat = true
+		}
+		if strings.Contains(e.Label, "wip") {
+			sawWip = true
+		}
+	}
+	if !sawFeat {
+		t.Errorf("expected feat in stack, got %+v", stack)
+	}
+	if !sawWip {
+		t.Errorf("expected at least one wip naked-commit entry in stack, got %+v", stack)
+	}
+}
+
 // TestDetectStack_DefaultBranchAsRoot verifies the merge-base commit itself
 // (the root marker) is not included in the regular entry list. The frontend
 // renders the default branch as a separate root row using DefaultSHA.

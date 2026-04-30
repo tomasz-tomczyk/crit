@@ -130,13 +130,15 @@ func detectLocalStackFocus(vcs VCS, repoRoot string) *Focus {
 			continue
 		}
 		return &Focus{
-			Kind:       FocusRange,
-			BaseSHA:    sha,
-			HeadSHA:    headSHA,
-			DefaultSHA: defaultSHA,
-			Label:      fmt.Sprintf("%s..HEAD", label),
-			DiffScope:  DiffScopeLayer,
-			IsStacked:  true,
+			Kind:        FocusRange,
+			BaseSHA:     sha,
+			HeadSHA:     headSHA,
+			DefaultSHA:  defaultSHA,
+			Label:       fmt.Sprintf("%s..HEAD", label),
+			BaseRefName: label,
+			HeadRefName: vcs.CurrentBranch(),
+			DiffScope:   DiffScopeLayer,
+			IsStacked:   true,
 		}
 	}
 	return nil
