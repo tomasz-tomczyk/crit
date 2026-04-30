@@ -120,32 +120,11 @@ func detectLocalStackFocus(vcs VCS, repoRoot string) *Focus {
 	topic := topicChainSHAs(vcs, repoRoot)
 
 	// Walk parents (skip ancestors[0] = HEAD itself). The closest tip
-	// becomes BaseSHA (Layer scope's diff base). Then keep walking and
-	// remember the *furthest* non-default tip seen — that's the stack
-	// root, which becomes Full-stack scope's diff base.
-	//
-	// Why: in workflows that stack feature work on top of a long-lived
-	// parent branch, the literal default branch isn't the meaningful
-	// root of the user's stack. Diffing default..head shows commits
-	// from the parent branch's history that the user already merged
-	// via the parent PR chain. Anchoring full-stack to the topmost
-	// stack tip restores the "everything in MY stack" semantics. For
-	// non-stacked branches there's only one match and stackRootSHA
-	// falls back to defaultSHA — Full stack still means default..head.
-	baseSHA, baseLabel, baseIdx := findFirstStackTip(ancestors[1:], tipLabels, topic)
+	// becomes BaseSHA (Layer scope's diff base). Full-stack scope diffs
+	// against the literal default branch — `default..head`.
+	baseSHA, baseLabel, _ := findFirstStackTip(ancestors[1:], tipLabels, topic)
 	if baseSHA == "" {
 		return nil
-	}
-	// Sapling caveat: see assignStackBases in picker.go. Sapling's
-	// localBranchTips falls back to every draft commit when no bookmarks
-	// exist, so each ancestor draft would be classified as a "tip" and
-	// the deepest draft would become the stack root — excluding its
-	// own changes from a non-topmost entry's full-stack diff. Force
-	// the literal default branch as the full-stack base for Sapling so
-	// the cumulative diff stays accurate.
-	stackRootSHA := defaultSHA
-	if vcs.Name() != "sapling" {
-		stackRootSHA = findFurthestStackTip(ancestors[baseIdx+2:], tipLabels, topic, defaultSHA)
 	}
 
 	// For Sapling without bookmarks, baseLabel is the parent commit's
@@ -167,7 +146,7 @@ func detectLocalStackFocus(vcs VCS, repoRoot string) *Focus {
 		Kind:        FocusRange,
 		BaseSHA:     baseSHA,
 		HeadSHA:     headSHA,
-		DefaultSHA:  stackRootSHA,
+		DefaultSHA:  defaultSHA,
 		Label:       fmt.Sprintf("%s..HEAD", displayLabel),
 		BaseRefName: baseRefName,
 		HeadRefName: vcs.CurrentBranch(),
@@ -218,23 +197,6 @@ func findFirstStackTip(ancestors []string, tipLabels map[string]string, topic ma
 		}
 	}
 	return "", "", -1
-}
-
-// findFurthestStackTip walks ancestors and returns the SHA of the *last*
-// non-default branch tip seen before reaching the default branch.
-// Falls back to defaultSHA when no further tip is found — that's the
-// "stack root" used by Full-stack scope.
-func findFurthestStackTip(ancestors []string, tipLabels map[string]string, topic map[string]bool, defaultSHA string) string {
-	furthest := defaultSHA
-	for _, sha := range ancestors {
-		if defaultSHA != "" && sha == defaultSHA {
-			break
-		}
-		if isLiveStackTip(sha, tipLabels, topic) {
-			furthest = sha
-		}
-	}
-	return furthest
 }
 
 // stackTipLabels returns a map of branch-tip SHA → display label, covering

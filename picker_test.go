@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"net/http/httptest"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -173,21 +172,18 @@ func TestHandlePicker_StackEntriesIncludeDefaultSHA(t *testing.T) {
 	}
 }
 
-// TestHandlePicker_DefaultSHAIsStackRootForMultiLayerStacks verifies that on
-// a stack with 2+ non-default branch tips above main, every entry's
-// DefaultSHA points at the topmost (deepest) entry — the user's effective
-// stack root — rather than the literal default-branch tip. This makes
-// full-stack scope diff against the user's stack root, which for
-// staging-rooted workflows excludes the noise of staging's own history
-// that would otherwise leak into the cumulative diff.
-func TestHandlePicker_DefaultSHAIsStackRootForMultiLayerStacks(t *testing.T) {
+// TestHandlePicker_DefaultSHAIsLiteralDefaultBranch verifies that on a
+// stack with 2+ non-default branch tips above main, every entry's
+// DefaultSHA is the literal default-branch tip. Full-stack of any layer
+// then means `default..entry` — the cumulative diff including the
+// topmost layer's own changes.
+func TestHandlePicker_DefaultSHAIsLiteralDefaultBranch(t *testing.T) {
 	s, sess := newTestServer(t)
 	dir := initTestRepo(t)
 
-	// Three layers above main: alpha → beta → gamma. Stack root = alpha.
+	// Three layers above main: alpha → beta → gamma.
 	runGit(t, dir, "checkout", "-b", "alpha")
 	commitAt(t, dir, "a.txt", "a", "alpha")
-	alphaSHA := runGit(t, dir, "rev-parse", "HEAD")
 
 	runGit(t, dir, "checkout", "-b", "beta")
 	commitAt(t, dir, "b.txt", "b", "beta")
@@ -216,22 +212,9 @@ func TestHandlePicker_DefaultSHAIsStackRootForMultiLayerStacks(t *testing.T) {
 		t.Fatalf("expected 2+ stack entries, got %d: %+v", len(resp.Stack), resp.Stack)
 	}
 	mainSHA := runGit(t, dir, "rev-parse", "main")
-	// Non-topmost entries (gamma, beta) are stamped with the stack root
-	// SHA (alpha). The topmost entry (alpha itself) falls back to the
-	// literal default branch tip — otherwise navigating to alpha would
-	// produce an empty full-stack diff (alpha..alpha). Sort entries by
-	// distance ascending so the test doesn't depend on map order.
-	sort.Slice(resp.Stack, func(i, j int) bool { return resp.Stack[i].Distance < resp.Stack[j].Distance })
-	topIdx := len(resp.Stack) - 1
-	for i, e := range resp.Stack {
-		var want, role string
-		if i == topIdx {
-			want, role = mainSHA, "literal default branch (topmost entry falls back)"
-		} else {
-			want, role = alphaSHA, "stack root alpha"
-		}
-		if e.DefaultSHA != want {
-			t.Errorf("entry[%d]=%q default_sha=%q want %s %q", i, e.Label, e.DefaultSHA, role, want)
+	for _, e := range resp.Stack {
+		if e.DefaultSHA != mainSHA {
+			t.Errorf("entry %q default_sha=%q want main (literal default) %q", e.Label, e.DefaultSHA, mainSHA)
 		}
 	}
 }

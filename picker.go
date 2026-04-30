@@ -222,45 +222,19 @@ func commitSubjectFor(vcs VCS, repoRoot, sha string) string {
 // or merge-base with the default branch for the deepest entry. Best-effort —
 // errors leave BaseSHA empty.
 //
-// Also stamps DefaultSHA onto every entry. DefaultSHA here is the user's
-// *stack root* — the topmost non-default branch tip in the chain — not
-// necessarily the literal default-branch tip. For default-branch-rooted
-// stacks (just one branch above main) the two coincide, so behavior is
-// unchanged. For staging-rooted-style stacks (e.g. main ← staging ←
-// feat-parent ← feat-current) the stack root is staging, and full-stack
-// scope diffs against staging instead of main — eliminating the noise of
-// staging's own history that the user already merged through the parent
-// PR chain. The frontend uses this for full-stack POSTs to /api/focus.
+// Also stamps DefaultSHA (the literal default-branch tip) onto every
+// entry. This is the diff base for full-stack scope, so navigating to
+// any entry in the popover and flipping to full-stack always shows
+// `default..entry`. The frontend uses this for full-stack POSTs to
+// /api/focus.
 func assignStackBases(vcs VCS, entries []StackEntry, repoRoot string) []StackEntry {
 	if vcs == nil || len(entries) == 0 {
 		return entries
 	}
 	defaultBranch := vcs.DefaultBranch()
-	literalDefaultSHA, _ := ResolveDefaultBranchSHA(vcs, repoRoot, defaultBranch)
-	// Each entry's DefaultSHA = its own effective stack root, computed
-	// as the topmost entry above it. The topmost entry itself falls back
-	// to the literal default branch — its "stack root" is the default
-	// branch (otherwise full-stack of the topmost would diff entry..entry,
-	// an empty range, when a user navigates to it in the popover).
-	// For single-entry stacks every entry is topmost, so all fall back.
-	//
-	// Sapling caveat: Sapling's "branch tips" are draft commits (no
-	// bookmarks needed), so every entry corresponds to a real user
-	// commit. Treating the topmost as "stack root" would exclude its
-	// own changes from any non-topmost entry's full-stack diff. Force
-	// every entry to fall back to the literal default branch in that
-	// case so full-stack stays a true cumulative diff. Git stacks
-	// already require explicit branch tips, so the topmost entry there
-	// represents a deliberate stack-root branch (e.g. `staging`) and
-	// the smart anchoring is correct.
-	saplingStack := vcs.Name() == "sapling"
-	topIdx := len(entries) - 1
+	defaultSHA, _ := ResolveDefaultBranchSHA(vcs, repoRoot, defaultBranch)
 	for i := range entries {
-		if saplingStack || i == topIdx {
-			entries[i].DefaultSHA = literalDefaultSHA
-		} else {
-			entries[i].DefaultSHA = entries[topIdx].HeadSHA
-		}
+		entries[i].DefaultSHA = defaultSHA
 		if i < len(entries)-1 {
 			entries[i].BaseSHA = entries[i+1].HeadSHA
 			continue
