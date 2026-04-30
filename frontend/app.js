@@ -8441,6 +8441,42 @@
       }
     });
 
+    // "Compare against" radio section. Lives inside the popover so the
+    // page header doesn't need a second toolbar row for what is a
+    // relatively rare action. One-line subcopy explains what each scope
+    // means — first-time users always ask "wait, what does Layer mean?"
+    const showScope = focus.is_stacked || !!focus.default_sha;
+    if (showScope) {
+      const activeScope = focus.diff_scope || 'layer';
+      const fullStackEnabled = !!focus.default_sha;
+      const dbLabel = defaultBranchName || 'default';
+      parts.push('<div class="stack-popover-divider" role="separator"></div>');
+      parts.push('<div class="stack-popover-title">Compare against</div>');
+      parts.push(
+        '<button type="button" class="stack-popover-scope' + (activeScope === 'layer' ? ' is-active' : '') + '"' +
+        ' role="menuitemradio" aria-checked="' + (activeScope === 'layer') + '"' +
+        ' data-action="scope" data-diff-scope="layer">' +
+          '<span class="stack-popover-scope-radio" aria-hidden="true"></span>' +
+          '<span class="stack-popover-scope-text">' +
+            '<span class="stack-popover-scope-name">Layer</span>' +
+            '<span class="stack-popover-scope-sub">Only changes in this layer</span>' +
+          '</span>' +
+        '</button>'
+      );
+      parts.push(
+        '<button type="button" class="stack-popover-scope' + (activeScope === 'full_stack' ? ' is-active' : '') + '"' +
+        ' role="menuitemradio" aria-checked="' + (activeScope === 'full_stack') + '"' +
+        (fullStackEnabled ? '' : ' disabled aria-disabled="true" title="Requires resolved default branch SHA"') +
+        ' data-action="scope" data-diff-scope="full_stack">' +
+          '<span class="stack-popover-scope-radio" aria-hidden="true"></span>' +
+          '<span class="stack-popover-scope-text">' +
+            '<span class="stack-popover-scope-name">Full stack</span>' +
+            '<span class="stack-popover-scope-sub">All changes from ' + escapeHtml(dbLabel) + ' to here</span>' +
+          '</span>' +
+        '</button>'
+      );
+    }
+
     stackPopoverEl.innerHTML = parts.join('');
   }
 
@@ -8504,38 +8540,12 @@
     // visual merge of branch chip + stack chip in stack mode.
     const compareRailEl = document.getElementById('compareRail');
     if (compareRailEl) compareRailEl.classList.toggle('is-stack', !!inRange);
-    if (!diffScopeToggleEl) return;
-    // Show layer/full-stack toggle whenever the focus has a resolved
-    // default_sha — broader than is_stacked alone, so local-only stacks
-    // (`crit --range A..B` with a real chain) also get the toggle once
-    // they're upgraded with default_sha via stack-entry navigation.
-    const showScopeToggle = focus && focus.kind === 'range' && (focus.is_stacked || !!focus.default_sha);
-    // Toggle the diff-area header along with the scope toggle so the bar
-    // doesn't render an empty row when the toggle isn't applicable.
-    if (diffAreaHeaderEl) diffAreaHeaderEl.style.display = showScopeToggle ? '' : 'none';
-    if (showScopeToggle) {
-      diffScopeToggleEl.style.display = '';
-      const layerBtn = diffScopeToggleEl.querySelector('[data-diff-scope="layer"]');
-      const fsBtn = diffScopeToggleEl.querySelector('[data-diff-scope="full_stack"]');
-      const active = focus.diff_scope || 'layer';
-      [layerBtn, fsBtn].forEach(function(btn) {
-        if (!btn) return;
-        const isActive = btn.getAttribute('data-diff-scope') === active;
-        btn.classList.toggle('active', isActive);
-        btn.setAttribute('aria-checked', String(isActive));
-      });
-      if (fsBtn) {
-        if (!focus.default_sha) {
-          fsBtn.setAttribute('disabled', 'disabled');
-          fsBtn.setAttribute('title', 'Requires local checkout');
-        } else {
-          fsBtn.removeAttribute('disabled');
-          fsBtn.setAttribute('title', 'Full-stack (cumulative from default branch)');
-        }
-      }
-    } else {
-      diffScopeToggleEl.style.display = 'none';
-    }
+    // Diff-scope (Layer / Full stack) now lives inside the stack
+    // popover (see "Compare against" section in renderStackChip). Hide
+    // the legacy diff-area-header toolbar bar — its toggle is the same
+    // /api/focus call, just driven from a different DOM node now.
+    if (diffAreaHeaderEl) diffAreaHeaderEl.style.display = 'none';
+    if (diffScopeToggleEl) diffScopeToggleEl.style.display = 'none';
   }
 
   // Fetch /api/picker once and cache the stack array. We dedup with an
@@ -8585,7 +8595,7 @@
   }
   if (stackPopoverEl) {
     stackPopoverEl.addEventListener('click', function(e) {
-      const btn = e.target.closest('button.stack-popover-item');
+      const btn = e.target.closest('button[data-action]');
       if (!btn || btn.hasAttribute('disabled')) return;
       const action = btn.getAttribute('data-action');
       const focus = session && session.focus;
@@ -8599,6 +8609,11 @@
         } catch (err) {
           console.error('Failed to parse stack popover payload:', err);
         }
+      } else if (action === 'scope') {
+        const newScope = btn.getAttribute('data-diff-scope');
+        if (!newScope || newScope === (focus.diff_scope || 'layer')) return;
+        closeStackChip();
+        postFocus(Object.assign({}, focus, { diff_scope: newScope }));
       }
     });
   }

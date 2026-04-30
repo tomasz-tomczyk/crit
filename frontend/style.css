@@ -4226,12 +4226,85 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 
 /* Default-branch entry in the stack popover is a non-interactive root
    marker — it indicates "stack starts here" but doesn't trigger any
-   action. Scope switching lives in the diff-area layer/full-stack toggle. */
+   action. */
 .stack-popover-root {
   cursor: default;
   color: var(--crit-editor-fg-muted);
 }
 .stack-popover-root:hover { background: transparent; }
+
+/* Compare-against radio rows. Live inside the stack popover — saves a
+   second toolbar bar in the page header for what's a relatively rare
+   action, and the subcopy answers "what does Layer mean" inline. */
+.stack-popover-divider {
+  height: 1px;
+  background: var(--crit-border);
+  margin: 6px 4px;
+}
+.stack-popover-scope {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  border-radius: 5px;
+  font-family: var(--crit-font-body);
+  text-align: left;
+  cursor: pointer;
+  color: var(--crit-editor-fg);
+}
+.stack-popover-scope:hover:not(:disabled) {
+  background: var(--crit-editor-bg-hover);
+}
+.stack-popover-scope:focus-visible {
+  outline: 2px solid var(--crit-brand);
+  outline-offset: -1px;
+}
+.stack-popover-scope:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.stack-popover-scope-radio {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--crit-pill-border);
+  background: transparent;
+  position: relative;
+}
+.stack-popover-scope.is-active .stack-popover-scope-radio {
+  border-color: var(--crit-brand);
+}
+.stack-popover-scope.is-active .stack-popover-scope-radio::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--crit-brand);
+}
+.stack-popover-scope-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.stack-popover-scope-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--crit-editor-fg);
+}
+.stack-popover-scope.is-active .stack-popover-scope-name {
+  color: var(--crit-brand);
+}
+.stack-popover-scope-sub {
+  font-size: 11px;
+  color: var(--crit-editor-fg-muted);
+  line-height: 1.35;
+}
 
 /* Resume PR pill — visible only in working-tree focus when the session
    has a stashed last range focus.
