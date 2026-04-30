@@ -73,7 +73,7 @@ crit comment --reply-to c_a1b2c3 --author 'Copilot' 'Fixed by extracting to help
 crit comment --reply-to r_f1e2d3 --author 'Copilot' 'All issues addressed'
 ```
 
-This adds a reply to the comment thread. Works for both file comment IDs (e.g. `c_a1b2c3`) and review comment IDs (e.g. `r_f1e2d3`). Only use `--resolve` when the user explicitly asks you to resolve a comment — never resolve proactively.
+This adds a reply to the comment thread. Works for both file comment IDs (e.g. `c_a1b2c3`) and review comment IDs (e.g. `r_f1e2d3`). **Reply bodies support markdown** — use code fences, inline code, and lists where helpful. Only use `--resolve` when the user explicitly asks you to resolve a comment — never resolve proactively.
 
 **Multi-file disambiguation**: Comment IDs are unique per session, but if you encounter an error like "comment found in multiple files", use `--path` to specify which file:
 

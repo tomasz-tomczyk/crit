@@ -37,7 +37,9 @@ crit
 
 This starts the daemon if needed (or connects to an existing one), opens the browser, and blocks until the user clicks "Finish Review". Feedback is printed to stdout when it exits.
 
-Tell the user: **"Crit is open in your browser. Leave inline comments, then click Finish Review."**
+The `crit` command prints the review URL on startup (e.g. `Started crit daemon at http://localhost:<port>`). Relay that URL to the user verbatim so they can open it manually if the auto-launched browser didn't open or they're on a different machine.
+
+Tell the user: **"Crit is open at http://localhost:<port>. Leave inline comments, then click Finish Review."**
 
 **Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. Wait for the foreground command to finish — that is how you know the human is done reviewing.
 
@@ -70,7 +72,7 @@ For each unresolved comment:
 1. Understand what the comment asks for.
 2. If a comment contains a suggestion block, apply that specific change.
 3. Revise the referenced file to address the feedback - this could be the plan file or any code file from the git diff.
-4. Reply to the comment with what you did: `crit comment --reply-to <id> --author 'OpenCode' '<what you did>'` (works for both file comment IDs like `c_a1b2c3` and review comment IDs like `r_f1e2d3`)
+4. Reply to the comment with what you did: `crit comment --reply-to <id> --author 'OpenCode' '<what you did>'` (works for both file comment IDs like `c_a1b2c3` and review comment IDs like `r_f1e2d3`; reply bodies support markdown — use code fences and inline code where helpful)
 
 When addressing multiple comments, use `--json` to reply to them all in one call:
 

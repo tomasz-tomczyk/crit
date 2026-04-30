@@ -1148,7 +1148,7 @@ func resolvePlanSlug(name string, content []byte) string {
 func connectOrStartDaemon(key string, args []string, noOpen bool) (sessionEntry, bool) {
 	entry, alive := findAliveSession(key)
 	if alive {
-		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", entry.Port)
+		fmt.Fprintf(os.Stderr, "Connected to crit daemon at http://localhost:%d\n", entry.Port)
 		if !noOpen && !daemonHasBrowser(entry) {
 			go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
 		}
@@ -1161,7 +1161,7 @@ func connectOrStartDaemon(key string, args []string, noOpen bool) (sessionEntry,
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "Started crit daemon on port %d (PID %d)\n", entry.Port, entry.PID)
+	fmt.Fprintf(os.Stderr, "Started crit daemon at http://localhost:%d (PID %d)\n", entry.Port, entry.PID)
 	return entry, true
 }
 
@@ -1347,7 +1347,7 @@ func runPlanHook() {
 	weStartedDaemon := false
 
 	if alive {
-		fmt.Fprintf(os.Stderr, "crit plan-hook: connected to daemon on port %d\n", entry.Port)
+		fmt.Fprintf(os.Stderr, "crit plan-hook: connected to daemon at http://localhost:%d\n", entry.Port)
 		if !daemonHasBrowser(entry) {
 			go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
 		}
@@ -1357,7 +1357,7 @@ func runPlanHook() {
 			fmt.Fprintf(os.Stderr, "crit plan-hook: error starting daemon: %v\n", err)
 			return
 		}
-		fmt.Fprintf(os.Stderr, "crit plan-hook: started daemon on port %d (PID %d)\n", entry.Port, entry.PID)
+		fmt.Fprintf(os.Stderr, "crit plan-hook: started daemon at http://localhost:%d (PID %d)\n", entry.Port, entry.PID)
 		weStartedDaemon = true
 	}
 
@@ -1460,7 +1460,7 @@ func runReview(args []string) {
 	weStartedDaemon := false
 
 	if alive {
-		fmt.Fprintf(os.Stderr, "Connected to crit daemon on port %d\n", entry.Port)
+		fmt.Fprintf(os.Stderr, "Connected to crit daemon at http://localhost:%d\n", entry.Port)
 		// Re-open browser if no browser tab is connected (user closed it)
 		if !sc.noOpen && !daemonHasBrowser(entry) {
 			go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
@@ -1472,7 +1472,7 @@ func runReview(args []string) {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "Started crit daemon on port %d (PID %d)\n", entry.Port, entry.PID)
+		fmt.Fprintf(os.Stderr, "Started crit daemon at http://localhost:%d (PID %d)\n", entry.Port, entry.PID)
 		weStartedDaemon = true
 	}
 
