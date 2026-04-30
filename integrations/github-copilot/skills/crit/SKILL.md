@@ -14,6 +14,7 @@ Choose what to review based on context:
 1. If the user specified a file after the command, use that
 2. If no argument, check if a plan was written earlier in this conversation. If so, review that file
 3. Otherwise, run `crit` with no arguments — it auto-detects what to review: uncommitted changes, or all changes on the current branch vs the default branch. Works on clean branches too.
+4. If the user asks to review a specific GitHub PR or a commit range, use `crit --pr <num|url>` or `crit --range <baseSHA>..<headSHA>` — this boots crit in *range mode*, scoping the review to that fixed range of commits rather than the working tree.
 
 Don't ask for confirmation — just proceed with whichever mode applies.
 

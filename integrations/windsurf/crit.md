@@ -25,6 +25,12 @@ crit $PLAN_FILE
 
 # Review all changed files in the repo
 crit
+
+# Review a specific GitHub PR (range mode)
+crit --pr <num|url>
+
+# Review a specific commit range (range mode)
+crit --range <baseSHA>..<headSHA>
 ```
 
 **CRITICAL — you MUST run `crit` and block until it completes.**
