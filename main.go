@@ -242,7 +242,7 @@ func runShare(args []string) {
 	// If we have a token but no cached user id, fetch it from /api/auth/whoami
 	// before building the share payload so authenticated comments carry the
 	// user id. Best-effort: failures fall through to anonymous attribution.
-	lazyBackfillAuthUserID(&cfg)
+	lazyBackfillAuthUserID(&cfg, sf.svcURL)
 	authToken := cfg.AuthToken
 
 	files := loadShareFiles(sf.files)

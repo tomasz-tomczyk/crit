@@ -101,7 +101,7 @@ func runAuthLogin(args []string) {
 	if token.UserID == "" {
 		freshCfg := loadShareConfig()
 		freshCfg.AuthToken = token.AccessToken
-		lazyBackfillAuthUserID(&freshCfg)
+		lazyBackfillAuthUserID(&freshCfg, serverURL)
 	}
 
 	greeting := "Logged in."
@@ -444,11 +444,20 @@ var errWhoamiUnauthorized = errors.New("invalid or revoked token")
 // from a version that did not store it). On success the value is persisted to
 // the global config and cfg is updated in place. On 401 the cached identity
 // is cleared. Other errors are best-effort: cfg is left unchanged.
-func lazyBackfillAuthUserID(cfg *Config) {
+//
+// serverURL must be the already-resolved share URL the caller will use for the
+// upcoming share request. Passing an empty string falls back to the default
+// share URL via resolveShareURL — but callers should prefer to pass the
+// resolved URL explicitly, otherwise a token valid for a selfhosted instance
+// gets checked against https://crit.md, returns 401, and the 401 path wipes
+// the cached identity.
+func lazyBackfillAuthUserID(cfg *Config, serverURL string) {
 	if cfg == nil || cfg.AuthToken == "" || cfg.AuthUserID != "" {
 		return
 	}
-	serverURL := resolveShareURL("", *cfg, defaultShareURL)
+	if serverURL == "" {
+		serverURL = resolveShareURL("", *cfg, defaultShareURL)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	who, err := fetchWhoami(ctx, serverURL, cfg.AuthToken)

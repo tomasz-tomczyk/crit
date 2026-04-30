@@ -847,3 +847,188 @@ func TestPollDeviceToken_ParsesUserID(t *testing.T) {
 		t.Errorf("user_email = %q, want me@example.com", result.token.UserEmail)
 	}
 }
+
+// TestLazyBackfillAuthUserID_HitsExplicitServer verifies that when the caller
+// passes a serverURL (e.g. resolved from --share-url), the whoami request goes
+// to that server — not to the default https://crit.md and not to whatever
+// CRIT_SHARE_URL points at. Regression for the bug where lazyBackfill always
+// re-resolved with an empty override and so always queried the default server.
+func TestLazyBackfillAuthUserID_HitsExplicitServer(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	// Env var points elsewhere: must NOT be used when caller passes serverURL.
+	t.Setenv("CRIT_SHARE_URL", "http://wrong-from-env.invalid")
+
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		if r.URL.Path != "/api/auth/whoami" {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer tok_explicit" {
+			t.Errorf("Authorization = %q", got)
+		}
+		json.NewEncoder(w).Encode(map[string]string{
+			"id":   "user_123",
+			"name": "Explicit User",
+		})
+	}))
+	defer srv.Close()
+
+	cfg := Config{
+		AuthToken: "tok_explicit",
+		// ShareURL deliberately points at a different bogus server to prove we
+		// do NOT fall back to it when serverURL is supplied.
+		ShareURL: "http://wrong-from-cfg.invalid",
+	}
+	lazyBackfillAuthUserID(&cfg, srv.URL)
+
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("expected 1 whoami hit on explicit server, got %d", got)
+	}
+	if cfg.AuthUserID != "user_123" {
+		t.Errorf("AuthUserID = %q, want user_123", cfg.AuthUserID)
+	}
+	if cfg.AuthToken != "tok_explicit" {
+		t.Errorf("AuthToken cleared unexpectedly: got %q", cfg.AuthToken)
+	}
+}
+
+// TestLazyBackfillAuthUserID_DoesNotClearOnWrongServer401 verifies that the
+// cached identity is NOT wiped when the caller correctly routes whoami to the
+// server that owns the token. Previously, runShare with --share-url=<self>
+// would call lazyBackfill which queried https://crit.md, got 401 for the
+// selfhosted token, and clobbered the cached credentials. With the fix the
+// caller's URL is honored so the right server gets the request.
+func TestLazyBackfillAuthUserID_DoesNotClearOnWrongServer401(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// "Wrong" server (analog of https://crit.md) that would 401 the token.
+	wrong := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer wrong.Close()
+
+	// "Right" server (analog of selfhosted instance) that recognizes the token.
+	right := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer self_tok" {
+			t.Errorf("Authorization = %q", got)
+		}
+		json.NewEncoder(w).Encode(map[string]string{"id": "self_user"})
+	}))
+	defer right.Close()
+
+	// Seed the global config as though a prior `crit auth login` against the
+	// selfhosted server happened. Note: AuthUserID is empty so backfill runs.
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"),
+		[]byte(`{"auth_token":"self_tok"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate `crit share --share-url <right>`: the cfg has the env-default
+	// crit.md style URL, but the caller passes the resolved selfhosted URL.
+	cfg := Config{AuthToken: "self_tok", ShareURL: wrong.URL}
+	lazyBackfillAuthUserID(&cfg, right.URL)
+
+	if cfg.AuthToken != "self_tok" {
+		t.Errorf("AuthToken cleared on right-server success: got %q", cfg.AuthToken)
+	}
+	if cfg.AuthUserID != "self_user" {
+		t.Errorf("AuthUserID = %q, want self_user", cfg.AuthUserID)
+	}
+
+	// Persisted config should still hold the token.
+	data, _ := os.ReadFile(filepath.Join(home, ".crit.config.json"))
+	if !strings.Contains(string(data), "self_tok") {
+		t.Errorf("global config no longer contains auth_token: %s", data)
+	}
+}
+
+// TestLazyBackfillAuthUserID_ClearsOnRightServer401 verifies that the existing
+// "401 wipes cached identity" behaviour still fires — but only against the
+// server the caller actually targets. The fix is "ask the right server", not
+// "stop clearing tokens on 401".
+func TestLazyBackfillAuthUserID_ClearsOnRightServer401(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"),
+		[]byte(`{"auth_token":"revoked_tok"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{AuthToken: "revoked_tok"}
+	lazyBackfillAuthUserID(&cfg, srv.URL)
+
+	if cfg.AuthToken != "" {
+		t.Errorf("AuthToken should be cleared after 401, got %q", cfg.AuthToken)
+	}
+	if cfg.AuthUserID != "" {
+		t.Errorf("AuthUserID should be cleared after 401, got %q", cfg.AuthUserID)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(home, ".crit.config.json"))
+	var raw map[string]any
+	_ = json.Unmarshal(data, &raw)
+	if v, ok := raw["auth_token"]; ok && v != "" {
+		t.Errorf("persisted auth_token not cleared: %v", v)
+	}
+}
+
+// TestLazyBackfillAuthUserID_FallbackWhenServerEmpty verifies the back-compat
+// path: if a caller passes "" the function still resolves via env/config/default.
+// CRIT_SHARE_URL takes precedence over the default. This documents the existing
+// precedence rules so a future refactor can't silently drop them.
+func TestLazyBackfillAuthUserID_FallbackWhenServerEmpty(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		json.NewEncoder(w).Encode(map[string]string{"id": "u1"})
+	}))
+	defer srv.Close()
+
+	// Env override should win when serverURL == "".
+	t.Setenv("CRIT_SHARE_URL", srv.URL)
+	cfg := Config{AuthToken: "tok"}
+	lazyBackfillAuthUserID(&cfg, "")
+
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("expected env URL to be used as fallback, hits=%d", got)
+	}
+	if cfg.AuthUserID != "u1" {
+		t.Errorf("AuthUserID = %q, want u1", cfg.AuthUserID)
+	}
+}
+
+// TestLazyBackfillAuthUserID_Skips verifies the early-return guards: nil cfg,
+// empty token, and already-cached user id all skip the network call.
+func TestLazyBackfillAuthUserID_Skips(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+	}))
+	defer srv.Close()
+
+	t.Run("nil cfg", func(t *testing.T) {
+		lazyBackfillAuthUserID(nil, srv.URL)
+	})
+	t.Run("empty token", func(t *testing.T) {
+		cfg := Config{}
+		lazyBackfillAuthUserID(&cfg, srv.URL)
+	})
+	t.Run("already cached", func(t *testing.T) {
+		cfg := Config{AuthToken: "tok", AuthUserID: "u"}
+		lazyBackfillAuthUserID(&cfg, srv.URL)
+	})
+
+	if got := atomic.LoadInt32(&hits); got != 0 {
+		t.Errorf("expected 0 server hits across skip cases, got %d", got)
+	}
+}
