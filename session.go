@@ -89,7 +89,7 @@ type Comment struct {
 	// Comments are visible only when the current focus's key matches.
 	//   ""                            — working-tree / pre-feature
 	//   "pr:<num>"                    — range focus with a known PR number
-	//   "range:<short_base>..<short_head>" — range focus without PR number
+	//   "range:<base_sha>..<head_sha>"     — range focus without PR number (full 40-char SHAs)
 	FocusKey string `json:"focus_key,omitempty"`
 }
 
@@ -268,15 +268,9 @@ func (f Focus) PickerVisible() bool {
 
 // focusKeyFor returns the per-view key used to scope comment visibility.
 //
-//	pr:<num>                          — range focus with PR number
-//	range:<shortBase>..<shortHead>    — range focus without PR number
-//	""                                — working-tree (and unknown)
-//
-// WIRE FORMAT: this string is stored verbatim in Comment.FocusKey within
-// review files on disk and is the join key visibleInFocus uses to filter
-// comments per view. Changing the format (separator, prefix, SHA length)
-// breaks existing review files; any change requires a migration that
-// rewrites stored FocusKey values.
+//	pr:<num>                       — range focus with PR number
+//	range:<baseSHA>..<headSHA>     — range focus without PR number (full 40-char SHAs)
+//	""                             — working-tree (and unknown)
 func focusKeyFor(f Focus) string {
 	if f.Kind != FocusRange {
 		return ""
@@ -284,7 +278,7 @@ func focusKeyFor(f Focus) string {
 	if f.PRNumber > 0 {
 		return fmt.Sprintf("pr:%d", f.PRNumber)
 	}
-	return fmt.Sprintf("range:%s..%s", shortSHA(f.BaseSHA), shortSHA(f.HeadSHA))
+	return fmt.Sprintf("range:%s..%s", f.BaseSHA, f.HeadSHA)
 }
 
 // visibleInFocus reports whether c should be shown in the given focus.

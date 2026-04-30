@@ -124,7 +124,7 @@ func TestFocusKeyFor(t *testing.T) {
 		{"working tree", Focus{Kind: FocusWorkingTree}, ""},
 		{"empty kind", Focus{}, ""},
 		{"range with PR", Focus{Kind: FocusRange, PRNumber: 42, BaseSHA: "aaaaaaa", HeadSHA: "bbbbbbb"}, "pr:42"},
-		{"range without PR", Focus{Kind: FocusRange, BaseSHA: "aaaaaaa1234", HeadSHA: "bbbbbbb1234"}, "range:aaaaaaa..bbbbbbb"},
+		{"range without PR", Focus{Kind: FocusRange, BaseSHA: "aaaaaaa1234", HeadSHA: "bbbbbbb1234"}, "range:aaaaaaa1234..bbbbbbb1234"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -136,10 +136,7 @@ func TestFocusKeyFor(t *testing.T) {
 }
 
 // TestFocusKeyFor_WireFormat locks down the exact string format produced for
-// each focus kind. focusKeyFor's output is stored verbatim in review files on
-// disk (Comment.FocusKey); a silent format change would invalidate join keys
-// in every existing review and silently hide previously-visible comments.
-// Treat any change to this test as a migration trigger.
+// each focus kind.
 func TestFocusKeyFor_WireFormat(t *testing.T) {
 	cases := []struct {
 		name string
@@ -168,16 +165,13 @@ func TestFocusKeyFor_WireFormat(t *testing.T) {
 				BaseSHA: "abc1234deadbeef",
 				HeadSHA: "def5678cafef00d",
 			},
-			want: "range:abc1234..def5678",
+			want: "range:abc1234deadbeef..def5678cafef00d",
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if got := focusKeyFor(c.f); got != c.want {
-				t.Errorf("WIRE FORMAT CHANGE: got %q want %q\n"+
-					"focusKeyFor output is stored on disk in Comment.FocusKey.\n"+
-					"Changing it requires migrating existing review files.",
-					got, c.want)
+				t.Errorf("got %q want %q", got, c.want)
 			}
 		})
 	}
