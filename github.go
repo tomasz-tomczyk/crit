@@ -275,10 +275,17 @@ type PRSummary struct {
 // fetchOpenPRs lists open PRs visible to the current gh auth. Capped at 100
 // (gh's max page size).
 func fetchOpenPRs() ([]PRSummary, error) {
+	return fetchOpenPRsCtx(context.Background())
+}
+
+// fetchOpenPRsCtx is the context-aware variant — the warm-prime path
+// passes the daemon's shutdown ctx so a Ctrl+C during boot terminates
+// the in-flight gh subprocess instead of orphaning it.
+func fetchOpenPRsCtx(ctx context.Context) ([]PRSummary, error) {
 	if err := requireGH(); err != nil {
 		return nil, err
 	}
-	out, err := exec.Command("gh", "pr", "list",
+	out, err := exec.CommandContext(ctx, "gh", "pr", "list",
 		"--state", "open",
 		"--limit", "100",
 		"--json", "number,title,url,headRefName,headRefOid,baseRefName,isDraft",
@@ -308,12 +315,19 @@ type prListCache struct {
 
 // get returns cached PR data, refreshing if older than 60s.
 func (c *prListCache) get() ([]PRSummary, error) {
+	return c.getCtx(context.Background())
+}
+
+// getCtx is the context-aware variant. The warm-prime path on daemon
+// boot passes the daemon's shutdown context so the in-flight gh
+// subprocess gets killed on Ctrl+C rather than orphaned.
+func (c *prListCache) getCtx(ctx context.Context) ([]PRSummary, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if time.Since(c.fetched) < 60*time.Second && c.data != nil {
 		return c.data, nil
 	}
-	data, err := fetchOpenPRs()
+	data, err := fetchOpenPRsCtx(ctx)
 	if err != nil {
 		return nil, err
 	}

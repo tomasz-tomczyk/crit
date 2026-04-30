@@ -136,19 +136,61 @@ func detectLocalStackFocus(vcs VCS, repoRoot string) *Focus {
 	if baseSHA == "" {
 		return nil
 	}
-	stackRootSHA := findFurthestStackTip(ancestors[baseIdx+2:], tipLabels, topic, defaultSHA)
+	// Sapling caveat: see assignStackBases in picker.go. Sapling's
+	// localBranchTips falls back to every draft commit when no bookmarks
+	// exist, so each ancestor draft would be classified as a "tip" and
+	// the deepest draft would become the stack root — excluding its
+	// own changes from a non-topmost entry's full-stack diff. Force
+	// the literal default branch as the full-stack base for Sapling so
+	// the cumulative diff stays accurate.
+	stackRootSHA := defaultSHA
+	if vcs.Name() != "sapling" {
+		stackRootSHA = findFurthestStackTip(ancestors[baseIdx+2:], tipLabels, topic, defaultSHA)
+	}
 
+	// For Sapling without bookmarks, baseLabel is the parent commit's
+	// `desc|firstline` — feeding that into BaseRefName masquerades a
+	// commit subject as a branch name in the UI. Detect that case via
+	// the bookmark probe and fall back to a short SHA, which reads
+	// honestly as "we don't have a name for this anchor".
+	displayLabel := baseLabel
+	baseRefName := baseLabel
+	if vcs.Name() == "sapling" && !saplingHasBookmark(repoRoot, baseSHA) {
+		short := baseSHA
+		if len(short) > 12 {
+			short = short[:12]
+		}
+		displayLabel = short
+		baseRefName = short
+	}
 	return &Focus{
 		Kind:        FocusRange,
 		BaseSHA:     baseSHA,
 		HeadSHA:     headSHA,
 		DefaultSHA:  stackRootSHA,
-		Label:       fmt.Sprintf("%s..HEAD", baseLabel),
-		BaseRefName: baseLabel,
+		Label:       fmt.Sprintf("%s..HEAD", displayLabel),
+		BaseRefName: baseRefName,
 		HeadRefName: vcs.CurrentBranch(),
 		DiffScope:   DiffScopeLayer,
 		IsStacked:   true,
 	}
+}
+
+// saplingHasBookmark reports whether sha matches a real Sapling bookmark
+// (as opposed to falling back to "any draft commit is a tip"). Used by
+// detectLocalStackFocus to choose between a bookmark-driven label and a
+// short-SHA fallback when only a draft commit happens to be there.
+func saplingHasBookmark(repoRoot, sha string) bool {
+	out, err := slCommandInDir(repoRoot, "bookmarks", "-T", "{node}\n")
+	if err != nil {
+		return false
+	}
+	for _, line := range splitNonEmpty(out) {
+		if strings.TrimSpace(line) == sha {
+			return true
+		}
+	}
+	return false
 }
 
 // isLiveStackTip reports whether sha is a non-default branch tip on the

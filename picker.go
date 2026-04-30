@@ -240,12 +240,23 @@ func assignStackBases(vcs VCS, entries []StackEntry, repoRoot string) []StackEnt
 	// Each entry's DefaultSHA = its own effective stack root, computed
 	// as the topmost entry above it. The topmost entry itself falls back
 	// to the literal default branch — its "stack root" is the default
-	// branch (otherwise full-stack of staging would diff staging..staging,
-	// an empty range, when a user navigates to staging in the popover).
+	// branch (otherwise full-stack of the topmost would diff entry..entry,
+	// an empty range, when a user navigates to it in the popover).
 	// For single-entry stacks every entry is topmost, so all fall back.
+	//
+	// Sapling caveat: Sapling's "branch tips" are draft commits (no
+	// bookmarks needed), so every entry corresponds to a real user
+	// commit. Treating the topmost as "stack root" would exclude its
+	// own changes from any non-topmost entry's full-stack diff. Force
+	// every entry to fall back to the literal default branch in that
+	// case so full-stack stays a true cumulative diff. Git stacks
+	// already require explicit branch tips, so the topmost entry there
+	// represents a deliberate stack-root branch (e.g. `staging`) and
+	// the smart anchoring is correct.
+	saplingStack := vcs.Name() == "sapling"
 	topIdx := len(entries) - 1
 	for i := range entries {
-		if i == topIdx {
+		if saplingStack || i == topIdx {
 			entries[i].DefaultSHA = literalDefaultSHA
 		} else {
 			entries[i].DefaultSHA = entries[topIdx].HeadSHA

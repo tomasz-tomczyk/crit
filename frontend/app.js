@@ -6267,8 +6267,15 @@
   async function doFinishReview() {
     try {
       const resp = await fetch('/api/finish', { method: 'POST' });
+      if (!resp.ok) {
+        throw new Error('Finish review failed: HTTP ' + resp.status);
+      }
       const data = await resp.json();
-      const hasComments = !!data.prompt;
+      // hasComments must be false when the server says approved=true,
+      // even if a prompt is present (e.g. "All comments resolved —
+      // proceed"). Otherwise the user gets the agent-notified
+      // "waiting for updates" UX instead of the approval path.
+      const hasComments = !!data.prompt && !data.approved;
       waitingHasComments = hasComments;
       const prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
 
@@ -8300,6 +8307,9 @@
   const resumePrPillEl = document.getElementById('resumePrPill');
   const diffScopeToggleEl = document.getElementById('diffScopeToggle');
   const diffAreaHeaderEl = document.getElementById('diffAreaHeader');
+  const compareRailEl = document.getElementById('compareRail');
+  const baseBranchArrowEl = document.getElementById('baseBranchArrow');
+  const wtScopeToggleEl = document.getElementById('scopeToggle');
 
   // Cached /api/picker.stack array. We only consume `stack` now — `other_prs`
   // and `branches` are intentionally unused. Refreshed on focus-changed SSE.
@@ -8444,7 +8454,7 @@
     // layer/full-stack toggle in the diff-area header is the canonical
     // way to switch scopes; clicking here used to flip diff_scope but
     // that overlapped confusingly with the toggle.
-    parts.push('<span class="stack-popover-item stack-popover-default stack-popover-root" role="presentation">' +
+    parts.push('<span class="stack-popover-item stack-popover-root" role="presentation">' +
       '<span class="stack-popover-tree" aria-hidden="true">\u2502 </span>' +
       '<span class="stack-popover-label">' + escapeHtml(defaultBranchName) + '</span>' +
       '</span>');
@@ -8565,17 +8575,14 @@
       if (inRange) {
         baseBranchPickerEl.classList.remove('open');
         baseBranchPickerEl.style.display = 'none';
-        const arrow = document.getElementById('baseBranchArrow');
-        if (arrow) arrow.style.display = 'none';
+        if (baseBranchArrowEl) baseBranchArrowEl.style.display = 'none';
       } else if (baseBranches.length >= 2) {
         baseBranchPickerEl.style.display = '';
-        const arrow = document.getElementById('baseBranchArrow');
-        if (arrow) arrow.style.display = '';
+        if (baseBranchArrowEl) baseBranchArrowEl.style.display = '';
       }
     }
     // Toggle compare-rail mode class — drives the segmented-composite
     // visual merge of branch chip + stack chip in stack mode.
-    const compareRailEl = document.getElementById('compareRail');
     if (compareRailEl) compareRailEl.classList.toggle('is-stack', !!inRange);
     // Diff-scope (Layer / Full stack) now lives inside the stack
     // popover (see "Compare against" section in renderStackChip). Hide
@@ -8587,19 +8594,32 @@
     // filters by working-tree state vs baseRef — meaningless when the
     // diff is pinned to BaseSHA..HeadSHA. Hide it in range mode to
     // prevent confusing half-baked interactions where the file list
-    // gets working-tree-filtered but diffs stay range-pinned.
-    const wtScopeToggleEl = document.getElementById('scopeToggle');
-    if (wtScopeToggleEl && inRange) {
-      wtScopeToggleEl.style.display = 'none';
+    // gets working-tree-filtered but diffs stay range-pinned. Restore
+    // visibility when leaving range mode in git mode (clicking the ✕
+    // exits to working tree without re-running init's setup, so
+    // without this branch the toggle stays hidden until next reload).
+    if (wtScopeToggleEl) {
+      if (inRange) {
+        wtScopeToggleEl.style.display = 'none';
+      } else if (mode === 'git') {
+        wtScopeToggleEl.style.display = '';
+      }
     }
   }
 
-  // Fetch /api/picker once and cache the stack array. We dedup with an
-  // in-flight promise so concurrent triggers (init + focus-changed SSE) don't
-  // hammer the daemon. Errors are logged but don't block UI — breadcrumb just
-  // stays hidden until the next successful fetch.
+  // Fetch /api/picker and cache the stack array. Concurrent calls share
+  // the in-flight promise so init + focus-changed SSE don't double-fetch,
+  // but a transition that arrives WHILE a previous fetch is still pending
+  // schedules a follow-up refresh — without this, focus A→B→C where A is
+  // still loading would never refetch C-side data and the popover would
+  // stay stale until the next external trigger. The /api/picker endpoint
+  // is server-cached for 60s so the extra round-trip is essentially free.
+  let pickerRefetchQueued = false;
   async function loadStackFromPicker() {
-    if (pickerLoadInFlight) return pickerLoadInFlight;
+    if (pickerLoadInFlight) {
+      pickerRefetchQueued = true;
+      return pickerLoadInFlight;
+    }
     pickerLoadInFlight = (async function() {
       try {
         const res = await fetch('/api/picker');
@@ -8614,7 +8634,14 @@
         pickerLoadInFlight = null;
       }
     })();
-    return pickerLoadInFlight;
+    const result = pickerLoadInFlight;
+    result.then(function() {
+      if (pickerRefetchQueued) {
+        pickerRefetchQueued = false;
+        loadStackFromPicker();
+      }
+    });
+    return result;
   }
 
   async function postFocus(focus) {

@@ -373,6 +373,10 @@ func (s *SaplingVCS) HasStagingArea() bool { return false }
 func (s *SaplingVCS) SkipDirNames() []string { return []string{".sl", ".git"} }
 
 // detectSaplingDefaultBranch probes for "main" then "master" bookmarks.
+// Returns empty when neither resolves — callers must treat that as
+// "no default branch" (full-stack scope is then disabled, and the
+// merge-base lookup in assignStackBases falls through gracefully
+// instead of running against a phantom "main" ref).
 func detectSaplingDefaultBranch() string {
 	for _, branch := range []string{"main", "master"} {
 		err := exec.Command("sl", "log", "-r", branch, "-T", "{node|short}").Run()
@@ -380,7 +384,7 @@ func detectSaplingDefaultBranch() string {
 			return branch
 		}
 	}
-	return "main"
+	return ""
 }
 
 // slCommandInDir runs an sl subcommand in the given directory and returns stdout.

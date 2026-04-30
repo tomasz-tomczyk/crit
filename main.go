@@ -2246,9 +2246,11 @@ func runServe(args []string) {
 	// boot means the first /api/picker call lands on a warm cache instead
 	// of paying the network cost while the user watches the page render.
 	// Best-effort — failures (no gh, no remote, file mode) are silently
-	// dropped; the picker handler still degrades gracefully.
+	// dropped; the picker handler still degrades gracefully. Tied to the
+	// daemon's shutdown ctx so a Ctrl+C during boot terminates the gh
+	// subprocess instead of orphaning it.
 	if srv.prList != nil {
-		go func() { _, _ = srv.prList.get() }()
+		go func() { _, _ = srv.prList.getCtx(ctx) }()
 	}
 
 	go runIdleTimeoutChecker(ctx, stop, &idleMu, &lastActivity)

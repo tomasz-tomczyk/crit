@@ -4189,21 +4189,20 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   cursor: pointer;
   white-space: nowrap;
 }
-.stack-popover-item:hover:not([aria-current]):not(.stack-popover-disabled) {
+.stack-popover-item:hover:not([aria-current]):not(:disabled) {
   background: var(--crit-editor-bg-hover);
 }
 .stack-popover-item:focus-visible {
   outline: 2px solid var(--crit-brand);
   outline-offset: -1px;
 }
+.stack-popover-item:disabled {
+  cursor: default;
+}
 .stack-popover-current {
   background: var(--crit-brand-bg);
   font-weight: 600;
   cursor: default;
-}
-.stack-popover-disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 .stack-popover-tree {
   font-family: monospace;
@@ -4214,14 +4213,6 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.stack-popover-marker {
-  margin-left: 8px;
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--crit-editor-fg-muted);
 }
 
 /* Default-branch entry in the stack popover is a non-interactive root
