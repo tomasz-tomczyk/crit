@@ -60,22 +60,47 @@ body {
   width: auto;
 }
 
+/* Compare rail — wraps base picker, arrow, branch chip, stack chip, resume pill.
+   In working-tree mode the rail reads "base ← head" (compare-bar idiom).
+   In stack mode the rail's branch chip + stack chip merge into a single
+   segmented composite via .compare-rail.is-stack adjacent-sibling rules. */
+.compare-rail {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .header-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-family: var(--crit-font-mono);
   font-size: 12px;
-  color: var(--crit-brand);
-  background: var(--crit-brand-subtle);
-  border: 1px solid var(--crit-brand-bg);
+  color: var(--crit-pill-fg);
+  background: var(--crit-pill-bg);
+  border: 1px solid var(--crit-pill-border);
   padding: 3px 10px;
   border-radius: 6px;
   height: 24px;
+  line-height: 1;
+  white-space: nowrap;
+  min-width: 0;
+}
+/* Brand-tint variant — used by the active branch (head) chip. */
+.header-chip.header-context {
+  color: var(--crit-brand);
+}
+.header-chip.header-context .branch-icon { opacity: 1; }
+.header-chip.header-context #branchName {
+  max-width: 38ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .branch-icon {
   display: flex;
   align-items: center;
+  opacity: 0.85;
 }
 .branch-icon svg { width: 14px; height: 14px; }
 
@@ -86,8 +111,12 @@ body {
   align-items: center;
   gap: 4px;
 }
+/* Compare arrow ← between base and head. Renamed from .base-branch-arrow
+   to make its role in the cluster explicit. Old class kept as alias for
+   E2E and any external CSS overrides. */
+.compare-rail-arrow,
 .base-branch-arrow {
-  color: var(--crit-editor-fg-muted);
+  color: var(--crit-rail-arrow);
   flex-shrink: 0;
 }
 .base-branch-btn {
@@ -97,7 +126,8 @@ body {
   transition: background 0.1s, border-color 0.1s;
 }
 .base-branch-btn:hover {
-  background: var(--crit-brand-bg);
+  background: var(--crit-pill-bg-hover);
+  border-color: var(--crit-border-strong);
 }
 .base-branch-label {
   max-width: 160px;
@@ -4023,9 +4053,34 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   font-family: var(--crit-font-mono);
   font-size: 12px;
   color: var(--crit-brand);
-  background: var(--crit-brand-subtle);
-  border: 1px solid var(--crit-brand-bg);
+  background: var(--crit-pill-bg);
+  border: 1px solid var(--crit-pill-border);
   border-radius: 6px;
+}
+/* Stack-mode segmented composite: branch chip + stack chip read as one
+   unit. Adjacent corners flatten and the inter-chip gap collapses so a
+   single 1px seam separates the segments. Both chips keep the neutral
+   pill chrome so the cluster stays calm — brand color carries on the
+   head label and the stack-chip glyphs only, marking "this is the thing
+   being reviewed". */
+.compare-rail.is-stack .header-chip.header-context {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.compare-rail.is-stack .stack-chip {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left-width: 0;
+  margin-left: 0;
+}
+/* Collapse the inter-chip gap to zero only between the merged segments,
+   without affecting other compare-rail children (resume pill, etc.). */
+.compare-rail.is-stack .header-chip.header-context + .stack-chip {
+  margin-left: -6px;
+}
+.compare-rail.is-stack .header-chip.header-context + .stack-chip {
+  border-left-width: 1px;
+  border-left-color: var(--crit-pill-border);
 }
 .stack-chip-btn {
   display: inline-flex;
@@ -4048,14 +4103,21 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 }
 .stack-chip-icon {
   font-size: 11px;
-  color: var(--crit-brand);
+  color: var(--crit-pill-fg-muted);
   opacity: 0.85;
 }
 .stack-chip-label {
+  font-family: var(--crit-font-mono);
+  font-size: 12px;
   font-weight: 500;
+  color: var(--crit-brand);
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .stack-chip-chevron {
-  color: var(--crit-brand);
+  color: var(--crit-pill-fg-muted);
   opacity: 0.7;
   font-size: 10px;
   transition: transform 120ms ease;
@@ -4065,21 +4127,22 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   padding: 0;
-  margin-left: 2px;
+  margin-left: 4px;
   border: 0;
-  border-radius: 4px;
+  border-left: 1px solid var(--crit-pill-border);
+  border-radius: 0 4px 4px 0;
   background: transparent;
-  color: var(--crit-brand);
-  opacity: 0.7;
+  color: var(--crit-pill-fg-muted);
+  opacity: 0.85;
   font-size: 11px;
   line-height: 1;
   cursor: pointer;
 }
 .stack-chip-exit:hover {
-  background: var(--crit-brand-bg);
+  background: var(--crit-pill-bg-hover);
   opacity: 1;
 }
 .stack-chip-exit:focus-visible {
@@ -4173,23 +4236,35 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 /* Resume PR pill — visible only in working-tree focus when the session
    has a stashed last range focus.
    Click restores that range focus via POST /api/focus. */
+/* Resume pill — appears in working-tree mode after exiting a stack.
+   Treated as a quiet "you-were-here" breadcrumb annotation rather than a
+   call-to-action: dashed border, no fill, brand color appears only on
+   hover so the affordance reads as available without competing with the
+   live diff target chips. */
 .resume-pr-pill {
   display: inline-flex;
   align-items: center;
   padding: 2px 10px;
   border-radius: 999px;
-  border: 1px solid var(--crit-brand);
-  background: var(--crit-brand-bg);
-  color: var(--crit-editor-fg);
-  font-family: inherit;
+  border: 1px dashed var(--crit-pill-border);
+  background: transparent;
+  color: var(--crit-rail-fg);
+  font-family: var(--crit-font-body);
   font-size: 12px;
   font-weight: 500;
   line-height: 1.4;
   cursor: pointer;
   white-space: nowrap;
+  margin-left: 4px;
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .resume-pr-pill:hover {
-  background: var(--crit-editor-bg-hover);
+  border-style: solid;
+  border-color: var(--crit-brand);
+  background: var(--crit-brand-subtle);
+  color: var(--crit-brand);
 }
 .resume-pr-pill:focus-visible {
   outline: 2px solid var(--crit-brand);

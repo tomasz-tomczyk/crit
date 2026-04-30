@@ -8426,7 +8426,6 @@
           ' data-head-sha="' + escapeHtml(entry.head_sha || '') + '">' +
           '<span class="stack-popover-tree" aria-hidden="true">' + tree + '</span>' +
           '<span class="stack-popover-label">' + escapeHtml(label) + '</span>' +
-          '<span class="stack-popover-marker">(reviewing)</span>' +
           '</span>');
       } else {
         const payload = focusPayloadFromStackEntry(entry, focus);
@@ -8465,6 +8464,8 @@
     let label;
     if (lastRange.pr_number) {
       label = 'Resume PR #' + lastRange.pr_number;
+    } else if (lastRange.head_ref_name) {
+      label = 'Resume stack: ' + lastRange.head_ref_name;
     } else {
       const b = lastRange.base_sha ? lastRange.base_sha.slice(0, 7) : '?';
       const h = lastRange.head_sha ? lastRange.head_sha.slice(0, 7) : '?';
@@ -8480,6 +8481,29 @@
     renderStackChip(focus, stackCache);
     renderStackChipExit(focus, mode);
     renderResumePill(focus, session && session.last_range_focus, mode);
+    // Base-branch picker is meaningful only in working-tree mode — range
+    // mode pins BaseSHA..HeadSHA and ignores Session.BaseRef entirely, so
+    // changing the base branch would be a no-op. Hide it (and its chevron)
+    // when a range focus is active; restore visibility otherwise, but only
+    // if there's actually more than one branch to choose from (the
+    // fetchBranches path already enforces that on initial load).
+    const inRange = focus && focus.kind === 'range';
+    if (baseBranchPickerEl) {
+      if (inRange) {
+        baseBranchPickerEl.classList.remove('open');
+        baseBranchPickerEl.style.display = 'none';
+        const arrow = document.getElementById('baseBranchArrow');
+        if (arrow) arrow.style.display = 'none';
+      } else if (baseBranches.length >= 2) {
+        baseBranchPickerEl.style.display = '';
+        const arrow = document.getElementById('baseBranchArrow');
+        if (arrow) arrow.style.display = '';
+      }
+    }
+    // Toggle compare-rail mode class — drives the segmented-composite
+    // visual merge of branch chip + stack chip in stack mode.
+    const compareRailEl = document.getElementById('compareRail');
+    if (compareRailEl) compareRailEl.classList.toggle('is-stack', !!inRange);
     if (!diffScopeToggleEl) return;
     // Show layer/full-stack toggle whenever the focus has a resolved
     // default_sha — broader than is_stacked alone, so local-only stacks
