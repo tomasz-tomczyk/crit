@@ -8427,14 +8427,26 @@
     }
     // Show the chip immediately from focus data — don't wait for the
     // /api/picker fetch (which may take 2+ seconds against `gh pr list`).
-    // Without stack ancestry the popover starts as a placeholder; it
-    // refreshes once stackCache is populated.
+    // Three popover states based on stack data:
+    //   stack === null/undefined     → fetch still in flight, show "Loading…"
+    //   stack length ≤ 1             → no surrounding stack to navigate
+    //                                  (e.g. `crit --range A..B` with no
+    //                                  ancestor branches, or an unstacked PR)
+    //   stack length > 1             → render the full tree
     stackChipEl.style.display = '';
     if (stackChipLabelEl) stackChipLabelEl.textContent = chipLabelForFocus(focus);
-    const stackReady = Array.isArray(stack) && stack.length > 1;
-    if (!stackReady) {
+    if (!Array.isArray(stack)) {
       stackPopoverEl.innerHTML = '<div class="stack-popover-title">Stack</div>' +
         '<div class="stack-popover-loading" role="status" aria-live="polite">Loading stack…</div>';
+      return;
+    }
+    if (stack.length <= 1) {
+      // Loaded but no surrounding stack. Render a minimal popover so the
+      // user understands the chip's role (and Escape/click-outside still
+      // close it) without misleading them into thinking there's
+      // somewhere to navigate.
+      stackPopoverEl.innerHTML = '<div class="stack-popover-title">Stack</div>' +
+        '<div class="stack-popover-loading" role="status">No surrounding stack — this is a standalone range.</div>';
       return;
     }
 
@@ -8642,13 +8654,22 @@
     pickerLoadInFlight = (async function() {
       try {
         const res = await fetch('/api/picker');
-        if (!res.ok) return;
+        if (!res.ok) {
+          // Stamp an empty cache so the popover transitions out of the
+          // "Loading…" placeholder state. Otherwise a transient picker
+          // failure leaves the user staring at a stuck spinner.
+          if (!Array.isArray(stackCache)) stackCache = [];
+          applyFocusToHeader((session && session.focus) || { kind: 'working_tree' });
+          return;
+        }
         const data = await res.json();
         stackCache = Array.isArray(data.stack) ? data.stack : [];
         defaultBranchNameCache = data.default_branch_name || '';
         applyFocusToHeader((session && session.focus) || { kind: 'working_tree' });
       } catch (err) {
         console.error('picker fetch failed:', err);
+        if (!Array.isArray(stackCache)) stackCache = [];
+        applyFocusToHeader((session && session.focus) || { kind: 'working_tree' });
       } finally {
         pickerLoadInFlight = null;
       }
