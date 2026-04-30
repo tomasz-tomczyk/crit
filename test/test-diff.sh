@@ -387,6 +387,8 @@ CF_GIT_PID=$!
 # --- Instance 5: Range mode (--range A..B against a stacked git fixture) ---
 # Verifies SHA-pinned diff, on-disk head_sha + diff_scope=layer stamping, and
 # focus-picker round-trip (range -> working tree -> range preserves comments).
+# Fixture: main → feat-a → feat-b → feat-c (three real branches stacked on
+# each other) so the picker has actual layers to surface in the popover.
 RANGE_PORT=$((PORT + 4))
 RANGE_DIR=$(mktemp -d)
 
@@ -394,17 +396,19 @@ git -C "$RANGE_DIR" init -q -b main
 git -C "$RANGE_DIR" -c user.email=t@t -c user.name=t commit --allow-empty -q -m "main seed"
 RANGE_MAIN_SHA=$(git -C "$RANGE_DIR" rev-parse HEAD)
 
-git -C "$RANGE_DIR" checkout -q -b feat-c
+git -C "$RANGE_DIR" checkout -q -b feat-a
 echo "alpha" > "$RANGE_DIR/a.txt"
 git -C "$RANGE_DIR" add a.txt
 git -C "$RANGE_DIR" -c user.email=t@t -c user.name=t commit -q -m "A: add a.txt"
 RANGE_A_SHA=$(git -C "$RANGE_DIR" rev-parse HEAD)
 
+git -C "$RANGE_DIR" checkout -q -b feat-b
 echo "beta" > "$RANGE_DIR/b.txt"
 git -C "$RANGE_DIR" add b.txt
 git -C "$RANGE_DIR" -c user.email=t@t -c user.name=t commit -q -m "B: add b.txt"
 RANGE_B_SHA=$(git -C "$RANGE_DIR" rev-parse HEAD)
 
+git -C "$RANGE_DIR" checkout -q -b feat-c
 echo "gamma" > "$RANGE_DIR/c.txt"
 git -C "$RANGE_DIR" add c.txt
 git -C "$RANGE_DIR" -c user.email=t@t -c user.name=t commit -q -m "C: add c.txt"
@@ -416,7 +420,8 @@ RANGE_PID=$!
 # --- Instance 6: Stacked PR layer/full-stack toggle ---
 # Synthesizes stacked metadata via /api/focus so the diff-scope toggle UI
 # becomes visible without a real gh PR. Seeds per-scope comments to verify
-# lossless toggling and exercises the runPush gate-1 refusal.
+# lossless toggling and exercises the runPush gate-1 refusal. Fixture: same
+# three-branch stack as Instance 5 so the popover shows real layers.
 TOGGLE_PORT=$((PORT + 5))
 TOGGLE_DIR=$(mktemp -d)
 
@@ -424,12 +429,13 @@ git -C "$TOGGLE_DIR" init -q -b main
 git -C "$TOGGLE_DIR" -c user.email=t@t -c user.name=t commit --allow-empty -q -m "main seed"
 TOGGLE_MAIN_SHA=$(git -C "$TOGGLE_DIR" rev-parse HEAD)
 
-git -C "$TOGGLE_DIR" checkout -q -b feat-c
+git -C "$TOGGLE_DIR" checkout -q -b feat-a
 echo "alpha" > "$TOGGLE_DIR/a.txt"
 git -C "$TOGGLE_DIR" add a.txt
 git -C "$TOGGLE_DIR" -c user.email=t@t -c user.name=t commit -q -m "A: add a.txt"
 TOGGLE_A_SHA=$(git -C "$TOGGLE_DIR" rev-parse HEAD)
 
+git -C "$TOGGLE_DIR" checkout -q -b feat-b
 echo "beta" > "$TOGGLE_DIR/b.txt"
 git -C "$TOGGLE_DIR" add b.txt
 git -C "$TOGGLE_DIR" -c user.email=t@t -c user.name=t commit -q -m "B: add b.txt"
