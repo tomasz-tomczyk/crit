@@ -409,3 +409,28 @@ func TestBucketComments_DeterministicOrder(t *testing.T) {
 		}
 	}
 }
+
+// TestPushBlockedByFullStackScope asserts the predicate that gates `crit push`
+// when comments were authored under the cumulative stack range (full_stack
+// scope). Only the literal "full_stack" disk scope triggers the gate; layer
+// scope and unset (working tree) do not. The gate message wording is locked
+// down by test/test-diff.sh Instance 6, so verify it here too.
+func TestPushBlockedByFullStackScope(t *testing.T) {
+	tests := []struct {
+		scope string
+		want  bool
+	}{
+		{"", false},
+		{"layer", false},
+		{"full_stack", true},
+		{"full-stack", false}, // ActiveDiffScope is normalized to underscore form on disk.
+	}
+	for _, tc := range tests {
+		if got := pushBlockedByFullStackScope(tc.scope); got != tc.want {
+			t.Errorf("pushBlockedByFullStackScope(%q)=%v want %v", tc.scope, got, tc.want)
+		}
+	}
+	if fullStackPushGateMessage != "Switch to Layer diff before posting a platform review" {
+		t.Errorf("gate message changed: %q — test/test-diff.sh Instance 6 will fail", fullStackPushGateMessage)
+	}
+}

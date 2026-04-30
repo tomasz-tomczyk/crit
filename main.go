@@ -836,8 +836,27 @@ func printPushSummary(posted, orphans int, exportPath string) {
 	fmt.Printf("Posted %d comments. %d comments exported to %s.\n", posted, orphans, exportPath)
 }
 
+// fullStackPushGateMessage is the user-facing error string emitted when
+// `crit push` is invoked while the active diff scope is the cumulative
+// stack range. Comments authored under that scope carry line numbers that
+// don't correspond to the PR's head diff, so the entire push is refused.
+// The exact wording is asserted by test/test-diff.sh Instance 6.
+const fullStackPushGateMessage = "Switch to Layer diff before posting a platform review"
+
+// pushBlockedByFullStackScope reports whether the on-disk active diff scope
+// requires `crit push` to abort with the gate message.
+func pushBlockedByFullStackScope(activeScope string) bool {
+	return activeScope == string(DiffScopeFullStack)
+}
+
 func runPush(args []string) {
 	ctx := loadPushContext(args)
+
+	// Full-stack push gate — see fullStackPushGateMessage.
+	if pushBlockedByFullStackScope(ctx.cj.ActiveDiffScope) {
+		fmt.Fprintln(os.Stderr, "Error: "+fullStackPushGateMessage)
+		os.Exit(1)
+	}
 
 	inRange := ctx.cj.ActiveDiffScope != ""
 	currentHead, err := resolveCurrentPRHead(ctx.prNumber, inRange, ctx.flags.dryRun)
