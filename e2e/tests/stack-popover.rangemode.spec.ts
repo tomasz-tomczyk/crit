@@ -91,6 +91,9 @@ test('default branch is rendered ONCE (no ghost duplicate stack entry)', async (
   // default_sha so each branch appears at most once.
   await loadPage(page);
   await page.locator('#stackChipBtn').click();
+  // Popover initially renders "Loading…"; wait for real items so allTextContents()
+  // doesn't snapshot the empty pre-fetch DOM.
+  await expect(page.locator('#stackPopover .stack-popover-item').first()).toBeVisible();
   const allLabels = await page.locator('#stackPopover .stack-popover-label').allTextContents();
   const mainCount = allLabels.filter((s) => s.trim() === 'main').length;
   expect(mainCount).toBe(1);
@@ -99,6 +102,8 @@ test('default branch is rendered ONCE (no ghost duplicate stack entry)', async (
 test('non-current entry click switches focus', async ({ page, request }) => {
   await loadPage(page);
   await page.locator('#stackChipBtn').click();
+  // Wait for popover to finish loading before snapshotting button count.
+  await expect(page.locator('#stackPopover .stack-popover-item').first()).toBeVisible();
   // Pick the first non-default, non-current entry button.
   const buttons = page.locator('#stackPopover button.stack-popover-item:not(.stack-popover-default)');
   const count = await buttons.count();
