@@ -8092,7 +8092,7 @@
         { key: '<kbd>N</kbd>', action: 'Previous change', mode: 'file mode' },
       ]},
       { label: 'Comments', shortcuts: [
-        { key: '<kbd>c</kbd>', action: 'Comment on focused block' },
+        { key: '<kbd>c</kbd>', action: 'Comment on focused block (or text selection, with quote)' },
         { key: '<kbd>e</kbd>', action: 'Edit comment on focused block' },
         { key: '<kbd>d</kbd>', action: 'Delete comment on focused block' },
         { key: '<kbd>G</kbd>', action: 'General comment' },
@@ -8282,6 +8282,9 @@
       }
       case 'c': {
         e.preventDefault();
+        // If text is selected, comment on the selection (with quote).
+        // Otherwise fall back to the focused block.
+        if (tryOpenFormFromSelection()) return;
         if (!focusedElement) return;
         // Markdown line block
         if (focusedElement.dataset.filePath && focusedElement.dataset.blockIndex !== undefined) {
@@ -8416,130 +8419,109 @@
     }
   });
 
-  // ===== Select-to-Comment: open comment form on text selection =====
-  document.addEventListener('mouseup', function(e) {
-    // Don't interfere with gutter interactions (drag-to-select, + button clicks).
-    if (dragState || diffDragState) return;
-    if (e.target.closest('.line-comment-gutter') || e.target.closest('.diff-comment-btn')) return;
+  // ===== Select-to-Comment helper =====
+  // Selection alone never opens the form — copying text stays unhindered.
+  // The user presses `c` after selecting to comment on the selection.
+  // Returns true if a form was opened from an active selection.
+  function tryOpenFormFromSelection() {
+    const selection = window.getSelection();
+    const range = getLineRangeFromSelection(selection);
+    if (!range) return false;
 
-    // Small delay to let the browser finalize the selection
-    requestAnimationFrame(function() {
-      const selection = window.getSelection();
-      const range = getLineRangeFromSelection(selection);
-      if (!range) return;
+    // Capture the selected text for the quote field.
+    // If the selection covers the full text of the line range, skip the quote.
+    let quote = null;
+    let quoteOffset = null;
+    try {
+      let selectedText = selection.toString().trim();
+      if (selectedText) {
+        // Strip diff gutter markers (+/-) from the start of each line
+        selectedText = selectedText.replace(/^[+\-]/gm, '').trim();
 
-      // If any comment form is already open, don't hijack text selection —
-      // the user is selecting text to copy, not to open another comment.
-      if (activeForms.length > 0) return;
-
-      // Capture the selected text before clearing, for the quote field.
-      // If the selection covers the full text of the line range, skip it — redundant.
-      let quote = null;
-      let quoteOffset = null;
-      try {
-        let selectedText = selection.toString().trim();
-        if (selectedText) {
-          // Strip diff gutter markers (+/-) from the start of each line
-          selectedText = selectedText.replace(/^[+\-]/gm, '').trim();
-
-          // Get the full text content of the lines in this range to compare.
-          // Try both document view (.line-block) and diff view elements.
-          // Also collect content elements in order for offset computation.
-          let fullText = '';
-          const contentEls = [];
-          for (let ln = range.startLine; ln <= range.endLine; ln++) {
-            // Document view
-            document.querySelectorAll('.line-block[data-file-path]').forEach(function(el) {
-              if (el.dataset.filePath !== range.filePath) return;
-              const s = parseInt(el.dataset.startLine), endLn = parseInt(el.dataset.endLine);
-              if (s <= ln && endLn >= ln) {
-                const content = el.querySelector('.line-content');
-                if (content && contentEls.indexOf(content) === -1) {
-                  fullText += (fullText ? '\n' : '') + content.textContent.trim();
-                  contentEls.push(content);
-                }
-              }
-            });
-            // Diff view — filter by side so unified diff doesn't double-count
-            const selSide = range.side || '';
-            document.querySelectorAll('[data-diff-file-path][data-diff-line-num="' + ln + '"]').forEach(function(el) {
-              if (el.dataset.diffFilePath !== range.filePath) return;
-              if (el.dataset.diffSide !== selSide) return;
-              const content = el.querySelector('.diff-content');
+        let fullText = '';
+        const contentEls = [];
+        for (let ln = range.startLine; ln <= range.endLine; ln++) {
+          document.querySelectorAll('.line-block[data-file-path]').forEach(function(el) {
+            if (el.dataset.filePath !== range.filePath) return;
+            const s = parseInt(el.dataset.startLine), endLn = parseInt(el.dataset.endLine);
+            if (s <= ln && endLn >= ln) {
+              const content = el.querySelector('.line-content');
               if (content && contentEls.indexOf(content) === -1) {
                 fullText += (fullText ? '\n' : '') + content.textContent.trim();
                 contentEls.push(content);
               }
-            });
-          }
-          // Only include quote if it's a partial selection (not the full line content)
-          const normalizedSelected = selectedText.replace(/\s+/g, ' ');
-          const normalizedFull = fullText.trim().replace(/\s+/g, ' ');
-          if (normalizedSelected !== normalizedFull && selectedText.length <= 300) {
-            quote = selectedText;
-
-            // Compute quote_offset: character index of the selection start
-            // within the normalized full text.  Disambiguates duplicate
-            // substrings (e.g. "foo foo foo" — selecting the last "foo").
-            try {
-              // Determine which end of the selection comes first in document order
-              const selRange = selection.getRangeAt(0);
-              const startContainer = selRange.startContainer;
-              const startOff = selRange.startOffset;
-
-              // Walk content elements to find total chars before selection start
-              let charsBefore = 0;
-              let foundEl = false;
-              for (let ci = 0; ci < contentEls.length; ci++) {
-                if (contentEls[ci].contains(startContainer)) {
-                  // Walk text nodes in this element up to the start node
-                  const walker = document.createTreeWalker(contentEls[ci], NodeFilter.SHOW_TEXT, null);
-                  let tn;
-                  while ((tn = walker.nextNode())) {
-                    if (tn === startContainer) {
-                      charsBefore += startOff;
-                      break;
-                    }
-                    charsBefore += tn.textContent.length;
-                  }
-                  foundEl = true;
-                  break;
-                }
-                charsBefore += contentEls[ci].textContent.length;
-              }
-
-              if (foundEl) {
-                // Build the raw text up to charsBefore, then normalize to get offset
-                let rawAll = '';
-                const rawUpTo = charsBefore;
-                for (let ri = 0; ri < contentEls.length; ri++) {
-                  rawAll += contentEls[ri].textContent;
-                  if (contentEls[ri].contains(startContainer)) break;
-                }
-                const textBefore = rawAll.slice(0, rawUpTo);
-                quoteOffset = textBefore.replace(/\s+/g, ' ').trimStart().length;
-              }
-            } catch { /* offset is a nice-to-have */ }
-          }
+            }
+          });
+          const selSide = range.side || '';
+          document.querySelectorAll('[data-diff-file-path][data-diff-line-num="' + ln + '"]').forEach(function(el) {
+            if (el.dataset.diffFilePath !== range.filePath) return;
+            if (el.dataset.diffSide !== selSide) return;
+            const content = el.querySelector('.diff-content');
+            if (content && contentEls.indexOf(content) === -1) {
+              fullText += (fullText ? '\n' : '') + content.textContent.trim();
+              contentEls.push(content);
+            }
+          });
         }
-      } catch { /* quote is a nice-to-have, don't break form opening */ }
+        const normalizedSelected = selectedText.replace(/\s+/g, ' ');
+        const normalizedFull = fullText.trim().replace(/\s+/g, ' ');
+        if (normalizedSelected !== normalizedFull && selectedText.length <= 300) {
+          quote = selectedText;
 
-      // Clear the browser selection — the form is the interaction now
-      selection.removeAllRanges();
+          // Compute quote_offset: character index of the selection start within
+          // the normalized full text. Disambiguates duplicate substrings.
+          try {
+            const selRange = selection.getRangeAt(0);
+            const startContainer = selRange.startContainer;
+            const startOff = selRange.startOffset;
 
-      // Open the comment form using the same flow as gutter click / 'c' key.
-      openForm({
-        filePath: range.filePath,
-        afterBlockIndex: range.afterBlockIndex,
-        startLine: range.startLine,
-        endLine: range.endLine,
-        editingId: null,
-        side: range.side,
-        quote: quote,
-        quoteOffset: quoteOffset
-      });
+            let charsBefore = 0;
+            let foundEl = false;
+            for (let ci = 0; ci < contentEls.length; ci++) {
+              if (contentEls[ci].contains(startContainer)) {
+                const walker = document.createTreeWalker(contentEls[ci], NodeFilter.SHOW_TEXT, null);
+                let tn;
+                while ((tn = walker.nextNode())) {
+                  if (tn === startContainer) {
+                    charsBefore += startOff;
+                    break;
+                  }
+                  charsBefore += tn.textContent.length;
+                }
+                foundEl = true;
+                break;
+              }
+              charsBefore += contentEls[ci].textContent.length;
+            }
+
+            if (foundEl) {
+              let rawAll = '';
+              const rawUpTo = charsBefore;
+              for (let ri = 0; ri < contentEls.length; ri++) {
+                rawAll += contentEls[ri].textContent;
+                if (contentEls[ri].contains(startContainer)) break;
+              }
+              const textBefore = rawAll.slice(0, rawUpTo);
+              quoteOffset = textBefore.replace(/\s+/g, ' ').trimStart().length;
+            }
+          } catch { /* offset is a nice-to-have */ }
+        }
+      }
+    } catch { /* quote is a nice-to-have, don't break form opening */ }
+
+    selection.removeAllRanges();
+    openForm({
+      filePath: range.filePath,
+      afterBlockIndex: range.afterBlockIndex,
+      startLine: range.startLine,
+      endLine: range.endLine,
+      editingId: null,
+      side: range.side,
+      quote: quote,
+      quoteOffset: quoteOffset
     });
-  });
+    return true;
+  }
 
   // ===== Stack breadcrumb + working-tree pill =====
   //

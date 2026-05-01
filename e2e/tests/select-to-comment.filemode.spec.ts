@@ -13,7 +13,7 @@ test.describe('Select-to-comment (file mode) — code document view', () => {
     await page.locator('.tree-file', { hasText: 'server.go' }).click();
   });
 
-  test('selecting code text opens comment form', async ({ page }) => {
+  test('selecting code text then pressing c opens comment form', async ({ page }) => {
     const section = page.locator('#file-section-server\\.go');
     await expect(section).toBeVisible();
     const block = section.locator('.line-block', { hasText: 'package main' });
@@ -29,12 +29,17 @@ test.describe('Select-to-comment (file mode) — code document view', () => {
     await page.mouse.move(blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2, { steps: 5 });
     await page.mouse.up();
 
+    // Selection alone should not open the form
+    await expect(section.locator('.comment-form')).not.toBeVisible();
+
+    await page.keyboard.press('c');
+
     const textarea = section.locator('.comment-form textarea');
     await expect(textarea).toBeVisible();
     await expect(textarea).toBeFocused();
   });
 
-  test('selecting code text and submitting comment', async ({ page }) => {
+  test('selecting code text and submitting comment via c shortcut', async ({ page }) => {
     const section = page.locator('#file-section-server\\.go');
     await expect(section).toBeVisible();
     const block = section.locator('.line-block', { hasText: 'respondJSON' }).first();
@@ -49,6 +54,7 @@ test.describe('Select-to-comment (file mode) — code document view', () => {
     await page.mouse.down();
     await page.mouse.move(blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2, { steps: 5 });
     await page.mouse.up();
+    await page.keyboard.press('c');
 
     const textarea = section.locator('.comment-form textarea');
     await expect(textarea).toBeVisible();

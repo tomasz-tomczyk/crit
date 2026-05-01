@@ -1,5 +1,20 @@
 import { test, expect } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { clearAllComments, loadPage, mdSection, goSection, switchToDocumentView } from './helpers';
+
+// Helper: drag-select between two coordinates, then press `c` to comment.
+// Selection alone never opens the form — `c` is the explicit commit.
+async function selectAndPressC(
+  page: Page,
+  x1: number, y1: number, x2: number, y2: number,
+  steps = 5,
+) {
+  await page.mouse.move(x1, y1);
+  await page.mouse.down();
+  await page.mouse.move(x2, y2, { steps });
+  await page.mouse.up();
+  await page.keyboard.press('c');
+}
 
 test.describe('Select-to-comment (git mode)', () => {
   test.beforeEach(async ({ request, page }) => {
@@ -12,7 +27,7 @@ test.describe('Select-to-comment (git mode)', () => {
       await switchToDocumentView(page);
     });
 
-    test('selecting text opens comment form immediately', async ({ page }) => {
+    test('selecting text alone does not open form; selection preserved for copying', async ({ page }) => {
       const section = mdSection(page);
       const firstBlock = section.locator('.line-block').first();
       await expect(firstBlock).toBeVisible();
@@ -21,28 +36,51 @@ test.describe('Select-to-comment (git mode)', () => {
       expect(blockBox).toBeTruthy();
       if (!blockBox) return;
 
-      // Start past the 44px line-gutter (which has user-select: none)
       await page.mouse.move(blockBox.x + 60, blockBox.y + blockBox.height / 2);
       await page.mouse.down();
       await page.mouse.move(blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2, { steps: 5 });
       await page.mouse.up();
+
+      // Form not visible — selection alone is for copying
+      await expect(section.locator('.comment-form')).not.toBeVisible();
+
+      // Selection still present
+      const selectedText = await page.evaluate(() => window.getSelection()?.toString().trim());
+      expect(selectedText).toBeTruthy();
+    });
+
+    test('selecting text then pressing c opens the comment form', async ({ page }) => {
+      const section = mdSection(page);
+      const firstBlock = section.locator('.line-block').first();
+      await expect(firstBlock).toBeVisible();
+
+      const blockBox = await firstBlock.boundingBox();
+      expect(blockBox).toBeTruthy();
+      if (!blockBox) return;
+
+      await selectAndPressC(
+        page,
+        blockBox.x + 60, blockBox.y + blockBox.height / 2,
+        blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2,
+      );
 
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
       await expect(textarea).toBeFocused();
     });
 
-    test('Escape cancels the comment form', async ({ page }) => {
+    test('Escape cancels the comment form once opened', async ({ page }) => {
       const section = mdSection(page);
       const firstBlock = section.locator('.line-block').first();
       const blockBox = await firstBlock.boundingBox();
       expect(blockBox).toBeTruthy();
       if (!blockBox) return;
 
-      await page.mouse.move(blockBox.x + 60, blockBox.y + blockBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2, { steps: 5 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        blockBox.x + 60, blockBox.y + blockBox.height / 2,
+        blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2,
+      );
 
       await expect(section.locator('.comment-form textarea')).toBeVisible();
 
@@ -57,10 +95,11 @@ test.describe('Select-to-comment (git mode)', () => {
       expect(blockBox).toBeTruthy();
       if (!blockBox) return;
 
-      await page.mouse.move(blockBox.x + 60, blockBox.y + blockBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2, { steps: 5 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        blockBox.x + 60, blockBox.y + blockBox.height / 2,
+        blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2,
+      );
 
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeFocused();
@@ -72,7 +111,7 @@ test.describe('Select-to-comment (git mode)', () => {
       await expect(comment).toContainText('Hello from text selection');
     });
 
-    test('text selection does not open a second form when one is already open', async ({ page }) => {
+    test('selecting alone does not open a second form when one is already open', async ({ page }) => {
       const section = mdSection(page);
 
       // Open a comment form via gutter click first
@@ -84,8 +123,7 @@ test.describe('Select-to-comment (git mode)', () => {
 
       await expect(section.locator('.comment-form')).toHaveCount(1);
 
-      // Now select text in a different block — should NOT open a second form,
-      // the selection should persist so the user can copy text
+      // Select text in a different block without pressing c — should NOT open a second form
       const thirdBlock = section.locator('.line-block').nth(2);
       await thirdBlock.scrollIntoViewIfNeeded();
       const blockBox = await thirdBlock.boundingBox();
@@ -96,12 +134,51 @@ test.describe('Select-to-comment (git mode)', () => {
       await page.mouse.move(blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2, { steps: 5 });
       await page.mouse.up();
 
-      // Still only one form — text selection is for copying, not commenting
+      // Still only one form; selection alone is for copying
       await expect(section.locator('.comment-form')).toHaveCount(1);
+    });
 
-      // Browser selection should persist
-      const selectedText = await page.evaluate(() => window.getSelection()?.toString().trim());
-      expect(selectedText).toBeTruthy();
+    test('pressing c with a new selection opens a second form (multi-form workflow)', async ({ page }) => {
+      const section = mdSection(page);
+      const blocks = section.locator('.line-block');
+
+      // First form: select-and-c on first block
+      const firstBlock = blocks.first();
+      const firstBox = await firstBlock.boundingBox();
+      if (!firstBox) return;
+      await selectAndPressC(
+        page,
+        firstBox.x + 60, firstBox.y + firstBox.height / 2,
+        firstBox.x + firstBox.width - 10, firstBox.y + firstBox.height / 2,
+      );
+      const firstTextarea = section.locator('.comment-form textarea').first();
+      await expect(firstTextarea).toBeVisible();
+      // Type something so the first form isn't auto-closed when the second opens
+      await firstTextarea.fill('In progress');
+
+      // Second form: programmatically select content in a DIFFERENT block and press c.
+      // (Drag-after-form-opens is fragile in headless tests because the open form
+      // textarea retains focus; in a real session the mouse-drag shifts focus to body.)
+      await page.evaluate(() => {
+        (document.activeElement as HTMLElement)?.blur();
+        const lineBlocks = Array.from(document.querySelectorAll('.line-block[data-file-path]'));
+        // Skip the first commentable block (form 1 lives on it) and find a later one
+        const target = lineBlocks
+          .map(b => b.querySelector('.line-content'))
+          .filter((c): c is Element => !!c && (c.textContent || '').trim().length > 10
+            && !c.closest('.comment-form-wrapper'))
+          .at(2);
+        if (!target) throw new Error('no second commentable content found');
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      });
+      await page.keyboard.press('c');
+
+      // Two forms open simultaneously — pressing c with a new selection adds another
+      await expect(section.locator('.comment-form')).toHaveCount(2);
     });
 
     test('multi-block selection spans correct line range', async ({ page }) => {
@@ -118,10 +195,12 @@ test.describe('Select-to-comment (git mode)', () => {
       expect(endBox).toBeTruthy();
       if (!startBox || !endBox) return;
 
-      await page.mouse.move(startBox.x + 60, startBox.y + startBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(endBox.x + endBox.width - 10, endBox.y + endBox.height / 2, { steps: 10 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        startBox.x + 60, startBox.y + startBox.height / 2,
+        endBox.x + endBox.width - 10, endBox.y + endBox.height / 2,
+        10,
+      );
 
       const formHeader = section.locator('.comment-form-header');
       await expect(formHeader).toBeVisible();
@@ -142,19 +221,6 @@ test.describe('Select-to-comment (git mode)', () => {
       await expect(section.locator('.comment-form')).not.toBeVisible();
     });
 
-    test('selecting text in non-commentable area does not trigger', async ({ page }) => {
-      const header = page.locator('.header');
-      const headerBox = await header.boundingBox();
-      expect(headerBox).toBeTruthy();
-      if (!headerBox) return;
-
-      await page.mouse.move(headerBox.x + 10, headerBox.y + headerBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(headerBox.x + headerBox.width / 2, headerBox.y + headerBox.height / 2, { steps: 5 });
-      await page.mouse.up();
-
-      await expect(page.locator('.comment-form')).not.toBeVisible();
-    });
   });
 
   test.describe('quote highlight', () => {
@@ -171,13 +237,12 @@ test.describe('Select-to-comment (git mode)', () => {
       expect(box).toBeTruthy();
       if (!box) return;
 
-      // Select just a portion of the text
-      await page.mouse.move(box.x + 80, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(box.x + 250, box.y + box.height / 2, { steps: 5 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        box.x + 80, box.y + box.height / 2,
+        box.x + 250, box.y + box.height / 2,
+      );
 
-      // Form is open but NOT yet submitted — highlight should already be visible
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
       await expect(section.locator('mark.quote-highlight')).toBeVisible();
@@ -185,8 +250,6 @@ test.describe('Select-to-comment (git mode)', () => {
 
     test('partial text selection saves quote and shows highlight mark', async ({ page }) => {
       const section = mdSection(page);
-      // Line 5: "We're adding API key authentication to the server..."
-      // Find the block containing this text
       const block = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(block).toBeVisible();
       const content = block.locator('.line-content');
@@ -194,27 +257,22 @@ test.describe('Select-to-comment (git mode)', () => {
       expect(box).toBeTruthy();
       if (!box) return;
 
-      // Select just a portion of the text (middle area, not full width)
-      await page.mouse.move(box.x + 80, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(box.x + 250, box.y + box.height / 2, { steps: 5 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        box.x + 80, box.y + box.height / 2,
+        box.x + 250, box.y + box.height / 2,
+      );
 
-      // Submit the comment
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
       await textarea.fill('Check this part');
       await textarea.press('Control+Enter');
 
-      // After submit, the quote-highlight mark should appear in the document
       await expect(section.locator('mark.quote-highlight')).toBeVisible();
     });
 
     test('cross-line partial selection saves quote and shows highlight', async ({ page, request }) => {
       const section = mdSection(page);
-      // Lines 3-5 in plan.md: "## Overview" (line 3), blank (line 4),
-      // "We're adding API key authentication..." (line 5)
-      // Select from middle of "Overview" heading down into the paragraph
       const overviewBlock = section.locator('.line-block', { hasText: 'Overview' }).first();
       const authBlock = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(overviewBlock).toBeVisible();
@@ -228,20 +286,19 @@ test.describe('Select-to-comment (git mode)', () => {
       expect(endBox).toBeTruthy();
       if (!startBox || !endBox) return;
 
-      // Drag from middle of "Overview" to middle of auth line
-      await page.mouse.move(startBox.x + 60, startBox.y + startBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(endBox.x + 150, endBox.y + endBox.height / 2, { steps: 10 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        startBox.x + 60, startBox.y + startBox.height / 2,
+        endBox.x + 150, endBox.y + endBox.height / 2,
+        10,
+      );
 
-      // Comment form should open
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
       await textarea.fill('Cross-line comment');
       await textarea.press('Control+Enter');
       await expect(section.locator('.comment-card')).toBeVisible();
 
-      // Verify quote was saved via API
       const mdPath = await page.evaluate(() => {
         const el = document.querySelector('.file-section[id*="plan"] .line-block[data-file-path]');
         return el ? (el as HTMLElement).dataset.filePath : null;
@@ -253,7 +310,6 @@ test.describe('Select-to-comment (git mode)', () => {
       expect(crossLine.quote).toBeTruthy();
       expect(crossLine.quote.length).toBeGreaterThan(0);
 
-      // Quote highlight marks should appear in the document
       await expect(section.locator('mark.quote-highlight').first()).toBeVisible();
     });
 
@@ -265,10 +321,11 @@ test.describe('Select-to-comment (git mode)', () => {
       const box = await content.boundingBox();
       if (!box) return;
 
-      await page.mouse.move(box.x + 80, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(box.x + 250, box.y + box.height / 2, { steps: 5 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        box.x + 80, box.y + box.height / 2,
+        box.x + 250, box.y + box.height / 2,
+      );
 
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
@@ -278,7 +335,6 @@ test.describe('Select-to-comment (git mode)', () => {
       const mark = section.locator('mark.quote-highlight');
       await expect(mark).toBeVisible();
 
-      // Verify the mark has color: inherit (not browser default black)
       const color = await mark.evaluate(el => getComputedStyle(el).color);
       expect(color).not.toBe('rgb(0, 0, 0)');
     });
@@ -291,18 +347,25 @@ test.describe('Select-to-comment (git mode)', () => {
       const box = await content.boundingBox();
       if (!box) return;
 
-      // Select the FULL width of the content (start to end)
-      await page.mouse.move(box.x, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(box.x + box.width, box.y + box.height / 2, { steps: 5 });
-      await page.mouse.up();
+      // Programmatically select the entire .line-content text, then press `c`.
+      await page.evaluate(() => {
+        const blk = Array.from(document.querySelectorAll('.line-block'))
+          .find(b => (b.textContent || '').includes('API key authentication'));
+        const c = blk?.querySelector('.line-content');
+        if (!c) throw new Error('no line-content found');
+        const range = document.createRange();
+        range.selectNodeContents(c);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      });
+      await page.keyboard.press('c');
 
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
       await textarea.fill('Full line comment');
       await textarea.press('Control+Enter');
 
-      // No quote highlight should appear (full line = redundant)
       await expect(section.locator('mark.quote-highlight')).not.toBeVisible();
     });
 
@@ -314,11 +377,11 @@ test.describe('Select-to-comment (git mode)', () => {
       const box = await content.boundingBox();
       if (!box) return;
 
-      // Partial selection
-      await page.mouse.move(box.x + 80, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(box.x + 250, box.y + box.height / 2, { steps: 5 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        box.x + 80, box.y + box.height / 2,
+        box.x + 250, box.y + box.height / 2,
+      );
 
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
@@ -326,7 +389,6 @@ test.describe('Select-to-comment (git mode)', () => {
       await textarea.press('Control+Enter');
       await expect(section.locator('.comment-card')).toBeVisible();
 
-      // Verify the quote field exists in the API response
       const mdPath = await page.evaluate(() => {
         const el = document.querySelector('.file-section[id*="plan"] .line-block[data-file-path]');
         return el ? (el as HTMLElement).dataset.filePath : null;
@@ -341,24 +403,23 @@ test.describe('Select-to-comment (git mode)', () => {
   });
 
   test.describe('diff view', () => {
-    test('selecting diff text opens comment form', async ({ page }) => {
-      // Use server.go (modified file) which has proper split diff sides
+    test('selecting diff text and pressing c opens comment form', async ({ page }) => {
       const section = goSection(page);
       const additionLine = section.locator('.diff-split-side.addition').first();
       await additionLine.scrollIntoViewIfNeeded();
       await expect(additionLine).toBeVisible();
 
-      // Target the .diff-content child directly to avoid gutter areas
       const diffContent = additionLine.locator('.diff-content');
       await expect(diffContent).toBeVisible();
       const box = await diffContent.boundingBox();
       expect(box).toBeTruthy();
       if (!box) return;
 
-      await page.mouse.move(box.x + 10, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(box.x + box.width - 10, box.y + box.height / 2, { steps: 5 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        box.x + 10, box.y + box.height / 2,
+        box.x + box.width - 10, box.y + box.height / 2,
+      );
 
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
@@ -367,9 +428,6 @@ test.describe('Select-to-comment (git mode)', () => {
 
     test('quote highlight appears in split diff view while form is open', async ({ page }) => {
       const section = goSection(page);
-      // Find an addition line with enough text for a meaningful partial selection
-      // Skip very short lines (like just `"log"`) — partial selection on short
-      // lines may select the full text, producing no quote and no highlight
       const additionLines = section.locator('.diff-split-side.addition');
       let targetBox: any = null;
       const count = await additionLines.count();
@@ -386,27 +444,23 @@ test.describe('Select-to-comment (git mode)', () => {
       expect(targetBox).toBeTruthy();
       if (!targetBox) return;
 
-      // Partial selection (not full width) to ensure a quote is captured
-      await page.mouse.move(targetBox.x + 10, targetBox.y + targetBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2, { steps: 5 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        targetBox.x + 10, targetBox.y + targetBox.height / 2,
+        targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2,
+      );
 
-      // Form should be open but NOT submitted — highlight should already show
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
       await expect(section.locator('mark.quote-highlight')).toBeVisible();
     });
 
     test('quote highlight appears in unified diff view while form is open', async ({ page }) => {
-      // Switch to unified mode via the header toggle
       const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
       await expect(unifiedBtn).toBeVisible();
       await unifiedBtn.click();
 
       const section = goSection(page);
-      // Find an addition line with enough text for a meaningful partial selection
-      // Skip very short lines (like just `"log"`) — find one with substantial content
       const additionLines = section.locator('.diff-line.addition');
       let targetBox: any = null;
       const count = await additionLines.count();
@@ -423,11 +477,11 @@ test.describe('Select-to-comment (git mode)', () => {
       expect(targetBox).toBeTruthy();
       if (!targetBox) return;
 
-      // Partial selection
-      await page.mouse.move(targetBox.x + 10, targetBox.y + targetBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2, { steps: 5 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        targetBox.x + 10, targetBox.y + targetBox.height / 2,
+        targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2,
+      );
 
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
@@ -435,13 +489,11 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('quote highlight appears on addition line, not deletion line in unified diff (issue #133)', async ({ page }) => {
-      // Switch to unified mode
       const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
       await expect(unifiedBtn).toBeVisible();
       await unifiedBtn.click();
 
       const section = goSection(page);
-      // Find an addition line with enough text for a partial selection
       const additionLines = section.locator('.diff-line.addition');
       let targetLine: any = null;
       let targetBox: any = null;
@@ -460,16 +512,15 @@ test.describe('Select-to-comment (git mode)', () => {
       expect(targetBox).toBeTruthy();
       if (!targetBox || !targetLine) return;
 
-      // Partial selection on the addition line
-      await page.mouse.move(targetBox.x + 10, targetBox.y + targetBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2, { steps: 5 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        targetBox.x + 10, targetBox.y + targetBox.height / 2,
+        targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2,
+      );
 
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
 
-      // The quote highlight must be inside an .addition line, NOT a .deletion line
       const highlightMark = section.locator('mark.quote-highlight').first();
       await expect(highlightMark).toBeVisible();
       const parentLine = highlightMark.locator('xpath=ancestor::div[contains(@class, "diff-line")]');
@@ -478,7 +529,6 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('quote highlight appears in markdown diff view while form is open', async ({ page }) => {
-      // Markdown file in git mode defaults to split diff view
       const section = mdSection(page);
       const additionLine = section.locator('.diff-split-side.addition').first();
       await additionLine.scrollIntoViewIfNeeded();
@@ -490,11 +540,11 @@ test.describe('Select-to-comment (git mode)', () => {
       expect(box).toBeTruthy();
       if (!box) return;
 
-      // Partial selection
-      await page.mouse.move(box.x + 10, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(box.x + Math.min(box.width / 2, 150), box.y + box.height / 2, { steps: 5 });
-      await page.mouse.up();
+      await selectAndPressC(
+        page,
+        box.x + 10, box.y + box.height / 2,
+        box.x + Math.min(box.width / 2, 150), box.y + box.height / 2,
+      );
 
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
