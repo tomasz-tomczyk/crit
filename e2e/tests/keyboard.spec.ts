@@ -401,6 +401,70 @@ test.describe('Keyboard Escape Behavior', () => {
     await page.keyboard.press('Escape');
     await expect(page.locator('.kb-nav.focused')).toHaveCount(0);
   });
+
+  test('Escape on non-empty comment form prompts for confirmation', async ({ page }) => {
+    const diffRow = page.locator('.diff-split-row.kb-nav').first();
+    await expect(diffRow).toBeAttached();
+    await diffRow.hover();
+    await page.keyboard.press('c');
+
+    const textarea = page.locator('.comment-form textarea');
+    await expect(textarea).toBeFocused();
+    await textarea.fill('important draft I do not want to lose');
+
+    // Cancel the confirm — form must stay open with content intact.
+    page.once('dialog', (dialog) => {
+      expect(dialog.type()).toBe('confirm');
+      void dialog.dismiss();
+    });
+    await textarea.press('Escape');
+    await expect(page.locator('.comment-form')).toBeVisible();
+    await expect(textarea).toHaveValue('important draft I do not want to lose');
+
+    // Accept the confirm — form should close.
+    page.once('dialog', (dialog) => {
+      expect(dialog.type()).toBe('confirm');
+      void dialog.accept();
+    });
+    await textarea.press('Escape');
+    await expect(page.locator('.comment-form')).toHaveCount(0);
+  });
+
+  test('Cancel button on non-empty comment form discards immediately (no confirm)', async ({ page }) => {
+    const diffRow = page.locator('.diff-split-row.kb-nav').first();
+    await expect(diffRow).toBeAttached();
+    await diffRow.hover();
+    await page.keyboard.press('c');
+
+    const textarea = page.locator('.comment-form textarea');
+    await textarea.fill('draft');
+
+    // Cancel is an explicit, labeled discard action — no prompt.
+    let dialogShown = false;
+    page.once('dialog', () => { dialogShown = true; });
+
+    await page.locator('.comment-form button', { hasText: 'Cancel' }).click();
+    await expect(page.locator('.comment-form')).toHaveCount(0);
+    expect(dialogShown).toBe(false);
+  });
+
+  test('Escape on empty comment form closes silently (no confirm)', async ({ page }) => {
+    const diffRow = page.locator('.diff-split-row.kb-nav').first();
+    await expect(diffRow).toBeAttached();
+    await diffRow.hover();
+    await page.keyboard.press('c');
+
+    const textarea = page.locator('.comment-form textarea');
+    await expect(textarea).toBeFocused();
+
+    // If a dialog appears, the test fails (we never accept/dismiss).
+    let dialogShown = false;
+    page.once('dialog', () => { dialogShown = true; });
+
+    await textarea.press('Escape');
+    await expect(page.locator('.comment-form')).toHaveCount(0);
+    expect(dialogShown).toBe(false);
+  });
 });
 
 // ============================================================

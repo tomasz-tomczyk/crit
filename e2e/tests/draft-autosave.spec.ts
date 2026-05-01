@@ -165,7 +165,8 @@ test.describe('Draft Autosave', () => {
       expect(keys.length).toBeGreaterThan(0);
     }).toPass({ timeout: 3000 });
 
-    // Press Escape
+    // Press Escape (non-empty draft prompts for confirmation)
+    page.once('dialog', (dialog) => void dialog.accept());
     await textarea.press('Escape');
 
     // Draft should be cleared

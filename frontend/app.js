@@ -4477,8 +4477,14 @@
     const doCancel = opts.onCancel
       ? function() { opts.onCancel(); }
       : function() { cancelComment(formObj); };
+    // Esc is ambiguous (could be a fat-finger), so gate it on a confirm if
+    // there's unsaved content. The Cancel button is an explicit, labeled
+    // discard action — no prompt there (matches GitHub).
+    const doCancelFromEsc = opts.onCancel
+      ? function() { if (confirmDiscardReviewCommentForm()) opts.onCancel(); }
+      : function() { if (confirmDiscardCommentForm(formObj)) cancelComment(formObj); };
 
-    bindSubmitCancelKeys(textarea, doSubmit, doCancel);
+    bindSubmitCancelKeys(textarea, doSubmit, doCancelFromEsc);
 
     if (!opts.onSubmit) {
       textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value, formObj); });
@@ -4674,6 +4680,24 @@
     updateTreeCommentBadges();
     updateCommentCount();
     return created || null;
+  }
+
+  // Returns true if it's safe to discard the form (form is empty or user
+  // confirmed). Reads the textarea live so unsaved typing is respected even
+  // before the autosave debounce fires.
+  function confirmDiscardCommentForm(formObj) {
+    if (!formObj) return true;
+    const ta = document.querySelector('.comment-form[data-form-key="' + formObj.formKey + '"] textarea');
+    const text = ta ? ta.value : (formObj.draftBody || '');
+    if (!text.trim()) return true;
+    return window.confirm('Discard comment?');
+  }
+
+  function confirmDiscardReviewCommentForm() {
+    const ta = document.querySelector('#reviewConversation .comment-form textarea');
+    const text = ta ? ta.value : '';
+    if (!text.trim()) return true;
+    return window.confirm('Discard comment?');
   }
 
   function cancelComment(formObj) {
@@ -8245,7 +8269,7 @@
         const ta = document.activeElement;
         if (ta && ta.dataset && ta.dataset.formKey) {
           const form = activeForms.find(function(f) { return f.formKey === ta.dataset.formKey; });
-          if (form) cancelComment(form);
+          if (form && confirmDiscardCommentForm(form)) cancelComment(form);
         }
       }
       return;
@@ -8430,8 +8454,13 @@
       }
       case 'Escape': {
         e.preventDefault();
-        if (reviewCommentFormActive) cancelReviewCommentForm();
-        else if (activeForms.length > 0) cancelComment(activeForms[activeForms.length - 1]);
+        if (reviewCommentFormActive) {
+          if (confirmDiscardReviewCommentForm()) cancelReviewCommentForm();
+        }
+        else if (activeForms.length > 0) {
+          const form = activeForms[activeForms.length - 1];
+          if (confirmDiscardCommentForm(form)) cancelComment(form);
+        }
         else if (selectionStart !== null) {
           const clearPath = activeFilePath;
           selectionStart = null;
