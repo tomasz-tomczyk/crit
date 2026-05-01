@@ -38,6 +38,23 @@ type DiffLine struct {
 	NewNum  int // 0 if del
 }
 
+// stripExternalDiffEnv returns a copy of the current process environment with
+// any external-diff variables removed. Used together with `-c diff.external=`
+// to guarantee diff output is the standard unified format regardless of how
+// the user has configured external diff tools (e.g. difftastic). Issue #380
+// surfaced cases where `--no-ext-diff` alone wasn't enough.
+func stripExternalDiffEnv() []string {
+	env := os.Environ()
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		if strings.HasPrefix(e, "GIT_EXTERNAL_DIFF=") || strings.HasPrefix(e, "GIT_DIFF_OPTS=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // IsGitRepo returns true if the current directory is inside a git repository.
 func IsGitRepo() bool {
 	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
@@ -287,14 +304,15 @@ func FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHunk, error) {
 		if baseRef == "" {
 			return nil, nil
 		}
-		cmd = exec.Command("git", "diff", "--no-color", "--no-ext-diff", baseRef+"..HEAD", "--", path)
+		cmd = exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", baseRef+"..HEAD", "--", path)
 	case "staged":
-		cmd = exec.Command("git", "diff", "--no-color", "--no-ext-diff", "--cached", "--", path)
+		cmd = exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", "--cached", "--", path)
 	case "unstaged":
-		cmd = exec.Command("git", "diff", "--no-color", "--no-ext-diff", "--", path)
+		cmd = exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", "--", path)
 	default:
 		return fileDiffUnified(path, baseRef, dir)
 	}
+	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -380,7 +398,8 @@ func ChangedFilesForCommit(sha, dir string) ([]FileChange, error) {
 // The dir parameter sets the working directory for the git command.
 // For the initial (root) commit, sha^ is undefined so we diff against the empty tree.
 func FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
-	cmd := exec.Command("git", "diff", "--no-color", "--no-ext-diff", sha+"^.."+sha, "--", path)
+	cmd := exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", sha+"^.."+sha, "--", path)
+	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -393,7 +412,8 @@ func FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
 		case errors.As(err, &exitErr) && exitErr.ExitCode() == 128:
 			// sha^ failed (root commit) — diff against the empty tree
 			emptyTree := "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-			cmd2 := exec.Command("git", "diff", "--no-color", "--no-ext-diff", emptyTree+".."+sha, "--", path)
+			cmd2 := exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", emptyTree+".."+sha, "--", path)
+			cmd2.Env = stripExternalDiffEnv()
 			if dir != "" {
 				cmd2.Dir = dir
 			}
@@ -677,9 +697,10 @@ func ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileChange, error)
 // FileDiffBetweenSHAs returns parsed diff hunks for path in the range
 // baseSHA..headSHA. Returns nil hunks when there is no diff.
 func FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string) ([]DiffHunk, error) {
-	cmd := exec.Command("git", "diff",
+	cmd := exec.Command("git", "-c", "diff.external=", "diff",
 		"--no-color", "--no-ext-diff",
 		baseSHA+".."+headSHA, "--", path)
+	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -936,10 +957,11 @@ func dedup(changes []FileChange) []FileChange {
 func fileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
 	var cmd *exec.Cmd
 	if baseRef == "" {
-		cmd = exec.Command("git", "diff", "--no-color", "--no-ext-diff", "HEAD", "--", path)
+		cmd = exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", "HEAD", "--", path)
 	} else {
-		cmd = exec.Command("git", "diff", "--no-color", "--no-ext-diff", baseRef, "--", path)
+		cmd = exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", baseRef, "--", path)
 	}
+	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -960,10 +982,11 @@ func fileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
 func fileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string) ([]DiffHunk, error) {
 	var cmd *exec.Cmd
 	if baseRef == "" {
-		cmd = exec.CommandContext(ctx, "git", "diff", "--no-color", "--no-ext-diff", "HEAD", "--", path)
+		cmd = exec.CommandContext(ctx, "git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", "HEAD", "--", path)
 	} else {
-		cmd = exec.CommandContext(ctx, "git", "diff", "--no-color", "--no-ext-diff", baseRef, "--", path)
+		cmd = exec.CommandContext(ctx, "git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", baseRef, "--", path)
 	}
+	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -1017,7 +1040,8 @@ type NumstatEntry struct {
 // DiffNumstatDir runs git diff --numstat against the given base ref and returns per-file stats.
 // If dir is non-empty, git runs in that directory.
 func DiffNumstatDir(baseRef, dir string) (map[string]NumstatEntry, error) {
-	cmd := exec.Command("git", "diff", "--no-ext-diff", "--numstat", baseRef)
+	cmd := exec.Command("git", "-c", "diff.external=", "diff", "--no-ext-diff", "--numstat", baseRef)
+	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir
 	}
