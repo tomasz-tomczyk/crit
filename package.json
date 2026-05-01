@@ -13,6 +13,6 @@
   "devDependencies": {
     "esbuild": "^0.28.0",
     "eslint": "^10.2.1",
-    "stylelint": "^17.9.0"
+    "stylelint": "^17.9.1"
   }
 }
