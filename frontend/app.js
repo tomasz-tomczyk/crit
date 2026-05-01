@@ -8734,7 +8734,7 @@
     // layer/full-stack toggle inside this popover is the canonical
     // way to switch scopes; clicking here used to flip diff_scope but
     // that overlapped confusingly with the toggle.
-    parts.push('<span class="stack-popover-item stack-popover-root" role="presentation">' +
+    parts.push('<span class="stack-popover-item stack-popover-root stack-popover-default" role="presentation">' +
       '<span class="stack-popover-tree" aria-hidden="true">\u2502 </span>' +
       '<span class="stack-popover-label">' + escapeHtml(defaultBranchName) + '</span>' +
       '</span>');
