@@ -2646,6 +2646,7 @@ Usage:
   crit                                       Auto-detect changed files via git
   crit <file|dir> [...]                      Review specific files or directories
   crit --pr <num|url>                        Review a GitHub pull request (range mode)
+  crit pr <num|url>                          Review a GitHub pull request (alias for --pr)
   crit --range <baseSHA>..<headSHA>          Review a commit range (range mode)
   crit stop [files...]                       Stop the daemon for current directory (and args)
   crit stop --all                            Stop all daemons for current directory
@@ -2682,6 +2683,8 @@ Options:
       --share-url <url>       Share service URL (e.g. https://crit.md or self-hosted)
       --base-branch <branch>  Base branch to diff against (overrides auto-detection)
       --working-tree          Force working-tree mode (skip auto-detection of stacked PR / branch)
+      --scope <mode>          Diff scope when reviewing a PR: layer (default) or full-stack
+      --remote                Read PR file content via GitHub API instead of local git (requires gh)
       --qr                    Print QR code of share URL (with crit share)
   -v, --version               Print version
 
