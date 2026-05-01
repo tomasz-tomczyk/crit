@@ -111,11 +111,8 @@ body {
   align-items: center;
   gap: 4px;
 }
-/* Compare arrow ← between base and head. Renamed from .base-branch-arrow
-   to make its role in the cluster explicit. Old class kept as alias for
-   E2E and any external CSS overrides. */
-.compare-rail-arrow,
-.base-branch-arrow {
+/* Compare arrow ← between base and head. */
+.compare-rail-arrow {
   color: var(--crit-rail-arrow);
   flex-shrink: 0;
 }
@@ -4331,31 +4328,6 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 .resume-pr-pill:focus-visible {
   outline: 2px solid var(--crit-brand);
   outline-offset: 1px;
-}
-
-/* Diff scope toggle (layer / full-stack), shown only for stacked PR focus. */
-.diff-scope-toggle {
-  display: inline-flex;
-  background: var(--crit-bg-card);
-  border: 1px solid var(--crit-border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-.diff-scope-toggle .toggle-btn[disabled] {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* Diff-area header — host for the diff-scope toggle (per-session, scoped to
-   the diff being viewed; not the global header). */
-.diff-area-header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--crit-border);
-  background: var(--crit-editor-bg);
 }
 
 /* ===== Review Conversation (top-of-doc section) ===== */

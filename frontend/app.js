@@ -5637,6 +5637,16 @@
       return;
     }
 
+    // Snapshot any in-progress NEW review-comment draft text before we wipe
+    // the DOM. Empty drafts intentionally fall through to the discard
+    // behavior — only protect non-empty text so refreshAfterReplyChange and
+    // sibling state changes don't blow away the user's typing.
+    let pendingNewDraft = '';
+    const existingNewTa = section.querySelector('.comment-form[data-form-key="review:new"] textarea');
+    if (existingNewTa && existingNewTa.value && existingNewTa.value.trim()) {
+      pendingNewDraft = existingNewTa.value;
+    }
+
     section.hidden = false;
     section.innerHTML = '';
 
@@ -5706,12 +5716,34 @@
 
     // Footer: new-comment form (when active) | "Add comment" ghost button.
     // The same button is used for both empty and populated states.
-    if (reviewCommentFormActive && !reviewCommentEditingId) {
-      body.appendChild(createReviewCommentFormUI());
+    // If a non-empty draft existed before the re-render, keep the form open
+    // even if the active flag was somehow cleared — the user is typing.
+    const showNewForm = (reviewCommentFormActive || !!pendingNewDraft) && !reviewCommentEditingId;
+    if (showNewForm) {
+      const formEl = createReviewCommentFormUI();
+      body.appendChild(formEl);
+      if (pendingNewDraft) {
+        const ta = formEl.querySelector('textarea');
+        if (ta) {
+          ta.value = pendingNewDraft;
+          // Match the "expanded" state the user was in (createCommentFormUI
+          // builds the textarea directly, so just place caret at the end).
+          // Restore focus too — the user was actively typing when the
+          // re-render fired (refreshAfterReplyChange, SSE), so dropping
+          // focus would force them to click back into the textarea.
+          try {
+            ta.setSelectionRange(ta.value.length, ta.value.length);
+            ta.focus();
+          } catch {}
+        }
+      }
     } else {
       const addMore = document.createElement('button');
-      addMore.className = 'review-conversation-add-more';
-      if (reviewComments.length === 0) addMore.classList.add('review-conversation-empty');
+      // .review-conversation-empty doubles as an E2E selector for the
+      // empty-state composer and is intentionally only added when the
+      // conversation has no comments.
+      const isEmpty = reviewComments.length === 0;
+      addMore.className = 'review-conversation-add-more' + (isEmpty ? ' review-conversation-empty' : '');
       addMore.type = 'button';
       addMore.textContent = 'Add comment';
       addMore.addEventListener('click', function() { openReviewCommentForm(); });
@@ -6524,19 +6556,17 @@
 
       document.getElementById('waitingPrompt').textContent = prompt;
 
+      const clipEl = document.getElementById('waitingClipboard');
+      clipEl.textContent = 'Copy prompt';
+      clipEl.classList.remove('clipboard-confirm');
+
       if (hasComments) {
         document.getElementById('waitingMessage').innerHTML =
           'Your agent has been notified. Waiting for updates\u2026' +
           '<span class="waiting-fallback">If your agent wasn\u2019t listening, paste the prompt below.</span>';
-        const clipEl = document.getElementById('waitingClipboard');
-        clipEl.textContent = 'Copy prompt';
-        clipEl.classList.remove('clipboard-confirm');
       } else {
         document.getElementById('waitingMessage').textContent =
           'You can close this browser tab, or leave it open for another round.';
-        const clipEl = document.getElementById('waitingClipboard');
-        clipEl.textContent = 'Copy prompt';
-        clipEl.classList.remove('clipboard-confirm');
       }
 
       try { await navigator.clipboard.writeText(prompt); } catch {}
@@ -7470,7 +7500,7 @@
       if (baseBranches.length < 2) {
         baseBranchPickerEl.classList.remove('open');
         baseBranchPickerEl.style.display = 'none';
-        document.getElementById('baseBranchArrow').style.display = 'none';
+        if (baseBranchArrowEl) baseBranchArrowEl.style.display = 'none';
         return;
       }
       baseBranchPickerEl.style.display = '';
@@ -7478,7 +7508,7 @@
     } catch {
       baseBranchPickerEl.classList.remove('open');
       baseBranchPickerEl.style.display = 'none';
-      document.getElementById('baseBranchArrow').style.display = 'none';
+      if (baseBranchArrowEl) baseBranchArrowEl.style.display = 'none';
     }
   }
 
@@ -8539,8 +8569,6 @@
   const stackPopoverEl = document.getElementById('stackPopover');
   const stackChipExitEl = document.getElementById('stackChipExit');
   const resumePrPillEl = document.getElementById('resumePrPill');
-  const diffScopeToggleEl = document.getElementById('diffScopeToggle');
-  const diffAreaHeaderEl = document.getElementById('diffAreaHeader');
   const compareRailEl = document.getElementById('compareRail');
   const baseBranchArrowEl = document.getElementById('baseBranchArrow');
   const wtScopeToggleEl = document.getElementById('scopeToggle');
@@ -8703,10 +8731,10 @@
     parts.push('<div class="stack-popover-title">Stack</div>');
 
     // Default-branch entry — non-interactive root marker. The
-    // layer/full-stack toggle in the diff-area header is the canonical
+    // layer/full-stack toggle inside this popover is the canonical
     // way to switch scopes; clicking here used to flip diff_scope but
     // that overlapped confusingly with the toggle.
-    parts.push('<span class="stack-popover-item stack-popover-default stack-popover-root" role="presentation">' +
+    parts.push('<span class="stack-popover-item stack-popover-root" role="presentation">' +
       '<span class="stack-popover-tree" aria-hidden="true">\u2502 </span>' +
       '<span class="stack-popover-label">' + escapeHtml(defaultBranchName) + '</span>' +
       '</span>');
@@ -8840,12 +8868,8 @@
     // Toggle compare-rail mode class — drives the segmented-composite
     // visual merge of branch chip + stack chip in stack mode.
     if (compareRailEl) compareRailEl.classList.toggle('is-stack', !!inRange);
-    // Diff-scope (Layer / Full stack) now lives inside the stack
-    // popover (see "Compare against" section in renderStackChip). Hide
-    // the legacy diff-area-header toolbar bar — its toggle is the same
-    // /api/focus call, just driven from a different DOM node now.
-    if (diffAreaHeaderEl) diffAreaHeaderEl.style.display = 'none';
-    if (diffScopeToggleEl) diffScopeToggleEl.style.display = 'none';
+    // Diff-scope (Layer / Full stack) lives inside the stack popover
+    // (see "Compare against" section in renderStackChip).
     // Working-tree scope toggle (All / Branch / Staged / Unstaged)
     // filters by working-tree state vs baseRef — meaningless when the
     // diff is pinned to BaseSHA..HeadSHA. Hide it in range mode to
@@ -9023,17 +9047,6 @@
       if (last.base_ref_name) payload.base_ref_name = last.base_ref_name;
       if (last.head_ref_name) payload.head_ref_name = last.head_ref_name;
       postFocus(payload);
-    });
-  }
-
-  if (diffScopeToggleEl) {
-    diffScopeToggleEl.addEventListener('click', function(e) {
-      const btn = e.target.closest('button[data-diff-scope]');
-      if (!btn || btn.hasAttribute('disabled')) return;
-      const newScope = btn.getAttribute('data-diff-scope');
-      if (!session || !session.focus || session.focus.kind !== 'range') return;
-      const focus = Object.assign({}, session.focus, { diff_scope: newScope });
-      postFocus(focus);
     });
   }
 
