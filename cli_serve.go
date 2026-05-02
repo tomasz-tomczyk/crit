@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -235,6 +236,33 @@ func resolveVCSOverride(flag, config string) string {
 		return flag
 	}
 	return config
+}
+
+// preflightNoChangedFiles runs the git-mode change detection up front so the
+// CLI can print a clean message instead of failing inside the daemon (issue
+// #438). Returns the user-facing message to print on stderr if there are no
+// changes, or "" if the daemon should proceed normally (changes present, not
+// a VCS repo, or any other detection error — those are surfaced by the
+// daemon's normal init path).
+func preflightNoChangedFiles(sc *serverConfig) string {
+	vcs := DetectVCS(sc.vcsOverride)
+	if vcs == nil {
+		return ""
+	}
+	if sc.baseBranch != "" {
+		vcs.SetDefaultBranchOverride(sc.baseBranch)
+	}
+	root, err := vcs.RepoRoot()
+	if err != nil {
+		return ""
+	}
+	_, _, _, _, derr := detectVCSChanges(vcs, root, sc.ignorePatterns)
+	if !errors.Is(derr, ErrNoChangedFiles) {
+		return ""
+	}
+	return "No changed files found.\n\n" +
+		"  crit              review changed files (needs changes against the base branch)\n" +
+		"  crit <file...>    review specific file(s)\n"
 }
 
 func createSession(sc *serverConfig) (*Session, error) {

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,12 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+// ErrNoChangedFiles is returned by detectVCSChanges when the working tree and
+// branch contain no changes against the base ref (or all changes are filtered
+// out by ignore patterns). Callers can detect this via errors.Is to surface a
+// user-friendly message instead of a generic init failure.
+var ErrNoChangedFiles = errors.New("no changed files detected (after applying ignore patterns)")
 
 // lazyFileThreshold is the maximum number of files to eagerly load
 // content and diffs for. Files beyond this threshold are loaded on demand
@@ -369,7 +376,7 @@ func detectVCSChanges(vcs VCS, root string, ignorePatterns []string) (branch, ba
 	changes = filterIgnored(changes, ignorePatterns)
 
 	if len(changes) == 0 {
-		return "", "", "", nil, fmt.Errorf("no changed files detected (after applying ignore patterns)")
+		return "", "", "", nil, ErrNoChangedFiles
 	}
 	return branch, baseRef, resolvedBase, changes, nil
 }

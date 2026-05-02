@@ -1649,6 +1649,16 @@ func runReview(args []string) {
 			go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
 		}
 	} else {
+		// Pre-flight: in default git mode (no files, no focus, no plan), surface
+		// "no changed files" up front instead of letting the daemon spawn, signal
+		// readiness, then crash on init — which leaves the user with a misleading
+		// "could not reach daemon / connection refused" error. See issue #438.
+		if len(sc.files) == 0 && sc.focus == nil && sc.planDir == "" {
+			if msg := preflightNoChangedFiles(sc); msg != "" {
+				fmt.Fprint(os.Stderr, msg)
+				os.Exit(1)
+			}
+		}
 		// Pass raw args to startDaemon — the _serve process parses them itself
 		entry, err = startDaemon(key, args)
 		if err != nil {
