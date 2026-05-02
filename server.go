@@ -52,6 +52,16 @@ type Server struct {
 	reviewPath        string
 	cliArgs           []string     // positional file args; flags (--pr, --range, etc.) are not preserved
 	prList            *prListCache // 60s cache for picker "Other PRs"
+
+	// shutdownCtx is the daemon's signal-handled context; child operations
+	// (e.g. runAgentCmd subprocesses) derive their context from this so a
+	// SIGINT/SIGTERM/idle-timeout cancels them instead of leaking. Set via
+	// SetShutdownCtx; nil in tests, in which case a background context is used.
+	shutdownCtx context.Context
+	// bgWG tracks long-running background goroutines (e.g. agent subprocess
+	// runners) that must complete before the daemon writes the review file
+	// during shutdown. The shutdown path Wait()s on this with a timeout.
+	bgWG sync.WaitGroup
 }
 
 // NewServer creates a Server with the given session and configuration.
@@ -149,6 +159,43 @@ func (s *Server) withReady(next http.HandlerFunc) http.HandlerFunc {
 // SetSession attaches a fully initialized session and marks the server as ready.
 // Uses atomic.Pointer to ensure the session pointer is visible to all goroutines
 // immediately after store, which is critical on weakly-ordered architectures (ARM64).
+// SetShutdownCtx wires the daemon's signal-handled context into the server so
+// background goroutines can react to shutdown. Call this once during daemon
+// startup, before any handler can fire. Tests that don't run a real daemon may
+// leave it unset; effectiveCtx then falls back to context.Background().
+func (s *Server) SetShutdownCtx(ctx context.Context) {
+	s.shutdownCtx = ctx
+}
+
+// effectiveCtx returns the daemon shutdown ctx if set, otherwise a background
+// ctx. Used by background goroutines so test paths (which don't run a real
+// daemon and never call SetShutdownCtx) keep working.
+func (s *Server) effectiveCtx() context.Context {
+	if s.shutdownCtx != nil {
+		return s.shutdownCtx
+	}
+	return context.Background()
+}
+
+// WaitBackground blocks until all tracked background goroutines (currently:
+// agent subprocess runners) have returned, or until timeout elapses. Returns
+// true on clean drain, false on timeout. Called from the daemon shutdown path
+// to give in-flight agent runs a chance to post their replies before
+// session.WriteFiles() persists the final state.
+func (s *Server) WaitBackground(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		s.bgWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
 func (s *Server) SetSession(session *Session) {
 	s.session.Store(session)
 }
@@ -1398,8 +1445,14 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 
 	prompt := buildAgentPrompt(comment, filePath)
 
-	// Run agent command asynchronously
-	go s.runAgentCmd(prompt, comment.ID, filePath)
+	// Run agent command asynchronously. Tracked via bgWG so the daemon
+	// shutdown path can wait for the reply to be posted before WriteFiles
+	// persists the final review state.
+	s.bgWG.Add(1)
+	go func() {
+		defer s.bgWG.Done()
+		s.runAgentCmd(prompt, comment.ID, filePath)
+	}()
 
 	w.WriteHeader(http.StatusAccepted)
 	writeJSON(w, map[string]any{
@@ -1442,7 +1495,11 @@ func buildAgentPrompt(c Comment, filePath string) string {
 // If agent_cmd contains {prompt}, the placeholder is replaced with the prompt
 // as a single argument. Otherwise, the prompt is piped via stdin.
 func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	// Parent on the daemon shutdown ctx so SIGINT/SIGTERM/idle-timeout kills
+	// the agent subprocess instead of orphaning it (the subprocess has its
+	// own session id via daemonSysProcAttr). Tests that don't wire a shutdown
+	// ctx fall back to context.Background() — same behavior as before.
+	ctx, cancel := context.WithTimeout(s.effectiveCtx(), 10*time.Minute)
 	defer cancel()
 
 	parts := strings.Fields(s.agentCmd)
@@ -1498,6 +1555,14 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 	if !ok {
 		log.Printf("agent-request %s: failed to add reply (comment not found in file %q)", commentID, filePath)
 	} else {
+		// On shutdown, skip the refresh fan-out: the SSE subscribers are gone
+		// and we're about to WriteFiles. The reply is already in the session
+		// (added by AddReply above) and will be persisted.
+		select {
+		case <-s.effectiveCtx().Done():
+			return
+		default:
+		}
 		// Re-read content (and file list/diffs in git mode) so next fetch returns updated data
 		sess.RefreshFileContent()
 		if sess.Mode == "git" {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHandleAgentRequest_NoAgentConfigured(t *testing.T) {
@@ -163,5 +165,72 @@ func TestRunAgentCmd_StdinFallback(t *testing.T) {
 	}
 	if replies[0].Author != "cat" {
 		t.Errorf("reply author = %q, want 'cat'", replies[0].Author)
+	}
+}
+
+// TestRunAgentCmd_CancelledByShutdownCtx verifies that the agent subprocess
+// is terminated when the daemon's shutdown ctx is cancelled — regression
+// guard for the orphaned-subprocess bug.
+func TestRunAgentCmd_CancelledByShutdownCtx(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "test.md"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, session := newTestServer(t)
+	session.RepoRoot = dir
+	// Sleep longer than the test timeout would tolerate; we'll cancel mid-run.
+	s.agentCmd = "sleep 30"
+
+	session.mu.Lock()
+	session.Files[0].Comments = []Comment{
+		{ID: "c1", StartLine: 1, EndLine: 1, Body: "test", Author: "reviewer", Scope: "line"},
+	}
+	session.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.SetShutdownCtx(ctx)
+
+	done := make(chan struct{})
+	go func() {
+		s.runAgentCmd("prompt", "c1", session.Files[0].Path)
+		close(done)
+	}()
+
+	// Give the subprocess a moment to spawn, then cancel.
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+		// Good: cancel killed the subprocess and runAgentCmd returned promptly.
+	case <-time.After(5 * time.Second):
+		t.Fatal("runAgentCmd did not return within 5s of shutdown ctx cancel — subprocess orphaned")
+	}
+}
+
+// TestWaitBackground_TimesOut verifies WaitBackground returns false when
+// background goroutines exceed the timeout, and true on clean drain.
+func TestWaitBackground_TimesOut(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	// Clean drain: no work outstanding.
+	if !s.WaitBackground(50 * time.Millisecond) {
+		t.Error("WaitBackground returned false with no outstanding work")
+	}
+
+	// Wedged goroutine: should time out.
+	release := make(chan struct{})
+	s.bgWG.Add(1)
+	go func() {
+		defer s.bgWG.Done()
+		<-release
+	}()
+	if s.WaitBackground(50 * time.Millisecond) {
+		t.Error("WaitBackground returned true while a goroutine was still running")
+	}
+	close(release)
+	if !s.WaitBackground(time.Second) {
+		t.Error("WaitBackground did not drain after the goroutine exited")
 	}
 }

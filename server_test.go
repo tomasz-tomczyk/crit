@@ -1394,8 +1394,8 @@ func TestGetFile_NotInSession_NotOnDisk(t *testing.T) {
 func TestGetFilesList(t *testing.T) {
 	dir := initTestRepo(t)
 	writeFile(t, filepath.Join(dir, "src/main.go"), "package main")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-m", "add file")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add file")
 
 	session := &Session{
 		Mode:          "git",
@@ -1457,8 +1457,8 @@ func TestGetFilesList_RespectsIgnorePatterns(t *testing.T) {
 	dir := initTestRepo(t)
 	writeFile(t, filepath.Join(dir, "main.go"), "package main")
 	writeFile(t, filepath.Join(dir, "debug.log"), "log data")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-m", "add files")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add files")
 
 	session := &Session{
 		Mode:           "git",
@@ -2476,10 +2476,10 @@ func TestHandleCommits_MethodNotAllowed(t *testing.T) {
 func TestHandleCommits_GitMode(t *testing.T) {
 	dir := initTestRepo(t)
 	// Create a feature branch with a commit.
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, filepath.Join(dir, "new.go"), "package main")
-	runGit(t, dir, "add", "new.go")
-	runGit(t, dir, "commit", "-m", "add new file")
+	gitT(t, dir, "add", "new.go")
+	gitT(t, dir, "commit", "-m", "add new file")
 
 	session := &Session{
 		Mode:        "git",
@@ -3433,10 +3433,10 @@ func TestHandleConfig_WithAuthToken(t *testing.T) {
 
 func TestHandleSession_WithScope(t *testing.T) {
 	dir := initTestRepo(t)
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, filepath.Join(dir, "new.go"), "package main\n")
-	runGit(t, dir, "add", "new.go")
-	runGit(t, dir, "commit", "-m", "add new file")
+	gitT(t, dir, "add", "new.go")
+	gitT(t, dir, "commit", "-m", "add new file")
 
 	session := &Session{
 		Mode:        "git",
@@ -3553,11 +3553,11 @@ func TestHandleFile_MethodNotAllowed(t *testing.T) {
 
 func TestHandleSession_WithCommit(t *testing.T) {
 	dir := initTestRepo(t)
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, filepath.Join(dir, "new.go"), "package main\n")
-	runGit(t, dir, "add", "new.go")
-	runGit(t, dir, "commit", "-m", "add new file")
-	sha := runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "new.go")
+	gitT(t, dir, "commit", "-m", "add new file")
+	sha := gitT(t, dir, "rev-parse", "HEAD")
 
 	session := &Session{
 		Mode:        "git",

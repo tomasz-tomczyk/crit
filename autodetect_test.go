@@ -39,27 +39,27 @@ func initStackedRepo(t *testing.T) (dir, aSHA, bSHA string) {
 	t.Helper()
 	dir = initTestRepo(t)
 	// feature-a on top of main.
-	runGit(t, dir, "checkout", "-b", "feature-a")
+	gitT(t, dir, "checkout", "-b", "feature-a")
 	writeFile(t, dir+"/a.txt", "a\n")
-	runGit(t, dir, "add", "a.txt")
-	runGit(t, dir, "commit", "-m", "add a")
-	aSHA = runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "a.txt")
+	gitT(t, dir, "commit", "-m", "add a")
+	aSHA = gitT(t, dir, "rev-parse", "HEAD")
 	// feature-b on top of feature-a.
-	runGit(t, dir, "checkout", "-b", "feature-b")
+	gitT(t, dir, "checkout", "-b", "feature-b")
 	writeFile(t, dir+"/b.txt", "b\n")
-	runGit(t, dir, "add", "b.txt")
-	runGit(t, dir, "commit", "-m", "add b")
-	bSHA = runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "b.txt")
+	gitT(t, dir, "commit", "-m", "add b")
+	bSHA = gitT(t, dir, "rev-parse", "HEAD")
 	return dir, aSHA, bSHA
 }
 
 func TestAutoDetect_NoPR_NoStack(t *testing.T) {
 	dir := initTestRepo(t)
 	// Plain feature branch off main, no other branches in the chain.
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, dir+"/x.txt", "x\n")
-	runGit(t, dir, "add", "x.txt")
-	runGit(t, dir, "commit", "-m", "x")
+	gitT(t, dir, "add", "x.txt")
+	gitT(t, dir, "commit", "-m", "x")
 	chdir(t, dir)
 	withDetectPRInfo(t, func() *PRInfo { return nil })
 
@@ -71,10 +71,10 @@ func TestAutoDetect_NoPR_NoStack(t *testing.T) {
 
 func TestAutoDetect_PRBaseIsDefault(t *testing.T) {
 	dir := initTestRepo(t)
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, dir+"/x.txt", "x\n")
-	runGit(t, dir, "add", "x.txt")
-	runGit(t, dir, "commit", "-m", "x")
+	gitT(t, dir, "add", "x.txt")
+	gitT(t, dir, "commit", "-m", "x")
 	chdir(t, dir)
 
 	withDetectPRInfo(t, func() *PRInfo {
@@ -162,25 +162,25 @@ func TestAutoDetect_LocalStack_DefaultSHAIsLiteralDefaultBranch(t *testing.T) {
 	dir := initTestRepo(t)
 	chdir(t, dir)
 	withDetectPRInfo(t, func() *PRInfo { return nil })
-	mainSHA := runGit(t, dir, "rev-parse", "main")
+	mainSHA := gitT(t, dir, "rev-parse", "main")
 
 	// Three layers above main.
-	runGit(t, dir, "checkout", "-b", "alpha")
+	gitT(t, dir, "checkout", "-b", "alpha")
 	writeFile(t, dir+"/alpha.txt", "alpha\n")
-	runGit(t, dir, "add", "alpha.txt")
-	runGit(t, dir, "commit", "-m", "alpha")
+	gitT(t, dir, "add", "alpha.txt")
+	gitT(t, dir, "commit", "-m", "alpha")
 
-	runGit(t, dir, "checkout", "-b", "beta")
+	gitT(t, dir, "checkout", "-b", "beta")
 	writeFile(t, dir+"/beta.txt", "beta\n")
-	runGit(t, dir, "add", "beta.txt")
-	runGit(t, dir, "commit", "-m", "beta")
-	betaSHA := runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "beta.txt")
+	gitT(t, dir, "commit", "-m", "beta")
+	betaSHA := gitT(t, dir, "rev-parse", "HEAD")
 
-	runGit(t, dir, "checkout", "-b", "gamma")
+	gitT(t, dir, "checkout", "-b", "gamma")
 	writeFile(t, dir+"/gamma.txt", "gamma\n")
-	runGit(t, dir, "add", "gamma.txt")
-	runGit(t, dir, "commit", "-m", "gamma")
-	gammaSHA := runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "gamma.txt")
+	gitT(t, dir, "commit", "-m", "gamma")
+	gammaSHA := gitT(t, dir, "rev-parse", "HEAD")
 
 	got := autoDetectStackedFocus(&GitVCS{}, dir)
 	if got == nil {
@@ -280,14 +280,14 @@ func TestAutoDetect_FileMode_Bypasses(t *testing.T) {
 // bogus Range focus pinned at that commit.
 func TestAutoDetect_LocalStack_StaleTipFiltered(t *testing.T) {
 	dir := initTestRepo(t)
-	initialSHA := runGit(t, dir, "rev-parse", "HEAD")
+	initialSHA := gitT(t, dir, "rev-parse", "HEAD")
 	// Stale branch left pointing at the initial commit on main.
-	runGit(t, dir, "branch", "stale-merged", initialSHA)
+	gitT(t, dir, "branch", "stale-merged", initialSHA)
 	// Plain feature branch off main — no real stack.
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, dir+"/x.txt", "x\n")
-	runGit(t, dir, "add", "x.txt")
-	runGit(t, dir, "commit", "-m", "x")
+	gitT(t, dir, "add", "x.txt")
+	gitT(t, dir, "commit", "-m", "x")
 	chdir(t, dir)
 	withDetectPRInfo(t, func() *PRInfo { return nil })
 

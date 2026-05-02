@@ -238,10 +238,10 @@ func TestChangedFiles_FeatureBranch(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	// Create a feature branch and add a file
-	runGit(t, dir, "checkout", "-b", "feature/test")
+	gitT(t, dir, "checkout", "-b", "feature/test")
 	writeFile(t, filepath.Join(dir, "feature.go"), "package main")
-	runGit(t, dir, "add", "feature.go")
-	runGit(t, dir, "commit", "-m", "add feature")
+	gitT(t, dir, "add", "feature.go")
+	gitT(t, dir, "commit", "-m", "add feature")
 
 	// Also modify a file without committing
 	writeFile(t, filepath.Join(dir, "README.md"), "# Updated")
@@ -271,7 +271,7 @@ func TestFileDiffUnified_RealRepo(t *testing.T) {
 
 	// Modify README.md
 	writeFile(t, filepath.Join(dir, "README.md"), "# Modified\n\nNew content\n")
-	runGit(t, dir, "add", "README.md")
+	gitT(t, dir, "add", "README.md")
 
 	hunks, err := fileDiffUnified("README.md", "HEAD", "")
 	if err != nil {
@@ -309,7 +309,7 @@ func TestCurrentBranch_RealRepo(t *testing.T) {
 		t.Errorf("CurrentBranch = %q, want main", branch)
 	}
 
-	runGit(t, dir, "checkout", "-b", "feature/test")
+	gitT(t, dir, "checkout", "-b", "feature/test")
 	branch = CurrentBranch()
 	if branch != "feature/test" {
 		t.Errorf("CurrentBranch = %q, want feature/test", branch)
@@ -375,17 +375,17 @@ func TestRemoteBranches(t *testing.T) {
 
 	// Create a bare remote and push branches
 	bare := t.TempDir()
-	runGit(t, bare, "init", "--bare")
-	runGit(t, dir, "remote", "add", "origin", bare)
-	runGit(t, dir, "push", "origin", "main")
+	gitT(t, bare, "init", "--bare")
+	gitT(t, dir, "remote", "add", "origin", bare)
+	gitT(t, dir, "push", "origin", "main")
 
-	runGit(t, dir, "checkout", "-b", "production")
+	gitT(t, dir, "checkout", "-b", "production")
 	writeFile(t, filepath.Join(dir, "prod.go"), "package main\n")
-	runGit(t, dir, "add", "prod.go")
-	runGit(t, dir, "commit", "-m", "prod")
-	runGit(t, dir, "push", "origin", "production")
+	gitT(t, dir, "add", "prod.go")
+	gitT(t, dir, "commit", "-m", "prod")
+	gitT(t, dir, "push", "origin", "production")
 
-	runGit(t, dir, "checkout", "main")
+	gitT(t, dir, "checkout", "main")
 
 	branches, err := RemoteBranches(dir)
 	if err != nil {
@@ -415,13 +415,13 @@ func TestChangedFilesBranch(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	// Record the main branch commit as base ref
-	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
 
 	// Create a feature branch and commit a change
-	runGit(t, dir, "checkout", "-b", "feature/scoped")
+	gitT(t, dir, "checkout", "-b", "feature/scoped")
 	writeFile(t, filepath.Join(dir, "feature.go"), "package main\n\nfunc Feature() {}\n")
-	runGit(t, dir, "add", "feature.go")
-	runGit(t, dir, "commit", "-m", "add feature")
+	gitT(t, dir, "add", "feature.go")
+	gitT(t, dir, "commit", "-m", "add feature")
 
 	changes, err := changedFilesBranch(baseRef)
 	if err != nil {
@@ -447,24 +447,24 @@ func TestMergeBase_OriginMain(t *testing.T) {
 
 	// Set up a bare remote and push main
 	bare := t.TempDir()
-	runGit(t, bare, "init", "--bare")
-	runGit(t, dir, "remote", "add", "origin", bare)
-	runGit(t, dir, "push", "origin", "main")
+	gitT(t, bare, "init", "--bare")
+	gitT(t, dir, "remote", "add", "origin", bare)
+	gitT(t, dir, "push", "origin", "main")
 
 	// Record local main's commit
-	localMainSHA := runGit(t, dir, "rev-parse", "main")
+	localMainSHA := gitT(t, dir, "rev-parse", "main")
 
 	// Advance origin/main by committing on main and pushing, then resetting local main back
 	writeFile(t, filepath.Join(dir, "upstream.go"), "package main\n")
-	runGit(t, dir, "add", "upstream.go")
-	runGit(t, dir, "commit", "-m", "upstream commit")
-	runGit(t, dir, "push", "origin", "main")
+	gitT(t, dir, "add", "upstream.go")
+	gitT(t, dir, "commit", "-m", "upstream commit")
+	gitT(t, dir, "push", "origin", "main")
 	// Reset local main back to simulate not fast-forwarding
-	runGit(t, dir, "reset", "--hard", localMainSHA)
+	gitT(t, dir, "reset", "--hard", localMainSHA)
 
 	// Fetch in the original repo so origin/main is ahead of local main
-	runGit(t, dir, "fetch", "origin")
-	originMainSHA := runGit(t, dir, "rev-parse", "origin/main")
+	gitT(t, dir, "fetch", "origin")
+	originMainSHA := gitT(t, dir, "rev-parse", "origin/main")
 
 	// Sanity: origin/main should be ahead of local main
 	if localMainSHA == originMainSHA {
@@ -472,10 +472,10 @@ func TestMergeBase_OriginMain(t *testing.T) {
 	}
 
 	// Create a feature branch based on origin/main (the reporter's workflow)
-	runGit(t, dir, "checkout", "-b", "feature/test", "origin/main")
+	gitT(t, dir, "checkout", "-b", "feature/test", "origin/main")
 	writeFile(t, filepath.Join(dir, "feature.go"), "package main\n")
-	runGit(t, dir, "add", "feature.go")
-	runGit(t, dir, "commit", "-m", "feature commit")
+	gitT(t, dir, "add", "feature.go")
+	gitT(t, dir, "commit", "-m", "feature commit")
 
 	// MergeBase against "origin/main" should give origin/main's SHA (tight diff)
 	mb, err := MergeBase("origin/main")
@@ -545,9 +545,9 @@ func TestDefaultBaseRef_PrefersOrigin(t *testing.T) {
 
 	// Add a remote and push so refs/remotes/origin/main exists.
 	bare := t.TempDir()
-	runGit(t, bare, "init", "--bare")
-	runGit(t, dir, "remote", "add", "origin", bare)
-	runGit(t, dir, "push", "origin", "main")
+	gitT(t, bare, "init", "--bare")
+	gitT(t, dir, "remote", "add", "origin", bare)
+	gitT(t, dir, "push", "origin", "main")
 
 	defaultBranchOnce = sync.Once{}
 	defaultBranchResult = ""
@@ -574,18 +574,18 @@ func TestMergeBase_FallsBackToOriginWhenLocalMissing(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	bare := t.TempDir()
-	runGit(t, bare, "init", "--bare")
-	runGit(t, dir, "remote", "add", "origin", bare)
-	runGit(t, dir, "push", "origin", "main")
-	originMainSHA := runGit(t, dir, "rev-parse", "origin/main")
+	gitT(t, bare, "init", "--bare")
+	gitT(t, dir, "remote", "add", "origin", bare)
+	gitT(t, dir, "push", "origin", "main")
+	originMainSHA := gitT(t, dir, "rev-parse", "origin/main")
 
-	runGit(t, dir, "checkout", "-b", "feature/no-local-main", "origin/main")
+	gitT(t, dir, "checkout", "-b", "feature/no-local-main", "origin/main")
 	writeFile(t, filepath.Join(dir, "feature.go"), "package main\n")
-	runGit(t, dir, "add", "feature.go")
-	runGit(t, dir, "commit", "-m", "feature commit")
+	gitT(t, dir, "add", "feature.go")
+	gitT(t, dir, "commit", "-m", "feature commit")
 
 	// Delete local main so only origin/main remains — the bare-repo-worktree case
-	runGit(t, dir, "branch", "-D", "main")
+	gitT(t, dir, "branch", "-D", "main")
 
 	mb, err := MergeBase("main")
 	if err != nil {
@@ -619,7 +619,7 @@ func TestChangedFilesStaged(t *testing.T) {
 
 	// Stage a modification without committing
 	writeFile(t, filepath.Join(dir, "README.md"), "# Staged change")
-	runGit(t, dir, "add", "README.md")
+	gitT(t, dir, "add", "README.md")
 
 	staged, err := changedFilesStaged()
 	if err != nil {
@@ -711,17 +711,17 @@ func TestChangedFilesScoped_Dispatcher(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
 
 	// Create a feature branch with a committed change
-	runGit(t, dir, "checkout", "-b", "feature/dispatch")
+	gitT(t, dir, "checkout", "-b", "feature/dispatch")
 	writeFile(t, filepath.Join(dir, "branch.go"), "package main")
-	runGit(t, dir, "add", "branch.go")
-	runGit(t, dir, "commit", "-m", "branch change")
+	gitT(t, dir, "add", "branch.go")
+	gitT(t, dir, "commit", "-m", "branch change")
 
 	// Stage a file
 	writeFile(t, filepath.Join(dir, "staged.go"), "package main")
-	runGit(t, dir, "add", "staged.go")
+	gitT(t, dir, "add", "staged.go")
 
 	// Leave a file unstaged
 	writeFile(t, filepath.Join(dir, "README.md"), "# Unstaged")
@@ -781,13 +781,13 @@ func TestFileDiffScoped_Branch(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
 
 	// Create feature branch with a change to README.md
-	runGit(t, dir, "checkout", "-b", "feature/diff-scope")
+	gitT(t, dir, "checkout", "-b", "feature/diff-scope")
 	writeFile(t, filepath.Join(dir, "README.md"), "# Modified on branch\n\nNew content\n")
-	runGit(t, dir, "add", "README.md")
-	runGit(t, dir, "commit", "-m", "modify readme")
+	gitT(t, dir, "add", "README.md")
+	gitT(t, dir, "commit", "-m", "modify readme")
 
 	hunks, err := FileDiffScoped("README.md", "branch", baseRef, dir)
 	if err != nil {
@@ -806,7 +806,7 @@ func TestFileDiffScoped_Staged(t *testing.T) {
 
 	// Stage a change
 	writeFile(t, filepath.Join(dir, "README.md"), "# Staged content\n")
-	runGit(t, dir, "add", "README.md")
+	gitT(t, dir, "add", "README.md")
 
 	hunks, err := FileDiffScoped("README.md", "staged", "", dir)
 	if err != nil {
@@ -843,7 +843,7 @@ func TestFileDiffScoped_Default(t *testing.T) {
 
 	// Modify and stage a change
 	writeFile(t, filepath.Join(dir, "README.md"), "# Default scope\n")
-	runGit(t, dir, "add", "README.md")
+	gitT(t, dir, "add", "README.md")
 
 	hunks, err := FileDiffScoped("README.md", "", "HEAD", dir)
 	if err != nil {
@@ -875,17 +875,17 @@ func TestFileDiffScoped_DifferentHunksPerScope(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
 
 	// Commit a change on a branch
-	runGit(t, dir, "checkout", "-b", "feature/multi-scope")
+	gitT(t, dir, "checkout", "-b", "feature/multi-scope")
 	writeFile(t, filepath.Join(dir, "README.md"), "# Branch change\n")
-	runGit(t, dir, "add", "README.md")
-	runGit(t, dir, "commit", "-m", "branch edit")
+	gitT(t, dir, "add", "README.md")
+	gitT(t, dir, "commit", "-m", "branch edit")
 
 	// Stage a further change
 	writeFile(t, filepath.Join(dir, "README.md"), "# Branch change\n\nStaged line\n")
-	runGit(t, dir, "add", "README.md")
+	gitT(t, dir, "add", "README.md")
 
 	// Make an unstaged change on top
 	writeFile(t, filepath.Join(dir, "README.md"), "# Branch change\n\nStaged line\nUnstaged line\n")
@@ -1027,15 +1027,15 @@ func TestFileDiff_SuppressBlankEmpty(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	// Enable suppressBlankEmpty
-	runGit(t, dir, "config", "diff.suppressBlankEmpty", "true")
+	gitT(t, dir, "config", "diff.suppressBlankEmpty", "true")
 
 	// File with blank lines between code blocks
 	original := "func A() {\n}\n\nfunc B() {\n\treturn old\n}\n\nfunc C() {\n}\n"
 	modified := "func A() {\n}\n\nfunc B() {\n\treturn new\n}\n\nfunc C() {\n}\n"
 
 	writeFile(t, filepath.Join(dir, "code.go"), original)
-	runGit(t, dir, "add", "code.go")
-	runGit(t, dir, "commit", "-m", "add code")
+	gitT(t, dir, "add", "code.go")
+	gitT(t, dir, "commit", "-m", "add code")
 
 	writeFile(t, filepath.Join(dir, "code.go"), modified)
 
@@ -1202,17 +1202,17 @@ func TestCommitLog(t *testing.T) {
 	dir := initTestRepo(t)
 
 	// Record the main branch commit as base ref
-	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
 
 	// Create a feature branch with two commits
-	runGit(t, dir, "checkout", "-b", "feature/commits")
+	gitT(t, dir, "checkout", "-b", "feature/commits")
 	writeFile(t, filepath.Join(dir, "a.go"), "package main\n\nfunc A() {}\n")
-	runGit(t, dir, "add", "a.go")
-	runGit(t, dir, "commit", "-m", "add function A")
+	gitT(t, dir, "add", "a.go")
+	gitT(t, dir, "commit", "-m", "add function A")
 
 	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n")
-	runGit(t, dir, "add", "b.go")
-	runGit(t, dir, "commit", "-m", "add function B")
+	gitT(t, dir, "add", "b.go")
+	gitT(t, dir, "commit", "-m", "add function B")
 
 	commits, err := CommitLog(baseRef, "", dir)
 	if err != nil {
@@ -1267,22 +1267,22 @@ func TestCommitLogEmpty(t *testing.T) {
 
 func TestCommitLog_BetweenSHAs(t *testing.T) {
 	dir := initTestRepo(t)
-	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
 
-	runGit(t, dir, "checkout", "-b", "feature/range-head")
+	gitT(t, dir, "checkout", "-b", "feature/range-head")
 	writeFile(t, filepath.Join(dir, "a.go"), "package main\n\nfunc A() {}\n")
-	runGit(t, dir, "add", "a.go")
-	runGit(t, dir, "commit", "-m", "A")
-	shaA := runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "a.go")
+	gitT(t, dir, "commit", "-m", "A")
+	shaA := gitT(t, dir, "rev-parse", "HEAD")
 
 	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n")
-	runGit(t, dir, "add", "b.go")
-	runGit(t, dir, "commit", "-m", "B")
-	shaB := runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "b.go")
+	gitT(t, dir, "commit", "-m", "B")
+	shaB := gitT(t, dir, "rev-parse", "HEAD")
 
 	writeFile(t, filepath.Join(dir, "c.go"), "package main\n\nfunc C() {}\n")
-	runGit(t, dir, "add", "c.go")
-	runGit(t, dir, "commit", "-m", "C")
+	gitT(t, dir, "add", "c.go")
+	gitT(t, dir, "commit", "-m", "C")
 
 	// HEAD is at C; explicit head=B should return only [B, A].
 	commits, err := CommitLog(baseRef, shaB, dir)
@@ -1322,19 +1322,19 @@ func TestChangedFilesForCommit(t *testing.T) {
 	dir := initTestRepo(t)
 
 	// Create a feature branch with two commits
-	runGit(t, dir, "checkout", "-b", "feature/commit-files")
+	gitT(t, dir, "checkout", "-b", "feature/commit-files")
 	writeFile(t, filepath.Join(dir, "a.txt"), "hello\n")
-	runGit(t, dir, "add", "a.txt")
-	runGit(t, dir, "commit", "-m", "add a.txt")
+	gitT(t, dir, "add", "a.txt")
+	gitT(t, dir, "commit", "-m", "add a.txt")
 
 	// Second commit: add b.txt and modify a.txt
 	writeFile(t, filepath.Join(dir, "b.txt"), "world\n")
 	writeFile(t, filepath.Join(dir, "a.txt"), "hello modified\n")
-	runGit(t, dir, "add", "a.txt", "b.txt")
-	runGit(t, dir, "commit", "-m", "add b.txt and modify a.txt")
+	gitT(t, dir, "add", "a.txt", "b.txt")
+	gitT(t, dir, "commit", "-m", "add b.txt and modify a.txt")
 
 	// Get HEAD SHA
-	sha := runGit(t, dir, "rev-parse", "HEAD")
+	sha := gitT(t, dir, "rev-parse", "HEAD")
 
 	changes, err := ChangedFilesForCommit(sha, dir)
 	if err != nil {
@@ -1361,13 +1361,13 @@ func TestFileDiffForCommit(t *testing.T) {
 	dir := initTestRepo(t)
 
 	// Create a feature branch and commit a file
-	runGit(t, dir, "checkout", "-b", "feature/commit-diff")
+	gitT(t, dir, "checkout", "-b", "feature/commit-diff")
 	writeFile(t, filepath.Join(dir, "code.go"), "package main\n\nfunc Hello() {}\n")
-	runGit(t, dir, "add", "code.go")
-	runGit(t, dir, "commit", "-m", "add code.go")
+	gitT(t, dir, "add", "code.go")
+	gitT(t, dir, "commit", "-m", "add code.go")
 
 	// Get HEAD SHA
-	sha := runGit(t, dir, "rev-parse", "HEAD")
+	sha := gitT(t, dir, "rev-parse", "HEAD")
 
 	hunks, err := FileDiffForCommit("code.go", sha, dir)
 	if err != nil {
@@ -1397,8 +1397,8 @@ func TestAllTrackedFiles_RealRepo(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "src/main.go"), "package main")
 	writeFile(t, filepath.Join(dir, "src/util.go"), "package main")
 	writeFile(t, filepath.Join(dir, "docs/readme.md"), "# docs")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-m", "add files")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add files")
 
 	files, err := AllTrackedFiles(dir)
 	if err != nil {
@@ -1447,8 +1447,8 @@ func TestAllTrackedFiles_ExcludesGitignored(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "app.log"), "log data")
 	writeFile(t, filepath.Join(dir, "build/out.bin"), "binary")
 	writeFile(t, filepath.Join(dir, "keep.txt"), "keep")
-	runGit(t, dir, "add", ".gitignore", "keep.txt")
-	runGit(t, dir, "commit", "-m", "add files")
+	gitT(t, dir, "add", ".gitignore", "keep.txt")
+	gitT(t, dir, "commit", "-m", "add files")
 
 	files, err := AllTrackedFiles(dir)
 	if err != nil {
@@ -1545,15 +1545,15 @@ func TestDiffNumstat(t *testing.T) {
 	dir := initTestRepo(t)
 
 	writeFile(t, filepath.Join(dir, "stats.go"), "package main\n\nfunc hello() {}\n")
-	runGit(t, dir, "add", "stats.go")
-	runGit(t, dir, "commit", "-m", "add stats.go")
-	runGit(t, dir, "checkout", "-b", "feature-numstat")
+	gitT(t, dir, "add", "stats.go")
+	gitT(t, dir, "commit", "-m", "add stats.go")
+	gitT(t, dir, "checkout", "-b", "feature-numstat")
 	writeFile(t, filepath.Join(dir, "stats.go"), "package main\n\nfunc hello() {\n\tfmt.Println(\"hi\")\n}\n\nfunc world() {}\n")
 	writeFile(t, filepath.Join(dir, "newfile.txt"), "line1\nline2\nline3\n")
-	runGit(t, dir, "add", "stats.go", "newfile.txt")
-	runGit(t, dir, "commit", "-m", "modify stats and add newfile")
+	gitT(t, dir, "add", "stats.go", "newfile.txt")
+	gitT(t, dir, "commit", "-m", "modify stats and add newfile")
 
-	base := strings.TrimSpace(runGit(t, dir, "merge-base", "main", "HEAD"))
+	base := strings.TrimSpace(gitT(t, dir, "merge-base", "main", "HEAD"))
 	stats, err := DiffNumstatDir(base, dir)
 	if err != nil {
 		t.Fatalf("DiffNumstat failed: %v", err)
@@ -1576,16 +1576,16 @@ func TestDiffNumstatBinary(t *testing.T) {
 	dir := initTestRepo(t)
 
 	writeFile(t, filepath.Join(dir, "notes.txt"), "hello\n")
-	runGit(t, dir, "add", "notes.txt")
-	runGit(t, dir, "commit", "-m", "add notes")
-	runGit(t, dir, "checkout", "-b", "feature-binary")
+	gitT(t, dir, "add", "notes.txt")
+	gitT(t, dir, "commit", "-m", "add notes")
+	gitT(t, dir, "checkout", "-b", "feature-binary")
 
 	binPath := filepath.Join(dir, "image.png")
 	os.WriteFile(binPath, []byte{0x89, 0x50, 0x4E, 0x47, 0x00, 0x00}, 0644)
-	runGit(t, dir, "add", "image.png")
-	runGit(t, dir, "commit", "-m", "add binary")
+	gitT(t, dir, "add", "image.png")
+	gitT(t, dir, "commit", "-m", "add binary")
 
-	base := strings.TrimSpace(runGit(t, dir, "merge-base", "main", "HEAD"))
+	base := strings.TrimSpace(gitT(t, dir, "merge-base", "main", "HEAD"))
 	stats, err := DiffNumstatDir(base, dir)
 	if err != nil {
 		t.Fatalf("DiffNumstat failed: %v", err)
@@ -1601,7 +1601,7 @@ func TestDiffNumstatBinary(t *testing.T) {
 func TestFileDiffForCommit_RootCommit(t *testing.T) {
 	dir := initTestRepo(t)
 	// Get the initial (root) commit SHA.
-	sha := runGit(t, dir, "rev-parse", "HEAD")
+	sha := gitT(t, dir, "rev-parse", "HEAD")
 
 	hunks, err := FileDiffForCommit("README.md", sha, dir)
 	if err != nil {
@@ -1615,9 +1615,9 @@ func TestFileDiffForCommit_RootCommit(t *testing.T) {
 func TestFileDiffForCommit_NormalCommit(t *testing.T) {
 	dir := initTestRepo(t)
 	writeFile(t, filepath.Join(dir, "README.md"), "# Test\n\nUpdated content\n")
-	runGit(t, dir, "add", "README.md")
-	runGit(t, dir, "commit", "-m", "update readme")
-	sha := runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "README.md")
+	gitT(t, dir, "commit", "-m", "update readme")
+	sha := gitT(t, dir, "rev-parse", "HEAD")
 
 	hunks, err := FileDiffForCommit("README.md", sha, dir)
 	if err != nil {
@@ -1631,9 +1631,9 @@ func TestFileDiffForCommit_NormalCommit(t *testing.T) {
 func TestFileDiffForCommit_FileNotInCommit(t *testing.T) {
 	dir := initTestRepo(t)
 	writeFile(t, filepath.Join(dir, "other.go"), "package main")
-	runGit(t, dir, "add", "other.go")
-	runGit(t, dir, "commit", "-m", "add other")
-	sha := runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "other.go")
+	gitT(t, dir, "commit", "-m", "add other")
+	sha := gitT(t, dir, "rev-parse", "HEAD")
 
 	// README.md was not changed in this commit.
 	hunks, err := FileDiffForCommit("README.md", sha, dir)

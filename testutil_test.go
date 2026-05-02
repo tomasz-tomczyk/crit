@@ -30,19 +30,19 @@ func init() {
 func initTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	runGit(t, dir, "init")
-	runGit(t, dir, "config", "user.email", "test@test.com")
-	runGit(t, dir, "config", "user.name", "Test")
+	gitT(t, dir, "init")
+	gitT(t, dir, "config", "user.email", "test@test.com")
+	gitT(t, dir, "config", "user.name", "Test")
 	// Create initial commit
 	writeFile(t, filepath.Join(dir, "README.md"), "# Test")
-	runGit(t, dir, "add", "README.md")
-	runGit(t, dir, "commit", "-m", "initial")
+	gitT(t, dir, "add", "README.md")
+	gitT(t, dir, "commit", "-m", "initial")
 	// Ensure default branch is "main"
-	runGit(t, dir, "branch", "-M", "main")
+	gitT(t, dir, "branch", "-M", "main")
 	return dir
 }
 
-func runGit(t *testing.T, dir string, args ...string) string {
+func gitT(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
@@ -104,7 +104,7 @@ func TestGitEnvLeakStripped(t *testing.T) {
 	// honor it when operating on its tempdir.
 	t.Setenv("GIT_DIR", "/should/be/ignored")
 	dir := t.TempDir()
-	runGit(t, dir, "init")
+	gitT(t, dir, "init")
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		t.Fatalf(".git not created in tempdir — GIT_DIR leaked into runGit: %v", err)
 	}

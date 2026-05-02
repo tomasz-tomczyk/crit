@@ -699,8 +699,8 @@ func TestNewSessionFromGit_SubdirectoryCwd(t *testing.T) {
 
 	// Create a file in a subdirectory and commit it
 	writeFile(t, filepath.Join(dir, "src", "main.go"), "package main\n")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-m", "add src/main.go")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add src/main.go")
 
 	// Make an unstaged modification (the kind that shows in git diff HEAD)
 	writeFile(t, filepath.Join(dir, "src", "main.go"), "package main\n\nfunc main() {}\n")
@@ -788,16 +788,16 @@ func TestNewSessionFromGit_BaseBranchParam(t *testing.T) {
 	}()
 
 	// Create a second branch "base" that acts as our custom base
-	runGit(t, dir, "checkout", "-b", "base")
+	gitT(t, dir, "checkout", "-b", "base")
 	writeFile(t, filepath.Join(dir, "base.go"), "package main\n")
-	runGit(t, dir, "add", "base.go")
-	runGit(t, dir, "commit", "-m", "base branch commit")
+	gitT(t, dir, "add", "base.go")
+	gitT(t, dir, "commit", "-m", "base branch commit")
 
 	// Now create a feature branch off "base" with a new file
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, filepath.Join(dir, "feature.go"), "package main\n")
-	runGit(t, dir, "add", "feature.go")
-	runGit(t, dir, "commit", "-m", "feature commit")
+	gitT(t, dir, "add", "feature.go")
+	gitT(t, dir, "commit", "-m", "feature commit")
 
 	// Set the override — this is how resolveServerConfig() wires --base-branch
 	defaultBranchOverride = "base"
@@ -850,16 +850,16 @@ func TestChangeBaseBranch(t *testing.T) {
 
 	// main has: main.go
 	// Create "production" branch off main with extra files
-	runGit(t, dir, "checkout", "-b", "production")
+	gitT(t, dir, "checkout", "-b", "production")
 	writeFile(t, filepath.Join(dir, "prod.go"), "package main\n")
-	runGit(t, dir, "add", "prod.go")
-	runGit(t, dir, "commit", "-m", "production commit")
+	gitT(t, dir, "add", "prod.go")
+	gitT(t, dir, "commit", "-m", "production commit")
 
 	// Create feature branch off production
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, filepath.Join(dir, "feature.go"), "package main\n")
-	runGit(t, dir, "add", "feature.go")
-	runGit(t, dir, "commit", "-m", "feature commit")
+	gitT(t, dir, "add", "feature.go")
+	gitT(t, dir, "commit", "-m", "feature commit")
 
 	// Create session with default base (main)
 	session, err := NewSessionFromGit(nil)
@@ -945,16 +945,16 @@ func TestChangeBaseBranch_CommentsPreserved(t *testing.T) {
 
 	// main has: README.md (initial commit)
 	// Create "production" branch with prod.go
-	runGit(t, dir, "checkout", "-b", "production")
+	gitT(t, dir, "checkout", "-b", "production")
 	writeFile(t, filepath.Join(dir, "prod.go"), "package main\n")
-	runGit(t, dir, "add", "prod.go")
-	runGit(t, dir, "commit", "-m", "production commit")
+	gitT(t, dir, "add", "prod.go")
+	gitT(t, dir, "commit", "-m", "production commit")
 
 	// Create feature branch with feature.go
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, filepath.Join(dir, "feature.go"), "package main\nfunc Feature() {}\n")
-	runGit(t, dir, "add", "feature.go")
-	runGit(t, dir, "commit", "-m", "feature commit")
+	gitT(t, dir, "add", "feature.go")
+	gitT(t, dir, "commit", "-m", "feature commit")
 
 	// Create session (base=main, so both prod.go and feature.go appear)
 	session, err := NewSessionFromGit(nil)
@@ -1027,16 +1027,16 @@ func TestNewSessionFromFiles_BaseBranch(t *testing.T) {
 	}()
 
 	// Create a "base" branch with one file
-	runGit(t, dir, "checkout", "-b", "base")
+	gitT(t, dir, "checkout", "-b", "base")
 	writeFile(t, filepath.Join(dir, "base.go"), "package main\n")
-	runGit(t, dir, "add", "base.go")
-	runGit(t, dir, "commit", "-m", "base branch commit")
+	gitT(t, dir, "add", "base.go")
+	gitT(t, dir, "commit", "-m", "base branch commit")
 
 	// Create a "feature" branch off "base" with an additional file
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, filepath.Join(dir, "feature.go"), "package main\n")
-	runGit(t, dir, "add", "feature.go")
-	runGit(t, dir, "commit", "-m", "feature commit")
+	gitT(t, dir, "add", "feature.go")
+	gitT(t, dir, "commit", "-m", "feature commit")
 
 	// Set the override — same mechanism as resolveServerConfig()
 	defaultBranchOverride = "base"
@@ -1363,7 +1363,7 @@ func TestFileDiffUnified_ColorConfigDoesNotBreakParsing(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	// Set color.diff=always in the repo config (simulates a user's gitconfig)
-	runGit(t, dir, "config", "color.diff", "always")
+	gitT(t, dir, "config", "color.diff", "always")
 
 	// Modify a file to create a diff
 	writeFile(t, filepath.Join(dir, "README.md"), "# Modified\n\nNew content\n")
@@ -2620,14 +2620,14 @@ func TestEnsureLoaded(t *testing.T) {
 	dir := initTestRepo(t)
 
 	writeFile(t, filepath.Join(dir, "lazy.go"), "package main\n\nfunc lazy() {}\n")
-	runGit(t, dir, "add", "lazy.go")
-	runGit(t, dir, "commit", "-m", "add lazy.go")
-	runGit(t, dir, "checkout", "-b", "feature-lazy")
+	gitT(t, dir, "add", "lazy.go")
+	gitT(t, dir, "commit", "-m", "add lazy.go")
+	gitT(t, dir, "checkout", "-b", "feature-lazy")
 	writeFile(t, filepath.Join(dir, "lazy.go"), "package main\n\nfunc lazy() {\n\tfmt.Println(\"loaded\")\n}\n")
-	runGit(t, dir, "add", "lazy.go")
-	runGit(t, dir, "commit", "-m", "modify lazy.go")
+	gitT(t, dir, "add", "lazy.go")
+	gitT(t, dir, "commit", "-m", "modify lazy.go")
 
-	base := strings.TrimSpace(runGit(t, dir, "merge-base", "main", "HEAD"))
+	base := strings.TrimSpace(gitT(t, dir, "merge-base", "main", "HEAD"))
 
 	fe := &FileEntry{
 		Path:    "lazy.go",
@@ -2688,13 +2688,13 @@ func TestNewSessionFromGitLazyThreshold(t *testing.T) {
 	defaultBranchOverride = ""
 	defer func() { defaultBranchOverride = "" }()
 
-	runGit(t, dir, "checkout", "-b", "feature-many-files")
+	gitT(t, dir, "checkout", "-b", "feature-many-files")
 	for i := 0; i < 120; i++ {
 		name := fmt.Sprintf("file%03d.go", i)
 		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("package main\n// file %d\n", i))
 	}
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-m", "add 120 files")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add 120 files")
 
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -2737,12 +2737,12 @@ func TestNewSessionFromGitUnderThreshold(t *testing.T) {
 	defaultBranchOverride = ""
 	defer func() { defaultBranchOverride = "" }()
 
-	runGit(t, dir, "checkout", "-b", "feature-few-files")
+	gitT(t, dir, "checkout", "-b", "feature-few-files")
 	for i := 0; i < 5; i++ {
 		writeFile(t, filepath.Join(dir, fmt.Sprintf("small%d.go", i)), "package main\n")
 	}
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-m", "add 5 files")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add 5 files")
 
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -2766,12 +2766,12 @@ func TestNewSessionFromGitUnderThreshold(t *testing.T) {
 func TestGetFileSnapshotLazy(t *testing.T) {
 	dir := initTestRepo(t)
 
-	runGit(t, dir, "checkout", "-b", "feature-snap")
+	gitT(t, dir, "checkout", "-b", "feature-snap")
 	writeFile(t, filepath.Join(dir, "snap.go"), "package main\nfunc snap() {}\n")
-	runGit(t, dir, "add", "snap.go")
-	runGit(t, dir, "commit", "-m", "add snap.go")
+	gitT(t, dir, "add", "snap.go")
+	gitT(t, dir, "commit", "-m", "add snap.go")
 
-	base := strings.TrimSpace(runGit(t, dir, "merge-base", "main", "HEAD"))
+	base := strings.TrimSpace(gitT(t, dir, "merge-base", "main", "HEAD"))
 
 	s := &Session{
 		Mode:     "git",
@@ -3567,10 +3567,10 @@ func TestCreateSession_LoadsShareFromReviewPath(t *testing.T) {
 	dir := initTestRepo(t)
 
 	// Create a file on a feature branch so git mode detects changes.
-	runGit(t, dir, "checkout", "-b", "feat-share")
+	gitT(t, dir, "checkout", "-b", "feat-share")
 	writeFile(t, filepath.Join(dir, "new.md"), "# New\n\nContent\n")
-	runGit(t, dir, "add", "new.md")
-	runGit(t, dir, "commit", "-m", "add new.md")
+	gitT(t, dir, "add", "new.md")
+	gitT(t, dir, "commit", "-m", "add new.md")
 
 	// Prepare a review file with share state.
 	reviewPath := filepath.Join(t.TempDir(), "review.json")
@@ -3890,15 +3890,15 @@ func TestAddComment_OldSideAnchorFromBase(t *testing.T) {
 	// Create a file on the base branch with known content.
 	goPath := filepath.Join(dir, "main.go")
 	writeFile(t, goPath, "package main\n\nfunc deleted() {\n\t// old code\n}\n")
-	runGit(t, dir, "add", "main.go")
-	runGit(t, dir, "commit", "-m", "add main.go")
-	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "main.go")
+	gitT(t, dir, "commit", "-m", "add main.go")
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
 
 	// Create feature branch and modify the file (removing the old function).
-	runGit(t, dir, "checkout", "-b", "feat")
+	gitT(t, dir, "checkout", "-b", "feat")
 	writeFile(t, goPath, "package main\n\nfunc newFunc() {\n\t// new code\n}\n")
-	runGit(t, dir, "add", "main.go")
-	runGit(t, dir, "commit", "-m", "replace function")
+	gitT(t, dir, "add", "main.go")
+	gitT(t, dir, "commit", "-m", "replace function")
 
 	s := &Session{
 		Mode:        "git",
@@ -4259,7 +4259,7 @@ func TestAvailableScopes_EmptyBaseRef(t *testing.T) {
 	dir := initTestRepo(t)
 	// Create a file and stage it.
 	writeFile(t, filepath.Join(dir, "staged.go"), "package main")
-	runGit(t, dir, "add", "staged.go")
+	gitT(t, dir, "add", "staged.go")
 
 	// Use a real GitVCS pointed at the test repo.
 	// Need to chdir for GitVCS to work.
@@ -4626,7 +4626,7 @@ func TestScopedHunks_NilVCS(t *testing.T) {
 func TestScopedHunks_AddedFile(t *testing.T) {
 	dir := initTestRepo(t)
 	writeFile(t, filepath.Join(dir, "new.go"), "package main\n\nfunc main() {}\n")
-	runGit(t, dir, "add", "new.go")
+	gitT(t, dir, "add", "new.go")
 
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -4658,10 +4658,10 @@ func TestScopedHunks_UntrackedFile(t *testing.T) {
 
 func TestGetSessionInfoScoped_GitBranchScope(t *testing.T) {
 	dir := initTestRepo(t)
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, filepath.Join(dir, "new.go"), "package main\n\nfunc main() {}\n")
-	runGit(t, dir, "add", "new.go")
-	runGit(t, dir, "commit", "-m", "add new file")
+	gitT(t, dir, "add", "new.go")
+	gitT(t, dir, "commit", "-m", "add new file")
 
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -4701,17 +4701,17 @@ func TestGetSessionInfoScoped_GitBranchScope(t *testing.T) {
 
 func TestGetSessionInfoScoped_CommitScope(t *testing.T) {
 	dir := initTestRepo(t)
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, filepath.Join(dir, "new.go"), "package main\n\nfunc main() {}\n")
-	runGit(t, dir, "add", "new.go")
-	runGit(t, dir, "commit", "-m", "add new file")
+	gitT(t, dir, "add", "new.go")
+	gitT(t, dir, "commit", "-m", "add new file")
 
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
 	// Get the commit SHA.
-	sha := runGit(t, dir, "rev-parse", "HEAD")
+	sha := gitT(t, dir, "rev-parse", "HEAD")
 
 	s := &Session{
 		Mode:        "git",
@@ -4732,21 +4732,21 @@ func TestGetSessionInfoScoped_CommitScope(t *testing.T) {
 
 func TestSession_GetCommits_RangeMode(t *testing.T) {
 	dir := initTestRepo(t)
-	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
 
-	runGit(t, dir, "checkout", "-b", "feature/get-commits-range")
+	gitT(t, dir, "checkout", "-b", "feature/get-commits-range")
 	writeFile(t, filepath.Join(dir, "a.go"), "package main\n\nfunc A() {}\n")
-	runGit(t, dir, "add", "a.go")
-	runGit(t, dir, "commit", "-m", "A")
+	gitT(t, dir, "add", "a.go")
+	gitT(t, dir, "commit", "-m", "A")
 
 	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n")
-	runGit(t, dir, "add", "b.go")
-	runGit(t, dir, "commit", "-m", "B")
-	shaB := runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "b.go")
+	gitT(t, dir, "commit", "-m", "B")
+	shaB := gitT(t, dir, "rev-parse", "HEAD")
 
 	writeFile(t, filepath.Join(dir, "c.go"), "package main\n\nfunc C() {}\n")
-	runGit(t, dir, "add", "c.go")
-	runGit(t, dir, "commit", "-m", "C")
+	gitT(t, dir, "add", "c.go")
+	gitT(t, dir, "commit", "-m", "C")
 
 	// Session is in range mode focused on A..B; git HEAD is C.
 	s := &Session{
@@ -4779,16 +4779,16 @@ func TestSession_GetCommits_RangeMode(t *testing.T) {
 
 func TestSession_GetCommits_WorkingTreeMode(t *testing.T) {
 	dir := initTestRepo(t)
-	baseRef := runGit(t, dir, "rev-parse", "HEAD")
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
 
-	runGit(t, dir, "checkout", "-b", "feature/get-commits-wt")
+	gitT(t, dir, "checkout", "-b", "feature/get-commits-wt")
 	writeFile(t, filepath.Join(dir, "a.go"), "package main\n\nfunc A() {}\n")
-	runGit(t, dir, "add", "a.go")
-	runGit(t, dir, "commit", "-m", "A")
+	gitT(t, dir, "add", "a.go")
+	gitT(t, dir, "commit", "-m", "A")
 
 	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n")
-	runGit(t, dir, "add", "b.go")
-	runGit(t, dir, "commit", "-m", "B")
+	gitT(t, dir, "add", "b.go")
+	gitT(t, dir, "commit", "-m", "B")
 
 	s := &Session{
 		Mode:        "git",

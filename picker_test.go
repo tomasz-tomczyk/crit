@@ -10,7 +10,7 @@ import (
 
 func TestResolveDefaultBranchSHA_Git(t *testing.T) {
 	dir := initTestRepo(t)
-	want := runGit(t, dir, "rev-parse", "HEAD")
+	want := gitT(t, dir, "rev-parse", "HEAD")
 	got, err := ResolveDefaultBranchSHA(&GitVCS{}, dir, "main")
 	if err != nil {
 		t.Fatal(err)
@@ -43,8 +43,8 @@ func TestWalkAncestors_Git(t *testing.T) {
 func TestLocalBranchTips_Git(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "a.txt", "x", "a")
-	headBeforeBranch := runGit(t, dir, "rev-parse", "HEAD")
-	runGit(t, dir, "checkout", "-b", "feat-x")
+	headBeforeBranch := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "checkout", "-b", "feat-x")
 	commitAt(t, dir, "b.txt", "y", "b")
 
 	got, err := localBranchTips(&GitVCS{}, dir)
@@ -65,9 +65,9 @@ func TestLocalBranchTips_Git(t *testing.T) {
 
 func TestRemoteBranchTips_Git_ExcludesDefault(t *testing.T) {
 	dir := initTestRepo(t)
-	headSHA := runGit(t, dir, "rev-parse", "HEAD")
-	runGit(t, dir, "update-ref", "refs/remotes/origin/feat-x", headSHA)
-	runGit(t, dir, "update-ref", "refs/remotes/origin/main", headSHA)
+	headSHA := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "update-ref", "refs/remotes/origin/feat-x", headSHA)
+	gitT(t, dir, "update-ref", "refs/remotes/origin/main", headSHA)
 
 	branches, err := remoteBranchTips(&GitVCS{}, dir, "main")
 	if err != nil {
@@ -135,11 +135,11 @@ func TestHandlePicker_MethodNotAllowed(t *testing.T) {
 func TestHandlePicker_StackEntriesIncludeDefaultSHA(t *testing.T) {
 	s, sess := newTestServer(t)
 	dir := initTestRepo(t)
-	defaultSHA := runGit(t, dir, "rev-parse", "HEAD")
+	defaultSHA := gitT(t, dir, "rev-parse", "HEAD")
 
 	// Build a feature branch so the local-branch-tip walker has something
 	// to detect as a stack entry.
-	runGit(t, dir, "checkout", "-b", "feat-a")
+	gitT(t, dir, "checkout", "-b", "feat-a")
 	commitAt(t, dir, "a.txt", "x", "a")
 
 	sess.mu.Lock()
@@ -182,13 +182,13 @@ func TestHandlePicker_DefaultSHAIsLiteralDefaultBranch(t *testing.T) {
 	dir := initTestRepo(t)
 
 	// Three layers above main: alpha → beta → gamma.
-	runGit(t, dir, "checkout", "-b", "alpha")
+	gitT(t, dir, "checkout", "-b", "alpha")
 	commitAt(t, dir, "a.txt", "a", "alpha")
 
-	runGit(t, dir, "checkout", "-b", "beta")
+	gitT(t, dir, "checkout", "-b", "beta")
 	commitAt(t, dir, "b.txt", "b", "beta")
 
-	runGit(t, dir, "checkout", "-b", "gamma")
+	gitT(t, dir, "checkout", "-b", "gamma")
 	commitAt(t, dir, "c.txt", "c", "gamma")
 
 	sess.mu.Lock()
@@ -211,7 +211,7 @@ func TestHandlePicker_DefaultSHAIsLiteralDefaultBranch(t *testing.T) {
 	if len(resp.Stack) < 2 {
 		t.Fatalf("expected 2+ stack entries, got %d: %+v", len(resp.Stack), resp.Stack)
 	}
-	mainSHA := runGit(t, dir, "rev-parse", "main")
+	mainSHA := gitT(t, dir, "rev-parse", "main")
 	for _, e := range resp.Stack {
 		if e.DefaultSHA != mainSHA {
 			t.Errorf("entry %q default_sha=%q want main (literal default) %q", e.Label, e.DefaultSHA, mainSHA)
@@ -227,15 +227,15 @@ func TestDetectStack_ExcludesStaleBranchesBeforeMergeBase(t *testing.T) {
 	dir := initTestRepo(t)
 	// Main commit M1, then a stale branch points here.
 	m1 := commitAt(t, dir, "m1.txt", "1", "m1")
-	runGit(t, dir, "branch", "old", m1)
+	gitT(t, dir, "branch", "old", m1)
 	// Main advances to M2 — this is what feature branches off of.
 	commitAt(t, dir, "m2.txt", "2", "m2")
 	// Feature branch off main@M2 with two commits F1, F2.
-	runGit(t, dir, "checkout", "-b", "feat")
+	gitT(t, dir, "checkout", "-b", "feat")
 	f1 := commitAt(t, dir, "f1.txt", "f1", "f1")
 	f2 := commitAt(t, dir, "f2.txt", "f2", "f2")
 	// Also park a branch on F1 so a legitimate post-merge-base entry shows up.
-	runGit(t, dir, "branch", "feat-f1", f1)
+	gitT(t, dir, "branch", "feat-f1", f1)
 
 	stack, err := detectStack(&GitVCS{}, dir, nil)
 	if err != nil {
@@ -270,11 +270,11 @@ func TestDetectStack_IncludesPostMergeBaseBranchTips(t *testing.T) {
 	// Main at M.
 	commitAt(t, dir, "m.txt", "m", "m")
 	// Feature branch with two commits A, B.
-	runGit(t, dir, "checkout", "-b", "feat")
+	gitT(t, dir, "checkout", "-b", "feat")
 	a := commitAt(t, dir, "a.txt", "a", "a")
-	runGit(t, dir, "branch", "feat-a", a)
+	gitT(t, dir, "branch", "feat-a", a)
 	b := commitAt(t, dir, "b.txt", "b", "b")
-	runGit(t, dir, "branch", "feat-b", b)
+	gitT(t, dir, "branch", "feat-b", b)
 
 	stack, err := detectStack(&GitVCS{}, dir, nil)
 	if err != nil {
@@ -302,15 +302,15 @@ func TestDetectStack_DropsNakedCommitsBehindBranch(t *testing.T) {
 	dir := initTestRepo(t)
 	// Diverge "staging" from the default branch and pile noise commits on
 	// it (e.g. unrelated tickets that landed on staging).
-	runGit(t, dir, "checkout", "-b", "staging")
+	gitT(t, dir, "checkout", "-b", "staging")
 	commitAt(t, dir, "n1.txt", "n1", "[ABC-100] noise one")
 	commitAt(t, dir, "n2.txt", "n2", "[ABC-101] noise two")
 	commitAt(t, dir, "n3.txt", "n3", "[ABC-102] noise three")
 	// Parent feature branch on top of staging.
-	runGit(t, dir, "checkout", "-b", "feat-parent")
+	gitT(t, dir, "checkout", "-b", "feat-parent")
 	commitAt(t, dir, "p.txt", "p", "feat-parent commit")
 	// Current branch on top of feat-parent.
-	runGit(t, dir, "checkout", "-b", "feat-current")
+	gitT(t, dir, "checkout", "-b", "feat-current")
 	commitAt(t, dir, "c.txt", "c", "feat-current commit")
 
 	stack, err := detectStack(&GitVCS{}, dir, nil)
@@ -348,13 +348,13 @@ func TestDetectStack_DropsNakedCommitsBehindBranch(t *testing.T) {
 func TestDetectStack_KeepsNakedCommitsAheadOfNearestBranch(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "m.txt", "m", "main")
-	runGit(t, dir, "checkout", "-b", "feat")
+	gitT(t, dir, "checkout", "-b", "feat")
 	commitAt(t, dir, "f.txt", "f", "feat tip")
-	featTipSHA := runGit(t, dir, "rev-parse", "HEAD")
+	featTipSHA := gitT(t, dir, "rev-parse", "HEAD")
 	// Detach HEAD so subsequent commits don't drag the feat ref forward —
 	// we want feat to stay an older branch-tip ancestor while new naked
 	// commits land on top.
-	runGit(t, dir, "checkout", "--detach", featTipSHA)
+	gitT(t, dir, "checkout", "--detach", featTipSHA)
 	commitAt(t, dir, "w1.txt", "w1", "wip one")
 	commitAt(t, dir, "w2.txt", "w2", "wip two")
 
@@ -388,10 +388,10 @@ func TestDetectStack_KeepsNakedCommitsAheadOfNearestBranch(t *testing.T) {
 func TestDetectStack_DefaultBranchAsRoot(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "m1.txt", "1", "m1")
-	mergeBase := runGit(t, dir, "rev-parse", "HEAD")
+	mergeBase := gitT(t, dir, "rev-parse", "HEAD")
 	// Park a stale branch on the merge-base SHA — should still be excluded.
-	runGit(t, dir, "branch", "stale-at-base", mergeBase)
-	runGit(t, dir, "checkout", "-b", "feat")
+	gitT(t, dir, "branch", "stale-at-base", mergeBase)
+	gitT(t, dir, "checkout", "-b", "feat")
 	commitAt(t, dir, "f.txt", "f", "f")
 
 	stack, err := detectStack(&GitVCS{}, dir, nil)

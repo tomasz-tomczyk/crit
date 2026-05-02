@@ -401,10 +401,10 @@ func TestWatchGit_SkipsGitStatusWhenNotWaiting(t *testing.T) {
 	dir := initTestRepo(t)
 
 	// Create a feature branch so we have a known base
-	runGit(t, dir, "checkout", "-b", "feat")
+	gitT(t, dir, "checkout", "-b", "feat")
 	writeFile(t, filepath.Join(dir, "file.go"), "package main\n")
-	runGit(t, dir, "add", "file.go")
-	runGit(t, dir, "commit", "-m", "add file")
+	gitT(t, dir, "add", "file.go")
+	gitT(t, dir, "commit", "-m", "add file")
 
 	s := &Session{
 		Mode:        "git",

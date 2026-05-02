@@ -133,9 +133,9 @@ func TestBucketComments_WorkingTreeKeepsAll(t *testing.T) {
 
 func TestSetFocus_Range_RebuildsFiles(t *testing.T) {
 	dir := initTestRepo(t)
-	base := runGit(t, dir, "rev-parse", "HEAD")
+	base := gitT(t, dir, "rev-parse", "HEAD")
 	commitAt(t, dir, "added.txt", "y\n", "add y")
-	head := runGit(t, dir, "rev-parse", "HEAD")
+	head := gitT(t, dir, "rev-parse", "HEAD")
 
 	s := &Session{
 		RepoRoot:      dir,
@@ -179,9 +179,9 @@ func TestSetFocus_FullStackRequiresDefaultSHA(t *testing.T) {
 
 func TestSetFocus_WorkingTree_ClearsActiveDiffScope(t *testing.T) {
 	dir := initTestRepo(t)
-	base := runGit(t, dir, "rev-parse", "HEAD")
+	base := gitT(t, dir, "rev-parse", "HEAD")
 	commitAt(t, dir, "x.txt", "x\n", "x")
-	head := runGit(t, dir, "rev-parse", "HEAD")
+	head := gitT(t, dir, "rev-parse", "HEAD")
 
 	s := &Session{
 		RepoRoot:      dir,
@@ -215,9 +215,9 @@ func TestSetFocus_WorkingTree_ClearsActiveDiffScope(t *testing.T) {
 // session so the UI can render a "Resume PR" affordance.
 func TestSetFocus_RangeToWorkingTree_StashesLastRangeFocus(t *testing.T) {
 	dir := initTestRepo(t)
-	base := runGit(t, dir, "rev-parse", "HEAD")
+	base := gitT(t, dir, "rev-parse", "HEAD")
 	commitAt(t, dir, "x.txt", "x\n", "x")
-	head := runGit(t, dir, "rev-parse", "HEAD")
+	head := gitT(t, dir, "rev-parse", "HEAD")
 
 	s := &Session{
 		RepoRoot:      dir,

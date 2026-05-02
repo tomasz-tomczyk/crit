@@ -55,10 +55,42 @@ func stripExternalDiffEnv() []string {
 	return out
 }
 
+// runGit runs `git args...` in dir with hardened env (GIT_TERMINAL_PROMPT=0
+// so a misconfigured credential helper can't hang the daemon waiting for tty
+// input) and an optional context for cancellation. Returns stdout bytes; on
+// error, the returned error includes captured stderr.
+//
+// This is a partial migration target: most call sites in this file still use
+// exec.Command directly. New code, and any site that benefits from
+// cancellation, should use runGit. Convert opportunistically.
+func runGit(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	// Append rather than replace os.Environ so existing GIT_* config (auth,
+	// SSH agent, etc.) is preserved. GIT_TERMINAL_PROMPT=0 prevents git from
+	// blocking on a credential prompt when run from a daemon with no tty.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		stderrTrim := strings.TrimSpace(stderr.String())
+		if stderrTrim != "" {
+			return stdout.Bytes(), fmt.Errorf("git %s: %w: %s", args[0], err, stderrTrim)
+		}
+		return stdout.Bytes(), fmt.Errorf("git %s: %w", args[0], err)
+	}
+	return stdout.Bytes(), nil
+}
+
 // IsGitRepo returns true if the current directory is inside a git repository.
 func IsGitRepo() bool {
-	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
-	out, err := cmd.Output()
+	out, err := runGit(context.Background(), "", "rev-parse", "--is-inside-work-tree")
 	if err != nil {
 		return false
 	}
@@ -67,8 +99,7 @@ func IsGitRepo() bool {
 
 // RepoRoot returns the absolute path to the git repository root.
 func RepoRoot() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	out, err := cmd.Output()
+	out, err := runGit(context.Background(), "", "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", fmt.Errorf("not a git repository")
 	}
@@ -253,8 +284,7 @@ func ChangedFilesScoped(scope, baseRef string) ([]FileChange, error) {
 
 // changedFilesStaged returns only staged (cached) changes.
 func changedFilesStaged() ([]FileChange, error) {
-	cmd := exec.Command("git", "diff", "--cached", "--name-status")
-	out, err := cmd.Output()
+	out, err := runGit(context.Background(), "", "diff", "--cached", "--name-status")
 	if err != nil {
 		return nil, fmt.Errorf("git diff --cached failed: %w", err)
 	}
@@ -263,8 +293,7 @@ func changedFilesStaged() ([]FileChange, error) {
 
 // changedFilesUnstaged returns unstaged modifications plus untracked files.
 func changedFilesUnstaged() ([]FileChange, error) {
-	cmd := exec.Command("git", "diff", "--name-status")
-	out, err := cmd.Output()
+	out, err := runGit(context.Background(), "", "diff", "--name-status")
 	if err != nil {
 		return nil, fmt.Errorf("git diff failed: %w", err)
 	}
@@ -286,8 +315,7 @@ func changedFilesBranch(baseRef string) ([]FileChange, error) {
 	if baseRef == "" {
 		return nil, nil
 	}
-	cmd := exec.Command("git", "diff", baseRef+"..HEAD", "--name-status")
-	out, err := cmd.Output()
+	out, err := runGit(context.Background(), "", "diff", baseRef+"..HEAD", "--name-status")
 	if err != nil {
 		return nil, fmt.Errorf("git diff %s..HEAD failed: %w", baseRef, err)
 	}
@@ -785,11 +813,7 @@ func untrackedFilesInDir(dir string) ([]FileChange, error) {
 // Paths are relative to the repo root. dir should be the repo root.
 func AllTrackedFiles(dir string) ([]string, error) {
 	// Tracked files
-	cmd := exec.Command("git", "ls-files")
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	out, err := cmd.Output()
+	out, err := runGit(context.Background(), dir, "ls-files")
 	if err != nil {
 		return nil, fmt.Errorf("git ls-files failed: %w", err)
 	}
@@ -807,11 +831,7 @@ func AllTrackedFiles(dir string) ([]string, error) {
 	}
 
 	// Untracked but not gitignored
-	cmd2 := exec.Command("git", "ls-files", "--others", "--exclude-standard")
-	if dir != "" {
-		cmd2.Dir = dir
-	}
-	out2, err := cmd2.Output()
+	out2, err := runGit(context.Background(), dir, "ls-files", "--others", "--exclude-standard")
 	if err != nil {
 		return files, nil //nolint:nilerr // non-fatal: return tracked files only
 	}

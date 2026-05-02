@@ -378,9 +378,9 @@ func TestLoadConfigAuthorFallsBackToGit(t *testing.T) {
 
 	// Set up a git repo with user.name configured
 	repoDir := t.TempDir()
-	runGit(t, repoDir, "init")
-	runGit(t, repoDir, "config", "user.email", "test@test.com")
-	runGit(t, repoDir, "config", "user.name", "Ada Lovelace")
+	gitT(t, repoDir, "init")
+	gitT(t, repoDir, "config", "user.email", "test@test.com")
+	gitT(t, repoDir, "config", "user.name", "Ada Lovelace")
 
 	// LoadConfig calls git without -C, so we must be inside the repo
 	origDir, _ := os.Getwd()
@@ -429,13 +429,13 @@ func TestNewSessionFromGitWithIgnore(t *testing.T) {
 	defaultBranchOnce = sync.Once{}
 
 	// Create a feature branch with several files
-	runGit(t, dir, "checkout", "-b", "feature")
+	gitT(t, dir, "checkout", "-b", "feature")
 	writeFile(t, filepath.Join(dir, "main.go"), "package main\n")
 	writeFile(t, filepath.Join(dir, "service.pb.go"), "package main\n// generated\n")
 	writeFile(t, filepath.Join(dir, "vendor", "lib.go"), "package vendor\n")
 	writeFile(t, filepath.Join(dir, "README.md"), "# Updated\n")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-m", "add files")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add files")
 
 	// cd into the repo
 	origDir, _ := os.Getwd()

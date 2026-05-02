@@ -29,13 +29,13 @@ func TestDaemonLifecycle(t *testing.T) {
 
 	// Create a test repo with a file
 	repoDir := t.TempDir()
-	runGit(t, repoDir, "init")
-	runGit(t, repoDir, "config", "user.email", "test@test.com")
-	runGit(t, repoDir, "config", "user.name", "Test")
-	runGit(t, repoDir, "checkout", "-b", "main")
+	gitT(t, repoDir, "init")
+	gitT(t, repoDir, "config", "user.email", "test@test.com")
+	gitT(t, repoDir, "config", "user.name", "Test")
+	gitT(t, repoDir, "checkout", "-b", "main")
 	writeFile(t, filepath.Join(repoDir, "test.md"), "# Hello\n")
-	runGit(t, repoDir, "add", ".")
-	runGit(t, repoDir, "commit", "-m", "init")
+	gitT(t, repoDir, "add", ".")
+	gitT(t, repoDir, "commit", "-m", "init")
 
 	// Make a change so crit has something to review
 	writeFile(t, filepath.Join(repoDir, "test.md"), "# Hello\n\nWorld\n")

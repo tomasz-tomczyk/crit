@@ -43,9 +43,9 @@ func TestDetectVCS_GitOverride(t *testing.T) {
 func commitAt(t *testing.T, dir, path, content, msg string) string {
 	t.Helper()
 	writeFile(t, filepath.Join(dir, path), content)
-	runGit(t, dir, "add", "-A")
-	runGit(t, dir, "commit", "-m", msg)
-	return runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-m", msg)
+	return gitT(t, dir, "rev-parse", "HEAD")
 }
 
 func sortChanges(in []FileChange) []FileChange {
@@ -56,7 +56,7 @@ func sortChanges(in []FileChange) []FileChange {
 
 func TestChangedFilesBetweenSHAs_AddOneFile(t *testing.T) {
 	dir := initTestRepo(t)
-	base := runGit(t, dir, "rev-parse", "HEAD")
+	base := gitT(t, dir, "rev-parse", "HEAD")
 	head := commitAt(t, dir, "a.txt", "hi", "add a")
 
 	got, err := ChangedFilesBetweenSHAs(base, head, dir)
@@ -72,12 +72,12 @@ func TestChangedFilesBetweenSHAs_AddOneFile(t *testing.T) {
 func TestChangedFilesBetweenSHAs_AddAndModify(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "b.txt", "v1", "add b")
-	base := runGit(t, dir, "rev-parse", "HEAD")
+	base := gitT(t, dir, "rev-parse", "HEAD")
 	writeFile(t, filepath.Join(dir, "a.txt"), "hi")
 	writeFile(t, filepath.Join(dir, "b.txt"), "v2")
-	runGit(t, dir, "add", "-A")
-	runGit(t, dir, "commit", "-m", "add a, modify b")
-	head := runGit(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-m", "add a, modify b")
+	head := gitT(t, dir, "rev-parse", "HEAD")
 
 	got, err := ChangedFilesBetweenSHAs(base, head, dir)
 	if err != nil {
@@ -95,10 +95,10 @@ func TestChangedFilesBetweenSHAs_AddAndModify(t *testing.T) {
 func TestChangedFilesBetweenSHAs_Rename(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "old.go", "package x\n", "add old")
-	base := runGit(t, dir, "rev-parse", "HEAD")
-	runGit(t, dir, "mv", "old.go", "new.go")
-	runGit(t, dir, "commit", "-m", "rename")
-	head := runGit(t, dir, "rev-parse", "HEAD")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "mv", "old.go", "new.go")
+	gitT(t, dir, "commit", "-m", "rename")
+	head := gitT(t, dir, "rev-parse", "HEAD")
 
 	got, err := ChangedFilesBetweenSHAs(base, head, dir)
 	if err != nil {
@@ -112,10 +112,10 @@ func TestChangedFilesBetweenSHAs_Rename(t *testing.T) {
 func TestChangedFilesBetweenSHAs_Deletion(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "c.txt", "x", "add c")
-	base := runGit(t, dir, "rev-parse", "HEAD")
-	runGit(t, dir, "rm", "c.txt")
-	runGit(t, dir, "commit", "-m", "delete c")
-	head := runGit(t, dir, "rev-parse", "HEAD")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "rm", "c.txt")
+	gitT(t, dir, "commit", "-m", "delete c")
+	head := gitT(t, dir, "rev-parse", "HEAD")
 
 	got, err := ChangedFilesBetweenSHAs(base, head, dir)
 	if err != nil {
@@ -129,7 +129,7 @@ func TestChangedFilesBetweenSHAs_Deletion(t *testing.T) {
 
 func TestChangedFilesBetweenSHAs_UntrackedNotIncluded(t *testing.T) {
 	dir := initTestRepo(t)
-	base := runGit(t, dir, "rev-parse", "HEAD")
+	base := gitT(t, dir, "rev-parse", "HEAD")
 	head := commitAt(t, dir, "a.txt", "hi", "add a")
 	// Add an untracked file in the working tree — should NOT appear in range.
 	writeFile(t, filepath.Join(dir, "untracked.txt"), "ignored")
@@ -148,9 +148,9 @@ func TestChangedFilesBetweenSHAs_UntrackedNotIncluded(t *testing.T) {
 func TestFileDiffBetweenSHAs_HappyPath(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "a.txt", "line1\nline2\n", "add a")
-	base := runGit(t, dir, "rev-parse", "HEAD")
+	base := gitT(t, dir, "rev-parse", "HEAD")
 	commitAt(t, dir, "a.txt", "line1\nline2\nline3\n", "modify a")
-	head := runGit(t, dir, "rev-parse", "HEAD")
+	head := gitT(t, dir, "rev-parse", "HEAD")
 
 	hunks, err := FileDiffBetweenSHAs("a.txt", base, head, dir)
 	if err != nil {
@@ -164,7 +164,7 @@ func TestFileDiffBetweenSHAs_HappyPath(t *testing.T) {
 func TestFileDiffBetweenSHAs_IdenticalSHAs(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "a.txt", "line1\n", "add a")
-	sha := runGit(t, dir, "rev-parse", "HEAD")
+	sha := gitT(t, dir, "rev-parse", "HEAD")
 	hunks, err := FileDiffBetweenSHAs("a.txt", sha, sha, dir)
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +176,7 @@ func TestFileDiffBetweenSHAs_IdenticalSHAs(t *testing.T) {
 
 func TestFileDiffBetweenSHAs_MissingPath(t *testing.T) {
 	dir := initTestRepo(t)
-	base := runGit(t, dir, "rev-parse", "HEAD")
+	base := gitT(t, dir, "rev-parse", "HEAD")
 	head := commitAt(t, dir, "a.txt", "x", "add a")
 	hunks, err := FileDiffBetweenSHAs("does-not-exist.txt", base, head, dir)
 	if err != nil {
@@ -191,7 +191,7 @@ func TestReadFileAtSHA_HappyPath(t *testing.T) {
 	dir := initTestRepo(t)
 	want := "hello world\n"
 	commitAt(t, dir, "a.txt", want, "add a")
-	sha := runGit(t, dir, "rev-parse", "HEAD")
+	sha := gitT(t, dir, "rev-parse", "HEAD")
 
 	got, err := ReadFileAtSHA(sha, "a.txt", dir)
 	if err != nil {
@@ -205,7 +205,7 @@ func TestReadFileAtSHA_HappyPath(t *testing.T) {
 func TestReadFileAtSHA_MissingPath(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "a.txt", "x", "add a")
-	sha := runGit(t, dir, "rev-parse", "HEAD")
+	sha := gitT(t, dir, "rev-parse", "HEAD")
 
 	got, err := ReadFileAtSHA(sha, "no-such-file.txt", dir)
 	if err != nil {
@@ -228,7 +228,7 @@ func TestReadFileAtSHA_InvalidRef(t *testing.T) {
 
 func TestHasObject_Existing(t *testing.T) {
 	dir := initTestRepo(t)
-	sha := runGit(t, dir, "rev-parse", "HEAD")
+	sha := gitT(t, dir, "rev-parse", "HEAD")
 	if !HasObject(sha, dir) {
 		t.Errorf("HasObject(%q) = false, want true", sha)
 	}
@@ -244,7 +244,7 @@ func TestHasObject_Bogus(t *testing.T) {
 func TestHasObject_NonCommit(t *testing.T) {
 	dir := initTestRepo(t)
 	// Tree SHA of HEAD — not a commit.
-	treeSHA := runGit(t, dir, "rev-parse", "HEAD^{tree}")
+	treeSHA := gitT(t, dir, "rev-parse", "HEAD^{tree}")
 	if HasObject(treeSHA, dir) {
 		t.Errorf("HasObject(tree %s) = true, want false (only commits)", treeSHA)
 	}
