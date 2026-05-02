@@ -1,10 +1,8 @@
 # Crit — Development Guide
 
-## What This Is
+Single-binary Go CLI that opens a browser-based UI for reviewing code changes and markdown files with GitHub PR-style inline commenting. Multi-file review with git diff rendering and structured review file output for AI coding agents.
 
-A single-binary Go CLI tool that opens a browser-based UI for reviewing code changes and markdown files with GitHub PR-style inline commenting. Supports multi-file review with git diff rendering and structured review file output for AI coding agents.
-
-## Project Structure
+## Project map
 
 ```
 crit/
@@ -21,451 +19,348 @@ crit/
 ├── share.go             # Share/unpublish to crit-web, share CLI subcommand
 ├── plans.go             # Plan file detection and handling
 ├── integrations.go      # Integration config installation (crit install <agent>)
-├── gen_integration_hashes.go     # Script to regenerate integration content hashes
-├── integration_hashes_gen.go     # Generated integration content hashes
-├── main_test.go         # Subcommand argument parsing tests
-├── testutil_test.go     # Shared test helpers (initTestRepo, runGit, writeFile, flushWrites)
-├── *_test.go            # Tests for all Go files above
+├── vcs.go / git_vcs.go / sapling.go / sapling_parse.go  # VCS abstraction (git + sapling)
+├── auth.go              # Hosted crit-web auth flow (login/logout, token storage)
+├── focus_*.go / picker.go  # Focus mode (range, stacked) + file picker backend
+├── review_file.go       # Review file (~/.crit/reviews/<key>.json) read/write — saveCritJSON
+├── pr_cache.go / pr_fetch.go / push_buckets.go  # GitHub PR fetch/cache, comment bucketing
+├── remote_files.go      # Fetch files from a remote PR for cross-PR comparisons
+├── browser.go / autodetect.go / lru_bytes.go    # Browser open, base-branch detection, byte cache
+├── comment_cli.go       # `crit comment` headless implementation
+├── gen_integration_hashes.go / integration_hashes_gen.go  # Build-time integration manifest
+├── *_test.go            # Tests (testutil_test.go has shared helpers; *_integration_test.go behind build tag)
 ├── frontend/
 │   ├── index.html       # HTML shell — references style.css, theme.css, and app.js
 │   ├── app.js           # All JS (multi-file state, rendering, comments, SSE, keyboard shortcuts)
 │   ├── style.css        # Layout, diff rendering, file sections, components
 │   ├── theme.css        # Color themes (light/dark/system CSS variables)
-│   ├── markdown-it.min.js    # Markdown parser (provides source line mappings via token.map)
-│   ├── highlight.min.js      # Syntax highlighter core (languages bundled)
-│   └── mermaid.min.js        # Mermaid diagram renderer
+│   └── *.min.js         # Vendored markdown-it, highlight.js, mermaid
 ├── integrations/        # Drop-in config files for AI coding tools (claude-code, cursor, aider, etc.)
-├── e2e/                 # Playwright E2E tests for the frontend
-│   ├── playwright.config.ts         # Five projects: git-mode, file-mode, single-file, no-git, multi-file
-│   ├── setup-fixtures.sh            # Git repo with feature branch
-│   ├── setup-fixtures-filemode.sh   # Plain files without git
-│   ├── setup-fixtures-singlefile.sh # Single markdown file
-│   ├── setup-fixtures-multifile.sh  # Multiple code + markdown files
-│   ├── setup-fixtures-nogit.sh      # File mode without git (no-git)
-│   └── tests/           # Test specs (naming convention determines which project runs them)
-├── go.mod
+├── e2e/                 # Playwright E2E tests for the frontend (multi-project setup, see below)
 ├── Makefile             # build / build-all (cross-compile) / update-deps / clean / e2e
 ├── package.json         # Frontend dependency management (markdown-it, highlight.js, mermaid)
-├── copy-deps.js         # Copies npm deps to frontend/ for embedding
-├── LICENSE              # MIT
-└── README.md
+└── copy-deps.js         # Copies npm deps to frontend/ for embedding
 ```
 
-## Key Architecture Decisions
+## Key architecture decisions
 
 1. **All frontend assets embedded** via Go's `embed.FS` — produces a true single binary
 2. **No frontend build step** — vanilla JS, no npm/webpack/framework. npm is only for fetching vendor libs.
-3. **Multi-file sessions** — `crit` (no args) auto-detects git changes; `crit file1 file2` reviews specific files
-4. **Two modes**: "git" mode (auto-detect from git) and "files" mode (explicit file arguments)
-5. **markdown-it for parsing** — chosen because it provides `token.map` (source line mappings per block)
-6. **Block-level splitting** — lists, code blocks, tables, blockquotes are split into per-item/per-line/per-row blocks so each source line is independently commentable
-7. **Diff hunk rendering** — code files show git diffs with dual gutters (old/new line numbers)
-8. **Comments reference source line numbers** — stored in the review file (`~/.crit/reviews/<key>.json`) with per-file sections
-9. **Real-time output** — review file written on every comment change (200ms debounce)
-10. **GitHub-style gutter interaction** — click-and-drag on line numbers to select ranges
-11. **File watching** — git mode polls `git status --porcelain`; files mode polls mtimes; reloads via SSE
-12. **Localhost only** — server binds to `127.0.0.1`, no CORS headers needed
-13. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both. Exception: `agent_cmd` is global-only and cannot be set by project config (prevents malicious repos from hijacking the agent command)
-14. **GitHub PR sync** — `crit pull` / `crit push` bridge between the review file and GitHub PR review comments via `gh` CLI
-15. **Headless CLI comment** — `crit comment` writes directly to the review file without starting the server; SSE notifies any running server
-16. **Comment threading** — comments support nested replies and a `resolved` boolean. Agents reply with `crit comment --reply-to <id> --resolve`. The review file schema nests replies inside each comment's `replies` array.
-17. **Commit selection** — in git mode, a sidebar lists individual commits. Selecting one scopes the file list and diffs to that commit only.
-18. **Centralized review storage** — review data stored in `~/.crit/reviews/<key>.json` (keyed by cwd + branch for git mode, cwd + args for file mode). `crit status` shows the review file path; `crit cleanup` removes stale reviews.
+3. **Two modes**: "git" mode (auto-detect from git) and "files" mode (explicit file arguments)
+4. **markdown-it for parsing** — chosen because it provides `token.map` (source line mappings per block)
+5. **Block-level splitting** — lists, code blocks, tables, blockquotes split into per-item/per-line/per-row blocks so each source line is independently commentable
+6. **Diff hunk rendering** — code files show git diffs with dual gutters (old/new line numbers)
+7. **Comments reference source line numbers** — stored in `~/.crit/reviews/<key>.json` with per-file sections
+8. **Real-time output** — review file written on every comment change (200ms debounce)
+9. **File watching** — git mode polls `git status --porcelain`; files mode polls mtimes; reloads via SSE
+10. **Localhost only** — server binds to `127.0.0.1`, no CORS headers needed
+11. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both. `agent_cmd` is global-only (prevents malicious repos from hijacking the agent command)
+12. **Headless CLI comment** — `crit comment` writes directly to the review file without starting the server; SSE notifies any running server
+13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array.
+14. **Centralized review storage** — `~/.crit/reviews/<key>.json` keyed by cwd + branch (git mode) or cwd + args (file mode)
+15. **VCS abstraction** — `vcs.go` defines a backend interface; `git_vcs.go` and `sapling.go` are the implementations. Auto-detected, overridable via `--vcs` flag or `vcs` config key. Subcommands not yet threaded through (see TODO at `main.go:1826`).
+16. **Focus mode** — sub-views over the file list: file focus, range focus (`--range A..B`), stacked focus (range layer in a stacked PR). Lives in `focus_*.go` and `/api/focus`.
 
-## Build & Run
+<important if="you need to build, test, lint, or run crit">
 
 ```bash
 go build -o crit .                                    # Build
 go test ./...                                         # Run all tests
+gofmt -l .                                            # Check formatting (should be clean)
+golangci-lint run ./...                               # Lint (should be clean)
+make build-all                                        # Cross-compile to dist/
 ./crit                                                # Git mode (auto-detect changed files)
 ./crit test-plan.md                                   # Review specific file(s)
 ./crit --no-open --port 3000 test-plan.md             # Headless on fixed port
-make build-all                                        # Cross-compile to dist/
 ```
+</important>
 
-## CLI Subcommands
+<important if="you need to know what crit subcommands do or are adding/modifying a CLI subcommand">
 
-```bash
+Subcommands are dispatched via `commandDispatch` in `main.go`. Anything not in the table falls through to `runReview`.
+
+```
 crit                          # Review git changes (starts daemon, blocks for feedback)
-crit <file|dir> [...]         # Review specific files or directories
-crit stop                     # Stop the daemon for current directory
-crit stop --all               # Stop all daemons for current directory
+crit <file|dir> [...]         # Review specific files or directories (falls through to runReview)
+crit review [...]             # Explicit review invocation (same as default)
+crit stop [--all]             # Stop daemon(s) for current directory
 crit status [--json]          # Show review file path, daemon status, comment stats
 crit cleanup [--days N] [--force]  # Delete stale review files from ~/.crit/reviews/
 crit pull [pr-number]         # Fetch GitHub PR comments into the review file
 crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post review comments as a GitHub PR review
-crit comment <path>:<line[-end]> <body>         # Add a comment to the review file (no server needed)
-crit comment --reply-to <id> [--resolve] <body> # Reply to a comment (optionally mark resolved)
+crit pr <num|url>             # Thin shim — forwards to `crit review --pr <n>`
+crit fetch ...                # Fetch remote artefacts (see runFetch)
+crit comment <path>:<line[-end]> <body>         # Add a comment (no server needed)
+crit comment --reply-to <id> [--resolve] <body> # Reply to a comment
 crit comment --json [--author <name>]           # Bulk add comments from stdin JSON
 crit share <file> [file...]   # Share files to crit-web, print URL
 crit unpublish                # Remove shared review from crit-web
-crit config                   # Print resolved configuration (merged global + project)
-crit config --generate        # Print a starter .crit.config.json template
+crit config [--generate]      # Print resolved config (or starter template)
 crit install <agent>          # Install integration config for an AI tool
-crit help                     # Show help
+crit auth ...                 # Auth flow for hosted crit-web (login/logout)
+crit plan [...]               # Plan-file workflow
+crit plan-hook                # Internal hook used by plan flow
+crit check                    # Self-check (env, git, gh availability)
+crit _serve                   # Internal: foreground server (used by daemon spawn)
+crit --version | -v           # Version
+crit help | --help | -h       # Show help
 ```
+</important>
 
-## Config System
+<important if="you are working with config files (~/.crit.config.json or .crit.config.json) or adding a config key">
 
 Two-level JSON config files, merged (project overrides global):
 
 - **Global**: `~/.crit.config.json` — user-wide defaults
 - **Project**: `.crit.config.json` in repo root — per-project overrides
 
-Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `agent_cmd`, `auth_token`, `cleanup_on_approve`, `no_update_check`, `no_integration_check`.
+Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `agent_cmd`, `auth_token`, `auth_user_name`, `auth_user_email`, `auth_user_id`, `cleanup_on_approve`, `no_update_check`, `no_integration_check`, `vcs`.
 
 - `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to `git config user.name` if not set
-- `agent_cmd` specifies the shell command to invoke when sending a comment to an AI agent (e.g. `"claude -p"`, `"opencode ask"`) — **global config only**; project-level `.crit.config.json` cannot override this for security reasons
-- `cleanup_on_approve` (default: `true`) — when the reviewer approves with no unresolved comments, automatically delete the review file from `~/.crit/reviews/`. Set to `false` to preserve review history.
-- `ignore_patterns` are unioned (both global and project patterns apply)
-- Pattern types: `*.ext` (extension), `dir/` (directory prefix), `exact.file` (filename), `path/*.ext` (glob)
+- `agent_cmd` is **global config only**; project-level config cannot override (security)
+- `cleanup_on_approve` (default: `true`) — auto-delete review file when reviewer approves with no unresolved comments
+- `ignore_patterns` are unioned (global + project both apply); types: `*.ext`, `dir/`, `exact.file`, `path/*.ext`
+- `vcs` selects backend: `"git"` (default) or `"sl"` (sapling)
+- `auth_*` keys hold cached hosted-crit-web credentials (set by `crit auth`); treat as secrets
 - CLI flags override config file values
+</important>
 
-## GitHub PR Integration
+<important if="you are working with crit pull, crit push, or GitHub PR sync">
 
 Requires `gh` CLI installed and authenticated.
 
 - `crit pull` fetches PR review comments (RIGHT-side only) and merges them into the review file, deduplicating by author+lines+body
 - `crit push` reads the review file and posts unresolved comments as a GitHub PR review
-- `crit push --dry-run` shows what would be posted without actually creating the review
+- `crit push --dry-run` shows what would be posted without creating the review
 - `crit push --event approve` submits an approval; `--event request-changes` requests changes (default: `comment`)
 - `crit push -m 'message'` adds a review-level body message
 - PR number auto-detected from current branch, or pass explicitly: `crit pull 42`
+</important>
 
-## Linting
+<important if="you are writing, running, or modifying Playwright E2E tests in e2e/">
 
-```bash
-gofmt -l .                        # Check formatting (should be clean)
-golangci-lint run ./...           # Lint (should be clean)
-```
-
-## E2E Tests (Playwright)
-
-The `e2e/` directory contains a Playwright test suite that exercises the full frontend in a real browser against a real Crit server.
+The `e2e/` directory contains Playwright tests against a real compiled `crit` binary — no mocking.
 
 ### Running
 
 ```bash
-make e2e                                              # Run full suite
-cd e2e && npx playwright test tests/comments.spec.ts  # Run one test file
-cd e2e && npx playwright test --headed                # Run with visible browser
+make e2e                                              # Full suite
+cd e2e && npx playwright test tests/comments.spec.ts  # One file
+cd e2e && npx playwright test --headed                # Visible browser
 E2E_DEBUG=1 make e2e                                  # Enable video + trace capture on failure
 make e2e-report                                       # View HTML report with screenshots
 ```
 
-### Architecture
+### Projects
 
-- **Five Playwright projects**, each with its own fixture script and port:
-  - `git-mode` (port 3123) — `setup-fixtures.sh` — git repo with feature branch. Runs `*.spec.ts` (excludes other suffixes)
-  - `file-mode` (port 3124) — `setup-fixtures-filemode.sh` — plain files, no git. Runs `*.filemode.spec.ts`
-  - `single-file-mode` (port 3125) — `setup-fixtures-singlefile.sh` — single markdown file. Runs `*.singlefile.spec.ts`
-  - `no-git-mode` (port 3126) — `setup-fixtures-nogit.sh` — file mode without git. Runs `*.nogit.spec.ts`
-  - `multi-file-mode` (port 3127) — `setup-fixtures-multifile.sh` — multiple code + markdown files. Runs `*.multifile.spec.ts`
-  - `range-mode` (port 3128) — `setup-fixtures-range-mode.sh` — stacked git fixture booted with `--range A..B`. Runs `*.rangemode.spec.ts`
-- **Real server**: Tests run against the actual compiled `crit` binary — no mocking
-- **Video/trace off by default**: Set `E2E_DEBUG=1` to enable video and trace recording on failure (saved to `e2e/test-results/`)
-- **CI**: E2E tests run on every push to `main` and on PRs via `.github/workflows/test.yml`. Failed test artifacts are uploaded
+Six Playwright projects, each with its own fixture script and port. Test naming convention determines which project runs which file:
 
-### Test organization
+| Project | Port | Fixture | Test glob |
+| --- | --- | --- | --- |
+| `git-mode` | 3123 | `setup-fixtures.sh` (git repo + feature branch) | `*.spec.ts` (excludes other suffixes) |
+| `file-mode` | 3124 | `setup-fixtures-filemode.sh` (plain files, no git) | `*.filemode.spec.ts` |
+| `single-file-mode` | 3125 | `setup-fixtures-singlefile.sh` (one markdown file) | `*.singlefile.spec.ts` |
+| `no-git-mode` | 3126 | `setup-fixtures-nogit.sh` (file mode without git) | `*.nogit.spec.ts` |
+| `multi-file-mode` | 3127 | `setup-fixtures-multifile.sh` (code + markdown files) | `*.multifile.spec.ts` |
+| `range-mode` | 3128 | `setup-fixtures-range-mode.sh` (`--range A..B` stacked git) | `*.rangemode.spec.ts` |
 
-| File                               | Mode   | What it covers                                                      |
-| ---------------------------------- | ------ | ------------------------------------------------------------------- |
-| `loading.spec.ts`                  | git    | Branch name, title, file tree, status icons, stats                  |
-| `loading.filemode.spec.ts`         | file   | Title, no branch, no diff toggle, document view defaults            |
-| `diff-rendering.spec.ts`           | git    | Split/unified diffs, hunk headers, spacer expand, mode persistence  |
-| `markdown.spec.ts`                 | git    | Headings, tables, code blocks, lists, blockquotes, line gutters     |
-| `comments.spec.ts`                 | git    | Add/edit/delete comments on markdown and diff lines, cross-file     |
-| `comments.filemode.spec.ts`        | file   | Comment CRUD on markdown in file mode                               |
-| `comments-panel.spec.ts`           | git    | View all comments panel                                             |
-| `comment-count-badge.spec.ts`      | git    | Comment count badge in header                                       |
-| `comment-nav.spec.ts`              | git    | Comment navigation: ] / [ shortcuts, prev/next buttons              |
-| `comment-range-highlight.spec.ts`  | git    | Highlighted line ranges for comments                                |
-| `multi-form.spec.ts`               | git    | Multiple comment forms open simultaneously                          |
-| `cli-comment.spec.ts`              | git    | `crit comment` CLI writes synced to running server via SSE          |
-| `agent-request.spec.ts`            | git    | Send to agent button and integration                                |
-| `approve-button.spec.ts`           | git    | Approve button: finish/approve text reacts to resolve state         |
-| `templates.spec.ts`                | git    | Comment template chips                                              |
-| `keyboard.spec.ts`                 | git    | j/k navigation, c/e/d shortcuts, ?, t, Shift+F, Escape              |
-| `keyboard.filemode.spec.ts`        | file   | Same keyboard shortcuts in file mode                                |
-| `theme.spec.ts`                    | git    | Light/dark/system toggle, persistence, file sections, finish review |
-| `theme.filemode.spec.ts`           | file   | Theme, TOC, file sections, finish review in file mode               |
-| `drag-selection.spec.ts`           | git    | Gutter drag on markdown and diff (split + unified)                  |
-| `drag-selection.filemode.spec.ts`  | file   | Gutter drag on markdown in file mode                                |
-| `md-toggle.spec.ts`                | git    | Document/diff toggle for markdown, cross-view comment persistence   |
-| `rendered-diff.filemode.spec.ts`   | file   | Rendered markdown diff view in file mode                            |
-| `syntax-highlighting.spec.ts`      | git    | Syntax highlighting in diff code blocks                             |
-| `lazy-loading.spec.ts`             | git    | Lazy loading of file diffs                                          |
-| `expanded-comments.spec.ts`        | git    | Comments on spacer-expanded context lines                           |
-| `draft-autosave.spec.ts`           | git    | Draft persistence to localStorage, toast notification               |
-| `file-comments.spec.ts`            | git    | File-level (non-line) comments                                      |
-| `file-comments.filemode.spec.ts`   | file   | File-level comments in file mode                                    |
-| `file-tree.spec.ts`                | git    | File tree panel, status icons, active state, comment badges         |
-| `file-tree.filemode.spec.ts`       | file   | File tree panel, clicking, comment badges in file mode              |
-| `scope-toggle.spec.ts`             | git    | Diff scope toggle (all/branch/staged/unstaged)                      |
-| `round-complete.spec.ts`           | git    | Multi-round API (finish, round-complete), SSE refresh, UI state     |
-| `round-complete.filemode.spec.ts`  | file   | Multi-round API + frontend in file mode                             |
-| `share.spec.ts`                    | git    | Share button visibility, config API defaults                        |
-| `share.filemode.spec.ts`           | file   | Share in file mode                                                  |
-| `share.multifile.spec.ts`          | multi  | Share in multi-file mode                                            |
-| `viewed.spec.ts`                   | git    | Viewed state persistence across round transitions                   |
-| `change-nav.filemode.spec.ts`      | file   | File change navigation                                              |
-| `review-comments.spec.ts`          | git    | Review-level (general) comments                                     |
-| `review-comments.filemode.spec.ts` | file   | Review-level comments in file mode                                  |
-| `select-to-comment.spec.ts`        | git    | Text selection to comment                                           |
-| `select-to-comment.filemode.spec.ts` | file | Text selection to comment in file mode (document view for code)     |
-| `word-diff.spec.ts`                | git    | Word-level diff rendering                                           |
-| `suggestion-diff.spec.ts`          | git    | Suggestion diff display                                             |
-| `old-side-suggest.spec.ts`         | git    | Suggestions on old-side (deletion) lines                            |
-| `toc.singlefile.spec.ts`           | single | Table of contents                                                   |
-| `toc-scrollspy.singlefile.spec.ts` | single | TOC scroll-spy highlighting                                         |
-| `multifile.multifile.spec.ts`      | multi  | Loading, code rendering, comments on Go/Elixir, directory files     |
-| `threading.spec.ts`                | git    | Comment threading: replies, resolve/unresolve, collapse             |
-| `commit-selection.spec.ts`         | git    | Commit selection sidebar, per-commit file list and diffs            |
-| `file-picker.spec.ts`              | git    | @-triggered file picker autocomplete in comment forms               |
-| `file-picker.filemode.spec.ts`     | file   | @-triggered file picker in file mode                                |
-| `toc-refresh.singlefile.spec.ts`   | single | TOC refresh when file content changes                               |
-| `unstaged-comments.spec.ts`        | git    | Comments on unstaged changes                                        |
-| `nogit.nogit.spec.ts`              | no-git | Git-absence invariants: no branch, no diff toggle, session mode     |
-| `range-loading.rangemode.spec.ts`  | range  | Range mode loads SHA-pinned files only; header label shows range    |
-| `range-comments.rangemode.spec.ts` | range  | Comments authored in range mode are stamped with head_sha+diff_scope|
-| `scope-toggle.rangemode.spec.ts`   | range  | Layer/full-stack toggle visibility + full-stack default-SHA gate    |
-| `focus-switch.rangemode.spec.ts`   | range  | Switching focus to working tree refreshes file list                 |
+CI runs E2E on push to `main` and PRs via `.github/workflows/test.yml`. Failed test artifacts are uploaded.
 
-### Writing new tests
+### Best practices
 
-- **Git-mode tests**: name as `*.spec.ts` — runs against the git fixture on port 3123
-- **File-mode tests**: name as `*.filemode.spec.ts` — runs against the file fixture on port 3124
-- **Single-file tests**: name as `*.singlefile.spec.ts` — runs against single-file fixture on port 3125
-- **No-git tests**: name as `*.nogit.spec.ts` — runs against the no-git fixture on port 3126
-- **Multi-file tests**: name as `*.multifile.spec.ts` — runs against the multi-file fixture on port 3127
-- **Range-mode tests**: name as `*.rangemode.spec.ts` — runs against the range fixture on port 3128 (stacked git fixture booted with `--range A..B`)
-- **Comment cleanup**: the server persists comments between tests. Use `clearAllComments(request)` in `beforeEach` to reset state — this calls `DELETE /api/comments` (bulk endpoint)
-- **Shared helpers**: import from `./helpers` — provides `clearAllComments`, `loadPage`, `mdSection`, `goSection`, `jsSection`, `switchToDocumentView`, `dragBetween`, `clearFocus`, `addComment`, `getMdPath`
-- **Markdown in git mode**: defaults to diff view. Call `switchToDocumentView()` helper to test document rendering
-- **Markdown in file mode**: defaults to document view. No toggle needed
+- **Never `waitForTimeout` / `setTimeout`** for state. Use auto-retrying assertions (`toPass()`, `toHaveClass()`, `toBeVisible()`). Sleep is OK only inside polling loops where you're already retrying.
+- **Never `.count()` followed by `expect(count).toBe(N)`** — that's a snapshot. Use `await expect(locator).toHaveCount(N)` or wrap in `toPass()`.
+- **Always import shared helpers from `./helpers`** (the file is `e2e/tests/helpers.ts`, plus `range-helpers.ts` for range-mode tests): `clearAllComments`, `loadPage`, `mdSection`, `goSection`, `jsSection`, `switchToDocumentView`, `dragBetween`, `clearFocus`, `addComment`, `getMdPath` (and `rangeFixture`, `ensureRangeFocus`, `ensureStackedFocus` from `range-helpers`). Don't redefine locally. Use `Page` types, not `any`.
+- **Always call `clearAllComments(request)` in `beforeEach`** — server persists comments across tests. This calls `DELETE /api/comments` (bulk endpoint).
+- **Markdown defaults**: git mode → diff view (call `switchToDocumentView()`); file mode → document view (no toggle).
+- **Parallel execution**: projects run in parallel via shell. Within a project, tests run sequentially (`workers: 1`) — don't change this; they share server state.
+- **Scroll before interact**: in file-mode (multiple files below the fold), call `scrollIntoViewIfNeeded()` before hover/click/drag.
+- **CSS selectors**: check existing tests for class names (e.g. `.tree-comment-badge`, not `.tree-file-comments`).
+</important>
 
-### E2E best practices
+<important if="you are running or modifying share integration tests (build tag: integration)">
 
-- **Never use `waitForTimeout` or `setTimeout`** for waiting on state. Use Playwright auto-retrying assertions (`toPass()`, `toHaveClass()`, `toBeVisible()`, etc.) instead. The only exception is a sleep interval inside a polling loop where you're already retrying.
-- **Never use `.count()` followed by `expect(count).toBe(N)`** — this is a snapshot that doesn't retry. Use `await expect(locator).toHaveCount(N)` or wrap in `toPass()` for range checks.
-- **Always import from `./helpers`** — don't redefine `loadPage`, `mdSection`, etc. locally. If a test needs a fixture-specific helper, define it in that file but use `Page` types, not `any`.
-- **Use `clearAllComments(request)` in `beforeEach`** — the server persists state across tests. Always clean up.
-- **Parallel execution**: projects run in parallel via shell (each in its own `npx playwright test --project=X` process). Tests within a project run sequentially (`workers: 1`) because they share server state. Don't add `workers > 1` to `playwright.config.ts`.
-- **Test naming convention**: `*.spec.ts` (git-mode), `*.filemode.spec.ts` (file-mode), `*.singlefile.spec.ts` (single-file), `*.nogit.spec.ts` (no-git-mode), `*.multifile.spec.ts` (multi-file). The git-mode regex explicitly excludes all other patterns.
-- **CSS selectors**: check existing tests for the correct class names before writing assertions. The codebase uses specific names like `.tree-comment-badge` (not `.tree-file-comments`).
-- **Scroll before interact**: if an element might be below the viewport (especially in file-mode with multiple files), call `scrollIntoViewIfNeeded()` before hover/click/drag.
+`share_integration_test.go` exercises the crit ↔ crit-web share flow. When modifying share logic, the share payload, comment sync, or any crit-web interaction:
 
-## API Endpoints
+1. Run: `make e2e-share` (or `./scripts/e2e-share.sh`)
+2. Add new test cases for new share functionality — name them `TestShareSync*`
+3. Inspect on web: `./scripts/e2e-share.sh --serve` starts crit-web and logs review URLs
+
+Requires a local crit-web checkout at `../crit-web` and PostgreSQL. See `scripts/AGENTS.md` for full details.
+</important>
+
+<important if="you are adding or modifying HTTP API endpoints in server.go">
+
+All routes wrapped with `s.withReady` return 503 until session init completes — except `/api/health` and `/api/qr`.
 
 Session-scoped:
 
-- `GET  /api/session` — session metadata: mode, branch, baseRef, reviewRound, file list with stats
-- `GET  /api/config` — returns `{share_url, hosted_url, delete_token, version, latest_version}`
+- `GET  /api/health` — liveness probe (no readiness gate; used for daemon health checks)
+- `GET  /api/qr` — QR code for current shared URL
+- `GET  /api/session` — session metadata
+- `GET  /api/config` — `{share_url, hosted_url, delete_token, version, latest_version, ...}`
+- `GET  /api/review-cycle` — review-cycle metadata (round number, edits-since-last)
+- `POST /api/share` — perform a share (POST to crit-web `/api/reviews`); returns URL+delete_token
+- `POST /api/share-url` / `DELETE /api/share-url` — persist or unpublish shared URL
 - `POST /api/finish` — write review file, return prompt for agent
-- `GET  /api/events` — SSE stream (file-changed, edit-detected, server-shutdown events)
-- `GET  /api/wait-for-event` — long-poll that blocks until finish, returns event JSON (used by `crit` in daemon mode)
-- `POST /api/round-complete` — agent signals all edits are done; triggers new round
-- `POST /api/share-url` — persist `{url, delete_token}` to the review file after upload
-- `DELETE /api/share-url` — unpublish: calls crit-web DELETE and clears local persisted URL
-- `POST /api/agent/request` — send a comment to the configured agent command (requires `agent_cmd` config)
+- `GET  /api/events` — SSE stream (file-changed, edit-detected, server-shutdown)
+- `GET  /api/wait-for-event` — long-poll until finish (used by `crit` daemon mode)
+- `POST /api/round-complete` — agent signals all edits done; triggers new round
+- `…/api/focus` — set/clear focus (file or range scope)
+- `…/api/picker` — file-picker UI backend
+- `POST /api/agent/request` — send comment to configured `agent_cmd`
+- `GET  /api/branches` — list local branches (for base-branch picker)
+- `GET|POST /api/base-branch` — read/update active base branch
 - `GET  /api/commits` — list commits between base ref and HEAD (git mode only)
-- `GET  /api/comments` — list review-level (general) comments
-- `POST /api/comments` — add review-level comment `{body}`
-- `DELETE /api/comments` — bulk delete all comments across all files (used by E2E test cleanup)
-- `PUT  /api/review-comment/{id}` — update review comment `{body}`
-- `DELETE /api/review-comment/{id}` — delete review comment
-- `PUT  /api/review-comment/{id}/resolve` — set resolved state `{resolved: bool}`
-- `POST /api/review-comment/{id}/replies` — add reply `{body, author}`
-- `PUT  /api/review-comment/{id}/replies/{rid}` — update reply `{body}`
-- `DELETE /api/review-comment/{id}/replies/{rid}` — delete reply
+- `GET  /api/files/list` — list session files (lighter than `/api/session`)
+- `GET|POST /api/comments` — list/add review-level comments
+- `PUT|DELETE /api/review-comment/{id}` (and `/replies[/{rid}]`, `/resolve`) — review-comment CRUD
 
-File-scoped (use `?path=` query param):
+File-scoped (require `?path=X`):
 
 - `GET  /api/file?path=X` — file content + metadata
 - `GET  /api/file/diff?path=X` — diff hunks (git diff for code; inter-round diff for markdown)
-- `GET  /api/file/comments?path=X` — comments for one file
-- `POST /api/file/comments?path=X` — add comment `{start_line, end_line, body}` or file-level `{body, scope: "file"}` (10MB body limit)
-- `PUT  /api/comment/{id}?path=X` — update comment `{body}` (10MB body limit)
-- `DELETE /api/comment/{id}?path=X` — delete comment
-- `POST   /api/comment/{id}/replies?path=X` — add reply `{body, author}`
-- `PUT    /api/comment/{id}/replies/{rid}?path=X` — edit reply `{body}`
-- `DELETE /api/comment/{id}/replies/{rid}?path=X` — delete reply
-- `PUT    /api/comment/{id}/resolve?path=X` — set resolved state `{resolved: bool}`
+- `GET|POST /api/file/comments?path=X` — list/add comments (10MB body limit on POST)
+- `PUT|DELETE /api/comment/{id}?path=X` — update or delete (10MB body limit on PUT)
+- `POST|PUT|DELETE /api/comment/{id}/replies[/{rid}]?path=X` — reply CRUD
+- `PUT /api/comment/{id}/resolve?path=X` — set resolved state
 
-Static:
+Static: `GET /files/<path>` — serve files from repo root (path traversal protected). `GET /` — embedded frontend assets.
+</important>
 
-- `GET  /files/<path>` — serve files from repo root (path traversal protected)
-
-## Security
+<important if="you are modifying server security, request handling, or path-validation logic">
 
 - Server binds to `127.0.0.1` only
-- `/files/` endpoint validates paths, blocks `..` traversal, verifies resolved path stays within repo root
-- Request body size limited to 10MB for comments, 1MB for share-url via `http.MaxBytesReader`
-- HTTP server has `ReadTimeout: 15s`, `IdleTimeout: 60s` (no `WriteTimeout` — SSE needs open connections)
-- Comment renderer uses `html: false` to prevent XSS in user comments
-- Document renderer uses `html: true` intentionally (reviewing your own local files)
+- `/files/` validates paths, blocks `..` traversal, verifies resolved path stays within repo root
+- Body size: 10MB for comments, 1MB for share-url via `http.MaxBytesReader`
+- HTTP server: `ReadTimeout: 15s`, `IdleTimeout: 60s` (no `WriteTimeout` — SSE needs open connections)
+- Comment renderer uses `html: false` (XSS prevention in user comments)
+- Document renderer uses `html: true` intentionally (reviewing local files)
+</important>
 
-## Frontend Architecture
+<important if="you are modifying frontend/ — app.js, style.css, theme.css, or index.html">
 
-Frontend is split into four files: `index.html` (HTML shell), `app.js` (all logic), `style.css` (layout/components), and `theme.css` (color theme variables).
+Frontend split: `index.html` (HTML shell), `app.js` (all logic), `style.css` (layout/components), `theme.css` (theme variables).
 
-### Multi-File State Model
+### Multi-file state model
 
-```javascript
-let session = {}; // { mode, branch, base_ref, review_round, files: [...] }
-let files = []; // [{ path, status, fileType, content, diffHunks, comments, lineBlocks, ... }]
-let activeForms = []; // multiple comment forms can be open simultaneously
-// each: { filePath, afterBlockIndex, startLine, endLine, editingId }
-```
+Three top-level globals in `app.js`: `session` (mode, branch, base_ref, review_round, files), `files` (per-file render state with comments, lineBlocks), `activeForms` (multiple comment forms can be open simultaneously). See top of `app.js` for shapes.
 
-### Source Line Mapping (Markdown Files)
+### Source line mapping (markdown)
 
-1. Parse markdown with `markdown-it` to get tokens with `token.map` (source line ranges)
+1. Parse with `markdown-it` to get tokens with `token.map` (source line ranges)
 2. `buildLineBlocks()` dispatches to per-token-type handlers: `handleFenceToken`, `handleListToken`, `handleTableToken`, `handleBlockquoteToken`
-3. Container tokens (lists, tables, blockquotes) are drilled into — each list item, table row, or blockquote child becomes its own block
-4. Code blocks (`fence` tokens) are split into per-line blocks with syntax highlighting preserved via `splitHighlightedCode()`
+3. Container tokens (lists, tables, blockquotes) are drilled into — each item/row/child becomes its own block
+4. Code blocks (`fence` tokens) split into per-line blocks with syntax highlighting preserved via `splitHighlightedCode()`
 5. Each block gets a gutter entry with its source line number(s)
 6. Comments are keyed by `end_line` and displayed after their referenced block
 
-### Diff Hunk Rendering (Code Files)
+### Diff hunk rendering (code files)
 
-Code files display as git diffs with:
+Hunk headers (`@@ -27,6 +31,23 @@`), dual gutters, colored backgrounds for additions/deletions, spacers between hunks, inline comment via gutter `+` buttons.
 
-- Hunk headers (`@@ -27,6 +31,23 @@`)
-- Dual-gutter (old line / new line numbers)
-- Colored backgrounds for additions/deletions
-- Spacers between hunks
-- Inline comment support via gutter `+` buttons
+### Known complexities
 
-### Known Complexities
+- `markdown-it` token.map quirks: last list item often claims a trailing blank line — code trims trailing blank lines from item ranges.
+- Table separators (`|---|---|`): not in tokens, appear as gap lines. Detected via regex and hidden with CSS.
+- Per-row tables: each row in its own `<table>` with `table-layout: fixed` + `<colgroup>` for column alignment.
+- `splitHighlightedCode()` tracks open `<span>` tags across lines to properly close/reopen them.
+</important>
 
-- **markdown-it token.map quirks**: The last item in a list often claims a trailing blank line. The code trims trailing blank lines from item ranges.
-- **Table separator lines** (`|---|---|`): Not represented in tokens, appear as gap lines. Detected via regex and hidden with CSS.
-- **Per-row tables**: Each row wrapped in its own `<table>` with `table-layout: fixed` + `<colgroup>` for column alignment.
-- **Highlighted code splitting**: `splitHighlightedCode()` tracks open `<span>` tags across lines to properly close/reopen them.
+<important if="you are adding CSS variables or modifying theme.css">
 
-## Theme System
-
-The header has a 3-button theme pill (System / Light / Dark):
+Header has a 3-button theme pill (System / Light / Dark):
 
 - No `data-theme` attribute → system preference via `prefers-color-scheme`
 - `data-theme="light"` / `data-theme="dark"` → explicit override
-- CSS vars are set in `:root` (dark fallback), `@media (prefers-color-scheme: light) html:not([data-theme])`, `[data-theme="dark"]`, and `[data-theme="light"]` blocks.
-- Theme choice persisted via the `crit-settings` cookie (`theme` key, `"system"` | `"light"` | `"dark"`).
+- CSS vars are set in `:root` (dark fallback), `@media (prefers-color-scheme: light) html:not([data-theme])`, `[data-theme="dark"]`, and `[data-theme="light"]` blocks. **Define every new variable in all four blocks.**
+- Theme choice persisted via `crit-settings` cookie (`theme` key, `"system"` | `"light"` | `"dark"`).
+- Use CSS custom properties from `theme.css` for all colors. Never hardcode hex values.
+</important>
 
-## Share Feature
+<important if="you are modifying share, unpublish, or share-button UI in crit/">
 
 Sharing is opt-in. When `--share-url` (or `CRIT_SHARE_URL` env var, or `share_url` in config file) is set:
 
-- The Share button appears in the header.
-- Clicking it POSTs the current document + comments to `{share_url}/api/reviews` (crit-web API).
-- The response `{url, delete_token}` is persisted to the review file via `POST /api/share-url`.
-- A share-notice banner shows the URL with Copy / Unpublish actions.
-- Unpublish calls `DELETE {share_url}/api/reviews?delete_token=...` then clears local state.
+- Share button appears in the header
+- Click POSTs document + comments to `{share_url}/api/reviews` (crit-web API)
+- Response `{url, delete_token}` persisted to review file via `POST /api/share-url`
+- Share-notice banner shows the URL with Copy / Unpublish actions
+- Unpublish calls `DELETE {share_url}/api/reviews?delete_token=...` then clears local state
+</important>
 
-### Share Integration Tests
+<important if="you are modifying multi-round logic, round-complete, or finish handling">
 
-`share_integration_test.go` contains end-to-end tests for the crit ↔ crit-web share flow (build tag: `integration`). When modifying share logic, the share payload, comment sync, or any crit-web interaction:
+When the agent runs `crit` again (or calls `POST /api/round-complete`):
 
-1. **Run the tests**: `make e2e-share` (or `./scripts/e2e-share.sh`)
-2. **Add new test cases** for any new share functionality — name them `TestShareSync*`
-3. **Verify on web**: tests log review URLs; use `./scripts/e2e-share.sh --serve` to start crit-web and inspect reviews in browser
+- **Markdown files**: snapshot content, carry forward unresolved comments, re-read from disk
+- **Code files**: re-run git diff against base ref to get updated hunks
+- **File list**: re-run `ChangedFiles()` to detect new/removed files
+- Waiting modal shows live count of file edits while the agent works
+- Diff toggle for markdown shows inter-round changes
+</important>
 
-Requires a local crit-web checkout at `../crit-web` and PostgreSQL. See `scripts/AGENTS.md` for full details.
-
-## Multi-Round Review
-
-When the agent runs `crit` (or calls `POST /api/round-complete`):
-
-- **Markdown files**: Snapshot content, carry forward unresolved comments, re-read from disk
-- **Code files**: Re-run git diff against base ref to get updated hunks
-- **File list**: Re-run `ChangedFiles()` to detect new/removed files
-- The waiting modal shows a live count of file edits while the agent is working
-- Diff toggle for markdown files shows inter-round changes
-
-## Daemon Architecture
+<important if="you are modifying daemon spawning, session lookup, or ~/.crit/sessions/">
 
 `crit` manages a background daemon for seamless multi-round reviews:
 
 1. **First `crit`**: starts background daemon (`crit _serve`), opens browser, blocks for feedback
-2. **Subsequent `crit`**: connects to existing daemon (same cwd + args), signals round-complete, blocks for feedback
+2. **Subsequent `crit`**: connects to existing daemon (same cwd + args), signals round-complete, blocks
 3. **`crit plan.md`**: looks up daemon by hash(cwd + "plan.md") — reuses if alive, starts new if dead
 4. **Ctrl+C**: kills the daemon the client started
-5. **`crit stop`**: kills the daemon for current cwd (no args). `crit stop --all` kills all daemons for current cwd
+5. **`crit stop`**: kills daemon for current cwd; `crit stop --all` kills all daemons for cwd
 6. **Idle timeout**: daemon exits after 1 hour of no HTTP activity
 
-### Deferred Initialization & Readiness
+### Deferred initialization & readiness
 
-The daemon signals readiness (via the OS pipe) as soon as the HTTP port is bound, but session initialization (git operations, file reads) continues in the background. Until `SetSession()` is called, most endpoints return **503 Service Unavailable**.
+The daemon signals readiness (via OS pipe) as soon as the HTTP port is bound, but session init (git, file reads) continues in the background. Until `SetSession()` is called, most endpoints return **503 Service Unavailable**.
 
-**Any client code that connects to a daemon must poll `/api/session` until it stops returning 503 before calling other endpoints.** See `runReviewClient` and `runReviewClientRaw` for the canonical readiness loop pattern. Skipping this poll causes race conditions where endpoints return 503, and error-fallback paths may silently allow/approve when they shouldn't.
+**Any client connecting to a daemon must poll `/api/session` until it stops returning 503 before calling other endpoints.** See `runReviewClient` and `runReviewClientRaw` for the canonical readiness loop. Skipping this poll causes races where endpoints return 503, and error-fallback paths may silently allow/approve when they shouldn't.
 
-### Session Registry
+### Session registry
 
-Daemon state lives in `~/.crit/sessions/` with one file per session. Git mode (no args): `sha256(cwd + "\0" + branch)[:12]`. File mode (args present): `sha256(cwd + "\0" + args...)[:12]` — branch is excluded because file reviews are not branch-dependent:
+Daemon state in `~/.crit/sessions/`, one file per session.
+- Git mode (no args): `sha256(cwd + "\0" + branch)[:12]`
+- File mode (args present): `sha256(cwd + "\0" + args...)[:12]` (branch excluded — file reviews aren't branch-dependent)
 
-```
-~/.crit/sessions/
-├── a1b2c3d4e5f6.json   # crit (git mode) on branch "feat-x" in /path/to/repo
-├── f6e5d4c3b2a1.json   # crit plan.md in /path/to/repo
-└── ...
-```
+Session file: `{"pid", "port", "cwd", "args", "branch", "review_path", "started_at"}`. Review data lives at `~/.crit/reviews/<key>.json` (same key).
 
-Session file format: `{"pid", "port", "cwd", "args", "branch", "review_path", "started_at"}`.
+`crit _serve` runs the server in foreground (used by daemon spawning, not user-facing).
+</important>
 
-Review data lives in `~/.crit/reviews/<key>.json` (same key as the session).
+<important if="you are reviewing code or evaluating audit findings for this project">
 
-Internal command: `crit _serve` runs the server in foreground (used by daemon spawning, not user-facing).
+Calibrate against the tool's actual scale before flagging issues. False-positive filters:
 
-## Code Conventions & Review Standards
-
-When reviewing or writing code for this project, apply these calibrated standards:
-
-### Go Backend
-
-- **Unexport what isn't needed.** This is `package main` (a binary, not a library). If a function/type is only used within the package, it should be unexported. Check before adding new exports.
-- **CSS variables for all colors.** Frontend colors must use CSS custom properties from `theme.css`, never hardcoded hex values. The theme system (light/dark/system) depends on this.
-- **Don't add context.Context to local git operations.** All git commands in this codebase are read-only local operations (diff, status, log, rev-parse). They complete in milliseconds and don't touch the network. The one path that benefits from context (`fileDiffUnifiedCtx` for lazy loading) already has it. Don't cargo-cult server patterns into a localhost CLI.
-- **O(n) scans over file lists are fine.** Typical sessions have 5-50 files. A linear scan of `fileByPathLocked` is nanoseconds. Don't add map indices unless profiling shows a real bottleneck.
-- **Mechanical duplication can be OK.** The comment CRUD operations (review vs file-scoped) are structurally identical but stable and rarely touched. Don't abstract stable boilerplate unless you're adding new operations and the duplication would grow.
-
-### Frontend (Vanilla JS)
-
-- **Use `let`/`const`, not `var`** for new code. Don't mass-convert existing `var` in unrelated changes (churn risk in a 7200-line file), but always use modern declarations in new or modified functions.
-- **Use `addEventListener`, not inline `onclick`** for new code. Existing inline handlers in toast HTML are acceptable (localhost, no CSP).
-- **Don't fight browser built-ins.** `EventSource` auto-reconnects natively. `<details>`/`<summary>` handles keyboard natively. Don't add custom logic that reimplements or breaks built-in behavior.
-- **Remove unused parameters and dead CSS.** Unused function parameters in JS aren't caught by a type checker — they accumulate confusion. Dead CSS rules are invisible clutter.
-
-### Code Review Calibration
-
-When reviewing this project, apply these filters to avoid false positives:
-
-- **"Is this a real problem at this tool's scale?"** This is a localhost-only, single-user CLI. Patterns that matter for cloud services (context propagation, map-based lookups, connection pooling) often don't apply here.
+- **"Real problem at this scale?"** Localhost-only, single-user CLI. Patterns that matter for cloud services (context propagation, map-based lookups, connection pooling) often don't apply. Typical sessions: 5–50 files, <50 comments.
 - **"Does the execution model make this possible?"** JavaScript is single-threaded — there are no race conditions between synchronous scope assignments and async fetches. Verify the threading model before claiming races.
-- **"What are realistic inputs?"** Markdown files can be 10,000+ lines (AI-generated plans). File lists are <100 entries. Comment counts are <50. Performance concerns for large markdown files are legitimate; performance concerns for file-list or comment-list operations are not.
-- **"Is the abstraction simpler than the duplication?"** For a single-file vanilla JS app and a flat Go CLI, inline code is often clearer than extracted helpers. Don't abstract for fewer than 3 call sites.
+- **"Realistic inputs?"** Markdown files can be 10,000+ lines (AI-generated plans) — perf concerns for large markdown are legitimate. Perf concerns for file lists or comment lists are not.
+- **"Simpler than the duplication?"** For a single-file vanilla JS app and a flat Go CLI, inline code is often clearer than extracted helpers. Don't abstract for fewer than 3 call sites.
 
-## Output Files
+Project-specific calibration:
 
-| File                            | Description                                                                                                                                                                                                                                                  |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `~/.crit/reviews/<key>.json`    | Centralized review data — structured JSON with per-file comments and review-level comments, read by AI agents. Comments have a `scope` field: `"line"` (inline), `"file"` (file-level), or `"review"` (general). Review-level comments live in the top-level `review_comments` array. Use `crit status` to see the active review file path. |
+- **Unexport what isn't needed.** This is `package main` (a binary, not a library). If a function/type is only used within the package, it should be unexported.
+- **Don't add `context.Context` to local git operations.** All git commands here are read-only local ops (diff, status, log, rev-parse). They complete in milliseconds and don't touch the network. The one path that benefits from context (`fileDiffUnifiedCtx` for lazy loading) already has it.
+- **O(n) scans over file lists are fine.** A linear scan of `fileByPathLocked` is nanoseconds. Don't add map indices unless profiling shows a real bottleneck.
+- **Mechanical duplication can be OK.** Comment CRUD (review vs file-scoped) is structurally identical but stable. Don't abstract stable boilerplate unless adding new operations would grow the duplication.
+- **Don't fight browser built-ins.** `EventSource` auto-reconnects natively. `<details>`/`<summary>` handles keyboard natively. Don't reimplement.
+</important>
 
-## Common Mistakes (from audit history)
+<important if="you are about to claim work is complete — pre-completion checklist">
 
-These issues have been found repeatedly in AI-generated code for this project. Check each one before considering work complete. Only items NOT caught by automated tooling (golangci-lint, ESLint, Stylelint, axe-core) are listed here.
+These issues recur in AI-generated code for this project. Only items NOT caught by automated tooling (golangci-lint, ESLint, Stylelint, axe-core) are listed.
 
-### Go Backend
+### Go backend
 1. Forgetting to clear review-level comments when clearing file comments
 2. Missing fields in struct construction (silent data loss)
-3. Creating wrapper functions that just delegate to another function
+3. Creating wrapper functions that just delegate
 4. Inline reimplementation of existing helper functions
 5. Mixing `git status --porcelain` and `git diff --name-status` inconsistently
 6. Not validating daemon health check response body
 
 ### Frontend JS
-1. Missing `aria-label` on icon-only buttons (axe-core catches this in E2E, but prevent at source)
+1. Missing `aria-label` on icon-only buttons (axe-core catches in E2E, but prevent at source)
 2. Not checking `response.ok` after `fetch()`
 3. Not resetting navigation state on context changes
 4. SSE handlers re-fetching more data than changed
@@ -474,13 +369,15 @@ These issues have been found repeatedly in AI-generated code for this project. C
 
 ### Frontend CSS
 1. Not defining new CSS variables in all 4 theme blocks
-2. Leaving dead selectors after renaming CSS classes or DOM element IDs
-3. Referencing undefined CSS variables (check-css-vars.sh catches this in pre-commit)
+2. Leaving dead selectors after renaming CSS classes or DOM IDs
+3. Referencing undefined CSS variables (check-css-vars.sh catches in pre-commit)
+</important>
 
-## Context Compaction
+<important if="you are compacting context or summarizing this session">
 
-When compacting, always preserve:
+Always preserve:
 - The list of files modified in this session
 - Any unresolved review comments or crit feedback
 - The current phase of any multi-phase workflow (review, ship, audit)
 - Which worktree you're working in
+</important>
