@@ -12,7 +12,7 @@
   },
   "devDependencies": {
     "esbuild": "^0.28.0",
-    "eslint": "^10.2.1",
+    "eslint": "^10.3.0",
     "stylelint": "^17.9.1"
   }
 }
