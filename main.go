@@ -801,6 +801,17 @@ func loadPushContext(args []string) pushContext {
 		os.Exit(1)
 	}
 
+	// Redirect when the user passed an explicit PR number and the cwd-resolved
+	// review file is for a different branch — pushing the wrong comments to a
+	// PR is destructive, so honor the explicit intent first. Same pattern as
+	// PR #424's findReviewFileByCommentID fallback for `crit comment`.
+	if f.prFlag != 0 && f.outputDir == "" && cj.Branch != "" {
+		if altPath, altCJ, ok := redirectReviewPathForPR(prNumber, cj.Branch, critPath); ok {
+			critPath = altPath
+			cj = altCJ
+		}
+	}
+
 	return pushContext{flags: f, event: event, prNumber: prNumber, critPath: critPath, cj: cj}
 }
 
