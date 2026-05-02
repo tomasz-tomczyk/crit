@@ -2471,6 +2471,7 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   .header-context { display: none; }
   .base-branch-picker { display: none; }
   .file-tree-panel { display: none; }
+  .sidebar-resize-handle { display: none !important; }
   #updateBtn { display: none !important; }
   .file-header { padding: 8px 12px; }
   .file-header-toggle { display: none; }
@@ -2496,6 +2497,36 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 .main-content {
   flex: 1;
   min-width: 0;
+}
+
+/* ===== Sidebar Resize Handles ===== */
+/* Thin draggable strip on the inner edge of each sidebar. Default transparent;
+   the brand-color line on hover/drag is the only visual affordance. Sticky so
+   it tracks the viewport vertically while pages scroll. */
+.sidebar-resize-handle {
+  flex: 0 0 4px;
+  align-self: stretch;
+  cursor: col-resize;
+  position: sticky;
+  top: var(--header-height, 49px);
+  height: calc(100vh - var(--header-height, 49px));
+  z-index: 86;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.dragging {
+  background: var(--crit-brand);
+}
+/* Hide the comments-panel resizer when its panel is hidden. */
+.main-layout:has(#commentsPanel.comments-panel-hidden) #commentsPanelResizer {
+  display: none;
+}
+/* Suppress text selection and force resize cursor while dragging. */
+body.sidebar-resizing,
+body.sidebar-resizing * {
+  user-select: none !important;
+  cursor: col-resize !important;
 }
 
 /* ===== File Tree Sidebar ===== */
