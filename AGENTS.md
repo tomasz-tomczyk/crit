@@ -352,7 +352,7 @@ The header has a 3-button theme pill (System / Light / Dark):
 - No `data-theme` attribute → system preference via `prefers-color-scheme`
 - `data-theme="light"` / `data-theme="dark"` → explicit override
 - CSS vars are set in `:root` (dark fallback), `@media (prefers-color-scheme: light) html:not([data-theme])`, `[data-theme="dark"]`, and `[data-theme="light"]` blocks.
-- Theme choice persisted to `localStorage` as `crit-theme` (`"system"` | `"light"` | `"dark"`).
+- Theme choice persisted via the `crit-settings` cookie (`theme` key, `"system"` | `"light"` | `"dark"`).
 
 ## Share Feature
 

@@ -245,6 +245,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			Agent    string `json:"agent"`
 			Location string `json:"location"`
 			Hint     string `json:"hint"`
+			Hash     string `json:"hash,omitempty"`
 		}
 		var items []staleInfo
 		seen := make(map[string]bool)
@@ -254,7 +255,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			seen[hint] = true
-			items = append(items, staleInfo{Agent: sf.agent, Location: sf.location, Hint: hint})
+			items = append(items, staleInfo{Agent: sf.agent, Location: sf.location, Hint: hint, Hash: sf.hash})
 		}
 		resp["stale_integrations"] = items
 	}

@@ -158,6 +158,67 @@
     return match ? decodeURIComponent(match[1]) : null;
   }
 
+  // ===== Settings (consolidated cookie) =====
+  // All persisted view preferences live in a single `crit-settings` JSON cookie.
+  // Exception: `crit-templates` stays in its own cookie because it's user-defined
+  // and can be longer than the rest combined.
+  const SETTINGS_COOKIE = 'crit-settings';
+  let settingsCache = null;
+
+  function loadSettings() {
+    if (settingsCache) return settingsCache;
+    const raw = getCookie(SETTINGS_COOKIE);
+    try { settingsCache = raw ? JSON.parse(raw) : {}; }
+    catch { settingsCache = {}; }
+    return settingsCache;
+  }
+
+  function getSetting(key, fallback) {
+    const v = loadSettings()[key];
+    return v === undefined ? fallback : v;
+  }
+
+  function setSetting(key, value) {
+    const s = loadSettings();
+    s[key] = value;
+    setCookie(SETTINGS_COOKIE, JSON.stringify(s));
+  }
+
+  // One-time migration from legacy per-setting cookies into the consolidated
+  // `crit-settings` blob. Idempotent: after first run, legacy cookies are
+  // expired and this loop becomes a no-op. `crit-templates` is intentionally
+  // excluded — it stays in its own cookie.
+  (function migrateLegacySettings() {
+    const legacy = [
+      { name: 'crit-theme',                          key: 'theme',              type: 'string'  },
+      { name: 'crit-width',                          key: 'width',              type: 'string'  },
+      { name: 'crit-diff-mode',                      key: 'diffMode',           type: 'string'  },
+      { name: 'crit-diff-scope',                     key: 'diffScope',          type: 'string'  },
+      { name: 'crit-hide-resolved',                  key: 'hideResolved',       type: 'boolTF'  }, // 'true'/'false'
+      { name: 'crit-toc',                            key: 'toc',                type: 'string'  },
+      { name: 'crit-review-conversation-collapsed',  key: 'reviewConvCollapsed', type: 'bool10' }, // '1'/'0'
+      { name: 'crit-updates-dismissed',              key: 'updatesDismissed',   type: 'string'  },
+    ];
+    const settings = loadSettings();
+    let changed = false;
+    legacy.forEach(function(l) {
+      const v = getCookie(l.name);
+      if (v === null) return;
+      if (settings[l.key] === undefined) {
+        if (l.type === 'boolTF') settings[l.key] = (v === 'true');
+        else if (l.type === 'bool10') settings[l.key] = (v === '1');
+        else settings[l.key] = v;
+        changed = true;
+      }
+      // Expire the legacy cookie regardless of whether we needed its value.
+      document.cookie = l.name + '=; path=/; max-age=0; SameSite=Strict';
+    });
+    if (changed) {
+      settingsCache = settings;
+      setCookie(SETTINGS_COOKIE, JSON.stringify(settings));
+    }
+  })();
+
   // Bind Ctrl/Cmd+Enter (submit) and Escape (cancel) to a text input/textarea.
   // opts.stopPropagation defaults to true (matches comment-form keydown behavior).
   function bindSubmitCancelKeys(el, onSubmit, onCancel, opts) {
@@ -187,6 +248,26 @@
   let pendingUpdates = [];
   let pendingUpdatesVersion = '';
 
+  // Returns true if at least one pending update entry has not been dismissed.
+  // Brew dismiss is keyed by version; integration dismiss is keyed per-agent
+  // by content hash (so re-prompts when we ship a new template).
+  function hasActivePendingUpdates() {
+    if (!pendingUpdates.length) return false;
+    const brewDismissed = getSetting('updatesDismissed', '');
+    const intDismissed = getSetting('dismissedIntegrations', {}) || {};
+    for (let i = 0; i < pendingUpdates.length; i++) {
+      const u = pendingUpdates[i];
+      if (u.kind === 'brew') {
+        if (brewDismissed !== pendingUpdatesVersion) return true;
+      } else if (u.kind === 'integration') {
+        if (!u.hash || intDismissed[u.agent] !== u.hash) return true;
+      } else {
+        return true;
+      }
+    }
+    return false;
+  }
+
   let reviewComments = []; // review-level (general) comments
   let reviewCommentFormActive = false; // is the review comment form open?
   let reviewCommentEditingId = null; // id of review comment being edited, or null
@@ -195,17 +276,18 @@
   let settingsPanelTab = 'settings';
   let cachedConfig = null; // populated on first panel open
 
-  let diffMode = getCookie('crit-diff-mode') || 'split'; // 'split' or 'unified'
-  let diffScope = getCookie('crit-diff-scope') || 'all'; // 'all', 'branch', 'staged', or 'unstaged'
+  let diffMode = getSetting('diffMode', 'split'); // 'split' or 'unified'
+  let diffScope = getSetting('diffScope', 'all'); // 'all', 'branch', 'staged', or 'unstaged'
 
-  // Single source of truth for hide-resolved state. Persisted as a cookie
-  // (not localStorage) so the setting survives random-port server restarts —
-  // localStorage is scoped per origin (incl. port), cookies are host-scoped.
-  let hideResolvedState = getCookie('crit-hide-resolved') === 'true';
+  // Single source of truth for hide-resolved state. Persisted via the
+  // consolidated `crit-settings` cookie (not localStorage) so the setting
+  // survives random-port server restarts — localStorage is scoped per origin
+  // (incl. port), cookies are host-scoped.
+  let hideResolvedState = getSetting('hideResolved', false);
   function isHideResolved() { return hideResolvedState; }
   function setHideResolved(v) {
     hideResolvedState = !!v;
-    setCookie('crit-hide-resolved', hideResolvedState ? 'true' : 'false');
+    setSetting('hideResolved', hideResolvedState);
     document.body.classList.toggle('hide-resolved', hideResolvedState);
   }
 
@@ -595,6 +677,8 @@
     const hasBrew = configRes.latest_version && configRes.version && configRes.latest_version !== configRes.version;
     if (hasBrew) {
       pendingUpdates.push({
+        kind: 'brew',
+        version: configRes.latest_version,
         label: 'Crit ' + configRes.latest_version + ' available',
         labelUrl: 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + configRes.latest_version,
         hint: 'brew update && brew upgrade crit'
@@ -604,13 +688,18 @@
       configRes.stale_integrations.forEach(function(si) {
         // Capitalize agent name for display
         const name = si.agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
-        pendingUpdates.push({ label: name + ' plugin outdated', hint: si.hint });
+        pendingUpdates.push({
+          kind: 'integration',
+          agent: si.agent,
+          hash: si.hash || '',
+          label: name + ' plugin outdated',
+          hint: si.hint
+        });
       });
     }
 
     pendingUpdatesVersion = configRes.latest_version || configRes.version || '';
-    const dismissed = getCookie('crit-updates-dismissed');
-    if (pendingUpdates.length > 0 && dismissed !== pendingUpdatesVersion) {
+    if (hasActivePendingUpdates()) {
       document.getElementById('updateBtn').style.display = '';
     }
 
@@ -664,7 +753,7 @@
       });
       if (scopes.indexOf(diffScope) === -1) {
         diffScope = 'all';
-        setCookie('crit-diff-scope', 'all');
+        setSetting('diffScope', 'all');
         // Re-fetch session with corrected scope — the initial fetch used the
         // stale cookie value and may have returned an empty file list.
         const corrected = await fetchWhenReady('/api/session?scope=all').then(r => r.json());
@@ -5641,10 +5730,10 @@
 
   // Collapse state — host preference, persisted via cookie like other view prefs.
   function isReviewConversationCollapsed() {
-    return getCookie('crit-review-conversation-collapsed') === '1';
+    return getSetting('reviewConvCollapsed', false);
   }
   function setReviewConversationCollapsed(collapsed) {
-    setCookie('crit-review-conversation-collapsed', collapsed ? '1' : '0');
+    setSetting('reviewConvCollapsed', !!collapsed);
   }
 
   const ICON_CHEVRON_DOWN =
@@ -7193,7 +7282,7 @@
     toggleBtn.style.display = '';
 
     // Restore TOC open/closed state from cookie
-    if (getCookie('crit-toc') === 'open') {
+    if (getSetting('toc', 'closed') === 'open') {
       tocEl.classList.remove('toc-hidden');
     }
 
@@ -7295,12 +7384,12 @@
 
   // ===== Theme =====
   function initTheme() {
-    const saved = getCookie('crit-theme') || 'system';
+    const saved = getSetting('theme', 'system');
     applyTheme(saved);
   }
 
   window.applyTheme = function(choice) {
-    setCookie('crit-theme', choice);
+    setSetting('theme', choice);
     if (choice === 'light') document.documentElement.setAttribute('data-theme', 'light');
     else if (choice === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
     else document.documentElement.removeAttribute('data-theme');
@@ -7314,12 +7403,12 @@
 
   // ===== Width =====
   function initWidth() {
-    const saved = getCookie('crit-width') || 'default';
+    const saved = getSetting('width', 'default');
     applyWidth(saved);
   }
 
   function applyWidth(choice) {
-    setCookie('crit-width', choice);
+    setSetting('width', choice);
     if (choice === 'compact') document.documentElement.setAttribute('data-width', 'compact');
     else if (choice === 'wide') document.documentElement.setAttribute('data-width', 'wide');
     else document.documentElement.setAttribute('data-width', 'default');
@@ -7336,7 +7425,7 @@
       const mode = btn.dataset.mode;
       if (mode === diffMode) return;
       diffMode = mode;
-      setCookie('crit-diff-mode', mode);
+      setSetting('diffMode', mode);
       document.querySelectorAll('#diffModeToggle .toggle-btn').forEach(function(b) {
         b.classList.toggle('active', b.dataset.mode === mode);
       });
@@ -7441,7 +7530,7 @@
     const scope = btn.dataset.scope;
     diffScope = scope;
     navCommentId = null;
-    setCookie('crit-diff-scope', scope);
+    setSetting('diffScope', scope);
     if (scope !== 'all' && scope !== 'branch') {
       diffCommit = '';
       commitDropdownEl.style.display = 'none';
@@ -7677,13 +7766,13 @@
   document.getElementById('tocToggle').addEventListener('click', function() {
     const tocEl = document.getElementById('toc');
     tocEl.classList.toggle('toc-hidden');
-    setCookie('crit-toc', tocEl.classList.contains('toc-hidden') ? 'closed' : 'open');
+    setSetting('toc', tocEl.classList.contains('toc-hidden') ? 'closed' : 'open');
     buildToc();
   });
 
   document.querySelector('.toc-close').addEventListener('click', function() {
     document.getElementById('toc').classList.add('toc-hidden');
-    setCookie('crit-toc', 'closed');
+    setSetting('toc', 'closed');
   });
 
   // ===== Comment Navigation =====
@@ -7907,8 +7996,8 @@
 
   function renderSettingsPane(cfg) {
     const pane = document.getElementById('settingsPane');
-    const currentTheme = getCookie('crit-theme') || 'system';
-    const currentWidth = getCookie('crit-width') || 'default';
+    const currentTheme = getSetting('theme', 'system');
+    const currentWidth = getSetting('width', 'default');
 
     let html = '';
 
@@ -7963,13 +8052,23 @@
     if (cfg.latest_version && cfg.version && cfg.latest_version !== cfg.version && !cfg.no_update_check) {
       const upgradeCmd = 'brew update && brew upgrade crit';
       const releaseUrl = 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + escapeHtml(cfg.latest_version);
+      const alreadyDismissed = getSetting('updatesDismissed', '') === cfg.latest_version;
       html += '<div class="config-card config-card--orange"><div class="config-card-header">';
       html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#11014;</span>';
       html += '<span class="config-card-title">Update available</span>';
       html += '<span class="config-card-value">v' + escapeHtml(cfg.latest_version) + '</span>';
       html += '</div>';
       html += '<div class="config-card-cmd"><span>$ ' + escapeHtml(upgradeCmd) + '</span><button class="config-card-copy" data-copy="' + escapeHtml(upgradeCmd) + '">Copy</button></div>';
-      html += '<div class="config-card-body"><a class="about-link" href="' + releaseUrl + '" target="_blank" rel="noopener">Release notes</a></div>';
+      html += '<div class="config-card-body" id="updateCardBody">';
+      html += '<div class="config-card-actions">';
+      html += '<a class="about-link" href="' + releaseUrl + '" target="_blank" rel="noopener">Release notes</a>';
+      if (alreadyDismissed) {
+        html += '<span class="config-card-dismissed" id="updateDismissedNote">Dismissed — will remind you on next version</span>';
+      } else {
+        html += '<button type="button" class="config-card-dismiss" id="updateDismissBtn" data-dismiss-version="' + escapeHtml(cfg.latest_version) + '">Don’t remind me until next version</button>';
+      }
+      html += '</div>';
+      html += '</div>';
       html += '</div>';
     }
 
@@ -8021,6 +8120,8 @@
         if (stale.length > 0) {
           const si = stale[0];
           const name = si.agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+          const dismissedMap = getSetting('dismissedIntegrations', {}) || {};
+          const intAlreadyDismissed = !!si.hash && dismissedMap[si.agent] === si.hash;
           html += '<div class="config-card config-card--yellow"><div class="config-card-header">';
           html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#9888;</span>';
           html += '<span class="config-card-title">AI Integration</span>';
@@ -8039,6 +8140,17 @@
             if (label) html += '<span class="config-card-cmd-label">' + escapeHtml(label) + '</span>';
             html += '<span>$ ' + escapeHtml(cmd) + '</span><button class="config-card-copy" data-copy="' + escapeHtml(cmd) + '">Copy</button></div>';
           });
+          if (si.hash) {
+            html += '<div class="config-card-body" id="integrationCardBody">';
+            html += '<div class="config-card-actions config-card-actions--end">';
+            if (intAlreadyDismissed) {
+              html += '<span class="config-card-dismissed" id="integrationDismissedNote">Dismissed — will remind you when this integration changes</span>';
+            } else {
+              html += '<button type="button" class="config-card-dismiss" id="integrationDismissBtn" data-agent="' + escapeHtml(si.agent) + '" data-hash="' + escapeHtml(si.hash) + '">Don’t remind me until next version</button>';
+            }
+            html += '</div>';
+            html += '</div>';
+          }
           html += '</div>';
         } else if (current.length > 0) {
           const name = current[0].agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
@@ -8110,6 +8222,37 @@
       hideResolvedToggle.addEventListener('change', function() {
         setHideResolved(hideResolvedToggle.checked);
         renderAllFiles();
+      });
+    }
+
+    // Wire up "Don't remind me" button on the update card
+    const dismissBtn = pane.querySelector('#updateDismissBtn');
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', function() {
+        const version = dismissBtn.dataset.dismissVersion || '';
+        setSetting('updatesDismissed', version);
+        const updateBtn = document.getElementById('updateBtn');
+        if (updateBtn && !hasActivePendingUpdates()) updateBtn.style.display = 'none';
+        const body = pane.querySelector('#updateCardBody');
+        if (body) {
+          dismissBtn.outerHTML = '<span class="config-card-dismissed" id="updateDismissedNote">Dismissed — will remind you on next version</span>';
+        }
+      });
+    }
+
+    // Wire up "Don't remind me" button on the AI Integration card
+    const integrationDismissBtn = pane.querySelector('#integrationDismissBtn');
+    if (integrationDismissBtn) {
+      integrationDismissBtn.addEventListener('click', function() {
+        const agent = integrationDismissBtn.dataset.agent || '';
+        const hash = integrationDismissBtn.dataset.hash || '';
+        if (!agent || !hash) return;
+        const map = getSetting('dismissedIntegrations', {}) || {};
+        map[agent] = hash;
+        setSetting('dismissedIntegrations', map);
+        const updateBtn = document.getElementById('updateBtn');
+        if (updateBtn && !hasActivePendingUpdates()) updateBtn.style.display = 'none';
+        integrationDismissBtn.outerHTML = '<span class="config-card-dismissed" id="integrationDismissedNote">Dismissed — will remind you when this integration changes</span>';
       });
     }
 

@@ -2179,6 +2179,37 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 .config-card-copy.copied {
   color: var(--crit-green);
 }
+.config-card-actions {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.config-card-actions--end {
+  justify-content: flex-end;
+}
+.config-card-dismiss {
+  font-size: 12px;
+  color: var(--crit-editor-fg-muted);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 2px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.config-card-dismiss:hover { color: var(--crit-editor-fg); background: var(--crit-editor-bg-hover); }
+.config-card-dismiss:focus-visible {
+  outline: none;
+  box-shadow: var(--crit-focus);
+}
+.config-card-dismissed {
+  font-size: 12px;
+  color: var(--crit-editor-fg-muted);
+  font-style: italic;
+}
 .config-card-snippet {
   margin-top: 10px;
   background: var(--crit-editor-bg);
