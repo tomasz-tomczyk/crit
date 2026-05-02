@@ -530,6 +530,60 @@ func TestReviewCycle_UnresolvedReturnsPrompt(t *testing.T) {
 	}
 }
 
+func TestReviewCycle_NextCommand(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"no args (git mode)", nil, "crit"},
+		{"empty slice", []string{}, "crit"},
+		{"single file", []string{"plan.md"}, "crit plan.md"},
+		{"multiple files", []string{"a.md", "b.go"}, "crit a.md b.go"},
+		{"arg with space gets quoted", []string{"my plan.md"}, `crit 'my plan.md'`},
+		{"flag-style arg passes through", []string{"--pr", "42"}, "crit --pr 42"},
+		{"non-ASCII arg passes through", []string{"résumé.md"}, "crit résumé.md"},
+		{"single quote in arg is escaped", []string{"it's.md"}, `crit 'it'\''s.md'`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, session := newTestServer(t)
+			s.cliArgs = tc.args
+			session.SetAwaitingFirstReview(true)
+
+			done := make(chan *httptest.ResponseRecorder, 1)
+			go func() {
+				req := httptest.NewRequest("POST", "/api/review-cycle", nil)
+				w := httptest.NewRecorder()
+				s.ServeHTTP(w, req)
+				done <- w
+			}()
+
+			time.Sleep(50 * time.Millisecond)
+
+			finishReq := httptest.NewRequest("POST", "/api/finish", nil)
+			s.ServeHTTP(httptest.NewRecorder(), finishReq)
+
+			select {
+			case w := <-done:
+				var resp map[string]any
+				if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+					t.Fatal(err)
+				}
+				got, ok := resp["next_command"].(string)
+				if !ok {
+					t.Fatalf("next_command missing or not a string: %v", resp["next_command"])
+				}
+				if got != tc.want {
+					t.Errorf("next_command = %q, want %q", got, tc.want)
+				}
+			case <-time.After(2 * time.Second):
+				t.Error("review-cycle did not return in time")
+			}
+		})
+	}
+}
+
 // ===== Path Traversal Tests =====
 
 func TestHandleFiles_PathTraversal(t *testing.T) {

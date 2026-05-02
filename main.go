@@ -1715,9 +1715,17 @@ func runReviewClient(entry sessionEntry) (approved bool) {
 
 	// Check if the review was approved (no unresolved comments).
 	var result struct {
-		Approved bool `json:"approved"`
+		Approved    bool   `json:"approved"`
+		NextCommand string `json:"next_command"`
 	}
 	if json.Unmarshal(body, &result) == nil {
+		// Print the exact command for the next round so the agent can
+		// re-invoke crit without reconstructing args. Skip on approve —
+		// the loop is over. Prepend a newline because the JSON body may
+		// or may not end with one.
+		if !result.Approved && result.NextCommand != "" {
+			fmt.Fprintf(os.Stdout, "\nNext round: %s\n", result.NextCommand)
+		}
 		return result.Approved
 	}
 	return false
@@ -2196,6 +2204,7 @@ func runServe(args []string) {
 		sc.reviewPath, _ = reviewFilePath(key)
 	}
 	srv.reviewPath = sc.reviewPath
+	srv.cliArgs = sc.files
 	if err := writeSessionFile(key, sessionEntry{
 		PID:        os.Getpid(),
 		Port:       addr.Port,

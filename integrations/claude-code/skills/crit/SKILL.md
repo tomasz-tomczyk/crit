@@ -11,76 +11,66 @@ Review and revise code changes or a plan using `crit` for inline comment review.
 
 ## Step 1: Determine review mode
 
-Choose what to review based on context:
+Pick whichever applies — don't ask for confirmation:
 
-1. **User argument** - if the user provided `$ARGUMENTS` (e.g., `/crit my-plan.md`), review that file
-2. **Recent plan** - if no argument, check if a plan was written earlier in this conversation. If so, review that file with `crit <plan-file>`
-3. **Branch review** - otherwise, run `crit` with no arguments. It auto-detects what to review: uncommitted changes, or all changes on the current branch vs the default branch. Works on clean branches too.
-4. **PR or commit range** - if the user asks to review a specific GitHub PR or a commit range, use `crit --pr <num|url>` or `crit --range <baseSHA>..<headSHA>`. This boots crit in *range mode*, scoping the review to that fixed range of commits rather than the working tree.
+1. **User argument** — `$ARGUMENTS` provided (e.g., `/crit my-plan.md`) → review that file
+2. **Recent plan** — no argument, but a plan was written earlier in this conversation → `crit <plan-file>`
+3. **Branch review** — otherwise → bare `crit`. Auto-detects uncommitted changes or branch-vs-default-branch diff. Works on clean branches.
 
-Don't ask for confirmation — just proceed with whichever mode applies.
+<important if="the user asked to review a specific GitHub PR or a commit range">
+Use `crit --pr <num|url>` or `crit --range <baseSHA>..<headSHA>`. This boots crit in *range mode*, scoping the review to a fixed range of commits rather than the working tree.
+</important>
 
 ## Step 2: Launch crit and block until review completes
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-If a crit server is already running from earlier in this conversation, `crit` will automatically connect to it — no need to track ports or skip steps.
-
 Run `crit` **in the background** using `run_in_background: true`:
 
 ```bash
-# For a specific file:
-crit <plan-file>
-
-# For git mode (no args):
-crit
+crit <plan-file>   # specific file
+crit               # git mode
 ```
 
-This starts the daemon if needed (or connects to an existing one), opens the browser, and blocks until the user clicks "Finish Review". Feedback is printed to stdout when it exits.
+If a crit server is already running from earlier in this conversation, `crit` automatically connects to it. Starting from scratch, it spawns the daemon, opens the browser, and blocks until the user clicks "Finish Review".
 
-The `crit` command prints the review URL on startup (e.g. `Started crit daemon at http://localhost:<port>`). Relay that URL to the user verbatim so they can open it manually if the auto-launched browser didn't open or they're on a different machine.
+`crit` prints the review URL on startup (e.g. `Started crit daemon at http://localhost:<port>`). Relay it verbatim:
 
-Tell the user: **"Crit is open at http://localhost:<port>. Leave inline comments, then click Finish Review."**
+> **"Crit is open at http://localhost:<port>. Leave inline comments, then click Finish Review."**
 
 **Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. Wait for the background task to finish — that is how you know the human is done reviewing.
 
 ## Step 3: Read the review output
 
-When `crit` completes, its stdout output includes the path to the review file (e.g. "Review comments are in /path/to/review.json"). Read that file using the Read tool.
+When `crit` completes, its stdout includes the path to the review file (e.g. "Review comments are in /path/to/review.json"). Read it.
 
-The file contains structured JSON with comments per file and review-level comments:
+The file contains structured JSON. Three comment types:
+- `review_comments` (top-level, `r_`-prefixed IDs) — general feedback
+- File comments (per-file `comments` array, no `start_line`/`end_line`) — about the file as a whole
+- Line comments (per-file `comments` array, with `start_line`/`end_line`) — about specific lines
 
-```json
-{
-  "review_comments": [
-    { "id": "r_f1e2d3", "body": "Overall feedback", "resolved": false }
-  ],
-  "files": {
-    "plan.md": {
-      "comments": [
-        { "id": "c_a1b2c3", "start_line": 5, "end_line": 10, "body": "Clarify this step", "quote": "specific words", "anchor": "The sessions table needs a complete rewrite...", "resolved": false },
-        { "id": "c_d4e5f6", "body": "File needs restructuring", "resolved": false }
-      ]
-    }
-  }
-}
-```
+Identify all comments where `resolved` is `false` or missing.
 
-There are three types of comments: `review_comments` (general feedback, `r_`-prefixed IDs), file comments (in per-file `comments` array with no `start_line`/`end_line`), and line comments (with `start_line`/`end_line`). If a comment has lines, it's about those lines. If not, it's about the file as a whole.
-
-Identify all comments where `"resolved": false` or where the `resolved` field is missing (missing means unresolved). If a comment has a `"quote"` field, it contains the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range. If a comment has an `"anchor"` field, use it to locate the current position of the content rather than trusting `start_line`/`end_line` which may be stale after edits. If `"drifted": true`, the original content was removed or heavily rewritten — the line numbers are approximate at best.
+<important if="a comment has a quote, anchor, or drifted field">
+- `quote`: the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range
+- `anchor`: use it to locate the current position of the content; line numbers may be stale after edits
+- `drifted: true`: original content was removed or heavily rewritten — line numbers are approximate at best
+</important>
 
 ## Step 4: Address each review comment
 
 For each unresolved comment:
 
-1. Understand what the comment asks for (clarification, change, addition, removal)
-2. If a comment contains a suggestion block, apply that specific change
-3. Revise the **referenced file** to address the feedback - this could be the plan file or any code file from the git diff
-4. Use the Edit tool to make targeted changes
-5. Reply to the comment with what you did: `crit comment --reply-to <id> --author 'Claude Code' '<what you did>'` (reply bodies support markdown — use code fences and inline code where helpful)
+1. Understand what the comment asks for
+2. If it contains a suggestion block, apply that specific change
+3. Revise the referenced file (plan or code file from the diff) using Edit
+4. Reply with what you did: `crit comment --reply-to <id> --author 'Claude Code' '<what you did>'` (reply bodies support markdown)
+5. **Do not pass `--resolve`.** Resolving is the reviewer's call. Only add `--resolve` if the user explicitly asks.
 
-When addressing multiple comments, use `--json` to reply to them all in one call:
+Editing the plan file triggers Crit's live reload — the user sees changes in the browser immediately.
+
+<important if="you are replying to multiple comments at once">
+Use `--json` for a single bulk call instead of one invocation per comment:
 
 ```bash
 echo '[
@@ -88,8 +78,7 @@ echo '[
   {"reply_to": "c_d4e5f6", "body": "Refactored as suggested"}
 ]' | crit comment --json --author 'Claude Code'
 ```
-
-Editing the plan file triggers Crit's live reload - the user sees changes in the browser immediately.
+</important>
 
 **If there are zero review comments**: inform the user no changes were requested and stop the background `crit` process.
 
@@ -97,37 +86,33 @@ Editing the plan file triggers Crit's live reload - the user sees changes in the
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-Run the **exact same `crit` command from Step 2** in the background using `run_in_background: true`. This is critical — if you launched `crit plan.md` in Step 2, you must run `crit plan.md` again here (not bare `crit`). The daemon is keyed by the arguments, so mismatched args will start a new daemon instead of reconnecting.
+Run the **exact same `crit` command from Step 2** in the background. The daemon is keyed by arguments — mismatched args spawn a new daemon instead of reconnecting. If Step 2 was `crit plan.md`, this must also be `crit plan.md` (not bare `crit`).
 
-```bash
-# Must match Step 2 exactly:
-crit <same-args-as-step-2>
-```
-
-On subsequent calls, `crit` automatically signals round-complete first, then blocks again until the next "Finish Review" click.
+On subsequent calls, `crit` automatically signals round-complete first, then blocks until the next "Finish Review" click.
 
 Tell the user: **"Changes applied. Review the diff in your browser and click Finish Review when ready."**
 
-**Do NOT proceed until `crit` completes.** When it does, go back to Step 3. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
+**Do NOT proceed until `crit` completes.** When it does, return to Step 3. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
 
-## Sharing
-
-If the user asks for a URL, a link, to share the review, or to show a QR code, run:
+<important if="the user asks for a URL, a shareable link, or a QR code for the review">
 
 ```bash
 crit share <file>
 ```
 
-**Always relay the full output to the user** — copy the URL (and QR code if `--qr` was used) from the command output and include it directly in your response. Do not make them dig through tool output to find it.
-
-To also show a QR code — **only in real terminal environments** with monospace font rendering (not mobile apps like Claude Code mobile, or web chat UIs where Unicode block characters won't render):
-
-```bash
-crit share --qr <file>
-```
+**Always relay the full output to the user** — copy the URL (and QR code if `--qr` was used) directly into your response. Don't make them dig through tool output.
 
 To remove a shared review:
 
 ```bash
 crit unpublish
 ```
+</important>
+
+<important if="you are about to add --qr to a share command">
+Only use `--qr` in real terminal environments with monospace rendering. Skip it in mobile apps (Claude Code mobile) or web chat UIs — Unicode block characters won't render.
+
+```bash
+crit share --qr <file>
+```
+</important>

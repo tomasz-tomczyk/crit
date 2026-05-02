@@ -50,6 +50,7 @@ type Server struct {
 	homeDir           string
 	cfg               Config
 	reviewPath        string
+	cliArgs           []string     // args the daemon was launched with (used to print "Next round:" command)
 	prList            *prListCache // 60s cache for picker "Other PRs"
 }
 
@@ -1017,6 +1018,33 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// buildNextCommand renders the command the agent should run to start the
+// next review round, given the args the daemon was launched with.
+func buildNextCommand(args []string) string {
+	if len(args) == 0 {
+		return "crit"
+	}
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, "crit")
+	for _, a := range args {
+		parts = append(parts, shellQuoteArg(a))
+	}
+	return strings.Join(parts, " ")
+}
+
+// shellQuoteArg quotes a single CLI arg using POSIX single-quote syntax when
+// it contains whitespace or shell metacharacters; returns it unchanged
+// otherwise. Single quotes inside the arg are escaped as '\”.
+func shellQuoteArg(a string) string {
+	if a == "" {
+		return `''`
+	}
+	if !strings.ContainsAny(a, " \t\n\"'\\$`*?[]{}();&|<>#~!") {
+		return a
+	}
+	return "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+}
+
 // handleReviewCycle is the unified endpoint for the daemon-client pattern.
 // On first call (awaitingFirstReview=true): just blocks until user finishes review.
 // On subsequent calls: signals round-complete first, then blocks.
@@ -1052,10 +1080,11 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 				}
 				json.Unmarshal([]byte(event.Content), &finishData)
 				writeJSON(w, map[string]any{
-					"status":      "finished",
-					"review_file": sess.critJSONPath(),
-					"prompt":      finishData.Prompt,
-					"approved":    finishData.Approved,
+					"status":       "finished",
+					"review_file":  sess.critJSONPath(),
+					"prompt":       finishData.Prompt,
+					"approved":     finishData.Approved,
+					"next_command": buildNextCommand(s.cliArgs),
 				})
 				return
 			}

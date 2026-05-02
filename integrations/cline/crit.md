@@ -12,39 +12,44 @@ When asked to implement a feature, first create a plan file that covers:
 
 ## Review with Crit
 
-After writing a plan or code, launch Crit to open it for review:
+After writing a plan or code, launch Crit:
 
 ```bash
-# Review a specific file (plan, spec, etc.)
-crit $PLAN_FILE
-
-# Review all changed files in the repo
-crit
-
-# Review a specific GitHub PR (range mode)
-crit --pr <num|url>
-
-# Review a specific commit range (range mode)
-crit --range <baseSHA>..<headSHA>
+crit $PLAN_FILE                       # Review a specific file
+crit                                  # Review all changed files in the repo
+crit --pr <num|url>                   # Review a GitHub PR (range mode)
+crit --range <baseSHA>..<headSHA>     # Review a commit range (range mode)
 ```
 
 **CRITICAL — you MUST run `crit` and block until it completes.**
 
-Run `crit` (it starts the daemon if needed, opens the browser, and blocks until the user clicks "Finish Review"):
+`crit` starts the daemon if needed, opens the browser, and blocks until the user clicks "Finish Review". It prints the review URL on startup (e.g. `Started crit daemon at http://localhost:<port>`) — relay that URL verbatim.
 
-```bash
-crit
-```
-
-When `crit` starts it prints the review URL (e.g. `Started crit daemon at http://localhost:<port>`). Relay that URL to the user so they can open it manually if the browser didn't auto-launch or they're on a different machine.
-
-**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. `crit` blocks until the user clicks Finish Review — that is how you know they are done.
+- Do NOT proceed until `crit` completes.
+- Do NOT ask the user to type anything.
+- Do NOT read the review file early.
 
 ## After review
 
-The crit stdout output includes the review file path. Read that file to find the user's inline comments. Comments have three scopes: line comments in `files.<path>.comments` (with `start_line`/`end_line`), file comments (same array, `scope: "file"`, lines are 0), and review comments in the top-level `review_comments` array (`scope: "review"`, not tied to any file). Line comments include an `anchor` field containing the full text of the commented lines when the comment was placed — use this to locate the current position of the content rather than trusting `start_line`/`end_line` which may be stale after edits. If `drifted: true`, the original content was removed or heavily rewritten and line numbers are approximate. Address each unresolved comment by revising the referenced file. After addressing, reply with what you did: `crit comment --reply-to <id> --author 'Cline' '<what you did>'`. This works for both file comment IDs (e.g. `c_a1b2c3`) and review comment IDs (e.g. `r_f1e2d3`). Reply bodies support markdown — use code fences and inline code where helpful.
+`crit` stdout includes the review file path. Read it. Three comment scopes:
 
-When addressing multiple comments, use `--json` to reply to them all in one call:
+- **Line comments** — in `files.<path>.comments` with `start_line`/`end_line`
+- **File comments** — same array, `scope: "file"`, lines are 0
+- **Review comments** — in the top-level `review_comments` array, `scope: "review"`
+
+Address each comment where `resolved` is `false` or missing.
+
+Field guidance:
+- `quote`: the specific text the reviewer selected — focus changes on the quoted text rather than the whole range.
+- `anchor`: full text of the commented lines when placed — locate content by anchor, line numbers may be stale.
+- `drifted: true`: original content was removed or heavily rewritten — line numbers are approximate at best.
+
+For each unresolved comment:
+1. Revise the referenced file using your edit tools.
+2. Reply with what you did: `crit comment --reply-to <id> --author 'Cline' '<what you did>'` (markdown supported).
+3. **Never pass `--resolve`** unless the user explicitly asks. Resolving is the reviewer's call.
+
+When replying to multiple comments, use `--json`:
 
 ```bash
 echo '[
@@ -53,56 +58,64 @@ echo '[
 ]' | crit comment --json --author 'Cline'
 ```
 
-When done, run the **exact same `crit` command from earlier** to signal round-complete and wait for the next review. If you launched `crit plan.md`, run `crit plan.md` again (not bare `crit`). The daemon is keyed by the arguments, so mismatched args will start a new daemon instead of reconnecting. On subsequent calls, `crit` automatically signals round-complete first, then blocks again until the next "Finish Review" click.
+## Next round
 
-Only proceed after the user approves (finishes a round with zero comments).
+When done, run the command crit printed after `Next round:` in its previous output. The daemon is keyed by arguments, so this matters — `crit plan.md` and bare `crit` are different sessions.
 
-## Leaving comments programmatically
+`crit` automatically signals round-complete, then blocks until the next "Finish Review" click. Only proceed after the user approves (a round finishes with zero comments).
 
-Use `crit comment` to add review comments to the review file without opening the browser:
+## CLI Reference
+
+### `crit comment`
 
 ```bash
-crit comment --author 'Cline' '<body>'                          # Review-level comment
-crit comment --author 'Cline' <path> '<body>'                   # File-level comment
-crit comment --author 'Cline' <path>:<line> '<body>'            # Line comment
-crit comment --author 'Cline' <path>:<start>-<end> '<body>'     # Line range comment
-crit comment --reply-to c_a1b2c3 --author 'Cline' '<body>'  # Reply to file comment
-crit comment --reply-to r_f1e2d3 --author 'Cline' '<body>'  # Reply to review comment
+crit comment --author 'Cline' '<body>'                       # Review-level
+crit comment --author 'Cline' <path> '<body>'                # File-level
+crit comment --author 'Cline' <path>:<line> '<body>'         # Line
+crit comment --author 'Cline' <path>:<start>-<end> '<body>'  # Line range
+crit comment --reply-to <id> --author 'Cline' '<body>'       # Reply (c_… or r_…)
 ```
 
-Paths are relative, line numbers are 1-indexed, comments are appended (never replaced). Creates the review file automatically if it doesn't exist.
+Hard rules:
+- Always pass `--author 'Cline'`.
+- Always single-quote the body — double quotes break on backticks and shell metachars.
+- Line numbers reference the file on disk (1-indexed), not diff line numbers.
+- Reply bodies support markdown.
+- Only pass `--resolve` when the user explicitly asks.
 
-## Sharing Reviews
+If `crit comment` errors with "comment found in multiple files", disambiguate with `--path src/foo.go`.
 
-If the user asks for a URL, a link, to share their review, or to show a QR code, use `crit share`:
+### Bulk `--json`
+
+For 3+ comments, prefer `--json` (atomic, single write):
 
 ```bash
-crit share <file> [file...]   # Upload and print URL
-crit share --qr <file>        # Also print QR code (terminal only)
+echo '[
+  {"body": "overall feedback", "scope": "review"},
+  {"path": "session.go", "body": "restructure", "scope": "file"},
+  {"file": "src/auth.go", "line": 42, "body": "Missing null check"},
+  {"file": "src/auth.go", "line": "50-55", "body": "Extract to helper"},
+  {"reply_to": "c_a1b2c3", "body": "Fixed — added null check"}
+]' | crit comment --json --author 'Cline'
+```
+
+Scope inference: `reply_to` → reply; no `file`/`line` → review; `path` only → file; `path` + `line` → line.
+
+### Sharing
+
+```bash
+crit share <file>             # Upload, print URL
+crit share --qr <file>        # Also print QR (terminal only — skip in mobile/web UIs)
 crit unpublish                # Remove shared review
 ```
 
-Examples:
+Always relay the full output (URL, QR) directly in your response — don't make the user dig through tool output.
+
+### GitHub PR sync
 
 ```bash
-crit share <file>                                # Share a single file
-crit share <file1> <file2>                       # Share multiple files
-crit share --share-url https://crit.md <file>  # Explicit share URL
+crit pull [pr-number]                                    # Fetch PR comments
+crit push [--dry-run] [--event <type>] [-m <msg>] [pr]   # Post review as PR review
 ```
 
-Rules:
-- **No server needed** — `crit share` reads files directly from disk
-- **`--qr` is terminal-only** — only use when the user has a real terminal with monospace font rendering. Do not use in mobile apps (e.g. Claude Code mobile), web chat UIs, or any environment where Unicode block characters won't render correctly
-- **Comments included** — if the review file exists, comments for the shared files are included automatically
-- **Relay the output** — always copy the URL (and QR code if `--qr` was used) from the command output and include it directly in your response to the user. Do not make them dig through tool output
-- **State persisted** — share URL and delete token are saved to the review file
-- **Unpublish reads the review file** — uses the stored delete token to remove the review
-
-## GitHub PR Integration
-
-```bash
-crit pull [pr-number]                                    # Fetch PR comments into the review file
-crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post review comments as PR review
-```
-
-Requires `gh` CLI. PR number auto-detected from current branch. Event types for `--event`: `comment` (default), `approve`, `request-changes`.
+Requires `gh` CLI. `--event`: `comment` (default), `approve`, `request-changes`.
