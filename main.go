@@ -1535,7 +1535,7 @@ func runPlanHook() {
 func waitForDaemonReady(client *http.Client, port int) (statusCode int, body []byte, err error) {
 	deadline := time.Now().Add(5 * time.Minute)
 	for {
-		resp, reqErr := client.Get(fmt.Sprintf("http://localhost:%d/api/session", port))
+		resp, reqErr := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/session", port))
 		if reqErr != nil {
 			return 0, nil, fmt.Errorf("could not reach daemon on port %d: %w", port, reqErr)
 		}
@@ -1563,7 +1563,7 @@ func runReviewClientRaw(entry sessionEntry) (approved bool, prompt string) {
 	}
 
 	resp, err := client.Post(
-		fmt.Sprintf("http://localhost:%d/api/review-cycle", entry.Port),
+		fmt.Sprintf("http://127.0.0.1:%d/api/review-cycle", entry.Port),
 		"application/json",
 		nil,
 	)
@@ -1711,7 +1711,7 @@ func runReviewClient(entry sessionEntry) (approved bool) {
 	}
 
 	resp, err := client.Post(
-		fmt.Sprintf("http://localhost:%d/api/review-cycle", entry.Port),
+		fmt.Sprintf("http://127.0.0.1:%d/api/review-cycle", entry.Port),
 		"application/json",
 		nil,
 	)
