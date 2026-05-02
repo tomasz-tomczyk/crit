@@ -624,10 +624,11 @@ func runPull(args []string) {
 	}
 
 	// Redirect when the user passed an explicit PR number and the cwd-resolved
-	// review file is for a different branch (or doesn't exist) — same class of
-	// cwd-vs-intent mismatch that PR #424 fixed for `crit comment`. cj.Branch
-	// is "" when the cwd file was missing; the helper treats that as "no cwd
-	// state to false-positive against" and still attempts a branch-based match.
+	// review file is for a different branch (or doesn't exist, or unmarshalled
+	// empty above) — same class of cwd-vs-intent mismatch that PR #424 fixed
+	// for `crit comment`. cj.Branch is "" when the cwd file was missing or
+	// corrupt; the helper treats that as "no cwd state to false-positive
+	// against" and still attempts a branch-based match.
 	if f.prFlag != 0 && f.outputDir == "" {
 		if altPath, altCJ, ok := redirectReviewPathForPR(prNumber, cj.Branch, critPath); ok {
 			critPath = altPath

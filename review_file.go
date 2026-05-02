@@ -224,6 +224,14 @@ func findReviewFileByCommentID(commentID string, excludePath string) (string, er
 // route explicit-PR operations to the review file that owns the PR's branch
 // when the cwd-resolved review file is for a different branch — same class
 // of cwd-vs-intent mismatch that PR #424 fixed for `crit comment`.
+//
+// Cross-repo safety: matching is purely on the "branch" field, so two repos
+// with reviews on the same branch name could theoretically collide. In
+// practice the caller has already constrained the PR number to cwd's repo
+// via `gh pr view` (which uses the cwd's git remote), so a single-match
+// across all reviews is the right one. If multiple repos do share both the
+// branch name and an active review file, the ambiguous error fires and the
+// caller falls back to the cwd-resolved path.
 func findReviewFileByBranch(branch, excludePath string) (string, error) {
 	if branch == "" {
 		return "", fmt.Errorf("branch is required")
