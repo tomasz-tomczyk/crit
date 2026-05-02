@@ -207,6 +207,59 @@ func findReviewFileByCommentID(commentID string, excludePath string) (string, er
 	return matchPath, nil
 }
 
+// findReviewFileByBranch scans all review files in ~/.crit/reviews/ for one
+// whose top-level "branch" field equals branch, skipping excludePath. Returns
+// the path if exactly one match is found. Used by `crit pull`/`crit push` to
+// route explicit-PR operations to the review file that owns the PR's branch
+// when the cwd-resolved review file is for a different branch — same class
+// of cwd-vs-intent mismatch that PR #424 fixed for `crit comment`.
+func findReviewFileByBranch(branch, excludePath string) (string, error) {
+	if branch == "" {
+		return "", fmt.Errorf("branch is required")
+	}
+	dir, err := reviewsDir()
+	if err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("no review file found for branch %q", branch)
+		}
+		return "", err
+	}
+
+	var matchPath string
+	for _, de := range entries {
+		if !strings.HasSuffix(de.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, de.Name())
+		if path == excludePath {
+			continue
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			continue
+		}
+		var cj CritJSON
+		if err := json.Unmarshal(data, &cj); err != nil {
+			continue
+		}
+		if cj.Branch != branch {
+			continue
+		}
+		if matchPath != "" {
+			return "", fmt.Errorf("multiple review files match branch %q", branch)
+		}
+		matchPath = path
+	}
+	if matchPath == "" {
+		return "", fmt.Errorf("no review file found for branch %q", branch)
+	}
+	return matchPath, nil
+}
+
 // reviewFileContainsComment does a quick check if a review JSON file contains
 // a comment with the given ID. Uses string search first as a fast path to
 // avoid parsing files that definitely don't contain the ID.

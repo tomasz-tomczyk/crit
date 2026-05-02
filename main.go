@@ -541,6 +541,36 @@ func resolvePullScope(outputDir string, cj *CritJSON) inheritedScope {
 	return inheritedScope{}
 }
 
+// redirectReviewPathForPR detects when the cwd-resolved review file is for a
+// different branch than the explicit PR the user named, and redirects to a
+// review file matching the PR's head branch when exactly one such file exists.
+// Returns ok=false silently when no PRInfo can be fetched, the PR's branch
+// matches cwd, or no unique alt file exists — caller falls back to cwd path.
+//
+// This mirrors PR #424's findReviewFileByCommentID fallback for `crit comment`:
+// the user's intent is encoded in the PR number, so when cwd resolves to an
+// unrelated review file we should try to honor the explicit intent first.
+func redirectReviewPathForPR(prNumber int, cwdBranch, cwdCritPath string) (string, CritJSON, bool) {
+	info, err := fetchPRByNumber(prNumber)
+	if err != nil || info == nil || info.HeadRefName == "" {
+		return "", CritJSON{}, false
+	}
+	if info.HeadRefName == cwdBranch {
+		return "", CritJSON{}, false
+	}
+	altPath, err := findReviewFileByBranch(info.HeadRefName, cwdCritPath)
+	if err != nil {
+		return "", CritJSON{}, false
+	}
+	altCJ, err := loadCritJSON(altPath)
+	if err != nil {
+		return "", CritJSON{}, false
+	}
+	fmt.Fprintf(os.Stderr, "Note: PR #%d targets branch %q; routing to %s (not the cwd-resolved review file)\n",
+		prNumber, info.HeadRefName, filepath.Base(altPath))
+	return altPath, altCJ, true
+}
+
 func runPull(args []string) {
 	if err := requireGH(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -577,6 +607,17 @@ func runPull(args []string) {
 			fmt.Fprintf(os.Stderr, "Warning: existing review file is invalid, starting fresh: %v\n", jsonErr)
 		}
 	}
+
+	// Redirect when the user passed an explicit PR number and the cwd-resolved
+	// review file is for a different branch — same class of cwd-vs-intent
+	// mismatch that PR #424 fixed for `crit comment`.
+	if f.prFlag != 0 && f.outputDir == "" && cj.Branch != "" {
+		if altPath, altCJ, ok := redirectReviewPathForPR(prNumber, cj.Branch, critPath); ok {
+			critPath = altPath
+			cj = altCJ
+		}
+	}
+
 	if cj.Files == nil {
 		cj.Files = make(map[string]CritJSONFile)
 		cj.Branch = CurrentBranch()
