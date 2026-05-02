@@ -541,7 +541,8 @@ func TestReviewCycle_NextCommand(t *testing.T) {
 		{"single file", []string{"plan.md"}, "crit plan.md"},
 		{"multiple files", []string{"a.md", "b.go"}, "crit a.md b.go"},
 		{"arg with space gets quoted", []string{"my plan.md"}, `crit 'my plan.md'`},
-		{"flag-style arg passes through", []string{"--pr", "42"}, "crit --pr 42"},
+		// Note: cliArgs holds positional file args only at runtime; this case exercises shellQuoteArg formatting, not a real call shape.
+		{"unknown leading-dash arg formats verbatim", []string{"--pr", "42"}, "crit --pr 42"},
 		{"non-ASCII arg passes through", []string{"résumé.md"}, "crit résumé.md"},
 		{"single quote in arg is escaped", []string{"it's.md"}, `crit 'it'\''s.md'`},
 	}

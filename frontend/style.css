@@ -2505,11 +2505,9 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
    it tracks the viewport vertically while pages scroll. */
 .sidebar-resize-handle {
   flex: 0 0 4px;
-  align-self: stretch;
   cursor: col-resize;
   position: sticky;
   top: var(--header-height, 49px);
-  height: calc(100vh - var(--header-height, 49px));
   z-index: 86;
   background: transparent;
   transition: background 0.15s ease;

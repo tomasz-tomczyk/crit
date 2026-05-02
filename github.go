@@ -1298,7 +1298,8 @@ func addReplyToCritJSON(commentID, body, author, userID string, resolve bool, ou
 }
 
 // findReviewFileByCommentID scans all review files in ~/.crit/reviews/ for the given
-// comment ID, skipping excludePath. Returns the path if found in exactly one file.
+// comment ID, skipping excludePath. Returns the path if found in exactly one file,
+// or an error wrapping commentID if it's missing or appears in multiple files.
 func findReviewFileByCommentID(commentID string, excludePath string) (string, error) {
 	dir, err := reviewsDir()
 	if err != nil {

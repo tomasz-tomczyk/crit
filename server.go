@@ -50,7 +50,7 @@ type Server struct {
 	homeDir           string
 	cfg               Config
 	reviewPath        string
-	cliArgs           []string     // args the daemon was launched with (used to print "Next round:" command)
+	cliArgs           []string     // positional file args; flags (--pr, --range, etc.) are not preserved
 	prList            *prListCache // 60s cache for picker "Other PRs"
 }
 
