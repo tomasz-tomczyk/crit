@@ -1844,7 +1844,7 @@ type serverConfig struct {
 	remoteFiles bool
 
 	// workingTree forces working-tree mode regardless of stack auto-detection.
-	// Set by --working-tree or CRIT_NO_AUTODETECT=1.
+	// Set by --working-tree.
 	workingTree bool
 }
 
@@ -2081,8 +2081,8 @@ func applySessionOverrides(session *Session, sc *serverConfig) {
 	}
 	// Auto-detect stacked PR / local branch stack when no explicit focus
 	// was requested. Best-effort — any failure falls through to working-tree
-	// mode. Skipped by --working-tree or CRIT_NO_AUTODETECT=1.
-	if sc.focus == nil && !sc.workingTree && os.Getenv("CRIT_NO_AUTODETECT") != "1" {
+	// mode. Skipped in file mode or by --working-tree.
+	if sc.focus == nil && !sc.workingTree && len(sc.files) == 0 {
 		if detected := autoDetectStackedFocus(session.VCS, session.RepoRoot); detected != nil {
 			sc.focus = detected
 		}
@@ -2703,7 +2703,6 @@ Environment:
   CRIT_NO_UPDATE_CHECK        Disable update check on startup
   CRIT_AUTH_TOKEN              Override the auth token (skip login)
   CRIT_NO_INTEGRATION_CHECK   Disable integration staleness check
-  CRIT_NO_AUTODETECT          Skip auto-detection of stacked PR / branch on boot
 
 Configuration:
   Global config:   ~/.crit.config.json

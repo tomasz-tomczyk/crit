@@ -239,7 +239,7 @@ func TestAutoDetect_WorkingTreeFlag_Bypasses(t *testing.T) {
 
 	// Simulate the boot-path guard inline (avoids spinning up a session).
 	sc := &serverConfig{workingTree: true}
-	if sc.focus == nil && !sc.workingTree && os.Getenv("CRIT_NO_AUTODETECT") != "1" {
+	if sc.focus == nil && !sc.workingTree && len(sc.files) == 0 {
 		// Should be skipped — calling autoDetectStackedFocus here would fire the
 		// stub above and fail the test.
 		_ = autoDetectStackedFocus(&GitVCS{}, dir)
@@ -249,22 +249,26 @@ func TestAutoDetect_WorkingTreeFlag_Bypasses(t *testing.T) {
 	}
 }
 
-func TestAutoDetect_EnvVar_Bypasses(t *testing.T) {
+// TestAutoDetect_FileMode_Bypasses verifies that passing explicit file
+// arguments (file mode) skips autodetect entirely. Regression: PR #391
+// introduced autodetect but didn't gate it on file mode, so `crit some.md`
+// on a stacked branch was silently promoted into range mode and the file
+// argument was thrown away.
+func TestAutoDetect_FileMode_Bypasses(t *testing.T) {
 	dir, _, _ := initStackedRepo(t)
 	chdir(t, dir)
-	t.Setenv("CRIT_NO_AUTODETECT", "1")
 
 	withDetectPRInfo(t, func() *PRInfo {
-		t.Fatal("detectPRInfoFn called despite CRIT_NO_AUTODETECT=1")
+		t.Fatal("detectPRInfoFn called despite file-mode invocation")
 		return nil
 	})
 
-	sc := &serverConfig{}
-	if sc.focus == nil && !sc.workingTree && os.Getenv("CRIT_NO_AUTODETECT") != "1" {
+	sc := &serverConfig{files: []string{"some.md"}}
+	if sc.focus == nil && !sc.workingTree && len(sc.files) == 0 {
 		_ = autoDetectStackedFocus(&GitVCS{}, dir)
 	}
 	if sc.focus != nil {
-		t.Errorf("focus should remain nil under CRIT_NO_AUTODETECT=1, got %+v", sc.focus)
+		t.Errorf("focus should remain nil in file mode, got %+v", sc.focus)
 	}
 }
 
