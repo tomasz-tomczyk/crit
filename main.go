@@ -2428,14 +2428,33 @@ func runServe(args []string) {
 	close(watchStop)
 
 	removeSessionFile(key)
+
+	// Order matters here:
+	//   1. session.Shutdown()    — fires the final SSE "server-shutdown" event
+	//                              while clients are still connected.
+	//   2. httpServer.Shutdown() — stops accepting new conns and waits for
+	//                              in-flight handlers to return. This is what
+	//                              gates s.bgWG.Add(1): handleAgentRequest
+	//                              calls Add synchronously inside the handler
+	//                              before responding 202. Once Shutdown
+	//                              returns, no new Add() calls can race with
+	//                              the WaitBackground below — sync.WaitGroup
+	//                              would otherwise panic on Add-during-Wait.
+	//   3. WaitBackground        — drain spawned agent runners so their
+	//                              replies land before WriteFiles persists.
+	//                              Capped at 30s: a wedged agent loses its
+	//                              reply rather than hanging the daemon. The
+	//                              agent ctx is parented on the shutdown ctx
+	//                              (already Done() above), so subprocesses
+	//                              are being killed concurrently — most
+	//                              cases drain in milliseconds.
+	//   4. WriteFiles            — persist final review state.
 	session.Shutdown()
 
-	// Drain in-flight background goroutines (agent subprocess runners) so
-	// their replies land in the session before WriteFiles persists. Capped at
-	// 30s — if an agent is wedged we'd rather lose its reply than hang the
-	// daemon shutdown indefinitely. The agent ctx is parented on this same
-	// shutdown ctx (already Done() above), so the subprocess is being killed
-	// concurrently — most cases drain in milliseconds.
+	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = httpServer.Shutdown(shutCtx)
+
 	if !srv.WaitBackground(30 * time.Second) {
 		log.Printf("Warning: background goroutines did not drain within 30s; proceeding with shutdown")
 	}
@@ -2445,10 +2464,6 @@ func runServe(args []string) {
 	if session.ReviewFilePath != "" {
 		fmt.Fprintf(os.Stderr, "Review file: %s\n", session.ReviewFilePath)
 	}
-
-	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = httpServer.Shutdown(shutCtx)
 }
 
 func runStatus(args []string) {

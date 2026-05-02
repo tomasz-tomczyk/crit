@@ -156,9 +156,6 @@ func (s *Server) withReady(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// SetSession attaches a fully initialized session and marks the server as ready.
-// Uses atomic.Pointer to ensure the session pointer is visible to all goroutines
-// immediately after store, which is critical on weakly-ordered architectures (ARM64).
 // SetShutdownCtx wires the daemon's signal-handled context into the server so
 // background goroutines can react to shutdown. Call this once during daemon
 // startup, before any handler can fire. Tests that don't run a real daemon may
@@ -196,6 +193,9 @@ func (s *Server) WaitBackground(timeout time.Duration) bool {
 	}
 }
 
+// SetSession attaches a fully initialized session and marks the server as ready.
+// Uses atomic.Pointer to ensure the session pointer is visible to all goroutines
+// immediately after store, which is critical on weakly-ordered architectures (ARM64).
 func (s *Server) SetSession(session *Session) {
 	s.session.Store(session)
 }
