@@ -542,10 +542,15 @@ func resolvePullScope(outputDir string, cj *CritJSON) inheritedScope {
 }
 
 // redirectReviewPathForPR detects when the cwd-resolved review file is for a
-// different branch than the explicit PR the user named, and redirects to a
-// review file matching the PR's head branch when exactly one such file exists.
-// Returns ok=false silently when no PRInfo can be fetched, the PR's branch
-// matches cwd, or no unique alt file exists — caller falls back to cwd path.
+// different branch than the explicit PR the user named (or the cwd review file
+// is missing entirely), and redirects to a review file matching the PR's head
+// branch when exactly one such file exists. Returns ok=false silently when no
+// PRInfo can be fetched, the PR's branch already matches cwd, or no unique alt
+// file exists — caller falls back to cwd path.
+//
+// When cwdBranch is empty (no cwd review file existed), the cwd-vs-PR-branch
+// early-out is skipped: there's no cwd state to false-positive against, so a
+// unique branch-matching alt file is the user's intent.
 //
 // When multiple review files match the PR's branch, this logs a Note to stderr
 // (so multi-worktree users see why the cwd file was used) and returns false.
@@ -558,7 +563,9 @@ func redirectReviewPathForPR(prNumber int, cwdBranch, cwdCritPath string) (strin
 	if err != nil || info == nil || info.HeadRefName == "" {
 		return "", CritJSON{}, false
 	}
-	if info.HeadRefName == cwdBranch {
+	// Skip early-out when cwdBranch is empty (no cwd review file existed) —
+	// there's no cwd state that could false-positive a match.
+	if cwdBranch != "" && info.HeadRefName == cwdBranch {
 		return "", CritJSON{}, false
 	}
 	altPath, err := findReviewFileByBranch(info.HeadRefName, cwdCritPath)
@@ -617,9 +624,11 @@ func runPull(args []string) {
 	}
 
 	// Redirect when the user passed an explicit PR number and the cwd-resolved
-	// review file is for a different branch — same class of cwd-vs-intent
-	// mismatch that PR #424 fixed for `crit comment`.
-	if f.prFlag != 0 && f.outputDir == "" && cj.Branch != "" {
+	// review file is for a different branch (or doesn't exist) — same class of
+	// cwd-vs-intent mismatch that PR #424 fixed for `crit comment`. cj.Branch
+	// is "" when the cwd file was missing; the helper treats that as "no cwd
+	// state to false-positive against" and still attempts a branch-based match.
+	if f.prFlag != 0 && f.outputDir == "" {
 		if altPath, altCJ, ok := redirectReviewPathForPR(prNumber, cj.Branch, critPath); ok {
 			critPath = altPath
 			cj = altCJ
@@ -798,26 +807,39 @@ func loadPushContext(args []string) pushContext {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	data, err := os.ReadFile(critPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: no review file found. Run a crit review first.\n")
-		os.Exit(1)
-	}
+
+	// Read the cwd-resolved file first (best-effort) so we know its branch.
+	// We tolerate "not found" here so an explicit `--pr N` from a clean
+	// checkout can still find the right file by branch via the redirect.
 	var cj CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
+	cwdFileExists := true
+	data, readErr := os.ReadFile(critPath)
+	if readErr != nil {
+		if !os.IsNotExist(readErr) {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", readErr)
+			os.Exit(1)
+		}
+		cwdFileExists = false
+	} else if err := json.Unmarshal(data, &cj); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: invalid review file: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Redirect when the user passed an explicit PR number and the cwd-resolved
-	// review file is for a different branch — pushing the wrong comments to a
-	// PR is destructive, so honor the explicit intent first. Same pattern as
-	// PR #424's findReviewFileByCommentID fallback for `crit comment`.
-	if f.prFlag != 0 && f.outputDir == "" && cj.Branch != "" {
+	// review file is for a different branch (or is missing) — pushing the wrong
+	// comments to a PR is destructive, so honor the explicit intent first. Same
+	// pattern as PR #424's findReviewFileByCommentID fallback for `crit comment`.
+	if f.prFlag != 0 && f.outputDir == "" {
 		if altPath, altCJ, ok := redirectReviewPathForPR(prNumber, cj.Branch, critPath); ok {
 			critPath = altPath
 			cj = altCJ
+			cwdFileExists = true
 		}
+	}
+
+	if !cwdFileExists {
+		fmt.Fprintf(os.Stderr, "Error: no review file found. Run a crit review first.\n")
+		os.Exit(1)
 	}
 
 	return pushContext{flags: f, event: event, prNumber: prNumber, critPath: critPath, cj: cj}
