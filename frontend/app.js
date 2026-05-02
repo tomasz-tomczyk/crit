@@ -5447,6 +5447,11 @@
     reviewCommentSubmitting = false;
     reviewCommentFormActive = false;
     reviewCommentEditingId = null;
+    // Clear the just-submitted textarea so renderReviewConversation's draft
+    // snapshot (line ~5670) doesn't mistake it for in-progress typing and
+    // re-open the form pre-populated with the submitted text.
+    const submittedTa = document.querySelector('#reviewConversation .comment-form[data-form-key="review:new"] textarea');
+    if (submittedTa) submittedTa.value = '';
     updateCommentCount();
     renderReviewConversation();
     renderCommentsPanel();

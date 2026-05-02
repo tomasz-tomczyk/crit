@@ -154,6 +154,18 @@ test.describe('Review-level comments — Git Mode', () => {
     await expect(page.locator('#reviewConversation .comment-card.comment-card-highlight')).toBeVisible();
   });
 
+  test('after submit, form does not re-open pre-populated with submitted text', async ({ page }) => {
+    await page.keyboard.press('Shift+G');
+    const textarea = page.locator('#reviewConversation .comment-form textarea');
+    await textarea.fill('one-shot comment');
+    await page.locator('#reviewConversation .comment-form .btn-primary').click();
+
+    await expect(page.locator('#reviewConversation .comment-card')).toHaveCount(1);
+    // The form must not re-render itself with the just-submitted text.
+    await expect(page.locator('#reviewConversation .comment-form')).toHaveCount(0);
+    await expect(page.locator('.review-conversation-add-more')).toBeVisible();
+  });
+
   test('section can be collapsed and expanded', async ({ page, request }) => {
     await request.post('/api/comments', { data: { body: 'a thread' } });
     await loadPage(page);
