@@ -106,11 +106,13 @@ test.describe('Hide Resolved', () => {
     });
     await expect(resolvedBlockAfter.first()).toBeHidden();
 
-    // Verify cookie value
+    // Verify setting persisted in the consolidated crit-settings cookie
     const stored = await page.evaluate(() => {
-      const match = document.cookie.match(/(?:^|;\s*)crit-hide-resolved=([^;]+)/);
-      return match ? decodeURIComponent(match[1]) : null;
+      const match = document.cookie.match(/(?:^|;\s*)crit-settings=([^;]+)/);
+      if (!match) return null;
+      try { return JSON.parse(decodeURIComponent(match[1])).hideResolved; }
+      catch { return null; }
     });
-    expect(stored).toBe('true');
+    expect(stored).toBe(true);
   });
 });
