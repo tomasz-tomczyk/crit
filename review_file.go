@@ -3,11 +3,22 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// errReviewFileNotFoundForBranch is returned by findReviewFileByBranch when no
+// review file matches the given branch. Callers (e.g. redirectReviewPathForPR)
+// treat this as a silent miss — keep using the cwd-resolved path.
+var errReviewFileNotFoundForBranch = errors.New("no review file found for branch")
+
+// errReviewFileAmbiguousForBranch is returned by findReviewFileByBranch when
+// multiple review files match the given branch. Callers should surface a
+// stderr Note so the user knows why the cwd-resolved path was used.
+var errReviewFileAmbiguousForBranch = errors.New("multiple review files match branch")
 
 // resolveReviewPath returns the full path to the review file for the current context.
 // Resolution order:
@@ -224,7 +235,7 @@ func findReviewFileByBranch(branch, excludePath string) (string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("no review file found for branch %q", branch)
+			return "", fmt.Errorf("%w: %q", errReviewFileNotFoundForBranch, branch)
 		}
 		return "", err
 	}
@@ -250,12 +261,12 @@ func findReviewFileByBranch(branch, excludePath string) (string, error) {
 			continue
 		}
 		if matchPath != "" {
-			return "", fmt.Errorf("multiple review files match branch %q", branch)
+			return "", fmt.Errorf("%w: %q", errReviewFileAmbiguousForBranch, branch)
 		}
 		matchPath = path
 	}
 	if matchPath == "" {
-		return "", fmt.Errorf("no review file found for branch %q", branch)
+		return "", fmt.Errorf("%w: %q", errReviewFileNotFoundForBranch, branch)
 	}
 	return matchPath, nil
 }

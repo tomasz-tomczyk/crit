@@ -547,6 +547,9 @@ func resolvePullScope(outputDir string, cj *CritJSON) inheritedScope {
 // Returns ok=false silently when no PRInfo can be fetched, the PR's branch
 // matches cwd, or no unique alt file exists — caller falls back to cwd path.
 //
+// When multiple review files match the PR's branch, this logs a Note to stderr
+// (so multi-worktree users see why the cwd file was used) and returns false.
+//
 // This mirrors PR #424's findReviewFileByCommentID fallback for `crit comment`:
 // the user's intent is encoded in the PR number, so when cwd resolves to an
 // unrelated review file we should try to honor the explicit intent first.
@@ -560,6 +563,11 @@ func redirectReviewPathForPR(prNumber int, cwdBranch, cwdCritPath string) (strin
 	}
 	altPath, err := findReviewFileByBranch(info.HeadRefName, cwdCritPath)
 	if err != nil {
+		if errors.Is(err, errReviewFileAmbiguousForBranch) {
+			fmt.Fprintf(os.Stderr,
+				"Note: multiple review files match branch %q; using cwd-resolved path. Pass --output to disambiguate.\n",
+				info.HeadRefName)
+		}
 		return "", CritJSON{}, false
 	}
 	altCJ, err := loadCritJSON(altPath)
