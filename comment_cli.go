@@ -220,7 +220,7 @@ func (e *BulkCommentEntry) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if len(aux.Line) > 0 {
+	if len(aux.Line) > 0 && string(aux.Line) != "null" {
 		// Try int first
 		var lineInt int
 		if err := json.Unmarshal(aux.Line, &lineInt); err == nil {
@@ -233,6 +233,7 @@ func (e *BulkCommentEntry) UnmarshalJSON(data []byte) error {
 			e.LineSpec = lineStr
 			return nil
 		}
+		return fmt.Errorf("line must be int or string, got %s", aux.Line)
 	}
 	return nil
 }

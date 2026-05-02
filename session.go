@@ -2024,6 +2024,7 @@ func (s *Session) persistActiveDiffScope(scope string) error {
 }
 
 // scheduleWrite debounces writes to disk.
+// scheduleWrite must be called with s.mu held.
 func (s *Session) scheduleWrite() {
 	s.pendingWrite = true
 	if s.writeTimer != nil {

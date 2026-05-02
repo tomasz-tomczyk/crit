@@ -1844,6 +1844,18 @@ func TestBulkCommentEntry_UnmarshalJSON_NoLine(t *testing.T) {
 	}
 }
 
+func TestBulkCommentEntry_UnmarshalJSON_InvalidLineType(t *testing.T) {
+	data := `{"file": "main.go", "line": true, "body": "fix"}`
+	var e BulkCommentEntry
+	err := json.Unmarshal([]byte(data), &e)
+	if err == nil {
+		t.Fatal("expected error for non-int/non-string line, got nil")
+	}
+	if !strings.Contains(err.Error(), "line must be int or string") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
 func TestAppendReply_ToReviewComment(t *testing.T) {
 	cj := &CritJSON{
 		ReviewComments: []Comment{
