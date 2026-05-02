@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -71,13 +70,13 @@ func installAiderAt(cwd, home string, force bool) error {
 		if _, statErr := os.Stat(paths.conventionsDest); statErr == nil {
 			fmt.Printf("  Skipped:   %s (already exists, use --force to overwrite)\n", paths.conventionsDest)
 		} else {
-			if err := writeFileMkdirAtomic(paths.conventionsDest, data); err != nil {
+			if err := atomicWriteFile(paths.conventionsDest, data, 0o644); err != nil {
 				return fmt.Errorf("writing %s: %w", paths.conventionsDest, err)
 			}
 			fmt.Printf("  Installed: %s\n", paths.conventionsDest)
 		}
 	} else {
-		if err := writeFileMkdirAtomic(paths.conventionsDest, data); err != nil {
+		if err := atomicWriteFile(paths.conventionsDest, data, 0o644); err != nil {
 			return fmt.Errorf("writing %s: %w", paths.conventionsDest, err)
 		}
 		fmt.Printf("  Installed: %s\n", paths.conventionsDest)
@@ -91,40 +90,6 @@ func installAiderAt(cwd, home string, force bool) error {
 	fmt.Printf("  Updated:   %s (added %s under read:)\n", paths.confPath, paths.readEntry)
 	fmt.Println("  Aider will load the crit conventions on next start")
 	fmt.Println()
-	return nil
-}
-
-// writeFileMkdirAtomic writes data to path via a same-directory tempfile
-// followed by rename. On POSIX rename is atomic, so a crash mid-write cannot
-// leave a truncated file at path. Parent dirs are created as needed.
-func writeFileMkdirAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp := filepath.Join(dir, filepath.Base(path)+".tmp."+strconv.Itoa(os.Getpid()))
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
 	return nil
 }
 
@@ -159,7 +124,7 @@ func mergeAiderConfFile(path, readEntry string) error {
 		return err
 	}
 
-	return writeFileMkdirAtomic(path, merged)
+	return atomicWriteFile(path, merged, 0o644)
 }
 
 // mergeAiderConfYAML returns the YAML bytes resulting from merging readEntry

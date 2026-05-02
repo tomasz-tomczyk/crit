@@ -486,14 +486,15 @@ func TestMergeAiderConfFile_MalformedLeavesFileUntouched(t *testing.T) {
 	}
 }
 
-func TestWriteFileMkdirAtomic_CleansUpTempfile(t *testing.T) {
-	// Atomic write: after a successful rename, no .tmp.* siblings should
+func TestAiderInstallAtomicWrite_CleansUpTempfile(t *testing.T) {
+	// Atomic write: after a successful rename, no tempfile siblings should
 	// remain. This indirectly proves rename happened (and didn't leave a
-	// half-written file behind).
+	// half-written file behind). Covers the aider install code path which
+	// now routes through the canonical atomicWriteFile helper.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "file.yml")
 
-	if err := writeFileMkdirAtomic(path, []byte("hello\n")); err != nil {
+	if err := atomicWriteFile(path, []byte("hello\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)
@@ -509,7 +510,7 @@ func TestWriteFileMkdirAtomic_CleansUpTempfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if strings.Contains(e.Name(), ".tmp.") {
+		if strings.Contains(e.Name(), ".tmp") {
 			t.Errorf("leftover tempfile: %s", e.Name())
 		}
 	}

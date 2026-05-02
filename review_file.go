@@ -157,10 +157,7 @@ func saveCritJSON(critPath string, cj CritJSON) error {
 	if err != nil {
 		return fmt.Errorf("marshaling review file: %w", err)
 	}
-	// Ensure parent directory exists (centralized path may not exist yet).
-	if err := os.MkdirAll(filepath.Dir(critPath), 0700); err != nil {
-		return fmt.Errorf("creating review directory: %w", err)
-	}
+	// atomicWriteFile (atomic_write.go) handles MkdirAll internally.
 	return atomicWriteFile(critPath, append(data, '\n'), 0644)
 }
 
