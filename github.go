@@ -1112,13 +1112,8 @@ func saveCritJSON(critPath string, cj CritJSON) error {
 	return atomicWriteFile(critPath, append(data, '\n'), 0644)
 }
 
-// appendComment adds a comment to the CritJSON struct in memory. Does not write to disk.
-// Defers to appendCommentScoped with no scope inheritance.
-func appendComment(cj *CritJSON, filePath string, startLine, endLine int, body, author, userID string) {
-	appendCommentScoped(cj, filePath, startLine, endLine, body, author, userID, inheritedScope{})
-}
-
-// appendCommentScoped is appendComment with HeadSHA / DiffScope stamping.
+// appendCommentScoped adds a comment to the CritJSON struct in memory with
+// HeadSHA / DiffScope stamping. Does not write to disk.
 // scope.DiffScope == "" produces today's working-tree behavior.
 func appendCommentScoped(cj *CritJSON, filePath string, startLine, endLine int, body, author, userID string, scope inheritedScope) {
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -1229,20 +1224,16 @@ func appendReply(cj *CritJSON, commentID, body, author, userID string, resolve b
 	return nil
 }
 
-// addCommentToCritJSON appends a comment to the review file for the given file and line range.
+// addCommentToCritJSONScoped appends a comment to the review file for the given file and line range.
 // Creates the review file if it doesn't exist. Appends to existing comments if it does.
 // Works in both git repos and plain directories (file mode).
 // outputDir overrides the default location (repo root or CWD) when non-empty.
+// scope carries optional HeadSHA / DiffScope stamping; the zero value produces
+// working-tree behavior.
 // userID is documented to support callers that pass an authenticated user; tests
-// pass "" because they don't need that path. The lint exception keeps the signature
-// stable for the API.
+// pass "" because they don't need that path.
 //
 //nolint:unparam // userID is part of the public contract; tests don't exercise it
-func addCommentToCritJSON(filePath string, startLine, endLine int, body string, author, userID string, outputDir string) error {
-	return addCommentToCritJSONScoped(filePath, startLine, endLine, body, author, userID, outputDir, inheritedScope{})
-}
-
-// addCommentToCritJSONScoped is addCommentToCritJSON with scope stamping.
 func addCommentToCritJSONScoped(filePath string, startLine, endLine int, body, author, userID, outputDir string, scope inheritedScope) error {
 	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
@@ -1542,13 +1533,8 @@ func parseLineSpec(spec string) (start, end int, err error) {
 	return n, n, nil
 }
 
-//nolint:unparam // globalUserID is part of the public contract; tests don't exercise it
-func bulkAddCommentsToCritJSON(entries []BulkCommentEntry, globalAuthor, globalUserID string, outputDir string) error {
-	return bulkAddCommentsToCritJSONScoped(entries, globalAuthor, globalUserID, outputDir, inheritedScope{})
-}
-
-// bulkAddCommentsToCritJSONScoped is bulkAddCommentsToCritJSON with scope stamping
-// applied to every entry.
+// bulkAddCommentsToCritJSONScoped writes a batch of comments to a single review
+// file with scope stamping applied to every entry.
 //
 // Target resolution: a bulk call always writes to a single review file. If any
 // entry uses reply_to and none of the referenced IDs live in the cwd-resolved
@@ -1556,6 +1542,8 @@ func bulkAddCommentsToCritJSON(entries []BulkCommentEntry, globalAuthor, globalU
 // them. New comments in the same bulk ride along. If reply IDs split across
 // multiple review files (or some land in primary and others elsewhere), the
 // call is rejected — callers should split into per-file bulks.
+//
+//nolint:unparam // globalUserID is part of the public contract; tests don't exercise it
 func bulkAddCommentsToCritJSONScoped(entries []BulkCommentEntry, globalAuthor, globalUserID string, outputDir string, scope inheritedScope) error {
 	if len(entries) == 0 {
 		return fmt.Errorf("no comment entries provided")
@@ -1672,12 +1660,8 @@ func cjContainsCommentID(cj *CritJSON, id string) bool {
 	return false
 }
 
-// addReviewCommentToCritJSON adds a review-level comment to the review file.
-func addReviewCommentToCritJSON(body, author, userID, outputDir string) error {
-	return addReviewCommentToCritJSONScoped(body, author, userID, outputDir, inheritedScope{})
-}
-
-// addReviewCommentToCritJSONScoped is addReviewCommentToCritJSON with scope stamping.
+// addReviewCommentToCritJSONScoped adds a review-level comment to the review
+// file with scope stamping.
 func addReviewCommentToCritJSONScoped(body, author, userID, outputDir string, scope inheritedScope) error {
 	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
@@ -1693,12 +1677,8 @@ func addReviewCommentToCritJSONScoped(body, author, userID, outputDir string, sc
 	return saveCritJSON(critPath, cj)
 }
 
-// addFileCommentToCritJSON adds a file-level comment to the review file.
-func addFileCommentToCritJSON(filePath, body, author, userID, outputDir string) error {
-	return addFileCommentToCritJSONScoped(filePath, body, author, userID, outputDir, inheritedScope{})
-}
-
-// addFileCommentToCritJSONScoped is addFileCommentToCritJSON with scope stamping.
+// addFileCommentToCritJSONScoped adds a file-level comment to the review file
+// with scope stamping.
 func addFileCommentToCritJSONScoped(filePath, body, author, userID, outputDir string, scope inheritedScope) error {
 	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
@@ -1719,13 +1699,8 @@ func addFileCommentToCritJSONScoped(filePath, body, author, userID, outputDir st
 	return saveCritJSON(critPath, cj)
 }
 
-// appendReviewComment adds a review-level comment to the CritJSON struct in memory.
-// Defers to appendReviewCommentScoped with no scope inheritance.
-func appendReviewComment(cj *CritJSON, body, author, userID string) {
-	appendReviewCommentScoped(cj, body, author, userID, inheritedScope{})
-}
-
-// appendReviewCommentScoped stamps DiffScope/HeadSHA from scope.
+// appendReviewCommentScoped adds a review-level comment to the CritJSON struct
+// in memory, stamping DiffScope/HeadSHA from scope.
 func appendReviewCommentScoped(cj *CritJSON, body, author, userID string, scope inheritedScope) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
@@ -1742,13 +1717,8 @@ func appendReviewCommentScoped(cj *CritJSON, body, author, userID string, scope 
 	cj.ReviewComments = append(cj.ReviewComments, c)
 }
 
-// appendFileComment adds a file-level comment (scope: "file", lines: 0) to the CritJSON struct in memory.
-// Defers to appendFileCommentScoped with no scope inheritance.
-func appendFileComment(cj *CritJSON, filePath, body, author, userID string) {
-	appendFileCommentScoped(cj, filePath, body, author, userID, inheritedScope{})
-}
-
-// appendFileCommentScoped stamps DiffScope/HeadSHA from scope.
+// appendFileCommentScoped adds a file-level comment (scope: "file", lines: 0)
+// to the CritJSON struct in memory, stamping DiffScope/HeadSHA from scope.
 func appendFileCommentScoped(cj *CritJSON, filePath, body, author, userID string, scope inheritedScope) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now

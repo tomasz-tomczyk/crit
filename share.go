@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -590,23 +591,30 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, 
 	return result, nil
 }
 
-// loadExistingShareCfg returns the full CritJSON if a matching share exists (same file scope).
-func loadExistingShareCfg(critPath string, paths []string) (CritJSON, bool) {
+// loadExistingShareCfg returns the full CritJSON if a matching share exists
+// (same file scope). The bool is true only when an existing share is found.
+// A missing review file is reported as (zero, false, nil) so callers can fall
+// back to creating a new share. Parse errors and other I/O errors are surfaced
+// so callers can refuse to clobber a corrupted file.
+func loadExistingShareCfg(critPath string, paths []string) (CritJSON, bool, error) {
 	data, err := os.ReadFile(critPath)
 	if err != nil {
-		return CritJSON{}, false
+		if errors.Is(err, fs.ErrNotExist) {
+			return CritJSON{}, false, nil
+		}
+		return CritJSON{}, false, fmt.Errorf("reading review file %q: %w", critPath, err)
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
-		return CritJSON{}, false
+		return CritJSON{}, false, fmt.Errorf("parsing review file %q: %w", critPath, err)
 	}
 	if cj.ShareURL == "" {
-		return CritJSON{}, false
+		return CritJSON{}, false, nil
 	}
 	if cj.ShareScope != "" && cj.ShareScope != shareScope(paths) {
-		return CritJSON{}, false
+		return CritJSON{}, false, nil
 	}
-	return cj, true
+	return cj, true, nil
 }
 
 // buildLocalIDSet collects all local comment IDs across all files and review comments.
@@ -815,7 +823,7 @@ func loadShareConfig() Config {
 		cfgDir, _ = vcs.RepoRoot()
 	}
 	if cfgDir == "" {
-		cfgDir, _ = os.Getwd()
+		cfgDir = mustGetwd()
 	}
 	return LoadConfig(cfgDir)
 }

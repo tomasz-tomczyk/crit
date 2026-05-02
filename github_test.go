@@ -639,7 +639,7 @@ func TestAddCommentToCritJSON_RejectsPathTraversal(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	err := addCommentToCritJSON("../../../etc/passwd", 1, 1, "bad", "", "", "")
+	err := addCommentToCritJSONScoped("../../../etc/passwd", 1, 1, "bad", "", "", "", inheritedScope{})
 	if err == nil {
 		t.Fatal("expected error for path traversal, got nil")
 	}
@@ -657,7 +657,7 @@ func TestAddCommentToCritJSON_RejectsAbsolutePath(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	err := addCommentToCritJSON("/etc/passwd", 1, 1, "bad", "", "", "")
+	err := addCommentToCritJSONScoped("/etc/passwd", 1, 1, "bad", "", "", "", inheritedScope{})
 	if err == nil {
 		t.Fatal("expected error for absolute path, got nil")
 	}
@@ -674,7 +674,7 @@ func TestAddCommentToCritJSON_CreatesNewFile(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	err := addCommentToCritJSON("main.go", 10, 15, "Fix this bug", "", "", dir)
+	err := addCommentToCritJSONScoped("main.go", 10, 15, "Fix this bug", "", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatalf("addCommentToCritJSON: %v", err)
 	}
@@ -715,10 +715,10 @@ func TestAddCommentToCritJSON_AppendsToExisting(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	if err := addCommentToCritJSON("main.go", 1, 1, "First", "", "", dir); err != nil {
+	if err := addCommentToCritJSONScoped("main.go", 1, 1, "First", "", "", dir, inheritedScope{}); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
-	if err := addCommentToCritJSON("main.go", 20, 20, "Second", "", "", dir); err != nil {
+	if err := addCommentToCritJSONScoped("main.go", 20, 20, "Second", "", "", dir, inheritedScope{}); err != nil {
 		t.Fatalf("second add: %v", err)
 	}
 
@@ -744,8 +744,8 @@ func TestAddCommentToCritJSON_MultipleFiles(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	addCommentToCritJSON("main.go", 1, 1, "Comment on main", "", "", dir)
-	addCommentToCritJSON("auth.go", 5, 10, "Comment on auth", "", "", dir)
+	addCommentToCritJSONScoped("main.go", 1, 1, "Comment on main", "", "", dir, inheritedScope{})
+	addCommentToCritJSONScoped("auth.go", 5, 10, "Comment on auth", "", "", dir, inheritedScope{})
 
 	data, _ := os.ReadFile(dir + "/.crit.json")
 	var cj CritJSON
@@ -768,7 +768,7 @@ func TestAddCommentToCritJSON_FileMode_NoGitRepo(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	err := addCommentToCritJSON("main.go", 5, 5, "File mode comment", "", "", dir)
+	err := addCommentToCritJSONScoped("main.go", 5, 5, "File mode comment", "", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatalf("addCommentToCritJSON: %v", err)
 	}
@@ -801,7 +801,7 @@ func TestAddCommentToCritJSON_FileMode_PathRelativeToCWD(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	// Path should be stored as given (relative to CWD), not resolved to anything else
-	addCommentToCritJSON("src/auth.go", 10, 10, "comment", "", "", dir)
+	addCommentToCritJSONScoped("src/auth.go", 10, 10, "comment", "", "", dir, inheritedScope{})
 
 	data, _ := os.ReadFile(dir + "/.crit.json")
 	var cj CritJSON
@@ -823,7 +823,7 @@ func TestAddCommentToCritJSON_OutputDir(t *testing.T) {
 	os.Chdir(repoDir)
 	defer os.Chdir(origDir)
 
-	if err := addCommentToCritJSON("main.go", 1, 1, "custom output dir", "", "", outputDir); err != nil {
+	if err := addCommentToCritJSONScoped("main.go", 1, 1, "custom output dir", "", "", outputDir, inheritedScope{}); err != nil {
 		t.Fatalf("addCommentToCritJSON: %v", err)
 	}
 
@@ -892,7 +892,7 @@ func TestAddCommentToCritJSON_RespectsBaseBranchConfig(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	if err := addCommentToCritJSON("feature.go", 1, 1, "test comment", "", "", dir); err != nil {
+	if err := addCommentToCritJSONScoped("feature.go", 1, 1, "test comment", "", "", dir, inheritedScope{}); err != nil {
 		t.Fatalf("addCommentToCritJSON: %v", err)
 	}
 
@@ -1232,7 +1232,7 @@ func TestBulkAddCommentsToCritJSON_MixedCommentsAndReplies(t *testing.T) {
 		{File: "main.go", Line: 3, EndLine: 4, Body: "Extract to function"},
 	}
 
-	err := bulkAddCommentsToCritJSON(entries, "TestBot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(entries, "TestBot", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1261,7 +1261,7 @@ func TestBulkAddCommentsToCritJSON_MixedCommentsAndReplies(t *testing.T) {
 	replyEntries := []BulkCommentEntry{
 		{ReplyTo: firstCommentID, Body: "Done — added godoc comment", Resolve: true},
 	}
-	err = bulkAddCommentsToCritJSON(replyEntries, "TestBot", "", dir)
+	err = bulkAddCommentsToCritJSONScoped(replyEntries, "TestBot", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatalf("unexpected error on reply: %v", err)
 	}
@@ -1279,7 +1279,7 @@ func TestBulkAddCommentsToCritJSON_MixedCommentsAndReplies(t *testing.T) {
 func TestBulkAddCommentsToCritJSON_EmptyBody(t *testing.T) {
 	dir := initTestRepo(t)
 	entries := []BulkCommentEntry{{File: "main.go", Line: 1, Body: ""}}
-	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(entries, "Bot", "", dir, inheritedScope{})
 	if err == nil || !strings.Contains(err.Error(), "body is required") {
 		t.Errorf("expected body required error, got: %v", err)
 	}
@@ -1288,7 +1288,7 @@ func TestBulkAddCommentsToCritJSON_EmptyBody(t *testing.T) {
 func TestBulkAddCommentsToCritJSON_MissingFile(t *testing.T) {
 	dir := initTestRepo(t)
 	entries := []BulkCommentEntry{{Line: 1, Body: "test"}}
-	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(entries, "Bot", "", dir, inheritedScope{})
 	if err == nil || !strings.Contains(err.Error(), "file is required") {
 		t.Errorf("expected file required error, got: %v", err)
 	}
@@ -1297,7 +1297,7 @@ func TestBulkAddCommentsToCritJSON_MissingFile(t *testing.T) {
 func TestBulkAddCommentsToCritJSON_InvalidLine(t *testing.T) {
 	dir := initTestRepo(t)
 	entries := []BulkCommentEntry{{File: "main.go", Line: 0, Body: "test"}}
-	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(entries, "Bot", "", dir, inheritedScope{})
 	if err == nil || !strings.Contains(err.Error(), "line must be > 0") {
 		t.Errorf("expected line error, got: %v", err)
 	}
@@ -1306,7 +1306,7 @@ func TestBulkAddCommentsToCritJSON_InvalidLine(t *testing.T) {
 func TestBulkAddCommentsToCritJSON_PathTraversal(t *testing.T) {
 	dir := initTestRepo(t)
 	entries := []BulkCommentEntry{{File: "../etc/passwd", Line: 1, Body: "test"}}
-	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(entries, "Bot", "", dir, inheritedScope{})
 	if err == nil || !strings.Contains(err.Error(), "must be relative") {
 		t.Errorf("expected path traversal error, got: %v", err)
 	}
@@ -1314,7 +1314,7 @@ func TestBulkAddCommentsToCritJSON_PathTraversal(t *testing.T) {
 
 func TestBulkAddCommentsToCritJSON_EmptyEntries(t *testing.T) {
 	dir := initTestRepo(t)
-	err := bulkAddCommentsToCritJSON(nil, "Bot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(nil, "Bot", "", dir, inheritedScope{})
 	if err == nil || !strings.Contains(err.Error(), "no comment entries") {
 		t.Errorf("expected empty entries error, got: %v", err)
 	}
@@ -1324,7 +1324,7 @@ func TestBulkAddCommentsToCritJSON_ReplyNotFound(t *testing.T) {
 	dir := initTestRepo(t)
 	t.Setenv("HOME", t.TempDir()) // isolate from any real ~/.crit/reviews
 	entries := []BulkCommentEntry{{ReplyTo: "c99", Body: "reply"}}
-	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(entries, "Bot", "", dir, inheritedScope{})
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("expected not found error, got: %v", err)
 	}
@@ -1362,7 +1362,7 @@ func TestBulkAddCommentsToCritJSON_RedirectsRepliesToAltFile(t *testing.T) {
 		{ReplyTo: "c_spec1", Body: "addressed"},
 		{Body: "general note on the spec"}, // new review-level comment, rides along
 	}
-	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(entries, "Bot", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1410,9 +1410,9 @@ func TestBulkAddCommentsToCritJSON_RejectsSplitTargets(t *testing.T) {
 
 	// Seed the primary (cwd) review file with a comment.
 	writeFile(t, filepath.Join(dir, "main.go"), "package main\n")
-	if err := bulkAddCommentsToCritJSON(
+	if err := bulkAddCommentsToCritJSONScoped(
 		[]BulkCommentEntry{{File: "main.go", Line: 1, Body: "primary comment"}},
-		"Bot", "", dir,
+		"Bot", "", dir, inheritedScope{},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -1431,7 +1431,7 @@ func TestBulkAddCommentsToCritJSON_RejectsSplitTargets(t *testing.T) {
 		{ReplyTo: primaryCommentID, Body: "reply to primary"},
 		{ReplyTo: "c_alt1", Body: "reply to alt"},
 	}
-	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(entries, "Bot", "", dir, inheritedScope{})
 	if err == nil {
 		t.Fatal("expected split-target error, got nil")
 	}
@@ -1459,7 +1459,7 @@ func TestBulkAddCommentsToCritJSON_RejectsRepliesAcrossTwoAltFiles(t *testing.T)
 		{ReplyTo: "c_one", Body: "x"},
 		{ReplyTo: "c_two", Body: "y"},
 	}
-	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(entries, "Bot", "", dir, inheritedScope{})
 	if err == nil || !strings.Contains(err.Error(), "multiple review files") {
 		t.Fatalf("expected multi-file error, got: %v", err)
 	}
@@ -1475,7 +1475,7 @@ func TestBulkAddCommentsToCritJSON_PerEntryAuthor(t *testing.T) {
 		{File: "main.go", Line: 1, Body: "from global author"},
 		{File: "main.go", Line: 1, Body: "from custom author", Author: "CustomBot"},
 	}
-	err := bulkAddCommentsToCritJSON(entries, "GlobalBot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(entries, "GlobalBot", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1499,7 +1499,7 @@ func TestBulkAddCommentsToCritJSON_MultipleFiles(t *testing.T) {
 		{File: "a.go", Line: 1, Body: "comment on a"},
 		{File: "b.go", Line: 1, Body: "comment on b"},
 	}
-	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(entries, "Bot", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1546,7 +1546,7 @@ func TestBulkAddCommentsToCritJSON_EndLineDefaultsToLine(t *testing.T) {
 		{File: "main.go", Line: 2, Body: "single line - no end_line"},
 		{File: "main.go", Line: 3, EndLine: 5, Body: "explicit range"},
 	}
-	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	err := bulkAddCommentsToCritJSONScoped(entries, "Bot", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1894,7 +1894,7 @@ func TestAppendReply_NotFound(t *testing.T) {
 func TestAppendReviewComment(t *testing.T) {
 	cj := &CritJSON{Files: make(map[string]CritJSONFile)}
 
-	appendReviewComment(cj, "general observation", "reviewer", "")
+	appendReviewCommentScoped(cj, "general observation", "reviewer", "", inheritedScope{})
 
 	if len(cj.ReviewComments) != 1 {
 		t.Fatalf("expected 1 review comment, got %d", len(cj.ReviewComments))
@@ -1913,7 +1913,7 @@ func TestAppendReviewComment(t *testing.T) {
 	}
 
 	// Add another
-	appendReviewComment(cj, "second note", "reviewer", "")
+	appendReviewCommentScoped(cj, "second note", "reviewer", "", inheritedScope{})
 	if !strings.HasPrefix(cj.ReviewComments[1].ID, "r_") || len(cj.ReviewComments[1].ID) != 8 {
 		t.Errorf("second ID = %q, want r_ prefix + 6 hex chars", cj.ReviewComments[1].ID)
 	}
@@ -1925,7 +1925,7 @@ func TestAppendReviewComment(t *testing.T) {
 func TestAppendFileComment(t *testing.T) {
 	cj := &CritJSON{Files: make(map[string]CritJSONFile)}
 
-	appendFileComment(cj, "server.go", "needs restructuring", "reviewer", "")
+	appendFileCommentScoped(cj, "server.go", "needs restructuring", "reviewer", "", inheritedScope{})
 
 	cf, ok := cj.Files["server.go"]
 	if !ok {
@@ -1945,8 +1945,8 @@ func TestAppendFileComment(t *testing.T) {
 func TestAppendComment_IDIncrementsGlobally(t *testing.T) {
 	cj := &CritJSON{Files: make(map[string]CritJSONFile)}
 
-	appendComment(cj, "main.go", 1, 1, "first", "reviewer", "")
-	appendComment(cj, "server.go", 5, 5, "second", "reviewer", "")
+	appendCommentScoped(cj, "main.go", 1, 1, "first", "reviewer", "", inheritedScope{})
+	appendCommentScoped(cj, "server.go", 5, 5, "second", "reviewer", "", inheritedScope{})
 
 	c1 := cj.Files["main.go"].Comments[0]
 	c2 := cj.Files["server.go"].Comments[0]
@@ -1963,7 +1963,7 @@ func TestAddCommentToCritJSON_RoundTrip(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	// Add a comment via the CLI function
-	err := addCommentToCritJSON("README.md", 1, 1, "fix typo", "reviewer", "", dir)
+	err := addCommentToCritJSONScoped("README.md", 1, 1, "fix typo", "reviewer", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatalf("addCommentToCritJSON: %v", err)
 	}
@@ -1993,7 +1993,7 @@ func TestAddCommentToCritJSON_RoundTrip(t *testing.T) {
 	}
 
 	// Add a second comment to same file
-	err = addCommentToCritJSON("README.md", 3, 5, "refactor this section", "agent", "", dir)
+	err = addCommentToCritJSONScoped("README.md", 3, 5, "refactor this section", "agent", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatalf("second addCommentToCritJSON: %v", err)
 	}
@@ -2012,7 +2012,7 @@ func TestAddReplyToCritJSON_RoundTrip(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	// Add a comment first
-	err := addCommentToCritJSON("README.md", 1, 1, "fix this", "reviewer", "", dir)
+	err := addCommentToCritJSONScoped("README.md", 1, 1, "fix this", "reviewer", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2046,7 +2046,7 @@ func TestAddReplyToCritJSON_WithResolve_ViaFile(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	addCommentToCritJSON("README.md", 1, 1, "fix this", "reviewer", "", dir)
+	addCommentToCritJSONScoped("README.md", 1, 1, "fix this", "reviewer", "", dir, inheritedScope{})
 
 	critPath := filepath.Join(dir, ".crit.json")
 	data, _ := os.ReadFile(critPath)
@@ -2123,7 +2123,7 @@ func TestAddFileCommentToCritJSON_RejectsAbsolutePath(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	err := addFileCommentToCritJSON("/etc/passwd", "test", "author", "", "")
+	err := addFileCommentToCritJSONScoped("/etc/passwd", "test", "author", "", "", inheritedScope{})
 	if err == nil {
 		t.Fatal("expected error for absolute path")
 	}
@@ -2135,7 +2135,7 @@ func TestAddFileCommentToCritJSON_RejectsTraversal(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	err := addFileCommentToCritJSON("../outside", "test", "author", "", "")
+	err := addFileCommentToCritJSONScoped("../outside", "test", "author", "", "", inheritedScope{})
 	if err == nil {
 		t.Fatal("expected error for path traversal")
 	}
@@ -2147,7 +2147,7 @@ func TestAddReviewCommentToCritJSON_RoundTrip(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	err := addReviewCommentToCritJSON("overall the code is good", "reviewer", "", dir)
+	err := addReviewCommentToCritJSONScoped("overall the code is good", "reviewer", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatalf("addReviewCommentToCritJSON: %v", err)
 	}
@@ -2174,7 +2174,7 @@ func TestClearCritJSON(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	// Create a .crit.json
-	addCommentToCritJSON("README.md", 1, 1, "test", "author", "", dir)
+	addCommentToCritJSONScoped("README.md", 1, 1, "test", "author", "", dir, inheritedScope{})
 
 	critPath := filepath.Join(dir, ".crit.json")
 	if _, err := os.Stat(critPath); err != nil {
@@ -2383,7 +2383,7 @@ func TestAddCommentToCritJSON_PopulatesAnchor(t *testing.T) {
 	// Write a file with known content.
 	writeFile(t, filepath.Join(dir, "hello.go"), "package main\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n")
 
-	if err := addCommentToCritJSON("hello.go", 3, 4, "Fix this function", "Bot", "", dir); err != nil {
+	if err := addCommentToCritJSONScoped("hello.go", 3, 4, "Fix this function", "Bot", "", dir, inheritedScope{}); err != nil {
 		t.Fatalf("addCommentToCritJSON: %v", err)
 	}
 
@@ -2420,7 +2420,7 @@ func TestBulkAddCommentsToCritJSON_PopulatesAnchor(t *testing.T) {
 	entries := []BulkCommentEntry{
 		{File: "server.go", Line: 3, Body: "Why this import?"},
 	}
-	if err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir); err != nil {
+	if err := bulkAddCommentsToCritJSONScoped(entries, "Bot", "", dir, inheritedScope{}); err != nil {
 		t.Fatalf("bulkAddCommentsToCritJSON: %v", err)
 	}
 
@@ -2514,7 +2514,7 @@ func TestAddFileCommentToCritJSON_Success(t *testing.T) {
 	data, _ := json.Marshal(cj)
 	os.WriteFile(critPath, data, 0644)
 
-	err := addFileCommentToCritJSON("test.go", "file-level feedback", "reviewer", "", dir)
+	err := addFileCommentToCritJSONScoped("test.go", "file-level feedback", "reviewer", "", dir, inheritedScope{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"regexp"
@@ -321,15 +323,22 @@ func fetchSessionFocus(client *http.Client, port int) *Focus {
 }
 
 // loadCritJSONForOutputDir loads the on-disk CritJSON for the given output dir
-// (or the resolved review path when outputDir is ""). Returns ok=false silently
-// on any failure — the caller falls back to "no scope inheritance".
+// (or the resolved review path when outputDir is ""). A missing review file is
+// the common case and returns ok=false silently. Parse errors and other I/O
+// errors are logged to stderr so a corrupt review file is not papered over by
+// silent fallback to "no scope inheritance".
 func loadCritJSONForOutputDir(outputDir string) (CritJSON, bool) {
 	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: cannot resolve review path: %v\n", err)
 		return CritJSON{}, false
 	}
 	cj, err := loadCritJSON(critPath)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return CritJSON{}, false
+		}
+		fmt.Fprintf(os.Stderr, "Warning: cannot read review file %q: %v\n", critPath, err)
 		return CritJSON{}, false
 	}
 	return cj, true

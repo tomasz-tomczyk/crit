@@ -887,7 +887,10 @@ func TestLoadExistingShareCfg(t *testing.T) {
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	os.WriteFile(critPath, data, 0644)
 
-	cfg, ok := loadExistingShareCfg(critPath, []string{"anything.md"})
+	cfg, ok, err := loadExistingShareCfg(critPath, []string{"anything.md"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -901,7 +904,10 @@ func TestLoadExistingShareCfg(t *testing.T) {
 
 func TestLoadExistingShareCfg_NoCritJSON(t *testing.T) {
 	dir := t.TempDir()
-	_, ok := loadExistingShareCfg(filepath.Join(dir, ".crit.json"), []string{"plan.md"})
+	_, ok, err := loadExistingShareCfg(filepath.Join(dir, ".crit.json"), []string{"plan.md"})
+	if err != nil {
+		t.Fatalf("missing file should not be an error, got: %v", err)
+	}
 	if ok {
 		t.Error("expected ok=false when no .crit.json exists")
 	}
@@ -914,7 +920,10 @@ func TestLoadExistingShareCfg_NoShareState(t *testing.T) {
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	os.WriteFile(critPath, data, 0644)
 
-	_, ok := loadExistingShareCfg(critPath, []string{"plan.md"})
+	_, ok, err := loadExistingShareCfg(critPath, []string{"plan.md"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if ok {
 		t.Error("expected ok=false when no share URL set")
 	}
@@ -934,13 +943,19 @@ func TestLoadExistingShareCfg_ScopeMismatch(t *testing.T) {
 	os.WriteFile(critPath, data, 0644)
 
 	// Different file set — should NOT return share state
-	_, ok := loadExistingShareCfg(critPath, []string{"new-plan.md"})
+	_, ok, err := loadExistingShareCfg(critPath, []string{"new-plan.md"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if ok {
 		t.Error("expected ok=false for mismatched scope")
 	}
 
 	// Same file set — should return share state
-	cfg, ok := loadExistingShareCfg(critPath, []string{"old-plan.md"})
+	cfg, ok, err := loadExistingShareCfg(critPath, []string{"old-plan.md"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if !ok {
 		t.Fatal("expected ok=true for matching scope")
 	}

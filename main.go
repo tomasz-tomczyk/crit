@@ -135,10 +135,8 @@ func loadShareFiles(paths []string) []shareFile {
 		}
 		relPath := path
 		if filepath.IsAbs(path) {
-			if wd, err := os.Getwd(); err == nil {
-				if rel, err := filepath.Rel(wd, path); err == nil {
-					relPath = rel
-				}
+			if rel, err := filepath.Rel(mustGetwd(), path); err == nil {
+				relPath = rel
 			}
 		}
 		files = append(files, shareFile{Path: relPath, Content: string(content)})
@@ -259,7 +257,12 @@ func runShare(args []string) {
 		sharePaths[i] = f.Path
 	}
 
-	if existingCfg, ok := loadExistingShareCfg(critPath, sharePaths); ok {
+	existingCfg, ok, err := loadExistingShareCfg(critPath, sharePaths)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	if ok {
 		runShareExisting(existingCfg, critPath, files, sharePaths, authToken, cfg.Author, sf.showQR)
 		return
 	}
@@ -450,7 +453,7 @@ func runInstall(args []string) {
 
 	target := args[0]
 	if target == "all" {
-		cwd, _ := os.Getwd()
+		cwd := mustGetwd()
 		home, _ := os.UserHomeDir()
 		global := isGlobalInstall(cwd, home)
 		for _, name := range availableIntegrations() {
@@ -487,7 +490,7 @@ func runConfig(args []string) {
 		configDir, _ = vcs.RepoRoot()
 	}
 	if configDir == "" {
-		configDir, _ = os.Getwd()
+		configDir = mustGetwd()
 	}
 	cfg := LoadConfig(configDir)
 	fmt.Print(cfg.String())
@@ -954,9 +957,11 @@ func resolveCommentFlags(f *commentFlags) {
 	// Resolve author: --author flag > config > VCS user.name.
 	// Stamp AuthUserID alongside the author so authenticated comments
 	// carry the user identity into the share payload.
-	cfgDir, _ := os.Getwd()
+	cfgDir := mustGetwd()
 	if vcs := DetectVCS(""); vcs != nil {
-		cfgDir, _ = vcs.RepoRoot()
+		if root, err := vcs.RepoRoot(); err == nil {
+			cfgDir = root
+		}
 	}
 	cfg := LoadConfig(cfgDir)
 	if f.author == "" {
@@ -1003,7 +1008,11 @@ func runCommentJSONScoped(f commentFlags, scope inheritedScope) {
 		parts = append(parts, fmt.Sprintf("%d comment%s", comments, plural(comments)))
 	}
 	if replies > 0 {
-		parts = append(parts, fmt.Sprintf("%d repl%s", replies, pluralReply(replies)))
+		word := "replies"
+		if replies == 1 {
+			word = "reply"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", replies, word))
 	}
 	fmt.Printf("Added %s\n", strings.Join(parts, " and "))
 }
@@ -1805,11 +1814,17 @@ func plural(n int) string {
 	return "s"
 }
 
-func pluralReply(n int) string {
-	if n == 1 {
-		return "y"
+// mustGetwd returns the current working directory or aborts the process with a
+// clear diagnostic. Used in CLI paths where every fallback (config dir, repo
+// root) has already failed; if we cannot read the cwd, we genuinely cannot
+// continue.
+func mustGetwd() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "crit: unable to determine current working directory: %v\n", err)
+		os.Exit(1)
 	}
-	return "ies"
+	return wd
 }
 
 // serverConfig holds the resolved configuration for running the server.
@@ -1978,7 +1993,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		repoRoot = configDir
 	}
 	if configDir == "" {
-		configDir, _ = os.Getwd()
+		configDir = mustGetwd()
 	}
 	cfg := LoadConfig(configDir)
 
@@ -2942,7 +2957,7 @@ func installIntegration(name string, force bool) error {
 		return errors.New(strings.TrimRight(b.String(), "\n"))
 	}
 
-	cwd, _ := os.Getwd()
+	cwd := mustGetwd()
 	home, _ := os.UserHomeDir()
 	global := isGlobalInstall(cwd, home)
 
@@ -3015,98 +3030,4 @@ func printUniqueHints(hints []string) {
 		seen[hint] = true
 		fmt.Printf("  %s\n", hint)
 	}
-}
-
-func openBrowser(url string) {
-	time.Sleep(200 * time.Millisecond)
-	if tryOpenBrowser(browserCommandSpecs(runtime.GOOS, url, systemIsWSL(), commandExists), runBrowserCommand) {
-		return
-	}
-	fmt.Fprintf(os.Stderr, "Warning: could not open browser automatically; open %s manually\n", url)
-}
-
-type browserCommandSpec struct {
-	name string
-	args []string
-}
-
-func tryOpenBrowser(specs []browserCommandSpec, run func(browserCommandSpec) error) bool {
-	for _, spec := range specs {
-		if err := run(spec); err == nil {
-			return true
-		}
-	}
-	return false
-}
-
-func runBrowserCommand(spec browserCommandSpec) error {
-	return exec.Command(spec.name, spec.args...).Run()
-}
-
-func browserCommandSpecs(goos, url string, isWSL bool, hasCommand func(string) bool) []browserCommandSpec {
-	switch goos {
-	case "darwin":
-		return []browserCommandSpec{{name: "open", args: []string{url}}}
-	case "linux":
-		var specs []browserCommandSpec
-		if isWSL {
-			if hasCommand("wslview") {
-				specs = append(specs, browserCommandSpec{name: "wslview", args: []string{url}})
-			}
-			if hasCommand("powershell.exe") {
-				specs = append(specs, browserCommandSpec{
-					name: "powershell.exe",
-					args: []string{
-						"-NoProfile",
-						"-NonInteractive",
-						"-Command",
-						"Start-Process " + powershellSingleQuote(url),
-					},
-				})
-			}
-			if hasCommand("cmd.exe") {
-				specs = append(specs, browserCommandSpec{
-					name: "cmd.exe",
-					args: []string{"/c", `start "" ` + cmdDoubleQuote(url)},
-				})
-			}
-		}
-		if hasCommand("xdg-open") {
-			specs = append(specs, browserCommandSpec{name: "xdg-open", args: []string{url}})
-		}
-		return specs
-	default:
-		return nil
-	}
-}
-
-func powershellSingleQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-}
-
-func cmdDoubleQuote(s string) string {
-	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
-}
-
-func systemIsWSL() bool {
-	versionData, err := os.ReadFile("/proc/version")
-	if err != nil {
-		versionData = nil
-	}
-	return looksLikeWSL(runtime.GOOS, os.Getenv("WSL_DISTRO_NAME"), os.Getenv("WSL_INTEROP"), string(versionData))
-}
-
-func looksLikeWSL(goos, distroName, interop, procVersion string) bool {
-	if goos != "linux" {
-		return false
-	}
-	if distroName != "" || interop != "" {
-		return true
-	}
-	return strings.Contains(strings.ToLower(procVersion), "microsoft")
-}
-
-func commandExists(name string) bool {
-	_, err := exec.LookPath(name)
-	return err == nil
 }

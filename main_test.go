@@ -309,7 +309,7 @@ func TestHelperProcess_CommentJSON(t *testing.T) {
 func TestRunComment_JSONFlagMixed(t *testing.T) {
 	// Step 1: Create a comment and capture its ID
 	tmp := t.TempDir()
-	err := addCommentToCritJSON("main.go", 1, 1, "comment", "TestBot", "", tmp)
+	err := addCommentToCritJSONScoped("main.go", 1, 1, "comment", "TestBot", "", tmp, inheritedScope{})
 	if err != nil {
 		t.Fatalf("setup comment: %v", err)
 	}
@@ -1102,25 +1102,6 @@ func TestPlural(t *testing.T) {
 		t.Run(fmt.Sprintf("n=%d", tt.n), func(t *testing.T) {
 			if got := plural(tt.n); got != tt.want {
 				t.Errorf("plural(%d) = %q, want %q", tt.n, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestPluralReply(t *testing.T) {
-	tests := []struct {
-		n    int
-		want string
-	}{
-		{0, "ies"},
-		{1, "y"},
-		{2, "ies"},
-		{5, "ies"},
-	}
-	for _, tt := range tests {
-		t.Run(fmt.Sprintf("n=%d", tt.n), func(t *testing.T) {
-			if got := pluralReply(tt.n); got != tt.want {
-				t.Errorf("pluralReply(%d) = %q, want %q", tt.n, got, tt.want)
 			}
 		})
 	}
