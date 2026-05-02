@@ -1322,10 +1322,146 @@ func TestBulkAddCommentsToCritJSON_EmptyEntries(t *testing.T) {
 
 func TestBulkAddCommentsToCritJSON_ReplyNotFound(t *testing.T) {
 	dir := initTestRepo(t)
+	t.Setenv("HOME", t.TempDir()) // isolate from any real ~/.crit/reviews
 	entries := []BulkCommentEntry{{ReplyTo: "c99", Body: "reply"}}
 	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("expected not found error, got: %v", err)
+	}
+}
+
+// writeAltReviewFile writes a CritJSON to ~/.crit/reviews/<name>.json under
+// the (presumed test-stubbed) HOME, returning its path. Used to set up a sibling
+// review file that the bulk fallback should discover via findReviewFileByCommentID.
+func writeAltReviewFile(t *testing.T, name string, cj CritJSON) string {
+	t.Helper()
+	home, _ := os.UserHomeDir()
+	dir := filepath.Join(home, ".crit", "reviews")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, name+".json")
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestBulkAddCommentsToCritJSON_RedirectsRepliesToAltFile(t *testing.T) {
+	dir := initTestRepo(t)
+	t.Setenv("HOME", t.TempDir())
+
+	altPath := writeAltReviewFile(t, "alt_review", CritJSON{
+		Files: map[string]CritJSONFile{
+			"spec.md": {Comments: []Comment{{ID: "c_spec1", StartLine: 1, EndLine: 1, Body: "original"}}},
+		},
+	})
+
+	entries := []BulkCommentEntry{
+		{ReplyTo: "c_spec1", Body: "addressed"},
+		{Body: "general note on the spec"}, // new review-level comment, rides along
+	}
+	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Primary (cwd-resolved) file should be untouched / empty.
+	primaryPath := filepath.Join(dir, ".crit.json")
+	if data, err := os.ReadFile(primaryPath); err == nil {
+		var cj CritJSON
+		json.Unmarshal(data, &cj)
+		for _, cf := range cj.Files {
+			if len(cf.Comments) > 0 {
+				t.Errorf("primary file should not have been modified, found %d comments", len(cf.Comments))
+			}
+		}
+		if len(cj.ReviewComments) > 0 {
+			t.Errorf("primary file should not have review comments, got %d", len(cj.ReviewComments))
+		}
+	}
+
+	// Alt file should have the reply on c_spec1 plus the new review comment.
+	altData, err := os.ReadFile(altPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var alt CritJSON
+	if err := json.Unmarshal(altData, &alt); err != nil {
+		t.Fatal(err)
+	}
+	cf := alt.Files["spec.md"]
+	if len(cf.Comments) != 1 || len(cf.Comments[0].Replies) != 1 {
+		t.Fatalf("expected 1 reply on c_spec1, got comments=%d replies=%d",
+			len(cf.Comments), len(cf.Comments[0].Replies))
+	}
+	if cf.Comments[0].Replies[0].Body != "addressed" {
+		t.Errorf("reply body = %q", cf.Comments[0].Replies[0].Body)
+	}
+	if len(alt.ReviewComments) != 1 || alt.ReviewComments[0].Body != "general note on the spec" {
+		t.Errorf("expected new review comment in alt file, got %+v", alt.ReviewComments)
+	}
+}
+
+func TestBulkAddCommentsToCritJSON_RejectsSplitTargets(t *testing.T) {
+	dir := initTestRepo(t)
+	t.Setenv("HOME", t.TempDir())
+
+	// Seed the primary (cwd) review file with a comment.
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\n")
+	if err := bulkAddCommentsToCritJSON(
+		[]BulkCommentEntry{{File: "main.go", Line: 1, Body: "primary comment"}},
+		"Bot", "", dir,
+	); err != nil {
+		t.Fatal(err)
+	}
+	primaryCJ := readCritJSON(t, dir)
+	primaryCommentID := primaryCJ.Files["main.go"].Comments[0].ID
+
+	// Alt review file with a different comment ID.
+	writeAltReviewFile(t, "alt_review", CritJSON{
+		Files: map[string]CritJSONFile{
+			"spec.md": {Comments: []Comment{{ID: "c_alt1", StartLine: 1, EndLine: 1, Body: "alt"}}},
+		},
+	})
+
+	// Bulk that mixes a primary-file reply with an alt-file reply → rejected.
+	entries := []BulkCommentEntry{
+		{ReplyTo: primaryCommentID, Body: "reply to primary"},
+		{ReplyTo: "c_alt1", Body: "reply to alt"},
+	}
+	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	if err == nil {
+		t.Fatal("expected split-target error, got nil")
+	}
+	if !strings.Contains(err.Error(), "multiple review files") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestBulkAddCommentsToCritJSON_RejectsRepliesAcrossTwoAltFiles(t *testing.T) {
+	dir := initTestRepo(t)
+	t.Setenv("HOME", t.TempDir())
+
+	writeAltReviewFile(t, "alt_one", CritJSON{
+		Files: map[string]CritJSONFile{
+			"a.md": {Comments: []Comment{{ID: "c_one", StartLine: 1, EndLine: 1, Body: "a"}}},
+		},
+	})
+	writeAltReviewFile(t, "alt_two", CritJSON{
+		Files: map[string]CritJSONFile{
+			"b.md": {Comments: []Comment{{ID: "c_two", StartLine: 1, EndLine: 1, Body: "b"}}},
+		},
+	})
+
+	entries := []BulkCommentEntry{
+		{ReplyTo: "c_one", Body: "x"},
+		{ReplyTo: "c_two", Body: "y"},
+	}
+	err := bulkAddCommentsToCritJSON(entries, "Bot", "", dir)
+	if err == nil || !strings.Contains(err.Error(), "multiple review files") {
+		t.Fatalf("expected multi-file error, got: %v", err)
 	}
 }
 

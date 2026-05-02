@@ -1306,6 +1306,9 @@ func findReviewFileByCommentID(commentID string, excludePath string) (string, er
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("comment %q not found in any review file", commentID)
+		}
 		return "", err
 	}
 
@@ -1545,28 +1548,127 @@ func bulkAddCommentsToCritJSON(entries []BulkCommentEntry, globalAuthor, globalU
 
 // bulkAddCommentsToCritJSONScoped is bulkAddCommentsToCritJSON with scope stamping
 // applied to every entry.
+//
+// Target resolution: a bulk call always writes to a single review file. If any
+// entry uses reply_to and none of the referenced IDs live in the cwd-resolved
+// primary file, the entire bulk is redirected to the alt file that contains
+// them. New comments in the same bulk ride along. If reply IDs split across
+// multiple review files (or some land in primary and others elsewhere), the
+// call is rejected — callers should split into per-file bulks.
 func bulkAddCommentsToCritJSONScoped(entries []BulkCommentEntry, globalAuthor, globalUserID string, outputDir string, scope inheritedScope) error {
 	if len(entries) == 0 {
 		return fmt.Errorf("no comment entries provided")
 	}
 
-	critPath, err := resolveReviewPath(outputDir)
+	primaryPath, err := resolveReviewPath(outputDir)
 	if err != nil {
 		return err
 	}
 
-	cj, err := loadCritJSON(critPath)
+	primary, err := loadCritJSON(primaryPath)
+	if err != nil {
+		return err
+	}
+
+	targetPath, targetCJ, redirected, err := resolveBulkTarget(entries, primaryPath, primary)
 	if err != nil {
 		return err
 	}
 
 	for i, e := range entries {
-		if err := processBulkEntry(&cj, i, e, globalAuthor, globalUserID, scope); err != nil {
+		if err := processBulkEntry(&targetCJ, i, e, globalAuthor, globalUserID, scope); err != nil {
 			return err
 		}
 	}
 
-	return saveCritJSON(critPath, cj)
+	if err := saveCritJSON(targetPath, targetCJ); err != nil {
+		return err
+	}
+	if redirected {
+		fmt.Fprintf(os.Stderr, "Note: replies routed to %s (not the cwd-resolved review file)\n", filepath.Base(targetPath))
+	}
+	return nil
+}
+
+// resolveBulkTarget picks the single review file that this bulk call should
+// write to. Returns the path, the loaded CritJSON to mutate, and whether the
+// target differs from the cwd-resolved primary.
+func resolveBulkTarget(entries []BulkCommentEntry, primaryPath string, primary CritJSON) (string, CritJSON, bool, error) {
+	var replyIDs []string
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if e.ReplyTo == "" || seen[e.ReplyTo] {
+			continue
+		}
+		seen[e.ReplyTo] = true
+		replyIDs = append(replyIDs, e.ReplyTo)
+	}
+
+	if len(replyIDs) == 0 {
+		return primaryPath, primary, false, nil
+	}
+
+	var inPrimary, missing []string
+	for _, id := range replyIDs {
+		if cjContainsCommentID(&primary, id) {
+			inPrimary = append(inPrimary, id)
+		} else {
+			missing = append(missing, id)
+		}
+	}
+
+	if len(missing) == 0 {
+		return primaryPath, primary, false, nil
+	}
+	if len(inPrimary) > 0 {
+		return "", CritJSON{}, false, fmt.Errorf(
+			"bulk targets multiple review files: %v exist in %s, but %v do not — split into per-file bulks",
+			inPrimary, filepath.Base(primaryPath), missing,
+		)
+	}
+
+	// None in primary — every reply ID must live in the same alt file.
+	var altPath string
+	for _, id := range missing {
+		path, err := findReviewFileByCommentID(id, primaryPath)
+		if err != nil {
+			return "", CritJSON{}, false, fmt.Errorf("reply target %s: %w", id, err)
+		}
+		if altPath == "" {
+			altPath = path
+			continue
+		}
+		if path != altPath {
+			return "", CritJSON{}, false, fmt.Errorf(
+				"bulk targets multiple review files: %s in %s, %s in %s — split into per-file bulks",
+				missing[0], filepath.Base(altPath), id, filepath.Base(path),
+			)
+		}
+	}
+
+	altCJ, err := loadCritJSON(altPath)
+	if err != nil {
+		return "", CritJSON{}, false, fmt.Errorf("load %s: %w", filepath.Base(altPath), err)
+	}
+	return altPath, altCJ, true, nil
+}
+
+// cjContainsCommentID reports whether the given comment ID exists in the
+// in-memory CritJSON, across review-level and per-file comments.
+func cjContainsCommentID(cj *CritJSON, id string) bool {
+	for _, c := range cj.ReviewComments {
+		if c.ID == id {
+			return true
+		}
+	}
+	for _, cf := range cj.Files {
+		for _, c := range cf.Comments {
+			if c.ID == id {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // addReviewCommentToCritJSON adds a review-level comment to the review file.
