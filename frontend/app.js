@@ -6665,27 +6665,32 @@
         throw new Error('Finish review failed: HTTP ' + resp.status);
       }
       const data = await resp.json();
-      // hasComments must be false when the server says approved=true,
-      // even if a prompt is present (e.g. "All comments resolved —
-      // proceed"). Otherwise the user gets the agent-notified
-      // "waiting for updates" UX instead of the approval path.
-      const hasComments = !!data.prompt && !data.approved;
-      waitingHasComments = hasComments;
+      const approved = !!data.approved;
+      waitingHasComments = !approved;
       const prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
 
-      document.getElementById('waitingPrompt').textContent = prompt;
-
+      const dialog = document.getElementById('waitingDialog');
+      const headingEl = document.getElementById('waitingHeading');
+      const messageEl = document.getElementById('waitingMessage');
       const clipEl = document.getElementById('waitingClipboard');
+
+      document.getElementById('waitingPrompt').textContent = prompt;
       clipEl.textContent = 'Copy prompt';
       clipEl.classList.remove('clipboard-confirm');
 
-      if (hasComments) {
-        document.getElementById('waitingMessage').innerHTML =
+      // Replay the success-mark draw animation each time we enter approved state.
+      dialog.classList.remove('approved');
+      if (approved) {
+        void dialog.offsetWidth;
+        dialog.classList.add('approved');
+        headingEl.textContent = 'Approved';
+        messageEl.textContent =
+          'Your agent has been notified \u2014 no further action needed. You can close this tab whenever you\u2019re ready.';
+      } else {
+        headingEl.textContent = 'Review Complete';
+        messageEl.innerHTML =
           'Your agent has been notified. Waiting for updates\u2026' +
           '<span class="waiting-fallback">If your agent wasn\u2019t listening, paste the prompt below.</span>';
-      } else {
-        document.getElementById('waitingMessage').textContent =
-          'You can close this browser tab, or leave it open for another round.';
       }
 
       try { await navigator.clipboard.writeText(prompt); } catch {}

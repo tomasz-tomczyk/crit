@@ -141,6 +141,31 @@ test.describe('Markdown Comments — Git Mode', () => {
     await expect(card.locator('.comment-body')).toContainText('Updated text');
   });
 
+  test('Ctrl+Enter saves edits to a comment', async ({ page }) => {
+    const section = mdSection(page);
+
+    // Create a comment first
+    const lineBlock = section.locator('.line-block').first();
+    await lineBlock.hover();
+    await section.locator('.line-comment-gutter').first().click();
+    await page.locator('.comment-form textarea').fill('Original');
+    await page.locator('.comment-form .btn-primary').click();
+    await expect(section.locator('.comment-card')).toBeVisible();
+
+    // Click Edit
+    await section.locator('.comment-actions button[title="Edit"]').click();
+
+    const textarea = page.locator('.comment-form textarea');
+    await expect(textarea).toHaveValue('Original');
+    await textarea.fill('Edited via Ctrl+Enter');
+    await textarea.press('Control+Enter');
+
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
+    await expect(card.locator('.comment-body')).toContainText('Edited via Ctrl+Enter');
+    await expect(page.locator('.comment-form')).toHaveCount(0);
+  });
+
   test('deleting a comment removes it and updates count', async ({ page }) => {
     const section = mdSection(page);
     const countEl = page.locator('#commentCount');

@@ -1756,6 +1756,64 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   40% { opacity: 1; transform: scale(1.2); }
 }
 
+.success-mark {
+  display: none;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 16px;
+  overflow: visible;
+}
+.success-mark-ring {
+  fill: none;
+  stroke: var(--crit-green);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 176;
+  stroke-dashoffset: 176;
+  transform-origin: 32px 32px;
+  transform: rotate(-90deg);
+  animation: success-ring-draw 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.success-mark-check {
+  fill: none;
+  stroke: var(--crit-green);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 40;
+  stroke-dashoffset: 40;
+  animation: success-check-draw 0.35s cubic-bezier(0.4, 0, 0.2, 1) 0.4s forwards;
+}
+.waiting-dialog.approved .waiting-spinner { display: none; }
+.waiting-dialog.approved #waitingPrompt,
+.waiting-dialog.approved #waitingClipboard { display: none; }
+.waiting-dialog.approved .success-mark {
+  display: inline-block;
+  filter: drop-shadow(0 0 0 transparent);
+  animation: success-glow 1.6s ease-out 0.7s 1;
+}
+@keyframes success-ring-draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes success-check-draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes success-glow {
+  0%   { filter: drop-shadow(0 0 0 transparent); }
+  35%  { filter: drop-shadow(0 0 18px color-mix(in srgb, var(--crit-green) 55%, transparent)); }
+  100% { filter: drop-shadow(0 0 0 transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .success-mark-ring,
+  .success-mark-check {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .waiting-dialog.approved .success-mark {
+    animation: none;
+  }
+}
+
 .waiting-dialog .waiting-edits {
   font-size: 14px;
   font-weight: 600;

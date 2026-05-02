@@ -170,8 +170,12 @@
 </div>
 
 <div class="waiting-overlay" id="waitingOverlay" role="dialog" aria-modal="true" aria-labelledby="waitingHeading">
-  <div class="waiting-dialog">
+  <div class="waiting-dialog" id="waitingDialog">
     <div class="waiting-spinner" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+    <svg class="success-mark" viewBox="0 0 64 64" aria-hidden="true">
+      <circle class="success-mark-ring" cx="32" cy="32" r="28"/>
+      <path class="success-mark-check" d="M19 33 L28 42 L45 23"/>
+    </svg>
     <h3 id="waitingHeading">Review Complete</h3>
     <p id="waitingMessage"></p>
     <p class="waiting-edits" id="waitingEdits"></p>

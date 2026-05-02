@@ -46,8 +46,10 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     const overlay = page.locator('#waitingOverlay');
     await expect(overlay).toHaveClass(/active/);
 
-    const message = page.locator('#waitingMessage');
-    await expect(message).toContainText('close this browser tab', { timeout: 10_000 });
+    const dialog = page.locator('#waitingDialog');
+    await expect(dialog).toHaveClass(/approved/, { timeout: 10_000 });
+    await expect(page.locator('#waitingHeading')).toHaveText('Approved');
+    await expect(page.locator('#waitingMessage')).toContainText('close this tab');
   });
 
   test('round-complete SSE triggers UI refresh and exits waiting state', async ({ page, request }) => {
