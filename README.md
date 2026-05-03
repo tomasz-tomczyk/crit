@@ -137,6 +137,8 @@ crit unpublish                        # remove the shared review
 
 Sharing uses [crit.md](https://crit.md) by default. To self-host, deploy [`crit-web`](https://github.com/tomasz-tomczyk/crit-web) and point `CRIT_SHARE_URL` (or `--share-url`, or `share_url` in config) at your instance. Set `share_url` to `""` to disable sharing entirely.
 
+If your self-hosted `crit-web` sits behind an SSO reverse proxy that the terminal can't authenticate against, set `share_flow: "popup"` in your `.crit.config.json` (this option is config-only — it's a property of the deployment, not a per-invocation choice, so there's no flag or env var). Browser-driven Share / Pull / Re-share / Unpublish then route through a popup window where the proxy can complete its interactive auth flow. Terminal `crit share`, `crit fetch`, and `crit unpublish` remain unavailable behind SSO — use the browser UI buttons.
+
 #### Authentication
 
 You can share anonymously or you can create a free crit.md account (using GitHub oAuth). To authenticate with crit-web (for sharing and other features that require an account):
@@ -265,6 +267,7 @@ All keys are optional — omit any you don't need.
 | `no_open`              | bool     | `false`                    | Don't auto-open the browser when starting a review.                                                                                                                                     |
 | `share_url`            | string   | `"https://crit.md"`        | Base URL of the share service. Set to `""` to disable sharing entirely. Self-host with [`crit-web`](https://github.com/tomasz-tomczyk/crit-web).                                        |
 | `share_consented`      | bool     | `false`                    | Written automatically to `true` after you confirm the first-time share prompt. Reset to `false` to see the prompt again. Not used when `share_url` is a custom (self-hosted) URL.       |
+| `share_flow`           | string   | `""`                       | How the browser performs share / pull / unpublish / re-share against `share_url`. `""` (default) — the local Go server contacts crit-web directly. `"popup"` — the browser opens crit-web in a popup, authenticates there (e.g. via SSO), and proxies the API calls through a `MessagePort`. Use `"popup"` when crit-web is behind an SSO reverse proxy that the terminal cannot authenticate against. **Config-only** — there is no flag or env var, since `share_flow` is a property of the deployment, not a per-invocation choice. |
 | `quiet`                | bool     | `false`                    | Suppress terminal status output.                                                                                                                                                        |
 | `output`               | string   | repo root or file dir      | Output directory for review files. Reviews are stored in `~/.crit/reviews/` by default.                                                                                                 |
 | `author`               | string   | VCS user name              | Author name shown on comments. Falls back to your configured VCS user name.                                                                                                            |
