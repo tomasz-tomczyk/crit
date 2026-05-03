@@ -130,6 +130,26 @@ func buildSharePayload(files []shareFile, comments []shareComment, reviewRound i
 	return payload
 }
 
+// buildUpsertPayload constructs the JSON payload for PUT /api/reviews/:token.
+// Used by both the CLI (upsertShareToWeb) and the browser popup-relay path
+// (handleUpsertPayload) so the wire format stays in one place.
+func buildUpsertPayload(files []shareFile, comments []shareComment, deleteToken string, reviewRound int, cliArgs []string) map[string]any {
+	fileList := shareFileEntries(files)
+	if comments == nil {
+		comments = []shareComment{}
+	}
+	payload := map[string]any{
+		"delete_token": deleteToken,
+		"files":        fileList,
+		"comments":     comments,
+		"review_round": reviewRound,
+	}
+	if len(cliArgs) > 0 {
+		payload["cli_args"] = cliArgs
+	}
+	return payload
+}
+
 // shareReviewFilesResult is the outcome of a fresh share upload.
 type shareReviewFilesResult struct {
 	URL         string
@@ -542,17 +562,7 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, 
 	}
 	apiURL := u.Scheme + "://" + u.Host + "/api/reviews/" + token
 
-	fileList := shareFileEntries(files)
-
-	payload := map[string]any{
-		"delete_token": cfg.DeleteToken,
-		"files":        fileList,
-		"comments":     comments,
-		"review_round": cfg.ReviewRound,
-	}
-	if len(cfg.CliArgs) > 0 {
-		payload["cli_args"] = cfg.CliArgs
-	}
+	payload := buildUpsertPayload(files, comments, cfg.DeleteToken, cfg.ReviewRound, cfg.CliArgs)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -850,6 +860,29 @@ func resolveShareURL(flagValue string, cfg Config, fallback string) string {
 		return cfg.ShareURL
 	}
 	return fallback
+}
+
+// tokenFromHostedURL extracts the review token from a hosted URL of the form
+// https://crit.example/r/<token> (with optional trailing slash, query, or
+// fragment). Returns the empty string if the URL doesn't match the expected
+// shape. Single source of truth — replaces ad-hoc path.Base / strings.Contains
+// parses scattered across share.go and tests.
+func tokenFromHostedURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(strings.TrimSuffix(u.Path, "/"), "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	if parts[len(parts)-2] != "r" {
+		return ""
+	}
+	return parts[len(parts)-1]
 }
 
 // resolveAuthToken returns the auth token from env > config.

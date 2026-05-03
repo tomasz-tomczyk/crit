@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -774,6 +775,128 @@ func TestHandleFiles_ValidFile(t *testing.T) {
 func TestHandleFiles_MethodNotAllowed(t *testing.T) {
 	s, _ := newTestServer(t)
 	req := httptest.NewRequest("POST", "/files/test.md", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestApiSharePayload_ReturnsBuildableJSON(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/share/payload", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status %d body %s", w.Code, w.Body)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := body["files"]; !ok {
+		t.Errorf("missing files key: %v", body)
+	}
+	if _, ok := body["review_round"]; !ok {
+		t.Errorf("missing review_round key: %v", body)
+	}
+	if _, ok := body["comments"]; !ok {
+		t.Errorf("missing comments key: %v", body)
+	}
+}
+
+func TestApiSharePayload_MethodNotAllowed(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("POST", "/api/share/payload", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestApiUpsertPayload_ReturnsExpectedShape(t *testing.T) {
+	s, session := newTestServer(t)
+	session.SetSharedURLAndToken("https://crit.example/r/abc", "delete-token-xyz")
+	req := httptest.NewRequest("GET", "/api/share/upsert-payload", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status %d body %s", w.Code, w.Body)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["delete_token"] != "delete-token-xyz" {
+		t.Errorf("delete_token = %v, want delete-token-xyz", body["delete_token"])
+	}
+	if _, ok := body["files"]; !ok {
+		t.Errorf("missing files key")
+	}
+}
+
+func TestApiCommentsMerge_RejectsMissingSharedURL(t *testing.T) {
+	s, _ := newTestServer(t)
+	body := bytes.NewReader([]byte(`{"comments":[]}`))
+	req := httptest.NewRequest("POST", "/api/comments/merge", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("got %d, want 400, body=%s", w.Code, w.Body)
+	}
+}
+
+func TestApiCommentsMerge_DerivesTokenFromSession(t *testing.T) {
+	s, session := newTestServer(t)
+	session.SetSharedURLAndToken("https://crit.example/r/abc123", "delete")
+	// Seed an empty review file so mergeWebComments has something to read.
+	if err := saveCritJSON(session.critJSONPath(), CritJSON{Files: map[string]CritJSONFile{}}); err != nil {
+		t.Fatalf("seed review file: %v", err)
+	}
+	body := bytes.NewReader([]byte(`{"comments":[{"body":"hi","file_path":"test.md","start_line":1,"end_line":1}]}`))
+	req := httptest.NewRequest("POST", "/api/comments/merge", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("got %d, want 200, body=%s", w.Code, w.Body)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["merged"].(float64) != 1 {
+		t.Errorf("merged = %v, want 1", resp["merged"])
+	}
+}
+
+func TestApiCommentsMerge_BodyTooLarge(t *testing.T) {
+	s, session := newTestServer(t)
+	session.SetSharedURLAndToken("https://crit.example/r/abc", "delete")
+	// Build an 11MB valid-prefix JSON payload so the decoder reads through the
+	// MaxBytesReader limit (zeros would fail JSON parsing before hitting it).
+	big := make([]byte, 0, 11*1024*1024+128)
+	big = append(big, []byte(`{"comments":[{"body":"`)...)
+	pad := make([]byte, 11*1024*1024)
+	for i := range pad {
+		pad[i] = 'a'
+	}
+	big = append(big, pad...)
+	big = append(big, []byte(`"}]}`)...)
+	req := httptest.NewRequest("POST", "/api/comments/merge", bytes.NewReader(big))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 413 {
+		t.Errorf("got %d, want 413, body=%s", w.Code, w.Body)
+	}
+}
+
+func TestApiCommentsMerge_MethodNotAllowed(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/api/comments/merge", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	if w.Code != 405 {
