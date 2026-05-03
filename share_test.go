@@ -12,6 +12,44 @@ import (
 	"testing"
 )
 
+func TestDecodeJSONOrHTMLHint_HTML(t *testing.T) {
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader("<html>login</html>"))}
+	var v map[string]any
+	err := decodeJSONOrHTMLHint(resp, &v)
+	if err == nil || !strings.Contains(err.Error(), "share_flow") {
+		t.Errorf("got %v, want error mentioning share_flow", err)
+	}
+}
+
+func TestDecodeJSONOrHTMLHint_HTMLWithLeadingWhitespace(t *testing.T) {
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader("\n\n  <!DOCTYPE html><html>x</html>"))}
+	var v map[string]any
+	err := decodeJSONOrHTMLHint(resp, &v)
+	if err == nil || !strings.Contains(err.Error(), "share_flow") {
+		t.Errorf("got %v, want share_flow hint", err)
+	}
+}
+
+func TestDecodeJSONOrHTMLHint_ValidJSON(t *testing.T) {
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(`{"x":1}`))}
+	var v map[string]any
+	if err := decodeJSONOrHTMLHint(resp, &v); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if v["x"].(float64) != 1 {
+		t.Errorf("decode wrong: %v", v)
+	}
+}
+
+func TestDecodeJSONOrHTMLHint_InvalidJSON(t *testing.T) {
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(`not json at all`))}
+	var v map[string]any
+	err := decodeJSONOrHTMLHint(resp, &v)
+	if err == nil || !strings.Contains(err.Error(), "decode share response") {
+		t.Errorf("got %v, want decode error", err)
+	}
+}
+
 func TestTokenFromHostedURL(t *testing.T) {
 	cases := map[string]string{
 		"https://crit.example/r/abc123":      "abc123",

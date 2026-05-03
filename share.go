@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -205,7 +206,9 @@ func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string
 		var errBody struct {
 			Error string `json:"error"`
 		}
-		_ = json.NewDecoder(resp.Body).Decode(&errBody)
+		if decErr := decodeJSONOrHTMLHint(resp, &errBody); decErr != nil {
+			return "", "", decErr
+		}
 		if errBody.Error != "" {
 			return "", "", fmt.Errorf("share service error: %s", errBody.Error)
 		}
@@ -216,8 +219,8 @@ func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string
 		URL         string `json:"url"`
 		DeleteToken string `json:"delete_token"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", fmt.Errorf("decoding share response: %w", err)
+	if err := decodeJSONOrHTMLHint(resp, &result); err != nil {
+		return "", "", err
 	}
 	return result.URL, result.DeleteToken, nil
 }
@@ -267,11 +270,37 @@ func unpublishFromWeb(shareURL string, deleteToken string, authToken string) err
 	var errBody struct {
 		Error string `json:"error"`
 	}
-	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	if decErr := decodeJSONOrHTMLHint(resp, &errBody); decErr != nil {
+		return decErr
+	}
 	if errBody.Error != "" {
 		return fmt.Errorf("share service error: %s", errBody.Error)
 	}
 	return fmt.Errorf("share service returned status %d", resp.StatusCode)
+}
+
+// decodeJSONOrHTMLHint reads up to 10MB from resp.Body, detects HTML
+// responses (typical of an SSO reverse proxy intercepting the request with a
+// login page), and either decodes the JSON into v or returns an actionable
+// error pointing the user at share_flow=popup.
+//
+// Replaces direct json.NewDecoder(resp.Body).Decode(&v) at every share
+// network call site so the SSO failure path produces a meaningful error
+// instead of a cryptic "invalid character '<'".
+func decodeJSONOrHTMLHint(resp *http.Response, v any) error {
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+	trimmed := bytes.TrimLeft(raw, " \t\r\n")
+	if bytes.HasPrefix(trimmed, []byte("<")) {
+		return fmt.Errorf("crit-web returned an HTML page instead of JSON — likely behind an SSO reverse proxy. " +
+			"Set 'share_flow': 'popup' in your crit config and use the browser UI to share")
+	}
+	if err := json.Unmarshal(raw, v); err != nil {
+		return fmt.Errorf("decode share response: %w", err)
+	}
+	return nil
 }
 
 // setBearer sets the Authorization header to "Bearer <token>" when token is non-empty.
@@ -498,8 +527,8 @@ func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprin
 	}
 
 	var all []webComment
-	if err := json.NewDecoder(resp.Body).Decode(&all); err != nil {
-		return result, fmt.Errorf("decoding remote comments: %w", err)
+	if err := decodeJSONOrHTMLHint(resp, &all); err != nil {
+		return result, err
 	}
 
 	for _, wc := range all {
@@ -600,8 +629,8 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, 
 		ReviewRound int    `json:"review_round"`
 		Changed     bool   `json:"changed"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
-		return result, fmt.Errorf("decoding upsert response: %w", err)
+	if err := decodeJSONOrHTMLHint(resp, &respBody); err != nil {
+		return result, err
 	}
 
 	result.Changed = respBody.Changed
