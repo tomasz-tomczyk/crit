@@ -16,6 +16,7 @@ type Config struct {
 	Host               string   `json:"host,omitempty"` // listen host (default 127.0.0.1)
 	NoOpen             bool     `json:"no_open,omitempty"`
 	ShareURL           string   `json:"share_url,omitempty"`
+	ShareFlow          string   `json:"share_flow,omitempty"`
 	Quiet              bool     `json:"quiet,omitempty"`
 	Output             string   `json:"output,omitempty"`
 	Author             string   `json:"author,omitempty"`
@@ -67,6 +68,7 @@ func defaultConfig() generatedConfig {
 		Host:       "127.0.0.1",
 		NoOpen:     false,
 		ShareURL:   "https://crit.md",
+		ShareFlow:  "",
 		Quiet:      false,
 		Output:     "",
 		Author:     "",
@@ -91,6 +93,7 @@ type generatedConfig struct {
 	Host               string   `json:"host"`
 	NoOpen             bool     `json:"no_open"`
 	ShareURL           string   `json:"share_url"`
+	ShareFlow          string   `json:"share_flow"`
 	Quiet              bool     `json:"quiet"`
 	Output             string   `json:"output"`
 	Author             string   `json:"author"`
@@ -171,6 +174,9 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	// DNS-rebinding defense. Use --host flag or CRIT_HOST env var instead.
 	if projectPresence.NoOpen {
 		merged.NoOpen = project.NoOpen
+	}
+	if project.ShareFlow != "" {
+		merged.ShareFlow = project.ShareFlow
 	}
 	if projectPresence.Quiet {
 		merged.Quiet = project.Quiet
