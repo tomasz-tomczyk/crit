@@ -342,7 +342,131 @@
   let deleteToken = '';
   let needsShareConsent = false;
   let authUserName = '';
+  let shareFlow = '';      // '' = legacy server-side share; 'popup' = browser popup relay
+  let hostedToken = '';    // server-derived (tokenFromHostedURL); never URL-parsed in JS
   let configAuthor = '';
+
+  // ===== Share Receiver Popup Relay =====
+  // openShareReceiver(shareURL) opens the crit-web /share-receiver page in a
+  // popup, exchanges a MessagePort handshake, and returns a session handle:
+  //   { ready: Promise, run(op, data, timeoutMs): Promise, close(): void }
+  //
+  // INVARIANTS — do not violate:
+  //   1. MUST be called synchronously inside a user-gesture event handler.
+  //      Any `await` before this call will cause Safari (and often Chrome/
+  //      Firefox) to popup-block the window.open.
+  //   2. The 'ready' postMessage listener is attached BEFORE window.open so
+  //      the receiver's 'ready' message can't arrive before we listen.
+  //   3. After the handshake, all communication is via the MessagePort. The
+  //      port has no origin — it's a private channel. event.origin is only
+  //      validated on the handshake postMessage.
+  //   4. Single persistent port.onmessage with a requestId -> resolver Map.
+  //      No listener-per-op accumulation.
+  //   5. A close-watchdog (setInterval) rejects pending ops if the popup
+  //      closes (user dismisses, navigates away, crashes).
+  function openShareReceiver(baseURL) {
+    if (!baseURL) throw new Error('share_url not configured');
+
+    const nonce = 'n_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const targetOrigin = new URL(baseURL).origin;
+    const popupURL = baseURL.replace(/\/$/, '') + '/share-receiver#nonce=' + encodeURIComponent(nonce);
+
+    let popup = null;
+    let port = null;
+    let readyResolve, readyReject;
+    const readyPromise = new Promise(function(res, rej) { readyResolve = res; readyReject = rej; });
+
+    const pending = new Map(); // requestId -> { resolve, reject, timer }
+    function rejectAllPending(err) {
+      for (const entry of pending.values()) {
+        clearTimeout(entry.timer);
+        entry.reject(err);
+      }
+      pending.clear();
+    }
+
+    function onPortMessage(event) {
+      const msg = event.data || {};
+      const entry = pending.get(msg.requestId);
+      if (!entry) return;
+      pending.delete(msg.requestId);
+      clearTimeout(entry.timer);
+      if (msg.ok) entry.resolve(msg.data);
+      else entry.reject(new Error(msg.error || 'unknown error'));
+    }
+
+    function onReady(event) {
+      // Validate handshake: source must be our popup, origin must match,
+      // payload must be `{type: 'ready', nonce}`.
+      if (popup && event.source !== popup) return;
+      if (event.origin !== targetOrigin) return;
+      if (!event.data || event.data.type !== 'ready' || event.data.nonce !== nonce) return;
+      window.removeEventListener('message', onReady);
+      const channel = new MessageChannel();
+      port = channel.port1;
+      port.onmessage = onPortMessage;
+      port.start();
+      try {
+        popup.postMessage({ type: 'init', nonce: nonce }, targetOrigin, [channel.port2]);
+      } catch (err) {
+        readyReject(err);
+        return;
+      }
+      readyResolve();
+    }
+
+    // Attach listener BEFORE opening the popup so the receiver's 'ready'
+    // postMessage cannot arrive before we are listening.
+    window.addEventListener('message', onReady);
+
+    popup = window.open(popupURL, 'crit_share_receiver', 'width=520,height=640,resizable=yes,scrollbars=yes');
+    if (!popup) {
+      window.removeEventListener('message', onReady);
+      throw new Error('popup blocked — allow popups for this page');
+    }
+
+    // Watchdog: if the popup closes before init or mid-op, reject everything.
+    const closeWatch = setInterval(function() {
+      if (popup.closed) {
+        clearInterval(closeWatch);
+        window.removeEventListener('message', onReady);
+        readyReject(new Error('popup closed before authenticating'));
+        rejectAllPending(new Error('popup closed'));
+      }
+    }, 500);
+
+    // Init handshake timeout: if the receiver never posts 'ready' (COOP, popup
+    // never navigated, ad blocker, etc.) reject after 60s.
+    const initTimer = setTimeout(function() {
+      window.removeEventListener('message', onReady);
+      readyReject(new Error('share-receiver did not respond — possibly blocked by COOP'));
+    }, 60000);
+    readyPromise.finally(function() { clearTimeout(initTimer); });
+
+    return {
+      ready: readyPromise,
+      async run(op, data, timeoutMs) {
+        await readyPromise;
+        const requestId = nonce + '_' + op + '_' + Math.random().toString(36).slice(2);
+        return new Promise(function(resolve, reject) {
+          const timer = setTimeout(function() {
+            pending.delete(requestId);
+            reject(new Error('share-receiver did not return a result for ' + op));
+          }, timeoutMs || 120000);
+          pending.set(requestId, { resolve: resolve, reject: reject, timer: timer });
+          port.postMessage(Object.assign({}, data, { type: op, requestId: requestId }));
+        });
+      },
+      close() {
+        clearInterval(closeWatch);
+        window.removeEventListener('message', onReady);
+        try { popup.close(); } catch { /* popup may already be closed */ }
+        try { if (port) port.close(); } catch { /* port may already be closed */ }
+        rejectAllPending(new Error('session closed'));
+      },
+    };
+  }
+
   let uiState = 'reviewing';
   let waitingNotApproved = false;
   let hiddenUnresolved = 0;
@@ -775,6 +899,8 @@
     deleteToken = configRes.delete_token || '';
     needsShareConsent = configRes.needs_consent || false;
     authUserName = configRes.auth_user_name || '';
+    shareFlow = configRes.share_flow || '';
+    hostedToken = configRes.hosted_token || '';
     configAuthor = configRes.author || '';
     agentEnabled = configRes.agent_cmd_enabled || false;
     agentName = configRes.agent_name || 'agent';
@@ -7894,6 +8020,8 @@
         '<div class="sd-actions">' +
           (deleteToken ? '<button class="sd-link-btn sd-link-btn--danger" id="modalUnpublishBtn">Unpublish</button>' : '<span></span>') +
           '<div class="sd-actions-right">' +
+            '<button class="sd-link-btn" id="modalPullBtn">Pull comments</button>' +
+            '<button class="sd-link-btn" id="modalReshareBtn">Re-share</button>' +
             '<button class="sd-primary" id="modalCloseBtn">Done</button>' +
           '</div>' +
         '</div>' +
@@ -7954,6 +8082,178 @@
     if (deleteToken) {
       overlay.querySelector('#modalUnpublishBtn').addEventListener('click', showUnpublishConfirm);
     }
+
+    overlay.querySelector('#modalPullBtn').addEventListener('click', handlePullComments);
+    overlay.querySelector('#modalReshareBtn').addEventListener('click', handleReshare);
+  }
+
+  // After /api/comments/merge updates the local review file, re-fetch each
+  // file's comments and re-render in place. Uses the existing per-file
+  // refresh + render-panel path — preserves scroll position, expanded
+  // threads, and unsubmitted drafts (no location.reload).
+  async function refreshAllComments() {
+    await Promise.all(files.map(async function(f) {
+      try {
+        const r = await fetch('/api/file/comments?path=' + enc(f.path));
+        if (r.ok) {
+          f.comments = await r.json();
+        }
+      } catch { /* per-file refresh is best-effort */ }
+    }));
+    renderCommentsPanel();
+    updateCommentCount();
+    updateTreeCommentBadges();
+  }
+
+  // Pull remote comments through the popup relay (or directly when
+  // share_flow is unset), then merge into the local review file via
+  // /api/comments/merge, then refresh the UI in place.
+  async function handlePullComments() {
+    const btn = document.getElementById('modalPullBtn');
+    if (!btn) return;
+    btn.disabled = true;
+    const origLabel = btn.textContent;
+    btn.textContent = 'Pulling…';
+
+    // Open popup synchronously inside the click handler.
+    let popupSession = null;
+    if (shareFlow === 'popup') {
+      try {
+        popupSession = openShareReceiver(shareURL);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = origLabel;
+        showToast('share', 'error', '<span>Pull failed: ' + escapeHtml(err.message) + '</span>');
+        return;
+      }
+    }
+
+    try {
+      if (!hostedToken) throw new Error('no shared review token (try re-sharing)');
+
+      let comments;
+      if (popupSession) {
+        comments = await popupSession.run('fetch', { token: hostedToken });
+      } else {
+        const r = await fetch(shareURL.replace(/\/$/, '') + '/api/reviews/' + encodeURIComponent(hostedToken) + '/comments');
+        if (!r.ok) throw new Error('Server error ' + r.status);
+        comments = await r.json();
+      }
+
+      const mergeResp = await fetch('/api/comments/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comments: comments }),
+      });
+      if (!mergeResp.ok) {
+        const errBody = await mergeResp.json().catch(function() { return {}; });
+        throw new Error(errBody.error || 'merge failed: ' + mergeResp.status);
+      }
+
+      await refreshAllComments();
+      showToast('share', 'success', '<span>Comments pulled</span>', { autoDismiss: true });
+    } catch (err) {
+      showToast('share', 'error', '<span>Pull failed: ' + escapeHtml(err.message) + '</span>');
+    } finally {
+      if (popupSession) popupSession.close();
+      const liveBtn = document.getElementById('modalPullBtn');
+      if (liveBtn) {
+        liveBtn.disabled = false;
+        liveBtn.textContent = origLabel;
+      }
+    }
+  }
+
+  // Re-share chains pull -> merge -> upsert in a single popup session.
+  // If the upsert fails after the merge succeeds, the local review file is
+  // already updated with remote comments; the user must re-click Re-share
+  // (and possibly re-authenticate) to push the merged state back up.
+  async function handleReshare() {
+    const btn = document.getElementById('modalReshareBtn');
+    if (!btn) return;
+    btn.disabled = true;
+    const origLabel = btn.textContent;
+    btn.textContent = 'Re-sharing…';
+
+    // Open popup synchronously inside the click handler.
+    let popupSession = null;
+    if (shareFlow === 'popup') {
+      try {
+        popupSession = openShareReceiver(shareURL);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = origLabel;
+        showToast('share', 'error', '<span>Re-share failed: ' + escapeHtml(err.message) + '</span>');
+        return;
+      }
+    }
+
+    try {
+      if (!hostedToken) throw new Error('no shared review token (try re-sharing)');
+
+      // 1. Pull remote comments through the (still authenticated) popup.
+      let remoteComments;
+      if (popupSession) {
+        remoteComments = await popupSession.run('fetch', { token: hostedToken });
+      } else {
+        const r = await fetch(shareURL.replace(/\/$/, '') + '/api/reviews/' + encodeURIComponent(hostedToken) + '/comments');
+        if (!r.ok) throw new Error('Server error ' + r.status);
+        remoteComments = await r.json();
+      }
+
+      // 2. Merge locally. NOTE: this mutates the local review file even if
+      // the upsert in step 4 fails — the toast in the catch block documents
+      // the partial-failure recovery path.
+      const mergeResp = await fetch('/api/comments/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comments: remoteComments }),
+      });
+      if (!mergeResp.ok) {
+        const errBody = await mergeResp.json().catch(function() { return {}; });
+        throw new Error(errBody.error || 'merge failed: ' + mergeResp.status);
+      }
+
+      // 3. Build upsert payload from the merged local state.
+      const payloadResp = await fetch('/api/share/upsert-payload');
+      if (!payloadResp.ok) {
+        const errBody = await payloadResp.json().catch(function() { return {}; });
+        throw new Error(errBody.error || 'failed to build upsert payload');
+      }
+      const payload = await payloadResp.json();
+
+      // 4. PUT through the same popup session (still authenticated).
+      if (popupSession) {
+        await popupSession.run('upsert', { token: hostedToken, payload: payload });
+      } else {
+        const r = await fetch(shareURL.replace(/\/$/, '') + '/api/reviews/' + encodeURIComponent(hostedToken), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) throw new Error('Server error ' + r.status);
+      }
+
+      await refreshAllComments();
+      showToast('share', 'success', '<span>Re-shared</span>', { autoDismiss: true });
+    } catch (err) {
+      // Document partial-failure state explicitly. If the merge succeeded
+      // but the upsert failed, the user's local review file already contains
+      // the remote comments — clicking Re-share again will retry the upsert
+      // (idempotent on the server) but may require re-authentication if the
+      // popup was closed.
+      showToast('share', 'error',
+        '<span>Re-share failed: ' + escapeHtml(err.message) +
+        '. Local comments may have been updated; click Re-share again to retry ' +
+        '(you may need to re-authenticate in the popup).</span>');
+    } finally {
+      if (popupSession) popupSession.close();
+      const liveBtn = document.getElementById('modalReshareBtn');
+      if (liveBtn) {
+        liveBtn.disabled = false;
+        liveBtn.textContent = origLabel;
+      }
+    }
   }
 
   function showUnpublishConfirm() {
@@ -7976,32 +8276,77 @@
   async function handleUnpublish() {
     const btn = document.getElementById('confirmUnpublishBtn');
     if (btn) { btn.textContent = 'Unpublishing\u2026'; btn.disabled = true; }
+
+    // Popup-relay path: open the popup synchronously inside the click chain.
+    // handleUnpublish is wired via addEventListener in showUnpublishConfirm,
+    // so this function is still inside the user-gesture tick when the user
+    // clicks "Unpublish" in the confirm dialog.
+    let popupSession = null;
+    if (shareFlow === 'popup') {
+      try {
+        popupSession = openShareReceiver(shareURL);
+      } catch (err) {
+        closeShareModal();
+        showUnpublishError(err);
+        return;
+      }
+    }
+
     try {
-      const resp = await fetch(shareURL + '/api/reviews', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ delete_token: deleteToken }),
-      });
-      const alreadyDeleted = resp.status === 404;
-      if (!alreadyDeleted && !resp.ok) throw new Error('Server error ' + resp.status);
+      if (popupSession) {
+        // Receiver normalises 404 (already deleted) to {already_deleted: true}.
+        await popupSession.run('unpublish', { delete_token: deleteToken });
+      } else {
+        const resp = await fetch(shareURL + '/api/reviews', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ delete_token: deleteToken }),
+        });
+        const alreadyDeleted = resp.status === 404;
+        if (!alreadyDeleted && !resp.ok) throw new Error('Server error ' + resp.status);
+      }
       hostedURL = '';
       deleteToken = '';
+      hostedToken = '';
       fetch('/api/share-url', { method: 'DELETE' }).catch(function() { /* fire-and-forget */ });
       closeShareModal();
       setShareButtonState('default');
     } catch (err) {
       closeShareModal();
-      const el = showToast('share', 'error',
-        '<span>Unpublish failed: ' + escapeHtml(err.message) + '</span>' +
-        '<div class="toast-actions">' +
-          '<button class="toast-btn toast-btn-filled" id="shareUnpublishRetryBtn">Retry</button>' +
-          '<button class="toast-btn toast-btn-ghost" data-dismiss-toast="share">Dismiss</button>' +
-        '</div>');
-      el.querySelector('#shareUnpublishRetryBtn').addEventListener('click', function() {
-        dismissToast('share');
-        handleUnpublish();
-      });
+      showUnpublishError(err);
+    } finally {
+      if (popupSession) popupSession.close();
     }
+  }
+
+  function showUnpublishError(err) {
+    const el = showToast('share', 'error',
+      '<span>Unpublish failed: ' + escapeHtml(err.message) + '</span>' +
+      '<div class="toast-actions">' +
+        '<button class="toast-btn toast-btn-filled" id="shareUnpublishRetryBtn">Retry</button>' +
+        '<button class="toast-btn toast-btn-ghost" data-dismiss-toast="share">Dismiss</button>' +
+      '</div>');
+    el.querySelector('#shareUnpublishRetryBtn').addEventListener('click', function() {
+      dismissToast('share');
+      handleUnpublish();
+    });
+  }
+
+  // Dedup guard: prevents a double-click from opening two popups racing for
+  // the same crit-web review.
+  let shareInFlight = false;
+
+  function showShareError(err) {
+    const el = showToast('share', 'error',
+      '<span>Share failed: ' + escapeHtml(err.message) + '</span>' +
+      '<div class="toast-actions">' +
+        '<button class="toast-btn toast-btn-filled" id="shareRetryBtn">Retry</button>' +
+        '<button class="toast-btn toast-btn-ghost" data-dismiss-toast="share">Dismiss</button>' +
+      '</div>');
+    el.querySelector('#shareRetryBtn').addEventListener('click', function() {
+      dismissToast('share');
+      document.getElementById('shareBtn').click();
+    });
   }
 
   document.getElementById('shareBtn').addEventListener('click', async function() {
@@ -8021,32 +8366,83 @@
       return;
     }
 
+    if (shareInFlight) return;
+    shareInFlight = true;
+
     setShareButtonState('sharing');
     dismissToast('share');
 
-    try {
-      const resp = await fetch('/api/share', { method: 'POST' });
-      if (!resp.ok) {
-        const errBody = await resp.json().catch(function() { return {}; });
-        throw new Error(errBody.error || 'Server error ' + resp.status);
+    // CRITICAL: in popup mode, open the popup synchronously here — BEFORE any
+    // await — so the browser treats it as gesture-initiated. Awaiting first
+    // (e.g. fetching the payload) would cause Safari to popup-block.
+    let popupSession = null;
+    if (shareFlow === 'popup') {
+      try {
+        popupSession = openShareReceiver(shareURL);
+      } catch (err) {
+        setShareButtonState('default');
+        shareInFlight = false;
+        showShareError(err);
+        return;
       }
-      const result = await resp.json();
+    }
+
+    try {
+      let result;
+      if (popupSession) {
+        const payloadResp = await fetch('/api/share/payload');
+        if (!payloadResp.ok) {
+          const errBody = await payloadResp.json().catch(function() { return {}; });
+          throw new Error(errBody.error || 'failed to build share payload');
+        }
+        const payload = await payloadResp.json();
+        result = await popupSession.run('share', { payload: payload });
+
+        // Persist server-side so unpublish/refresh paths know about the share.
+        // The Go server's POST /api/share-url derives hosted_token via
+        // tokenFromHostedURL — that derived token comes back in the response
+        // body so we don't need an /api/config re-poll.
+        const persistResp = await fetch('/api/share-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: result.url, delete_token: result.delete_token || '' }),
+        });
+        if (!persistResp.ok) throw new Error('Server error persisting share state ' + persistResp.status);
+        const persisted = await persistResp.json().catch(function() { return {}; });
+        if (!persisted.hosted_token) {
+          // Server-side bug: token derivation failed for a non-empty URL.
+          // Surface loudly rather than silently degrading.
+          console.warn('share: /api/share-url did not return hosted_token');
+        }
+        hostedToken = persisted.hosted_token || '';
+      } else {
+        // Legacy server-side share: Go server contacts crit-web directly.
+        const resp = await fetch('/api/share', { method: 'POST' });
+        if (!resp.ok) {
+          const errBody = await resp.json().catch(function() { return {}; });
+          throw new Error(errBody.error || 'Server error ' + resp.status);
+        }
+        result = await resp.json();
+        // Refresh hostedToken from /api/config (server-derived, single source
+        // of truth — never URL-parsed in JS).
+        try {
+          const cfgResp = await fetch('/api/config');
+          if (cfgResp.ok) {
+            const cfg = await cfgResp.json();
+            hostedToken = cfg.hosted_token || '';
+          }
+        } catch { /* non-fatal; hostedToken will be empty */ }
+      }
       hostedURL = result.url;
       deleteToken = result.delete_token || '';
       setShareButtonState('shared');
       showShareModal();
     } catch (err) {
       setShareButtonState('default');
-      const el = showToast('share', 'error',
-        '<span>Share failed: ' + escapeHtml(err.message) + '</span>' +
-        '<div class="toast-actions">' +
-          '<button class="toast-btn toast-btn-filled" id="shareRetryBtn">Retry</button>' +
-          '<button class="toast-btn toast-btn-ghost" data-dismiss-toast="share">Dismiss</button>' +
-        '</div>');
-      el.querySelector('#shareRetryBtn').addEventListener('click', function() {
-        dismissToast('share');
-        document.getElementById('shareBtn').click();
-      });
+      showShareError(err);
+    } finally {
+      if (popupSession) popupSession.close();
+      shareInFlight = false;
     }
   });
 
