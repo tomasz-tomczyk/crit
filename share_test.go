@@ -12,6 +12,24 @@ import (
 	"testing"
 )
 
+func TestTokenFromHostedURL(t *testing.T) {
+	cases := map[string]string{
+		"https://crit.example/r/abc123":      "abc123",
+		"https://crit.example/r/abc123/":     "abc123",
+		"https://crit.example/r/abc123?x=1":  "abc123",
+		"https://crit.example/r/abc123#frag": "abc123",
+		"https://crit.example/foo/bar":       "",
+		"https://crit.example/":              "",
+		"":                                   "",
+		"not a url at all":                   "",
+	}
+	for input, want := range cases {
+		if got := tokenFromHostedURL(input); got != want {
+			t.Errorf("tokenFromHostedURL(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestComputeShareHash(t *testing.T) {
 	files := []shareFile{{Path: "plan.md", Content: "hello"}}
 	comments := []shareComment{{ExternalID: "c1", Resolved: false}}

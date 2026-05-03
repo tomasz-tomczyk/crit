@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -465,10 +464,13 @@ func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprin
 	var result fetchWebCommentsResult
 	result.ReplyUpdates = make(map[string][]webReply)
 
-	token := path.Base(shareURL)
+	token := tokenFromHostedURL(shareURL)
 	u, err := url.Parse(shareURL)
 	if err != nil {
 		return result, fmt.Errorf("invalid share URL: %w", err)
+	}
+	if token == "" {
+		return result, fmt.Errorf("invalid share URL: missing /r/<token> path")
 	}
 	apiURL := u.Scheme + "://" + u.Host + "/api/reviews/" + token + "/comments"
 
@@ -555,10 +557,13 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, 
 		return result, nil // nothing changed
 	}
 
-	token := path.Base(cfg.ShareURL)
+	token := tokenFromHostedURL(cfg.ShareURL)
 	u, err := url.Parse(cfg.ShareURL)
 	if err != nil {
 		return result, fmt.Errorf("invalid share URL: %w", err)
+	}
+	if token == "" {
+		return result, fmt.Errorf("invalid share URL: missing /r/<token> path")
 	}
 	apiURL := u.Scheme + "://" + u.Host + "/api/reviews/" + token
 

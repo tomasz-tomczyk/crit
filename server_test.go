@@ -922,6 +922,36 @@ func TestApiConfig_IncludesShareFlow(t *testing.T) {
 	}
 }
 
+func TestApiConfig_IncludesHostedToken(t *testing.T) {
+	s, session := newTestServer(t)
+	session.SetSharedURLAndToken("https://crit.example/r/tok42", "delete")
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	var body map[string]any
+	json.Unmarshal(w.Body.Bytes(), &body)
+	if body["hosted_token"] != "tok42" {
+		t.Errorf("hosted_token = %v, want tok42", body["hosted_token"])
+	}
+}
+
+func TestPostShareURL_ReturnsHostedToken(t *testing.T) {
+	s, _ := newTestServer(t)
+	body := `{"url":"https://crit.example/r/zzz","delete_token":"d"}`
+	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status %d", w.Code)
+	}
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["hosted_token"] != "zzz" {
+		t.Errorf("hosted_token = %q, want zzz", resp["hosted_token"])
+	}
+}
+
 func TestApiConfig_ShareFlowEmptyByDefault(t *testing.T) {
 	s, _ := newTestServer(t)
 	req := httptest.NewRequest("GET", "/api/config", nil)

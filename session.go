@@ -1494,6 +1494,13 @@ func (s *Session) GetSharedURL() string {
 	return s.sharedURL
 }
 
+// GetToken returns the review token derived from the stored shared URL.
+// Returns empty string if no review is shared. Single source of truth — uses
+// tokenFromHostedURL so callers don't reimplement /r/<token> parsing.
+func (s *Session) GetToken() string {
+	return tokenFromHostedURL(s.GetSharedURL())
+}
+
 // SetSharedURLAndToken atomically updates both the shared URL and delete token.
 func (s *Session) SetSharedURLAndToken(url, token string) {
 	s.mu.Lock()
