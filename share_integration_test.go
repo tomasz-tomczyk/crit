@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 
 	"os"
 	"os/exec"
@@ -1813,5 +1814,165 @@ func TestShareSyncResolvedRoundMapping(t *testing.T) {
 	if unresolvedComment.Resolved || unresolvedComment.ResolvedRound != 0 {
 		t.Errorf("after unresolve: got resolved=%v, resolved_round=%d; want false, 0",
 			unresolvedComment.Resolved, unresolvedComment.ResolvedRound)
+	}
+}
+
+// --- Share-receiver popup-relay coverage (issue #50) ---
+//
+// These tests use httptest.NewServer as a stub crit-web rather than a live
+// instance, because they exercise paths that don't depend on real persistence:
+//
+//   - SSO failure path: stub returns HTML on /api/reviews to simulate a
+//     reverse-proxy login page intercepting the request.
+//   - share_flow=popup config plumbing through the local server isn't
+//     exercised here — that's covered by server_test.go (handleConfig). These
+//     tests focus on what happens at the binary boundary.
+//
+// What is NOT covered (by design):
+//   - The real popup window auth flow — there's no browser in `go test`. The
+//     popup-relay endpoints (/api/share/payload, /api/share/upsert-payload,
+//     /api/comments/merge) are unit-tested in server_test.go.
+//   - tokenFromHostedURL — covered by share_test.go.
+
+// htmlStubServer returns an httptest server that responds with an HTML login
+// page on every request — the canonical SSO reverse-proxy failure mode.
+func htmlStubServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<!DOCTYPE html><html><body>SSO login page</body></html>"))
+	}))
+}
+
+// jsonShareStub returns a stub server that mimics a successful crit-web
+// /api/reviews POST: returns {url, delete_token} so `crit share` can record
+// share state. Used to verify the legacy (non-popup) share path still works.
+func jsonShareStub(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/reviews", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"url":          "https://crit.stub/r/stubtoken",
+			"delete_token": "del-stub",
+		})
+	})
+	return httptest.NewServer(mux)
+}
+
+// runCritCmd is a thin wrapper over exec.Command that keeps env clean (no
+// CRIT_AUTH_TOKEN, no HOME inheriting global config) and returns combined
+// output + error.
+func runCritCmd(t *testing.T, binary, dir string, args ...string) (string, error) {
+	t.Helper()
+	cmd := exec.Command(binary, args...)
+	cmd.Dir = dir
+	cmd.Env = envWithout("CRIT_AUTH_TOKEN=", "HOME=", "CRIT_SHARE_URL=")
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+// TestShareReceiver_HTMLPostReturnsShareFlowError verifies that when crit-web
+// (or its reverse proxy) returns HTML on POST /api/reviews — the canonical
+// SSO failure path — `crit share` exits non-zero with an error message
+// pointing the user at share_flow=popup.
+func TestShareReceiver_HTMLPostReturnsShareFlowError(t *testing.T) {
+	binary := critBinary(t)
+	ts := htmlStubServer(t)
+	defer ts.Close()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+
+	out, err := runCritCmd(t, binary, dir,
+		"share", "--share-url", ts.URL, "--output", dir, "plan.md")
+	if err == nil {
+		t.Fatalf("expected non-zero exit, got success. output: %s", out)
+	}
+	if !strings.Contains(out, "share_flow") {
+		t.Errorf("expected error to mention share_flow, got: %s", out)
+	}
+	if !strings.Contains(out, "popup") {
+		t.Errorf("expected error to mention popup, got: %s", out)
+	}
+}
+
+// TestShareReceiver_FetchHTMLReturnsShareFlowError verifies that `crit fetch`
+// against an HTML-returning stub crit-web (SSO proxy intercepting GET
+// /api/reviews/:token/comments) gives the helpful share_flow=popup hint.
+func TestShareReceiver_FetchHTMLReturnsShareFlowError(t *testing.T) {
+	binary := critBinary(t)
+	ts := htmlStubServer(t)
+	defer ts.Close()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-seed .crit.json with a share_url pointing at the stub so `crit
+	// fetch` has somewhere to look. tokenFromHostedURL parses /r/<token>.
+	writeTestCritJSON(t, dir, CritJSON{
+		ReviewRound: 1,
+		ShareURL:    ts.URL + "/r/sometoken",
+		DeleteToken: "del-x",
+		Files:       map[string]CritJSONFile{"plan.md": {}},
+	})
+
+	out, err := runCritCmd(t, binary, dir, "fetch", "--output", dir)
+	if err == nil {
+		t.Fatalf("expected non-zero exit, got success. output: %s", out)
+	}
+	if !strings.Contains(out, "share_flow") {
+		t.Errorf("expected error to mention share_flow, got: %s", out)
+	}
+}
+
+// TestShareReceiver_LegacyShareStillWorks verifies that a successful JSON
+// response on POST /api/reviews — the legacy default path with no
+// share_flow=popup — produces a review URL and writes share state to
+// .crit.json. Regression coverage so the popup-relay work doesn't break the
+// default share flow.
+func TestShareReceiver_LegacyShareStillWorks(t *testing.T) {
+	binary := critBinary(t)
+	ts := jsonShareStub(t)
+	defer ts.Close()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+
+	out, err := runCritCmd(t, binary, dir,
+		"share", "--share-url", ts.URL, "--output", dir, "plan.md")
+	if err != nil {
+		t.Fatalf("expected success, got %v. output: %s", err, out)
+	}
+	if !strings.Contains(out, "/r/stubtoken") {
+		t.Errorf("expected output to contain stub review URL, got: %s", out)
+	}
+
+	// .crit.json should now record the share URL + delete token.
+	data, err := os.ReadFile(filepath.Join(dir, ".crit.json"))
+	if err != nil {
+		t.Fatalf("read .crit.json: %v", err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatalf("decode .crit.json: %v", err)
+	}
+	if cj.ShareURL != "https://crit.stub/r/stubtoken" {
+		t.Errorf("share_url = %q, want https://crit.stub/r/stubtoken", cj.ShareURL)
+	}
+	if cj.DeleteToken != "del-stub" {
+		t.Errorf("delete_token = %q, want del-stub", cj.DeleteToken)
 	}
 }
