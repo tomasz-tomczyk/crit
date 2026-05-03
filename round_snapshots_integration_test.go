@@ -85,7 +85,7 @@ func TestRoundSnapshots_Integration(t *testing.T) {
 	}
 
 	// HTTP wiring.
-	srv, err := NewServer(s, frontendFS, "", "", "", "test", 0, "")
+	srv, err := NewServer(s, frontendFS, "", "", "", "test", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}

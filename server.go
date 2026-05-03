@@ -35,6 +35,7 @@ type Server struct {
 	mux               *http.ServeMux
 	assets            fs.FS
 	shareURL          string
+	shareFlow         string
 	authMu            sync.RWMutex // guards authToken + cfg.Auth* fields
 	authToken         string
 	prInfo            *PRInfo
@@ -74,13 +75,13 @@ type Server struct {
 }
 
 // NewServer creates a Server with the given session and configuration.
-func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken string, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
+func NewServer(session *Session, frontendFS embed.FS, shareURL string, shareFlow string, authToken string, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
 	assets, err := fs.Sub(frontendFS, "frontend")
 	if err != nil {
 		return nil, fmt.Errorf("loading frontend assets: %w", err)
 	}
 
-	s := &Server{assets: assets, shareURL: shareURL, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port, prList: &prListCache{}}
+	s := &Server{assets: assets, shareURL: shareURL, shareFlow: shareFlow, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port, prList: &prListCache{}}
 	if session != nil {
 		s.session.Store(session)
 	}
@@ -335,6 +336,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{
 		"share_url":         s.shareURL,
 		"needs_consent":     s.consentNeeded(),
+		"share_flow":        s.shareFlow,
 		"hosted_url":        sess.GetSharedURL(),
 		"delete_token":      sess.GetDeleteToken(),
 		"version":           s.currentVersion,
