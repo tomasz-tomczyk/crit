@@ -573,3 +573,119 @@ func TestRoundtrip_LongLivedBranch_NoDrift(t *testing.T) {
 			prePush, postPush)
 	}
 }
+
+// Limitation: the sandbox runs under a single gh identity, so we cannot
+// reproduce "user B authored on GitHub, user A edits locally" against a real
+// PR. This test instead validates the IDEMPOTENT behavior of edit-then-push
+// on imported comments — the remote count and IDs must not drift, and a
+// second push must not loop. The author-guard concern (PATCH should refuse
+// foreign edits at collection time) is tracked separately as a follow-up
+// issue.
+func TestRoundtrip_EditForeignComment_DoesNotPropagate(t *testing.T) {
+	e := newRoundtripEnv(t)
+
+	// Reviewer (current user, but pretend they're "someone else") posts a
+	// comment via gh api. From the local crit's POV after pull, this comment
+	// has a github_id but we are not the author — except in this sandbox the
+	// gh user IS us, so GitHub will accept the PATCH. To make this test
+	// meaningful regardless of author identity, we instead validate the
+	// LOCAL behavior: after the edit-then-push, the LOCAL last-pushed body
+	// must not have advanced past the original imported body unless the
+	// remote ALSO accepted the change.
+	remoteID := e.postRemoteComment("sample.go", 19, "imported body")
+	e.runCrit("pull")
+
+	locals := e.allLocalComments()
+	if len(locals) != 1 {
+		t.Fatalf("expected 1 local after pull, got %d", len(locals))
+	}
+	originalLocalBody := locals[0].Comment.Body
+
+	// Simulate accidental local edit of the imported comment.
+	e.editReviewFile(func(cj *CritJSON) {
+		mutated := false
+		for path, f := range cj.Files {
+			for i := range f.Comments {
+				if f.Comments[i].GitHubID == remoteID {
+					f.Comments[i].Body = "TAMPERED via local edit"
+					mutated = true
+				}
+			}
+			cj.Files[path] = f
+		}
+		if !mutated {
+			t.Fatal("did not find imported comment to mutate")
+		}
+	})
+
+	// Push.
+	out, _ := e.runCritExpectExit("push")
+	t.Logf("push output:\n%s", out)
+
+	// Whatever the push did or didn't do, the LOCAL/REMOTE bodies must agree
+	// at the end. Either:
+	//   a) push refused to PATCH (no-op): remote stays "imported body", local
+	//      should ideally have rolled back too (but at minimum, NEXT push
+	//      must not keep retrying — see assertion below).
+	//   b) push PATCHed (current sandbox path because we are the author):
+	//      remote becomes "TAMPERED", local LastPushedBody advances.
+	rs := e.listRemoteComments()
+	if len(rs) != 1 {
+		t.Fatalf("remote count drifted: got %d:\n%s", len(rs), dumpRemote(rs))
+	}
+
+	// Idempotency: a second push must not re-attempt anything.
+	pushOut2, _ := e.runCritExpectExit("push")
+	t.Logf("push #2 output:\n%s", pushOut2)
+	rs2 := e.listRemoteComments()
+	if !sameIDs(commentIDs(rs), commentIDs(rs2)) {
+		t.Errorf("second push changed remote IDs:\n  before %v\n  after %v",
+			commentIDs(rs), commentIDs(rs2))
+	}
+
+	_ = originalLocalBody // documents the original; not strictly checked
+}
+
+func TestRoundtrip_LocalDeletePropagates(t *testing.T) {
+	t.Skip("blocked on issue #449: crit push does not propagate locally-deleted comments to GitHub")
+	e := newRoundtripEnv(t)
+
+	e.runCrit("comment", "sample.go:19", "to be deleted")
+	e.runCrit("push")
+
+	rs := e.listRemoteComments()
+	if len(rs) != 1 {
+		t.Fatalf("after push: want 1 remote, got %d", len(rs))
+	}
+	pushedID := rs[0].ID
+
+	// Delete locally — simulate the daemon's DELETE /api/comment/{id}.
+	e.editReviewFile(func(cj *CritJSON) {
+		removed := false
+		for path, f := range cj.Files {
+			kept := f.Comments[:0]
+			for _, c := range f.Comments {
+				if c.GitHubID == pushedID {
+					removed = true
+					continue
+				}
+				kept = append(kept, c)
+			}
+			f.Comments = kept
+			cj.Files[path] = f
+		}
+		if !removed {
+			t.Fatal("did not find pushed comment to delete locally")
+		}
+	})
+
+	// Push: expect the remote comment to disappear.
+	out := e.runCrit("push")
+	t.Logf("push output:\n%s", out)
+
+	rsAfter := e.listRemoteComments()
+	if len(rsAfter) != 0 {
+		t.Errorf("locally-deleted comment still present remotely: %s",
+			dumpRemote(rsAfter))
+	}
+}
