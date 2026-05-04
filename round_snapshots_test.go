@@ -248,6 +248,84 @@ func TestClearReviewFolder_RemovesFolder(t *testing.T) {
 	}
 }
 
+// --- Tasks 4-7: in-memory snapshots, capture, R1 baseline, sidecar restore ---
+
+func TestSession_CaptureRoundSnapshot_FilesMode(t *testing.T) {
+	s := &Session{
+		Mode: "files",
+		Files: []*FileEntry{
+			{Path: "a.md", Status: "modified", Content: "hello"},
+		},
+	}
+	s.captureRoundSnapshot(1)
+	got, ok := s.RoundSnapshots["a.md"][1]
+	if !ok {
+		t.Fatal("R1 snapshot not captured")
+	}
+	if got.Content != "hello" {
+		t.Errorf("Content = %q", got.Content)
+	}
+}
+
+func TestSession_CaptureRoundSnapshot_GitModeNoOp(t *testing.T) {
+	s := &Session{
+		Mode:  "git",
+		Files: []*FileEntry{{Path: "a.go", Content: "x"}},
+	}
+	s.captureRoundSnapshot(1)
+	if len(s.RoundSnapshots) != 0 {
+		t.Fatalf("git mode must not capture snapshots, got %+v", s.RoundSnapshots)
+	}
+}
+
+func TestSession_CaptureRoundSnapshot_SkipsLazyAndDeleted(t *testing.T) {
+	s := &Session{
+		Mode: "files",
+		Files: []*FileEntry{
+			{Path: "lazy.md", Lazy: true, Content: "x"},
+			{Path: "gone.md", Status: "deleted", Content: "x"},
+			{Path: "ok.md", Status: "modified", Content: "x"},
+		},
+	}
+	s.captureRoundSnapshot(1)
+	if _, ok := s.RoundSnapshots["lazy.md"]; ok {
+		t.Error("lazy file should be skipped")
+	}
+	if _, ok := s.RoundSnapshots["gone.md"]; ok {
+		t.Error("deleted file should be skipped")
+	}
+	if _, ok := s.RoundSnapshots["ok.md"][1]; !ok {
+		t.Error("ok.md R1 missing")
+	}
+}
+
+func TestSession_CaptureRoundSnapshot_Idempotent(t *testing.T) {
+	s := &Session{
+		Mode: "files",
+		Files: []*FileEntry{
+			{Path: "a.md", Status: "modified", Content: "v1"},
+		},
+	}
+	s.captureRoundSnapshot(1)
+	// Mutate file content; second capture for the same round must NOT overwrite.
+	s.Files[0].Content = "v2"
+	s.captureRoundSnapshot(1)
+	if got := s.RoundSnapshots["a.md"][1].Content; got != "v1" {
+		t.Errorf("idempotency violated: round 1 content = %q", got)
+	}
+}
+
+func TestCloneRoundSnapshots_DeepCopy(t *testing.T) {
+	src := map[string]map[int]RoundSnapshot{
+		"a.md": {1: {Content: "x"}},
+	}
+	dst := cloneRoundSnapshots(src)
+	dst["a.md"][1] = RoundSnapshot{Content: "MUT"}
+	if src["a.md"][1].Content != "x" {
+		t.Fatal("clone is shallow")
+	}
+}
+
 func TestLoadCritJSON_TriggersMigration(t *testing.T) {
 	dir := t.TempDir()
 	identity := filepath.Join(dir, "abc")

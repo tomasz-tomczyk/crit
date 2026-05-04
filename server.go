@@ -196,7 +196,13 @@ func (s *Server) WaitBackground(timeout time.Duration) bool {
 // SetSession attaches a fully initialized session and marks the server as ready.
 // Uses atomic.Pointer to ensure the session pointer is visible to all goroutines
 // immediately after store, which is critical on weakly-ordered architectures (ARM64).
+//
+// Also flips the session's sessionStarted flag so Session.loadCritJSON can
+// enforce its pre-SetSession-only lock contract (see plan v4 §Lock discipline).
 func (s *Server) SetSession(session *Session) {
+	if session != nil {
+		defer session.sessionStarted.Store(1)
+	}
 	s.session.Store(session)
 }
 

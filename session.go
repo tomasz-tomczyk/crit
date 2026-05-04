@@ -225,6 +225,20 @@ type Session struct {
 
 	reviewComments []Comment
 
+	// RoundSnapshots is in-memory state populated from <folder>/snapshots.json
+	// at boot. Persisted via saveSnapshotsFile; never written into review.json.
+	//
+	// Lock contract: read/write under s.mu, EXCEPT during construction
+	// (NewSessionFromFiles, before SetSession) where the caller is the only
+	// goroutine that could observe it.
+	RoundSnapshots map[string]map[int]RoundSnapshot
+
+	// sessionStarted is set (atomically) by Server.SetSession to mark the
+	// transition from constructor-time (single-goroutine) to runtime
+	// (multi-goroutine). loadCritJSON checks this flag to enforce its
+	// pre-SetSession-only contract. 0 = pre-SetSession, 1 = post-SetSession.
+	sessionStarted atomic.Uint32
+
 	// deletedCommentIDs tracks IDs of file comments deleted in-memory but not
 	// yet written to disk. Keyed by file path -> set of comment IDs. This
 	// prevents mergeFileSnapshotIntoCritJSON from re-adding them from disk.
@@ -571,7 +585,41 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 		s.Files = append(s.Files, fe)
 	}
 
+	s.captureBaselineAndPersist()
+
 	return s, nil
+}
+
+// captureBaselineAndPersist captures the R1 baseline (idempotent so resumed
+// sessions are unaffected) and best-effort writes the sidecar to disk.
+//
+// Skips the sidecar write when the identity would fall back to RepoRoot —
+// this path runs before applySessionOverrides has a chance to assign
+// ReviewFilePath / OutputDir. The first WriteFiles or round-complete will
+// re-emit the sidecar at the canonical centralized path.
+//
+// Pre-SetSession only — caller is the constructor and no concurrent readers
+// exist. See plan v4 §Lock discipline.
+func (s *Session) captureBaselineAndPersist() {
+	s.captureRoundSnapshot(s.ReviewRound)
+	if s.ReviewFilePath == "" && s.OutputDir == "" {
+		return
+	}
+	if len(s.RoundSnapshots) == 0 {
+		return
+	}
+	identity := s.critJSONPath()
+	// MIGRATION-REMOVAL: ensure folder layout up front so a stale flat
+	// review file doesn't fail the sidecar write below.
+	if err := ensureReviewFolder(identity); err != nil {
+		return
+	}
+	sidecar := reviewPathsFor(identity).Snapshots
+	if err := saveSnapshotsFile(sidecar, SnapshotsFile{
+		RoundSnapshots: cloneRoundSnapshots(s.RoundSnapshots),
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: write snapshots sidecar at construction: %v\n", err)
+	}
 }
 
 // walkDirectory recursively walks a directory and returns all file paths,
@@ -1470,6 +1518,7 @@ func (s *Session) ClearAllComments() {
 	s.Files = filtered
 	s.reviewComments = nil
 	s.ReviewRound = 1
+	s.RoundSnapshots = nil // v4 lock-discipline: reset in-lock alongside ReviewRound
 	s.lastCritJSONMtime = time.Time{}
 	s.pendingWrite = false
 	s.waitingForAgent = false
@@ -1593,6 +1642,16 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 // at runtime must extend this to take s.mu.Lock() first. See plan v4
 // §Lock discipline.
 func (s *Session) loadCritJSON() {
+	if s.sessionStarted.Load() != 0 {
+		// Lock-contract violation. Pre-SetSession only. Log + no-op rather
+		// than panic; this preserves liveness in production but loudly
+		// signals the regression in test/dev. Future callers that legitimately
+		// need runtime reloads must promote this method to take s.mu.Lock().
+		fmt.Fprintf(os.Stderr,
+			"BUG: Session.loadCritJSON called post-SetSession; ignoring (see plan v4 §Lock discipline)\n")
+		return
+	}
+
 	identity := s.critJSONPath()
 
 	// MIGRATION-REMOVAL: trigger v3->v4 folder migration on read.
@@ -1602,6 +1661,9 @@ func (s *Session) loadCritJSON() {
 
 	data, err := os.ReadFile(reviewPathsFor(identity).Review)
 	if err != nil {
+		// Fall through to the sidecar load — a folder may exist with only
+		// snapshots.json (orphan-snapshots) and we still want to surface that.
+		s.loadSnapshotsFromSidecar(identity)
 		return
 	}
 	var cj CritJSON
@@ -1653,6 +1715,28 @@ func (s *Session) loadCritJSON() {
 	if info, err := os.Stat(reviewPathsFor(s.critJSONPath()).Review); err == nil {
 		s.lastCritJSONMtime = info.ModTime()
 	}
+
+	// Restore round snapshots from the folder sidecar.
+	s.loadSnapshotsFromSidecar(s.critJSONPath())
+}
+
+// loadSnapshotsFromSidecar restores Session.RoundSnapshots from
+// <identity>/snapshots.json. Missing file = silent empty map. Malformed = log
+// + fall through (next round-complete rewrites it).
+//
+// Lock contract: pre-SetSession only (mirrors loadCritJSON). The caller is the
+// constructor path and no other goroutine reads s.RoundSnapshots yet.
+func (s *Session) loadSnapshotsFromSidecar(identity string) {
+	sidecarPath := reviewPathsFor(identity).Snapshots
+	sf, err := loadSnapshotsFile(sidecarPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: snapshots sidecar unreadable, ignoring: %v\n", err)
+		return
+	}
+	if len(sf.RoundSnapshots) == 0 {
+		return
+	}
+	s.RoundSnapshots = cloneRoundSnapshots(sf.RoundSnapshots)
 }
 
 // restoreOrphanedComments reads the review file and creates phantom FileEntry

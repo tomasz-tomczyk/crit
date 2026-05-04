@@ -449,12 +449,27 @@ func (s *Session) handleRoundCompleteFiles() {
 	// Restore phantom entries for files that disappeared but have comments in the review file.
 	s.restoreOrphanedComments()
 
-	// Re-read all file contents and update hashes
+	// Re-read all file contents and update hashes.
 	// (snapshot markdown PreviousContent in case watcher hasn't polled yet)
+	//
+	// Capture the round we are about to commit BEFORE rereadFileContents and
+	// BEFORE incrementing ReviewRound. On the first round-complete after boot,
+	// ReviewRound == 1 (R1 baseline already captured at construction), so this
+	// captures R2.
 	s.mu.Lock()
+	nextRound := s.ReviewRound + 1
+	s.captureRoundSnapshot(nextRound)
+	sidecarPath := reviewPathsFor(s.critJSONPath()).Snapshots
+	sf := SnapshotsFile{RoundSnapshots: cloneRoundSnapshots(s.RoundSnapshots)}
 	s.rereadFileContents(true)
 	s.ReviewRound++
 	s.mu.Unlock()
+
+	// File I/O off the hot path. Drift between review.json and snapshots.json
+	// is benign (degrades to "no timeline available").
+	if err := saveSnapshotsFile(sidecarPath, sf); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: write snapshots sidecar: %v\n", err)
+	}
 
 	s.finishRoundComplete(edits)
 }
