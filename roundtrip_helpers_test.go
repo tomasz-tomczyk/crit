@@ -151,6 +151,43 @@ func (e *roundtripEnv) reviewFile() CritJSON {
 	return cj
 }
 
+// editReviewFile loads the review file, applies mutate, and saves it.
+// Use to simulate what the daemon API would do for body edits / resolved flips.
+func (e *roundtripEnv) editReviewFile(mutate func(cj *CritJSON)) {
+	e.t.Helper()
+	out := e.runCrit("status", "--json")
+	var status struct {
+		ReviewPath string `json:"review_path"`
+		ReviewFile string `json:"review_file"`
+	}
+	if err := json.Unmarshal([]byte(out), &status); err != nil {
+		e.t.Fatalf("parse status JSON: %v\noutput:\n%s", err, out)
+	}
+	path := status.ReviewPath
+	if path == "" {
+		path = status.ReviewFile
+	}
+	if path == "" {
+		e.t.Fatalf("status JSON had neither review_path nor review_file:\n%s", out)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		e.t.Fatalf("read review file: %v", err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		e.t.Fatalf("parse review file: %v", err)
+	}
+	mutate(&cj)
+	out2, err := json.MarshalIndent(&cj, "", "  ")
+	if err != nil {
+		e.t.Fatalf("marshal review file: %v", err)
+	}
+	if err := os.WriteFile(path, out2, 0644); err != nil {
+		e.t.Fatalf("write review file: %v", err)
+	}
+}
+
 // localComment is a flat (file, comment) view of the review file.
 type localComment struct {
 	Path    string

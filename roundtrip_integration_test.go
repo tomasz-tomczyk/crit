@@ -407,3 +407,169 @@ func TestRoundtrip_RangeComment(t *testing.T) {
 		t.Errorf("range comment got duplicated, count=%d", got)
 	}
 }
+
+func TestRoundtrip_EditPushedCommentBody(t *testing.T) {
+	t.Skip("blocked on issue #446: crit push silently drops body edits to already-pushed comments")
+	e := newRoundtripEnv(t)
+
+	e.runCrit("comment", "sample.go:19", "original body")
+	e.runCrit("push")
+
+	rs := e.listRemoteComments()
+	if len(rs) != 1 {
+		t.Fatalf("after push #1: want 1 remote, got %d", len(rs))
+	}
+	originalID := rs[0].ID
+	if originalID == 0 {
+		t.Fatal("remote ID is 0 after push")
+	}
+
+	// Edit the body locally — simulates user fixing a typo in the daemon.
+	e.editReviewFile(func(cj *CritJSON) {
+		mutated := false
+		for path, f := range cj.Files {
+			for i := range f.Comments {
+				if f.Comments[i].Body == "original body" {
+					f.Comments[i].Body = "edited body"
+					mutated = true
+				}
+			}
+			cj.Files[path] = f
+		}
+		if !mutated {
+			t.Fatal("did not find the local comment to edit")
+		}
+	})
+
+	// Push again. Either PATCH (preferred) or no-op (also a bug, edit silently dropped).
+	out := e.runCrit("push")
+	t.Logf("push #2 output:\n%s", out)
+
+	rs2 := e.listRemoteComments()
+	switch len(rs2) {
+	case 1:
+		// Either edited in place (good) or the edit was silently dropped (bad).
+		if rs2[0].ID != originalID {
+			t.Errorf("remote ID changed despite count=1: %d -> %d", originalID, rs2[0].ID)
+		}
+		if rs2[0].Body != "edited body" {
+			t.Errorf("remote body did not update: got %q, want %q", rs2[0].Body, "edited body")
+		}
+	default:
+		t.Fatalf("unexpected remote count after edit-push: %d (want 1)\n%s",
+			len(rs2), dumpRemote(rs2))
+	}
+}
+
+func TestRoundtrip_ResolveLocallyThenPush(t *testing.T) {
+	e := newRoundtripEnv(t)
+
+	remoteID := e.postRemoteComment("sample.go", 19, "needs response")
+	e.runCrit("pull")
+
+	// Mark resolved locally.
+	e.editReviewFile(func(cj *CritJSON) {
+		mutated := false
+		for path, f := range cj.Files {
+			for i := range f.Comments {
+				if f.Comments[i].GitHubID == remoteID {
+					f.Comments[i].Resolved = true
+					mutated = true
+				}
+			}
+			cj.Files[path] = f
+		}
+		if !mutated {
+			t.Fatal("did not find imported comment to resolve")
+		}
+	})
+
+	// Push: must not duplicate the remote comment and must not recreate.
+	remoteBefore := e.listRemoteComments()
+	out := e.runCrit("push")
+	t.Logf("push output:\n%s", out)
+	remoteAfter := e.listRemoteComments()
+	if len(remoteAfter) != len(remoteBefore) {
+		t.Errorf("push after resolve changed remote count: %d -> %d\n%s",
+			len(remoteBefore), len(remoteAfter), dumpRemote(remoteAfter))
+	}
+	if len(remoteAfter) >= 1 && remoteAfter[0].ID != remoteID {
+		t.Errorf("remote comment ID changed after resolve-push: %d -> %d",
+			remoteID, remoteAfter[0].ID)
+	}
+
+	// Pull again — resolved flag must survive.
+	e.runCrit("pull")
+	for _, lc := range e.allLocalComments() {
+		if lc.Comment.GitHubID == remoteID && !lc.Comment.Resolved {
+			t.Errorf("resolved flag lost after pull: %+v", lc.Comment)
+		}
+	}
+}
+
+func TestRoundtrip_LongLivedBranch_NoDrift(t *testing.T) {
+	e := newRoundtripEnv(t)
+
+	// Round 1: two local roots.
+	e.runCrit("comment", "sample.go:19", "round1 a")
+	e.runCrit("comment", "sample.md:12", "round1 b")
+	e.runCrit("push")
+	r1 := e.listRemoteComments()
+	if len(r1) != 2 {
+		t.Fatalf("round1: want 2 remote, got %d", len(r1))
+	}
+	r1IDs := commentIDs(r1)
+
+	// Round 2: pull (no-op expected) + a reviewer-side comment.
+	e.runCrit("pull")
+	reviewerID := e.postRemoteComment("sample.go", 19, "reviewer adds in round2")
+	e.runCrit("pull")
+	if got := len(e.allLocalComments()); got != 3 {
+		t.Fatalf("round2: want 3 local, got %d", got)
+	}
+
+	// Round 3: another local root + push. Must add exactly 1 remote.
+	e.runCrit("comment", "sample.md:12", "round3 c")
+	remoteBefore := e.listRemoteComments()
+	e.runCrit("push")
+	remoteAfter := e.listRemoteComments()
+	if d := len(remoteAfter) - len(remoteBefore); d != 1 {
+		t.Fatalf("round3: want delta 1, got %d", d)
+	}
+
+	// Round 4: pull again. All 4 comments present, all GitHubIDs non-zero,
+	// all unique, all original IDs from round 1 still in the set.
+	e.runCrit("pull")
+	finalLocals := e.allLocalComments()
+	if len(finalLocals) != 4 {
+		t.Fatalf("round4: want 4 local, got %d", len(finalLocals))
+	}
+	seen := map[int64]bool{}
+	for _, lc := range finalLocals {
+		if lc.Comment.GitHubID == 0 {
+			t.Errorf("comment with GitHubID=0: %+v", lc.Comment)
+			continue
+		}
+		if seen[lc.Comment.GitHubID] {
+			t.Errorf("duplicate GitHubID in local: %d", lc.Comment.GitHubID)
+		}
+		seen[lc.Comment.GitHubID] = true
+	}
+	for _, id := range r1IDs {
+		if !seen[id] {
+			t.Errorf("round1 ID %d disappeared by round4", id)
+		}
+	}
+	if !seen[reviewerID] {
+		t.Errorf("reviewer's round2 ID %d disappeared", reviewerID)
+	}
+
+	// Round 5: nothing changed locally. Push must be a no-op.
+	prePush := commentIDs(e.listRemoteComments())
+	e.runCrit("push")
+	postPush := commentIDs(e.listRemoteComments())
+	if !sameIDs(prePush, postPush) {
+		t.Errorf("idempotent push at round5 changed remote IDs:\n  before %v\n  after  %v",
+			prePush, postPush)
+	}
+}
