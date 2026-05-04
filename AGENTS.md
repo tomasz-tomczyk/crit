@@ -190,6 +190,17 @@ CI runs E2E on push to `main` and PRs via `.github/workflows/test.yml`. Failed t
 Requires a local crit-web checkout at `../crit-web` and PostgreSQL. See `scripts/AGENTS.md` for full details.
 </important>
 
+<important if="you are modifying crit pull, crit push, GitHub PR comment sync, the review-file ↔ GitHub roundtrip, or anything in `github.go` / `pr_cache.go` / `pr_fetch_test.go` / `push_buckets.go` / `comment_cli.go` reply handling">
+
+`roundtrip_integration_test.go` (build tag `e2e_github`) exercises the crit ↔ GitHub PR roundtrip against a real sandbox PR. When modifying pull/push, GitHub-comment-bucket logic, reply posting, or `mergeGHComments*` dedup:
+
+1. Run: `make e2e-roundtrip` (or `./scripts/e2e-roundtrip.sh -run <TestName> -v` for one scenario)
+2. Add new `TestRoundtrip_<Name>` scenarios for new state transitions — see `test/roundtrip/README.md` for authoring notes
+3. If a scenario is currently `t.Skip`'d against an issue and your change fixes the underlying bug, REMOVE the skip and run the scenario
+
+Requires `gh` authenticated and `CRIT_ROUNDTRIP_REPO=<owner>/crit-roundtrip-sandbox` exported. Each scenario opens-then-closes a real PR (~10-25s each, ~100s suite). Tests are local-only (build tag keeps them out of CI / default `go test ./...`).
+</important>
+
 <important if="you are adding or modifying HTTP API endpoints in server.go">
 
 All routes wrapped with `s.withReady` return 503 until session init completes — except `/api/health` and `/api/qr`.
