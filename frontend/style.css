@@ -1428,6 +1428,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   color: var(--crit-editor-fg);
   font-family: var(--crit-font-body);
   font-size: 14px;
+  line-height: 1.6;
   resize: vertical;
 }
 
@@ -1452,6 +1453,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   padding: 6px 8px;
   font-family: var(--crit-font-body);
   font-size: 14px;
+  line-height: 1.6;
   resize: vertical;
 }
 
