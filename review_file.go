@@ -114,6 +114,63 @@ func resolveReviewPathFromSessions(sessions []sessionEntry) string {
 	return ""
 }
 
+// SnapshotsFile is the per-round-content sidecar inside a review folder. Lives
+// at <folder>/snapshots.json. The crit server reads/writes it; agents do not.
+type SnapshotsFile struct {
+	RoundSnapshots map[string]map[int]RoundSnapshot `json:"round_snapshots"`
+}
+
+// reviewPaths derives the v4 folder layout from a review identity path.
+// The identity may have been a flat .json file in v3; v4 treats it uniformly
+// as a folder. Migration is handled by ensureReviewFolder.
+type reviewPaths struct {
+	Folder    string
+	Review    string
+	Snapshots string
+}
+
+// reviewPathsFor returns the v4 folder-form paths for a review identity.
+// reviewPathsFor does not touch disk; migration is handled separately.
+func reviewPathsFor(identity string) reviewPaths {
+	return reviewPaths{
+		Folder:    identity,
+		Review:    filepath.Join(identity, "review.json"),
+		Snapshots: filepath.Join(identity, "snapshots.json"),
+	}
+}
+
+// loadSnapshotsFile reads <folder>/snapshots.json. Missing file = empty map +
+// nil error (first-boot, legacy review with no snapshots yet, or the folder is
+// in the orphan-snapshots state which is benign on read).
+func loadSnapshotsFile(snapshotsPath string) (SnapshotsFile, error) {
+	sf := SnapshotsFile{RoundSnapshots: map[string]map[int]RoundSnapshot{}}
+	data, err := os.ReadFile(snapshotsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return sf, nil
+		}
+		return sf, fmt.Errorf("reading snapshots file: %w", err)
+	}
+	if err := json.Unmarshal(data, &sf); err != nil {
+		return sf, fmt.Errorf("invalid snapshots file: %w", err)
+	}
+	if sf.RoundSnapshots == nil {
+		sf.RoundSnapshots = map[string]map[int]RoundSnapshot{}
+	}
+	return sf, nil
+}
+
+// saveSnapshotsFile writes the sidecar atomically. Mirrors saveCritJSON.
+func saveSnapshotsFile(snapshotsPath string, sf SnapshotsFile) error {
+	data, err := json.MarshalIndent(sf, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling snapshots file: %w", err)
+	}
+	// atomicWriteFile MkdirAlls the parent, so the review folder is created
+	// implicitly on first sidecar write.
+	return atomicWriteFile(snapshotsPath, append(data, '\n'), 0o644)
+}
+
 // writeCritJSON resolves the review path and writes a CritJSON via saveCritJSON.
 func writeCritJSON(cj CritJSON, outputDir string) error {
 	path, err := resolveReviewPath(outputDir)
@@ -123,10 +180,70 @@ func writeCritJSON(cj CritJSON, outputDir string) error {
 	return saveCritJSON(path, cj)
 }
 
-// loadCritJSON reads the review file from disk, or returns a fresh CritJSON if the file doesn't exist.
+// MIGRATION-REMOVAL: TODO remove this function and its call from loadCritJSON
+// in the release after v4-folder-format ships. Tracked in follow-up issue (see
+// plan v4 §"Follow-up issue draft").
+//
+// ensureReviewFolder migrates a v3-era flat-file review (<identity>) into a
+// v4 folder layout (<identity>/review.json, <identity>/snapshots.json).
+// Idempotent and crash-tolerant. No-op when there's nothing to migrate.
+func ensureReviewFolder(identity string) error {
+	info, err := os.Stat(identity)
+	switch {
+	case err == nil && info.IsDir():
+		return nil
+	case err == nil && !info.IsDir():
+		return migrateFlatToFolder(identity)
+	case os.IsNotExist(err):
+		return nil
+	default:
+		return fmt.Errorf("stat review identity: %w", err)
+	}
+}
+
+// MIGRATION-REMOVAL: TODO delete with ensureReviewFolder.
+func migrateFlatToFolder(identity string) error {
+	tmp := identity + ".crit-migrate.tmp"
+	// A previous crash may have left tmp/ behind. Wipe.
+	_ = os.RemoveAll(tmp)
+
+	if err := os.MkdirAll(tmp, 0o755); err != nil {
+		return fmt.Errorf("creating migration tmp dir: %w", err)
+	}
+
+	if err := os.Rename(identity, filepath.Join(tmp, "review.json")); err != nil {
+		_ = os.RemoveAll(tmp)
+		return fmt.Errorf("moving review file into folder: %w", err)
+	}
+
+	flatSidecar := identity + ".snapshots.json"
+	if _, err := os.Stat(flatSidecar); err == nil {
+		if err := os.Rename(flatSidecar, filepath.Join(tmp, "snapshots.json")); err != nil {
+			fmt.Fprintf(os.Stderr, "crit: warning: could not move snapshot sidecar during migration: %v\n", err)
+		}
+	}
+
+	if err := os.Rename(tmp, identity); err != nil {
+		return fmt.Errorf("finalizing folder migration: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "crit: migrated review storage to folder format: %s\n", identity)
+	return nil
+}
+
+// loadCritJSON reads the review file from disk (folder layout
+// <identity>/review.json), or returns a fresh CritJSON if it doesn't exist.
+// Triggers v3->v4 migration on read for any pre-existing flat-file review.
 func loadCritJSON(critPath string) (CritJSON, error) {
 	var cj CritJSON
-	if data, err := os.ReadFile(critPath); err == nil {
+
+	// MIGRATION-REMOVAL: trigger v3->v4 folder migration on read.
+	if err := ensureReviewFolder(critPath); err != nil {
+		return cj, fmt.Errorf("review folder migration: %w", err)
+	}
+
+	reviewPath := reviewPathsFor(critPath).Review
+	if data, err := os.ReadFile(reviewPath); err == nil {
 		if err := json.Unmarshal(data, &cj); err != nil {
 			return cj, fmt.Errorf("invalid existing review file: %w", err)
 		}
@@ -152,22 +269,29 @@ func loadCritJSON(critPath string) (CritJSON, error) {
 
 // saveCritJSON writes the CritJSON struct to disk with pretty-printed JSON
 // and a trailing newline. Uses atomic writes to prevent corruption.
+// In v4 the review identity is treated as a folder; the review JSON is
+// written to <identity>/review.json and atomicWriteFile MkdirAlls the parent.
 func saveCritJSON(critPath string, cj CritJSON) error {
 	data, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling review file: %w", err)
 	}
-	// atomicWriteFile (atomic_write.go) handles MkdirAll internally.
-	return atomicWriteFile(critPath, append(data, '\n'), 0644)
+	return atomicWriteFile(reviewPathsFor(critPath).Review, append(data, '\n'), 0o644)
 }
 
-// clearCritJSON removes the review file from the resolved path or outputDir.
+// clearCritJSON removes the review folder for the resolved path or outputDir.
 func clearCritJSON(outputDir string) error {
 	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(critPath); err != nil && !os.IsNotExist(err) {
+	return clearReviewFolder(critPath)
+}
+
+// clearReviewFolder removes the entire review folder (review.json,
+// snapshots.json, future attachments). Idempotent: a missing folder is fine.
+func clearReviewFolder(identity string) error {
+	if err := os.RemoveAll(identity); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
