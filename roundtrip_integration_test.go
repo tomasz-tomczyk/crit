@@ -407,7 +407,6 @@ func TestRoundtrip_RangeComment(t *testing.T) {
 }
 
 func TestRoundtrip_EditPushedCommentBody(t *testing.T) {
-	t.Skip("blocked on issue #446: crit push silently drops body edits to already-pushed comments")
 	e := newRoundtripEnv(t)
 
 	e.runCrit("comment", "sample.go:19", "original body")
