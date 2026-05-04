@@ -1634,6 +1634,18 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 	return nil
 }
 
+// reportLoadCritJSONLockViolation surfaces a post-SetSession loadCritJSON
+// call. In production it logs to stderr and returns so the daemon stays up;
+// in dev/CI (CRIT_DEBUG set) it panics so the regression fails loudly. See
+// plan v4 §Lock discipline.
+func reportLoadCritJSONLockViolation() {
+	const msg = "BUG: Session.loadCritJSON called post-SetSession; ignoring (see plan v4 §Lock discipline)"
+	if os.Getenv("CRIT_DEBUG") != "" {
+		panic(msg)
+	}
+	fmt.Fprintln(os.Stderr, msg)
+}
+
 // loadCritJSON loads comments and share state from an existing review file.
 //
 // Lock contract: PRE-SETSESSION ONLY. Safe to call only from the constructor
@@ -1643,12 +1655,7 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 // §Lock discipline.
 func (s *Session) loadCritJSON() {
 	if s.sessionStarted.Load() != 0 {
-		// Lock-contract violation. Pre-SetSession only. Log + no-op rather
-		// than panic; this preserves liveness in production but loudly
-		// signals the regression in test/dev. Future callers that legitimately
-		// need runtime reloads must promote this method to take s.mu.Lock().
-		fmt.Fprintf(os.Stderr,
-			"BUG: Session.loadCritJSON called post-SetSession; ignoring (see plan v4 §Lock discipline)\n")
+		reportLoadCritJSONLockViolation()
 		return
 	}
 
