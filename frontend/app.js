@@ -7286,7 +7286,8 @@
       }
     }
 
-    if (allItems.length === 0) {
+    // A single-heading TOC has nothing to navigate to — hide it.
+    if (allItems.length < 2) {
       hideToc();
       return;
     }
