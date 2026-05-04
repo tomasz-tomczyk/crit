@@ -57,7 +57,12 @@ type Reply struct {
 	Author    string `json:"author,omitempty"`
 	UserID    string `json:"user_id,omitempty"`
 	CreatedAt string `json:"created_at"`
-	GitHubID  int64  `json:"github_id,omitempty"`
+	// ReviewRound is the review round during which this reply was authored.
+	// Used by the per-round timeline to scope reply visibility independently
+	// of the parent comment. Legacy replies (no field set) are treated as
+	// belonging to the parent's ReviewRound — see commentsAtOrBeforeRound.
+	ReviewRound int   `json:"review_round,omitempty"`
+	GitHubID    int64 `json:"github_id,omitempty"`
 
 	// LastPushedBodyHash is a short stable digest of Body at the time of
 	// the most recent successful push (POST or PATCH) to GitHub. Used by
@@ -881,11 +886,12 @@ func (s *Session) AddReviewCommentReply(commentID, body, author, userID string) 
 		if c.ID == commentID {
 			now := time.Now().UTC().Format(time.RFC3339)
 			r := Reply{
-				ID:        randomReplyID(),
-				Body:      body,
-				Author:    author,
-				UserID:    userID,
-				CreatedAt: now,
+				ID:          randomReplyID(),
+				Body:        body,
+				Author:      author,
+				UserID:      userID,
+				CreatedAt:   now,
+				ReviewRound: s.ReviewRound,
 			}
 			s.reviewComments[i].Replies = append(s.reviewComments[i].Replies, r)
 			s.reviewComments[i].Resolved = false
@@ -1056,11 +1062,12 @@ func (s *Session) AddReply(filePath, commentID, body, author, userID string) (Re
 		if c.ID == commentID {
 			now := time.Now().UTC().Format(time.RFC3339)
 			r := Reply{
-				ID:        randomReplyID(),
-				Body:      body,
-				Author:    author,
-				UserID:    userID,
-				CreatedAt: now,
+				ID:          randomReplyID(),
+				Body:        body,
+				Author:      author,
+				UserID:      userID,
+				CreatedAt:   now,
+				ReviewRound: s.ReviewRound,
 			}
 			f.Comments[i].Replies = append(f.Comments[i].Replies, r)
 			f.Comments[i].Resolved = false

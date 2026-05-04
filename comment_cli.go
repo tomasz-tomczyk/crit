@@ -64,11 +64,12 @@ func appendReply(cj *CritJSON, commentID, body, author, userID string, resolve b
 	for i, c := range cj.ReviewComments {
 		if c.ID == commentID {
 			reply := Reply{
-				ID:        randomReplyID(),
-				Body:      body,
-				Author:    author,
-				UserID:    userID,
-				CreatedAt: now,
+				ID:          randomReplyID(),
+				Body:        body,
+				Author:      author,
+				UserID:      userID,
+				CreatedAt:   now,
+				ReviewRound: cj.ReviewRound,
 			}
 			cj.ReviewComments[i].Replies = append(cj.ReviewComments[i].Replies, reply)
 			cj.ReviewComments[i].UpdatedAt = now
@@ -92,11 +93,12 @@ func appendReply(cj *CritJSON, commentID, body, author, userID string, resolve b
 				if !found {
 					found = true
 					reply := Reply{
-						ID:        randomReplyID(),
-						Body:      body,
-						Author:    author,
-						UserID:    userID,
-						CreatedAt: now,
+						ID:          randomReplyID(),
+						Body:        body,
+						Author:      author,
+						UserID:      userID,
+						CreatedAt:   now,
+						ReviewRound: cj.ReviewRound,
 					}
 					cf.Comments[i].Replies = append(cf.Comments[i].Replies, reply)
 					cf.Comments[i].UpdatedAt = now

@@ -69,7 +69,10 @@ func (s *Session) roundSnapshotForFile(path string, round int) (RoundSnapshot, b
 	return rs, ok
 }
 
-// commentsAtOrBeforeRound returns the comments whose ReviewRound <= round.
+// commentsAtOrBeforeRound returns the comments whose ReviewRound <= round,
+// with each surviving comment's Replies filtered to drop entries authored in
+// later rounds. Legacy replies with no ReviewRound set (zero value) inherit
+// their parent's ReviewRound — visible from the parent's round onward.
 // Caller must hold s.mu (RLock is sufficient).
 func commentsAtOrBeforeRound(comments []Comment, round int) []Comment {
 	if round <= 0 {
@@ -77,8 +80,29 @@ func commentsAtOrBeforeRound(comments []Comment, round int) []Comment {
 	}
 	out := comments[:0:0]
 	for _, c := range comments {
-		if c.ReviewRound <= round {
-			out = append(out, c)
+		if c.ReviewRound > round {
+			continue
+		}
+		if len(c.Replies) > 0 {
+			c.Replies = repliesAtOrBeforeRound(c.Replies, round, c.ReviewRound)
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// repliesAtOrBeforeRound returns the replies visible at or before round.
+// A reply with ReviewRound == 0 (legacy / pre-feature data) inherits parentRound,
+// matching the parent comment's existing visibility window.
+func repliesAtOrBeforeRound(replies []Reply, round, parentRound int) []Reply {
+	out := make([]Reply, 0, len(replies))
+	for _, r := range replies {
+		effective := r.ReviewRound
+		if effective == 0 {
+			effective = parentRound
+		}
+		if effective <= round {
+			out = append(out, r)
 		}
 	}
 	return out
