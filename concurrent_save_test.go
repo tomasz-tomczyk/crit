@@ -49,7 +49,7 @@ func TestConcurrentSaveCritJSON_NoCorruption(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for i := 0; i < iters; i++ {
-				data, err := os.ReadFile(reviewPathsFor(path).Review)
+				data, err := readFileShared(reviewPathsFor(path).Review)
 				if err != nil {
 					t.Errorf("worker %d read iter %d: %v", id, i, err)
 					failures.Add(1)

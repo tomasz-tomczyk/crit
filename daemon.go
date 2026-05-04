@@ -128,7 +128,7 @@ func readSessionFile(key string) (sessionEntry, error) {
 	if err != nil {
 		return sessionEntry{}, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := readFileShared(path)
 	if err != nil {
 		return sessionEntry{}, err
 	}
@@ -177,6 +177,10 @@ func listSessionsForCWD(cwd string) ([]sessionEntry, []string) {
 	if err != nil {
 		return nil, nil
 	}
+	// Normalize on both sides so a session stored from any path style
+	// matches a probe with another style (matters on Windows where
+	// os.Getwd returns backslashes but tests/fixtures may use POSIX paths).
+	cwdSlash := filepath.ToSlash(cwd)
 	var alive []sessionEntry
 	var keys []string
 	for _, de := range dirEntries {
@@ -184,7 +188,7 @@ func listSessionsForCWD(cwd string) ([]sessionEntry, []string) {
 			continue
 		}
 		key := strings.TrimSuffix(de.Name(), ".json")
-		data, err := os.ReadFile(filepath.Join(dir, de.Name()))
+		data, err := readFileShared(filepath.Join(dir, de.Name()))
 		if err != nil {
 			continue
 		}
@@ -192,7 +196,7 @@ func listSessionsForCWD(cwd string) ([]sessionEntry, []string) {
 		if err := json.Unmarshal(data, &entry); err != nil {
 			continue
 		}
-		if entry.CWD != cwd {
+		if filepath.ToSlash(entry.CWD) != cwdSlash {
 			continue
 		}
 		if isDaemonAlive(entry) {
@@ -235,7 +239,12 @@ func listSessionsForRepoRoot(repoRoot string) ([]sessionEntry, []string) {
 	if err != nil {
 		return nil, nil
 	}
-	prefix := repoRoot + string(filepath.Separator)
+	// Normalize separators on both sides — the stored CWD could have been
+	// written from any host, and on Windows os.Getwd() returns backslashes
+	// while subdirectory tests/fixtures often use forward slashes. Compare
+	// using POSIX form so the prefix check works regardless of origin.
+	repoRootSlash := filepath.ToSlash(repoRoot)
+	prefix := repoRootSlash + "/"
 	var alive []sessionEntry
 	var keys []string
 	for _, de := range dirEntries {
@@ -243,7 +252,7 @@ func listSessionsForRepoRoot(repoRoot string) ([]sessionEntry, []string) {
 			continue
 		}
 		key := strings.TrimSuffix(de.Name(), ".json")
-		data, err := os.ReadFile(filepath.Join(dir, de.Name()))
+		data, err := readFileShared(filepath.Join(dir, de.Name()))
 		if err != nil {
 			continue
 		}
@@ -251,7 +260,8 @@ func listSessionsForRepoRoot(repoRoot string) ([]sessionEntry, []string) {
 		if err := json.Unmarshal(data, &entry); err != nil {
 			continue
 		}
-		if entry.CWD != repoRoot && !strings.HasPrefix(entry.CWD, prefix) {
+		entryCWD := filepath.ToSlash(entry.CWD)
+		if entryCWD != repoRootSlash && !strings.HasPrefix(entryCWD, prefix) {
 			continue
 		}
 		if isDaemonAlive(entry) {
@@ -642,7 +652,7 @@ func cleanOrphanedSessions() {
 			continue
 		}
 		path := filepath.Join(sessDir, de.Name())
-		data, err := os.ReadFile(path)
+		data, err := readFileShared(path)
 		if err != nil {
 			continue
 		}

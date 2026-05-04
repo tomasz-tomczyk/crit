@@ -529,7 +529,7 @@ func (s *Session) mergeExternalCritJSON() bool {
 		return false
 	}
 
-	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
 	if err != nil {
 		return false
 	}

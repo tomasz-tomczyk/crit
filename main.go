@@ -283,7 +283,7 @@ func runFetch(args []string) {
 		os.Exit(1)
 	}
 
-	data, readErr := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, readErr := readFileShared(reviewPathsFor(critPath).Review)
 	if readErr != nil {
 		fmt.Fprintln(os.Stderr, "Error: no review file found. Run `crit share` first.")
 		os.Exit(1)
@@ -369,7 +369,7 @@ func runUnpublish(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error: no review file found. Nothing to unpublish.")
 		os.Exit(1)
@@ -549,7 +549,7 @@ func runPull(args []string) {
 		os.Exit(1)
 	}
 	var cj CritJSON
-	if data, readErr := os.ReadFile(reviewPathsFor(critPath).Review); readErr == nil {
+	if data, readErr := readFileShared(reviewPathsFor(critPath).Review); readErr == nil {
 		if jsonErr := json.Unmarshal(data, &cj); jsonErr != nil {
 			fmt.Fprintf(os.Stderr, "Warning: existing review file is invalid, starting fresh: %v\n", jsonErr)
 		}
@@ -757,7 +757,7 @@ func loadPushContext(args []string) pushContext {
 	// checkout can still find the right file by branch via the redirect.
 	var cj CritJSON
 	cwdFileExists := true
-	data, readErr := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, readErr := readFileShared(reviewPathsFor(critPath).Review)
 	if readErr != nil {
 		if !os.IsNotExist(readErr) {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", readErr)

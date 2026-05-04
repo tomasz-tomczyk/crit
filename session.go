@@ -605,9 +605,18 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 		relPath := absPath
 		if root != "" {
 			if rel, err := filepath.Rel(root, absPath); err == nil {
-				// Stored in review JSON (cross-platform artefact) and used as
-				// the file key — keep separators POSIX on every host OS.
-				relPath = filepath.ToSlash(rel)
+				slash := filepath.ToSlash(rel)
+				// On Windows filepath.Rel can succeed across drives /
+				// short-name boundaries with a useless ../../../... result;
+				// fall back to the absolute path in that case so downstream
+				// (git diff, picker labels) at least sees a stable string.
+				if strings.HasPrefix(slash, "../") || slash == ".." {
+					relPath = filepath.ToSlash(absPath)
+				} else {
+					// Stored in review JSON (cross-platform artefact) and used as
+					// the file key — keep separators POSIX on every host OS.
+					relPath = slash
+				}
 			}
 		}
 

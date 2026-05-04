@@ -195,7 +195,7 @@ func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string
 // A missing file is treated as "no args"; other read or unmarshal errors are
 // logged to stderr so they don't silently disappear.
 func loadCliArgsFromReviewFile(critPath string) []string {
-	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			fmt.Fprintf(os.Stderr, "warning: failed to load cli_args from review file: %v\n", err)
@@ -314,7 +314,7 @@ func commentToShareComment(c Comment, filePath, scope, fallbackAuthor string, in
 // from the local comment ID for round-trip tracking. fallbackAuthor fills missing
 // Author fields (typically cfg.Author).
 func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolved, setExternalID bool, fallbackAuthor string) ([]shareComment, int) {
-	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
 	if err != nil {
 		return nil, 1
 	}
@@ -590,7 +590,7 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, 
 // back to creating a new share. Parse errors and other I/O errors are surfaced
 // so callers can refuse to clobber a corrupted file.
 func loadExistingShareCfg(critPath string, paths []string) (CritJSON, bool, error) {
-	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return CritJSON{}, false, nil
@@ -661,7 +661,7 @@ func highestWebIndex(cj CritJSON) int {
 // with HeadSHA + DiffScope=layer so they pass visibleInFocus in range view.
 // See spec §E "Write path — `mergeWebComments`".
 func mergeWebComments(critPath string, newComments []webComment, replyUpdates map[string][]webReply) error {
-	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
 	if err != nil {
 		return err
 	}
@@ -755,7 +755,7 @@ func mergeRepliesIntoComment(c Comment, webReplies []webReply) Comment {
 
 // updateShareState writes LastShareHash and ReviewRound back to the review file.
 func updateShareState(critPath string, hash string, reviewRound int) error {
-	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
 	if err != nil {
 		return err
 	}
@@ -773,7 +773,7 @@ func updateShareState(critPath string, hash string, reviewRound int) error {
 // preserving any existing content.
 func persistShareState(critPath string, shareURL string, deleteToken string, scope string) error {
 	var cj CritJSON
-	if data, err := os.ReadFile(reviewPathsFor(critPath).Review); err == nil {
+	if data, err := readFileShared(reviewPathsFor(critPath).Review); err == nil {
 		_ = json.Unmarshal(data, &cj)
 	}
 	if cj.Files == nil {
@@ -791,7 +791,7 @@ func persistShareState(critPath string, shareURL string, deleteToken string, sco
 // hash from the review file. It is the single source of truth for "undo share
 // metadata" — used by both the unpublish CLI path and tests.
 func clearShareState(critPath string) error {
-	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
 	if err != nil {
 		return nil //nolint:nilerr // no review file means nothing to clear
 	}

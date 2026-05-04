@@ -1134,7 +1134,7 @@ func updateCritJSONWithEditedBodies(critPath string, succeeded []ghEditForPush) 
 		successByID[e.GitHubID] = e.Body
 	}
 
-	data, err := os.ReadFile(critPath)
+	data, err := readFileShared(critPath)
 	if err != nil {
 		return err
 	}
@@ -1325,7 +1325,7 @@ type replyKey struct {
 // commentIDs maps "path:endLine" -> GitHubID for root comments.
 // replyIDs maps replyKey -> GitHubID for replies.
 func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, replyIDs map[replyKey]int64) error {
-	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
 	if err != nil {
 		return err
 	}

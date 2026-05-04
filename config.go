@@ -363,6 +363,11 @@ func slUserName() string {
 //   - "exact.file"    → matches filename anywhere in tree
 //   - "path/*.ext"    → filepath.Match against full path
 func matchPattern(pattern, path string) bool {
+	// Patterns are POSIX-style ("dir/", "path/*.ext"). On Windows incoming
+	// paths may carry backslashes (raw output from filepath.WalkDir / Rel);
+	// normalize so the matcher behaves identically across platforms.
+	path = filepath.ToSlash(path)
+
 	// Directory prefix match
 	if strings.HasSuffix(pattern, "/") {
 		prefix := pattern // includes trailing /

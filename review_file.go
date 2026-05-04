@@ -297,7 +297,7 @@ func loadCritJSON(critPath string) (CritJSON, error) {
 	}
 
 	reviewPath := reviewPathsFor(critPath).Review
-	if data, err := os.ReadFile(reviewPath); err == nil {
+	if data, err := readFileShared(reviewPath); err == nil {
 		if err := json.Unmarshal(data, &cj); err != nil {
 			return cj, fmt.Errorf("invalid existing review file: %w", err)
 		}
@@ -399,7 +399,7 @@ func walkReviewIdentities(visit func(identity string, data []byte) error) error 
 			continue
 		}
 		path := filepath.Join(dir, name)
-		data, readErr := os.ReadFile(path)
+		data, readErr := readFileShared(path)
 		if readErr != nil {
 			continue
 		}

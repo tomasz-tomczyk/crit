@@ -1,0 +1,38 @@
+# Force LF line endings on every checkout, including Windows.
+# Without this, actions/checkout's default core.autocrlf=true converts text
+# files to CRLF on Windows runners; the embedded copies in the binary keep
+# LF, so installed-vs-embedded hash comparisons (integrations check) drift.
+* text=auto eol=lf
+
+# Explicit overrides for the formats we ship and embed.
+*.go      text eol=lf
+*.md      text eol=lf
+*.json    text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.html    text eol=lf
+*.heex    text eol=lf
+*.css     text eol=lf
+*.js      text eol=lf
+*.mjs     text eol=lf
+*.ts      text eol=lf
+*.sh      text eol=lf
+*.toml    text eol=lf
+*.nix     text eol=lf
+*.lock    text eol=lf
+*.sum     text eol=lf
+*.mod     text eol=lf
+Makefile  text eol=lf
+Dockerfile text eol=lf
+
+# Binary assets — never touch.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.exe  binary
+*.zip  binary
+*.tar  binary
+*.gz   binary

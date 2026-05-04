@@ -510,7 +510,7 @@ func (s *Session) emitRoundStatus(edits int) {
 func (s *Session) loadResolvedComments() {
 	critPath := s.critJSONPath()
 	info, statErr := os.Stat(reviewPathsFor(critPath).Review)
-	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
 	if err != nil {
 		// No review file — clear all PreviousComments
 		s.mu.Lock()

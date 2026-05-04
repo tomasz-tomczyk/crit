@@ -37,6 +37,31 @@ func renameAtomic(src, dst string) error {
 	return err
 }
 
+// readFileShared reads path with the same retry recipe as renameAtomic.
+// While renameAtomic protects writers from short-lived readers, the inverse
+// race exists too: os.ReadFile fails with ERROR_SHARING_VIOLATION /
+// ERROR_LOCK_VIOLATION when a writer is mid-rename over the destination.
+// 10 attempts with 1→50ms backoff covers any realistic crit workload.
+func readFileShared(path string) ([]byte, error) {
+	const maxAttempts = 10
+	delay := 1 * time.Millisecond
+	var (
+		data []byte
+		err  error
+	)
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		data, err = os.ReadFile(path)
+		if err == nil || !isWindowsSharingViolation(err) {
+			return data, err
+		}
+		time.Sleep(delay)
+		if delay < 50*time.Millisecond {
+			delay *= 2
+		}
+	}
+	return data, err
+}
+
 func isWindowsSharingViolation(err error) bool {
 	var errno windows.Errno
 	if !errors.As(err, &errno) {
