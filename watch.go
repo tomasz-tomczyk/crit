@@ -458,6 +458,7 @@ func (s *Session) handleRoundCompleteFiles() {
 	// captures R2.
 	s.mu.Lock()
 	nextRound := s.ReviewRound + 1
+	// INVARIANT: captureRoundSnapshot MUST run before rereadFileContents(true); reordering would snapshot the new on-disk content as the previous round and silently corrupt the timeline.
 	s.captureRoundSnapshot(nextRound)
 	sidecarPath := reviewPathsFor(s.critJSONPath()).Snapshots
 	sf := SnapshotsFile{RoundSnapshots: cloneRoundSnapshots(s.RoundSnapshots)}
