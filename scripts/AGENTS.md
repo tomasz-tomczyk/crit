@@ -82,3 +82,7 @@ Every test logs its review URL (`t.Logf("  -> Review: ...")`) so you can open th
 - Use the helpers: `critShareCmd`, `critUnpublishCmd`, `writeTestCritJSON`, `readCritJSON`, `commentsFromAPI`, `documentFromAPI`, `seedComment`, `seedCommentAt`, `seedReviewComment`, `logReview`, `extractToken`
 - Always call `logReview(t, output)` after sharing so the URL is visible in test output
 - Use `writeTestCritJSON` (not `writeCritJSON` — that name conflicts with `github.go`)
+
+## e2e-roundtrip.sh
+
+Runs the live GitHub PR roundtrip integration tests behind the `e2e_github` build tag. See `test/roundtrip/README.md` for one-time setup (sandbox repo, `CRIT_ROUNDTRIP_REPO`, `gh auth`) and authoring notes.
