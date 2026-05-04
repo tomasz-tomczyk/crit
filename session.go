@@ -59,12 +59,13 @@ type Reply struct {
 	CreatedAt string `json:"created_at"`
 	GitHubID  int64  `json:"github_id,omitempty"`
 
-	// LastPushedBody is the Body value at the time of the most recent
-	// successful push (POST or PATCH) to GitHub. Used by `crit push` to
-	// detect locally-edited replies that need a PATCH. Empty on legacy
-	// reply records — treated as "in sync" so existing reviews don't all
-	// re-PATCH on first push after upgrade.
-	LastPushedBody string `json:"last_pushed_body,omitempty"`
+	// LastPushedBodyHash is a short stable digest of Body at the time of
+	// the most recent successful push (POST or PATCH) to GitHub. Used by
+	// `crit push` to detect locally-edited replies that need a PATCH.
+	// Empty means "not yet pushed" — divergence detection treats hash("")
+	// as the prior value, so a record with GitHubID != 0 and empty hash
+	// will PATCH on next push (the local body is canonical).
+	LastPushedBodyHash string `json:"last_pushed_body_hash,omitempty"`
 }
 
 // Comment represents a single inline review comment.
@@ -90,12 +91,12 @@ type Comment struct {
 	Replies        []Reply `json:"replies,omitempty"`
 	GitHubID       int64   `json:"github_id,omitempty"`
 
-	// LastPushedBody is the Body value at the time of the most recent
-	// successful push (POST or PATCH) to GitHub. Used by `crit push` to
-	// detect locally-edited comments that need a PATCH. Empty on legacy
-	// comment records — treated as "in sync" so existing reviews don't all
-	// re-PATCH on first push after upgrade.
-	LastPushedBody string `json:"last_pushed_body,omitempty"`
+	// LastPushedBodyHash is a short stable digest of Body at the time of
+	// the most recent successful push (POST or PATCH) to GitHub. Used by
+	// `crit push` to detect locally-edited comments that need a PATCH.
+	// Empty means "not yet pushed" — a record with GitHubID != 0 and empty
+	// hash will PATCH on next push (the local body is canonical).
+	LastPushedBodyHash string `json:"last_pushed_body_hash,omitempty"`
 
 	// HeadSHA is the head SHA of the focus when this comment was authored.
 	// Empty for working-tree comments and for pre-feature comments.

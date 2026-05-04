@@ -832,7 +832,7 @@ func runPushLive(ctx pushContext, b pushBuckets) {
 	}
 
 	// PATCH already-pushed comments/replies whose local body diverged from
-	// LastPushedBody. Independent of the POST path — edits frequently happen
+	// the recorded push-time hash. Independent of the POST path — edits frequently happen
 	// in pushes where there are no new comments to create.
 	patched := pushEditedBodies(ctx)
 
@@ -870,7 +870,7 @@ func printPushSummary(posted, patched, orphans int, exportPath string) {
 }
 
 // pushEditedBodies PATCHes already-pushed comments/replies whose local body
-// diverged from LastPushedBody. Returns the count of records successfully
+// diverged from the recorded push-time hash. Returns the count of records successfully
 // PATCHed and updated in the review file. Failures log to stderr and are
 // excluded from the count, so the next push will retry them.
 func pushEditedBodies(ctx pushContext) int {

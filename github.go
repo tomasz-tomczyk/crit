@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +19,15 @@ import (
 	"sync"
 	"time"
 )
+
+// bodyHashAtPush returns a short stable digest of a comment body. We use
+// the first 16 hex chars (64 bits) of SHA-256 — collision risk is
+// negligible at single-PR scale (≤50 comments) and keeps review files
+// small for downstream agent consumption.
+func bodyHashAtPush(body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return hex.EncodeToString(sum[:8]) // 8 bytes → 16 hex chars
+}
 
 // ghComment represents a GitHub PR review comment from the API.
 type ghComment struct {
@@ -618,12 +629,12 @@ func appendNewGHReplies(comments []Comment, ci int, childReplies []ghComment, na
 			continue
 		}
 		comments[ci].Replies = append(comments[ci].Replies, Reply{
-			ID:             randomReplyID(),
-			Body:           r.Body,
-			Author:         names.lookup(r.User.Login),
-			CreatedAt:      r.CreatedAt,
-			GitHubID:       r.ID,
-			LastPushedBody: r.Body,
+			ID:                 randomReplyID(),
+			Body:               r.Body,
+			Author:             names.lookup(r.User.Login),
+			CreatedAt:          r.CreatedAt,
+			GitHubID:           r.ID,
+			LastPushedBodyHash: bodyHashAtPush(r.Body),
 		})
 		added++
 	}
@@ -664,19 +675,19 @@ func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment
 	comment := stampWithFocus(Comment{
 		ID: commentID, StartLine: startLine, EndLine: gc.Line,
 		Body: gc.Body, Author: authorName, CreatedAt: gc.CreatedAt,
-		UpdatedAt: now, GitHubID: gc.ID, LastPushedBody: gc.Body,
+		UpdatedAt: now, GitHubID: gc.ID, LastPushedBodyHash: bodyHashAtPush(gc.Body),
 	}, scope.asFocus())
 
 	added := 0
 	if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
 		for _, r := range childReplies {
 			comment.Replies = append(comment.Replies, Reply{
-				ID:             randomReplyID(),
-				Body:           r.Body,
-				Author:         names.lookup(r.User.Login),
-				CreatedAt:      r.CreatedAt,
-				GitHubID:       r.ID,
-				LastPushedBody: r.Body,
+				ID:                 randomReplyID(),
+				Body:               r.Body,
+				Author:             names.lookup(r.User.Login),
+				CreatedAt:          r.CreatedAt,
+				GitHubID:           r.ID,
+				LastPushedBodyHash: bodyHashAtPush(r.Body),
 			})
 			added++
 		}
@@ -772,7 +783,8 @@ func collectNewRepliesForPush(cf CritJSONFile) []ghReplyForPush {
 }
 
 // ghEditForPush represents one already-pushed comment or reply whose local
-// body has diverged from LastPushedBody and therefore needs a PATCH.
+// body has diverged from its recorded push-time hash and therefore needs a
+// PATCH.
 //
 // Path is empty for replies (replies are addressed by GitHubID alone in the
 // GitHub API). For comments it carries the file path so the review file can
@@ -785,13 +797,13 @@ type ghEditForPush struct {
 }
 
 // collectEditedForPush returns root comments and replies whose local Body
-// differs from LastPushedBody and therefore need a PATCH.
+// differs from the digest recorded at the last push and therefore need a
+// PATCH.
 //
-// Backward-compat rule: a record with GitHubID != 0 but empty LastPushedBody
-// is treated as already-in-sync (treat current Body as last-pushed). This
-// keeps pre-existing review files from re-PATCHing every comment on first
-// push after upgrade. The push paths that successfully POST or PATCH stamp
-// LastPushedBody, so divergence detection only fires for genuine local edits.
+// A record with GitHubID != 0 and empty LastPushedBodyHash is enqueued: the
+// remote ID exists but we never recorded what we pushed, so the local body
+// is canonical and should be PATCHed up. After a successful PATCH the hash
+// is stamped, future pushes are no-ops.
 //
 // Resolved comments are skipped (they're not pushable in the new-comment
 // path either; consistent treatment for edits).
@@ -808,7 +820,7 @@ func collectEditedForPush(cj CritJSON) []ghEditForPush {
 			if c.Resolved {
 				continue
 			}
-			if c.GitHubID != 0 && c.LastPushedBody != "" && c.Body != c.LastPushedBody {
+			if c.GitHubID != 0 && c.LastPushedBodyHash != bodyHashAtPush(c.Body) {
 				out = append(out, ghEditForPush{
 					GitHubID: c.GitHubID,
 					Path:     path,
@@ -816,7 +828,7 @@ func collectEditedForPush(cj CritJSON) []ghEditForPush {
 				})
 			}
 			for _, r := range c.Replies {
-				if r.GitHubID != 0 && r.LastPushedBody != "" && r.Body != r.LastPushedBody {
+				if r.GitHubID != 0 && r.LastPushedBodyHash != bodyHashAtPush(r.Body) {
 					out = append(out, ghEditForPush{
 						GitHubID: r.GitHubID,
 						Body:     r.Body,
@@ -850,9 +862,9 @@ func patchGHComment(ghID int64, body string) error {
 	return nil
 }
 
-// updateCritJSONWithEditedBodies stamps LastPushedBody on records that were
-// successfully PATCHed in this push. edited is the slice that was queued for
-// PATCH; succeeded is the subset whose PATCH returned cleanly.
+// updateCritJSONWithEditedBodies stamps LastPushedBodyHash on records that
+// were successfully PATCHed in this push. edited is the slice that was queued
+// for PATCH; succeeded is the subset whose PATCH returned cleanly.
 //
 // Match key for both roots and replies is the GitHubID — it's stable and
 // unique across the review file.
@@ -877,12 +889,12 @@ func updateCritJSONWithEditedBodies(critPath string, succeeded []ghEditForPush) 
 		for i, c := range cf.Comments {
 			if body, ok := successByID[c.GitHubID]; ok && c.GitHubID != 0 {
 				cf.Comments[i].Body = body
-				cf.Comments[i].LastPushedBody = body
+				cf.Comments[i].LastPushedBodyHash = bodyHashAtPush(body)
 			}
 			for j, r := range c.Replies {
 				if body, ok := successByID[r.GitHubID]; ok && r.GitHubID != 0 {
 					cf.Comments[i].Replies[j].Body = body
-					cf.Comments[i].Replies[j].LastPushedBody = body
+					cf.Comments[i].Replies[j].LastPushedBodyHash = bodyHashAtPush(body)
 				}
 			}
 		}
@@ -1064,7 +1076,7 @@ func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, r
 				key := fmt.Sprintf("%s:%d", path, c.EndLine)
 				if id, ok := commentIDs[key]; ok {
 					cf.Comments[i].GitHubID = id
-					cf.Comments[i].LastPushedBody = cf.Comments[i].Body
+					cf.Comments[i].LastPushedBodyHash = bodyHashAtPush(cf.Comments[i].Body)
 				}
 			}
 			for j, r := range c.Replies {
@@ -1072,7 +1084,7 @@ func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, r
 					rk := replyKey{ParentGHID: cf.Comments[i].GitHubID, BodyPrefix: truncateStr(r.Body, 60)}
 					if id, ok := replyIDs[rk]; ok {
 						cf.Comments[i].Replies[j].GitHubID = id
-						cf.Comments[i].Replies[j].LastPushedBody = cf.Comments[i].Replies[j].Body
+						cf.Comments[i].Replies[j].LastPushedBodyHash = bodyHashAtPush(cf.Comments[i].Replies[j].Body)
 					}
 				}
 			}

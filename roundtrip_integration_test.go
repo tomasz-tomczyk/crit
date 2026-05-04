@@ -631,7 +631,7 @@ func TestRoundtrip_EditForeignComment_DoesNotPropagate(t *testing.T) {
 	//      should ideally have rolled back too (but at minimum, NEXT push
 	//      must not keep retrying — see assertion below).
 	//   b) push PATCHed (current sandbox path because we are the author):
-	//      remote becomes "TAMPERED", local LastPushedBody advances.
+	//      remote becomes "TAMPERED", local LastPushedBodyHash advances.
 	rs := e.listRemoteComments()
 	if len(rs) != 1 {
 		t.Fatalf("remote count drifted: got %d:\n%s", len(rs), dumpRemote(rs))

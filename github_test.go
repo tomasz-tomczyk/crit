@@ -2800,39 +2800,38 @@ func TestParsePRViewJSON_SameRepoPR(t *testing.T) {
 
 // TestCollectEditedForPush_DetectsBodyDivergence verifies the diff-detection
 // rules behind the edit-push path (#446):
-//   - root comment with edited body relative to LastPushedBody → enqueued
-//   - reply with edited body relative to LastPushedBody → enqueued
+//   - root comment with edited body relative to recorded hash → enqueued
+//   - reply with edited body relative to recorded hash → enqueued
 //   - GitHubID == 0 (never pushed) → not enqueued (handled by POST path)
-//   - GitHubID != 0 but LastPushedBody == "" → not enqueued (legacy idempotency)
-//   - GitHubID != 0 and Body == LastPushedBody → not enqueued
+//   - GitHubID != 0 with empty hash → enqueued (canonical local body must be PATCHed up)
+//   - GitHubID != 0 and hash matches Body → not enqueued
 //   - Resolved comment with edited body → not enqueued
 func TestCollectEditedForPush_DetectsBodyDivergence(t *testing.T) {
 	cj := CritJSON{
 		Files: map[string]CritJSONFile{
 			"a.go": {Comments: []Comment{
 				// edited (should be enqueued)
-				{ID: "c1", GitHubID: 100, Body: "edited", LastPushedBody: "original"},
+				{ID: "c1", GitHubID: 100, Body: "edited", LastPushedBodyHash: bodyHashAtPush("original")},
 				// new (no GH ID — POST path handles it)
-				{ID: "c2", GitHubID: 0, Body: "new", LastPushedBody: ""},
-				// legacy: pushed but no LastPushedBody recorded — must not re-PATCH
-				{ID: "c3", GitHubID: 101, Body: "current", LastPushedBody: ""},
+				{ID: "c2", GitHubID: 0, Body: "new", LastPushedBodyHash: ""},
+				// pushed but no hash recorded — local body is canonical, PATCH it up
+				{ID: "c3", GitHubID: 101, Body: "current", LastPushedBodyHash: ""},
 				// in sync
-				{ID: "c4", GitHubID: 102, Body: "same", LastPushedBody: "same"},
+				{ID: "c4", GitHubID: 102, Body: "same", LastPushedBodyHash: bodyHashAtPush("same")},
 				// resolved, even if edited — skipped
-				{ID: "c5", GitHubID: 103, Body: "edited", LastPushedBody: "original", Resolved: true},
+				{ID: "c5", GitHubID: 103, Body: "edited", LastPushedBodyHash: bodyHashAtPush("original"), Resolved: true},
 				// reply edits via parent c6
-				{ID: "c6", GitHubID: 104, Body: "parent", LastPushedBody: "parent", Replies: []Reply{
-					{ID: "r1", GitHubID: 200, Body: "reply edit", LastPushedBody: "reply orig"}, // enqueued
-					{ID: "r2", GitHubID: 0, Body: "new reply", LastPushedBody: ""},              // POST path
-					{ID: "r3", GitHubID: 201, Body: "same", LastPushedBody: ""},                 // legacy, skip
+				{ID: "c6", GitHubID: 104, Body: "parent", LastPushedBodyHash: bodyHashAtPush("parent"), Replies: []Reply{
+					{ID: "r1", GitHubID: 200, Body: "reply edit", LastPushedBodyHash: bodyHashAtPush("reply orig")}, // enqueued
+					{ID: "r2", GitHubID: 0, Body: "new reply", LastPushedBodyHash: ""},                              // POST path
 				}},
 			}},
 		},
 	}
 
 	edits := collectEditedForPush(cj)
-	if len(edits) != 2 {
-		t.Fatalf("collectEditedForPush returned %d edits, want 2: %+v", len(edits), edits)
+	if len(edits) != 3 {
+		t.Fatalf("collectEditedForPush returned %d edits, want 3: %+v", len(edits), edits)
 	}
 
 	gotIDs := map[int64]string{}
@@ -2842,24 +2841,27 @@ func TestCollectEditedForPush_DetectsBodyDivergence(t *testing.T) {
 	if gotIDs[100] != "edited" {
 		t.Errorf("expected root c1 (id=100) → 'edited', got %q", gotIDs[100])
 	}
+	if gotIDs[101] != "current" {
+		t.Errorf("expected root c3 (id=101) → 'current' (empty hash means PATCH), got %q", gotIDs[101])
+	}
 	if gotIDs[200] != "reply edit" {
 		t.Errorf("expected reply r1 (id=200) → 'reply edit', got %q", gotIDs[200])
 	}
 }
 
-// TestUpdateCritJSONWithEditedBodies_StampsLastPushedBody verifies that after
-// PATCH, the review file is rewritten with the edited body promoted to
-// LastPushedBody so the next push is a no-op.
-func TestUpdateCritJSONWithEditedBodies_StampsLastPushedBody(t *testing.T) {
+// TestUpdateCritJSONWithEditedBodies_StampsLastPushedBodyHash verifies that
+// after PATCH, the review file is rewritten with the edited body's digest
+// stored in LastPushedBodyHash so the next push is a no-op.
+func TestUpdateCritJSONWithEditedBodies_StampsLastPushedBodyHash(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "review.json")
 
 	cj := CritJSON{
 		Files: map[string]CritJSONFile{
 			"a.go": {Comments: []Comment{{
-				ID: "c1", GitHubID: 500, Body: "edited", LastPushedBody: "original",
+				ID: "c1", GitHubID: 500, Body: "edited", LastPushedBodyHash: bodyHashAtPush("original"),
 				Replies: []Reply{
-					{ID: "r1", GitHubID: 600, Body: "reply edit", LastPushedBody: "reply orig"},
+					{ID: "r1", GitHubID: 600, Body: "reply edit", LastPushedBodyHash: bodyHashAtPush("reply orig")},
 				},
 			}}},
 		},
@@ -2889,11 +2891,11 @@ func TestUpdateCritJSONWithEditedBodies_StampsLastPushedBody(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	c := got.Files["a.go"].Comments[0]
-	if c.LastPushedBody != "edited" {
-		t.Errorf("comment LastPushedBody=%q, want %q", c.LastPushedBody, "edited")
+	if want := bodyHashAtPush("edited"); c.LastPushedBodyHash != want {
+		t.Errorf("comment LastPushedBodyHash=%q, want %q", c.LastPushedBodyHash, want)
 	}
-	if c.Replies[0].LastPushedBody != "reply edit" {
-		t.Errorf("reply LastPushedBody=%q, want %q", c.Replies[0].LastPushedBody, "reply edit")
+	if want := bodyHashAtPush("reply edit"); c.Replies[0].LastPushedBodyHash != want {
+		t.Errorf("reply LastPushedBodyHash=%q, want %q", c.Replies[0].LastPushedBodyHash, want)
 	}
 
 	// Idempotency: re-running collectEditedForPush should now find nothing.
