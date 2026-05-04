@@ -1406,7 +1406,7 @@ func backgroundCleanup() {
 func deleteStaleReviewsSilent(stale []staleReview) {
 	sessDir, _ := sessionsDir()
 	for _, s := range stale {
-		if os.Remove(s.path) != nil {
+		if !removeStaleReviewPath(s.path) {
 			continue
 		}
 		if sessDir != "" {
@@ -1417,12 +1417,35 @@ func deleteStaleReviewsSilent(stale []staleReview) {
 	}
 }
 
+// removeStaleReviewPath removes a review identity, supporting both the v4
+// folder layout (RemoveAll) and v3 flat *.json files (Remove + sibling
+// sidecar). MIGRATION-REMOVAL: the flat-file branch can be deleted once the
+// migration shim is removed.
+func removeStaleReviewPath(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	if info.IsDir() {
+		return os.RemoveAll(path) == nil
+	}
+	// MIGRATION-REMOVAL: v3 flat-file fallback.
+	if err := os.Remove(path); err != nil {
+		return false
+	}
+	_ = os.Remove(path + ".snapshots.json")
+	return true
+}
+
 // cleanupOnApproval deletes the review file when the review is approved
 // and cleanup is enabled.
 func cleanupOnApproval(approved bool, reviewPath string, cleanupEnabled bool) {
-	if approved && cleanupEnabled && reviewPath != "" {
-		os.Remove(reviewPath)
+	if !(approved && cleanupEnabled && reviewPath != "") {
+		return
 	}
+	// In v4 the review identity is a folder; remove it whole. The
+	// MIGRATION-REMOVAL fallback handles v3 flat reviews still on disk.
+	_ = removeStaleReviewPath(reviewPath)
 }
 
 func runPlan(args []string) {
@@ -2110,10 +2133,28 @@ func findStaleReviews(revDir string, days int) []staleReview {
 
 	var stale []staleReview
 	for _, de := range entries {
-		if !strings.HasSuffix(de.Name(), ".json") {
+		name := de.Name()
+
+		if de.IsDir() {
+			// v4 folder-form review (or orphan snapshots-only folder).
+			key := name
+			if activeSessions[key] {
+				continue
+			}
+			if sr, ok := checkStaleReviewFolder(revDir, de, key, cutoff); ok {
+				stale = append(stale, sr)
+			}
 			continue
 		}
-		key := strings.TrimSuffix(de.Name(), ".json")
+
+		// MIGRATION-REMOVAL: legacy v3 flat *.json file. Treat as a stale
+		// candidate so cleanup wipes it (and any sibling sidecar) the next
+		// time crit runs. After the migration removal release this branch
+		// goes away.
+		if !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		key := strings.TrimSuffix(name, ".json")
 		if activeSessions[key] {
 			continue
 		}
@@ -2122,6 +2163,70 @@ func findStaleReviews(revDir string, days int) []staleReview {
 		}
 	}
 	return stale
+}
+
+// checkStaleReviewFolder evaluates a directory entry inside the reviews dir.
+// It is a v4-native staleness check for folder-form reviews. Three possible
+// outcomes:
+//
+//  1. The folder contains review.json: read it, parse UpdatedAt, fall back
+//     to file mtime if missing. Stale if the timestamp is before cutoff.
+//  2. The folder lacks review.json but contains snapshots.json: it's an
+//     orphan-snapshots folder (e.g. a crashed migration or a deleted review
+//     left behind a sidecar). Stale if folder mtime is before cutoff.
+//  3. Empty / unrecognized contents: skip.
+func checkStaleReviewFolder(revDir string, de os.DirEntry, key string, cutoff time.Time) (staleReview, bool) {
+	folder := filepath.Join(revDir, de.Name())
+	reviewPath := filepath.Join(folder, "review.json")
+
+	if data, readErr := os.ReadFile(reviewPath); readErr == nil {
+		var cj CritJSON
+		var updatedAt time.Time
+		var branch string
+		var commentCount int
+		if json.Unmarshal(data, &cj) == nil {
+			branch = cj.Branch
+			if t, parseErr := time.Parse(time.RFC3339, cj.UpdatedAt); parseErr == nil {
+				updatedAt = t
+			}
+			for _, f := range cj.Files {
+				commentCount += len(f.Comments)
+			}
+			commentCount += len(cj.ReviewComments)
+		}
+		if updatedAt.IsZero() {
+			if info, statErr := os.Stat(reviewPath); statErr == nil {
+				updatedAt = info.ModTime()
+			}
+		}
+		if !updatedAt.Before(cutoff) {
+			return staleReview{}, false
+		}
+		return staleReview{
+			key:      key,
+			path:     folder,
+			branch:   branch,
+			age:      time.Since(updatedAt),
+			comments: commentCount,
+		}, true
+	}
+
+	// review.json missing — check for orphan snapshots folder.
+	if _, err := os.Stat(filepath.Join(folder, "snapshots.json")); err != nil {
+		return staleReview{}, false
+	}
+	info, err := de.Info()
+	if err != nil {
+		return staleReview{}, false
+	}
+	if !info.ModTime().Before(cutoff) {
+		return staleReview{}, false
+	}
+	return staleReview{
+		key:  key,
+		path: folder,
+		age:  time.Since(info.ModTime()),
+	}, true
 }
 
 func buildActiveSessionSet() map[string]bool {
@@ -2191,8 +2296,8 @@ func deleteStaleReviews(stale []staleReview) int {
 	sessDir, _ := sessionsDir()
 	deleted := 0
 	for _, s := range stale {
-		if err := os.Remove(s.path); err != nil {
-			fmt.Fprintf(os.Stderr, "Error deleting %s: %v\n", s.path, err)
+		if !removeStaleReviewPath(s.path) {
+			fmt.Fprintf(os.Stderr, "Error deleting %s: directory not empty or path missing\n", s.path)
 			continue
 		}
 		deleted++

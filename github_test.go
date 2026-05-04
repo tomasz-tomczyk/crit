@@ -1155,6 +1155,34 @@ func TestFindReviewFileByCommentID_InReviewComments(t *testing.T) {
 	}
 }
 
+func TestFindReviewFileByCommentID_FolderForm(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	reviewDir := filepath.Join(home, ".crit", "reviews")
+	folder := filepath.Join(reviewDir, "key1")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cj := CritJSON{
+		ReviewComments: []Comment{{ID: "r_folder1", Body: "From folder"}},
+		Files:          map[string]CritJSONFile{},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	if err := os.WriteFile(filepath.Join(folder, "review.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := findReviewFileByCommentID("r_folder1", "/excluded.json")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got != folder {
+		t.Errorf("got %q, want folder identity %q", got, folder)
+	}
+}
+
 func TestCritJSONToGHComments_SkipsAlreadyPushed(t *testing.T) {
 	cj := CritJSON{
 		Files: map[string]CritJSONFile{

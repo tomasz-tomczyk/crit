@@ -297,41 +297,76 @@ func clearReviewFolder(identity string) error {
 	return nil
 }
 
-// findReviewFileByCommentID scans all review files in ~/.crit/reviews/ for the given
-// comment ID, skipping excludePath. Returns the path if found in exactly one file,
-// or an error wrapping commentID if it's missing or appears in multiple files.
-func findReviewFileByCommentID(commentID string, excludePath string) (string, error) {
+// walkReviewIdentities iterates over every review identity in
+// ~/.crit/reviews/ — folder-form (v4) and MIGRATION-REMOVAL flat-file (v3) —
+// and invokes visit with the identity path and the bytes of its review.json.
+// Stopping the walk: visit returns a sentinel via the bool/error pair; a
+// non-nil error from visit aborts the walk and is returned.
+func walkReviewIdentities(visit func(identity string, data []byte) error) error {
 	dir, err := reviewsDir()
 	if err != nil {
-		return "", err
+		return err
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("comment %q not found in any review file", commentID)
+			return nil
 		}
-		return "", err
+		return err
 	}
-
-	var matchPath string
 	for _, de := range entries {
-		if !strings.HasSuffix(de.Name(), ".json") {
+		name := de.Name()
+		if de.IsDir() {
+			folder := filepath.Join(dir, name)
+			data, readErr := os.ReadFile(filepath.Join(folder, "review.json"))
+			if readErr != nil {
+				if !os.IsNotExist(readErr) {
+					fmt.Fprintf(os.Stderr, "crit: warning: could not read %s/review.json: %v\n", folder, readErr)
+				}
+				continue
+			}
+			if err := visit(folder, data); err != nil {
+				return err
+			}
 			continue
 		}
-		path := filepath.Join(dir, de.Name())
-		if path == excludePath {
+		// MIGRATION-REMOVAL: legacy v3 flat-file scan.
+		if !strings.HasSuffix(name, ".json") {
 			continue
 		}
+		path := filepath.Join(dir, name)
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
 			continue
 		}
-		if reviewFileContainsComment(data, commentID) {
-			if matchPath != "" {
-				return "", fmt.Errorf("comment %q found in multiple review files", commentID)
-			}
-			matchPath = path
+		if err := visit(path, data); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// findReviewFileByCommentID scans all review identities in ~/.crit/reviews/
+// for the given comment ID, skipping excludePath. Returns the identity path
+// (folder for v4, flat .json for unmigrated v3) if found in exactly one
+// place, or an error if missing or ambiguous.
+func findReviewFileByCommentID(commentID string, excludePath string) (string, error) {
+	var matchPath string
+	walkErr := walkReviewIdentities(func(identity string, data []byte) error {
+		if identity == excludePath {
+			return nil
+		}
+		if !reviewFileContainsComment(data, commentID) {
+			return nil
+		}
+		if matchPath != "" {
+			return fmt.Errorf("comment %q found in multiple review files", commentID)
+		}
+		matchPath = identity
+		return nil
+	})
+	if walkErr != nil {
+		return "", walkErr
 	}
 	if matchPath == "" {
 		return "", fmt.Errorf("comment %q not found in any review file", commentID)
@@ -357,42 +392,32 @@ func findReviewFileByBranch(branch, excludePath string) (string, error) {
 	if branch == "" {
 		return "", fmt.Errorf("branch is required")
 	}
-	dir, err := reviewsDir()
-	if err != nil {
-		return "", err
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("%w: %q", errReviewFileNotFoundForBranch, branch)
-		}
-		return "", err
-	}
-
 	var matchPath string
-	for _, de := range entries {
-		if !strings.HasSuffix(de.Name(), ".json") {
-			continue
-		}
-		path := filepath.Join(dir, de.Name())
-		if path == excludePath {
-			continue
-		}
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			continue
+	walkErr := walkReviewIdentities(func(identity string, data []byte) error {
+		if identity == excludePath {
+			return nil
 		}
 		var cj CritJSON
 		if err := json.Unmarshal(data, &cj); err != nil {
-			continue
+			// Malformed review file; skip rather than aborting.
+			return nil //nolint:nilerr // intentional skip on parse failure
 		}
 		if cj.Branch != branch {
-			continue
+			return nil
 		}
 		if matchPath != "" {
-			return "", fmt.Errorf("%w: %q", errReviewFileAmbiguousForBranch, branch)
+			return fmt.Errorf("%w: %q", errReviewFileAmbiguousForBranch, branch)
 		}
-		matchPath = path
+		matchPath = identity
+		return nil
+	})
+	if walkErr != nil {
+		// Distinguish "not found" (missing reviewsDir) from real errors and
+		// from ambiguity. Ambiguity already wraps errReviewFileAmbiguousForBranch.
+		if errors.Is(walkErr, errReviewFileAmbiguousForBranch) {
+			return "", walkErr
+		}
+		return "", walkErr
 	}
 	if matchPath == "" {
 		return "", fmt.Errorf("%w: %q", errReviewFileNotFoundForBranch, branch)

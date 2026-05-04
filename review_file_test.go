@@ -34,6 +34,79 @@ func writeReviewFixture(t *testing.T, name, branch string) string {
 	return path
 }
 
+// writeFolderReviewFixture writes a folder-form review at <reviewsDir>/<name>
+// with the given branch. Returns the folder identity path.
+func writeFolderReviewFixture(t *testing.T, name, branch string) string {
+	t.Helper()
+	dir, err := reviewsDir()
+	if err != nil {
+		t.Fatalf("reviewsDir: %v", err)
+	}
+	folder := filepath.Join(dir, name)
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cj := CritJSON{Branch: branch, Files: map[string]CritJSONFile{}}
+	data, err := json.Marshal(cj)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, "review.json"), data, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	return folder
+}
+
+func TestFindReviewFileByBranch_FolderForm(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	want := writeFolderReviewFixture(t, "k1", "feature-x")
+	writeFolderReviewFixture(t, "k2", "other")
+
+	got, err := findReviewFileByBranch("feature-x", "")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestFindReviewFileByBranch_OrphanFolderSkipped(t *testing.T) {
+	// Folder with no review.json (snapshots-only orphan) must be ignored.
+	t.Setenv("HOME", t.TempDir())
+	dir, _ := reviewsDir()
+	if err := os.MkdirAll(filepath.Join(dir, "orphan"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "orphan", "snapshots.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := writeFolderReviewFixture(t, "k1", "feature-x")
+
+	got, err := findReviewFileByBranch("feature-x", "")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got != want {
+		t.Errorf("got %q, want %q (orphan should be skipped)", got, want)
+	}
+}
+
+// MIGRATION-REMOVAL: legacy flat-file review files must still be discoverable
+// until the migration shim is deleted.
+func TestFindReviewFileByBranch_MigrationFallback(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	want := writeReviewFixture(t, "k1", "feature-x")
+
+	got, err := findReviewFileByBranch("feature-x", "")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestFindReviewFileByBranch(t *testing.T) {
 	t.Run("single match returns path", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
