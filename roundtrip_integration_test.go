@@ -342,3 +342,38 @@ func TestRoundtrip_BranchSwitchPreservesState(t *testing.T) {
 		t.Errorf("A's local comment body wrong: %q", aLocals[0].Comment.Body)
 	}
 }
+
+func TestRoundtrip_ForcePushedHead_NoDuplication(t *testing.T) {
+	e := newRoundtripEnv(t)
+
+	// Add and push a local comment.
+	e.runCrit("comment", "sample.go:19", "first round")
+	e.runCrit("push")
+	idsBefore := commentIDs(e.listRemoteComments())
+
+	// Amend HEAD and force-push (simulates rebase / squash).
+	if err := appendLine(e.workDir+"/sample.go", "// trailing comment\n"); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, e.workDir, "git", "commit", "-am", "tweak")
+	mustRun(t, e.workDir, "git", "push", "--force")
+
+	// Pull — old comments still there, no duplicates.
+	e.runCrit("pull")
+	locals := e.allLocalComments()
+	if len(locals) != 1 {
+		t.Fatalf("want 1 local after force-push pull, got %d", len(locals))
+	}
+	idsAfter := commentIDs(e.listRemoteComments())
+	if !sameIDs(idsBefore, idsAfter) {
+		t.Errorf("remote IDs changed across force-push: %v -> %v", idsBefore, idsAfter)
+	}
+
+	// New local + push: only the new one is posted.
+	e.runCrit("comment", "sample.go:19", "second round")
+	remoteBefore := e.listRemoteComments()
+	e.runCrit("push")
+	if delta := len(e.listRemoteComments()) - len(remoteBefore); delta != 1 {
+		t.Errorf("want delta 1, got %d", delta)
+	}
+}
