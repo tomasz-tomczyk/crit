@@ -109,7 +109,7 @@ func TestFindReviewFileByBranch_MigrationFallback(t *testing.T) {
 
 func TestFindReviewFileByBranch(t *testing.T) {
 	t.Run("single match returns path", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		setHome(t, t.TempDir())
 		want := writeReviewFixture(t, "k1", "feature-x")
 		writeReviewFixture(t, "k2", "other-branch")
 
@@ -123,7 +123,7 @@ func TestFindReviewFileByBranch(t *testing.T) {
 	})
 
 	t.Run("no match returns sentinel", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		setHome(t, t.TempDir())
 		writeReviewFixture(t, "k1", "other-branch")
 
 		_, err := findReviewFileByBranch("feature-x", "")
@@ -133,7 +133,7 @@ func TestFindReviewFileByBranch(t *testing.T) {
 	})
 
 	t.Run("multiple matches return ambiguous sentinel", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		setHome(t, t.TempDir())
 		writeReviewFixture(t, "k1", "feature-x")
 		writeReviewFixture(t, "k2", "feature-x")
 
@@ -144,7 +144,7 @@ func TestFindReviewFileByBranch(t *testing.T) {
 	})
 
 	t.Run("excludePath is skipped", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		setHome(t, t.TempDir())
 		exclude := writeReviewFixture(t, "k1", "feature-x")
 		want := writeReviewFixture(t, "k2", "feature-x")
 
@@ -159,7 +159,7 @@ func TestFindReviewFileByBranch(t *testing.T) {
 	})
 
 	t.Run("reviews dir missing returns not-found sentinel", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		setHome(t, t.TempDir())
 		_, err := findReviewFileByBranch("feature-x", "")
 		if !errors.Is(err, errReviewFileNotFoundForBranch) {
 			t.Errorf("err = %v, want errReviewFileNotFoundForBranch", err)
@@ -167,7 +167,7 @@ func TestFindReviewFileByBranch(t *testing.T) {
 	})
 
 	t.Run("empty branch errors", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		setHome(t, t.TempDir())
 		_, err := findReviewFileByBranch("", "")
 		if err == nil {
 			t.Error("err = nil, want non-nil for empty branch")
@@ -268,7 +268,7 @@ func TestRedirectReviewPathForPR(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			setHome(t, t.TempDir())
 			for name, branch := range tc.fixtures {
 				writeReviewFixture(t, name, branch)
 			}

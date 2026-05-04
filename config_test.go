@@ -148,7 +148,7 @@ func TestBaseBranchConfig(t *testing.T) {
 
 	t.Run("LoadConfig: project base_branch wins over global", func(t *testing.T) {
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 		os.WriteFile(
 			filepath.Join(homeDir, ".crit.config.json"),
 			[]byte(`{"base_branch": "main"}`),
@@ -202,7 +202,7 @@ func TestMergeConfigsBoolOverride(t *testing.T) {
 func TestLoadConfig(t *testing.T) {
 	// Set up global config
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHome(t, homeDir)
 	globalPath := filepath.Join(homeDir, ".crit.config.json")
 	os.WriteFile(globalPath, []byte(`{"port": 3000, "share_url": "https://global.example.com", "ignore_patterns": ["*.lock"]}`), 0644)
 
@@ -322,7 +322,7 @@ func TestConfigString(t *testing.T) {
 func TestLoadConfigRuntimeDefaults(t *testing.T) {
 	// No config files at all — runtime defaults should apply
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHome(t, homeDir)
 	projectDir := t.TempDir()
 
 	cfg := LoadConfig(projectDir)
@@ -338,7 +338,7 @@ func TestLoadConfigRuntimeDefaults(t *testing.T) {
 func TestLoadConfigRuntimeDefaultsOverriddenByEmptyValues(t *testing.T) {
 	// Config explicitly sets share_url to "" and ignore_patterns to [] — no defaults
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHome(t, homeDir)
 	projectDir := t.TempDir()
 	os.WriteFile(filepath.Join(projectDir, ".crit.config.json"),
 		[]byte(`{"share_url": "", "ignore_patterns": []}`), 0644)
@@ -355,7 +355,7 @@ func TestLoadConfigRuntimeDefaultsOverriddenByEmptyValues(t *testing.T) {
 func TestLoadConfigRuntimeDefaultsOverriddenByGlobal(t *testing.T) {
 	// Global config sets share_url — no runtime default applied
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHome(t, homeDir)
 	os.WriteFile(filepath.Join(homeDir, ".crit.config.json"),
 		[]byte(`{"share_url": "https://custom.example.com"}`), 0644)
 	projectDir := t.TempDir()
@@ -374,7 +374,7 @@ func TestLoadConfigRuntimeDefaultsOverriddenByGlobal(t *testing.T) {
 func TestLoadConfigAuthorFallsBackToGit(t *testing.T) {
 	// Isolated HOME so no global config interferes
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHome(t, homeDir)
 
 	// Set up a git repo with user.name configured
 	repoDir := t.TempDir()
@@ -395,7 +395,7 @@ func TestLoadConfigAuthorFallsBackToGit(t *testing.T) {
 
 func TestLoadConfigAuthorFromConfig(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHome(t, homeDir)
 
 	projectDir := t.TempDir()
 	os.WriteFile(filepath.Join(projectDir, ".crit.config.json"), []byte(`{"author": "Grace Hopper"}`), 0644)
@@ -410,7 +410,7 @@ func TestLoadConfigSameFileNoDuplicatePatterns(t *testing.T) {
 	// When CWD is the home dir, global and project config resolve to the same file.
 	// Patterns should not be duplicated. (GitHub issue #92)
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHome(t, homeDir)
 	os.WriteFile(filepath.Join(homeDir, ".crit.config.json"),
 		[]byte(`{"ignore_patterns": ["*.lock", "*.min.js", "*.min.css", ".crit.json"]}`), 0644)
 
@@ -561,7 +561,7 @@ func TestNoUpdateCheckMerge(t *testing.T) {
 
 func TestSaveGlobalConfig_RoundTrip(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHome(t, homeDir)
 
 	// Write a key
 	err := saveGlobalConfig(func(m map[string]json.RawMessage) error {
@@ -588,7 +588,7 @@ func TestSaveGlobalConfig_RoundTrip(t *testing.T) {
 
 func TestSaveGlobalConfig_PreservesExistingKeys(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHome(t, homeDir)
 
 	// Write initial config manually
 	configPath := filepath.Join(homeDir, ".crit.config.json")
@@ -656,7 +656,7 @@ func TestMergeConfigs_IgnorePatternsUnion(t *testing.T) {
 
 func TestLoadConfig_OutputField(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHome(t, homeDir)
 	projectDir := t.TempDir()
 	os.WriteFile(filepath.Join(projectDir, ".crit.config.json"),
 		[]byte(`{"output": "/tmp/output"}`), 0644)

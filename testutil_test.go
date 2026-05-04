@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -64,20 +65,48 @@ func gitT(t *testing.T, dir string, args ...string) string {
 	// is unambiguous (exec.Cmd treats duplicate env entries as platform-
 	// dependent).
 	src := os.Environ()
-	env := make([]string, 0, len(src)+2)
+	env := make([]string, 0, len(src)+4)
 	for _, kv := range src {
 		if strings.HasPrefix(kv, "GIT_") || strings.HasPrefix(kv, "HOME=") {
+			continue
+		}
+		// On Windows git also picks up USERPROFILE / HOMEDRIVE / HOMEPATH;
+		// strip them so our explicit HOME override is unambiguous.
+		if runtime.GOOS == "windows" && (strings.HasPrefix(kv, "USERPROFILE=") ||
+			strings.HasPrefix(kv, "HOMEDRIVE=") || strings.HasPrefix(kv, "HOMEPATH=")) {
 			continue
 		}
 		env = append(env, kv)
 	}
 	env = append(env, "GIT_CONFIG_NOSYSTEM=1", "HOME="+dir)
+	if runtime.GOOS == "windows" {
+		env = append(env, "USERPROFILE="+dir)
+	}
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// setHome sets HOME to dir for the duration of the test. On Windows
+// os.UserHomeDir() reads USERPROFILE (and HOMEDRIVE+HOMEPATH) instead of
+// HOME, so we set those too — otherwise tests that expect their config
+// writes to land in dir leak into the real user profile.
+//
+// Pass "" to simulate "no home" — this also clears the Windows fallbacks.
+func setHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", dir)
+		// HOMEDRIVE/HOMEPATH together form a fallback used by os.UserHomeDir.
+		// Setting both empty strings is enough — os.UserHomeDir ignores them
+		// when either is empty.
+		t.Setenv("HOMEDRIVE", "")
+		t.Setenv("HOMEPATH", "")
+	}
 }
 
 func writeFile(t *testing.T, path, content string) {

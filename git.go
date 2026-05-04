@@ -882,7 +882,10 @@ func WalkFiles(root string) ([]string, error) {
 		if err != nil {
 			return nil //nolint:nilerr // skip files with unresolvable relative paths
 		}
-		files = append(files, rel)
+		// Normalize to forward slashes — file paths flow into review JSON,
+		// the picker UI, and ignore-pattern matching, all of which assume
+		// POSIX-style separators across platforms.
+		files = append(files, filepath.ToSlash(rel))
 		return nil
 	})
 	return files, err

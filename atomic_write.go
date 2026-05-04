@@ -46,7 +46,7 @@ func atomicWriteFile(target string, data []byte, perm os.FileMode) error {
 		os.Remove(tmpName)
 		return fmt.Errorf("chmod temp file: %w", err)
 	}
-	if err := os.Rename(tmpName, target); err != nil {
+	if err := renameAtomic(tmpName, target); err != nil {
 		os.Remove(tmpName)
 		return fmt.Errorf("rename temp file to target: %w", err)
 	}

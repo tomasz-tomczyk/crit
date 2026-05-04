@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,11 @@ func TestDaemonLifecycle(t *testing.T) {
 
 	// Build crit binary
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "crit")
+	binaryName := "crit"
+	if runtime.GOOS == "windows" {
+		binaryName = "crit.exe"
+	}
+	binary := filepath.Join(dir, binaryName)
 	build := exec.Command("go", "build", "-o", binary, ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build failed: %v\n%s", err, out)

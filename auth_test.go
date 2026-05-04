@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -237,7 +238,7 @@ func TestHandlePollError(t *testing.T) {
 
 func TestSaveGlobalConfig_PreservesUnknownKeys(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	// Write a config with existing keys.
 	initial := `{"share_url": "https://example.com", "port": 3000}` + "\n"
@@ -269,7 +270,7 @@ func TestSaveGlobalConfig_PreservesUnknownKeys(t *testing.T) {
 
 func TestSaveGlobalConfig_FilePermissions(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	if err := saveAuthSession(tokenResponse{AccessToken: "crit_tok"}); err != nil {
 		t.Fatalf("saveAuthSession: %v", err)
@@ -280,7 +281,7 @@ func TestSaveGlobalConfig_FilePermissions(t *testing.T) {
 		t.Fatalf("stat: %v", err)
 	}
 	perm := info.Mode().Perm()
-	if perm != 0o600 {
+	if runtime.GOOS != "windows" && perm != 0o600 {
 		t.Errorf("permissions = %o, want 0600", perm)
 	}
 }
@@ -368,7 +369,7 @@ func TestFetchWhoami_Unauthorized(t *testing.T) {
 
 func TestShowLoginHint_FirstTime(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	showLoginHint()
 
@@ -386,7 +387,7 @@ func TestShowLoginHint_FirstTime(t *testing.T) {
 
 func TestShowLoginHint_AlreadyShown(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	// Write config with hint already shown
 	os.WriteFile(filepath.Join(home, ".crit.config.json"),
@@ -405,7 +406,7 @@ func TestShowLoginHint_AlreadyShown(t *testing.T) {
 
 func TestShowLoginHint_PreservesExistingConfig(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	// Write config with existing keys
 	os.WriteFile(filepath.Join(home, ".crit.config.json"),
@@ -690,7 +691,7 @@ func TestPollForToken_Integration(t *testing.T) {
 // persisted in two separate writes.
 func TestSaveAuthSession_AtomicRewrite(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	// Seed config with a full session from a previous user.
 	initial := `{
@@ -742,7 +743,7 @@ func TestSaveAuthSession_AtomicRewrite(t *testing.T) {
 // surviving a re-login when the new token response is partial.
 func TestSaveAuthSession_RemovesFieldsAbsentFromResponse(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	initial := `{
 		"auth_token": "old_token",
@@ -815,7 +816,7 @@ func TestPollDeviceToken_ParsesUserID(t *testing.T) {
 // CRIT_SHARE_URL points at. Regression for the bug where lazyBackfill always
 // re-resolved with an empty override and so always queried the default server.
 func TestLazyBackfillAuthUserID_HitsExplicitServer(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	// Env var points elsewhere: must NOT be used when caller passes serverURL.
 	t.Setenv("CRIT_SHARE_URL", "http://wrong-from-env.invalid")
 
@@ -862,7 +863,7 @@ func TestLazyBackfillAuthUserID_HitsExplicitServer(t *testing.T) {
 // caller's URL is honored so the right server gets the request.
 func TestLazyBackfillAuthUserID_DoesNotClearOnWrongServer401(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	// "Wrong" server (analog of https://crit.md) that would 401 the token.
 	wrong := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -911,7 +912,7 @@ func TestLazyBackfillAuthUserID_DoesNotClearOnWrongServer401(t *testing.T) {
 // "stop clearing tokens on 401".
 func TestLazyBackfillAuthUserID_ClearsOnRightServer401(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -946,7 +947,7 @@ func TestLazyBackfillAuthUserID_ClearsOnRightServer401(t *testing.T) {
 // CRIT_SHARE_URL takes precedence over the default. This documents the existing
 // precedence rules so a future refactor can't silently drop them.
 func TestLazyBackfillAuthUserID_FallbackWhenServerEmpty(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 
 	var hits int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

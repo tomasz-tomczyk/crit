@@ -429,7 +429,7 @@ func TestResolveServerConfig_PortPrecedence(t *testing.T) {
 		dir := t.TempDir()
 		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"port": 4000}`), 0644)
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 		t.Setenv("CRIT_PORT", "5000")
 
 		origDir, _ := os.Getwd()
@@ -452,7 +452,7 @@ func TestResolveServerConfig_PortPrecedence(t *testing.T) {
 		dir := t.TempDir()
 		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"port": 4000}`), 0644)
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 		t.Setenv("CRIT_PORT", "5000")
 
 		origDir, _ := os.Getwd()
@@ -475,7 +475,7 @@ func TestResolveServerConfig_PortPrecedence(t *testing.T) {
 		dir := t.TempDir()
 		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"port": 4000}`), 0644)
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 		t.Setenv("CRIT_PORT", "")
 
 		origDir, _ := os.Getwd()
@@ -497,7 +497,7 @@ func TestResolveServerConfig_PortPrecedence(t *testing.T) {
 
 		dir := t.TempDir()
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 		t.Setenv("CRIT_PORT", "")
 
 		origDir, _ := os.Getwd()
@@ -528,7 +528,7 @@ func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 		dir := t.TempDir()
 		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 		t.Setenv("CRIT_SHARE_URL", "https://env.example.com")
 
 		origDir, _ := os.Getwd()
@@ -551,7 +551,7 @@ func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 		dir := t.TempDir()
 		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 		t.Setenv("CRIT_SHARE_URL", "https://env.example.com")
 
 		origDir, _ := os.Getwd()
@@ -574,7 +574,7 @@ func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 		dir := t.TempDir()
 		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 		os.Unsetenv("CRIT_SHARE_URL")
 
 		origDir, _ := os.Getwd()
@@ -604,7 +604,7 @@ func TestResolveServerConfig_BoolFlags(t *testing.T) {
 
 		dir := t.TempDir()
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 
 		origDir, _ := os.Getwd()
 		os.Chdir(dir)
@@ -626,7 +626,7 @@ func TestResolveServerConfig_BoolFlags(t *testing.T) {
 		dir := t.TempDir()
 		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"no_open": true}`), 0644)
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 
 		origDir, _ := os.Getwd()
 		os.Chdir(dir)
@@ -647,7 +647,7 @@ func TestResolveServerConfig_BoolFlags(t *testing.T) {
 
 		dir := t.TempDir()
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 
 		origDir, _ := os.Getwd()
 		os.Chdir(dir)
@@ -669,7 +669,7 @@ func TestResolveServerConfig_BoolFlags(t *testing.T) {
 		dir := t.TempDir()
 		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"ignore_patterns": ["*.lock", "vendor/"]}`), 0644)
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 
 		origDir, _ := os.Getwd()
 		os.Chdir(dir)
@@ -697,7 +697,7 @@ func TestResolveServerConfig_FileArgs(t *testing.T) {
 
 	dir := t.TempDir()
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHome(t, homeDir)
 
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -725,7 +725,7 @@ func TestResolveServerConfig_OutputDir(t *testing.T) {
 
 		dir := t.TempDir()
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 
 		origDir, _ := os.Getwd()
 		os.Chdir(dir)
@@ -747,7 +747,7 @@ func TestResolveServerConfig_OutputDir(t *testing.T) {
 		dir := t.TempDir()
 		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"output": "/tmp/cfg-out"}`), 0644)
 		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
+		setHome(t, homeDir)
 
 		origDir, _ := os.Getwd()
 		os.Chdir(dir)

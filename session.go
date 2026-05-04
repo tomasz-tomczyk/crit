@@ -605,7 +605,9 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 		relPath := absPath
 		if root != "" {
 			if rel, err := filepath.Rel(root, absPath); err == nil {
-				relPath = rel
+				// Stored in review JSON (cross-platform artefact) and used as
+				// the file key — keep separators POSIX on every host OS.
+				relPath = filepath.ToSlash(rel)
 			}
 		}
 

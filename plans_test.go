@@ -112,7 +112,7 @@ func TestPlanStorageDir(t *testing.T) {
 }
 
 func TestPlanStorageDir_NoHome(t *testing.T) {
-	t.Setenv("HOME", "")
+	setHome(t, "")
 	_, err := planStorageDir("auth-flow")
 	if err == nil {
 		t.Error("expected error when HOME is unset")
@@ -120,7 +120,7 @@ func TestPlanStorageDir_NoHome(t *testing.T) {
 }
 
 func TestPlanSessionsFile_NoHome(t *testing.T) {
-	t.Setenv("HOME", "")
+	setHome(t, "")
 	_, err := planSessionsFile()
 	if err == nil {
 		t.Error("expected error when HOME is unset")
@@ -278,7 +278,7 @@ func TestApplyPlanOverrides(t *testing.T) {
 func TestLookupPlanSlug_NoFile(t *testing.T) {
 	// Point planSessionsFile to a temp location
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	_, ok := lookupPlanSlug("session-abc")
 	if ok {
@@ -288,7 +288,7 @@ func TestLookupPlanSlug_NoFile(t *testing.T) {
 
 func TestSavePlanSlug_RoundTrip(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	if err := savePlanSlug("session-1", "auth-flow-2026-03-30"); err != nil {
 		t.Fatalf("savePlanSlug: %v", err)
@@ -311,7 +311,7 @@ func TestSavePlanSlug_RoundTrip(t *testing.T) {
 
 func TestSavePlanSlug_StableAcrossHeadingChanges(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	// Simulate first ExitPlanMode: derive slug from heading, pin it
 	content1 := []byte("# Add User Auth\n\nPlan details")
@@ -339,7 +339,7 @@ func TestSavePlanSlug_StableAcrossHeadingChanges(t *testing.T) {
 
 func TestSavePlanSlug_PrunesOldEntries(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	// Write a stale entry directly
 	path, err := planSessionsFile()
@@ -371,7 +371,7 @@ func TestSavePlanSlug_PrunesOldEntries(t *testing.T) {
 
 func TestSavePlanSlug_CorruptJSON(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	// Write corrupt JSON to the sessions file
 	path, err := planSessionsFile()
@@ -396,7 +396,7 @@ func TestSavePlanSlug_CorruptJSON(t *testing.T) {
 
 func TestSavePlanSlug_ConcurrentWrites(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	// Run multiple concurrent saves; none should lose data
 	const n = 10

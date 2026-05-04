@@ -1056,7 +1056,7 @@ func TestAddReplyToCritJSON_NotFound(t *testing.T) {
 
 func TestAddReplyToCritJSON_FallbackByCommentID(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	// Create the reviews directory with a review file containing the target comment.
 	reviewDir := filepath.Join(home, ".crit", "reviews")
@@ -1113,7 +1113,7 @@ func TestAddReplyToCritJSON_FallbackByCommentID(t *testing.T) {
 
 func TestFindReviewFileByCommentID_NotInAnyFile(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	reviewDir := filepath.Join(home, ".crit", "reviews")
 	os.MkdirAll(reviewDir, 0755)
@@ -1135,7 +1135,7 @@ func TestFindReviewFileByCommentID_NotInAnyFile(t *testing.T) {
 
 func TestFindReviewFileByCommentID_InReviewComments(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	reviewDir := filepath.Join(home, ".crit", "reviews")
 	os.MkdirAll(reviewDir, 0755)
@@ -1404,7 +1404,7 @@ func TestBulkAddCommentsToCritJSON_EmptyEntries(t *testing.T) {
 
 func TestBulkAddCommentsToCritJSON_ReplyNotFound(t *testing.T) {
 	dir := initTestRepo(t)
-	t.Setenv("HOME", t.TempDir()) // isolate from any real ~/.crit/reviews
+	setHome(t, t.TempDir()) // isolate from any real ~/.crit/reviews
 	entries := []BulkCommentEntry{{ReplyTo: "c99", Body: "reply"}}
 	err := bulkAddCommentsToCritJSONScoped(entries, "Bot", "", dir, inheritedScope{})
 	if err == nil || !strings.Contains(err.Error(), "not found") {
@@ -1432,7 +1432,7 @@ func writeAltReviewFile(t *testing.T, name string, cj CritJSON) string {
 
 func TestBulkAddCommentsToCritJSON_RedirectsRepliesToAltFile(t *testing.T) {
 	dir := initTestRepo(t)
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 
 	altPath := writeAltReviewFile(t, "alt_review", CritJSON{
 		Files: map[string]CritJSONFile{
@@ -1489,7 +1489,7 @@ func TestBulkAddCommentsToCritJSON_RedirectsRepliesToAltFile(t *testing.T) {
 
 func TestBulkAddCommentsToCritJSON_RejectsSplitTargets(t *testing.T) {
 	dir := initTestRepo(t)
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 
 	// Seed the primary (cwd) review file with a comment.
 	writeFile(t, filepath.Join(dir, "main.go"), "package main\n")
@@ -1525,7 +1525,7 @@ func TestBulkAddCommentsToCritJSON_RejectsSplitTargets(t *testing.T) {
 
 func TestBulkAddCommentsToCritJSON_RejectsRepliesAcrossTwoAltFiles(t *testing.T) {
 	dir := initTestRepo(t)
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 
 	writeAltReviewFile(t, "alt_one", CritJSON{
 		Files: map[string]CritJSONFile{

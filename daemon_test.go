@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -77,7 +78,7 @@ func TestSessionKey_Length(t *testing.T) {
 
 func TestSessionFileRoundTrip(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	key := "test123abc00"
 	want := sessionEntry{
@@ -117,7 +118,7 @@ func TestSessionFileRoundTrip(t *testing.T) {
 
 func TestSessionFileRoundTrip_NoArgs(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	key := "noargs123456"
 	want := sessionEntry{
@@ -141,7 +142,7 @@ func TestSessionFileRoundTrip_NoArgs(t *testing.T) {
 
 func TestReadSessionFileMissing(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	_, err := readSessionFile("nonexistent")
 	if err == nil {
@@ -151,7 +152,7 @@ func TestReadSessionFileMissing(t *testing.T) {
 
 func TestWriteSessionFile_Atomic(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	key := "atomictest1234"
 	entry := sessionEntry{
@@ -210,7 +211,7 @@ func TestWriteSessionFile_Atomic(t *testing.T) {
 
 func TestAcquireSessionLock_FlockBased(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	key := "locktest123456"
 
@@ -244,7 +245,7 @@ func TestIsDaemonAlive_NoPID(t *testing.T) {
 
 func TestFindAliveSession_Stale(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	// Write a session file with a PID that doesn't exist
 	key := "staletest1234"
@@ -264,7 +265,7 @@ func TestFindAliveSession_Stale(t *testing.T) {
 
 func TestListSessionsForCWD_FiltersAndCleans(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	cwd := "/tmp/myrepo"
 
@@ -407,7 +408,7 @@ func TestIsDaemonAlive_AcceptsCritResponse(t *testing.T) {
 
 func TestFindSessionForCWDBranch_MatchesByBranch(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	cwd := "/tmp/myrepo"
 
@@ -443,7 +444,7 @@ func TestFindSessionForCWDBranch_MatchesByBranch(t *testing.T) {
 
 func TestFindSessionForCWDBranch_NoBranchMatch(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	cwd := "/tmp/myrepo"
 
@@ -468,7 +469,7 @@ func TestFindSessionForCWDBranch_NoBranchMatch(t *testing.T) {
 
 func TestFindSessionForCWDBranch_MultipleMatches(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	cwd := "/tmp/myrepo"
 
@@ -502,7 +503,7 @@ func TestFindSessionForCWDBranch_MultipleMatches(t *testing.T) {
 
 func TestListSessionsForRepoRoot_MatchesSubdirectories(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	repoRoot := "/tmp/myrepo"
 
@@ -554,7 +555,7 @@ func TestListSessionsForRepoRoot_MatchesSubdirectories(t *testing.T) {
 
 func TestListSessionsForRepoRoot_NoPartialMatch(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -592,7 +593,7 @@ func TestAtomicWriteFile_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	if info.Mode().Perm() != 0644 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0644 {
 		t.Errorf("permissions = %o, want 0644", info.Mode().Perm())
 	}
 }
@@ -657,6 +658,9 @@ func TestAtomicWriteFile_NoTempFilesLeftBehind(t *testing.T) {
 }
 
 func TestAtomicWriteFile_RestrictivePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file mode bits aren't meaningful on Windows")
+	}
 	dir := t.TempDir()
 	target := filepath.Join(dir, "secret.txt")
 
@@ -785,7 +789,7 @@ func TestSignalReadiness(t *testing.T) {
 
 func TestReadDaemonLog(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	t.Run("reads trimmed log content", func(t *testing.T) {
 		key := "logtest123456"
@@ -833,7 +837,7 @@ func TestOpenReadyPipe_WrongValue(t *testing.T) {
 
 func TestSessionLogPath(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	path, err := sessionLogPath("abc123def456")
 	if err != nil {
@@ -847,7 +851,7 @@ func TestSessionLogPath(t *testing.T) {
 
 func TestReviewFilePath(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	path, err := reviewFilePath("mykey123456")
 	if err != nil {
@@ -873,7 +877,7 @@ func TestIsDaemonAlive_NoPort(t *testing.T) {
 
 func TestRemoveSessionFile_CleansUpAssociatedFiles(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	key := "cleanup12345a"
 	sessDir := filepath.Join(home, ".crit", "sessions")
@@ -896,7 +900,7 @@ func TestRemoveSessionFile_CleansUpAssociatedFiles(t *testing.T) {
 
 func TestCleanOrphanedSessions(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	sessDir := filepath.Join(home, ".crit", "sessions")
 

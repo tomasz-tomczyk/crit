@@ -967,7 +967,7 @@ func TestLoadExistingShareCfg_ScopeMismatch(t *testing.T) {
 func TestResolveShareURL(t *testing.T) {
 	// Isolate from real ~/.crit.config.json
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHome(t, homeDir)
 
 	tests := []struct {
 		name     string

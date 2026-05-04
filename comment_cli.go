@@ -158,6 +158,9 @@ func addCommentToCritJSONScoped(filePath string, startLine, endLine int, body, a
 	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
 		return fmt.Errorf("path %q must be relative and within the repository", filePath)
 	}
+	// Review JSON is a cross-platform artefact (synced via crit-web, GitHub, share),
+	// so paths are stored with forward slashes regardless of host OS.
+	cleaned = filepath.ToSlash(cleaned)
 
 	cj, err := loadCritJSON(critPath)
 	if err != nil {
@@ -505,6 +508,9 @@ func addFileCommentToCritJSONScoped(filePath, body, author, userID, outputDir st
 	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
 		return fmt.Errorf("path %q must be relative and within the repository", filePath)
 	}
+	// Review JSON is a cross-platform artefact (synced via crit-web, GitHub, share),
+	// so paths are stored with forward slashes regardless of host OS.
+	cleaned = filepath.ToSlash(cleaned)
 
 	cj, err := loadCritJSON(critPath)
 	if err != nil {
