@@ -377,3 +377,33 @@ func TestRoundtrip_ForcePushedHead_NoDuplication(t *testing.T) {
 		t.Errorf("want delta 1, got %d", delta)
 	}
 }
+
+func TestRoundtrip_RangeComment(t *testing.T) {
+	e := newRoundtripEnv(t)
+
+	// Local range comment over a multi-line diff section.
+	// The fixture appends to a 17-line sample.go:
+	//   line 18: blank
+	//   line 19: func Mod(a, b int) int { return a % b }
+	// Both are on the RIGHT diff side. Range 18-19 spans them.
+	e.runCrit("comment", "sample.go:18-19", "ranged comment over 18..19")
+	e.runCrit("push")
+
+	rs := e.listRemoteComments()
+	if len(rs) != 1 {
+		t.Fatalf("want 1 remote, got %d:\n%s", len(rs), dumpRemote(rs))
+	}
+	if rs[0].StartLine == 0 {
+		t.Errorf("range comment posted without start_line: %+v", rs[0])
+	}
+	if rs[0].Line < rs[0].StartLine {
+		t.Errorf("range end < start: %+v", rs[0])
+	}
+
+	// Pull, push again — idempotent.
+	e.runCrit("pull")
+	e.runCrit("push")
+	if got := len(e.listRemoteComments()); got != 1 {
+		t.Errorf("range comment got duplicated, count=%d", got)
+	}
+}
