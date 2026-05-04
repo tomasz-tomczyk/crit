@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -92,6 +93,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.HandleFunc("/api/events", s.withReady(s.handleEvents))
 	mux.HandleFunc("/api/wait-for-event", s.withReady(s.handleWaitForEvent))
 	mux.HandleFunc("/api/round-complete", s.withReady(s.handleRoundComplete))
+	mux.HandleFunc("/api/rounds", s.withReady(s.handleRounds))
 	mux.HandleFunc("/api/focus", s.withReady(s.handleFocus))
 	mux.HandleFunc("/api/picker", s.withReady(s.handlePicker))
 
@@ -437,8 +439,86 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"url": res.URL, "delete_token": res.DeleteToken})
 }
 
+// handleRounds returns the per-round timeline for files-mode sessions. In
+// git/range mode it returns 200 with an empty rounds list (the wire shape
+// stays stable so the frontend doesn't need mode-specific code paths).
+//
+// GET /api/rounds
+func (s *Server) handleRounds(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	session := s.session.Load()
+	if session == nil {
+		writeJSON(w, map[string]any{"current_round": 0, "rounds": []any{}})
+		return
+	}
+
+	type roundEntry struct {
+		N            int    `json:"n"`
+		Additions    int    `json:"additions"`
+		Deletions    int    `json:"deletions"`
+		CommentCount int    `json:"comment_count"`
+		CapturedAt   string `json:"captured_at"`
+	}
+
+	resp := map[string]any{
+		"current_round": session.GetReviewRound(),
+		"rounds":        []roundEntry{},
+	}
+
+	if session.Mode != "files" {
+		writeJSON(w, resp)
+		return
+	}
+
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+
+	rounds := session.availableRounds()
+	if len(rounds) == 0 {
+		writeJSON(w, resp)
+		return
+	}
+
+	// Per-round comment counts (comments where review_round == n).
+	counts := make(map[int]int, len(rounds))
+	for _, f := range session.Files {
+		for _, c := range f.Comments {
+			counts[c.ReviewRound]++
+		}
+	}
+	for _, c := range session.reviewComments {
+		counts[c.ReviewRound]++
+	}
+
+	out := make([]roundEntry, 0, len(rounds))
+	for _, r := range rounds {
+		var capturedAt string
+		// Pick a representative captured_at timestamp from the first file
+		// that has this round. CapturedAt is set per-file in captureRoundSnapshot.
+		for _, byRound := range session.RoundSnapshots {
+			if rs, ok := byRound[r]; ok {
+				capturedAt = rs.CapturedAt.Format(time.RFC3339)
+				break
+			}
+		}
+		out = append(out, roundEntry{
+			N:            r,
+			CommentCount: counts[r],
+			CapturedAt:   capturedAt,
+		})
+	}
+	resp["rounds"] = out
+	writeJSON(w, resp)
+}
+
 // handleFile returns file content + metadata for a single file.
-// GET /api/file?path=server.go
+// GET /api/file?path=server.go[&round=N]
+//
+// In files mode, ?round=N returns the snapshot recorded for that round. In
+// git/range mode, the round parameter is ignored.
 func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -449,6 +529,12 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path query parameter required", http.StatusBadRequest)
 		return
 	}
+
+	if snap, served := serveFileAtRound(w, r, s.session.Load(), path); served {
+		_ = snap
+		return
+	}
+
 	snapshot, ok := s.session.Load().GetFileSnapshot(path)
 	if !ok {
 		// File not in session (e.g. scoped view showing a file added after startup).
@@ -460,6 +546,46 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, snapshot)
+}
+
+// serveFileAtRound writes a per-round snapshot response if the request
+// includes a valid ?round=N for a files-mode session that has a snapshot for
+// (path, round). Returns served=true when it has fully written the response
+// (including 400/404). Returns served=false when the caller should fall
+// through to the working-tree code path (no round param, git/range mode, or
+// no snapshot recorded for this round).
+func serveFileAtRound(w http.ResponseWriter, r *http.Request, session *Session, path string) (any, bool) {
+	roundStr := r.URL.Query().Get("round")
+	if roundStr == "" {
+		return nil, false
+	}
+	if session == nil || session.Mode != "files" {
+		return nil, false
+	}
+	round, err := strconv.Atoi(roundStr)
+	if err != nil || round < 1 {
+		http.Error(w, "invalid round", http.StatusBadRequest)
+		return nil, true
+	}
+	session.mu.RLock()
+	rs, ok := session.roundSnapshotForFile(path, round)
+	prev, hasPrev := session.roundSnapshotForFile(path, round-1)
+	session.mu.RUnlock()
+	if !ok {
+		http.Error(w, "file_not_in_round", http.StatusNotFound)
+		return nil, true
+	}
+	resp := map[string]any{
+		"path":    path,
+		"round":   round,
+		"content": rs.Content,
+		"status":  rs.Status,
+	}
+	if hasPrev {
+		resp["previous_content"] = prev.Content
+	}
+	writeJSON(w, resp)
+	return resp, true
 }
 
 // handleFileDiff returns diff hunks for a file.
@@ -497,6 +623,11 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		comments := s.session.Load().GetComments(path)
+		if roundStr := r.URL.Query().Get("round"); roundStr != "" && s.session.Load().Mode == "files" {
+			if n, err := strconv.Atoi(roundStr); err == nil && n >= 1 {
+				comments = commentsAtOrBeforeRound(comments, n)
+			}
+		}
 		writeJSON(w, comments)
 
 	case http.MethodPost:
@@ -830,6 +961,11 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		comments := s.session.Load().GetReviewComments()
+		if roundStr := r.URL.Query().Get("round"); roundStr != "" && s.session.Load().Mode == "files" {
+			if n, err := strconv.Atoi(roundStr); err == nil && n >= 1 {
+				comments = commentsAtOrBeforeRound(comments, n)
+			}
+		}
 		writeJSON(w, comments)
 
 	case http.MethodPost:

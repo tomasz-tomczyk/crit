@@ -55,6 +55,60 @@ func (s *Session) captureRoundSnapshot(round int) {
 	}
 }
 
+// roundSnapshotForFile returns the snapshot recorded for (path, round), or
+// false if no snapshot exists. Caller must hold s.mu (RLock is sufficient).
+func (s *Session) roundSnapshotForFile(path string, round int) (RoundSnapshot, bool) {
+	if s.RoundSnapshots == nil {
+		return RoundSnapshot{}, false
+	}
+	byRound := s.RoundSnapshots[path]
+	if byRound == nil {
+		return RoundSnapshot{}, false
+	}
+	rs, ok := byRound[round]
+	return rs, ok
+}
+
+// commentsAtOrBeforeRound returns the comments whose ReviewRound <= round.
+// Caller must hold s.mu (RLock is sufficient).
+func commentsAtOrBeforeRound(comments []Comment, round int) []Comment {
+	if round <= 0 {
+		return nil
+	}
+	out := comments[:0:0]
+	for _, c := range comments {
+		if c.ReviewRound <= round {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// availableRounds returns the sorted set of round numbers across all files in
+// s.RoundSnapshots. Caller must hold s.mu (RLock is sufficient).
+func (s *Session) availableRounds() []int {
+	if len(s.RoundSnapshots) == 0 {
+		return nil
+	}
+	seen := make(map[int]struct{})
+	for _, byRound := range s.RoundSnapshots {
+		for r := range byRound {
+			seen[r] = struct{}{}
+		}
+	}
+	out := make([]int, 0, len(seen))
+	for r := range seen {
+		out = append(out, r)
+	}
+	// Tiny in-place insertion sort; rounds rarely exceed ~10.
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j-1] > out[j]; j-- {
+			out[j-1], out[j] = out[j], out[j-1]
+		}
+	}
+	return out
+}
+
 // cloneRoundSnapshots returns a deep copy of src so the caller can release the
 // session lock before persisting to disk. RoundSnapshot values are treated as
 // immutable post-capture, so the inner struct copy is value-only.
