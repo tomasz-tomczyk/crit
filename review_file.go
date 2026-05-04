@@ -272,6 +272,16 @@ func loadCritJSON(critPath string) (CritJSON, error) {
 // In v4 the review identity is treated as a folder; the review JSON is
 // written to <identity>/review.json and atomicWriteFile MkdirAlls the parent.
 func saveCritJSON(critPath string, cj CritJSON) error {
+	// Defense-in-depth: if a future code path stat-tests <identity> and
+	// finds a flat file (e.g. an external tool dropped one in, or a v3
+	// downgrade reintroduced the layout), normalize to the folder form
+	// before writing. ensureReviewFolder is a no-op when <identity> is
+	// already a directory (the steady-state v4 case), so this guard adds
+	// only a single os.Stat per save in production. See plan v4
+	// §Folder-format invariants.
+	if err := ensureReviewFolder(critPath); err != nil {
+		return fmt.Errorf("ensuring review folder: %w", err)
+	}
 	data, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling review file: %w", err)
