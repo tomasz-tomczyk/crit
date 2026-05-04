@@ -45,6 +45,9 @@ test-share-sync-selfhosted: build
 e2e-share:
 	./scripts/e2e-share.sh
 
+e2e-roundtrip: build
+	./scripts/e2e-roundtrip.sh
+
 test-daemon:
 	./test/test-daemon-reuse.sh
 
@@ -64,4 +67,4 @@ e2e-failed:
 e2e-report:
 	cd e2e && npx playwright show-report
 
-.PHONY: build build-all generate verify-generate update-deps test test-frontend setup-hooks clean test-diff test-share-sync test-share-sync-selfhosted e2e-share test-daemon test-plan-daemon e2e e2e-failed e2e-report
+.PHONY: build build-all generate verify-generate update-deps test test-frontend setup-hooks clean test-diff test-share-sync test-share-sync-selfhosted e2e-share e2e-roundtrip test-daemon test-plan-daemon e2e e2e-failed e2e-report
