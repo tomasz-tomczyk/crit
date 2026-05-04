@@ -128,3 +128,37 @@ func TestRoundtrip_PullIsIdempotent(t *testing.T) {
 			id, second[0].Comment.GitHubID)
 	}
 }
+
+func TestRoundtrip_PushThenPull_PreservesIDs(t *testing.T) {
+	e := newRoundtripEnv(t)
+
+	e.runCrit("comment", "sample.go:19", "local then pulled back")
+	e.runCrit("push")
+
+	afterPush := e.allLocalComments()
+	if len(afterPush) != 1 {
+		t.Fatalf("after push: want 1 local, got %d", len(afterPush))
+	}
+	id := afterPush[0].Comment.GitHubID
+	if id == 0 {
+		t.Fatal("local comment has GitHubID=0 after push")
+	}
+
+	e.runCrit("pull")
+	afterPull := e.allLocalComments()
+	if len(afterPull) != 1 {
+		t.Fatalf("after pull: want 1 local, got %d", len(afterPull))
+	}
+	if afterPull[0].Comment.GitHubID != id {
+		t.Errorf("GitHubID changed across pull: %d -> %d",
+			id, afterPull[0].Comment.GitHubID)
+	}
+
+	remoteBefore := e.listRemoteComments()
+	e.runCrit("push")
+	remoteAfter := e.listRemoteComments()
+	if len(remoteAfter) != len(remoteBefore) {
+		t.Errorf("final push created %d new remote comments",
+			len(remoteAfter)-len(remoteBefore))
+	}
+}
