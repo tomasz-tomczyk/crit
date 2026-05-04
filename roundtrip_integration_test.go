@@ -162,3 +162,62 @@ func TestRoundtrip_PushThenPull_PreservesIDs(t *testing.T) {
 			len(remoteAfter)-len(remoteBefore))
 	}
 }
+
+func TestRoundtrip_ReplyToRemoteComment(t *testing.T) {
+	t.Skip("blocked on issue #442: crit push doesn't post replies to imported remote comments")
+	e := newRoundtripEnv(t)
+
+	rootID := e.postRemoteComment("sample.go", 19, "please address")
+	e.runCrit("pull")
+
+	locals := e.allLocalComments()
+	if len(locals) != 1 {
+		t.Fatalf("expected 1 local after pull, got %d", len(locals))
+	}
+	rootCommentID := locals[0].Comment.ID
+	if rootCommentID == "" {
+		t.Fatal("imported root has empty local ID")
+	}
+
+	e.runCrit("comment", "--reply-to", rootCommentID, "ack, will fix")
+
+	remoteBefore := e.listRemoteComments()
+	e.runCrit("push")
+	remoteAfter := e.listRemoteComments()
+
+	added := len(remoteAfter) - len(remoteBefore)
+	if added != 1 {
+		t.Fatalf("want 1 new remote item, got %d:\n%s",
+			added, dumpRemote(remoteAfter))
+	}
+
+	var reply *remoteComment
+	for i := range remoteAfter {
+		r := &remoteAfter[i]
+		if r.ID != rootID && r.InReplyTo == rootID {
+			reply = r
+			break
+		}
+	}
+	if reply == nil {
+		t.Fatalf("no reply with InReplyTo=%d found:\n%s",
+			rootID, dumpRemote(remoteAfter))
+	}
+
+	// Second push — no further posts.
+	e.runCrit("push")
+	if got := len(e.listRemoteComments()); got != len(remoteAfter) {
+		t.Errorf("second push changed remote count: %d -> %d",
+			len(remoteAfter), got)
+	}
+
+	// Pull and assert reply has GitHubID locally.
+	e.runCrit("pull")
+	for _, lc := range e.allLocalComments() {
+		for _, r := range lc.Comment.Replies {
+			if r.GitHubID == 0 {
+				t.Errorf("reply still has GitHubID=0 after push+pull: %+v", r)
+			}
+		}
+	}
+}
