@@ -600,8 +600,7 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if snap, served := serveFileAtRound(w, r, s.session.Load(), path); served {
-		_ = snap
+	if served := serveFileAtRound(w, r, s.session.Load(), path); served {
 		return
 	}
 
@@ -624,18 +623,18 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 // (including 400/404). Returns served=false when the caller should fall
 // through to the working-tree code path (no round param, git/range mode, or
 // no snapshot recorded for this round).
-func serveFileAtRound(w http.ResponseWriter, r *http.Request, session *Session, path string) (any, bool) {
+func serveFileAtRound(w http.ResponseWriter, r *http.Request, session *Session, path string) bool {
 	roundStr := r.URL.Query().Get("round")
 	if roundStr == "" {
-		return nil, false
+		return false
 	}
 	if session == nil || session.Mode != "files" {
-		return nil, false
+		return false
 	}
 	round, err := strconv.Atoi(roundStr)
 	if err != nil || round < 1 {
 		http.Error(w, "invalid round", http.StatusBadRequest)
-		return nil, true
+		return true
 	}
 	session.mu.RLock()
 	rs, ok := session.roundSnapshotForFile(path, round)
@@ -643,7 +642,7 @@ func serveFileAtRound(w http.ResponseWriter, r *http.Request, session *Session, 
 	session.mu.RUnlock()
 	if !ok {
 		http.Error(w, "file_not_in_round", http.StatusNotFound)
-		return nil, true
+		return true
 	}
 	resp := map[string]any{
 		"path":    path,
@@ -655,7 +654,7 @@ func serveFileAtRound(w http.ResponseWriter, r *http.Request, session *Session, 
 		resp["previous_content"] = prev.Content
 	}
 	writeJSON(w, resp)
-	return resp, true
+	return true
 }
 
 // handleFileDiff returns diff hunks for a file.
