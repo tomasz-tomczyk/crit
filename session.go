@@ -1664,6 +1664,10 @@ func (s *Session) loadCritJSON() {
 		// Fall through to the sidecar load — a folder may exist with only
 		// snapshots.json (orphan-snapshots) and we still want to surface that.
 		s.loadSnapshotsFromSidecar(identity)
+		// Persist the in-memory R1 baseline that NewSessionFromFiles captured
+		// in case ReviewFilePath / OutputDir was assigned just before this
+		// call (the canonical constructor-time path).
+		s.captureBaselineAndPersist()
 		return
 	}
 	var cj CritJSON
@@ -1718,6 +1722,12 @@ func (s *Session) loadCritJSON() {
 
 	// Restore round snapshots from the folder sidecar.
 	s.loadSnapshotsFromSidecar(s.critJSONPath())
+
+	// If ReviewFilePath / OutputDir was assigned just before this call (the
+	// canonical constructor-time path in cli_serve), the in-memory R1 baseline
+	// captured by NewSessionFromFiles hasn't been persisted yet. Re-run the
+	// best-effort persist now that the identity is known.
+	s.captureBaselineAndPersist()
 }
 
 // loadSnapshotsFromSidecar restores Session.RoundSnapshots from
