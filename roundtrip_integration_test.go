@@ -835,6 +835,13 @@ func TestRoundtrip_AnchorLineDeleted_Outdated(t *testing.T) {
 	mustRun(t, e.workDir, "git", "reset", "--hard", "HEAD~1")
 	mustRun(t, e.workDir, "git", "push", "--force")
 
+	// Wait for GitHub to recompute the PR head sha after the force-push
+	// before issuing more API calls (see issue #456): otherwise the next
+	// `crit push` can race and post against a stale commit_id, getting
+	// rejected with HTTP 422.
+	headSHA := strings.TrimSpace(mustOutput(t, e.workDir, "git", "rev-parse", "HEAD"))
+	e.waitForPRHeadSHA(headSHA)
+
 	e.runCrit("pull")
 	locals := e.allLocalComments()
 	if len(locals) != 1 {

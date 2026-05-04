@@ -351,6 +351,36 @@ func (e *roundtripEnv) freshClone() *roundtripEnv {
 	}
 }
 
+// waitForPRHeadSHA polls the PR's head.sha until it matches expected, or
+// fails the test after a timeout. Use after a force-push to give GitHub
+// time to recompute the PR diff before the next push fires; otherwise the
+// next POST /pulls/{N}/comments may be rejected with HTTP 422 because the
+// commit_id no longer matches the PR's recomputed diff.
+func (e *roundtripEnv) waitForPRHeadSHA(expected string) {
+	e.t.Helper()
+	expected = strings.TrimSpace(expected)
+	deadline := time.Now().Add(15 * time.Second)
+	var lastSHA string
+	for time.Now().Before(deadline) {
+		out := mustOutput(e.t, e.workDir, "gh", "api",
+			fmt.Sprintf("repos/%s/pulls/%d", e.repoSlug, e.prNumber))
+		var resp struct {
+			Head struct {
+				SHA string `json:"sha"`
+			} `json:"head"`
+		}
+		if err := json.Unmarshal([]byte(out), &resp); err == nil {
+			lastSHA = resp.Head.SHA
+			if lastSHA == expected {
+				return
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	e.t.Fatalf("PR head sha did not converge to %s within timeout (last seen: %s)",
+		expected, lastSHA)
+}
+
 func sanitizeName(s string) string {
 	s = strings.ReplaceAll(s, "/", "-")
 	s = strings.ReplaceAll(s, " ", "-")
