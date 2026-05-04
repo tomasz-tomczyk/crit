@@ -3,6 +3,12 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -684,5 +690,260 @@ func TestRoundtrip_LocalDeletePropagates(t *testing.T) {
 	if len(rsAfter) != 0 {
 		t.Errorf("locally-deleted comment still present remotely: %s",
 			dumpRemote(rsAfter))
+	}
+}
+
+// TestRoundtrip_ThreeWayMerge_RemoteEditedSinceLastPush: we push body "X".
+// Reviewer edits remote to "Y" via API. A subsequent local no-op edit + push
+// must not overwrite the reviewer's "Y". This is the literal #446 invariant
+// under stress.
+func TestRoundtrip_ThreeWayMerge_RemoteEditedSinceLastPush(t *testing.T) {
+	e := newRoundtripEnv(t)
+
+	e.runCrit("comment", "sample.go:19", "X")
+	e.runCrit("push")
+	rs := e.listRemoteComments()
+	if len(rs) != 1 {
+		t.Fatalf("after push: want 1 remote, got %d", len(rs))
+	}
+	id := rs[0].ID
+
+	// Reviewer edits the body on GitHub via direct PATCH.
+	patchPayload := []byte(`{"body":"Y"}`)
+	cmd := exec.Command("gh", "api",
+		fmt.Sprintf("repos/%s/pulls/comments/%d", e.repoSlug, id),
+		"--method", "PATCH", "--input", "-")
+	cmd.Stdin = bytes.NewReader(patchPayload)
+	cmd.Dir = e.workDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("PATCH failed: %v\n%s", err, out)
+	}
+
+	// No-op local edit (touches file, body unchanged).
+	e.editReviewFile(func(cj *CritJSON) {
+		// trigger a save without changing any field
+		_ = cj
+	})
+
+	out := e.runCrit("push")
+	t.Logf("push output:\n%s", out)
+
+	rsAfter := e.listRemoteComments()
+	if len(rsAfter) != 1 {
+		t.Fatalf("remote count drifted: got %d", len(rsAfter))
+	}
+	if rsAfter[0].Body != "Y" {
+		t.Errorf("our push overwrote reviewer's edit: remote body now %q, want %q",
+			rsAfter[0].Body, "Y")
+	}
+}
+
+// TestRoundtrip_ShellInjectionSafe: comment body containing shell
+// metacharacters must round-trip literally and never invoke the shell.
+func TestRoundtrip_ShellInjectionSafe(t *testing.T) {
+	e := newRoundtripEnv(t)
+
+	const evil = `'; touch /tmp/CRIT_PWNED_$$; echo '`
+	e.runCrit("comment", "sample.go:19", evil)
+	e.runCrit("push")
+
+	rs := e.listRemoteComments()
+	if len(rs) != 1 {
+		t.Fatalf("want 1 remote, got %d", len(rs))
+	}
+	if rs[0].Body != evil {
+		t.Errorf("body did not round-trip literally: got %q want %q", rs[0].Body, evil)
+	}
+
+	matches, _ := filepath.Glob("/tmp/CRIT_PWNED_*")
+	if len(matches) > 0 {
+		t.Fatalf("SECURITY: shell ran during push: %v", matches)
+	}
+}
+
+// TestRoundtrip_CRLFAndTrailingWhitespace_NoLoop: pushing a body with CRLF
+// line endings and trailing whitespace must not cause an infinite PATCH loop
+// across pull/push cycles when GitHub canonicalizes the stored form.
+func TestRoundtrip_CRLFAndTrailingWhitespace_NoLoop(t *testing.T) {
+	e := newRoundtripEnv(t)
+
+	body := "first line  \r\nsecond line\r\n\r\nthird line with trailing tab\t\t\r\n"
+	e.runCrit("comment", "sample.go:19", body)
+	e.runCrit("push")
+
+	rs1 := e.listRemoteComments()
+	if len(rs1) != 1 {
+		t.Fatalf("want 1 remote, got %d", len(rs1))
+	}
+
+	e.runCrit("pull")
+
+	out := e.runCrit("push")
+	t.Logf("push #2 output:\n%s", out)
+
+	if got := len(e.listRemoteComments()); got != 1 {
+		t.Errorf("remote count after second push: %d, want 1", got)
+	}
+
+	e.runCrit("pull")
+	e.runCrit("push")
+	if got := len(e.listRemoteComments()); got != 1 {
+		t.Errorf("remote count after third push: %d, want 1", got)
+	}
+}
+
+// TestRoundtrip_AnchorLineDeleted_Outdated: push a comment, force-push to
+// remove the anchored line. Pull must preserve the comment (not silently
+// drop it) and a new comment on a still-existing line must still work.
+func TestRoundtrip_AnchorLineDeleted_Outdated(t *testing.T) {
+	e := newRoundtripEnv(t)
+
+	if err := appendLine(filepath.Join(e.workDir, "sample.go"),
+		"\nfunc TempLineToDelete() {}\n"); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, e.workDir, "git", "commit", "-am", "add line we'll delete")
+	mustRun(t, e.workDir, "git", "push")
+
+	contents, err := os.ReadFile(filepath.Join(e.workDir, "sample.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(contents), "\n")
+	targetLine := 0
+	for i, ln := range lines {
+		if strings.Contains(ln, "TempLineToDelete") {
+			targetLine = i + 1
+			break
+		}
+	}
+	if targetLine == 0 {
+		t.Fatal("could not locate TempLineToDelete in sample.go")
+	}
+
+	e.runCrit("comment", fmt.Sprintf("sample.go:%d", targetLine),
+		"comment that will become outdated")
+	e.runCrit("push")
+
+	rs := e.listRemoteComments()
+	if len(rs) != 1 {
+		t.Fatalf("want 1 remote, got %d", len(rs))
+	}
+	originalID := rs[0].ID
+
+	// Force-push without the TempLineToDelete commit.
+	mustRun(t, e.workDir, "git", "reset", "--hard", "HEAD~1")
+	mustRun(t, e.workDir, "git", "push", "--force")
+
+	e.runCrit("pull")
+	locals := e.allLocalComments()
+	if len(locals) != 1 {
+		t.Fatalf("after force-push pull: want 1 local, got %d", len(locals))
+	}
+	if locals[0].Comment.GitHubID != originalID {
+		t.Errorf("GitHubID changed: was %d now %d", originalID, locals[0].Comment.GitHubID)
+	}
+
+	e.runCrit("comment", "sample.go:19", "second comment after force-push")
+	e.runCrit("push")
+	if got := len(e.listRemoteComments()); got != 2 {
+		t.Errorf("after second push: want 2 remote, got %d", got)
+	}
+}
+
+// TestRoundtrip_GitHubThreadResolvedOnWeb: reviewer resolves a thread via
+// GraphQL resolveReviewThread; subsequent pull must mirror that state to
+// the local resolved flag.
+func TestRoundtrip_GitHubThreadResolvedOnWeb(t *testing.T) {
+	t.Skip("blocked on issue #453: crit pull does not import GitHub review-thread resolved state")
+	e := newRoundtripEnv(t)
+
+	e.runCrit("comment", "sample.go:19", "needs decision")
+	e.runCrit("push")
+
+	rs := e.listRemoteComments()
+	if len(rs) != 1 {
+		t.Fatalf("want 1 remote, got %d", len(rs))
+	}
+	commentID := rs[0].ID
+
+	parts := strings.SplitN(e.repoSlug, "/", 2)
+	if len(parts) != 2 {
+		t.Fatalf("invalid repoSlug: %s", e.repoSlug)
+	}
+	owner, repoName := parts[0], parts[1]
+
+	threadQuery := fmt.Sprintf(`
+query {
+  repository(owner: %q, name: %q) {
+    pullRequest(number: %d) {
+      reviewThreads(first: 100) {
+        nodes {
+          id
+          isResolved
+          comments(first: 5) { nodes { databaseId } }
+        }
+      }
+    }
+  }
+}`, owner, repoName, e.prNumber)
+
+	cmd := exec.Command("gh", "api", "graphql", "-f", "query="+threadQuery)
+	cmd.Dir = e.workDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("graphql query: %v\n%s", err, out)
+	}
+
+	var resp struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewThreads struct {
+						Nodes []struct {
+							ID         string `json:"id"`
+							IsResolved bool   `json:"isResolved"`
+							Comments   struct {
+								Nodes []struct {
+									DatabaseID int64 `json:"databaseId"`
+								}
+							}
+						}
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("parse graphql response: %v\n%s", err, out)
+	}
+
+	var threadID string
+	for _, n := range resp.Data.Repository.PullRequest.ReviewThreads.Nodes {
+		for _, c := range n.Comments.Nodes {
+			if c.DatabaseID == commentID {
+				threadID = n.ID
+				break
+			}
+		}
+	}
+	if threadID == "" {
+		t.Fatalf("could not find thread for comment %d", commentID)
+	}
+
+	resolveMut := fmt.Sprintf(`mutation { resolveReviewThread(input: {threadId: %q}) { thread { id isResolved } } }`, threadID)
+	cmd2 := exec.Command("gh", "api", "graphql", "-f", "query="+resolveMut)
+	cmd2.Dir = e.workDir
+	if mout, merr := cmd2.CombinedOutput(); merr != nil {
+		t.Fatalf("resolve mutation: %v\n%s", merr, mout)
+	}
+
+	e.runCrit("pull")
+	locals := e.allLocalComments()
+	if len(locals) != 1 {
+		t.Fatalf("want 1 local, got %d", len(locals))
+	}
+	if !locals[0].Comment.Resolved {
+		t.Errorf("comment not marked resolved locally after thread resolution on web")
 	}
 }
