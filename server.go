@@ -497,8 +497,14 @@ func (s *Server) handleRounds(w http.ResponseWriter, r *http.Request) {
 		CapturedAt   string `json:"captured_at"`
 	}
 
+	// Span current_round + rounds slice under a single RLock so a
+	// round-complete that lands between the two reads can't yield an
+	// internally inconsistent response (e.g. current=N with rounds ending at N-1).
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+
 	resp := map[string]any{
-		"current_round": session.GetReviewRound(),
+		"current_round": session.ReviewRound,
 		"rounds":        []roundEntry{},
 	}
 
@@ -506,9 +512,6 @@ func (s *Server) handleRounds(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, resp)
 		return
 	}
-
-	session.mu.RLock()
-	defer session.mu.RUnlock()
 
 	rounds := session.availableRounds()
 	if len(rounds) == 0 {
