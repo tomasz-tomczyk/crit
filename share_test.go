@@ -44,7 +44,7 @@ func writeCritJSONForTest(t *testing.T, dir string, cj CritJSON) {
 	if err != nil {
 		t.Fatalf("marshaling CritJSON: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644); err != nil {
+	if err := os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644); err != nil {
 		t.Fatalf("writing .crit.json: %v", err)
 	}
 }
@@ -414,7 +414,7 @@ func TestLoadCommentsForFiles(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(critJSON, "", "  ")
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	// Only load unresolved comments for plan.md (c1 and c2, not c3)
 	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
@@ -465,7 +465,7 @@ func TestPersistShareState(t *testing.T) {
 	}
 
 	// Read back and verify
-	data, _ := os.ReadFile(filepath.Join(dir, ".crit.json"))
+	data, _ := os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
 	if cj.ShareURL != "https://crit.md/r/abc" {
@@ -488,7 +488,7 @@ func TestPersistShareState_PreservesExisting(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(initial, "", "  ")
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	// Persist share state
 	err := persistShareState(filepath.Join(dir, ".crit.json"), "https://crit.md/r/def", "tok_456", "")
@@ -497,7 +497,7 @@ func TestPersistShareState_PreservesExisting(t *testing.T) {
 	}
 
 	// Read back — comments and branch should be preserved
-	data, _ = os.ReadFile(filepath.Join(dir, ".crit.json"))
+	data, _ = os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
 	if cj.ShareURL != "https://crit.md/r/def" {
@@ -591,14 +591,14 @@ func TestClearShareState(t *testing.T) {
 		Files:       map[string]CritJSONFile{"plan.md": {Comments: []Comment{{ID: "c1", Body: "test"}}}},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	err := clearShareState(filepath.Join(dir, ".crit.json"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	data, _ = os.ReadFile(filepath.Join(dir, ".crit.json"))
+	data, _ = os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
 	var cleared CritJSON
 	json.Unmarshal(data, &cleared)
 	if cleared.ShareURL != "" {
@@ -630,7 +630,7 @@ func TestHandleShare_Success(t *testing.T) {
 		},
 	}
 	data, _ := json.Marshal(cj)
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	// Mock crit-web server
 	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -703,7 +703,7 @@ func TestHandleShare_OrphanedFileIncluded(t *testing.T) {
 		},
 	}
 	data, _ := json.Marshal(cj)
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	// Mock crit-web server that captures the payload
 	var receivedPayload map[string]any
@@ -885,7 +885,7 @@ func TestLoadExistingShareCfg(t *testing.T) {
 		Files:       map[string]CritJSONFile{},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(critPath, data, 0644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0644)
 
 	cfg, ok, err := loadExistingShareCfg(critPath, []string{"anything.md"})
 	if err != nil {
@@ -918,7 +918,7 @@ func TestLoadExistingShareCfg_NoShareState(t *testing.T) {
 	critPath := filepath.Join(dir, ".crit.json")
 	cj := CritJSON{Files: map[string]CritJSONFile{}}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(critPath, data, 0644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0644)
 
 	_, ok, err := loadExistingShareCfg(critPath, []string{"plan.md"})
 	if err != nil {
@@ -940,7 +940,7 @@ func TestLoadExistingShareCfg_ScopeMismatch(t *testing.T) {
 		Files:       map[string]CritJSONFile{},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(critPath, data, 0644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0644)
 
 	// Different file set — should NOT return share state
 	_, ok, err := loadExistingShareCfg(critPath, []string{"new-plan.md"})
@@ -1188,7 +1188,7 @@ func TestLoadCliArgsFromReviewFile(t *testing.T) {
 			Files:   map[string]CritJSONFile{},
 		}
 		data, _ := json.Marshal(cj)
-		os.WriteFile(critPath, data, 0644)
+		os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0644)
 
 		got := loadCliArgsFromReviewFile(critPath)
 		if len(got) != 2 || got[0] != "plan.md" || got[1] != "design.md" {
@@ -1208,7 +1208,7 @@ func TestLoadCliArgsFromReviewFile(t *testing.T) {
 		critPath := filepath.Join(dir, "review.json")
 		cj := CritJSON{Branch: "main", Files: map[string]CritJSONFile{}}
 		data, _ := json.Marshal(cj)
-		os.WriteFile(critPath, data, 0644)
+		os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0644)
 
 		got := loadCliArgsFromReviewFile(critPath)
 		if got != nil {
@@ -1660,7 +1660,7 @@ func TestMergeWebComments(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(critPath, data, 0644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0644)
 
 	// Merge new comments
 	newComments := []webComment{
@@ -1672,7 +1672,7 @@ func TestMergeWebComments(t *testing.T) {
 	}
 
 	// Read back and verify
-	data, _ = os.ReadFile(critPath)
+	data, _ = os.ReadFile(reviewPathsFor(critPath).Review)
 	var result CritJSON
 	json.Unmarshal(data, &result)
 
@@ -1819,7 +1819,7 @@ func TestMergeWebComments_AppliesReplyUpdates(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	if err := os.WriteFile(critPath, data, 0o644); err != nil {
+	if err := os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0o644); err != nil {
 		t.Fatalf("write crit json: %v", err)
 	}
 
@@ -1830,7 +1830,7 @@ func TestMergeWebComments_AppliesReplyUpdates(t *testing.T) {
 		t.Fatalf("mergeWebComments: %v", err)
 	}
 
-	out, _ := os.ReadFile(critPath)
+	out, _ := os.ReadFile(reviewPathsFor(critPath).Review)
 	var got CritJSON
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)

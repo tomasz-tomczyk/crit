@@ -730,7 +730,7 @@ func TestAddCommentToCritJSON_CreatesNewFile(t *testing.T) {
 		t.Fatalf("addCommentToCritJSON: %v", err)
 	}
 
-	data, err := os.ReadFile(dir + "/.crit.json")
+	data, err := os.ReadFile(dir + "/.crit.json/review.json")
 	if err != nil {
 		t.Fatalf("read .crit.json: %v", err)
 	}
@@ -773,7 +773,7 @@ func TestAddCommentToCritJSON_AppendsToExisting(t *testing.T) {
 		t.Fatalf("second add: %v", err)
 	}
 
-	data, _ := os.ReadFile(dir + "/.crit.json")
+	data, _ := os.ReadFile(dir + "/.crit.json/review.json")
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
 
@@ -798,7 +798,7 @@ func TestAddCommentToCritJSON_MultipleFiles(t *testing.T) {
 	addCommentToCritJSONScoped("main.go", 1, 1, "Comment on main", "", "", dir, inheritedScope{})
 	addCommentToCritJSONScoped("auth.go", 5, 10, "Comment on auth", "", "", dir, inheritedScope{})
 
-	data, _ := os.ReadFile(dir + "/.crit.json")
+	data, _ := os.ReadFile(dir + "/.crit.json/review.json")
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
 
@@ -824,7 +824,7 @@ func TestAddCommentToCritJSON_FileMode_NoGitRepo(t *testing.T) {
 		t.Fatalf("addCommentToCritJSON: %v", err)
 	}
 
-	data, err := os.ReadFile(dir + "/.crit.json")
+	data, err := os.ReadFile(dir + "/.crit.json/review.json")
 	if err != nil {
 		t.Fatalf("read .crit.json: %v", err)
 	}
@@ -854,7 +854,7 @@ func TestAddCommentToCritJSON_FileMode_PathRelativeToCWD(t *testing.T) {
 	// Path should be stored as given (relative to CWD), not resolved to anything else
 	addCommentToCritJSONScoped("src/auth.go", 10, 10, "comment", "", "", dir, inheritedScope{})
 
-	data, _ := os.ReadFile(dir + "/.crit.json")
+	data, _ := os.ReadFile(dir + "/.crit.json/review.json")
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
 
@@ -884,7 +884,7 @@ func TestAddCommentToCritJSON_OutputDir(t *testing.T) {
 	}
 
 	// Should be in outputDir
-	data, err := os.ReadFile(outputDir + "/.crit.json")
+	data, err := os.ReadFile(outputDir + "/.crit.json/review.json")
 	if err != nil {
 		t.Fatalf("expected .crit.json in outputDir: %v", err)
 	}
@@ -947,7 +947,7 @@ func TestAddCommentToCritJSON_RespectsBaseBranchConfig(t *testing.T) {
 		t.Fatalf("addCommentToCritJSON: %v", err)
 	}
 
-	data, err := os.ReadFile(dir + "/.crit.json")
+	data, err := os.ReadFile(dir + "/.crit.json/review.json")
 	if err != nil {
 		t.Fatalf("read .crit.json: %v", err)
 	}
@@ -977,14 +977,14 @@ func TestAddReplyToCritJSON(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	err := addReplyToCritJSON("c1", "Done, fixed it", "", "agent", false, dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	data, _ = os.ReadFile(filepath.Join(dir, ".crit.json"))
+	data, _ = os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
 	var result CritJSON
 	json.Unmarshal(data, &result)
 
@@ -1013,14 +1013,14 @@ func TestAddReplyToCritJSON_WithResolve(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	err := addReplyToCritJSON("c1", "Split the function", "agent", "", true, dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	data, _ = os.ReadFile(filepath.Join(dir, ".crit.json"))
+	data, _ = os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
 	var result CritJSON
 	json.Unmarshal(data, &result)
 
@@ -1042,7 +1042,7 @@ func TestAddReplyToCritJSON_NotFound(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	err := addReplyToCritJSON("c99", "reply", "agent", "", false, dir, "")
 	if err == nil {
@@ -1079,7 +1079,7 @@ func TestAddReplyToCritJSON_FallbackByCommentID(t *testing.T) {
 	localDir := t.TempDir()
 	localCJ := CritJSON{Branch: "other", ReviewRound: 1, Files: map[string]CritJSONFile{}}
 	localData, _ := json.MarshalIndent(localCJ, "", "  ")
-	os.WriteFile(filepath.Join(localDir, ".crit.json"), localData, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(localDir, ".crit.json", "review.json")), localData, 0644)
 
 	// Reply should fall back to the review file containing c_target.
 	err := addReplyToCritJSON("c_target", "Done, fixed", "", "agent", false, localDir, "")
@@ -1088,7 +1088,9 @@ func TestAddReplyToCritJSON_FallbackByCommentID(t *testing.T) {
 	}
 
 	// Verify reply was written to the correct review file.
-	data, _ := os.ReadFile(filepath.Join(reviewDir, "correct.json"))
+	// addReplyToCritJSON migrated the seeded flat correct.json into the v4
+	// folder layout, so the canonical read is correct.json/review.json.
+	data, _ := os.ReadFile(filepath.Join(reviewDir, "correct.json", "review.json"))
 	var result CritJSON
 	json.Unmarshal(data, &result)
 	comments := result.Files["main.go"].Comments
@@ -1100,7 +1102,7 @@ func TestAddReplyToCritJSON_FallbackByCommentID(t *testing.T) {
 	}
 
 	// Verify the local file was NOT modified.
-	localData2, _ := os.ReadFile(filepath.Join(localDir, ".crit.json"))
+	localData2, _ := os.ReadFile(filepath.Join(localDir, ".crit.json", "review.json"))
 	var localResult CritJSON
 	json.Unmarshal(localData2, &localResult)
 	if len(localResult.Files) != 0 {
@@ -1190,7 +1192,7 @@ func TestUpdateCritJSONWithGitHubIDs(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(critPath, data, 0644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0644)
 
 	idMap := map[string]int64{
 		"main.go:5":  111,
@@ -1202,7 +1204,7 @@ func TestUpdateCritJSONWithGitHubIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, _ := os.ReadFile(critPath)
+	result, _ := os.ReadFile(reviewPathsFor(critPath).Review)
 	var got CritJSON
 	json.Unmarshal(result, &got)
 
@@ -1235,7 +1237,7 @@ func TestUpdateCritJSONWithGitHubIDs_Replies(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(critPath, data, 0644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0644)
 
 	replyIDs := map[replyKey]int64{
 		{ParentGHID: 100, BodyPrefix: "Done, fixed it"}: 201,
@@ -1246,7 +1248,7 @@ func TestUpdateCritJSONWithGitHubIDs_Replies(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, _ := os.ReadFile(critPath)
+	result, _ := os.ReadFile(reviewPathsFor(critPath).Review)
 	var got CritJSON
 	json.Unmarshal(result, &got)
 
@@ -1259,7 +1261,7 @@ func TestUpdateCritJSONWithGitHubIDs_Replies(t *testing.T) {
 // readCritJSON is a test helper that reads and parses .crit.json from the given directory.
 func readCritJSON(t *testing.T, dir string) CritJSON {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, ".crit.json"))
+	data, err := os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
 	if err != nil {
 		t.Fatalf("reading .crit.json: %v", err)
 	}
@@ -1434,7 +1436,8 @@ func TestBulkAddCommentsToCritJSON_RedirectsRepliesToAltFile(t *testing.T) {
 	}
 
 	// Alt file should have the reply on c_spec1 plus the new review comment.
-	altData, err := os.ReadFile(altPath)
+	// addReplyToCritJSON migrated alt_review.json into the v4 folder layout.
+	altData, err := os.ReadFile(reviewPathsFor(altPath).Review)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1796,7 +1799,7 @@ func TestUpdateCritJSONWithGitHubIDs_ReplyMapping(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(critPath, append(data, '\n'), 0644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), append(data, '\n'), 0644)
 
 	commentIDs := map[string]int64{} // no new root comments
 	replyIDs := map[replyKey]int64{
@@ -1808,7 +1811,7 @@ func TestUpdateCritJSONWithGitHubIDs_ReplyMapping(t *testing.T) {
 	}
 
 	// Re-read and verify
-	data, _ = os.ReadFile(critPath)
+	data, _ = os.ReadFile(reviewPathsFor(critPath).Review)
 	var result CritJSON
 	json.Unmarshal(data, &result)
 
@@ -2033,7 +2036,7 @@ func TestAddCommentToCritJSON_RoundTrip(t *testing.T) {
 
 	// Read back and verify
 	critPath := filepath.Join(dir, ".crit.json")
-	data, err := os.ReadFile(critPath)
+	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
 	if err != nil {
 		t.Fatalf("reading .crit.json: %v", err)
 	}
@@ -2061,7 +2064,7 @@ func TestAddCommentToCritJSON_RoundTrip(t *testing.T) {
 		t.Fatalf("second addCommentToCritJSON: %v", err)
 	}
 
-	data, _ = os.ReadFile(critPath)
+	data, _ = os.ReadFile(reviewPathsFor(critPath).Review)
 	json.Unmarshal(data, &cj)
 	if len(cj.Files["README.md"].Comments) != 2 {
 		t.Errorf("expected 2 comments after second add, got %d", len(cj.Files["README.md"].Comments))
@@ -2082,7 +2085,7 @@ func TestAddReplyToCritJSON_RoundTrip(t *testing.T) {
 
 	// Read to get the comment ID
 	critPath := filepath.Join(dir, ".crit.json")
-	data, _ := os.ReadFile(critPath)
+	data, _ := os.ReadFile(reviewPathsFor(critPath).Review)
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
 	commentID := cj.Files["README.md"].Comments[0].ID
@@ -2093,7 +2096,7 @@ func TestAddReplyToCritJSON_RoundTrip(t *testing.T) {
 		t.Fatalf("addReplyToCritJSON: %v", err)
 	}
 
-	data, _ = os.ReadFile(critPath)
+	data, _ = os.ReadFile(reviewPathsFor(critPath).Review)
 	json.Unmarshal(data, &cj)
 	if len(cj.Files["README.md"].Comments[0].Replies) != 1 {
 		t.Fatalf("expected 1 reply, got %d", len(cj.Files["README.md"].Comments[0].Replies))
@@ -2112,7 +2115,7 @@ func TestAddReplyToCritJSON_WithResolve_ViaFile(t *testing.T) {
 	addCommentToCritJSONScoped("README.md", 1, 1, "fix this", "reviewer", "", dir, inheritedScope{})
 
 	critPath := filepath.Join(dir, ".crit.json")
-	data, _ := os.ReadFile(critPath)
+	data, _ := os.ReadFile(reviewPathsFor(critPath).Review)
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
 	commentID := cj.Files["README.md"].Comments[0].ID
@@ -2122,7 +2125,7 @@ func TestAddReplyToCritJSON_WithResolve_ViaFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, _ = os.ReadFile(critPath)
+	data, _ = os.ReadFile(reviewPathsFor(critPath).Review)
 	json.Unmarshal(data, &cj)
 	if !cj.Files["README.md"].Comments[0].Resolved {
 		t.Error("expected comment to be resolved after reply with resolve=true")
@@ -2216,7 +2219,7 @@ func TestAddReviewCommentToCritJSON_RoundTrip(t *testing.T) {
 	}
 
 	critPath := filepath.Join(dir, ".crit.json")
-	data, err := os.ReadFile(critPath)
+	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2285,7 +2288,7 @@ func TestAddReplyToCritJSON_RandomIDs(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	t.Run("reply to file comment by random ID", func(t *testing.T) {
 		err := addReplyToCritJSON("c_a3f8b2", "Done, extracted", "", "agent", false, dir, "")
@@ -2293,7 +2296,7 @@ func TestAddReplyToCritJSON_RandomIDs(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		data, _ := os.ReadFile(filepath.Join(dir, ".crit.json"))
+		data, _ := os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
 		var result CritJSON
 		json.Unmarshal(data, &result)
 
@@ -2315,7 +2318,7 @@ func TestAddReplyToCritJSON_RandomIDs(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		data, _ := os.ReadFile(filepath.Join(dir, ".crit.json"))
+		data, _ := os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
 		var result CritJSON
 		json.Unmarshal(data, &result)
 
@@ -2338,7 +2341,7 @@ func TestAddReplyToCritJSON_RandomIDs(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		data, _ := os.ReadFile(filepath.Join(dir, ".crit.json"))
+		data, _ := os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
 		var result CritJSON
 		json.Unmarshal(data, &result)
 
@@ -2451,7 +2454,7 @@ func TestAddCommentToCritJSON_PopulatesAnchor(t *testing.T) {
 	}
 
 	critPath, _ := resolveReviewPath(dir)
-	data, err := os.ReadFile(critPath)
+	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
 	if err != nil {
 		t.Fatalf("read review file: %v", err)
 	}
@@ -2488,7 +2491,7 @@ func TestBulkAddCommentsToCritJSON_PopulatesAnchor(t *testing.T) {
 	}
 
 	critPath, _ := resolveReviewPath(dir)
-	data, err := os.ReadFile(critPath)
+	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
 	if err != nil {
 		t.Fatalf("read review file: %v", err)
 	}
@@ -2575,7 +2578,7 @@ func TestAddFileCommentToCritJSON_Success(t *testing.T) {
 	}
 	critPath := filepath.Join(dir, ".crit.json")
 	data, _ := json.Marshal(cj)
-	os.WriteFile(critPath, data, 0644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0644)
 
 	err := addFileCommentToCritJSONScoped("test.go", "file-level feedback", "reviewer", "", dir, inheritedScope{})
 	if err != nil {
@@ -2583,7 +2586,7 @@ func TestAddFileCommentToCritJSON_Success(t *testing.T) {
 	}
 
 	// Re-read and verify.
-	data, err = os.ReadFile(critPath)
+	data, err = os.ReadFile(reviewPathsFor(critPath).Review)
 	if err != nil {
 		t.Fatal(err)
 	}

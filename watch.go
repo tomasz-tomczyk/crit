@@ -484,8 +484,8 @@ func (s *Session) emitRoundStatus(edits int) {
 // loadResolvedComments reads the review file to pick up resolved fields the agent wrote.
 func (s *Session) loadResolvedComments() {
 	critPath := s.critJSONPath()
-	info, statErr := os.Stat(critPath)
-	data, err := os.ReadFile(critPath)
+	info, statErr := os.Stat(reviewPathsFor(critPath).Review)
+	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
 	if err != nil {
 		// No review file — clear all PreviousComments
 		s.mu.Lock()

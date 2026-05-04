@@ -313,7 +313,7 @@ func TestRunComment_JSONFlagMixed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setup comment: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(tmp, ".crit.json"))
+	data, err := os.ReadFile(filepath.Join(tmp, ".crit.json", "review.json"))
 	if err != nil {
 		t.Fatalf("read .crit.json: %v", err)
 	}
@@ -1054,7 +1054,7 @@ func TestFetch_PrintsReviewFilePath(t *testing.T) {
 				t.Fatal(err)
 			}
 			critPath := filepath.Join(tmpDir, ".crit.json")
-			if err := os.WriteFile(critPath, data, 0o644); err != nil {
+			if err := os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0o644); err != nil {
 				t.Fatal(err)
 			}
 

@@ -1061,7 +1061,7 @@ type replyKey struct {
 // commentIDs maps "path:endLine" -> GitHubID for root comments.
 // replyIDs maps replyKey -> GitHubID for replies.
 func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, replyIDs map[replyKey]int64) error {
-	data, err := os.ReadFile(critPath)
+	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
 	if err != nil {
 		return err
 	}
@@ -1096,7 +1096,7 @@ func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, r
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(critPath, append(out, '\n'), 0644)
+	return atomicWriteFile(reviewPathsFor(critPath).Review, append(out, '\n'), 0644)
 }
 
 // truncateStr returns the first n runes of s, or all of s if shorter.

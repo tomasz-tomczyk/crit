@@ -236,7 +236,7 @@ func TestSession_WriteFiles(t *testing.T) {
 	flushWrites(s)
 	s.WriteFiles()
 
-	data, err := os.ReadFile(s.critJSONPath())
+	data, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		t.Fatalf("crit.json not written: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestSession_WriteFiles_SharedURLOnly(t *testing.T) {
 	flushWrites(s)
 	s.WriteFiles()
 
-	data, err := os.ReadFile(s.critJSONPath())
+	data, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func TestSession_LoadCritJSON_NoHash(t *testing.T) {
 			}
 		}
 	}`
-	if err := os.WriteFile(s.critJSONPath(), []byte(cj), 0644); err != nil {
+	if err := os.WriteFile(mustMkdirAll(reviewPathsFor(s.critJSONPath()).Review), []byte(cj), 0644); err != nil {
 		t.Fatalf("write .crit.json: %v", err)
 	}
 
@@ -360,7 +360,7 @@ func TestSession_WriteFiles_PreservesNonSessionFiles(t *testing.T) {
 			}
 		}
 	}`
-	if err := os.WriteFile(s.critJSONPath(), []byte(cj), 0644); err != nil {
+	if err := os.WriteFile(mustMkdirAll(reviewPathsFor(s.critJSONPath()).Review), []byte(cj), 0644); err != nil {
 		t.Fatalf("write .crit.json: %v", err)
 	}
 
@@ -369,7 +369,7 @@ func TestSession_WriteFiles_PreservesNonSessionFiles(t *testing.T) {
 	s.WriteFiles()
 
 	// Reload and verify both files are present
-	data, err := os.ReadFile(s.critJSONPath())
+	data, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		t.Fatalf("read .crit.json: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestSession_LoadCritJSON_MismatchedHash(t *testing.T) {
 			}
 		}
 	}`
-	if err := os.WriteFile(s.critJSONPath(), []byte(cj), 0644); err != nil {
+	if err := os.WriteFile(mustMkdirAll(reviewPathsFor(s.critJSONPath()).Review), []byte(cj), 0644); err != nil {
 		t.Fatalf("write .crit.json: %v", err)
 	}
 
@@ -569,7 +569,7 @@ func TestSession_WriteFiles_OutputDir(t *testing.T) {
 
 	// Should be written to OutputDir, not RepoRoot
 	outPath := filepath.Join(outDir, ".crit.json")
-	data, err := os.ReadFile(outPath)
+	data, err := os.ReadFile(reviewPathsFor(outPath).Review)
 	if err != nil {
 		t.Fatalf(".crit.json not written to output dir: %v", err)
 	}
@@ -1118,7 +1118,7 @@ func TestSession_CarryForward_PreservesAuthor(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
+	if err := os.WriteFile(mustMkdirAll(reviewPathsFor(s.critJSONPath()).Review), data, 0644); err != nil {
 		t.Fatalf("writing .crit.json: %v", err)
 	}
 
@@ -1199,7 +1199,7 @@ func TestCarryForward_FileScopeComments_NoDuplicatesAcrossRounds(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
+	if err := os.WriteFile(mustMkdirAll(reviewPathsFor(s.critJSONPath()).Review), data, 0644); err != nil {
 		t.Fatalf("writing .crit.json: %v", err)
 	}
 
@@ -1229,7 +1229,7 @@ func TestCarryForward_FileScopeComments_NoDuplicatesAcrossRounds(t *testing.T) {
 		},
 	}
 	data, _ = json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(s.critJSONPath(), data, 0644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(s.critJSONPath()).Review), data, 0644)
 
 	// Set up for round 2
 	for _, f := range s.Files {
@@ -1334,7 +1334,7 @@ func TestCarryForwardPreservesReviewRound(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	if err := os.WriteFile(s.critJSONPath(), data, 0644); err != nil {
+	if err := os.WriteFile(mustMkdirAll(reviewPathsFor(s.critJSONPath()).Review), data, 0644); err != nil {
 		t.Fatalf("writing .crit.json: %v", err)
 	}
 
@@ -1408,13 +1408,13 @@ func TestSession_WriteFiles_MergesExternalComments(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	// WriteFiles should merge, not overwrite
 	s.WriteFiles()
 
 	// Read back .crit.json and verify both comments are present
-	result, _ := os.ReadFile(filepath.Join(dir, ".crit.json"))
+	result, _ := os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
 	var got CritJSON
 	json.Unmarshal(result, &got)
 
@@ -1463,7 +1463,7 @@ func TestSession_MergeExternalCritJSON_NewComment(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	changed := s.mergeExternalCritJSON()
 	if !changed {
@@ -1548,7 +1548,7 @@ func TestSession_MergeExternalCritJSON_ClearDetected(t *testing.T) {
 	// Write .crit.json with no comments (simulating crit comment --clear)
 	cj := CritJSON{Branch: "main", ReviewRound: 1, Files: map[string]CritJSONFile{}}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	changed := s.mergeExternalCritJSON()
 	if !changed {
@@ -1574,7 +1574,7 @@ func TestLoadCritJSON_IgnoresStaleShareState(t *testing.T) {
 		Files:       map[string]CritJSONFile{},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(critPath, data, 0644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0644)
 
 	// Create session with DIFFERENT files
 	sess := &Session{
@@ -1602,7 +1602,7 @@ func TestLoadCritJSON_RestoresMatchingShareState(t *testing.T) {
 		Files:       map[string]CritJSONFile{},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(critPath, data, 0644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0644)
 
 	// Create session with SAME files
 	sess := &Session{
@@ -2010,7 +2010,7 @@ func TestSession_MergeExternalCritJSON_SkippedDuringPendingWrite(t *testing.T) {
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	// Touch with different mtime to bypass own-write check
 	time.Sleep(10 * time.Millisecond)
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	// Merge should be skipped because a write is pending
 	changed := s.mergeExternalCritJSON()
@@ -2055,7 +2055,7 @@ func TestSession_MergeExternalCritJSON_SyncsResolvedState(t *testing.T) {
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	time.Sleep(10 * time.Millisecond)
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	changed := s.mergeExternalCritJSON()
 	if !changed {
@@ -2248,7 +2248,7 @@ func TestSession_MergeExternalCritJSON_SyncsUnresolve(t *testing.T) {
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	time.Sleep(10 * time.Millisecond)
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	changed := s.mergeExternalCritJSON()
 	if !changed {
@@ -2334,7 +2334,7 @@ func TestCritJSONIncludesReviewComments(t *testing.T) {
 	s.AddComment("plan.md", 1, 1, "", "line comment", "", "", "")
 	s.AddFileComment("plan.md", "file comment", "", "")
 	s.WriteFiles()
-	data, err := os.ReadFile(s.critJSONPath())
+	data, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2461,7 +2461,7 @@ func TestLoadCritJSONDefaultsScope(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(s.critJSONPath(), data, 0644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(s.critJSONPath()).Review), data, 0644)
 
 	s.loadCritJSON()
 	comments := s.GetComments("plan.md")
@@ -2846,7 +2846,7 @@ func TestDeleteComment_NotReAddedFromDisk(t *testing.T) {
 	s.WriteFiles()
 
 	// Verify the comment is on disk
-	data, err := os.ReadFile(s.critJSONPath())
+	data, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		t.Fatalf("read .crit.json: %v", err)
 	}
@@ -2866,7 +2866,7 @@ func TestDeleteComment_NotReAddedFromDisk(t *testing.T) {
 	s.WriteFiles()
 
 	// Read .crit.json and verify the deleted comment is gone
-	data, err = os.ReadFile(s.critJSONPath())
+	data, err = os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		// If .crit.json was removed (empty), that's also correct
 		return
@@ -2899,7 +2899,7 @@ func TestDeleteReviewComment_NotReAddedFromDisk(t *testing.T) {
 	s.WriteFiles()
 
 	// Verify it's on disk
-	data, err := os.ReadFile(s.critJSONPath())
+	data, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		t.Fatalf("read .crit.json: %v", err)
 	}
@@ -2919,7 +2919,7 @@ func TestDeleteReviewComment_NotReAddedFromDisk(t *testing.T) {
 	s.WriteFiles()
 
 	// Read .crit.json — should have no review comments
-	data, err = os.ReadFile(s.critJSONPath())
+	data, err = os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		// File removed is also acceptable
 		return
@@ -2968,7 +2968,7 @@ func TestDeleteReply_NotReAddedFromDisk(t *testing.T) {
 	s.WriteFiles()
 
 	// Read .crit.json and verify the reply is gone
-	data, err := os.ReadFile(s.critJSONPath())
+	data, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		t.Fatalf("read .crit.json: %v", err)
 	}
@@ -3016,7 +3016,7 @@ func TestDeleteReviewCommentReply_NotReAddedFromDisk(t *testing.T) {
 	s.WriteFiles()
 
 	// Read back .crit.json
-	data, err := os.ReadFile(s.critJSONPath())
+	data, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		t.Fatalf("read .crit.json: %v", err)
 	}
@@ -3066,13 +3066,13 @@ func TestExternalCommentStillMerged(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
 
 	// WriteFiles should merge the external comment in
 	s.WriteFiles()
 
 	// Read back .crit.json and verify both comments are present
-	result, _ := os.ReadFile(filepath.Join(dir, ".crit.json"))
+	result, _ := os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
 	var got CritJSON
 	json.Unmarshal(result, &got)
 
@@ -3247,8 +3247,8 @@ func TestSession_HandleExternalDeletion(t *testing.T) {
 		t.Fatal("expected 1 comment before deletion")
 	}
 
-	// Delete .crit.json externally
-	os.Remove(s.critJSONPath())
+	// Delete the review folder externally (v4: identity is a folder).
+	os.RemoveAll(s.critJSONPath())
 
 	// handleExternalDeletion should detect the deletion and clear in-memory state
 	deleted := s.handleExternalDeletion(s.critJSONPath())
@@ -3280,7 +3280,7 @@ func TestSession_WriteFiles_RoundTrip(t *testing.T) {
 	s.WriteFiles()
 
 	// Read back the .crit.json
-	data1, err := os.ReadFile(s.critJSONPath())
+	data1, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		t.Fatalf("reading first write: %v", err)
 	}
@@ -3288,7 +3288,7 @@ func TestSession_WriteFiles_RoundTrip(t *testing.T) {
 	// Write again (no changes) and compare
 	flushWrites(s)
 	s.WriteFiles()
-	data2, err := os.ReadFile(s.critJSONPath())
+	data2, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		t.Fatalf("reading second write: %v", err)
 	}
@@ -3336,7 +3336,7 @@ func TestSession_AddComment_PreservesSideAndQuote(t *testing.T) {
 	flushWrites(s)
 	s.WriteFiles()
 
-	data, _ := os.ReadFile(s.critJSONPath())
+	data, _ := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
 
@@ -3359,7 +3359,7 @@ func TestSession_WriteFiles_ReviewCommentsPersisted(t *testing.T) {
 	flushWrites(s)
 	s.WriteFiles()
 
-	data, err := os.ReadFile(s.critJSONPath())
+	data, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3446,7 +3446,7 @@ func TestSession_WriteFiles_IncludesResolvedComments(t *testing.T) {
 	flushWrites(s)
 	s.WriteFiles()
 
-	data, err := os.ReadFile(s.critJSONPath())
+	data, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3717,7 +3717,7 @@ func TestLoadCritJSON_OrphanedComments(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(critPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(critPath, data, 0o644); err != nil {
+	if err := os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3790,7 +3790,7 @@ func TestLoadCritJSON_OrphanedNoComments(t *testing.T) {
 	}
 	data, _ := json.Marshal(cj)
 	os.MkdirAll(filepath.Dir(critPath), 0o755)
-	os.WriteFile(critPath, data, 0o644)
+	os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0o644)
 
 	s.loadCritJSON()
 

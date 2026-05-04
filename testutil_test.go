@@ -8,6 +8,16 @@ import (
 	"testing"
 )
 
+// mustMkdirAll ensures the parent directory of path exists, then returns path.
+// Used by tests that seed a file inside the v4 review folder layout without
+// writing the boilerplate at every call site.
+func mustMkdirAll(path string) string {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		panic(err)
+	}
+	return path
+}
+
 // Strip GIT_* from the test process env so production code paths that exec
 // git (e.g. NewSessionFromGit) don't target the parent repo when tests run
 // inside a git hook (pre-commit's `go test ./...` inherits GIT_DIR /

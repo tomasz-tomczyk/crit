@@ -1475,8 +1475,10 @@ func (s *Session) ClearAllComments() {
 	s.waitingForAgent = false
 	critPath := s.critJSONPath()
 	s.mu.Unlock()
-	// Delete the review file from disk (centralized or legacy path).
-	os.Remove(critPath) //nolint:errcheck
+	// Full-folder cleanup; idempotent on missing folder.
+	if err := os.RemoveAll(critPath); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Warning: removing review folder: %v\n", err)
+	}
 }
 
 // ChangeBaseBranch changes the diff base to the given branch, recomputes merge-base,
@@ -1584,8 +1586,21 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 }
 
 // loadCritJSON loads comments and share state from an existing review file.
+//
+// Lock contract: PRE-SETSESSION ONLY. Safe to call only from the constructor
+// path (NewSessionFromFiles, applySessionOverrides, etc.) before any goroutine
+// reads s.RoundSnapshots / s.reviewComments / etc. Callers that need to reload
+// at runtime must extend this to take s.mu.Lock() first. See plan v4
+// §Lock discipline.
 func (s *Session) loadCritJSON() {
-	data, err := os.ReadFile(s.critJSONPath())
+	identity := s.critJSONPath()
+
+	// MIGRATION-REMOVAL: trigger v3->v4 folder migration on read.
+	if err := ensureReviewFolder(identity); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: review folder migration: %v\n", err)
+	}
+
+	data, err := os.ReadFile(reviewPathsFor(identity).Review)
 	if err != nil {
 		return
 	}
@@ -1635,7 +1650,7 @@ func (s *Session) loadCritJSON() {
 	s.reviewComments = cj.ReviewComments
 
 	// Record the mtime so the first ticker tick doesn't re-process our own file.
-	if info, err := os.Stat(s.critJSONPath()); err == nil {
+	if info, err := os.Stat(reviewPathsFor(s.critJSONPath()).Review); err == nil {
 		s.lastCritJSONMtime = info.ModTime()
 	}
 }
@@ -1645,7 +1660,7 @@ func (s *Session) loadCritJSON() {
 // Safe to call multiple times — existing entries (including previous orphans) are skipped.
 // Must be called with s.mu NOT held (acquires the lock internally).
 func (s *Session) restoreOrphanedComments() {
-	data, err := os.ReadFile(s.critJSONPath())
+	data, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		return
 	}

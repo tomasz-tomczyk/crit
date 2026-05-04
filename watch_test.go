@@ -497,7 +497,7 @@ func TestRestoreOrphanedComments(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(critPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(critPath, data, 0o644); err != nil {
+	if err := os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
