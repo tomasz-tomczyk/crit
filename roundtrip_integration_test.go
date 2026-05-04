@@ -276,3 +276,43 @@ func TestRoundtrip_InterleavedReplies(t *testing.T) {
 		}
 	}
 }
+
+func TestRoundtrip_FreshClonePicksUpAllComments(t *testing.T) {
+	a := newRoundtripEnv(t)
+
+	// User A posts and pushes a comment.
+	a.runCrit("comment", "sample.go:19", "from user A")
+	a.runCrit("push")
+
+	// A reviewer also drops a comment on the PR.
+	reviewerID := a.postRemoteComment("sample.md", 12, "from reviewer")
+
+	// User B clones the branch fresh and pulls.
+	b := a.freshClone()
+	b.runCrit("pull")
+
+	got := b.allLocalComments()
+	if len(got) != 2 {
+		t.Fatalf("user B want 2 local, got %d:\n%+v", len(got), got)
+	}
+
+	ids := map[int64]bool{}
+	for _, lc := range got {
+		if lc.Comment.GitHubID == 0 {
+			t.Errorf("user B has comment without GitHubID: %+v", lc)
+		}
+		ids[lc.Comment.GitHubID] = true
+	}
+	if !ids[reviewerID] {
+		t.Errorf("user B did not import reviewer's comment id=%d", reviewerID)
+	}
+
+	// User B pushes a fresh comment — must not re-post the two existing.
+	b.runCrit("comment", "sample.go:19", "from user B")
+	remoteBefore := b.listRemoteComments()
+	b.runCrit("push")
+	remoteAfter := b.listRemoteComments()
+	if delta := len(remoteAfter) - len(remoteBefore); delta != 1 {
+		t.Fatalf("want exactly 1 new remote from B's push, got delta %d", delta)
+	}
+}

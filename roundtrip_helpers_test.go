@@ -294,6 +294,26 @@ func mustParsePRNumber(t *testing.T, prURL string) int {
 	return n
 }
 
+// freshClone makes another clone of the same PR's branch in a new tempdir,
+// independent of the original env's workdir/review-file state. Use to
+// simulate "user B" picking up a PR.
+func (e *roundtripEnv) freshClone() *roundtripEnv {
+	e.t.Helper()
+	dir := e.t.TempDir()
+	cloneURL := fmt.Sprintf("git@github.com:%s.git", e.repoSlug)
+	if v := os.Getenv("CRIT_ROUNDTRIP_CLONE_URL"); v != "" {
+		cloneURL = v
+	}
+	mustRun(e.t, dir, "git", "clone", "--depth", "1", "--branch", e.branch,
+		cloneURL, ".")
+	mustRun(e.t, dir, "git", "config", "user.email", "userb@example.com")
+	mustRun(e.t, dir, "git", "config", "user.name", "user-b")
+	return &roundtripEnv{
+		t: e.t, repoSlug: e.repoSlug, branch: e.branch, prNumber: e.prNumber,
+		workDir: dir, critBinary: e.critBinary,
+	}
+}
+
 func sanitizeName(s string) string {
 	s = strings.ReplaceAll(s, "/", "-")
 	s = strings.ReplaceAll(s, " ", "-")
