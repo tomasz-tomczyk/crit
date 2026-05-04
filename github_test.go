@@ -630,6 +630,57 @@ func TestCollectNewRepliesForPush_NoGitHubRoot(t *testing.T) {
 	}
 }
 
+// TestCollectNewRepliesForPush_ParentSources verifies that local-only replies
+// are collected regardless of how their parent acquired its github_id —
+// whether the parent was imported via `crit pull` or pushed by us in an
+// earlier `crit push`. This pins the fix for issue #442.
+func TestCollectNewRepliesForPush_ParentSources(t *testing.T) {
+	cases := []struct {
+		name        string
+		cf          CritJSONFile
+		wantReplies int
+	}{
+		{
+			name: "parent imported via pull",
+			cf: CritJSONFile{
+				Comments: []Comment{{
+					ID: "c1", GitHubID: 555, StartLine: 1, EndLine: 1, Body: "imported",
+					Replies: []Reply{{ID: "c1-r1", GitHubID: 0, Body: "ack"}},
+				}},
+			},
+			wantReplies: 1,
+		},
+		{
+			name: "parent pushed by us previously",
+			cf: CritJSONFile{
+				Comments: []Comment{{
+					ID: "c1", GitHubID: 777, StartLine: 1, EndLine: 1, Body: "ours",
+					Replies: []Reply{{ID: "c1-r1", GitHubID: 0, Body: "follow-up"}},
+				}},
+			},
+			wantReplies: 1,
+		},
+		{
+			name: "reply already pushed — skipped",
+			cf: CritJSONFile{
+				Comments: []Comment{{
+					ID: "c1", GitHubID: 555, StartLine: 1, EndLine: 1, Body: "imported",
+					Replies: []Reply{{ID: "c1-r1", GitHubID: 999, Body: "synced"}},
+				}},
+			},
+			wantReplies: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := collectNewRepliesForPush(tc.cf)
+			if len(got) != tc.wantReplies {
+				t.Fatalf("got %d replies, want %d: %+v", len(got), tc.wantReplies, got)
+			}
+		})
+	}
+}
+
 func TestAddCommentToCritJSON_RejectsPathTraversal(t *testing.T) {
 	dir := t.TempDir()
 	if err := exec.Command("git", "init", dir).Run(); err != nil {

@@ -164,7 +164,6 @@ func TestRoundtrip_PushThenPull_PreservesIDs(t *testing.T) {
 }
 
 func TestRoundtrip_ReplyToRemoteComment(t *testing.T) {
-	t.Skip("blocked on issue #442: crit push doesn't post replies to imported remote comments")
 	e := newRoundtripEnv(t)
 
 	rootID := e.postRemoteComment("sample.go", 19, "please address")
@@ -223,7 +222,6 @@ func TestRoundtrip_ReplyToRemoteComment(t *testing.T) {
 }
 
 func TestRoundtrip_InterleavedReplies(t *testing.T) {
-	t.Skip("blocked on issue #442: crit push skips local replies whose parent has a non-zero github_id (also reproduces when parent's github_id was assigned by our own push)")
 	e := newRoundtripEnv(t)
 
 	// Local root, push it.
