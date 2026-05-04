@@ -349,6 +349,13 @@ func (s *Server) addIntegrationStatus(resp map[string]interface{}) {
 }
 
 // handleSession returns session metadata: mode, branch, file list with stats.
+//
+// GET /api/session[?scope=X&commit=Y&round=N]
+//
+// In files mode, ?round=N filters the file list to files that had a
+// snapshot at that round (so files added in later rounds drop out when
+// viewing an earlier point in the timeline). The round parameter is
+// ignored in git/range mode.
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -356,7 +363,34 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	}
 	scope := r.URL.Query().Get("scope")
 	commit := r.URL.Query().Get("commit")
-	writeJSON(w, s.session.Load().GetSessionInfoScoped(scope, commit))
+	session := s.session.Load()
+	info := session.GetSessionInfoScoped(scope, commit)
+
+	if roundStr := r.URL.Query().Get("round"); roundStr != "" && session != nil && session.Mode == "files" {
+		if n, err := strconv.Atoi(roundStr); err == nil && n >= 1 {
+			info.Files = filterFilesAtRound(session, info.Files, n)
+		}
+	}
+	writeJSON(w, info)
+}
+
+// filterFilesAtRound returns the subset of files that have a snapshot recorded
+// at the given round. Caller must not hold session.mu.
+func filterFilesAtRound(session *Session, files []SessionFileInfo, round int) []SessionFileInfo {
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	out := make([]SessionFileInfo, 0, len(files))
+	for _, f := range files {
+		byRound := session.RoundSnapshots[f.Path]
+		if byRound == nil {
+			continue
+		}
+		if _, ok := byRound[round]; !ok {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
@@ -504,14 +538,50 @@ func (s *Server) handleRounds(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+		adds, dels := lineStatsForRound(session, r)
 		out = append(out, roundEntry{
 			N:            r,
+			Additions:    adds,
+			Deletions:    dels,
 			CommentCount: counts[r],
 			CapturedAt:   capturedAt,
 		})
 	}
 	resp["rounds"] = out
 	writeJSON(w, resp)
+}
+
+// lineStatsForRound aggregates added/removed line counts across every file
+// with a snapshot at round n, comparing against round n-1. R1 (or any round
+// where no n-1 snapshots exist) returns 0/0. Caller must hold session.mu
+// (RLock is sufficient).
+func lineStatsForRound(session *Session, n int) (int, int) {
+	if n <= 1 {
+		return 0, 0
+	}
+	var adds, dels int
+	for _, byRound := range session.RoundSnapshots {
+		curr, ok := byRound[n]
+		if !ok {
+			continue
+		}
+		prev, hasPrev := byRound[n-1]
+		if !hasPrev {
+			// New file at round n: every line counts as an addition.
+			adds += len(splitLines(curr.Content))
+			continue
+		}
+		entries := ComputeLineDiff(prev.Content, curr.Content)
+		for _, e := range entries {
+			switch e.Type {
+			case "added":
+				adds++
+			case "removed":
+				dels++
+			}
+		}
+	}
+	return adds, dels
 }
 
 // handleFile returns file content + metadata for a single file.
@@ -590,7 +660,12 @@ func serveFileAtRound(w http.ResponseWriter, r *http.Request, session *Session, 
 
 // handleFileDiff returns diff hunks for a file.
 // For code files: git diff hunks. For markdown files: inter-round LCS diff.
-// GET /api/file/diff?path=server.go
+// GET /api/file/diff?path=server.go[&round=N]
+//
+// In files mode, ?round=N returns the diff between round N's snapshot and
+// round (N-1)'s snapshot. R1 is the baseline and has no previous content,
+// so the response carries empty hunks. In git/range mode, the round
+// parameter is ignored.
 func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -601,6 +676,11 @@ func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path query parameter required", http.StatusBadRequest)
 		return
 	}
+
+	if served := serveFileDiffAtRound(w, r, s.session.Load(), path); served {
+		return
+	}
+
 	scope := r.URL.Query().Get("scope")
 	commit := r.URL.Query().Get("commit")
 	snapshot, ok := s.session.Load().GetFileDiffSnapshotScoped(path, scope, commit)
@@ -609,6 +689,49 @@ func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, snapshot)
+}
+
+// serveFileDiffAtRound writes a per-round diff response when the request
+// includes a valid ?round=N for a files-mode session. Returns served=true
+// when it has fully written the response (success or 400/404). Returns
+// served=false when the caller should fall through to the working-tree code
+// path (no round param, or git/range mode).
+func serveFileDiffAtRound(w http.ResponseWriter, r *http.Request, session *Session, path string) bool {
+	roundStr := r.URL.Query().Get("round")
+	if roundStr == "" {
+		return false
+	}
+	if session == nil || session.Mode != "files" {
+		return false
+	}
+	round, err := strconv.Atoi(roundStr)
+	if err != nil || round < 1 {
+		http.Error(w, "invalid round", http.StatusBadRequest)
+		return true
+	}
+	session.mu.RLock()
+	rs, ok := session.roundSnapshotForFile(path, round)
+	prev, hasPrev := session.roundSnapshotForFile(path, round-1)
+	session.mu.RUnlock()
+	if !ok {
+		http.Error(w, "file_not_in_round", http.StatusNotFound)
+		return true
+	}
+
+	resp := map[string]any{
+		"hunks":            []DiffHunk{},
+		"previous_content": prev.Content,
+	}
+	if hasPrev && prev.Content != rs.Content {
+		entries := ComputeLineDiff(prev.Content, rs.Content)
+		hunks := DiffEntriesToHunks(entries)
+		if hunks == nil {
+			hunks = []DiffHunk{}
+		}
+		resp["hunks"] = hunks
+	}
+	writeJSON(w, resp)
+	return true
 }
 
 // handleFileComments handles GET (list) and POST (create) for file-scoped comments.
