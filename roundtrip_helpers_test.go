@@ -49,8 +49,11 @@ func newRoundtripEnv(t *testing.T) *roundtripEnv {
 	dir := t.TempDir()
 	branch := fmt.Sprintf("rt-%s-%d", sanitizeName(t.Name()), time.Now().UnixNano())
 
-	mustRun(t, dir, "git", "clone", "--depth", "1",
-		fmt.Sprintf("https://github.com/%s.git", repo), ".")
+	cloneURL := fmt.Sprintf("git@github.com:%s.git", repo)
+	if u := os.Getenv("CRIT_ROUNDTRIP_CLONE_URL"); u != "" {
+		cloneURL = u
+	}
+	mustRun(t, dir, "git", "clone", "--depth", "1", cloneURL, ".")
 	mustRun(t, dir, "git", "config", "user.email", "me@tomasztomczyk.com")
 	mustRun(t, dir, "git", "config", "user.name", "crit-roundtrip-bot")
 	mustRun(t, dir, "git", "checkout", "-b", branch)
@@ -125,16 +128,21 @@ func (e *roundtripEnv) reviewFile() CritJSON {
 	out := e.runCrit("status", "--json")
 	var status struct {
 		ReviewPath string `json:"review_path"`
+		ReviewFile string `json:"review_file"`
 	}
 	if err := json.Unmarshal([]byte(out), &status); err != nil {
 		e.t.Fatalf("parse status JSON: %v\noutput:\n%s", err, out)
 	}
-	if status.ReviewPath == "" {
-		e.t.Fatalf("status JSON had no review_path:\n%s", out)
+	path := status.ReviewPath
+	if path == "" {
+		path = status.ReviewFile
 	}
-	data, err := os.ReadFile(status.ReviewPath)
+	if path == "" {
+		e.t.Fatalf("status JSON had no review_path/review_file:\n%s", out)
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
-		e.t.Fatalf("read review file %s: %v", status.ReviewPath, err)
+		e.t.Fatalf("read review file %s: %v", path, err)
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
