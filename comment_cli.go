@@ -10,6 +10,23 @@ import (
 	"time"
 )
 
+// isAbsoluteOrTraversal reports whether p looks like an absolute path or
+// escapes via "..". Checks both POSIX (/foo) and host (C:\\foo) notations,
+// so the validator rejects /etc/passwd-style inputs on Windows where
+// filepath.IsAbs("/foo") returns false. Run on the raw input — after
+// filepath.Clean a leading "/" can be rewritten to "\\" on Windows and
+// the prefix check would silently miss the attack.
+func isAbsoluteOrTraversal(p string) bool {
+	if filepath.IsAbs(p) {
+		return true
+	}
+	if strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) {
+		return true
+	}
+	cleaned := filepath.Clean(p)
+	return strings.HasPrefix(cleaned, "..")
+}
+
 // appendCommentScoped adds a comment to the CritJSON struct in memory with
 // HeadSHA / DiffScope stamping. Does not write to disk.
 // scope.DiffScope == "" produces today's working-tree behavior.
@@ -154,14 +171,10 @@ func addCommentToCritJSONScoped(filePath string, startLine, endLine int, body, a
 		return err
 	}
 
-	cleaned := filepath.Clean(filePath)
-	// Reject absolute paths in any OS's notation: filepath.IsAbs covers the
-	// host syntax (C:\\... on Windows, /... on Unix). The explicit POSIX-
-	// prefix check rejects /etc/passwd-style inputs on Windows where
-	// filepath.IsAbs("/foo") returns false.
-	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "/") || strings.HasPrefix(cleaned, "..") {
+	if isAbsoluteOrTraversal(filePath) {
 		return fmt.Errorf("path %q must be relative and within the repository", filePath)
 	}
+	cleaned := filepath.Clean(filePath)
 	// Review JSON is a cross-platform artefact (synced via crit-web, GitHub, share),
 	// so paths are stored with forward slashes regardless of host OS.
 	cleaned = filepath.ToSlash(cleaned)
@@ -311,10 +324,11 @@ func processBulkFileOrLineEntry(cj *CritJSON, i int, e BulkCommentEntry, author,
 		return fmt.Errorf("entry %d: file is required for new comments", i)
 	}
 
-	cleaned := filepath.Clean(filePath)
-	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+	if isAbsoluteOrTraversal(filePath) {
 		return fmt.Errorf("entry %d: path %q must be relative and within the repository", i, filePath)
 	}
+	// Normalize for cross-platform storage — see addCommentToCritJSONScoped.
+	cleaned := filepath.ToSlash(filepath.Clean(filePath))
 
 	if e.Scope == "file" {
 		appendFileCommentScoped(cj, cleaned, e.Body, author, userID, scope)
@@ -508,14 +522,10 @@ func addFileCommentToCritJSONScoped(filePath, body, author, userID, outputDir st
 		return err
 	}
 
-	cleaned := filepath.Clean(filePath)
-	// Reject absolute paths in any OS's notation: filepath.IsAbs covers the
-	// host syntax (C:\\... on Windows, /... on Unix). The explicit POSIX-
-	// prefix check rejects /etc/passwd-style inputs on Windows where
-	// filepath.IsAbs("/foo") returns false.
-	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "/") || strings.HasPrefix(cleaned, "..") {
+	if isAbsoluteOrTraversal(filePath) {
 		return fmt.Errorf("path %q must be relative and within the repository", filePath)
 	}
+	cleaned := filepath.Clean(filePath)
 	// Review JSON is a cross-platform artefact (synced via crit-web, GitHub, share),
 	// so paths are stored with forward slashes regardless of host OS.
 	cleaned = filepath.ToSlash(cleaned)

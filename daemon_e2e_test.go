@@ -60,14 +60,25 @@ func TestDaemonLifecycle(t *testing.T) {
 	// Start daemon via _serve
 	cmd := exec.Command(binary, "_serve", "--no-open", "--port", "0")
 	cmd.Dir = repoDir
-	// Filter existing HOME so our override takes effect (first match wins)
+	// Filter existing HOME (and Windows equivalents) so our override takes
+	// effect. On Windows os.UserHomeDir reads USERPROFILE / HOMEDRIVE+HOMEPATH;
+	// without filtering them, the spawned daemon would still resolve the
+	// runner's real profile and write its session file there.
 	var env []string
 	for _, e := range os.Environ() {
-		if !strings.HasPrefix(e, "HOME=") {
-			env = append(env, e)
+		if strings.HasPrefix(e, "HOME=") {
+			continue
 		}
+		if runtime.GOOS == "windows" && (strings.HasPrefix(e, "USERPROFILE=") ||
+			strings.HasPrefix(e, "HOMEDRIVE=") || strings.HasPrefix(e, "HOMEPATH=")) {
+			continue
+		}
+		env = append(env, e)
 	}
 	env = append(env, "HOME="+homeDir)
+	if runtime.GOOS == "windows" {
+		env = append(env, "USERPROFILE="+homeDir)
+	}
 	cmd.Env = env
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = &stderrBuf
