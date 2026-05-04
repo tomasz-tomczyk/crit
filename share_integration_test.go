@@ -150,7 +150,9 @@ func TestShareSyncIntegration(t *testing.T) {
 	}
 
 	// g) Verify the web reviewer comment was pulled into local .crit.json
-	localData, err := os.ReadFile(filepath.Join(dir, ".crit.json"))
+	// (post-v4 .crit.json is a folder; the canonical review payload lives at
+	// .crit.json/review.json).
+	localData, err := os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
 	if err != nil {
 		t.Fatalf("reading .crit.json: %v", err)
 	}
