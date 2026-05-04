@@ -618,11 +618,12 @@ func appendNewGHReplies(comments []Comment, ci int, childReplies []ghComment, na
 			continue
 		}
 		comments[ci].Replies = append(comments[ci].Replies, Reply{
-			ID:        randomReplyID(),
-			Body:      r.Body,
-			Author:    names.lookup(r.User.Login),
-			CreatedAt: r.CreatedAt,
-			GitHubID:  r.ID,
+			ID:             randomReplyID(),
+			Body:           r.Body,
+			Author:         names.lookup(r.User.Login),
+			CreatedAt:      r.CreatedAt,
+			GitHubID:       r.ID,
+			LastPushedBody: r.Body,
 		})
 		added++
 	}
@@ -663,18 +664,19 @@ func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment
 	comment := stampWithFocus(Comment{
 		ID: commentID, StartLine: startLine, EndLine: gc.Line,
 		Body: gc.Body, Author: authorName, CreatedAt: gc.CreatedAt,
-		UpdatedAt: now, GitHubID: gc.ID,
+		UpdatedAt: now, GitHubID: gc.ID, LastPushedBody: gc.Body,
 	}, scope.asFocus())
 
 	added := 0
 	if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
 		for _, r := range childReplies {
 			comment.Replies = append(comment.Replies, Reply{
-				ID:        randomReplyID(),
-				Body:      r.Body,
-				Author:    names.lookup(r.User.Login),
-				CreatedAt: r.CreatedAt,
-				GitHubID:  r.ID,
+				ID:             randomReplyID(),
+				Body:           r.Body,
+				Author:         names.lookup(r.User.Login),
+				CreatedAt:      r.CreatedAt,
+				GitHubID:       r.ID,
+				LastPushedBody: r.Body,
 			})
 			added++
 		}
@@ -767,6 +769,130 @@ func collectNewRepliesForPush(cf CritJSONFile) []ghReplyForPush {
 		}
 	}
 	return replies
+}
+
+// ghEditForPush represents one already-pushed comment or reply whose local
+// body has diverged from LastPushedBody and therefore needs a PATCH.
+//
+// Path is empty for replies (replies are addressed by GitHubID alone in the
+// GitHub API). For comments it carries the file path so the review file can
+// be updated by location after a successful PATCH.
+type ghEditForPush struct {
+	GitHubID int64
+	Path     string // file path for root comments; empty for replies
+	Body     string
+	IsReply  bool
+}
+
+// collectEditedForPush returns root comments and replies whose local Body
+// differs from LastPushedBody and therefore need a PATCH.
+//
+// Backward-compat rule: a record with GitHubID != 0 but empty LastPushedBody
+// is treated as already-in-sync (treat current Body as last-pushed). This
+// keeps pre-existing review files from re-PATCHing every comment on first
+// push after upgrade. The push paths that successfully POST or PATCH stamp
+// LastPushedBody, so divergence detection only fires for genuine local edits.
+//
+// Resolved comments are skipped (they're not pushable in the new-comment
+// path either; consistent treatment for edits).
+func collectEditedForPush(cj CritJSON) []ghEditForPush {
+	var out []ghEditForPush
+	paths := make([]string, 0, len(cj.Files))
+	for p := range cj.Files {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		cf := cj.Files[path]
+		for _, c := range cf.Comments {
+			if c.Resolved {
+				continue
+			}
+			if c.GitHubID != 0 && c.LastPushedBody != "" && c.Body != c.LastPushedBody {
+				out = append(out, ghEditForPush{
+					GitHubID: c.GitHubID,
+					Path:     path,
+					Body:     c.Body,
+				})
+			}
+			for _, r := range c.Replies {
+				if r.GitHubID != 0 && r.LastPushedBody != "" && r.Body != r.LastPushedBody {
+					out = append(out, ghEditForPush{
+						GitHubID: r.GitHubID,
+						Body:     r.Body,
+						IsReply:  true,
+					})
+				}
+			}
+		}
+	}
+	return out
+}
+
+// patchGHComment edits the body of an existing PR review comment via the
+// GitHub API. Works for both root comments and replies — they share the same
+// /pulls/comments/{id} endpoint.
+func patchGHComment(ghID int64, body string) error {
+	payload, err := json.Marshal(map[string]any{"body": body})
+	if err != nil {
+		return fmt.Errorf("marshal patch: %w", err)
+	}
+	cmd := exec.Command("gh", "api",
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/comments/%d", ghID),
+		"--method", "PATCH",
+		"--input", "-",
+	)
+	cmd.Stdin = bytes.NewReader(payload)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("gh api patch: %s: %w", string(output), err)
+	}
+	return nil
+}
+
+// updateCritJSONWithEditedBodies stamps LastPushedBody on records that were
+// successfully PATCHed in this push. edited is the slice that was queued for
+// PATCH; succeeded is the subset whose PATCH returned cleanly.
+//
+// Match key for both roots and replies is the GitHubID — it's stable and
+// unique across the review file.
+func updateCritJSONWithEditedBodies(critPath string, succeeded []ghEditForPush) error {
+	if len(succeeded) == 0 {
+		return nil
+	}
+	successByID := make(map[int64]string, len(succeeded))
+	for _, e := range succeeded {
+		successByID[e.GitHubID] = e.Body
+	}
+
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		return err
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return err
+	}
+	for path, cf := range cj.Files {
+		for i, c := range cf.Comments {
+			if body, ok := successByID[c.GitHubID]; ok && c.GitHubID != 0 {
+				cf.Comments[i].Body = body
+				cf.Comments[i].LastPushedBody = body
+			}
+			for j, r := range c.Replies {
+				if body, ok := successByID[r.GitHubID]; ok && r.GitHubID != 0 {
+					cf.Comments[i].Replies[j].Body = body
+					cf.Comments[i].Replies[j].LastPushedBody = body
+				}
+			}
+		}
+		cj.Files[path] = cf
+	}
+	out, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(critPath, append(out, '\n'), 0644)
 }
 
 // postGHReply posts a reply to an existing GitHub PR review comment.
@@ -938,6 +1064,7 @@ func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, r
 				key := fmt.Sprintf("%s:%d", path, c.EndLine)
 				if id, ok := commentIDs[key]; ok {
 					cf.Comments[i].GitHubID = id
+					cf.Comments[i].LastPushedBody = cf.Comments[i].Body
 				}
 			}
 			for j, r := range c.Replies {
@@ -945,6 +1072,7 @@ func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, r
 					rk := replyKey{ParentGHID: cf.Comments[i].GitHubID, BodyPrefix: truncateStr(r.Body, 60)}
 					if id, ok := replyIDs[rk]; ok {
 						cf.Comments[i].Replies[j].GitHubID = id
+						cf.Comments[i].Replies[j].LastPushedBody = cf.Comments[i].Replies[j].Body
 					}
 				}
 			}
