@@ -2746,3 +2746,107 @@ func TestParsePRViewJSON_SameRepoPR(t *testing.T) {
 		t.Error("HeadRepoURL empty; want owner/repo URL")
 	}
 }
+
+// TestCollectEditedForPush_DetectsBodyDivergence verifies the diff-detection
+// rules behind the edit-push path (#446):
+//   - root comment with edited body relative to LastPushedBody → enqueued
+//   - reply with edited body relative to LastPushedBody → enqueued
+//   - GitHubID == 0 (never pushed) → not enqueued (handled by POST path)
+//   - GitHubID != 0 but LastPushedBody == "" → not enqueued (legacy idempotency)
+//   - GitHubID != 0 and Body == LastPushedBody → not enqueued
+//   - Resolved comment with edited body → not enqueued
+func TestCollectEditedForPush_DetectsBodyDivergence(t *testing.T) {
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"a.go": {Comments: []Comment{
+				// edited (should be enqueued)
+				{ID: "c1", GitHubID: 100, Body: "edited", LastPushedBody: "original"},
+				// new (no GH ID — POST path handles it)
+				{ID: "c2", GitHubID: 0, Body: "new", LastPushedBody: ""},
+				// legacy: pushed but no LastPushedBody recorded — must not re-PATCH
+				{ID: "c3", GitHubID: 101, Body: "current", LastPushedBody: ""},
+				// in sync
+				{ID: "c4", GitHubID: 102, Body: "same", LastPushedBody: "same"},
+				// resolved, even if edited — skipped
+				{ID: "c5", GitHubID: 103, Body: "edited", LastPushedBody: "original", Resolved: true},
+				// reply edits via parent c6
+				{ID: "c6", GitHubID: 104, Body: "parent", LastPushedBody: "parent", Replies: []Reply{
+					{ID: "r1", GitHubID: 200, Body: "reply edit", LastPushedBody: "reply orig"}, // enqueued
+					{ID: "r2", GitHubID: 0, Body: "new reply", LastPushedBody: ""},              // POST path
+					{ID: "r3", GitHubID: 201, Body: "same", LastPushedBody: ""},                 // legacy, skip
+				}},
+			}},
+		},
+	}
+
+	edits := collectEditedForPush(cj)
+	if len(edits) != 2 {
+		t.Fatalf("collectEditedForPush returned %d edits, want 2: %+v", len(edits), edits)
+	}
+
+	gotIDs := map[int64]string{}
+	for _, e := range edits {
+		gotIDs[e.GitHubID] = e.Body
+	}
+	if gotIDs[100] != "edited" {
+		t.Errorf("expected root c1 (id=100) → 'edited', got %q", gotIDs[100])
+	}
+	if gotIDs[200] != "reply edit" {
+		t.Errorf("expected reply r1 (id=200) → 'reply edit', got %q", gotIDs[200])
+	}
+}
+
+// TestUpdateCritJSONWithEditedBodies_StampsLastPushedBody verifies that after
+// PATCH, the review file is rewritten with the edited body promoted to
+// LastPushedBody so the next push is a no-op.
+func TestUpdateCritJSONWithEditedBodies_StampsLastPushedBody(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "review.json")
+
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"a.go": {Comments: []Comment{{
+				ID: "c1", GitHubID: 500, Body: "edited", LastPushedBody: "original",
+				Replies: []Reply{
+					{ID: "r1", GitHubID: 600, Body: "reply edit", LastPushedBody: "reply orig"},
+				},
+			}}},
+		},
+	}
+	data, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+
+	succeeded := []ghEditForPush{
+		{GitHubID: 500, Body: "edited", Path: "a.go"},
+		{GitHubID: 600, Body: "reply edit", IsReply: true},
+	}
+	if err := updateCritJSONWithEditedBodies(path, succeeded); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	out, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var got CritJSON
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	c := got.Files["a.go"].Comments[0]
+	if c.LastPushedBody != "edited" {
+		t.Errorf("comment LastPushedBody=%q, want %q", c.LastPushedBody, "edited")
+	}
+	if c.Replies[0].LastPushedBody != "reply edit" {
+		t.Errorf("reply LastPushedBody=%q, want %q", c.Replies[0].LastPushedBody, "reply edit")
+	}
+
+	// Idempotency: re-running collectEditedForPush should now find nothing.
+	if more := collectEditedForPush(got); len(more) != 0 {
+		t.Errorf("after stamping, collectEditedForPush returned %d edits, want 0: %+v", len(more), more)
+	}
+}
