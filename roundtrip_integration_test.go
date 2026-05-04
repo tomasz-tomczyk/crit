@@ -96,3 +96,35 @@ func truncate(s string, n int) string {
 	}
 	return s[:n] + "…"
 }
+
+func TestRoundtrip_PullIsIdempotent(t *testing.T) {
+	e := newRoundtripEnv(t)
+
+	// Reviewer posts on a diff line.
+	id := e.postRemoteComment("sample.go", 19, "remote review comment")
+	if id == 0 {
+		t.Fatal("postRemoteComment returned 0")
+	}
+
+	// First pull imports it.
+	e.runCrit("pull")
+	first := e.allLocalComments()
+	if len(first) != 1 {
+		t.Fatalf("after pull #1: want 1 local comment, got %d", len(first))
+	}
+	if first[0].Comment.GitHubID != id {
+		t.Errorf("GitHubID mismatch: want %d, got %d", id, first[0].Comment.GitHubID)
+	}
+
+	// Second pull must be a no-op.
+	out := e.runCrit("pull")
+	t.Logf("pull #2 output:\n%s", out)
+	second := e.allLocalComments()
+	if len(second) != 1 {
+		t.Fatalf("after pull #2: want 1 local comment, got %d", len(second))
+	}
+	if second[0].Comment.GitHubID != id {
+		t.Errorf("GitHubID drifted after second pull: want %d, got %d",
+			id, second[0].Comment.GitHubID)
+	}
+}
