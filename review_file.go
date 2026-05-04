@@ -366,7 +366,18 @@ func findReviewFileByCommentID(commentID string, excludePath string) (string, er
 		if identity == excludePath {
 			return nil
 		}
-		if !reviewFileContainsComment(data, commentID) {
+		// Fast path: skip files that don't contain the ID at all.
+		if !bytes.Contains(data, []byte(commentID)) {
+			return nil
+		}
+		var cj CritJSON
+		if err := json.Unmarshal(data, &cj); err != nil {
+			// Malformed review file; warn and skip so a single corrupt
+			// file doesn't abort the scan or silently hide regressions.
+			fmt.Fprintf(os.Stderr, "crit: warning: malformed review JSON at %s: %v\n", identity, err)
+			return nil //nolint:nilerr // intentional skip on parse failure
+		}
+		if !cjContainsCommentID(&cj, commentID) {
 			return nil
 		}
 		if matchPath != "" {
@@ -409,7 +420,9 @@ func findReviewFileByBranch(branch, excludePath string) (string, error) {
 		}
 		var cj CritJSON
 		if err := json.Unmarshal(data, &cj); err != nil {
-			// Malformed review file; skip rather than aborting.
+			// Malformed review file; skip rather than aborting. Warn once
+			// per malformed file so corruption isn't silently invisible.
+			fmt.Fprintf(os.Stderr, "crit: warning: malformed review JSON at %s: %v\n", identity, err)
 			return nil //nolint:nilerr // intentional skip on parse failure
 		}
 		if cj.Branch != branch {
@@ -433,33 +446,6 @@ func findReviewFileByBranch(branch, excludePath string) (string, error) {
 		return "", fmt.Errorf("%w: %q", errReviewFileNotFoundForBranch, branch)
 	}
 	return matchPath, nil
-}
-
-// reviewFileContainsComment does a quick check if a review JSON file contains
-// a comment with the given ID. Uses string search first as a fast path to
-// avoid parsing files that definitely don't contain the ID.
-func reviewFileContainsComment(data []byte, commentID string) bool {
-	// Fast path: if the ID string doesn't appear at all, skip JSON parsing.
-	if !bytes.Contains(data, []byte(commentID)) {
-		return false
-	}
-	var cj CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		return false
-	}
-	for _, c := range cj.ReviewComments {
-		if c.ID == commentID {
-			return true
-		}
-	}
-	for _, cf := range cj.Files {
-		for _, c := range cf.Comments {
-			if c.ID == commentID {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // cjContainsCommentID reports whether the given comment ID exists in the
