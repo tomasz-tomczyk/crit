@@ -18,7 +18,7 @@ func withDaemonFocus(t *testing.T, focus *Focus) {
 func writeReviewFileWithScope(t *testing.T, dir, scope string) {
 	t.Helper()
 	cj := CritJSON{ActiveDiffScope: scope, Files: map[string]CritJSONFile{}}
-	if err := saveCritJSON(filepath.Join(dir, ".crit.json"), cj); err != nil {
+	if err := saveCritJSON(filepath.Join(dir, ".crit"), cj); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -130,7 +130,7 @@ func TestRunComment_StampsScopeFromDaemon_LineLevel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cj, err := loadCritJSON(filepath.Join(dir, ".crit.json"))
+	cj, err := loadCritJSON(filepath.Join(dir, ".crit"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestRunComment_NoStampWithoutDaemonAndDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cj, _ := loadCritJSON(filepath.Join(dir, ".crit.json"))
+	cj, _ := loadCritJSON(filepath.Join(dir, ".crit"))
 	cf := cj.Files["foo.go"]
 	if cf.Comments[0].HeadSHA != "" || cf.Comments[0].DiffScope != "" {
 		t.Errorf("expected no stamping in working-tree mode, got %+v", cf.Comments[0])

@@ -65,7 +65,7 @@ func TestShareSyncIntegration(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(initialCJ, "", "  ")
-	if err := os.WriteFile(filepath.Join(dir, ".crit.json"), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".crit"), data, 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -151,8 +151,8 @@ func TestShareSyncIntegration(t *testing.T) {
 
 	// g) Verify the web reviewer comment was pulled into local .crit.json
 	// (post-v4 .crit.json is a folder; the canonical review payload lives at
-	// .crit.json/review.json).
-	localData, err := os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
+	// .crit/review.json).
+	localData, err := os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
 	if err != nil {
 		t.Fatalf("reading .crit.json: %v", err)
 	}
@@ -337,7 +337,7 @@ func writeTestCritJSON(t *testing.T, dir string, cj CritJSON) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".crit.json"), d, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".crit"), d, 0644); err != nil {
 		t.Fatal(err)
 	}
 }

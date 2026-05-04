@@ -20,20 +20,21 @@ var errReviewFileNotFoundForBranch = errors.New("no review file found for branch
 // stderr Note so the user knows why the cwd-resolved path was used.
 var errReviewFileAmbiguousForBranch = errors.New("multiple review files match branch")
 
-// resolveReviewPath returns the full path to the review file for the current context.
+// resolveReviewPath returns the review identity path for the current context.
+// In v4 the identity is a folder; review.json and snapshots.json live inside.
 // Resolution order:
-//  1. If outputDir is set, return outputDir/.crit.json (explicit override)
+//  1. If outputDir is set, return outputDir/.crit (explicit override)
 //  2. Check daemon registry for running sessions matching this cwd
 //  3. If one daemon matches, use its ReviewPath
 //  4. If multiple daemons match, use the one matching current branch
-//  5. If no daemon found, compute the centralized path: ~/.crit/reviews/<key>.json
+//  5. If no daemon found, compute the centralized path: ~/.crit/reviews/<key>
 func resolveReviewPath(outputDir string) (string, error) {
 	if outputDir != "" {
 		abs, err := filepath.Abs(outputDir)
 		if err != nil {
 			return "", err
 		}
-		return filepath.Join(abs, ".crit.json"), nil
+		return filepath.Join(abs, ".crit"), nil
 	}
 
 	cwd, err := resolvedCWD()
@@ -184,25 +185,67 @@ func writeCritJSON(cj CritJSON, outputDir string) error {
 // in the release after v4-folder-format ships. Tracked in follow-up issue (see
 // plan v4 §"Follow-up issue draft").
 //
-// ensureReviewFolder migrates a v3-era flat-file review (<identity>) into a
-// v4 folder layout (<identity>/review.json, <identity>/snapshots.json).
-// Idempotent and crash-tolerant. No-op when there's nothing to migrate.
+// ensureReviewFolder migrates legacy review-file shapes into the v4 folder
+// layout at <identity>/. It handles three pre-v4 states, all idempotent and
+// crash-tolerant:
+//
+//  1. <identity> is already a folder: no-op (steady state).
+//  2. <identity>.json/ exists as a folder (early-v4 wrong-shape mid-state with
+//     `.json` accidentally kept on the folder name): rename to <identity>/.
+//  3. <identity>.json exists as a flat file (v3 layout): move into
+//     <identity>/review.json, plus any sibling <identity>.json.snapshots.json
+//     sidecar into <identity>/snapshots.json.
+//
+// No-op when there's nothing to migrate.
 func ensureReviewFolder(identity string) error {
-	info, err := os.Stat(identity)
+	if info, err := os.Stat(identity); err == nil {
+		if info.IsDir() {
+			return nil
+		}
+		// Defense-in-depth: a flat file showed up at the v4 identity path
+		// (e.g. an external tool, or a downgrade). Treat as v3-shaped at
+		// this same path and migrate in place.
+		return migrateFlatToFolder(identity, identity)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat review identity: %w", err)
+	}
+
+	// Legacy <identity>.json path (folder or flat). The v4 identity does not
+	// carry the .json extension; both shapes are pre-v4 and need renaming.
+	legacy := identity + ".json"
+	info, err := os.Stat(legacy)
 	switch {
 	case err == nil && info.IsDir():
-		return nil
+		return renameLegacyJSONFolder(legacy, identity)
 	case err == nil && !info.IsDir():
-		return migrateFlatToFolder(identity)
+		return migrateFlatToFolder(legacy, identity)
 	case os.IsNotExist(err):
 		return nil
 	default:
-		return fmt.Errorf("stat review identity: %w", err)
+		return fmt.Errorf("stat legacy review identity: %w", err)
 	}
 }
 
 // MIGRATION-REMOVAL: TODO delete with ensureReviewFolder.
-func migrateFlatToFolder(identity string) error {
+//
+// renameLegacyJSONFolder fixes the early-v4 mid-state where the review folder
+// was created with a stray `.json` extension (`<identity>.json/`). It renames
+// it to the correct `<identity>/`.
+func renameLegacyJSONFolder(legacyFolder, identity string) error {
+	if err := os.Rename(legacyFolder, identity); err != nil {
+		return fmt.Errorf("renaming legacy .json folder: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "crit: renamed legacy .json review folder to %s\n", identity)
+	return nil
+}
+
+// MIGRATION-REMOVAL: TODO delete with ensureReviewFolder.
+//
+// migrateFlatToFolder converts a v3 flat-file review at flatPath into a v4
+// folder at identity, moving any sibling .snapshots.json sidecar inside.
+// flatPath and identity may be equal (legacy in-place migration) or differ
+// (legacy <identity>.json -> v4 <identity>).
+func migrateFlatToFolder(flatPath, identity string) error {
 	tmp := identity + ".crit-migrate.tmp"
 	// A previous crash may have left tmp/ behind. Wipe.
 	_ = os.RemoveAll(tmp)
@@ -211,12 +254,12 @@ func migrateFlatToFolder(identity string) error {
 		return fmt.Errorf("creating migration tmp dir: %w", err)
 	}
 
-	if err := os.Rename(identity, filepath.Join(tmp, "review.json")); err != nil {
+	if err := os.Rename(flatPath, filepath.Join(tmp, "review.json")); err != nil {
 		_ = os.RemoveAll(tmp)
 		return fmt.Errorf("moving review file into folder: %w", err)
 	}
 
-	flatSidecar := identity + ".snapshots.json"
+	flatSidecar := flatPath + ".snapshots.json"
 	if _, err := os.Stat(flatSidecar); err == nil {
 		if err := os.Rename(flatSidecar, filepath.Join(tmp, "snapshots.json")); err != nil {
 			fmt.Fprintf(os.Stderr, "crit: warning: could not move snapshot sidecar during migration: %v\n", err)

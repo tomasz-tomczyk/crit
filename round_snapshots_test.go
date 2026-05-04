@@ -23,11 +23,11 @@ func TestReviewPathsFor(t *testing.T) {
 			wantSnaps:  "/home/u/.crit/reviews/abc/snapshots.json",
 		},
 		{
-			// In-repo identity ends in .crit.json; the folder name is the same string.
-			identity:   "/tmp/proj/.crit.json",
-			wantFolder: "/tmp/proj/.crit.json",
-			wantReview: "/tmp/proj/.crit.json/review.json",
-			wantSnaps:  "/tmp/proj/.crit.json/snapshots.json",
+			// In-repo identity is the .crit folder (no .json extension).
+			identity:   "/tmp/proj/.crit",
+			wantFolder: "/tmp/proj/.crit",
+			wantReview: "/tmp/proj/.crit/review.json",
+			wantSnaps:  "/tmp/proj/.crit/snapshots.json",
 		},
 	}
 	for _, tc := range cases {
@@ -231,7 +231,7 @@ func TestSaveAndLoadCritJSON_FolderLayout(t *testing.T) {
 
 func TestClearReviewFolder_RemovesFolder(t *testing.T) {
 	dir := t.TempDir()
-	identity := filepath.Join(dir, ".crit.json")
+	identity := filepath.Join(dir, ".crit")
 	if err := saveCritJSON(identity, CritJSON{Branch: "main", Files: map[string]CritJSONFile{}}); err != nil {
 		t.Fatal(err)
 	}

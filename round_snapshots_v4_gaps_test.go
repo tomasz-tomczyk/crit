@@ -75,12 +75,79 @@ func TestMigrate_MalformedFlatFile_StillMigrates(t *testing.T) {
 	}
 }
 
+// TestMigrate_LegacyDotJSONFlatFile covers the v3-on-disk shape where the
+// review file lives at <key>.json (with extension) under ~/.crit/reviews/.
+// The v4 identity drops the extension; ensureReviewFolder must detect the
+// sibling flat file and migrate it into <key>/review.json.
+func TestMigrate_LegacyDotJSONFlatFile(t *testing.T) {
+	dir := t.TempDir()
+	identity := filepath.Join(dir, "abc")
+	legacy := identity + ".json"
+	if err := os.WriteFile(legacy, []byte(`{"branch":"v3","files":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// v3 sidecar (unlikely shipped, but the migration handles it).
+	if err := os.WriteFile(legacy+".snapshots.json", []byte(`{"round_snapshots":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureReviewFolder(identity); err != nil {
+		t.Fatalf("migration: %v", err)
+	}
+	info, err := os.Stat(identity)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("v4 identity %s is not a folder: %v", identity, err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Errorf("legacy %s not removed: %v", legacy, err)
+	}
+	cj, err := loadCritJSON(identity)
+	if err != nil {
+		t.Fatalf("loadCritJSON: %v", err)
+	}
+	if cj.Branch != "v3" {
+		t.Errorf("review payload lost: %+v", cj)
+	}
+	if _, err := os.Stat(filepath.Join(identity, "snapshots.json")); err != nil {
+		t.Errorf("sidecar not moved into folder: %v", err)
+	}
+}
+
+// TestMigrate_LegacyDotJSONFolder covers the early-v4 mid-state where the
+// review folder was created with a stray .json extension on its name. The
+// next ensureReviewFolder call must rename <key>.json/ to <key>/.
+func TestMigrate_LegacyDotJSONFolder(t *testing.T) {
+	dir := t.TempDir()
+	identity := filepath.Join(dir, "abc")
+	legacy := identity + ".json"
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "review.json"), []byte(`{"branch":"midstate","files":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureReviewFolder(identity); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Errorf("legacy folder %s still present: %v", legacy, err)
+	}
+	cj, err := loadCritJSON(identity)
+	if err != nil {
+		t.Fatalf("loadCritJSON: %v", err)
+	}
+	if cj.Branch != "midstate" {
+		t.Errorf("review payload lost across folder rename: %+v", cj)
+	}
+}
+
 // TestMigrate_InRepoCritJSON migrates an in-repo /tmp/.../path/.crit.json
 // (the OutputDir-based identity) to the v4 folder layout. Mirrors the
 // real-world path where a user has --output set to a project subdirectory.
 func TestMigrate_InRepoCritJSON(t *testing.T) {
 	dir := t.TempDir()
-	identity := filepath.Join(dir, ".crit.json")
+	identity := filepath.Join(dir, ".crit")
 	if err := os.WriteFile(identity, []byte(`{"branch":"feat","files":{}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +206,7 @@ func TestWriteFiles_EmptyPreservesAttachments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSessionFromFiles: %v", err)
 	}
-	identity := filepath.Join(dir, ".crit.json")
+	identity := filepath.Join(dir, ".crit")
 	s.ReviewFilePath = identity
 	paths := reviewPathsFor(identity)
 
@@ -641,7 +708,7 @@ func TestSession_LoadCritJSON_PostSetSessionIsNoOp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identity := filepath.Join(dir, ".crit.json")
+	identity := filepath.Join(dir, ".crit")
 	s.ReviewFilePath = identity
 
 	// Pre-flag: snapshot some state, then set the flag (simulating

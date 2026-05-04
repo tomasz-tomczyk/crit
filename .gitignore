@@ -5,6 +5,7 @@
 # Review session files (generated at runtime)
 *.comments.json
 *.review.md
+/.crit/
 
 # Dependencies
 node_modules/

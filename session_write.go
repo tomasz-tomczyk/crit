@@ -33,16 +33,17 @@ func (s *Session) scheduleWrite() {
 	})
 }
 
-// critJSONPath returns the path to the review file.
+// critJSONPath returns the review identity path. In v4 the identity is a
+// folder containing review.json and snapshots.json — see reviewPathsFor.
 func (s *Session) critJSONPath() string {
 	if s.OutputDir != "" {
-		return filepath.Join(s.OutputDir, ".crit.json")
+		return filepath.Join(s.OutputDir, ".crit")
 	}
 	if s.ReviewFilePath != "" {
 		return s.ReviewFilePath
 	}
 	// Fallback for tests and backwards compat
-	return filepath.Join(s.RepoRoot, ".crit.json")
+	return filepath.Join(s.RepoRoot, ".crit")
 }
 
 // writeFilesSnapshot holds all session state needed to write the review file,

@@ -853,7 +853,7 @@ func TestReviewFilePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reviewFilePath: %v", err)
 	}
-	want := filepath.Join(home, ".crit", "reviews", "mykey123456.json")
+	want := filepath.Join(home, ".crit", "reviews", "mykey123456")
 	if path != want {
 		t.Errorf("path = %q, want %q", path, want)
 	}

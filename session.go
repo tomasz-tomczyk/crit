@@ -1507,7 +1507,9 @@ func (s *Session) ClearAllComments() {
 	// Reset all file state, drop the review file entry and orphaned phantom entries.
 	filtered := make([]*FileEntry, 0, len(s.Files))
 	for _, f := range s.Files {
-		if filepath.Base(f.Path) == ".crit.json" || f.Orphaned {
+		// Drop the v4 review folder (`.crit`) and the legacy v3 flat file
+		// (`.crit.json`) so they never appear in the file list.
+		if base := filepath.Base(f.Path); base == ".crit" || base == ".crit.json" || f.Orphaned {
 			continue
 		}
 		f.Comments = []Comment{}

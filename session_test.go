@@ -541,7 +541,7 @@ func TestDetectFileType(t *testing.T) {
 
 func TestSession_CritJSONPath_Default(t *testing.T) {
 	s := newTestSession(t)
-	want := filepath.Join(s.RepoRoot, ".crit.json")
+	want := filepath.Join(s.RepoRoot, ".crit")
 	if got := s.critJSONPath(); got != want {
 		t.Errorf("critJSONPath() = %q, want %q", got, want)
 	}
@@ -552,7 +552,7 @@ func TestSession_CritJSONPath_OutputDir(t *testing.T) {
 	outDir := t.TempDir()
 	s.OutputDir = outDir
 
-	want := filepath.Join(outDir, ".crit.json")
+	want := filepath.Join(outDir, ".crit")
 	if got := s.critJSONPath(); got != want {
 		t.Errorf("critJSONPath() = %q, want %q", got, want)
 	}
@@ -568,7 +568,7 @@ func TestSession_WriteFiles_OutputDir(t *testing.T) {
 	s.WriteFiles()
 
 	// Should be written to OutputDir, not RepoRoot
-	outPath := filepath.Join(outDir, ".crit.json")
+	outPath := filepath.Join(outDir, ".crit")
 	data, err := os.ReadFile(reviewPathsFor(outPath).Review)
 	if err != nil {
 		t.Fatalf(".crit.json not written to output dir: %v", err)
@@ -582,9 +582,9 @@ func TestSession_WriteFiles_OutputDir(t *testing.T) {
 	}
 
 	// Should NOT exist in RepoRoot
-	repoPath := filepath.Join(s.RepoRoot, ".crit.json")
-	if _, err := os.Stat(repoPath); !os.IsNotExist(err) {
-		t.Error("expected .crit.json to NOT be written to RepoRoot when OutputDir is set")
+	repoPath := filepath.Join(s.RepoRoot, ".crit")
+	if _, err := os.Stat(reviewPathsFor(repoPath).Review); !os.IsNotExist(err) {
+		t.Error("expected review.json to NOT be written to RepoRoot when OutputDir is set")
 	}
 }
 
@@ -1408,13 +1408,13 @@ func TestSession_WriteFiles_MergesExternalComments(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
 	// WriteFiles should merge, not overwrite
 	s.WriteFiles()
 
 	// Read back .crit.json and verify both comments are present
-	result, _ := os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
+	result, _ := os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
 	var got CritJSON
 	json.Unmarshal(result, &got)
 
@@ -1463,7 +1463,7 @@ func TestSession_MergeExternalCritJSON_NewComment(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
 	changed := s.mergeExternalCritJSON()
 	if !changed {
@@ -1548,7 +1548,7 @@ func TestSession_MergeExternalCritJSON_ClearDetected(t *testing.T) {
 	// Write .crit.json with no comments (simulating crit comment --clear)
 	cj := CritJSON{Branch: "main", ReviewRound: 1, Files: map[string]CritJSONFile{}}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
 	changed := s.mergeExternalCritJSON()
 	if !changed {
@@ -1563,7 +1563,7 @@ func TestSession_MergeExternalCritJSON_ClearDetected(t *testing.T) {
 
 func TestLoadCritJSON_IgnoresStaleShareState(t *testing.T) {
 	dir := t.TempDir()
-	critPath := filepath.Join(dir, ".crit.json")
+	critPath := filepath.Join(dir, ".crit")
 
 	// Write .crit.json with share state for a different file set
 	scope := shareScope([]string{"old-plan.md"})
@@ -1592,7 +1592,7 @@ func TestLoadCritJSON_IgnoresStaleShareState(t *testing.T) {
 
 func TestLoadCritJSON_RestoresMatchingShareState(t *testing.T) {
 	dir := t.TempDir()
-	critPath := filepath.Join(dir, ".crit.json")
+	critPath := filepath.Join(dir, ".crit")
 
 	scope := shareScope([]string{"plan.md"})
 	cj := CritJSON{
@@ -2010,7 +2010,7 @@ func TestSession_MergeExternalCritJSON_SkippedDuringPendingWrite(t *testing.T) {
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	// Touch with different mtime to bypass own-write check
 	time.Sleep(10 * time.Millisecond)
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
 	// Merge should be skipped because a write is pending
 	changed := s.mergeExternalCritJSON()
@@ -2055,7 +2055,7 @@ func TestSession_MergeExternalCritJSON_SyncsResolvedState(t *testing.T) {
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	time.Sleep(10 * time.Millisecond)
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
 	changed := s.mergeExternalCritJSON()
 	if !changed {
@@ -2248,7 +2248,7 @@ func TestSession_MergeExternalCritJSON_SyncsUnresolve(t *testing.T) {
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	time.Sleep(10 * time.Millisecond)
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
 	changed := s.mergeExternalCritJSON()
 	if !changed {
@@ -3066,13 +3066,13 @@ func TestExternalCommentStillMerged(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
 	// WriteFiles should merge the external comment in
 	s.WriteFiles()
 
 	// Read back .crit.json and verify both comments are present
-	result, _ := os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
+	result, _ := os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
 	var got CritJSON
 	json.Unmarshal(result, &got)
 

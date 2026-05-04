@@ -84,7 +84,7 @@ func TestWriteFiles_EmptyDoesNotDeleteSidecar(t *testing.T) {
 	}
 	// Pin the review identity to the test tempdir so this test does not
 	// touch the dev-machine's repo root via the critJSONPath fallback.
-	identity := filepath.Join(dir, ".crit.json")
+	identity := filepath.Join(dir, ".crit")
 	s.ReviewFilePath = identity
 	paths := reviewPathsFor(identity)
 

@@ -28,7 +28,7 @@ func TestPersistActiveDiffScope_RoundTrips(t *testing.T) {
 	if err := s.persistActiveDiffScope("layer"); err != nil {
 		t.Fatal(err)
 	}
-	cj, err := loadCritJSON(filepath.Join(dir, ".crit.json"))
+	cj, err := loadCritJSON(filepath.Join(dir, ".crit"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestPersistActiveDiffScope_RoundTrips(t *testing.T) {
 	if err := s.persistActiveDiffScope(""); err != nil {
 		t.Fatal(err)
 	}
-	cj, _ = loadCritJSON(filepath.Join(dir, ".crit.json"))
+	cj, _ = loadCritJSON(filepath.Join(dir, ".crit"))
 	if cj.ActiveDiffScope != "" {
 		t.Errorf("after persist(\"\"), got %q (should be cleared)", cj.ActiveDiffScope)
 	}
@@ -156,7 +156,7 @@ func TestSetFocus_Range_RebuildsFiles(t *testing.T) {
 	}
 
 	// On-disk ActiveDiffScope was persisted.
-	cj, _ := loadCritJSON(filepath.Join(dir, ".crit.json"))
+	cj, _ := loadCritJSON(filepath.Join(dir, ".crit"))
 	if cj.ActiveDiffScope != "layer" {
 		t.Errorf("disk ActiveDiffScope = %q, want layer", cj.ActiveDiffScope)
 	}
@@ -195,7 +195,7 @@ func TestSetFocus_WorkingTree_ClearsActiveDiffScope(t *testing.T) {
 	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}); err != nil {
 		t.Fatal(err)
 	}
-	cj, _ := loadCritJSON(filepath.Join(dir, ".crit.json"))
+	cj, _ := loadCritJSON(filepath.Join(dir, ".crit"))
 	if cj.ActiveDiffScope != "layer" {
 		t.Fatalf("setup: ActiveDiffScope=%q want layer", cj.ActiveDiffScope)
 	}
@@ -204,7 +204,7 @@ func TestSetFocus_WorkingTree_ClearsActiveDiffScope(t *testing.T) {
 	if err := s.SetFocus(Focus{Kind: FocusWorkingTree}); err != nil {
 		t.Fatal(err)
 	}
-	cj, _ = loadCritJSON(filepath.Join(dir, ".crit.json"))
+	cj, _ = loadCritJSON(filepath.Join(dir, ".crit"))
 	if cj.ActiveDiffScope != "" {
 		t.Errorf("on-disk ActiveDiffScope=%q want empty", cj.ActiveDiffScope)
 	}

@@ -431,7 +431,7 @@ func runServe(args []string) {
 	}
 	if sc.outputDir != "" {
 		abs, _ := filepath.Abs(sc.outputDir)
-		sc.reviewPath = filepath.Join(abs, ".crit.json")
+		sc.reviewPath = filepath.Join(abs, ".crit")
 	} else {
 		sc.reviewPath, _ = reviewFilePath(key)
 	}
@@ -596,6 +596,6 @@ func runServe(args []string) {
 	session.WriteFiles()
 
 	if session.ReviewFilePath != "" {
-		fmt.Fprintf(os.Stderr, "Review file: %s\n", session.ReviewFilePath)
+		fmt.Fprintf(os.Stderr, "Review file: %s\n", reviewPathsFor(session.ReviewFilePath).Review)
 	}
 }

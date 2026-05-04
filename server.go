@@ -1249,13 +1249,16 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	totalComments := sess.TotalCommentCount()
 	newComments := sess.NewCommentCount()
 	unresolvedComments := sess.UnresolvedCommentCount()
-	critJSON := sess.critJSONPath()
+	// In v4 the session identity is a folder (.../<key>/ or .../.crit/); the
+	// agent-facing review payload lives at <identity>/review.json. Surface the
+	// file path, not the folder, so `cat $review_file` works.
+	reviewFile := reviewPathsFor(sess.critJSONPath()).Review
 	prompt := ""
 	if totalComments > 0 && unresolvedComments > 0 {
 		if sess.Mode == "plan" {
 			// Plan mode: concise feedback for the hook workflow.
 			// Claude revises the plan text directly — no need for crit comment or review file instructions.
-			prompt = s.buildPlanFeedback(critJSON)
+			prompt = s.buildPlanFeedback(reviewFile)
 		} else {
 			prompt = fmt.Sprintf(
 				"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
@@ -1265,7 +1268,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 					"Before acting, check each comment's replies array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change. "+
 					"For each comment, reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> \"<explanation>\"`. "+
 					"When done run: `%s`",
-				critJSON, sess.ReinvokeCommand())
+				reviewFile, sess.ReinvokeCommand())
 		}
 	} else if totalComments > 0 && unresolvedComments == 0 {
 		prompt = "All comments are resolved — no changes needed, please proceed."
@@ -1278,7 +1281,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, map[string]any{
 		"status":      "finished",
-		"review_file": critJSON,
+		"review_file": reviewFile,
 		"prompt":      prompt,
 		"approved":    approved,
 	})
@@ -1306,7 +1309,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 
 // buildPlanFeedback formats review feedback for plan mode.
 // Points to the review file and hints at crit-cli skill, without inlining every comment.
-func (s *Server) buildPlanFeedback(critJSON string) string {
+func (s *Server) buildPlanFeedback(reviewFile string) string {
 	// Extract slug from PlanDir (last path component)
 	slug := filepath.Base(s.session.Load().PlanDir)
 	return fmt.Sprintf(
@@ -1315,7 +1318,7 @@ func (s *Server) buildPlanFeedback(critJSON string) string {
 			"Each comment has a scope field: \"line\" for inline comments, \"file\" for file-level, or \"review\" for review-level comments. "+
 			"Read the file, revise the plan to address each comment. "+
 			"To reply to comments, use `crit comment --plan %s --reply-to <id> --author <your-name> \"<explanation>\"`.",
-		critJSON, slug)
+		reviewFile, slug)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -1396,7 +1399,7 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 				json.Unmarshal([]byte(event.Content), &finishData)
 				writeJSON(w, map[string]any{
 					"status":       "finished",
-					"review_file":  sess.critJSONPath(),
+					"review_file":  reviewPathsFor(sess.critJSONPath()).Review,
 					"prompt":       finishData.Prompt,
 					"approved":     finishData.Approved,
 					"next_command": buildNextCommand(s.cliArgs),

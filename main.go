@@ -315,7 +315,7 @@ func runFetch(args []string) {
 
 	if len(fetched.NewComments) == 0 && len(fetched.ReplyUpdates) == 0 {
 		fmt.Println("No new comments.")
-		fmt.Printf("Review file: %s\n", critPath)
+		fmt.Printf("Review file: %s\n", reviewPathsFor(critPath).Review)
 		return
 	}
 
@@ -332,7 +332,7 @@ func runFetch(args []string) {
 		}
 		fmt.Printf("Updated %d comment(s) with %d new reply(ies).\n", len(fetched.ReplyUpdates), replyCount)
 	}
-	fmt.Printf("Review file: %s\n", critPath)
+	fmt.Printf("Review file: %s\n", reviewPathsFor(critPath).Review)
 }
 
 func runUnpublish(args []string) {
@@ -1953,7 +1953,7 @@ func runStatus(args []string) {
 	}
 
 	revExists := false
-	if _, statErr := os.Stat(revPath); statErr == nil {
+	if _, statErr := os.Stat(reviewPathsFor(revPath).Review); statErr == nil {
 		revExists = true
 	}
 
@@ -1969,7 +1969,7 @@ func printStatusJSON(vcsName, branch, revPath string, revExists bool, session *s
 	result := map[string]interface{}{
 		"vcs":                vcsName,
 		"branch":             branch,
-		"review_file":        revPath,
+		"review_file":        reviewPathsFor(revPath).Review,
 		"review_file_exists": revExists,
 	}
 	daemon := map[string]interface{}{"running": false}
@@ -1989,7 +1989,7 @@ func printStatusJSON(vcsName, branch, revPath string, revExists bool, session *s
 }
 
 func addReviewStats(result map[string]interface{}, revPath string) {
-	data, err := os.ReadFile(revPath)
+	data, err := os.ReadFile(reviewPathsFor(revPath).Review)
 	if err != nil {
 		return
 	}
@@ -2012,7 +2012,7 @@ func printStatusHuman(vcsName, branch, revPath string, revExists bool, session *
 	if branch != "" {
 		fmt.Printf("Branch:      %s\n", branch)
 	}
-	fmt.Printf("Review file: %s\n", revPath)
+	fmt.Printf("Review file: %s\n", reviewPathsFor(revPath).Review)
 	if session != nil {
 		fmt.Printf("Daemon:      running (PID %d, port %d)\n", session.PID, session.Port)
 	} else {
@@ -2021,7 +2021,7 @@ func printStatusHuman(vcsName, branch, revPath string, revExists bool, session *
 	if !revExists {
 		return
 	}
-	data, err := os.ReadFile(revPath)
+	data, err := os.ReadFile(reviewPathsFor(revPath).Review)
 	if err != nil {
 		return
 	}
@@ -2136,8 +2136,10 @@ func findStaleReviews(revDir string, days int) []staleReview {
 		name := de.Name()
 
 		if de.IsDir() {
-			// v4 folder-form review (or orphan snapshots-only folder).
-			key := name
+			// MIGRATION-REMOVAL: pre-fix early-v4 folders kept a stray .json
+			// extension on the folder name. Strip it for the session-key
+			// lookup; the standard load path will rename the folder on access.
+			key := strings.TrimSuffix(name, ".json")
 			if activeSessions[key] {
 				continue
 			}

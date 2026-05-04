@@ -313,7 +313,7 @@ func TestRunComment_JSONFlagMixed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setup comment: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(tmp, ".crit.json", "review.json"))
+	data, err := os.ReadFile(filepath.Join(tmp, ".crit", "review.json"))
 	if err != nil {
 		t.Fatalf("read .crit.json: %v", err)
 	}
@@ -962,7 +962,7 @@ func TestDeleteStaleReviews_FolderForm(t *testing.T) {
 
 func TestCleanupOnApproval_RemovesFolderForm(t *testing.T) {
 	dir := t.TempDir()
-	identity := filepath.Join(dir, ".crit.json")
+	identity := filepath.Join(dir, ".crit")
 	if err := saveCritJSON(identity, CritJSON{Branch: "main", Files: map[string]CritJSONFile{}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1174,7 +1174,7 @@ func TestFetch_PrintsReviewFilePath(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			critPath := filepath.Join(tmpDir, ".crit.json")
+			critPath := filepath.Join(tmpDir, ".crit")
 			if err := os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0o644); err != nil {
 				t.Fatal(err)
 			}

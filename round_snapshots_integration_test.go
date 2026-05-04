@@ -29,7 +29,7 @@ func TestRoundSnapshots_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSessionFromFiles: %v", err)
 	}
-	identity := filepath.Join(dir, ".crit.json")
+	identity := filepath.Join(dir, ".crit")
 	s.ReviewFilePath = identity
 
 	// captureBaselineAndPersist already ran in NewSessionFromFiles, but with

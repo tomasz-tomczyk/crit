@@ -44,7 +44,7 @@ func writeCritJSONForTest(t *testing.T, dir string, cj CritJSON) {
 	if err != nil {
 		t.Fatalf("marshaling CritJSON: %v", err)
 	}
-	if err := os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644); err != nil {
+	if err := os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644); err != nil {
 		t.Fatalf("writing .crit.json: %v", err)
 	}
 }
@@ -64,7 +64,7 @@ func TestLoadCommentsForUpsert_ExcludesResolved(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
+	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"plan.md"}, "")
 	if round != 1 {
 		t.Errorf("expected round 1, got %d", round)
 	}
@@ -93,7 +93,7 @@ func TestLoadCommentsForUpsert_SetsExternalID(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, _ := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"main.go"}, "")
+	comments, _ := loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"main.go"}, "")
 	if len(comments) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(comments))
 	}
@@ -120,7 +120,7 @@ func TestLoadCommentsForUpsert_ReviewLevelComments(t *testing.T) {
 	}
 	writeCritJSONForTest(t, dir, cj)
 
-	comments, _ := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
+	comments, _ := loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"plan.md"}, "")
 
 	// Should have 2 comments: 1 file-level + 1 unresolved review-level
 	if len(comments) != 2 {
@@ -414,10 +414,10 @@ func TestLoadCommentsForFiles(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(critJSON, "", "  ")
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
 	// Only load unresolved comments for plan.md (c1 and c2, not c3)
-	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
+	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"plan.md"}, "")
 	if round != 2 {
 		t.Errorf("expected round 2, got %d", round)
 	}
@@ -429,13 +429,13 @@ func TestLoadCommentsForFiles(t *testing.T) {
 	}
 
 	// Load for both files — 3 unresolved (c1, c2, c4), not 5 total
-	comments, _ = loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md", "other.go"}, "")
+	comments, _ = loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"plan.md", "other.go"}, "")
 	if len(comments) != 3 {
 		t.Fatalf("expected 3 unresolved comments, got %d", len(comments))
 	}
 
 	// Load for nonexistent file
-	comments, round = loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"nope.md"}, "")
+	comments, round = loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"nope.md"}, "")
 	if len(comments) != 0 {
 		t.Errorf("expected 0 comments, got %d", len(comments))
 	}
@@ -446,7 +446,7 @@ func TestLoadCommentsForFiles(t *testing.T) {
 
 func TestLoadCommentsForFiles_NoCritJSON(t *testing.T) {
 	dir := t.TempDir()
-	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit.json"), []string{"plan.md"}, "")
+	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"plan.md"}, "")
 	if len(comments) != 0 {
 		t.Errorf("expected 0 comments, got %d", len(comments))
 	}
@@ -459,13 +459,13 @@ func TestPersistShareState(t *testing.T) {
 	dir := t.TempDir()
 
 	// Persist to new .crit.json
-	err := persistShareState(filepath.Join(dir, ".crit.json"), "https://crit.md/r/abc", "tok_123", "")
+	err := persistShareState(filepath.Join(dir, ".crit"), "https://crit.md/r/abc", "tok_123", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Read back and verify
-	data, _ := os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
+	data, _ := os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
 	if cj.ShareURL != "https://crit.md/r/abc" {
@@ -488,16 +488,16 @@ func TestPersistShareState_PreservesExisting(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(initial, "", "  ")
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
 	// Persist share state
-	err := persistShareState(filepath.Join(dir, ".crit.json"), "https://crit.md/r/def", "tok_456", "")
+	err := persistShareState(filepath.Join(dir, ".crit"), "https://crit.md/r/def", "tok_456", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Read back — comments and branch should be preserved
-	data, _ = os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
+	data, _ = os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
 	var cj CritJSON
 	json.Unmarshal(data, &cj)
 	if cj.ShareURL != "https://crit.md/r/def" {
@@ -591,14 +591,14 @@ func TestClearShareState(t *testing.T) {
 		Files:       map[string]CritJSONFile{"plan.md": {Comments: []Comment{{ID: "c1", Body: "test"}}}},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
-	err := clearShareState(filepath.Join(dir, ".crit.json"))
+	err := clearShareState(filepath.Join(dir, ".crit"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	data, _ = os.ReadFile(filepath.Join(dir, ".crit.json", "review.json"))
+	data, _ = os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
 	var cleared CritJSON
 	json.Unmarshal(data, &cleared)
 	if cleared.ShareURL != "" {
@@ -630,7 +630,7 @@ func TestHandleShare_Success(t *testing.T) {
 		},
 	}
 	data, _ := json.Marshal(cj)
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
 	// Mock crit-web server
 	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -703,7 +703,7 @@ func TestHandleShare_OrphanedFileIncluded(t *testing.T) {
 		},
 	}
 	data, _ := json.Marshal(cj)
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit.json", "review.json")), data, 0644)
+	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
 	// Mock crit-web server that captures the payload
 	var receivedPayload map[string]any
@@ -876,7 +876,7 @@ func TestHandleShare_AlreadyShared(t *testing.T) {
 
 func TestLoadExistingShareCfg(t *testing.T) {
 	dir := t.TempDir()
-	critPath := filepath.Join(dir, ".crit.json")
+	critPath := filepath.Join(dir, ".crit")
 
 	// Review file without scope — loads unconditionally
 	cj := CritJSON{
@@ -904,7 +904,7 @@ func TestLoadExistingShareCfg(t *testing.T) {
 
 func TestLoadExistingShareCfg_NoCritJSON(t *testing.T) {
 	dir := t.TempDir()
-	_, ok, err := loadExistingShareCfg(filepath.Join(dir, ".crit.json"), []string{"plan.md"})
+	_, ok, err := loadExistingShareCfg(filepath.Join(dir, ".crit"), []string{"plan.md"})
 	if err != nil {
 		t.Fatalf("missing file should not be an error, got: %v", err)
 	}
@@ -915,7 +915,7 @@ func TestLoadExistingShareCfg_NoCritJSON(t *testing.T) {
 
 func TestLoadExistingShareCfg_NoShareState(t *testing.T) {
 	dir := t.TempDir()
-	critPath := filepath.Join(dir, ".crit.json")
+	critPath := filepath.Join(dir, ".crit")
 	cj := CritJSON{Files: map[string]CritJSONFile{}}
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	os.WriteFile(mustMkdirAll(reviewPathsFor(critPath).Review), data, 0644)
@@ -931,7 +931,7 @@ func TestLoadExistingShareCfg_NoShareState(t *testing.T) {
 
 func TestLoadExistingShareCfg_ScopeMismatch(t *testing.T) {
 	dir := t.TempDir()
-	critPath := filepath.Join(dir, ".crit.json")
+	critPath := filepath.Join(dir, ".crit")
 
 	cj := CritJSON{
 		ShareURL:    "https://crit.md/r/old",
@@ -1648,7 +1648,7 @@ func TestCommentToShareComment(t *testing.T) {
 
 func TestMergeWebComments(t *testing.T) {
 	dir := t.TempDir()
-	critPath := filepath.Join(dir, ".crit.json")
+	critPath := filepath.Join(dir, ".crit")
 
 	// Setup initial review file
 	cj := CritJSON{
@@ -1805,7 +1805,7 @@ func TestFetchWebComments_FingerprintMatchPreservesReplies(t *testing.T) {
 // persists reply updates onto an existing comment matched by ID.
 func TestMergeWebComments_AppliesReplyUpdates(t *testing.T) {
 	dir := t.TempDir()
-	critPath := filepath.Join(dir, ".crit.json")
+	critPath := filepath.Join(dir, ".crit")
 
 	cj := CritJSON{
 		ReviewRound: 1,

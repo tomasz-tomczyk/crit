@@ -253,7 +253,7 @@ func TestShareAttrBackwardsCompatNoUserID(t *testing.T) {
 			}
 		}
 	}`
-	if err := os.WriteFile(filepath.Join(dir, ".crit.json"), []byte(legacy), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".crit"), []byte(legacy), 0644); err != nil {
 		t.Fatal(err)
 	}
 

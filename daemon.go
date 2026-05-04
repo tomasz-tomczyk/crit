@@ -99,13 +99,15 @@ func reviewsDir() (string, error) {
 	return filepath.Join(home, ".crit", "reviews"), nil
 }
 
-// reviewFilePath returns the full path for a review data file.
+// reviewFilePath returns the v4 review identity path: a folder named <key>
+// (no extension) under ~/.crit/reviews/. The actual JSON files live inside as
+// <key>/review.json and <key>/snapshots.json — see reviewPathsFor.
 func reviewFilePath(key string) (string, error) {
 	dir, err := reviewsDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, key+".json"), nil
+	return filepath.Join(dir, key), nil
 }
 
 // writeSessionFile writes a session entry to ~/.crit/sessions/<key>.json.
