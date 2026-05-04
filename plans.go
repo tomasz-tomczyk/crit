@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -186,7 +185,7 @@ func acquirePlanSessionsLock(path string) (*os.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening plan sessions lock: %w", err)
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if err := flockExclusive(f); err != nil {
 		f.Close()
 		return nil, fmt.Errorf("acquiring plan sessions lock: %w", err)
 	}
@@ -195,7 +194,7 @@ func acquirePlanSessionsLock(path string) (*os.File, error) {
 
 // releasePlanSessionsLock releases the advisory lock and closes the file.
 func releasePlanSessionsLock(f *os.File) {
-	syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	_ = funlock(f)
 	f.Close()
 }
 

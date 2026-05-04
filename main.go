@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	qrterminal "github.com/mdp/qrterminal/v3"
@@ -1494,11 +1493,11 @@ func connectOrStartDaemon(key string, args []string, noOpen bool) (sessionEntry,
 
 func installDaemonSignalHandler(pid int) {
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, terminationSignals()...)
 	go func() {
 		<-sigCh
 		if proc, err := os.FindProcess(pid); err == nil {
-			proc.Signal(syscall.SIGTERM)
+			_ = terminateProcess(proc)
 		}
 		os.Exit(0)
 	}()
@@ -1507,7 +1506,7 @@ func installDaemonSignalHandler(pid int) {
 func killDaemonOnApproval(approved bool, pid int) {
 	if approved {
 		if proc, err := os.FindProcess(pid); err == nil {
-			proc.Signal(syscall.SIGTERM)
+			_ = terminateProcess(proc)
 		}
 	}
 }

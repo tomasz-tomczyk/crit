@@ -351,6 +351,12 @@ inputs.crit.url = "github:tomasz-tomczyk/crit";
 
 Grab the latest binary for your platform from [Releases](https://github.com/tomasz-tomczyk/crit/releases).
 
+### Windows
+
+Native Windows: download `crit-windows-amd64.exe` (or `crit-windows-arm64.exe`) from [Releases](https://github.com/tomasz-tomczyk/crit/releases), rename to `crit.exe`, and place it on your `PATH`.
+
+WSL: install the Linux binary as you would on Linux (`go install`, `nix run`, or download `crit-linux-amd64` from Releases). Crit detects WSL and opens URLs in your Windows host browser via `wslview` / `powershell.exe` / `cmd.exe`.
+
 ### Docker (sandboxed agents)
 
 For running crit alongside an AI agent inside a container, with the review UI reachable from your host browser, see [`integrations/docker/`](integrations/docker/). Includes a working `Dockerfile` + `entrypoint.sh` that bridges crit's loopback-bound server via `socat` so `docker -p` forwarding works without changing crit's threat model.

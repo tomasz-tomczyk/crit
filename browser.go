@@ -39,6 +39,13 @@ func browserCommandSpecs(goos, url string, isWSL bool, hasCommand func(string) b
 	switch goos {
 	case "darwin":
 		return []browserCommandSpec{{name: "open", args: []string{url}}}
+	case "windows":
+		// rundll32 url.dll is the most reliable way to open the default
+		// browser on every supported Windows version. cmd /c start works too
+		// but requires careful quoting around URLs containing & or %.
+		return []browserCommandSpec{
+			{name: "rundll32", args: []string{"url.dll,FileProtocolHandler", url}},
+		}
 	case "linux":
 		var specs []browserCommandSpec
 		if isWSL {

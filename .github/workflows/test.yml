@@ -89,6 +89,18 @@ jobs:
           flags: unit
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  unit-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: go test ./...
+
   e2e:
     runs-on: ubuntu-latest
     steps:

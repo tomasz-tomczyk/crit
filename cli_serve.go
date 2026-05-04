@@ -12,7 +12,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 )
 
@@ -442,7 +441,7 @@ func runServe(args []string) {
 		IdleTimeout: 60 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
 	defer stop()
 
 	// Wire the shutdown ctx into the server so background goroutines (agent

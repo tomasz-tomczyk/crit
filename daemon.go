@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -274,8 +273,7 @@ func isDaemonAlive(s sessionEntry) bool {
 	if err != nil {
 		return false
 	}
-	// On Unix, FindProcess always succeeds. Signal 0 checks existence without signaling.
-	if err := proc.Signal(syscall.Signal(0)); err != nil {
+	if !processExists(proc) {
 		return false
 	}
 	// HTTP health probe — ensures the port belongs to our daemon, not a reused PID.
@@ -340,7 +338,7 @@ func acquireSessionLock(key string) (*os.File, error) {
 	deadline := time.Now().Add(5 * time.Second)
 	backoff := 100 * time.Millisecond
 	for time.Now().Before(deadline) {
-		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err = flockExclusiveNB(f)
 		if err == nil {
 			return f, nil
 		}
@@ -355,7 +353,7 @@ func acquireSessionLock(key string) (*os.File, error) {
 
 // releaseSessionLock unlocks, closes, and removes the lock file.
 func releaseSessionLock(f *os.File) {
-	syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	_ = funlock(f)
 	name := f.Name()
 	f.Close()
 	os.Remove(name)
@@ -581,12 +579,6 @@ func daemonFatal(pipe *os.File, format string, args ...interface{}) {
 	os.Exit(1)
 }
 
-func daemonSysProcAttr() *syscall.SysProcAttr {
-	return &syscall.SysProcAttr{
-		Setsid: true, // new session, fully detached from controlling terminal
-	}
-}
-
 // stopDaemon stops the daemon for the given session key.
 func stopDaemon(key string) error {
 	entry, err := readSessionFile(key)
@@ -606,21 +598,20 @@ func stopDaemon(key string) error {
 		return nil //nolint:nilerr // process not found, session already cleaned up
 	}
 
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
+	if err := terminateProcess(proc); err != nil {
 		removeSessionFile(key)
 		return nil //nolint:nilerr // process already gone, cleanup is sufficient
 	}
 
-	// Poll for process exit, escalate to SIGKILL if needed
+	// Poll for process exit, escalate to Kill if still alive after the deadline.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
-		if err := proc.Signal(syscall.Signal(0)); err != nil {
-			break // process is gone
+		if !processExists(proc) {
+			break
 		}
 	}
-	// Still alive? Force kill.
-	if err := proc.Signal(syscall.Signal(0)); err == nil {
+	if processExists(proc) {
 		proc.Kill()
 	}
 	removeSessionFile(key)

@@ -19,6 +19,8 @@ build-all:
 	GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/crit-darwin-amd64 .
 	GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/crit-linux-amd64 .
 	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/crit-linux-arm64 .
+	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/crit-windows-amd64.exe .
+	GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/crit-windows-arm64.exe .
 
 update-deps:
 	bun install
