@@ -316,3 +316,29 @@ func TestRoundtrip_FreshClonePicksUpAllComments(t *testing.T) {
 		t.Fatalf("want exactly 1 new remote from B's push, got delta %d", delta)
 	}
 }
+
+func TestRoundtrip_BranchSwitchPreservesState(t *testing.T) {
+	a := newRoundtripEnv(t)
+	b := newRoundtripEnv(t)
+
+	a.runCrit("comment", "sample.go:19", "comment on A")
+	a.runCrit("push")
+	aIDsBefore := commentIDs(a.listRemoteComments())
+
+	b.runCrit("comment", "sample.go:19", "comment on B")
+	b.runCrit("push")
+
+	// Re-pull on A — A's review file should be unchanged.
+	a.runCrit("pull")
+	aIDsAfter := commentIDs(a.listRemoteComments())
+	if !sameIDs(aIDsBefore, aIDsAfter) {
+		t.Errorf("A's remote comments changed: %v -> %v", aIDsBefore, aIDsAfter)
+	}
+	aLocals := a.allLocalComments()
+	if len(aLocals) != 1 {
+		t.Fatalf("A: want 1 local, got %d", len(aLocals))
+	}
+	if !strings.Contains(aLocals[0].Comment.Body, "comment on A") {
+		t.Errorf("A's local comment body wrong: %q", aLocals[0].Comment.Body)
+	}
+}
