@@ -221,3 +221,58 @@ func TestRoundtrip_ReplyToRemoteComment(t *testing.T) {
 		}
 	}
 }
+
+func TestRoundtrip_InterleavedReplies(t *testing.T) {
+	t.Skip("blocked on issue #442: crit push skips local replies whose parent has a non-zero github_id (also reproduces when parent's github_id was assigned by our own push)")
+	e := newRoundtripEnv(t)
+
+	// Local root, push it.
+	e.runCrit("comment", "sample.go:19", "what about edge case X?")
+	e.runCrit("push")
+
+	locals := e.allLocalComments()
+	if len(locals) != 1 || locals[0].Comment.GitHubID == 0 {
+		t.Fatalf("post-push state wrong: %+v", locals)
+	}
+	rootGHID := locals[0].Comment.GitHubID
+
+	// Reviewer replies on GitHub.
+	remoteReplyID := e.postRemoteReply(rootGHID, "good point, here's why")
+
+	// User pulls, then replies locally.
+	e.runCrit("pull")
+	rootLocal := e.allLocalComments()[0].Comment
+	if len(rootLocal.Replies) != 1 {
+		t.Fatalf("after pull: want 1 reply, got %d", len(rootLocal.Replies))
+	}
+	if rootLocal.Replies[0].GitHubID != remoteReplyID {
+		t.Errorf("imported reply ID mismatch: want %d got %d",
+			remoteReplyID, rootLocal.Replies[0].GitHubID)
+	}
+
+	e.runCrit("comment", "--reply-to", rootLocal.ID, "got it, I'll fix")
+
+	// Push.
+	remoteBefore := e.listRemoteComments()
+	e.runCrit("push")
+	remoteAfter := e.listRemoteComments()
+	if len(remoteAfter)-len(remoteBefore) != 1 {
+		t.Fatalf("want 1 new remote, got delta %d:\n%s",
+			len(remoteAfter)-len(remoteBefore), dumpRemote(remoteAfter))
+	}
+
+	// Final pull — three items (root + 2 replies), all with non-zero GitHubIDs.
+	e.runCrit("pull")
+	final := e.allLocalComments()
+	if len(final) != 1 {
+		t.Fatalf("want 1 root, got %d", len(final))
+	}
+	if got := len(final[0].Comment.Replies); got != 2 {
+		t.Fatalf("want 2 replies, got %d", got)
+	}
+	for _, r := range final[0].Comment.Replies {
+		if r.GitHubID == 0 {
+			t.Errorf("reply missing GitHubID: %+v", r)
+		}
+	}
+}
