@@ -201,9 +201,15 @@ func (s *Server) WaitBackground(timeout time.Duration) bool {
 //
 // Also flips the session's sessionStarted flag so Session.loadCritJSON can
 // enforce its pre-SetSession-only lock contract (see plan v4 §Lock discipline).
+//
+// Ordering matters: sessionStarted MUST be stored BEFORE the session pointer
+// is published. After s.session.Store, withReady (and any goroutine that
+// observes the session pointer) can call session methods immediately. If
+// sessionStarted were still 0 at that moment, a code path that reaches
+// loadCritJSON would falsely believe it's pre-SetSession and skip the guard.
 func (s *Server) SetSession(session *Session) {
 	if session != nil {
-		defer session.sessionStarted.Store(1)
+		session.sessionStarted.Store(1)
 	}
 	s.session.Store(session)
 }

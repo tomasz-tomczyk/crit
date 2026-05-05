@@ -1685,15 +1685,28 @@ func reportLoadCritJSONLockViolation() {
 //
 // Lock contract: PRE-SETSESSION ONLY. Safe to call only from the constructor
 // path (NewSessionFromFiles, applySessionOverrides, etc.) before any goroutine
-// reads s.RoundSnapshots / s.reviewComments / etc. Callers that need to reload
-// at runtime must extend this to take s.mu.Lock() first. See plan v4
-// §Lock discipline.
+// reads s.RoundSnapshots / s.reviewComments / etc. Runtime callers that hold
+// s.mu.Lock() must use loadCritJSONLocked instead. See plan v4 §Lock discipline.
 func (s *Session) loadCritJSON() {
 	if s.sessionStarted.Load() != 0 {
 		reportLoadCritJSONLockViolation()
 		return
 	}
+	s.loadCritJSONLocked()
+}
 
+// loadCritJSONLocked is the runtime variant of loadCritJSON. It performs the
+// same disk read + in-memory restore but skips the pre-SetSession guard so
+// runtime code paths can reload comments after a state change (e.g. SetFocus
+// rebuilds s.Files and needs to repopulate per-file Comments from disk).
+//
+// Lock contract: caller MUST hold s.mu.Lock() (writer lock). The function
+// mutates s.Files[*].Comments, s.reviewComments, s.ReviewRound,
+// s.sharedURL/deleteToken/shareScope, and s.lastCritJSONMtime, all of which
+// race with concurrent readers under s.mu.RLock(). The pre-SetSession path
+// (loadCritJSON) gets away without the lock because no other goroutine has
+// observed the session yet.
+func (s *Session) loadCritJSONLocked() {
 	identity := s.critJSONPath()
 
 	// MIGRATION-REMOVAL: trigger v3->v4 folder migration on read.

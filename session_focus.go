@@ -226,10 +226,12 @@ func (s *Session) SetFocus(f Focus) error {
 	// buildFilesForFocus / buildFilesForWorkingTree both produce empty
 	// Comments slices, so without this step the next scheduleWrite would
 	// silently overwrite the disk state (including any re-anchor work
-	// done above). loadCritJSON() walks s.Files and restores matching
-	// paths' comments.
+	// done above). loadCritJSONLocked walks s.Files and restores matching
+	// paths' comments. We use the *Locked variant because we hold s.mu —
+	// the public loadCritJSON enforces a pre-SetSession-only guard that
+	// would silently no-op this runtime reload.
 	s.mu.Lock()
-	s.loadCritJSON()
+	s.loadCritJSONLocked()
 	s.mu.Unlock()
 
 	if err := s.persistActiveDiffScope(string(f.DiffScope)); err != nil {
