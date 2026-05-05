@@ -603,6 +603,12 @@ func verifyAndCorrectPosition(newLines []string, anchor string, lcsStart, lcsEnd
 		if candidate == anchor {
 			return lcsStart, lcsStart + anchorLen - 1, 0
 		}
+		// Edited-but-recognizable: if LCS predicts the same row and the line
+		// is still close enough to the original, treat as anchored. Avoids
+		// false drift when text was appended/trimmed/tweaked in place.
+		if anchorSimilar(candidate, anchor) {
+			return lcsStart, lcsStart + anchorLen - 1, 0
+		}
 	}
 
 	// LCS position doesn't match — search the entire file.
@@ -613,6 +619,78 @@ func verifyAndCorrectPosition(newLines []string, anchor string, lcsStart, lcsEnd
 
 	// Anchor not found anywhere — mark drifted, keep LCS position.
 	return lcsStart, lcsEnd, 1
+}
+
+// anchorSimilar reports whether candidate and anchor are close enough to
+// treat the comment as still anchored. Catches in-place edits (appended,
+// trimmed, or lightly reworded text) that exact match would flag as drifted.
+func anchorSimilar(candidate, anchor string) bool {
+	a := strings.TrimSpace(candidate)
+	b := strings.TrimSpace(anchor)
+	if a == b {
+		return true
+	}
+	if a == "" || b == "" {
+		return false
+	}
+	// Common case: text was appended to or trimmed from the anchor line.
+	if strings.Contains(a, b) || strings.Contains(b, a) {
+		return true
+	}
+	return levenshteinRatio(a, b) >= 0.7
+}
+
+// levenshteinRatio returns 1 - (distance / maxLen), clamped to [0, 1].
+func levenshteinRatio(a, b string) float64 {
+	ar, br := []rune(a), []rune(b)
+	la, lb := len(ar), len(br)
+	if la == 0 && lb == 0 {
+		return 1
+	}
+	maxLen := la
+	if lb > maxLen {
+		maxLen = lb
+	}
+	d := levenshtein(ar, br)
+	return 1 - float64(d)/float64(maxLen)
+}
+
+// levenshtein computes edit distance between two rune slices using a
+// rolling two-row buffer. O(la*lb) time, O(min(la,lb)) space.
+func levenshtein(a, b []rune) int {
+	if len(a) < len(b) {
+		a, b = b, a
+	}
+	if len(b) == 0 {
+		return len(a)
+	}
+	prev := make([]int, len(b)+1)
+	curr := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		curr[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			del := prev[j] + 1
+			ins := curr[j-1] + 1
+			sub := prev[j-1] + cost
+			m := del
+			if ins < m {
+				m = ins
+			}
+			if sub < m {
+				m = sub
+			}
+			curr[j] = m
+		}
+		prev, curr = curr, prev
+	}
+	return prev[len(b)]
 }
 
 // remapLines translates old start/end line numbers through the LCS line map,
