@@ -2058,12 +2058,11 @@ func runStatus(args []string) {
 		branch = vcs.CurrentBranch()
 	}
 
-	sessions, keys := listSessionsForCWD(cwd)
+	sessions, _ := listSessionsForCWD(cwd)
 	var matchedSession *sessionEntry
 	for i, s := range sessions {
 		if s.Branch == branch || (branch == "" && len(sessions) == 1) {
 			matchedSession = &sessions[i]
-			_ = keys[i]
 			break
 		}
 	}

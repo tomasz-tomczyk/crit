@@ -383,14 +383,6 @@ type webComment struct {
 	Replies           []webReply `json:"replies"`
 }
 
-// buildLocalFingerprints returns a set of body+file+line fingerprints for all
-// local comments. Used to deduplicate web-authored comments (which have no
-// ExternalID) on repeated shares.
-func buildLocalFingerprints(cj CritJSON) map[string]bool {
-	fps, _ := buildLocalFingerprintIndex(cj)
-	return fps
-}
-
 // buildLocalFingerprintIndex returns both the fingerprint set and a map from
 // fingerprint to local comment ID. The ID map lets callers look up the local
 // comment when a web comment matches by fingerprint (so replies can be merged

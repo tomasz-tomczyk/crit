@@ -1704,7 +1704,7 @@ func TestBuildLocalFingerprints(t *testing.T) {
 				}},
 			},
 		}
-		fps := buildLocalFingerprints(cj)
+		fps, _ := buildLocalFingerprintIndex(cj)
 		key := "fix this|plan.md|5|10"
 		if !fps[key] {
 			t.Errorf("expected fingerprint %q in set", key)
@@ -1719,7 +1719,7 @@ func TestBuildLocalFingerprints(t *testing.T) {
 			Files:          map[string]CritJSONFile{},
 			ReviewComments: []Comment{{ID: "r1", Body: "overall note"}},
 		}
-		fps := buildLocalFingerprints(cj)
+		fps, _ := buildLocalFingerprintIndex(cj)
 		key := "overall note||0|0"
 		if !fps[key] {
 			t.Errorf("expected fingerprint %q in set", key)
@@ -1735,7 +1735,7 @@ func TestBuildLocalFingerprints(t *testing.T) {
 			},
 			ReviewComments: []Comment{{ID: "r1", Body: "looks good"}},
 		}
-		fps := buildLocalFingerprints(cj)
+		fps, _ := buildLocalFingerprintIndex(cj)
 		if len(fps) != 2 {
 			t.Errorf("expected 2 fingerprints, got %d", len(fps))
 		}
@@ -1743,7 +1743,7 @@ func TestBuildLocalFingerprints(t *testing.T) {
 
 	t.Run("empty CritJSON", func(t *testing.T) {
 		cj := CritJSON{Files: map[string]CritJSONFile{}}
-		fps := buildLocalFingerprints(cj)
+		fps, _ := buildLocalFingerprintIndex(cj)
 		if len(fps) != 0 {
 			t.Errorf("expected 0 fingerprints, got %d", len(fps))
 		}

@@ -336,6 +336,10 @@ func applySessionOverrides(session *Session, sc *serverConfig) {
 func bindListener(port int) (net.Listener, error) {
 	var listener net.Listener
 	var err error
+	// Retry only makes sense for an explicit port (port != 0): a previous
+	// daemon may still be releasing the socket, so brief backoff lets it
+	// drain. For an ephemeral port (port == 0) the OS picks a free port —
+	// failure means something catastrophic, so break immediately.
 	for attempt := 0; attempt < 3; attempt++ {
 		listener, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 		if err == nil {

@@ -66,15 +66,12 @@ func installAiderAt(cwd, home string, force bool) error {
 		return fmt.Errorf("reading embedded aider conventions: %w", err)
 	}
 
-	if !force {
-		if _, statErr := os.Stat(paths.conventionsDest); statErr == nil {
-			fmt.Printf("  Skipped:   %s (already exists, use --force to overwrite)\n", paths.conventionsDest)
-		} else {
-			if err := atomicWriteFile(paths.conventionsDest, data, 0o644); err != nil {
-				return fmt.Errorf("writing %s: %w", paths.conventionsDest, err)
-			}
-			fmt.Printf("  Installed: %s\n", paths.conventionsDest)
-		}
+	conventionsExists := false
+	if _, statErr := os.Stat(paths.conventionsDest); statErr == nil {
+		conventionsExists = true
+	}
+	if conventionsExists && !force {
+		fmt.Printf("  Skipped:   %s (already exists, use --force to overwrite)\n", paths.conventionsDest)
 	} else {
 		if err := atomicWriteFile(paths.conventionsDest, data, 0o644); err != nil {
 			return fmt.Errorf("writing %s: %w", paths.conventionsDest, err)

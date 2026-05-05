@@ -12,7 +12,25 @@ import (
 )
 
 func runInstall(args []string) {
-	if len(args) < 1 {
+	target := ""
+	force := false
+	for _, a := range args {
+		switch {
+		case a == "--force" || a == "-f":
+			force = true
+		case strings.HasPrefix(a, "-"):
+			fmt.Fprintf(os.Stderr, "Unknown flag: %s\n", a)
+			os.Exit(1)
+		default:
+			if target != "" {
+				fmt.Fprintf(os.Stderr, "Error: only one agent name allowed (got %q and %q)\n", target, a)
+				os.Exit(1)
+			}
+			target = a
+		}
+	}
+
+	if target == "" {
 		fmt.Fprintln(os.Stderr, "Usage: crit install <agent>")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Available agents:")
@@ -23,14 +41,6 @@ func runInstall(args []string) {
 		os.Exit(1)
 	}
 
-	force := false
-	for _, arg := range args[1:] {
-		if arg == "--force" || arg == "-f" {
-			force = true
-		}
-	}
-
-	target := args[0]
 	if target == "all" {
 		cwd := mustGetwd()
 		home, _ := os.UserHomeDir()
@@ -266,11 +276,7 @@ func installOneFile(f integration, dest string, force bool) {
 		fmt.Fprintf(os.Stderr, "Error reading embedded file %s: %v\n", f.source, err)
 		os.Exit(1)
 	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating directory %s: %v\n", filepath.Dir(dest), err)
-		os.Exit(1)
-	}
-	if err := os.WriteFile(dest, data, 0o644); err != nil {
+	if err := atomicWriteFile(dest, data, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", dest, err)
 		os.Exit(1)
 	}
