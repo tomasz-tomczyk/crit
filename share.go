@@ -374,6 +374,7 @@ type webComment struct {
 	EndLine           int        `json:"end_line"`
 	ReviewRound       int        `json:"review_round"`
 	Resolved          bool       `json:"resolved"`
+	ResolvedRound     int        `json:"resolved_round"`
 	ExternalID        string     `json:"external_id"`
 	AuthorDisplayName string     `json:"author_display_name"`
 	AuthorIdentity    string     `json:"author_identity"`

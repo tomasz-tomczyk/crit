@@ -64,10 +64,7 @@ func TestShareSyncIntegration(t *testing.T) {
 			},
 		},
 	}
-	data, _ := json.MarshalIndent(initialCJ, "", "  ")
-	if err := os.WriteFile(filepath.Join(dir, ".crit"), data, 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeTestCritJSON(t, dir, initialCJ)
 
 	// b) Share to local crit-web (first share = POST, creates review)
 	cmd := exec.Command(binary, "share", "--share-url", baseURL, "--output", dir, "plan.md")
@@ -337,7 +334,11 @@ func writeTestCritJSON(t *testing.T, dir string, cj CritJSON) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".crit"), d, 0644); err != nil {
+	identity := filepath.Join(dir, ".crit")
+	if err := os.MkdirAll(identity, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(identity, "review.json"), d, 0644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1682,5 +1683,135 @@ func TestShareSyncFetchRepliesOnExistingComments(t *testing.T) {
 	}
 	if !replyFound {
 		t.Errorf("expected reply 'web reply to local comment' on comment c1, got replies: %+v", localComment.Replies)
+	}
+}
+
+// seedResolve toggles the resolved state of a comment via the test-only
+// seed-resolve endpoint and returns the resolved_round from the response.
+func seedResolve(t *testing.T, baseURL, token, commentID string, resolved bool) (bool, int) {
+	t.Helper()
+	payload, _ := json.Marshal(map[string]any{"resolved": resolved})
+	resp, err := http.Post(
+		baseURL+"/api/reviews/"+token+"/seed-resolve/"+commentID,
+		"application/json",
+		bytes.NewReader(payload),
+	)
+	if err != nil {
+		t.Fatalf("seed-resolve failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("seed-resolve returned %d", resp.StatusCode)
+	}
+	var result struct {
+		Resolved      bool `json:"resolved"`
+		ResolvedRound int  `json:"resolved_round"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decoding seed-resolve response: %v", err)
+	}
+	return result.Resolved, result.ResolvedRound
+}
+
+// TestShareSyncResolvedRoundMapping verifies that crit-web stamps resolved_round
+// with the review's current review_round on resolve, clears it on unresolve,
+// and that both fields round-trip through the public API that crit reads.
+func TestShareSyncResolvedRoundMapping(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Comments: []Comment{
+					{ID: "c1", StartLine: 3, EndLine: 3, Body: "carry-forward", Scope: "line",
+						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+				},
+			},
+		},
+	})
+
+	// First share: review_round = 1 in crit-web.
+	output := critShareCmd(t, binary, baseURL, dir, "plan.md")
+	logReview(t, output)
+	token := extractToken(t, output)
+
+	// Bump to round 2 by re-sharing with a content change.
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1 (revised)\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	output2 := critShareCmd(t, binary, baseURL, dir, "plan.md")
+	if !strings.Contains(output2, "Updated (round 2)") {
+		t.Fatalf("expected round 2, got: %s", output2)
+	}
+
+	// Web reviewer adds a fresh comment in round 2.
+	commentID := seedCommentGetID(t, baseURL, token, "plan.md", "needs detail", 3, 3)
+
+	// Unresolved → resolved_round must be absent (zero) in the API response.
+	beforeComments := commentsFromAPI(t, baseURL, token)
+	var before *webComment
+	for i, c := range beforeComments {
+		if c.Body == "needs detail" {
+			before = &beforeComments[i]
+			break
+		}
+	}
+	if before == nil {
+		t.Fatal("seeded comment not found in API response")
+	}
+	if before.Resolved || before.ResolvedRound != 0 {
+		t.Errorf("pre-resolve: expected resolved=false, resolved_round=0; got resolved=%v, resolved_round=%d",
+			before.Resolved, before.ResolvedRound)
+	}
+
+	// Resolve via seed endpoint → response should reflect round 2.
+	resolved, round := seedResolve(t, baseURL, token, commentID, true)
+	if !resolved || round != 2 {
+		t.Errorf("seed-resolve(true): got resolved=%v, resolved_round=%d; want true, 2", resolved, round)
+	}
+
+	// Public GET must agree.
+	afterResolve := commentsFromAPI(t, baseURL, token)
+	var resolvedComment *webComment
+	for i, c := range afterResolve {
+		if c.Body == "needs detail" {
+			resolvedComment = &afterResolve[i]
+			break
+		}
+	}
+	if resolvedComment == nil {
+		t.Fatal("resolved comment not found in API response")
+	}
+	if !resolvedComment.Resolved || resolvedComment.ResolvedRound != 2 {
+		t.Errorf("after resolve: got resolved=%v, resolved_round=%d; want true, 2",
+			resolvedComment.Resolved, resolvedComment.ResolvedRound)
+	}
+
+	// Unresolve → resolved_round cleared.
+	resolved, round = seedResolve(t, baseURL, token, commentID, false)
+	if resolved || round != 0 {
+		t.Errorf("seed-resolve(false): got resolved=%v, resolved_round=%d; want false, 0", resolved, round)
+	}
+
+	afterUnresolve := commentsFromAPI(t, baseURL, token)
+	var unresolvedComment *webComment
+	for i, c := range afterUnresolve {
+		if c.Body == "needs detail" {
+			unresolvedComment = &afterUnresolve[i]
+			break
+		}
+	}
+	if unresolvedComment == nil {
+		t.Fatal("unresolved comment not found in API response")
+	}
+	if unresolvedComment.Resolved || unresolvedComment.ResolvedRound != 0 {
+		t.Errorf("after unresolve: got resolved=%v, resolved_round=%d; want false, 0",
+			unresolvedComment.Resolved, unresolvedComment.ResolvedRound)
 	}
 }
