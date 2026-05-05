@@ -648,10 +648,11 @@ func serveFileAtRound(w http.ResponseWriter, r *http.Request, session *Session, 
 		return true
 	}
 	resp := map[string]any{
-		"path":    path,
-		"round":   round,
-		"content": rs.Content,
-		"status":  rs.Status,
+		"path":     path,
+		"round":    round,
+		"content":  rs.Content,
+		"status":   rs.Status,
+		"position": rs.Position,
 	}
 	if hasPrev {
 		resp["previous_content"] = prev.Content

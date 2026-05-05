@@ -12,8 +12,13 @@ import (
 // file. Agent tooling that reads review.json must remain insulated from the
 // (potentially large) per-round bodies.
 type RoundSnapshot struct {
-	Content    string    `json:"content"`
-	Status     string    `json:"status,omitempty"`
+	Content string `json:"content"`
+	Status  string `json:"status,omitempty"`
+	// Position is the file's index in Session.Files at capture time. It pins
+	// display order at this round so the timeline can render rounds in their
+	// original layout even if the session-level file list reorders later.
+	// Snapshots persisted before this field landed read back as 0.
+	Position   int       `json:"position"`
 	CapturedAt time.Time `json:"captured_at"`
 }
 
@@ -34,7 +39,7 @@ func (s *Session) captureRoundSnapshot(round int) {
 		s.RoundSnapshots = make(map[string]map[int]RoundSnapshot)
 	}
 	now := time.Now().UTC()
-	for _, f := range s.Files {
+	for i, f := range s.Files {
 		if f == nil || f.Lazy || f.Status == "deleted" {
 			continue
 		}
@@ -50,6 +55,7 @@ func (s *Session) captureRoundSnapshot(round int) {
 		byRound[round] = RoundSnapshot{
 			Content:    f.Content,
 			Status:     f.Status,
+			Position:   i,
 			CapturedAt: now,
 		}
 	}
