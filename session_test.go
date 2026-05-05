@@ -128,6 +128,224 @@ func TestSession_DeleteComment_NotFound(t *testing.T) {
 	}
 }
 
+// TestSession_DeleteComment_WithGitHubID_QueuesPendingDelete verifies that
+// deleting a pushed comment splices it out AND records its GitHub ID so the
+// next `crit push` can issue DELETE upstream.
+func TestSession_DeleteComment_WithGitHubID_QueuesPendingDelete(t *testing.T) {
+	s := newTestSession(t)
+	c, _ := s.AddComment("plan.md", 1, 1, "", "pushed", "", "", "")
+	// Stamp a GitHubID directly to simulate a previously-pushed comment.
+	s.mu.Lock()
+	for _, f := range s.Files {
+		for i := range f.Comments {
+			if f.Comments[i].ID == c.ID {
+				f.Comments[i].GitHubID = 12345
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	if !s.DeleteComment("plan.md", c.ID) {
+		t.Fatal("DeleteComment failed")
+	}
+	if len(s.GetComments("plan.md")) != 0 {
+		t.Error("comment should be removed from in-memory list")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.pendingGitHubDeletes) != 1 || s.pendingGitHubDeletes[0] != 12345 {
+		t.Errorf("pendingGitHubDeletes = %v, want [12345]", s.pendingGitHubDeletes)
+	}
+}
+
+// TestSession_DeleteComment_WithoutGitHubID_NoPending verifies that deleting
+// a comment that was never pushed does not pollute the pending-deletes list.
+func TestSession_DeleteComment_WithoutGitHubID_NoPending(t *testing.T) {
+	s := newTestSession(t)
+	c, _ := s.AddComment("plan.md", 1, 1, "", "local-only", "", "", "")
+	if !s.DeleteComment("plan.md", c.ID) {
+		t.Fatal("DeleteComment failed")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.pendingGitHubDeletes) != 0 {
+		t.Errorf("pendingGitHubDeletes leaked: %v", s.pendingGitHubDeletes)
+	}
+}
+
+// TestSession_DeleteComment_PendingDeleteIsIdempotent ensures duplicate
+// DELETE intents are not appended (a no-op double-delete from a flaky client
+// must not balloon the list).
+func TestSession_DeleteComment_PendingDeleteIsIdempotent(t *testing.T) {
+	s := newTestSession(t)
+	s.mu.Lock()
+	s.appendPendingGHDelete(99)
+	s.appendPendingGHDelete(99)
+	s.appendPendingGHDelete(99)
+	got := append([]int64{}, s.pendingGitHubDeletes...)
+	s.mu.Unlock()
+	if len(got) != 1 || got[0] != 99 {
+		t.Errorf("appendPendingGHDelete not idempotent: %v", got)
+	}
+}
+
+// TestSession_DeleteReply_WithGitHubID_QueuesPendingDelete asserts that
+// deleting a pushed reply queues its GitHub ID (replies share the same
+// /pulls/comments/{id} endpoint as root comments).
+func TestSession_DeleteReply_WithGitHubID_QueuesPendingDelete(t *testing.T) {
+	s := newTestSession(t)
+	c, _ := s.AddComment("plan.md", 1, 1, "", "parent", "", "", "")
+	r, _ := s.AddReply("plan.md", c.ID, "reply body", "", "")
+	s.mu.Lock()
+	for _, f := range s.Files {
+		for i := range f.Comments {
+			if f.Comments[i].ID == c.ID {
+				for j := range f.Comments[i].Replies {
+					if f.Comments[i].Replies[j].ID == r.ID {
+						f.Comments[i].Replies[j].GitHubID = 7777
+					}
+				}
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	if !s.DeleteReply("plan.md", c.ID, r.ID) {
+		t.Fatal("DeleteReply failed")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.pendingGitHubDeletes) != 1 || s.pendingGitHubDeletes[0] != 7777 {
+		t.Errorf("pendingGitHubDeletes = %v, want [7777]", s.pendingGitHubDeletes)
+	}
+}
+
+// TestSession_PendingGHDeletes_NotResurrectedAfterPushDrain regresses the
+// daemon-vs-push race for issue #449: a separate `crit push` process drains
+// queued GitHub-delete IDs by writing review.json with an empty
+// PendingGitHubDeletes. A subsequent in-memory write from the daemon must NOT
+// resurrect those IDs.
+func TestSession_PendingGHDeletes_NotResurrectedAfterPushDrain(t *testing.T) {
+	s := newTestSession(t)
+
+	// Pre-existing comment so the file (and review.json) stays non-empty
+	// after we delete the pushed one.
+	s.AddComment("plan.md", 3, 3, "", "keep me", "", "", "")
+
+	// 1. Queue a delete in-memory (simulates user deleting a pushed comment).
+	c, _ := s.AddComment("plan.md", 1, 1, "", "pushed", "", "", "")
+	s.mu.Lock()
+	for _, f := range s.Files {
+		for i := range f.Comments {
+			if f.Comments[i].ID == c.ID {
+				f.Comments[i].GitHubID = 12345
+			}
+		}
+	}
+	s.mu.Unlock()
+	if !s.DeleteComment("plan.md", c.ID) {
+		t.Fatal("DeleteComment failed")
+	}
+
+	// 2. First daemon write — flushes the queued delete to disk and updates
+	//    lastLoadedPendingGHDeletes accordingly.
+	flushWrites(s)
+	s.WriteFiles()
+
+	reviewPath := reviewPathsFor(s.critJSONPath()).Review
+	data, err := os.ReadFile(reviewPath)
+	if err != nil {
+		t.Fatalf("read review: %v", err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatal(err)
+	}
+	if len(cj.PendingGitHubDeletes) != 1 || cj.PendingGitHubDeletes[0] != 12345 {
+		t.Fatalf("setup: PendingGitHubDeletes = %v, want [12345]", cj.PendingGitHubDeletes)
+	}
+
+	// 3. Simulate `crit push` draining the queue: rewrite review.json with
+	//    PendingGitHubDeletes cleared. Other state is preserved.
+	cj.PendingGitHubDeletes = nil
+	out, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reviewPath, out, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. Daemon writes again (e.g. user edits another comment). Without the
+	//    reconcile, snap.pendingGHDeletes still has 12345 and would be
+	//    blindly written back, resurrecting the drained ID.
+	s.AddComment("plan.md", 2, 2, "", "another edit", "", "", "")
+	flushWrites(s)
+	s.WriteFiles()
+
+	data, err = os.ReadFile(reviewPath)
+	if err != nil {
+		t.Fatalf("re-read review: %v", err)
+	}
+	var after CritJSON
+	if err := json.Unmarshal(data, &after); err != nil {
+		t.Fatal(err)
+	}
+	if len(after.PendingGitHubDeletes) != 0 {
+		t.Errorf("PendingGitHubDeletes resurrected: %v; push had drained the queue", after.PendingGitHubDeletes)
+	}
+
+	// In-memory state must also be cleaned up so subsequent writes are stable.
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.pendingGitHubDeletes) != 0 {
+		t.Errorf("in-memory pendingGitHubDeletes leaked: %v", s.pendingGitHubDeletes)
+	}
+}
+
+// TestSession_PendingGHDeletes_FreshlyAddedSurvivesConcurrentDrain ensures the
+// reconcile keeps locally-queued deletes that have NOT yet been written to
+// disk, even if a concurrent push wrote an empty queue. Only previously-seen
+// IDs (in lastLoaded) may be dropped.
+func TestSession_PendingGHDeletes_FreshlyAddedSurvivesConcurrentDrain(t *testing.T) {
+	s := newTestSession(t)
+
+	// Push (simulated) wrote review.json with empty PendingGitHubDeletes and
+	// no comments. lastLoaded is empty. Now the user deletes a pushed comment
+	// in-memory before any daemon write.
+	c, _ := s.AddComment("plan.md", 1, 1, "", "pushed", "", "", "")
+	s.mu.Lock()
+	for _, f := range s.Files {
+		for i := range f.Comments {
+			if f.Comments[i].ID == c.ID {
+				f.Comments[i].GitHubID = 999
+			}
+		}
+	}
+	s.mu.Unlock()
+	if !s.DeleteComment("plan.md", c.ID) {
+		t.Fatal("DeleteComment failed")
+	}
+
+	// Add a benign comment to keep the file non-empty.
+	s.AddComment("plan.md", 2, 2, "", "keep", "", "", "")
+
+	flushWrites(s)
+	s.WriteFiles()
+
+	data, err := os.ReadFile(reviewPathsFor(s.critJSONPath()).Review)
+	if err != nil {
+		t.Fatalf("read review: %v", err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatal(err)
+	}
+	if len(cj.PendingGitHubDeletes) != 1 || cj.PendingGitHubDeletes[0] != 999 {
+		t.Errorf("freshly-queued delete dropped: %v, want [999]", cj.PendingGitHubDeletes)
+	}
+}
+
 func TestSession_GetComments_ReturnsCopy(t *testing.T) {
 	s := newTestSession(t)
 	s.AddComment("plan.md", 1, 1, "", "test", "", "", "")

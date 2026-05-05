@@ -836,37 +836,47 @@ func runPushLive(ctx pushContext, b pushBuckets) {
 	// in pushes where there are no new comments to create.
 	patched := pushEditedBodies(ctx)
 
-	printPushSummary(posted, patched, len(b.FullStack)+len(b.Unmapped), exportPath)
+	// DELETE remote comments tombstoned locally. Independent of POST/PATCH:
+	// users can delete a comment without touching anything else.
+	deleted, deleteFailed := pushDeletedComments(ctx)
 
-	// Exit code: only fail when gh errored AND we have no orphans to fall
-	// back on. Otherwise something useful happened (export written), so
-	// exit 0.
-	if postFailed && exportPath == "" {
+	printPushSummary(posted, patched, deleted, len(b.FullStack)+len(b.Unmapped), exportPath)
+
+	if pushShouldExitFailure(posted, patched, deleted, exportPath, postFailed, deleteFailed) {
 		os.Exit(1)
 	}
 }
 
+// pushShouldExitFailure encodes the exit-code policy for `crit push`. The
+// process should fail (exit 1) only when nothing meaningful landed and at
+// least one operation failed. Failed per-ID deletes stay in
+// PendingGitHubDeletes for the next push (existing retry semantics), so a
+// partial delete failure must not mask successful posts/patches/drains.
+func pushShouldExitFailure(posted, patched, deleted int, exportPath string, postFailed, deleteFailed bool) bool {
+	anySuccess := posted > 0 || patched > 0 || deleted > 0 || exportPath != ""
+	anyFailure := postFailed || deleteFailed
+	return anyFailure && !anySuccess
+}
+
 // printPushSummary writes the one-line stdout summary describing what
 // happened. Adapts wording to the actual outcome (no orphans, no posts, etc).
-func printPushSummary(posted, patched, orphans int, exportPath string) {
-	if posted == 0 && patched == 0 && orphans == 0 {
+func printPushSummary(posted, patched, deleted, orphans int, exportPath string) {
+	if posted == 0 && patched == 0 && deleted == 0 && orphans == 0 {
 		fmt.Println("No comments to push.")
 		return
 	}
-	if exportPath == "" {
-		if patched > 0 {
-			fmt.Printf("Posted %d comments, edited %d.\n", posted, patched)
-			return
-		}
-		fmt.Printf("Posted %d comments.\n", posted)
-		return
-	}
+	parts := []string{fmt.Sprintf("Posted %d comments", posted)}
 	if patched > 0 {
-		fmt.Printf("Posted %d comments, edited %d. %d comments exported to %s.\n",
-			posted, patched, orphans, exportPath)
-		return
+		parts = append(parts, fmt.Sprintf("edited %d", patched))
 	}
-	fmt.Printf("Posted %d comments. %d comments exported to %s.\n", posted, orphans, exportPath)
+	if deleted > 0 {
+		parts = append(parts, fmt.Sprintf("deleted %d", deleted))
+	}
+	line := strings.Join(parts, ", ") + "."
+	if exportPath != "" {
+		line += fmt.Sprintf(" %d comments exported to %s.", orphans, exportPath)
+	}
+	fmt.Println(line)
 }
 
 // pushEditedBodies PATCHes already-pushed comments/replies whose local body
@@ -890,6 +900,43 @@ func pushEditedBodies(ctx pushContext) int {
 		fmt.Fprintf(os.Stderr, "Warning: failed to update review file after edit push: %v\n", uerr)
 	}
 	return len(succeeded)
+}
+
+// pushDeletedComments issues DELETE for every GitHub comment ID queued in
+// PendingGitHubDeletes. Returns the count of IDs whose DELETE was drained
+// (200 / 204, plus 404 "already gone" and 403 "not the author") and whether
+// any DELETE returned an error severe enough to surface a non-zero exit.
+//
+// 403 is logged but treated as drained — the GitHub API rejects deletes by
+// non-authors, so retrying is futile and a stuck pending entry would block
+// all future pushes for this review file.
+func pushDeletedComments(ctx pushContext) (int, bool) {
+	pending := collectDeletesForPush(ctx.cj)
+	if len(pending) == 0 {
+		return 0, false
+	}
+	drained := make([]int64, 0, len(pending))
+	failed := false
+	for _, id := range pending {
+		status, err := deleteGHComment(id)
+		switch {
+		case err != nil:
+			fmt.Fprintf(os.Stderr, "Warning: failed to delete comment %d: %v\n", id, err)
+			failed = true
+		case status >= 200 && status < 300, status == 404:
+			drained = append(drained, id)
+		case status == 403:
+			fmt.Fprintf(os.Stderr, "Warning: cannot delete comment %d on GitHub (403; not the author) — dropping pending delete\n", id)
+			drained = append(drained, id)
+		default:
+			fmt.Fprintf(os.Stderr, "Warning: unexpected status %d deleting comment %d\n", status, id)
+			failed = true
+		}
+	}
+	if uerr := updateCritJSONAfterDeletes(ctx.critPath, drained); uerr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to update review file after delete push: %v\n", uerr)
+	}
+	return len(drained), failed
 }
 
 // fullStackPushGateMessage is the user-facing error string emitted when

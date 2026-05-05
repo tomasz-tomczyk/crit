@@ -622,10 +622,16 @@ func separateRootsAndReplies(ghComments []ghComment) ([]ghComment, map[int64][]g
 }
 
 // appendNewGHReplies adds non-duplicate replies to an existing comment, returning how many were added.
-func appendNewGHReplies(comments []Comment, ci int, childReplies []ghComment, names userNameCache) int {
+// Replies whose GitHubID is in pendingDeletes are skipped — the user has
+// already deleted them locally and the next push will issue DELETE; importing
+// them now would resurrect the row under a fresh ID and mask the pending intent.
+func appendNewGHReplies(comments []Comment, ci int, childReplies []ghComment, names userNameCache, pendingDeletes map[int64]bool) int {
 	added := 0
 	for _, r := range childReplies {
 		if isDuplicateGHReply(comments[ci].Replies, r.ID) {
+			continue
+		}
+		if pendingDeletes[r.ID] {
 			continue
 		}
 		comments[ci].Replies = append(comments[ci].Replies, Reply{
@@ -644,7 +650,7 @@ func appendNewGHReplies(comments []Comment, ci int, childReplies []ghComment, na
 // mergeRootComment handles a single root ghComment: either deduplicates or creates it.
 // scope stamps the imported comment's HeadSHA + DiffScope when called from a range-mode
 // pull. Empty scope leaves the legacy working-tree fields unset.
-func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment, now string, names userNameCache, scope inheritedScope) int {
+func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment, now string, names userNameCache, scope inheritedScope, pendingDeletes map[int64]bool) int {
 	cf, ok := cj.Files[gc.Path]
 	if !ok {
 		cf = CritJSONFile{Status: "modified", Comments: []Comment{}}
@@ -657,12 +663,19 @@ func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment
 
 	authorName := names.lookup(gc.User.Login)
 
+	// Pending-delete-locally takes priority over import: the user has signaled
+	// intent to DELETE this remote comment on the next push. Re-importing
+	// would resurrect it under a fresh local ID and mask the pending intent.
+	if pendingDeletes[gc.ID] {
+		return 0
+	}
+
 	if isDuplicateGHComment(cf.Comments, gc.ID, authorName, startLine, gc.Line, gc.Body) {
 		added := 0
 		if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
 			for ci, c := range cf.Comments {
 				if c.GitHubID == gc.ID {
-					added = appendNewGHReplies(cf.Comments, ci, childReplies, names)
+					added = appendNewGHReplies(cf.Comments, ci, childReplies, names, pendingDeletes)
 					break
 				}
 			}
@@ -681,6 +694,9 @@ func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment
 	added := 0
 	if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
 		for _, r := range childReplies {
+			if pendingDeletes[r.ID] {
+				continue
+			}
 			comment.Replies = append(comment.Replies, Reply{
 				ID:                 randomReplyID(),
 				Body:               r.Body,
@@ -699,7 +715,7 @@ func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment
 }
 
 // mergeOrphanReplies processes replies whose parent was already in cj from a previous pull.
-func mergeOrphanReplies(cj *CritJSON, roots []ghComment, replyMap map[int64][]ghComment, names userNameCache) int {
+func mergeOrphanReplies(cj *CritJSON, roots []ghComment, replyMap map[int64][]ghComment, names userNameCache, pendingDeletes map[int64]bool) int {
 	rootIDs := make(map[int64]struct{}, len(roots))
 	for _, gc := range roots {
 		rootIDs[gc.ID] = struct{}{}
@@ -715,7 +731,7 @@ func mergeOrphanReplies(cj *CritJSON, roots []ghComment, replyMap map[int64][]gh
 			continue
 		}
 		cf := cj.Files[filePath]
-		added += appendNewGHReplies(cf.Comments, ci, childReplies, names)
+		added += appendNewGHReplies(cf.Comments, ci, childReplies, names, pendingDeletes)
 		cj.Files[filePath] = cf
 	}
 	return added
@@ -747,11 +763,16 @@ func mergeGHCommentsWithNames(cj *CritJSON, ghComments []ghComment, names userNa
 
 	roots, replyMap := separateRootsAndReplies(ghComments)
 
+	pendingDeletes := make(map[int64]bool, len(cj.PendingGitHubDeletes))
+	for _, id := range cj.PendingGitHubDeletes {
+		pendingDeletes[id] = true
+	}
+
 	added := 0
 	for _, gc := range roots {
-		added += mergeRootComment(cj, gc, replyMap, now, names, scope)
+		added += mergeRootComment(cj, gc, replyMap, now, names, scope, pendingDeletes)
 	}
-	added += mergeOrphanReplies(cj, roots, replyMap, names)
+	added += mergeOrphanReplies(cj, roots, replyMap, names, pendingDeletes)
 
 	return added
 }
@@ -1090,6 +1111,109 @@ func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, r
 			}
 		}
 		cj.Files[path] = cf
+	}
+
+	out, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(reviewPathsFor(critPath).Review, append(out, '\n'), 0644)
+}
+
+// collectDeletesForPush returns the snapshot of pending GitHub DELETE
+// intents recorded against this review file. The returned slice is a copy
+// so the caller can safely mutate or iterate while updating cj concurrently.
+func collectDeletesForPush(cj CritJSON) []int64 {
+	if len(cj.PendingGitHubDeletes) == 0 {
+		return nil
+	}
+	out := make([]int64, len(cj.PendingGitHubDeletes))
+	copy(out, cj.PendingGitHubDeletes)
+	return out
+}
+
+// deleteGHComment issues DELETE on a GitHub PR review comment. The endpoint
+// works for both root comments and replies — they share /pulls/comments/{id}.
+//
+// Returns the HTTP status code and an error. A 200 (or 204) is success;
+// 404 is treated as success by the caller (the remote comment is already
+// gone). 403 means the authenticated user is not the author and GitHub
+// won't let us delete; the caller drops the tombstone anyway because
+// retrying is futile.
+func deleteGHComment(ghID int64) (int, error) {
+	// `gh api --include` writes the response headers (incl. status line) to
+	// stdout so we can extract the status. On non-2xx gh exits non-zero, so
+	// we read CombinedOutput and parse regardless.
+	cmd := exec.Command("gh", "api",
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/comments/%d", ghID),
+		"--method", "DELETE",
+		"--include",
+	)
+	output, runErr := cmd.CombinedOutput()
+	status := parseGHIncludeStatus(output)
+	if status >= 200 && status < 300 {
+		return status, nil
+	}
+	if status == 404 || status == 403 {
+		// Caller decides how to handle these; surface the status without
+		// treating the gh non-zero exit as a fatal error.
+		return status, nil
+	}
+	if runErr != nil {
+		return status, fmt.Errorf("gh api delete: %s: %w", strings.TrimSpace(string(output)), runErr)
+	}
+	return status, fmt.Errorf("gh api delete: unexpected status %d: %s", status, strings.TrimSpace(string(output)))
+}
+
+// parseGHIncludeStatus extracts the HTTP status code from `gh api --include`
+// output. The first line is "HTTP/2 204" or similar. Returns 0 if it can't
+// be parsed.
+func parseGHIncludeStatus(out []byte) int {
+	line := string(out)
+	if i := strings.IndexByte(line, '\n'); i >= 0 {
+		line = line[:i]
+	}
+	fields := strings.Fields(line)
+	for _, f := range fields {
+		if n, err := strconv.Atoi(f); err == nil && n >= 100 && n < 600 {
+			return n
+		}
+	}
+	return 0
+}
+
+// updateCritJSONAfterDeletes removes drained GitHub IDs from
+// PendingGitHubDeletes on disk. IDs not in `drained` (DELETE failed or was
+// not attempted) remain in the list so the next push retries them.
+func updateCritJSONAfterDeletes(critPath string, drained []int64) error {
+	if len(drained) == 0 {
+		return nil
+	}
+	drainedSet := make(map[int64]struct{}, len(drained))
+	for _, id := range drained {
+		drainedSet[id] = struct{}{}
+	}
+
+	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	if err != nil {
+		return err
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return err
+	}
+
+	kept := make([]int64, 0, len(cj.PendingGitHubDeletes))
+	for _, id := range cj.PendingGitHubDeletes {
+		if _, drained := drainedSet[id]; drained {
+			continue
+		}
+		kept = append(kept, id)
+	}
+	if len(kept) == 0 {
+		cj.PendingGitHubDeletes = nil
+	} else {
+		cj.PendingGitHubDeletes = kept
 	}
 
 	out, err := json.MarshalIndent(cj, "", "  ")

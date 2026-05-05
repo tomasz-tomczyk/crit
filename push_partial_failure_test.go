@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -93,5 +94,99 @@ esac
 	// Sanity: exactly two successful entries.
 	if len(got) != 2 {
 		t.Errorf("len(replyIDs) = %d, want 2; map=%v", len(got), got)
+	}
+}
+
+// TestPushDeletedComments_PartialFailure regresses BLOCKER #2 of issue #449:
+// when DELETE succeeds for one queued ID and fails (HTTP 500) for another,
+// the successful ID must be drained from PendingGitHubDeletes on disk and
+// the failed ID must remain queued for the next push. Combined with the
+// pushShouldExitFailure policy, a partial-success delete must NOT cause
+// `crit push` to exit non-zero when other work (posts, patches, drains)
+// succeeded.
+func TestPushDeletedComments_PartialFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-gh shim is a POSIX shell script; not portable to Windows")
+	}
+
+	dir := t.TempDir()
+	counter := filepath.Join(dir, "counter")
+	if err := os.WriteFile(counter, []byte("0\n"), 0644); err != nil {
+		t.Fatalf("write counter: %v", err)
+	}
+
+	// Fake gh emulating `gh api ... --method DELETE --include`. Call 1
+	// returns HTTP 204 (drained). Call 2 returns HTTP 500 + non-zero exit
+	// (failure). gh's --include writes the status line to stdout.
+	fakeGH := filepath.Join(dir, "gh")
+	script := `#!/bin/sh
+COUNTER_FILE="` + counter + `"
+n=$(cat "$COUNTER_FILE")
+n=$((n + 1))
+echo "$n" > "$COUNTER_FILE"
+cat >/dev/null
+case "$n" in
+  1) printf 'HTTP/2 204\n\n' ;;
+  2) printf 'HTTP/2 500\n\nserver error\n' >&2; printf 'HTTP/2 500\n\n'; exit 1 ;;
+  *) printf 'HTTP/2 204\n\n' ;;
+esac
+`
+	if err := os.WriteFile(fakeGH, []byte(script), 0755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// Set up a review file with two queued GitHub deletes.
+	critRoot := filepath.Join(dir, "review")
+	if err := os.MkdirAll(critRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cj := CritJSON{
+		Files:                map[string]CritJSONFile{},
+		PendingGitHubDeletes: []int64{1001, 1002},
+	}
+	out, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reviewPathsFor(critRoot).Review, out, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := pushContext{critPath: critRoot, cj: cj}
+	drained, failed := pushDeletedComments(ctx)
+	if drained != 1 {
+		t.Errorf("drained = %d, want 1", drained)
+	}
+	if !failed {
+		t.Error("failed = false, want true (one DELETE returned 500)")
+	}
+
+	// On-disk queue should now contain exactly the failed ID.
+	data, err := os.ReadFile(reviewPathsFor(critRoot).Review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after CritJSON
+	if err := json.Unmarshal(data, &after); err != nil {
+		t.Fatal(err)
+	}
+	if len(after.PendingGitHubDeletes) != 1 || after.PendingGitHubDeletes[0] != 1002 {
+		t.Errorf("PendingGitHubDeletes after = %v, want [1002]", after.PendingGitHubDeletes)
+	}
+
+	// Exit-code policy: a partial delete failure with at least one drain
+	// (or any post / patch / export) must NOT exit 1.
+	if pushShouldExitFailure(0, 0, drained, "", false, failed) {
+		t.Error("pushShouldExitFailure = true; want false when a drain succeeded")
+	}
+	// Successful posts must also rescue an all-failed delete batch.
+	if pushShouldExitFailure(3, 0, 0, "", false, true) {
+		t.Error("pushShouldExitFailure = true; want false when posts succeeded")
+	}
+	// True total failure: nothing succeeded, something failed → exit 1.
+	if !pushShouldExitFailure(0, 0, 0, "", false, true) {
+		t.Error("pushShouldExitFailure = false; want true when nothing succeeded and a delete failed")
 	}
 }

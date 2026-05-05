@@ -259,6 +259,20 @@ type Session struct {
 	// prevents mergeFileSnapshotIntoCritJSON from re-adding them from disk.
 	deletedCommentIDs map[string]map[string]struct{}
 
+	// pendingGitHubDeletes holds GitHub comment IDs (root or reply) that the
+	// user has deleted locally and that the next `crit push` must DELETE
+	// upstream. Persisted as CritJSON.PendingGitHubDeletes; the next push
+	// drains entries as each DELETE succeeds (or returns 404 / 403).
+	pendingGitHubDeletes []int64
+
+	// lastLoadedPendingGHDeletes is the set of GitHub IDs that were on disk
+	// in PendingGitHubDeletes the last time the daemon read or wrote
+	// review.json. Used by buildCritJSON to reconcile the in-memory snapshot
+	// against the on-disk queue: an ID present in the snapshot but missing
+	// from disk AND present in this set means a separate `crit push` process
+	// drained it — it must NOT be resurrected. See BLOCKER #1.
+	lastLoadedPendingGHDeletes map[int64]struct{}
+
 	mu          sync.RWMutex
 	subscribers map[chan SSEEvent]struct{}
 	subMu       sync.Mutex
@@ -324,6 +338,13 @@ type CritJSON struct {
 	// ActiveDiffScope is the most recent focus diff_scope from this session.
 	// Read by `crit push` to gate full-stack pushes; "" indicates working-tree mode.
 	ActiveDiffScope string `json:"active_diff_scope,omitempty"`
+
+	// PendingGitHubDeletes holds GitHub comment IDs (root or reply — same
+	// /pulls/comments/{id} endpoint) that the user has deleted locally and
+	// that need a DELETE upstream on the next `crit push`. Drained as each
+	// DELETE succeeds (or returns 404 / 403). Survives intermediate pulls so
+	// the user's intent is not lost.
+	PendingGitHubDeletes []int64 `json:"pending_github_deletes,omitempty"`
 }
 
 // CritJSONFile is the per-file section in review files.
@@ -859,7 +880,9 @@ func (s *Session) UpdateReviewComment(id, body string) (Comment, bool) {
 	return Comment{}, false
 }
 
-// DeleteReviewComment deletes a review-level comment by ID.
+// DeleteReviewComment deletes a review-level comment by ID. Review-level
+// comments are local-only (not synced to GitHub PR review comments), so a
+// straight removal is safe — there is no upstream record to tombstone.
 func (s *Session) DeleteReviewComment(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -942,6 +965,7 @@ func (s *Session) UpdateReviewCommentReply(commentID, replyID, body string) (Rep
 }
 
 // DeleteReviewCommentReply removes a reply from a review-level comment.
+// Review-level threads are local-only, so a straight removal is safe.
 func (s *Session) DeleteReviewCommentReply(commentID, replyID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1024,7 +1048,12 @@ func (s *Session) SetCommentLive(filePath, id string) bool {
 	return false
 }
 
-// DeleteComment deletes a comment from a specific file.
+// DeleteComment deletes a comment from a specific file. The record is always
+// spliced out locally. If it has been pushed to GitHub (GitHubID != 0) the
+// GitHub ID is appended to pendingGitHubDeletes so the next `crit push` can
+// issue DELETE upstream — without that, deleting a pushed comment would leave
+// a ghost on the PR. trackDeletedComment guards against a concurrent reload
+// from disk resurrecting the just-removed entry before the next save.
 func (s *Session) DeleteComment(filePath, id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1034,6 +1063,9 @@ func (s *Session) DeleteComment(filePath, id string) bool {
 	}
 	for i, c := range f.Comments {
 		if c.ID == id {
+			if c.GitHubID != 0 {
+				s.appendPendingGHDelete(c.GitHubID)
+			}
 			f.Comments = append(f.Comments[:i], f.Comments[i+1:]...)
 			s.trackDeletedComment(filePath, id)
 			s.scheduleWrite()
@@ -1041,6 +1073,20 @@ func (s *Session) DeleteComment(filePath, id string) bool {
 		}
 	}
 	return false
+}
+
+// appendPendingGHDelete adds a GitHub comment ID to the pending-deletes list
+// if it isn't already present. Caller must hold s.mu.
+func (s *Session) appendPendingGHDelete(ghID int64) {
+	if ghID == 0 {
+		return
+	}
+	for _, existing := range s.pendingGitHubDeletes {
+		if existing == ghID {
+			return
+		}
+	}
+	s.pendingGitHubDeletes = append(s.pendingGitHubDeletes, ghID)
 }
 
 // trackDeletedComment records a file comment ID as deleted so the merge logic
@@ -1129,7 +1175,10 @@ func (s *Session) UpdateReply(filePath, commentID, replyID, body string) (Reply,
 	return Reply{}, false
 }
 
-// DeleteReply removes a reply from a specific comment.
+// DeleteReply removes a reply from a specific comment. Always spliced out
+// locally; replies that have been pushed (GitHubID != 0) get their GitHub ID
+// queued in pendingGitHubDeletes so the next `crit push` can DELETE them
+// upstream (replies share /pulls/comments/{id} with root comments).
 func (s *Session) DeleteReply(filePath, commentID, replyID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1141,6 +1190,9 @@ func (s *Session) DeleteReply(filePath, commentID, replyID string) bool {
 		if c.ID == commentID {
 			for j, r := range c.Replies {
 				if r.ID == replyID {
+					if r.GitHubID != 0 {
+						s.appendPendingGHDelete(r.GitHubID)
+					}
 					f.Comments[i].Replies = append(f.Comments[i].Replies[:j], f.Comments[i].Replies[j+1:]...)
 					f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 					s.scheduleWrite()
@@ -1687,10 +1739,21 @@ func reportLoadCritJSONLockViolation() {
 // path (NewSessionFromFiles, applySessionOverrides, etc.) before any goroutine
 // reads s.RoundSnapshots / s.reviewComments / etc. Runtime callers that hold
 // s.mu.Lock() must use loadCritJSONLocked instead. See plan v4 §Lock discipline.
+//
+// Acquires s.mu.Lock() defensively: even pre-SetSession, a prior mutation
+// (e.g. AddReviewComment in a test) may have armed scheduleWrite's debounced
+// AfterFunc, which reads s.lastCritJSONMtime under RLock from a separate
+// goroutine. Stopping the timer first short-circuits the common case; the
+// lock covers the in-flight case.
 func (s *Session) loadCritJSON() {
 	if s.sessionStarted.Load() != 0 {
 		reportLoadCritJSONLockViolation()
 		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.writeTimer != nil {
+		s.writeTimer.Stop()
 	}
 	s.loadCritJSONLocked()
 }
@@ -1801,6 +1864,13 @@ func (s *Session) loadCritJSONLocked() {
 
 	// Restore review-level comments.
 	s.reviewComments = cj.ReviewComments
+
+	// Restore pending DELETE intents so they survive across daemon restarts.
+	s.pendingGitHubDeletes = cj.PendingGitHubDeletes
+	s.lastLoadedPendingGHDeletes = make(map[int64]struct{}, len(cj.PendingGitHubDeletes))
+	for _, id := range cj.PendingGitHubDeletes {
+		s.lastLoadedPendingGHDeletes[id] = struct{}{}
+	}
 
 	// Record the mtime so the first ticker tick doesn't re-process our own file.
 	if info, err := os.Stat(reviewPathsFor(s.critJSONPath()).Review); err == nil {

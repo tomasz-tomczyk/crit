@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -3080,4 +3081,213 @@ func TestZeroGitHubID_TreatedAsNotPushed(t *testing.T) {
 			t.Fatalf("reply with GitHubID!=0 must be skipped; got %d", len(got))
 		}
 	})
+}
+
+// TestCollectDeletesForPush_ReturnsPendingList verifies that
+// collectDeletesForPush returns a copy of CritJSON.PendingGitHubDeletes.
+func TestCollectDeletesForPush_ReturnsPendingList(t *testing.T) {
+	cj := CritJSON{
+		PendingGitHubDeletes: []int64{100, 200, 300},
+		Files:                map[string]CritJSONFile{},
+	}
+	got := collectDeletesForPush(cj)
+	if len(got) != 3 || got[0] != 100 || got[1] != 200 || got[2] != 300 {
+		t.Fatalf("collectDeletesForPush = %v, want [100 200 300]", got)
+	}
+
+	// Caller may mutate without affecting cj — verify independence.
+	got[0] = 999
+	if cj.PendingGitHubDeletes[0] != 100 {
+		t.Errorf("caller mutation leaked back into cj.PendingGitHubDeletes")
+	}
+
+	// Empty input returns nil (no allocation).
+	if x := collectDeletesForPush(CritJSON{}); x != nil {
+		t.Errorf("empty pending list should return nil, got %v", x)
+	}
+}
+
+// TestUpdateCritJSONAfterDeletes_DrainsPendingList verifies that drained IDs
+// are removed from PendingGitHubDeletes on disk; non-drained IDs persist for
+// retry on the next push.
+func TestUpdateCritJSONAfterDeletes_DrainsPendingList(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	reviewPath := filepath.Join(dir, "review.json")
+
+	cj := CritJSON{
+		PendingGitHubDeletes: []int64{100, 101, 102},
+		Files:                map[string]CritJSONFile{},
+	}
+	data, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(reviewPath, data, 0644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// 100 + 102 drained; 101 stays pending.
+	if err := updateCritJSONAfterDeletes(dir, []int64{100, 102}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	out, err := os.ReadFile(reviewPath)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var got CritJSON
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.PendingGitHubDeletes) != 1 || got.PendingGitHubDeletes[0] != 101 {
+		t.Errorf("PendingGitHubDeletes after drain = %v, want [101]", got.PendingGitHubDeletes)
+	}
+}
+
+// TestUpdateCritJSONAfterDeletes_FullDrainOmitsField asserts the JSON does
+// not retain an empty array (omitempty on the struct tag) — the field should
+// vanish from disk once everything has been DELETEd upstream.
+func TestUpdateCritJSONAfterDeletes_FullDrainOmitsField(t *testing.T) {
+	dir := t.TempDir()
+	reviewPath := filepath.Join(dir, "review.json")
+	cj := CritJSON{PendingGitHubDeletes: []int64{42}, Files: map[string]CritJSONFile{}}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	if err := os.WriteFile(reviewPath, data, 0644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := updateCritJSONAfterDeletes(dir, []int64{42}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	raw, _ := os.ReadFile(reviewPath)
+	if strings.Contains(string(raw), "pending_github_deletes") {
+		t.Errorf("pending_github_deletes still present after full drain:\n%s", raw)
+	}
+}
+
+// TestMergeRootComment_SkipsPendingDelete verifies that pull does not
+// resurrect a comment whose ID is in PendingGitHubDeletes — the user has
+// already issued an intent to DELETE that must survive intermediate pulls.
+func TestMergeRootComment_SkipsPendingDelete(t *testing.T) {
+	cj := CritJSON{
+		PendingGitHubDeletes: []int64{999},
+		Files: map[string]CritJSONFile{
+			"a.go": {Status: "modified", Comments: []Comment{}},
+		},
+	}
+	gc := []ghComment{{
+		ID: 999, Path: "a.go", Line: 5, Side: "RIGHT",
+		Body: "should not resurrect",
+		User: struct {
+			Login string `json:"login"`
+		}{Login: "alice"},
+	}}
+	added := mergeGHCommentsWithNames(&cj, gc, userNameCache{"alice": "alice"}, inheritedScope{})
+	if added != 0 {
+		t.Errorf("merge re-imported pending-delete comment (added=%d, want 0)", added)
+	}
+	if cf := cj.Files["a.go"]; len(cf.Comments) != 0 {
+		t.Errorf("expected zero comments after merge, got %+v", cf.Comments)
+	}
+}
+
+// TestMergeOrphanReplies_SkipsPendingDelete asserts that a reply queued for
+// DELETE locally is not re-imported when its parent is already in cj.
+func TestMergeOrphanReplies_SkipsPendingDelete(t *testing.T) {
+	cj := CritJSON{
+		PendingGitHubDeletes: []int64{777},
+		Files: map[string]CritJSONFile{
+			"a.go": {Status: "modified", Comments: []Comment{
+				{ID: "c1", GitHubID: 500, Body: "parent", StartLine: 5, EndLine: 5, Author: "alice"},
+			}},
+		},
+	}
+	gc := []ghComment{{
+		ID: 777, Path: "a.go", Line: 5, Side: "RIGHT",
+		Body: "deleted reply",
+		User: struct {
+			Login string `json:"login"`
+		}{Login: "alice"},
+		InReplyToID: 500,
+	}}
+	mergeGHCommentsWithNames(&cj, gc, userNameCache{"alice": "alice"}, inheritedScope{})
+	cf := cj.Files["a.go"]
+	if len(cf.Comments) != 1 || len(cf.Comments[0].Replies) != 0 {
+		t.Errorf("expected parent with no replies; got %+v", cf.Comments)
+	}
+}
+
+// TestParseGHIncludeStatus parses representative `gh api --include` outputs.
+func TestParseGHIncludeStatus(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"http2 204", "HTTP/2 204\nDate: ...\n\n", 204},
+		{"http1.1 200", "HTTP/1.1 200 OK\n\n", 200},
+		{"http2 404", "HTTP/2 404\n\n{}", 404},
+		{"http2 403", "HTTP/2 403\n\n{}", 403},
+		{"empty", "", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseGHIncludeStatus([]byte(tc.in)); got != tc.want {
+				t.Errorf("parseGHIncludeStatus(%q) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// installFakeGHForDelete installs a `gh` shim on PATH that emits a fixed
+// HTTP status line so deleteGHComment can be exercised without network.
+// Setting exitNonZero mirrors `gh api`'s real behavior on non-2xx responses.
+func installFakeGHForDelete(t *testing.T, statusLine string, exitNonZero bool) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-gh shim is a POSIX shell script; not portable to Windows")
+	}
+	dir := t.TempDir()
+	exit := "0"
+	if exitNonZero {
+		exit = "1"
+	}
+	script := "#!/bin/sh\nprintf '%s\\n\\n' '" + statusLine + "'\nexit " + exit + "\n"
+	fakeGH := filepath.Join(dir, "gh")
+	if err := os.WriteFile(fakeGH, []byte(script), 0755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestDeleteGHComment_StatusHandling exercises the three paths the push
+// drainer relies on: 2xx success, 404 already-gone, 403 not-author, and a
+// generic 500 surface as an error.
+func TestDeleteGHComment_StatusHandling(t *testing.T) {
+	cases := []struct {
+		name        string
+		statusLine  string
+		exitNonZero bool
+		wantStatus  int
+		wantErr     bool
+	}{
+		{"204_no_content", "HTTP/2 204", false, 204, false},
+		{"404_already_gone", "HTTP/2 404", true, 404, false},
+		{"403_not_author", "HTTP/2 403", true, 403, false},
+		{"500_server_error", "HTTP/2 500", true, 500, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			installFakeGHForDelete(t, tc.statusLine, tc.exitNonZero)
+			status, err := deleteGHComment(42)
+			if status != tc.wantStatus {
+				t.Errorf("status = %d, want %d", status, tc.wantStatus)
+			}
+			if (err != nil) != tc.wantErr {
+				t.Errorf("err = %v, wantErr = %v", err, tc.wantErr)
+			}
+		})
+	}
 }

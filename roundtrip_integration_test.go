@@ -650,7 +650,6 @@ func TestRoundtrip_EditForeignComment_DoesNotPropagate(t *testing.T) {
 }
 
 func TestRoundtrip_LocalDeletePropagates(t *testing.T) {
-	t.Skip("blocked on issue #449: crit push does not propagate locally-deleted comments to GitHub")
 	e := newRoundtripEnv(t)
 
 	e.runCrit("comment", "sample.go:19", "to be deleted")
@@ -662,7 +661,9 @@ func TestRoundtrip_LocalDeletePropagates(t *testing.T) {
 	}
 	pushedID := rs[0].ID
 
-	// Delete locally — simulate the daemon's DELETE /api/comment/{id}.
+	// Delete locally — simulate the daemon's DELETE /api/comment/{id},
+	// which splices the record out and queues the GitHub ID in
+	// PendingGitHubDeletes for the next push to drain.
 	e.editReviewFile(func(cj *CritJSON) {
 		removed := false
 		for path, f := range cj.Files {
@@ -680,6 +681,7 @@ func TestRoundtrip_LocalDeletePropagates(t *testing.T) {
 		if !removed {
 			t.Fatal("did not find pushed comment to delete locally")
 		}
+		cj.PendingGitHubDeletes = append(cj.PendingGitHubDeletes, pushedID)
 	})
 
 	// Push: expect the remote comment to disappear.
