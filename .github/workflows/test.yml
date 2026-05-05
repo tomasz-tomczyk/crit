@@ -101,6 +101,16 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      # Some tests spawn `crit.exe` daemons that may outlive the test process
+      # by a few seconds (background goroutines, deferred file flushes). If
+      # they're still alive when actions/setup-go's post step packs the cache
+      # tar, the cache step fails because the binary is locked. Kill any
+      # leftover processes before the implicit post-cache step runs.
+      - name: Kill leftover crit daemons
+        if: always()
+        shell: cmd
+        run: taskkill /F /IM crit.exe /T 2>nul || exit /b 0
+
   e2e:
     runs-on: ubuntu-latest
     steps:

@@ -8,6 +8,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// stillActive is the value GetExitCodeProcess returns while a process is
+// still running. The Win32 SDK names this STILL_ACTIVE; golang.org/x/sys/windows
+// does not export it, so we mirror the constant here for grep-ability and
+// reference it by name instead of by literal 259.
+const stillActive uint32 = 259
+
 // shutdownSignals returns the OS signals that should trigger a graceful
 // shutdown. Windows only delivers os.Interrupt and os.Kill via signal.Notify;
 // SIGHUP/SIGTERM do not exist as deliverable signals on Windows.
@@ -42,7 +48,7 @@ func processExists(proc *os.Process) bool {
 	if err := windows.GetExitCodeProcess(h, &code); err != nil {
 		return false
 	}
-	// STILL_ACTIVE = 259. If the process happens to exit with code 259 this
+	// If the process happens to exit with code STILL_ACTIVE (259) this
 	// reports a false positive, but that's extremely unlikely for crit.
-	return code == 259
+	return code == stillActive
 }

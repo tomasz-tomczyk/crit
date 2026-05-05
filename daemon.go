@@ -372,6 +372,15 @@ func releaseSessionLock(f *os.File) {
 // setupDaemonCmd creates and configures the daemon child process.
 // Returns the command, readiness pipe read-end, write-end, log file, and any error.
 // The caller must close writeEnd and logFile after Start().
+//
+// Readiness is signaled via the child's stdout (an OS pipe). We deliberately
+// avoid cmd.ExtraFiles + FD 3: ExtraFiles is documented as unsupported on
+// Windows (see os/exec/exec.go), so the inherited handle is silently dropped
+// and the child's os.NewFile(3, ...) returns a stale handle whose writes go
+// nowhere. Stdout inheritance works on every supported OS, so the child reads
+// readiness via os.Stdout and the parent reads it via the pipe's read end.
+// _CRIT_READY_STDOUT=1 tells the child to treat stdout as the readiness pipe
+// (otherwise stdout is the user's terminal and we must not emit the port).
 func setupDaemonCmd(key string, args []string) (*exec.Cmd, *os.File, *os.File, *os.File, error) {
 	selfPath, err := os.Executable()
 	if err != nil {
@@ -386,7 +395,6 @@ func setupDaemonCmd(key string, args []string) (*exec.Cmd, *os.File, *os.File, *
 		return nil, nil, nil, nil, fmt.Errorf("getting working directory: %w", err)
 	}
 	cmd.Dir = cwd
-	cmd.Stdout = nil
 	cmd.Stdin = nil
 
 	logPath, err := sessionLogPath(key)
@@ -404,8 +412,8 @@ func setupDaemonCmd(key string, args []string) (*exec.Cmd, *os.File, *os.File, *
 		logFile.Close()
 		return nil, nil, nil, nil, fmt.Errorf("creating readiness pipe: %w", err)
 	}
-	cmd.ExtraFiles = []*os.File{writeEnd}
-	cmd.Env = append(os.Environ(), "_CRIT_READY_FD=3")
+	cmd.Stdout = writeEnd
+	cmd.Env = append(os.Environ(), "_CRIT_READY_STDOUT=1")
 	cmd.SysProcAttr = daemonSysProcAttr()
 
 	return cmd, readEnd, writeEnd, logFile, nil
@@ -555,15 +563,22 @@ func readDaemonLog(key string) string {
 	return strings.TrimSpace(string(data))
 }
 
-// openReadyPipe returns the readiness pipe (FD 3) if this process was
-// spawned as a daemon with _CRIT_READY_FD=3. Returns nil otherwise.
-// The caller owns the returned file and must close it.
+// openReadyPipe returns the readiness pipe (the inherited stdout) if this
+// process was spawned as a daemon with _CRIT_READY_STDOUT=1. Returns nil
+// otherwise. The caller owns the returned file and must close it. After the
+// pipe is returned, os.Stdout is repointed at the log file (stderr) so any
+// stray writes to stdout don't corrupt the readiness handshake.
 func openReadyPipe() *os.File {
-	if os.Getenv("_CRIT_READY_FD") != "3" {
+	if os.Getenv("_CRIT_READY_STDOUT") != "1" {
 		return nil
 	}
-	os.Unsetenv("_CRIT_READY_FD")
-	return os.NewFile(3, "ready-pipe")
+	os.Unsetenv("_CRIT_READY_STDOUT")
+	pipe := os.Stdout
+	// Repoint stdout at stderr (the daemon log file) so subsequent writes
+	// to fmt.Println/log don't accidentally race the port handshake or
+	// keep the parent's read-end open after we close the pipe.
+	os.Stdout = os.Stderr
+	return pipe
 }
 
 // signalReadiness writes the port number to the readiness pipe.
