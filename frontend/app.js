@@ -6787,6 +6787,10 @@
     setUIState('reviewing');
   });
 
+  document.getElementById('waitingOverlay').addEventListener('click', function(e) {
+    if (e.target === this) setUIState('reviewing');
+  });
+
   document.getElementById('waitingClipboard').addEventListener('click', async function() {
     const prompt = document.getElementById('waitingPrompt').textContent;
     try {
