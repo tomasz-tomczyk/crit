@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestRoundSnapshots_Integration exercises the full files-mode round
@@ -165,5 +166,76 @@ func TestRoundSnapshots_Integration(t *testing.T) {
 	flat := strings.TrimSuffix(identity, "/") + ".json"
 	if _, err := os.Stat(flat); err == nil {
 		t.Errorf("unexpected legacy flat file at %s", flat)
+	}
+}
+
+// TestLoadCritJSON_ResumedSession_DoesNotRewriteSidecar is a regression test
+// for review W5. Opening an existing review-with-snapshots used to rewrite
+// the sidecar back to disk on every cold boot — an O(N*M) clone+marshal+
+// rename for a no-op that produced bit-identical bytes. The optimization
+// skips the write when (a) the identity was set on entry and (b) the
+// sidecar carried at least one snapshot.
+func TestLoadCritJSON_ResumedSession_DoesNotRewriteSidecar(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	if err := os.WriteFile(planPath, []byte("# Plan\n\nstep one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// First session: produce a sidecar with R1+R2 snapshots.
+	s1, err := NewSessionFromFiles([]string{planPath}, nil)
+	if err != nil {
+		t.Fatalf("NewSessionFromFiles: %v", err)
+	}
+	identity := filepath.Join(dir, ".crit")
+	s1.ReviewFilePath = identity
+	s1.captureBaselineAndPersist()
+	s1.mu.Lock()
+	s1.Files[0].Content = "# Plan\n\nstep one\nstep two\n"
+	s1.Files[0].Status = "modified"
+	s1.mu.Unlock()
+	s1.handleRoundCompleteFiles()
+
+	paths := reviewPathsFor(identity)
+	beforeStat, err := os.Stat(paths.Snapshots)
+	if err != nil {
+		t.Fatalf("first sidecar missing: %v", err)
+	}
+
+	// Pin the existing mtime back into the past so a same-second rewrite
+	// would still bump it. Using a 5-second window keeps the test stable
+	// on filesystems that round mtimes (HFS+, FAT).
+	pastMtime := beforeStat.ModTime().Add(-5 * time.Second)
+	if err := os.Chtimes(paths.Snapshots, pastMtime, pastMtime); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	beforeStat, err = os.Stat(paths.Snapshots)
+	if err != nil {
+		t.Fatalf("re-stat: %v", err)
+	}
+
+	// Second "boot": construct a fresh session, set ReviewFilePath BEFORE
+	// loadCritJSON (matching the cli_serve resumed-session path), then
+	// trigger the load path.
+	s2, err := NewSessionFromFiles([]string{planPath}, nil)
+	if err != nil {
+		t.Fatalf("second NewSessionFromFiles: %v", err)
+	}
+	s2.ReviewFilePath = identity
+	s2.loadCritJSON()
+
+	afterStat, err := os.Stat(paths.Snapshots)
+	if err != nil {
+		t.Fatalf("after-load sidecar missing: %v", err)
+	}
+	if !afterStat.ModTime().Equal(beforeStat.ModTime()) {
+		t.Errorf("sidecar mtime advanced on resumed-session load: before=%v after=%v",
+			beforeStat.ModTime(), afterStat.ModTime())
+	}
+
+	// Snapshots are still in memory.
+	relPath := s2.Files[0].Path
+	if _, ok := s2.RoundSnapshots[relPath][2]; !ok {
+		t.Errorf("R2 snapshot missing in memory after resumed-session load: %+v", s2.RoundSnapshots)
 	}
 }

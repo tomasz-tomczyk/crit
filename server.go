@@ -769,6 +769,13 @@ func serveFileDiffAtRound(w http.ResponseWriter, r *http.Request, session *Sessi
 
 // handleFileComments handles GET (list) and POST (create) for file-scoped comments.
 // GET/POST /api/file/comments?path=server.go
+//
+// In files mode, ?round=N filters the GET response via commentsAtOrBeforeRound:
+// only comments authored at or before round N (and replies authored at or
+// before N) are returned. Note that the Resolved / ResolvedRound fields on
+// each returned comment reflect *current* state, not state-at-round-N — the
+// frontend uses ResolvedRound to compute round-faithful resolution itself.
+// See commentsAtOrBeforeRound for the full Stage 1 vs Stage 2 contract.
 func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {

@@ -158,6 +158,59 @@ func TestHandleRounds_LineStats(t *testing.T) {
 	}
 }
 
+// TestCommentsAtOrBeforeRound_ResolutionStateIsCurrent is a regression test
+// for review W3. Stage 1 deliberately exposes the *current* Resolved /
+// ResolvedRound values on every comment, not the state as of the requested
+// round, so the frontend can compute round-faithful resolution from
+// ResolvedRound itself (Stage 2 work). This test pins that contract: a
+// comment authored at R1 and resolved at R3 must surface from
+// /api/file/comments?round=1 with resolved=true and resolved_round=3.
+//
+// If a future change starts rewriting Resolved server-side based on the
+// requested round, this test will fail and force us to update the docs in
+// commentsAtOrBeforeRound and the corresponding Stage 2 frontend code.
+func TestCommentsAtOrBeforeRound_ResolutionStateIsCurrent(t *testing.T) {
+	srv, sess := newRoundsTestServer(t)
+	// Add a comment at R1 (the seeded session ReviewRound is 2 from the
+	// helper, so set it to 1 first to author).
+	sess.mu.Lock()
+	sess.ReviewRound = 1
+	sess.mu.Unlock()
+	c, ok := sess.AddComment("test.md", 1, 1, "", "fix this", "alice", "", "")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+
+	// Advance to R3 and resolve.
+	sess.mu.Lock()
+	sess.ReviewRound = 3
+	sess.mu.Unlock()
+	if _, ok := sess.SetCommentResolved("test.md", c.ID, true); !ok {
+		t.Fatal("SetCommentResolved failed")
+	}
+
+	// Fetch with ?round=1 — Stage 1 contract: current resolution state, not state-at-R1.
+	req := httptest.NewRequest("GET", "/api/file/comments?path=test.md&round=1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var got []Comment
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 comment at round=1, got %d", len(got))
+	}
+	if !got[0].Resolved {
+		t.Errorf("Resolved at round=1 = false; want true (Stage 1 exposes current state)")
+	}
+	if got[0].ResolvedRound != 3 {
+		t.Errorf("ResolvedRound at round=1 = %d; want 3 (Stage 1 exposes the round of resolution)", got[0].ResolvedRound)
+	}
+}
+
 // TestRoundParam_RejectInvalidConsistently is a regression test for review W2.
 // The four round-aware endpoints must reject malformed ?round values
 // uniformly (400) and accept an empty value (back-compat). Previously

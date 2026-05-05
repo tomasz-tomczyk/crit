@@ -1695,6 +1695,48 @@ func (s *Session) loadCritJSON() {
 	s.loadCritJSONLocked()
 }
 
+// restoreShareStateLocked copies share-related fields from cj into the
+// session, gated by share-scope match so we don't carry over a share
+// pointer when the file set has changed since the share was created.
+// Caller must hold s.mu.Lock() (or be the constructor pre-SetSession).
+func (s *Session) restoreShareStateLocked(cj *CritJSON) {
+	if cj.ShareScope != "" {
+		paths := make([]string, 0, len(s.Files))
+		for _, f := range s.Files {
+			paths = append(paths, f.Path)
+		}
+		if shareScope(paths) == cj.ShareScope {
+			s.sharedURL = cj.ShareURL
+			s.deleteToken = cj.DeleteToken
+			s.shareScope = cj.ShareScope
+		}
+		return
+	}
+	if cj.ShareURL != "" {
+		// No scope recorded — load unconditionally.
+		s.sharedURL = cj.ShareURL
+		s.deleteToken = cj.DeleteToken
+	}
+}
+
+// restoreFileCommentsLocked copies per-file comments from cj into matching
+// FileEntry slots, defaulting empty Scope to "line" for legacy comments.
+// Caller must hold s.mu.Lock() (or be the constructor pre-SetSession).
+func (s *Session) restoreFileCommentsLocked(cj *CritJSON) {
+	for _, f := range s.Files {
+		cf, ok := cj.Files[f.Path]
+		if !ok {
+			continue
+		}
+		f.Comments = cf.Comments
+		for i := range f.Comments {
+			if f.Comments[i].Scope == "" {
+				f.Comments[i].Scope = "line"
+			}
+		}
+	}
+}
+
 // loadCritJSONLocked is the runtime variant of loadCritJSON. It performs the
 // same disk read + in-memory restore but skips the pre-SetSession guard so
 // runtime code paths can reload comments after a state change (e.g. SetFocus
@@ -1709,6 +1751,13 @@ func (s *Session) loadCritJSON() {
 func (s *Session) loadCritJSONLocked() {
 	identity := s.critJSONPath()
 
+	// Capture identity-on-entry. If ReviewFilePath / OutputDir were set
+	// BEFORE this call (the canonical resumed-session path in cli_serve),
+	// the on-disk sidecar is already authoritative and we don't need to
+	// rewrite it from in-memory state. Used downstream to skip a
+	// redundant O(N*M) clone+marshal+rename on every cold boot.
+	identityOnEntry := s.ReviewFilePath != "" || s.OutputDir != ""
+
 	// MIGRATION-REMOVAL: trigger v3->v4 folder migration on read.
 	if err := ensureReviewFolder(identity); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: review folder migration: %v\n", err)
@@ -1718,10 +1767,18 @@ func (s *Session) loadCritJSONLocked() {
 	if err != nil {
 		// Fall through to the sidecar load — a folder may exist with only
 		// snapshots.json (orphan-snapshots) and we still want to surface that.
-		s.loadSnapshotsFromSidecar(identity)
+		sidecarHadData := s.loadSnapshotsFromSidecar(identity)
 		// Persist the in-memory R1 baseline that NewSessionFromFiles captured
 		// in case ReviewFilePath / OutputDir was assigned just before this
 		// call (the canonical constructor-time path).
+		//
+		// Resumed-session optimization (review W5): when the sidecar already
+		// carried snapshots and identity was set on entry, the on-disk data
+		// is authoritative — skip the redundant rewrite.
+		if identityOnEntry && sidecarHadData {
+			s.captureRoundSnapshot(s.ReviewRound)
+			return
+		}
 		s.captureBaselineAndPersist()
 		return
 	}
@@ -1730,39 +1787,14 @@ func (s *Session) loadCritJSONLocked() {
 		return
 	}
 
-	// Only restore share state if the file set matches what was shared.
-	if cj.ShareScope != "" {
-		paths := make([]string, 0, len(s.Files))
-		for _, f := range s.Files {
-			paths = append(paths, f.Path)
-		}
-		if shareScope(paths) == cj.ShareScope {
-			s.sharedURL = cj.ShareURL
-			s.deleteToken = cj.DeleteToken
-			s.shareScope = cj.ShareScope
-		}
-	} else if cj.ShareURL != "" {
-		// No scope recorded — load unconditionally.
-		s.sharedURL = cj.ShareURL
-		s.deleteToken = cj.DeleteToken
-	}
+	s.restoreShareStateLocked(&cj)
 
 	// Restore review round so the session continues from where it left off.
 	if cj.ReviewRound > s.ReviewRound {
 		s.ReviewRound = cj.ReviewRound
 	}
 
-	// Restore comments for files that match by path.
-	for _, f := range s.Files {
-		if cf, ok := cj.Files[f.Path]; ok {
-			f.Comments = cf.Comments
-			for i := range f.Comments {
-				if f.Comments[i].Scope == "" {
-					f.Comments[i].Scope = "line"
-				}
-			}
-		}
-	}
+	s.restoreFileCommentsLocked(&cj)
 
 	// Detect orphaned paths: files in the review file with comments but not in the session.
 	s.appendOrphanedFiles(cj.Files)
@@ -1776,32 +1808,44 @@ func (s *Session) loadCritJSONLocked() {
 	}
 
 	// Restore round snapshots from the folder sidecar.
-	s.loadSnapshotsFromSidecar(s.critJSONPath())
+	sidecarHadData := s.loadSnapshotsFromSidecar(s.critJSONPath())
 
 	// If ReviewFilePath / OutputDir was assigned just before this call (the
 	// canonical constructor-time path in cli_serve), the in-memory R1 baseline
 	// captured by NewSessionFromFiles hasn't been persisted yet. Re-run the
 	// best-effort persist now that the identity is known.
+	//
+	// Optimization (review W5): for a resumed session — identity already
+	// known on entry AND the sidecar carried a non-empty snapshot map — the
+	// on-disk sidecar is authoritative and rewriting it is redundant
+	// (O(N*M) clone+marshal+rename on every cold boot). The capture itself
+	// remains idempotent so we still call captureRoundSnapshot to keep R1
+	// well-defined in memory; we just skip the disk write.
+	if identityOnEntry && sidecarHadData {
+		s.captureRoundSnapshot(s.ReviewRound)
+		return
+	}
 	s.captureBaselineAndPersist()
 }
 
 // loadSnapshotsFromSidecar restores Session.RoundSnapshots from
 // <identity>/snapshots.json. Missing file = silent empty map. Malformed = log
-// + fall through (next round-complete rewrites it).
+// + fall through (next round-complete rewrites it). Returns true when the
+// sidecar carried at least one snapshot (i.e. this is a resumed session).
 //
-// Lock contract: pre-SetSession only (mirrors loadCritJSON). The caller is the
-// constructor path and no other goroutine reads s.RoundSnapshots yet.
-func (s *Session) loadSnapshotsFromSidecar(identity string) {
+// Lock contract: pre-SetSession or under s.mu.Lock(). Mutates s.RoundSnapshots.
+func (s *Session) loadSnapshotsFromSidecar(identity string) bool {
 	sidecarPath := reviewPathsFor(identity).Snapshots
 	sf, err := loadSnapshotsFile(sidecarPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: snapshots sidecar unreadable, ignoring: %v\n", err)
-		return
+		return false
 	}
 	if len(sf.RoundSnapshots) == 0 {
-		return
+		return false
 	}
 	s.RoundSnapshots = cloneRoundSnapshots(sf.RoundSnapshots)
+	return true
 }
 
 // restoreOrphanedComments reads the review file and creates phantom FileEntry

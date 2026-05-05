@@ -468,6 +468,14 @@ func (s *Session) handleRoundCompleteFiles() {
 
 	// File I/O off the hot path. Drift between review.json and snapshots.json
 	// is benign (degrades to "no timeline available").
+	//
+	// ORDERING ASSUMPTION: sidecar writes from concurrent round-completes are
+	// serialized by the debounced round-complete handler upstream — only one
+	// round-complete is in-flight at a time, so the (clone-under-lock,
+	// release-lock, write-off-lock) sequence cannot interleave with a second
+	// captureRoundSnapshot/cloneRoundSnapshots cycle. If that upstream
+	// debounce ever changes (e.g. round-completes become parallel), move the
+	// saveSnapshotsFile call inside the s.mu.Lock() block above.
 	if err := saveSnapshotsFile(sidecarPath, sf); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: write snapshots sidecar: %v\n", err)
 	}

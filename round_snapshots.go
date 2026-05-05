@@ -80,6 +80,15 @@ func (s *Session) roundSnapshotForFile(path string, round int) (RoundSnapshot, b
 // later rounds. Legacy replies with no ReviewRound set (zero value) inherit
 // their parent's ReviewRound — visible from the parent's round onward.
 // Caller must hold s.mu (RLock is sufficient).
+//
+// Resolution-state semantics (Stage 1, intentional): the returned Comments
+// carry the *current* Resolved / ResolvedRound values, NOT the state as of
+// `round`. A comment that was open at round 1 and resolved at round 3 will
+// surface here with Resolved=true, ResolvedRound=3 even when the caller asked
+// for round=1. This is by design: Stage 1 exposes ResolvedRound on the wire
+// so the frontend can compute round-faithful resolution state itself; Stage
+// 2 will fold that decision in. Until then, callers MUST inspect both fields
+// rather than trust Resolved alone.
 func commentsAtOrBeforeRound(comments []Comment, round int) []Comment {
 	if round <= 0 {
 		return nil
