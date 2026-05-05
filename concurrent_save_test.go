@@ -49,7 +49,7 @@ func TestConcurrentSaveCritJSON_NoCorruption(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for i := 0; i < iters; i++ {
-				data, err := os.ReadFile(path)
+				data, err := os.ReadFile(reviewPathsFor(path).Review)
 				if err != nil {
 					t.Errorf("worker %d read iter %d: %v", id, i, err)
 					failures.Add(1)
@@ -77,7 +77,7 @@ func TestConcurrentSaveCritJSON_NoCorruption(t *testing.T) {
 
 	// Final parse must succeed — if atomicity broke, the file will be
 	// truncated, partially written, or contain interleaved bytes.
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(reviewPathsFor(path).Review)
 	if err != nil {
 		t.Fatal(err)
 	}

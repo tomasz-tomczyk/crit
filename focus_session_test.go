@@ -235,6 +235,11 @@ func TestSetFocus_PostSetSession_PreservesComments(t *testing.T) {
 		t.Errorf("comments after focus change = %+v; want one seeded comment", got.Comments)
 	}
 
+	// Drain any debounced WriteFiles scheduled by SetFocus before
+	// reading on-disk state — otherwise the debounce goroutine and the
+	// test reader race on s.Files / RoundSnapshots.
+	flushWrites(s)
+
 	// And on-disk state survived (no silent overwrite).
 	cj2, err := loadCritJSON(identity)
 	if err != nil {
