@@ -75,6 +75,7 @@ func appendReply(cj *CritJSON, commentID, body, author, userID string, resolve b
 			cj.ReviewComments[i].UpdatedAt = now
 			if resolve {
 				cj.ReviewComments[i].Resolved = true
+				cj.ReviewComments[i].ResolvedRound = cj.ReviewRound
 			}
 			return nil
 		}
@@ -104,6 +105,7 @@ func appendReply(cj *CritJSON, commentID, body, author, userID string, resolve b
 					cf.Comments[i].UpdatedAt = now
 					if resolve {
 						cf.Comments[i].Resolved = true
+						cf.Comments[i].ResolvedRound = cj.ReviewRound
 					}
 					cj.Files[filePath] = cf
 				}

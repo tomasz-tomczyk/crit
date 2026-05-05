@@ -61,8 +61,12 @@ type Reply struct {
 	// Used by the per-round timeline to scope reply visibility independently
 	// of the parent comment. Legacy replies (no field set) are treated as
 	// belonging to the parent's ReviewRound — see commentsAtOrBeforeRound.
-	ReviewRound int   `json:"review_round,omitempty"`
-	GitHubID    int64 `json:"github_id,omitempty"`
+	ReviewRound int `json:"review_round,omitempty"`
+	// ResolvedRound is the review round during which this reply was resolved
+	// (mirrors Comment.ResolvedRound). Currently set only via the parent
+	// comment's resolve transitions; reserved for future per-reply resolution.
+	ResolvedRound int   `json:"resolved_round,omitempty"`
+	GitHubID      int64 `json:"github_id,omitempty"`
 
 	// LastPushedBodyHash is a short stable digest of Body at the time of
 	// the most recent successful push (POST or PATCH) to GitHub. Used by
@@ -75,21 +79,27 @@ type Reply struct {
 
 // Comment represents a single inline review comment.
 type Comment struct {
-	ID             string  `json:"id"`
-	StartLine      int     `json:"start_line"`
-	EndLine        int     `json:"end_line"`
-	Side           string  `json:"side,omitempty"`
-	Body           string  `json:"body"`
-	Quote          string  `json:"quote,omitempty"`
-	QuoteOffset    *int    `json:"quote_offset,omitempty"`
-	Anchor         string  `json:"anchor,omitempty"`
-	Drifted        bool    `json:"drifted,omitempty"`
-	Author         string  `json:"author,omitempty"`
-	UserID         string  `json:"user_id,omitempty"`
-	Scope          string  `json:"scope,omitempty"`
-	CreatedAt      string  `json:"created_at"`
-	UpdatedAt      string  `json:"updated_at"`
-	Resolved       bool    `json:"resolved,omitempty"`
+	ID          string `json:"id"`
+	StartLine   int    `json:"start_line"`
+	EndLine     int    `json:"end_line"`
+	Side        string `json:"side,omitempty"`
+	Body        string `json:"body"`
+	Quote       string `json:"quote,omitempty"`
+	QuoteOffset *int   `json:"quote_offset,omitempty"`
+	Anchor      string `json:"anchor,omitempty"`
+	Drifted     bool   `json:"drifted,omitempty"`
+	Author      string `json:"author,omitempty"`
+	UserID      string `json:"user_id,omitempty"`
+	Scope       string `json:"scope,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+	Resolved    bool   `json:"resolved,omitempty"`
+	// ResolvedRound is the review round during which Resolved transitioned
+	// false -> true. Cleared to 0 when Resolved transitions back to false.
+	// Legacy comments lacking this field are treated as zero on read; the
+	// timeline visibility filter falls back to round 1 for legacy resolved
+	// comments (see commentsAtOrBeforeRound docs).
+	ResolvedRound  int     `json:"resolved_round,omitempty"`
 	Live           bool    `json:"live,omitempty"`
 	CarriedForward bool    `json:"carried_forward,omitempty"`
 	ReviewRound    int     `json:"review_round,omitempty"`
@@ -864,12 +874,19 @@ func (s *Session) DeleteReviewComment(id string) bool {
 }
 
 // ResolveReviewComment sets or clears the resolved flag on a review-level comment.
+// On a false -> true transition, ResolvedRound is stamped from s.ReviewRound.
+// On a true -> false transition, ResolvedRound is cleared to 0.
 func (s *Session) ResolveReviewComment(id string, resolved bool) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, c := range s.reviewComments {
 		if c.ID == id {
 			s.reviewComments[i].Resolved = resolved
+			if resolved {
+				s.reviewComments[i].ResolvedRound = s.ReviewRound
+			} else {
+				s.reviewComments[i].ResolvedRound = 0
+			}
 			s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 			s.scheduleWrite()
 			return s.reviewComments[i], true
@@ -895,6 +912,7 @@ func (s *Session) AddReviewCommentReply(commentID, body, author, userID string) 
 			}
 			s.reviewComments[i].Replies = append(s.reviewComments[i].Replies, r)
 			s.reviewComments[i].Resolved = false
+			s.reviewComments[i].ResolvedRound = 0
 			s.reviewComments[i].UpdatedAt = now
 			s.scheduleWrite()
 			return r, true
@@ -963,6 +981,8 @@ func (s *Session) UpdateComment(filePath, id, body string) (Comment, bool) {
 }
 
 // SetCommentResolved sets or clears the resolved flag on a comment.
+// On a false -> true transition, ResolvedRound is stamped from s.ReviewRound.
+// On a true -> false transition, ResolvedRound is cleared to 0.
 func (s *Session) SetCommentResolved(filePath, id string, resolved bool) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -973,6 +993,11 @@ func (s *Session) SetCommentResolved(filePath, id string, resolved bool) (Commen
 	for i, c := range f.Comments {
 		if c.ID == id {
 			f.Comments[i].Resolved = resolved
+			if resolved {
+				f.Comments[i].ResolvedRound = s.ReviewRound
+			} else {
+				f.Comments[i].ResolvedRound = 0
+			}
 			f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 			s.scheduleWrite()
 			return f.Comments[i], true
@@ -1071,6 +1096,7 @@ func (s *Session) AddReply(filePath, commentID, body, author, userID string) (Re
 			}
 			f.Comments[i].Replies = append(f.Comments[i].Replies, r)
 			f.Comments[i].Resolved = false
+			f.Comments[i].ResolvedRound = 0
 			f.Comments[i].UpdatedAt = now
 			s.scheduleWrite()
 			return r, true

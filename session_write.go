@@ -331,6 +331,10 @@ func (s *Session) mergeCommentRepliesAndState(comments []Comment, dc Comment) bo
 			comments[i].Resolved = dc.Resolved
 			changed = true
 		}
+		if dc.ResolvedRound != mc.ResolvedRound {
+			comments[i].ResolvedRound = dc.ResolvedRound
+			changed = true
+		}
 		break
 	}
 	return changed
@@ -384,6 +388,10 @@ func (s *Session) mergeReviewCommentRepliesAndState(dc Comment) bool {
 		}
 		if dc.Resolved != mc.Resolved {
 			s.reviewComments[i].Resolved = dc.Resolved
+			changed = true
+		}
+		if dc.ResolvedRound != mc.ResolvedRound {
+			s.reviewComments[i].ResolvedRound = dc.ResolvedRound
 			changed = true
 		}
 		memRIDs := make(map[string]struct{}, len(mc.Replies))
