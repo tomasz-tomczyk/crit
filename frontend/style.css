@@ -2576,8 +2576,10 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   transition: background 0.15s ease;
 }
 .sidebar-resize-handle:hover,
+.sidebar-resize-handle:focus-visible,
 .sidebar-resize-handle.dragging {
   background: var(--crit-brand);
+  outline: none;
 }
 /* Hide the comments-panel resizer when its panel is hidden. */
 .main-layout:has(#commentsPanel.comments-panel-hidden) #commentsPanelResizer {
