@@ -7486,6 +7486,21 @@
       handle.addEventListener('pointerup', onEnd);
       handle.addEventListener('pointercancel', onEnd);
     });
+
+    // Keyboard resize for a11y: ArrowLeft / ArrowRight nudges by 16px.
+    // For left-edge handles (comments panel) the direction flips so
+    // ArrowRight always shrinks the controlled panel — matching pointer
+    // drag semantics.
+    handle.addEventListener('keydown', function(e) {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const dir = cfg.edge === 'left' ? -1 : 1;
+      const sign = e.key === 'ArrowRight' ? 1 : -1;
+      const current = target.getBoundingClientRect().width;
+      const w = Math.max(cfg.min, current + sign * dir * 16);
+      target.style.width = w + 'px';
+      setSetting(cfg.settingKey, Math.round(w));
+    });
   }
 
   // ===== Update Button =====
