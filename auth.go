@@ -87,13 +87,9 @@ func runAuthLogin(args []string) {
 		os.Exit(1)
 	}
 
-	if err := saveAuthToken(token.AccessToken); err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving token: %v\n", err)
+	if err := saveAuthSession(token); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving credentials: %v\n", err)
 		os.Exit(1)
-	}
-
-	if err := saveAuthIdentity(token); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to persist auth identity: %v\n", err)
 	}
 
 	// If the server didn't return a user_id (older crit-web), fetch it now via
@@ -281,6 +277,28 @@ func clearSpinner(dots int) {
 	if dots > 0 {
 		fmt.Fprint(os.Stderr, "\r"+strings.Repeat(" ", dots+2)+"\r")
 	}
+}
+
+// saveAuthSession persists the bearer token and identity fields as one
+// atomic write. Login must use this rather than saveAuthToken +
+// saveAuthIdentity in sequence: a crash between the two writes would leave
+// a token without matching identity (or stale identity from a prior account).
+func saveAuthSession(token tokenResponse) error {
+	return saveGlobalConfig(func(m map[string]json.RawMessage) error {
+		writeOrDelete := func(key, value string) {
+			if value == "" {
+				delete(m, key)
+				return
+			}
+			raw, _ := json.Marshal(value)
+			m[key] = raw
+		}
+		writeOrDelete("auth_token", token.AccessToken)
+		writeOrDelete("auth_user_id", token.UserID)
+		writeOrDelete("auth_user_name", token.UserName)
+		writeOrDelete("auth_user_email", token.UserEmail)
+		return nil
+	})
 }
 
 // saveAuthIdentity persists the user identity fields from a token response

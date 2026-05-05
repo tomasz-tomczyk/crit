@@ -150,6 +150,106 @@ func TestShareAuthAttributesUserIdentity(t *testing.T) {
 	}
 }
 
+// TestAuthSessionReLoginEndToEnd verifies that saveAuthSession atomically
+// replaces a previous account's credentials such that a subsequent crit ↔
+// crit-web share authenticates as the new user. Reproduces the prod scenario
+// from #371 where a stale auth_user_id from a prior login leaked into shares
+// of the next user.
+//
+// Unlike the other share-auth tests, this one does NOT inject CRIT_AUTH_TOKEN
+// via env — it persists credentials through saveAuthSession into the global
+// config and lets the crit binary discover them via HOME, exercising the real
+// post-login flow.
+func TestAuthSessionReLoginEndToEnd(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Two distinct authenticated users on crit-web.
+	tokenA, _, nameA := seedUser(t, baseURL, "Login User A")
+	tokenB, userIDB, nameB := seedUser(t, baseURL, "Login User B")
+
+	// Login as A, then re-login as B. The second saveAuthSession must
+	// rewrite every auth_* field; if any of A's identity survives, the
+	// next share will attribute incorrectly.
+	if err := saveAuthSession(tokenResponse{
+		AccessToken: tokenA, UserID: "irrelevant-A", UserName: nameA,
+	}); err != nil {
+		t.Fatalf("saveAuthSession (A): %v", err)
+	}
+	if err := saveAuthSession(tokenResponse{
+		AccessToken: tokenB, UserID: userIDB, UserName: nameB,
+	}); err != nil {
+		t.Fatalf("saveAuthSession (B): %v", err)
+	}
+
+	// Sanity check on disk: every field is B's, none of A's leaked.
+	data, err := os.ReadFile(filepath.Join(home, ".crit.config.json"))
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("parsing config: %v", err)
+	}
+	var diskToken, diskUserID, diskName string
+	json.Unmarshal(raw["auth_token"], &diskToken)
+	json.Unmarshal(raw["auth_user_id"], &diskUserID)
+	json.Unmarshal(raw["auth_user_name"], &diskName)
+	if diskToken != tokenB {
+		t.Fatalf("auth_token = %q, want B's token (re-login leaked A)", diskToken)
+	}
+	if diskUserID != userIDB {
+		t.Fatalf("auth_user_id = %q, want %q (re-login leaked A)", diskUserID, userIDB)
+	}
+	if diskName != nameB {
+		t.Fatalf("auth_user_name = %q, want %q (re-login leaked A)", diskName, nameB)
+	}
+
+	// Run `crit share` with no CRIT_AUTH_TOKEN override — binary reads
+	// the bearer from $HOME/.crit.config.json, which now holds B's session.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Comments: []Comment{
+					{ID: "c1", StartLine: 3, EndLine: 3, Body: "post-relogin note", Scope: "line",
+						UserID:    userIDB,
+						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+				},
+			},
+		},
+	})
+	// runCritShareEnv strips CRIT_AUTH_TOKEN and HOME from the env, then re-adds
+	// HOME pointing at the test home so the binary picks up B's persisted session.
+	output, err := runCritShareEnv(t, binary, baseURL, dir, []string{"HOME=" + home}, "plan.md")
+	if err != nil {
+		t.Fatalf("crit share failed: %v\n%s", err, output)
+	}
+	logReview(t, output)
+	reviewToken := extractToken(t, output)
+
+	comments := commentsFromAPI(t, baseURL, reviewToken)
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	c := comments[0]
+	if c.UserID != userIDB {
+		t.Errorf("user_id = %q, want %q (server should attribute to B from re-login bearer)",
+			c.UserID, userIDB)
+	}
+	if c.AuthorDisplayName != nameB {
+		t.Errorf("author_display_name = %q, want %q (verified user record)",
+			c.AuthorDisplayName, nameB)
+	}
+}
+
 // TestShareAuthIgnoresPayloadSpoofedIdentity verifies that when no bearer
 // token is provided, payload-supplied identity fields cannot impersonate
 // a real user. Knowing a user's UUID must not be enough to attribute
