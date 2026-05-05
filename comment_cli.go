@@ -76,6 +76,12 @@ func appendReply(cj *CritJSON, commentID, body, author, userID string, resolve b
 			if resolve {
 				cj.ReviewComments[i].Resolved = true
 				cj.ReviewComments[i].ResolvedRound = cj.ReviewRound
+			} else {
+				// Match HTTP AddReviewCommentReply semantics: a non-resolving
+				// reply unresolves a previously-resolved comment so the new
+				// reply doesn't get hidden by the resolution filter.
+				cj.ReviewComments[i].Resolved = false
+				cj.ReviewComments[i].ResolvedRound = 0
 			}
 			return nil
 		}
@@ -106,6 +112,12 @@ func appendReply(cj *CritJSON, commentID, body, author, userID string, resolve b
 					if resolve {
 						cf.Comments[i].Resolved = true
 						cf.Comments[i].ResolvedRound = cj.ReviewRound
+					} else {
+						// Match HTTP AddReply semantics: a non-resolving reply
+						// unresolves a previously-resolved comment so the new
+						// reply doesn't get hidden by the resolution filter.
+						cf.Comments[i].Resolved = false
+						cf.Comments[i].ResolvedRound = 0
 					}
 					cj.Files[filePath] = cf
 				}

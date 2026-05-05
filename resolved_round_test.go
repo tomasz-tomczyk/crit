@@ -145,6 +145,64 @@ func TestReplyResolveReviewLevel_CLI(t *testing.T) {
 	}
 }
 
+// TestAppendReply_NonResolvingClearsResolved is a regression test for
+// review W1: the CLI appendReply path must mirror the HTTP AddReply path
+// and clear Resolved/ResolvedRound when adding a reply to an already-
+// resolved comment, otherwise the new reply gets hidden by the resolution
+// filter and the data semantics diverge between writers.
+func TestAppendReply_NonResolvingClearsResolved(t *testing.T) {
+	t.Run("file_comment", func(t *testing.T) {
+		cj := CritJSON{
+			ReviewRound: 4,
+			Files: map[string]CritJSONFile{
+				"a.md": {
+					Status: "modified",
+					Comments: []Comment{
+						{
+							ID: "c1", StartLine: 1, EndLine: 1, Body: "open", ReviewRound: 1,
+							Resolved: true, ResolvedRound: 2,
+						},
+					},
+				},
+			},
+		}
+		if err := appendReply(&cj, "c1", "actually not done", "alice", "", false, ""); err != nil {
+			t.Fatal(err)
+		}
+		got := cj.Files["a.md"].Comments[0]
+		if got.Resolved {
+			t.Error("expected Resolved=false after non-resolving reply")
+		}
+		if got.ResolvedRound != 0 {
+			t.Errorf("ResolvedRound = %d, want 0", got.ResolvedRound)
+		}
+		if len(got.Replies) != 1 {
+			t.Errorf("expected 1 reply, got %d", len(got.Replies))
+		}
+	})
+
+	t.Run("review_comment", func(t *testing.T) {
+		cj := CritJSON{
+			ReviewRound: 4,
+			ReviewComments: []Comment{
+				{ID: "r1", Body: "review note", ReviewRound: 1, Scope: "review",
+					Resolved: true, ResolvedRound: 2},
+			},
+			Files: map[string]CritJSONFile{},
+		}
+		if err := appendReply(&cj, "r1", "actually not done", "alice", "", false, ""); err != nil {
+			t.Fatal(err)
+		}
+		got := cj.ReviewComments[0]
+		if got.Resolved {
+			t.Error("expected Resolved=false after non-resolving reply")
+		}
+		if got.ResolvedRound != 0 {
+			t.Errorf("ResolvedRound = %d, want 0", got.ResolvedRound)
+		}
+	})
+}
+
 // TestAddReplyClearsResolvedRound asserts that adding a reply (which
 // re-opens a resolved comment by setting Resolved=false) also zeroes
 // ResolvedRound, mirroring the documented clearing semantics.
