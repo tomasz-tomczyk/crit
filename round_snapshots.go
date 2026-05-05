@@ -93,6 +93,9 @@ func commentsAtOrBeforeRound(comments []Comment, round int) []Comment {
 	if round <= 0 {
 		return nil
 	}
+	// comments[:0:0] forces a fresh backing array on the first append so we
+	// never alias the caller's slice header — the function returns a filtered
+	// view, not an in-place mutation of the input.
 	out := comments[:0:0]
 	for _, c := range comments {
 		if c.ReviewRound > round {

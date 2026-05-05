@@ -245,6 +245,17 @@ func renameLegacyJSONFolder(legacyFolder, identity string) error {
 // folder at identity, moving any sibling .snapshots.json sidecar inside.
 // flatPath and identity may be equal (legacy in-place migration) or differ
 // (legacy <identity>.json -> v4 <identity>).
+//
+// This intentionally does NOT route through atomicWriteFile. atomicWriteFile
+// writes a single byte buffer to a single target file (mkdir + tmpfile +
+// fsync + rename). The migration moves an *existing* file into a freshly
+// created tmp directory and atomically renames the directory into place —
+// no byte writes happen, the original on-disk content is reused via
+// os.Rename. The shapes only superficially overlap (both end in
+// rename-into-place); the migration's atomicity guarantee is "either the
+// flat file or the folder exists", not "the file is fully written or not at
+// all". Reusing atomicWriteFile would require re-reading and re-writing the
+// review JSON for no benefit. (review W6)
 func migrateFlatToFolder(flatPath, identity string) error {
 	tmp := identity + ".crit-migrate.tmp"
 	// A previous crash may have left tmp/ behind. Wipe.
@@ -478,11 +489,9 @@ func findReviewFileByBranch(branch, excludePath string) (string, error) {
 		return nil
 	})
 	if walkErr != nil {
-		// Distinguish "not found" (missing reviewsDir) from real errors and
-		// from ambiguity. Ambiguity already wraps errReviewFileAmbiguousForBranch.
-		if errors.Is(walkErr, errReviewFileAmbiguousForBranch) {
-			return "", walkErr
-		}
+		// walkErr already wraps errReviewFileAmbiguousForBranch when the
+		// scan stopped because two reviews matched the same branch; for any
+		// other error (e.g. unreadable reviewsDir) we surface it verbatim.
 		return "", walkErr
 	}
 	if matchPath == "" {

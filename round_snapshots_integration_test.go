@@ -169,6 +169,64 @@ func TestRoundSnapshots_Integration(t *testing.T) {
 	}
 }
 
+// TestHandleRoundCompleteFiles_CapturesBeforeReread is a regression test
+// for review N4 / the existing INVARIANT comment in watch.go: the next
+// round's snapshot must capture the agent's in-memory content BEFORE
+// rereadFileContents pulls the latest bytes from disk. If the order is
+// flipped, R(N+1) would record the same content as R(N) (the on-disk file
+// the agent didn't touch in this scenario) and the timeline silently loses
+// what changed in this round.
+//
+// To exercise the order: keep the on-disk file in its R1 state and bump
+// only the in-memory Content (mimicking an agent that has written its
+// edits to s.Files[i].Content but not yet to disk). After
+// handleRoundCompleteFiles, R2's captured Content must match the
+// in-memory edit, and Files[0].Content must have been re-read back to the
+// on-disk (R1) state.
+func TestHandleRoundCompleteFiles_CapturesBeforeReread(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	r1Body := "# Plan\n\nstep one\n"
+	if err := os.WriteFile(planPath, []byte(r1Body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := NewSessionFromFiles([]string{planPath}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := filepath.Join(dir, ".crit")
+	s.ReviewFilePath = identity
+	s.captureBaselineAndPersist()
+
+	// Simulate agent edit: change in-memory content only. Disk still holds r1Body.
+	r2InMemory := "# Plan\n\nstep one\nstep two\n"
+	s.mu.Lock()
+	s.Files[0].Content = r2InMemory
+	s.Files[0].Status = "modified"
+	s.mu.Unlock()
+
+	s.handleRoundCompleteFiles()
+
+	relPath := s.Files[0].Path
+	s.mu.RLock()
+	r2, ok := s.RoundSnapshots[relPath][2]
+	currentContent := s.Files[0].Content
+	s.mu.RUnlock()
+	if !ok {
+		t.Fatalf("R2 missing after round-complete: %+v", s.RoundSnapshots)
+	}
+	if r2.Content != r2InMemory {
+		t.Errorf("R2 captured the wrong bytes — order assumption broken.\n  got:  %q\n  want: %q", r2.Content, r2InMemory)
+	}
+	// Sanity: rereadFileContents should have replaced the in-memory content
+	// with the disk content (back to r1Body) — confirms the reread did run
+	// after capture.
+	if currentContent != r1Body {
+		t.Errorf("Files[0].Content after round-complete = %q; want disk content %q (proves reread ran)", currentContent, r1Body)
+	}
+}
+
 // TestLoadCritJSON_ResumedSession_DoesNotRewriteSidecar is a regression test
 // for review W5. Opening an existing review-with-snapshots used to rewrite
 // the sidecar back to disk on every cold boot — an O(N*M) clone+marshal+

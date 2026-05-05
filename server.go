@@ -566,13 +566,23 @@ func (s *Server) handleRounds(w http.ResponseWriter, r *http.Request) {
 	out := make([]roundEntry, 0, len(rounds))
 	for _, r := range rounds {
 		var capturedAt string
-		// Pick a representative captured_at timestamp from the first file
-		// that has this round. CapturedAt is set per-file in captureRoundSnapshot.
+		// Pick the EARLIEST CapturedAt across every file that snapshotted at
+		// this round — Go map iteration order is randomized, so picking "the
+		// first" produced a non-deterministic captured_at across requests.
+		// The earliest is a meaningful representative (the moment the round
+		// began capturing) and stable for any given snapshot map.
+		var earliest time.Time
 		for _, byRound := range session.RoundSnapshots {
-			if rs, ok := byRound[r]; ok {
-				capturedAt = rs.CapturedAt.Format(time.RFC3339)
-				break
+			rs, ok := byRound[r]
+			if !ok {
+				continue
 			}
+			if earliest.IsZero() || rs.CapturedAt.Before(earliest) {
+				earliest = rs.CapturedAt
+			}
+		}
+		if !earliest.IsZero() {
+			capturedAt = earliest.Format(time.RFC3339)
 		}
 		adds, dels := lineStatsForRound(session, r)
 		out = append(out, roundEntry{
