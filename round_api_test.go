@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -154,5 +155,71 @@ func TestHandleRounds_LineStats(t *testing.T) {
 	}
 	if r2.Additions == 0 && r2.Deletions == 0 {
 		t.Errorf("R2 must have non-zero line stats: %+v", r2)
+	}
+}
+
+// TestRoundParam_RejectInvalidConsistently is a regression test for review W2.
+// The four round-aware endpoints must reject malformed ?round values
+// uniformly (400) and accept an empty value (back-compat). Previously
+// /api/file and /api/file/diff returned 400 on garbage while
+// /api/file/comments and /api/comments silently ignored it, leaving
+// callers with two contradictory contracts.
+func TestRoundParam_RejectInvalidConsistently(t *testing.T) {
+	endpoints := []string{
+		"/api/session",
+		"/api/file?path=test.md",
+		"/api/file/diff?path=test.md",
+		"/api/file/comments?path=test.md",
+		"/api/comments",
+	}
+	cases := []struct {
+		name       string
+		round      string // raw query value
+		omit       bool   // if true, append no round param at all
+		wantStatus int
+	}{
+		{name: "absent", omit: true, wantStatus: 200},
+		{name: "empty", round: "", wantStatus: 200},
+		{name: "garbage", round: "abc", wantStatus: 400},
+		{name: "negative", round: "-1", wantStatus: 400},
+		{name: "zero", round: "0", wantStatus: 400},
+		// A round number that doesn't have a snapshot is valid syntax
+		// (well-formed integer >= 1); the file-scoped endpoints translate
+		// that to 404 "file_not_in_round", and the list endpoints just
+		// return an empty list. Either way it's NOT a 400.
+		{name: "very_large", round: "99999", wantStatus: 0},
+	}
+	for _, ep := range endpoints {
+		ep := ep
+		for _, tc := range cases {
+			tc := tc
+			t.Run(ep+"/"+tc.name, func(t *testing.T) {
+				srv, _ := newRoundsTestServer(t)
+				url := ep
+				if !tc.omit {
+					sep := "?"
+					if strings.Contains(ep, "?") {
+						sep = "&"
+					}
+					url = ep + sep + "round=" + tc.round
+				}
+				req := httptest.NewRequest("GET", url, nil)
+				w := httptest.NewRecorder()
+				srv.ServeHTTP(w, req)
+				if tc.wantStatus == 400 {
+					if w.Code != 400 {
+						t.Errorf("%s round=%q: status=%d, want 400 (body=%s)", ep, tc.round, w.Code, w.Body.String())
+					}
+					return
+				}
+				if tc.wantStatus == 200 && w.Code != 200 {
+					t.Errorf("%s round=%q: status=%d, want 200 (body=%s)", ep, tc.round, w.Code, w.Body.String())
+				}
+				// wantStatus == 0: accept any non-400.
+				if tc.wantStatus == 0 && w.Code == 400 {
+					t.Errorf("%s round=%q: unexpectedly returned 400 (body=%s)", ep, tc.round, w.Body.String())
+				}
+			})
+		}
 	}
 }

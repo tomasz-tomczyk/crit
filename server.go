@@ -354,6 +354,31 @@ func (s *Server) addIntegrationStatus(resp map[string]interface{}) {
 	resp["any_integration_installed"] = len(integrations) > 0
 }
 
+// parseRoundParam extracts and validates the ?round=N query parameter.
+//
+// Returns:
+//   - (0, false, true): the parameter is absent or empty — caller should not
+//     apply any round filter (back-compat: pre-feature clients omit it).
+//   - (N, true, true):  parsed round >= 1 — caller may apply the filter.
+//   - (0, false, false): invalid — the function has already written a 400
+//     response and the caller MUST return without writing further.
+//
+// All four round-aware endpoints (/api/session, /api/file, /api/file/diff,
+// /api/file/comments, /api/comments) go through this helper so the contract
+// stays uniform: a malformed value (e.g. "abc", "-1", "0") always yields 400.
+func parseRoundParam(w http.ResponseWriter, r *http.Request) (round int, ok bool, valid bool) {
+	roundStr := r.URL.Query().Get("round")
+	if roundStr == "" {
+		return 0, false, true
+	}
+	n, err := strconv.Atoi(roundStr)
+	if err != nil || n < 1 {
+		http.Error(w, "invalid round", http.StatusBadRequest)
+		return 0, false, false
+	}
+	return n, true, true
+}
+
 // handleSession returns session metadata: mode, branch, file list with stats.
 //
 // GET /api/session[?scope=X&commit=Y&round=N]
@@ -367,15 +392,17 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	round, hasRound, valid := parseRoundParam(w, r)
+	if !valid {
+		return
+	}
 	scope := r.URL.Query().Get("scope")
 	commit := r.URL.Query().Get("commit")
 	session := s.session.Load()
 	info := session.GetSessionInfoScoped(scope, commit)
 
-	if roundStr := r.URL.Query().Get("round"); roundStr != "" && session != nil && session.Mode == "files" {
-		if n, err := strconv.Atoi(roundStr); err == nil && n >= 1 {
-			info.Files = filterFilesAtRound(session, info.Files, n)
-		}
+	if hasRound && session != nil && session.Mode == "files" {
+		info.Files = filterFilesAtRound(session, info.Files, round)
 	}
 	writeJSON(w, info)
 }
@@ -633,17 +660,16 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 // through to the working-tree code path (no round param, git/range mode, or
 // no snapshot recorded for this round).
 func serveFileAtRound(w http.ResponseWriter, r *http.Request, session *Session, path string) bool {
-	roundStr := r.URL.Query().Get("round")
-	if roundStr == "" {
+	round, hasRound, valid := parseRoundParam(w, r)
+	if !valid {
+		// parseRoundParam wrote 400; signal handled.
+		return true
+	}
+	if !hasRound {
 		return false
 	}
 	if session == nil || session.Mode != "files" {
 		return false
-	}
-	round, err := strconv.Atoi(roundStr)
-	if err != nil || round < 1 {
-		http.Error(w, "invalid round", http.StatusBadRequest)
-		return true
 	}
 	session.mu.RLock()
 	rs, ok := session.roundSnapshotForFile(path, round)
@@ -706,17 +732,15 @@ func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 // served=false when the caller should fall through to the working-tree code
 // path (no round param, or git/range mode).
 func serveFileDiffAtRound(w http.ResponseWriter, r *http.Request, session *Session, path string) bool {
-	roundStr := r.URL.Query().Get("round")
-	if roundStr == "" {
+	round, hasRound, valid := parseRoundParam(w, r)
+	if !valid {
+		return true
+	}
+	if !hasRound {
 		return false
 	}
 	if session == nil || session.Mode != "files" {
 		return false
-	}
-	round, err := strconv.Atoi(roundStr)
-	if err != nil || round < 1 {
-		http.Error(w, "invalid round", http.StatusBadRequest)
-		return true
 	}
 	session.mu.RLock()
 	rs, ok := session.roundSnapshotForFile(path, round)
@@ -754,11 +778,13 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
+		round, hasRound, valid := parseRoundParam(w, r)
+		if !valid {
+			return
+		}
 		comments := s.session.Load().GetComments(path)
-		if roundStr := r.URL.Query().Get("round"); roundStr != "" && s.session.Load().Mode == "files" {
-			if n, err := strconv.Atoi(roundStr); err == nil && n >= 1 {
-				comments = commentsAtOrBeforeRound(comments, n)
-			}
+		if hasRound && s.session.Load().Mode == "files" {
+			comments = commentsAtOrBeforeRound(comments, round)
 		}
 		writeJSON(w, comments)
 
@@ -1092,11 +1118,13 @@ func (s *Server) handleReviewCommentReplyRoute(w http.ResponseWriter, r *http.Re
 func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		round, hasRound, valid := parseRoundParam(w, r)
+		if !valid {
+			return
+		}
 		comments := s.session.Load().GetReviewComments()
-		if roundStr := r.URL.Query().Get("round"); roundStr != "" && s.session.Load().Mode == "files" {
-			if n, err := strconv.Atoi(roundStr); err == nil && n >= 1 {
-				comments = commentsAtOrBeforeRound(comments, n)
-			}
+		if hasRound && s.session.Load().Mode == "files" {
+			comments = commentsAtOrBeforeRound(comments, round)
 		}
 		writeJSON(w, comments)
 
