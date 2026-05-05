@@ -64,7 +64,7 @@ esac
 		{ParentGHID: 300, Body: "third reply"},
 	}
 
-	got := postPushReplies(42, replies)
+	got, _, _ := postPushReplies(42, replies)
 
 	// First reply: parent 100 → id 1001.
 	k1 := replyKey{ParentGHID: 100, BodyPrefix: truncateStr("first reply", 60)}
@@ -155,7 +155,10 @@ esac
 	}
 
 	ctx := pushContext{critPath: critRoot, cj: cj}
-	drained, failed := pushDeletedComments(ctx)
+	drained, failed, authFailed := pushDeletedComments(ctx)
+	if authFailed {
+		t.Fatal("authFailed = true; want false (no 401 in this scenario)")
+	}
 	if drained != 1 {
 		t.Errorf("drained = %d, want 1", drained)
 	}

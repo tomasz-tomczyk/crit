@@ -651,24 +651,35 @@ func parsePushFlags(args []string) pushFlags {
 	return f
 }
 
-func postPushReplies(prNumber int, allReplies []ghReplyForPush) map[replyKey]int64 {
+// postPushReplies posts each reply via `gh api`. On the first auth-rotation
+// failure (HTTP 401) it aborts the rest of the batch — every subsequent
+// call would fail identically, and bailing cleanly lets the outer push
+// loop print the K-of-N recovery message. authFailed signals that to the
+// caller. replyCount is the number of replies actually accepted by GitHub
+// before the abort (or in total if no abort happened).
+func postPushReplies(prNumber int, allReplies []ghReplyForPush) (map[replyKey]int64, int, bool) {
 	replyCount := 0
 	replyIDs := make(map[replyKey]int64)
+	authFailed := false
 	for _, reply := range allReplies {
 		replyID, err := postGHReply(prNumber, reply.ParentGHID, reply.Body)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to post reply: %v\n", err)
-		} else {
-			replyCount++
-			if replyID != 0 {
-				replyIDs[replyKey{ParentGHID: reply.ParentGHID, BodyPrefix: truncateStr(reply.Body, 60)}] = replyID
+			if errors.Is(err, errGHAuthFailed) {
+				authFailed = true
+				break
 			}
+			continue
+		}
+		replyCount++
+		if replyID != 0 {
+			replyIDs[replyKey{ParentGHID: reply.ParentGHID, BodyPrefix: truncateStr(reply.Body, 60)}] = replyID
 		}
 	}
 	if replyCount > 0 {
 		fmt.Printf("Posted %d replies\n", replyCount)
 	}
-	return replyIDs
+	return replyIDs, replyCount, authFailed
 }
 
 // resolveCurrentPRHead fetches the PR's current head SHA when in range mode.
@@ -791,48 +802,25 @@ func runPushDryRun(ctx pushContext, b pushBuckets) {
 // runPushLive performs the actual push: writes the orphan export (if any
 // orphans), posts the postable bucket via gh, and prints a summary. Replies
 // to existing GitHub comments are also posted (only for postable parents).
-func runPushLive(ctx pushContext, b pushBuckets) {
-	exportPath := ""
-	if len(b.FullStack)+len(b.Unmapped) > 0 {
-		dir, err := exportsDir()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not resolve export dir: %v\n", err)
-		} else {
-			path, werr := writeOrphanExport(ctx.prNumber, b, dir)
-			if werr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to write orphan export: %v\n", werr)
-			} else {
-				exportPath = path
-			}
-		}
-	}
+//
+// Returns the process exit code so callers (and tests) can decide what to
+// do without runPushLive itself terminating the process.
+func runPushLive(ctx pushContext, b pushBuckets) int {
+	exportPath := writePushOrphanExport(ctx, b)
 
-	posted := 0
-	postFailed := false
-	var commentIDs map[string]int64
-	if len(b.Postable) > 0 {
-		ghComments := bucketsToGHComments(b.Postable)
-		ids, err := createGHReview(ctx.prNumber, ghComments, ctx.flags.message, ctx.event)
-		if err != nil {
-			postFailed = true
-			fmt.Fprintf(os.Stderr, "Error posting review: %v\n", err)
-		} else {
-			posted = len(ghComments)
-			commentIDs = ids
-		}
-	}
+	postable := len(b.Postable)
+	posted, postFailed, postAuthFailed, commentIDs := runPushPostReview(ctx, b)
 
-	// Replies to GitHub-anchored comments are independent of whether there
-	// were new top-level comments to post: the parent already has a
-	// github_id (either imported via pull or pushed by us previously), so
-	// the reply can go out regardless. Skip only if the top-level post
-	// failed — parent IDs assigned in this same push wouldn't be stable.
-	if !postFailed {
+	totalReplies := countNewReplies(ctx.cj)
+	postedReplies := 0
+	replyAuthFailed := false
+	if !postFailed && !postAuthFailed {
 		var allReplies []ghReplyForPush
 		for _, cf := range ctx.cj.Files {
 			allReplies = append(allReplies, collectNewRepliesForPush(cf)...)
 		}
-		replyIDs := postPushReplies(ctx.prNumber, allReplies)
+		var replyIDs map[replyKey]int64
+		replyIDs, postedReplies, replyAuthFailed = postPushReplies(ctx.prNumber, allReplies)
 		if len(commentIDs) > 0 || len(replyIDs) > 0 {
 			if uerr := updateCritJSONWithGitHubIDs(ctx.critPath, commentIDs, replyIDs); uerr != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to update review file with GitHub IDs: %v\n", uerr)
@@ -840,20 +828,85 @@ func runPushLive(ctx pushContext, b pushBuckets) {
 		}
 	}
 
-	// PATCH already-pushed comments/replies whose local body diverged from
-	// the recorded push-time hash. Independent of the POST path — edits frequently happen
-	// in pushes where there are no new comments to create.
-	patched := pushEditedBodies(ctx)
+	totalEdits := len(collectEditedForPush(ctx.cj))
+	patched := 0
+	editAuthFailed := false
+	if !postAuthFailed && !replyAuthFailed {
+		patched, editAuthFailed = pushEditedBodies(ctx)
+	}
 
-	// DELETE remote comments tombstoned locally. Independent of POST/PATCH:
-	// users can delete a comment without touching anything else.
-	deleted, deleteFailed := pushDeletedComments(ctx)
+	totalDeletes := len(collectDeletesForPush(ctx.cj))
+	deleted := 0
+	deleteFailed := false
+	deleteAuthFailed := false
+	if !postAuthFailed && !replyAuthFailed && !editAuthFailed {
+		deleted, deleteFailed, deleteAuthFailed = pushDeletedComments(ctx)
+	}
+
+	authAborted := postAuthFailed || replyAuthFailed || editAuthFailed || deleteAuthFailed
+	if authAborted {
+		k := posted + postedReplies + patched + deleted
+		n := postable + totalReplies + totalEdits + totalDeletes
+		fmt.Fprintf(os.Stderr,
+			"Pushed %d of %d comments before auth failed. Run 'gh auth refresh' then re-run 'crit push' to post the rest.\n",
+			k, n)
+		return 1
+	}
 
 	printPushSummary(posted, patched, deleted, len(b.FullStack)+len(b.Unmapped), exportPath)
 
 	if pushShouldExitFailure(posted, patched, deleted, exportPath, postFailed, deleteFailed) {
-		os.Exit(1)
+		return 1
 	}
+	return 0
+}
+
+// writePushOrphanExport writes the off-PR (full-stack + unmapped) bucket
+// to a side file when needed. Split out of runPushLive purely to keep
+// cyclomatic complexity inside Go Report Card limits.
+func writePushOrphanExport(ctx pushContext, b pushBuckets) string {
+	if len(b.FullStack)+len(b.Unmapped) == 0 {
+		return ""
+	}
+	dir, err := exportsDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not resolve export dir: %v\n", err)
+		return ""
+	}
+	path, werr := writeOrphanExport(ctx.prNumber, b, dir)
+	if werr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to write orphan export: %v\n", werr)
+		return ""
+	}
+	return path
+}
+
+// runPushPostReview posts the Postable bucket as a single GitHub review.
+// Returns the count posted, whether the call failed (any reason), whether
+// the failure was specifically an auth-rotation 401, and the path-to-id
+// mapping for body-hash bookkeeping.
+func runPushPostReview(ctx pushContext, b pushBuckets) (int, bool, bool, map[string]int64) {
+	if len(b.Postable) == 0 {
+		return 0, false, false, nil
+	}
+	ghComments := bucketsToGHComments(b.Postable)
+	ids, err := createGHReview(ctx.prNumber, ghComments, ctx.flags.message, ctx.event)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error posting review: %v\n", err)
+		return 0, true, errors.Is(err, errGHAuthFailed), nil
+	}
+	return len(ghComments), false, false, ids
+}
+
+// countNewReplies counts replies that would be sent in this push (no
+// GitHubID yet, parent already on GitHub). Mirrors collectNewRepliesForPush
+// without allocating the full slice — used purely for the K-of-N total.
+func countNewReplies(cj CritJSON) int {
+	n := 0
+	for _, cf := range cj.Files {
+		n += len(collectNewRepliesForPush(cf))
+	}
+	return n
 }
 
 // pushShouldExitFailure encodes the exit-code policy for `crit push`. The
@@ -889,18 +942,24 @@ func printPushSummary(posted, patched, deleted, orphans int, exportPath string) 
 }
 
 // pushEditedBodies PATCHes already-pushed comments/replies whose local body
-// diverged from the recorded push-time hash. Returns the count of records successfully
-// PATCHed and updated in the review file. Failures log to stderr and are
-// excluded from the count, so the next push will retry them.
-func pushEditedBodies(ctx pushContext) int {
+// diverged from the recorded push-time hash. Returns the count of records
+// successfully PATCHed and updated in the review file, plus an authFailed
+// flag when an HTTP 401 aborted the batch. Non-auth failures log to stderr
+// and are excluded from the count, so the next push will retry them.
+func pushEditedBodies(ctx pushContext) (int, bool) {
 	edits := collectEditedForPush(ctx.cj)
 	if len(edits) == 0 {
-		return 0
+		return 0, false
 	}
 	succeeded := make([]ghEditForPush, 0, len(edits))
+	authFailed := false
 	for _, e := range edits {
 		if err := patchGHComment(e.GitHubID, e.Body); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to edit comment %d: %v\n", e.GitHubID, err)
+			if errors.Is(err, errGHAuthFailed) {
+				authFailed = true
+				break
+			}
 			continue
 		}
 		succeeded = append(succeeded, e)
@@ -908,7 +967,7 @@ func pushEditedBodies(ctx pushContext) int {
 	if uerr := updateCritJSONWithEditedBodies(ctx.critPath, succeeded); uerr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to update review file after edit push: %v\n", uerr)
 	}
-	return len(succeeded)
+	return len(succeeded), authFailed
 }
 
 // pushDeletedComments issues DELETE for every GitHub comment ID queued in
@@ -919,16 +978,20 @@ func pushEditedBodies(ctx pushContext) int {
 // 403 is logged but treated as drained — the GitHub API rejects deletes by
 // non-authors, so retrying is futile and a stuck pending entry would block
 // all future pushes for this review file.
-func pushDeletedComments(ctx pushContext) (int, bool) {
+func pushDeletedComments(ctx pushContext) (int, bool, bool) {
 	pending := collectDeletesForPush(ctx.cj)
 	if len(pending) == 0 {
-		return 0, false
+		return 0, false, false
 	}
 	drained := make([]int64, 0, len(pending))
 	failed := false
+	authFailed := false
 	for _, id := range pending {
 		status, err := deleteGHComment(id)
 		switch {
+		case err != nil && errors.Is(err, errGHAuthFailed):
+			fmt.Fprintf(os.Stderr, "Warning: failed to delete comment %d: %v\n", id, err)
+			authFailed = true
 		case err != nil:
 			fmt.Fprintf(os.Stderr, "Warning: failed to delete comment %d: %v\n", id, err)
 			failed = true
@@ -941,11 +1004,14 @@ func pushDeletedComments(ctx pushContext) (int, bool) {
 			fmt.Fprintf(os.Stderr, "Warning: unexpected status %d deleting comment %d\n", status, id)
 			failed = true
 		}
+		if authFailed {
+			break
+		}
 	}
 	if uerr := updateCritJSONAfterDeletes(ctx.critPath, drained); uerr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to update review file after delete push: %v\n", uerr)
 	}
-	return len(drained), failed
+	return len(drained), failed, authFailed
 }
 
 // fullStackPushGateMessage is the user-facing error string emitted when
@@ -983,7 +1049,9 @@ func runPush(args []string) {
 		runPushDryRun(ctx, b)
 		return
 	}
-	runPushLive(ctx, b)
+	if code := runPushLive(ctx, b); code != 0 {
+		os.Exit(code)
+	}
 }
 
 type commentFlags struct {

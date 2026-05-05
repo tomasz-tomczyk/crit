@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -45,6 +46,42 @@ type ghComment struct {
 	// see userNameCache.
 	CreatedAt   string `json:"created_at"`
 	InReplyToID int64  `json:"in_reply_to_id"`
+}
+
+// errGHAuthFailed signals that a `gh api` call returned HTTP 401. Callers
+// in the push loop check this with errors.Is to distinguish a token
+// rotation / expiration from generic transport failures: when it appears
+// the rest of the push must abort because every subsequent gh call would
+// fail the same way, and surface a clear "run gh auth refresh" message
+// instead of a vague per-request error spam.
+var errGHAuthFailed = errors.New("gh auth failed (HTTP 401)")
+
+// isGHAuthFailure reports whether `gh api` output (stdout+stderr or the
+// --include status block) indicates an HTTP 401. gh surfaces 401 in two
+// canonical line-anchored shapes: a stderr error line that begins with
+// "gh: HTTP 401" and the HTTP status line in the --include block that
+// begins with "HTTP/1.1 401" / "HTTP/2 401" / "HTTP/2.0 401".
+//
+// We deliberately do NOT match bare "HTTP 401" or "Bad credentials"
+// substrings: they false-trigger when an echoed request body or quoted
+// error text happens to mention either phrase (e.g. a comment body that
+// contains "got HTTP 401 from upstream"). Anchoring to line start keeps
+// detection tied to gh's own framing.
+func isGHAuthFailure(out []byte) bool {
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "gh: HTTP 401") {
+			return true
+		}
+		if strings.HasPrefix(line, "HTTP/1.1 401") ||
+			strings.HasPrefix(line, "HTTP/2 401") ||
+			strings.HasPrefix(line, "HTTP/2.0 401") {
+			return true
+		}
+	}
+	return false
 }
 
 // requireGH checks that the gh CLI is installed and authenticated.
@@ -1074,6 +1111,9 @@ func patchGHComment(ghID int64, body string) error {
 	cmd.Stdin = bytes.NewReader(payload)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if isGHAuthFailure(output) {
+			return fmt.Errorf("gh api patch: %s: %w", strings.TrimSpace(string(output)), errGHAuthFailed)
+		}
 		return fmt.Errorf("gh api patch: %s: %w", string(output), err)
 	}
 	return nil
@@ -1142,6 +1182,9 @@ func postGHReply(prNumber int, parentGHID int64, body string) (int64, error) {
 	cmd.Stdin = bytes.NewReader(payload)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if isGHAuthFailure(output) {
+			return 0, fmt.Errorf("gh api: %s: %w", strings.TrimSpace(string(output)), errGHAuthFailed)
+		}
 		return 0, fmt.Errorf("gh api: %s: %w", string(output), err)
 	}
 	var resp struct {
@@ -1228,6 +1271,10 @@ func createGHReview(prNumber int, comments []map[string]any, message string, eve
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		combined := append(append([]byte{}, stdout.Bytes()...), stderr.Bytes()...)
+		if isGHAuthFailure(combined) {
+			return nil, fmt.Errorf("creating review: %s: %w", strings.TrimSpace(stderr.String()), errGHAuthFailed)
+		}
 		if stderr.Len() > 0 {
 			return nil, fmt.Errorf("creating review: %s", strings.TrimSpace(stderr.String()))
 		}
@@ -1354,6 +1401,9 @@ func deleteGHComment(ghID int64) (int, error) {
 		// Caller decides how to handle these; surface the status without
 		// treating the gh non-zero exit as a fatal error.
 		return status, nil
+	}
+	if status == 401 || isGHAuthFailure(output) {
+		return status, fmt.Errorf("gh api delete: %s: %w", strings.TrimSpace(string(output)), errGHAuthFailed)
 	}
 	if runErr != nil {
 		return status, fmt.Errorf("gh api delete: %s: %w", strings.TrimSpace(string(output)), runErr)
