@@ -130,6 +130,26 @@ func flushWrites(s *Session) {
 	s.mu.Unlock()
 }
 
+// quiesceSession cancels any pending debounced write and waits for any
+// in-flight write callback to finish. Use it from t.Cleanup in tests that
+// call AddComment so t.TempDir's RemoveAll does not race with a delayed
+// disk write — on Windows that race manifests as "directory is not empty".
+func quiesceSession(t *testing.T, s *Session) {
+	t.Helper()
+	s.mu.Lock()
+	if s.writeTimer != nil {
+		s.writeTimer.Stop()
+	}
+	s.writeGen++
+	s.mu.Unlock()
+	// writeMu is held by an in-flight callback for the duration of the
+	// write; acquiring then releasing it ensures any callback that already
+	// passed the timer Stop above runs to completion before we return.
+	s.writeMu.Lock()
+	//nolint:staticcheck // SA2001: intentional drain of in-flight write callback
+	s.writeMu.Unlock()
+}
+
 // TestGitEnvLeakStripped guards against the testutil_test.go GIT_* env leak
 // that previously corrupted the parent worktree when `go test ./...` was
 // invoked from a pre-commit hook. See the init() and runGit() comments above.

@@ -1181,6 +1181,10 @@ func TestChangeBaseBranch_CommentsPreserved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSessionFromGit: %v", err)
 	}
+	// AddComment arms a 200ms debounced disk write. Drain it before t.TempDir's
+	// RemoveAll runs — on Windows the lingering write races cleanup and fails
+	// with "directory is not empty".
+	t.Cleanup(func() { quiesceSession(t, session) })
 
 	// Add a comment on feature.go (should survive base branch change)
 	_, ok := session.AddComment("feature.go", 1, 1, "", "keep this comment", "", "", "")
