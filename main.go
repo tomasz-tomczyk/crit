@@ -535,6 +535,15 @@ func runPull(args []string) {
 		os.Exit(1)
 	}
 
+	// Thread-resolved state lives on the GraphQL reviewThreads edge, not on
+	// REST /pulls/{n}/comments. We fetch it best-effort: a GraphQL failure
+	// (token scope, transient outage) shouldn't block a comment pull. See #453.
+	threadResolved, threadErr := fetchPRThreadResolved(prNumber)
+	if threadErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not fetch review-thread resolution state: %v\n", threadErr)
+		threadResolved = nil
+	}
+
 	critPath, err := resolveReviewPath(f.outputDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -573,7 +582,7 @@ func runPull(args []string) {
 	}
 
 	scope := resolvePullScope(f.outputDir, &cj)
-	added := mergeGHCommentsScoped(&cj, ghComments, scope)
+	added := mergeGHCommentsScoped(&cj, ghComments, scope, threadResolved)
 
 	if added == 0 {
 		fmt.Printf("No new inline comments found on PR #%d\n", prNumber)

@@ -864,7 +864,6 @@ func TestRoundtrip_AnchorLineDeleted_Outdated(t *testing.T) {
 // GraphQL resolveReviewThread; subsequent pull must mirror that state to
 // the local resolved flag.
 func TestRoundtrip_GitHubThreadResolvedOnWeb(t *testing.T) {
-	t.Skip("blocked on issue #453: crit pull does not import GitHub review-thread resolved state")
 	e := newRoundtripEnv(t)
 
 	e.runCrit("comment", "sample.go:19", "needs decision")

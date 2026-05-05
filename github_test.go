@@ -2663,7 +2663,7 @@ func TestMergeGHComments_UsesDisplayNameFromCache(t *testing.T) {
 			CreatedAt: "2025-01-01T00:00:00Z"},
 	}
 	names := userNameCache{"alice": "Alice Liddell"}
-	if added := mergeGHCommentsWithNames(&cj, ghComments, names, inheritedScope{}); added != 1 {
+	if added := mergeGHCommentsWithNames(&cj, ghComments, names, inheritedScope{}, nil); added != 1 {
 		t.Fatalf("added = %d, want 1", added)
 	}
 	if got := cj.Files["main.go"].Comments[0].Author; got != "Alice Liddell" {
@@ -2685,7 +2685,7 @@ func TestMergeGHCommentsScoped_StampsHeadAndLayer(t *testing.T) {
 			CreatedAt: "2025-01-01T00:00:00Z"},
 	}
 	scope := inheritedScope{HeadSHA: "headXYZ", DiffScope: "layer"}
-	if added := mergeGHCommentsScoped(&cj, ghComments, scope); added != 1 {
+	if added := mergeGHCommentsScoped(&cj, ghComments, scope, nil); added != 1 {
 		t.Fatalf("added=%d want 1", added)
 	}
 	c := cj.Files["main.go"].Comments[0]
@@ -2710,7 +2710,7 @@ func TestMergeGHCommentsScoped_NoStampWithEmptyScope(t *testing.T) {
 			}{Login: "u"},
 			CreatedAt: "2025-01-01T00:00:00Z"},
 	}
-	mergeGHCommentsScoped(&cj, ghComments, inheritedScope{})
+	mergeGHCommentsScoped(&cj, ghComments, inheritedScope{}, nil)
 	c := cj.Files["main.go"].Comments[0]
 	if c.HeadSHA != "" || c.DiffScope != "" {
 		t.Errorf("comment was stamped despite empty scope: %+v", c)
@@ -3184,7 +3184,7 @@ func TestMergeRootComment_SkipsPendingDelete(t *testing.T) {
 			Login string `json:"login"`
 		}{Login: "alice"},
 	}}
-	added := mergeGHCommentsWithNames(&cj, gc, userNameCache{"alice": "alice"}, inheritedScope{})
+	added := mergeGHCommentsWithNames(&cj, gc, userNameCache{"alice": "alice"}, inheritedScope{}, nil)
 	if added != 0 {
 		t.Errorf("merge re-imported pending-delete comment (added=%d, want 0)", added)
 	}
@@ -3212,7 +3212,7 @@ func TestMergeOrphanReplies_SkipsPendingDelete(t *testing.T) {
 		}{Login: "alice"},
 		InReplyToID: 500,
 	}}
-	mergeGHCommentsWithNames(&cj, gc, userNameCache{"alice": "alice"}, inheritedScope{})
+	mergeGHCommentsWithNames(&cj, gc, userNameCache{"alice": "alice"}, inheritedScope{}, nil)
 	cf := cj.Files["a.go"]
 	if len(cf.Comments) != 1 || len(cf.Comments[0].Replies) != 0 {
 		t.Errorf("expected parent with no replies; got %+v", cf.Comments)
@@ -3289,5 +3289,214 @@ func TestDeleteGHComment_StatusHandling(t *testing.T) {
 				t.Errorf("err = %v, wantErr = %v", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// TestThreadResolvedForRoot covers the lookup precedence: root databaseID
+// first, then any reply, then absent.
+func TestThreadResolvedForRoot(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		rootID         int64
+		replies        []ghComment
+		threadResolved map[int64]bool
+		wantResolved   bool
+		wantPresent    bool
+	}{
+		{
+			name:           "nil map returns absent",
+			rootID:         1,
+			threadResolved: nil,
+			wantPresent:    false,
+		},
+		{
+			name:           "root hit takes precedence",
+			rootID:         1,
+			replies:        []ghComment{{ID: 2}},
+			threadResolved: map[int64]bool{1: true, 2: false},
+			wantResolved:   true,
+			wantPresent:    true,
+		},
+		{
+			name:           "reply fallback when root missing",
+			rootID:         1,
+			replies:        []ghComment{{ID: 2}},
+			threadResolved: map[int64]bool{2: true},
+			wantResolved:   true,
+			wantPresent:    true,
+		},
+		{
+			name:           "neither root nor reply -> absent",
+			rootID:         1,
+			replies:        []ghComment{{ID: 2}},
+			threadResolved: map[int64]bool{99: true},
+			wantPresent:    false,
+		},
+		{
+			name:           "explicit unresolved is present=true",
+			rootID:         1,
+			threadResolved: map[int64]bool{1: false},
+			wantResolved:   false,
+			wantPresent:    true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gotResolved, gotPresent := threadResolvedForRoot(tc.rootID, tc.replies, tc.threadResolved)
+			if gotResolved != tc.wantResolved || gotPresent != tc.wantPresent {
+				t.Errorf("got (%v,%v), want (%v,%v)",
+					gotResolved, gotPresent, tc.wantResolved, tc.wantPresent)
+			}
+		})
+	}
+}
+
+// TestMergeGHComments_ThreadResolved_NewComment verifies a freshly imported
+// root inherits Resolved=true and ResolvedRound=cj.ReviewRound when its
+// thread is resolved on github.com.
+func TestMergeGHComments_ThreadResolved_NewComment(t *testing.T) {
+	cj := CritJSON{Files: map[string]CritJSONFile{}, ReviewRound: 3}
+	ghComments := []ghComment{
+		{ID: 42, Path: "main.go", Line: 5, Side: "RIGHT", Body: "decide", CreatedAt: "2025-01-01T00:00:00Z",
+			User: struct {
+				Login string `json:"login"`
+			}{Login: "alice"}},
+	}
+	threadResolved := map[int64]bool{42: true}
+	added := mergeGHCommentsWithNames(&cj, ghComments, userNameCache{"alice": "alice"}, inheritedScope{}, threadResolved)
+	if added != 1 {
+		t.Fatalf("added = %d, want 1", added)
+	}
+	c := cj.Files["main.go"].Comments[0]
+	if !c.Resolved {
+		t.Errorf("Resolved = false, want true")
+	}
+	if c.ResolvedRound != 3 {
+		t.Errorf("ResolvedRound = %d, want 3", c.ResolvedRound)
+	}
+}
+
+// TestMergeGHComments_ThreadResolved_ExistingDedupedComment exercises the
+// crit pull workflow: an earlier pull imported the comment with
+// Resolved=false; the reviewer later clicked Resolve on github.com; the
+// next pull must update Resolved on the deduplicated local comment.
+func TestMergeGHComments_ThreadResolved_ExistingDedupedComment(t *testing.T) {
+	cj := CritJSON{
+		ReviewRound: 4,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{ID: "c1", GitHubID: 42, Author: "alice", Body: "decide",
+						StartLine: 5, EndLine: 5, Resolved: false},
+				},
+			},
+		},
+	}
+	ghComments := []ghComment{
+		{ID: 42, Path: "main.go", Line: 5, Side: "RIGHT", Body: "decide", CreatedAt: "2025-01-01T00:00:00Z",
+			User: struct {
+				Login string `json:"login"`
+			}{Login: "alice"}},
+	}
+	threadResolved := map[int64]bool{42: true}
+	added := mergeGHCommentsWithNames(&cj, ghComments, userNameCache{"alice": "alice"}, inheritedScope{}, threadResolved)
+	// added is 1 because the resolution flip is a meaningful change that
+	// must trigger a save in runPull (added==0 short-circuits persistence).
+	if added != 1 {
+		t.Fatalf("added = %d, want 1 (resolution flip should be counted)", added)
+	}
+	c := cj.Files["main.go"].Comments[0]
+	if !c.Resolved {
+		t.Errorf("Resolved = false, want true")
+	}
+	if c.ResolvedRound != 4 {
+		t.Errorf("ResolvedRound = %d, want 4 (cj.ReviewRound)", c.ResolvedRound)
+	}
+}
+
+// TestMergeGHComments_ThreadUnresolved_DoesNotClobberLocallyResolved
+// pins the asymmetric merge: a thread that is unresolved on github.com
+// must NOT undo a locally-resolved comment. Local users may resolve via
+// crit / crit-web independently of github.com, and crit pull is not
+// authoritative on the unresolved->resolved transition direction.
+func TestMergeGHComments_ThreadUnresolved_DoesNotClobberLocallyResolved(t *testing.T) {
+	cj := CritJSON{
+		ReviewRound: 5,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{ID: "c1", GitHubID: 42, Author: "alice", Body: "decide",
+						StartLine: 5, EndLine: 5, Resolved: true, ResolvedRound: 2},
+				},
+			},
+		},
+	}
+	ghComments := []ghComment{
+		{ID: 42, Path: "main.go", Line: 5, Side: "RIGHT", Body: "decide", CreatedAt: "2025-01-01T00:00:00Z",
+			User: struct {
+				Login string `json:"login"`
+			}{Login: "alice"}},
+	}
+	threadResolved := map[int64]bool{42: false}
+	added := mergeGHCommentsWithNames(&cj, ghComments, userNameCache{"alice": "alice"}, inheritedScope{}, threadResolved)
+	if added != 0 {
+		t.Errorf("added = %d, want 0 (no-op when remote is unresolved and local is resolved)", added)
+	}
+	c := cj.Files["main.go"].Comments[0]
+	if !c.Resolved {
+		t.Errorf("Resolved = false, want true (local resolution must not be clobbered)")
+	}
+	if c.ResolvedRound != 2 {
+		t.Errorf("ResolvedRound = %d, want 2 (preserved from prior local resolve)", c.ResolvedRound)
+	}
+}
+
+// TestMergeGHComments_NilThreadMap_NoOp confirms that callers passing nil
+// (e.g., a GraphQL fetch failed best-effort) preserve all existing
+// behavior — no Resolved bits are flipped, no new Resolved bits set.
+func TestMergeGHComments_NilThreadMap_NoOp(t *testing.T) {
+	cj := CritJSON{Files: map[string]CritJSONFile{}, ReviewRound: 1}
+	ghComments := []ghComment{
+		{ID: 7, Path: "main.go", Line: 3, Side: "RIGHT", Body: "x", CreatedAt: "2025-01-01T00:00:00Z",
+			User: struct {
+				Login string `json:"login"`
+			}{Login: "u"}},
+	}
+	mergeGHCommentsWithNames(&cj, ghComments, userNameCache{"u": "u"}, inheritedScope{}, nil)
+	c := cj.Files["main.go"].Comments[0]
+	if c.Resolved {
+		t.Errorf("Resolved = true, want false (nil thread map must not set resolved)")
+	}
+	if c.ResolvedRound != 0 {
+		t.Errorf("ResolvedRound = %d, want 0", c.ResolvedRound)
+	}
+}
+
+// TestMergeGHComments_ThreadResolvedViaReplyID covers the case where the
+// resolved bit lookup for the root falls back to a reply's databaseID.
+// (e.g., the GraphQL response indexed only the reply's databaseID — both
+// are valid keys since the bit is shared across the thread.)
+func TestMergeGHComments_ThreadResolvedViaReplyID(t *testing.T) {
+	cj := CritJSON{Files: map[string]CritJSONFile{}, ReviewRound: 2}
+	ghComments := []ghComment{
+		{ID: 42, Path: "main.go", Line: 5, Side: "RIGHT", Body: "root", CreatedAt: "2025-01-01T00:00:00Z",
+			User: struct {
+				Login string `json:"login"`
+			}{Login: "alice"}},
+		{ID: 43, Path: "main.go", Line: 5, Side: "RIGHT", Body: "reply", CreatedAt: "2025-01-01T00:01:00Z",
+			User: struct {
+				Login string `json:"login"`
+			}{Login: "bob"}, InReplyToID: 42},
+	}
+	// Only the reply's databaseID is in the map — root must still be flagged.
+	threadResolved := map[int64]bool{43: true}
+	mergeGHCommentsWithNames(&cj, ghComments, userNameCache{"alice": "alice", "bob": "bob"}, inheritedScope{}, threadResolved)
+	c := cj.Files["main.go"].Comments[0]
+	if !c.Resolved {
+		t.Errorf("Resolved = false, want true (lookup must fall back to reply databaseID)")
+	}
+	if c.ResolvedRound != 2 {
+		t.Errorf("ResolvedRound = %d, want 2", c.ResolvedRound)
 	}
 }

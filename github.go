@@ -561,6 +561,138 @@ func fetchPRCommentsWithoutSlurp(prNumber int) ([]ghComment, error) {
 	}
 }
 
+// fetchCurrentRepoOwnerName returns (owner, repo) for the current working
+// directory's GitHub repo via `gh repo view`. Used by GraphQL queries which,
+// unlike REST, don't honor the `{owner}/{repo}` placeholder substitution
+// that gh applies to REST endpoints.
+func fetchCurrentRepoOwnerName() (string, string, error) {
+	out, err := exec.Command("gh", "repo", "view", "--json", "owner,name").Output()
+	if err != nil {
+		return "", "", fmt.Errorf("resolving current repo: %w", err)
+	}
+	var resp struct {
+		Owner struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return "", "", fmt.Errorf("parsing current repo: %w", err)
+	}
+	if resp.Owner.Login == "" || resp.Name == "" {
+		return "", "", fmt.Errorf("gh repo view returned empty owner/name: %s", string(out))
+	}
+	return resp.Owner.Login, resp.Name, nil
+}
+
+// fetchPRThreadResolved returns a map databaseID -> isResolved for every
+// review-thread comment on the PR, gathered from the reviewThreads GraphQL
+// edge. Threads carry the resolved bit only at the thread level, not on the
+// individual REST /pulls/{n}/comments rows — so this is the only path that
+// surfaces "reviewer clicked Resolve on github.com" to `crit pull`. See #453.
+//
+// Pagination: GitHub caps reviewThreads at 100 nodes and comments-per-thread
+// at 100. We page on the outer connection; very large discussions
+// (>100 threads or >100 replies in one thread) are still rare enough at
+// crit's scale that the inner cap is acceptable. If we ever hit it, the
+// merge logic degrades gracefully — only the unseen replies miss the
+// resolved bit, the root still gets it.
+func fetchPRThreadResolved(prNumber int) (map[int64]bool, error) {
+	owner, name, err := fetchCurrentRepoOwnerName()
+	if err != nil {
+		return nil, err
+	}
+	resolved := make(map[int64]bool)
+	cursor := ""
+	for {
+		page, nextCursor, err := fetchPRThreadResolvedPage(owner, name, prNumber, cursor)
+		if err != nil {
+			return nil, err
+		}
+		for id, r := range page {
+			resolved[id] = r
+		}
+		if nextCursor == "" {
+			return resolved, nil
+		}
+		cursor = nextCursor
+	}
+}
+
+// graphqlThreadResp is the typed shape of the reviewThreads GraphQL response.
+type graphqlThreadResp struct {
+	Data struct {
+		Repository struct {
+			PullRequest struct {
+				ReviewThreads struct {
+					PageInfo struct {
+						HasNextPage bool   `json:"hasNextPage"`
+						EndCursor   string `json:"endCursor"`
+					} `json:"pageInfo"`
+					Nodes []struct {
+						IsResolved bool `json:"isResolved"`
+						Comments   struct {
+							Nodes []struct {
+								DatabaseID int64 `json:"databaseId"`
+							} `json:"nodes"`
+						} `json:"comments"`
+					} `json:"nodes"`
+				} `json:"reviewThreads"`
+			} `json:"pullRequest"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+// fetchPRThreadResolvedPage fetches one page of review threads and returns
+// (databaseID -> isResolved, nextCursor, error). nextCursor is "" when no
+// more pages are available.
+func fetchPRThreadResolvedPage(owner, name string, prNumber int, cursor string) (map[int64]bool, string, error) {
+	const query = `query($owner:String!,$name:String!,$pr:Int!,$after:String){
+  repository(owner:$owner, name:$name){
+    pullRequest(number:$pr){
+      reviewThreads(first:100, after:$after){
+        pageInfo{ hasNextPage endCursor }
+        nodes{
+          isResolved
+          comments(first:100){ nodes{ databaseId } }
+        }
+      }
+    }
+  }
+}`
+	args := []string{"api", "graphql",
+		"-f", "owner=" + owner,
+		"-f", "name=" + name,
+		"-F", fmt.Sprintf("pr=%d", prNumber),
+		"-f", "query=" + query,
+	}
+	if cursor != "" {
+		args = append(args, "-f", "after="+cursor)
+	}
+	out, err := exec.Command("gh", args...).Output()
+	if err != nil {
+		return nil, "", fmt.Errorf("fetching PR review threads: %w", err)
+	}
+	var resp graphqlThreadResp
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return nil, "", fmt.Errorf("parsing PR review threads: %w", err)
+	}
+	page := make(map[int64]bool)
+	for _, n := range resp.Data.Repository.PullRequest.ReviewThreads.Nodes {
+		for _, c := range n.Comments.Nodes {
+			if c.DatabaseID == 0 {
+				continue
+			}
+			page[c.DatabaseID] = n.IsResolved
+		}
+	}
+	next := ""
+	if resp.Data.Repository.PullRequest.ReviewThreads.PageInfo.HasNextPage {
+		next = resp.Data.Repository.PullRequest.ReviewThreads.PageInfo.EndCursor
+	}
+	return page, next, nil
+}
+
 // isDuplicateGHComment checks if a GitHub comment already exists in the comment list.
 // If ghID is non-zero, matches by GitHubID. Otherwise falls back to author+lines+body.
 func isDuplicateGHComment(comments []Comment, ghID int64, author string, startLine, endLine int, body string) bool {
@@ -647,10 +779,49 @@ func appendNewGHReplies(comments []Comment, ci int, childReplies []ghComment, na
 	return added
 }
 
+// updateDuplicateRoot applies thread-resolved updates and merges new replies
+// onto a root comment that already exists locally (matched by GitHubID).
+// Returns the number of meaningful changes (new replies + at most one for a
+// resolution flip) so runPull's added==0 short-circuit correctly persists.
+func updateDuplicateRoot(
+	cj *CritJSON, cf *CritJSONFile, gc ghComment, replyMap map[int64][]ghComment,
+	names userNameCache, pendingDeletes map[int64]bool,
+	hasRemote, remoteResolved bool, now string,
+) int {
+	added := 0
+	for ci, c := range cf.Comments {
+		if c.GitHubID != gc.ID {
+			continue
+		}
+		if hasRemote && remoteResolved && !c.Resolved {
+			cf.Comments[ci].Resolved = true
+			cf.Comments[ci].ResolvedRound = cj.ReviewRound
+			cf.Comments[ci].UpdatedAt = now
+			added++
+		}
+		if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
+			added += appendNewGHReplies(cf.Comments, ci, childReplies, names, pendingDeletes)
+		}
+		break
+	}
+	return added
+}
+
 // mergeRootComment handles a single root ghComment: either deduplicates or creates it.
 // scope stamps the imported comment's HeadSHA + DiffScope when called from a range-mode
-// pull. Empty scope leaves the legacy working-tree fields unset.
-func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment, now string, names userNameCache, scope inheritedScope, pendingDeletes map[int64]bool) int {
+// pull. Empty scope leaves the legacy working-tree fields unset. threadResolved
+// is the databaseID -> isResolved map from the reviewThreads GraphQL edge;
+// when present, the root's Resolved bit is updated asymmetrically:
+//
+//   - Remote resolved + local unresolved -> set Resolved=true, ResolvedRound=cj.ReviewRound
+//   - Remote unresolved + local resolved -> KEEP local resolved (don't clobber)
+//   - Both same -> no-op
+//
+// The asymmetry mirrors the existing pull semantics for Body (dedup matches
+// existing comments and never overwrites local edits): a local user may have
+// resolved a thread via crit / crit-web independently of github.com, and
+// `crit pull` should not undo that.
+func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment, now string, names userNameCache, scope inheritedScope, pendingDeletes map[int64]bool, threadResolved map[int64]bool) int {
 	cf, ok := cj.Files[gc.Path]
 	if !ok {
 		cf = CritJSONFile{Status: "modified", Comments: []Comment{}}
@@ -670,17 +841,11 @@ func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment
 		return 0
 	}
 
+	remoteResolved, hasRemote := threadResolvedForRoot(gc.ID, replyMap[gc.ID], threadResolved)
+
 	if isDuplicateGHComment(cf.Comments, gc.ID, authorName, startLine, gc.Line, gc.Body) {
-		added := 0
-		if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
-			for ci, c := range cf.Comments {
-				if c.GitHubID == gc.ID {
-					added = appendNewGHReplies(cf.Comments, ci, childReplies, names, pendingDeletes)
-					break
-				}
-			}
-			cj.Files[gc.Path] = cf
-		}
+		added := updateDuplicateRoot(cj, &cf, gc, replyMap, names, pendingDeletes, hasRemote, remoteResolved, now)
+		cj.Files[gc.Path] = cf
 		return added
 	}
 
@@ -690,6 +855,10 @@ func mergeRootComment(cj *CritJSON, gc ghComment, replyMap map[int64][]ghComment
 		Body: gc.Body, Author: authorName, CreatedAt: gc.CreatedAt,
 		UpdatedAt: now, GitHubID: gc.ID, LastPushedBodyHash: bodyHashAtPush(gc.Body),
 	}, scope.asFocus())
+	if hasRemote && remoteResolved {
+		comment.Resolved = true
+		comment.ResolvedRound = cj.ReviewRound
+	}
 
 	added := 0
 	if childReplies, hasReplies := replyMap[gc.ID]; hasReplies {
@@ -742,14 +911,16 @@ func mergeOrphanReplies(cj *CritJSON, roots []ghComment, replyMap map[int64][]gh
 // Handles threading: root comments become top-level Comments, replies become Reply entries.
 // Deduplicates by GitHubID (preferred) or author+lines+body to prevent duplicates from repeated pulls.
 func mergeGHComments(cj *CritJSON, ghComments []ghComment) int {
-	return mergeGHCommentsScoped(cj, ghComments, inheritedScope{})
+	return mergeGHCommentsScoped(cj, ghComments, inheritedScope{}, nil)
 }
 
 // mergeGHCommentsScoped is mergeGHComments with optional HeadSHA + DiffScope
 // stamping for range-mode pulls. scope.DiffScope == "" matches legacy
-// working-tree behavior. See spec §E "Write path — `crit pull` import path".
-func mergeGHCommentsScoped(cj *CritJSON, ghComments []ghComment, scope inheritedScope) int {
-	return mergeGHCommentsWithNames(cj, ghComments, make(userNameCache), scope)
+// working-tree behavior. threadResolved (databaseID -> isResolved) is
+// applied to root comments to mirror github.com thread-resolution state.
+// See spec §E "Write path — `crit pull` import path".
+func mergeGHCommentsScoped(cj *CritJSON, ghComments []ghComment, scope inheritedScope, threadResolved map[int64]bool) int {
+	return mergeGHCommentsWithNames(cj, ghComments, make(userNameCache), scope, threadResolved)
 }
 
 // mergeGHCommentsWithNames is the form of mergeGHComments that lets callers
@@ -757,7 +928,10 @@ func mergeGHCommentsScoped(cj *CritJSON, ghComments []ghComment, scope inherited
 // cache, lazy /users/{login} lookups). Tests can pre-populate to assert on
 // resolved display names without going to the network. scope stamps
 // HeadSHA + DiffScope on newly imported root comments (no-op when empty).
-func mergeGHCommentsWithNames(cj *CritJSON, ghComments []ghComment, names userNameCache, scope inheritedScope) int {
+// threadResolved propagates the thread-level isResolved bit from the
+// GraphQL reviewThreads edge onto the local root comment's Resolved /
+// ResolvedRound — see threadResolvedForRoot for the asymmetric merge.
+func mergeGHCommentsWithNames(cj *CritJSON, ghComments []ghComment, names userNameCache, scope inheritedScope, threadResolved map[int64]bool) int {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
@@ -770,11 +944,33 @@ func mergeGHCommentsWithNames(cj *CritJSON, ghComments []ghComment, names userNa
 
 	added := 0
 	for _, gc := range roots {
-		added += mergeRootComment(cj, gc, replyMap, now, names, scope, pendingDeletes)
+		added += mergeRootComment(cj, gc, replyMap, now, names, scope, pendingDeletes, threadResolved)
 	}
 	added += mergeOrphanReplies(cj, roots, replyMap, names, pendingDeletes)
 
 	return added
+}
+
+// threadResolvedForRoot returns the resolved state to apply to a root
+// comment given the thread map. A thread carries one isResolved bit shared
+// across the root and every reply; this looks the bit up via the root's
+// own databaseID first, falling back to any reply's databaseID for the
+// same thread. Returns (resolved, present): present is false when neither
+// the root nor any reply appears in the map (e.g. comment is not part of
+// a tracked review thread, or the GraphQL fetch was skipped).
+func threadResolvedForRoot(rootID int64, replies []ghComment, threadResolved map[int64]bool) (bool, bool) {
+	if threadResolved == nil {
+		return false, false
+	}
+	if r, ok := threadResolved[rootID]; ok {
+		return r, true
+	}
+	for _, rc := range replies {
+		if r, ok := threadResolved[rc.ID]; ok {
+			return r, true
+		}
+	}
+	return false, false
 }
 
 // ghReplyForPush represents a reply that needs to be posted to GitHub.
