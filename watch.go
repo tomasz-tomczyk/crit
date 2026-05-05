@@ -634,7 +634,13 @@ func anchorSimilar(candidate, anchor string) bool {
 		return false
 	}
 	// Common case: text was appended to or trimmed from the anchor line.
-	if strings.Contains(a, b) || strings.Contains(b, a) {
+	// Gate on a minimum length so trivial anchors (`}`, `return nil`) don't
+	// match any longer line that happens to contain them.
+	minLen := len(a)
+	if len(b) < minLen {
+		minLen = len(b)
+	}
+	if minLen >= 8 && (strings.Contains(a, b) || strings.Contains(b, a)) {
 		return true
 	}
 	return levenshteinRatio(a, b) >= 0.7

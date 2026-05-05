@@ -704,13 +704,16 @@ func TestAnchorSimilar(t *testing.T) {
 	}{
 		{"identical", "foo bar", "foo bar", true},
 		{"trim whitespace", "  foo bar  ", "foo bar", true},
-		{"appended text", "foo bar baz qux", "foo bar", true},
-		{"trimmed text", "foo bar", "foo bar baz qux", true},
+		{"appended text", "foo bar baz qux", "foo bar baz", true},
+		{"trimmed text", "foo bar baz", "foo bar baz qux", true},
 		{"minor edit", "the quick brown fox", "the quick brn fox", true},
+		{"short anchor not trivially contained", "} else {", "}", false},
+		{"short anchor too generic", "x = foo()", "x = 1", false},
 		{"empty candidate", "", "foo bar", false},
 		{"empty anchor", "foo bar", "", false},
 		{"unrelated", "the quick brown fox", "lorem ipsum dolor", false},
 		{"heavy rewrite", "foo bar baz", "completely different text here", false},
+		{"multi-line minor edit", "line one\nline two changed", "line one\nline two", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
