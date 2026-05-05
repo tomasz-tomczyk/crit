@@ -146,12 +146,17 @@ func TestWatchFileMtimes_ConcurrentAddDuringChange(t *testing.T) {
 // skips it, leaving only the new carried-forward copy.
 func TestCarryForwardAllComments_NoDuplicateOnDisk(t *testing.T) {
 	dir := t.TempDir()
-	reviewPath := filepath.Join(dir, "review.json")
+	// v4 folder layout: identity is a folder, review.json lives inside.
+	// Using a flat-file identity worked by accident on POSIX (write failed
+	// silently, leaving the pre-seeded flat file intact) but fails on Windows
+	// where MkdirAll on a path-component-that-is-a-file errors differently.
+	identity := filepath.Join(dir, ".crit")
+	reviewPath := filepath.Join(identity, "review.json")
 
 	s := &Session{
 		Mode:           "git",
 		RepoRoot:       dir,
-		ReviewFilePath: reviewPath,
+		ReviewFilePath: identity,
 		Files: []*FileEntry{
 			{
 				Path:     "main.go",
@@ -210,6 +215,9 @@ func TestCarryForwardAllComments_NoDuplicateOnDisk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(identity, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(reviewPath, data, 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -254,14 +262,16 @@ func TestCarryForwardAllComments_NoDuplicateOnDisk(t *testing.T) {
 
 func TestCarryForwardComments_NoDuplicateOnDisk(t *testing.T) {
 	dir := t.TempDir()
-	reviewPath := filepath.Join(dir, "review.json")
+	// v4 folder layout: identity is a folder, review.json lives inside.
+	identity := filepath.Join(dir, ".crit")
+	reviewPath := filepath.Join(identity, "review.json")
 	mdPath := filepath.Join(dir, "plan.md")
 	os.WriteFile(mdPath, []byte("# Plan\n\nStep 1\n\nStep 2\n"), 0644)
 
 	s := &Session{
 		Mode:           "files",
 		RepoRoot:       dir,
-		ReviewFilePath: reviewPath,
+		ReviewFilePath: identity,
 		Files: []*FileEntry{
 			{
 				Path:            "plan.md",
@@ -311,6 +321,9 @@ func TestCarryForwardComments_NoDuplicateOnDisk(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(oldCJ, "", "  ")
+	if err := os.MkdirAll(identity, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	os.WriteFile(reviewPath, data, 0644)
 
 	// Run markdown carry-forward.

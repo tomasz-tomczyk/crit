@@ -58,7 +58,7 @@ func writeFolderReviewFixture(t *testing.T, name, branch string) string {
 }
 
 func TestFindReviewFileByBranch_FolderForm(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	want := writeFolderReviewFixture(t, "k1", "feature-x")
 	writeFolderReviewFixture(t, "k2", "other")
 
@@ -73,7 +73,7 @@ func TestFindReviewFileByBranch_FolderForm(t *testing.T) {
 
 func TestFindReviewFileByBranch_OrphanFolderSkipped(t *testing.T) {
 	// Folder with no review.json (snapshots-only orphan) must be ignored.
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	dir, _ := reviewsDir()
 	if err := os.MkdirAll(filepath.Join(dir, "orphan"), 0o755); err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestFindReviewFileByBranch_OrphanFolderSkipped(t *testing.T) {
 // MIGRATION-REMOVAL: legacy flat-file review files must still be discoverable
 // until the migration shim is deleted.
 func TestFindReviewFileByBranch_MigrationFallback(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	want := writeReviewFixture(t, "k1", "feature-x")
 
 	got, err := findReviewFileByBranch("feature-x", "")

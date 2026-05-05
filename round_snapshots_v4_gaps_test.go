@@ -387,7 +387,7 @@ func TestCleanupOnApproval_FlatFileFallback(t *testing.T) {
 // scenario or an aborted migration in production), the function must return
 // an error rather than silently picking one.
 func TestFindReviewFileByCommentID_AmbiguousAcrossFolderAndFlat(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	dir, err := reviewsDir()
 	if err != nil {
 		t.Fatal(err)
@@ -434,7 +434,7 @@ func TestFindReviewFileByCommentID_AmbiguousAcrossFolderAndFlat(t *testing.T) {
 // never runs for it. This is the contract the find-by-id/branch helpers rely
 // on after the v4 layout shipped.
 func TestWalkReviewIdentities_SkipsOrphanFolderSilently(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	dir, _ := reviewsDir()
 	if err := os.MkdirAll(filepath.Join(dir, "orphan"), 0o755); err != nil {
 		t.Fatal(err)
@@ -479,7 +479,7 @@ func TestWalkReviewIdentities_SkipsOrphanFolderSilently(t *testing.T) {
 // skipped (via the //nolint:nilerr branch) and a sibling valid review still
 // matches.
 func TestFindReviewFileByBranch_MalformedJSONSkipped(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	dir, _ := reviewsDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)

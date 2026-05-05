@@ -10,30 +10,24 @@ import (
 )
 
 func TestReviewPathsFor(t *testing.T) {
+	// Build expected paths via filepath.Join so the test runs on both POSIX
+	// (forward slashes) and Windows (backslashes). reviewPathsFor uses
+	// filepath.Join internally; the test must mirror that, not hardcode `/`.
 	cases := []struct {
-		identity   string
-		wantFolder string
-		wantReview string
-		wantSnaps  string
+		identity string
 	}{
-		{
-			identity:   "/home/u/.crit/reviews/abc",
-			wantFolder: "/home/u/.crit/reviews/abc",
-			wantReview: "/home/u/.crit/reviews/abc/review.json",
-			wantSnaps:  "/home/u/.crit/reviews/abc/snapshots.json",
-		},
-		{
-			// In-repo identity is the .crit folder (no .json extension).
-			identity:   "/tmp/proj/.crit",
-			wantFolder: "/tmp/proj/.crit",
-			wantReview: "/tmp/proj/.crit/review.json",
-			wantSnaps:  "/tmp/proj/.crit/snapshots.json",
-		},
+		{identity: filepath.Join("/home/u/.crit/reviews", "abc")},
+		// In-repo identity is the .crit folder (no .json extension).
+		{identity: filepath.Join("/tmp/proj", ".crit")},
 	}
 	for _, tc := range cases {
 		got := reviewPathsFor(tc.identity)
-		if got.Folder != tc.wantFolder || got.Review != tc.wantReview || got.Snapshots != tc.wantSnaps {
-			t.Errorf("reviewPathsFor(%q) = %+v", tc.identity, got)
+		wantFolder := tc.identity
+		wantReview := filepath.Join(tc.identity, "review.json")
+		wantSnaps := filepath.Join(tc.identity, "snapshots.json")
+		if got.Folder != wantFolder || got.Review != wantReview || got.Snapshots != wantSnaps {
+			t.Errorf("reviewPathsFor(%q) = %+v; want folder=%q review=%q snaps=%q",
+				tc.identity, got, wantFolder, wantReview, wantSnaps)
 		}
 	}
 }

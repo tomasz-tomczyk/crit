@@ -1158,7 +1158,7 @@ func TestFindReviewFileByCommentID_InReviewComments(t *testing.T) {
 
 func TestFindReviewFileByCommentID_FolderForm(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	reviewDir := filepath.Join(home, ".crit", "reviews")
 	folder := filepath.Join(reviewDir, "key1")
