@@ -244,7 +244,7 @@
   let deleteToken = '';
   let configAuthor = '';
   let uiState = 'reviewing';
-  let waitingHasComments = false;
+  let waitingNotApproved = false;
   let pendingUpdates = [];
   let pendingUpdatesVersion = '';
 
@@ -6626,7 +6626,7 @@
 
   function setUIState(state) {
     uiState = state;
-    if (state === 'reviewing') waitingHasComments = false;
+    if (state === 'reviewing') waitingNotApproved = false;
     const finishBtn = document.getElementById('finishBtn');
     const waitingOverlay = document.getElementById('waitingOverlay');
 
@@ -6666,7 +6666,7 @@
       }
       const data = await resp.json();
       const approved = !!data.approved;
-      waitingHasComments = !approved;
+      waitingNotApproved = !approved;
       const prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
 
       const dialog = document.getElementById('waitingDialog');
@@ -6681,7 +6681,7 @@
       // Replay the success-mark draw animation each time we enter approved state.
       dialog.classList.remove('approved');
       if (approved) {
-        void dialog.offsetWidth;
+        void dialog.offsetWidth; // force reflow — restarts CSS animations on re-added class
         dialog.classList.add('approved');
         headingEl.textContent = 'Approved';
         messageEl.textContent =
@@ -6896,7 +6896,7 @@
           const clipEl = document.getElementById('waitingClipboard');
           if (promptEl) promptEl.style.display = 'none';
           if (clipEl) clipEl.style.display = 'none';
-          if (waitingHasComments) {
+          if (waitingNotApproved) {
             document.getElementById('waitingMessage').textContent = 'Waiting for your agent to finish...';
           }
         }
