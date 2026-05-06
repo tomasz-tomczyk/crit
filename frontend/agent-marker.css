@@ -18,6 +18,17 @@
   outline: 2px solid var(--crit-design-marker-focus-ring, #fbbf24);
   outline-offset: 2px;
 }
+
+/* In Pin mode, the user is hovering the iframe to pick a target element for
+   a NEW pin. If a numbered marker sits on top of the element they want, the
+   hover overlay locks onto the marker instead of the underlying DOM, and a
+   click creates a pin anchored to the marker rather than the design surface.
+   While in Pin mode we make markers visually pass-through so events fall
+   through to the element beneath. In Navigate mode markers stay clickable
+   for deep-linking — this is the toggle the chrome cares about. */
+#crit-marker-root.crit-marker-root--pin-mode .crit-design-marker {
+  pointer-events: none;
+}
 html.crit-design-reanchor-active {
   outline: 3px solid var(--crit-design-reanchor-active-outline, #f59e0b);
   outline-offset: -3px;

@@ -344,6 +344,13 @@
     if (state.overlay && markersAPI && markersAPI.setMarkersTabindex) {
       markersAPI.setMarkersTabindex(state.overlay.markersById, value === 'pin' ? '-1' : '0');
     }
+    // Pin-mode: make markers pointer-events:none via a class on the overlay
+    // root, so the hover overlay reads through to the element underneath the
+    // numbered circle. Navigate mode keeps the markers clickable (deep-link).
+    // CSS rule lives in agent-marker.css under .crit-marker-root--pin-mode.
+    if (state.overlay && state.overlay.root && state.overlay.root.classList) {
+      state.overlay.root.classList.toggle('crit-marker-root--pin-mode', value === 'pin');
+    }
   }
 
   function updateCursor() {

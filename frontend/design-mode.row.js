@@ -347,10 +347,11 @@
       // `.comment-card` (border, header bar, body padding) — see
       // style-design.css where `.crit-design-comment-row` is now neutralised.
       cardClassExtra: 'crit-design-comment-row' + (c.resolved ? ' resolved-card' : ''),
-      // Design pins default to expanded — buildCommentCard's collapseDefault
-      // mode is for code-review's resolved-thread auto-fold; design rows
-      // stay open until the user collapses them via the chevron.
-      collapseDefault: false,
+      // Auto-collapse resolved pins (parity with code-review's panel cards
+      // at app.js#renderCommentsPanel — `collapseDefault: isResolved`).
+      // Open pins stay expanded; resolved pins collapse to a one-line stub
+      // unless the user has explicitly toggled an override via the chevron.
+      collapseDefault: !!c.resolved,
       showLineRef: false,
       // Keep the design-mode reply composer separate from the shared card's
       // built-in reply input. We append our own composer below when
