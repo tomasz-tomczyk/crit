@@ -85,6 +85,9 @@ func makeModifyResponse(apiPort int, upstream *url.URL) func(*http.Response) err
 			if err := injectSWShimHTML(resp); err != nil {
 				return err
 			}
+			if err := injectRouteAnnouncer(resp); err != nil {
+				return err
+			}
 			return injectAgentScript(resp, apiPort)
 		}
 		// JS, JSON, images, etc. pass through untouched.
@@ -141,6 +144,50 @@ func injectSWShimHTML(resp *http.Response) error {
 	}
 	resp.Body = io.NopCloser(io.MultiReader(
 		strings.NewReader(swShim),
+		bytes.NewReader(body),
+	))
+	return nil
+}
+
+// routeAnnouncerScript posts the iframe's pathname to the parent on initial
+// load, after pushState/replaceState, and on popstate.
+const routeAnnouncerScript = `<script data-crit-route-announcer>
+(function(){
+  function post(){
+    try { parent.postMessage({type:"route-change", pathname: location.pathname}, "*"); } catch(e){}
+  }
+  var _ps = history.pushState;
+  history.pushState = function(){ var r = _ps.apply(this, arguments); post(); return r; };
+  var _rs = history.replaceState;
+  history.replaceState = function(){ var r = _rs.apply(this, arguments); post(); return r; };
+  window.addEventListener("popstate", post);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", post);
+  } else {
+    post();
+  }
+})();
+</script>`
+
+// injectRouteAnnouncer inserts the announcer stub immediately after the
+// opening <head ...> tag (so it executes before any page script). Falls back
+// to prepending to the body when no <head> is present.
+func injectRouteAnnouncer(resp *http.Response) error {
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil && err != io.ErrUnexpectedEOF {
+		return err
+	}
+	if loc := headTagRE.FindIndex(body); loc != nil {
+		out := make([]byte, 0, len(body)+len(routeAnnouncerScript))
+		out = append(out, body[:loc[1]]...)
+		out = append(out, []byte(routeAnnouncerScript)...)
+		out = append(out, body[loc[1]:]...)
+		resp.Body = io.NopCloser(bytes.NewReader(out))
+		return nil
+	}
+	resp.Body = io.NopCloser(io.MultiReader(
+		strings.NewReader(routeAnnouncerScript),
 		bytes.NewReader(body),
 	))
 	return nil

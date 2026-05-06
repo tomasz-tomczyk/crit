@@ -366,3 +366,42 @@ func TestBindProxyServer_PortIsAPIPlusOne(t *testing.T) {
 		t.Errorf("proxy port = %d, want %d", ln.Addr().(*net.TCPAddr).Port, apiPort+1)
 	}
 }
+
+func TestProxyModifyResponse_InjectsRouteAnnouncer(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"head present", `<!doctype html><html><head><title>x</title></head><body>hi</body></html>`, true},
+		{"head with attrs", `<html><head lang="en" class="dark"><meta charset="utf-8"></head><body></body></html>`, true},
+		{"no head tag", `<html><body>hi</body></html>`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer upstream.Close()
+
+			handler, err := newDesignProxy(upstream.URL, 4101)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest("GET", "/", nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			body := rec.Body.String()
+			if !strings.Contains(body, "data-crit-route-announcer") {
+				t.Errorf("expected announcer marker; got body=%q", body)
+			}
+			if !strings.Contains(body, "route-change") {
+				t.Errorf("expected announcer to post 'route-change'; got body=%q", body)
+			}
+			if !strings.Contains(body, "pushState") || !strings.Contains(body, "replaceState") || !strings.Contains(body, "popstate") {
+				t.Errorf("expected announcer to wrap pushState/replaceState and listen for popstate; got body=%q", body)
+			}
+		})
+	}
+}
