@@ -4981,11 +4981,18 @@
   // Shared helper for building comment card skeleton (header, body, replies)
   function buildCommentCard(comment, filePath, opts) {
     // opts: { wrapperClass, cardClassExtra, collapseDefault, showLineRef, showCarriedForward, repliesExtraClass, showReplyInput,
-    //         isPendingAgentRequest, markPendingAgentRequest, clearPendingAgentRequest }
+    //         isPendingAgentRequest, markPendingAgentRequest, clearPendingAgentRequest,
+    //         getCollapseOverride, setCollapseOverride }
     // Callbacks default to the module-scoped pendingAgentRequests set so existing call sites keep their behaviour.
     const isPending = typeof opts.isPendingAgentRequest === 'function'
       ? opts.isPendingAgentRequest
       : function(id) { return pendingAgentRequests.has(id); };
+    const getCollapseOverride = typeof opts.getCollapseOverride === 'function'
+      ? opts.getCollapseOverride
+      : function(id) { return commentCollapseOverrides[id]; };
+    const setCollapseOverride = typeof opts.setCollapseOverride === 'function'
+      ? opts.setCollapseOverride
+      : function(id, val) { commentCollapseOverrides[id] = val; };
 
     const wrapper = document.createElement('div');
     wrapper.className = opts.wrapperClass || 'comment-block';
@@ -4998,10 +5005,11 @@
 
     // Collapse state — live threads stay expanded unless resolved
     const liveOrPending = !comment.resolved && (isLiveThread(comment) || isPending(comment.id));
+    const collapseOverride = getCollapseOverride(comment.id);
     const isCollapsed = liveOrPending ? false
       : opts.collapseDefault
-        ? (commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true)
-        : (commentCollapseOverrides[comment.id] === true);
+        ? (collapseOverride !== undefined ? collapseOverride : true)
+        : (collapseOverride === true);
     if (isCollapsed) card.classList.add('collapsed');
 
     const header = document.createElement('div');
@@ -5014,7 +5022,7 @@
     collapseBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       card.classList.toggle('collapsed');
-      commentCollapseOverrides[comment.id] = card.classList.contains('collapsed');
+      setCollapseOverride(comment.id, card.classList.contains('collapsed'));
       collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
     });
 
