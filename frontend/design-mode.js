@@ -55,6 +55,17 @@
   });
   var shared = window.crit.shared;
   var utils = window.crit.designUtils;
+  var inflightAPI = (window.crit && window.crit.design && window.crit.design.inflight) || null;
+
+  // Dedup guards for async ops triggerable from multiple sources (button
+  // click + Cmd+Enter, double-click, race between Esc-then-Save, etc.).
+  // Per-id Sets for comment-scoped ops; singleton flag for finish review.
+  var resolveInFlight = inflightAPI ? inflightAPI.makeInFlightSet() : null;
+  var replyInFlight = inflightAPI ? inflightAPI.makeInFlightSet() : null;
+  var editInFlight = inflightAPI ? inflightAPI.makeInFlightSet() : null;
+  var driftPutInFlight = inflightAPI ? inflightAPI.makeInFlightSet() : null;
+  var composerInFlight = inflightAPI ? inflightAPI.makeInFlightFlag() : null;
+  var finishInFlight = inflightAPI ? inflightAPI.makeInFlightFlag() : null;
 
   var els = {};
 
@@ -869,6 +880,11 @@
   }
 
   async function doFinishReview() {
+    // Dedup guard: finish can be triggered by the header button, the
+    // "send anyway" path, and resolveAllAndFinish. Double-submit creates a
+    // duplicate review record on the server.
+    if (finishInFlight && finishInFlight.busy()) return;
+    if (finishInFlight) finishInFlight.set();
     try {
       var resp = await fetch('/api/finish', { method: 'POST' });
       if (!resp.ok) throw new Error('Finish review failed: HTTP ' + resp.status);
@@ -912,6 +928,8 @@
     } catch (err) {
       console.error('[design-mode] finish review failed:', err);
       showToast('Failed to finish review');
+    } finally {
+      if (finishInFlight) finishInFlight.clear();
     }
   }
 
@@ -922,13 +940,16 @@
       if (!c || c.resolved) continue;
       var path = (c.dom_anchor && c.dom_anchor.pathname) || c.path || '/';
       try {
-        await fetch('/api/comment/' + encodeURIComponent(c.id) + '/resolve?path=' + encodeURIComponent(path), {
+        var rr = await fetch('/api/comment/' + encodeURIComponent(c.id) + '/resolve?path=' + encodeURIComponent(path), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ resolved: true }),
         });
+        if (!rr.ok) throw new Error('resolve-all HTTP ' + rr.status);
         c.resolved = true;
-      } catch (_) {}
+      } catch (e) {
+        console.warn('[design-mode] resolve-all skipped a comment:', c && c.id, e);
+      }
     }
     refreshPanel();
     await doFinishReview();
@@ -1141,6 +1162,12 @@
     if (!id) return;
     var c = (state.comments || []).find(function (x) { return x && x.id === id; });
     var resolved = c ? !c.resolved : true;
+    // Dedup: second click (or click on a different button targeting the same
+    // pin from the panel vs. a thread row) while the first PUT is in flight
+    // would race optimistic state. Per-id Set survives the async tail even
+    // if the originating button is removed by refreshPanel.
+    if (resolveInFlight && resolveInFlight.has(id)) return;
+    if (resolveInFlight) resolveInFlight.add(id);
     btn.disabled = true;
     fetch('/api/comment/' + encodeURIComponent(id) + '/resolve?path=' + encodeURIComponent(path), {
       method: 'PUT',
@@ -1155,6 +1182,7 @@
       showToast('Resolve failed: ' + (err && err.message || err));
     }).finally(function () {
       btn.disabled = false;
+      if (resolveInFlight) resolveInFlight.delete(id);
     });
   });
 
@@ -1220,6 +1248,10 @@
 
   async function submitReply(c, pathname, body, saveBtn, errEl) {
     if (!c || !c.id || !body) return;
+    // Dedup: Cmd+Enter inside the textarea synthesizes saveBtn.click(), so
+    // a fast double-tap or a click+Cmd+Enter race could double-post.
+    if (replyInFlight && replyInFlight.has(c.id)) return;
+    if (replyInFlight) replyInFlight.add(c.id);
     if (saveBtn) saveBtn.disabled = true;
     if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
     try {
@@ -1245,6 +1277,8 @@
         showToast('Reply failed: ' + (err && err.message || err));
       }
       if (saveBtn) saveBtn.disabled = false;
+    } finally {
+      if (replyInFlight) replyInFlight.delete(c.id);
     }
   }
 
@@ -1364,6 +1398,9 @@
 
   async function submitEdit(c, pathname, body, saveBtn, errEl) {
     if (!c || !c.id) return;
+    // Dedup: same multi-source-trigger surface as reply submit.
+    if (editInFlight && editInFlight.has(c.id)) return;
+    if (editInFlight) editInFlight.add(c.id);
     if (saveBtn) saveBtn.disabled = true;
     if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
     try {
@@ -1389,6 +1426,8 @@
         showToast('Edit failed: ' + (err && err.message || err));
       }
       if (saveBtn) saveBtn.disabled = false;
+    } finally {
+      if (editInFlight) editInFlight.delete(c.id);
     }
   }
 
@@ -1739,6 +1778,10 @@
       if (errEl) { errEl.hidden = false; errEl.textContent = 'Body required'; }
       return;
     }
+    // Dedup: Cmd+Enter and Save-button click both call this. A fast
+    // sequence would otherwise create two pins.
+    if (composerInFlight && composerInFlight.busy()) return;
+    if (composerInFlight) composerInFlight.set();
     var saveBtn = host.querySelector('.crit-design-composer-save');
     if (saveBtn) saveBtn.disabled = true;
     try {
@@ -1758,6 +1801,7 @@
       }
     } finally {
       if (saveBtn) saveBtn.disabled = false;
+      if (composerInFlight) composerInFlight.clear();
     }
   }
 
@@ -2048,17 +2092,25 @@
         var c = rr.classifyPinForRound(prev, msg, state.currentRound);
         if (c.driftedOnRound) {
           var url = '/api/comment/' + encodeURIComponent(prev.id) + '?path=' + encodeURIComponent(path2);
-          try {
-            fetch(url, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ drifted_on_round: c.driftedOnRound, drifted: true }),
-            }).then(function (r) { if (r && !r.ok) console.warn('[design] PUT drifted_on_round failed', r.status); })
-              .catch(function (e) { console.warn('[design] PUT drifted_on_round failed:', e); });
-            prev.drifted = true;
-            prev.drifted_on_round = c.driftedOnRound;
-            announceLive('Pin ' + prev.id + ' drifted on round ' + c.driftedOnRound + '.');
-          } catch (_) { /* noop */ }
+          // Dedup: late-arriving duplicate resolution results for the same pin
+          // would otherwise re-PUT drifted_on_round before the first finishes.
+          if (!driftPutInFlight || !driftPutInFlight.has(prev.id)) {
+            if (driftPutInFlight) driftPutInFlight.add(prev.id);
+            try {
+              fetch(url, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ drifted_on_round: c.driftedOnRound, drifted: true }),
+              }).then(function (r) { if (r && !r.ok) console.warn('[design] PUT drifted_on_round failed', r.status); })
+                .catch(function (e) { console.warn('[design] PUT drifted_on_round failed:', e); })
+                .finally(function () { if (driftPutInFlight) driftPutInFlight.delete(prev.id); });
+              prev.drifted = true;
+              prev.drifted_on_round = c.driftedOnRound;
+              announceLive('Pin ' + prev.id + ' drifted on round ' + c.driftedOnRound + '.');
+            } catch (_) {
+              if (driftPutInFlight) driftPutInFlight.delete(prev.id);
+            }
+          }
         }
         prev._roundResolved = true;
         state.pendingByPath[path2] = Math.max(0, state.pendingByPath[path2] - 1);
