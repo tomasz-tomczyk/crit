@@ -5029,7 +5029,6 @@
       cardClassExtra: comment.carried_forward ? 'carried-forward' : '',
       collapseDefault: false,
       showLineRef: true,
-      showCarriedForward: true,
       showReplyInput: true,
     });
 
@@ -5538,7 +5537,6 @@
       cardClassExtra: cardClassExtra,
       collapseDefault: isResolved,
       showLineRef: false,
-      showCarriedForward: true,
       showReplyInput: true,
     });
 
@@ -6003,7 +6001,6 @@
       cardClassExtra: 'resolved-card',
       collapseDefault: true,
       showLineRef: true,
-      showCarriedForward: false,
       showReplyInput: true,
     });
 
@@ -6107,7 +6104,6 @@
       cardClassExtra: cardClassExtra,
       collapseDefault: isResolved,
       showLineRef: !isGeneral,
-      showCarriedForward: true,
       repliesExtraClass: 'panel-replies',
       showReplyInput: false,
     });
