@@ -4980,7 +4980,13 @@
 
   // Shared helper for building comment card skeleton (header, body, replies)
   function buildCommentCard(comment, filePath, opts) {
-    // opts: { wrapperClass, cardClassExtra, collapseDefault, showLineRef, showCarriedForward, repliesExtraClass, showReplyInput }
+    // opts: { wrapperClass, cardClassExtra, collapseDefault, showLineRef, showCarriedForward, repliesExtraClass, showReplyInput,
+    //         isPendingAgentRequest, markPendingAgentRequest, clearPendingAgentRequest }
+    // Callbacks default to the module-scoped pendingAgentRequests set so existing call sites keep their behaviour.
+    const isPending = typeof opts.isPendingAgentRequest === 'function'
+      ? opts.isPendingAgentRequest
+      : function(id) { return pendingAgentRequests.has(id); };
+
     const wrapper = document.createElement('div');
     wrapper.className = opts.wrapperClass || 'comment-block';
 
@@ -4991,7 +4997,7 @@
     card.dataset.commentId = comment.id;
 
     // Collapse state — live threads stay expanded unless resolved
-    const liveOrPending = !comment.resolved && (isLiveThread(comment) || pendingAgentRequests.has(comment.id));
+    const liveOrPending = !comment.resolved && (isLiveThread(comment) || isPending(comment.id));
     const isCollapsed = liveOrPending ? false
       : opts.collapseDefault
         ? (commentCollapseOverrides[comment.id] !== undefined ? commentCollapseOverrides[comment.id] : true)
@@ -5043,7 +5049,7 @@
 
     if (liveOrPending) {
       const badge = document.createElement('span');
-      badge.className = 'live-thread-badge' + (pendingAgentRequests.has(comment.id) ? ' pulsing' : '');
+      badge.className = 'live-thread-badge' + (isPending(comment.id) ? ' pulsing' : '');
       badge.innerHTML = '<svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" style="vertical-align: -1px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg> live';
       headerLeft.appendChild(badge);
     }
@@ -5147,7 +5153,7 @@
     }
 
     // Pending agent indicator
-    if (pendingAgentRequests.has(comment.id)) {
+    if (isPending(comment.id)) {
       const pending = document.createElement('div');
       pending.className = 'agent-pending-reply';
       pending.dataset.commentId = comment.id;
@@ -5162,10 +5168,10 @@
       card.appendChild(createReplyInput(comment.id, filePath || ''));
     }
 
-    if (pendingAgentRequests.has(comment.id) || isLiveThread(comment)) {
+    if (isPending(comment.id) || isLiveThread(comment)) {
       wrapper.classList.add('live-thread');
     }
-    if (pendingAgentRequests.has(comment.id)) {
+    if (isPending(comment.id)) {
       wrapper.classList.add('agent-pending');
     }
 
