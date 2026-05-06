@@ -17,10 +17,18 @@ test.describe('design-mode comments panel — M12 toggle (navbar)', () => {
     const btn = page.locator('#commentCount');
     await expect(btn).toBeVisible();
     await expect(panel).not.toHaveClass(/comments-panel-hidden/);
+    // Regression for commit 07bd353: a `.crit-mode-design .comments-panel
+    // { display: flex !important }` rule used to outweigh
+    // `.comments-panel-hidden { display: none }`, so the class would flip
+    // but the panel stayed visible. Assert actual visibility, not just
+    // the class toggle.
+    await expect(panel).toBeVisible();
     await btn.click();
     await expect(panel).toHaveClass(/comments-panel-hidden/);
+    await expect(panel).toBeHidden();
     await btn.click();
     await expect(panel).not.toHaveClass(/comments-panel-hidden/);
+    await expect(panel).toBeVisible();
   });
 
   test('persists open/closed across reloads via crit-settings cookie', async ({ page }) => {
@@ -167,6 +175,31 @@ test.describe('design-mode comments panel — M14 filter pill', () => {
 test.describe('design-mode comments panel — M14 body expand toggle', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllDesignPins(request);
+  });
+
+  // Regression for commit 2aef74c: design-mode.row.js used to pass
+  // collapseDefault: false unconditionally, so resolving a pin left the
+  // card expanded. Code-review uses collapseDefault: !!c.resolved at every
+  // panel mount → buildCommentCard auto-collapses resolved threads.
+  test('resolving a pin auto-collapses the card on next render', async ({ page }) => {
+    await openPinComposer(page);
+    await page.locator('.crit-design-composer-body').fill('to be resolved');
+    await page.locator('.crit-design-composer-save').click();
+    // The card element carries BOTH .comment-card and .crit-design-comment-row.
+    const card = page.locator('#commentsPanelBody .crit-design-comment-row').first();
+    await expect(card).toBeVisible();
+    // Open thread by default — not collapsed.
+    await expect.poll(
+      () => card.evaluate((el) => el.classList.contains('collapsed')),
+    ).toBe(false);
+    // Resolve.
+    await page.locator('#commentsPanelBody .crit-design-comment-resolve').first().click();
+    // After resolution + re-render, the card defaults to collapsed
+    // (collapseDefault: !!c.resolved).
+    await expect.poll(
+      () => card.evaluate((el) => el.classList.contains('collapsed')),
+      { timeout: 5_000 },
+    ).toBe(true);
   });
 
   test('Expand chevron on resolved card toggles .comment-card.collapsed', async ({ page }) => {

@@ -302,6 +302,49 @@ test.describe('design-mode agent — selection screenshot fallback', () => {
       return log.find((m) => m.type === 'agent-error' && m.kind === 'capture-failed') || null;
     });
     expect(err).not.toBeNull();
+    // Regression for commit 07bd353: capture-failed used to surface a scary
+    // chrome toast on real-world pages whose CSS html2canvas couldn't parse.
+    // The fix logs a console.warn instead. No toast must be visible.
+    await expect(page.locator('.crit-design-toast')).toHaveCount(0);
+  });
+
+  // Regression for commit 07bd353. Symmetric to the shadow-DOM agent-error
+  // toast assertion in the shadow-DOM error suite (which DOES surface a
+  // toast). capture-failed must NOT surface one — pins still work without
+  // the screenshot.
+  test('capture-failed agent-error does not surface a chrome toast', async ({ page }) => {
+    await waitForAgentReady(page);
+    await page.evaluate(() => {
+      (window as unknown as { __critDesignMessages?: unknown[] }).__critDesignMessages = [];
+    });
+    await setIframeRoute(page, '/?crit-design-fail-h2c=1');
+    await expect.poll(
+      () => page.evaluate(() => {
+        const log = (window as unknown as { __critDesignMessages?: { type: string }[] })
+          .__critDesignMessages;
+        return Array.isArray(log) && log.some((e) => e.type === 'agent-ready');
+      }),
+      { timeout: 15_000 },
+    ).toBe(true);
+    await enterPinMode(page);
+    await expect.poll(
+      () => getIframe(page).locator('body').evaluate(() => {
+        return (window as unknown as { __critAgentState?: { mode?: string } })
+          .__critAgentState?.mode;
+      }),
+    ).toBe('pin');
+    await getIframe(page).locator('#primary-btn').click();
+    // Wait for the agent-error to be logged so we know the path executed.
+    await expect.poll(
+      () => page.evaluate(() => {
+        const log = (window as unknown as { __critDesignMessages?: { type: string; kind?: string }[] })
+          .__critDesignMessages || [];
+        return log.some((m) => m.type === 'agent-error' && m.kind === 'capture-failed');
+      }),
+      { timeout: 10_000 },
+    ).toBe(true);
+    // No toast was surfaced.
+    await expect(page.locator('.crit-design-toast')).toHaveCount(0);
   });
 });
 

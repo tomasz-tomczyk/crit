@@ -230,7 +230,23 @@ export async function openPinComposerNoNav(
   page: Page,
   selector: string = PIN_TARGET,
 ): Promise<void> {
-  // Wait for the agent inside the (possibly newly-loaded) iframe to handshake.
+  await waitAgentReadyAfterRoute(page);
+  await enterPinMode(page);
+  const target = getIframe(page).locator(selector);
+  await target.scrollIntoViewIfNeeded();
+  await target.click();
+  await expect(page.locator('.crit-design-composer')).toBeVisible();
+}
+
+/**
+ * Wait for an `agent-ready` to appear in the chrome's message log. Used after
+ * setIframeRoute() to a new path, where a fresh agent boots and re-handshakes.
+ *
+ * Callers that need to disambiguate the new handshake from a stale one should
+ * clear `__critDesignMessages` BEFORE setIframeRoute() — see usages in
+ * agent.designmode.spec.ts. This helper simply polls for any agent-ready.
+ */
+export async function waitAgentReadyAfterRoute(page: Page): Promise<void> {
   await expect.poll(
     () => page.evaluate(() => {
       const log = (window as unknown as { __critDesignMessages?: { type: string }[] })
@@ -239,9 +255,5 @@ export async function openPinComposerNoNav(
     }),
     { timeout: 15_000 },
   ).toBe(true);
-  await enterPinMode(page);
-  const target = getIframe(page).locator(selector);
-  await target.scrollIntoViewIfNeeded();
-  await target.click();
-  await expect(page.locator('.crit-design-composer')).toBeVisible();
 }
+

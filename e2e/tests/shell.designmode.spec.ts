@@ -1,4 +1,14 @@
 import { test, expect } from '@playwright/test';
+import { clearAllDesignPins } from './designmode-helpers';
+
+// Suite-wide cleanup. Server persists comments across tests; some tests in
+// this file (e.g. 'comment panel lists comments grouped by route') seed
+// pins via /api/file/comments, and stale pins from prior tests would skew
+// counts and selectors. Clear in beforeEach so each test starts on bare
+// state.
+test.beforeEach(async ({ request }) => {
+  await clearAllDesignPins(request);
+});
 
 // All Phase B tests target the future `design-mode` Playwright project
 // (Phase F infra). Until then, `npx playwright test --list ...` confirms
@@ -99,22 +109,14 @@ test.describe('design-mode shell — iframe + route detection', () => {
     expect(src).toMatch(/^http:\/\/(localhost|127\.0\.0\.1):\d+\/$/);
   });
 
-  test.fixme('breadcrumb updates when announcer posts route-change', async ({ page }) => {
-    await page.goto('/design');
-    await expect(page.locator('#designRouteName')).toHaveText('/');
-    await page.evaluate(() => {
-      window.postMessage({ type: 'route-change', pathname: '/about' }, '*');
-    });
-    await expect(page.locator('#designRouteName')).toHaveText('/about');
-  });
-
-  test.fixme('newly announced route gets an "(unsaved)" badge', async ({ page }) => {
-    await page.goto('/design');
-    await page.evaluate(() => {
-      window.postMessage({ type: 'route-change', pathname: '/new' }, '*');
-    });
-    await expect(page.locator('.crit-design-breadcrumb-unsaved')).toBeVisible();
-  });
+  // Removed two fixme'd specs that drove postMessage from the chrome's own
+  // window. The agent + chrome message dispatcher validates ev.source ===
+  // expectedSource (iframe.contentWindow) and drops messages from any other
+  // source by design (see agent.designmode.spec.ts 'agent rejects inbound
+  // messages from a foreign origin'). The real behaviors — breadcrumb on
+  // genuine iframe route change, "(unsaved)" badge — are exercised by
+  // navigation.designmode.spec.ts (link/pushState specs) and tests that
+  // navigate the iframe via setIframeRoute().
 });
 
 test.describe('design-mode shell — drag resize', () => {

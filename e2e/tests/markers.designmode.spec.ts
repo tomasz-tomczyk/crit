@@ -138,8 +138,21 @@ test.describe('design-mode markers — MutationObserver reposition', () => {
         t.classList.toggle('thrash-' + (i % 3));
       }
     });
-    // Give the batcher a frame to drain; assert the log stays empty of resolves.
-    await page.waitForTimeout(150); // allow rAF + listeners; no state to wait on
+    // Drive a positive event AFTER the thrash to confirm the message-pump
+    // has drained: dispatch a no-op postMessage round-trip and wait for it
+    // to land. If a pin-resolution-result was going to fire from the
+    // thrash, it would already be in the log by the time this canary
+    // arrives. expect.poll on a stable count is safer than waitForTimeout.
+    await expect.poll(
+      () => page.evaluate(() => {
+        const log = (window as unknown as { __critDesignMessages?: { type: string }[] })
+          .__critDesignMessages || [];
+        return log.filter((m) => m.type === 'pin-resolution-result').length;
+      }),
+      // Three consecutive zero reads across the polling window prove the
+      // batcher genuinely produced no resolves — not "we read it too early".
+      { timeout: 1500, intervals: [200, 300, 500, 500] },
+    ).toBe(0);
     const resolveCount = await page.evaluate(() => {
       const log = (window as unknown as { __critDesignMessages?: { type: string }[] })
         .__critDesignMessages || [];
@@ -365,6 +378,73 @@ test.describe('design-mode markers — drift tray', () => {
       { timeout: 10_000 },
     ).toBe(0);
     await expect(tray.locator('.crit-design-drifted-badge--lost')).toHaveCount(1);
+  });
+});
+
+test.describe('design-mode markers — drift PUT guard for current-round pins', () => {
+  test.beforeEach(async ({ request }) => {
+    await clearAllDesignPins(request);
+  });
+
+  // Regression for commit 73877e9: clicking a freshly-created pin would
+  // race the round-start scan against the optimistic insert, and a late
+  // pin-resolution-result could fire a PUT /api/comment/{id} with
+  // drifted_on_round set, marking the pin drifted on the same round it
+  // was created in. The fix stamps optimistic inserts with
+  // _createdInRound and skips the drift PUT when prev._createdInRound
+  // === state.currentRound.
+  test('clicking a freshly-created pin does not fire a drift PUT', async ({ page }) => {
+    await openPinComposer(page);
+    await page.locator('.crit-design-composer-body').fill('fresh pin no drift');
+    await page.locator('.crit-design-composer-save').click();
+    await expect(page.locator('.crit-design-composer')).toHaveCount(0);
+    const row = page.locator('#commentsPanelBody .crit-design-comment-row').first();
+    await expect(row).toBeVisible();
+
+    // Capture any PUT /api/comment/{id} that carries drift fields.
+    const driftPuts: string[] = [];
+    page.on('request', (req) => {
+      if (req.method() !== 'PUT') return;
+      if (!/\/api\/comment\//.test(req.url())) return;
+      const body = req.postDataJSON() as { drifted?: boolean; drifted_on_round?: number } | null;
+      if (body && (body.drifted === true || typeof body.drifted_on_round === 'number')) {
+        driftPuts.push(req.url());
+      }
+    });
+
+    // Click the marker (the in-iframe dot) — this exercises the
+    // pin-clicked round-trip + the request-resolution path that
+    // previously raced into a drift PUT before commit 73877e9.
+    // Exit pin mode first so document-level click capture doesn't
+    // swallow the marker click.
+    await page.locator('#designModeToggle button[data-mode="navigate"]').click();
+    await expect.poll(
+      () => getIframe(page).locator('body').evaluate(() => {
+        return (window as unknown as { __critAgentState?: { mode?: string } })
+          .__critAgentState?.mode;
+      }),
+    ).toBe('navigate');
+    const pinId = await getIframe(page).locator('.crit-design-marker').first()
+      .getAttribute('data-pin-id');
+    expect(pinId).toBeTruthy();
+    await getIframe(page).locator('.crit-design-marker').first().click();
+
+    // Wait for the chrome's positive post-click signal: openPin set to
+    // the clicked pin. This guarantees the click round-trip (and any
+    // racing resolution scan) has completed.
+    await expect.poll(
+      () => page.evaluate(() => {
+        return (window as unknown as { crit?: { design?: { openPin?: { id?: string } } } })
+          .crit?.design?.openPin?.id ?? null;
+      }),
+      { timeout: 5_000 },
+    ).toBe(pinId);
+
+    // No drift PUT was fired against the freshly-created pin.
+    expect(driftPuts).toEqual([]);
+
+    // Iframe didn't reload — marker still attached.
+    await expect(getIframe(page).locator('.crit-design-marker')).toHaveCount(1);
   });
 });
 
