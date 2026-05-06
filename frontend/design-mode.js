@@ -248,6 +248,12 @@
       b.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
     announce('Viewport: ' + vp.label);
+    // Phase D: tell agent the viewport changed; gate request-resolution on
+    // viewport-applied ack.
+    if (state.resolutionGate) state.resolutionGate.beginViewportChange();
+    if (state.postToAgent && w > 0 && h > 0) {
+      state.postToAgent({ type: 'set-viewport', width: w, height: h });
+    }
   }
 
   registerInstaller(function installViewport() {
@@ -532,7 +538,10 @@
   }
 
   registerInstaller(function loadComments() {
-    loadAllComments().then(refreshPanel);
+    loadAllComments().then(function () {
+      refreshPanel();
+      pushPinsToAgent();
+    });
   });
 
   // ============================================================
@@ -729,10 +738,35 @@
         return p !== pathname;
       }).concat(out);
       refreshPanel();
+      pushPinsToAgent();
     } catch (_) { /* swallow */ }
   }
 
-  function handleSelection(domAnchor /*, pointer */) {
+  async function handleReanchorSelection(pinId, domAnchor) {
+    if (!reanchorPutAPI) return;
+    try {
+      var req = reanchorPutAPI.buildReanchorRequest(pinId, domAnchor);
+      var res = await fetch(req.url, { method: req.method, headers: req.headers, body: req.body });
+      if (!res.ok) {
+        showToast('Re-anchor failed: ' + res.status);
+        return;
+      }
+      // Disarm UI side, refresh comments + re-trigger resolution.
+      if (reanchorClickAPI) reanchorClickAPI.disarmReanchor({ state: state }, 'completed');
+      await refreshCommentsForRoute(domAnchor.pathname);
+      pushPinsToAgent();
+      if (state.resolutionGate) state.resolutionGate.requestResolution();
+      else fireRequestResolution();
+    } catch (err) {
+      showToast('Re-anchor error: ' + (err && err.message || err));
+    }
+  }
+
+  function handleSelection(domAnchor, pointer, reanchorFor) {
+    if (reanchorFor) {
+      handleReanchorSelection(reanchorFor, domAnchor);
+      return;
+    }
     var sizeMod = window.crit.design.size;
     if (sizeMod && sizeMod.selectionTooLarge(domAnchor)) {
       showToast('selection too large to save');
@@ -798,6 +832,7 @@
   function handleAgentReady() {
     state.agentReady = true;
     if (_sender) _sender.markReady();
+    pushPinsToAgent();
   }
   function handleAgentError(e) {
     showToast(e.kind + ': ' + e.message);
@@ -805,6 +840,102 @@
   function handleFocusState(b) {
     state.focusInInput = !!b;
   }
+
+  // ============================================================
+  // Phase D: pins, drift tray, resolution gate, re-anchor flow
+  // ============================================================
+  var pinStateAPI = window.crit && window.crit.designModePinState;
+  var pinFilterAPI = window.crit && window.crit.designModePinFilter;
+  var driftTrayAPI = window.crit && window.crit.designModeDriftTray;
+  var threadScrollAPI = window.crit && window.crit.designModeThreadScroll;
+  var reanchorClickAPI = window.crit && window.crit.designModeReanchorClick;
+  var reanchorPutAPI = window.crit && window.crit.designModeReanchorPut;
+  var resolutionGateAPI = window.crit && window.crit.designModeResolutionGate;
+
+  state.pinState = pinStateAPI && pinStateAPI.PinState ? new pinStateAPI.PinState() : null;
+  state.reanchorPending = null;
+  state.reanchorBtn = null;
+  state.reanchorTimeoutId = null;
+
+  function fireRequestResolution() {
+    if (state.agentReady) postToAgent({ type: 'request-resolution' });
+  }
+  state.resolutionGate = resolutionGateAPI && resolutionGateAPI.ResolutionGate
+    ? new resolutionGateAPI.ResolutionGate(fireRequestResolution)
+    : null;
+
+  function currentPathname() {
+    // Active route in the iframe (last announced via route-change), falling
+    // back to the iframe URL pathname if known.
+    return state.currentPathname || '/';
+  }
+
+  function pushPinsToAgent() {
+    if (!state.agentReady || !pinFilterAPI) return;
+    var all = (state.comments || []).filter(function (c) { return c && c.dom_anchor; }).map(function (c) {
+      return { id: c.id, pin_number: c.pin_number || 0, dom_anchor: c.dom_anchor };
+    });
+    var pins = pinFilterAPI.filterPinsForPath(all, currentPathname());
+    postToAgent({ type: 'set-pins', pins: pins });
+    if (state.pinState) state.pinState.setComments(state.comments || []);
+    renderDriftTray();
+  }
+
+  function renderDriftTray() {
+    if (!driftTrayAPI || !state.pinState) return;
+    var host = document.querySelector('.crit-design-drifted-tray-host');
+    if (!host) {
+      var panel = document.querySelector('.comments-panel') || document.body;
+      host = document.createElement('div');
+      host.className = 'crit-design-drifted-tray-host';
+      panel.insertBefore(host, panel.firstChild);
+    }
+    host.innerHTML = driftTrayAPI.renderDriftTrayHTML(state.pinState.driftedRows());
+  }
+
+  function handlePinResolutionResult(msg) {
+    if (state.pinState) state.pinState.applyResolution(msg);
+    renderDriftTray();
+  }
+
+  function handleViewportApplied(_msg) {
+    if (state.resolutionGate) state.resolutionGate.onViewportApplied();
+  }
+
+  function handleRouteChange(msg) {
+    state.currentPathname = msg.pathname || '/';
+    pushPinsToAgent();
+  }
+
+  function handlePinClicked(pinId) {
+    if (threadScrollAPI && threadScrollAPI.scrollThreadToPin) {
+      threadScrollAPI.scrollThreadToPin(document, pinId);
+    }
+    // Add transient highlight on the row.
+    var sel = '[data-comment-id="' + String(pinId).replace(/"/g, '\\"') + '"]';
+    var row = document.querySelector(sel);
+    if (row && row.classList) {
+      row.classList.add('crit-design-thread-highlight');
+      setTimeout(function () {
+        if (row.classList) row.classList.remove('crit-design-thread-highlight');
+      }, 1500);
+    }
+  }
+
+  // Drift-tray click delegation: armed when the user clicks "Re-anchor here?".
+  document.addEventListener('click', function (ev) {
+    if (!reanchorClickAPI) return;
+    var t = ev.target;
+    if (!t || typeof t.matches !== 'function') return;
+    if (!t.matches('.crit-design-reanchor-btn')) return;
+    var pinId = t.getAttribute('data-pin-id');
+    if (!pinId) return;
+    reanchorClickAPI.armReanchor(
+      { state: state, post: postToAgent, toast: showToast },
+      pinId,
+      t,
+    );
+  });
 
   registerInstaller(function installAgentBridge() {
     if (!state.iframeWindow || !state.proxyOrigin) return;
@@ -829,6 +960,10 @@
       onSelection: handleSelection,
       onRequestAncestorMenu: handleAncestorMenu,
       onFocusState: handleFocusState,
+      onRouteChange: handleRouteChange,
+      onPinClicked: handlePinClicked,
+      onPinResolutionResult: handlePinResolutionResult,
+      onViewportApplied: handleViewportApplied,
     });
 
     var guard = originMod.makeOriginGuard({
