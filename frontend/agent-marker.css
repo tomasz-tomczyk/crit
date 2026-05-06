@@ -22,3 +22,14 @@ html.crit-design-reanchor-active {
   outline: 3px solid var(--crit-design-reanchor-active-outline, #f59e0b);
   outline-offset: -3px;
 }
+
+/* M11: sustained highlight on the element being commented on. Stays
+   visible from the moment the user clicks an element in Pin mode until
+   the composer is dismissed (Save / Cancel / Esc) or the route changes.
+   Distinct from the dashed hover overlay so users can tell at a glance
+   which element is "captured". */
+.crit-design-pending-highlight {
+  outline: 2px solid var(--crit-design-pending-outline, #2563eb) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px var(--crit-design-pending-shadow, rgba(37, 99, 235, 0.18)) !important;
+}

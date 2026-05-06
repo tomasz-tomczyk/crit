@@ -164,3 +164,19 @@ test('set-marker-tabindex requires numeric value', () => {
   assert.deepEqual(validateMessage({ type: 'set-marker-tabindex', value: -1 }), { ok: true });
   assert.equal(validateMessage({ type: 'set-marker-tabindex', value: '0' }).ok, false);
 });
+
+test('keep-highlight requires non-empty selector', () => {
+  assert.equal(C2A.KEEP_HIGHLIGHT, 'keep-highlight');
+  assert.deepEqual(
+    validateMessage({ type: 'keep-highlight', selector: '#foo' }),
+    { ok: true },
+  );
+  assert.equal(validateMessage({ type: 'keep-highlight' }).ok, false);
+  assert.equal(validateMessage({ type: 'keep-highlight', selector: '' }).ok, false);
+  assert.equal(validateMessage({ type: 'keep-highlight', selector: 42 }).ok, false);
+});
+
+test('clear-highlight validates without payload', () => {
+  assert.equal(C2A.CLEAR_HIGHLIGHT, 'clear-highlight');
+  assert.deepEqual(validateMessage({ type: 'clear-highlight' }), { ok: true });
+});

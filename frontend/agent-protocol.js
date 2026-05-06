@@ -34,6 +34,8 @@
     FLASH_MARKER:       'flash-marker',
     CANCEL_REANCHOR:    'cancel-reanchor',
     SET_MARKER_TABINDEX: 'set-marker-tabindex',
+    KEEP_HIGHLIGHT:     'keep-highlight',
+    CLEAR_HIGHLIGHT:    'clear-highlight',
   };
 
   const MESSAGE_TYPES = Object.freeze({ ...A2C, ...C2A });
@@ -128,6 +130,13 @@
         return { ok: true };
       case C2A.SET_MARKER_TABINDEX:
         if (!isFiniteNumber(msg.value)) return { ok: false, reason: 'set-marker-tabindex.value' };
+        return { ok: true };
+      case C2A.KEEP_HIGHLIGHT:
+        if (!isString(msg.selector) || msg.selector.length === 0) {
+          return { ok: false, reason: 'keep-highlight.selector' };
+        }
+        return { ok: true };
+      case C2A.CLEAR_HIGHLIGHT:
         return { ok: true };
       default:
         return { ok: false, reason: 'unknown-type' };

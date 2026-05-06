@@ -167,6 +167,9 @@
     if (pathname === state.routePathname) return;
     state.routePathname = pathname;
     clearMarkersOnRouteChange();
+    // Element from prior route is gone; drop the sustained highlight so we
+    // don't leak class state between SPA navigations.
+    try { onClearHighlight(); } catch (_) {}
     postToParent({ type: A2C.ROUTE_CHANGE, pathname: pathname, search: search, hash: hash });
     if (state.batcher) {
       state.batcher.pause(200);
@@ -229,8 +232,31 @@
       case C2A.FLASH_MARKER: onFlashMarker(msg.pin_id); break;
       case C2A.CANCEL_REANCHOR: onCancelReanchor(); break;
       case C2A.SET_MARKER_TABINDEX: onSetMarkerTabindex(msg.value); break;
+      case C2A.KEEP_HIGHLIGHT: onKeepHighlight(msg.selector); break;
+      case C2A.CLEAR_HIGHLIGHT: onClearHighlight(); break;
       default: break;
     }
+  }
+
+  // M11: keep an outline on the clicked element while the chrome's composer
+  // is open so the user can see what they're commenting on. Auto-clears on
+  // route change (the element is gone) and on explicit CLEAR_HIGHLIGHT
+  // (Save/Cancel/Esc/dismiss).
+  function onKeepHighlight(selector) {
+    onClearHighlight(); // ensure only one element highlighted at a time
+    if (!selector) return;
+    try {
+      var el = document.querySelector(selector);
+      if (!el) return;
+      el.classList.add('crit-design-pending-highlight');
+      state._pendingHighlightEl = el;
+    } catch (_) { /* invalid selector */ }
+  }
+  function onClearHighlight() {
+    var el = state._pendingHighlightEl;
+    if (!el) return;
+    try { el.classList.remove('crit-design-pending-highlight'); } catch (_) {}
+    state._pendingHighlightEl = null;
   }
 
   // Phase E: flash a marker for 1500ms when chrome activates a deep-link.

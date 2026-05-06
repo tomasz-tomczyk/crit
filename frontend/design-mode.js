@@ -954,6 +954,8 @@
   function closeComposer() {
     var h = document.querySelector('.crit-design-composer-host');
     if (h) { h.innerHTML = ''; delete h.dataset.active; }
+    // M11: drop the sustained outline on the captured element.
+    try { postToAgent({ type: 'clear-highlight' }); } catch (_) {}
     // Intentional: do not change state.mode here — keep Pin mode for rapid pinning.
   }
 
@@ -1049,8 +1051,18 @@
     var host = ensureComposerHost();
     host.innerHTML = window.crit.design.composer.renderComposerHTML(domAnchor);
     host.dataset.active = '1';
+    // M11: ask the agent to keep the captured element outlined while the
+    // composer is open. Cleared by closeComposer (Save / Cancel / Esc).
+    if (domAnchor && domAnchor.css_selector) {
+      try { postToAgent({ type: 'keep-highlight', selector: domAnchor.css_selector }); } catch (_) {}
+    }
     var ta = host.querySelector('.crit-design-composer-body');
-    if (ta) ta.focus();
+    if (ta) {
+      ta.focus();
+      ta.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { e.preventDefault(); closeComposer(); }
+      });
+    }
     var cancelBtn = host.querySelector('.crit-design-composer-cancel');
     if (cancelBtn) cancelBtn.addEventListener('click', closeComposer);
     var saveBtn = host.querySelector('.crit-design-composer-save');
