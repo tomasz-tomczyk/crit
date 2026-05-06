@@ -290,6 +290,12 @@ type Session struct {
 	Origin     string // upstream URL, e.g. "http://localhost:3000"
 	ProxyPort  int    // proxy server port; 0 for code reviews
 
+	// designRoundStart, when non-nil and ReviewType=="design", is invoked
+	// after ReviewRound is bumped. Production wiring sets this in runServe
+	// before SetSession; tests assign it before driving the session. Must
+	// be installed before the watcher goroutine starts — read-only after.
+	designRoundStart func(prevRound, newRound int)
+
 	reviewComments []Comment
 
 	// RoundSnapshots is in-memory state populated from <folder>/snapshots.json

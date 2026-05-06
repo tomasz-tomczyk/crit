@@ -3975,11 +3975,9 @@ func TestSSE_DesignRoundStart_Broadcasts(t *testing.T) {
 
 	srv, session := newTestServer(t)
 	session.ReviewType = "design"
-	prevHook := onDesignRoundStart
-	onDesignRoundStart = func(s *Session, _, next int) {
-		s.notify(SSEEvent{Type: "design-round-start", Round: next})
+	session.designRoundStart = func(_, next int) {
+		session.notify(SSEEvent{Type: "design-round-start", Round: next})
 	}
-	t.Cleanup(func() { onDesignRoundStart = prevHook })
 
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)

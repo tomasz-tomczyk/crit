@@ -1470,17 +1470,15 @@ func TestRemapLines(t *testing.T) {
 
 func TestOnDesignRoundStart_OnlyForDesignReviews(t *testing.T) {
 	called := 0
-	prev := onDesignRoundStart
-	onDesignRoundStart = func(*Session, int, int) { called++ }
-	defer func() { onDesignRoundStart = prev }()
+	hook := func(int, int) { called++ }
 
-	s := &Session{ReviewType: "", ReviewRound: 1}
+	s := &Session{ReviewType: "", ReviewRound: 1, designRoundStart: hook}
 	advanceRoundForTest(s)
 	if called != 0 {
 		t.Fatalf("hook fired for code review (called=%d)", called)
 	}
 
-	s2 := &Session{ReviewType: "design", ReviewRound: 1}
+	s2 := &Session{ReviewType: "design", ReviewRound: 1, designRoundStart: hook}
 	advanceRoundForTest(s2)
 	if called != 1 {
 		t.Fatalf("hook did not fire for design review (called=%d)", called)

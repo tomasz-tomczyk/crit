@@ -179,16 +179,16 @@ func advanceRoundForTest(s *Session) {
 	rt := s.ReviewType
 	next := s.ReviewRound
 	s.mu.Unlock()
-	if rt == "design" && onDesignRoundStart != nil {
-		onDesignRoundStart(s, prev, next)
+	if rt == "design" && s.designRoundStart != nil {
+		s.designRoundStart(prev, next)
 	}
 }
 
-// fireOnDesignRoundStart invokes the installed onDesignRoundStart hook
+// fireOnDesignRoundStart invokes the installed designRoundStart hook
 // directly. Used by SSE tests to trigger an event without driving the
 // watcher loop.
 func fireOnDesignRoundStart(s *Session, prev, next int) {
-	if onDesignRoundStart != nil {
-		onDesignRoundStart(s, prev, next)
+	if s.designRoundStart != nil {
+		s.designRoundStart(prev, next)
 	}
 }

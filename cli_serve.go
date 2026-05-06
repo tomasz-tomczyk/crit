@@ -616,9 +616,10 @@ func runServe(args []string) {
 	if session.ReviewType == "design" {
 		// Wire the design-mode round-start hook to broadcast over the same
 		// SSE channel handleEvents serves. The watcher fires this from a
-		// single goroutine after the round bump.
-		onDesignRoundStart = func(s *Session, _, next int) {
-			s.notify(SSEEvent{Type: "design-round-start", Round: next})
+		// single goroutine after the round bump. Set before SetSession so
+		// the watcher goroutine never observes a partial assignment.
+		session.designRoundStart = func(_, next int) {
+			session.notify(SSEEvent{Type: "design-round-start", Round: next})
 		}
 	}
 	srv.SetSession(session)
