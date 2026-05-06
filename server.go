@@ -877,13 +877,14 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
 		var req struct {
-			StartLine int    `json:"start_line"`
-			EndLine   int    `json:"end_line"`
-			Side      string `json:"side"`
-			Body      string `json:"body"`
-			Quote     string `json:"quote"`
-			Author    string `json:"author"`
-			Scope     string `json:"scope"`
+			StartLine int        `json:"start_line"`
+			EndLine   int        `json:"end_line"`
+			Side      string     `json:"side"`
+			Body      string     `json:"body"`
+			Quote     string     `json:"quote"`
+			Author    string     `json:"author"`
+			Scope     string     `json:"scope"`
+			DOMAnchor *DOMAnchor `json:"dom_anchor"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -891,6 +892,18 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Body == "" {
 			http.Error(w, "Comment body is required", http.StatusBadRequest)
+			return
+		}
+
+		// Design pin: route to AddDesignPin before line validation.
+		if req.DOMAnchor != nil {
+			c, ok := s.session.Load().AddDesignPin(path, req.Body, req.Author, s.authUserID(), req.DOMAnchor)
+			if !ok {
+				http.Error(w, "Design pin rejected", http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			writeJSON(w, c)
 			return
 		}
 

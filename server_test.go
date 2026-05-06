@@ -3738,3 +3738,52 @@ func TestHandleSession_DesignFields(t *testing.T) {
 		t.Errorf("proxy_port = %v, want 54322", resp["proxy_port"])
 	}
 }
+
+func TestHandleFileComments_AcceptsDOMAnchor_AutoRegistersRoute(t *testing.T) {
+	s, session := newTestServer(t)
+	session.ReviewType = "design"
+	session.Origin = "http://localhost:3000"
+	session.Files = []*FileEntry{}
+
+	body := `{"start_line":0,"end_line":0,"body":"pin","dom_anchor":{"pathname":"/dashboard","css_selector":"#main > h2","tag_chain":["MAIN","H2"],"outer_html":"<h2>x</h2>","viewport_width":1280,"viewport_height":800}}`
+	req := httptest.NewRequest("POST", "/api/file/comments?path=/dashboard", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var c Comment
+	json.NewDecoder(w.Body).Decode(&c)
+	if c.DOMAnchor == nil {
+		t.Fatal("DOMAnchor nil in response")
+	}
+	if c.DOMAnchor.Pathname != "/dashboard" {
+		t.Errorf("Pathname = %q", c.DOMAnchor.Pathname)
+	}
+
+	found := false
+	for _, fe := range session.Files {
+		if fe.Path == "/dashboard" {
+			found = true
+			if len(fe.Comments) != 1 {
+				t.Errorf("auto-registered route has %d comments, want 1", len(fe.Comments))
+			}
+		}
+	}
+	if !found {
+		t.Errorf("FileEntry for /dashboard was not auto-created on first pin")
+	}
+}
+
+func TestHandleFileComments_CodeComment_LineValidationUnchanged(t *testing.T) {
+	s, _ := newTestServer(t)
+	body := `{"start_line":0,"end_line":0,"body":"code comment"}`
+	req := httptest.NewRequest("POST", "/api/file/comments?path=test.md", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for zero-line code comment", w.Code)
+	}
+}

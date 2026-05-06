@@ -959,6 +959,40 @@ func (s *Session) AddFileComment(filePath, body, author, userID string) (Comment
 	return c, true
 }
 
+// AddDesignPin appends a design-mode pin (zero lines, DOMAnchor set) to a
+// file. If no FileEntry exists for filePath yet, one is auto-created — design
+// sessions start with an empty Files slice and routes register lazily on
+// first pin.
+func (s *Session) AddDesignPin(filePath, body, author, userID string, anchor *DOMAnchor) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fe := s.fileByPathLocked(filePath)
+	if fe == nil {
+		fe = &FileEntry{
+			Path:     filePath,
+			FileType: "design-route",
+			Status:   "added",
+		}
+		s.Files = append(s.Files, fe)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	c := Comment{
+		ID:          randomCommentID(),
+		StartLine:   0,
+		EndLine:     0,
+		Body:        body,
+		Author:      author,
+		UserID:      userID,
+		DOMAnchor:   anchor,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		ReviewRound: s.ReviewRound,
+	}
+	fe.Comments = append(fe.Comments, c)
+	s.scheduleWrite()
+	return c, true
+}
+
 // AddReviewComment adds a review-level comment (not tied to any file).
 func (s *Session) AddReviewComment(body, author, userID string) Comment {
 	s.mu.Lock()
