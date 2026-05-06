@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -338,22 +338,21 @@ func createDesignSession(sc *serverConfig) (*Session, error) {
 	}
 	if sc.reviewPath != "" {
 		s.ReviewFilePath = sc.reviewPath
-		paths := reviewPathsFor(sc.reviewPath)
-		if data, err := os.ReadFile(paths.Review); err == nil {
-			var cj CritJSON
-			if json.Unmarshal(data, &cj) == nil {
-				if cj.ReviewRound > 0 {
-					s.ReviewRound = cj.ReviewRound
-				}
-				for path, fe := range cj.Files {
-					entry := &FileEntry{
-						Path:     path,
-						FileType: "design-route",
-						Comments: fe.Comments,
-						Status:   fe.Status,
-					}
-					s.Files = append(s.Files, entry)
-				}
+		// loadCritJSON returns a fresh CritJSON if the file doesn't exist,
+		// so a brand-new design daemon (no prior pins) lands on the empty
+		// path naturally. Read errors are non-fatal here: a corrupt review
+		// file will be reported by the next save.
+		if cj, err := loadCritJSON(sc.reviewPath); err == nil {
+			if cj.ReviewRound > 0 {
+				s.ReviewRound = cj.ReviewRound
+			}
+			for path, fe := range cj.Files {
+				s.Files = append(s.Files, &FileEntry{
+					Path:     path,
+					FileType: "design-route",
+					Comments: fe.Comments,
+					Status:   fe.Status,
+				})
 			}
 		}
 	}
@@ -436,6 +435,12 @@ func checkStaleIntegrations(sc *serverConfig, srv *Server, cwd string) {
 	}
 }
 
+// designSessionArgsTag is the leading element of sessionEntry.Args for a
+// design daemon: ["design", "<origin>"]. Promoted to a const so the read
+// site (when one is added) can compare against the same identifier.
+const designSessionArgsTag = "design"
+
+
 func runServe(args []string) {
 	pipe := openReadyPipe()
 
@@ -481,7 +486,7 @@ func runServe(args []string) {
 	srv.cliArgs = sc.files
 	sessionArgs := sc.files
 	if sc.designOrigin != "" {
-		sessionArgs = []string{"design", sc.designOrigin}
+		sessionArgs = []string{designSessionArgsTag, sc.designOrigin}
 	}
 	if err := writeSessionFile(key, sessionEntry{
 		PID:        os.Getpid(),
