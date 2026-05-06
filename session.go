@@ -531,11 +531,7 @@ func expandAndDedupPaths(paths []string, ignorePatterns []string) ([]string, err
 			return nil, fmt.Errorf("file not found: %s", p)
 		}
 		if info.IsDir() {
-			dirFiles, err := walkDirectory(absPath, ignorePatterns)
-			if err != nil {
-				return nil, fmt.Errorf("walking directory %s: %w", p, err)
-			}
-			expandedPaths = append(expandedPaths, dirFiles...)
+			expandedPaths = append(expandedPaths, walkDirectory(absPath, ignorePatterns)...)
 		} else {
 			expandedPaths = append(expandedPaths, absPath)
 		}
@@ -679,52 +675,70 @@ func (s *Session) captureBaselineAndPersist() {
 
 // walkDirectory recursively walks a directory and returns all file paths,
 // skipping hidden directories and common non-text directories.
-func walkDirectory(dir string, ignorePatterns []string) ([]string, error) {
+//
+// Ordering: at each depth, recurse into subdirectories (alphabetical) before
+// listing files (alphabetical). This matches the "directories before files at
+// each depth" grouping users expect when passing a directory like `crit .` —
+// and the frontend now preserves backend order in files mode, so this is the
+// single source of truth for display order.
+func walkDirectory(dir string, ignorePatterns []string) []string {
 	var files []string
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil //nolint:nilerr // best-effort walk: skip inaccessible entries
-		}
-		name := d.Name()
+	walkDirSubsFirst(dir, dir, ignorePatterns, &files)
+	return files
+}
 
-		// Skip hidden directories and common non-text directories
-		if d.IsDir() {
-			if strings.HasPrefix(name, ".") || skipDirs[name] {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Skip hidden files
+// walkDirSubsFirst is the recursive helper for walkDirectory. It reads dir
+// (os.ReadDir returns entries sorted by name), recurses into subdirectories
+// first, then appends files. ignorePatterns are matched relative to root
+// (the original argument), not the current dir. Best-effort: inaccessible
+// directories are silently skipped.
+func walkDirSubsFirst(dir, root string, ignorePatterns []string, out *[]string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return // best-effort: skip inaccessible dirs
+	}
+	var subdirs, fileEntries []os.DirEntry
+	for _, e := range entries {
+		name := e.Name()
 		if strings.HasPrefix(name, ".") {
-			return nil
+			continue
 		}
-
-		// Skip minified files
+		if e.IsDir() {
+			if skipDirs[name] {
+				continue
+			}
+			subdirs = append(subdirs, e)
+			continue
+		}
 		lowerName := strings.ToLower(name)
 		if strings.HasSuffix(lowerName, ".min.js") || strings.HasSuffix(lowerName, ".min.css") {
-			return nil
+			continue
 		}
-
-		// Skip binary/non-reviewable files by extension
 		ext := strings.ToLower(filepath.Ext(name))
 		if isBinaryExtension(ext) {
-			return nil
+			continue
 		}
-
-		// Apply ignore patterns (use path relative to dir)
-		if relPath, relErr := filepath.Rel(dir, path); relErr == nil {
+		full := filepath.Join(dir, name)
+		if relPath, relErr := filepath.Rel(root, full); relErr == nil {
+			skipped := false
 			for _, pat := range ignorePatterns {
 				if matchPattern(pat, relPath) {
-					return nil
+					skipped = true
+					break
 				}
 			}
+			if skipped {
+				continue
+			}
 		}
-
-		files = append(files, path)
-		return nil
-	})
-	return files, err
+		fileEntries = append(fileEntries, e)
+	}
+	for _, d := range subdirs {
+		walkDirSubsFirst(filepath.Join(dir, d.Name()), root, ignorePatterns, out)
+	}
+	for _, f := range fileEntries {
+		*out = append(*out, filepath.Join(dir, f.Name()))
+	}
 }
 
 // isBinaryExtension returns true for file extensions that are typically binary.
