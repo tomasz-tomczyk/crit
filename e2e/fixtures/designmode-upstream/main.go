@@ -30,6 +30,8 @@ func main() {
 	registerWS(mux)
 	registerCookie(mux)
 	registerSlow(mux)
+	registerWidgets(mux)
+	registerShiftMutator(mux)
 
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
 	ln, err := net.Listen("tcp", addr)
@@ -187,6 +189,94 @@ func registerCookie(mux *http.ServeMux) {
 		w.Header().Add("Set-Cookie", "foo=bar; Domain=upstream.test; Path=/")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, "<!doctype html><html><body>cookie set</body></html>")
+	})
+}
+
+// /widgets — page with an input, a draggable element, a focusable button, and
+// a shadow-DOM host. Used by agent.designmode.spec for suppression carve-outs
+// and shadow-DOM error emission.
+const widgetsHTML = `<!doctype html>
+<html><head><meta charset="utf-8"><title>widgets</title></head>
+<body>
+<main>
+  <h1 id="widgets-title">Widgets</h1>
+  <input id="widgets-input" type="text" placeholder="type here">
+  <button id="widgets-btn" type="button">Activate</button>
+  <div id="widgets-draggable" draggable="true" style="width:100px;height:32px;background:#eee;">drag me</div>
+  <div id="shadow-host"></div>
+</main>
+<script>
+(function () {
+  var host = document.getElementById('shadow-host');
+  var sr = host.attachShadow({ mode: 'open' });
+  sr.innerHTML = '<button id="shadow-btn" style="padding:8px 16px;">in shadow</button>';
+  // Track activations so tests can confirm suppression.
+  window.__widgetsBtnActivations = 0;
+  document.getElementById('widgets-btn').addEventListener('click', function () {
+    window.__widgetsBtnActivations++;
+  });
+  window.__widgetsDragStarts = 0;
+  var d = document.getElementById('widgets-draggable');
+  d.addEventListener('dragstart', function () { window.__widgetsDragStarts++; });
+}());
+</script>
+</body></html>`
+
+func registerWidgets(mux *http.ServeMux) {
+	mux.HandleFunc("/widgets", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, widgetsHTML)
+	})
+}
+
+// /shift-mutator — page with a stable target and a button that shifts the
+// target down by appending a tall element above it. Used to verify marker
+// reposition on DOM mutation.
+const shiftMutatorHTML = `<!doctype html>
+<html><head><meta charset="utf-8"><title>shift-mutator</title></head>
+<body>
+<main>
+  <h1 id="sm-title">Shift Mutator</h1>
+  <div id="sm-spacer-host"></div>
+  <button id="sm-target" type="button">Target</button>
+  <button id="sm-shift-btn" type="button">Shift target down</button>
+  <button id="sm-mass-btn" type="button">Mass-mutate (300 nodes)</button>
+  <button id="sm-class-btn" type="button">Thrash classes (no childList)</button>
+</main>
+<script>
+(function () {
+  document.getElementById('sm-shift-btn').addEventListener('click', function () {
+    var host = document.getElementById('sm-spacer-host');
+    var s = document.createElement('div');
+    s.style.height = '120px';
+    s.style.background = '#fafafa';
+    s.textContent = 'spacer';
+    host.appendChild(s);
+  });
+  document.getElementById('sm-mass-btn').addEventListener('click', function () {
+    var host = document.getElementById('sm-spacer-host');
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < 300; i++) {
+      var s = document.createElement('span');
+      s.textContent = 'm' + i;
+      frag.appendChild(s);
+    }
+    host.appendChild(frag);
+  });
+  document.getElementById('sm-class-btn').addEventListener('click', function () {
+    var t = document.getElementById('sm-target');
+    for (var i = 0; i < 50; i++) {
+      t.classList.toggle('thrash-' + (i % 3));
+    }
+  });
+}());
+</script>
+</body></html>`
+
+func registerShiftMutator(mux *http.ServeMux) {
+	mux.HandleFunc("/shift-mutator", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, shiftMutatorHTML)
 	})
 }
 
