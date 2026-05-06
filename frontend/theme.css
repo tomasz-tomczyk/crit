@@ -165,6 +165,10 @@
   --author-5-bg: rgba(85,200,200,0.15);
   --author-5-border: rgba(85,200,200,0.35);
   --author-5-fg: #60d0d0;
+
+  /* ---- Design-mode chrome (R2: only iframe pane tokens; markers in Phase D) ---- */
+  --crit-design-iframe-frame: #2f3342;
+  --crit-design-iframe-bg:    #0e0f13;
 }
 
 /* ===== System preference: light ===== */
@@ -295,6 +299,10 @@
     --author-5-bg: rgba(14,110,110,0.10);
     --author-5-border: rgba(14,110,110,0.25);
     --author-5-fg: #0e6e6e;
+
+    /* ---- Design-mode chrome (R2: only iframe pane tokens; markers in Phase D) ---- */
+    --crit-design-iframe-frame: #d0d7de;
+    --crit-design-iframe-bg:    #f6f8fa;
   }
 }
 
@@ -425,6 +433,10 @@
   --author-5-bg: rgba(85,200,200,0.15);
   --author-5-border: rgba(85,200,200,0.35);
   --author-5-fg: #60d0d0;
+
+  /* ---- Design-mode chrome (R2: only iframe pane tokens; markers in Phase D) ---- */
+  --crit-design-iframe-frame: #2f3342;
+  --crit-design-iframe-bg:    #0e0f13;
 }
 
 /* ===== Light (explicit) ===== */
@@ -554,6 +566,10 @@
   --author-5-bg: rgba(14,110,110,0.10);
   --author-5-border: rgba(14,110,110,0.25);
   --author-5-fg: #0e6e6e;
+
+  /* ---- Design-mode chrome (R2: only iframe pane tokens; markers in Phase D) ---- */
+  --crit-design-iframe-frame: #d0d7de;
+  --crit-design-iframe-bg:    #f6f8fa;
 }
 
 /* ===== highlight.js Dark Theme (Tokyo Night Dark) =====
