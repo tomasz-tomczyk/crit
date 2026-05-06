@@ -319,6 +319,9 @@
     if (state.mode === next) return;
     state.mode = next;
     postToAgent({ type: 'set-mode', value: next });
+    // Phase E: also flip marker tabindex so Tab does not jump into the iframe
+    // while Pin mode is active.
+    postToAgent({ type: 'set-marker-tabindex', value: next === 'pin' ? -1 : 0 });
     setActiveModeButton();
   }
   state.setMode = setMode;
