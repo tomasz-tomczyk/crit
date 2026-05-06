@@ -20,16 +20,46 @@ test('escapeHTML returns empty string for null/undefined', () => {
   assert.equal(shared.escapeHTML(undefined), '');
 });
 
-test('getCookie reads document.cookie', () => {
+test('getCookie reads document.cookie and URL-decodes the value', () => {
   sandbox.document.cookie = 'crit-settings=' + encodeURIComponent('{"theme":"dark"}') + '; other=x';
-  assert.equal(decodeURIComponent(shared.getCookie('crit-settings')), '{"theme":"dark"}');
+  assert.equal(shared.getCookie('crit-settings'), '{"theme":"dark"}');
   assert.equal(shared.getCookie('missing'), null);
 });
 
-test('setCookie writes document.cookie with path (2-arg)', () => {
+test('setCookie writes 1-year max-age, SameSite=Strict, URL-encoded value', () => {
+  // Persistence policy must match app.js: design-mode prefs (theme,
+  // commentsPanelOpen, hideResolved, etc.) survive browser restarts. A
+  // session cookie here would silently reset those across the close/open.
   sandbox.document.cookie = '';
-  shared.setCookie('foo', 'bar');
-  assert.match(sandbox.document.cookie, /^foo=bar/);
+  shared.setCookie('foo', 'bar baz');
+  assert.match(sandbox.document.cookie, /^foo=bar%20baz/);
+  assert.match(sandbox.document.cookie, /max-age=31536000/);
+  assert.match(sandbox.document.cookie, /SameSite=Strict/);
+  assert.match(sandbox.document.cookie, /path=\//);
+});
+
+test('setCookie / getCookie round-trip preserves JSON with special chars', () => {
+  sandbox.document.cookie = '';
+  const payload = '{"a":"x;y=z","b":"é"}';
+  shared.setCookie('crit-settings', payload);
+  // Simulate a browser presenting only the name=value pair (no attributes
+  // like max-age/SameSite are echoed back via document.cookie).
+  sandbox.document.cookie = 'crit-settings=' + encodeURIComponent(payload);
+  assert.equal(shared.getCookie('crit-settings'), payload);
+});
+
+test('setSetting / getSetting round-trip via the consolidated cookie', () => {
+  sandbox.document.cookie = '';
+  shared.setSetting('design_commentsPanelOpen', false);
+  shared.setSetting('theme', 'dark');
+  // The browser would echo back only the last write (one cookie name);
+  // model that by extracting it from the assigned string.
+  const m = sandbox.document.cookie.match(/^crit-settings=([^;]*)/);
+  assert.ok(m, 'cookie was written');
+  sandbox.document.cookie = 'crit-settings=' + m[1];
+  assert.equal(shared.getSetting('design_commentsPanelOpen', true), false);
+  assert.equal(shared.getSetting('theme', 'system'), 'dark');
+  assert.equal(shared.getSetting('missing', 'fallback'), 'fallback');
 });
 
 test('readThemeFromSettings parses JSON crit-settings cookie', () => {

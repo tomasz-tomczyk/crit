@@ -34,30 +34,38 @@
     return r.json();
   }
 
+  // URL-decodes the value, matching setCookie's URL-encode on write. Keeping
+  // get/set symmetric means callers don't sprinkle encode/decode at use sites.
   function getCookie(name) {
     const parts = (document.cookie || '').split(';');
     for (let i = 0; i < parts.length; i++) {
       const kv = parts[i].trim();
       const eq = kv.indexOf('=');
       if (eq < 0) continue;
-      if (kv.slice(0, eq) === name) return kv.slice(eq + 1);
+      if (kv.slice(0, eq) === name) {
+        const raw = kv.slice(eq + 1);
+        try { return decodeURIComponent(raw); }
+        catch (_) { return raw; }
+      }
     }
     return null;
   }
 
-  // 2-arg signature, matching app.js. No expiry (session cookie semantics
-  // are fine; app.js's existing setCookie also omits expiry).
+  // 2-arg signature, matching app.js's policy byte-for-byte: 1-year max-age
+  // (preferences should survive browser restarts), SameSite=Strict, and
+  // URL-encode the value so JSON / special chars round-trip safely.
   function setCookie(name, value) {
-    document.cookie = name + '=' + value + '; path=/; SameSite=Lax';
+    document.cookie = name + '=' + encodeURIComponent(value)
+      + '; path=/; max-age=31536000; SameSite=Strict';
   }
 
-  // The crit-settings cookie is JSON-encoded (URL-encoded JSON). app.js
-  // writes it via JSON.stringify(...) — we read it the same way.
+  // The crit-settings cookie is JSON. getCookie URL-decodes for us, so we
+  // hand the raw JSON straight to JSON.parse — same shape as app.js.
   function readThemeFromSettings() {
     const raw = getCookie('crit-settings');
     if (!raw) return 'system';
     try {
-      const parsed = JSON.parse(decodeURIComponent(raw));
+      const parsed = JSON.parse(raw);
       return (parsed && parsed.theme) || 'system';
     } catch (_) {
       return 'system';
@@ -75,11 +83,11 @@
   function readSettings() {
     const raw = getCookie('crit-settings');
     if (!raw) return {};
-    try { return JSON.parse(decodeURIComponent(raw)) || {}; }
+    try { return JSON.parse(raw) || {}; }
     catch (_) { return {}; }
   }
   function writeSettings(obj) {
-    setCookie('crit-settings', encodeURIComponent(JSON.stringify(obj || {})));
+    setCookie('crit-settings', JSON.stringify(obj || {}));
   }
   function getSetting(key, fallback) {
     const s = readSettings();
