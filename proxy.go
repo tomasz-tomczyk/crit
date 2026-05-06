@@ -104,12 +104,14 @@ func injectAgentScript(resp *http.Response, apiPort int) error {
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return err
 	}
-	// Order matters: html2canvas must load before crit-agent so the agent
-	// can use it during pin capture. Both go before </body>.
+	// Order matters: protocol + anchor-utils + html2canvas must load before
+	// crit-agent so the agent can reference all three at boot. All go before </body>.
 	tags := fmt.Sprintf(
-		`<script src="http://localhost:%d/crit-vendor/html2canvas.js"></script>`+
+		`<script src="http://localhost:%d/agent-protocol.js"></script>`+
+			`<script src="http://localhost:%d/agent-anchor-utils.js"></script>`+
+			`<script src="http://localhost:%d/crit-vendor/html2canvas.js"></script>`+
 			`<script src="http://localhost:%d/crit-agent.js"></script>`,
-		apiPort, apiPort,
+		apiPort, apiPort, apiPort, apiPort,
 	)
 	if !bodyTagRE.Match(body) {
 		resp.Header.Set("X-Crit-Agent-Injection", "failed")
