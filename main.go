@@ -39,7 +39,12 @@ func main() {
 		handler(os.Args[2:])
 		return
 	}
-	runReview(os.Args[1:])
+	args := os.Args[1:]
+	if looksLikeDesignArgs(args) {
+		runDesign(args)
+		return
+	}
+	runReview(args)
 }
 
 type shareFlags struct {
