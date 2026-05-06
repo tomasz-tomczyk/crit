@@ -372,8 +372,11 @@
     return Math.abs(hash) % AUTHOR_COLOR_COUNT;
   }
 
-  // Sort comparator: directories before files at each depth, then alphabetical
+  // Sort comparator: directories before files at each depth, then alphabetical.
+  // In files mode the user's CLI argument order is meaningful, so preserve it
+  // (Array.prototype.sort is stable, so returning 0 keeps original order).
   function fileSortComparator(a, b) {
+    if (session && session.mode === 'files') return 0;
     const pa = a.path.split('/'), pb = b.path.split('/');
     const min = Math.min(pa.length, pb.length);
     for (let i = 0; i < min - 1; i++) {
@@ -1520,8 +1523,10 @@
       container.appendChild(folder);
     }
 
-    // Render files
-    const sortedFiles = node.files.slice().sort(function(a, b) { return a.path.localeCompare(b.path); });
+    // Render files. In files mode preserve user-provided CLI order.
+    const sortedFiles = session.mode === 'files'
+      ? node.files.slice()
+      : node.files.slice().sort(function(a, b) { return a.path.localeCompare(b.path); });
     for (let fi = 0; fi < sortedFiles.length; fi++) {
       const f = sortedFiles[fi];
       const fileName = f.path.split('/').pop();

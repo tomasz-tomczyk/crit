@@ -51,6 +51,22 @@ test.describe('Multi-File Mode — Loading', () => {
     const stats = page.locator('#fileTreeStats');
     await expect(stats).toContainText('5');
   });
+
+  test('preserves CLI argument order (does not sort alphabetically)', async ({ page }) => {
+    // Fixture passes: plan.md main.go handler.ex lib/
+    // Expected order: CLI args in given order, then directory contents (walked alphabetically)
+    await expect(page.locator('.file-section')).toHaveCount(5);
+    const sectionIds = await page.locator('.file-section').evaluateAll(els =>
+      els.map(el => (el as HTMLElement).id.replace('file-section-', ''))
+    );
+    expect(sectionIds).toEqual([
+      'plan.md',
+      'main.go',
+      'handler.ex',
+      'lib/config.ex',
+      'lib/utils.ex',
+    ]);
+  });
 });
 
 test.describe('Multi-File Mode — Code File Rendering', () => {
