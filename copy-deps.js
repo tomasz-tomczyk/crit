@@ -19,6 +19,10 @@ writeFileSync(`${dest}/highlight.min.js`, core + "\n" + langs + "\n" + patch);
 // mermaid
 cpSync("node_modules/mermaid/dist/mermaid.min.js", `${dest}/mermaid.min.js`);
 
+// html2canvas — vendored under crit-vendor/ for cross-origin load by the
+// design-mode agent (served from API origin, executed inside proxy origin).
+cpSync("node_modules/html2canvas/dist/html2canvas.min.js", `${dest}/crit-vendor/html2canvas.js`);
+
 // @sanity/diff-match-patch — ESM-only, bundle to IIFE with esbuild
 // Expose makeDiff, cleanupSemantic, and constants as window.DiffMatchPatch
 const dmpEntry = `${dest}/_dmp-entry.js`;
