@@ -5,7 +5,10 @@
 // renderSettingsTab — see below.
 //
 // Exports on window.crit.settingsPanes:
-//   renderShortcutsPane(pane)
+//   renderShortcutsPane(pane, opts)
+//     opts.mode : 'code-review' | 'design' (default: 'code-review')
+//                  Filters entries by their `modes` array so design users
+//                  don't see code-review-only bindings (j/k, ]/[, c/e/d, …).
 //   renderAboutPane(pane, cfg, sessionInfo)
 //   renderSettingsTab(pane, opts)
 //     opts.mode    : 'code-review' | 'design'
@@ -33,43 +36,63 @@
       .replace(/"/g, '&quot;');
   }
 
-  function renderShortcutsPane(pane) {
+  // Each shortcut declares which modes it actually fires in. The renderer
+  // filters out entries that don't apply to the current mode so design-mode
+  // users aren't shown bindings that do nothing for them. Investigated
+  // bindings:
+  //   - design-mode: Esc, Ctrl+Enter, ? (and `p/P` for pin mode — design-only)
+  //   - code-review: j, k, ], [, n, N, c, e, d, G, Shift+F, Shift+C,
+  //                  Shift+1/2/3/4, t, h, Esc, Ctrl+Enter, ?
+  var BOTH = ['code-review', 'design'];
+  var CODE_REVIEW_ONLY = ['code-review'];
+  var DESIGN_ONLY = ['design'];
+
+  function renderShortcutsPane(pane, opts) {
     if (!pane) return;
+    opts = opts || {};
+    var mode = opts.mode || 'code-review';
     var html = '';
 
     var groups = [
       { label: 'Navigation', shortcuts: [
-        { key: '<kbd>j</kbd>', action: 'Next block' },
-        { key: '<kbd>k</kbd>', action: 'Previous block' },
-        { key: '<kbd>]</kbd>', action: 'Next comment' },
-        { key: '<kbd>[</kbd>', action: 'Previous comment' },
-        { key: '<kbd>n</kbd>', action: 'Next change', mode: 'file mode' },
-        { key: '<kbd>N</kbd>', action: 'Previous change', mode: 'file mode' },
+        { key: '<kbd>j</kbd>', action: 'Next block', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>k</kbd>', action: 'Previous block', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>]</kbd>', action: 'Next comment', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>[</kbd>', action: 'Previous comment', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>n</kbd>', action: 'Next change', mode: 'file mode', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>N</kbd>', action: 'Previous change', mode: 'file mode', modes: CODE_REVIEW_ONLY },
       ]},
       { label: 'Comments', shortcuts: [
-        { key: '<kbd>c</kbd>', action: 'Comment on focused block (or text selection, with quote)' },
-        { key: '<kbd>e</kbd>', action: 'Edit comment on focused block' },
-        { key: '<kbd>d</kbd>', action: 'Delete comment on focused block' },
-        { key: '<kbd>G</kbd>', action: 'General comment' },
-        { key: '<kbd>Ctrl</kbd>+<kbd>Enter</kbd>', action: 'Comment' },
+        { key: '<kbd>c</kbd>', action: 'Comment on focused block (or text selection, with quote)', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>e</kbd>', action: 'Edit comment on focused block', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>d</kbd>', action: 'Delete comment on focused block', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>G</kbd>', action: 'General comment', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>Ctrl</kbd>+<kbd>Enter</kbd>', action: 'Comment', modes: BOTH },
       ]},
       { label: 'Review', shortcuts: [
-        { key: '<kbd>Shift</kbd>+<kbd>F</kbd>', action: 'Finish review' },
-        { key: '<kbd>Shift</kbd>+<kbd>C</kbd>', action: 'Toggle comments panel' },
-        { key: '<kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd>', action: 'Switch scope', mode: 'vcs mode' },
+        { key: '<kbd>Shift</kbd>+<kbd>F</kbd>', action: 'Finish review', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>Shift</kbd>+<kbd>C</kbd>', action: 'Toggle comments panel', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd>', action: 'Switch scope', mode: 'vcs mode', modes: CODE_REVIEW_ONLY },
+      ]},
+      { label: 'Design', shortcuts: [
+        { key: '<kbd>p</kbd>', action: 'Toggle pin mode', modes: DESIGN_ONLY },
       ]},
       { label: 'View', shortcuts: [
-        { key: '<kbd>t</kbd>', action: 'Toggle table of contents', mode: 'file mode' },
-        { key: '<kbd>h</kbd>', action: 'Toggle hide resolved' },
-        { key: '<kbd>Esc</kbd>', action: 'Cancel / clear focus' },
-        { key: '<kbd>?</kbd>', action: 'Toggle this panel' },
+        { key: '<kbd>t</kbd>', action: 'Toggle table of contents', mode: 'file mode', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>h</kbd>', action: 'Toggle hide resolved', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>Esc</kbd>', action: 'Cancel / clear focus', modes: BOTH },
+        { key: '<kbd>?</kbd>', action: 'Toggle this panel', modes: BOTH },
       ]},
     ];
 
     groups.forEach(function (group) {
+      var visible = group.shortcuts.filter(function (s) {
+        return s.modes && s.modes.indexOf(mode) !== -1;
+      });
+      if (visible.length === 0) return;
       html += '<div class="shortcuts-group-label">' + group.label + '</div>';
       html += '<table class="shortcuts-table">';
-      group.shortcuts.forEach(function (s) {
+      visible.forEach(function (s) {
         var modeTag = s.mode ? '<span class="shortcut-mode-badge">' + s.mode + '</span>' : '';
         html += '<tr><td>' + s.key + '</td><td>' + s.action + modeTag + '</td></tr>';
       });

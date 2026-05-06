@@ -1558,7 +1558,7 @@
         });
       }
       if (panes.renderShortcutsPane) {
-        panes.renderShortcutsPane(overlay.querySelector('#shortcutsPane'));
+        panes.renderShortcutsPane(overlay.querySelector('#shortcutsPane'), { mode: 'design' });
       }
       if (panes.renderAboutPane) {
         panes.renderAboutPane(overlay.querySelector('#aboutPane'), cfg, sessionDescriptor);

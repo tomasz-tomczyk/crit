@@ -246,3 +246,68 @@ test('renderShortcutsPane / renderAboutPane still exposed', () => {
   assert.equal(typeof sp.renderShortcutsPane, 'function');
   assert.equal(typeof sp.renderAboutPane, 'function');
 });
+
+test('renderShortcutsPane: code-review mode shows code-review-only shortcuts', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  sp.renderShortcutsPane(pane, { mode: 'code-review' });
+  const html = pane.innerHTML;
+  // Code-review-only bindings present
+  assert.match(html, /<kbd>j<\/kbd>/);
+  assert.match(html, /<kbd>k<\/kbd>/);
+  assert.match(html, /<kbd>\]<\/kbd>/);
+  assert.match(html, /<kbd>\[<\/kbd>/);
+  assert.match(html, /<kbd>c<\/kbd>/);
+  assert.match(html, /<kbd>e<\/kbd>/);
+  assert.match(html, /<kbd>d<\/kbd>/);
+  assert.match(html, /<kbd>G<\/kbd>/);
+  assert.match(html, /<kbd>t<\/kbd>/);
+  assert.match(html, /<kbd>h<\/kbd>/);
+  assert.match(html, /Shift<\/kbd>\+<kbd>F/);
+  assert.match(html, /Shift<\/kbd>\+<kbd>C/);
+  assert.match(html, /Switch scope/);
+  // Shared bindings present
+  assert.match(html, /<kbd>Esc<\/kbd>/);
+  assert.match(html, /<kbd>\?<\/kbd>/);
+  assert.match(html, /Ctrl<\/kbd>\+<kbd>Enter/);
+  // Design-only binding absent
+  assert.doesNotMatch(html, /Toggle pin mode/);
+});
+
+test('renderShortcutsPane: design mode omits code-review-only shortcuts', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  sp.renderShortcutsPane(pane, { mode: 'design' });
+  const html = pane.innerHTML;
+  // Code-review-only bindings absent
+  assert.doesNotMatch(html, /<kbd>j<\/kbd>/);
+  assert.doesNotMatch(html, /<kbd>k<\/kbd>/);
+  assert.doesNotMatch(html, /<kbd>\]<\/kbd>/);
+  assert.doesNotMatch(html, /<kbd>\[<\/kbd>/);
+  assert.doesNotMatch(html, /<kbd>n<\/kbd>/);
+  assert.doesNotMatch(html, /<kbd>c<\/kbd>/);
+  assert.doesNotMatch(html, /<kbd>e<\/kbd>/);
+  assert.doesNotMatch(html, /<kbd>d<\/kbd>/);
+  assert.doesNotMatch(html, /<kbd>G<\/kbd>/);
+  assert.doesNotMatch(html, /<kbd>t<\/kbd>/);
+  assert.doesNotMatch(html, /<kbd>h<\/kbd>/);
+  assert.doesNotMatch(html, /Finish review/);
+  assert.doesNotMatch(html, /Toggle comments panel/);
+  assert.doesNotMatch(html, /Switch scope/);
+  // Shared bindings present
+  assert.match(html, /<kbd>Esc<\/kbd>/);
+  assert.match(html, /<kbd>\?<\/kbd>/);
+  assert.match(html, /Ctrl<\/kbd>\+<kbd>Enter/);
+  // Design-only binding present
+  assert.match(html, /<kbd>p<\/kbd>/);
+  assert.match(html, /Toggle pin mode/);
+});
+
+test('renderShortcutsPane: defaults to code-review when no opts passed', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  sp.renderShortcutsPane(pane);
+  // Sanity: code-review-only entries appear (legacy behaviour preserved)
+  assert.match(pane.innerHTML, /<kbd>j<\/kbd>/);
+  assert.doesNotMatch(pane.innerHTML, /Toggle pin mode/);
+});
