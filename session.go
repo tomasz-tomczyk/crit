@@ -77,6 +77,26 @@ type Reply struct {
 	LastPushedBodyHash string `json:"last_pushed_body_hash,omitempty"`
 }
 
+// DOMAnchor identifies a DOM element for a design-mode pin.
+// Nil on all code-review comments. The existing Comment.Anchor field
+// (a textual line-anchor string for drift correction) is unrelated and
+// is left unchanged.
+type DOMAnchor struct {
+	Pathname    string   `json:"pathname"`
+	CSSSelector string   `json:"css_selector"`
+	TagChain    []string `json:"tag_chain"`
+
+	// Cheap fallback fields for drifted-recoverable resolution.
+	AccessibleName string `json:"accessible_name,omitempty"`
+	Role           string `json:"role,omitempty"`
+	Landmark       string `json:"landmark,omitempty"`
+
+	OuterHTML      string `json:"outer_html"`
+	Screenshot     string `json:"screenshot,omitempty"`
+	ViewportWidth  int    `json:"viewport_width"`
+	ViewportHeight int    `json:"viewport_height"`
+}
+
 // Comment represents a single inline review comment.
 type Comment struct {
 	ID          string `json:"id"`
@@ -121,6 +141,10 @@ type Comment struct {
 	// "layer", "full_stack", or "" (working tree / pre-feature).
 	// Distinct from Comment.Scope ("line" | "file" | "review").
 	DiffScope string `json:"diff_scope,omitempty"`
+
+	// DOMAnchor is non-nil iff this comment is a design-mode pin.
+	// For code-review comments DOMAnchor is always nil.
+	DOMAnchor *DOMAnchor `json:"dom_anchor,omitempty"`
 
 	// FocusKey identifies the *view* this comment was authored in.
 	// Comments are visible only when the current focus's key matches.

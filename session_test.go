@@ -5239,3 +5239,82 @@ func mapKeys[V any](m map[string]V) []string {
 	}
 	return out
 }
+
+func TestDOMAnchor_JSONRoundTrip(t *testing.T) {
+	anchor := &DOMAnchor{
+		Pathname:       "/dashboard",
+		CSSSelector:    "#main > :nth-of-type(2) > h2",
+		TagChain:       []string{"MAIN", "SECTION", "H2"},
+		AccessibleName: "Overview",
+		Role:           "heading",
+		Landmark:       "main",
+		OuterHTML:      "<h2>Overview</h2>",
+		Screenshot:     "data:image/jpeg;base64,abc",
+		ViewportWidth:  1280,
+		ViewportHeight: 800,
+	}
+	c := Comment{
+		ID:        "c_test01",
+		StartLine: 0,
+		EndLine:   0,
+		Body:      "pin body",
+		DOMAnchor: anchor,
+		CreatedAt: "2026-05-06T00:00:00Z",
+		UpdatedAt: "2026-05-06T00:00:00Z",
+	}
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"dom_anchor"`) {
+		t.Fatalf("missing dom_anchor key in JSON: %s", data)
+	}
+	var got Comment
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.DOMAnchor == nil {
+		t.Fatal("DOMAnchor is nil after unmarshal")
+	}
+	if got.DOMAnchor.Pathname != "/dashboard" {
+		t.Errorf("Pathname = %q, want /dashboard", got.DOMAnchor.Pathname)
+	}
+	if got.DOMAnchor.CSSSelector != "#main > :nth-of-type(2) > h2" {
+		t.Errorf("CSSSelector = %q", got.DOMAnchor.CSSSelector)
+	}
+	if len(got.DOMAnchor.TagChain) != 3 || got.DOMAnchor.TagChain[0] != "MAIN" {
+		t.Errorf("TagChain = %v", got.DOMAnchor.TagChain)
+	}
+	if got.DOMAnchor.ViewportWidth != 1280 {
+		t.Errorf("ViewportWidth = %d, want 1280", got.DOMAnchor.ViewportWidth)
+	}
+}
+
+func TestDOMAnchor_NilOmitted(t *testing.T) {
+	c := Comment{
+		ID:        "c_code01",
+		StartLine: 10,
+		EndLine:   10,
+		Body:      "code comment",
+		CreatedAt: "2026-05-06T00:00:00Z",
+		UpdatedAt: "2026-05-06T00:00:00Z",
+	}
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "dom_anchor") {
+		t.Fatalf("dom_anchor key must be absent when nil, got: %s", data)
+	}
+}
+
+func TestComment_LegacyFileNoDesignFields(t *testing.T) {
+	raw := `{"id":"c_old","start_line":5,"end_line":5,"body":"old","created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}`
+	var c Comment
+	if err := json.Unmarshal([]byte(raw), &c); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if c.DOMAnchor != nil {
+		t.Errorf("DOMAnchor should be nil for legacy comment, got %+v", c.DOMAnchor)
+	}
+}
