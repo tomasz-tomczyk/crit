@@ -434,6 +434,19 @@
     };
   }
 
+  // Walk an event's composedPath() to find the deepest Element. Browsers
+  // retarget elementFromPoint() to the shadow host, so composedPath() is the
+  // only way to detect that a real click landed inside a shadow tree.
+  function deepestElementFromEvent(ev) {
+    if (typeof ev.composedPath !== 'function') return null;
+    var path = ev.composedPath();
+    for (var i = 0; i < path.length; i++) {
+      var n = path[i];
+      if (n && n.nodeType === 1) return n;
+    }
+    return null;
+  }
+
   function onClickCapture(ev) {
     // Re-anchor capture is one-shot and mode-independent: when the chrome has
     // armed re-anchor, the next click must be consumed regardless of whether
@@ -446,6 +459,15 @@
     if (!target) return;
     ev.preventDefault();
     ev.stopPropagation();
+    // Use the event's composedPath() to detect shadow-DOM clicks: browsers
+    // retarget elementFromPoint() to the shadow host (target above), but the
+    // event's actual path includes the inner element. If the deepest element
+    // in the path lives inside a shadow tree, refuse to pin.
+    var deep = deepestElementFromEvent(ev);
+    if (deep && isInShadowDOM(deep)) {
+      postToParent({ type: A2C.AGENT_ERROR, kind: 'shadow-dom', message: "can't pin inside shadow DOM" });
+      return;
+    }
     if (isInShadowDOM(target)) {
       postToParent({ type: A2C.AGENT_ERROR, kind: 'shadow-dom', message: "can't pin inside shadow DOM" });
       return;

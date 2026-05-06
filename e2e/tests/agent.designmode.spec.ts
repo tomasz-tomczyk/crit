@@ -384,12 +384,102 @@ test.describe('design-mode agent — shadow DOM error surface', () => {
     await clearAllDesignPins(request);
   });
 
-  test('clicking inside shadow DOM emits agent-error and does not pin', async () => {
-    test.fixme(true, 'document.elementFromPoint() retargets to the shadow host, not the inner element, so isInShadowDOM(target) returns false from a real click. The error path is unreachable via real browser input on this fixture; reframe when there is an explicit "click inside shadow root" reproduction.');
+  test('clicking inside shadow DOM emits agent-error and does not pin', async ({ page }) => {
+    await waitForAgentReady(page);
+    await page.evaluate(() => {
+      (window as unknown as { __critDesignMessages?: unknown[] }).__critDesignMessages = [];
+    });
+    await setIframeRoute(page, '/widgets');
+    await expect(getIframe(page).locator('#widgets-title')).toBeVisible();
+    await expect.poll(
+      () => page.evaluate(() => {
+        const log = (window as unknown as { __critDesignMessages?: { type: string }[] })
+          .__critDesignMessages;
+        return Array.isArray(log) && log.some((e) => e.type === 'agent-ready');
+      }),
+      { timeout: 15_000 },
+    ).toBe(true);
+    await enterPinMode(page);
+    await expect.poll(
+      () => getIframe(page).locator('body').evaluate(() => {
+        return (window as unknown as { __critAgentState?: { mode?: string } })
+          .__critAgentState?.mode;
+      }),
+    ).toBe('pin');
+    // Clear the message log so the agent-error we observe is the new one.
+    await page.evaluate(() => {
+      (window as unknown as { __critDesignMessages?: unknown[] }).__critDesignMessages = [];
+    });
+    // Dispatch a click that originates from the inner shadow button. The
+    // event's composedPath() includes the shadow target, which the agent uses
+    // to detect shadow-DOM membership (elementFromPoint retargets to the host).
+    await getIframe(page).locator('body').evaluate(() => {
+      const host = document.getElementById('shadow-host') as HTMLElement | null;
+      const sr = host?.shadowRoot;
+      const btn = sr?.getElementById('shadow-btn') as HTMLElement | null;
+      if (!btn) throw new Error('shadow-btn not found');
+      const rect = btn.getBoundingClientRect();
+      btn.dispatchEvent(new MouseEvent('click', {
+        bubbles: true, cancelable: true, composed: true, button: 0,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      }));
+    });
+    await expect.poll(
+      () => page.evaluate(() => {
+        const log = (window as unknown as { __critDesignMessages?: { type: string; kind?: string }[] })
+          .__critDesignMessages || [];
+        return log.find((m) => m.type === 'agent-error' && m.kind === 'shadow-dom') || null;
+      }),
+      { timeout: 5_000 },
+    ).not.toBeNull();
+    // No selection event was emitted.
+    const sel = await page.evaluate(() => {
+      const log = (window as unknown as { __critDesignMessages?: { type: string }[] })
+        .__critDesignMessages || [];
+      return log.find((m) => m.type === 'selection') || null;
+    });
+    expect(sel).toBeNull();
   });
 
-  test('shadow-DOM agent-error surfaces a toast in chrome', async () => {
-    test.fixme(true, 'Same blocker — agent-error is never emitted from a real shadow-DOM click in Playwright. handleAgentError -> showToast wiring is exercised by other agent-error kinds (e.g. capture-failed) at the unit-test level.');
+  test('shadow-DOM agent-error surfaces a toast in chrome', async ({ page }) => {
+    await waitForAgentReady(page);
+    await page.evaluate(() => {
+      (window as unknown as { __critDesignMessages?: unknown[] }).__critDesignMessages = [];
+    });
+    await setIframeRoute(page, '/widgets');
+    await expect(getIframe(page).locator('#widgets-title')).toBeVisible();
+    await expect.poll(
+      () => page.evaluate(() => {
+        const log = (window as unknown as { __critDesignMessages?: { type: string }[] })
+          .__critDesignMessages;
+        return Array.isArray(log) && log.some((e) => e.type === 'agent-ready');
+      }),
+      { timeout: 15_000 },
+    ).toBe(true);
+    await enterPinMode(page);
+    await expect.poll(
+      () => getIframe(page).locator('body').evaluate(() => {
+        return (window as unknown as { __critAgentState?: { mode?: string } })
+          .__critAgentState?.mode;
+      }),
+    ).toBe('pin');
+    await getIframe(page).locator('body').evaluate(() => {
+      const host = document.getElementById('shadow-host') as HTMLElement | null;
+      const sr = host?.shadowRoot;
+      const btn = sr?.getElementById('shadow-btn') as HTMLElement | null;
+      if (!btn) throw new Error('shadow-btn not found');
+      const rect = btn.getBoundingClientRect();
+      btn.dispatchEvent(new MouseEvent('click', {
+        bubbles: true, cancelable: true, composed: true, button: 0,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      }));
+    });
+    // Chrome's handleAgentError pipes agent-error through showToast.
+    const toast = page.locator('.crit-design-toast');
+    await expect(toast.first()).toBeVisible({ timeout: 5_000 });
+    await expect(toast.first()).toContainText(/shadow-dom/);
   });
 });
 
