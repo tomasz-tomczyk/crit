@@ -1296,7 +1296,16 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sess := s.session.Load()
-	sess.WriteFiles()
+	// Synchronous, serialized flush. The response includes review_file —
+	// CLI clients and the e2e suite read that path verbatim, so the file
+	// must exist on disk before we hand the path back. Bare WriteFiles
+	// races with the debounce timer (both call atomicWriteFile concurrently
+	// on the same target, which has manifested as ENOENT failures on
+	// Windows where the read-after-write window is wider).
+	if err := sess.SyncWriteFiles(); err != nil {
+		http.Error(w, fmt.Sprintf("writing review file: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	totalComments := sess.TotalCommentCount()
 	newComments := sess.NewCommentCount()

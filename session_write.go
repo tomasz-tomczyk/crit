@@ -246,15 +246,46 @@ func critJSONIsEmpty(cj CritJSON) bool {
 // releases the lock before doing any disk I/O (ReadFile, Stat, WriteFile).
 // This prevents a slow filesystem from blocking comment operations.
 //
-// Concurrency note: the debounce timer in scheduleWrite ensures that only one
-// WriteFiles call is in-flight at a time for a given generation. Between the
-// snapshot and the final WriteFile, no concurrent WriteFiles should be running
-// because scheduleWrite cancels the previous timer before arming a new one.
+// Concurrency note: callers that need to guarantee the write is observable
+// before returning a path to a client (e.g. POST /api/finish) MUST use
+// SyncWriteFiles, which serializes against the debounce timer via writeMu
+// and surfaces write errors. Bare WriteFiles is for the timer callback and
+// best-effort flushes (focus change, shutdown).
 func (s *Session) WriteFiles() {
+	_ = s.writeFilesErr()
+}
+
+// SyncWriteFiles flushes pending state to disk synchronously, serialized
+// against the debounce timer and ClearAllComments. It cancels any pending
+// debounced write so the writeFilesErr call below is the authoritative
+// flush. Returns an error if the on-disk write failed; callers translate
+// that into a 5xx response rather than handing back a path to a missing
+// file.
+func (s *Session) SyncWriteFiles() error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	s.mu.Lock()
+	if s.writeTimer != nil {
+		s.writeTimer.Stop()
+	}
+	// Bump writeGen so any timer callback that already passed Stop() but
+	// has not yet acquired writeMu observes the gen change and bails.
+	s.writeGen++
+	s.mu.Unlock()
+
+	return s.writeFilesErr()
+}
+
+// writeFilesErr is the actual write implementation. Returns an error so
+// SyncWriteFiles can surface failures to HTTP callers; the timer callback
+// and best-effort callers via WriteFiles ignore the error (preserving the
+// pre-existing log-and-continue behaviour).
+func (s *Session) writeFilesErr() error {
 	critPath := s.critJSONPath()
 
 	if s.handleExternalDeletion(critPath) {
-		return
+		return nil
 	}
 
 	snap := s.snapshotForWrite(critPath)
@@ -274,17 +305,17 @@ func (s *Session) WriteFiles() {
 		s.pendingGitHubDeletes = nil
 		s.lastLoadedPendingGHDeletes = nil
 		s.mu.Unlock()
-		return
+		return nil
 	}
 
 	data, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error marshaling review file: %v\n", err)
-		return
+		return fmt.Errorf("marshaling review file: %w", err)
 	}
 	if err := atomicWriteFile(paths.Review, data, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing review file: %v\n", err)
-		return
+		return fmt.Errorf("writing review file: %w", err)
 	}
 	if info, err := os.Stat(paths.Review); err == nil {
 		s.mu.Lock()
@@ -301,6 +332,7 @@ func (s *Session) WriteFiles() {
 		}
 		s.mu.Unlock()
 	}
+	return nil
 }
 
 // snapshotForWrite captures all session state needed by WriteFiles under RLock.
