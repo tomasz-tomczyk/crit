@@ -378,6 +378,14 @@ type CritJSON struct {
 	// DELETE succeeds (or returns 404 / 403). Survives intermediate pulls so
 	// the user's intent is not lost.
 	PendingGitHubDeletes []int64 `json:"pending_github_deletes,omitempty"`
+
+	// ReviewType distinguishes review modes. "" (zero value) = code review.
+	// "design" = design mode. Omitted from JSON when empty for back-compat.
+	ReviewType string `json:"review_type,omitempty"`
+
+	// Origin is the upstream URL for design reviews (e.g. "http://localhost:3000").
+	// Empty for code reviews.
+	Origin string `json:"origin,omitempty"`
 }
 
 // CritJSONFile is the per-file section in review files.

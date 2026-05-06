@@ -5318,3 +5318,51 @@ func TestComment_LegacyFileNoDesignFields(t *testing.T) {
 		t.Errorf("DOMAnchor should be nil for legacy comment, got %+v", c.DOMAnchor)
 	}
 }
+
+func TestCritJSON_DesignFields_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, "test-review")
+	cj := CritJSON{
+		ReviewType:  "design",
+		Origin:      "http://localhost:3000",
+		ReviewRound: 1,
+		Files:       map[string]CritJSONFile{},
+	}
+	if err := saveCritJSON(critPath, cj); err != nil {
+		t.Fatalf("saveCritJSON: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(critPath, "review.json"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), `"review_type"`) {
+		t.Errorf("review_type missing in persisted file: %s", data)
+	}
+	if !strings.Contains(string(data), `"origin"`) {
+		t.Errorf("origin missing in persisted file: %s", data)
+	}
+	var loaded CritJSON
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if loaded.ReviewType != "design" {
+		t.Errorf("ReviewType = %q, want design", loaded.ReviewType)
+	}
+	if loaded.Origin != "http://localhost:3000" {
+		t.Errorf("Origin = %q, want http://localhost:3000", loaded.Origin)
+	}
+}
+
+func TestCritJSON_LegacyNoReviewType(t *testing.T) {
+	raw := `{"branch":"main","review_round":1,"files":{}}`
+	var cj CritJSON
+	if err := json.Unmarshal([]byte(raw), &cj); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if cj.ReviewType != "" {
+		t.Errorf("ReviewType = %q, want empty for legacy file", cj.ReviewType)
+	}
+	if cj.Origin != "" {
+		t.Errorf("Origin = %q, want empty for legacy file", cj.Origin)
+	}
+}
