@@ -454,6 +454,49 @@ func TestProxyModifyResponse_RewritesCookieAttributes(t *testing.T) {
 	}
 }
 
+// TestSWShim_StructureAndBalance is a cheap sanity check on the inline JS
+// constant: balanced braces/parens/brackets, expected substrings present, and
+// the <script> wrapper is closed exactly once. Catches accidental edits that
+// would leave an unparseable shim — a real parser would be better but pulling
+// in a JS engine for one constant isn't worth it.
+func TestSWShim_StructureAndBalance(t *testing.T) {
+	s := swShim
+	if !strings.HasPrefix(s, "<script>") || !strings.HasSuffix(s, "</script>") {
+		t.Fatalf("swShim not wrapped in <script> tags: %q", s)
+	}
+	if strings.Count(s, "<script>") != 1 || strings.Count(s, "</script>") != 1 {
+		t.Errorf("expected exactly one <script>/</script> pair: %q", s)
+	}
+	body := strings.TrimSuffix(strings.TrimPrefix(s, "<script>"), "</script>")
+	pairs := map[rune]rune{')': '(', '}': '{', ']': '['}
+	var stack []rune
+	for _, c := range body {
+		switch c {
+		case '(', '{', '[':
+			stack = append(stack, c)
+		case ')', '}', ']':
+			if len(stack) == 0 || stack[len(stack)-1] != pairs[c] {
+				t.Fatalf("unbalanced bracket %q in shim", c)
+			}
+			stack = stack[:len(stack)-1]
+		}
+	}
+	if len(stack) != 0 {
+		t.Fatalf("unclosed brackets in shim: %v", stack)
+	}
+	for _, want := range []string{
+		"navigator.serviceWorker",
+		"navigator.serviceWorker.register",
+		"crit: service workers disabled",
+		"getRegistrations",
+		"unregister",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("shim missing %q", want)
+		}
+	}
+}
+
 func TestProxyModifyResponse_SWShimInjectedInHTMLHead(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")

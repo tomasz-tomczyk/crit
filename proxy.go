@@ -96,10 +96,32 @@ func maskHTMLComments(body []byte) []byte {
 
 // swShim runs once per top-level HTML document. It is injected as an inline
 // <script> at the top of <head> so it executes before any page script can
-// register a service worker. JS response bodies are NOT modified — service
-// workers are registered from HTML context, so neutering navigator there is
-// sufficient and avoids breaking app code that imports JS modules.
-const swShim = `<script>if(typeof navigator!=="undefined"&&navigator.serviceWorker){navigator.serviceWorker.register=function(){return Promise.reject(new Error("crit: service workers disabled"));};}</script>`
+// register a service worker.
+//
+// Two responsibilities:
+//  1. Override navigator.serviceWorker.register to reject — blocks future
+//     registrations from page scripts.
+//  2. Unregister any existing service workers — a previous direct visit to
+//     the upstream may have left a worker installed against the loopback
+//     origin, and that worker would still intercept requests through the
+//     proxy if not removed.
+//
+// JS response bodies are NOT modified; service workers are registered from
+// HTML context, so neutering navigator there is sufficient and avoids
+// breaking app code that imports JS modules.
+const swShim = `<script>
+(function () {
+  if (typeof navigator === "undefined" || !navigator.serviceWorker) return;
+  navigator.serviceWorker.register = function () {
+    return Promise.reject(new Error("crit: service workers disabled"));
+  };
+  if (typeof navigator.serviceWorker.getRegistrations === "function") {
+    navigator.serviceWorker.getRegistrations()
+      .then(function (rs) { rs.forEach(function (r) { r.unregister(); }); })
+      .catch(function () {});
+  }
+})();
+</script>`
 
 // maxHTMLBodyBytes caps how much of an HTML response we'll buffer for
 // rewriting. Above the cap the body is passed through untouched and the
