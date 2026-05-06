@@ -250,10 +250,16 @@
       if (!el) return;
       el.classList.add('crit-design-pending-highlight');
       state._pendingHighlightEl = el;
+      // Suppress the dashed hover overlay while the user is composing —
+      // chasing the cursor at this point is just visual noise. Overlay
+      // resumes on CLEAR_HIGHLIGHT (Save / Cancel / Esc / dismiss).
+      state.suppressHover = true;
+      hideOverlay();
     } catch (_) { /* invalid selector */ }
   }
   function onClearHighlight() {
     var el = state._pendingHighlightEl;
+    state.suppressHover = false;
     if (!el) return;
     try { el.classList.remove('crit-design-pending-highlight'); } catch (_) {}
     state._pendingHighlightEl = null;
@@ -397,6 +403,7 @@
 
   function onPointerMove(ev) {
     if (state.mode !== 'pin') return;
+    if (state.suppressHover) return;
     state.pointer.x = ev.clientX;
     state.pointer.y = ev.clientY;
     var t = topElementAt(ev.clientX, ev.clientY);
