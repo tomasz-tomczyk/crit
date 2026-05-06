@@ -1085,9 +1085,11 @@
 
   // ============================================================
   // Settings overlay (Bug 7): wire #settingsToggle in design mode. Code
-  // review's app.js installs the full settings panel; design mode ships a
-  // minimal version with the theme pill + close. Other panes/tabs are
-  // hidden so the user isn't confused by half-rendered cards.
+  // review's app.js installs the full Settings tab (with width pill,
+  // hide-resolved toggle, agent/integration cards) since those mutators
+  // live in app.js module scope. Design mode renders its own minimal
+  // Settings tab (Theme pill only) and delegates Shortcuts + About to
+  // the shared crit-settings-panes module so all three tabs are populated.
   // ============================================================
   registerInstaller(function installSettingsOverlay() {
     var toggle = document.getElementById('settingsToggle');
@@ -1117,24 +1119,62 @@
       pane.innerHTML = html;
     }
 
-    function open() {
-      overlay.classList.add('active');
-      // Hide tabs/panes other than Settings (no Shortcuts/About in design v1).
+    function renderSharedPanes() {
+      var panes = window.crit && window.crit.settingsPanes;
+      if (!panes) return;
+      // Build a session descriptor from /api/session if it has been loaded.
+      var sess = (state && state.session) || {};
+      var sessionDescriptor = {
+        mode: 'design',
+        vcs_name: 'design',
+        review_round: sess.review_round || state.currentRound || 1,
+        upstream_url: sess.upstream_url || state.upstreamURL,
+      };
+      var cfg = (state && state.config) || {};
+      if (panes.renderShortcutsPane) {
+        panes.renderShortcutsPane(overlay.querySelector('#shortcutsPane'));
+      }
+      if (panes.renderAboutPane) {
+        panes.renderAboutPane(overlay.querySelector('#aboutPane'), cfg, sessionDescriptor);
+      }
+    }
+
+    function switchTab(tab) {
       var tabs = overlay.querySelectorAll('.settings-tab[role="tab"]');
       tabs.forEach(function (t) {
-        if (t.dataset.tab === 'settings') {
-          t.classList.add('active');
-          t.setAttribute('aria-selected', 'true');
-          t.style.display = '';
-        } else {
-          t.style.display = 'none';
-        }
+        var isActive = t.dataset.tab === tab;
+        t.classList.toggle('active', isActive);
+        t.setAttribute('aria-selected', String(isActive));
       });
       var panes = overlay.querySelectorAll('.settings-pane');
       panes.forEach(function (p) {
-        p.classList.toggle('active', p.dataset.pane === 'settings');
+        p.classList.toggle('active', p.dataset.pane === tab);
       });
+    }
+
+    function open() {
+      overlay.classList.add('active');
+      // All tabs visible — design mode now populates Settings (minimal),
+      // Shortcuts (shared), and About (shared).
+      var tabs = overlay.querySelectorAll('.settings-tab[role="tab"]');
+      tabs.forEach(function (t) { t.style.display = ''; });
+      switchTab('settings');
       renderThemePane();
+      // Best-effort: load /api/config + /api/session before rendering shared
+      // panes so the About tab shows version/round info. Failures fall back
+      // to the minimal session descriptor.
+      var pending = 2;
+      function done() { pending--; if (pending === 0) renderSharedPanes(); }
+      try {
+        fetch('/api/config').then(function (r) { return r.ok ? r.json() : {}; }).then(function (c) {
+          state.config = c || {};
+        }).catch(function () {}).finally(done);
+        fetch('/api/session').then(function (r) { return r.ok ? r.json() : {}; }).then(function (s) {
+          state.session = s || {};
+        }).catch(function () {}).finally(done);
+      } catch (_) {
+        renderSharedPanes();
+      }
     }
     function close() { overlay.classList.remove('active'); }
 
@@ -1145,6 +1185,11 @@
       if (e.target === overlay) close();
       var closeBtn = e.target.closest && e.target.closest('#settingsClose');
       if (closeBtn) { close(); return; }
+      var tabBtn = e.target.closest && e.target.closest('.settings-tab[data-tab]');
+      if (tabBtn) {
+        switchTab(tabBtn.dataset.tab);
+        return;
+      }
       var themeBtn = e.target.closest && e.target.closest('[data-settings-theme]');
       if (themeBtn) {
         var t = themeBtn.dataset.settingsTheme;
