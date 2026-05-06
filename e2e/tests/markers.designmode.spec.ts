@@ -277,10 +277,10 @@ test.describe('design-mode markers — drift tray', () => {
     });
     void id;
     await waitForAgentReady(page);
-    // Enter pin mode FIRST. crit-agent.js's onClickCapture short-circuits when
-    // state.mode !== 'pin', so the re-anchor click only registers when the
-    // user is already in pin mode. (See onEnterReanchor's intent comment vs.
-    // the actual early-return in onClickCapture — production gap.)
+    // Enter pin mode for parity with the historical drift-tray flow. Re-anchor
+    // capture also works from Navigate mode now (see agent.designmode.spec
+    // "re-anchor click capture from Navigate mode") — this scenario keeps Pin
+    // mode to mirror the original tray-driven workflow.
     await enterPinMode(page);
     const tray = page.locator('.crit-design-drifted-tray');
     await expect(tray).toBeAttached();
@@ -310,8 +310,8 @@ test.describe('design-mode markers — drift tray', () => {
     await waitForAgentReady(page);
     await expect(page.locator('.crit-design-drifted-tray')).toBeAttached();
 
-    // Enter pin mode so the re-anchor click is captured by the agent (see the
-    // mode-gating note on the previous test).
+    // Enter pin mode for parity with the original tray-driven workflow.
+    // Navigate-mode re-anchor is covered by agent.designmode.spec.
     await enterPinMode(page);
     const putPromise = page.waitForResponse((r) =>
       r.url().includes(`/api/comment/${id}`) && r.request().method() === 'PUT',
@@ -348,8 +348,7 @@ test.describe('design-mode markers — drift tray', () => {
     await expect(tray.locator('.crit-design-drifted-badge--recoverable')).toHaveCount(1);
     await expect(tray.locator('.crit-design-drifted-badge--lost')).toHaveCount(1);
 
-    // Enter pin mode so the re-anchor click is captured (see drift-tray
-    // tests above for the mode-gating note).
+    // Enter pin mode for parity with the tray-driven workflow.
     await enterPinMode(page);
     // Re-anchor the recoverable one.
     await tray.locator('.crit-design-reanchor-btn').first().click();

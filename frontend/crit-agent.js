@@ -435,7 +435,12 @@
   }
 
   function onClickCapture(ev) {
-    if (state.mode !== 'pin') return;
+    // Re-anchor capture is one-shot and mode-independent: when the chrome has
+    // armed re-anchor, the next click must be consumed regardless of whether
+    // the user is in Pin or Navigate mode. (onEnterReanchor attaches the
+    // capture transiently when mode === 'navigate'.)
+    var reanchorArmed = !!(state.reanchor && state.reanchor.armed);
+    if (state.mode !== 'pin' && !reanchorArmed) return;
     if (ev.button !== 0) return;
     var target = topElementAt(ev.clientX, ev.clientY);
     if (!target) return;
