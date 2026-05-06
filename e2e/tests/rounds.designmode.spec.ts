@@ -11,12 +11,11 @@ test.describe('rounds — round-start re-resolution (Scenarios 15–16)', () => 
     await clearAllDesignPins(request);
   });
 
-  test.fixme('round-complete endpoint accepts POST and bumps round', async () => {
-    // FIXME: there is no /api/round-complete endpoint in server.go yet; the
-    // plan referenced it but it isn't shipped. /api/review-cycle is the
-    // long-poll endpoint that signals round-complete internally. This needs
-    // either a dedicated endpoint or a different round-bump path. Track in
-    // Phase E follow-up.
+  test('round-complete endpoint accepts POST', async ({ request }) => {
+    const resp = await request.post('/api/round-complete');
+    expect(resp.ok()).toBeTruthy();
+    const body = await resp.json();
+    expect(body).toEqual({ status: 'ok' });
   });
 
   test.fixme('round 2 resolves cleanly when target element is unchanged', async () => {
