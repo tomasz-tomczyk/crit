@@ -792,27 +792,11 @@
     // Panel-header badge mirrors code-review (total count).
     var badge = document.getElementById('commentsPanelCountBadge');
     if (badge) badge.textContent = String(totalCount);
-    // Navbar pill: number + dynamic title + resolved-state class — parity
-    // with code-review's updateCommentCount (app.js ~6028). Without these
-    // the design-mode toggle button reads the same generic "Toggle comments
-    // panel" tooltip whether there are 0, 1, or 50 unresolved threads.
-    var navNum = document.getElementById('commentCountNumber');
-    if (navNum) navNum.textContent = openCount > 0 ? String(openCount) : '';
-    var navBtn = document.getElementById('commentCount');
-    var navGroup = document.getElementById('commentNavGroup');
-    if (navBtn) {
-      if (totalCount === 0) {
-        navBtn.classList.add('comment-count-resolved');
-        navBtn.title = 'Toggle comments panel';
-      } else if (openCount > 0) {
-        navBtn.classList.remove('comment-count-resolved');
-        navBtn.title = openCount + ' unresolved comment' + (openCount === 1 ? '' : 's') + ' — toggle panel';
-      } else {
-        navBtn.classList.add('comment-count-resolved');
-        navBtn.title = totalCount + ' resolved comment' + (totalCount === 1 ? '' : 's') + ' — toggle panel';
-      }
+    // Navbar pill: shared with code-review so the tooltip + resolved-state
+    // class never drift between modes.
+    if (shared && shared.updateCommentCountIndicator) {
+      shared.updateCommentCountIndicator({ totalCount: totalCount, openCount: openCount });
     }
-    if (navGroup) navGroup.classList.toggle('has-comments', totalCount > 0);
     // Filter pill per-button counts.
     var pillBtns = document.querySelectorAll('#commentsFilterPill .toggle-btn');
     pillBtns.forEach(function (btn) {

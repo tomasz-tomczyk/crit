@@ -129,11 +129,16 @@ test('design-mode expand-all button updates textContent label', () => {
 });
 
 test('design-mode comment-count button gets dynamic title (parity with app.js)', () => {
-  // updateUnresolvedBadge should reach into #commentCount and set a title
-  // that reflects unresolved/resolved counts, matching code-review's
-  // updateCommentCount.
-  const js = fs.readFileSync(path.join(__dirname, '..', 'design-mode.js'), 'utf8');
-  assert.match(js, /unresolved comment/);
-  assert.match(js, /resolved comment/);
-  assert.match(js, /comment-count-resolved/);
+  // The navbar pill (count text + dynamic title + resolved-state class) is
+  // now driven by the shared helper crit.shared.updateCommentCountIndicator,
+  // so design-mode.js and app.js can't drift. Verify both modes call it and
+  // the helper itself owns the strings.
+  const dm = fs.readFileSync(path.join(__dirname, '..', 'design-mode.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  const shared = fs.readFileSync(path.join(__dirname, '..', 'crit-shared.js'), 'utf8');
+  assert.match(dm, /updateCommentCountIndicator/);
+  assert.match(app, /updateCommentCountIndicator/);
+  assert.match(shared, /unresolved comment/);
+  assert.match(shared, /resolved comment/);
+  assert.match(shared, /comment-count-resolved/);
 });

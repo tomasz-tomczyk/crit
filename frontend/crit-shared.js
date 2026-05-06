@@ -91,6 +91,117 @@
     writeSettings(s);
   }
 
+  // Updates the navbar comment-count indicator. Both code-review (app.js)
+  // and design-mode (design-mode.js) call this so the pill, classes, and
+  // tooltip stay in lockstep — drift here is the navbar inconsistency the
+  // user keeps noticing. Each mode still owns its own filter-pill counts,
+  // since the filter pill itself isn't shared.
+  //
+  // opts: { totalCount, openCount }
+  //   - totalCount: total comments (open + resolved)
+  //   - openCount:  unresolved comments
+  // Touches: #commentCountNumber (text), #commentCount (.comment-count-resolved
+  // + title), #commentNavGroup (.has-comments + display).
+  function updateCommentCountIndicator(opts) {
+    var o = opts || {};
+    var totalCount = o.totalCount | 0;
+    var openCount = o.openCount | 0;
+    var navGroup = document.getElementById('commentNavGroup');
+    var navBtn = document.getElementById('commentCount');
+    var numEl = document.getElementById('commentCountNumber');
+    if (navGroup) navGroup.style.display = '';
+    if (totalCount === 0) {
+      if (navGroup) navGroup.classList.remove('has-comments');
+      if (navBtn) {
+        navBtn.classList.add('comment-count-resolved');
+        navBtn.title = 'Toggle comments panel';
+      }
+      if (numEl) numEl.textContent = '';
+    } else if (openCount > 0) {
+      if (navGroup) navGroup.classList.add('has-comments');
+      if (navBtn) {
+        navBtn.classList.remove('comment-count-resolved');
+        navBtn.title = openCount + ' unresolved comment' + (openCount === 1 ? '' : 's') + ' — toggle panel';
+      }
+      if (numEl) numEl.textContent = String(openCount);
+    } else {
+      if (navGroup) navGroup.classList.add('has-comments');
+      if (navBtn) {
+        navBtn.classList.add('comment-count-resolved');
+        navBtn.title = totalCount + ' resolved comment' + (totalCount === 1 ? '' : 's') + ' — toggle panel';
+      }
+      if (numEl) numEl.textContent = String(totalCount);
+    }
+  }
+
+  // ===== Toast =====
+  // Unified mini-toast helper used by both code-review (app.js) and
+  // design-mode (design-mode.js). Replaces the prior `showMiniToast`
+  // (app.js, transition-based, rule-compliant) and `showToast`
+  // (design-mode.js, called .remove() directly — violated frontend-js.md
+  // "Never call .remove() on elements with CSS exit animations").
+  //
+  // API: showToast(message, opts?) -> dismiss()
+  //   opts.timeout: ms before auto-dismiss (default 3000; pass 0 to keep open)
+  //   opts.kind:    'info' (default) | 'error' | 'success' (sets modifier class)
+  //
+  // The returned function dismisses the toast early (idempotent).
+  // Cleanup is driven by `transitionend` on the visibility class toggle —
+  // never by an unconditional setTimeout(remove).
+  function ensureToastHost() {
+    if (typeof document === 'undefined' || !document.body) return null;
+    var host = document.querySelector('.mini-toast-host');
+    if (host) return host;
+    host = document.createElement('div');
+    host.className = 'mini-toast-host';
+    document.body.appendChild(host);
+    return host;
+  }
+
+  function showToast(message, opts) {
+    var host = ensureToastHost();
+    if (!host) return function () {};
+    var o = opts || {};
+    var timeout = (typeof o.timeout === 'number') ? o.timeout : 3000;
+    var kind = (o.kind === 'error' || o.kind === 'success') ? o.kind : 'info';
+
+    var t = document.createElement('div');
+    t.className = 'mini-toast mini-toast--' + kind;
+    t.textContent = (message == null) ? '' : String(message);
+    host.appendChild(t);
+
+    var raf = (typeof requestAnimationFrame === 'function')
+      ? requestAnimationFrame
+      : function (f) { return setTimeout(f, 16); };
+    raf(function () { t.classList.add('mini-toast-visible'); });
+
+    var dismissed = false;
+    var settled = false;
+    var timer = null;
+
+    function finish() {
+      if (settled) return;
+      settled = true;
+      if (t.parentNode) t.parentNode.removeChild(t);
+    }
+
+    function dismiss() {
+      if (dismissed) return;
+      dismissed = true;
+      if (timer) { clearTimeout(timer); timer = null; }
+      t.addEventListener('transitionend', finish, { once: true });
+      t.classList.remove('mini-toast-visible');
+      // Fallback: transitionend may not fire (reduced-motion, hidden tab,
+      // tests). 400ms > the 300ms CSS transition.
+      setTimeout(finish, 400);
+    }
+
+    if (timeout > 0) {
+      timer = setTimeout(dismiss, timeout);
+    }
+    return dismiss;
+  }
+
   window.crit = window.crit || {};
   window.crit.shared = {
     escapeHTML,
@@ -101,5 +212,7 @@
     applyThemeFromCookie,
     getSetting,
     setSetting,
+    updateCommentCountIndicator,
+    showToast,
   };
 })();

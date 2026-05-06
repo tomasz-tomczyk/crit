@@ -6037,26 +6037,7 @@
       if (c.resolved) resolved++; else unresolved++;
     }
     const total = unresolved + resolved;
-    const navGroup = document.getElementById('commentNavGroup');
-    const el = document.getElementById('commentCount');
-    const numEl = document.getElementById('commentCountNumber');
-    if (total === 0) {
-      if (navGroup) navGroup.style.display = '';
-      if (navGroup) navGroup.classList.remove('has-comments');
-      el.classList.add('comment-count-resolved');
-      el.title = 'Toggle comments panel';
-      numEl.textContent = '';
-    } else if (unresolved > 0) {
-      if (navGroup) { navGroup.style.display = ''; navGroup.classList.add('has-comments'); }
-      el.classList.remove('comment-count-resolved');
-      el.title = unresolved + ' unresolved comment' + (unresolved === 1 ? '' : 's') + ' — toggle panel';
-      numEl.textContent = unresolved;
-    } else {
-      if (navGroup) { navGroup.style.display = ''; navGroup.classList.add('has-comments'); }
-      el.classList.add('comment-count-resolved');
-      el.title = total + ' resolved comment' + (total === 1 ? '' : 's') + ' — toggle panel';
-      numEl.textContent = total;
-    }
+    window.crit.shared.updateCommentCountIndicator({ totalCount: total, openCount: unresolved });
     renderCommentsPanel();
     if (uiState === 'reviewing') {
       document.getElementById('finishBtn').textContent = unresolved === 0 ? 'Approve' : 'Finish Review';
@@ -8229,7 +8210,7 @@
   function renderShortcutsPane() {
     var shared = window.crit && window.crit.settingsPanes;
     if (shared && shared.renderShortcutsPane) {
-      shared.renderShortcutsPane(document.getElementById('shortcutsPane'));
+      shared.renderShortcutsPane(document.getElementById('shortcutsPane'), { mode: 'code-review' });
     }
   }
 
