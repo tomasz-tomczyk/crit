@@ -975,9 +975,13 @@
     if (e.target.closest && e.target.closest('button, a, input, textarea')) return;
     var card = e.target.closest && e.target.closest('.comment-card[data-design-route]');
     if (!card) return;
-    var route = card.dataset.designRoute || '/';
-    if (els && els.iframe) els.iframe.src = proxyURL(utils.normaliseRoute(route));
-    state.currentRoute = utils.normaliseRoute(route);
+    var route = utils.normaliseRoute(card.dataset.designRoute || '/');
+    // Skip iframe reassignment if already on this route — otherwise we'd
+    // trigger a route-change → request-resolution → drift PUT cycle for a
+    // pin that's still on its anchor.
+    if (route === state.currentRoute) return;
+    if (els && els.iframe) els.iframe.src = proxyURL(route);
+    state.currentRoute = route;
     renderBreadcrumb();
   });
 
@@ -987,9 +991,10 @@
     if (!t || !t.classList || !t.classList.contains('comment-card')) return;
     if (!t.dataset.designRoute) return;
     e.preventDefault();
-    var route = t.dataset.designRoute || '/';
-    if (els && els.iframe) els.iframe.src = proxyURL(utils.normaliseRoute(route));
-    state.currentRoute = utils.normaliseRoute(route);
+    var route = utils.normaliseRoute(t.dataset.designRoute || '/');
+    if (route === state.currentRoute) return;
+    if (els && els.iframe) els.iframe.src = proxyURL(route);
+    state.currentRoute = route;
     renderBreadcrumb();
   });
 
@@ -1465,25 +1470,33 @@
     if (state.pinState) state.pinState.applyResolution(msg);
     var rr = window.crit && window.crit.design && window.crit.design.roundResolve;
     if (rr && prev) {
-      var c = rr.classifyPinForRound(prev, msg, state.currentRound);
-      if (c.driftedOnRound) {
-        var path = (prev.dom_anchor && prev.dom_anchor.pathname) || '/';
-        var url = '/api/comment/' + encodeURIComponent(prev.id) + '?path=' + encodeURIComponent(path);
-        try {
-          fetch(url, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ drifted_on_round: c.driftedOnRound, drifted: true }),
-          }).then(function (r) { if (r && !r.ok) console.warn('[design] PUT drifted_on_round failed', r.status); })
-            .catch(function (e) { console.warn('[design] PUT drifted_on_round failed:', e); });
-          prev.drifted = true;
-          prev.drifted_on_round = c.driftedOnRound;
-          announceLive('Pin ' + prev.id + ' drifted on round ' + c.driftedOnRound + '.');
-        } catch (_) { /* noop */ }
-      }
-      prev._roundResolved = true;
       var path2 = (prev.dom_anchor && prev.dom_anchor.pathname) || state.currentPathname || '/';
-      if (typeof state.pendingByPath[path2] === 'number') {
+      // Only PUT drifted_on_round during the *initial round-start scan*.
+      // Resolution results that arrive outside an active scan (e.g. an
+      // ad-hoc request-resolution from a route-change with no pending
+      // pins, or a late result for an already-resolved pin) must not
+      // mark drift — that caused click-on-comment to silently drift
+      // unchanged pins.
+      var inActiveScan = typeof state.pendingByPath[path2] === 'number' &&
+                         state.pendingByPath[path2] > 0;
+      var alreadyResolvedThisRound = !!prev._roundResolved;
+      if (inActiveScan && !alreadyResolvedThisRound) {
+        var c = rr.classifyPinForRound(prev, msg, state.currentRound);
+        if (c.driftedOnRound) {
+          var url = '/api/comment/' + encodeURIComponent(prev.id) + '?path=' + encodeURIComponent(path2);
+          try {
+            fetch(url, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ drifted_on_round: c.driftedOnRound, drifted: true }),
+            }).then(function (r) { if (r && !r.ok) console.warn('[design] PUT drifted_on_round failed', r.status); })
+              .catch(function (e) { console.warn('[design] PUT drifted_on_round failed:', e); });
+            prev.drifted = true;
+            prev.drifted_on_round = c.driftedOnRound;
+            announceLive('Pin ' + prev.id + ' drifted on round ' + c.driftedOnRound + '.');
+          } catch (_) { /* noop */ }
+        }
+        prev._roundResolved = true;
         state.pendingByPath[path2] = Math.max(0, state.pendingByPath[path2] - 1);
         if (state.pendingByPath[path2] === 0) {
           state.resolutionCache[path2] = 'fresh';
