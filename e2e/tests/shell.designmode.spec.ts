@@ -141,9 +141,15 @@ test.describe('design-mode shell — drag resize', () => {
 });
 
 test.describe('design-mode shell — round counter + comments', () => {
-  test('round counter renders "round N" from /api/review-cycle', async ({ page }) => {
+  test('round counter renders from session.review_round (empty on round 1, "Round #N" on N>1)', async ({ page }) => {
+    // Per design-mode.js#updateRoundCounter (commit 73877e9): the counter is
+    // populated from session.review_round and intentionally rendered as
+    // empty text on round 1, "Round #N" once N > 1. The fixture starts at
+    // round 1, so the element exists but holds no copy — assert the contract.
     await page.goto('/design');
-    await expect(page.locator('#designRoundCounter')).toContainText(/round\s+\d+/i);
+    const counter = page.locator('#designRoundCounter');
+    await expect(counter).toBeAttached();
+    await expect(counter).toHaveText('');
   });
 
   test('empty comment list shows placeholder copy', async ({ page }) => {

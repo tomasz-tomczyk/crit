@@ -564,8 +564,10 @@ test.describe('design-mode agent — shadow DOM error surface', () => {
         clientY: rect.top + rect.height / 2,
       }));
     });
-    // Chrome's handleAgentError pipes agent-error through showToast.
-    const toast = page.locator('.crit-design-toast');
+    // Chrome's handleAgentError pipes agent-error through showToast, which
+    // since aaa0600 lives in crit.shared and renders into .mini-toast-host
+    // with .mini-toast nodes (unified across code-review + design-mode).
+    const toast = page.locator('.mini-toast');
     await expect(toast.first()).toBeVisible({ timeout: 5_000 });
     await expect(toast.first()).toContainText(/shadow-dom/);
   });

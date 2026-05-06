@@ -45,7 +45,12 @@ test.describe('design-mode comments panel — M12 count badge', () => {
     await clearAllDesignPins(request);
   });
 
-  test('count badge reflects unresolved pin count and updates live', async ({ page }) => {
+  test('count badge reflects total pin count and updates live', async ({ page }) => {
+    // Parity with code-review: the panel-header count badge tracks TOTAL
+    // comments (resolved + open). The per-state breakdown is shown by the
+    // filter pill counts (All / Open / Resolved). See app.js#renderCommentsPanel
+    // and design-mode.panel-render.js#updateUnresolvedBadge — both write
+    // `String(totalCount)` into #commentsPanelCountBadge.
     await openPinComposer(page);
     const badge = page.locator('#commentsPanelCountBadge');
     await expect(badge).toHaveText('0');
@@ -53,7 +58,13 @@ test.describe('design-mode comments panel — M12 count badge', () => {
     await page.locator('.crit-design-composer-save').click();
     await expect(badge).toHaveText('1');
     await page.locator('#commentsPanelBody .crit-design-comment-resolve').first().click();
-    await expect(badge).toHaveText('0');
+    // Resolving doesn't drop total count — the filter pill's Open/Resolved
+    // counts shift, but the header badge stays at the total.
+    await expect(badge).toHaveText('1');
+    await expect(page.locator('#commentsFilterPill .toggle-btn[data-filter="open"] .filter-count'))
+      .toHaveText('0');
+    await expect(page.locator('#commentsFilterPill .toggle-btn[data-filter="resolved"] .filter-count'))
+      .toHaveText('1');
   });
 });
 
@@ -215,16 +226,26 @@ test.describe('design-mode comments panel — M14 body expand toggle', () => {
     // Resolve to trigger the auto-collapse default for resolved cards.
     await page.locator('#commentsPanelBody .crit-design-comment-resolve').first().click();
 
-    // After resolve, card may be auto-collapsed by buildCommentCard's
-    // resolved-thread default. The collapse button is the visible toggle.
+    // Wait for resolve to settle — fetch is async and panel re-renders on
+    // its `.then`. Asserting on the resolved auto-collapse first removes
+    // the race between the resolve PUT and the chevron click below.
+    await expect.poll(
+      () => card.evaluate((el) => el.classList.contains('collapsed')),
+      { timeout: 5_000 },
+    ).toBe(true);
+
+    // Now the visible chevron toggle should expand the card.
     const collapseBtn = card.locator('.comment-collapse-btn').first();
     await expect(collapseBtn).toBeVisible();
-
-    const wasCollapsed = await card.evaluate(el => el.classList.contains('collapsed'));
     await collapseBtn.click();
     await expect.poll(
-      () => card.evaluate(el => el.classList.contains('collapsed')),
-    ).toBe(!wasCollapsed);
+      () => card.evaluate((el) => el.classList.contains('collapsed')),
+    ).toBe(false);
+    // And clicking again collapses it back.
+    await collapseBtn.click();
+    await expect.poll(
+      () => card.evaluate((el) => el.classList.contains('collapsed')),
+    ).toBe(true);
   });
 });
 
@@ -291,8 +312,11 @@ test.describe('design-mode comments panel — M18 reply composer', () => {
     await expect(composer).toBeVisible();
     await composer.locator('.crit-design-reply-textarea').fill('a reply');
     await composer.locator('.crit-design-reply-textarea').press('Meta+Enter');
+    // makeReplyListBuilder writes the body into a shared `.reply-body` node
+    // (matches code-review's reply DOM). Row class is the design-prefixed
+    // `.crit-design-comment-reply` for back-compat with existing CSS.
     const reply = rowWrap.locator('.crit-design-comment-replies .crit-design-comment-reply').first();
-    await expect(reply.locator('.crit-design-reply-body')).toContainText('a reply');
+    await expect(reply.locator('.reply-body')).toContainText('a reply');
   });
 
   test('Esc with text triggers confirm before discarding draft', async ({ page }) => {
