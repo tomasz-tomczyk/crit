@@ -38,5 +38,20 @@
     if (typeof tagName !== 'string') return '';
     return IMPLICIT_ROLES[tagName.toUpperCase()] || '';
   }
-  return { implicitRole };
+
+  // Resolution risk: nearest-id semantics may pick a parent whose id is reused or
+  // later renamed in the user app, breaking the css_selector across page redeploys.
+  // Phase D drift detection re-resolves selections using `tag_chain` +
+  // `accessible_name` + `landmark` as fallback fields when the selector misses.
+  function findAnchorRoot(el) {
+    let cur = el;
+    while (cur) {
+      if (cur.id) return cur;
+      if (cur.tagName === 'BODY') return cur;
+      cur = cur.parentNode;
+    }
+    return el;
+  }
+
+  return { implicitRole, findAnchorRoot };
 });
