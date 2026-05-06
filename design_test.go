@@ -213,6 +213,38 @@ func TestShareGuard_CodeReview_Allowed(t *testing.T) {
 	}
 }
 
+func TestGitHubSyncGuard(t *testing.T) {
+	tests := []struct {
+		name      string
+		cj        CritJSON
+		op        string
+		wantError bool
+	}{
+		{"design review pull", CritJSON{ReviewType: "design", Origin: "http://localhost:3000"}, "crit pull", true},
+		{"design review push", CritJSON{ReviewType: "design", Origin: "http://localhost:3000"}, "crit push", true},
+		{"code review pull", CritJSON{ReviewRound: 1}, "crit pull", false},
+		{"code review push", CritJSON{ReviewRound: 1}, "crit push", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkGitHubSyncAllowed(tt.cj, tt.op)
+			if tt.wantError {
+				if err == nil {
+					t.Fatalf("expected error for %s on design review", tt.op)
+				}
+				if !strings.Contains(err.Error(), "design") {
+					t.Errorf("error should mention design: %v", err)
+				}
+				if !strings.Contains(err.Error(), tt.op) {
+					t.Errorf("error should mention op %q: %v", tt.op, err)
+				}
+			} else if err != nil {
+				t.Errorf("code review should be allowed: %v", err)
+			}
+		})
+	}
+}
+
 func TestCommentCLIGuard_DesignReview(t *testing.T) {
 	dir := t.TempDir()
 	critPath := filepath.Join(dir, "review")

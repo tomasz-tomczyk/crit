@@ -42,6 +42,16 @@ func checkShareAllowed(critPath string) error {
 	return nil
 }
 
+// checkGitHubSyncAllowed gates `crit pull` and `crit push` from running on
+// design reviews. Design pins have no line anchors and cannot round-trip
+// through GitHub PR review comments.
+func checkGitHubSyncAllowed(cj CritJSON, op string) error {
+	if cj.ReviewType == "design" {
+		return fmt.Errorf("%s is not supported for design reviews", op)
+	}
+	return nil
+}
+
 // errShareUnauthorized indicates the share endpoint rejected the bearer token.
 // Callers wrap this and inspect with errors.Is so they can clear the cached
 // auth identity (token + user id + name + email) on top-level share/upsert

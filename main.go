@@ -518,7 +518,7 @@ func redirectReviewPathForPR(prNumber int, cwdBranch, cwdCritPath string) (strin
 	return altPath, altCJ, true
 }
 
-func runPull(args []string) {
+func runPull(args []string) { //nolint:gocyclo // CLI dispatcher: branches for arg/flag parsing, file load, scope resolution, and design-review guard
 	if err := requireGH(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -587,6 +587,11 @@ func runPull(args []string) {
 		}
 		cj.BaseRef, _ = MergeBase(base)
 		cj.ReviewRound = 1
+	}
+
+	if err := checkGitHubSyncAllowed(cj, "crit pull"); err != nil {
+		fmt.Fprintln(os.Stderr, "Error: "+err.Error())
+		os.Exit(1)
 	}
 
 	scope := resolvePullScope(&cj)
@@ -1037,6 +1042,11 @@ func pushBlockedByFullStackScope(activeScope string) bool {
 
 func runPush(args []string) {
 	ctx := loadPushContext(args)
+
+	if err := checkGitHubSyncAllowed(ctx.cj, "crit push"); err != nil {
+		fmt.Fprintln(os.Stderr, "Error: "+err.Error())
+		os.Exit(1)
+	}
 
 	// Full-stack push gate — see fullStackPushGateMessage.
 	if pushBlockedByFullStackScope(ctx.cj.ActiveDiffScope) {
