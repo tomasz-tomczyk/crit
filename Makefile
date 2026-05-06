@@ -71,6 +71,12 @@ e2e-report:
 
 e2e-design-utils:
 	node --test frontend/crit-shared.test.js frontend/design-route-utils.test.js \
-	            frontend/design-mode-state.test.js frontend/check-design-vars.test.js
+	            frontend/design-mode-state.test.js frontend/check-design-vars.test.js \
+	            frontend/agent-protocol.test.js frontend/agent-anchor-utils.test.js \
+	            frontend/design-mode.handler.test.js frontend/design-mode.toggle.test.js \
+	            frontend/design-mode.composer.test.js frontend/design-mode.menu.test.js \
+	            frontend/design-mode.shortcut.test.js frontend/design-mode.queue.test.js \
+	            frontend/design-mode.origin.test.js frontend/design-mode.size.test.js \
+	            frontend/design-mode.row.test.js frontend/design-mode.composer.cancel.test.js
 
 .PHONY: build build-all generate verify-generate update-deps test test-frontend setup-hooks clean test-diff test-share-sync test-share-sync-selfhosted e2e-share e2e-roundtrip test-daemon test-plan-daemon e2e e2e-failed e2e-report e2e-design-utils
