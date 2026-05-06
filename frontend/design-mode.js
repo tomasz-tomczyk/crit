@@ -556,6 +556,123 @@
     refreshPanel();
   });
 
+  // ============================================================
+  // M12: Comments panel toggle + unresolved count badge.
+  // Reuses the navbar's #commentCount button and the
+  // #commentsPanelCountBadge inside the panel header. Persistence lives
+  // in crit-settings.design_commentsPanelOpen so design mode keeps its
+  // own preference distinct from code review.
+  // ============================================================
+  var panelHelpers = (window.crit && window.crit.design && window.crit.design.panel) || null;
+
+  function applyCommentsPanelOpen(open) {
+    var panel = els.commentsPanel;
+    if (!panel) return;
+    if (open) panel.classList.remove('comments-panel-hidden');
+    else panel.classList.add('comments-panel-hidden');
+    state.commentsPanelOpen = !!open;
+  }
+
+  function updateUnresolvedBadge() {
+    var badge = document.getElementById('commentsPanelCountBadge');
+    var navNum = document.getElementById('commentCountNumber');
+    var n = panelHelpers ? panelHelpers.countUnresolved(pinsByRoute()) : 0;
+    if (badge) badge.textContent = String(n);
+    if (navNum) navNum.textContent = n > 0 ? String(n) : '';
+  }
+
+  registerPanelRefresh(updateUnresolvedBadge);
+
+  registerInstaller(function installCommentsPanelToggle() {
+    var btn = document.getElementById('commentCount');
+    var closeBtn = document.querySelector('.comments-panel-close');
+    var openSetting = (shared && shared.getSetting)
+      ? shared.getSetting('design_commentsPanelOpen', true)
+      : true;
+    applyCommentsPanelOpen(!!openSetting);
+
+    function toggle() {
+      var next = !state.commentsPanelOpen;
+      applyCommentsPanelOpen(next);
+      if (shared && shared.setSetting) {
+        try { shared.setSetting('design_commentsPanelOpen', next); } catch (_) {}
+      }
+    }
+    if (btn) {
+      btn.addEventListener('click', function () { toggle(); });
+      btn.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+      });
+    }
+    if (closeBtn) {
+      closeBtn.addEventListener('click', function () {
+        applyCommentsPanelOpen(false);
+        if (shared && shared.setSetting) {
+          try { shared.setSetting('design_commentsPanelOpen', false); } catch (_) {}
+        }
+      });
+    }
+    updateUnresolvedBadge();
+  });
+
+  // ============================================================
+  // M13: Resizable side panel.
+  // Reuses #commentsPanelResizer. NO clamping against viewport preset
+  // width — the user gets the width they ask for. Persisted to
+  // crit-settings.design_commentsPanelWidth (separate from code review's
+  // commentsPanelWidth so the two modes don't fight).
+  // ============================================================
+  registerInstaller(function installCommentsPanelResize() {
+    var handle = document.getElementById('commentsPanelResizer');
+    var panel = els.commentsPanel;
+    if (!handle || !panel || !panelHelpers) return;
+
+    // Apply persisted width on boot.
+    var saved = (shared && shared.getSetting)
+      ? shared.getSetting('design_commentsPanelWidth', null)
+      : null;
+    if (typeof saved === 'number' && saved > 0) {
+      panel.style.width = saved + 'px';
+    }
+
+    var dragging = false;
+    var activePointerId = null;
+    var startX = 0;
+    var startW = 0;
+
+    function onMove(e) {
+      if (!dragging || e.pointerId !== activePointerId) return;
+      var w = panelHelpers.computeResizeWidth(startW, startX, e.clientX, 200);
+      panel.style.width = w + 'px';
+    }
+    function onUp(e) {
+      if (!dragging || e.pointerId !== activePointerId) return;
+      dragging = false;
+      document.body.style.userSelect = '';
+      try { handle.releasePointerCapture(activePointerId); } catch (_) {}
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+      activePointerId = null;
+      var finalW = panel.getBoundingClientRect().width;
+      if (shared && shared.setSetting) {
+        try { shared.setSetting('design_commentsPanelWidth', Math.round(finalW)); } catch (_) {}
+      }
+    }
+    handle.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      dragging = true;
+      activePointerId = e.pointerId;
+      startX = e.clientX;
+      startW = panel.getBoundingClientRect().width;
+      document.body.style.userSelect = 'none';
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onUp);
+    });
+  });
+
   async function loadAllComments() {
     var s = state.session || {};
     var files = (s.files || []).map(function (f) { return f.path; });
