@@ -293,22 +293,42 @@
         return t;
       });
 
-      // Defer design-mode.js until all deps have parsed (sh, ru, mi + designDeps).
-      var totalNeeded = 3 + depTags.length;
-      var loaded = 0;
-      function maybeBoot() {
-        loaded++;
-        if (loaded < totalNeeded) return;
+      // Defer design-mode.js until all deps have parsed. Promise.all over a
+      // settled-on-either-load-or-error promise per tag means adding a new
+      // module to designDeps automatically participates in the gate — no
+      // hand-counted totalNeeded to keep in sync. Errors don't hang boot;
+      // they surface a banner and log a console error with the failed src
+      // so the user can see which module failed.
+      function trackTag(tag, optional) {
+        return new Promise(function (resolve) {
+          tag.addEventListener('load', function () { resolve({ ok: true, src: tag.src }); });
+          tag.addEventListener('error', function () {
+            // markdown-it is optional — booting without it degrades comment
+            // rendering but doesn't crash the app. Treat as resolved for the
+            // boot gate; render path falls back to plain text.
+            if (!optional) {
+              try { console.error('[crit] design-mode dep failed to load:', tag.src); } catch (_) {}
+            }
+            resolve({ ok: false, src: tag.src, optional: !!optional });
+          });
+        });
+      }
+      var bootGate = [trackTag(sh), trackTag(ru), trackTag(mi, true)]
+        .concat(depTags.map(function (t) { return trackTag(t); }));
+      Promise.all(bootGate).then(function (results) {
+        var failed = results.filter(function (r) { return !r.ok && !r.optional; });
+        if (failed.length) {
+          var box = document.createElement('div');
+          box.style.cssText = 'position:fixed;inset:24px;background:var(--crit-bg-card,#1a1d24);color:var(--crit-red,#f7768e);border:1px dashed var(--crit-red,#f7768e);border-radius:6px;padding:16px;font-family:var(--crit-font-mono,monospace);font-size:13px;z-index:2147483647;white-space:pre-wrap';
+          box.textContent = 'Design mode failed to load:\n' + failed.map(function (r) { return '  • ' + r.src; }).join('\n');
+          document.body.appendChild(box);
+          return;
+        }
         if (window.crit && window.crit.shared) window.crit.shared.applyThemeFromCookie();
         var s = document.createElement('script');
         s.src = 'design-mode.js';
         document.body.appendChild(s);
-      }
-      sh.addEventListener('load', maybeBoot);
-      ru.addEventListener('load', maybeBoot);
-      mi.addEventListener('load', maybeBoot);
-      mi.addEventListener('error', maybeBoot);
-      depTags.forEach(function (t) { t.addEventListener('load', maybeBoot); t.addEventListener('error', maybeBoot); });
+      });
     } else {
       // Code-review chrome — load existing vendor + app.js.
       var v1 = document.createElement('script'); v1.src = 'markdown-it.min.js'; document.body.appendChild(v1);

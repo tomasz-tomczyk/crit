@@ -2913,6 +2913,7 @@ body.sidebar-resizing * {
   text-align: center;
   color: var(--crit-editor-fg-muted);
   font-size: 13px;
+  line-height: 1.5;
 }
 .comments-panel-empty::before {
   content: '';

@@ -106,7 +106,6 @@
       clearPanelBookkeeping();
       var empty = document.createElement('div');
       empty.className = 'comments-panel-empty';
-      empty.style.cssText = 'padding:32px 16px;text-align:center;color:var(--crit-editor-fg-muted);font-size:13px;line-height:1.5';
       if (withHint) {
         empty.innerHTML = msg + '<br>Switch to Pin mode and click an element to leave a comment.';
       } else {
