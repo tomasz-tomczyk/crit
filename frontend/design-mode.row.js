@@ -175,12 +175,15 @@
 
     return function buildDesignReplyList(comment, _filePath, extraClass) {
       var container = document.createElement('div');
-      container.className = 'comment-replies' + (extraClass ? ' ' + extraClass : '');
+      // Carry both the shared (.comment-replies) and design-mode-legacy
+      // (.crit-design-comment-replies) class so existing E2E selectors keep
+      // matching while the shared style.css rules apply.
+      container.className = 'comment-replies crit-design-comment-replies' + (extraClass ? ' ' + extraClass : '');
       var replies = Array.isArray(comment.replies) ? comment.replies : [];
       for (var i = 0; i < replies.length; i++) {
         var r = replies[i] || {};
         var row = document.createElement('div');
-        row.className = 'comment-reply';
+        row.className = 'comment-reply crit-design-comment-reply';
         row.dataset.replyId = r.id || '';
 
         var hdr = document.createElement('div');
@@ -333,7 +336,11 @@
       // .comment-card already provides border, background, and padded header
       // bar. Adding a second border/background was the source of the
       // "card-in-a-card" mismatch with code-review.
-      cardClassExtra: c.resolved ? 'resolved-card' : '',
+      // Keep `crit-design-comment-row` as a marker class so existing
+      // composer/edit rules can target it; the chrome comes from
+      // `.comment-card` (border, header bar, body padding) — see
+      // style-design.css where `.crit-design-comment-row` is now neutralised.
+      cardClassExtra: 'crit-design-comment-row' + (c.resolved ? ' resolved-card' : ''),
       // Design pins default to expanded — buildCommentCard's collapseDefault
       // mode is for code-review's resolved-thread auto-fold; design rows
       // stay open until the user collapses them via the chevron.

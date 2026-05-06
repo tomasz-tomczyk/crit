@@ -356,23 +356,42 @@
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
 }
 
+/* Phase D parity: design pin rows mount the shared `.comment-card` chrome
+   from style.css (border, header bar, body padding). The `.crit-design-comment-row`
+   marker class stays so composer/edit selectors keep targeting design pins,
+   but it adds NO chrome of its own — that's the source of the prior
+   "card-in-a-card" mismatch with code-review. */
 .crit-design-comment-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  border: 1px solid var(--crit-pill-border);
-  border-radius: var(--crit-r-md);
-  background: var(--crit-design-composer-bg);
+  /* intentionally empty marker class */
 }
+
 .crit-design-comment-route-badge {
   font-size: 11px;
   color: var(--crit-editor-fg-muted);
   font-family: var(--crit-font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 16ch;
+}
+.crit-design-comment-chip {
+  display: inline-block;
+  max-width: 18ch;
+  padding: 1px 6px;
+  border-radius: var(--crit-r-sm);
+  background: var(--crit-editor-code-bg);
+  color: var(--crit-editor-fg);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .crit-design-comment-thumb {
+  display: block;
   max-width: 100%;
   max-height: 120px;
+  margin: 0 0 8px 0;
+  border: 1px solid var(--crit-border);
   border-radius: var(--crit-r-sm);
 }
 .crit-design-comment-html-preview {
@@ -386,43 +405,18 @@
   max-height: 80px;
   overflow: auto;
 }
-.crit-design-comment-body {
-  font-size: 13px;
-}
 .crit-design-comment-selector {
   font-family: var(--crit-font-mono);
   font-size: 10px;
   color: var(--crit-editor-fg-muted);
   word-break: break-all;
 }
-.crit-design-comment-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--crit-editor-fg-muted);
-}
-.crit-design-comment-chip {
-  display: inline-block;
-  max-width: 60%;
-  padding: 1px 6px;
-  border-radius: var(--crit-r-sm);
-  background: var(--crit-editor-code-bg);
-  color: var(--crit-editor-fg);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.crit-design-comment-author { font-weight: 500; }
-.crit-design-comment-time { font-variant-numeric: tabular-nums; }
-.crit-design-comment-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 4px;
-}
+
+/* Per-reply Edit/Delete affordance buttons inside design replies inherit
+   the shared `.reply-actions button` chrome — no overrides needed. The
+   class hooks `.crit-design-reply-edit` / `.crit-design-reply-delete` are
+   here purely so future event delegation in design-mode.js can target
+   them without colliding with code-review's reply edit/delete. */
 /* Reply + edit composers — mirror code-review's expanded `.reply-form`
    chrome: flush textarea on the comment-card surface, borderless, with a
    top border separating the actions row. The composer sits inside an
