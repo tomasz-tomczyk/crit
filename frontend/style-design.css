@@ -9,9 +9,13 @@
 
    Class prefix: .crit-design-*. Do not collide with .crit-*, .line-*. */
 
-/* Hide code-review chunks. Settings overlay survives (R6). */
+/* Hide code-review chunks. Settings overlay survives (R6).
+   M12/M13/M15 (Phase F): keep #commentNavGroup (toggle + count badge) and
+   #commentsPanelResizer (resize handle for comments panel) visible in design
+   mode — JS wiring shipped in Phase D, but the chrome was still hidden. Only
+   the file-tree sidebar resizer (#fileTreeResizer) needs hiding. */
 .crit-mode-design .file-tree-panel,
-.crit-mode-design .sidebar-resize-handle,
+.crit-mode-design #fileTreeResizer,
 .crit-mode-design .main-content,
 .crit-mode-design #filesContainer,
 .crit-mode-design .pr-panel,
@@ -20,7 +24,6 @@
 .crit-mode-design #scopeToggle,
 .crit-mode-design #diffToggle,
 .crit-mode-design #diffModeToggle,
-.crit-mode-design #commentNavGroup,
 .crit-mode-design #prToggle,
 .crit-mode-design #shareBtn,
 .crit-mode-design #finishBtn,
@@ -31,6 +34,18 @@
 
 /* The comments-panel survives but is shown for design-mode comments. */
 .crit-mode-design .comments-panel { display: flex !important; }
+
+/* M12/M13/M15: comments toggle (#commentNavGroup, #commentCount) and
+   resizer (#commentsPanelResizer) are wired by design-mode.js but the
+   index.html template inlines `style="display:none"` on commentNavGroup
+   for code-review boot. Override here so the navbar comments-panel toggle
+   + count badge render in design mode. */
+.crit-mode-design #commentNavGroup { display: inline-flex !important; }
+/* Hide the prev/next nav arrows in design mode — design pins don't have
+   the same in-document navigation flow. Keep only the count toggle. */
+.crit-mode-design #commentNavGroup #commentNavPrev,
+.crit-mode-design #commentNavGroup #commentNavNext { display: none !important; }
+.crit-mode-design #commentsPanelResizer { display: block !important; }
 
 /* main-layout becomes design-mode container: header on top (existing),
    then iframe pane + comments panel side-by-side. */

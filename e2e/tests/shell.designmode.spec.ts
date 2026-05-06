@@ -118,22 +118,22 @@ test.describe('design-mode shell — iframe + route detection', () => {
 });
 
 test.describe('design-mode shell — drag resize', () => {
-  // Drag resize via mouse events doesn't reach #critDesignResizer's
-  // pointerdown listener in headless chromium. Pinned until the handler
-  // accepts mousedown (rare in modern chrome) or the test uses
-  // dispatchEvent('pointerdown'/'pointermove'/'pointerup').
-  test.fixme('dragging the resizer changes iframe frame width and clears active button', async ({ page }) => {
+  test('dragging the resizer changes iframe frame width and clears active button', async ({ page }) => {
     await page.goto('/design');
     await page.locator('button[data-viewport="desktop"]').click();
     const before = (await page.locator('.crit-design-iframe-frame').boundingBox())!;
     const handle = page.locator('#critDesignResizer');
     const handleBox = (await handle.boundingBox())!;
-    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(handleBox.x + 200, handleBox.y + handleBox.height / 2, { steps: 10 });
-    await page.mouse.up();
-    const after = (await page.locator('.crit-design-iframe-frame').boundingBox())!;
-    expect(after.width).toBeGreaterThan(before.width + 100);
+    const sx = handleBox.x + handleBox.width / 2;
+    const sy = handleBox.y + handleBox.height / 2;
+    // Drive PointerEvents directly — page.mouse.* doesn't synthesise the
+    // pointer events the production handler subscribes to.
+    await handle.dispatchEvent('pointerdown', { pointerId: 1, clientX: sx, clientY: sy, button: 0, isPrimary: true });
+    await handle.dispatchEvent('pointermove', { pointerId: 1, clientX: sx + 200, clientY: sy, button: 0, isPrimary: true });
+    await handle.dispatchEvent('pointerup', { pointerId: 1, clientX: sx + 200, clientY: sy, button: 0, isPrimary: true });
+    await expect.poll(async () =>
+      (await page.locator('.crit-design-iframe-frame').boundingBox())!.width,
+    ).toBeGreaterThan(before.width + 100);
     await expect(page.locator('#designViewportToggle .toggle-btn.active')).toHaveCount(0);
   });
 });
