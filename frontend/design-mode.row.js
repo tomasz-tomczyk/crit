@@ -98,6 +98,22 @@
     ].join('');
   }
 
+  function renderEditComposerHTML(commentId, pathname, draft) {
+    var safeId = escapeHTML(commentId || '');
+    var safePath = escapeHTML(pathname || '');
+    var safeDraft = escapeHTML(draft || '');
+    return [
+      '<div class="crit-design-edit-composer" data-comment-id="' + safeId + '" data-pathname="' + safePath + '">',
+        '<textarea class="crit-design-edit-textarea" rows="3">' + safeDraft + '</textarea>',
+        '<div class="crit-design-edit-error" hidden></div>',
+        '<div class="crit-design-edit-actions">',
+          '<button type="button" class="btn btn-sm crit-design-edit-cancel" data-comment-id="' + safeId + '">Cancel</button>',
+          '<button type="button" class="btn btn-sm btn-primary crit-design-edit-save" data-comment-id="' + safeId + '" data-pathname="' + safePath + '">Save</button>',
+        '</div>',
+      '</div>',
+    ].join('');
+  }
+
   function renderDesignPinRowHTML(c) {
     var a = c.dom_anchor || {};
     var thumb = a.screenshot
@@ -114,6 +130,12 @@
     var composer = c._replyOpen
       ? renderReplyComposerHTML(commentId, pathname, c._replyDraft || '')
       : '';
+    var editComposer = c._editOpen
+      ? renderEditComposerHTML(commentId, pathname, c._editDraft != null ? c._editDraft : (c.body || ''))
+      : '';
+    var bodySection = c._editOpen
+      ? editComposer
+      : '<div class="crit-design-comment-body">' + escapeHTML(c.body || '') + '</div>';
     return [
       '<div class="comment-card crit-design-comment-row" data-id="' + escapeHTML(commentId) + '" data-comment-id="' + escapeHTML(commentId) + '" data-design-route="' + escapeHTML(pathname) + '"' + resolved + '>',
         '<div class="crit-design-comment-header">',
@@ -123,9 +145,10 @@
           time,
         '</div>',
         thumb,
-        '<div class="crit-design-comment-body">' + escapeHTML(c.body || '') + '</div>',
+        bodySection,
         replies,
         '<div class="crit-design-comment-actions">',
+          '<button type="button" class="btn btn-sm crit-design-comment-edit" data-comment-id="' + escapeHTML(commentId) + '" data-pathname="' + escapeHTML(pathname) + '">Edit</button>',
           '<button type="button" class="btn btn-sm crit-design-comment-reply" data-comment-id="' + escapeHTML(commentId) + '" data-pathname="' + escapeHTML(pathname) + '">Reply</button>',
           '<button type="button" class="btn btn-sm crit-design-comment-resolve" data-comment-id="' + escapeHTML(commentId) + '" data-pathname="' + escapeHTML(pathname) + '">' + resolveLabel + '</button>',
         '</div>',
@@ -313,9 +336,17 @@
       parts.card.insertBefore(thumb, body);
     }
 
-    // Append Reply + Resolve buttons to the shared actions slot. These carry
-    // data-comment-id / data-pathname so the existing dispatch handlers in
-    // design-mode.js continue to work without changes.
+    // Append Edit + Reply + Resolve buttons to the shared actions slot. These
+    // carry data-comment-id / data-pathname so the existing dispatch handlers
+    // in design-mode.js continue to work without changes.
+    var editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'btn btn-sm crit-design-comment-edit';
+    editBtn.dataset.commentId = commentId;
+    editBtn.dataset.pathname = pathname;
+    editBtn.textContent = 'Edit';
+    parts.actions.appendChild(editBtn);
+
     var replyBtn = document.createElement('button');
     replyBtn.type = 'button';
     replyBtn.className = 'btn btn-sm crit-design-comment-reply';
@@ -337,7 +368,63 @@
       parts.card.appendChild(buildDesignReplyComposer(commentId, pathname, c._replyDraft || ''));
     }
 
+    // Inline edit composer — replaces the body when open. Locating the body
+    // we rendered through buildCommentCard and swapping it for the textarea
+    // form lets the existing markdown render path stay untouched while we're
+    // not editing.
+    if (c._editOpen) {
+      var bodyEl = parts.card.querySelector('.comment-body');
+      var draft = c._editDraft != null ? c._editDraft : (c.body || '');
+      var ec = buildDesignEditComposer(commentId, pathname, draft);
+      if (bodyEl && bodyEl.parentNode) {
+        bodyEl.parentNode.insertBefore(ec, bodyEl);
+        bodyEl.style.display = 'none';
+      } else {
+        parts.card.appendChild(ec);
+      }
+    }
+
     return parts.wrapper;
+  }
+
+  function buildDesignEditComposer(commentId, pathname, draft) {
+    var wrap = document.createElement('div');
+    wrap.className = 'crit-design-edit-composer';
+    wrap.dataset.commentId = commentId || '';
+    wrap.dataset.pathname = pathname || '';
+
+    var ta = document.createElement('textarea');
+    ta.className = 'crit-design-edit-textarea';
+    ta.rows = 3;
+    ta.value = draft || '';
+
+    var err = document.createElement('div');
+    err.className = 'crit-design-edit-error';
+    err.hidden = true;
+
+    var actions = document.createElement('div');
+    actions.className = 'crit-design-edit-actions';
+
+    var cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn-sm crit-design-edit-cancel';
+    cancel.dataset.commentId = commentId || '';
+    cancel.textContent = 'Cancel';
+
+    var save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'btn btn-sm btn-primary crit-design-edit-save';
+    save.dataset.commentId = commentId || '';
+    save.dataset.pathname = pathname || '';
+    save.textContent = 'Save';
+
+    actions.appendChild(cancel);
+    actions.appendChild(save);
+
+    wrap.appendChild(ta);
+    wrap.appendChild(err);
+    wrap.appendChild(actions);
+    return wrap;
   }
 
   return {
@@ -346,5 +433,6 @@
     chipLabel: chipLabel,
     renderRepliesHTML: renderRepliesHTML,
     renderReplyComposerHTML: renderReplyComposerHTML,
+    renderEditComposerHTML: renderEditComposerHTML,
   };
 });

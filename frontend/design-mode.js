@@ -1053,6 +1053,149 @@
   });
 
   // ============================================================
+  // Edit on design-mode comment rows.
+  // Endpoint: PUT /api/comment/{id}?path=<pathname>
+  // The row template renders an inline editor when c._editOpen is set.
+  // Draft text held on c._editDraft so it survives panel re-renders.
+  // ============================================================
+  function focusEditTextareaFor(id) {
+    requestAnimationFrame(function () {
+      var card = document.querySelector('.crit-design-comment-row[data-comment-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+      if (!card) return;
+      var ta = card.querySelector('.crit-design-edit-textarea');
+      if (!ta) return;
+      ta.focus();
+      try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (_) {}
+    });
+  }
+
+  function closeEditComposer(c) {
+    if (!c) return;
+    c._editOpen = false;
+    c._editDraft = null;
+    refreshPanel();
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.crit-design-comment-edit');
+    if (!btn) return;
+    e.stopPropagation();
+    var id = btn.dataset.commentId;
+    if (!id) return;
+    var c = findCommentById(id);
+    if (!c) return;
+    c._editOpen = true;
+    c._editDraft = c.body || '';
+    refreshPanel();
+    focusEditTextareaFor(id);
+  });
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.crit-design-edit-cancel');
+    if (!btn) return;
+    e.stopPropagation();
+    var id = btn.dataset.commentId;
+    var c = findCommentById(id);
+    if (!c) return;
+    var card = btn.closest('.crit-design-comment-row');
+    var ta = card && card.querySelector('.crit-design-edit-textarea');
+    var dirty = ta && ta.value.trim() !== (c.body || '').trim();
+    if (dirty) {
+      var ok = window.confirm('Discard edit?');
+      if (!ok) return;
+    }
+    closeEditComposer(c);
+  });
+
+  async function submitEdit(c, pathname, body, saveBtn, errEl) {
+    if (!c || !c.id) return;
+    if (saveBtn) saveBtn.disabled = true;
+    if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+    try {
+      var url = '/api/comment/' + encodeURIComponent(c.id) + '?path=' + encodeURIComponent(pathname || '/');
+      var res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: body }),
+      });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+      // Optimistic update — update body and close editor; comment-changed SSE
+      // will refresh from canonical state.
+      c.body = body;
+      c._editOpen = false;
+      c._editDraft = null;
+      refreshPanel();
+    } catch (err) {
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent = String(err && err.message || err);
+      } else {
+        showToast('Edit failed: ' + (err && err.message || err));
+      }
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.crit-design-edit-save');
+    if (!btn) return;
+    e.stopPropagation();
+    var id = btn.dataset.commentId;
+    var path = btn.dataset.pathname || '/';
+    var c = findCommentById(id);
+    if (!c) return;
+    var card = btn.closest('.crit-design-comment-row');
+    var ta = card && card.querySelector('.crit-design-edit-textarea');
+    var errEl = card && card.querySelector('.crit-design-edit-error');
+    var body = ta ? ta.value.trim() : '';
+    if (!body) {
+      if (errEl) { errEl.hidden = false; errEl.textContent = 'Body required'; }
+      return;
+    }
+    submitEdit(c, path, body, btn, errEl);
+  });
+
+  // Keep edit draft in sync so refreshPanel doesn't drop typed text.
+  document.addEventListener('input', function (e) {
+    var ta = e.target;
+    if (!ta || !ta.classList || !ta.classList.contains('crit-design-edit-textarea')) return;
+    var card = ta.closest('.crit-design-comment-row');
+    var id = card && card.dataset.commentId;
+    if (!id) return;
+    var c = findCommentById(id);
+    if (!c) return;
+    c._editDraft = ta.value;
+  });
+
+  document.addEventListener('keydown', function (e) {
+    var ta = e.target;
+    if (!ta || !ta.classList || !ta.classList.contains('crit-design-edit-textarea')) return;
+    if (e.isComposing) return;
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      var card = ta.closest('.crit-design-comment-row');
+      var saveBtn = card && card.querySelector('.crit-design-edit-save');
+      if (saveBtn) saveBtn.click();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      var card2 = ta.closest('.crit-design-comment-row');
+      var id = card2 && card2.dataset.commentId;
+      var c = id ? findCommentById(id) : null;
+      if (!c) return;
+      var dirty = ta.value.trim() !== (c.body || '').trim();
+      if (dirty) {
+        var ok = window.confirm('Discard edit?');
+        if (!ok) return;
+      }
+      closeEditComposer(c);
+    }
+  });
+
+  // ============================================================
   // Task 15: Clicking a comment row navigates iframe
   // ============================================================
   document.addEventListener('click', function (e) {
