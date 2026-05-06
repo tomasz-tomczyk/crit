@@ -170,6 +170,9 @@ type SSEEvent struct {
 	Type     string `json:"type"`
 	Filename string `json:"filename"`
 	Content  string `json:"content"`
+	// Round is non-zero for design-mode round-start events; carries the
+	// round number that just started.
+	Round int `json:"round,omitempty"`
 }
 
 // FileEntry holds the state for a single file in a review session.

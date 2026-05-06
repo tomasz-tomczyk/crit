@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -3948,5 +3949,106 @@ func TestHandleFileCommentUpdate_AcceptsDOMAnchor(t *testing.T) {
 				t.Errorf("post-state DOMAnchor mismatch: %+v", stored)
 			}
 		})
+	}
+}
+
+func TestSSE_DesignRoundStart_Broadcasts(t *testing.T) {
+	prev := sseHeartbeatInterval
+	sseHeartbeatInterval = 50 * time.Millisecond
+	t.Cleanup(func() { sseHeartbeatInterval = prev })
+
+	srv, session := newTestServer(t)
+	session.ReviewType = "design"
+	prevHook := onDesignRoundStart
+	onDesignRoundStart = func(s *Session, _, next int) {
+		s.notify(SSEEvent{Type: "design-round-start", Round: next})
+	}
+	t.Cleanup(func() { onDesignRoundStart = prevHook })
+
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	req, _ := http.NewRequestWithContext(ctx, "GET", ts.URL+"/api/events", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	// Drain initial Safari frame.
+	tmp := make([]byte, 3)
+	if _, err := io.ReadFull(resp.Body, tmp); err != nil {
+		t.Fatalf("initial frame: %v", err)
+	}
+
+	// Wait briefly for the server to register the subscriber, then fire.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		session.mu.RLock()
+		n := len(session.subscribers)
+		session.mu.RUnlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	fireOnDesignRoundStart(session, 1, 2)
+
+	// Read until we see the design-round-start event.
+	scanCtx, scanCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer scanCancel()
+	got := readSSEUntil(t, scanCtx, resp.Body, "design-round-start")
+	if !strings.Contains(got, `"round":2`) {
+		t.Fatalf("missing round field: %q", got)
+	}
+}
+
+// readSSEUntil reads SSE frames until one with the given event name is seen
+// or the context expires. Returns the matching frame's full text.
+func readSSEUntil(t *testing.T, ctx context.Context, r io.Reader, eventName string) string {
+	t.Helper()
+	type res struct {
+		s   string
+		err error
+	}
+	ch := make(chan res, 1)
+	go func() {
+		buf := make([]byte, 0, 4096)
+		tmp := make([]byte, 256)
+		for {
+			n, err := r.Read(tmp)
+			if n > 0 {
+				buf = append(buf, tmp[:n]...)
+				// Split on blank line (\n\n).
+				for {
+					idx := bytes.Index(buf, []byte("\n\n"))
+					if idx < 0 {
+						break
+					}
+					frame := string(buf[:idx])
+					buf = buf[idx+2:]
+					if strings.Contains(frame, "event: "+eventName) {
+						ch <- res{s: frame}
+						return
+					}
+				}
+			}
+			if err != nil {
+				ch <- res{err: err}
+				return
+			}
+		}
+	}()
+	select {
+	case <-ctx.Done():
+		t.Fatalf("timeout waiting for SSE event %q", eventName)
+		return ""
+	case r := <-ch:
+		if r.err != nil {
+			t.Fatalf("SSE read error: %v", r.err)
+		}
+		return r.s
 	}
 }

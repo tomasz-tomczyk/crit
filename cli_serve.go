@@ -601,6 +601,14 @@ func runServe(args []string) {
 		session.ReviewType = "design"
 		session.Origin = sc.designOrigin
 	}
+	if session.ReviewType == "design" {
+		// Wire the design-mode round-start hook to broadcast over the same
+		// SSE channel handleEvents serves. The watcher fires this from a
+		// single goroutine after the round bump.
+		onDesignRoundStart = func(s *Session, _, next int) {
+			s.notify(SSEEvent{Type: "design-round-start", Round: next})
+		}
+	}
 	srv.SetSession(session)
 
 	if session.Mode == "git" {
