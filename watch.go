@@ -335,6 +335,18 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 		HeadSHA:   old.HeadSHA,
 		DiffScope: old.DiffScope,
 		FocusKey:  old.FocusKey,
+
+		// Design-mode pin identity. DOMAnchor is the durable anchor for
+		// design pins (no line remapping applies); PinNumber is a stable,
+		// review-scoped reference; DriftedOnRound is the round on which the
+		// pin was newly classified as drifted. All three must round-trip
+		// across handleRoundComplete*, otherwise design pins silently
+		// disappear (or lose their drift annotation) on round bump.
+		UserID:         old.UserID,
+		DOMAnchor:      old.DOMAnchor,
+		PinNumber:      old.PinNumber,
+		Drifted:        old.Drifted,
+		DriftedOnRound: old.DriftedOnRound,
 	}
 }
 

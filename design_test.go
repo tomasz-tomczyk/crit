@@ -451,3 +451,155 @@ func TestDetectFrameworks(t *testing.T) {
 		})
 	}
 }
+
+// TestCarryForwardComment_PreservesDesignPinFields guards against silent data
+// loss for design pins on round bump. carryForwardComment is called from
+// carryForwardAllComments for every file lacking PreviousContent — which is
+// the case for design-route entries (no on-disk content). Dropping DOMAnchor,
+// PinNumber, Drifted or DriftedOnRound here makes design pins disappear from
+// /api/file/comments after POST /api/round-complete.
+func TestCarryForwardComment_PreservesDesignPinFields(t *testing.T) {
+	old := Comment{
+		ID:             "pin-original",
+		Body:           "needs work",
+		Author:         "alice",
+		UserID:         "u1",
+		CreatedAt:      "2026-01-01T00:00:00Z",
+		UpdatedAt:      "2026-01-01T00:00:00Z",
+		ReviewRound:    1,
+		DOMAnchor:      &DOMAnchor{Pathname: "/dashboard", CSSSelector: "#h1", TagChain: []string{"H1"}},
+		PinNumber:      7,
+		Drifted:        true,
+		DriftedOnRound: 2,
+	}
+
+	carried := carryForwardComment(old, "pin-new", "2026-02-01T00:00:00Z")
+
+	if carried.DOMAnchor == nil {
+		t.Fatal("DOMAnchor lost on carry-forward")
+	}
+	if carried.DOMAnchor.CSSSelector != "#h1" {
+		t.Errorf("DOMAnchor.CSSSelector = %q, want #h1", carried.DOMAnchor.CSSSelector)
+	}
+	if carried.PinNumber != 7 {
+		t.Errorf("PinNumber = %d, want 7", carried.PinNumber)
+	}
+	if !carried.Drifted {
+		t.Error("Drifted = false, want true (preserved across rounds)")
+	}
+	if carried.DriftedOnRound != 2 {
+		t.Errorf("DriftedOnRound = %d, want 2", carried.DriftedOnRound)
+	}
+	if carried.UserID != "u1" {
+		t.Errorf("UserID = %q, want u1", carried.UserID)
+	}
+}
+
+// TestHandleRoundCompleteFiles_DesignPinsSurvive exercises the round-complete
+// pipeline end-to-end for a design session: a pin (open and resolved) added
+// in round 1 must remain readable in round 2 with anchor identity intact.
+// This is the regression for the gap that left two
+// rounds.designmode.spec.ts scenarios fixme'd.
+func TestHandleRoundCompleteFiles_DesignPinsSurvive(t *testing.T) {
+	dir := t.TempDir()
+	reviewPath := filepath.Join(dir, "review")
+
+	// Seed a design review file containing an open pin and a resolved pin
+	// (both with non-trivial DriftedOnRound to verify it round-trips).
+	openAnchor := &DOMAnchor{Pathname: "/", CSSSelector: "#primary-btn", TagChain: []string{"BUTTON"}}
+	resolvedAnchor := &DOMAnchor{Pathname: "/", CSSSelector: "#secondary-btn", TagChain: []string{"BUTTON"}}
+	cj := CritJSON{
+		ReviewType:  "design",
+		Origin:      "http://localhost:3000",
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"/": {
+				Status: "added",
+				Comments: []Comment{
+					{
+						ID: "pin1", Body: "open pin",
+						Author: "alice", UserID: "u1",
+						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z",
+						ReviewRound: 1, PinNumber: 1, DOMAnchor: openAnchor,
+						DriftedOnRound: 1, Drifted: true,
+					},
+					{
+						ID: "pin2", Body: "resolved pin",
+						Author: "alice", UserID: "u1",
+						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z",
+						ReviewRound: 1, PinNumber: 2, DOMAnchor: resolvedAnchor,
+						Resolved: true,
+					},
+				},
+			},
+		},
+	}
+	if err := saveCritJSON(reviewPath, cj); err != nil {
+		t.Fatalf("saveCritJSON: %v", err)
+	}
+
+	s := &Session{
+		Mode:           "files",
+		RepoRoot:       dir,
+		ReviewRound:    1,
+		ReviewType:     "design",
+		Origin:         "http://localhost:3000",
+		ReviewFilePath: reviewPath,
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		roundComplete:  make(chan struct{}, 1),
+		Files: []*FileEntry{
+			{Path: "/", FileType: "design-route", Status: "added", Comments: cj.Files["/"].Comments},
+		},
+	}
+
+	// SignalRoundComplete (which the server invokes from POST /api/round-complete
+	// before the watcher fires) clears f.Comments. The carry-forward pipeline is
+	// the only thing that puts pins back. Mirror that here so the test exercises
+	// the same state the watcher sees.
+	s.SignalRoundComplete()
+	// Drain the channel so it doesn't leak across tests.
+	<-s.roundComplete
+
+	s.handleRoundCompleteFiles()
+
+	if s.ReviewRound != 2 {
+		t.Fatalf("ReviewRound = %d after round-complete, want 2", s.ReviewRound)
+	}
+
+	fe := s.Files[0]
+	if len(fe.Comments) != 2 {
+		t.Fatalf("Comments count = %d after round-complete, want 2 (design pins must survive)", len(fe.Comments))
+	}
+
+	byPin := map[int]Comment{}
+	for _, c := range fe.Comments {
+		byPin[c.PinNumber] = c
+	}
+	open, okOpen := byPin[1]
+	if !okOpen {
+		t.Fatalf("open pin (PinNumber=1) missing after carry-forward; got pins %+v", byPin)
+	}
+	if open.DOMAnchor == nil || open.DOMAnchor.CSSSelector != "#primary-btn" {
+		t.Errorf("open pin DOMAnchor lost or mutated: %+v", open.DOMAnchor)
+	}
+	if open.DriftedOnRound != 1 {
+		t.Errorf("open pin DriftedOnRound = %d, want 1 (preserved across rounds)", open.DriftedOnRound)
+	}
+	if !open.Drifted {
+		t.Error("open pin Drifted dropped on carry-forward")
+	}
+	if !open.CarriedForward {
+		t.Error("open pin CarriedForward = false, want true")
+	}
+
+	resolved, okResolved := byPin[2]
+	if !okResolved {
+		t.Fatalf("resolved pin (PinNumber=2) missing after carry-forward; got pins %+v", byPin)
+	}
+	if !resolved.Resolved {
+		t.Error("resolved pin lost Resolved=true on carry-forward")
+	}
+	if resolved.DOMAnchor == nil || resolved.DOMAnchor.CSSSelector != "#secondary-btn" {
+		t.Errorf("resolved pin DOMAnchor lost or mutated: %+v", resolved.DOMAnchor)
+	}
+}
