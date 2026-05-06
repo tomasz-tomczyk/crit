@@ -2,7 +2,11 @@
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
-  else { root.crit = root.crit || {}; root.crit.designModeResolutionGate = api; }
+  else {
+    root.crit = root.crit || {};
+    root.crit.design = root.crit.design || {};
+    root.crit.design.resolutionGate = api;
+  }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   class ResolutionGate {
     constructor(fire) {

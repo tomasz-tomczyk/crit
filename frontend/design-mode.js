@@ -1,4 +1,4 @@
-// design-mode.js — Phase B chrome controller. Vanilla JS, no build step.
+// design-mode.js — design-mode chrome controller. Vanilla JS, no build step.
 //
 // Boot order:
 //   1. Wait for /api/session
@@ -13,8 +13,8 @@
 
   // ----- State namespace contract -----
   /**
-   * Design-mode shared state — populated by design-mode.js and (in Phase C+)
-   * mutated by postMessage handlers from the agent.
+   * Design-mode shared state — populated by design-mode.js and mutated by
+   * postMessage handlers from the agent.
    *
    * @typedef {object} CritDesignState
    * @property {object|null} session         /api/session payload
@@ -22,13 +22,13 @@
    * @property {Set<string>} unsavedRoutes   Routes visited but not yet pinned
    * @property {string}      currentRoute    Currently displayed pathname
    * @property {{w:number,h:number,key:string}} viewport
-   * @property {"navigate"|"pin"} mode       Phase B always "navigate"
+   * @property {"navigate"|"pin"} mode
    * @property {object[]}    comments        Flat list (cached per route)
-   * @property {boolean}     pinModeEnabled  Phase B = false
-   * @property {string|null} pendingPinId    Deep-link #pin=<id> target (R7)
+   * @property {boolean}     pinModeEnabled  Gated until agent reports ready
+   * @property {string|null} pendingPinId    Deep-link #pin=<id> target
    */
   window.crit = window.crit || {};
-  // Other phaseC modules (composer, dispatch, deeplink, etc.) load before this
+  // Sub-modules (composer, dispatch, deeplink, etc.) load before this
   // file and each set `root.crit.design = root.crit.design || {}` to register
   // their sub-namespaces. That means the object often already exists by the
   // time we get here — we must MERGE defaults onto it rather than skip via
@@ -69,8 +69,8 @@
 
   var els = {};
 
-  // Internal installer + panel-refresh registries. Phase C extends this
-  // module by appending here, not by mutating window.
+  // Internal installer + panel-refresh registries. Sub-modules append here,
+  // not by mutating window.
   var installers = [];
   var panelRefreshFns = [];
   function registerInstaller(fn) { installers.push(fn); }
@@ -233,7 +233,7 @@
     live.setAttribute('aria-live', 'polite');
     document.body.appendChild(live);
 
-    // Phase E: dedicated aria-live announcer (used by announceLive()).
+    // Dedicated aria-live announcer (used by announceLive()).
     if (!document.getElementById('crit-design-aria-live')) {
       var live2 = document.createElement('div');
       live2.id = 'crit-design-aria-live';
@@ -243,7 +243,7 @@
       document.body.appendChild(live2);
     }
 
-    // Phase E: skip-link to the comments panel.
+    // Skip-link to the comments panel for keyboard users.
     if (!document.querySelector('.crit-design-skip-link')) {
       var skip = document.createElement('a');
       skip.className = 'crit-design-skip-link';
@@ -273,7 +273,7 @@
     if (state.session.review_type !== 'design') {
       console.warn('[design-mode] /api/session.review_type != "design":', state.session.review_type);
     }
-    // Phase C: capture proxyOrigin once for the message handler. The agent
+    // Capture proxyOrigin once for the message handler. The agent
     // posts from the proxy origin; the chrome lives on the API origin and
     // accepts only that source+origin pair.
     var s = state.session || {};
@@ -290,7 +290,7 @@
   }
 
   // ============================================================
-  // Task 7: Viewport selector
+  // Viewport selector
   // ============================================================
   var VIEWPORTS = [
     { key: 'mobile',  label: 'Mobile',  w: 390,  h: 844 },
@@ -301,7 +301,7 @@
 
   function applyViewport(vp) {
     state.viewport = { w: vp.w, h: vp.h, key: vp.key };
-    // Bug 8: persist viewport key in crit-settings cookie. Skip 'custom'
+    // Persist viewport key in crit-settings cookie. Skip 'custom'
     // (drag-resize) so the next session restarts at the nearest preset.
     if (vp.key && vp.key !== 'custom' && shared && shared.setSetting) {
       try { shared.setSetting('design_viewport', vp.key); } catch (_) { /* noop */ }
@@ -325,7 +325,7 @@
       b.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
     announce('Viewport: ' + vp.label);
-    // Phase D: tell agent the viewport changed; gate request-resolution on
+    // Tell agent the viewport changed; gate request-resolution on
     // viewport-applied ack.
     if (state.resolutionGate) state.resolutionGate.beginViewportChange();
     if (state.postToAgent && w > 0 && h > 0) {
@@ -342,7 +342,7 @@
       var vp = VIEWPORTS.find(function (v) { return v.key === key; });
       if (vp) applyViewport(vp);
     });
-    // Bug 8: hydrate persisted viewport (desktop default).
+    // Hydrate persisted viewport (desktop default).
     var savedKey = (shared && shared.getSetting) ? shared.getSetting('design_viewport', 'desktop') : 'desktop';
     var initial = VIEWPORTS.find(function (v) { return v.key === savedKey; })
       || VIEWPORTS.find(function (v) { return v.key === 'desktop'; });
@@ -364,7 +364,7 @@
   });
 
   // ============================================================
-  // Phase C: Pin/Navigate toggle activation + set-mode dispatch to agent
+  // Pin/Navigate toggle activation + set-mode dispatch to agent
   // ============================================================
   function setActiveModeButton() {
     if (!els.modeToggle) return;
@@ -380,11 +380,11 @@
     if (state.mode === next) return;
     state.mode = next;
     postToAgent({ type: 'set-mode', value: next });
-    // Phase E: also flip marker tabindex so Tab does not jump into the iframe
+    // Also flip marker tabindex so Tab does not jump into the iframe
     // while Pin mode is active.
     postToAgent({ type: 'set-marker-tabindex', value: next === 'pin' ? -1 : 0 });
     setActiveModeButton();
-    // Bug 9: announce mode change so the user knows it took effect.
+    // Announce mode change so the user knows it took effect.
     announce(next === 'pin' ? 'Pin mode' : 'Navigate mode');
   }
   state.setMode = setMode;
@@ -392,7 +392,7 @@
   registerInstaller(function installMode() {
     if (!els.modeToggle) return;
     var pinBtn = els.modeToggle.querySelector('.toggle-btn[data-mode="pin"]');
-    // Bug 9: keep Pin disabled until the agent reports ready, so a click
+    // Keep Pin disabled until the agent reports ready, so a click
     // never races the iframe→agent boot. handleAgentReady() re-enables.
     if (pinBtn) {
       pinBtn.setAttribute('disabled', '');
@@ -410,7 +410,7 @@
   });
 
   // ============================================================
-  // Task 9: Iframe src wired to proxy_port
+  // Iframe src wired to proxy_port
   // ============================================================
   function proxyURL(pathname) {
     var s = state.session || {};
@@ -426,7 +426,7 @@
   });
 
   // ============================================================
-  // Task 10: Drag-resize handle on iframe right edge
+  // Drag-resize handle on iframe right edge
   // ============================================================
   registerInstaller(function installResizer() {
     if (!els.resizer || !els.frame) return;
@@ -478,7 +478,7 @@
   });
 
   // ============================================================
-  // Task 11: Route detection via postMessage
+  // Route detection via postMessage
   // ============================================================
   function renderBreadcrumb() {
     if (!els.routeName) return;
@@ -530,7 +530,7 @@
   });
 
   // ============================================================
-  // Task 12: Round counter from /api/session.review_round
+  // Round counter from /api/session.review_round.
   // /api/review-cycle is POST-only (405 on GET); session payload already
   // carries review_round, and SSE design-round-start updates it on bumps.
   // ============================================================
@@ -542,273 +542,35 @@
   });
 
   // ============================================================
-  // Task 13/14: Comment panel — empty state + grouped renderer (R5)
-  // Reuses .comments-panel-body / .comments-panel-file-group / .comment-card
-  // ============================================================
-  function renderEmptyPanel() {
-    if (!els.panelBody) return;
-    els.panelBody.innerHTML =
-      '<div class="comments-panel-empty" style="padding:32px 16px;text-align:center;color:var(--crit-editor-fg-muted);font-size:13px;line-height:1.5">' +
-      'No pins yet.<br>' +
-      'Switch to Pin mode and click an element to leave a comment.' +
-      '</div>';
-  }
-
-  // Build the deps bundle once per render — buildCommentCard wants a
-  // markdown-it instance + a few helpers. Code-review's app.js wires these
-  // to its own module-scoped state; design mode supplies its own bundle.
-  var _designCardDeps = null;
-  function getCardDeps() {
-    if (_designCardDeps) return _designCardDeps;
-    var helpers = (window.crit && window.crit.commentCardHelpers) || {};
-    var commentMd = null;
-    try {
-      if (typeof window.markdownit === 'function') {
-        commentMd = window.markdownit({ html: false, linkify: true, breaks: true });
-      }
-    } catch (_) {}
-    _designCardDeps = {
-      commentMd: commentMd,
-      formatTime: helpers.formatTime || function () { return ''; },
-      authorColorIndex: helpers.authorColorIndex || function () { return 0; },
-      getReviewRound: function () {
-        return (state.session && state.session.review_round) || 0;
-      },
-      getCollapseOverride: function (id) {
-        return state.designCollapseOverrides.has(id)
-          ? state.designCollapseOverrides.get(id)
-          : undefined;
-      },
-      setCollapseOverride: function (id, val) {
-        state.designCollapseOverrides.set(id, val);
-      },
-      iconChevron: '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>',
-      // Icon SVGs — kept byte-equivalent to code-review's ICON_* constants
-      // in app.js so the design-mode action buttons inherit the exact same
-      // visual treatment via the shared .comment-actions / .resolve-btn CSS.
-      iconEdit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>',
-      iconDelete: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>',
-      iconResolve: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
-      iconUnresolve: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.36 2.64M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.36-2.64"/><polyline points="21 3 21 8 16 8"/><polyline points="3 21 3 16 8 16"/></svg>',
-      iconReply: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>',
-    };
-    return _designCardDeps;
-  }
-
-  function renderCommentsPanel() {
-    if (!els.panelBody) return;
-    var groups = utils.groupCommentsByRoute(state.comments);
-    if (groups.size === 0) { renderEmptyPanel(); return; }
-
-    // Build the panel as a DOM tree so design pins can mount the shared
-    // buildCommentCard (DOM-composed). Non-pin comments still render as a
-    // light-weight "comment-card" for click-to-navigate routing.
-    var rowMod = window.crit && window.crit.design && window.crit.design.row;
-    var deps = getCardDeps();
-
-    var filter = state.designFilter || 'all';
-    var frag = document.createDocumentFragment();
-    var anyRendered = false;
-    groups.forEach(function (rows, route) {
-      var visibleRows = rows.filter(function (c) {
-        if (filter === 'open') return !c.resolved;
-        if (filter === 'resolved') return !!c.resolved;
-        return true;
-      });
-      if (!visibleRows.length) return;
-      anyRendered = true;
-      var group = document.createElement('div');
-      group.className = 'comments-panel-file-group';
-      var name = document.createElement('div');
-      name.className = 'comments-panel-file-name';
-      name.textContent = route;
-      group.appendChild(name);
-      var cards = document.createElement('div');
-      cards.className = 'comments-panel-file-cards';
-
-      visibleRows.forEach(function (c) {
-        if (c.dom_anchor && rowMod && typeof rowMod.renderDesignPinRow === 'function') {
-          cards.appendChild(rowMod.renderDesignPinRow(c, deps));
-          return;
-        }
-        // Fallback for non-pin (e.g. legacy review-level) comments — light
-        // navigation card.
-        var body = (c.body || '').replace(/\s+/g, ' ').trim();
-        var excerpt = body.length > 200 ? body.slice(0, 200) + '…' : body;
-        var fb = document.createElement('div');
-        fb.className = 'comment-card';
-        fb.dataset.designRoute = route;
-        fb.dataset.id = String(c.id || '');
-        fb.tabIndex = 0;
-        fb.setAttribute('role', 'button');
-        if (c.resolved) fb.dataset.resolved = 'true';
-        var fbBody = document.createElement('div');
-        fbBody.className = 'comment-card-body';
-        fbBody.textContent = excerpt;
-        fb.appendChild(fbBody);
-        var meta = document.createElement('div');
-        meta.className = 'comment-card-meta';
-        meta.style.cssText = 'font-size:11px;color:var(--crit-editor-fg-muted);display:flex;gap:8px';
-        var who = document.createElement('span');
-        who.textContent = c.author || '';
-        meta.appendChild(who);
-        if (c.resolved) {
-          var resolvedTag = document.createElement('span');
-          resolvedTag.style.color = 'var(--crit-green)';
-          resolvedTag.textContent = 'resolved';
-          meta.appendChild(resolvedTag);
-        }
-        fb.appendChild(meta);
-        cards.appendChild(fb);
-      });
-
-      group.appendChild(cards);
-      frag.appendChild(group);
-    });
-
-    els.panelBody.innerHTML = '';
-    if (!anyRendered) {
-      // All comments hidden by current filter.
-      var msg = filter === 'open' ? 'No open pins.' :
-                filter === 'resolved' ? 'No resolved pins.' : 'No pins yet.';
-      els.panelBody.innerHTML =
-        '<div class="comments-panel-empty" style="padding:32px 16px;text-align:center;color:var(--crit-editor-fg-muted);font-size:13px;line-height:1.5">' +
-        msg + '</div>';
-      return;
-    }
-    els.panelBody.appendChild(frag);
-    if (state.designExpandAll) applyExpandAllToRenderedCards(true);
-  }
-
-  function applyExpandAllToRenderedCards(expand) {
-    if (!els.panelBody) return;
-    var cards = els.panelBody.querySelectorAll('.comment-card');
-    cards.forEach(function (card) {
-      // Mirror buildCommentCard's collapse model: it persists per-id via
-      // designCollapseOverrides. Toggle the override AND any rendered
-      // collapsed class so the visible state matches immediately.
-      var id = card.dataset && card.dataset.id;
-      if (id) state.designCollapseOverrides.set(id, !expand);
-      card.classList.toggle('collapsed', !expand);
-      var body = card.querySelector('.comment-card-body, .crit-comment-card-body');
-      if (body) body.style.display = expand ? '' : 'none';
-    });
-  }
-
-  registerPanelRefresh(function () {
-    if (!state.comments || state.comments.length === 0) {
-      renderEmptyPanel();
-      return;
-    }
-    renderCommentsPanel();
-  });
-
-  registerInstaller(function installPanel() {
-    refreshPanel();
-  });
-
-  // ============================================================
-  // Filter pill + Expand-all wiring (mirrors app.js handlers, scoped to
-  // the design-mode panel — app.js doesn't run on /design).
-  // ============================================================
-  registerInstaller(function installFilterPillAndExpandAll() {
-    var pill = document.getElementById('commentsFilterPill');
-    if (pill) {
-      var activate = function (btn, focusBtn) {
-        if (!btn) return;
-        state.designFilter = btn.dataset.filter || 'all';
-        pill.querySelectorAll('.toggle-btn').forEach(function (b) {
-          var active = b === btn;
-          b.classList.toggle('active', active);
-          b.setAttribute('aria-checked', active ? 'true' : 'false');
-          b.setAttribute('tabindex', active ? '0' : '-1');
-        });
-        if (focusBtn) btn.focus();
-        refreshPanel();
-      };
-      pill.addEventListener('click', function (e) {
-        var btn = e.target.closest && e.target.closest('.toggle-btn');
-        if (!btn) return;
-        activate(btn, false);
-      });
-      pill.addEventListener('keydown', function (e) {
-        var btns = Array.from(pill.querySelectorAll('.toggle-btn'));
-        var idx = btns.findIndex(function (b) { return b === document.activeElement; });
-        if (idx === -1) return;
-        var next;
-        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % btns.length;
-        else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + btns.length) % btns.length;
-        else if (e.key === 'Home') next = 0;
-        else if (e.key === 'End') next = btns.length - 1;
-        else return;
-        e.preventDefault();
-        activate(btns[next], true);
-      });
-    }
-
-    var expandBtn = document.getElementById('commentsPanelExpandAll');
-    if (expandBtn) {
-      expandBtn.addEventListener('click', function () {
-        state.designExpandAll = !state.designExpandAll;
-        applyExpandAllToRenderedCards(state.designExpandAll);
-        // Mirror app.js#updateExpandAllLabel — the visible label flips to
-        // "Collapse all" when any card is expanded, in addition to the
-        // aria-pressed state. Without this the button reads "Expand all"
-        // even after the user has expanded everything.
-        expandBtn.textContent = state.designExpandAll ? 'Collapse all' : 'Expand all';
-        expandBtn.setAttribute('aria-pressed', state.designExpandAll ? 'true' : 'false');
-        expandBtn.title = state.designExpandAll ? 'Collapse all' : 'Expand all';
-      });
-    }
-  });
-
-  // ============================================================
-  // M12: Comments panel toggle + unresolved count badge.
-  // Reuses the navbar's #commentCount button and the
-  // #commentsPanelCountBadge inside the panel header. Persistence lives
-  // in crit-settings.design_commentsPanelOpen so design mode keeps its
-  // own preference distinct from code review.
+  // Comments panel — empty state + grouped renderer + filter pill +
+  // expand-all + show/hide toggle + resize. All concerns are scoped to
+  // the right-side panel and live in design-mode.panel-render.js. We
+  // create a controller bound to local state/els here, then register its
+  // installers and refresh hooks.
   // ============================================================
   var panelHelpers = (window.crit && window.crit.design && window.crit.design.panel) || null;
+  var panelRenderMod = (window.crit && window.crit.design && window.crit.design.panelRender) || null;
+  var panelCtl = panelRenderMod && panelRenderMod.create({
+    state: state,
+    els: els,
+    utils: utils,
+    shared: shared,
+    refreshPanel: refreshPanel,
+    panelHelpers: panelHelpers,
+  });
+  registerPanelRefresh(function () { if (panelCtl) panelCtl.panelRefresh(); });
+  registerPanelRefresh(function () { if (panelCtl) panelCtl.updateUnresolvedBadge(); });
+  registerInstaller(function installPanel() { refreshPanel(); });
+  registerInstaller(function installFilterPillAndExpandAll() {
+    if (panelCtl) panelCtl.installFilterPillAndExpandAll();
+  });
+  registerInstaller(function installCommentsPanelToggle() {
+    if (panelCtl) panelCtl.installCommentsPanelToggle();
+  });
+  registerInstaller(function installCommentsPanelResize() {
+    if (panelCtl) panelCtl.installCommentsPanelResize();
+  });
 
-  function applyCommentsPanelOpen(open) {
-    var panel = els.commentsPanel;
-    if (!panel) return;
-    if (open) panel.classList.remove('comments-panel-hidden');
-    else panel.classList.add('comments-panel-hidden');
-    state.commentsPanelOpen = !!open;
-  }
-
-  function updateUnresolvedBadge() {
-    var all = state.comments || [];
-    var totalCount = all.length;
-    var openCount = 0;
-    var resolvedCount = 0;
-    for (var i = 0; i < all.length; i++) {
-      if (all[i] && all[i].resolved) resolvedCount++;
-      else if (all[i]) openCount++;
-    }
-    // Panel-header badge mirrors code-review (total count).
-    var badge = document.getElementById('commentsPanelCountBadge');
-    if (badge) badge.textContent = String(totalCount);
-    // Navbar pill: shared with code-review so the tooltip + resolved-state
-    // class never drift between modes.
-    if (shared && shared.updateCommentCountIndicator) {
-      shared.updateCommentCountIndicator({ totalCount: totalCount, openCount: openCount });
-    }
-    // Filter pill per-button counts.
-    var pillBtns = document.querySelectorAll('#commentsFilterPill .toggle-btn');
-    pillBtns.forEach(function (btn) {
-      var f = btn.dataset.filter;
-      var countEl = btn.querySelector('.filter-count');
-      if (!countEl) return;
-      if (f === 'all') countEl.textContent = totalCount;
-      else if (f === 'open') countEl.textContent = openCount;
-      else if (f === 'resolved') countEl.textContent = resolvedCount;
-    });
-  }
-
-  registerPanelRefresh(updateUnresolvedBadge);
 
   // ============================================================
   // Finish Review (parity with code-review's finish flow)
@@ -970,96 +732,6 @@
     if (goBack) goBack.addEventListener('click', hideNoChanges);
   });
 
-  registerInstaller(function installCommentsPanelToggle() {
-    var btn = document.getElementById('commentCount');
-    var closeBtn = document.querySelector('.comments-panel-close');
-    var openSetting = (shared && shared.getSetting)
-      ? shared.getSetting('design_commentsPanelOpen', true)
-      : true;
-    applyCommentsPanelOpen(!!openSetting);
-
-    function toggle() {
-      var next = !state.commentsPanelOpen;
-      applyCommentsPanelOpen(next);
-      if (shared && shared.setSetting) {
-        try { shared.setSetting('design_commentsPanelOpen', next); } catch (_) {}
-      }
-    }
-    if (btn) {
-      btn.addEventListener('click', function () { toggle(); });
-      btn.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
-      });
-    }
-    if (closeBtn) {
-      closeBtn.addEventListener('click', function () {
-        applyCommentsPanelOpen(false);
-        if (shared && shared.setSetting) {
-          try { shared.setSetting('design_commentsPanelOpen', false); } catch (_) {}
-        }
-      });
-    }
-    updateUnresolvedBadge();
-  });
-
-  // ============================================================
-  // M13: Resizable side panel.
-  // Reuses #commentsPanelResizer. NO clamping against viewport preset
-  // width — the user gets the width they ask for. Persisted to
-  // crit-settings.design_commentsPanelWidth (separate from code review's
-  // commentsPanelWidth so the two modes don't fight).
-  // ============================================================
-  registerInstaller(function installCommentsPanelResize() {
-    var handle = document.getElementById('commentsPanelResizer');
-    var panel = els.commentsPanel;
-    if (!handle || !panel || !panelHelpers) return;
-
-    // Apply persisted width on boot.
-    var saved = (shared && shared.getSetting)
-      ? shared.getSetting('design_commentsPanelWidth', null)
-      : null;
-    if (typeof saved === 'number' && saved > 0) {
-      panel.style.width = saved + 'px';
-    }
-
-    var dragging = false;
-    var activePointerId = null;
-    var startX = 0;
-    var startW = 0;
-
-    function onMove(e) {
-      if (!dragging || e.pointerId !== activePointerId) return;
-      var w = panelHelpers.computeResizeWidth(startW, startX, e.clientX, 200);
-      panel.style.width = w + 'px';
-    }
-    function onUp(e) {
-      if (!dragging || e.pointerId !== activePointerId) return;
-      dragging = false;
-      document.body.style.userSelect = '';
-      try { handle.releasePointerCapture(activePointerId); } catch (_) {}
-      handle.removeEventListener('pointermove', onMove);
-      handle.removeEventListener('pointerup', onUp);
-      handle.removeEventListener('pointercancel', onUp);
-      activePointerId = null;
-      var finalW = panel.getBoundingClientRect().width;
-      if (shared && shared.setSetting) {
-        try { shared.setSetting('design_commentsPanelWidth', Math.round(finalW)); } catch (_) {}
-      }
-    }
-    handle.addEventListener('pointerdown', function (e) {
-      e.preventDefault();
-      dragging = true;
-      activePointerId = e.pointerId;
-      startX = e.clientX;
-      startW = panel.getBoundingClientRect().width;
-      document.body.style.userSelect = 'none';
-      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
-      handle.addEventListener('pointermove', onMove);
-      handle.addEventListener('pointerup', onUp);
-      handle.addEventListener('pointercancel', onUp);
-    });
-  });
-
   async function loadAllComments() {
     var s = state.session || {};
     var files = (s.files || []).map(function (f) { return f.path; });
@@ -1091,9 +763,9 @@
   });
 
   // ============================================================
-  // Bug 5 (partial): Resolve / Reopen click on design pin rows.
-  // Full edit/reply parity with code-review's renderCommentCard requires
-  // refactoring large chunks of app.js into a shared module — deferred.
+  // Resolve / Reopen click on design pin rows. Full edit/reply parity
+  // with code-review's renderCommentCard requires refactoring large
+  // chunks of app.js into a shared module — deferred.
   // ============================================================
   document.addEventListener('click', function (e) {
     var btn = e.target.closest && e.target.closest('.crit-design-comment-resolve');
@@ -1433,7 +1105,7 @@
   });
 
   // ============================================================
-  // Task 15: Clicking a comment row navigates iframe
+  // Clicking a comment row navigates iframe
   // ============================================================
   document.addEventListener('click', function (e) {
     // Don't navigate when clicking interactive controls inside the card.
@@ -1561,14 +1233,14 @@
   });
 
   // ============================================================
-  // Task 16: Theme — re-apply on focus
+  // Theme — re-apply on focus (catches changes made in another tab).
   // ============================================================
   window.addEventListener('focus', function () {
     if (window.crit && window.crit.shared) window.crit.shared.applyThemeFromCookie();
   });
 
   // ============================================================
-  // Task 17: Deep-link #pin=<id> (no-op in Phase B; R7)
+  // Deep-link #pin=<id> parsing — activation lives below.
   // ============================================================
   function parsePinFragment() {
     var dl = window.crit && window.crit.design && window.crit.design.deeplink;
@@ -1589,7 +1261,7 @@
   state.userActedThisRound = !!state.userActedThisRound;
 
   // ============================================================
-  // Task 20: Iframe load-error banner
+  // Iframe load-error banner
   // ============================================================
   function showIframeError() {
     if (!els.frame) return;
@@ -1610,43 +1282,18 @@
     if (els.iframe) els.iframe.addEventListener('error', showIframeError);
   });
 
-  // ============================================================
-  // Task 21: Cross-origin redirect notice
-  // ============================================================
-  window.addEventListener('message', function (e) {
-    if (!e || !e.data || typeof e.data !== 'object') return;
-    if (e.data.type !== 'cross-origin-redirect') return;
-    if (els.iframe && e.source && e.source !== els.iframe.contentWindow) return;
-    var url = String(e.data.url || '');
-    var existing = document.querySelector('.crit-design-redirect-notice');
-    if (existing) existing.remove();
-    var n = document.createElement('div');
-    n.className = 'crit-design-redirect-notice';
-    n.innerHTML =
-      'Design mode can\'t follow you to <code>' + shared.escapeHTML(url) + '</code>. ' +
-      '<button type="button" class="crit-design-redirect-open">Open in real browser</button>' +
-      '<button type="button" class="crit-design-redirect-dismiss">Dismiss</button>';
-    n.querySelector('.crit-design-redirect-open').addEventListener('click', function () {
-      window.open(url, '_blank', 'noopener');
-    });
-    n.querySelector('.crit-design-redirect-dismiss').addEventListener('click', function () { n.remove(); });
-    if (els.frame) els.frame.appendChild(n);
+  // Cross-origin redirect notice + Esc dismissal — installed by the
+  // dedicated module so the message-listener and the keydown handler stay
+  // co-located. Runs as an installer to ensure els.iframe / els.frame are
+  // populated before the listener captures the iframe contentWindow.
+  registerInstaller(function installRedirectNotice() {
+    var mod = window.crit && window.crit.design && window.crit.design.redirectNotice;
+    if (mod && mod.install) mod.install({ els: els, shared: shared });
   });
 
   // ============================================================
-  // Task 24: Esc dismisses chrome notices
-  // ============================================================
-  document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape') return;
-    var notice = document.querySelector('.crit-design-redirect-notice');
-    if (notice) { notice.remove(); return; }
-    var err = document.querySelector('.crit-design-iframe-error');
-    if (err) { err.remove(); }
-  });
-
-  // ============================================================
-  // Phase C: agent ↔ chrome wiring (dispatcher, queue, origin guard,
-  // composer, ancestor menu, focus state, save flow)
+  // Agent ↔ chrome wiring: dispatcher, queue, origin guard, composer,
+  // ancestor menu, focus state, save flow.
   // ============================================================
   var _sender = null;
   function postToAgent(m) {
@@ -1680,7 +1327,7 @@
   function closeComposer() {
     var h = document.querySelector('.crit-design-composer-host');
     if (h) { h.innerHTML = ''; delete h.dataset.active; }
-    // M11: drop the sustained outline on the captured element.
+    // Drop the sustained outline on the captured element.
     try { postToAgent({ type: 'clear-highlight' }); } catch (_) {}
     // Intentional: do not change state.mode here — keep Pin mode for rapid pinning.
   }
@@ -1788,7 +1435,7 @@
     var host = ensureComposerHost();
     host.innerHTML = window.crit.design.composer.renderComposerHTML(domAnchor);
     host.dataset.active = '1';
-    // M11: ask the agent to keep the captured element outlined while the
+    // Ask the agent to keep the captured element outlined while the
     // composer is open. Cleared by closeComposer (Save / Cancel / Esc).
     if (domAnchor && domAnchor.css_selector) {
       try { postToAgent({ type: 'keep-highlight', selector: domAnchor.css_selector }); } catch (_) {}
@@ -1864,7 +1511,7 @@
       closeAncestorMenu();
     });
 
-    // Phase E: keyboard nav controller + fade-in.
+    // Keyboard nav controller + fade-in.
     var menuMod = window.crit && window.crit.design && window.crit.design.menuController;
     if (menuMod && menuMod.createMenuController) {
       var inner = wrap.querySelector('.crit-design-ancestor-menu') || wrap.firstElementChild;
@@ -1909,7 +1556,7 @@
   function handleAgentReady() {
     state.agentReady = true;
     if (_sender) _sender.markReady();
-    // Bug 9: now that the agent is listening, enable the Pin toggle.
+    // Now that the agent is listening, enable the Pin toggle.
     if (els.modeToggle) {
       var pinBtn = els.modeToggle.querySelector('.toggle-btn[data-mode="pin"]');
       if (pinBtn) {
@@ -1939,15 +1586,15 @@
   }
 
   // ============================================================
-  // Phase D: pins, drift tray, resolution gate, re-anchor flow
+  // Pins, drift tray, resolution gate, re-anchor flow.
   // ============================================================
-  var pinStateAPI = window.crit && window.crit.designModePinState;
-  var pinFilterAPI = window.crit && window.crit.designModePinFilter;
-  var driftTrayAPI = window.crit && window.crit.designModeDriftTray;
-  var threadScrollAPI = window.crit && window.crit.designModeThreadScroll;
-  var reanchorClickAPI = window.crit && window.crit.designModeReanchorClick;
-  var reanchorPutAPI = window.crit && window.crit.designModeReanchorPut;
-  var resolutionGateAPI = window.crit && window.crit.designModeResolutionGate;
+  var pinStateAPI = window.crit && window.crit.design && window.crit.design.pinState;
+  var pinFilterAPI = window.crit && window.crit.design && window.crit.design.pinFilter;
+  var driftTrayAPI = window.crit && window.crit.design && window.crit.design.driftTray;
+  var threadScrollAPI = window.crit && window.crit.design && window.crit.design.threadScroll;
+  var reanchorClickAPI = window.crit && window.crit.design && window.crit.design.reanchorClick;
+  var reanchorPutAPI = window.crit && window.crit.design && window.crit.design.reanchorPut;
+  var resolutionGateAPI = window.crit && window.crit.design && window.crit.design.resolutionGate;
 
   state.pinState = pinStateAPI && pinStateAPI.PinState ? new pinStateAPI.PinState() : null;
   state.reanchorPending = null;
@@ -2054,7 +1701,7 @@
   function handleRouteChange(msg) {
     var prevPath = state.currentPathname;
     state.currentPathname = msg.pathname || '/';
-    // Phase E: clear deep-link fragment when navigating away from the open pin.
+    // Clear deep-link fragment when navigating away from the open pin.
     var dl = window.crit && window.crit.design && window.crit.design.deeplink;
     if (dl && dl.shouldClearOnRouteChange(state, state.currentPathname)) {
       try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (_) { /* noop */ }
@@ -2176,14 +1823,14 @@
   });
 
   // ============================================================
-  // Phase E: SSE round-start, lazy round resolution, deep-link, aria-live,
+  // Lazy round resolution, deep-link activation, aria-live announcer,
   // round-counter tooltip, ancestor menu controller wiring, Esc cancel re-anchor.
   // ============================================================
   function announceLive(msg) {
     var el = state.ariaLiveEl || document.getElementById('crit-design-aria-live');
     state.ariaLiveEl = el;
     if (!el) {
-      // Fall back to the existing critDesignLive announcer (Phase B).
+      // Fall back to the existing critDesignLive announcer.
       var legacy = document.getElementById('critDesignLive');
       if (legacy) {
         legacy.textContent = '';
@@ -2234,34 +1881,19 @@
     state.pendingByPath[path] = ids.length;
   }
 
-  function applyRoundStart(roundN) {
-    state.currentRound = roundN;
-    state.resolutionCache = {};
-    state.userActedThisRound = false;
-    var by = pinsByRoute();
-    Object.keys(by).forEach(function (path) {
-      by[path].forEach(function (p) { p._roundResolved = false; });
-    });
-    var rcEl = document.getElementById('designRoundCounter');
-    if (rcEl) rcEl.textContent = roundN > 1 ? 'Round #' + roundN : '';
-    if (typeof setUIState === 'function') setUIState('reviewing');
-    scheduleResolutionForPath(state.currentPathname || state.currentRoute || '/');
-    announceLive('Round ' + roundN + ' started.');
-  }
-
-  // SSE subscription. /api/events emits `design-round-start` { round: N }
-  // among other event types (file-changed etc. are owned by the existing
-  // app.js code-review handlers and ignored here).
+  // SSE subscription + per-round-start state reset. /api/events emits
+  // `design-round-start` { round: N }; file-changed and other event kinds
+  // are owned by app.js's code-review handlers and ignored here.
+  var sseMod = window.crit && window.crit.design && window.crit.design.sse;
+  var sseCtl = sseMod && sseMod.create({
+    state: state,
+    pinsByRoute: pinsByRoute,
+    scheduleResolutionForPath: scheduleResolutionForPath,
+    announceLive: announceLive,
+    setUIState: setUIState,
+  });
   registerInstaller(function installDesignSSE() {
-    var es;
-    try { es = new EventSource('/api/events'); } catch (_) { return; }
-    es.addEventListener('design-round-start', function (ev) {
-      var payload;
-      try { payload = JSON.parse(ev.data); } catch (_) { return; }
-      if (!payload || typeof payload.round !== 'number') return;
-      applyRoundStart(payload.round);
-    });
-    state.designSSE = es;
+    if (sseCtl) sseCtl.install();
   });
 
   // Note: prior reconcileCurrentRound polled GET /api/review-cycle (405,
@@ -2270,7 +1902,7 @@
 
   // ---- deep-link activation ----
   function performFlashAndScroll(pin) {
-    var threadScrollAPI = window.crit && window.crit.designModeThreadScroll;
+    var threadScrollAPI = window.crit && window.crit.design && window.crit.design.threadScroll;
     if (threadScrollAPI && threadScrollAPI.scrollThreadToPin) {
       threadScrollAPI.scrollThreadToPin(document, pin.id);
     }
@@ -2335,7 +1967,7 @@
   state.openPin_ = state.openPin_ || openPin;
 
   // ============================================================
-  // Phase E Task 16: Esc cancels re-anchor (chrome side).
+  // Esc cancels re-anchor (chrome side).
   // ============================================================
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'Escape') return;
@@ -2345,7 +1977,7 @@
     if (localFocus) return;
     ev.preventDefault();
     postToAgent({ type: 'cancel-reanchor' });
-    var reanchorClickAPI = window.crit && window.crit.designModeReanchorClick;
+    var reanchorClickAPI = window.crit && window.crit.design && window.crit.design.reanchorClick;
     if (reanchorClickAPI && reanchorClickAPI.disarmReanchor) {
       reanchorClickAPI.disarmReanchor({ state: state }, 'escape');
     } else {
@@ -2356,7 +1988,7 @@
   }, true);
 
   // ============================================================
-  // Phase E Task 20: Round-counter tooltip
+  // Round-counter tooltip
   // ============================================================
   registerInstaller(function bindRoundTooltip() {
     var btn = document.getElementById('designRoundCounter');
@@ -2390,7 +2022,9 @@
   });
 
   // ============================================================
-  // Task 26: Lock window.crit.design contract for Phase C
+  // Lock window.crit.design contract — submodules must use the documented
+  // namespace (registered before this file loaded) instead of mutating it
+  // here.
   // ============================================================
   try {
     Object.defineProperty(window.crit, 'design', {

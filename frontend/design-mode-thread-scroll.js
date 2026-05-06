@@ -2,7 +2,11 @@
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
-  else { root.crit = root.crit || {}; root.crit.designModeThreadScroll = api; }
+  else {
+    root.crit = root.crit || {};
+    root.crit.design = root.crit.design || {};
+    root.crit.design.threadScroll = api;
+  }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   function scrollThreadToPin(doc, pinId, opts) {
     if (!doc || !pinId) return false;

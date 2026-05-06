@@ -246,9 +246,9 @@
       l.href = 'style-design.css';
       document.head.appendChild(l);
 
-      // Phase C: protocol + dispatcher + helper modules. Load in parallel;
-      // design-mode.js (loaded last) requires their `window.crit.*` namespaces.
-      var phaseCDeps = [
+      // Sub-modules loaded in parallel; design-mode.js (loaded last) requires
+      // their window.crit.* / window.crit.design.* namespaces to be present.
+      var designDeps = [
         'crit-comment-card-helpers.js',
         'crit-comment-card.js',
         'crit-settings-panes.js',
@@ -265,7 +265,9 @@
         'design-mode.size.js',
         'design-mode.row.js',
         'design-mode.panel.js',
-        // Phase D modules
+        'design-mode.panel-render.js',
+        'design-mode.sse.js',
+        'design-mode.redirect-notice.js',
         'design-mode-pin-filter.js',
         'design-mode-resolution-gate.js',
         'design-mode-drift-tray.js',
@@ -273,7 +275,6 @@
         'design-mode-thread-scroll.js',
         'design-mode-reanchor-click.js',
         'design-mode-reanchor-put.js',
-        // Phase E modules
         'design-mode-deeplink.js',
         'design-mode-round-resolve.js',
         'design-mode-round-tooltip.js',
@@ -284,7 +285,7 @@
       // like design-mode.dispatch.js may execute before agent-protocol.js
       // has parsed, leaving window.crit.agentProtocol undefined and crashing
       // boot with "Cannot read properties of undefined (reading 'A2C')".
-      var depTags = phaseCDeps.map(function (p) {
+      var depTags = designDeps.map(function (p) {
         var t = document.createElement('script');
         t.src = p;
         t.async = false;
@@ -292,7 +293,7 @@
         return t;
       });
 
-      // Defer design-mode.js until all deps have parsed (sh, ru, mi + phaseC).
+      // Defer design-mode.js until all deps have parsed (sh, ru, mi + designDeps).
       var totalNeeded = 3 + depTags.length;
       var loaded = 0;
       function maybeBoot() {

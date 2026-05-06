@@ -591,16 +591,45 @@
     }
   }
 
+  // Hard ceiling on the rasterised area html2canvas is asked to render.
+  // Real-world long-form pages (docs, dashboards) can exceed 30,000 px
+  // tall, and html2canvas walks the whole DOM at native resolution by
+  // default. That can stall the iframe for tens of seconds and OOM the
+  // canvas toDataURL on memory-constrained devices. Skipping capture
+  // above this threshold falls back cleanly to the empty-thumbnail path
+  // (pins still work without a screenshot — only the thumbnail is
+  // missing). 20,000 px ≈ 20 viewport heights at 1080p; well above any
+  // pin context a reviewer would actually need, well below the OOM cliff.
+  var H2C_MAX_DOC_HEIGHT = 20000;
+  var H2C_MAX_DOC_WIDTH = 20000;
+
   async function captureScreenshot(target) {
     try {
       if (shouldForceH2cFailure()) {
         throw new Error('forced via crit-design-fail-h2c');
       }
+      // Cap the input size before invoking html2canvas. Use the document
+      // bounds rather than the target's rect — html2canvas captures the
+      // whole layout root regardless of the element passed in.
+      var docEl = document.documentElement;
+      var docH = docEl ? docEl.scrollHeight : 0;
+      var docW = docEl ? docEl.scrollWidth : 0;
+      if (docH > H2C_MAX_DOC_HEIGHT || docW > H2C_MAX_DOC_WIDTH) {
+        throw new Error('document too large for screenshot capture (' + docW + 'x' + docH + ', cap ' + H2C_MAX_DOC_WIDTH + 'x' + H2C_MAX_DOC_HEIGHT + ')');
+      }
       if (document.fonts && document.fonts.ready) {
         await document.fonts.ready;
       }
       var h2c = await loadHtml2Canvas();
-      var canvas = await h2c(target, { scale: 1, logging: false });
+      // Constrain output to the viewport — covers the case where a
+      // reviewer's pin is on a fixed/sticky element on a long page.
+      // html2canvas honours width/height as the output canvas dims.
+      var canvas = await h2c(target, {
+        scale: 1,
+        logging: false,
+        width: Math.min(window.innerWidth || H2C_MAX_DOC_WIDTH, H2C_MAX_DOC_WIDTH),
+        height: Math.min(window.innerHeight || H2C_MAX_DOC_HEIGHT, H2C_MAX_DOC_HEIGHT),
+      });
       return canvas.toDataURL('image/jpeg', 0.7);
     } catch (err) {
       postToParent({ type: A2C.AGENT_ERROR, kind: 'capture-failed', message: String(err && err.message || err) });

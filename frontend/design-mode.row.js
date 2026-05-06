@@ -1,27 +1,22 @@
 // design-mode.row.js — DOM-composed design pin row.
 //
-// Phase C: rows now mount the shared buildCommentCard from
-// frontend/crit-comment-card.js so design pins reach parity with code-review's
-// comment-card affordances (Edit/Resolve/Reply/Collapse, body markdown render,
-// drift context, live-thread badge). Design-specific meta — route badge, chip
-// label, and screenshot thumbnail — is composed *into* the shared card before
-// the body so existing CSS rules (`.crit-design-comment-row`,
-// `.crit-design-comment-header`, `.crit-design-comment-thumb`) keep targeting
-// the same nodes.
+// Rows mount the shared buildCommentCard from frontend/crit-comment-card.js
+// so design pins reach parity with code-review's comment-card affordances
+// (Edit/Resolve/Reply/Collapse, body markdown render, drift context,
+// live-thread badge). Design-specific meta — route badge, chip label, and
+// screenshot thumbnail — is composed into the shared card before the body
+// so existing CSS rules (`.crit-design-comment-row`,
+// `.crit-design-comment-header`, `.crit-design-comment-thumb`) keep
+// targeting the same nodes.
 //
 // Public API:
 //   renderDesignPinRow(comment, deps) -> HTMLElement
 //     Returns the wrapper element ready for appendChild.
-//   chipLabel(domAnchor) -> string  (kept for legacy callers)
+//   chipLabel(domAnchor) -> string
 //
 // `deps` is an object with shared dependencies the card needs. design-mode.js
 // builds it once at boot; passing it explicitly keeps this module easy to
 // unit test.
-//
-// The legacy string-template helpers (renderDesignPinRowHTML,
-// renderRepliesHTML, renderReplyComposerHTML) remain exported for backwards
-// compatibility with existing tests; they will be removed once design-mode.js
-// finishes the DOM migration.
 'use strict';
 (function (root, factory) {
   var api = factory();
@@ -32,12 +27,6 @@
     root.crit.design.row = api;
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
-
-  function escapeHTML(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
 
   // Mirrors design-mode.composer.js's chip label heuristic, kept in sync but
   // duplicated to avoid module-load ordering surprises.
@@ -61,103 +50,7 @@
     } catch (_) { return ''; }
   }
 
-  // ----- Legacy string-template helpers (kept for backwards-compat tests) ---
-
-  function renderRepliesHTML(replies) {
-    if (!Array.isArray(replies) || replies.length === 0) return '';
-    var out = ['<div class="crit-design-comment-replies">'];
-    for (var i = 0; i < replies.length; i++) {
-      var r = replies[i] || {};
-      var author = r.author ? '<span class="crit-design-reply-author">@' + escapeHTML(r.author) + '</span>' : '';
-      var ts = formatTimeFallback(r.created_at);
-      var time = ts ? '<span class="crit-design-reply-time">' + escapeHTML(ts) + '</span>' : '';
-      out.push(
-        '<div class="crit-design-comment-reply" data-reply-id="' + escapeHTML(r.id || '') + '">' +
-          '<div class="crit-design-reply-header">' + author + time + '</div>' +
-          '<div class="crit-design-reply-body">' + escapeHTML(r.body || '') + '</div>' +
-        '</div>'
-      );
-    }
-    out.push('</div>');
-    return out.join('');
-  }
-
-  function renderReplyComposerHTML(commentId, pathname, draft) {
-    var safeId = escapeHTML(commentId || '');
-    var safePath = escapeHTML(pathname || '');
-    var safeDraft = escapeHTML(draft || '');
-    return [
-      '<div class="crit-design-reply-composer" data-comment-id="' + safeId + '" data-pathname="' + safePath + '">',
-        '<textarea class="crit-design-reply-textarea" rows="3" placeholder="Write a reply… (Ctrl+Enter to submit, Escape to cancel)">' + safeDraft + '</textarea>',
-        '<div class="crit-design-reply-error" hidden></div>',
-        '<div class="crit-design-reply-actions">',
-          '<button type="button" class="btn btn-sm crit-design-reply-cancel" data-comment-id="' + safeId + '">Cancel</button>',
-          '<button type="button" class="btn btn-sm btn-primary crit-design-reply-save" data-comment-id="' + safeId + '" data-pathname="' + safePath + '">Reply</button>',
-        '</div>',
-      '</div>',
-    ].join('');
-  }
-
-  function renderEditComposerHTML(commentId, pathname, draft) {
-    var safeId = escapeHTML(commentId || '');
-    var safePath = escapeHTML(pathname || '');
-    var safeDraft = escapeHTML(draft || '');
-    return [
-      '<div class="crit-design-edit-composer" data-comment-id="' + safeId + '" data-pathname="' + safePath + '">',
-        '<textarea class="crit-design-edit-textarea" rows="3" placeholder="Edit comment… (Ctrl+Enter to submit, Escape to cancel)">' + safeDraft + '</textarea>',
-        '<div class="crit-design-edit-error" hidden></div>',
-        '<div class="crit-design-edit-actions">',
-          '<button type="button" class="btn btn-sm crit-design-edit-cancel" data-comment-id="' + safeId + '">Cancel</button>',
-          '<button type="button" class="btn btn-sm btn-primary crit-design-edit-save" data-comment-id="' + safeId + '" data-pathname="' + safePath + '">Update</button>',
-        '</div>',
-      '</div>',
-    ].join('');
-  }
-
-  function renderDesignPinRowHTML(c) {
-    var a = c.dom_anchor || {};
-    var thumb = a.screenshot
-      ? '<img class="crit-design-comment-thumb" src="' + escapeHTML(a.screenshot) + '" alt="">'
-      : '';
-    var resolved = c.resolved ? ' data-resolved="true"' : '';
-    var author = c.author ? '<span class="crit-design-comment-author">@' + escapeHTML(c.author) + '</span>' : '';
-    var ts = formatTimeFallback(c.created_at);
-    var time = ts ? '<span class="crit-design-comment-time">' + escapeHTML(ts) + '</span>' : '';
-    var resolveLabel = c.resolved ? 'Reopen' : 'Resolve';
-    var pathname = a.pathname || '';
-    var commentId = c.id || '';
-    var replies = renderRepliesHTML(c.replies);
-    var composer = c._replyOpen
-      ? renderReplyComposerHTML(commentId, pathname, c._replyDraft || '')
-      : '';
-    var editComposer = c._editOpen
-      ? renderEditComposerHTML(commentId, pathname, c._editDraft != null ? c._editDraft : (c.body || ''))
-      : '';
-    var bodySection = c._editOpen
-      ? editComposer
-      : '<div class="crit-design-comment-body">' + escapeHTML(c.body || '') + '</div>';
-    return [
-      '<div class="comment-card crit-design-comment-row" data-id="' + escapeHTML(commentId) + '" data-comment-id="' + escapeHTML(commentId) + '" data-design-route="' + escapeHTML(pathname) + '"' + resolved + '>',
-        '<div class="crit-design-comment-header">',
-          '<span class="crit-design-comment-route-badge">' + escapeHTML(pathname) + '</span>',
-          '<span class="crit-design-comment-chip">' + escapeHTML(chipLabel(a)) + '</span>',
-          author,
-          time,
-        '</div>',
-        thumb,
-        bodySection,
-        replies,
-        '<div class="crit-design-comment-actions">',
-          '<button type="button" class="btn btn-sm crit-design-comment-edit" data-comment-id="' + escapeHTML(commentId) + '" data-pathname="' + escapeHTML(pathname) + '">Edit</button>',
-          '<button type="button" class="btn btn-sm crit-design-comment-reply" data-comment-id="' + escapeHTML(commentId) + '" data-pathname="' + escapeHTML(pathname) + '">Reply</button>',
-          '<button type="button" class="btn btn-sm crit-design-comment-resolve" data-comment-id="' + escapeHTML(commentId) + '" data-pathname="' + escapeHTML(pathname) + '">' + resolveLabel + '</button>',
-        '</div>',
-        composer,
-      '</div>',
-    ].join('');
-  }
-
-  // ----- DOM-composed row (Phase C — mounts shared buildCommentCard) -------
+  // ----- DOM-composed row (mounts shared buildCommentCard) ----------------
 
   // makeReplyListBuilder — returns a (comment, filePath, extraClass) function
   // that buildCommentCard can invoke. Closes over `deps` so we get markdown
@@ -532,10 +425,6 @@
 
   return {
     renderDesignPinRow: renderDesignPinRow,
-    renderDesignPinRowHTML: renderDesignPinRowHTML,
     chipLabel: chipLabel,
-    renderRepliesHTML: renderRepliesHTML,
-    renderReplyComposerHTML: renderReplyComposerHTML,
-    renderEditComposerHTML: renderEditComposerHTML,
   };
 });

@@ -120,8 +120,9 @@ test('crit-agent setMode toggles pin-mode class on overlay root', () => {
 
 test('design-mode expand-all button updates textContent label', () => {
   // Mirrors app.js#updateExpandAllLabel — the design-mode handler must flip
-  // the visible button text in addition to aria-pressed and title.
-  const js = fs.readFileSync(path.join(__dirname, '..', 'design-mode.js'), 'utf8');
+  // the visible button text in addition to aria-pressed and title. The
+  // handler now lives in design-mode.panel-render.js.
+  const js = fs.readFileSync(path.join(__dirname, '..', 'design-mode.panel-render.js'), 'utf8');
   assert.match(
     js,
     /expandBtn\.textContent\s*=\s*state\.designExpandAll\s*\?\s*['"]Collapse all['"]\s*:\s*['"]Expand all['"]/
@@ -131,9 +132,10 @@ test('design-mode expand-all button updates textContent label', () => {
 test('design-mode comment-count button gets dynamic title (parity with app.js)', () => {
   // The navbar pill (count text + dynamic title + resolved-state class) is
   // now driven by the shared helper crit.shared.updateCommentCountIndicator,
-  // so design-mode.js and app.js can't drift. Verify both modes call it and
-  // the helper itself owns the strings.
-  const dm = fs.readFileSync(path.join(__dirname, '..', 'design-mode.js'), 'utf8');
+  // so design-mode and app.js can't drift. Verify both modes call it and
+  // the helper itself owns the strings. Design-mode call lives in the
+  // panel-render module.
+  const dm = fs.readFileSync(path.join(__dirname, '..', 'design-mode.panel-render.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   const shared = fs.readFileSync(path.join(__dirname, '..', 'crit-shared.js'), 'utf8');
   assert.match(dm, /updateCommentCountIndicator/);
