@@ -241,17 +241,17 @@
   border-radius: var(--crit-r-sm);
   background: #fff;
 }
-.crit-design-composer-html-preview {
-  margin: 0;
-  padding: 6px;
-  background: var(--crit-editor-code-bg);
-  font-family: var(--crit-font-mono);
-  font-size: 11px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 120px;
-  overflow: auto;
+.crit-design-composer-chip {
+  display: inline-block;
+  padding: 2px 8px;
   border-radius: var(--crit-r-sm);
+  background: var(--crit-editor-code-bg);
+  color: var(--crit-editor-fg);
+  font-size: 12px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .crit-design-composer-body {
   background: var(--crit-design-composer-input-bg);
@@ -267,27 +267,6 @@
   font-size: 12px;
   color: var(--crit-design-composer-error-fg);
 }
-.crit-design-composer-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-}
-.crit-design-composer-actions button {
-  appearance: none;
-  background: transparent;
-  color: var(--crit-editor-fg);
-  border: 1px solid var(--crit-pill-border);
-  padding: 4px 10px;
-  border-radius: var(--crit-r-sm);
-  cursor: pointer;
-  font-size: 13px;
-}
-.crit-design-composer-save {
-  background: var(--crit-brand);
-  color: #fff;
-  border-color: var(--crit-brand);
-}
-
 .crit-design-ancestor-menu-host {
   pointer-events: auto;
 }
@@ -377,6 +356,38 @@
   font-size: 10px;
   color: var(--crit-editor-fg-muted);
   word-break: break-all;
+}
+.crit-design-comment-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--crit-editor-fg-muted);
+}
+.crit-design-comment-chip {
+  display: inline-block;
+  max-width: 60%;
+  padding: 1px 6px;
+  border-radius: var(--crit-r-sm);
+  background: var(--crit-editor-code-bg);
+  color: var(--crit-editor-fg);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crit-design-comment-author { font-weight: 500; }
+.crit-design-comment-time { font-variant-numeric: tabular-nums; }
+.crit-design-comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+.crit-design-comment-row[data-resolved="true"] .crit-design-comment-body {
+  text-decoration: line-through;
+  opacity: 0.7;
 }
 
 /* ---- Phase D: drifted tray ---- */
