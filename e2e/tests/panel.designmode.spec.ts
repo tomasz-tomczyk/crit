@@ -137,3 +137,44 @@ test.describe('design-mode comments panel — M15 panel close button', () => {
     expect(after).toBe(before);
   });
 });
+
+test.describe('design-mode comments panel — M18 reply composer', () => {
+  test.skip(true, 'phase F runner');
+
+  test('Reply on design pin posts to /api/comment/{id}/replies and renders below comment', async ({ page }) => {
+    await page.goto('/design');
+    const row = page.locator('#commentsPanelBody .crit-design-comment-row').first();
+    await row.locator('.crit-design-comment-reply').click();
+    const composer = row.locator('.crit-design-reply-composer');
+    await expect(composer).toBeVisible();
+    await composer.locator('.crit-design-reply-textarea').fill('a reply');
+    // Cmd+Enter (Meta on darwin) submits.
+    await composer.locator('.crit-design-reply-textarea').press('Meta+Enter');
+    const reply = row.locator('.crit-design-comment-reply').first();
+    await expect(reply.locator('.crit-design-reply-body')).toContainText('a reply');
+    await expect(reply.locator('.crit-design-reply-author')).toBeVisible();
+    await expect(reply.locator('.crit-design-reply-time')).toBeVisible();
+  });
+
+  test('Esc with text triggers confirm before discarding draft', async ({ page }) => {
+    await page.goto('/design');
+    const row = page.locator('#commentsPanelBody .crit-design-comment-row').first();
+    await row.locator('.crit-design-comment-reply').click();
+    const ta = row.locator('.crit-design-reply-textarea');
+    await ta.fill('half-written');
+    page.once('dialog', async d => { await d.dismiss(); });
+    await ta.press('Escape');
+    await expect(row.locator('.crit-design-reply-composer')).toBeVisible();
+    page.once('dialog', async d => { await d.accept(); });
+    await ta.press('Escape');
+    await expect(row.locator('.crit-design-reply-composer')).toHaveCount(0);
+  });
+
+  test('Esc on empty composer closes immediately', async ({ page }) => {
+    await page.goto('/design');
+    const row = page.locator('#commentsPanelBody .crit-design-comment-row').first();
+    await row.locator('.crit-design-comment-reply').click();
+    await row.locator('.crit-design-reply-textarea').press('Escape');
+    await expect(row.locator('.crit-design-reply-composer')).toHaveCount(0);
+  });
+});

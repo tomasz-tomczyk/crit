@@ -734,6 +734,153 @@
   });
 
   // ============================================================
+  // Reply on design-mode comment rows.
+  // Endpoint: POST /api/comment/{id}/replies?path=<pathname>
+  // The row template renders an inline composer when c._replyOpen is set.
+  // Draft text is held on c._replyDraft so it survives panel re-renders
+  // (matching code-review's activeReplyForms behaviour).
+  // ============================================================
+  function findCommentById(id) {
+    return (state.comments || []).find(function (x) { return x && x.id === id; });
+  }
+
+  function focusReplyTextareaFor(id) {
+    requestAnimationFrame(function () {
+      var card = document.querySelector('.crit-design-comment-row[data-comment-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+      if (!card) return;
+      var ta = card.querySelector('.crit-design-reply-textarea');
+      if (!ta) return;
+      ta.focus();
+      // Place cursor at end so existing draft text is preserved usefully.
+      try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (_) {}
+    });
+  }
+
+  function closeReplyComposer(c) {
+    if (!c) return;
+    c._replyOpen = false;
+    c._replyDraft = '';
+    refreshPanel();
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.crit-design-comment-reply');
+    if (!btn) return;
+    e.stopPropagation();
+    var id = btn.dataset.commentId;
+    if (!id) return;
+    var c = findCommentById(id);
+    if (!c) return;
+    c._replyOpen = true;
+    refreshPanel();
+    focusReplyTextareaFor(id);
+  });
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.crit-design-reply-cancel');
+    if (!btn) return;
+    e.stopPropagation();
+    var id = btn.dataset.commentId;
+    var c = findCommentById(id);
+    if (!c) return;
+    var card = btn.closest('.crit-design-comment-row');
+    var ta = card && card.querySelector('.crit-design-reply-textarea');
+    var dirty = ta && ta.value.trim().length > 0;
+    if (dirty) {
+      var ok = window.confirm('Discard reply?');
+      if (!ok) return;
+    }
+    closeReplyComposer(c);
+  });
+
+  async function submitReply(c, pathname, body, saveBtn, errEl) {
+    if (!c || !c.id || !body) return;
+    if (saveBtn) saveBtn.disabled = true;
+    if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+    try {
+      var url = '/api/comment/' + encodeURIComponent(c.id) + '/replies?path=' + encodeURIComponent(pathname || '/');
+      var res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: body }),
+      });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+      var reply = await res.json();
+      c.replies = Array.isArray(c.replies) ? c.replies : [];
+      c.replies.push(reply);
+      c._replyOpen = false;
+      c._replyDraft = '';
+      refreshPanel();
+    } catch (err) {
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent = String(err && err.message || err);
+      } else {
+        showToast('Reply failed: ' + (err && err.message || err));
+      }
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.crit-design-reply-save');
+    if (!btn) return;
+    e.stopPropagation();
+    var id = btn.dataset.commentId;
+    var path = btn.dataset.pathname || '/';
+    var c = findCommentById(id);
+    if (!c) return;
+    var card = btn.closest('.crit-design-comment-row');
+    var ta = card && card.querySelector('.crit-design-reply-textarea');
+    var errEl = card && card.querySelector('.crit-design-reply-error');
+    var body = ta ? ta.value.trim() : '';
+    if (!body) {
+      if (errEl) { errEl.hidden = false; errEl.textContent = 'Reply body required'; }
+      return;
+    }
+    submitReply(c, path, body, btn, errEl);
+  });
+
+  // Keep the in-memory draft in sync so refreshPanel doesn't drop typed text.
+  document.addEventListener('input', function (e) {
+    var ta = e.target;
+    if (!ta || !ta.classList || !ta.classList.contains('crit-design-reply-textarea')) return;
+    var card = ta.closest('.crit-design-comment-row');
+    var id = card && card.dataset.commentId;
+    if (!id) return;
+    var c = findCommentById(id);
+    if (!c) return;
+    c._replyDraft = ta.value;
+  });
+
+  document.addEventListener('keydown', function (e) {
+    var ta = e.target;
+    if (!ta || !ta.classList || !ta.classList.contains('crit-design-reply-textarea')) return;
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      var card = ta.closest('.crit-design-comment-row');
+      var saveBtn = card && card.querySelector('.crit-design-reply-save');
+      if (saveBtn) saveBtn.click();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      var card2 = ta.closest('.crit-design-comment-row');
+      var id = card2 && card2.dataset.commentId;
+      var c = id ? findCommentById(id) : null;
+      if (!c) return;
+      var dirty = ta.value.trim().length > 0;
+      if (dirty) {
+        var ok = window.confirm('Discard reply?');
+        if (!ok) return;
+      }
+      closeReplyComposer(c);
+    }
+  });
+
+  // ============================================================
   // Task 15: Clicking a comment row navigates iframe
   // ============================================================
   document.addEventListener('click', function (e) {
