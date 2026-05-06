@@ -4,7 +4,7 @@ import { clearAllComments, loadPage, clearFocus } from './helpers';
 // ============================================================
 // File-Mode-Specific Comment Shortcuts (e, d)
 //
-// These tests use file-mode-specific API seeding (handler.js path)
+// These tests use file-mode-specific API seeding (plan.md path)
 // and verify keyboard shortcuts work in file-mode's document view.
 // Generic keyboard navigation tests live in keyboard.spec.ts.
 // ============================================================
@@ -14,20 +14,20 @@ test.describe('Keyboard Comment Shortcuts — File Mode', () => {
   });
 
   test('e edits comment on focused block', async ({ page, request }) => {
-    // Create a comment on line 1 of handler.js (first file alphabetically, so j lands here)
-    await request.post(`/api/file/comments?path=handler.js`, {
+    // Create a comment on line 1 of plan.md (first file in CLI args, so j lands here)
+    await request.post(`/api/file/comments?path=plan.md`, {
       data: { start_line: 1, end_line: 1, body: 'Filemode edit test' },
     });
 
     await loadPage(page);
-    const section = page.locator('.file-section').filter({ hasText: 'handler.js' });
+    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
     await expect(section.locator('.document-wrapper')).toBeVisible();
     await clearFocus(page);
 
     // Verify comment exists
     await expect(section.locator('.comment-card')).toBeVisible();
 
-    // Navigate to the first block (handler.js line 1)
+    // Navigate to the first block (plan.md line 1)
     await page.keyboard.press('j');
     const focused = page.locator('.line-block.kb-nav.focused');
     await expect(focused).toHaveCount(1);
@@ -44,20 +44,20 @@ test.describe('Keyboard Comment Shortcuts — File Mode', () => {
   });
 
   test('d deletes comment on focused block', async ({ page, request }) => {
-    // Create a comment on line 1 of handler.js (first file alphabetically)
-    await request.post(`/api/file/comments?path=handler.js`, {
+    // Create a comment on line 1 of plan.md (first file in CLI args)
+    await request.post(`/api/file/comments?path=plan.md`, {
       data: { start_line: 1, end_line: 1, body: 'Filemode delete test' },
     });
 
     await loadPage(page);
-    const section = page.locator('.file-section').filter({ hasText: 'handler.js' });
+    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
     await expect(section.locator('.document-wrapper')).toBeVisible();
     await clearFocus(page);
 
     // Verify comment exists
     await expect(section.locator('.comment-card')).toBeVisible();
 
-    // Navigate to the first block (handler.js line 1)
+    // Navigate to the first block (plan.md line 1)
     await page.keyboard.press('j');
     await expect(page.locator('.line-block.kb-nav.focused')).toHaveCount(1);
 
