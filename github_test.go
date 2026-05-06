@@ -2759,7 +2759,7 @@ func TestResolvePullScope(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			withDaemonFocus(t, tc.daemonFocus)
 			cj := &CritJSON{ActiveDiffScope: tc.diskScope}
-			got := resolvePullScope("", cj)
+			got := resolvePullScope(cj)
 			if got.HeadSHA != tc.wantHead || got.DiffScope != tc.wantScope {
 				t.Errorf("got=%+v want head=%q scope=%q", got, tc.wantHead, tc.wantScope)
 			}

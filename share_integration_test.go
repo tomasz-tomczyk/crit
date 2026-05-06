@@ -326,7 +326,7 @@ func reviewRoundFromAPI(t *testing.T, baseURL, token string) int {
 	return body.ReviewRound
 }
 
-// writeTestCritJSON writes a CritJSON to .crit.json in dir.
+// writeTestCritJSON writes a CritJSON to .crit/review.json in dir.
 // NOTE: readCritJSON is defined in github_test.go and shared across test files.
 func writeTestCritJSON(t *testing.T, dir string, cj CritJSON) {
 	t.Helper()

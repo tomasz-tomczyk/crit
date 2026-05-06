@@ -677,7 +677,7 @@ func mergeWebComments(critPath string, newComments []webComment, replyUpdates ma
 	// even if earlier ones were deleted from the review file.
 	webCount := highestWebIndex(cj)
 
-	scope := resolvePullScope("", &cj)
+	scope := resolvePullScope(&cj)
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, wc := range newComments {

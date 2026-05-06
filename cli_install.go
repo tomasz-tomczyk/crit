@@ -45,6 +45,7 @@ func runInstall(args []string) {
 		cwd := mustGetwd()
 		home, _ := os.UserHomeDir()
 		global := isGlobalInstall(cwd, home)
+		hadErr := false
 		for _, name := range availableIntegrations() {
 			if name == "windsurf" && global {
 				fmt.Fprintln(os.Stderr, "  Skipped: windsurf (no global install supported — run from a project)")
@@ -52,8 +53,12 @@ func runInstall(args []string) {
 			}
 			if err := installIntegration(name, force); err != nil {
 				fmt.Fprintf(os.Stderr, "  Failed: %s: %v\n", name, err)
+				hadErr = true
 				continue
 			}
+		}
+		if hadErr {
+			os.Exit(1)
 		}
 		return
 	}

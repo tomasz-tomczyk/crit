@@ -253,7 +253,7 @@ var probeDaemonFocusFn = probeDaemonFocusReal
 
 // probeDaemonFocus contacts the running daemon (if any) and returns its Focus.
 // Returns nil on any failure — best-effort.
-func probeDaemonFocus(_ string) *Focus {
+func probeDaemonFocus() *Focus {
 	return probeDaemonFocusFn()
 }
 
@@ -348,7 +348,7 @@ func loadCritJSONForOutputDir(outputDir string) (CritJSON, bool) {
 // based on the --scope flag, a running daemon's Focus, and the on-disk
 // ActiveDiffScope. Order of precedence per spec §C "crit comment scope inheritance".
 func resolveCommentScope(override commentFocusOverride, outputDir string) (inheritedScope, error) {
-	daemon := probeDaemonFocus(outputDir)
+	daemon := probeDaemonFocus()
 
 	switch override {
 	case scopeOverrideWorkingTree:

@@ -100,7 +100,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	}
 
 	// Verify health endpoint
-	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/health", entry.Port))
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/health", entry.Port))
 	if err != nil {
 		t.Fatalf("health check failed: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	readyDeadline := time.Now().Add(10 * time.Second)
 	sessionReady := false
 	for time.Now().Before(readyDeadline) {
-		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/session", entry.Port))
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/session", entry.Port))
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == 200 {
@@ -132,7 +132,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	go func() {
 		client := &http.Client{Timeout: 10 * time.Second}
 		r, err := client.Post(
-			fmt.Sprintf("http://localhost:%d/api/review-cycle", entry.Port),
+			fmt.Sprintf("http://127.0.0.1:%d/api/review-cycle", entry.Port),
 			"application/json", nil,
 		)
 		if err != nil {
@@ -147,7 +147,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	// Simulate user finishing review
 	time.Sleep(200 * time.Millisecond)
 	finishResp, err := http.Post(
-		fmt.Sprintf("http://localhost:%d/api/finish", entry.Port),
+		fmt.Sprintf("http://127.0.0.1:%d/api/finish", entry.Port),
 		"application/json", nil,
 	)
 	if err != nil {

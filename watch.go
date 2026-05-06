@@ -323,6 +323,7 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 		CreatedAt:      old.CreatedAt,
 		UpdatedAt:      now,
 		Resolved:       old.Resolved,
+		ResolvedRound:  old.ResolvedRound,
 		CarriedForward: true,
 		Live:           old.Live,
 		ReviewRound:    old.ReviewRound,

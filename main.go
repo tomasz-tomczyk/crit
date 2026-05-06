@@ -455,8 +455,8 @@ func parsePullFlags(args []string) pullFlags {
 // otherwise the on-disk ActiveDiffScope tells us a range mode is active but
 // HeadSHA is unknown. When neither indicates range mode, scope is empty
 // (legacy working-tree behavior — comments stay visible in working-tree view).
-func resolvePullScope(outputDir string, cj *CritJSON) inheritedScope {
-	if focus := probeDaemonFocus(outputDir); focus != nil && focus.Kind == FocusRange {
+func resolvePullScope(cj *CritJSON) inheritedScope {
+	if focus := probeDaemonFocus(); focus != nil && focus.Kind == FocusRange {
 		return inheritedScope{HeadSHA: focus.HeadSHA, DiffScope: "layer"}
 	}
 	if cj != nil && cj.ActiveDiffScope != "" {
@@ -581,7 +581,7 @@ func runPull(args []string) {
 		cj.ReviewRound = 1
 	}
 
-	scope := resolvePullScope(f.outputDir, &cj)
+	scope := resolvePullScope(&cj)
 	added := mergeGHCommentsScoped(&cj, ghComments, scope, threadResolved)
 
 	if added == 0 {
