@@ -30,7 +30,7 @@ test:
 	go test ./...
 
 test-frontend:
-	node frontend/test-markdown-patch.mjs
+	node frontend/_test-markdown-patch.mjs
 
 setup-hooks:
 	git config core.hooksPath .githooks
