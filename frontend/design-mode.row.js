@@ -8,6 +8,11 @@
     root.crit.design.row = api;
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
+  // Row attribute values are double-quoted, so we additionally escape single
+  // quotes to be safe against bodies that contain attribute-breaking
+  // sequences. Cannot use crit.commentCardHelpers.escapeHtml here because it
+  // does not escape single quotes (matches app.js semantics where attribute
+  // values are also double-quoted but bodies pass through markdown-it first).
   function escapeHTML(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

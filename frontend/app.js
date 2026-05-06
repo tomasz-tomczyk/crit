@@ -1312,11 +1312,14 @@
     });
   }
 
-  function escapeHtml(str) {
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  function relativeTime(dateStr) {
+  // Pure rendering helpers live in crit-comment-card-helpers.js so design-mode
+  // rows render with the same primitives. Behaviour is byte-identical to the
+  // previous inline implementations.
+  const _ccHelpers = (window.crit && window.crit.commentCardHelpers) || {};
+  const escapeHtml = _ccHelpers.escapeHtml || function (str) {
+    return String(str == null ? '' : str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  };
+  const relativeTime = _ccHelpers.relativeTime || function (dateStr) {
     const now = Date.now();
     const then = new Date(dateStr).getTime();
     const diff = Math.floor((now - then) / 1000);
@@ -1325,13 +1328,12 @@
     if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
     if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
     return Math.floor(diff / 604800) + 'w ago';
-  }
-
-  function formatTime(isoStr) {
+  };
+  const formatTime = _ccHelpers.formatTime || function (isoStr) {
     if (!isoStr) return '';
     const d = new Date(isoStr);
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
+  };
 
   function getFileByPath(path) {
     return files.find(f => f.path === path);

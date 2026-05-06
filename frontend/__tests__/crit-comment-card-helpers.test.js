@@ -1,0 +1,69 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const helpers = require('../crit-comment-card-helpers.js');
+
+test('escapeHtml escapes &, <, >, "', () => {
+  assert.equal(helpers.escapeHtml('a & b'), 'a &amp; b');
+  assert.equal(helpers.escapeHtml('<script>'), '&lt;script&gt;');
+  assert.equal(helpers.escapeHtml('"x"'), '&quot;x&quot;');
+});
+
+test('escapeHtml does NOT escape single quotes (matches app.js)', () => {
+  assert.equal(helpers.escapeHtml("it's"), "it's");
+});
+
+test('escapeHtml handles null/undefined', () => {
+  assert.equal(helpers.escapeHtml(null), '');
+  assert.equal(helpers.escapeHtml(undefined), '');
+});
+
+test('escapeHtml stringifies non-strings', () => {
+  assert.equal(helpers.escapeHtml(42), '42');
+  assert.equal(helpers.escapeHtml(true), 'true');
+});
+
+test('relativeTime returns "just now" under a minute', () => {
+  const dateStr = new Date(Date.now() - 5 * 1000).toISOString();
+  assert.equal(helpers.relativeTime(dateStr), 'just now');
+});
+
+test('relativeTime returns minutes', () => {
+  const dateStr = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  assert.equal(helpers.relativeTime(dateStr), '5m ago');
+});
+
+test('relativeTime returns hours', () => {
+  const dateStr = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
+  assert.equal(helpers.relativeTime(dateStr), '3h ago');
+});
+
+test('relativeTime returns days', () => {
+  const dateStr = new Date(Date.now() - 2 * 86400 * 1000).toISOString();
+  assert.equal(helpers.relativeTime(dateStr), '2d ago');
+});
+
+test('relativeTime returns weeks', () => {
+  const dateStr = new Date(Date.now() - 3 * 604800 * 1000).toISOString();
+  assert.equal(helpers.relativeTime(dateStr), '3w ago');
+});
+
+test('formatTime returns empty string on falsy input', () => {
+  assert.equal(helpers.formatTime(''), '');
+  assert.equal(helpers.formatTime(null), '');
+  assert.equal(helpers.formatTime(undefined), '');
+});
+
+test('formatTime returns hh:mm style string for an ISO date', () => {
+  const out = helpers.formatTime('2024-01-15T14:30:00Z');
+  // Locale output varies by platform; just sanity-check it contains digits + ":"
+  assert.match(out, /\d{1,2}:\d{2}/);
+});
+
+test('class constants are stable strings', () => {
+  assert.equal(helpers.BTN_CLASS, 'btn');
+  assert.equal(helpers.BTN_SM_CLASS, 'btn btn-sm');
+  assert.equal(helpers.COMMENT_CARD_CLASS, 'comment-card');
+  assert.equal(helpers.COMMENT_BODY_CLASS, 'comment-body');
+  assert.equal(helpers.COMMENT_ACTIONS_CLASS, 'comment-actions');
+});

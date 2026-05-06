@@ -243,6 +243,7 @@
       // Phase C: protocol + dispatcher + helper modules. Load in parallel;
       // design-mode.js (loaded last) requires their `window.crit.*` namespaces.
       var phaseCDeps = [
+        'crit-comment-card-helpers.js',
         'agent-protocol.js',
         'design-mode.dispatch.js',
         'design-mode.toggle.js',
@@ -294,6 +295,8 @@
       var v2 = document.createElement('script'); v2.src = 'highlight.min.js'; document.body.appendChild(v2);
       var v3 = document.createElement('script'); v3.src = 'mermaid.min.js'; document.body.appendChild(v3);
       var v4 = document.createElement('script'); v4.src = 'diff-match-patch.min.js'; document.body.appendChild(v4);
+      // Pure rendering helpers shared with design-mode rows. Must load before app.js.
+      var ch = document.createElement('script'); ch.src = 'crit-comment-card-helpers.js'; document.body.appendChild(ch);
       var a = document.createElement('script'); a.src = 'app.js'; document.body.appendChild(a);
     }
   })();
