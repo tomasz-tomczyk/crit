@@ -1041,19 +1041,27 @@ func (s *Server) handleFileCommentUpdate(w http.ResponseWriter, r *http.Request,
 	case http.MethodPut:
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
 		var req struct {
-			Body string `json:"body"`
+			Body      string     `json:"body"`
+			DOMAnchor *DOMAnchor `json:"dom_anchor"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
-		if req.Body == "" {
+		if req.Body == "" && req.DOMAnchor == nil {
 			http.Error(w, "Comment body is required", http.StatusBadRequest)
 			return
 		}
-		c, ok := s.session.Load().UpdateComment(path, id, req.Body)
+		c, ok, reason := s.session.Load().UpdateCommentWithAnchor(path, id, req.Body, req.DOMAnchor)
 		if !ok {
-			http.Error(w, "Comment not found", http.StatusNotFound)
+			switch reason {
+			case "not_found":
+				http.Error(w, "Comment not found", http.StatusNotFound)
+			case "anchor_on_code_comment":
+				http.Error(w, "dom_anchor is only valid on design pins", http.StatusBadRequest)
+			default:
+				http.Error(w, "Update failed", http.StatusBadRequest)
+			}
 			return
 		}
 		writeJSON(w, c)

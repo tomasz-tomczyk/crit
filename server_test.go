@@ -3787,3 +3787,65 @@ func TestHandleFileComments_CodeComment_LineValidationUnchanged(t *testing.T) {
 		t.Errorf("status = %d, want 400 for zero-line code comment", w.Code)
 	}
 }
+
+func TestHandleFileCommentUpdate_AcceptsDOMAnchor(t *testing.T) {
+	type tc struct {
+		name       string
+		seedAnchor *DOMAnchor
+		body       string
+		wantStatus int
+		wantAnchor func(*DOMAnchor) bool
+	}
+	cases := []tc{
+		{
+			name:       "PUT dom_anchor on existing design pin replaces anchor",
+			seedAnchor: &DOMAnchor{Pathname: "/dashboard", CSSSelector: "#old"},
+			body:       `{"body":"pin","dom_anchor":{"pathname":"/dashboard","css_selector":"#new","tag_chain":["MAIN","H2"],"outer_html":"<h2>x</h2>","viewport_width":1280,"viewport_height":800}}`,
+			wantStatus: http.StatusOK,
+			wantAnchor: func(a *DOMAnchor) bool { return a != nil && a.CSSSelector == "#new" },
+		},
+		{
+			name:       "PUT without dom_anchor preserves existing anchor (does not drop it)",
+			seedAnchor: &DOMAnchor{Pathname: "/dashboard", CSSSelector: "#keep"},
+			body:       `{"body":"pin updated"}`,
+			wantStatus: http.StatusOK,
+			wantAnchor: func(a *DOMAnchor) bool { return a != nil && a.CSSSelector == "#keep" },
+		},
+		{
+			name:       "PUT dom_anchor on code comment is rejected (only design pins re-anchor)",
+			seedAnchor: nil,
+			body:       `{"body":"x","dom_anchor":{"pathname":"/x","css_selector":"#y","tag_chain":["H1"],"outer_html":"<h1/>","viewport_width":1,"viewport_height":1}}`,
+			wantStatus: http.StatusBadRequest,
+			wantAnchor: func(a *DOMAnchor) bool { return a == nil },
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s, session := newTestServer(t)
+			session.ReviewType = "design"
+			session.Origin = "http://localhost:3000"
+			session.Files = []*FileEntry{{
+				Path: "/dashboard", FileType: "design-route", Status: "added",
+				Comments: []Comment{{ID: "c1", Body: "seed", DOMAnchor: c.seedAnchor}},
+			}}
+			req := httptest.NewRequest("PUT", "/api/comment/c1?path=/dashboard", strings.NewReader(c.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, req)
+			if w.Code != c.wantStatus {
+				t.Fatalf("status = %d, want %d, body = %s", w.Code, c.wantStatus, w.Body.String())
+			}
+			var stored *DOMAnchor
+			for _, fe := range session.Files {
+				for _, cm := range fe.Comments {
+					if cm.ID == "c1" {
+						stored = cm.DOMAnchor
+					}
+				}
+			}
+			if !c.wantAnchor(stored) {
+				t.Errorf("post-state DOMAnchor mismatch: %+v", stored)
+			}
+		})
+	}
+}

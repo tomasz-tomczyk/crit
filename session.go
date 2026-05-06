@@ -1150,21 +1150,41 @@ func (s *Session) DeleteReviewCommentReply(commentID, replyID string) bool {
 
 // UpdateComment updates a comment in a specific file.
 func (s *Session) UpdateComment(filePath, id, body string) (Comment, bool) {
+	c, ok, _ := s.UpdateCommentWithAnchor(filePath, id, body, nil)
+	return c, ok
+}
+
+// UpdateCommentWithAnchor updates a comment's body and optionally its DOMAnchor.
+// - body == "" leaves the body unchanged.
+// - newAnchor == nil leaves the existing anchor unchanged.
+// - newAnchor != nil requires the existing comment to be a design pin.
+// Returns (comment, true, "") on success.
+func (s *Session) UpdateCommentWithAnchor(filePath, id, body string, newAnchor *DOMAnchor) (Comment, bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f := s.fileByPathLocked(filePath)
-	if f == nil {
-		return Comment{}, false
+	fe := s.fileByPathLocked(filePath)
+	if fe == nil {
+		return Comment{}, false, "not_found"
 	}
-	for i, c := range f.Comments {
-		if c.ID == id {
-			f.Comments[i].Body = body
-			f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			s.scheduleWrite()
-			return f.Comments[i], true
+	for i := range fe.Comments {
+		c := &fe.Comments[i]
+		if c.ID != id {
+			continue
 		}
+		if newAnchor != nil && c.DOMAnchor == nil {
+			return Comment{}, false, "anchor_on_code_comment"
+		}
+		if body != "" {
+			c.Body = body
+		}
+		if newAnchor != nil {
+			c.DOMAnchor = newAnchor
+		}
+		c.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		s.scheduleWrite()
+		return *c, true, ""
 	}
-	return Comment{}, false
+	return Comment{}, false, "not_found"
 }
 
 // SetCommentResolved sets or clears the resolved flag on a comment.
