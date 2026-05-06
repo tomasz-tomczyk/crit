@@ -74,3 +74,68 @@ test('unknown type rejected', () => {
 test('MESSAGE_TYPES is frozen', () => {
   assert.throws(() => { MESSAGE_TYPES.AGENT_READY = 'x'; });
 });
+
+test('pin-resolution-result validates with status and optional rect', () => {
+  assert.deepEqual(
+    validateMessage({ type: 'pin-resolution-result', pin_id: 'p1', status: 'resolved', rect: { x: 0, y: 0, w: 10, h: 10 } }),
+    { ok: true }
+  );
+  assert.deepEqual(
+    validateMessage({ type: 'pin-resolution-result', pin_id: 'p1', status: 'drifted' }),
+    { ok: true }
+  );
+  assert.deepEqual(
+    validateMessage({ type: 'pin-resolution-result', pin_id: 'p1', status: 'drifted-recoverable', recovered_via: 'role+name+landmark', rect: { x: 1, y: 2, w: 3, h: 4 } }),
+    { ok: true }
+  );
+});
+
+test('pin-resolution-result rejects unknown status', () => {
+  const r = validateMessage({ type: 'pin-resolution-result', pin_id: 'p1', status: 'lost' });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'pin-resolution-result.status');
+});
+
+test('pin-resolution-result rejects bad rect', () => {
+  const r = validateMessage({ type: 'pin-resolution-result', pin_id: 'p1', status: 'resolved', rect: { x: 0, y: 0, w: 'wide', h: 10 } });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'pin-resolution-result.rect');
+});
+
+test('viewport-applied validates with width/height', () => {
+  assert.deepEqual(validateMessage({ type: 'viewport-applied', width: 1280, height: 800 }), { ok: true });
+  assert.equal(validateMessage({ type: 'viewport-applied', width: 'wide', height: 800 }).ok, false);
+});
+
+test('request-resolution validates with no payload', () => {
+  assert.deepEqual(validateMessage({ type: 'request-resolution' }), { ok: true });
+});
+
+test('enter-reanchor-mode validates with pin_id', () => {
+  assert.deepEqual(validateMessage({ type: 'enter-reanchor-mode', pin_id: 'p3' }), { ok: true });
+  assert.equal(validateMessage({ type: 'enter-reanchor-mode' }).ok, false);
+});
+
+test('selection accepts optional reanchor_for', () => {
+  const sel = {
+    type: 'selection',
+    dom_anchor: {
+      pathname: '/x', css_selector: 'h1', tag_chain: ['H1'],
+      outer_html: '<h1/>', screenshot: '',
+      viewport_width: 1280, viewport_height: 800,
+    },
+    pointer: { x: 1, y: 2 },
+    reanchor_for: 'p9',
+  };
+  assert.deepEqual(validateMessage(sel), { ok: true });
+
+  sel.reanchor_for = 7;
+  assert.equal(validateMessage(sel).ok, false);
+});
+
+test('set-viewport requires positive integer width and height', () => {
+  assert.equal(validateMessage({ type: 'set-viewport', width: 1280, height: 800 }).ok, true);
+  assert.equal(validateMessage({ type: 'set-viewport', width: 0, height: 800 }).ok, false);
+  assert.equal(validateMessage({ type: 'set-viewport', width: 1280 }).ok, false);
+  assert.equal(validateMessage({ type: 'set-viewport', width: '1280', height: 800 }).ok, false);
+});

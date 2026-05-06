@@ -17,6 +17,8 @@
     PIN_CLICKED:        'pin-clicked',
     FOCUS_STATE:        'focus-state',
     ROUTE_CHANGE:       'route-change',
+    PIN_RESOLUTION_RESULT: 'pin-resolution-result',
+    VIEWPORT_APPLIED:   'viewport-applied',
   };
 
   // Chrome → Agent
@@ -25,6 +27,9 @@
     COMMIT_ANCESTOR_SELECTION: 'commit-ancestor-selection',
     CANCEL_ANCESTOR_SELECTION: 'cancel-ancestor-selection',
     SET_PINS:           'set-pins',
+    REQUEST_RESOLUTION: 'request-resolution',
+    ENTER_REANCHOR_MODE: 'enter-reanchor-mode',
+    SET_VIEWPORT:       'set-viewport',
   };
 
   const MESSAGE_TYPES = Object.freeze({ ...A2C, ...C2A });
@@ -51,6 +56,38 @@
         if (!isString(a.outer_html)) return { ok: false, reason: 'selection.outer_html' };
         if (!isString(a.screenshot)) return { ok: false, reason: 'selection.screenshot' };
         if (!isFiniteNumber(a.viewport_width) || !isFiniteNumber(a.viewport_height)) return { ok: false, reason: 'selection.viewport' };
+        if (msg.reanchor_for !== undefined && !isString(msg.reanchor_for)) {
+          return { ok: false, reason: 'selection.reanchor_for' };
+        }
+        return { ok: true };
+      }
+      case A2C.PIN_RESOLUTION_RESULT: {
+        if (!isString(msg.pin_id)) return { ok: false, reason: 'pin-resolution-result.pin_id' };
+        if (msg.status !== 'resolved' && msg.status !== 'drifted-recoverable' && msg.status !== 'drifted') {
+          return { ok: false, reason: 'pin-resolution-result.status' };
+        }
+        if (msg.rect !== undefined) {
+          const r = msg.rect;
+          if (!r || !isFiniteNumber(r.x) || !isFiniteNumber(r.y) || !isFiniteNumber(r.w) || !isFiniteNumber(r.h)) {
+            return { ok: false, reason: 'pin-resolution-result.rect' };
+          }
+        }
+        if (msg.recovered_via !== undefined && !isString(msg.recovered_via)) {
+          return { ok: false, reason: 'pin-resolution-result.recovered_via' };
+        }
+        return { ok: true };
+      }
+      case A2C.VIEWPORT_APPLIED:
+        if (!isFiniteNumber(msg.width) || !isFiniteNumber(msg.height)) return { ok: false, reason: 'viewport-applied.size' };
+        return { ok: true };
+      case C2A.REQUEST_RESOLUTION:
+        return { ok: true };
+      case C2A.ENTER_REANCHOR_MODE:
+        if (!isString(msg.pin_id)) return { ok: false, reason: 'enter-reanchor-mode.pin_id' };
+        return { ok: true };
+      case C2A.SET_VIEWPORT: {
+        if (!isFiniteNumber(msg.width) || !isFiniteNumber(msg.height)) return { ok: false, reason: 'set-viewport.size' };
+        if (msg.width <= 0 || msg.height <= 0) return { ok: false, reason: 'set-viewport.nonpositive' };
         return { ok: true };
       }
       case A2C.REQUEST_ANCESTOR_MENU:
