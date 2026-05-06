@@ -2,10 +2,11 @@ import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearAllComments, loadPage } from './helpers';
+import { stateFilePath } from './state-file';
 
 // Read fixture state written by setup-fixtures.sh
 function readFixtureState(): { critBin: string; fixtureDir: string } {
-  const raw = fs.readFileSync('/tmp/crit-e2e-state-3123', 'utf8');
+  const raw = fs.readFileSync(stateFilePath(process.env.CRIT_TEST_PORT || '3123'), 'utf8');
   const env: Record<string, string> = {};
   for (const line of raw.trim().split('\n')) {
     const eq = line.indexOf('=');

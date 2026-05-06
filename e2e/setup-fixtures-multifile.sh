@@ -4,6 +4,8 @@ set -euo pipefail
 PORT="${1:-3127}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 DIR=$(realpath "$(mktemp -d)")
 BIN_DIR=$(mktemp -d)
 trap 'rm -rf "$DIR" "$BIN_DIR"' EXIT
@@ -148,12 +150,12 @@ git add -A && git commit -q -m "initial commit"
 
 # Build crit binary outside the fixture dir (skip if CRIT_BIN is set)
 if [ -z "${CRIT_BIN:-}" ]; then
-  CRIT_BIN="$BIN_DIR/crit"
+  CRIT_BIN="$BIN_DIR/$(e2e_bin_name)"
   (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
 fi
 
-# Isolate from user's ~/.crit.config.json
-export HOME="$DIR"
+# Isolate from user's ~/.crit.config.json (and USERPROFILE on Windows).
+e2e_export_fake_home "$DIR"
 
 # Run crit in file mode with explicit files AND a directory
 # --share-url enables the Share button so E2E tests can exercise the share payload

@@ -4,6 +4,8 @@ set -euo pipefail
 PORT="${1:-3126}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 # Resolve symlinks in temp paths (macOS: /var -> /private/var) so that
 # filepath.Abs agrees on the root.
 DIR=$(realpath "$(mktemp -d)")
@@ -159,12 +161,12 @@ JSFILE
 
 # Build crit binary outside the fixture dir (skip if CRIT_BIN is set)
 if [ -z "${CRIT_BIN:-}" ]; then
-  CRIT_BIN="$BIN_DIR/crit"
+  CRIT_BIN="$BIN_DIR/$(e2e_bin_name)"
   (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
 fi
 
-# Isolate from user's ~/.crit.config.json
-export HOME="$DIR"
+# Isolate from user's ~/.crit.config.json (and USERPROFILE on Windows).
+e2e_export_fake_home "$DIR"
 
 # Run crit in file mode outside any git repository
 exec "$CRIT_BIN" _serve --no-open --port "$PORT" plan.md server.go handler.js

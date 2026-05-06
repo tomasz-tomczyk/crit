@@ -4,6 +4,8 @@ set -euo pipefail
 PORT="${1:-3123}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 DIR=$(mktemp -d)
 BIN_DIR=$(mktemp -d)
 trap 'rm -rf "$DIR" "$BIN_DIR" "${FAKE_HOME:-}"' EXIT
@@ -509,19 +511,23 @@ EOF
 
 # Build crit binary outside the repo (skip if CRIT_BIN is set)
 if [ -z "${CRIT_BIN:-}" ]; then
-  CRIT_BIN="$BIN_DIR/crit"
+  CRIT_BIN="$BIN_DIR/$(e2e_bin_name)"
   (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
 fi
 
 # Isolate from user's ~/.crit.config.json — use a separate HOME so config
-# files don't appear as untracked in the git fixture
+# files don't appear as untracked in the git fixture. On Windows this also
+# overrides USERPROFILE (Go's os.UserHomeDir source on Windows).
 FAKE_HOME=$(mktemp -d)
-export HOME="$FAKE_HOME"
+e2e_export_fake_home "$FAKE_HOME"
 
-# Write fixture state for E2E tests that need to run CLI commands
-echo "CRIT_BIN=$CRIT_BIN" > "/tmp/crit-e2e-state-$PORT"
-echo "CRIT_FIXTURE_DIR=$DIR" >> "/tmp/crit-e2e-state-$PORT"
-echo "FAKE_HOME=$FAKE_HOME" >> "/tmp/crit-e2e-state-$PORT"
+# Write fixture state for E2E tests that need to run CLI commands.
+STATE_FILE="$(e2e_state_file "$PORT")"
+{
+  echo "CRIT_BIN=$CRIT_BIN"
+  echo "CRIT_FIXTURE_DIR=$DIR"
+  echo "FAKE_HOME=$FAKE_HOME"
+} > "$STATE_FILE"
 
 # Configure agent_cmd for E2E testing (echo just prints stdin and exits)
 echo '{"agent_cmd": "echo"}' > "$FAKE_HOME/.crit.config.json"

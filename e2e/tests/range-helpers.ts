@@ -1,5 +1,6 @@
 import { expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'node:fs';
+import { stateFilePath } from './state-file';
 
 // Fixture state written by setup-fixtures-range-mode.sh. Cached after the
 // first read since the fixture's SHAs don't change for the lifetime of the
@@ -17,7 +18,7 @@ let cachedState: RangeFixtureState | undefined;
 function readState(): RangeFixtureState {
   if (cachedState) return cachedState;
   const port = process.env.CRIT_TEST_RANGE_PORT || '3128';
-  const text = fs.readFileSync(`/tmp/crit-e2e-state-${port}`, 'utf8');
+  const text = fs.readFileSync(stateFilePath(port), 'utf8');
   const grab = (key: string) => {
     const m = text.match(new RegExp(`^${key}=(.+)$`, 'm'));
     if (!m) throw new Error(`fixture state missing ${key}`);
