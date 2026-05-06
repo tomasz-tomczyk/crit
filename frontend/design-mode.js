@@ -278,23 +278,41 @@
   });
 
   // ============================================================
-  // Task 8: Pin/Navigate toggle (Pin disabled in Phase B)
+  // Phase C: Pin/Navigate toggle activation + set-mode dispatch to agent
   // ============================================================
+  function setActiveModeButton() {
+    if (!els.modeToggle) return;
+    els.modeToggle.querySelectorAll('.toggle-btn').forEach(function (b) {
+      var active = b.dataset.mode === state.mode;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  function setMode(value) {
+    var next = value === 'pin' ? 'pin' : 'navigate';
+    if (state.mode === next) return;
+    state.mode = next;
+    postToAgent({ type: 'set-mode', value: next });
+    setActiveModeButton();
+  }
+  state.setMode = setMode;
+
   registerInstaller(function installMode() {
     if (!els.modeToggle) return;
+    var pinBtn = els.modeToggle.querySelector('.toggle-btn[data-mode="pin"]');
+    if (pinBtn) {
+      pinBtn.removeAttribute('disabled');
+      pinBtn.removeAttribute('title');
+    }
     els.modeToggle.addEventListener('click', function (e) {
       var btn = e.target.closest('.toggle-btn');
       if (!btn) return;
-      if (btn.disabled) { e.preventDefault(); return; }
-      // Phase B only navigate is enabled; pin is HTML-disabled.
       var key = btn.dataset.mode;
-      if (key !== 'navigate') return;
-      els.modeToggle.querySelectorAll('.toggle-btn').forEach(function (b) {
-        var active = b.dataset.mode === key;
-        b.classList.toggle('active', active);
-        b.setAttribute('aria-pressed', active ? 'true' : 'false');
-      });
+      if (key !== 'navigate' && key !== 'pin') return;
+      setMode(key);
     });
+    setActiveModeButton();
   });
 
   // ============================================================
@@ -454,6 +472,12 @@
       html.push('<div class="comments-panel-file-name">' + shared.escapeHTML(route) + '</div>');
       html.push('<div class="comments-panel-file-cards">');
       rows.forEach(function (c) {
+        // Phase C: design pins use the dedicated row renderer (thumb + selector).
+        var rowMod = window.crit && window.crit.design && window.crit.design.row;
+        if (c.dom_anchor && rowMod) {
+          html.push(rowMod.renderDesignPinRowHTML(c));
+          return;
+        }
         var body = (c.body || '').replace(/\s+/g, ' ').trim();
         var excerpt = body.length > 200 ? body.slice(0, 200) + '…' : body;
         var resolvedAttr = c.resolved ? ' data-resolved="true"' : '';
@@ -609,30 +633,230 @@
   });
 
   // ============================================================
-  // Phase C: agent message recorder + dispatcher
+  // Phase C: agent ↔ chrome wiring (dispatcher, queue, origin guard,
+  // composer, ancestor menu, focus state, save flow)
   // ============================================================
+  var _sender = null;
+  function postToAgent(m) {
+    if (_sender) _sender.send(m);
+  }
+  state.postToAgent = postToAgent;
+
+  function showToast(message) {
+    var host = document.querySelector('.crit-design-toast-host');
+    if (!host) {
+      host = document.createElement('div');
+      host.className = 'crit-design-toast-host';
+      document.body.appendChild(host);
+    }
+    var t = document.createElement('div');
+    t.className = 'crit-design-toast';
+    t.textContent = message;
+    host.appendChild(t);
+    setTimeout(function () { t.remove(); }, 4000);
+  }
+  state.showToast = showToast;
+
+  // ---- composer ----
+  function ensureComposerHost() {
+    var h = document.querySelector('.crit-design-composer-host');
+    if (h) return h;
+    h = document.createElement('div');
+    h.className = 'crit-design-composer-host';
+    var panel = document.querySelector('.comments-panel') || document.body;
+    panel.appendChild(h);
+    return h;
+  }
+
+  function closeComposer() {
+    var h = document.querySelector('.crit-design-composer-host');
+    if (h) { h.innerHTML = ''; delete h.dataset.active; }
+    // Intentional: do not change state.mode here — keep Pin mode for rapid pinning.
+  }
+
+  async function saveComposer(domAnchor) {
+    var host = document.querySelector('.crit-design-composer-host');
+    if (!host) return;
+    var bodyEl = host.querySelector('.crit-design-composer-body');
+    var body = bodyEl ? bodyEl.value.trim() : '';
+    var errEl = host.querySelector('.crit-design-composer-error');
+    if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+    if (!body) {
+      if (errEl) { errEl.hidden = false; errEl.textContent = 'Body required'; }
+      return;
+    }
+    var saveBtn = host.querySelector('.crit-design-composer-save');
+    if (saveBtn) saveBtn.disabled = true;
+    try {
+      var url = '/api/file/comments?path=' + encodeURIComponent(domAnchor.pathname);
+      var res = await shared.fetchJSON(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start_line: 0, end_line: 0, body: body, dom_anchor: domAnchor }),
+      });
+      optimisticInsertComment(domAnchor.pathname, res);
+      closeComposer();
+      refreshCommentsForRoute(domAnchor.pathname);
+    } catch (err) {
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent = String(err && err.message || err);
+      }
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  function optimisticInsertComment(pathname, comment) {
+    if (!comment || !comment.id) return;
+    var c = Object.assign({}, comment, { path: pathname });
+    state.comments = state.comments || [];
+    state.comments.unshift(c);
+    refreshPanel();
+  }
+
+  async function refreshCommentsForRoute(pathname) {
+    try {
+      var list = await shared.fetchJSON('/api/file/comments?path=' + encodeURIComponent(pathname));
+      var out = (list || []).map(function (c) {
+        var path = (c.dom_anchor && c.dom_anchor.pathname) || pathname;
+        c.path = path;
+        return c;
+      });
+      // Replace comments for that route only.
+      state.comments = (state.comments || []).filter(function (c) {
+        var p = (c.dom_anchor && c.dom_anchor.pathname) || c.path;
+        return p !== pathname;
+      }).concat(out);
+      refreshPanel();
+    } catch (_) { /* swallow */ }
+  }
+
+  function handleSelection(domAnchor /*, pointer */) {
+    var sizeMod = window.crit.design.size;
+    if (sizeMod && sizeMod.selectionTooLarge(domAnchor)) {
+      showToast('selection too large to save');
+      return;
+    }
+    var host = ensureComposerHost();
+    host.innerHTML = window.crit.design.composer.renderComposerHTML(domAnchor);
+    host.dataset.active = '1';
+    var ta = host.querySelector('.crit-design-composer-body');
+    if (ta) ta.focus();
+    var cancelBtn = host.querySelector('.crit-design-composer-cancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeComposer);
+    var saveBtn = host.querySelector('.crit-design-composer-save');
+    if (saveBtn) saveBtn.addEventListener('click', function () { saveComposer(domAnchor); });
+  }
+
+  // ---- ancestor menu ----
+  function closeAncestorMenu() {
+    var h = document.querySelector('.crit-design-ancestor-menu-host');
+    if (h) h.remove();
+  }
+  function closeAncestorMenuOnce(ev) {
+    if (ev.target.closest && ev.target.closest('.crit-design-ancestor-menu-host')) return;
+    closeAncestorMenu();
+    postToAgent({ type: 'cancel-ancestor-selection' });
+  }
+
+  function handleAncestorMenu(options, pointer) {
+    closeAncestorMenu();
+    var iframe = els.iframe;
+    if (!iframe) return;
+    var r = iframe.getBoundingClientRect();
+    var x = r.left + ((pointer && pointer.x) || 0);
+    var y = r.top + ((pointer && pointer.y) || 0);
+    var wrap = document.createElement('div');
+    wrap.className = 'crit-design-ancestor-menu-host';
+    wrap.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:2147483600;visibility:hidden;';
+    wrap.innerHTML = window.crit.design.menu.renderAncestorMenuHTML(options);
+    document.body.appendChild(wrap);
+    var clamped = window.crit.design.menu.clampMenuPosition({
+      x: x, y: y,
+      width: wrap.offsetWidth,
+      height: wrap.offsetHeight,
+      vw: window.innerWidth,
+      vh: window.innerHeight,
+      pad: 8,
+    });
+    wrap.style.left = clamped.x + 'px';
+    wrap.style.top = clamped.y + 'px';
+    wrap.style.visibility = 'visible';
+    wrap.addEventListener('click', function (ev) {
+      var btn = ev.target.closest && ev.target.closest('.crit-design-ancestor-menu-item');
+      if (!btn) return;
+      var level = Number(btn.dataset.level);
+      postToAgent({ type: 'commit-ancestor-selection', level: level });
+      closeAncestorMenu();
+    });
+    setTimeout(function () {
+      document.addEventListener('click', closeAncestorMenuOnce, { once: true, capture: true });
+    }, 0);
+  }
+
+  function handleAgentReady() {
+    state.agentReady = true;
+    if (_sender) _sender.markReady();
+  }
+  function handleAgentError(e) {
+    showToast(e.kind + ': ' + e.message);
+  }
+  function handleFocusState(b) {
+    state.focusInInput = !!b;
+  }
+
   registerInstaller(function installAgentBridge() {
     if (!state.iframeWindow || !state.proxyOrigin) return;
     var protocol = window.crit && window.crit.agentProtocol;
     if (!protocol) return;
+    var dispatchMod = window.crit.design.dispatch;
+    var queueMod = window.crit.design.queue;
+    var originMod = window.crit.design.origin;
+    if (!dispatchMod || !queueMod || !originMod) return;
+
+    _sender = queueMod.makeAgentSender({
+      post: function (m) {
+        var iw = state.iframeWindow;
+        if (!iw) { _sender.requeue(m); return; }
+        try { iw.postMessage(m, state.proxyOrigin); } catch (_) { /* noop */ }
+      },
+    });
+
+    var dispatch = dispatchMod.makeMessageDispatcher({
+      onAgentReady: handleAgentReady,
+      onAgentError: handleAgentError,
+      onSelection: handleSelection,
+      onRequestAncestorMenu: handleAncestorMenu,
+      onFocusState: handleFocusState,
+    });
+
+    var guard = originMod.makeOriginGuard({
+      expectSource: state.iframeWindow,
+      expectOrigin: state.proxyOrigin,
+    });
+
     window.__critDesignMessages = [];
     window.addEventListener('message', function (ev) {
-      if (ev.source !== state.iframeWindow) return;
-      if (ev.origin !== state.proxyOrigin) return;
-      var v = protocol.validateMessage(ev.data);
-      if (!v.ok) return;
+      if (!guard(ev)) return;
       window.__critDesignMessages.push(ev.data);
-      try { dispatchAgentMessage(ev.data); } catch (e) { console.error('[design-mode] dispatch error:', e); }
+      try { dispatch(ev.data); } catch (e) { console.error('[design-mode] dispatch error:', e); }
     });
   });
 
-  // Dispatcher and handlers wired in later Phase C tasks. Defined here so
-  // the install above has a target.
-  var _dispatcher = null;
-  function dispatchAgentMessage(msg) {
-    if (_dispatcher) _dispatcher(msg);
-  }
-  state._setDispatcher = function (fn) { _dispatcher = fn; };
+  // ---- keyboard shortcut (p/Esc) gated on focus-state ----
+  document.addEventListener('keydown', function (ev) {
+    var t = ev.target;
+    var localFocus = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || (t.isContentEditable));
+    if (localFocus) return;
+    var sc = window.crit && window.crit.design && window.crit.design.shortcut;
+    if (!sc) return;
+    sc.handleShortcut(ev, {
+      focusInInput: !!state.focusInInput,
+      getMode: function () { return state.mode; },
+      setMode: function (m) { setMode(m); },
+    });
+  });
 
   // ============================================================
   // Task 26: Lock window.crit.design contract for Phase C

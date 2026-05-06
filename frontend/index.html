@@ -240,12 +240,33 @@
       l.href = 'style-design.css';
       document.head.appendChild(l);
 
-      // Defer design-mode.js until crit-shared.js + design-route-utils.js
-      // have parsed.
+      // Phase C: protocol + dispatcher + helper modules. Load in parallel;
+      // design-mode.js (loaded last) requires their `window.crit.*` namespaces.
+      var phaseCDeps = [
+        'agent-protocol.js',
+        'design-mode.dispatch.js',
+        'design-mode.toggle.js',
+        'design-mode.composer.js',
+        'design-mode.menu.js',
+        'design-mode.shortcut.js',
+        'design-mode.queue.js',
+        'design-mode.origin.js',
+        'design-mode.size.js',
+        'design-mode.row.js',
+      ];
+      var depTags = phaseCDeps.map(function (p) {
+        var t = document.createElement('script');
+        t.src = p;
+        document.head.appendChild(t);
+        return t;
+      });
+
+      // Defer design-mode.js until all deps have parsed.
+      var totalNeeded = 2 + depTags.length;
       var loaded = 0;
       function maybeBoot() {
         loaded++;
-        if (loaded < 2) return;
+        if (loaded < totalNeeded) return;
         if (window.crit && window.crit.shared) window.crit.shared.applyThemeFromCookie();
         var s = document.createElement('script');
         s.src = 'design-mode.js';
@@ -253,6 +274,7 @@
       }
       sh.addEventListener('load', maybeBoot);
       ru.addEventListener('load', maybeBoot);
+      depTags.forEach(function (t) { t.addEventListener('load', maybeBoot); t.addEventListener('error', maybeBoot); });
     } else {
       // Code-review chrome — load existing vendor + app.js.
       var v1 = document.createElement('script'); v1.src = 'markdown-it.min.js'; document.body.appendChild(v1);
