@@ -77,6 +77,12 @@ e2e-design-utils:
 	            frontend/design-mode.composer.test.js frontend/design-mode.menu.test.js \
 	            frontend/design-mode.shortcut.test.js frontend/design-mode.queue.test.js \
 	            frontend/design-mode.origin.test.js frontend/design-mode.size.test.js \
-	            frontend/design-mode.row.test.js frontend/design-mode.composer.cancel.test.js
+	            frontend/design-mode.row.test.js frontend/design-mode.composer.cancel.test.js \
+	            frontend/agent-marker-overlay.test.js frontend/agent-mutation-batcher.test.js \
+	            frontend/agent-resolution.test.js frontend/agent-reanchor-state.test.js \
+	            frontend/design-mode-pin-filter.test.js frontend/design-mode-resolution-gate.test.js \
+	            frontend/design-mode-drift-tray.test.js frontend/design-mode-pin-state.test.js \
+	            frontend/design-mode-thread-scroll.test.js frontend/design-mode-reanchor-click.test.js \
+	            frontend/design-mode-reanchor-put.test.js
 
 .PHONY: build build-all generate verify-generate update-deps test test-frontend setup-hooks clean test-diff test-share-sync test-share-sync-selfhosted e2e-share e2e-roundtrip test-daemon test-plan-daemon e2e e2e-failed e2e-report e2e-design-utils
