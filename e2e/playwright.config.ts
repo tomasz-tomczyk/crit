@@ -87,14 +87,11 @@ export default defineConfig({
       },
     },
     {
-      // TODO(phase-F): wire fixture script + webServer entry. Phase B
-      // authors tests against this project and verifies parse-only via
-      // `npx playwright test --list --project=design-mode`.
       name: 'design-mode',
       testMatch: /\.designmode\.spec\.ts$/,
       use: {
         browserName: 'chromium',
-        baseURL: `http://127.0.0.1:${DESIGN_PORT}`,
+        baseURL: `http://127.0.0.1:${DESIGN_PORT}/design`,
       },
     },
   ],
@@ -140,6 +137,13 @@ export default defineConfig({
       url: `http://localhost:${RANGE_PORT}/api/session`,
       reuseExistingServer: true,
       timeout: 30_000,
+      stdout: 'pipe',
+    },
+    {
+      command: `bash setup-fixtures-designmode.sh ${DESIGN_PORT}`,
+      url: `http://127.0.0.1:${DESIGN_PORT}/api/session`,
+      reuseExistingServer: true,
+      timeout: 60_000,
       stdout: 'pipe',
     },
   ],
