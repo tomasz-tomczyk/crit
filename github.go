@@ -759,6 +759,9 @@ func fetchPRThreadResolvedPage(owner, name string, prNumber int, cursor string) 
 // If ghID is non-zero, matches by GitHubID. Otherwise falls back to author+lines+body.
 func isDuplicateGHComment(comments []Comment, ghID int64, author string, startLine, endLine int, body string) bool {
 	for _, c := range comments {
+		if c.DOMAnchor != nil {
+			continue // design pins never participate in GH dedup
+		}
 		if ghID != 0 && c.GitHubID == ghID {
 			return true
 		}

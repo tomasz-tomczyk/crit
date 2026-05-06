@@ -264,3 +264,37 @@ func TestCarryForward_DesignPinSkipsRemap(t *testing.T) {
 		t.Error("design pin not carried forward")
 	}
 }
+
+func TestMergeGHComments_DesignPinNotDeduped(t *testing.T) {
+	pin := Comment{
+		ID: "pin1", StartLine: 0, EndLine: 0, Body: "pin body",
+		DOMAnchor: &DOMAnchor{Pathname: "/dashboard", CSSSelector: "#h1"},
+	}
+	cj := &CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"/dashboard": {Comments: []Comment{pin}},
+		},
+	}
+	ghc := ghComment{
+		ID:   42,
+		Path: "/dashboard",
+		Line: 10,
+		Side: "RIGHT",
+		Body: "pin body",
+	}
+	ghc.User.Login = "reviewer"
+	merged := mergeGHComments(cj, []ghComment{ghc})
+	if merged == 0 {
+		t.Error("GH comment should be added (not deduped against design pin); merged = 0")
+	}
+	pinCount := 0
+	for _, c := range cj.Files["/dashboard"].Comments {
+		if c.DOMAnchor != nil {
+			pinCount++
+		}
+	}
+	if pinCount != 1 {
+		t.Errorf("design pin count = %d after merge, want 1", pinCount)
+	}
+}
