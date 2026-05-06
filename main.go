@@ -221,6 +221,10 @@ func runShare(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+	if err := checkShareAllowed(critPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 
 	sharePaths := make([]string, len(files))
 	for i, f := range files {
