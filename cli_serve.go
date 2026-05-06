@@ -508,8 +508,13 @@ func runServe(args []string) {
 		proxyLn = pl
 		proxySrv = ps
 		go func() {
-			if err := proxySrv.Serve(pl); err != http.ErrServerClosed {
+			if err := proxySrv.Serve(pl); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Printf("Proxy server error: %v", err)
+				// Defensive: Serve() closes its listener on shutdown, but on a
+				// non-graceful Serve error (e.g. accept loop dying) the
+				// listener may still be open. Close it so the bound port is
+				// released even if the daemon keeps running.
+				_ = pl.Close()
 			}
 		}()
 	}
@@ -530,7 +535,7 @@ func runServe(args []string) {
 	srv.SetShutdownCtx(ctx)
 
 	go func() {
-		if err := httpServer.Serve(listener); err != http.ErrServerClosed {
+		if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("Server error: %v", err)
 			stop()
 		}
@@ -662,12 +667,27 @@ func runServe(args []string) {
 	//   4. WriteFiles            — persist final review state.
 	session.Shutdown()
 
-	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = httpServer.Shutdown(shutCtx)
+	// Each server gets its own 2s budget so a slow API shutdown can't starve
+	// the proxy (or vice versa). Run in parallel — there's no ordering
+	// dependency between them.
+	var shutWG sync.WaitGroup
+	shutWG.Add(1)
+	go func() {
+		defer shutWG.Done()
+		apiCtx, apiCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer apiCancel()
+		_ = httpServer.Shutdown(apiCtx)
+	}()
 	if proxySrv != nil {
-		_ = proxySrv.Shutdown(shutCtx)
+		shutWG.Add(1)
+		go func() {
+			defer shutWG.Done()
+			proxyCtx, proxyCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer proxyCancel()
+			_ = proxySrv.Shutdown(proxyCtx)
+		}()
 	}
+	shutWG.Wait()
 	_ = proxyLn // silenced: closure on Shutdown above
 
 	if !srv.WaitBackground(30 * time.Second) {

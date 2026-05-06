@@ -35,6 +35,47 @@ func TestAddDesignPin_AssignsMonotonicGlobalPinNumbers(t *testing.T) {
 	}
 }
 
+// TestAddDesignPin_DeleteMiddle_DoesNotReuseGap pins down the gap-reuse
+// semantics: deleting a non-top pin leaves a gap, and the next add must NOT
+// fill that gap — it gets max(remaining)+1. This preserves stable identifiers
+// for users referring to "pin #N" after a delete in the middle of the
+// sequence.
+//
+// Top-deletion is a separate case: today's max+1 algorithm DOES re-issue the
+// number of the most recent pin if it's deleted before the next add. That's
+// considered acceptable: in the design-mode workflow, deleting the
+// just-added pin and immediately adding another is effectively an edit, and
+// the previous PinNumber hadn't been "spoken about" yet. If product needs
+// strict global monotonicity (no reuse ever, even at the top), the fix is a
+// session-scoped counter persisted in CritJSON — out of scope here.
+func TestAddDesignPin_DeleteMiddle_DoesNotReuseGap(t *testing.T) {
+	s := newTestSession(t)
+	a1 := &DOMAnchor{Pathname: "/foo", CSSSelector: "h1", TagChain: []string{"H1"}}
+	a2 := &DOMAnchor{Pathname: "/foo", CSSSelector: "h2", TagChain: []string{"H2"}}
+	a3 := &DOMAnchor{Pathname: "/foo", CSSSelector: "h3", TagChain: []string{"H3"}}
+
+	c1, _ := s.AddDesignPin("/foo", "first", "alice", "u1", a1)
+	c2, _ := s.AddDesignPin("/foo", "second", "alice", "u1", a2)
+	c3, _ := s.AddDesignPin("/foo", "third", "alice", "u1", a3)
+	if c1.PinNumber != 1 || c2.PinNumber != 2 || c3.PinNumber != 3 {
+		t.Fatalf("setup: pins = %d,%d,%d, want 1,2,3", c1.PinNumber, c2.PinNumber, c3.PinNumber)
+	}
+
+	// Delete the MIDDLE pin (#2) — leaves a gap.
+	if !s.DeleteComment("/foo", c2.ID) {
+		t.Fatal("DeleteComment(c2) returned false")
+	}
+
+	a4 := &DOMAnchor{Pathname: "/foo", CSSSelector: "h4", TagChain: []string{"H4"}}
+	c4, ok := s.AddDesignPin("/foo", "fourth", "alice", "u1", a4)
+	if !ok {
+		t.Fatal("AddDesignPin after middle-delete returned ok=false")
+	}
+	if c4.PinNumber != 4 {
+		t.Fatalf("after middle-delete: PinNumber=%d, want 4 (gap from deleted #2 must NOT be reused)", c4.PinNumber)
+	}
+}
+
 var lastDispatch string
 
 func testRunDesign(args []string)  { lastDispatch = "design" }

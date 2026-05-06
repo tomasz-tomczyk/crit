@@ -4000,9 +4000,13 @@ func TestSSE_DesignRoundStart_Broadcasts(t *testing.T) {
 	// Wait briefly for the server to register the subscriber, then fire.
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		session.mu.RLock()
+		// subscribers is guarded by subMu (not the session-state mu) — see
+		// Subscribe/Unsubscribe/notify in session.go. Reading it under the
+		// wrong mutex would race with Subscribe; the race detector would
+		// flag it even though both are sync.Mutex.
+		session.subMu.Lock()
 		n := len(session.subscribers)
-		session.mu.RUnlock()
+		session.subMu.Unlock()
 		if n > 0 {
 			break
 		}

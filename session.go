@@ -997,7 +997,18 @@ func (s *Session) AddDesignPin(filePath, body, author, userID string, anchor *DO
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	// Compute next PinNumber as max(existing PinNumbers across the session) + 1.
-	// Pin numbers are GLOBAL within a review (REVISION).
+	// Pin numbers are GLOBAL within a review (REVISION). Gap semantics: deleting
+	// a non-top pin leaves the gap empty — the next add gets max+1, NOT the
+	// gap. Example: pins 1,2,3 → delete 2 → next add is 4. This preserves
+	// stable identifiers for users referring to "pin #N" after a delete.
+	//
+	// Caveat: deleting the top pin and immediately adding another DOES reuse
+	// that number (4 → delete 4 → add gets 4 again). That's acceptable for the
+	// design-mode workflow today; tightening it would require a persisted
+	// session-scoped counter (CritJSON.NextPinNumber).
+	//
+	// O(N×M) scan is fine at this scale: design sessions are bounded to a
+	// handful of routes with <50 pins total. Profile before caching.
 	nextNum := 1
 	for _, file := range s.Files {
 		for _, existing := range file.Comments {
