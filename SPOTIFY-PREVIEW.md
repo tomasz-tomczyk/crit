@@ -57,22 +57,45 @@ route deployed.
 
 ### 1. Deploy `crit-web` from branch `share-receiver-elixir`
 
-Self-host as you normally would (Phoenix release / Docker / direct
-mix), but check out the `share-receiver-elixir` branch instead of
-`main`:
+There is **no pre-built artifact** for crit-web in this preview. Since
+you already self-host, the simplest path is to feed the preview branch
+through your existing deployment pipeline. Pin to commit `ed01b25` (or
+the current tip of `share-receiver-elixir` — they should match for as
+long as the preview is active).
+
+**Option A — build from source (recommended)**
+
+Use whatever you do for `main` today; just check out a different
+branch:
 
 ```bash
 git clone https://github.com/tomasz-tomczyk/crit-web.git
 cd crit-web
-git checkout share-receiver-elixir   # commit ed01b25 or later on this branch
+git checkout share-receiver-elixir   # commit ed01b25 or later
+git rev-parse HEAD                   # confirm you're on ed01b25 or newer
 # ... your usual build / migrate / start steps
+#     (mix release, Dockerfile build, etc.)
 ```
 
+The `Dockerfile` at the repo root is the same one used for production
+on `main` — it works on this branch unchanged.
+
+**Option B — pull a published Docker image (on request)**
+
+We can publish `ghcr.io/tomasz-tomczyk/crit-web:spotify-preview-1` to
+GHCR if it's useful (it would mostly save you a `mix release` step).
+We haven't done it by default because most orgs at your scale mirror
+into an internal registry before deploying anyway. Reply on the issue
+(see bottom of this doc) if you'd like the image published and we'll
+flip it on.
+
+**Reverse proxy note**
+
 Make sure your reverse proxy passes `GET /share-receiver` through to
-the app the same way it does any other authenticated route. The receiver
-page renders with no app layout / no JS bundle from `app.js` — it loads
-its own minimal script — so any rewriting your proxy does for the main
-app should be benign here.
+the app the same way it does any other authenticated route. The
+receiver page renders with no app layout and no `app.js` bundle — it
+loads its own minimal script — so any rewriting your proxy does for
+the main app should be benign here.
 
 ### 2. Install the `crit` preview binary
 
