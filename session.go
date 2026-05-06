@@ -1212,6 +1212,35 @@ func (s *Session) UpdateCommentWithAnchor(filePath, id, body string, newAnchor *
 	return Comment{}, false, "not_found"
 }
 
+// PatchCommentDrift partially updates the design-pin drift fields on a
+// comment. Pointer arguments distinguish "not set" from "set to zero/false":
+// only non-nil arguments are written. Returns the updated comment and true
+// on success; (zero, false) when the comment is not found.
+func (s *Session) PatchCommentDrift(filePath, id string, drifted *bool, driftedOnRound *int) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fe := s.fileByPathLocked(filePath)
+	if fe == nil {
+		return Comment{}, false
+	}
+	for i := range fe.Comments {
+		c := &fe.Comments[i]
+		if c.ID != id {
+			continue
+		}
+		if drifted != nil {
+			c.Drifted = *drifted
+		}
+		if driftedOnRound != nil {
+			c.DriftedOnRound = *driftedOnRound
+		}
+		c.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		s.scheduleWrite()
+		return *c, true
+	}
+	return Comment{}, false
+}
+
 // SetCommentResolved sets or clears the resolved flag on a comment.
 // On a false -> true transition, ResolvedRound is stamped from s.ReviewRound.
 // On a true -> false transition, ResolvedRound is cleared to 0.

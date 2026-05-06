@@ -4052,3 +4052,41 @@ func readSSEUntil(t *testing.T, ctx context.Context, r io.Reader, eventName stri
 		return r.s
 	}
 }
+
+func TestPUTComment_AcceptsDriftedOnRound(t *testing.T) {
+	srv, session := newTestServer(t)
+	session.ReviewType = "design"
+	c, _ := session.AddComment("test.md", 1, 1, "", "design pin", "", "", "")
+	// Tag as a design pin so the patch path is meaningful.
+	session.mu.Lock()
+	for i := range session.Files[0].Comments {
+		if session.Files[0].Comments[i].ID == c.ID {
+			session.Files[0].Comments[i].DOMAnchor = &DOMAnchor{Pathname: "/", CSSSelector: "h1"}
+		}
+	}
+	session.mu.Unlock()
+
+	body := []byte(`{"drifted": true, "drifted_on_round": 4}`)
+	req := httptest.NewRequest("PUT", "/api/comment/"+c.ID+"?path=test.md", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	var got *Comment
+	for i := range session.Files[0].Comments {
+		if session.Files[0].Comments[i].ID == c.ID {
+			got = &session.Files[0].Comments[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatalf("comment not found after PUT")
+	}
+	if got.DriftedOnRound != 4 || !got.Drifted {
+		t.Fatalf("got %+v; want DriftedOnRound=4 Drifted=true", got)
+	}
+}

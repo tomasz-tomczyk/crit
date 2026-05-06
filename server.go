@@ -1097,16 +1097,31 @@ func (s *Server) handleFileCommentUpdate(w http.ResponseWriter, r *http.Request,
 	case http.MethodPut:
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
 		var req struct {
-			Body      string     `json:"body"`
-			DOMAnchor *DOMAnchor `json:"dom_anchor"`
+			Body           string     `json:"body"`
+			DOMAnchor      *DOMAnchor `json:"dom_anchor"`
+			Drifted        *bool      `json:"drifted,omitempty"`
+			DriftedOnRound *int       `json:"drifted_on_round,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
-		if req.Body == "" && req.DOMAnchor == nil {
+		// Design-mode drift patches may legitimately omit body and anchor.
+		isDriftPatch := req.Drifted != nil || req.DriftedOnRound != nil
+		if !isDriftPatch && req.Body == "" && req.DOMAnchor == nil {
 			http.Error(w, "Comment body is required", http.StatusBadRequest)
 			return
+		}
+		if isDriftPatch {
+			c, ok := s.session.Load().PatchCommentDrift(path, id, req.Drifted, req.DriftedOnRound)
+			if !ok {
+				http.Error(w, "Comment not found", http.StatusNotFound)
+				return
+			}
+			if req.Body == "" && req.DOMAnchor == nil {
+				writeJSON(w, c)
+				return
+			}
 		}
 		c, ok, reason := s.session.Load().UpdateCommentWithAnchor(path, id, req.Body, req.DOMAnchor)
 		if !ok {
