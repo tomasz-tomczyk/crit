@@ -128,19 +128,30 @@
         '<button type="button" class="toggle-btn active" data-mode="navigate" aria-pressed="true">Navigate</button>' +
         '<button type="button" class="toggle-btn" data-mode="pin" disabled title="Pin mode">Pin</button>';
 
-      // Round counter (R3): reuse the existing .viewed-count element so it
-      // sits in the exact same DOM slot as code-review's round counter.
-      var rc = document.getElementById('viewedCount');
+      // Round counter: code-review writes its round indicator into
+      // #headerNotify (header-left). Reuse that slot so the design-mode
+      // counter appears in the same visual position as the code-review one.
+      // Hide #viewedCount (used in code-review for the file-viewed counter,
+      // irrelevant in design mode).
+      var legacyViewed = document.getElementById('viewedCount');
+      if (legacyViewed) legacyViewed.style.display = 'none';
+      var rc = document.getElementById('headerNotify');
+      if (!rc) {
+        // Defensive fallback: synthesize the slot if the template ever drops
+        // it. Sits in header-left so we can't insert into headerRight here.
+        var headerLeftFallback = document.querySelector('.header .header-left');
+        if (headerLeftFallback) {
+          rc = document.createElement('span');
+          rc.id = 'headerNotify';
+          rc.className = 'header-notify';
+          headerLeftFallback.appendChild(rc);
+        }
+      }
       if (rc) {
         rc.id = 'designRoundCounter';
+        rc.classList.add('header-notify');
         rc.textContent = 'round 1';
         rc.style.display = '';
-      } else {
-        rc = document.createElement('span');
-        rc.className = 'viewed-count';
-        rc.id = 'designRoundCounter';
-        rc.textContent = 'round 1';
-        headerRight.insertBefore(rc, headerRight.firstChild);
       }
 
       // Insert viewport + mode toggles before the existing settings toggle
