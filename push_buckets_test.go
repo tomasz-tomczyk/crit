@@ -434,3 +434,23 @@ func TestPushBlockedByFullStackScope(t *testing.T) {
 		t.Errorf("gate message changed: %q — test/test-diff.sh Instance 6 will fail", fullStackPushGateMessage)
 	}
 }
+
+func TestBucketComments_DOMAnchorFiltered(t *testing.T) {
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"/dashboard": {Comments: []Comment{
+				{ID: "pin1", Body: "pin", DOMAnchor: &DOMAnchor{Pathname: "/dashboard", CSSSelector: "#h1"}},
+				{ID: "code1", StartLine: 10, EndLine: 10, Body: "code"},
+			}},
+		},
+	}
+	b := bucketCommentsForPush(cj, "", false)
+	if len(b.Postable) != 1 || b.Postable[0].Comment.ID != "code1" {
+		t.Errorf("Postable = %v; design pin must be filtered", b.Postable)
+	}
+	for _, sc := range append(b.FullStack, b.Unmapped...) {
+		if sc.Comment.DOMAnchor != nil {
+			t.Errorf("design pin leaked into FullStack/Unmapped: %v", sc)
+		}
+	}
+}
