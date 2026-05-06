@@ -180,9 +180,6 @@
   --crit-design-ancestor-menu-hover-bg:#2f3342;
   --crit-design-mode-btn-active-bg:    #2d7ff9;
   --crit-design-mode-btn-active-fg:    #ffffff;
-  --crit-design-toast-bg:              #1a1c23;
-  --crit-design-toast-fg:              #e6e8ed;
-  --crit-design-toast-border:          #2f3342;
 
   /* ---- Phase D: markers + drifted tray + re-anchor ---- */
   --crit-design-marker-bg:             #3b82f6;
@@ -350,9 +347,6 @@
     --crit-design-ancestor-menu-hover-bg:#eef2f7;
     --crit-design-mode-btn-active-bg:    #2d7ff9;
     --crit-design-mode-btn-active-fg:    #ffffff;
-    --crit-design-toast-bg:              #ffffff;
-    --crit-design-toast-fg:              #1f2328;
-    --crit-design-toast-border:          #d0d7de;
 
     /* ---- Phase D: markers + drifted tray + re-anchor ---- */
     --crit-design-marker-bg:             #2563eb;
@@ -520,9 +514,6 @@
   --crit-design-ancestor-menu-hover-bg:#2f3342;
   --crit-design-mode-btn-active-bg:    #2d7ff9;
   --crit-design-mode-btn-active-fg:    #ffffff;
-  --crit-design-toast-bg:              #1a1c23;
-  --crit-design-toast-fg:              #e6e8ed;
-  --crit-design-toast-border:          #2f3342;
 
   /* ---- Phase D: markers + drifted tray + re-anchor ---- */
   --crit-design-marker-bg:             #3b82f6;

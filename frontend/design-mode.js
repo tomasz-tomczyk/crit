@@ -1696,18 +1696,15 @@
   }
   state.postToAgent = postToAgent;
 
+  // Delegates to the unified crit.shared.showToast helper (crit-shared.js).
+  // Previously called .remove() directly on the element — violated
+  // frontend-js.md "Never call .remove() on elements with CSS exit
+  // animations". The shared helper uses transitionend cleanup.
   function showToast(message) {
-    var host = document.querySelector('.crit-design-toast-host');
-    if (!host) {
-      host = document.createElement('div');
-      host.className = 'crit-design-toast-host';
-      document.body.appendChild(host);
+    if (window.crit && window.crit.shared && window.crit.shared.showToast) {
+      // Prior behaviour used a 4s timeout; preserved here for design-mode.
+      window.crit.shared.showToast(message, { timeout: 4000 });
     }
-    var t = document.createElement('div');
-    t.className = 'crit-design-toast';
-    t.textContent = message;
-    host.appendChild(t);
-    setTimeout(function () { t.remove(); }, 4000);
   }
   state.showToast = showToast;
 

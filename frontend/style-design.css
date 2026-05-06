@@ -359,28 +359,6 @@
   background: var(--crit-design-ancestor-menu-hover-bg);
 }
 
-.crit-design-toast-host {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  z-index: 2147483600;
-  pointer-events: none;
-}
-.crit-design-toast {
-  pointer-events: auto;
-  padding: 8px 12px;
-  background: var(--crit-design-toast-bg);
-  color: var(--crit-design-toast-fg);
-  border: 1px solid var(--crit-design-toast-border);
-  border-radius: var(--crit-r-md);
-  font-size: 13px;
-  max-width: 320px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
-}
-
 /* Phase D parity: design pin rows mount the shared `.comment-card` chrome
    from style.css (border, header bar, body padding). The `.crit-design-comment-row`
    marker class stays so composer/edit selectors keep targeting design pins,

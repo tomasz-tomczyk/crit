@@ -3918,26 +3918,41 @@ body.sidebar-resizing * {
   font-style: italic;
 }
 
-/* ===== Mini Toast ===== */
-.mini-toast {
+/* ===== Mini Toast =====
+   Host is a single fixed container; toasts stack inside. Both code-review
+   (app.js) and design-mode (design-mode.js) feed this via
+   crit.shared.showToast(). Modifier classes (.mini-toast--info / --error /
+   --success) are reserved; default styling is shared. Exit cleanup is
+   transitionend-driven in JS — see frontend-js.md (no .remove() on elements
+   with CSS exit animations). */
+.mini-toast-host {
   position: fixed;
   bottom: 24px;
   left: 50%;
-  transform: translateX(-50%) translateY(20px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  z-index: 1000;
+  pointer-events: none;
+}
+.mini-toast {
   background: var(--crit-editor-bg-elevated);
   color: var(--crit-editor-fg);
   border: 1px solid var(--crit-border);
   padding: 8px 16px;
   border-radius: 6px;
   font-size: 13px;
+  max-width: 360px;
   opacity: 0;
+  transform: translateY(20px);
   transition: opacity 0.3s, transform 0.3s;
-  z-index: 1000;
-  pointer-events: none;
+  pointer-events: auto;
 }
 .mini-toast-visible {
   opacity: 1;
-  transform: translateX(-50%) translateY(0);
+  transform: translateY(0);
 }
 
 /* ===== Rendered Diff View (file mode) ===== */

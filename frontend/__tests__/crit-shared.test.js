@@ -120,3 +120,184 @@ test('fetchJSON throws on !response.ok', async () => {
     globalThis.fetch = origFetch;
   }
 });
+
+// ----- showToast -----
+// Minimal DOM stub: supports the operations crit.shared.showToast uses
+// (createElement, body.appendChild/removeChild, querySelector for the host,
+// element classList + listeners). Lets us assert lifecycle without jsdom.
+function makeToastSandbox() {
+  function elClassList() {
+    const set = new Set();
+    return {
+      _set: set,
+      add(...c) { c.forEach((x) => set.add(x)); },
+      remove(...c) { c.forEach((x) => set.delete(x)); },
+      contains(c) { return set.has(c); },
+    };
+  }
+  function makeNode(tag) {
+    const node = {
+      tagName: (tag || 'div').toUpperCase(),
+      _children: [],
+      _listeners: {},
+      classList: elClassList(),
+      textContent: '',
+      _className: '',
+      get className() { return this._className; },
+      set className(v) {
+        this._className = v;
+        this.classList = elClassList();
+        String(v).split(/\s+/).filter(Boolean).forEach((c) => this.classList.add(c));
+      },
+      parentNode: null,
+      appendChild(child) {
+        child.parentNode = this;
+        this._children.push(child);
+        return child;
+      },
+      removeChild(child) {
+        const i = this._children.indexOf(child);
+        if (i >= 0) this._children.splice(i, 1);
+        child.parentNode = null;
+        return child;
+      },
+      addEventListener(evt, cb /* , opts */) {
+        (this._listeners[evt] = this._listeners[evt] || []).push(cb);
+      },
+      dispatchEvent(evt) {
+        const arr = this._listeners[evt.type] || [];
+        arr.slice().forEach((cb) => cb(evt));
+      },
+      querySelector(sel) {
+        // crawl descendants for first node with matching class.
+        if (!sel.startsWith('.')) return null;
+        const want = sel.slice(1);
+        const stack = this._children.slice();
+        while (stack.length) {
+          const n = stack.shift();
+          if (n.classList && n.classList.contains(want)) return n;
+          if (n._children) stack.push(...n._children);
+        }
+        return null;
+      },
+    };
+    return node;
+  }
+  const body = makeNode('body');
+  const doc = {
+    cookie: '',
+    body,
+    createElement: (tag) => makeNode(tag),
+    querySelector: (sel) => body.querySelector(sel),
+  };
+  // Run helpers under a faked timer/raf so tests are deterministic.
+  const timers = [];
+  let now = 0;
+  const win = {};
+  const sandboxGlobals = {
+    requestAnimationFrame: (cb) => { timers.push({ at: now, cb }); return timers.length; },
+    setTimeout: (cb, ms) => { timers.push({ at: now + (ms || 0), cb }); return timers.length; },
+    clearTimeout: (id) => { const t = timers[id - 1]; if (t) t.cancelled = true; },
+  };
+  function flush(ms) {
+    now += (ms || 0);
+    // run any non-cancelled timers whose time has come, repeatedly to handle
+    // chained scheduling.
+    let progress = true;
+    while (progress) {
+      progress = false;
+      for (const t of timers) {
+        if (!t.cancelled && !t.fired && t.at <= now) {
+          t.fired = true;
+          progress = true;
+          t.cb();
+        }
+      }
+    }
+  }
+  const fn = new Function(
+    'window', 'document', 'requestAnimationFrame', 'setTimeout', 'clearTimeout',
+    src + '\nreturn window;',
+  );
+  fn(win, doc, sandboxGlobals.requestAnimationFrame, sandboxGlobals.setTimeout, sandboxGlobals.clearTimeout);
+  return { shared: win.crit.shared, doc, body, flush };
+}
+
+test('showToast appends a .mini-toast inside a single .mini-toast-host', () => {
+  const { shared: s, body } = makeToastSandbox();
+  s.showToast('hello');
+  s.showToast('world');
+  const hosts = body._children.filter((n) => n.classList.contains('mini-toast-host'));
+  assert.equal(hosts.length, 1, 'host is created once');
+  assert.equal(hosts[0]._children.length, 2, 'both toasts mounted in the host');
+  assert.equal(hosts[0]._children[0].textContent, 'hello');
+  assert.equal(hosts[0]._children[1].textContent, 'world');
+});
+
+test('showToast applies kind modifier class', () => {
+  const { shared: s, body } = makeToastSandbox();
+  s.showToast('boom', { kind: 'error' });
+  const host = body._children.find((n) => n.classList.contains('mini-toast-host'));
+  const t = host._children[0];
+  assert.equal(t.classList.contains('mini-toast'), true);
+  assert.equal(t.classList.contains('mini-toast--error'), true);
+});
+
+test('showToast: rAF adds the visible class for the entry transition', () => {
+  const { shared: s, body, flush } = makeToastSandbox();
+  s.showToast('hi');
+  const t = body.querySelector('.mini-toast-host')._children[0];
+  assert.equal(t.classList.contains('mini-toast-visible'), false, 'not yet — rAF pending');
+  flush(0); // run rAF
+  assert.equal(t.classList.contains('mini-toast-visible'), true);
+});
+
+test('showToast auto-dismisses after timeout via transitionend cleanup', () => {
+  const { shared: s, body, flush } = makeToastSandbox();
+  s.showToast('bye', { timeout: 3000 });
+  flush(0); // rAF -> visible
+  const host = body.querySelector('.mini-toast-host');
+  const t = host._children[0];
+  assert.equal(host._children.length, 1);
+  flush(3000); // timeout fires -> visible class removed
+  assert.equal(t.classList.contains('mini-toast-visible'), false);
+  assert.equal(host._children.length, 1, 'still mounted until transitionend');
+  // Simulate the browser firing transitionend at the end of the exit transition.
+  t.dispatchEvent({ type: 'transitionend' });
+  assert.equal(host._children.length, 0, 'removed on transitionend');
+});
+
+test('showToast: returned dismiss() removes the toast early; idempotent', () => {
+  const { shared: s, body, flush } = makeToastSandbox();
+  const dismiss = s.showToast('x', { timeout: 10000 });
+  flush(0);
+  const host = body.querySelector('.mini-toast-host');
+  const t = host._children[0];
+  dismiss();
+  t.dispatchEvent({ type: 'transitionend' });
+  assert.equal(host._children.length, 0);
+  // Calling again is a no-op (would otherwise throw on missing parent).
+  assert.doesNotThrow(() => dismiss());
+});
+
+test('showToast: fallback timeout removes the toast if transitionend never fires', () => {
+  const { shared: s, body, flush } = makeToastSandbox();
+  s.showToast('z', { timeout: 3000 });
+  flush(0);
+  const host = body.querySelector('.mini-toast-host');
+  flush(3000); // dismiss scheduled — visible removed
+  flush(400);  // fallback fires, transitionend never dispatched
+  assert.equal(host._children.length, 0, 'fallback cleanup removed the toast');
+});
+
+test('showToast: timeout=0 keeps the toast open until dismiss()', () => {
+  const { shared: s, body, flush } = makeToastSandbox();
+  const dismiss = s.showToast('sticky', { timeout: 0 });
+  flush(0);
+  flush(60000);
+  const host = body.querySelector('.mini-toast-host');
+  assert.equal(host._children.length, 1, 'still there');
+  dismiss();
+  host._children[0].dispatchEvent({ type: 'transitionend' });
+  assert.equal(host._children.length, 0);
+});

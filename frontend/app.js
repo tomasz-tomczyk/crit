@@ -4944,16 +4944,13 @@
     }
   }
 
+  // Thin wrapper kept for existing call sites; delegates to the unified
+  // crit.shared.showToast helper (defined in crit-shared.js, also used by
+  // design-mode.js).
   function showMiniToast(message) {
-    const t = document.createElement('div');
-    t.className = 'mini-toast';
-    t.textContent = message;
-    document.body.appendChild(t);
-    requestAnimationFrame(function() { t.classList.add('mini-toast-visible'); });
-    setTimeout(function() {
-      t.classList.remove('mini-toast-visible');
-      setTimeout(function() { t.remove(); }, 300);
-    }, 3000);
+    if (window.crit && window.crit.shared && window.crit.shared.showToast) {
+      window.crit.shared.showToast(message);
+    }
   }
 
   // ===== Agent Button =====

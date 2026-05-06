@@ -18,9 +18,6 @@ const REQUIRED_VARS = [
   '--crit-design-ancestor-menu-hover-bg',
   '--crit-design-mode-btn-active-bg',
   '--crit-design-mode-btn-active-fg',
-  '--crit-design-toast-bg',
-  '--crit-design-toast-fg',
-  '--crit-design-toast-border',
   // Phase D markers + drifted tray + re-anchor
   '--crit-design-marker-bg',
   '--crit-design-marker-fg',
