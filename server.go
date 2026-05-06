@@ -87,6 +87,8 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.HandleFunc("/design", s.handleDesignPage)
 	mux.HandleFunc("/crit-agent.js", s.handleCritAgentJS)
 	mux.HandleFunc("/crit-vendor/", s.handleCritVendor)
+	mux.HandleFunc("/agent-protocol.js", s.serveEmbeddedJS("agent-protocol.js"))
+	mux.HandleFunc("/agent-anchor-utils.js", s.serveEmbeddedJS("agent-anchor-utils.js"))
 
 	// Session-dependent endpoints (guarded by withReady middleware)
 	mux.HandleFunc("/api/review-cycle", s.withReady(s.handleReviewCycle))
@@ -453,6 +455,25 @@ func (s *Server) handleCritAgentJS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	io.Copy(w, f)
+}
+
+func (s *Server) serveEmbeddedJS(name string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		f, err := s.assets.Open(name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		io.Copy(w, f)
+	}
 }
 
 func (s *Server) handleCritVendor(w http.ResponseWriter, r *http.Request) {

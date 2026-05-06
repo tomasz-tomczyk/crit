@@ -3682,13 +3682,36 @@ func TestDesignRoutes_NotGatedByWithReady(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/design", "/crit-agent.js", "/crit-vendor/html2canvas.js"} {
+	for _, path := range []string{"/design", "/crit-agent.js", "/crit-vendor/html2canvas.js", "/agent-protocol.js", "/agent-anchor-utils.js"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest("GET", path, nil)
 			w := httptest.NewRecorder()
 			s.ServeHTTP(w, req)
 			if w.Code == http.StatusServiceUnavailable {
 				t.Errorf("GET %s returned 503 before SetSession — must not be withReady gated", path)
+			}
+		})
+	}
+}
+
+func TestDesign_ProtocolAndUtilsServedUnguarded(t *testing.T) {
+	s, err := NewServer(nil, frontendFS, "", "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/agent-protocol.js", "/agent-anchor-utils.js"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("%s: want 200, got %d", path, w.Code)
+			}
+			if !strings.Contains(w.Header().Get("Content-Type"), "javascript") {
+				t.Fatalf("%s: want JS content-type, got %q", path, w.Header().Get("Content-Type"))
+			}
+			if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+				t.Errorf("%s: missing CORS header, got %q", path, got)
 			}
 		})
 	}
