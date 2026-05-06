@@ -66,3 +66,33 @@ test('findAnchorRoot returns the element itself if it has an id', () => {
   const el = n('div', { id: 'top' });
   assert.equal(u.findAnchorRoot(el), el);
 });
+
+test('cssSelectorFor builds :nth-of-type path from anchor root', () => {
+  const h1 = n('h1');
+  const h2a = n('h2');
+  const h2b = n('h2');
+  const sec = n('section', { children: [h1, h2a, h2b] });
+  const main = n('main', { id: 'main', children: [sec] });
+  const root = u.findAnchorRoot(h2b);
+  assert.equal(root, main);
+  assert.equal(
+    u.cssSelectorFor(h2b, root),
+    '#main > section:nth-of-type(1) > h2:nth-of-type(2)',
+  );
+});
+
+test('cssSelectorFor uses body fallback when no id', () => {
+  const span = n('span');
+  const div = n('div', { children: [span] });
+  const body = n('body', { children: [div] });
+  const root = u.findAnchorRoot(span);
+  assert.equal(root, body);
+  assert.equal(u.cssSelectorFor(span, root), 'body > div:nth-of-type(1) > span:nth-of-type(1)');
+});
+
+test('tagChainFor returns uppercase tag names from root to element', () => {
+  const h1 = n('h1');
+  const sec = n('section', { children: [h1] });
+  const main = n('main', { id: 'main', children: [sec] });
+  assert.deepEqual(u.tagChainFor(h1, main), ['MAIN', 'SECTION', 'H1']);
+});

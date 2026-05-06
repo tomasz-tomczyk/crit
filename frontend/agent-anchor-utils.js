@@ -53,5 +53,40 @@
     return el;
   }
 
-  return { implicitRole, findAnchorRoot };
+  function indexOfType(el) {
+    if (!el.parentNode) return 1;
+    let n = 0;
+    for (const sib of el.parentNode.children) {
+      if (sib.tagName === el.tagName) {
+        n += 1;
+        if (sib === el) return n;
+      }
+    }
+    return n;
+  }
+
+  function pathFromRoot(el, root) {
+    const chain = [];
+    let cur = el;
+    while (cur && cur !== root) {
+      chain.unshift(cur);
+      cur = cur.parentNode;
+    }
+    if (cur !== root) return [root]; // detached: return root only
+    return [root, ...chain];
+  }
+
+  function cssSelectorFor(el, root) {
+    const chain = pathFromRoot(el, root);
+    const head = chain[0];
+    const headSel = head.id ? `#${head.id}` : head.tagName.toLowerCase();
+    const tail = chain.slice(1).map(node => `${node.tagName.toLowerCase()}:nth-of-type(${indexOfType(node)})`);
+    return [headSel, ...tail].join(' > ');
+  }
+
+  function tagChainFor(el, root) {
+    return pathFromRoot(el, root).map(node => node.tagName.toUpperCase());
+  }
+
+  return { implicitRole, findAnchorRoot, cssSelectorFor, tagChainFor };
 });
