@@ -75,6 +75,12 @@ func makeModifyResponse(apiPort int, upstream *url.URL) func(*http.Response) err
 			resp.Header.Del("Content-Security-Policy")
 			resp.Header.Del("X-Frame-Options")
 			resp.Header.Del("Content-Length")
+			// Force chunked transfer so the http.Server does not auto-set
+			// Content-Length on the rewritten body — the response payload
+			// changes after our injections, so the upstream value is stale
+			// and must not be reused.
+			resp.ContentLength = -1
+			resp.TransferEncoding = []string{"chunked"}
 			stripCookieDomain(resp)
 			if err := injectSWShimHTML(resp); err != nil {
 				return err
@@ -89,7 +95,9 @@ func makeModifyResponse(apiPort int, upstream *url.URL) func(*http.Response) err
 func injectAgentScript(resp *http.Response, apiPort int) error {
 	body, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if err != nil {
+	// Tolerate ErrUnexpectedEOF: some upstreams set Content-Length larger
+	// than the actual body. Use what we got rather than 502-ing.
+	if err != nil && err != io.ErrUnexpectedEOF {
 		return err
 	}
 	// Order matters: html2canvas must load before crit-agent so the agent
@@ -118,7 +126,9 @@ func injectAgentScript(resp *http.Response, apiPort int) error {
 func injectSWShimHTML(resp *http.Response) error {
 	body, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if err != nil {
+	// Tolerate ErrUnexpectedEOF: some upstreams set Content-Length larger
+	// than the actual body. Use what we got rather than 502-ing.
+	if err != nil && err != io.ErrUnexpectedEOF {
 		return err
 	}
 	if loc := headTagRE.FindIndex(body); loc != nil {
@@ -152,6 +162,10 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 		return nil
 	}
 	// Cross-origin: replace with 200 postMessage stub.
+	// Drain and close upstream's small redirect body so the underlying
+	// connection isn't left in a confused state when we substitute.
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
 	stub := fmt.Sprintf(`<!DOCTYPE html><html><body><script>
 (function(){try{window.parent.postMessage({type:"cross-origin-redirect",url:%q},"*");}catch(e){}}());
 </script><p>cross-origin-redirect to <a href=%q>%s</a></p></body></html>`,
@@ -159,6 +173,8 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 	resp.StatusCode = http.StatusOK
 	resp.Status = "200 OK"
 	resp.Header.Del("Location")
+	resp.Header.Del("Content-Length")
+	resp.ContentLength = int64(len(stub))
 	resp.Header.Set("Content-Type", "text/html; charset=utf-8")
 	resp.Body = io.NopCloser(strings.NewReader(stub))
 	return nil
