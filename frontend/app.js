@@ -4984,217 +4984,38 @@
     return env;
   }
 
-  // Shared helper for building comment card skeleton (header, body, replies)
+  // Shared helper for building comment card skeleton (header, body, replies).
+  // Code-review-internal callers pass a sparse opts object; this wrapper
+  // injects the module-scoped deps and the default override callbacks. The
+  // real implementation lives in frontend/crit-comment-card.js so design-mode
+  // can mount the same renderer with its own deps.
   function buildCommentCard(comment, filePath, opts) {
-    // opts: { wrapperClass, cardClassExtra, collapseDefault, showLineRef, showCarriedForward, repliesExtraClass, showReplyInput,
-    //         isPendingAgentRequest, markPendingAgentRequest, clearPendingAgentRequest,
-    //         getCollapseOverride, setCollapseOverride,
-    //         isLiveThread }
-    // Callbacks default to the module-scoped state so existing call sites keep their behaviour.
-    const isPending = typeof opts.isPendingAgentRequest === 'function'
-      ? opts.isPendingAgentRequest
-      : function(id) { return pendingAgentRequests.has(id); };
-    const getCollapseOverride = typeof opts.getCollapseOverride === 'function'
-      ? opts.getCollapseOverride
-      : function(id) { return commentCollapseOverrides[id]; };
-    const setCollapseOverride = typeof opts.setCollapseOverride === 'function'
-      ? opts.setCollapseOverride
-      : function(id, val) { commentCollapseOverrides[id] = val; };
-    const liveThreadFn = typeof opts.isLiveThread === 'function'
-      ? opts.isLiveThread
-      : isLiveThread;
-
-    const wrapper = document.createElement('div');
-    wrapper.className = opts.wrapperClass || 'comment-block';
-
-    const card = document.createElement('div');
-    let cardClass = 'comment-card';
-    if (opts.cardClassExtra) cardClass += ' ' + opts.cardClassExtra;
-    card.className = cardClass;
-    card.dataset.commentId = comment.id;
-
-    // Collapse state — live threads stay expanded unless resolved
-    const liveOrPending = !comment.resolved && (liveThreadFn(comment) || isPending(comment.id));
-    const collapseOverride = getCollapseOverride(comment.id);
-    const isCollapsed = liveOrPending ? false
-      : opts.collapseDefault
-        ? (collapseOverride !== undefined ? collapseOverride : true)
-        : (collapseOverride === true);
-    if (isCollapsed) card.classList.add('collapsed');
-
-    const header = document.createElement('div');
-    header.className = 'comment-header';
-
-    const collapseBtn = document.createElement('button');
-    collapseBtn.className = 'comment-collapse-btn';
-    collapseBtn.title = isCollapsed ? 'Expand comment' : 'Collapse comment';
-    collapseBtn.innerHTML = ICON_CHEVRON;
-    collapseBtn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      card.classList.toggle('collapsed');
-      setCollapseOverride(comment.id, card.classList.contains('collapsed'));
-      collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
-    });
-
-    const headerLeft = document.createElement('div');
-    headerLeft.className = 'comment-header-left';
-    headerLeft.prepend(collapseBtn);
-    if (comment.author) {
-      const authorBadge = document.createElement('span');
-      authorBadge.className = 'comment-author-badge author-color-' + authorColorIndex(comment.author);
-      authorBadge.textContent = '@' + comment.author;
-      headerLeft.appendChild(authorBadge);
+    opts = opts || {};
+    const merged = Object.assign({}, opts);
+    if (typeof merged.isPendingAgentRequest !== 'function') {
+      merged.isPendingAgentRequest = function (id) { return pendingAgentRequests.has(id); };
     }
-    if (comment.review_round >= 1) {
-      const roundBadge = document.createElement('span');
-      const rc = comment.review_round === session.review_round ? ' round-current' : comment.review_round === session.review_round - 1 ? ' round-latest' : '';
-      roundBadge.className = 'comment-round-badge' + rc;
-      roundBadge.textContent = 'R' + comment.review_round;
-      headerLeft.appendChild(roundBadge);
+    if (typeof merged.getCollapseOverride !== 'function') {
+      merged.getCollapseOverride = function (id) { return commentCollapseOverrides[id]; };
     }
-    if (opts.showLineRef && comment.scope !== 'file') {
-      const lineRef = document.createElement('span');
-      lineRef.className = 'comment-line-ref';
-      lineRef.textContent = comment.start_line === comment.end_line
-        ? 'Line ' + comment.start_line
-        : 'Lines ' + comment.start_line + '-' + comment.end_line;
-      headerLeft.appendChild(lineRef);
+    if (typeof merged.setCollapseOverride !== 'function') {
+      merged.setCollapseOverride = function (id, val) { commentCollapseOverrides[id] = val; };
     }
-    const time = document.createElement('span');
-    time.className = 'comment-time';
-    time.textContent = formatTime(comment.created_at);
-    headerLeft.appendChild(time);
-
-    if (liveOrPending) {
-      const badge = document.createElement('span');
-      badge.className = 'live-thread-badge' + (isPending(comment.id) ? ' pulsing' : '');
-      badge.innerHTML = '<svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" style="vertical-align: -1px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg> live';
-      headerLeft.appendChild(badge);
+    if (typeof merged.isLiveThread !== 'function') {
+      merged.isLiveThread = isLiveThread;
     }
-
-    if (comment.drifted) {
-      wrapper.classList.add('outdated-comment');
-      const driftedBadge = document.createElement('span');
-      driftedBadge.className = 'outdated-badge';
-      driftedBadge.textContent = 'Drifted';
-      headerLeft.appendChild(driftedBadge);
-    }
-
-    const actions = document.createElement('div');
-    actions.className = 'comment-actions';
-
-    header.appendChild(headerLeft);
-    header.appendChild(actions);
-
-    const bodyEl = document.createElement('div');
-    bodyEl.className = 'comment-body';
-    bodyEl.innerHTML = commentMd.render(comment.body, filePath ? buildCommentEnv(comment, filePath) : undefined);
-
-    card.appendChild(header);
-
-    // Drifted anchor context — show original content that was commented on
-    if (comment.drifted && comment.anchor) {
-      const driftedCtx = document.createElement('div');
-      driftedCtx.className = 'drifted-context';
-
-      const toggle = document.createElement('button');
-      toggle.className = 'drifted-toggle';
-      toggle.type = 'button';
-
-      const chevron = document.createElement('span');
-      chevron.className = 'drifted-chevron';
-      chevron.innerHTML = '<svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5,1.5 7,5 3.5,8.5"/></svg>';
-
-      const toggleLabel = document.createElement('span');
-      toggleLabel.className = 'drifted-toggle-label';
-      toggleLabel.textContent = 'Referenced content at time of review';
-
-      const anchorLines = comment.anchor.split('\n');
-      const toggleMeta = document.createElement('span');
-      toggleMeta.className = 'drifted-toggle-meta';
-      toggleMeta.textContent = anchorLines.length === 1 ? '1 line' : anchorLines.length + ' lines';
-
-      toggle.appendChild(chevron);
-      toggle.appendChild(toggleLabel);
-      toggle.appendChild(toggleMeta);
-
-      // Panel with CSS grid animation wrapper
-      const panelId = 'drifted-panel-' + comment.id;
-      const wrapper = document.createElement('div');
-      wrapper.className = 'drifted-panel-wrapper';
-      const inner = document.createElement('div');
-      inner.className = 'drifted-panel-inner';
-      const panel = document.createElement('div');
-      panel.className = 'drifted-panel';
-      panel.id = panelId;
-
-      // Render anchor text with line numbers
-      const pre = document.createElement('pre');
-      pre.className = 'drifted-anchor-text';
-      const startLine = comment.start_line || 1;
-      anchorLines.forEach(function(line, i) {
-        const lineEl = document.createElement('span');
-        lineEl.className = 'drifted-line';
-        const numEl = document.createElement('span');
-        numEl.className = 'drifted-line-number';
-        numEl.textContent = String(startLine + i);
-        const contentEl = document.createElement('span');
-        contentEl.className = 'drifted-line-content';
-        contentEl.textContent = line;
-        lineEl.appendChild(numEl);
-        lineEl.appendChild(contentEl);
-        pre.appendChild(lineEl);
-      });
-
-      panel.appendChild(pre);
-      inner.appendChild(panel);
-      wrapper.appendChild(inner);
-
-      toggle.setAttribute('aria-expanded', 'false');
-      toggle.setAttribute('aria-controls', panelId);
-      toggle.addEventListener('click', function() {
-        const isExpanded = driftedCtx.classList.contains('expanded');
-        driftedCtx.classList.toggle('expanded', !isExpanded);
-        toggle.setAttribute('aria-expanded', String(!isExpanded));
-      });
-
-      driftedCtx.appendChild(toggle);
-      driftedCtx.appendChild(wrapper);
-      card.appendChild(driftedCtx);
-    }
-
-    card.appendChild(bodyEl);
-
-    // Render replies
-    if (comment.replies && comment.replies.length > 0) {
-      card.appendChild(renderReplyList(comment, filePath || '', opts.repliesExtraClass));
-    }
-
-    // Pending agent indicator
-    if (isPending(comment.id)) {
-      const pending = document.createElement('div');
-      pending.className = 'agent-pending-reply';
-      pending.dataset.commentId = comment.id;
-      pending.innerHTML =
-        '<span class="agent-pending-author">@' + agentName + '</span>' +
-        '<span class="agent-pending-cursor">_</span>';
-      card.appendChild(pending);
-    }
-
-    // Reply input (filePath empty/null → review-level reply)
-    if (opts.showReplyInput) {
-      card.appendChild(createReplyInput(comment.id, filePath || ''));
-    }
-
-    if (isPending(comment.id) || liveThreadFn(comment)) {
-      wrapper.classList.add('live-thread');
-    }
-    if (isPending(comment.id)) {
-      wrapper.classList.add('agent-pending');
-    }
-
-    wrapper.appendChild(card);
-    return { wrapper: wrapper, card: card, actions: actions };
+    merged.deps = Object.assign({
+      commentMd: commentMd,
+      formatTime: formatTime,
+      authorColorIndex: authorColorIndex,
+      getReviewRound: function () { return session && session.review_round; },
+      getAgentName: function () { return agentName; },
+      buildCommentEnv: buildCommentEnv,
+      renderReplyList: renderReplyList,
+      createReplyInput: createReplyInput,
+      iconChevron: ICON_CHEVRON,
+    }, opts.deps || {});
+    return window.crit.commentCard.buildCommentCard(comment, filePath, merged);
   }
 
   function createCommentElement(comment, filePath) {

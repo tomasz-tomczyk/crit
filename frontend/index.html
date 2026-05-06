@@ -244,6 +244,7 @@
       // design-mode.js (loaded last) requires their `window.crit.*` namespaces.
       var phaseCDeps = [
         'crit-comment-card-helpers.js',
+        'crit-comment-card.js',
         'agent-protocol.js',
         'design-mode.dispatch.js',
         'design-mode.toggle.js',
@@ -298,6 +299,8 @@
       var v4 = document.createElement('script'); v4.src = 'diff-match-patch.min.js'; document.body.appendChild(v4);
       // Pure rendering helpers shared with design-mode rows. Must load before app.js.
       var ch = document.createElement('script'); ch.src = 'crit-comment-card-helpers.js'; document.body.appendChild(ch);
+      // Shared comment-card renderer (used by app.js and design-mode). Must load before app.js.
+      var cc = document.createElement('script'); cc.src = 'crit-comment-card.js'; document.body.appendChild(cc);
       var a = document.createElement('script'); a.src = 'app.js'; document.body.appendChild(a);
     }
   })();
