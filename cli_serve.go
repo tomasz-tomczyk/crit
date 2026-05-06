@@ -499,12 +499,14 @@ func runServe(args []string) {
 
 	// Design-mode proxy server: bind on apiPort+1 and start serving.
 	var proxyLn net.Listener
+	var proxySrv *http.Server
 	if sc.designOrigin != "" {
-		pl, proxySrv, err := bindProxyServer(sc.designOrigin, addr.Port)
+		pl, ps, err := bindProxyServer(sc.designOrigin, addr.Port)
 		if err != nil {
 			daemonFatal(pipe, "Error starting proxy server: %v", err)
 		}
 		proxyLn = pl
+		proxySrv = ps
 		go func() {
 			if err := proxySrv.Serve(pl); err != http.ErrServerClosed {
 				log.Printf("Proxy server error: %v", err)
@@ -662,6 +664,10 @@ func runServe(args []string) {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(shutCtx)
+	if proxySrv != nil {
+		_ = proxySrv.Shutdown(shutCtx)
+	}
+	_ = proxyLn // silenced: closure on Shutdown above
 
 	if !srv.WaitBackground(30 * time.Second) {
 		log.Printf("Warning: background goroutines did not drain within 30s; proceeding with shutdown")
