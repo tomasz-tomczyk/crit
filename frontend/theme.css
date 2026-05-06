@@ -169,6 +169,20 @@
   /* ---- Design-mode chrome (R2: only iframe pane tokens; markers in Phase D) ---- */
   --crit-design-iframe-frame: #2f3342;
   --crit-design-iframe-bg:    #0e0f13;
+
+  /* ---- Phase C: composer, ancestor menu, mode toggle, toast ---- */
+  --crit-design-composer-bg:           #1a1c23;
+  --crit-design-composer-border:       #2f3342;
+  --crit-design-composer-input-bg:     #0e0f13;
+  --crit-design-composer-error-fg:     #f85149;
+  --crit-design-ancestor-menu-bg:      #1a1c23;
+  --crit-design-ancestor-menu-fg:      #e6e8ed;
+  --crit-design-ancestor-menu-hover-bg:#2f3342;
+  --crit-design-mode-btn-active-bg:    #2d7ff9;
+  --crit-design-mode-btn-active-fg:    #ffffff;
+  --crit-design-toast-bg:              #1a1c23;
+  --crit-design-toast-fg:              #e6e8ed;
+  --crit-design-toast-border:          #2f3342;
 }
 
 /* ===== System preference: light ===== */
@@ -303,6 +317,20 @@
     /* ---- Design-mode chrome (R2: only iframe pane tokens; markers in Phase D) ---- */
     --crit-design-iframe-frame: #d0d7de;
     --crit-design-iframe-bg:    #f6f8fa;
+
+    /* ---- Phase C: composer, ancestor menu, mode toggle, toast ---- */
+    --crit-design-composer-bg:           #ffffff;
+    --crit-design-composer-border:       #d0d7de;
+    --crit-design-composer-input-bg:     #f6f8fa;
+    --crit-design-composer-error-fg:     #cf222e;
+    --crit-design-ancestor-menu-bg:      #ffffff;
+    --crit-design-ancestor-menu-fg:      #1f2328;
+    --crit-design-ancestor-menu-hover-bg:#eef2f7;
+    --crit-design-mode-btn-active-bg:    #2d7ff9;
+    --crit-design-mode-btn-active-fg:    #ffffff;
+    --crit-design-toast-bg:              #ffffff;
+    --crit-design-toast-fg:              #1f2328;
+    --crit-design-toast-border:          #d0d7de;
   }
 }
 
@@ -437,6 +465,20 @@
   /* ---- Design-mode chrome (R2: only iframe pane tokens; markers in Phase D) ---- */
   --crit-design-iframe-frame: #2f3342;
   --crit-design-iframe-bg:    #0e0f13;
+
+  /* ---- Phase C: composer, ancestor menu, mode toggle, toast ---- */
+  --crit-design-composer-bg:           #1a1c23;
+  --crit-design-composer-border:       #2f3342;
+  --crit-design-composer-input-bg:     #0e0f13;
+  --crit-design-composer-error-fg:     #f85149;
+  --crit-design-ancestor-menu-bg:      #1a1c23;
+  --crit-design-ancestor-menu-fg:      #e6e8ed;
+  --crit-design-ancestor-menu-hover-bg:#2f3342;
+  --crit-design-mode-btn-active-bg:    #2d7ff9;
+  --crit-design-mode-btn-active-fg:    #ffffff;
+  --crit-design-toast-bg:              #1a1c23;
+  --crit-design-toast-fg:              #e6e8ed;
+  --crit-design-toast-border:          #2f3342;
 }
 
 /* ===== Light (explicit) ===== */
@@ -570,6 +612,20 @@
   /* ---- Design-mode chrome (R2: only iframe pane tokens; markers in Phase D) ---- */
   --crit-design-iframe-frame: #d0d7de;
   --crit-design-iframe-bg:    #f6f8fa;
+
+  /* ---- Phase C: composer, ancestor menu, mode toggle, toast ---- */
+  --crit-design-composer-bg:           #ffffff;
+  --crit-design-composer-border:       #d0d7de;
+  --crit-design-composer-input-bg:     #f6f8fa;
+  --crit-design-composer-error-fg:     #cf222e;
+  --crit-design-ancestor-menu-bg:      #ffffff;
+  --crit-design-ancestor-menu-fg:      #1f2328;
+  --crit-design-ancestor-menu-hover-bg:#eef2f7;
+  --crit-design-mode-btn-active-bg:    #2d7ff9;
+  --crit-design-mode-btn-active-fg:    #ffffff;
+  --crit-design-toast-bg:              #ffffff;
+  --crit-design-toast-fg:              #1f2328;
+  --crit-design-toast-border:          #d0d7de;
 }
 
 /* ===== highlight.js Dark Theme (Tokyo Night Dark) =====

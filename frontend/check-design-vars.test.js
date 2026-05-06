@@ -5,11 +5,22 @@ const path = require('node:path');
 
 const css = fs.readFileSync(path.join(__dirname, 'theme.css'), 'utf8');
 
-// R2: only --crit-design-iframe-frame and --crit-design-iframe-bg.
-// Marker tokens deferred to Phase D; everything else reuses existing tokens.
+// R2 + Phase C tokens. Marker tokens deferred to Phase D.
 const REQUIRED_VARS = [
   '--crit-design-iframe-frame',
   '--crit-design-iframe-bg',
+  '--crit-design-composer-bg',
+  '--crit-design-composer-border',
+  '--crit-design-composer-input-bg',
+  '--crit-design-composer-error-fg',
+  '--crit-design-ancestor-menu-bg',
+  '--crit-design-ancestor-menu-fg',
+  '--crit-design-ancestor-menu-hover-bg',
+  '--crit-design-mode-btn-active-bg',
+  '--crit-design-mode-btn-active-fg',
+  '--crit-design-toast-bg',
+  '--crit-design-toast-fg',
+  '--crit-design-toast-border',
 ];
 
 const BLOCKS = [
