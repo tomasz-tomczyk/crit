@@ -117,6 +117,25 @@ func looksLikeDesignArgs(args []string) bool {
 	return u.Scheme == "http" || u.Scheme == "https"
 }
 
+// connectToDesignDaemon attaches the current CLI to an already-running design
+// daemon for key, blocking on its review session. Returns true when an alive
+// daemon was found and the review session has completed; false when the caller
+// should spawn a fresh daemon.
+func connectToDesignDaemon(key string) bool {
+	entry, alive := findAliveSession(key)
+	if !alive {
+		return false
+	}
+	fmt.Fprintf(os.Stderr, "[crit] connected to design daemon at http://localhost:%d (proxy :%d)\n",
+		entry.Port, entry.Port+1)
+	fmt.Fprintf(os.Stderr, "[crit] open http://localhost:%d/design\n", entry.Port)
+	if !daemonHasBrowser(entry) {
+		go openBrowser(fmt.Sprintf("http://localhost:%d/design", entry.Port))
+	}
+	runReviewClient(entry)
+	return true
+}
+
 // runDesign is the entry point for `crit design <url>`.
 func runDesign(args []string) {
 	rawURL := ""
@@ -143,9 +162,7 @@ func runDesign(args []string) {
 	case smokeConnRefused, smokeNonHTML:
 		fmt.Fprintf(os.Stderr, "Error: %s\n", result.message)
 		os.Exit(1)
-	case smokeNon2xx:
-		fmt.Fprintf(os.Stderr, "[crit] warning: %s\n", result.message)
-	case smokeMissingBody:
+	case smokeNon2xx, smokeMissingBody:
 		fmt.Fprintf(os.Stderr, "[crit] warning: %s\n", result.message)
 	}
 	if result.hasCSPFrameAncestors {
@@ -162,15 +179,7 @@ func runDesign(args []string) {
 		os.Exit(1)
 	}
 	key := designSessionKey(cwd, origin)
-
-	if entry, alive := findAliveSession(key); alive {
-		fmt.Fprintf(os.Stderr, "[crit] connected to design daemon at http://localhost:%d (proxy :%d)\n",
-			entry.Port, entry.Port+1)
-		fmt.Fprintf(os.Stderr, "[crit] open http://localhost:%d/design\n", entry.Port)
-		if !daemonHasBrowser(entry) {
-			go openBrowser(fmt.Sprintf("http://localhost:%d/design", entry.Port))
-		}
-		runReviewClient(entry)
+	if connectToDesignDaemon(key) {
 		return
 	}
 
