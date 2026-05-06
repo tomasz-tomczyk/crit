@@ -851,6 +851,44 @@
       postToAgent({ type: 'commit-ancestor-selection', level: level });
       closeAncestorMenu();
     });
+
+    // Phase E: keyboard nav controller + fade-in.
+    var menuMod = window.crit && window.crit.design && window.crit.design.menuController;
+    if (menuMod && menuMod.createMenuController) {
+      var inner = wrap.querySelector('.crit-design-ancestor-menu') || wrap.firstElementChild;
+      var items = wrap.querySelectorAll('.crit-design-ancestor-menu-item');
+      var ctl = menuMod.createMenuController({
+        options: options,
+        onCommit: function (o) {
+          if (!o) return;
+          postToAgent({ type: 'commit-ancestor-selection', level: o.level });
+          state.menuController = null;
+          closeAncestorMenu();
+        },
+        onCancel: function () {
+          state.menuController = null;
+          closeAncestorMenu();
+          postToAgent({ type: 'cancel-ancestor-selection' });
+        },
+        onHighlight: function (i) {
+          items.forEach(function (el, j) {
+            el.classList.toggle('crit-design-ancestor-menu-item--active', i === j);
+          });
+          if (items[i] && typeof items[i].focus === 'function') {
+            try { items[i].focus(); } catch (_) { /* noop */ }
+          }
+        },
+      });
+      state.menuController = ctl;
+      wrap.addEventListener('keydown', function (ev) { ctl.keydown(ev); });
+      if (items[0] && typeof items[0].focus === 'function') {
+        try { items[0].focus(); } catch (_) { /* noop */ }
+      }
+      requestAnimationFrame(function () {
+        if (inner && inner.classList) inner.classList.add('crit-design-ancestor-menu--open');
+      });
+    }
+
     setTimeout(function () {
       document.addEventListener('click', closeAncestorMenuOnce, { once: true, capture: true });
     }, 0);
@@ -1054,6 +1092,11 @@
       onPinClicked: handlePinClicked,
       onPinResolutionResult: handlePinResolutionResult,
       onViewportApplied: handleViewportApplied,
+      onHoveredAncestorLevel: function (level) {
+        if (state.menuController && typeof state.menuController.setHoveredLevel === 'function') {
+          state.menuController.setHoveredLevel(level);
+        }
+      },
     });
 
     var guard = originMod.makeOriginGuard({

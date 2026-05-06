@@ -27,6 +27,7 @@
         case A2C.PIN_CLICKED: if (handlers.onPinClicked) handlers.onPinClicked(msg.pin_id); break;
         case A2C.PIN_RESOLUTION_RESULT: if (handlers.onPinResolutionResult) handlers.onPinResolutionResult(msg); break;
         case A2C.VIEWPORT_APPLIED: if (handlers.onViewportApplied) handlers.onViewportApplied(msg); break;
+        case A2C.HOVERED_ANCESTOR_LEVEL: if (handlers.onHoveredAncestorLevel) handlers.onHoveredAncestorLevel(msg.level); break;
         default: break;
       }
     };
