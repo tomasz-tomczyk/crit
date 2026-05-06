@@ -77,13 +77,144 @@
       return _designCardDeps;
     }
 
-    function renderEmptyPanel() {
+    // Granular-update bookkeeping for renderCommentsPanel. Maps keyed by
+    // commentId / route point at the live DOM nodes so subsequent renders can
+    // diff (insert / move / replace / remove) instead of doing a full
+    // panelBody rebuild. The full-rebuild path was visibly flickering, losing
+    // scroll position, and — worst — stealing focus from any open composer
+    // when an unrelated pin's reply submitted in parallel (because the
+    // textarea's DOM node was thrown away on every comments-changed event).
+    //
+    // Mirrors the per-card upsert pattern used by code-review's panel render
+    // in app.js, adapted to design-mode's group-by-route layout.
+    var _cardEntries = new Map();   // id -> { wrapper, sig, route, isPin }
+    var _groupEntries = new Map();  // route -> { group, cards }
+    // Track the current empty/filtered-empty state node so we can swap it
+    // for the populated tree (and back) without leaking either kind.
+    var _emptyEl = null;
+
+    function clearPanelBookkeeping() {
+      _cardEntries.clear();
+      _groupEntries.clear();
+      _emptyEl = null;
+    }
+
+    function showEmptyState(msg, withHint) {
       if (!els.panelBody) return;
-      els.panelBody.innerHTML =
-        '<div class="comments-panel-empty" style="padding:32px 16px;text-align:center;color:var(--crit-editor-fg-muted);font-size:13px;line-height:1.5">' +
-        'No pins yet.<br>' +
-        'Switch to Pin mode and click an element to leave a comment.' +
-        '</div>';
+      // Tear down any populated tree before mounting the empty placeholder.
+      while (els.panelBody.firstChild) els.panelBody.removeChild(els.panelBody.firstChild);
+      clearPanelBookkeeping();
+      var empty = document.createElement('div');
+      empty.className = 'comments-panel-empty';
+      empty.style.cssText = 'padding:32px 16px;text-align:center;color:var(--crit-editor-fg-muted);font-size:13px;line-height:1.5';
+      if (withHint) {
+        empty.innerHTML = msg + '<br>Switch to Pin mode and click an element to leave a comment.';
+      } else {
+        empty.textContent = msg;
+      }
+      els.panelBody.appendChild(empty);
+      _emptyEl = empty;
+    }
+
+    function renderEmptyPanel() {
+      showEmptyState('No pins yet.', true);
+    }
+
+    // Stable signature of every comment field that affects rendering. Two
+    // comments with the same signature produce byte-identical DOM, so we can
+    // safely reuse the existing wrapper instead of rebuilding it. Anything
+    // that changes the rendered card MUST be reflected here.
+    function commentSignature(c, isPin, reviewRound) {
+      var anchor = c.dom_anchor || null;
+      var anchorKey = anchor
+        ? (anchor.pathname || '') + '|' + (anchor.screenshot || '') + '|' +
+          (anchor.accessible_name || '') + '|' +
+          ((anchor.tag_chain && anchor.tag_chain.join('>')) || '') + '|' +
+          (anchor.outer_html || '')
+        : '';
+      var replies = '';
+      if (c.replies && c.replies.length) {
+        for (var i = 0; i < c.replies.length; i++) {
+          var r = c.replies[i] || {};
+          replies += (r.id || '') + ':' + (r.body || '') + ':' + (r.author || '') + ':' + (r.created_at || '') + ':' + (r.updated_at || '') + '|';
+        }
+      }
+      return [
+        c.id || '',
+        isPin ? '1' : '0',
+        c.body || '',
+        c.author || '',
+        c.resolved ? '1' : '0',
+        c.created_at || '',
+        c.updated_at || '',
+        c.review_round == null ? '' : c.review_round,
+        reviewRound,
+        c._replyOpen ? '1' : '0',
+        c._replyDraft || '',
+        c._editOpen ? '1' : '0',
+        c._editDraft == null ? '' : c._editDraft,
+        anchorKey,
+        replies,
+      ].join('\x1f');
+    }
+
+    function buildPinCard(c, cardDeps) {
+      var rowMod = window.crit && window.crit.design && window.crit.design.row;
+      if (rowMod && typeof rowMod.renderDesignPinRow === 'function') {
+        return rowMod.renderDesignPinRow(c, cardDeps);
+      }
+      // Last-ditch fallback (should not happen — row module is wired by
+      // design-mode.js at boot). Render a minimal navigation card.
+      return buildFallbackCard(c, (c.dom_anchor && c.dom_anchor.pathname) || '/');
+    }
+
+    function buildFallbackCard(c, route) {
+      var body = (c.body || '').replace(/\s+/g, ' ').trim();
+      var excerpt = body.length > 200 ? body.slice(0, 200) + '…' : body;
+      var fb = document.createElement('div');
+      fb.className = 'comment-card';
+      fb.dataset.designRoute = route;
+      fb.dataset.id = String(c.id || '');
+      fb.tabIndex = 0;
+      fb.setAttribute('role', 'button');
+      if (c.resolved) fb.dataset.resolved = 'true';
+      var fbBody = document.createElement('div');
+      fbBody.className = 'comment-card-body';
+      fbBody.textContent = excerpt;
+      fb.appendChild(fbBody);
+      var meta = document.createElement('div');
+      meta.className = 'comment-card-meta';
+      meta.style.cssText = 'font-size:11px;color:var(--crit-editor-fg-muted);display:flex;gap:8px';
+      var who = document.createElement('span');
+      who.textContent = c.author || '';
+      meta.appendChild(who);
+      if (c.resolved) {
+        var resolvedTag = document.createElement('span');
+        resolvedTag.style.color = 'var(--crit-green)';
+        resolvedTag.textContent = 'resolved';
+        meta.appendChild(resolvedTag);
+      }
+      fb.appendChild(meta);
+      return fb;
+    }
+
+    function ensureGroup(route, insertBeforeNode) {
+      var entry = _groupEntries.get(route);
+      if (entry) return entry;
+      var group = document.createElement('div');
+      group.className = 'comments-panel-file-group';
+      group.dataset.designRoute = route;
+      var name = document.createElement('div');
+      name.className = 'comments-panel-file-name';
+      name.textContent = route;
+      group.appendChild(name);
+      var cards = document.createElement('div');
+      cards.className = 'comments-panel-file-cards';
+      group.appendChild(cards);
+      els.panelBody.insertBefore(group, insertBeforeNode || null);
+      entry = { group: group, cards: cards };
+      _groupEntries.set(route, entry);
+      return entry;
     }
 
     function renderCommentsPanel() {
@@ -91,15 +222,15 @@
       var groups = utils.groupCommentsByRoute(state.comments);
       if (groups.size === 0) { renderEmptyPanel(); return; }
 
-      // Build the panel as a DOM tree so design pins can mount the shared
-      // buildCommentCard (DOM-composed). Non-pin comments still render as a
-      // light-weight "comment-card" for click-to-navigate routing.
-      var rowMod = window.crit && window.crit.design && window.crit.design.row;
       var cardDeps = getCardDeps();
-
+      var reviewRound = (state.session && state.session.review_round) || 0;
       var filter = state.designFilter || 'all';
-      var frag = document.createDocumentFragment();
-      var anyRendered = false;
+
+      // Compute the desired layout: ordered list of routes, each with an
+      // ordered list of visible comments.
+      var desiredRoutes = [];
+      var desiredByRoute = new Map();
+      var desiredIds = new Set();
       groups.forEach(function (rows, route) {
         var visibleRows = rows.filter(function (c) {
           if (filter === 'open') return !c.resolved;
@@ -107,67 +238,140 @@
           return true;
         });
         if (!visibleRows.length) return;
-        anyRendered = true;
-        var group = document.createElement('div');
-        group.className = 'comments-panel-file-group';
-        var name = document.createElement('div');
-        name.className = 'comments-panel-file-name';
-        name.textContent = route;
-        group.appendChild(name);
-        var cards = document.createElement('div');
-        cards.className = 'comments-panel-file-cards';
-
-        visibleRows.forEach(function (c) {
-          if (c.dom_anchor && rowMod && typeof rowMod.renderDesignPinRow === 'function') {
-            cards.appendChild(rowMod.renderDesignPinRow(c, cardDeps));
-            return;
-          }
-          // Fallback for non-pin (e.g. legacy review-level) comments — light
-          // navigation card.
-          var body = (c.body || '').replace(/\s+/g, ' ').trim();
-          var excerpt = body.length > 200 ? body.slice(0, 200) + '…' : body;
-          var fb = document.createElement('div');
-          fb.className = 'comment-card';
-          fb.dataset.designRoute = route;
-          fb.dataset.id = String(c.id || '');
-          fb.tabIndex = 0;
-          fb.setAttribute('role', 'button');
-          if (c.resolved) fb.dataset.resolved = 'true';
-          var fbBody = document.createElement('div');
-          fbBody.className = 'comment-card-body';
-          fbBody.textContent = excerpt;
-          fb.appendChild(fbBody);
-          var meta = document.createElement('div');
-          meta.className = 'comment-card-meta';
-          meta.style.cssText = 'font-size:11px;color:var(--crit-editor-fg-muted);display:flex;gap:8px';
-          var who = document.createElement('span');
-          who.textContent = c.author || '';
-          meta.appendChild(who);
-          if (c.resolved) {
-            var resolvedTag = document.createElement('span');
-            resolvedTag.style.color = 'var(--crit-green)';
-            resolvedTag.textContent = 'resolved';
-            meta.appendChild(resolvedTag);
-          }
-          fb.appendChild(meta);
-          cards.appendChild(fb);
-        });
-
-        group.appendChild(cards);
-        frag.appendChild(group);
+        desiredRoutes.push(route);
+        desiredByRoute.set(route, visibleRows);
+        for (var i = 0; i < visibleRows.length; i++) {
+          desiredIds.add(String(visibleRows[i].id || ''));
+        }
       });
 
-      els.panelBody.innerHTML = '';
-      if (!anyRendered) {
-        // All comments hidden by current filter.
+      if (desiredRoutes.length === 0) {
         var msg = filter === 'open' ? 'No open pins.' :
                   filter === 'resolved' ? 'No resolved pins.' : 'No pins yet.';
-        els.panelBody.innerHTML =
-          '<div class="comments-panel-empty" style="padding:32px 16px;text-align:center;color:var(--crit-editor-fg-muted);font-size:13px;line-height:1.5">' +
-          msg + '</div>';
+        showEmptyState(msg, false);
         return;
       }
-      els.panelBody.appendChild(frag);
+
+      // If we were showing an empty placeholder, drop it before mounting
+      // anything — we're about to populate.
+      if (_emptyEl && _emptyEl.parentNode === els.panelBody) {
+        els.panelBody.removeChild(_emptyEl);
+        _emptyEl = null;
+      }
+
+      // Preserve scroll position across the diff. We do all DOM work in a
+      // single pass without intermediate measurements, and only assign
+      // scrollTop at the end if it drifted.
+      var savedScroll = els.panelBody.scrollTop;
+
+      // 1. Drop cards whose comment is no longer present (or was filtered
+      // out). This also removes them from their group's `cards` container.
+      var toDelete = [];
+      _cardEntries.forEach(function (entry, id) {
+        if (!desiredIds.has(id)) toDelete.push(id);
+      });
+      for (var d = 0; d < toDelete.length; d++) {
+        var dEntry = _cardEntries.get(toDelete[d]);
+        if (dEntry && dEntry.wrapper && dEntry.wrapper.parentNode) {
+          dEntry.wrapper.parentNode.removeChild(dEntry.wrapper);
+        }
+        _cardEntries.delete(toDelete[d]);
+      }
+
+      // 2. Drop groups whose route is no longer desired. We handle this
+      // before placing groups so the next pass gets a clean ordering.
+      var groupsToDelete = [];
+      _groupEntries.forEach(function (gEntry, route) {
+        if (!desiredByRoute.has(route)) groupsToDelete.push(route);
+      });
+      for (var gd = 0; gd < groupsToDelete.length; gd++) {
+        var gEntry2 = _groupEntries.get(groupsToDelete[gd]);
+        if (gEntry2 && gEntry2.group && gEntry2.group.parentNode) {
+          gEntry2.group.parentNode.removeChild(gEntry2.group);
+        }
+        _groupEntries.delete(groupsToDelete[gd]);
+      }
+
+      // 3. Walk desired routes in order, ensuring each group exists at the
+      // correct position in panelBody, then upsert its cards.
+      var nextGroupNode = els.panelBody.firstChild;
+      for (var r = 0; r < desiredRoutes.length; r++) {
+        var route = desiredRoutes[r];
+        var gEntry = _groupEntries.get(route);
+        if (!gEntry) {
+          gEntry = ensureGroup(route, nextGroupNode);
+        } else if (gEntry.group !== nextGroupNode) {
+          // Re-order: move the existing group into position. insertBefore
+          // is a single mutation and preserves all listeners + state inside
+          // the group.
+          els.panelBody.insertBefore(gEntry.group, nextGroupNode || null);
+        }
+        nextGroupNode = gEntry.group.nextSibling;
+
+        // Upsert cards within this group. We compute the desired wrapper
+        // for each row first (reusing existing nodes when their signature
+        // matches), then place them in order using insertBefore. After the
+        // loop, anything still in the container that we didn't position is
+        // an orphan and gets removed.
+        var rows = desiredByRoute.get(route);
+        var cardsContainer = gEntry.cards;
+        var desiredWrappers = new Array(rows.length);
+        for (var i2 = 0; i2 < rows.length; i2++) {
+          var c = rows[i2];
+          var idStr = String(c.id || '');
+          var isPin = !!(c.dom_anchor);
+          var sig = commentSignature(c, isPin, reviewRound);
+          var existing = _cardEntries.get(idStr);
+          var wrapper;
+          if (existing && existing.sig === sig && existing.route === route && existing.isPin === isPin) {
+            // Reuse the live DOM node — the most important branch for the
+            // focus/scroll preservation contract. Any focused element
+            // inside this wrapper stays focused, since we never detach the
+            // node from the document.
+            wrapper = existing.wrapper;
+          } else {
+            wrapper = isPin ? buildPinCard(c, cardDeps) : buildFallbackCard(c, route);
+            _cardEntries.set(idStr, {
+              wrapper: wrapper, sig: sig, route: route, isPin: isPin,
+            });
+          }
+          desiredWrappers[i2] = wrapper;
+        }
+
+        // Position each desired wrapper in order. insertBefore on a node
+        // already at the correct position is essentially a no-op (the
+        // browser short-circuits), so reused-in-place rows do not move.
+        var anchorNode = cardsContainer.firstChild;
+        for (var i3 = 0; i3 < desiredWrappers.length; i3++) {
+          var w = desiredWrappers[i3];
+          if (w !== anchorNode) {
+            cardsContainer.insertBefore(w, anchorNode || null);
+          } else {
+            anchorNode = anchorNode.nextSibling;
+          }
+        }
+        // 4. Trim any leftover children in this group's cards container
+        // (cards that belonged to a different desired set or stale moves).
+        while (anchorNode) {
+          var stale = anchorNode;
+          anchorNode = anchorNode.nextSibling;
+          cardsContainer.removeChild(stale);
+        }
+      }
+
+      // 5. Trim orphan nodes after the last desired group (e.g. an empty-
+      // state placeholder that snuck in via someone else mutating the DOM).
+      while (nextGroupNode) {
+        var staleG = nextGroupNode;
+        nextGroupNode = nextGroupNode.nextSibling;
+        if (!_groupEntries.has(staleG.dataset && staleG.dataset.designRoute)) {
+          els.panelBody.removeChild(staleG);
+        }
+      }
+
+      if (els.panelBody.scrollTop !== savedScroll) {
+        els.panelBody.scrollTop = savedScroll;
+      }
       if (state.designExpandAll) applyExpandAllToRenderedCards(true);
     }
 
