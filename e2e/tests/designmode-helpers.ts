@@ -166,6 +166,27 @@ export async function openPinComposer(
   selector: string = PIN_TARGET,
 ): Promise<void> {
   await waitForAgentReady(page);
+  await openPinComposerNoNav(page, selector);
+}
+
+/**
+ * Like openPinComposer but does not navigate. Use when the page is already
+ * at /design and you only want to switch to Pin mode and click a target —
+ * for example after setIframeRoute() to a non-default route.
+ */
+export async function openPinComposerNoNav(
+  page: Page,
+  selector: string = PIN_TARGET,
+): Promise<void> {
+  // Wait for the agent inside the (possibly newly-loaded) iframe to handshake.
+  await expect.poll(
+    () => page.evaluate(() => {
+      const log = (window as unknown as { __critDesignMessages?: { type: string }[] })
+        .__critDesignMessages;
+      return Array.isArray(log) && log.some((e) => e.type === 'agent-ready');
+    }),
+    { timeout: 15_000 },
+  ).toBe(true);
   await enterPinMode(page);
   const target = getIframe(page).locator(selector);
   await target.scrollIntoViewIfNeeded();
