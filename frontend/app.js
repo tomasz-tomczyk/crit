@@ -7964,12 +7964,29 @@
 
   function renderSettingsPane(cfg) {
     const pane = document.getElementById('settingsPane');
+    const shared = window.crit && window.crit.settingsPanes;
+    if (shared && shared.renderSettingsTab) {
+      shared.renderSettingsTab(pane, {
+        mode: 'code-review',
+        cfg: cfg,
+        hooks: {
+          applyTheme: window.applyTheme,
+          applyWidth: applyWidth,
+          getHideResolved: isHideResolved,
+          setHideResolved: setHideResolved,
+          onHideResolvedChange: function () { renderAllFiles(); },
+          hasActivePendingUpdates: hasActivePendingUpdates,
+          announceCopy: announceCopy,
+          escape: escapeHtml,
+        },
+      });
+      return;
+    }
+    // Fallback (shared module not loaded — should never happen since
+    // crit-settings-panes.js is loaded before app.js).
     const currentTheme = getSetting('theme', 'system');
     const currentWidth = getSetting('width', 'default');
-
     let html = '';
-
-    // Display section
     html += '<div class="settings-section-label">Display</div>';
     html += '<div class="settings-display-group">';
 

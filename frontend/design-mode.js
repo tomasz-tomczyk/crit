@@ -1460,45 +1460,34 @@
   });
 
   // ============================================================
-  // Settings overlay (Bug 7): wire #settingsToggle in design mode. Code
-  // review's app.js installs the full Settings tab (with width pill,
-  // hide-resolved toggle, agent/integration cards) since those mutators
-  // live in app.js module scope. Design mode renders its own minimal
-  // Settings tab (Theme pill only) and delegates Shortcuts + About to
-  // the shared crit-settings-panes module so all three tabs are populated.
+  // Settings overlay: design mode mounts the same Settings overlay as
+  // code review by delegating all three tabs to crit-settings-panes.js.
+  // Mode-specific behaviour (no width pill; design-scoped hide-resolved)
+  // is supplied via the hooks/show options.
   // ============================================================
   registerInstaller(function installSettingsOverlay() {
     var toggle = document.getElementById('settingsToggle');
     var overlay = document.getElementById('settingsOverlay');
     if (!toggle || !overlay) return;
 
-    function renderThemePane() {
-      var pane = overlay.querySelector('#settingsPane');
-      if (!pane) return;
-      var current = (shared.getSetting && shared.getSetting('theme', 'system')) || 'system';
-      var icons = {
-        system: '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v5.5A2.25 2.25 0 0 1 11.75 12H4.25A2.25 2.25 0 0 1 2 9.75v-5.5Z" clip-rule="evenodd"/></svg>',
-        light:  '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="3"/></svg>',
-        dark:   '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M14.4 10.1A5.5 5.5 0 0 1 6.4 2.3a6.5 6.5 0 1 0 8 7.8Z"/></svg>',
-      };
-      var html = '<div class="settings-section-label">Display</div>' +
-        '<div class="settings-display-group">' +
-          '<div class="settings-display-row">' +
-            '<span class="settings-display-label">Theme</span>' +
-            '<div class="settings-pill settings-pill--theme" role="group" aria-label="Theme">';
-      ['system', 'light', 'dark'].forEach(function (t) {
-        var active = t === current ? ' active' : '';
-        var label = t.charAt(0).toUpperCase() + t.slice(1);
-        html += '<button type="button" class="settings-pill-btn' + active + '" data-settings-theme="' + t + '" aria-pressed="' + (t === current) + '" title="' + label + ' theme">' + icons[t] + '</button>';
-      });
-      html += '</div></div></div>';
-      pane.innerHTML = html;
+    // Design mode persists hide-resolved under its own key so it doesn't
+    // collide with code-review's preference (each mode toggles its own).
+    function getHideResolved() {
+      return !!(shared.getSetting && shared.getSetting('design_hideResolved', false));
+    }
+    function setHideResolved(v) {
+      if (shared.setSetting) shared.setSetting('design_hideResolved', !!v);
+      document.body.classList.toggle('hide-resolved', !!v);
+    }
+    function applyTheme(t) {
+      if (shared.setSetting) shared.setSetting('theme', t);
+      if (shared.applyThemeFromCookie) shared.applyThemeFromCookie();
     }
 
-    function renderSharedPanes() {
+    function renderAllPanes() {
       var panes = window.crit && window.crit.settingsPanes;
       if (!panes) return;
-      // Build a session descriptor from /api/session if it has been loaded.
+      var cfg = (state && state.config) || {};
       var sess = (state && state.session) || {};
       var sessionDescriptor = {
         mode: 'design',
@@ -1506,7 +1495,22 @@
         review_round: sess.review_round || state.currentRound || 1,
         upstream_url: sess.upstream_url || state.upstreamURL,
       };
-      var cfg = (state && state.config) || {};
+      if (panes.renderSettingsTab) {
+        panes.renderSettingsTab(overlay.querySelector('#settingsPane'), {
+          mode: 'design',
+          cfg: cfg,
+          hooks: {
+            applyTheme: applyTheme,
+            getHideResolved: getHideResolved,
+            setHideResolved: setHideResolved,
+            onHideResolvedChange: function () {
+              // No file-list re-render in design mode; the body class
+              // (toggled by setHideResolved) drives CSS visibility on pin
+              // rows + comment cards.
+            },
+          },
+        });
+      }
       if (panes.renderShortcutsPane) {
         panes.renderShortcutsPane(overlay.querySelector('#shortcutsPane'));
       }
@@ -1530,17 +1534,15 @@
 
     function open() {
       overlay.classList.add('active');
-      // All tabs visible — design mode now populates Settings (minimal),
-      // Shortcuts (shared), and About (shared).
       var tabs = overlay.querySelectorAll('.settings-tab[role="tab"]');
       tabs.forEach(function (t) { t.style.display = ''; });
       switchTab('settings');
-      renderThemePane();
-      // Best-effort: load /api/config + /api/session before rendering shared
-      // panes so the About tab shows version/round info. Failures fall back
-      // to the minimal session descriptor.
+      // Render once with whatever cfg/session we have, then re-render after
+      // /api/config + /api/session resolve so cards (update / account /
+      // integration / share) and the About session info populate.
+      renderAllPanes();
       var pending = 2;
-      function done() { pending--; if (pending === 0) renderSharedPanes(); }
+      function done() { pending--; if (pending === 0) renderAllPanes(); }
       try {
         fetch('/api/config').then(function (r) { return r.ok ? r.json() : {}; }).then(function (c) {
           state.config = c || {};
@@ -1549,30 +1551,26 @@
           state.session = s || {};
         }).catch(function () {}).finally(done);
       } catch (_) {
-        renderSharedPanes();
+        // best-effort
       }
     }
     function close() { overlay.classList.remove('active'); }
+
+    // Apply persisted hide-resolved on boot so the body class is in sync
+    // before the overlay is opened the first time.
+    document.body.classList.toggle('hide-resolved', getHideResolved());
 
     toggle.addEventListener('click', function () {
       if (overlay.classList.contains('active')) close(); else open();
     });
     overlay.addEventListener('click', function (e) {
-      if (e.target === overlay) close();
+      if (e.target === overlay) { close(); return; }
       var closeBtn = e.target.closest && e.target.closest('#settingsClose');
       if (closeBtn) { close(); return; }
       var tabBtn = e.target.closest && e.target.closest('.settings-tab[data-tab]');
-      if (tabBtn) {
-        switchTab(tabBtn.dataset.tab);
-        return;
-      }
-      var themeBtn = e.target.closest && e.target.closest('[data-settings-theme]');
-      if (themeBtn) {
-        var t = themeBtn.dataset.settingsTheme;
-        if (shared.setSetting) shared.setSetting('theme', t);
-        if (shared.applyThemeFromCookie) shared.applyThemeFromCookie();
-        renderThemePane();
-      }
+      if (tabBtn) { switchTab(tabBtn.dataset.tab); return; }
+      // theme/width/hide-resolved/copy/dismiss wiring lives inside
+      // renderSettingsTab — no overlay-level handlers needed for them.
     });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && overlay.classList.contains('active')) close();
