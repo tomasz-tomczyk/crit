@@ -35,16 +35,16 @@
       : '';
     return [
       '<div class="crit-design-composer" role="dialog" aria-label="New design pin">',
+        '<div class="crit-design-composer-header">Pin on ' + escapeHTML(a.pathname || '/') + '</div>',
         '<div class="crit-design-composer-meta">',
           '<span class="crit-design-composer-chip">' + escapeHTML(label) + '</span>',
-          '<span class="crit-design-composer-route">' + escapeHTML(a.pathname) + '</span>',
         '</div>',
         thumb,
-        '<textarea class="crit-design-composer-body" placeholder="Comment..." rows="4"></textarea>',
+        '<textarea class="crit-design-composer-body" placeholder="Leave a design comment… (Ctrl+Enter to submit, Escape to cancel)" rows="4"></textarea>',
         '<div class="crit-design-composer-error" hidden></div>',
-        '<div class="comment-form-actions">',
+        '<div class="crit-design-composer-actions">',
           '<button type="button" class="btn btn-sm crit-design-composer-cancel">Cancel</button>',
-          '<button type="button" class="btn btn-sm btn-primary crit-design-composer-save">Save</button>',
+          '<button type="button" class="btn btn-sm btn-primary crit-design-composer-save">Comment</button>',
         '</div>',
       '</div>',
     ].join('');

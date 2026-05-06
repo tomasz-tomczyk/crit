@@ -49,7 +49,7 @@ test('renderComposerHTML uses Cancel/Save with crit btn classes', () => {
   });
   assert.ok(html.includes('class="btn btn-sm crit-design-composer-cancel"'));
   assert.ok(html.includes('class="btn btn-sm btn-primary crit-design-composer-save"'));
-  assert.ok(html.includes('class="comment-form-actions"'));
+  assert.ok(html.includes('class="crit-design-composer-actions"'));
 });
 
 test('chipLabel prefers accessible_name', () => {

@@ -222,32 +222,41 @@
 .crit-design-composer-host {
   padding: 8px;
 }
+/* Capture composer — mirrors code-review's `.comment-form` chrome:
+   brand-colored border + subtle outer ring + brand header strip,
+   borderless integrated textarea, top-bordered actions row. */
 .crit-design-composer {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px;
-  background: var(--crit-design-composer-bg);
-  border: 1px solid var(--crit-design-composer-border);
+  position: relative;
+  display: block;
+  margin: 0;
+  background: var(--crit-editor-comment-bg);
+  border: 1px solid var(--crit-brand);
   border-radius: var(--crit-r-md);
+  overflow: hidden;
+  box-shadow: 0 0 0 2px var(--crit-brand-subtle);
+}
+.crit-design-composer-header {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--crit-brand);
+  font-family: var(--crit-font-mono);
+  background: var(--crit-brand-subtle);
+  border-bottom: 1px solid var(--crit-design-composer-border);
 }
 .crit-design-composer-meta {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 0;
   font-size: 11px;
   color: var(--crit-editor-fg-muted);
 }
-.crit-design-composer-meta code {
-  font-family: var(--crit-font-mono);
-  font-size: 11px;
-  word-break: break-all;
-}
-.crit-design-composer-route {
-  font-style: italic;
-}
 .crit-design-composer-thumb {
-  max-width: 100%;
+  display: block;
+  margin: 8px 14px 0;
+  max-width: calc(100% - 28px);
   max-height: 180px;
   border: 1px solid var(--crit-design-composer-border);
   border-radius: var(--crit-r-sm);
@@ -266,18 +275,35 @@
   white-space: nowrap;
 }
 .crit-design-composer-body {
-  background: var(--crit-design-composer-input-bg);
+  display: block;
+  width: 100%;
+  min-height: 80px;
+  margin-top: 8px;
+  padding: 10px 14px;
+  border: none;
+  background: var(--crit-editor-comment-bg);
   color: var(--crit-editor-fg);
-  border: 1px solid var(--crit-design-composer-border);
-  border-radius: var(--crit-r-sm);
-  padding: 6px 8px;
-  font-family: inherit;
-  font-size: 13px;
-  resize: vertical;
+  font-family: var(--crit-font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  resize: none;
+  field-sizing: content;
+  outline: none;
+}
+.crit-design-composer-body::placeholder {
+  color: var(--crit-editor-fg-muted);
 }
 .crit-design-composer-error {
+  padding: 0 14px 8px;
   font-size: 12px;
   color: var(--crit-design-composer-error-fg);
+}
+.crit-design-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--crit-design-composer-border);
 }
 .crit-design-ancestor-menu-host {
   pointer-events: auto;
@@ -397,33 +423,41 @@
   gap: 6px;
   margin-top: 4px;
 }
-/* Reply + edit composers — match the main pin composer's look so the user
-   gets a consistent textarea/button treatment regardless of which compose
-   surface is open. */
+/* Reply + edit composers — mirror code-review's expanded `.reply-form`
+   chrome: flush textarea on the comment-card surface, borderless, with a
+   top border separating the actions row. The composer sits inside an
+   existing card, so it should not introduce its own outer border or
+   rounded corners. */
 .crit-design-reply-composer,
 .crit-design-edit-composer {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  margin-top: 6px;
-  background: var(--crit-design-composer-bg);
-  border: 1px solid var(--crit-design-composer-border);
-  border-radius: var(--crit-r-md);
+  display: block;
+  margin: 8px -8px 0; /* extend to card edges (.crit-design-comment-row has 8px padding) */
+  padding: 0;
+  background: var(--crit-editor-comment-bg);
+  border-top: 1px solid var(--crit-design-composer-border);
 }
 .crit-design-reply-textarea,
 .crit-design-edit-textarea {
-  background: var(--crit-design-composer-input-bg);
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 14px;
+  border: none;
+  background: var(--crit-editor-comment-bg);
   color: var(--crit-editor-fg);
-  border: 1px solid var(--crit-design-composer-border);
-  border-radius: var(--crit-r-sm);
-  padding: 6px 8px;
-  font-family: inherit;
-  font-size: 13px;
+  font-family: var(--crit-font-body);
+  font-size: 14px;
+  line-height: 1.6;
   resize: vertical;
+  outline: none;
+}
+.crit-design-reply-textarea::placeholder,
+.crit-design-edit-textarea::placeholder {
+  color: var(--crit-editor-fg-muted);
 }
 .crit-design-reply-error,
 .crit-design-edit-error {
+  padding: 0 14px 6px;
   font-size: 12px;
   color: var(--crit-design-composer-error-fg);
 }
@@ -431,7 +465,9 @@
 .crit-design-edit-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--crit-design-composer-border);
 }
 
 /* Resolved styling now reuses code-review's `.comment-card.resolved`

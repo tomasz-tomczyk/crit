@@ -88,11 +88,11 @@
     var safeDraft = escapeHTML(draft || '');
     return [
       '<div class="crit-design-reply-composer" data-comment-id="' + safeId + '" data-pathname="' + safePath + '">',
-        '<textarea class="crit-design-reply-textarea" rows="3" placeholder="Write a reply…">' + safeDraft + '</textarea>',
+        '<textarea class="crit-design-reply-textarea" rows="3" placeholder="Write a reply… (Ctrl+Enter to submit, Escape to cancel)">' + safeDraft + '</textarea>',
         '<div class="crit-design-reply-error" hidden></div>',
         '<div class="crit-design-reply-actions">',
           '<button type="button" class="btn btn-sm crit-design-reply-cancel" data-comment-id="' + safeId + '">Cancel</button>',
-          '<button type="button" class="btn btn-sm btn-primary crit-design-reply-save" data-comment-id="' + safeId + '" data-pathname="' + safePath + '">Save</button>',
+          '<button type="button" class="btn btn-sm btn-primary crit-design-reply-save" data-comment-id="' + safeId + '" data-pathname="' + safePath + '">Reply</button>',
         '</div>',
       '</div>',
     ].join('');
@@ -104,11 +104,11 @@
     var safeDraft = escapeHTML(draft || '');
     return [
       '<div class="crit-design-edit-composer" data-comment-id="' + safeId + '" data-pathname="' + safePath + '">',
-        '<textarea class="crit-design-edit-textarea" rows="3">' + safeDraft + '</textarea>',
+        '<textarea class="crit-design-edit-textarea" rows="3" placeholder="Edit comment… (Ctrl+Enter to submit, Escape to cancel)">' + safeDraft + '</textarea>',
         '<div class="crit-design-edit-error" hidden></div>',
         '<div class="crit-design-edit-actions">',
           '<button type="button" class="btn btn-sm crit-design-edit-cancel" data-comment-id="' + safeId + '">Cancel</button>',
-          '<button type="button" class="btn btn-sm btn-primary crit-design-edit-save" data-comment-id="' + safeId + '" data-pathname="' + safePath + '">Save</button>',
+          '<button type="button" class="btn btn-sm btn-primary crit-design-edit-save" data-comment-id="' + safeId + '" data-pathname="' + safePath + '">Update</button>',
         '</div>',
       '</div>',
     ].join('');
@@ -159,42 +159,97 @@
 
   // ----- DOM-composed row (Phase C — mounts shared buildCommentCard) -------
 
-  function buildDesignReplyList(comment, _filePath, _extraClass) {
-    // Mirrors today's renderRepliesHTML output as a DOM tree so existing CSS
-    // and any future selectors keep working. Falls back to text for the body
-    // (no markdown render for replies — matches current design-mode behaviour).
-    var container = document.createElement('div');
-    container.className = 'crit-design-comment-replies';
-    var replies = Array.isArray(comment.replies) ? comment.replies : [];
-    for (var i = 0; i < replies.length; i++) {
-      var r = replies[i] || {};
-      var row = document.createElement('div');
-      row.className = 'crit-design-comment-reply';
-      row.dataset.replyId = r.id || '';
-      var hdr = document.createElement('div');
-      hdr.className = 'crit-design-reply-header';
-      if (r.author) {
-        var a = document.createElement('span');
-        a.className = 'crit-design-reply-author';
-        a.textContent = '@' + r.author;
-        hdr.appendChild(a);
+  // makeReplyListBuilder — returns a (comment, filePath, extraClass) function
+  // that buildCommentCard can invoke. Closes over `deps` so we get markdown
+  // rendering, author colours, and icon SVGs. Output classes mirror
+  // code-review's renderReplyList exactly (.comment-replies / .comment-reply
+  // / .reply-header / .reply-meta / .reply-time / .reply-body) so the shared
+  // style.css rules apply unchanged.
+  function makeReplyListBuilder(deps) {
+    deps = deps || {};
+    var commentMd = deps.commentMd;
+    var formatTime = deps.formatTime || formatTimeFallback;
+    var authorColorIndex = deps.authorColorIndex || function () { return 0; };
+    var iconEdit = deps.iconEdit || '';
+    var iconDelete = deps.iconDelete || '';
+
+    return function buildDesignReplyList(comment, _filePath, extraClass) {
+      var container = document.createElement('div');
+      container.className = 'comment-replies' + (extraClass ? ' ' + extraClass : '');
+      var replies = Array.isArray(comment.replies) ? comment.replies : [];
+      for (var i = 0; i < replies.length; i++) {
+        var r = replies[i] || {};
+        var row = document.createElement('div');
+        row.className = 'comment-reply';
+        row.dataset.replyId = r.id || '';
+
+        var hdr = document.createElement('div');
+        hdr.className = 'reply-header';
+
+        var meta = document.createElement('div');
+        meta.className = 'reply-meta';
+        if (r.author) {
+          var a = document.createElement('span');
+          a.className = 'comment-author-badge author-color-' + authorColorIndex(r.author);
+          a.textContent = '@' + r.author;
+          meta.appendChild(a);
+        }
+        var ts = formatTime(r.created_at);
+        if (ts) {
+          var t = document.createElement('span');
+          t.className = 'reply-time';
+          t.textContent = ts;
+          meta.appendChild(t);
+        }
+        hdr.appendChild(meta);
+
+        // Per-reply Edit/Delete affordance — mirrors code-review's
+        // .comment-reply:hover .reply-actions reveal. Wiring of the click
+        // handlers is the design-mode controller's job; the chrome lives
+        // here so visuals match without a separate stylesheet.
+        var actions = document.createElement('div');
+        actions.className = 'reply-actions';
+        var editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'crit-design-reply-edit';
+        editBtn.title = 'Edit';
+        editBtn.setAttribute('aria-label', 'Edit reply');
+        editBtn.dataset.commentId = comment.id || '';
+        editBtn.dataset.replyId = r.id || '';
+        editBtn.innerHTML = iconEdit;
+        var delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'delete-btn crit-design-reply-delete';
+        delBtn.title = 'Delete';
+        delBtn.setAttribute('aria-label', 'Delete reply');
+        delBtn.dataset.commentId = comment.id || '';
+        delBtn.dataset.replyId = r.id || '';
+        delBtn.innerHTML = iconDelete;
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+        hdr.appendChild(actions);
+
+        row.appendChild(hdr);
+
+        var body = document.createElement('div');
+        body.className = 'reply-body';
+        body.dataset.rawBody = r.body || '';
+        if (commentMd && typeof commentMd.render === 'function') {
+          body.innerHTML = commentMd.render(r.body || '');
+        } else {
+          body.textContent = r.body || '';
+        }
+        row.appendChild(body);
+        container.appendChild(row);
       }
-      var ts = formatTimeFallback(r.created_at);
-      if (ts) {
-        var t = document.createElement('span');
-        t.className = 'crit-design-reply-time';
-        t.textContent = ts;
-        hdr.appendChild(t);
-      }
-      var body = document.createElement('div');
-      body.className = 'crit-design-reply-body';
-      body.textContent = r.body || '';
-      row.appendChild(hdr);
-      row.appendChild(body);
-      container.appendChild(row);
-    }
-    return container;
+      return container;
+    };
   }
+
+  // Back-compat: plain (no markdown, no icons) builder. Older callers and
+  // unit tests reach for this directly. New design-mode mounts go through
+  // makeReplyListBuilder via renderDesignPinRow.
+  var buildDesignReplyList = makeReplyListBuilder({});
 
   function buildDesignReplyComposer(commentId, pathname, draft) {
     var wrap = document.createElement('div');
@@ -205,7 +260,7 @@
     var ta = document.createElement('textarea');
     ta.className = 'crit-design-reply-textarea';
     ta.rows = 3;
-    ta.placeholder = 'Write a reply…';
+    ta.placeholder = 'Write a reply… (Ctrl+Enter to submit, Escape to cancel)';
     ta.value = draft || '';
 
     var err = document.createElement('div');
@@ -226,7 +281,7 @@
     save.className = 'btn btn-sm btn-primary crit-design-reply-save';
     save.dataset.commentId = commentId || '';
     save.dataset.pathname = pathname || '';
-    save.textContent = 'Save';
+    save.textContent = 'Reply';
 
     actions.appendChild(cancel);
     actions.appendChild(save);
@@ -264,9 +319,21 @@
       return fallback;
     }
 
+    var replyListBuilder = makeReplyListBuilder({
+      commentMd: deps.commentMd,
+      formatTime: deps.formatTime,
+      authorColorIndex: deps.authorColorIndex,
+      iconEdit: deps.iconEdit || '',
+      iconDelete: deps.iconDelete || '',
+    });
+
     var parts = card.buildCommentCard(c, pathname, {
-      wrapperClass: 'crit-design-comment-row-wrap',
-      cardClassExtra: 'crit-design-comment-row' + (c.resolved ? ' resolved-card resolved' : ''),
+      wrapperClass: 'comment-block crit-design-comment-row-wrap',
+      // Drop the bespoke .crit-design-comment-row chrome — code-review's
+      // .comment-card already provides border, background, and padded header
+      // bar. Adding a second border/background was the source of the
+      // "card-in-a-card" mismatch with code-review.
+      cardClassExtra: c.resolved ? 'resolved-card' : '',
       // Design pins default to expanded — buildCommentCard's collapseDefault
       // mode is for code-review's resolved-thread auto-fold; design rows
       // stay open until the user collapses them via the chevron.
@@ -292,7 +359,7 @@
         getReviewRound: deps.getReviewRound || function () { return 0; },
         getAgentName: function () { return 'agent'; },
         buildCommentEnv: function () { return undefined; },
-        renderReplyList: buildDesignReplyList,
+        renderReplyList: replyListBuilder,
         createReplyInput: function () { return document.createElement('div'); },
         iconChevron: deps.iconChevron || '',
       },
@@ -313,56 +380,76 @@
       // converge on a single selector.
     }
 
-    // Insert the design-specific meta (route badge, chip, thumbnail) at the
-    // top of the card, before the body. We can locate the body element to
-    // anchor the insertion point.
-    var body = parts.card.querySelector('.comment-body');
-    var meta = document.createElement('div');
-    meta.className = 'crit-design-comment-header';
-    var routeBadge = document.createElement('span');
-    routeBadge.className = 'crit-design-comment-route-badge';
-    routeBadge.textContent = pathname;
-    meta.appendChild(routeBadge);
-    var chip = document.createElement('span');
-    chip.className = 'crit-design-comment-chip';
-    chip.textContent = chipLabel(anchor);
-    meta.appendChild(chip);
-    parts.card.insertBefore(meta, body);
+    // Slot the design-specific meta (route badge + chip) into the shared
+    // header's left side, sitting where code-review puts the line-ref. This
+    // gives us one consistent header bar instead of a second band stacked
+    // above the body.
+    var headerLeft = parts.card.querySelector('.comment-header-left');
+    if (headerLeft) {
+      var routeBadge = document.createElement('span');
+      routeBadge.className = 'crit-design-comment-route-badge';
+      routeBadge.textContent = pathname;
+      headerLeft.appendChild(routeBadge);
 
+      var chip = document.createElement('span');
+      chip.className = 'crit-design-comment-chip';
+      chip.textContent = chipLabel(anchor);
+      chip.title = chipLabel(anchor);
+      headerLeft.appendChild(chip);
+    }
+
+    // Screenshot thumbnail goes inside the body padding, above the prose.
     if (anchor.screenshot) {
+      var bodyEl0 = parts.card.querySelector('.comment-body');
       var thumb = document.createElement('img');
       thumb.className = 'crit-design-comment-thumb';
       thumb.src = anchor.screenshot;
       thumb.alt = '';
-      parts.card.insertBefore(thumb, body);
+      if (bodyEl0) bodyEl0.insertBefore(thumb, bodyEl0.firstChild);
+      else parts.card.appendChild(thumb);
     }
 
-    // Append Edit + Reply + Resolve buttons to the shared actions slot. These
-    // carry data-comment-id / data-pathname so the existing dispatch handlers
-    // in design-mode.js continue to work without changes.
+    // Action buttons — match code-review's icon affordance + ordering
+    // (Resolve, Edit, Reply). Reply has no analogue in code-review (which
+    // uses an always-on reply input form below the card); design mode keeps
+    // an explicit Reply button because the reply composer is opened on
+    // demand, not always rendered. The icon-only treatment + .resolve-btn
+    // pill class hooks straight into the shared style.css rules.
+    var resolveBtn = document.createElement('button');
+    resolveBtn.type = 'button';
+    var resolveCls = 'resolve-btn crit-design-comment-resolve';
+    if (c.resolved) resolveCls += ' resolve-btn--active';
+    resolveBtn.className = resolveCls;
+    resolveBtn.dataset.commentId = commentId;
+    resolveBtn.dataset.pathname = pathname;
+    var resolveLabel = c.resolved ? 'Unresolve' : 'Resolve';
+    resolveBtn.title = resolveLabel;
+    resolveBtn.setAttribute('aria-label', resolveLabel + ' thread');
+    var resolveIcon = c.resolved
+      ? (deps.iconUnresolve || '')
+      : (deps.iconResolve || '');
+    resolveBtn.innerHTML = resolveIcon + '<span>' + resolveLabel + '</span>';
+    parts.actions.appendChild(resolveBtn);
+
     var editBtn = document.createElement('button');
     editBtn.type = 'button';
-    editBtn.className = 'btn btn-sm crit-design-comment-edit';
+    editBtn.className = 'crit-design-comment-edit';
     editBtn.dataset.commentId = commentId;
     editBtn.dataset.pathname = pathname;
-    editBtn.textContent = 'Edit';
+    editBtn.title = 'Edit';
+    editBtn.setAttribute('aria-label', 'Edit comment');
+    editBtn.innerHTML = deps.iconEdit || '';
     parts.actions.appendChild(editBtn);
 
     var replyBtn = document.createElement('button');
     replyBtn.type = 'button';
-    replyBtn.className = 'btn btn-sm crit-design-comment-reply';
+    replyBtn.className = 'crit-design-comment-reply';
     replyBtn.dataset.commentId = commentId;
     replyBtn.dataset.pathname = pathname;
-    replyBtn.textContent = 'Reply';
+    replyBtn.title = 'Reply';
+    replyBtn.setAttribute('aria-label', 'Reply to comment');
+    replyBtn.innerHTML = deps.iconReply || '';
     parts.actions.appendChild(replyBtn);
-
-    var resolveBtn = document.createElement('button');
-    resolveBtn.type = 'button';
-    resolveBtn.className = 'btn btn-sm crit-design-comment-resolve';
-    resolveBtn.dataset.commentId = commentId;
-    resolveBtn.dataset.pathname = pathname;
-    resolveBtn.textContent = c.resolved ? 'Reopen' : 'Resolve';
-    parts.actions.appendChild(resolveBtn);
 
     // Inline reply composer when open.
     if (c._replyOpen) {
@@ -397,6 +484,7 @@
     var ta = document.createElement('textarea');
     ta.className = 'crit-design-edit-textarea';
     ta.rows = 3;
+    ta.placeholder = 'Edit comment… (Ctrl+Enter to submit, Escape to cancel)';
     ta.value = draft || '';
 
     var err = document.createElement('div');
@@ -417,7 +505,7 @@
     save.className = 'btn btn-sm btn-primary crit-design-edit-save';
     save.dataset.commentId = commentId || '';
     save.dataset.pathname = pathname || '';
-    save.textContent = 'Save';
+    save.textContent = 'Update';
 
     actions.appendChild(cancel);
     actions.appendChild(save);
