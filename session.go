@@ -112,13 +112,13 @@ type Comment struct {
 	// as Drifted. Used to surface "Drifted on round N" in the design-mode side
 	// panel. Zero (omitempty) means "not stamped". Distinct from `Drifted bool`
 	// so we can show "drifted earlier" vs "drifted just now" without ambiguity.
-	DriftedOnRound int `json:"drifted_on_round,omitempty"`
-	Author      string `json:"author,omitempty"`
-	UserID      string `json:"user_id,omitempty"`
-	Scope       string `json:"scope,omitempty"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
-	Resolved    bool   `json:"resolved,omitempty"`
+	DriftedOnRound int    `json:"drifted_on_round,omitempty"`
+	Author         string `json:"author,omitempty"`
+	UserID         string `json:"user_id,omitempty"`
+	Scope          string `json:"scope,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+	Resolved       bool   `json:"resolved,omitempty"`
 	// ResolvedRound is the review round during which Resolved transitioned
 	// false -> true. Cleared to 0 when Resolved transitions back to false.
 	// Legacy comments lacking this field are treated as zero on read; the

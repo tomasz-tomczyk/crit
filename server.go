@@ -1091,51 +1091,58 @@ func (s *Server) handleFileCommentResolve(w http.ResponseWriter, r *http.Request
 	writeJSON(w, c)
 }
 
+// handleFileCommentPut decodes the PUT patch and applies body/anchor +
+// design-mode drift patches in one shot. Extracted from handleFileCommentUpdate
+// to keep that switch's cyclomatic complexity within budget.
+func (s *Server) handleFileCommentPut(w http.ResponseWriter, r *http.Request, path, id string) {
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	var req struct {
+		Body           string     `json:"body"`
+		DOMAnchor      *DOMAnchor `json:"dom_anchor"`
+		Drifted        *bool      `json:"drifted,omitempty"`
+		DriftedOnRound *int       `json:"drifted_on_round,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	isDriftPatch := req.Drifted != nil || req.DriftedOnRound != nil
+	if !isDriftPatch && req.Body == "" && req.DOMAnchor == nil {
+		http.Error(w, "Comment body is required", http.StatusBadRequest)
+		return
+	}
+	sess := s.session.Load()
+	if isDriftPatch {
+		c, ok := sess.PatchCommentDrift(path, id, req.Drifted, req.DriftedOnRound)
+		if !ok {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		if req.Body == "" && req.DOMAnchor == nil {
+			writeJSON(w, c)
+			return
+		}
+	}
+	c, ok, reason := sess.UpdateCommentWithAnchor(path, id, req.Body, req.DOMAnchor)
+	if !ok {
+		switch reason {
+		case "not_found":
+			http.Error(w, "Comment not found", http.StatusNotFound)
+		case "anchor_on_code_comment":
+			http.Error(w, "dom_anchor is only valid on design pins", http.StatusBadRequest)
+		default:
+			http.Error(w, "Update failed", http.StatusBadRequest)
+		}
+		return
+	}
+	writeJSON(w, c)
+}
+
 // handleFileCommentUpdate handles PUT and DELETE on /api/comment/{id}?path=X.
 func (s *Server) handleFileCommentUpdate(w http.ResponseWriter, r *http.Request, path, id string) {
 	switch r.Method {
 	case http.MethodPut:
-		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
-		var req struct {
-			Body           string     `json:"body"`
-			DOMAnchor      *DOMAnchor `json:"dom_anchor"`
-			Drifted        *bool      `json:"drifted,omitempty"`
-			DriftedOnRound *int       `json:"drifted_on_round,omitempty"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-		// Design-mode drift patches may legitimately omit body and anchor.
-		isDriftPatch := req.Drifted != nil || req.DriftedOnRound != nil
-		if !isDriftPatch && req.Body == "" && req.DOMAnchor == nil {
-			http.Error(w, "Comment body is required", http.StatusBadRequest)
-			return
-		}
-		if isDriftPatch {
-			c, ok := s.session.Load().PatchCommentDrift(path, id, req.Drifted, req.DriftedOnRound)
-			if !ok {
-				http.Error(w, "Comment not found", http.StatusNotFound)
-				return
-			}
-			if req.Body == "" && req.DOMAnchor == nil {
-				writeJSON(w, c)
-				return
-			}
-		}
-		c, ok, reason := s.session.Load().UpdateCommentWithAnchor(path, id, req.Body, req.DOMAnchor)
-		if !ok {
-			switch reason {
-			case "not_found":
-				http.Error(w, "Comment not found", http.StatusNotFound)
-			case "anchor_on_code_comment":
-				http.Error(w, "dom_anchor is only valid on design pins", http.StatusBadRequest)
-			default:
-				http.Error(w, "Update failed", http.StatusBadRequest)
-			}
-			return
-		}
-		writeJSON(w, c)
+		s.handleFileCommentPut(w, r, path, id)
 
 	case http.MethodDelete:
 		if !s.session.Load().DeleteComment(path, id) {
