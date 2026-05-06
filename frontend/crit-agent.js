@@ -563,8 +563,25 @@
     loadHtml2Canvas().catch(function () { /* swallow */ });
   }
 
+  // Test-only flag: when the iframe URL has ?crit-design-fail-h2c=1, force
+  // captureScreenshot() to take the failure path. Lets E2E exercise the
+  // empty-string + agent-error contract deterministically without needing to
+  // provoke a real cross-origin/tainted-canvas failure. Remove from prod parse
+  // if/when v2 ships.
+  function shouldForceH2cFailure() {
+    try {
+      var p = new URLSearchParams(window.location.search);
+      return p.get('crit-design-fail-h2c') === '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function captureScreenshot(target) {
     try {
+      if (shouldForceH2cFailure()) {
+        throw new Error('forced via crit-design-fail-h2c');
+      }
       if (document.fonts && document.fonts.ready) {
         await document.fonts.ready;
       }

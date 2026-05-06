@@ -255,8 +255,53 @@ test.describe('design-mode agent — selection screenshot fallback', () => {
     expect(src ?? '').toMatch(/^data:image\/(jpeg|png);base64,/);
   });
 
-  test('screenshot is empty string on capture failure', async () => {
-    test.fixme(true, 'html2canvas fails on cross-origin <img>; fixture has no such asset, so the failure path is hard to exercise without intercepting /crit-vendor/html2canvas.js per-test. Unit test on emitSelection covers the fallback contract.');
+  test('screenshot is empty string on capture failure', async ({ page }) => {
+    // Force the html2canvas failure path via the agent's test-only query flag.
+    // Reload the iframe at /?crit-design-fail-h2c=1 so captureScreenshot()
+    // throws synthetically, posts agent-error{capture-failed}, and returns ''.
+    await waitForAgentReady(page);
+    await page.evaluate(() => {
+      (window as unknown as { __critDesignMessages?: unknown[] }).__critDesignMessages = [];
+    });
+    await setIframeRoute(page, '/?crit-design-fail-h2c=1');
+    await expect.poll(
+      () => page.evaluate(() => {
+        const log = (window as unknown as { __critDesignMessages?: { type: string }[] })
+          .__critDesignMessages;
+        return Array.isArray(log) && log.some((e) => e.type === 'agent-ready');
+      }),
+      { timeout: 15_000 },
+    ).toBe(true);
+    await enterPinMode(page);
+    await expect.poll(
+      () => getIframe(page).locator('body').evaluate(() => {
+        return (window as unknown as { __critAgentState?: { mode?: string } })
+          .__critAgentState?.mode;
+      }),
+    ).toBe('pin');
+    await getIframe(page).locator('#primary-btn').click();
+    // Selection is emitted with screenshot === ''.
+    await expect.poll(
+      () => page.evaluate(() => {
+        const log = (window as unknown as { __critDesignMessages?: { type: string; dom_anchor?: { screenshot?: string } }[] })
+          .__critDesignMessages || [];
+        return log.find((m) => m.type === 'selection') || null;
+      }),
+      { timeout: 10_000 },
+    ).not.toBeNull();
+    const sel = await page.evaluate(() => {
+      const log = (window as unknown as { __critDesignMessages?: { type: string; dom_anchor?: { screenshot?: string } }[] })
+        .__critDesignMessages || [];
+      return log.find((m) => m.type === 'selection') || null;
+    });
+    expect(sel?.dom_anchor?.screenshot).toBe('');
+    // And the agent emitted a capture-failed error.
+    const err = await page.evaluate(() => {
+      const log = (window as unknown as { __critDesignMessages?: { type: string; kind?: string }[] })
+        .__critDesignMessages || [];
+      return log.find((m) => m.type === 'agent-error' && m.kind === 'capture-failed') || null;
+    });
+    expect(err).not.toBeNull();
   });
 });
 
