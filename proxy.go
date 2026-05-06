@@ -66,47 +66,82 @@ var headTagRE = regexp.MustCompile(`(?i)<head[^>]*>`)
 // sufficient and avoids breaking app code that imports JS modules.
 const swShim = `<script>if(typeof navigator!=="undefined"&&navigator.serviceWorker){navigator.serviceWorker.register=function(){return Promise.reject(new Error("crit: service workers disabled"));};}</script>`
 
+// maxHTMLBodyBytes caps how much of an HTML response we'll buffer for
+// rewriting. Above the cap the body is passed through untouched and the
+// X-Crit-Agent-Injection header signals the chrome that the agent didn't
+// inject. Protects the daemon against an upstream that streams a multi-GB
+// text/html response.
+const maxHTMLBodyBytes = 25 << 20
+
 func makeModifyResponse(apiPort int, upstream *url.URL) func(*http.Response) error {
 	return func(resp *http.Response) error {
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			return rewriteRedirect(resp, upstream)
 		}
 		ct := resp.Header.Get("Content-Type")
-		if strings.Contains(ct, "text/html") {
-			resp.Header.Del("Content-Security-Policy")
-			resp.Header.Del("X-Frame-Options")
-			resp.Header.Del("Content-Length")
-			// Force chunked transfer so the http.Server does not auto-set
-			// Content-Length on the rewritten body — the response payload
-			// changes after our injections, so the upstream value is stale
-			// and must not be reused.
-			resp.ContentLength = -1
-			resp.TransferEncoding = []string{"chunked"}
-			stripCookieDomain(resp)
-			if err := injectSWShimHTML(resp); err != nil {
-				return err
-			}
-			if err := injectRouteAnnouncer(resp); err != nil {
-				return err
-			}
-			return injectAgentScript(resp, apiPort)
+		if !strings.Contains(ct, "text/html") {
+			// JS, JSON, images, etc. pass through untouched.
+			return nil
 		}
-		// JS, JSON, images, etc. pass through untouched.
+		resp.Header.Del("Content-Security-Policy")
+		resp.Header.Del("X-Frame-Options")
+		resp.Header.Del("Content-Length")
+		// Force chunked transfer so the http.Server does not auto-set
+		// Content-Length on the rewritten body — the response payload
+		// changes after our injections, so the upstream value is stale
+		// and must not be reused.
+		resp.ContentLength = -1
+		resp.TransferEncoding = []string{"chunked"}
+		stripCookieDomain(resp)
+
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxHTMLBodyBytes+1))
+		resp.Body.Close()
+		// Tolerate ErrUnexpectedEOF: some upstreams set Content-Length larger
+		// than the actual body. Use what we got rather than 502-ing.
+		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
+			return err
+		}
+		if len(body) > maxHTMLBodyBytes {
+			// Oversized: pass through untouched, signal injection failure.
+			resp.Header.Set("X-Crit-Agent-Injection", "skipped-oversized")
+			resp.Body = io.NopCloser(bytes.NewReader(body))
+			return nil
+		}
+		body, agentInjected := applyHTMLInjections(body, apiPort)
+		if !agentInjected {
+			resp.Header.Set("X-Crit-Agent-Injection", "failed")
+		}
+		resp.Body = io.NopCloser(bytes.NewReader(body))
 		return nil
 	}
 }
 
-func injectAgentScript(resp *http.Response, apiPort int) error {
-	body, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	// Tolerate ErrUnexpectedEOF: some upstreams set Content-Length larger
-	// than the actual body. Use what we got rather than 502-ing.
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return err
+// applyHTMLInjections rewrites an HTML response body in a single pass:
+// SW shim + route announcer right after the first <head ...>, then the
+// agent script bundle right before the LAST </body>. Returns the modified
+// body and whether the agent bundle was actually injected (caller sets
+// X-Crit-Agent-Injection: failed when false).
+func applyHTMLInjections(body []byte, apiPort int) ([]byte, bool) {
+	// SW shim + route announcer: insert after first <head ...>. Combined
+	// into one prepended string so we make a single splice.
+	preamble := swShim + routeAnnouncerScript
+	if loc := headTagRE.FindIndex(body); loc != nil {
+		out := make([]byte, 0, len(body)+len(preamble))
+		out = append(out, body[:loc[1]]...)
+		out = append(out, []byte(preamble)...)
+		out = append(out, body[loc[1]:]...)
+		body = out
+	} else {
+		// No <head>: prepend so scripts still run before inline page scripts.
+		out := make([]byte, 0, len(body)+len(preamble))
+		out = append(out, []byte(preamble)...)
+		out = append(out, body...)
+		body = out
 	}
-	// Order matters: protocol + anchor-utils + Phase D agent modules + html2canvas
-	// must load before crit-agent so the agent can reference all of them at boot.
-	// All go before </body>.
+
+	// Agent bundle: insert before the LAST </body>. Last match avoids
+	// matching `</body>` literals inside <script> string literals or
+	// HTML comments earlier in the document.
 	tags := fmt.Sprintf(
 		`<script src="http://localhost:%d/agent-protocol.js"></script>`+
 			`<script src="http://localhost:%d/agent-anchor-utils.js"></script>`+
@@ -118,43 +153,18 @@ func injectAgentScript(resp *http.Response, apiPort int) error {
 			`<script src="http://localhost:%d/crit-agent.js"></script>`,
 		apiPort, apiPort, apiPort, apiPort, apiPort, apiPort, apiPort, apiPort,
 	)
-	if !bodyTagRE.Match(body) {
-		resp.Header.Set("X-Crit-Agent-Injection", "failed")
-		resp.Body = io.NopCloser(bytes.NewReader(body))
-		return nil
+	matches := bodyTagRE.FindAllIndex(body, -1)
+	if len(matches) == 0 {
+		// No </body> — agent injection skipped. Caller will set the
+		// X-Crit-Agent-Injection: failed header.
+		return body, false
 	}
-	injected := bodyTagRE.ReplaceAllFunc(body, func(match []byte) []byte {
-		return []byte(tags + string(match))
-	})
-	resp.Body = io.NopCloser(bytes.NewReader(injected))
-	return nil
-}
-
-// injectSWShimHTML inserts an inline <script> immediately after <head ...>
-// so the service-worker neutering executes before any page script. If no
-// <head> tag is present (rare), the shim is prepended to the body so it
-// still runs before inline scripts further down the document.
-func injectSWShimHTML(resp *http.Response) error {
-	body, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	// Tolerate ErrUnexpectedEOF: some upstreams set Content-Length larger
-	// than the actual body. Use what we got rather than 502-ing.
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return err
-	}
-	if loc := headTagRE.FindIndex(body); loc != nil {
-		out := make([]byte, 0, len(body)+len(swShim))
-		out = append(out, body[:loc[1]]...)
-		out = append(out, []byte(swShim)...)
-		out = append(out, body[loc[1]:]...)
-		resp.Body = io.NopCloser(bytes.NewReader(out))
-		return nil
-	}
-	resp.Body = io.NopCloser(io.MultiReader(
-		strings.NewReader(swShim),
-		bytes.NewReader(body),
-	))
-	return nil
+	last := matches[len(matches)-1]
+	out := make([]byte, 0, len(body)+len(tags))
+	out = append(out, body[:last[0]]...)
+	out = append(out, []byte(tags)...)
+	out = append(out, body[last[0]:]...)
+	return out, true
 }
 
 // routeAnnouncerScript posts the iframe's pathname to the parent on initial
@@ -176,30 +186,6 @@ const routeAnnouncerScript = `<script data-crit-route-announcer>
   }
 })();
 </script>`
-
-// injectRouteAnnouncer inserts the announcer stub immediately after the
-// opening <head ...> tag (so it executes before any page script). Falls back
-// to prepending to the body when no <head> is present.
-func injectRouteAnnouncer(resp *http.Response) error {
-	body, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return err
-	}
-	if loc := headTagRE.FindIndex(body); loc != nil {
-		out := make([]byte, 0, len(body)+len(routeAnnouncerScript))
-		out = append(out, body[:loc[1]]...)
-		out = append(out, []byte(routeAnnouncerScript)...)
-		out = append(out, body[loc[1]:]...)
-		resp.Body = io.NopCloser(bytes.NewReader(out))
-		return nil
-	}
-	resp.Body = io.NopCloser(io.MultiReader(
-		strings.NewReader(routeAnnouncerScript),
-		bytes.NewReader(body),
-	))
-	return nil
-}
 
 func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 	loc := resp.Header.Get("Location")

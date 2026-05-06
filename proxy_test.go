@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -162,6 +163,63 @@ func TestProxyModifyResponse_InjectsAgentBeforeBodyTag(t *testing.T) {
 	}
 	if ai > bi {
 		t.Errorf("agent tag not before </body>")
+	}
+}
+
+func TestProxyModifyResponse_InjectsAtLastBodyTag(t *testing.T) {
+	// Simulates a page where </body> appears inside a string literal in a
+	// <script>. The agent bundle must inject before the LAST </body> (the
+	// real document terminator), not the first one (inside the script).
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, `<html><body><script>var s = "</body>";</script><p>Real content</p></body></html>`)
+	}))
+	defer upstream.Close()
+	proxy, _ := newDesignProxy(upstream.URL, 54321)
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	resp, err := http.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	bs := string(body)
+	// Find first </body> (inside string literal) and last </body> (real).
+	first := strings.Index(bs, "</body>")
+	last := strings.LastIndex(bs, "</body>")
+	agent := strings.Index(bs, "/crit-agent.js")
+	if first == last {
+		t.Fatalf("expected two </body> occurrences, got one at %d", first)
+	}
+	if agent < first {
+		t.Errorf("agent inserted before first (string-literal) </body> at %d (agent=%d)", first, agent)
+	}
+	if agent > last {
+		t.Errorf("agent inserted after last </body> at %d (agent=%d)", last, agent)
+	}
+}
+
+func TestProxyModifyResponse_OversizedBodyPassesThrough(t *testing.T) {
+	// Oversized text/html bodies are passed through untouched and the
+	// X-Crit-Agent-Injection: skipped-oversized header is set so the chrome
+	// can warn.
+	huge := bytes.Repeat([]byte("A"), maxHTMLBodyBytes+1024)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write(huge)
+	}))
+	defer upstream.Close()
+	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	resp, err := http.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+	if got := resp.Header.Get("X-Crit-Agent-Injection"); got != "skipped-oversized" {
+		t.Errorf("X-Crit-Agent-Injection = %q, want skipped-oversized", got)
 	}
 }
 
