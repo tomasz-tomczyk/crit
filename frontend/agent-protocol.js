@@ -19,6 +19,7 @@
     ROUTE_CHANGE:       'route-change',
     PIN_RESOLUTION_RESULT: 'pin-resolution-result',
     VIEWPORT_APPLIED:   'viewport-applied',
+    HOVERED_ANCESTOR_LEVEL: 'hovered-ancestor-level',
   };
 
   // Chrome → Agent
@@ -30,6 +31,9 @@
     REQUEST_RESOLUTION: 'request-resolution',
     ENTER_REANCHOR_MODE: 'enter-reanchor-mode',
     SET_VIEWPORT:       'set-viewport',
+    FLASH_MARKER:       'flash-marker',
+    CANCEL_REANCHOR:    'cancel-reanchor',
+    SET_MARKER_TABINDEX: 'set-marker-tabindex',
   };
 
   const MESSAGE_TYPES = Object.freeze({ ...A2C, ...C2A });
@@ -113,6 +117,17 @@
         return { ok: true };
       case C2A.SET_PINS:
         if (!Array.isArray(msg.pins)) return { ok: false, reason: 'set-pins.pins' };
+        return { ok: true };
+      case A2C.HOVERED_ANCESTOR_LEVEL:
+        if (!isFiniteNumber(msg.level)) return { ok: false, reason: 'hovered-ancestor-level.level' };
+        return { ok: true };
+      case C2A.FLASH_MARKER:
+        if (!isString(msg.pin_id)) return { ok: false, reason: 'flash-marker.pin_id' };
+        return { ok: true };
+      case C2A.CANCEL_REANCHOR:
+        return { ok: true };
+      case C2A.SET_MARKER_TABINDEX:
+        if (!isFiniteNumber(msg.value)) return { ok: false, reason: 'set-marker-tabindex.value' };
         return { ok: true };
       default:
         return { ok: false, reason: 'unknown-type' };

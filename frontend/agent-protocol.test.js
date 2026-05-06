@@ -139,3 +139,28 @@ test('set-viewport requires positive integer width and height', () => {
   assert.equal(validateMessage({ type: 'set-viewport', width: 1280 }).ok, false);
   assert.equal(validateMessage({ type: 'set-viewport', width: '1280', height: 800 }).ok, false);
 });
+
+test('flash-marker requires pin_id string', () => {
+  assert.equal(C2A.FLASH_MARKER, 'flash-marker');
+  assert.deepEqual(validateMessage({ type: 'flash-marker', pin_id: 'p1' }), { ok: true });
+  assert.equal(validateMessage({ type: 'flash-marker' }).ok, false);
+  assert.equal(validateMessage({ type: 'flash-marker', pin_id: 9 }).ok, false);
+});
+
+test('cancel-reanchor requires no payload', () => {
+  assert.equal(C2A.CANCEL_REANCHOR, 'cancel-reanchor');
+  assert.deepEqual(validateMessage({ type: 'cancel-reanchor' }), { ok: true });
+});
+
+test('hovered-ancestor-level requires numeric level', () => {
+  assert.equal(A2C.HOVERED_ANCESTOR_LEVEL, 'hovered-ancestor-level');
+  assert.deepEqual(validateMessage({ type: 'hovered-ancestor-level', level: 0 }), { ok: true });
+  assert.equal(validateMessage({ type: 'hovered-ancestor-level', level: '0' }).ok, false);
+});
+
+test('set-marker-tabindex requires numeric value', () => {
+  assert.equal(C2A.SET_MARKER_TABINDEX, 'set-marker-tabindex');
+  assert.deepEqual(validateMessage({ type: 'set-marker-tabindex', value: 0 }), { ok: true });
+  assert.deepEqual(validateMessage({ type: 'set-marker-tabindex', value: -1 }), { ok: true });
+  assert.equal(validateMessage({ type: 'set-marker-tabindex', value: '0' }).ok, false);
+});
