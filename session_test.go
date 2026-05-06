@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -5364,5 +5365,43 @@ func TestCritJSON_LegacyNoReviewType(t *testing.T) {
 	}
 	if cj.Origin != "" {
 		t.Errorf("Origin = %q, want empty for legacy file", cj.Origin)
+	}
+}
+
+func TestComment_DriftedOnRound_RoundTrip(t *testing.T) {
+	in := Comment{
+		ID:             "p1",
+		Body:           "hi",
+		DOMAnchor:      &DOMAnchor{Pathname: "/", CSSSelector: "h2"},
+		Drifted:        true,
+		DriftedOnRound: 3,
+	}
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !bytes.Contains(b, []byte(`"drifted_on_round":3`)) {
+		t.Fatalf("DriftedOnRound not in JSON: %s", b)
+	}
+	if !bytes.Contains(b, []byte(`"drifted":true`)) {
+		t.Fatalf("Drifted dropped when DriftedOnRound set: %s", b)
+	}
+	var out Comment
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.DriftedOnRound != 3 {
+		t.Fatalf("got %d want 3", out.DriftedOnRound)
+	}
+}
+
+func TestComment_DriftedOnRound_OmitWhenZero(t *testing.T) {
+	in := Comment{ID: "p1", Body: "hi"}
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if bytes.Contains(b, []byte("drifted_on_round")) {
+		t.Fatalf("zero value should be omitted: %s", b)
 	}
 }

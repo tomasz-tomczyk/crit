@@ -108,6 +108,11 @@ type Comment struct {
 	QuoteOffset *int   `json:"quote_offset,omitempty"`
 	Anchor      string `json:"anchor,omitempty"`
 	Drifted     bool   `json:"drifted,omitempty"`
+	// DriftedOnRound is set to the review round that newly classified this pin
+	// as Drifted. Used to surface "Drifted on round N" in the design-mode side
+	// panel. Zero (omitempty) means "not stamped". Distinct from `Drifted bool`
+	// so we can show "drifted earlier" vs "drifted just now" without ambiguity.
+	DriftedOnRound int `json:"drifted_on_round,omitempty"`
 	Author      string `json:"author,omitempty"`
 	UserID      string `json:"user_id,omitempty"`
 	Scope       string `json:"scope,omitempty"`
