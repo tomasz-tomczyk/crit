@@ -440,3 +440,97 @@
   outline-offset: 2px;
   transition: outline-color 200ms;
 }
+
+/* ---- Phase E: drift tray "this round" / "earlier" partition ---- */
+.crit-design-drifted-tray-section {
+  display: flex; flex-direction: column;
+}
+.crit-design-drifted-tray-section h3 {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--crit-editor-fg-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.crit-design-drifted-tray-section--this-round h3 {
+  color: var(--crit-design-drifted-this-round-fg);
+}
+
+/* ---- Phase E: aria-live + skip-link ---- */
+.crit-design-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+.crit-design-skip-link {
+  position: absolute; left: -9999px; top: 8px;
+  background: var(--crit-design-tooltip-bg);
+  color: var(--crit-design-tooltip-fg);
+  padding: 8px 12px; border-radius: 6px;
+  z-index: 2147483600;
+  text-decoration: none;
+}
+.crit-design-skip-link:focus,
+.crit-design-skip-link:focus-visible {
+  left: 8px;
+  outline: 2px solid var(--crit-design-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---- Phase E: marker flash animation ---- */
+.crit-design-marker--flash {
+  animation: crit-design-marker-flash 1.5s ease-out;
+}
+@keyframes crit-design-marker-flash {
+  0%   { box-shadow: 0 0 0 0 var(--crit-design-marker-flash-bg); }
+  70%  { box-shadow: 0 0 0 14px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* ---- Phase E: round-counter tooltip ---- */
+.crit-design-round-tooltip {
+  position: fixed;
+  max-width: 320px;
+  padding: 8px 10px;
+  background: var(--crit-design-tooltip-bg);
+  color: var(--crit-design-tooltip-fg);
+  border: 1px solid var(--crit-design-tooltip-border);
+  border-radius: 6px;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 2147483600;
+}
+.crit-design-round-tooltip--open { opacity: 1; }
+
+/* ---- Phase E: ancestor menu polish (fade + active row) ---- */
+.crit-design-ancestor-menu {
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.crit-design-ancestor-menu.crit-design-ancestor-menu--open {
+  opacity: 1;
+  transform: translateY(0);
+}
+.crit-design-ancestor-menu-item--active {
+  background: var(--crit-design-menu-highlight-bg);
+  color: var(--crit-design-menu-highlight-fg);
+}
+
+/* ---- Phase E: :focus-visible across all interactive design-mode elements ---- */
+.crit-design-toolbar button:focus-visible,
+.crit-design-toolbar [role="radio"]:focus-visible,
+.crit-design-thread button:focus-visible,
+.crit-design-thread [tabindex="0"]:focus-visible,
+.crit-design-drifted-row button:focus-visible,
+.crit-design-ancestor-menu-item:focus-visible,
+.crit-design-skip-link:focus-visible,
+.crit-design-reanchor-btn:focus-visible,
+#designRoundCounter:focus-visible,
+.crit-design-iframe-resizer:focus-visible {
+  outline: 2px solid var(--crit-design-focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

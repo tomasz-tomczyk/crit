@@ -11,27 +11,47 @@
     }[ch]));
   }
 
-  function renderDriftTrayHTML(rows) {
+  function renderRow(r) {
+    const isRecoverable = r.status === 'drifted-recoverable';
+    const badgeClass = isRecoverable
+      ? 'crit-design-drifted-badge--recoverable'
+      : 'crit-design-drifted-badge--lost';
+    const badgeText = isRecoverable ? 'Drifted (recoverable)' : 'Drifted';
+    const reanchor = isRecoverable
+      ? `<button type="button" class="crit-design-reanchor-btn" data-pin-id="${escapeHTML(r.id)}">Re-anchor here?</button>`
+      : '';
+    const truncated = (r.body || '').slice(0, 120);
+    return `<li class="crit-design-drifted-row" data-pin-id="${escapeHTML(r.id)}">` +
+      `<span class="crit-design-drifted-route">${escapeHTML(r.pathname || '')}</span>` +
+      `<span class="crit-design-drifted-badge ${badgeClass}">${escapeHTML(badgeText)}</span>` +
+      `<span class="crit-design-drifted-body">${escapeHTML(truncated)}</span>` +
+      reanchor +
+    `</li>`;
+  }
+
+  function renderDriftTrayHTML(rows, currentRound) {
     if (!rows || !rows.length) return '';
-    const items = rows.map(r => {
-      const isRecoverable = r.status === 'drifted-recoverable';
-      const badgeClass = isRecoverable
-        ? 'crit-design-drifted-badge--recoverable'
-        : 'crit-design-drifted-badge--lost';
-      const badgeText = isRecoverable ? 'Drifted (recoverable)' : 'Drifted';
-      const reanchor = isRecoverable
-        ? `<button type="button" class="crit-design-reanchor-btn" data-pin-id="${escapeHTML(r.id)}">Re-anchor here?</button>`
-        : '';
-      // Truncate raw body BEFORE escaping so multi-char entities don't get cut.
-      const truncated = (r.body || '').slice(0, 120);
-      return `<li class="crit-design-drifted-row" data-pin-id="${escapeHTML(r.id)}">` +
-        `<span class="crit-design-drifted-route">${escapeHTML(r.pathname || '')}</span>` +
-        `<span class="crit-design-drifted-badge ${badgeClass}">${escapeHTML(badgeText)}</span>` +
-        `<span class="crit-design-drifted-body">${escapeHTML(truncated)}</span>` +
-        reanchor +
-      `</li>`;
-    }).join('');
-    return `<ul class="crit-design-drifted-tray" aria-label="Drifted pins">${items}</ul>`;
+    if (typeof currentRound !== 'number' || currentRound <= 0) {
+      // Legacy: single flat list (no round partition).
+      const items = rows.map(renderRow).join('');
+      return `<ul class="crit-design-drifted-tray" aria-label="Drifted pins">${items}</ul>`;
+    }
+    const thisRound = rows.filter(r => r.drifted_on_round === currentRound);
+    const earlier = rows.filter(r => r.drifted_on_round !== currentRound);
+    let html = '';
+    if (thisRound.length) {
+      html += `<div class="crit-design-drifted-tray-section crit-design-drifted-tray-section--this-round">` +
+        `<h3>Drifted on round ${currentRound}</h3>` +
+        `<ul class="crit-design-drifted-tray" aria-label="Drifted pins (this round)">${thisRound.map(renderRow).join('')}</ul>` +
+        `</div>`;
+    }
+    if (earlier.length) {
+      html += `<div class="crit-design-drifted-tray-section">` +
+        `<h3>Drifted earlier</h3>` +
+        `<ul class="crit-design-drifted-tray" aria-label="Drifted pins (earlier)">${earlier.map(renderRow).join('')}</ul>` +
+        `</div>`;
+    }
+    return html;
   }
 
   return { renderDriftTrayHTML, escapeHTML };

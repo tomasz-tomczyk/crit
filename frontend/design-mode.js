@@ -180,6 +180,25 @@
     live.setAttribute('aria-live', 'polite');
     document.body.appendChild(live);
 
+    // Phase E: dedicated aria-live announcer (used by announceLive()).
+    if (!document.getElementById('crit-design-aria-live')) {
+      var live2 = document.createElement('div');
+      live2.id = 'crit-design-aria-live';
+      live2.className = 'crit-design-sr-only';
+      live2.setAttribute('role', 'status');
+      live2.setAttribute('aria-live', 'polite');
+      document.body.appendChild(live2);
+    }
+
+    // Phase E: skip-link to the comments panel.
+    if (!document.querySelector('.crit-design-skip-link')) {
+      var skip = document.createElement('a');
+      skip.className = 'crit-design-skip-link';
+      skip.href = '#commentsPanel';
+      skip.textContent = 'Skip to comments';
+      document.body.insertBefore(skip, document.body.firstChild);
+    }
+
     // Cache references.
     els.viewportToggle = document.getElementById('designViewportToggle');
     els.modeToggle = document.getElementById('designModeToggle');
@@ -898,7 +917,7 @@
       host.className = 'crit-design-drifted-tray-host';
       panel.insertBefore(host, panel.firstChild);
     }
-    host.innerHTML = driftTrayAPI.renderDriftTrayHTML(state.pinState.driftedRows());
+    host.innerHTML = driftTrayAPI.renderDriftTrayHTML(state.pinState.driftedRows(), state.currentRound);
   }
 
   function handlePinResolutionResult(msg) {

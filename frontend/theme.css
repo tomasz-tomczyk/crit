@@ -195,6 +195,16 @@
   --crit-design-drifted-lost-bg:        rgba(247, 118, 142, 0.15);
   --crit-design-drifted-lost-fg:        #f7768e;
   --crit-design-reanchor-active-outline: #f59e0b;
+
+  /* ---- Phase E: drift-this-round, focus, tooltip, marker flash, menu hl ---- */
+  --crit-design-drifted-this-round-fg:  #fbbf24;
+  --crit-design-focus-ring:             #fbbf24;
+  --crit-design-tooltip-bg:             #1c1f29;
+  --crit-design-tooltip-fg:             #e6e8ef;
+  --crit-design-tooltip-border:         #2f3342;
+  --crit-design-marker-flash-bg:        rgba(245, 158, 11, 0.7);
+  --crit-design-menu-highlight-bg:      rgba(59, 130, 246, 0.18);
+  --crit-design-menu-highlight-fg:      #e6e8ef;
 }
 
 /* ===== System preference: light ===== */
@@ -355,6 +365,16 @@
     --crit-design-drifted-lost-bg:        #fee2e2;
     --crit-design-drifted-lost-fg:        #7f1d1d;
     --crit-design-reanchor-active-outline: #d97706;
+
+    /* ---- Phase E ---- */
+    --crit-design-drifted-this-round-fg:  #b45309;
+    --crit-design-focus-ring:             #b45309;
+    --crit-design-tooltip-bg:             #1a1d23;
+    --crit-design-tooltip-fg:             #ffffff;
+    --crit-design-tooltip-border:         rgba(0,0,0,0.15);
+    --crit-design-marker-flash-bg:        rgba(217, 119, 6, 0.6);
+    --crit-design-menu-highlight-bg:      #e0e7ff;
+    --crit-design-menu-highlight-fg:      #1a1d23;
   }
 }
 
@@ -515,6 +535,16 @@
   --crit-design-drifted-lost-bg:        rgba(247, 118, 142, 0.15);
   --crit-design-drifted-lost-fg:        #f7768e;
   --crit-design-reanchor-active-outline: #f59e0b;
+
+  /* ---- Phase E ---- */
+  --crit-design-drifted-this-round-fg:  #fbbf24;
+  --crit-design-focus-ring:             #fbbf24;
+  --crit-design-tooltip-bg:             #1c1f29;
+  --crit-design-tooltip-fg:             #e6e8ef;
+  --crit-design-tooltip-border:         #2f3342;
+  --crit-design-marker-flash-bg:        rgba(245, 158, 11, 0.7);
+  --crit-design-menu-highlight-bg:      rgba(59, 130, 246, 0.18);
+  --crit-design-menu-highlight-fg:      #e6e8ef;
 }
 
 /* ===== Light (explicit) ===== */
@@ -674,6 +704,16 @@
   --crit-design-drifted-lost-bg:        #fee2e2;
   --crit-design-drifted-lost-fg:        #7f1d1d;
   --crit-design-reanchor-active-outline: #d97706;
+
+  /* ---- Phase E ---- */
+  --crit-design-drifted-this-round-fg:  #b45309;
+  --crit-design-focus-ring:             #b45309;
+  --crit-design-tooltip-bg:             #1a1d23;
+  --crit-design-tooltip-fg:             #ffffff;
+  --crit-design-tooltip-border:         rgba(0,0,0,0.15);
+  --crit-design-marker-flash-bg:        rgba(217, 119, 6, 0.6);
+  --crit-design-menu-highlight-bg:      #e0e7ff;
+  --crit-design-menu-highlight-fg:      #1a1d23;
 }
 
 /* ===== highlight.js Dark Theme (Tokyo Night Dark) =====

@@ -17,6 +17,7 @@
             pathname: c.dom_anchor.pathname,
             status: undefined,
             recovered_via: undefined,
+            drifted_on_round: c.drifted_on_round || 0,
           });
         }
       }
