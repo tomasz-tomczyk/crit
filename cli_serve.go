@@ -276,7 +276,11 @@ func createSession(sc *serverConfig) (*Session, error) {
 		if sc.baseBranch != "" {
 			vcs.SetDefaultBranchOverride(sc.baseBranch)
 		}
-		session, err = NewSessionFromVCS(vcs, sc.ignorePatterns)
+		// When --pr/--range is set, the working-tree diff is irrelevant —
+		// SetFocus rebuilds the file list from the focus's SHA range. Tolerate
+		// an empty working tree so the daemon doesn't crash with
+		// "no changed files detected" before the focus is applied (#471).
+		session, err = newGitSession(vcs, sc.ignorePatterns, sc.focus == nil)
 	} else {
 		session, err = NewSessionFromFiles(sc.files, sc.ignorePatterns)
 	}

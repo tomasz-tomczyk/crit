@@ -449,12 +449,31 @@ func detectVCSChanges(vcs VCS, root string, ignorePatterns []string) (branch, ba
 // NewSessionFromVCS creates a session by auto-detecting changed files using the given VCS backend.
 // This is the VCS-agnostic equivalent of NewSessionFromGit.
 func NewSessionFromVCS(vcs VCS, ignorePatterns []string) (*Session, error) {
+	return newGitSession(vcs, ignorePatterns, true)
+}
+
+// newGitSession is the implementation behind NewSessionFromVCS. When
+// requireChanges is false, an empty working-tree diff produces a session with
+// no files instead of returning ErrNoChangedFiles — callers that apply a
+// --pr/--range focus rebuild the file list via SetFocus, so the working-tree
+// diff is irrelevant. See issue #471.
+func newGitSession(vcs VCS, ignorePatterns []string, requireChanges bool) (*Session, error) {
 	root, err := vcs.RepoRoot()
 	if err != nil {
 		return nil, fmt.Errorf("not a %s repository: %w", vcs.Name(), err)
 	}
 
 	branch, baseRef, resolvedBase, changes, err := detectVCSChanges(vcs, root, ignorePatterns)
+	if errors.Is(err, ErrNoChangedFiles) && !requireChanges {
+		// detectVCSChanges zeroes its return values on the empty path; recover
+		// the metadata so the session reports the correct branch/base.
+		branch = vcs.CurrentBranch()
+		resolvedBase = vcs.DefaultBranch()
+		if branch != resolvedBase {
+			baseRef, _ = vcs.MergeBase(vcs.DefaultBaseRef())
+		}
+		err = nil
+	}
 	if err != nil {
 		return nil, err
 	}

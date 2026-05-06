@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -3835,6 +3836,86 @@ func TestCreateSession_LoadsShareFromReviewPath(t *testing.T) {
 	}
 	if session.ReviewRound != 2 {
 		t.Errorf("ReviewRound = %d, want 2", session.ReviewRound)
+	}
+}
+
+// TestCreateSession_RangeFocus_CleanWorkingTree exercises issue #471: when
+// --range is set, the working tree may be clean while the requested commit
+// range still has changes. createSession must not return ErrNoChangedFiles in
+// that case — the focus rebuilds the file list via SetFocus.
+func TestCreateSession_RangeFocus_CleanWorkingTree(t *testing.T) {
+	// Issue #471: --range must succeed on a clean working tree even though the
+	// default working-tree change-detection path returns ErrNoChangedFiles.
+	// SetFocus rebuilds the file list from the SHA range during
+	// applySessionOverrides, so createSession must not bail early.
+	tests := []struct {
+		name           string
+		featureBranch  bool // exercises the merge-base recovery branch
+		wantBranch     string
+		wantBaseBranch string
+	}{
+		{name: "default branch, clean tree", featureBranch: false, wantBranch: "main", wantBaseBranch: "main"},
+		{name: "feature branch, clean tree", featureBranch: true, wantBranch: "feature/clean-tree", wantBaseBranch: "main"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := initTestRepo(t)
+			baseSHA := gitT(t, dir, "rev-parse", "HEAD")
+
+			if tc.featureBranch {
+				gitT(t, dir, "checkout", "-b", "feature/clean-tree")
+			}
+			writeFile(t, filepath.Join(dir, "a.md"), "# A\n")
+			gitT(t, dir, "add", "a.md")
+			gitT(t, dir, "commit", "-m", "add a")
+			headSHA := gitT(t, dir, "rev-parse", "HEAD")
+
+			orig, _ := os.Getwd()
+			if err := os.Chdir(dir); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chdir(orig) })
+
+			sc := &serverConfig{
+				focus: &Focus{Kind: FocusRange, BaseSHA: baseSHA, HeadSHA: headSHA},
+			}
+			session, err := createSession(sc)
+			if err != nil {
+				t.Fatalf("createSession with range focus on clean working tree: %v", err)
+			}
+			if session == nil {
+				t.Fatal("session is nil")
+			}
+			if session.Mode != "git" {
+				t.Errorf("Mode = %q, want %q", session.Mode, "git")
+			}
+			if session.Branch != tc.wantBranch {
+				t.Errorf("Branch = %q, want %q", session.Branch, tc.wantBranch)
+			}
+			if session.BaseBranchName != tc.wantBaseBranch {
+				t.Errorf("BaseBranchName = %q, want %q", session.BaseBranchName, tc.wantBaseBranch)
+			}
+		})
+	}
+}
+
+// TestCreateSession_NoFocus_CleanWorkingTree pins the default behavior: with
+// no focus override (plain `crit` invocation) and a clean working tree, the
+// session must still surface ErrNoChangedFiles. Guards against a future
+// refactor that flips the default and silently allows empty sessions.
+func TestCreateSession_NoFocus_CleanWorkingTree(t *testing.T) {
+	dir := initTestRepo(t)
+	gitT(t, dir, "checkout", "-b", "feature/no-focus-clean")
+
+	orig, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(orig) })
+
+	sc := &serverConfig{}
+	if _, err := createSession(sc); !errors.Is(err, ErrNoChangedFiles) {
+		t.Fatalf("createSession with clean tree, no focus: err = %v, want ErrNoChangedFiles", err)
 	}
 }
 
