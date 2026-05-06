@@ -298,3 +298,24 @@ func TestMergeGHComments_DesignPinNotDeduped(t *testing.T) {
 		t.Errorf("design pin count = %d after merge, want 1", pinCount)
 	}
 }
+
+func TestParseServerFlags_DesignOrigin(t *testing.T) {
+	f := parseServerFlags([]string{"--design-origin", "http://localhost:3000"})
+	if f.designOrigin != "http://localhost:3000" {
+		t.Errorf("designOrigin = %q, want http://localhost:3000", f.designOrigin)
+	}
+}
+
+func TestParseServerFlags_NoDesignOrigin(t *testing.T) {
+	f := parseServerFlags([]string{"plan.md"})
+	if f.designOrigin != "" {
+		t.Errorf("designOrigin = %q, want empty", f.designOrigin)
+	}
+}
+
+func TestCreateDesignSession_EmptyOriginIsFatal(t *testing.T) {
+	_, err := createDesignSession(&serverConfig{designOrigin: ""})
+	if err == nil {
+		t.Fatal("createDesignSession with empty origin must error")
+	}
+}

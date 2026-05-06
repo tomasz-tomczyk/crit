@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -46,6 +47,9 @@ type serverConfig struct {
 	// when in PR/range focus, bypassing the local-fetch + git show path. Diff and
 	// changed-file lists still use local git.
 	remoteFiles bool
+
+	// designOrigin is the parsed --design-origin flag (design-mode daemon).
+	designOrigin string
 }
 
 // serverFlagSet holds the parsed flag values before config resolution.
@@ -72,6 +76,9 @@ type serverFlagSet struct {
 	// remoteFiles is the parsed --remote flag. When true, file content reads
 	// in PR/range mode go through `gh api` instead of local git.
 	remoteFiles bool
+
+	// designOrigin is the parsed --design-origin flag (design-mode daemon).
+	designOrigin string
 }
 
 func parseServerFlags(args []string) serverFlagSet {
@@ -96,6 +103,7 @@ func parseServerFlags(args []string) serverFlagSet {
 	rangeSpec := fs.String("range", "", "Review a commit range, base..head (e.g. abc1234..def5678)")
 	scopeSpec := fs.String("scope", "", "Diff scope when reviewing a PR: layer (default) or full-stack")
 	remoteFiles := fs.Bool("remote", false, "Read PR file content via GitHub API instead of local git (avoids `git fetch`; requires gh)")
+	designOrigin := fs.String("design-origin", "", "")
 	fs.Usage = func() {
 		printHelp()
 	}
@@ -118,7 +126,8 @@ func parseServerFlags(args []string) serverFlagSet {
 		prSpec:      *prSpec,
 		rangeSpec:   *rangeSpec,
 		scopeSpec:   *scopeSpec,
-		remoteFiles: *remoteFiles,
+		remoteFiles:  *remoteFiles,
+		designOrigin: *designOrigin,
 	}
 }
 
@@ -232,6 +241,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		cfg:                cfg,
 		focus:              focus,
 		remoteFiles:        sf.remoteFiles,
+		designOrigin:       sf.designOrigin,
 	}, nil
 }
 
@@ -272,6 +282,9 @@ func preflightNoChangedFiles(sc *serverConfig) string {
 }
 
 func createSession(sc *serverConfig) (*Session, error) {
+	if sc.designOrigin != "" {
+		return createDesignSession(sc)
+	}
 	var session *Session
 	var err error
 	if len(sc.files) == 0 {
@@ -306,6 +319,47 @@ func createSession(sc *serverConfig) (*Session, error) {
 		session.loadCritJSON()
 	}
 	return session, nil
+}
+
+// createDesignSession builds a minimal session for design mode (no files,
+// no VCS).
+func createDesignSession(sc *serverConfig) (*Session, error) {
+	if sc.designOrigin == "" {
+		return nil, fmt.Errorf("createDesignSession: designOrigin is empty (internal bug; --design-origin must be set)")
+	}
+	cwd, _ := resolvedCWD()
+	s := &Session{
+		Mode:          "files",
+		RepoRoot:      cwd,
+		ReviewRound:   1,
+		ReviewType:    "design",
+		Origin:        sc.designOrigin,
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+		Files:         []*FileEntry{},
+	}
+	if sc.reviewPath != "" {
+		s.ReviewFilePath = sc.reviewPath
+		paths := reviewPathsFor(sc.reviewPath)
+		if data, err := os.ReadFile(paths.Review); err == nil {
+			var cj CritJSON
+			if json.Unmarshal(data, &cj) == nil {
+				if cj.ReviewRound > 0 {
+					s.ReviewRound = cj.ReviewRound
+				}
+				for path, fe := range cj.Files {
+					entry := &FileEntry{
+						Path:     path,
+						FileType: "design-route",
+						Comments: fe.Comments,
+						Status:   fe.Status,
+					}
+					s.Files = append(s.Files, entry)
+				}
+			}
+		}
+	}
+	return s, nil
 }
 
 func applySessionOverrides(session *Session, sc *serverConfig) {
@@ -360,6 +414,9 @@ func serveSessionKey(sc *serverConfig) string {
 	cwd, _ := resolvedCWD()
 	if sc.planDir != "" {
 		return planSessionKey(cwd, sc.planName)
+	}
+	if sc.designOrigin != "" {
+		return designSessionKey(cwd, sc.designOrigin)
 	}
 	branch := ""
 	if vcs := DetectVCS(sc.vcsOverride); vcs != nil {
@@ -424,17 +481,37 @@ func runServe(args []string) {
 	}
 	srv.reviewPath = sc.reviewPath
 	srv.cliArgs = sc.files
+	sessionArgs := sc.files
+	if sc.designOrigin != "" {
+		sessionArgs = []string{"design", sc.designOrigin}
+	}
 	if err := writeSessionFile(key, sessionEntry{
 		PID:        os.Getpid(),
 		Port:       addr.Port,
 		CWD:        cwd,
-		Args:       sc.files,
+		Args:       sessionArgs,
 		Branch:     branch,
 		ReviewPath: sc.reviewPath,
 		StartedAt:  time.Now().UTC().Format(time.RFC3339),
 	}); err != nil {
 		daemonFatal(pipe, "Error writing session file: %v", err)
 	}
+
+	// Design-mode proxy server: bind on apiPort+1 and start serving.
+	var proxyLn net.Listener
+	if sc.designOrigin != "" {
+		pl, proxySrv, err := bindProxyServer(sc.designOrigin, addr.Port)
+		if err != nil {
+			daemonFatal(pipe, "Error starting proxy server: %v", err)
+		}
+		proxyLn = pl
+		go func() {
+			if err := proxySrv.Serve(pl); err != http.ErrServerClosed {
+				log.Printf("Proxy server error: %v", err)
+			}
+		}()
+	}
+
 
 	httpServer := &http.Server{
 		Handler:     srv,
@@ -518,6 +595,11 @@ func runServe(args []string) {
 
 	if !sc.noUpdateCheck && os.Getenv("CRIT_NO_UPDATE_CHECK") == "" {
 		go srv.CheckForUpdates()
+	}
+	if sc.designOrigin != "" && proxyLn != nil {
+		session.ProxyPort = proxyLn.Addr().(*net.TCPAddr).Port
+		session.ReviewType = "design"
+		session.Origin = sc.designOrigin
 	}
 	srv.SetSession(session)
 
