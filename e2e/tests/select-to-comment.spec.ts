@@ -207,7 +207,65 @@ test.describe('Select-to-comment (git mode)', () => {
       await expect(formHeader).toContainText('Comment on');
     });
 
-    test('single click (no drag) does not open a form', async ({ page }) => {
+    test('selection endpoint on a gap container still spans full range (regression)', async ({ page, request }) => {
+      const section = mdSection(page);
+      const overviewBlock = section.locator('.line-block', { hasText: 'Overview' }).first();
+      const paraBlock = section.locator('.line-block', { hasText: 'API key authentication' });
+      await expect(overviewBlock).toBeVisible();
+      await expect(paraBlock).toBeVisible();
+
+      // Reproduces the bug class: selection crosses a blank-line boundary and one
+      // endpoint resolves to the parent container (a "gap" between line-blocks)
+      // rather than to a text node. This happens in real browsers with backward
+      // drags across paragraph boundaries — anchor/focus can snap to the parent
+      // element at the child-index between two line-blocks.
+      //
+      // Pre-fix behavior: findLineInfo() walks up via closest('.line-block') from
+      // the parent container and returns null → entire selection-to-comment fails
+      // OR collapses to whichever endpoint did resolve, depending on direction.
+      await page.evaluate(() => {
+        const blocks = Array.from(document.querySelectorAll('.line-block[data-file-path]')) as HTMLElement[];
+        const heading = blocks.find(b => (b.textContent || '').includes('Overview'));
+        const para = blocks.find(b => (b.textContent || '').includes('API key authentication'));
+        if (!heading || !para) throw new Error('blocks not found');
+        const wrapper = heading.parentElement!;
+        const headingText = heading.querySelector('.line-content')!.firstChild as Text;
+        const paraIdx = Array.from(wrapper.childNodes).indexOf(para);
+
+        const range = document.createRange();
+        range.setStart(headingText, 0);
+        // End point lands ON the wrapper container at the index just after the
+        // paragraph block. This is the "gap container" position — exercises the
+        // bug where the endpoint has no .line-block ancestor.
+        range.setEnd(wrapper, paraIdx + 1);
+
+        const sel = window.getSelection()!;
+        sel.removeAllRanges();
+        sel.addRange(range);
+      });
+
+      await page.keyboard.press('c');
+
+      const textarea = section.locator('.comment-form textarea');
+      await expect(textarea).toBeVisible();
+      await textarea.fill('Gap-endpoint comment');
+      await textarea.press('Control+Enter');
+      await expect(section.locator('.comment-card', { hasText: 'Gap-endpoint comment' })).toBeVisible();
+
+      const mdPath = await page.evaluate(() => {
+        const el = document.querySelector('.file-section[id*="plan"] .line-block[data-file-path]');
+        return el ? (el as HTMLElement).dataset.filePath : null;
+      });
+      const res = await request.get(`/api/file/comments?path=${mdPath}`);
+      const comments = await res.json();
+      const c = comments.find((x: { body: string }) => x.body === 'Gap-endpoint comment');
+      expect(c).toBeTruthy();
+      // Range must span from heading (line 3) through paragraph (line 5).
+      expect(c.start_line).toBe(3);
+      expect(c.end_line).toBe(5);
+    });
+
+test('single click (no drag) does not open a form', async ({ page }) => {
       const section = mdSection(page);
       const firstBlock = section.locator('.line-block').first();
       await expect(firstBlock).toBeVisible();
