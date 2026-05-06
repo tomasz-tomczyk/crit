@@ -19,12 +19,7 @@ test.describe('boot — agent-ready', () => {
     await expect(page.locator('#designRouteName')).toHaveText('/');
   });
 
-  test.fixme('agent posts agent-ready and unlocks Pin button', async ({ page }) => {
-    // FIXME: pending concurrent bug-fix round (Bug 2: design comments render
-    // broken after buildCommentCard mount). Symptom in this test: chrome
-    // attaches its message listener AFTER the agent's agent-ready postMessage
-    // has already fired in the iframe, so __critDesignMessages stays empty
-    // and the Pin button never enables.
+  test('agent posts agent-ready and unlocks Pin button', async ({ page }) => {
     await page.goto('/design');
     await expect.poll(
       () => page.evaluate(() => {

@@ -91,7 +91,11 @@ export default defineConfig({
       testMatch: /\.designmode\.spec\.ts$/,
       use: {
         browserName: 'chromium',
-        baseURL: `http://127.0.0.1:${DESIGN_PORT}/design`,
+        // NOTE: must be `localhost` (not 127.0.0.1) — the proxy injects the
+        // agent <script src="http://localhost:..."> tag, which the agent then
+        // uses as its postMessage targetOrigin. If the chrome page is loaded
+        // via 127.0.0.1, agent-ready postMessages get dropped (origin mismatch).
+        baseURL: `http://localhost:${DESIGN_PORT}/design`,
       },
     },
   ],
