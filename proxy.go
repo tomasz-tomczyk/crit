@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -210,10 +212,13 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 	// connection isn't left in a confused state when we substitute.
 	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
+	// json.Marshal escapes <, >, &, U+2028, U+2029 — safe to embed in <script>.
+	urlJS, _ := json.Marshal(loc)
+	urlHTML := html.EscapeString(loc)
 	stub := fmt.Sprintf(`<!DOCTYPE html><html><body><script>
-(function(){try{window.parent.postMessage({type:"cross-origin-redirect",url:%q},"*");}catch(e){}}());
-</script><p>cross-origin-redirect to <a href=%q>%s</a></p></body></html>`,
-		loc, loc, loc)
+(function(){try{window.parent.postMessage({type:"cross-origin-redirect",url:%s},"*");}catch(e){}}());
+</script><p>cross-origin-redirect to <a href="%s">%s</a></p></body></html>`,
+		urlJS, urlHTML, urlHTML)
 	resp.StatusCode = http.StatusOK
 	resp.Status = "200 OK"
 	resp.Header.Del("Location")

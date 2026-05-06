@@ -298,6 +298,73 @@ func TestProxyModifyResponse_CrossOriginRedirect200Stub(t *testing.T) {
 	}
 }
 
+func TestProxyModifyResponse_CrossOriginRedirectStubEscaping(t *testing.T) {
+	cases := []struct {
+		name        string
+		location    string
+		mustNotHave []string // raw substrings that would indicate a break-out
+		mustHave    []string // substrings that prove proper escaping
+	}{
+		{
+			name:        "script_tag_breakout",
+			location:    "https://evil.test/</script><script>alert(1)</script>",
+			mustNotHave: []string{"</script><script>alert(1)"},
+			mustHave:    []string{`</script>`, "&lt;/script&gt;"},
+		},
+		{
+			name:     "u2028_line_separator",
+			location: "https://evil.test/\u2028alert(1)",
+			// json.Marshal escapes raw U+2028 (which terminates JS strings in
+			// pre-ES2019 parsers) to the 6-char sequence \u2028.
+			mustHave: []string{`url:"https://evil.test/\u2028alert(1)"`},
+		},
+		{
+			name:     "double_quote_in_js_context",
+			location: `https://evil.test/"+alert(1)+"`,
+			// The JSON-marshalled URL must escape the embedded quote.
+			mustHave: []string{`\"+alert(1)+\"`},
+		},
+		{
+			name:        "html_link_injection",
+			location:    `https://evil.test/"><img src=x onerror=alert(1)>`,
+			mustNotHave: []string{`"><img src=x onerror=alert(1)>`},
+			mustHave:    []string{"&lt;img src=x onerror=alert(1)&gt;", "&#34;"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Location", tc.location)
+				w.WriteHeader(http.StatusFound)
+			}))
+			defer upstream.Close()
+			proxy, _ := newDesignProxy(upstream.URL, 9001)
+			client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			}}
+			ps := httptest.NewServer(proxy)
+			defer ps.Close()
+			resp, err := client.Get(ps.URL + "/")
+			if err != nil {
+				t.Fatalf("request: %v", err)
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			s := string(body)
+			for _, bad := range tc.mustNotHave {
+				if strings.Contains(s, bad) {
+					t.Errorf("body contains forbidden substring %q\nbody: %s", bad, s)
+				}
+			}
+			for _, want := range tc.mustHave {
+				if !strings.Contains(s, want) {
+					t.Errorf("body missing expected substring %q\nbody: %s", want, s)
+				}
+			}
+		})
+	}
+}
+
 func TestProxyModifyResponse_StripsCookieDomain(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
