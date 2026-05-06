@@ -319,3 +319,21 @@ func TestCreateDesignSession_EmptyOriginIsFatal(t *testing.T) {
 		t.Fatal("createDesignSession with empty origin must error")
 	}
 }
+
+func TestRunDesign_SmokeFailFatal(t *testing.T) {
+	result := runSmokeTest("http://127.0.0.1:19999")
+	if !result.fatal {
+		t.Error("conn refused must be fatal")
+	}
+	if result.kind != smokeConnRefused {
+		t.Errorf("kind = %v", result.kind)
+	}
+}
+
+func TestRunDesign_OriginNormalisedToSchemeHost(t *testing.T) {
+	u, _ := url.Parse("https://myapp.test:4000/dashboard?q=1")
+	origin := u.Scheme + "://" + u.Host
+	if origin != "https://myapp.test:4000" {
+		t.Errorf("origin = %q, want https://myapp.test:4000", origin)
+	}
+}

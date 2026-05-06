@@ -110,6 +110,56 @@ func runDesign(args []string) {
 		os.Exit(1)
 	}
 	origin := u.Scheme + "://" + u.Host
-	fmt.Fprintf(os.Stderr, "[crit] design mode — origin: %s (Phase A stub)\n", origin)
-	_ = origin
+
+	// 1. Smoke test.
+	result := runSmokeTest(origin)
+	switch result.kind {
+	case smokeConnRefused, smokeNonHTML:
+		fmt.Fprintf(os.Stderr, "Error: %s\n", result.message)
+		os.Exit(1)
+	case smokeNon2xx:
+		fmt.Fprintf(os.Stderr, "[crit] warning: %s\n", result.message)
+	case smokeMissingBody:
+		fmt.Fprintf(os.Stderr, "[crit] warning: %s\n", result.message)
+	}
+	if result.hasCSPFrameAncestors {
+		fmt.Fprintf(os.Stderr, "[crit] note: upstream has frame-ancestors CSP; stripped by proxy\n")
+	}
+
+	// 2. Session key + existing daemon check.
+	cwd, err := resolvedCWD()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	key := designSessionKey(cwd, origin)
+
+	if entry, alive := findAliveSession(key); alive {
+		fmt.Fprintf(os.Stderr, "[crit] connected to design daemon at http://localhost:%d (proxy :%d)\n",
+			entry.Port, entry.Port+1)
+		if !daemonHasBrowser(entry) {
+			go openBrowser(fmt.Sprintf("http://localhost:%d/design", entry.Port))
+		}
+		runReviewClient(entry)
+		return
+	}
+
+	// 3. Spawn daemon via _serve. startDaemon prepends "_serve" itself.
+	daemonArgs := []string{"--design-origin", origin}
+	entry, err := startDaemon(key, daemonArgs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not start design daemon: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Fprintf(os.Stderr, "[crit] starting daemon on :%d (api), :%d (proxy)\n",
+		entry.Port, entry.Port+1)
+
+	installDaemonSignalHandler(entry.PID)
+
+	// 4. Open browser.
+	go openBrowser(fmt.Sprintf("http://localhost:%d/design", entry.Port))
+
+	// 5. Block until review complete.
+	runReviewClient(entry)
 }
