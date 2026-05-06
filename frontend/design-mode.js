@@ -28,7 +28,15 @@
    * @property {string|null} pendingPinId    Deep-link #pin=<id> target (R7)
    */
   window.crit = window.crit || {};
-  window.crit.design = window.crit.design || {
+  // Other phaseC modules (composer, dispatch, deeplink, etc.) load before this
+  // file and each set `root.crit.design = root.crit.design || {}` to register
+  // their sub-namespaces. That means the object often already exists by the
+  // time we get here — we must MERGE defaults onto it rather than skip via
+  // `||`, otherwise `state.routes` ends up undefined and recordRoute() throws
+  // before boot completes.
+  window.crit.design = window.crit.design || {};
+  var state = window.crit.design;
+  var stateDefaults = {
     session: null,
     routes: [],
     unsavedRoutes: new Set(),
@@ -42,10 +50,9 @@
     // get/setCollapseOverride callbacks). Map<commentId, boolean>.
     designCollapseOverrides: new Map(),
   };
-  var state = window.crit.design;
-  if (!state.designCollapseOverrides) {
-    state.designCollapseOverrides = new Map();
-  }
+  Object.keys(stateDefaults).forEach(function (k) {
+    if (state[k] === undefined) state[k] = stateDefaults[k];
+  });
   var shared = window.crit.shared;
   var utils = window.crit.designUtils;
 

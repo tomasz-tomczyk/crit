@@ -276,9 +276,15 @@
         'design-mode-round-tooltip.js',
         'design-mode.menu-controller.js',
       ];
+      // async=false on dynamically-inserted scripts preserves DOM order for
+      // execution while still loading in parallel. Without this, a module
+      // like design-mode.dispatch.js may execute before agent-protocol.js
+      // has parsed, leaving window.crit.agentProtocol undefined and crashing
+      // boot with "Cannot read properties of undefined (reading 'A2C')".
       var depTags = phaseCDeps.map(function (p) {
         var t = document.createElement('script');
         t.src = p;
+        t.async = false;
         document.head.appendChild(t);
         return t;
       });
