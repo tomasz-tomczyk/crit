@@ -407,6 +407,64 @@ func TestCarryForwardComment_PreservesGitHubID(t *testing.T) {
 	}
 }
 
+// TestCarryForwardComment_PreservesResolvedRound guards round-scoped resolve
+// metadata. ResolvedRound records the round during which Resolved flipped
+// false->true and drives the timeline visibility filter; if it is dropped on
+// carry-forward, resolved comments appear at the wrong point in the timeline
+// (the legacy round-1 fallback kicks in).
+func TestCarryForwardComment_PreservesResolvedRound(t *testing.T) {
+	old := Comment{
+		ID:            "c_old",
+		StartLine:     5,
+		EndLine:       5,
+		Body:          "Looks good",
+		Author:        "reviewer",
+		Scope:         "line",
+		CreatedAt:     "2026-04-13T10:00:00Z",
+		UpdatedAt:     "2026-04-13T10:00:00Z",
+		Resolved:      true,
+		ResolvedRound: 3,
+		ReviewRound:   1,
+	}
+
+	carried := carryForwardComment(old, "c_new", "2026-04-13T11:00:00Z")
+
+	if !carried.Resolved {
+		t.Error("Resolved not preserved")
+	}
+	if carried.ResolvedRound != 3 {
+		t.Errorf("ResolvedRound = %d, want 3", carried.ResolvedRound)
+	}
+}
+
+// TestCarryForwardComment_PreservesLastPushedBodyHash guards the GitHub-sync
+// dedup hash. Without it, every already-pushed comment looks "never pushed"
+// after a round bump and `crit push` would re-PATCH (or double-post) bodies
+// that are actually unchanged.
+func TestCarryForwardComment_PreservesLastPushedBodyHash(t *testing.T) {
+	old := Comment{
+		ID:                 "c_old",
+		StartLine:          7,
+		EndLine:            7,
+		Body:               "Nit: rename",
+		Author:             "reviewer",
+		Scope:              "line",
+		CreatedAt:          "2026-04-13T10:00:00Z",
+		UpdatedAt:          "2026-04-13T10:00:00Z",
+		GitHubID:           99,
+		LastPushedBodyHash: "abc123def456",
+	}
+
+	carried := carryForwardComment(old, "c_new", "2026-04-13T11:00:00Z")
+
+	if carried.GitHubID != 99 {
+		t.Errorf("GitHubID = %d, want 99", carried.GitHubID)
+	}
+	if carried.LastPushedBodyHash != "abc123def456" {
+		t.Errorf("LastPushedBodyHash = %q, want %q", carried.LastPushedBodyHash, "abc123def456")
+	}
+}
+
 // TestWatchGit_SkipsGitStatusWhenNotWaiting verifies that watchGit does not
 // detect edits when waitingForAgent is false, and does detect them once
 // waitingForAgent is set to true.
