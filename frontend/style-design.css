@@ -385,10 +385,10 @@
   gap: 6px;
   margin-top: 4px;
 }
-.crit-design-comment-row[data-resolved="true"] .crit-design-comment-body {
-  text-decoration: line-through;
-  opacity: 0.7;
-}
+/* Resolved styling now reuses code-review's `.comment-card.resolved`
+   rule from style.css (greyed bg + reduced opacity). The bespoke
+   strikethrough/opacity override that lived here was a half-baked
+   replacement and led to inconsistent visuals between modes. */
 
 /* ---- Phase D: drifted tray ---- */
 .crit-design-drifted-tray {

@@ -243,7 +243,7 @@
 
     var parts = card.buildCommentCard(c, pathname, {
       wrapperClass: 'crit-design-comment-row-wrap',
-      cardClassExtra: 'crit-design-comment-row',
+      cardClassExtra: 'crit-design-comment-row' + (c.resolved ? ' resolved-card resolved' : ''),
       // Design pins default to expanded — buildCommentCard's collapseDefault
       // mode is for code-review's resolved-thread auto-fold; design rows
       // stay open until the user collapses them via the chevron.
@@ -283,6 +283,10 @@
     if (c.resolved) {
       parts.card.dataset.resolved = 'true';
       parts.wrapper.dataset.resolved = 'true';
+      // resolved-card matches code-review's hide-resolved logic and any
+      // future scoped styling; the .resolved class lets shared styling
+      // hooks (and the prior bespoke style-design rule, now removed)
+      // converge on a single selector.
     }
 
     // Insert the design-specific meta (route badge, chip, thumbnail) at the
