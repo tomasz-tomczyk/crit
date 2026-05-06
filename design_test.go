@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -355,5 +356,40 @@ func TestRunDesign_OriginNormalisedToSchemeHost(t *testing.T) {
 	origin := u.Scheme + "://" + u.Host
 	if origin != "https://myapp.test:4000" {
 		t.Errorf("origin = %q, want https://myapp.test:4000", origin)
+	}
+}
+
+func TestDetectFrameworks(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{"phoenix", `<div phx-track-static></div>`, []string{
+			"Phoenix LiveView detected. Make sure your dev endpoint allows iframing — strip CSP locally if needed.",
+		}},
+		{"phoenix-hook", `<div phx-hook="X"></div>`, []string{
+			"Phoenix LiveView detected. Make sure your dev endpoint allows iframing — strip CSP locally if needed.",
+		}},
+		{"vite", `<script type="module" src="/@vite/client"></script>`, []string{
+			"Vite dev server detected. WebSocket HMR will be proxied automatically.",
+		}},
+		{"nextjs", `<div id="__next"></div>`, []string{
+			"Next.js dev detected. SPA route changes via `pushState` are supported.",
+		}},
+		{"phoenix+vite", `<div phx-hook="X"></div><script src="/@vite/client"></script>`, []string{
+			"Phoenix LiveView detected. Make sure your dev endpoint allows iframing — strip CSP locally if needed.",
+			"Vite dev server detected. WebSocket HMR will be proxied automatically.",
+		}},
+		{"plain", `<html><body><h1>hi</h1></body></html>`, nil},
+		{"phx-prefix-does-not-falsely-match", `<div class="phx-foo phxbar">x</div>`, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := detectFrameworks([]byte(tc.body))
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
 	}
 }

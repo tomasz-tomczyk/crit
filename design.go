@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -25,6 +27,28 @@ type smokeResult struct {
 	fatal                bool
 	message              string
 	hasCSPFrameAncestors bool
+	frameworkNotes       []string
+}
+
+// phoenixRE matches one of three discriminating Phoenix LiveView markers.
+// A bare "phx-" substring is too loose — third-party CSS libraries use
+// `phx-` prefixes in unrelated contexts.
+var phoenixRE = regexp.MustCompile(`phx-track-static|phx-hook=|phx-main`)
+
+// detectFrameworks returns informational notes (one per detected framework)
+// produced by probing the upstream HTML body. None block startup.
+func detectFrameworks(body []byte) []string {
+	var notes []string
+	if phoenixRE.Match(body) {
+		notes = append(notes, "Phoenix LiveView detected. Make sure your dev endpoint allows iframing — strip CSP locally if needed.")
+	}
+	if bytes.Contains(body, []byte(`/@vite/client`)) {
+		notes = append(notes, "Vite dev server detected. WebSocket HMR will be proxied automatically.")
+	}
+	if bytes.Contains(body, []byte(`id="__next"`)) {
+		notes = append(notes, "Next.js dev detected. SPA route changes via `pushState` are supported.")
+	}
+	return notes
 }
 
 var smokeClient = &http.Client{Timeout: 10 * time.Second}
@@ -66,16 +90,18 @@ func runSmokeTest(origin string) smokeResult {
 		return smokeResult{kind: smokeOK, hasCSPFrameAncestors: hasCSP}
 	}
 
+	notes := detectFrameworks(body)
 	if !strings.Contains(strings.ToLower(string(body)), "</body>") {
 		return smokeResult{
 			kind:                 smokeMissingBody,
 			fatal:                false,
 			message:              "couldn't find a </body> injection target; design-mode agent may not boot",
 			hasCSPFrameAncestors: hasCSP,
+			frameworkNotes:       notes,
 		}
 	}
 
-	return smokeResult{kind: smokeOK, hasCSPFrameAncestors: hasCSP}
+	return smokeResult{kind: smokeOK, hasCSPFrameAncestors: hasCSP, frameworkNotes: notes}
 }
 
 // looksLikeDesignArgs returns true when args is exactly one element
@@ -124,6 +150,9 @@ func runDesign(args []string) {
 	}
 	if result.hasCSPFrameAncestors {
 		fmt.Fprintf(os.Stderr, "[crit] note: upstream has frame-ancestors CSP; stripped by proxy\n")
+	}
+	for _, n := range result.frameworkNotes {
+		fmt.Fprintf(os.Stderr, "[crit] note: %s\n", n)
 	}
 
 	// 2. Session key + existing daemon check.
