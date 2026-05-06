@@ -147,3 +147,28 @@ export async function navigateInIframe(
   await getIframe(page).locator(selector).click();
   await expect(page.locator('#designRouteName')).toHaveText(expectedRoute, { timeout: 10_000 });
 }
+
+/**
+ * Default pin-target selector inside the upstream fixture root page (`/`).
+ * Buttons in the fixture's main: #primary-btn, #secondary-btn, .card.
+ */
+export const PIN_TARGET = '#primary-btn';
+
+/** Default cross-route navigation selector inside the upstream fixture root. */
+export const NAV_OTHER = '#dash-link';
+
+/**
+ * Open the pin composer by entering Pin mode and clicking the given iframe
+ * selector. Waits for the agent-ready handshake first.
+ */
+export async function openPinComposer(
+  page: Page,
+  selector: string = PIN_TARGET,
+): Promise<void> {
+  await waitForAgentReady(page);
+  await enterPinMode(page);
+  const target = getIframe(page).locator(selector);
+  await target.scrollIntoViewIfNeeded();
+  await target.click();
+  await expect(page.locator('.crit-design-composer')).toBeVisible();
+}
