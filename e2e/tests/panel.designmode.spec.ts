@@ -11,18 +11,24 @@ import {
 // rather than `test.fixme` so the per-test reason shows in the trace.
 
 test.describe('design-mode comments panel — M12 toggle (navbar)', () => {
-  // #commentNavGroup (which contains #commentCount) is hidden in design mode
-  // by style-design.css line 23. Listener is wired but the button is
-  // invisible — pending production work to expose a panel-toggle affordance
-  // in the design-mode chrome. Keep fixme until a navbar entry point ships.
-  test.fixme(true, 'no visible panel-toggle affordance in design mode (#commentNavGroup hidden by style-design.css)');
-
   test('navbar #commentCount toggles the panel open/closed', async ({ page }) => {
-    await page.goto('/design');
+    await waitForAgentReady(page);
+    const panel = page.locator('#commentsPanel');
+    const btn = page.locator('#commentCount');
+    await expect(btn).toBeVisible();
+    await expect(panel).not.toHaveClass(/comments-panel-hidden/);
+    await btn.click();
+    await expect(panel).toHaveClass(/comments-panel-hidden/);
+    await btn.click();
+    await expect(panel).not.toHaveClass(/comments-panel-hidden/);
   });
 
   test('persists open/closed across reloads via crit-settings cookie', async ({ page }) => {
-    await page.goto('/design');
+    await waitForAgentReady(page);
+    await page.locator('#commentCount').click();
+    await expect(page.locator('#commentsPanel')).toHaveClass(/comments-panel-hidden/);
+    await page.reload();
+    await expect(page.locator('#commentsPanel')).toHaveClass(/comments-panel-hidden/);
   });
 });
 
@@ -44,30 +50,30 @@ test.describe('design-mode comments panel — M12 count badge', () => {
 });
 
 test.describe('design-mode comments panel — M13 resize', () => {
-  // #commentsPanelResizer (the .sidebar-resize-handle) is hidden in design
-  // mode by style-design.css line 14. design-mode.js wires the pointerdown
-  // listener but the handle isn't user-visible / draggable. Pending a
-  // design-mode-specific resize affordance.
-  test.fixme(true, '#commentsPanelResizer hidden in design mode (.sidebar-resize-handle display:none in style-design.css)');
-
   test.beforeEach(async ({ request }) => {
     await clearAllDesignPins(request);
   });
 
+  // Drive pointerdown/pointermove/pointerup directly — the handler in
+  // design-mode.js listens for native PointerEvents and headless Chromium's
+  // page.mouse.* doesn't always synthesise pointer events that hit the
+  // pointerdown listener.
+  async function dragResizer(page: import('@playwright/test').Page, dx: number) {
+    const handle = page.locator('#commentsPanelResizer');
+    const box = await handle.boundingBox();
+    if (!box) throw new Error('resize handle not visible');
+    const sx = box.x + box.width / 2;
+    const sy = box.y + box.height / 2;
+    await handle.dispatchEvent('pointerdown', { pointerId: 1, clientX: sx, clientY: sy, button: 0, isPrimary: true });
+    await handle.dispatchEvent('pointermove', { pointerId: 1, clientX: sx + dx, clientY: sy, button: 0, isPrimary: true });
+    await handle.dispatchEvent('pointerup', { pointerId: 1, clientX: sx + dx, clientY: sy, button: 0, isPrimary: true });
+  }
+
   test('drag handle resizes the panel and persists to crit-settings', async ({ page }) => {
     await waitForAgentReady(page);
     const panel = page.locator('#commentsPanel');
-    const handle = page.locator('#commentsPanelResizer');
     const before = await panel.evaluate(el => (el as HTMLElement).offsetWidth);
-
-    const handleBox = await handle.boundingBox();
-    if (!handleBox) throw new Error('resize handle not visible');
-    // Drag left to grow the panel (panel is on the right; left edge is the resize handle).
-    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(handleBox.x - 100, handleBox.y + handleBox.height / 2, { steps: 10 });
-    await page.mouse.up();
-
+    await dragResizer(page, -150);
     await expect.poll(
       () => panel.evaluate(el => (el as HTMLElement).offsetWidth),
     ).toBeGreaterThan(before);
@@ -81,13 +87,7 @@ test.describe('design-mode comments panel — M13 resize', () => {
   test('NO upper clamp: panel can grow past viewport-preset width', async ({ page }) => {
     await waitForAgentReady(page);
     const panel = page.locator('#commentsPanel');
-    const handle = page.locator('#commentsPanelResizer');
-    const handleBox = await handle.boundingBox();
-    if (!handleBox) throw new Error('resize handle not visible');
-    await page.mouse.move(handleBox.x, handleBox.y + 5);
-    await page.mouse.down();
-    await page.mouse.move(0, handleBox.y + 5, { steps: 20 });
-    await page.mouse.up();
+    await dragResizer(page, -800);
     await expect.poll(
       () => panel.evaluate(el => (el as HTMLElement).offsetWidth),
     ).toBeGreaterThan(600);
@@ -95,16 +95,35 @@ test.describe('design-mode comments panel — M13 resize', () => {
 });
 
 test.describe('design-mode comments panel — M5 row controls', () => {
-  // buildCommentCard mounts Resolve and Reply buttons (with class names
-  // crit-design-comment-resolve / crit-design-comment-reply), and a
-  // .comment-collapse-btn for expand/collapse. It does NOT emit a separate
-  // [data-action="edit"] button on design rows — the only inline-edit path
-  // goes through markdown editing on the body. Keep fixme until parity work
-  // ships an Edit affordance in design rows.
-  test.fixme(true, '[data-action="edit"|"reply"|"expand"] selectors not emitted by design rows; buildCommentCard uses different class names');
+  test.beforeEach(async ({ request }) => {
+    await clearAllDesignPins(request);
+  });
 
   test('panel rows expose Expand, Edit, Resolve, Reply controls (parity with code review)', async ({ page }) => {
-    await page.goto('/design');
+    await openPinComposer(page);
+    await page.locator('.crit-design-composer-body').fill('original body');
+    await page.locator('.crit-design-composer-save').click();
+    const row = page.locator('#commentsPanelBody .crit-design-comment-row').first();
+    await expect(row).toBeVisible();
+    // Production class names — design pins use crit-design-comment-* / .comment-collapse-btn.
+    await expect(row.locator('.comment-collapse-btn')).toHaveCount(1);
+    await expect(row.locator('.crit-design-comment-edit')).toHaveCount(1);
+    await expect(row.locator('.crit-design-comment-reply')).toHaveCount(1);
+    await expect(row.locator('.crit-design-comment-resolve')).toHaveCount(1);
+  });
+
+  test('Edit opens inline editor, Save updates body via PUT', async ({ page }) => {
+    await openPinComposer(page);
+    await page.locator('.crit-design-composer-body').fill('original body');
+    await page.locator('.crit-design-composer-save').click();
+    const row = page.locator('#commentsPanelBody .crit-design-comment-row').first();
+    await row.locator('.crit-design-comment-edit').click();
+    const ta = row.locator('.crit-design-edit-textarea');
+    await expect(ta).toBeVisible();
+    await ta.fill('edited body');
+    await ta.press('Meta+Enter');
+    await expect(row.locator('.crit-design-edit-composer')).toHaveCount(0);
+    await expect(row.locator('.comment-body')).toContainText('edited body');
   });
 });
 
@@ -146,15 +165,33 @@ test.describe('design-mode comments panel — M14 filter pill', () => {
 });
 
 test.describe('design-mode comments panel — M14 body expand toggle', () => {
-  // Test asserts row.locator('.comment-body').toHaveClass(/comment-body-collapsed/)
-  // and a [data-action="expand"] button. buildCommentCard uses
-  // .comment-card.collapsed (on the card, not the body) and a
-  // .comment-collapse-btn. Selector contract drift — keep fixme until either
-  // the test contract or the production class names converge.
-  test.fixme(true, 'comment-body-collapsed class + [data-action="expand"] selector not emitted; uses .comment-card.collapsed + .comment-collapse-btn');
+  test.beforeEach(async ({ request }) => {
+    await clearAllDesignPins(request);
+  });
 
-  test('Expand toggle in long bodies shows full text', async ({ page }) => {
-    await page.goto('/design');
+  test('Expand chevron on resolved card toggles .comment-card.collapsed', async ({ page }) => {
+    // buildCommentCard auto-collapses resolved threads; clicking the chevron
+    // (.comment-collapse-btn) toggles `.collapsed` on the card. Drive the
+    // visible behavior using actual production selectors.
+    await openPinComposer(page);
+    await page.locator('.crit-design-composer-body').fill('a long-ish body that is collapsible after resolve');
+    await page.locator('.crit-design-composer-save').click();
+
+    const card = page.locator('#commentsPanelBody .crit-design-comment-row').first();
+    await expect(card).toBeVisible();
+    // Resolve to trigger the auto-collapse default for resolved cards.
+    await page.locator('#commentsPanelBody .crit-design-comment-resolve').first().click();
+
+    // After resolve, card may be auto-collapsed by buildCommentCard's
+    // resolved-thread default. The collapse button is the visible toggle.
+    const collapseBtn = card.locator('.comment-collapse-btn').first();
+    await expect(collapseBtn).toBeVisible();
+
+    const wasCollapsed = await card.evaluate(el => el.classList.contains('collapsed'));
+    await collapseBtn.click();
+    await expect.poll(
+      () => card.evaluate(el => el.classList.contains('collapsed')),
+    ).toBe(!wasCollapsed);
   });
 });
 
@@ -169,13 +206,28 @@ test.describe('design-mode comments panel — M15 panel close button', () => {
 });
 
 test.describe('design-mode comments panel — M15 reopen via navbar', () => {
-  // Reopen path goes through #commentCount, but #commentNavGroup is hidden
-  // by style-design.css in design mode, so the only navbar entry point is
-  // not user-visible. Same gap as M12 toggle.
-  test.fixme(true, '#commentCount not visible in design mode; #commentNavGroup hidden by style-design.css');
-
   test('reopening via navbar restores prior width (M13 persistence)', async ({ page }) => {
-    await page.goto('/design');
+    await waitForAgentReady(page);
+    const panel = page.locator('#commentsPanel');
+    // Set an explicit width via the persisted setting key so the test isn't
+    // sensitive to the resizer-drag implementation.
+    await page.evaluate(() => {
+      const helpers = (window as any).crit && (window as any).crit.shared;
+      if (helpers && helpers.setSetting) helpers.setSetting('design_commentsPanelWidth', 540);
+    });
+    await page.reload();
+    await expect.poll(
+      () => panel.evaluate(el => (el as HTMLElement).offsetWidth),
+    ).toBeGreaterThan(500);
+
+    // Close + reopen via navbar — width should be preserved.
+    await page.locator('.comments-panel-close').click();
+    await expect(panel).toHaveClass(/comments-panel-hidden/);
+    await page.locator('#commentCount').click();
+    await expect(panel).not.toHaveClass(/comments-panel-hidden/);
+    await expect.poll(
+      () => panel.evaluate(el => (el as HTMLElement).offsetWidth),
+    ).toBeGreaterThan(500);
   });
 });
 
