@@ -180,3 +180,82 @@ jobs:
           name: e2e-test-results
           path: e2e/test-results/
           retention-days: 7
+
+  e2e-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/AppData/Local/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: e2e
+        run: npx playwright install chromium
+
+      - name: Build crit with coverage instrumentation
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/crit-coverdir"
+          go build -cover -o crit-cover-bin.exe .
+
+      - name: Run E2E tests
+        working-directory: e2e
+        shell: bash
+        run: bash run.sh
+        env:
+          CRIT_BIN: ${{ github.workspace }}/crit-cover-bin.exe
+          GOCOVERDIR: ${{ runner.temp }}/crit-coverdir
+
+      - name: Convert E2E coverage data
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "${RUNNER_TEMP}/crit-coverdir" ] && ls "${RUNNER_TEMP}"/crit-coverdir/*.* >/dev/null 2>&1; then
+            go tool covdata textfmt -i="${RUNNER_TEMP}/crit-coverdir" -o=e2e-coverage.out
+          fi
+
+      - name: Upload E2E coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v6
+        with:
+          files: e2e-coverage.out
+          flags: e2e
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-test-results-windows
+          path: e2e/test-results/
+          retention-days: 7
+
+      # Some tests spawn `crit.exe` daemons that may outlive the test process
+      # by a few seconds. If they're still alive when actions/setup-* post
+      # steps pack their caches, the cache step fails because the binary is
+      # locked. Kill any leftover processes before the implicit post-cache
+      # steps run. Mirrors the unit-windows job pattern.
+      - name: Kill leftover crit daemons
+        if: always()
+        shell: cmd
+        run: taskkill /F /IM crit.exe /T 2>nul || exit /b 0
