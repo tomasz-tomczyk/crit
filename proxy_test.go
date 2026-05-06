@@ -545,6 +545,14 @@ func TestProxyErrorHandler_Returns502JSON(t *testing.T) {
 	if !strings.Contains(string(body), `"error"`) {
 		t.Errorf("expected JSON error body: %s", body)
 	}
+	// The 502 envelope must not leak upstream URL/host details into the
+	// browser response — log them to stderr instead.
+	if strings.Contains(string(body), "127.0.0.1:19998") {
+		t.Errorf("error body leaked upstream address: %s", body)
+	}
+	if strings.Contains(string(body), "detail") {
+		t.Errorf("error body still contains detail field: %s", body)
+	}
 }
 
 func TestBindProxyServer_PortIsAPIPlusOne(t *testing.T) {

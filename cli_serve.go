@@ -180,8 +180,6 @@ func applyConfigDefaults(sf *serverFlagSet, cfg Config) {
 // resolveServerConfig parses flags, loads config files, and resolves the
 // final server configuration from all sources (CLI > env > config > defaults).
 // Returns nil when the command should exit early (e.g. --version).
-//
-//nolint:unparam // error return is future-proofing for config validation
 func resolveServerConfig(args []string) (*serverConfig, error) {
 	sf := parseServerFlags(args)
 

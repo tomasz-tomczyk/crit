@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -50,9 +51,13 @@ func newDesignProxy(upstreamOrigin string, apiPort int) (http.Handler, error) {
 		Transport:      transport,
 		ModifyResponse: makeModifyResponse(apiPort, target),
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			// Log the full error to stderr for debugging — it may include
+			// the upstream URL or local file paths that we don't want to
+			// echo back into a JSON envelope served to the browser.
+			log.Printf("design proxy: upstream error for %s: %v", r.URL.Path, err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadGateway)
-			fmt.Fprintf(w, `{"error":"upstream unreachable","detail":%q}`, err.Error())
+			fmt.Fprint(w, `{"error":"upstream unreachable"}`)
 		},
 	}
 	return rp, nil
