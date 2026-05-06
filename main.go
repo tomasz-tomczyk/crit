@@ -1431,6 +1431,12 @@ func runCommentLineLevelScoped(loc string, commentArgs []string, author, userID,
 		startLine, endLine = n, n
 	}
 	body := strings.Join(commentArgs[1:], " ")
+	if critPath, err := resolveReviewPath(outputDir); err == nil {
+		if guardErr := checkCommentCLIAllowed(critPath); guardErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", guardErr)
+			os.Exit(1)
+		}
+	}
 	if err := addCommentToCritJSONScoped(filePath, startLine, endLine, body, author, userID, outputDir, scope); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

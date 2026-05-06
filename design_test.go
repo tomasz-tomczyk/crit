@@ -191,3 +191,31 @@ func TestShareGuard_CodeReview_Allowed(t *testing.T) {
 		t.Errorf("code review should be shareable: %v", err)
 	}
 }
+
+func TestCommentCLIGuard_DesignReview(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, "review")
+	cj := CritJSON{ReviewType: "design", Origin: "http://localhost:3000", ReviewRound: 1, Files: map[string]CritJSONFile{}}
+	if err := saveCritJSON(critPath, cj); err != nil {
+		t.Fatalf("saveCritJSON: %v", err)
+	}
+	err := checkCommentCLIAllowed(critPath)
+	if err == nil {
+		t.Fatal("expected error for design review")
+	}
+	if !strings.Contains(err.Error(), "design") {
+		t.Errorf("error should mention design: %v", err)
+	}
+}
+
+func TestCommentCLIGuard_CodeReview_Allowed(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, "review")
+	cj := CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{}}
+	if err := saveCritJSON(critPath, cj); err != nil {
+		t.Fatalf("saveCritJSON: %v", err)
+	}
+	if err := checkCommentCLIAllowed(critPath); err != nil {
+		t.Errorf("code review should allow crit comment: %v", err)
+	}
+}

@@ -27,6 +27,26 @@ func isAbsoluteOrTraversal(p string) bool {
 	return strings.HasPrefix(cleaned, "..")
 }
 
+// checkCommentCLIAllowed returns an error if the review at critPath is a
+// design review.
+func checkCommentCLIAllowed(critPath string) error {
+	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return nil
+	}
+	if cj.ReviewType == "design" {
+		return fmt.Errorf("crit comment <path>:<line> is not supported for design reviews; use the browser UI to add pins")
+	}
+	return nil
+}
+
 // appendCommentScoped adds a comment to the CritJSON struct in memory with
 // HeadSHA / DiffScope stamping. Does not write to disk.
 // scope.DiffScope == "" produces today's working-tree behavior.
