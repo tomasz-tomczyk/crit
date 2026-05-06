@@ -88,5 +88,55 @@
     return pathFromRoot(el, root).map(node => node.tagName.toUpperCase());
   }
 
-  return { implicitRole, findAnchorRoot, cssSelectorFor, tagChainFor };
+  function accessibleNameFor(el) {
+    // Order: explicit `aria-label` attribute first, then the `ariaLabel` IDL
+    // property, finally fall back to trimmed textContent. All capped at 80.
+    const attr = (el.getAttribute && el.getAttribute('aria-label')) || '';
+    if (attr) return String(attr).trim().slice(0, 80);
+    const idl = el.ariaLabel || '';
+    if (idl) return String(idl).trim().slice(0, 80);
+    const text = (el.textContent || '').trim();
+    return text.slice(0, 80);
+  }
+
+  function roleFor(el) {
+    const explicit = el.getAttribute && el.getAttribute('role');
+    if (explicit) return explicit;
+    return implicitRole(el.tagName);
+  }
+
+  const LANDMARK_TAGS = new Set(['MAIN', 'NAV', 'HEADER', 'FOOTER', 'SECTION', 'ASIDE']);
+
+  function landmarkFor(el) {
+    let cur = el.parentNode;
+    while (cur) {
+      if (LANDMARK_TAGS.has(cur.tagName)) {
+        const aria = cur.ariaLabel || (cur.getAttribute && cur.getAttribute('aria-label'));
+        return aria || cur.tagName.toLowerCase();
+      }
+      cur = cur.parentNode;
+    }
+    return '';
+  }
+
+  function truncateOuterHTML(html, max) {
+    if (typeof html !== 'string') return '';
+    return html.length > max ? html.slice(0, max) : html;
+  }
+
+  function walkAncestors(el, root) {
+    const out = [];
+    let cur = el;
+    while (cur) {
+      out.push(cur);
+      if (cur === root) break;
+      cur = cur.parentNode;
+    }
+    return out;
+  }
+
+  return {
+    implicitRole, findAnchorRoot, cssSelectorFor, tagChainFor,
+    accessibleNameFor, roleFor, landmarkFor, truncateOuterHTML, walkAncestors,
+  };
 });

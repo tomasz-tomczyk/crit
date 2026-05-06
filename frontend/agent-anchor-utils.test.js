@@ -96,3 +96,73 @@ test('tagChainFor returns uppercase tag names from root to element', () => {
   const main = n('main', { id: 'main', children: [sec] });
   assert.deepEqual(u.tagChainFor(h1, main), ['MAIN', 'SECTION', 'H1']);
 });
+
+test('accessibleNameFor prefers ariaLabel', () => {
+  const el = n('button', { ariaLabel: 'Save changes', text: 'Save' });
+  assert.equal(u.accessibleNameFor(el), 'Save changes');
+});
+
+test('accessibleNameFor falls back to trimmed textContent capped at 80', () => {
+  const el = n('button', { text: '  Long button label  ' });
+  assert.equal(u.accessibleNameFor(el), 'Long button label');
+});
+
+test('accessibleNameFor truncates to 80 chars', () => {
+  const el = n('p', { text: 'x'.repeat(200) });
+  assert.equal(u.accessibleNameFor(el).length, 80);
+});
+
+test('accessibleNameFor handles empty input', () => {
+  const el = n('div');
+  assert.equal(u.accessibleNameFor(el), '');
+});
+
+test('roleFor uses explicit role attribute first', () => {
+  const el = n('div', { attrs: { role: 'tablist' } });
+  assert.equal(u.roleFor(el), 'tablist');
+});
+
+test('roleFor falls back to implicit role', () => {
+  const el = n('button');
+  assert.equal(u.roleFor(el), 'button');
+});
+
+test('roleFor returns empty for unknown div', () => {
+  const el = n('div');
+  assert.equal(u.roleFor(el), '');
+});
+
+test('landmarkFor finds nearest landmark ancestor', () => {
+  const span = n('span');
+  const main = n('main', { ariaLabel: 'Dashboard', children: [span] });
+  assert.equal(u.landmarkFor(span), 'Dashboard');
+});
+
+test('landmarkFor falls back to tagName.toLowerCase() when no aria-label', () => {
+  const span = n('span');
+  const nav = n('nav', { children: [span] });
+  assert.equal(u.landmarkFor(span), 'nav');
+});
+
+test('landmarkFor returns empty when no landmark ancestor', () => {
+  const span = n('span');
+  const div = n('div', { children: [span] });
+  assert.equal(u.landmarkFor(span), '');
+});
+
+test('truncateOuterHTML caps at given length', () => {
+  assert.equal(u.truncateOuterHTML('<p>hi</p>', 2048).length, 9);
+  assert.equal(u.truncateOuterHTML('x'.repeat(3000), 2048).length, 2048);
+});
+
+test('walkAncestors returns array from element to anchor root inclusive', () => {
+  const span = n('span');
+  const div = n('div', { children: [span] });
+  const sec = n('section', { children: [div] });
+  const main = n('main', { id: 'main', children: [sec] });
+  const root = u.findAnchorRoot(span);
+  const chain = u.walkAncestors(span, root);
+  assert.equal(chain.length, 4);
+  assert.equal(chain[0], span);
+  assert.equal(chain[3], main);
+});
