@@ -1,0 +1,195 @@
+/* style-design.css — design-mode chrome layout. Loaded only when
+   pathname is /design (bootstrap fork in index.html).
+
+   R1: <html class="crit-mode-design"> hides code-review-only chrome but
+       keeps the existing .header and #settingsOverlay alive.
+   R3: viewport / mode toggles inject into the existing .header-right
+       using .scope-toggle / .diff-mode-toggle classes from style.css.
+   R5: comment list reuses .comments-panel / .comment-card.
+
+   Class prefix: .crit-design-*. Do not collide with .crit-*, .line-*. */
+
+/* Hide code-review chunks. Settings overlay survives (R6). */
+.crit-mode-design .file-tree-panel,
+.crit-mode-design .sidebar-resize-handle,
+.crit-mode-design .main-content,
+.crit-mode-design #filesContainer,
+.crit-mode-design .pr-panel,
+.crit-mode-design .toc,
+.crit-mode-design .compare-rail,
+.crit-mode-design #scopeToggle,
+.crit-mode-design #diffToggle,
+.crit-mode-design #diffModeToggle,
+.crit-mode-design #commentNavGroup,
+.crit-mode-design #prToggle,
+.crit-mode-design #shareBtn,
+.crit-mode-design #finishBtn,
+.crit-mode-design #tocToggle,
+.crit-mode-design .waiting-overlay,
+.crit-mode-design .confirm-overlay,
+.crit-mode-design #updateBtn { display: none !important; }
+
+/* The comments-panel survives but is shown for design-mode comments. */
+.crit-mode-design .comments-panel { display: flex !important; }
+
+/* main-layout becomes design-mode container: header on top (existing),
+   then iframe pane + comments panel side-by-side. */
+.crit-mode-design .main-layout {
+  display: flex;
+  flex-direction: row;
+  height: calc(100vh - var(--crit-header-height, 56px));
+}
+
+/* Iframe pane sits as a sibling of .comments-panel inside .main-layout. */
+.crit-design-iframe-pane {
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  background: var(--crit-design-iframe-bg);
+  padding: 16px;
+}
+
+.crit-design-iframe-pane-inner {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-width: 100%;
+  width: max-content;
+}
+
+.crit-design-iframe-frame {
+  position: relative;
+  background: #fff;
+  border: 1px solid var(--crit-design-iframe-frame);
+  border-radius: var(--crit-r-md);
+  box-shadow: var(--crit-shadow);
+  flex: 0 0 auto;
+}
+
+.crit-design-iframe-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: var(--crit-r-md);
+}
+
+.crit-design-iframe-resizer {
+  position: absolute;
+  top: 0; right: -3px; bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  background: transparent;
+  z-index: 2;
+}
+.crit-design-iframe-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 2px; height: 36px;
+  margin: -18px 0 0 -1px;
+  background: var(--crit-pill-border);
+  border-radius: 1px;
+  transition: background var(--crit-dur-fast) var(--crit-ease);
+}
+.crit-design-iframe-resizer:hover::after,
+.crit-design-iframe-resizer:active::after {
+  background: var(--crit-focus, var(--crit-brand));
+}
+
+/* Breadcrumb chip (header-chip) — colour comes from existing pill tokens. */
+.crit-mode-design #designRouteName {
+  font-family: var(--crit-font-mono);
+  font-size: 12px;
+}
+.crit-design-breadcrumb-unsaved {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--crit-yellow);
+  background: var(--crit-yellow-subtle);
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--crit-yellow-border);
+}
+
+/* Drift tray heading colour reserved for Phase D — use --crit-yellow. */
+
+/* a11y: visually hidden live region. */
+.crit-design-sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  border: 0;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Iframe load-error banner. */
+.crit-design-iframe-error {
+  position: absolute;
+  inset: 16px;
+  background: var(--crit-bg-card);
+  border: 1px dashed var(--crit-red);
+  color: var(--crit-fg-primary);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: var(--crit-r-md);
+}
+.crit-design-iframe-error button {
+  appearance: none;
+  background: var(--crit-brand-cta);
+  color: var(--crit-fg-on-brand);
+  border: 0;
+  padding: 6px 14px;
+  border-radius: var(--crit-r-sm);
+  cursor: pointer;
+}
+
+/* Cross-origin redirect notice. */
+.crit-design-redirect-notice {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--crit-bg-card);
+  color: var(--crit-fg-primary);
+  border: 1px solid var(--crit-border, var(--crit-pill-border));
+  padding: 8px 12px;
+  border-radius: var(--crit-r-md);
+  box-shadow: var(--crit-shadow);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.crit-design-redirect-notice code {
+  font-family: var(--crit-font-mono);
+  background: var(--crit-editor-code-bg);
+  padding: 0 4px;
+  border-radius: var(--crit-r-sm);
+}
+.crit-design-redirect-notice button {
+  appearance: none;
+  background: transparent;
+  color: var(--crit-brand);
+  border: 1px solid var(--crit-pill-border);
+  padding: 2px 8px;
+  border-radius: var(--crit-r-sm);
+  cursor: pointer;
+}
+
+/* Comment-card design-route hint (R5): re-uses .comment-card chrome. */
+.crit-mode-design .comment-card[data-design-route] {
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .crit-mode-design .main-layout {
+    flex-direction: column;
+  }
+}
