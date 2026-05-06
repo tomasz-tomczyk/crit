@@ -77,3 +77,63 @@ test.describe('design-mode comments panel — M13 resize', () => {
     expect(w).toBeGreaterThan(600);
   });
 });
+
+test.describe('design-mode comments panel — M5 row controls', () => {
+  test.skip(true, 'phase F runner');
+
+  test('panel rows expose Expand, Edit, Resolve, Reply controls (parity with code review)', async ({ page }) => {
+    await page.goto('/design');
+    // Add a pin first (placeholder fixture flow).
+    const row = page.locator('#commentsPanelBody .comment-card').first();
+    await expect(row.locator('.comment-actions .crit-design-comment-resolve')).toBeVisible();
+    // Edit + Reply + Expand affordances should be present once buildCommentCard
+    // is reused in design rows (deferred — see follow-up plan).
+    await expect(row.locator('[data-action="edit"]')).toBeVisible();
+    await expect(row.locator('[data-action="reply"]')).toBeVisible();
+    await expect(row.locator('[data-action="expand"]')).toBeVisible();
+  });
+});
+
+test.describe('design-mode comments panel — M14 filter pill + body expand', () => {
+  test.skip(true, 'phase F runner');
+
+  test('filter pill (All / Open / Resolved) toggles row visibility and updates counts', async ({ page }) => {
+    await page.goto('/design');
+    const pill = page.locator('#commentsFilterPill');
+    await pill.locator('[data-filter="open"]').click();
+    await expect(pill.locator('[data-filter="open"]')).toHaveClass(/active/);
+    // After resolving a row, switching to Open should hide it.
+    // After switching to Resolved, the same row should appear.
+  });
+
+  test('Expand toggle in long bodies shows full text', async ({ page }) => {
+    await page.goto('/design');
+    const row = page.locator('#commentsPanelBody .comment-card').first();
+    const body = row.locator('.comment-body');
+    await expect(body).toHaveClass(/comment-body-collapsed/);
+    await row.locator('[data-action="expand"]').click();
+    await expect(body).not.toHaveClass(/comment-body-collapsed/);
+  });
+});
+
+test.describe('design-mode comments panel — M15 panel close button', () => {
+  test.skip(true, 'phase F runner');
+
+  test('panel header close button hides the panel', async ({ page }) => {
+    await page.goto('/design');
+    const panel = page.locator('#commentsPanel');
+    await page.locator('.comments-panel-close').click();
+    await expect(panel).toHaveClass(/comments-panel-hidden/);
+  });
+
+  test('reopening via navbar restores prior width (M13 persistence)', async ({ page }) => {
+    await page.goto('/design');
+    // Resize first (covered in M13). Close then reopen. Width should match.
+    const panel = page.locator('#commentsPanel');
+    const before = await panel.evaluate(el => (el as HTMLElement).offsetWidth);
+    await page.locator('.comments-panel-close').click();
+    await page.locator('#commentCount').click();
+    const after = await panel.evaluate(el => (el as HTMLElement).offsetWidth);
+    expect(after).toBe(before);
+  });
+});
