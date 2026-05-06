@@ -166,3 +166,148 @@ test('walkAncestors returns array from element to anchor root inclusive', () => 
   assert.equal(chain[0], span);
   assert.equal(chain[3], main);
 });
+
+// ---- Phase D resolver tests ----
+
+test('verifyTagChain returns true when each ancestor tagName matches chain', () => {
+  const body = { tagName: 'BODY', parentElement: null };
+  const main = { tagName: 'MAIN', parentElement: body };
+  const section = { tagName: 'SECTION', parentElement: main };
+  const h2 = { tagName: 'H2', parentElement: section };
+  assert.equal(u.verifyTagChain(h2, ['MAIN', 'SECTION', 'H2']), true);
+});
+
+test('verifyTagChain returns false on mismatch', () => {
+  const body = { tagName: 'BODY', parentElement: null };
+  const main = { tagName: 'MAIN', parentElement: body };
+  const article = { tagName: 'ARTICLE', parentElement: main };
+  const h2 = { tagName: 'H2', parentElement: article };
+  assert.equal(u.verifyTagChain(h2, ['MAIN', 'SECTION', 'H2']), false);
+});
+
+test('verifyTagChain returns false when chain longer than ancestry', () => {
+  const body = { tagName: 'BODY', parentElement: null };
+  const h2 = { tagName: 'H2', parentElement: body };
+  assert.equal(u.verifyTagChain(h2, ['MAIN', 'SECTION', 'H2']), false);
+});
+
+test('findLandmarkElement returns first matching landmark element by tag', () => {
+  const main = { tagName: 'MAIN', getAttribute: () => null };
+  const fakeDoc = { querySelectorAll: () => [main] };
+  assert.equal(u.findLandmarkElement(fakeDoc, 'main'), main);
+});
+
+test('findLandmarkElement matches aria-label landmark', () => {
+  const labelled = { tagName: 'SECTION', getAttribute: (k) => (k === 'aria-label' ? 'Sidebar' : null) };
+  const fakeDoc = { querySelectorAll: () => [labelled] };
+  assert.equal(u.findLandmarkElement(fakeDoc, 'Sidebar'), labelled);
+});
+
+test('findLandmarkElement returns null when no match', () => {
+  const fakeDoc = { querySelectorAll: () => [] };
+  assert.equal(u.findLandmarkElement(fakeDoc, 'main'), null);
+});
+
+test('findByRoleAndName returns single match', () => {
+  const h2 = { tagName: 'H2', textContent: 'Overview', getAttribute: () => null };
+  const landmark = { querySelectorAll: () => [h2] };
+  const out = u.findByRoleAndName(landmark, 'heading', 'Overview');
+  assert.equal(out.element, h2);
+  assert.equal(out.matchCount, 1);
+});
+
+test('findByRoleAndName returns first when multiple', () => {
+  const a = { tagName: 'BUTTON', textContent: 'Save', getAttribute: () => null };
+  const b = { tagName: 'BUTTON', textContent: 'Save', getAttribute: () => null };
+  const landmark = { querySelectorAll: () => [a, b] };
+  const out = u.findByRoleAndName(landmark, 'button', 'Save');
+  assert.equal(out.element, a);
+  assert.equal(out.matchCount, 2);
+});
+
+test('findByRoleAndName returns null when no match', () => {
+  const landmark = { querySelectorAll: () => [] };
+  const out = u.findByRoleAndName(landmark, 'button', 'Missing');
+  assert.equal(out.element, null);
+  assert.equal(out.matchCount, 0);
+});
+
+test('findByRoleAndName pre-filters by leaf tag from tag_chain', () => {
+  const queries = [];
+  const h2 = { tagName: 'H2', textContent: 'Overview', getAttribute: () => null };
+  const landmark = {
+    querySelectorAll: (sel) => { queries.push(sel); return sel === 'h2' ? [h2] : []; },
+  };
+  const out = u.findByRoleAndName(landmark, 'heading', 'Overview', ['MAIN', 'SECTION', 'H2']);
+  assert.deepEqual(queries, ['h2']);
+  assert.equal(out.element, h2);
+});
+
+test('findByRoleAndName falls back to * when tag_chain absent', () => {
+  const queries = [];
+  const landmark = { querySelectorAll: (sel) => { queries.push(sel); return []; } };
+  u.findByRoleAndName(landmark, 'button', 'Save', null);
+  assert.deepEqual(queries, ['*']);
+});
+
+test('resolvePin: selector hits + tag_chain matches → resolved', () => {
+  const body = { tagName: 'BODY', parentElement: null };
+  const main = { tagName: 'MAIN', parentElement: body };
+  const h2 = { tagName: 'H2', parentElement: main };
+  const doc = { querySelector: () => h2 };
+  const anchor = { css_selector: '#x', tag_chain: ['MAIN', 'H2'] };
+  const r = u.resolvePin(anchor, doc);
+  assert.equal(r.status, 'resolved');
+  assert.equal(r.element, h2);
+});
+
+test('resolvePin: selector hits + tag_chain mismatch → fallback', () => {
+  const body = { tagName: 'BODY', parentElement: null };
+  const article = { tagName: 'ARTICLE', parentElement: body };
+  const h2 = { tagName: 'H2', parentElement: article };
+  const candidate = { tagName: 'H2', textContent: 'Overview', getAttribute: () => null };
+  const main = { tagName: 'MAIN', getAttribute: () => null, querySelectorAll: () => [candidate] };
+  const doc = {
+    querySelector: () => h2,
+    querySelectorAll: () => [main],
+  };
+  const anchor = {
+    css_selector: '#x',
+    tag_chain: ['MAIN', 'H2'],
+    role: 'heading',
+    accessible_name: 'Overview',
+    landmark: 'main',
+  };
+  const r = u.resolvePin(anchor, doc);
+  assert.equal(r.status, 'drifted-recoverable');
+  assert.equal(r.element, candidate);
+  assert.equal(r.recovered_via, 'role+name+landmark');
+});
+
+test('resolvePin: selector misses + fallback unique → drifted-recoverable', () => {
+  const candidate = { tagName: 'H2', textContent: 'Overview', getAttribute: () => null };
+  const main = { tagName: 'MAIN', getAttribute: () => null, querySelectorAll: () => [candidate] };
+  const doc = {
+    querySelector: () => null,
+    querySelectorAll: () => [main],
+  };
+  const anchor = { css_selector: '#x', tag_chain: ['MAIN', 'H2'], role: 'heading', accessible_name: 'Overview', landmark: 'main' };
+  const r = u.resolvePin(anchor, doc);
+  assert.equal(r.status, 'drifted-recoverable');
+});
+
+test('resolvePin: no selector, no fallback match → drifted', () => {
+  const main = { tagName: 'MAIN', getAttribute: () => null, querySelectorAll: () => [] };
+  const doc = { querySelector: () => null, querySelectorAll: () => [main] };
+  const anchor = { css_selector: '#x', tag_chain: ['MAIN', 'H2'], role: 'heading', accessible_name: 'Overview', landmark: 'main' };
+  const r = u.resolvePin(anchor, doc);
+  assert.equal(r.status, 'drifted');
+  assert.equal(r.element, null);
+});
+
+test('resolvePin: no fallback fields → drifted on selector miss', () => {
+  const doc = { querySelector: () => null, querySelectorAll: () => [] };
+  const anchor = { css_selector: '#x', tag_chain: ['H2'] };
+  const r = u.resolvePin(anchor, doc);
+  assert.equal(r.status, 'drifted');
+});

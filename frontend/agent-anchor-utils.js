@@ -135,8 +135,85 @@
     return out;
   }
 
+  // ---- Phase D: pin resolution ----
+
+  function verifyTagChain(el, chain) {
+    // chain: ["MAIN", "SECTION", "H2"]  (root-most first, target last)
+    if (!el || !Array.isArray(chain) || chain.length === 0) return false;
+    const ancestry = [];
+    let cur = el;
+    while (cur) { ancestry.push(cur.tagName); cur = cur.parentElement || cur.parentNode || null; }
+    if (ancestry.length < chain.length) return false;
+    for (let i = 0; i < chain.length; i++) {
+      const fromAncestry = ancestry[chain.length - 1 - i];
+      if (fromAncestry !== chain[i]) return false;
+    }
+    return true;
+  }
+
+  const LANDMARK_SELECTOR =
+    'main, nav, header, footer, section, aside, ' +
+    '[role="main"], [role="navigation"], [role="banner"], [role="contentinfo"], [role="region"], [role="complementary"]';
+
+  function findLandmarkElement(doc, landmark) {
+    if (!landmark || !doc || typeof doc.querySelectorAll !== 'function') return null;
+    const candidates = doc.querySelectorAll(LANDMARK_SELECTOR) || [];
+    const target = String(landmark).toLowerCase();
+    for (const el of candidates) {
+      const label = (el.getAttribute && el.getAttribute('aria-label')) || '';
+      if (label && label === landmark) return el;
+      const tag = (el.tagName || '').toLowerCase();
+      if (tag === target) return el;
+    }
+    return null;
+  }
+
+  function findByRoleAndName(landmarkEl, role, name, tagChain) {
+    if (!landmarkEl || !role || !name) return { element: null, matchCount: 0 };
+    let candidates;
+    if (Array.isArray(tagChain) && tagChain.length > 0) {
+      const leafTag = String(tagChain[tagChain.length - 1]).toLowerCase();
+      candidates = landmarkEl.querySelectorAll(leafTag) || [];
+    } else {
+      candidates = landmarkEl.querySelectorAll('*') || [];
+    }
+    const matches = [];
+    for (const el of candidates) {
+      const elRole = roleFor(el);
+      if (elRole !== role) continue;
+      const elName = accessibleNameFor(el);
+      if (elName === name) matches.push(el);
+    }
+    return { element: matches[0] || null, matchCount: matches.length };
+  }
+
+  function resolvePin(anchor, doc) {
+    if (!anchor || !doc) return { status: 'drifted', element: null };
+    let el = null;
+    try { el = doc.querySelector(anchor.css_selector); } catch (e) { el = null; }
+    if (el && verifyTagChain(el, anchor.tag_chain || [])) {
+      return { status: 'resolved', element: el };
+    }
+    if (anchor.role && anchor.accessible_name && anchor.landmark) {
+      const lm = findLandmarkElement(doc, anchor.landmark);
+      if (lm) {
+        const found = findByRoleAndName(lm, anchor.role, anchor.accessible_name, anchor.tag_chain);
+        if (found.element) {
+          return {
+            status: 'drifted-recoverable',
+            element: found.element,
+            recovered_via: 'role+name+landmark',
+            matchCount: found.matchCount,
+          };
+        }
+      }
+    }
+    return { status: 'drifted', element: null };
+  }
+
   return {
     implicitRole, findAnchorRoot, cssSelectorFor, tagChainFor,
     accessibleNameFor, roleFor, landmarkFor, truncateOuterHTML, walkAncestors,
+    verifyTagChain, findLandmarkElement, findByRoleAndName, resolvePin,
   };
 });
