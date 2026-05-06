@@ -1546,6 +1546,22 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
+// Regression: /api/review-cycle is POST-only. The frontend used to GET it
+// for round-counter init, which 405'd; design-mode.js now reads
+// review_round from /api/session instead. Lock the contract so future
+// frontend pulls on the wrong verb fail loudly.
+func TestReviewCycle_GETMethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/review-cycle", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /api/review-cycle: got %d, want %d", method, w.Code, http.StatusMethodNotAllowed)
+		}
+	}
+}
+
 func TestReviewCycleFirstRound(t *testing.T) {
 	srv, session := newTestServer(t)
 

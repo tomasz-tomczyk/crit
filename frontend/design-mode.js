@@ -508,17 +508,15 @@
   });
 
   // ============================================================
-  // Task 12: Round counter from /api/review-cycle
+  // Task 12: Round counter from /api/session.review_round
+  // /api/review-cycle is POST-only (405 on GET); session payload already
+  // carries review_round, and SSE design-round-start updates it on bumps.
   // ============================================================
   registerInstaller(function installRound() {
     if (!els.round) return;
-    shared.fetchJSON('/api/review-cycle').then(function (data) {
-      var n = (data && (data.review_round || data.round)) || 1;
-      els.round.textContent = 'round ' + n;
-    }).catch(function (e) {
-      console.warn('[design-mode] /api/review-cycle failed:', e);
-      els.round.textContent = 'round 1';
-    });
+    var n = (state.session && state.session.review_round) || 1;
+    state.currentRound = n;
+    els.round.textContent = 'round ' + n;
   });
 
   // ============================================================
@@ -1717,18 +1715,9 @@
     state.designSSE = es;
   });
 
-  // SSE-race reconciliation: if design-round-start fired before the SSE was
-  // open, fetch /api/review-cycle and synthesize the same handler if the
-  // server is ahead.
-  registerInstaller(function reconcileCurrentRound() {
-    setTimeout(function () {
-      shared.fetchJSON('/api/review-cycle').then(function (cycle) {
-        var serverRound = cycle && (cycle.current_round || cycle.review_round || cycle.round);
-        if (typeof serverRound !== 'number') return;
-        if (serverRound > state.currentRound) applyRoundStart(serverRound);
-      }).catch(function () { /* tolerate missing endpoint */ });
-    }, 0);
-  });
+  // Note: prior reconcileCurrentRound polled GET /api/review-cycle (405,
+  // POST-only) and could never succeed. Initial round is read from
+  // /api/session at install time; SSE design-round-start handles bumps.
 
   // ---- deep-link activation ----
   function performFlashAndScroll(pin) {
