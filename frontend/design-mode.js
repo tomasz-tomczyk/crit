@@ -579,11 +579,19 @@
   // Task 17: Deep-link #pin=<id> (no-op in Phase B; R7)
   // ============================================================
   function parsePinFragment() {
+    var dl = window.crit && window.crit.design && window.crit.design.deeplink;
+    if (dl) return dl.parseDeepLink(window.location.hash || '');
     var hash = window.location.hash || '';
     var m = /^#pin=([\w-]+)$/.exec(hash);
     return m ? m[1] : null;
   }
   state.pendingPinId = parsePinFragment();
+  state.pendingFlashOnLoad = false;
+  state.resolutionCache = state.resolutionCache || {};
+  state.currentRound = state.currentRound || 1;
+  state.openPin = state.openPin || null;
+  state.pendingByPath = state.pendingByPath || {};
+  state.pendingResolutionPaths = state.pendingResolutionPaths || null;
 
   // ============================================================
   // Task 20: Iframe load-error banner
@@ -894,20 +902,83 @@
   }
 
   function handlePinResolutionResult(msg) {
+    var prev = lookupPin && lookupPin(msg && msg.pin_id);
     if (state.pinState) state.pinState.applyResolution(msg);
+    var rr = window.crit && window.crit.design && window.crit.design.roundResolve;
+    if (rr && prev) {
+      var c = rr.classifyPinForRound(prev, msg, state.currentRound);
+      if (c.driftedOnRound) {
+        var path = (prev.dom_anchor && prev.dom_anchor.pathname) || '/';
+        var url = '/api/comment/' + encodeURIComponent(prev.id) + '?path=' + encodeURIComponent(path);
+        try {
+          fetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ drifted_on_round: c.driftedOnRound, drifted: true }),
+          }).then(function (r) { if (r && !r.ok) console.warn('[design] PUT drifted_on_round failed', r.status); })
+            .catch(function (e) { console.warn('[design] PUT drifted_on_round failed:', e); });
+          prev.drifted = true;
+          prev.drifted_on_round = c.driftedOnRound;
+          announceLive('Pin ' + prev.id + ' drifted on round ' + c.driftedOnRound + '.');
+        } catch (_) { /* noop */ }
+      }
+      prev._roundResolved = true;
+      var path2 = (prev.dom_anchor && prev.dom_anchor.pathname) || state.currentPathname || '/';
+      if (typeof state.pendingByPath[path2] === 'number') {
+        state.pendingByPath[path2] = Math.max(0, state.pendingByPath[path2] - 1);
+        if (state.pendingByPath[path2] === 0) {
+          state.resolutionCache[path2] = 'fresh';
+          delete state.pendingByPath[path2];
+        }
+      }
+    }
     renderDriftTray();
   }
 
   function handleViewportApplied(_msg) {
     if (state.resolutionGate) state.resolutionGate.onViewportApplied();
+    state.viewportInFlight = false;
+    if (state.pendingResolutionPaths && state.pendingResolutionPaths.size) {
+      var paths = Array.from(state.pendingResolutionPaths);
+      state.pendingResolutionPaths.clear();
+      paths.forEach(function (p) { scheduleResolutionForPath(p); });
+    }
   }
 
   function handleRouteChange(msg) {
+    var prevPath = state.currentPathname;
     state.currentPathname = msg.pathname || '/';
+    // Phase E: clear deep-link fragment when navigating away from the open pin.
+    var dl = window.crit && window.crit.design && window.crit.design.deeplink;
+    if (dl && dl.shouldClearOnRouteChange(state, state.currentPathname)) {
+      try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (_) { /* noop */ }
+      state.openPin = null;
+    }
     pushPinsToAgent();
+    if (state.resolutionCache[state.currentPathname] !== 'fresh') {
+      scheduleResolutionForPath(state.currentPathname);
+    }
+    // Pending deep-link flash on first nav-committed for the target pathname.
+    if (state.pendingFlashOnLoad && state.pendingPinId) {
+      var pin = lookupPin(state.pendingPinId);
+      if (pin && pin.dom_anchor && pin.dom_anchor.pathname === state.currentPathname) {
+        performFlashAndScroll(pin);
+      }
+    }
+    if (prevPath !== state.currentPathname) {
+      // ignored — kept as anchor for future hooks
+    }
   }
 
   function handlePinClicked(pinId) {
+    var pinObj = lookupPin && lookupPin(pinId);
+    if (pinObj) {
+      state.openPin = pinObj;
+      var dlMod = window.crit && window.crit.design && window.crit.design.deeplink;
+      if (dlMod) {
+        try { history.replaceState(null, '', dlMod.serializePinFragment(pinId)); } catch (_) { /* noop */ }
+      }
+    }
     if (threadScrollAPI && threadScrollAPI.scrollThreadToPin) {
       threadScrollAPI.scrollThreadToPin(document, pinId);
     }
@@ -991,6 +1062,227 @@
       getMode: function () { return state.mode; },
       setMode: function (m) { setMode(m); },
     });
+  });
+
+  // ============================================================
+  // Phase E: SSE round-start, lazy round resolution, deep-link, aria-live,
+  // round-counter tooltip, ancestor menu controller wiring, Esc cancel re-anchor.
+  // ============================================================
+  function announceLive(msg) {
+    var el = state.ariaLiveEl || document.getElementById('crit-design-aria-live');
+    state.ariaLiveEl = el;
+    if (!el) {
+      // Fall back to the existing critDesignLive announcer (Phase B).
+      var legacy = document.getElementById('critDesignLive');
+      if (legacy) {
+        legacy.textContent = '';
+        setTimeout(function () { legacy.textContent = msg; }, 30);
+      }
+      return;
+    }
+    el.textContent = '';
+    setTimeout(function () { el.textContent = msg; }, 30);
+  }
+  state.announceLive = announceLive;
+
+  function lookupPin(pinId) {
+    var list = state.comments || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].id === pinId) return list[i];
+    }
+    return null;
+  }
+
+  // ---- pinsByRoute view derived from state.comments ----
+  function pinsByRoute() {
+    var out = {};
+    var list = state.comments || [];
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i];
+      if (!c || !c.dom_anchor) continue;
+      var p = c.dom_anchor.pathname || '/';
+      (out[p] = out[p] || []).push(c);
+    }
+    return out;
+  }
+
+  function scheduleResolutionForPath(path) {
+    var rr = window.crit && window.crit.design && window.crit.design.roundResolve;
+    if (!rr) return;
+    var pinsHere = (pinsByRoute()[path] || []);
+    var ids = rr.pinsToResolveAtRoundStart(pinsHere, path);
+    if (!ids.length) return;
+    if (state.viewportInFlight) {
+      if (!state.pendingResolutionPaths) state.pendingResolutionPaths = new Set();
+      state.pendingResolutionPaths.add(path);
+      state.resolutionCache[path] = 'queued-on-viewport';
+      return;
+    }
+    postToAgent({ type: 'request-resolution' });
+    state.resolutionCache[path] = 'in-flight';
+    state.pendingByPath[path] = ids.length;
+  }
+
+  function applyRoundStart(roundN) {
+    state.currentRound = roundN;
+    state.resolutionCache = {};
+    var by = pinsByRoute();
+    Object.keys(by).forEach(function (path) {
+      by[path].forEach(function (p) { p._roundResolved = false; });
+    });
+    var rcEl = document.getElementById('designRoundCounter');
+    if (rcEl) rcEl.textContent = 'round ' + roundN;
+    scheduleResolutionForPath(state.currentPathname || state.currentRoute || '/');
+    announceLive('Round ' + roundN + ' started.');
+  }
+
+  // SSE subscription. /api/events emits `design-round-start` { round: N }
+  // among other event types (file-changed etc. are owned by the existing
+  // app.js code-review handlers and ignored here).
+  registerInstaller(function installDesignSSE() {
+    var es;
+    try { es = new EventSource('/api/events'); } catch (_) { return; }
+    es.addEventListener('design-round-start', function (ev) {
+      var payload;
+      try { payload = JSON.parse(ev.data); } catch (_) { return; }
+      if (!payload || typeof payload.round !== 'number') return;
+      applyRoundStart(payload.round);
+    });
+    state.designSSE = es;
+  });
+
+  // SSE-race reconciliation: if design-round-start fired before the SSE was
+  // open, fetch /api/review-cycle and synthesize the same handler if the
+  // server is ahead.
+  registerInstaller(function reconcileCurrentRound() {
+    setTimeout(function () {
+      shared.fetchJSON('/api/review-cycle').then(function (cycle) {
+        var serverRound = cycle && (cycle.current_round || cycle.review_round || cycle.round);
+        if (typeof serverRound !== 'number') return;
+        if (serverRound > state.currentRound) applyRoundStart(serverRound);
+      }).catch(function () { /* tolerate missing endpoint */ });
+    }, 0);
+  });
+
+  // ---- deep-link activation ----
+  function performFlashAndScroll(pin) {
+    var threadScrollAPI = window.crit && window.crit.designModeThreadScroll;
+    if (threadScrollAPI && threadScrollAPI.scrollThreadToPin) {
+      threadScrollAPI.scrollThreadToPin(document, pin.id);
+    }
+    postToAgent({ type: 'flash-marker', pin_id: pin.id });
+    state.openPin = pin;
+    var dl = window.crit.design.deeplink;
+    if (dl) {
+      try { history.replaceState(null, '', dl.serializePinFragment(pin.id)); } catch (_) { /* noop */ }
+    }
+    state.pendingFlashOnLoad = false;
+    state.pendingPinId = null;
+    announceLive('Opened pin ' + pin.id + '.');
+  }
+
+  function activatePendingPinId() {
+    var pinId = state.pendingPinId;
+    if (!pinId) return;
+    var pin = lookupPin(pinId);
+    if (!pin) {
+      announceLive('Pin ' + pinId + ' not found.');
+      state.pendingPinId = null;
+      return;
+    }
+    var targetPath = (pin.dom_anchor && pin.dom_anchor.pathname) || '/';
+    if (state.currentRoute !== targetPath && state.currentPathname !== targetPath) {
+      if (els && els.iframe) {
+        try { els.iframe.src = proxyURL(targetPath); } catch (_) { /* noop */ }
+      }
+      state.currentRoute = targetPath;
+      state.pendingFlashOnLoad = true;
+      return;
+    }
+    performFlashAndScroll(pin);
+  }
+  state.activatePendingPinId = activatePendingPinId;
+
+  registerInstaller(function installDeepLinkActivation() {
+    // Defer until comments are loaded.
+    var tries = 0;
+    function attempt() {
+      if (!state.pendingPinId) return;
+      if (state.comments && state.comments.length) {
+        activatePendingPinId();
+        return;
+      }
+      if (++tries > 80) return; // ~20s cap
+      setTimeout(attempt, 250);
+    }
+    attempt();
+  });
+
+  // Public helper for any code path that opens a pin (marker click, thread
+  // row click, programmatic). Updates fragment via replaceState.
+  function openPin(pin) {
+    if (!pin) return;
+    state.openPin = pin;
+    var dl = window.crit.design.deeplink;
+    if (dl) {
+      try { history.replaceState(null, '', dl.serializePinFragment(pin.id)); } catch (_) { /* noop */ }
+    }
+  }
+  state.openPin_ = state.openPin_ || openPin;
+
+  // ============================================================
+  // Phase E Task 16: Esc cancels re-anchor (chrome side).
+  // ============================================================
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape') return;
+    if (!state.reanchorPending) return;
+    var t = ev.target;
+    var localFocus = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || (t.isContentEditable));
+    if (localFocus) return;
+    ev.preventDefault();
+    postToAgent({ type: 'cancel-reanchor' });
+    var reanchorClickAPI = window.crit && window.crit.designModeReanchorClick;
+    if (reanchorClickAPI && reanchorClickAPI.disarmReanchor) {
+      reanchorClickAPI.disarmReanchor({ state: state }, 'escape');
+    } else {
+      state.reanchorPending = null;
+      if (state.reanchorBtn) state.reanchorBtn.disabled = false;
+      if (state.reanchorTimeoutId) { clearTimeout(state.reanchorTimeoutId); state.reanchorTimeoutId = null; }
+    }
+  }, true);
+
+  // ============================================================
+  // Phase E Task 20: Round-counter tooltip
+  // ============================================================
+  registerInstaller(function bindRoundTooltip() {
+    var btn = document.getElementById('designRoundCounter');
+    if (!btn) return;
+    var tooltipMod = window.crit && window.crit.design && window.crit.design.roundTooltip;
+    if (!tooltipMod) return;
+    // Make focusable for keyboard users.
+    if (!btn.hasAttribute('tabindex')) btn.setAttribute('tabindex', '0');
+    var tip = document.createElement('div');
+    tip.className = 'crit-design-round-tooltip';
+    tip.setAttribute('role', 'tooltip');
+    tip.id = 'crit-design-round-tooltip';
+    btn.setAttribute('aria-describedby', tip.id);
+    document.body.appendChild(tip);
+    state.roundTooltipEl = tip;
+
+    function show() {
+      var allPins = (state.comments || []).filter(function (c) { return c && c.dom_anchor; });
+      var t = tooltipMod.composeRoundTooltip({ round: state.currentRound, pins: allPins });
+      tip.textContent = 'Round ' + t.round + '. ' + t.carried + ' carried, ' + t.resolved + ' resolved, ' + t.driftedThisRound + ' drifted this round.';
+      var r = btn.getBoundingClientRect();
+      tip.style.left = r.left + 'px';
+      tip.style.top  = (r.bottom + 6) + 'px';
+      tip.classList.add('crit-design-round-tooltip--open');
+    }
+    function hide() { tip.classList.remove('crit-design-round-tooltip--open'); }
+    btn.addEventListener('mouseenter', show);
+    btn.addEventListener('mouseleave', hide);
+    btn.addEventListener('focus', show);
+    btn.addEventListener('blur', hide);
   });
 
   // ============================================================

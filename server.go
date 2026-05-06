@@ -101,6 +101,10 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.HandleFunc("/design-mode-thread-scroll.js", s.serveEmbeddedJS("design-mode-thread-scroll.js"))
 	mux.HandleFunc("/design-mode-reanchor-click.js", s.serveEmbeddedJS("design-mode-reanchor-click.js"))
 	mux.HandleFunc("/design-mode-reanchor-put.js", s.serveEmbeddedJS("design-mode-reanchor-put.js"))
+	mux.HandleFunc("/design-mode-deeplink.js", s.serveEmbeddedJS("design-mode-deeplink.js"))
+	mux.HandleFunc("/design-mode-round-resolve.js", s.serveEmbeddedJS("design-mode-round-resolve.js"))
+	mux.HandleFunc("/design-mode-round-tooltip.js", s.serveEmbeddedJS("design-mode-round-tooltip.js"))
+	mux.HandleFunc("/design-mode.menu-controller.js", s.serveEmbeddedJS("design-mode.menu-controller.js"))
 
 	// Session-dependent endpoints (guarded by withReady middleware)
 	mux.HandleFunc("/api/review-cycle", s.withReady(s.handleReviewCycle))
