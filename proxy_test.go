@@ -90,11 +90,6 @@ func TestProxyDirector_SetsUpstreamHost(t *testing.T) {
 	}
 }
 
-// Suppress unused
-var _ = io.ReadAll
-var _ = strings.Contains
-var _ = net.Listen
-
 func TestProxyModifyResponse_StripsSecurityHeaders(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
