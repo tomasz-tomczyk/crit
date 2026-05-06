@@ -183,6 +183,18 @@
   --crit-design-toast-bg:              #1a1c23;
   --crit-design-toast-fg:              #e6e8ed;
   --crit-design-toast-border:          #2f3342;
+
+  /* ---- Phase D: markers + drifted tray + re-anchor ---- */
+  --crit-design-marker-bg:             #3b82f6;
+  --crit-design-marker-fg:             #ffffff;
+  --crit-design-marker-border:         rgba(255,255,255,0.18);
+  --crit-design-marker-shadow:         0 1px 3px rgba(0,0,0,0.5);
+  --crit-design-marker-focus-ring:     #fbbf24;
+  --crit-design-drifted-recoverable-bg: rgba(251, 191, 36, 0.15);
+  --crit-design-drifted-recoverable-fg: #fbbf24;
+  --crit-design-drifted-lost-bg:        rgba(247, 118, 142, 0.15);
+  --crit-design-drifted-lost-fg:        #f7768e;
+  --crit-design-reanchor-active-outline: #f59e0b;
 }
 
 /* ===== System preference: light ===== */
@@ -331,6 +343,18 @@
     --crit-design-toast-bg:              #ffffff;
     --crit-design-toast-fg:              #1f2328;
     --crit-design-toast-border:          #d0d7de;
+
+    /* ---- Phase D: markers + drifted tray + re-anchor ---- */
+    --crit-design-marker-bg:             #2563eb;
+    --crit-design-marker-fg:             #ffffff;
+    --crit-design-marker-border:         rgba(0,0,0,0.15);
+    --crit-design-marker-shadow:         0 1px 2px rgba(0,0,0,0.25);
+    --crit-design-marker-focus-ring:     #b45309;
+    --crit-design-drifted-recoverable-bg: #fef3c7;
+    --crit-design-drifted-recoverable-fg: #78350f;
+    --crit-design-drifted-lost-bg:        #fee2e2;
+    --crit-design-drifted-lost-fg:        #7f1d1d;
+    --crit-design-reanchor-active-outline: #d97706;
   }
 }
 
@@ -479,6 +503,18 @@
   --crit-design-toast-bg:              #1a1c23;
   --crit-design-toast-fg:              #e6e8ed;
   --crit-design-toast-border:          #2f3342;
+
+  /* ---- Phase D: markers + drifted tray + re-anchor ---- */
+  --crit-design-marker-bg:             #3b82f6;
+  --crit-design-marker-fg:             #ffffff;
+  --crit-design-marker-border:         rgba(255,255,255,0.18);
+  --crit-design-marker-shadow:         0 1px 3px rgba(0,0,0,0.5);
+  --crit-design-marker-focus-ring:     #fbbf24;
+  --crit-design-drifted-recoverable-bg: rgba(251, 191, 36, 0.15);
+  --crit-design-drifted-recoverable-fg: #fbbf24;
+  --crit-design-drifted-lost-bg:        rgba(247, 118, 142, 0.15);
+  --crit-design-drifted-lost-fg:        #f7768e;
+  --crit-design-reanchor-active-outline: #f59e0b;
 }
 
 /* ===== Light (explicit) ===== */
@@ -626,6 +662,18 @@
   --crit-design-toast-bg:              #ffffff;
   --crit-design-toast-fg:              #1f2328;
   --crit-design-toast-border:          #d0d7de;
+
+  /* ---- Phase D: markers + drifted tray + re-anchor ---- */
+  --crit-design-marker-bg:             #2563eb;
+  --crit-design-marker-fg:             #ffffff;
+  --crit-design-marker-border:         rgba(0,0,0,0.15);
+  --crit-design-marker-shadow:         0 1px 2px rgba(0,0,0,0.25);
+  --crit-design-marker-focus-ring:     #b45309;
+  --crit-design-drifted-recoverable-bg: #fef3c7;
+  --crit-design-drifted-recoverable-fg: #78350f;
+  --crit-design-drifted-lost-bg:        #fee2e2;
+  --crit-design-drifted-lost-fg:        #7f1d1d;
+  --crit-design-reanchor-active-outline: #d97706;
 }
 
 /* ===== highlight.js Dark Theme (Tokyo Night Dark) =====

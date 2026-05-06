@@ -1,0 +1,24 @@
+/* frontend/agent-marker.css */
+.crit-design-marker {
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--crit-design-marker-bg, #2563eb);
+  color: var(--crit-design-marker-fg, #ffffff);
+  border: 1px solid var(--crit-design-marker-border, rgba(0,0,0,0.15));
+  box-shadow: var(--crit-design-marker-shadow, 0 1px 2px rgba(0,0,0,0.25));
+  font: 600 12px/1 system-ui, sans-serif;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  cursor: pointer;
+}
+.crit-design-marker:focus-visible {
+  outline: 2px solid var(--crit-design-marker-focus-ring, #fbbf24);
+  outline-offset: 2px;
+}
+html.crit-design-reanchor-active {
+  outline: 3px solid var(--crit-design-reanchor-active-outline, #f59e0b);
+  outline-offset: -3px;
+}

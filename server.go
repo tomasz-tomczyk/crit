@@ -89,6 +89,11 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.HandleFunc("/crit-vendor/", s.handleCritVendor)
 	mux.HandleFunc("/agent-protocol.js", s.serveEmbeddedJS("agent-protocol.js"))
 	mux.HandleFunc("/agent-anchor-utils.js", s.serveEmbeddedJS("agent-anchor-utils.js"))
+	mux.HandleFunc("/agent-marker-overlay.js", s.serveEmbeddedJS("agent-marker-overlay.js"))
+	mux.HandleFunc("/agent-mutation-batcher.js", s.serveEmbeddedJS("agent-mutation-batcher.js"))
+	mux.HandleFunc("/agent-resolution.js", s.serveEmbeddedJS("agent-resolution.js"))
+	mux.HandleFunc("/agent-reanchor-state.js", s.serveEmbeddedJS("agent-reanchor-state.js"))
+	mux.HandleFunc("/agent-marker.css", s.serveEmbeddedCSS("agent-marker.css"))
 
 	// Session-dependent endpoints (guarded by withReady middleware)
 	mux.HandleFunc("/api/review-cycle", s.withReady(s.handleReviewCycle))
@@ -471,6 +476,25 @@ func (s *Server) serveEmbeddedJS(name string) http.HandlerFunc {
 		defer f.Close()
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		io.Copy(w, f)
+	}
+}
+
+func (s *Server) serveEmbeddedCSS(name string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		f, err := s.assets.Open(name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		io.Copy(w, f)
 	}
