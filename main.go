@@ -18,7 +18,7 @@ import (
 	qrterminal "github.com/mdp/qrterminal/v3"
 )
 
-//go:embed frontend/*.html frontend/*.css frontend/*.js frontend/*.png frontend/*.svg frontend/*.ico frontend/*.webmanifest frontend/crit-vendor
+//go:embed frontend/*.html frontend/*.css frontend/*.js frontend/*.png frontend/*.svg frontend/*.ico frontend/*.webmanifest frontend/crit-vendor/*.js
 var frontendFS embed.FS
 
 //go:embed integrations/*
