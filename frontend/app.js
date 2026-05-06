@@ -4982,8 +4982,9 @@
   function buildCommentCard(comment, filePath, opts) {
     // opts: { wrapperClass, cardClassExtra, collapseDefault, showLineRef, showCarriedForward, repliesExtraClass, showReplyInput,
     //         isPendingAgentRequest, markPendingAgentRequest, clearPendingAgentRequest,
-    //         getCollapseOverride, setCollapseOverride }
-    // Callbacks default to the module-scoped pendingAgentRequests set so existing call sites keep their behaviour.
+    //         getCollapseOverride, setCollapseOverride,
+    //         isLiveThread }
+    // Callbacks default to the module-scoped state so existing call sites keep their behaviour.
     const isPending = typeof opts.isPendingAgentRequest === 'function'
       ? opts.isPendingAgentRequest
       : function(id) { return pendingAgentRequests.has(id); };
@@ -4993,6 +4994,9 @@
     const setCollapseOverride = typeof opts.setCollapseOverride === 'function'
       ? opts.setCollapseOverride
       : function(id, val) { commentCollapseOverrides[id] = val; };
+    const liveThreadFn = typeof opts.isLiveThread === 'function'
+      ? opts.isLiveThread
+      : isLiveThread;
 
     const wrapper = document.createElement('div');
     wrapper.className = opts.wrapperClass || 'comment-block';
@@ -5004,7 +5008,7 @@
     card.dataset.commentId = comment.id;
 
     // Collapse state — live threads stay expanded unless resolved
-    const liveOrPending = !comment.resolved && (isLiveThread(comment) || isPending(comment.id));
+    const liveOrPending = !comment.resolved && (liveThreadFn(comment) || isPending(comment.id));
     const collapseOverride = getCollapseOverride(comment.id);
     const isCollapsed = liveOrPending ? false
       : opts.collapseDefault
@@ -5176,7 +5180,7 @@
       card.appendChild(createReplyInput(comment.id, filePath || ''));
     }
 
-    if (isPending(comment.id) || isLiveThread(comment)) {
+    if (isPending(comment.id) || liveThreadFn(comment)) {
       wrapper.classList.add('live-thread');
     }
     if (isPending(comment.id)) {
