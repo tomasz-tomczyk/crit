@@ -217,15 +217,16 @@
 
 <script>
   (function () {
-    // Path-based fork. Phase A's handleDesignPage serves index.html raw at
-    // /design — pathname is the most reliable trigger (no Phase A query
-    // injection required, survives reload, survives missing query string).
+    // Path-based fork. The server serves this same index.html raw at /design,
+    // so pathname is the most reliable trigger — survives reload, doesn't
+    // depend on a query string being present.
     var isDesign = window.location.pathname === '/design';
 
     if (isDesign) {
-      // R1: do NOT wipe <body>. Mark <html> so style-design.css can hide
-      // code-review-only chrome (file tree, main-content, comments-panel,
-      // pr-panel, etc.) while keeping the header + settings overlay alive.
+      // Keep <body> intact and just mark <html> with a mode class. style-design.css
+      // hides code-review-only chrome (file tree, main-content, comments-panel,
+      // pr-panel, etc.) while keeping the header + settings overlay alive, so the
+      // shared bootstrap (theme pill, settings dialog, shared helpers) keeps working.
       document.documentElement.classList.add('crit-mode-design');
 
       // Pull in shared helpers + design-mode CSS, then the controller.

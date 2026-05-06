@@ -80,6 +80,18 @@ Run `crit` with no arguments. Crit auto-detects changed files in your repo and o
 
 ![Crit review for your branch](images/git-mode.png)
 
+### Design review
+
+Run `crit design <url>` to review a running web app instead of files. Crit reverse-proxies the target origin into an iframe and injects an agent script that captures clicks. In Pin mode, clicking any DOM element anchors a comment to it; threading, resolution, and rounds work the same as file review.
+
+```bash
+crit design http://localhost:3000     # review your local dev server
+```
+
+Pins store a CSS selector plus a screenshot, so comments survive minor DOM changes and surface as `Drifted` when the element moves. All state stays local — no sharing in v1.
+
+See [`specs/2026-05-06-design-mode.md`](specs/2026-05-06-design-mode.md) for the full design.
+
 ### Round-to-round diff
 
 After your agent edits the file, Crit shows a split or unified diff of what changed - toggle it in the header.
