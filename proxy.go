@@ -92,7 +92,7 @@ func makeModifyResponse(apiPort int, upstream *url.URL) func(*http.Response) err
 		// and must not be reused.
 		resp.ContentLength = -1
 		resp.TransferEncoding = []string{"chunked"}
-		stripCookieDomain(resp)
+		rewriteCookies(resp)
 
 		body, err := io.ReadAll(io.LimitReader(resp.Body, maxHTMLBodyBytes+1))
 		resp.Body.Close()
@@ -224,7 +224,25 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 	return nil
 }
 
-func stripCookieDomain(resp *http.Response) {
+// rewriteCookies makes upstream Set-Cookie headers usable on the loopback
+// proxy origin. It strips three attributes:
+//
+//   - Domain — drop entirely; let the cookie default to the proxy host. The
+//     upstream's host doesn't match the proxy's, so the original Domain would
+//     cause the browser to silently reject the cookie.
+//
+//   - Secure — drop. The proxy serves over plain http on 127.0.0.1; cookies
+//     marked Secure would be discarded. Safe because the proxy binds loopback
+//     only and is single-user; we never relay the cookie back upstream as
+//     Secure-stripped.
+//
+//   - SameSite=None — replace with SameSite=Lax. SameSite=None requires
+//     Secure (which we just stripped); browsers reject the combination.
+//     Downgrading to Lax is correct for a same-origin proxy: the cookie
+//     remains usable for top-level navigation in the iframe.
+//
+// Only safe because the proxy binds 127.0.0.1 and the daemon is per-user.
+func rewriteCookies(resp *http.Response) {
 	cookies := resp.Header["Set-Cookie"]
 	if len(cookies) == 0 {
 		return
@@ -234,7 +252,14 @@ func stripCookieDomain(resp *http.Response) {
 		parts := strings.Split(c, ";")
 		kept := parts[:1]
 		for _, p := range parts[1:] {
-			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(p)), "domain=") {
+			lower := strings.ToLower(strings.TrimSpace(p))
+			switch {
+			case strings.HasPrefix(lower, "domain="):
+				continue
+			case lower == "secure":
+				continue
+			case lower == "samesite=none":
+				kept = append(kept, " SameSite=Lax")
 				continue
 			}
 			kept = append(kept, p)

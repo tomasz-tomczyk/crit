@@ -321,6 +321,77 @@ func TestProxyModifyResponse_StripsCookieDomain(t *testing.T) {
 	}
 }
 
+func TestProxyModifyResponse_RewritesCookieAttributes(t *testing.T) {
+	tests := []struct {
+		name      string
+		setCookie string
+		wantOK    func(string) bool
+		desc      string
+	}{
+		{
+			"strips Secure",
+			"foo=bar; Secure; Path=/",
+			func(sc string) bool {
+				return !strings.Contains(strings.ToLower(sc), "secure") &&
+					strings.Contains(sc, "foo=bar")
+			},
+			"Secure attribute should be stripped (proxy serves http on loopback)",
+		},
+		{
+			"downgrades SameSite=None to Lax",
+			"sess=abc; SameSite=None; Path=/",
+			func(sc string) bool {
+				lower := strings.ToLower(sc)
+				return strings.Contains(lower, "samesite=lax") &&
+					!strings.Contains(lower, "samesite=none") &&
+					strings.Contains(sc, "sess=abc")
+			},
+			"SameSite=None must be downgraded to Lax (browsers reject None without Secure)",
+		},
+		{
+			"strips Secure + downgrades SameSite=None together",
+			"sess=abc; Secure; SameSite=None; Path=/",
+			func(sc string) bool {
+				lower := strings.ToLower(sc)
+				return !strings.Contains(lower, "secure") &&
+					strings.Contains(lower, "samesite=lax") &&
+					!strings.Contains(lower, "samesite=none") &&
+					strings.Contains(sc, "sess=abc")
+			},
+			"Combined https-staging cookie should land usable on http loopback",
+		},
+		{
+			"preserves SameSite=Lax",
+			"foo=bar; SameSite=Lax; Path=/",
+			func(sc string) bool {
+				return strings.Contains(strings.ToLower(sc), "samesite=lax")
+			},
+			"existing SameSite=Lax must not be removed",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html")
+				w.Header().Set("Set-Cookie", tt.setCookie)
+				fmt.Fprintln(w, "<html><body>ok</body></html>")
+			}))
+			defer upstream.Close()
+			proxy, _ := newDesignProxy(upstream.URL, 9001)
+			ps := httptest.NewServer(proxy)
+			defer ps.Close()
+			resp, _ := http.Get(ps.URL + "/")
+			if resp != nil {
+				resp.Body.Close()
+			}
+			sc := resp.Header.Get("Set-Cookie")
+			if !tt.wantOK(sc) {
+				t.Errorf("%s — got Set-Cookie: %s", tt.desc, sc)
+			}
+		})
+	}
+}
+
 func TestProxyModifyResponse_SWShimInjectedInHTMLHead(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
