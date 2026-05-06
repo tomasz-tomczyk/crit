@@ -576,8 +576,17 @@
     var rowMod = window.crit && window.crit.design && window.crit.design.row;
     var deps = getCardDeps();
 
+    var filter = state.designFilter || 'all';
     var frag = document.createDocumentFragment();
+    var anyRendered = false;
     groups.forEach(function (rows, route) {
+      var visibleRows = rows.filter(function (c) {
+        if (filter === 'open') return !c.resolved;
+        if (filter === 'resolved') return !!c.resolved;
+        return true;
+      });
+      if (!visibleRows.length) return;
+      anyRendered = true;
       var group = document.createElement('div');
       group.className = 'comments-panel-file-group';
       var name = document.createElement('div');
@@ -587,7 +596,7 @@
       var cards = document.createElement('div');
       cards.className = 'comments-panel-file-cards';
 
-      rows.forEach(function (c) {
+      visibleRows.forEach(function (c) {
         if (c.dom_anchor && rowMod && typeof rowMod.renderDesignPinRow === 'function') {
           cards.appendChild(rowMod.renderDesignPinRow(c, deps));
           return;
@@ -628,7 +637,32 @@
     });
 
     els.panelBody.innerHTML = '';
+    if (!anyRendered) {
+      // All comments hidden by current filter.
+      var msg = filter === 'open' ? 'No open pins.' :
+                filter === 'resolved' ? 'No resolved pins.' : 'No pins yet.';
+      els.panelBody.innerHTML =
+        '<div class="comments-panel-empty" style="padding:32px 16px;text-align:center;color:var(--crit-editor-fg-muted);font-size:13px;line-height:1.5">' +
+        msg + '</div>';
+      return;
+    }
     els.panelBody.appendChild(frag);
+    if (state.designExpandAll) applyExpandAllToRenderedCards(true);
+  }
+
+  function applyExpandAllToRenderedCards(expand) {
+    if (!els.panelBody) return;
+    var cards = els.panelBody.querySelectorAll('.comment-card');
+    cards.forEach(function (card) {
+      // Mirror buildCommentCard's collapse model: it persists per-id via
+      // designCollapseOverrides. Toggle the override AND any rendered
+      // collapsed class so the visible state matches immediately.
+      var id = card.dataset && card.dataset.id;
+      if (id) state.designCollapseOverrides.set(id, !expand);
+      card.classList.toggle('collapsed', !expand);
+      var body = card.querySelector('.comment-card-body, .crit-comment-card-body');
+      if (body) body.style.display = expand ? '' : 'none';
+    });
   }
 
   registerPanelRefresh(function () {
@@ -641,6 +675,56 @@
 
   registerInstaller(function installPanel() {
     refreshPanel();
+  });
+
+  // ============================================================
+  // Filter pill + Expand-all wiring (mirrors app.js handlers, scoped to
+  // the design-mode panel — app.js doesn't run on /design).
+  // ============================================================
+  registerInstaller(function installFilterPillAndExpandAll() {
+    var pill = document.getElementById('commentsFilterPill');
+    if (pill) {
+      var activate = function (btn, focusBtn) {
+        if (!btn) return;
+        state.designFilter = btn.dataset.filter || 'all';
+        pill.querySelectorAll('.toggle-btn').forEach(function (b) {
+          var active = b === btn;
+          b.classList.toggle('active', active);
+          b.setAttribute('aria-checked', active ? 'true' : 'false');
+          b.setAttribute('tabindex', active ? '0' : '-1');
+        });
+        if (focusBtn) btn.focus();
+        refreshPanel();
+      };
+      pill.addEventListener('click', function (e) {
+        var btn = e.target.closest && e.target.closest('.toggle-btn');
+        if (!btn) return;
+        activate(btn, false);
+      });
+      pill.addEventListener('keydown', function (e) {
+        var btns = Array.from(pill.querySelectorAll('.toggle-btn'));
+        var idx = btns.findIndex(function (b) { return b === document.activeElement; });
+        if (idx === -1) return;
+        var next;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % btns.length;
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + btns.length) % btns.length;
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = btns.length - 1;
+        else return;
+        e.preventDefault();
+        activate(btns[next], true);
+      });
+    }
+
+    var expandBtn = document.getElementById('commentsPanelExpandAll');
+    if (expandBtn) {
+      expandBtn.addEventListener('click', function () {
+        state.designExpandAll = !state.designExpandAll;
+        applyExpandAllToRenderedCards(state.designExpandAll);
+        expandBtn.setAttribute('aria-pressed', state.designExpandAll ? 'true' : 'false');
+        expandBtn.title = state.designExpandAll ? 'Collapse all' : 'Expand all';
+      });
+    }
   });
 
   // ============================================================
@@ -1097,6 +1181,8 @@
   state.openPin = state.openPin || null;
   state.pendingByPath = state.pendingByPath || {};
   state.pendingResolutionPaths = state.pendingResolutionPaths || null;
+  state.designFilter = state.designFilter || 'all';
+  state.designExpandAll = !!state.designExpandAll;
 
   // ============================================================
   // Task 20: Iframe load-error banner
