@@ -1936,6 +1936,17 @@
     pushPinsToAgent();
   }
   function handleAgentError(e) {
+    // Screenshot capture is best-effort. Real-world pages frequently use CSS
+    // features html2canvas can't parse (CSS Color Module Level 4 `color()`,
+    // wide-gamut variants, etc.), and the capture path already degrades to an
+    // empty thumbnail — pins still work without it. Surfacing a scary toast
+    // for every such page makes the feature feel broken when it isn't.
+    // The agent still emits the AGENT_ERROR for the E2E contract; we just
+    // don't toast it.
+    if (e && e.kind === 'capture-failed') {
+      try { console.warn('[design-mode] screenshot capture skipped:', e.message); } catch (_) {}
+      return;
+    }
     showToast(e.kind + ': ' + e.message);
   }
   function handleFocusState(b) {

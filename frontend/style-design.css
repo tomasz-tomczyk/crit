@@ -29,8 +29,15 @@
 .crit-mode-design #tocToggle,
 .crit-mode-design #updateBtn { display: none !important; }
 
-/* The comments-panel survives but is shown for design-mode comments. */
-.crit-mode-design .comments-panel { display: flex !important; }
+/* The comments-panel survives but is shown for design-mode comments.
+   The base stylesheet hides .comments-panel for code-review boot via an
+   inline `.comments-panel-hidden` class; we need to undo that for design
+   mode while still letting the user toggle it via #commentCount. So we
+   only force display:flex when the panel is NOT marked hidden — that way
+   `.comments-panel-hidden { display: none }` still wins on toggle. */
+.crit-mode-design .comments-panel:not(.comments-panel-hidden) {
+  display: flex !important;
+}
 
 /* M12/M13/M15: comments toggle (#commentNavGroup, #commentCount) and
    resizer (#commentsPanelResizer) are wired by design-mode.js but the
@@ -43,6 +50,24 @@
 .crit-mode-design #commentNavGroup #commentNavPrev,
 .crit-mode-design #commentNavGroup #commentNavNext { display: none !important; }
 .crit-mode-design #commentsPanelResizer { display: block !important; }
+
+/* The base .sidebar-resize-handle uses position:sticky with top:var(--header-height)
+   and height:calc(100vh - var(--header-height)). That's correct in code-review
+   where .main-layout starts at the top of the page and the body scrolls. In
+   design mode .main-layout is itself a fixed-height flex child below the
+   header (`height: calc(100vh - var(--crit-header-height))`), so the sticky
+   `top` offset shifts the handle DOWN by 49px inside an already-clipped
+   container — the visible drag strip ends up offset below where the user
+   expects it (or partially clipped off-screen), and the panel "doesn't
+   resize" because the user is hitting the iframe pane, not the handle.
+   Override to a plain stretching flex child so the 4px strip aligns with
+   the panel's left edge across the full pane height. */
+.crit-mode-design #commentsPanelResizer {
+  position: relative;
+  top: auto;
+  height: 100%;
+  align-self: stretch;
+}
 
 /* main-layout becomes design-mode container: header on top (existing),
    then iframe pane + comments panel side-by-side. */
@@ -363,6 +388,14 @@
    "card-in-a-card" mismatch with code-review. */
 .crit-design-comment-row {
   /* intentionally empty marker class */
+}
+
+/* Hide-resolved parity: the base rule in style.css excludes
+   .panel-comment-block (because code-review's panel reflects the inline
+   list). Design pins live ONLY in the panel, so we need an explicit
+   companion rule keyed on the design-row marker class. */
+body.hide-resolved .crit-design-comment-row-wrap:has(.resolved-card) {
+  display: none;
 }
 
 .crit-design-comment-route-badge {

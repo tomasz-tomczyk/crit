@@ -331,7 +331,13 @@
     });
 
     var parts = card.buildCommentCard(c, pathname, {
-      wrapperClass: 'comment-block crit-design-comment-row-wrap',
+      // Include `panel-comment-block` so the row gets the panel's tight
+      // 12px padding instead of the 56px left-gutter padding that
+      // `.comment-block` applies for inline (under-line) comments in
+      // code-review. Design pins always render in the side panel — there's
+      // no inline gutter to reserve space for. This matches code-review's
+      // own panel mount in app.js.
+      wrapperClass: 'comment-block panel-comment-block crit-design-comment-row-wrap',
       // Drop the bespoke .crit-design-comment-row chrome — code-review's
       // .comment-card already provides border, background, and padded header
       // bar. Adding a second border/background was the source of the
