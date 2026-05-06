@@ -219,3 +219,48 @@ func TestCommentCLIGuard_CodeReview_Allowed(t *testing.T) {
 		t.Errorf("code review should allow crit comment: %v", err)
 	}
 }
+
+func TestCarryForward_DesignPinSkipsRemap(t *testing.T) {
+	dir := t.TempDir()
+	mdPath := filepath.Join(dir, "page.md")
+	writeFile(t, mdPath, "# Page\n\nNew content\n")
+
+	s := &Session{
+		Mode:          "files",
+		RepoRoot:      dir,
+		ReviewRound:   2,
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+	}
+	fe := &FileEntry{
+		Path:            "page.md",
+		AbsPath:         mdPath,
+		FileType:        "markdown",
+		Content:         "# Page\n\nNew content\n",
+		PreviousContent: "# Page\n\nOld content\n",
+		PreviousComments: []Comment{
+			{
+				ID: "pin1", StartLine: 0, EndLine: 0, Body: "pin",
+				DOMAnchor: &DOMAnchor{Pathname: "/page.md", CSSSelector: "#h1"},
+			},
+			{ID: "code1", StartLine: 3, EndLine: 3, Body: "code"},
+		},
+	}
+	s.Files = []*FileEntry{fe}
+	s.carryForwardFileComments(fe)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	found := false
+	for _, c := range fe.Comments {
+		if c.DOMAnchor != nil {
+			found = true
+			if c.StartLine != 0 || c.EndLine != 0 {
+				t.Errorf("design pin lines remapped to %d/%d; should stay 0/0", c.StartLine, c.EndLine)
+			}
+		}
+	}
+	if !found {
+		t.Error("design pin not carried forward")
+	}
+}

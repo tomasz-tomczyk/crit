@@ -812,6 +812,14 @@ func (s *Session) carryForwardFileComments(f *FileEntry) {
 	for _, c := range prevComments {
 		s.trackDeletedComment(f.Path, c.ID)
 
+		// Design pins use DOMAnchor for positioning; skip line remapping.
+		if c.DOMAnchor != nil {
+			carried := carryForwardComment(c, randomCommentID(), now)
+			carried.DOMAnchor = c.DOMAnchor
+			f.Comments = append(f.Comments, carried)
+			continue
+		}
+
 		// File-level and old-side comments keep their original positions.
 		// File-level comments have no line references. Old-side comments
 		// reference the base ref which doesn't change between rounds.
