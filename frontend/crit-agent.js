@@ -16,6 +16,10 @@
   var validateMessage = protocol.validateMessage;
 
   var utils = window.crit && window.crit.agent && window.crit.agent.anchorUtils;
+  var markersAPI = window.crit && window.crit.agent && window.crit.agent.markers;
+  var batcherAPI = window.crit && window.crit.agent && window.crit.agent.batcher;
+  var resolutionAPI = window.crit && window.crit.agent && window.crit.agent.resolution;
+  var ReanchorStateCtor = window.crit && window.crit.agent && window.crit.agent.reanchorState && window.crit.agent.reanchorState.ReanchorState;
 
   // Derive the API origin (where the chrome lives) from the agent <script> tag URL.
   // This is the only origin we accept inbound messages from and post to.
@@ -38,11 +42,167 @@
     pendingSelection: null,
     pendingAncestor: null,
     expectedApiOrigin: expectedApiOrigin,
+    // Phase D
+    overlay: null,            // { root, markersById }
+    pins: [],                 // last set-pins payload (current pathname only)
+    batcher: null,            // MutationBatcher instance
+    observer: null,           // MutationObserver
+    reanchor: ReanchorStateCtor ? new ReanchorStateCtor() : null,
+    routePathname: typeof location !== 'undefined' ? location.pathname : '',
   };
   window.__critAgentState = state;
 
   function postToParent(msg) {
     try { window.parent.postMessage(msg, expectedApiOrigin); } catch (_) { /* noop */ }
+  }
+
+  // ---------- Phase D: marker overlay + MutationObserver ----------
+  function bootMarkers() {
+    // Inline marker CSS — fetched cross-origin from API port.
+    try {
+      fetch(expectedApiOrigin + '/agent-marker.css', { credentials: 'omit' })
+        .then(function (res) { return res.ok ? res.text() : ''; })
+        .then(function (css) {
+          if (!css) return;
+          var style = document.createElement('style');
+          style.setAttribute('data-crit-marker-css', '1');
+          style.textContent = css;
+          document.head.appendChild(style);
+        })
+        .catch(function () { /* non-fatal */ });
+    } catch (_) { /* ignore */ }
+    if (markersAPI && markersAPI.createOverlay && document.body) {
+      state.overlay = markersAPI.createOverlay(document);
+    }
+  }
+
+  function repositionResolvedPins() {
+    if (!state.overlay || !markersAPI) return;
+    var markers = [];
+    state.overlay.markersById.forEach(function (m) {
+      if (m.status === 'resolved' || m.status === 'drifted-recoverable') {
+        markers.push({ target: m.element || null, el: m.el });
+      }
+    });
+    markersAPI.applyRects(markers);
+  }
+
+  function resolveAllPins() {
+    if (!resolutionAPI || !state.overlay) return;
+    resolutionAPI.resolveAllAndEmit({
+      pins: state.pins,
+      pathname: window.location.pathname,
+      document: document,
+      utils: utils,
+      post: postToParent,
+      onResolved: function (pinId, element, status) {
+        var m = state.overlay.markersById.get(pinId);
+        if (m) { m.element = element; m.status = status; }
+      },
+    });
+    repositionResolvedPins();
+  }
+
+  function startMutationLoop() {
+    if (!batcherAPI || !batcherAPI.MutationBatcher) return;
+    var batcher = new batcherAPI.MutationBatcher({
+      onDrain: function (count, fullReresolve) {
+        if (fullReresolve) resolveAllPins();
+        else repositionResolvedPins();
+      },
+    });
+    state.batcher = batcher;
+    if (typeof MutationObserver !== 'undefined' && document.body) {
+      state.observer = new MutationObserver(function (records) { batcher.enqueue(records); });
+      // Spec §Marker rendering: childList + subtree only. NO attribute observation.
+      state.observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: false,
+      });
+    }
+  }
+
+  function onSetPins(pins) {
+    if (!state.overlay || !markersAPI) return;
+    // Full rebuild semantics for v1.
+    state.overlay.markersById.forEach(function (m) {
+      if (m.el && m.el.parentElement) m.el.parentElement.removeChild(m.el);
+    });
+    state.overlay.markersById.clear();
+    state.pins = Array.isArray(pins) ? pins.slice() : [];
+    state.pins.forEach(function (pin, idx) {
+      var el = markersAPI.makeMarker(document, pin, idx);
+      el.addEventListener('click', function () {
+        postToParent({ type: A2C.PIN_CLICKED, pin_id: pin.id });
+      });
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          postToParent({ type: A2C.PIN_CLICKED, pin_id: pin.id });
+        }
+      });
+      state.overlay.root.appendChild(el);
+      if (state.mode === 'pin') el.setAttribute('tabindex', '-1');
+      state.overlay.markersById.set(pin.id, {
+        el: el, anchor: pin.dom_anchor, status: 'resolved', element: null,
+      });
+    });
+    resolveAllPins();
+  }
+
+  function clearMarkersOnRouteChange() {
+    if (!state.overlay) return;
+    state.overlay.markersById.forEach(function (m) {
+      if (m.el && m.el.parentElement) m.el.parentElement.removeChild(m.el);
+    });
+    state.overlay.markersById.clear();
+    state.pins = [];
+  }
+
+  function notifyRouteChange() {
+    var pathname = window.location.pathname;
+    var search = window.location.search;
+    var hash = window.location.hash;
+    if (pathname === state.routePathname) return;
+    state.routePathname = pathname;
+    clearMarkersOnRouteChange();
+    postToParent({ type: A2C.ROUTE_CHANGE, pathname: pathname, search: search, hash: hash });
+    if (state.batcher) {
+      state.batcher.pause(200);
+      setTimeout(function () { state.batcher.scheduleCatchUpIfNeeded(); }, 210);
+    }
+  }
+
+  // Hook history events for SPA route detection.
+  (function hookHistory() {
+    try {
+      var origPush = history.pushState;
+      var origReplace = history.replaceState;
+      history.pushState = function () {
+        var r = origPush.apply(this, arguments);
+        try { notifyRouteChange(); } catch (_) {}
+        return r;
+      };
+      history.replaceState = function () {
+        var r = origReplace.apply(this, arguments);
+        try { notifyRouteChange(); } catch (_) {}
+        return r;
+      };
+      window.addEventListener('popstate', notifyRouteChange);
+      window.addEventListener('hashchange', notifyRouteChange);
+    } catch (_) { /* ignore */ }
+  })();
+
+  // Boot Phase D pieces, then signal ready.
+  if (document.body) {
+    bootMarkers();
+    startMutationLoop();
+  } else {
+    document.addEventListener('DOMContentLoaded', function () {
+      bootMarkers();
+      startMutationLoop();
+    });
   }
 
   // Boot signal
@@ -62,8 +222,37 @@
       case C2A.SET_MODE: setMode(msg.value); break;
       case C2A.COMMIT_ANCESTOR_SELECTION: commitAncestor(msg.level); break;
       case C2A.CANCEL_ANCESTOR_SELECTION: cancelAncestor(); break;
+      case C2A.SET_PINS: onSetPins(msg.pins); break;
+      case C2A.REQUEST_RESOLUTION: resolveAllPins(); break;
+      case C2A.ENTER_REANCHOR_MODE: onEnterReanchor(msg.pin_id); break;
+      case C2A.SET_VIEWPORT: onSetViewport(msg.width, msg.height); break;
       default: break;
     }
+  }
+
+  function onEnterReanchor(pinId) {
+    if (!state.reanchor) return;
+    state.reanchor.arm(pinId);
+    try { document.documentElement.classList.add('crit-design-reanchor-active'); } catch (_) {}
+    // Ensure click capture is active so the next click is consumed regardless
+    // of current mode. We don't flip state.mode — the chrome's mode toggle is
+    // independent of re-anchor capture (one-shot).
+    if (state.mode !== 'pin') {
+      attachHoverListeners();
+      attachClickCapture();
+    }
+  }
+
+  function onSetViewport(_w, _h) {
+    // Iframe is resized externally by chrome; ack on the next animation frame
+    // when window.innerWidth/Height reflect the new size.
+    requestAnimationFrame(function () {
+      postToParent({
+        type: A2C.VIEWPORT_APPLIED,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    });
   }
 
   // ---------- Mode state ----------
@@ -80,6 +269,10 @@
       detachClickCapture();
     }
     updateCursor();
+    // Phase D: in Pin mode, suspend marker tabindex so Tab walks the app's focus order.
+    if (state.overlay && markersAPI && markersAPI.setMarkersTabindex) {
+      markersAPI.setMarkersTabindex(state.overlay.markersById, value === 'pin' ? '-1' : '0');
+    }
   }
 
   function updateCursor() {
@@ -235,11 +428,24 @@
     var sel = state.pendingSelection;
     var shot = await captureScreenshot(sel.target);
     sel.anchor.screenshot = shot;
-    postToParent({
+    var msg = {
       type: A2C.SELECTION,
       dom_anchor: sel.anchor,
       pointer: sel.pointer,
-    });
+    };
+    // Phase D: if in re-anchor mode, attach reanchor_for and exit one-shot capture.
+    if (state.reanchor && state.reanchor.armed) {
+      var pinId = state.reanchor.consume();
+      if (pinId) msg.reanchor_for = pinId;
+      try { document.documentElement.classList.remove('crit-design-reanchor-active'); } catch (_) {}
+      // If we attached capture transiently for re-anchor (mode is navigate),
+      // detach again so clicks resume normal app behavior.
+      if (state.mode !== 'pin') {
+        detachHoverListeners();
+        detachClickCapture();
+      }
+    }
+    postToParent(msg);
   }
 
   // ---------- html2canvas lazy loader ----------

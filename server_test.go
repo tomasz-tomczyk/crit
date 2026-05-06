@@ -3682,7 +3682,13 @@ func TestDesignRoutes_NotGatedByWithReady(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/design", "/crit-agent.js", "/crit-vendor/html2canvas.js", "/agent-protocol.js", "/agent-anchor-utils.js"} {
+	for _, path := range []string{
+		"/design", "/crit-agent.js", "/crit-vendor/html2canvas.js",
+		"/agent-protocol.js", "/agent-anchor-utils.js",
+		"/agent-marker-overlay.js", "/agent-mutation-batcher.js",
+		"/agent-resolution.js", "/agent-reanchor-state.js",
+		"/agent-marker.css",
+	} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest("GET", path, nil)
 			w := httptest.NewRecorder()
@@ -3714,6 +3720,34 @@ func TestDesign_ProtocolAndUtilsServedUnguarded(t *testing.T) {
 				t.Errorf("%s: missing CORS header, got %q", path, got)
 			}
 		})
+	}
+}
+
+func TestAgentMarkerCSS_ServedUnguarded(t *testing.T) {
+	s, err := NewServer(nil, frontendFS, "", "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/agent-marker.css", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/css") {
+		t.Fatalf("content-type %q, want text/css*", ct)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, ".crit-design-marker") {
+		end := 200
+		if len(body) < end {
+			end = len(body)
+		}
+		t.Fatalf("missing marker class in body: %s", body[:end])
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("missing CORS header, got %q", got)
 	}
 }
 

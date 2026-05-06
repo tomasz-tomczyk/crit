@@ -14,6 +14,26 @@ import (
 	"time"
 )
 
+func TestAddDesignPin_AssignsMonotonicGlobalPinNumbers(t *testing.T) {
+	s := newTestSession(t)
+	a1 := &DOMAnchor{Pathname: "/foo", CSSSelector: "h1", TagChain: []string{"H1"}}
+	a2 := &DOMAnchor{Pathname: "/bar", CSSSelector: "h2", TagChain: []string{"H2"}}
+	a3 := &DOMAnchor{Pathname: "/foo", CSSSelector: "h3", TagChain: []string{"H3"}}
+
+	c1, ok := s.AddDesignPin("/foo", "first", "alice", "u1", a1)
+	if !ok || c1.PinNumber != 1 {
+		t.Fatalf("first pin: ok=%v PinNumber=%d, want ok=true PinNumber=1", ok, c1.PinNumber)
+	}
+	c2, ok := s.AddDesignPin("/bar", "second", "alice", "u1", a2)
+	if !ok || c2.PinNumber != 2 {
+		t.Fatalf("second pin: ok=%v PinNumber=%d, want ok=true PinNumber=2", ok, c2.PinNumber)
+	}
+	c3, ok := s.AddDesignPin("/foo", "third", "alice", "u1", a3)
+	if !ok || c3.PinNumber != 3 {
+		t.Fatalf("third pin: ok=%v PinNumber=%d, want ok=true PinNumber=3", ok, c3.PinNumber)
+	}
+}
+
 var lastDispatch string
 
 func testRunDesign(args []string)  { lastDispatch = "design" }

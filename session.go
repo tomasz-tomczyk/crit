@@ -146,6 +146,12 @@ type Comment struct {
 	// For code-review comments DOMAnchor is always nil.
 	DOMAnchor *DOMAnchor `json:"dom_anchor,omitempty"`
 
+	// PinNumber is a monotonic, review-scoped integer assigned at design-pin
+	// creation, so reviewers can refer to "pin #7" regardless of route. Set
+	// only on comments where DOMAnchor != nil. Zero (omitempty) for code
+	// comments and for any legacy design pin lacking a number.
+	PinNumber int `json:"pin_number,omitempty"`
+
 	// FocusKey identifies the *view* this comment was authored in.
 	// Comments are visible only when the current focus's key matches.
 	//   ""                            — working-tree / pre-feature
@@ -976,6 +982,16 @@ func (s *Session) AddDesignPin(filePath, body, author, userID string, anchor *DO
 		s.Files = append(s.Files, fe)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
+	// Compute next PinNumber as max(existing PinNumbers across the session) + 1.
+	// Pin numbers are GLOBAL within a review (REVISION).
+	nextNum := 1
+	for _, file := range s.Files {
+		for _, existing := range file.Comments {
+			if existing.PinNumber >= nextNum {
+				nextNum = existing.PinNumber + 1
+			}
+		}
+	}
 	c := Comment{
 		ID:          randomCommentID(),
 		StartLine:   0,
@@ -984,6 +1000,7 @@ func (s *Session) AddDesignPin(filePath, body, author, userID string, anchor *DO
 		Author:      author,
 		UserID:      userID,
 		DOMAnchor:   anchor,
+		PinNumber:   nextNum,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		ReviewRound: s.ReviewRound,
