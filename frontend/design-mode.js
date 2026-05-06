@@ -785,6 +785,197 @@
 
   registerPanelRefresh(updateUnresolvedBadge);
 
+  // ============================================================
+  // Finish Review (parity with code-review's finish flow)
+  //
+  // - finishBtn text reflects unresolved count (Approve when 0, else Finish Review)
+  // - "no changes this round" warns when all unresolved comments were carried
+  //   forward and the user hasn't acted this round
+  // - waitingOverlay + clipboard + back-to-editing reuse the existing modal
+  // ============================================================
+  function updateFinishBtn() {
+    var btn = document.getElementById('finishBtn');
+    if (!btn) return;
+    if (state.uiState === 'waiting') return;
+    var all = state.comments || [];
+    var unresolved = 0;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i] && !all[i].resolved) unresolved++;
+    }
+    btn.textContent = unresolved === 0 ? 'Approve' : 'Finish Review';
+    btn.disabled = false;
+    btn.classList.add('btn-primary');
+  }
+  registerPanelRefresh(updateFinishBtn);
+
+  function setUIState(s) {
+    state.uiState = s;
+    var btn = document.getElementById('finishBtn');
+    var overlay = document.getElementById('waitingOverlay');
+    if (s === 'reviewing') {
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.add('btn-primary');
+      }
+      if (overlay) overlay.classList.remove('active');
+      var edits = document.getElementById('waitingEdits');
+      if (edits) edits.textContent = '';
+      updateFinishBtn();
+    } else if (s === 'waiting') {
+      if (btn) {
+        btn.textContent = 'Waiting...';
+        btn.disabled = true;
+        btn.classList.remove('btn-primary');
+      }
+      var edits2 = document.getElementById('waitingEdits');
+      if (edits2) edits2.textContent = '';
+      var prompt = document.getElementById('waitingPrompt');
+      if (prompt) prompt.style.display = '';
+      var clip = document.getElementById('waitingClipboard');
+      if (clip) clip.style.display = '';
+      if (overlay) overlay.classList.add('active');
+    }
+  }
+
+  async function doFinishReview() {
+    try {
+      var resp = await fetch('/api/finish', { method: 'POST' });
+      if (!resp.ok) throw new Error('Finish review failed: HTTP ' + resp.status);
+      var data = await resp.json();
+      var approved = !!data.approved;
+      var prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
+
+      var dialog = document.getElementById('waitingDialog');
+      var headingEl = document.getElementById('waitingHeading');
+      var messageEl = document.getElementById('waitingMessage');
+      var clipEl = document.getElementById('waitingClipboard');
+      var promptEl = document.getElementById('waitingPrompt');
+
+      if (promptEl) promptEl.textContent = prompt;
+      if (clipEl) {
+        clipEl.textContent = 'Copy prompt';
+        clipEl.classList.remove('clipboard-confirm');
+      }
+
+      if (dialog) {
+        dialog.classList.remove('approved');
+        if (approved) {
+          void dialog.offsetWidth;
+          dialog.classList.add('approved');
+        }
+      }
+      if (headingEl) headingEl.textContent = approved ? 'Approved' : 'Review Complete';
+      if (messageEl) {
+        if (approved) {
+          messageEl.textContent =
+            'Your agent has been notified — no further action needed. You can close this tab whenever you’re ready.';
+        } else {
+          messageEl.innerHTML =
+            'Your agent has been notified. Waiting for updates…' +
+            '<span class="waiting-fallback">If your agent wasn’t listening, paste the prompt below.</span>';
+        }
+      }
+
+      try { await navigator.clipboard.writeText(prompt); } catch (_) {}
+      setUIState('waiting');
+    } catch (err) {
+      console.error('[design-mode] finish review failed:', err);
+      showToast('Failed to finish review');
+    }
+  }
+
+  async function resolveAllAndFinish() {
+    var all = state.comments || [];
+    for (var i = 0; i < all.length; i++) {
+      var c = all[i];
+      if (!c || c.resolved) continue;
+      var path = (c.dom_anchor && c.dom_anchor.pathname) || c.path || '/';
+      try {
+        await fetch('/api/comment/' + encodeURIComponent(c.id) + '/resolve?path=' + encodeURIComponent(path), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resolved: true }),
+        });
+        c.resolved = true;
+      } catch (_) {}
+    }
+    refreshPanel();
+    await doFinishReview();
+  }
+
+  registerInstaller(function installFinishReview() {
+    var finishBtn = document.getElementById('finishBtn');
+    if (!finishBtn) return;
+    state.uiState = 'reviewing';
+    updateFinishBtn();
+
+    finishBtn.addEventListener('click', function () {
+      if (state.uiState !== 'reviewing') return;
+      var all = state.comments || [];
+      var unresolved = 0;
+      var hasNew = false;
+      for (var i = 0; i < all.length; i++) {
+        var c = all[i];
+        if (!c) continue;
+        if (!c.resolved) unresolved++;
+        if (!c.carried_forward) hasNew = true;
+      }
+      if (!state.userActedThisRound && !hasNew && unresolved > 0) {
+        var overlay = document.getElementById('noChangesOverlay');
+        if (overlay) overlay.classList.add('active');
+        return;
+      }
+      doFinishReview();
+    });
+
+    var back = document.getElementById('backToEditing');
+    if (back) back.addEventListener('click', function () { setUIState('reviewing'); });
+
+    var overlay = document.getElementById('waitingOverlay');
+    if (overlay) {
+      overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) setUIState('reviewing');
+      });
+    }
+
+    var clip = document.getElementById('waitingClipboard');
+    if (clip) {
+      clip.addEventListener('click', async function () {
+        var p = document.getElementById('waitingPrompt');
+        var text = p ? p.textContent : '';
+        try {
+          await navigator.clipboard.writeText(text);
+          clip.textContent = '✓ Copied';
+          clip.setAttribute('aria-label', 'Copied');
+          clip.classList.remove('clipboard-confirm');
+          void clip.offsetWidth;
+          clip.classList.add('clipboard-confirm');
+          setTimeout(function () {
+            clip.textContent = 'Copy prompt';
+            clip.setAttribute('aria-label', 'Copy prompt');
+          }, 2000);
+        } catch (_) {}
+      });
+    }
+
+    function hideNoChanges() {
+      var ov = document.getElementById('noChangesOverlay');
+      if (ov) ov.classList.remove('active');
+    }
+    var resolveAll = document.getElementById('noChangesResolveAll');
+    if (resolveAll) resolveAll.addEventListener('click', async function () {
+      hideNoChanges();
+      await resolveAllAndFinish();
+    });
+    var sendAnyway = document.getElementById('noChangesSendAnyway');
+    if (sendAnyway) sendAnyway.addEventListener('click', async function () {
+      hideNoChanges();
+      await doFinishReview();
+    });
+    var goBack = document.getElementById('noChangesGoBack');
+    if (goBack) goBack.addEventListener('click', hideNoChanges);
+  });
+
   registerInstaller(function installCommentsPanelToggle() {
     var btn = document.getElementById('commentCount');
     var closeBtn = document.querySelector('.comments-panel-close');
@@ -927,6 +1118,7 @@
     }).then(function (r) {
       if (!r.ok) throw new Error('resolve failed: ' + r.status);
       if (c) c.resolved = resolved;
+      state.userActedThisRound = true;
       refreshPanel();
     }).catch(function (err) {
       showToast('Resolve failed: ' + (err && err.message || err));
@@ -1012,6 +1204,7 @@
       c.replies.push(reply);
       c._replyOpen = false;
       c._replyDraft = '';
+      state.userActedThisRound = true;
       refreshPanel();
     } catch (err) {
       if (errEl) {
@@ -1155,6 +1348,7 @@
       c.body = body;
       c._editOpen = false;
       c._editDraft = null;
+      state.userActedThisRound = true;
       refreshPanel();
     } catch (err) {
       if (errEl) {
@@ -1403,6 +1597,7 @@
   state.pendingResolutionPaths = state.pendingResolutionPaths || null;
   state.designFilter = state.designFilter || 'all';
   state.designExpandAll = !!state.designExpandAll;
+  state.userActedThisRound = !!state.userActedThisRound;
 
   // ============================================================
   // Task 20: Iframe load-error banner
@@ -1547,6 +1742,7 @@
     c._createdInRound = state.currentRound || 1;
     state.comments = state.comments || [];
     state.comments.unshift(c);
+    state.userActedThisRound = true;
     refreshPanel();
   }
 
@@ -2031,12 +2227,14 @@
   function applyRoundStart(roundN) {
     state.currentRound = roundN;
     state.resolutionCache = {};
+    state.userActedThisRound = false;
     var by = pinsByRoute();
     Object.keys(by).forEach(function (path) {
       by[path].forEach(function (p) { p._roundResolved = false; });
     });
     var rcEl = document.getElementById('designRoundCounter');
     if (rcEl) rcEl.textContent = roundN > 1 ? 'Round #' + roundN : '';
+    if (typeof setUIState === 'function') setUIState('reviewing');
     scheduleResolutionForPath(state.currentPathname || state.currentRoute || '/');
     announceLive('Round ' + roundN + ' started.');
   }

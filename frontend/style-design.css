@@ -26,10 +26,7 @@
 .crit-mode-design #diffModeToggle,
 .crit-mode-design #prToggle,
 .crit-mode-design #shareBtn,
-.crit-mode-design #finishBtn,
 .crit-mode-design #tocToggle,
-.crit-mode-design .waiting-overlay,
-.crit-mode-design .confirm-overlay,
 .crit-mode-design #updateBtn { display: none !important; }
 
 /* The comments-panel survives but is shown for design-mode comments. */
