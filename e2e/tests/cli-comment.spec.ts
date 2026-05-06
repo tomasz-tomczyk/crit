@@ -29,7 +29,10 @@ test.describe('CLI comment sync — live browser update', () => {
 
   test('crit comment adds a comment that appears in the browser via SSE', async ({ page }) => {
     const { critBin, fixtureDir, fakeHome } = readFixtureState();
-    const execOpts = { shell: true, timeout: 5000, cwd: fixtureDir, env: { ...process.env, HOME: fakeHome } } as const;
+    // On Windows, Go's os.UserHomeDir() reads USERPROFILE, not HOME — so the
+    // spawned `crit comment` would otherwise look for the daemon registry in
+    // the runner's real home and miss the fixture's daemon.
+    const execOpts = { shell: true, timeout: 5000, cwd: fixtureDir, env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome } } as const;
     const section = mdSection(page);
 
     // Wait for document to be stable before asserting no comments
@@ -45,7 +48,10 @@ test.describe('CLI comment sync — live browser update', () => {
 
   test('crit comment updates header badge count via SSE', async ({ page }) => {
     const { critBin, fixtureDir, fakeHome } = readFixtureState();
-    const execOpts = { shell: true, timeout: 5000, cwd: fixtureDir, env: { ...process.env, HOME: fakeHome } } as const;
+    // On Windows, Go's os.UserHomeDir() reads USERPROFILE, not HOME — so the
+    // spawned `crit comment` would otherwise look for the daemon registry in
+    // the runner's real home and miss the fixture's daemon.
+    const execOpts = { shell: true, timeout: 5000, cwd: fixtureDir, env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome } } as const;
     const section = mdSection(page);
     const countEl = page.locator('#commentCount');
     const badgeEl = page.locator('#commentCountNumber');
@@ -64,7 +70,10 @@ test.describe('CLI comment sync — live browser update', () => {
 
   test('crit comment --clear removes all comments in the browser via SSE', async ({ page, request }) => {
     const { critBin, fixtureDir, fakeHome } = readFixtureState();
-    const execOpts = { shell: true, timeout: 5000, cwd: fixtureDir, env: { ...process.env, HOME: fakeHome } } as const;
+    // On Windows, Go's os.UserHomeDir() reads USERPROFILE, not HOME — so the
+    // spawned `crit comment` would otherwise look for the daemon registry in
+    // the runner's real home and miss the fixture's daemon.
+    const execOpts = { shell: true, timeout: 5000, cwd: fixtureDir, env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome } } as const;
     const section = mdSection(page);
 
     // Add a comment via the API, then reload so the browser picks up the in-memory state.

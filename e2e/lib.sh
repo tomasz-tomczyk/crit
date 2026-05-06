@@ -63,7 +63,11 @@ e2e_kill_port() {
 }
 
 # Set HOME (and USERPROFILE on Windows) so crit picks up our isolated config.
-# Go's os.UserHomeDir on Windows uses USERPROFILE, not HOME.
+# Go's os.UserHomeDir on Windows uses USERPROFILE, not HOME. Callers MUST
+# pass a path that has been resolved with `realpath` on Git Bash so that
+# USERPROFILE is a native Windows path (D:\...) — Go's filepath operations
+# on Windows do not understand MSYS-style /d/... paths, and the resulting
+# joined paths fail to open.
 e2e_export_fake_home() {
   local fake_home="$1"
   export HOME="$fake_home"

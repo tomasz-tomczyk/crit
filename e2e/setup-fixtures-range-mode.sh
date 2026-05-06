@@ -6,8 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
-DIR=$(mktemp -d)
-BIN_DIR=$(mktemp -d)
+# Resolve symlinks / convert MSYS-style paths to native Windows paths.
+DIR=$(realpath "$(mktemp -d)")
+BIN_DIR=$(realpath "$(mktemp -d)")
 trap 'rm -rf "$DIR" "$BIN_DIR" "${FAKE_HOME:-}"' EXIT
 
 cd "$DIR"
@@ -66,7 +67,7 @@ if [ -z "${CRIT_BIN:-}" ]; then
 fi
 
 # Isolate from the user's ~/.crit.config.json (and USERPROFILE on Windows).
-FAKE_HOME=$(mktemp -d)
+FAKE_HOME=$(realpath "$(mktemp -d)")
 e2e_export_fake_home "$FAKE_HOME"
 
 # Write fixture state for E2E tests.

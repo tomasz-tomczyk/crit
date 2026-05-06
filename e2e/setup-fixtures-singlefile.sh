@@ -6,8 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
-DIR=$(mktemp -d)
-BIN_DIR=$(mktemp -d)
+# Resolve symlinks / convert MSYS-style paths to native Windows paths.
+DIR=$(realpath "$(mktemp -d)")
+BIN_DIR=$(realpath "$(mktemp -d)")
 trap 'rm -rf "$DIR" "$BIN_DIR"' EXIT
 
 cd "$DIR"
