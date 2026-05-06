@@ -105,6 +105,18 @@
     var commentsPanel = document.getElementById('commentsPanel');
     if (commentsPanel) commentsPanel.classList.remove('comments-panel-hidden');
 
+    // Sync --header-height + --crit-header-height to the live header height.
+    // app.js does this for code-review but doesn't run on /design, so without
+    // this the comments-panel + sidebar-resize-handle's sticky offsets fall
+    // back to a hard-coded 49px and the resizer's hit area drifts off the
+    // panel boundary in some viewports.
+    var headerEl = document.querySelector('.header');
+    if (headerEl) {
+      var hh = headerEl.getBoundingClientRect().height;
+      document.documentElement.style.setProperty('--header-height', hh + 'px');
+      document.documentElement.style.setProperty('--crit-header-height', hh + 'px');
+    }
+
     // --- Header-right: viewport toggle + mode toggle + round counter ---
     var headerRight = document.querySelector('.header .header-right');
     if (headerRight) {
@@ -150,7 +162,7 @@
       if (rc) {
         rc.id = 'designRoundCounter';
         rc.classList.add('header-notify');
-        rc.textContent = 'round 1';
+        rc.textContent = '';
         rc.style.display = '';
       }
 
@@ -516,7 +528,7 @@
     if (!els.round) return;
     var n = (state.session && state.session.review_round) || 1;
     state.currentRound = n;
-    els.round.textContent = 'round ' + n;
+    els.round.textContent = n > 1 ? 'Round #' + n : '';
   });
 
   // ============================================================
@@ -745,11 +757,30 @@
   }
 
   function updateUnresolvedBadge() {
+    var all = state.comments || [];
+    var totalCount = all.length;
+    var openCount = 0;
+    var resolvedCount = 0;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i] && all[i].resolved) resolvedCount++;
+      else if (all[i]) openCount++;
+    }
+    // Panel-header badge mirrors code-review (total count).
     var badge = document.getElementById('commentsPanelCountBadge');
+    if (badge) badge.textContent = String(totalCount);
+    // Navbar pill shows unresolved (matches code-review's #commentCountNumber).
     var navNum = document.getElementById('commentCountNumber');
-    var n = panelHelpers ? panelHelpers.countUnresolved(pinsByRoute()) : 0;
-    if (badge) badge.textContent = String(n);
-    if (navNum) navNum.textContent = n > 0 ? String(n) : '';
+    if (navNum) navNum.textContent = openCount > 0 ? String(openCount) : '';
+    // Filter pill per-button counts.
+    var pillBtns = document.querySelectorAll('#commentsFilterPill .toggle-btn');
+    pillBtns.forEach(function (btn) {
+      var f = btn.dataset.filter;
+      var countEl = btn.querySelector('.filter-count');
+      if (!countEl) return;
+      if (f === 'all') countEl.textContent = totalCount;
+      else if (f === 'open') countEl.textContent = openCount;
+      else if (f === 'resolved') countEl.textContent = resolvedCount;
+    });
   }
 
   registerPanelRefresh(updateUnresolvedBadge);
@@ -1509,6 +1540,11 @@
   function optimisticInsertComment(pathname, comment) {
     if (!comment || !comment.id) return;
     var c = Object.assign({}, comment, { path: pathname });
+    // Stamp the round the pin was created in so a later route-change /
+    // round-start resolution scan can't mark it as drifted before the user
+    // has had a chance to navigate. A pin that fails to resolve in the
+    // round it was just created in is a transient agent miss, not drift.
+    c._createdInRound = state.currentRound || 1;
     state.comments = state.comments || [];
     state.comments.unshift(c);
     refreshPanel();
@@ -1771,7 +1807,8 @@
       var inActiveScan = typeof state.pendingByPath[path2] === 'number' &&
                          state.pendingByPath[path2] > 0;
       var alreadyResolvedThisRound = !!prev._roundResolved;
-      if (inActiveScan && !alreadyResolvedThisRound) {
+      var createdThisRound = prev._createdInRound === state.currentRound;
+      if (inActiveScan && !alreadyResolvedThisRound && !createdThisRound) {
         var c = rr.classifyPinForRound(prev, msg, state.currentRound);
         if (c.driftedOnRound) {
           var url = '/api/comment/' + encodeURIComponent(prev.id) + '?path=' + encodeURIComponent(path2);
@@ -1999,7 +2036,7 @@
       by[path].forEach(function (p) { p._roundResolved = false; });
     });
     var rcEl = document.getElementById('designRoundCounter');
-    if (rcEl) rcEl.textContent = 'round ' + roundN;
+    if (rcEl) rcEl.textContent = roundN > 1 ? 'Round #' + roundN : '';
     scheduleResolutionForPath(state.currentPathname || state.currentRoute || '/');
     announceLive('Round ' + roundN + ' started.');
   }

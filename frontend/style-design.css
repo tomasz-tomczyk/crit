@@ -400,6 +400,43 @@
   gap: 6px;
   margin-top: 4px;
 }
+/* Reply + edit composers — match the main pin composer's look so the user
+   gets a consistent textarea/button treatment regardless of which compose
+   surface is open. */
+.crit-design-reply-composer,
+.crit-design-edit-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  margin-top: 6px;
+  background: var(--crit-design-composer-bg);
+  border: 1px solid var(--crit-design-composer-border);
+  border-radius: var(--crit-r-md);
+}
+.crit-design-reply-textarea,
+.crit-design-edit-textarea {
+  background: var(--crit-design-composer-input-bg);
+  color: var(--crit-editor-fg);
+  border: 1px solid var(--crit-design-composer-border);
+  border-radius: var(--crit-r-sm);
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+.crit-design-reply-error,
+.crit-design-edit-error {
+  font-size: 12px;
+  color: var(--crit-design-composer-error-fg);
+}
+.crit-design-reply-actions,
+.crit-design-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 /* Resolved styling now reuses code-review's `.comment-card.resolved`
    rule from style.css (greyed bg + reduced opacity). The bespoke
    strikethrough/opacity override that lived here was a half-baked

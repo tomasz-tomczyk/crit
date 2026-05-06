@@ -277,8 +277,9 @@
       // c._replyOpen is true so existing handlers (crit-design-reply-*) keep
       // working.
       showReplyInput: false,
-      // Design pins live in an active session — show "live" affordances.
-      isLiveThread: function () { return true; },
+      // Design pins are not "live" agent threads — that badge is reserved
+      // for code-review comments where the agent is actively responding.
+      isLiveThread: function () { return false; },
       // Design mode does not dispatch agent requests via the comment card.
       isPendingAgentRequest: function () { return false; },
       // Per-pin collapse store lives on design state.
