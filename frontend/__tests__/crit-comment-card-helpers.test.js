@@ -60,6 +60,16 @@ test('formatTime returns hh:mm style string for an ISO date', () => {
   assert.match(out, /\d{1,2}:\d{2}/);
 });
 
+test('formKeyFor produces convention-based key from id + kind', () => {
+  assert.equal(helpers.formKeyFor('abc123', 'edit'), 'comment:edit:abc123');
+  assert.equal(helpers.formKeyFor('abc123', 'reply'), 'comment:reply:abc123');
+});
+
+test('formKeyFor produces distinct keys for different kinds', () => {
+  const id = 'X';
+  assert.notEqual(helpers.formKeyFor(id, 'edit'), helpers.formKeyFor(id, 'reply'));
+});
+
 test('class constants are stable strings', () => {
   assert.equal(helpers.BTN_CLASS, 'btn');
   assert.equal(helpers.BTN_SM_CLASS, 'btn btn-sm');

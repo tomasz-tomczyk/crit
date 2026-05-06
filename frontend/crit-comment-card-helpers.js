@@ -49,6 +49,14 @@
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
+  // formKeyFor — convention-based form-key for edit/reply/etc. forms keyed by
+  // comment id. Used by the shared comment-card / comment-form modules and by
+  // design-mode mounts so both controllers produce matching keys.
+  // kind: 'edit' | 'reply' | string
+  function formKeyFor(commentId, kind) {
+    return 'comment:' + kind + ':' + commentId;
+  }
+
   // Standard class strings. These are deliberately simple constants so that
   // both renderers stay in sync if we tweak them later. Adding a class here
   // does NOT make every existing card pick it up — call sites still need to
@@ -64,6 +72,7 @@
     escapeHtml: escapeHtml,
     relativeTime: relativeTime,
     formatTime: formatTime,
+    formKeyFor: formKeyFor,
     BTN_CLASS: BTN_CLASS,
     BTN_SM_CLASS: BTN_SM_CLASS,
     COMMENT_CARD_CLASS: COMMENT_CARD_CLASS,

@@ -330,6 +330,12 @@
     return form.filePath + ':' + form.startLine + ':' + form.endLine + ':' + (form.side || '');
   }
 
+  // Convention-based form-key for edit/reply forms keyed by comment id.
+  // Used by buildCommentCard reply input + design-mode mounts.
+  // Delegates to the shared helper module so both controllers stay aligned.
+  const formKeyFor = (window.crit && window.crit.commentCardHelpers && window.crit.commentCardHelpers.formKeyFor) ||
+    function formKeyFor(commentId, kind) { return 'comment:' + kind + ':' + commentId; };
+
   function addForm(form) {
     form.formKey = formKey(form);
     const idx = activeForms.findIndex(function(f) { return f.formKey === form.formKey; });
