@@ -38,8 +38,14 @@
     comments: [],
     pinModeEnabled: false,
     pendingPinId: null,
+    // Per-pin collapse override store (consumed by buildCommentCard via the
+    // get/setCollapseOverride callbacks). Map<commentId, boolean>.
+    designCollapseOverrides: new Map(),
   };
   var state = window.crit.design;
+  if (!state.designCollapseOverrides) {
+    state.designCollapseOverrides = new Map();
+  }
   var shared = window.crit.shared;
   var utils = window.crit.designUtils;
 
@@ -510,38 +516,103 @@
       '</div>';
   }
 
+  // Build the deps bundle once per render — buildCommentCard wants a
+  // markdown-it instance + a few helpers. Code-review's app.js wires these
+  // to its own module-scoped state; design mode supplies its own bundle.
+  var _designCardDeps = null;
+  function getCardDeps() {
+    if (_designCardDeps) return _designCardDeps;
+    var helpers = (window.crit && window.crit.commentCardHelpers) || {};
+    var commentMd = null;
+    try {
+      if (typeof window.markdownit === 'function') {
+        commentMd = window.markdownit({ html: false, linkify: true, breaks: true });
+      }
+    } catch (_) {}
+    _designCardDeps = {
+      commentMd: commentMd,
+      formatTime: helpers.formatTime || function () { return ''; },
+      authorColorIndex: helpers.authorColorIndex || function () { return 0; },
+      getReviewRound: function () {
+        return (state.session && state.session.review_round) || 0;
+      },
+      getCollapseOverride: function (id) {
+        return state.designCollapseOverrides.has(id)
+          ? state.designCollapseOverrides.get(id)
+          : undefined;
+      },
+      setCollapseOverride: function (id, val) {
+        state.designCollapseOverrides.set(id, val);
+      },
+      iconChevron: '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>',
+    };
+    return _designCardDeps;
+  }
+
   function renderCommentsPanel() {
     if (!els.panelBody) return;
     var groups = utils.groupCommentsByRoute(state.comments);
     if (groups.size === 0) { renderEmptyPanel(); return; }
-    var html = [];
+
+    // Build the panel as a DOM tree so design pins can mount the shared
+    // buildCommentCard (DOM-composed). Non-pin comments still render as a
+    // light-weight "comment-card" for click-to-navigate routing.
+    var rowMod = window.crit && window.crit.design && window.crit.design.row;
+    var deps = getCardDeps();
+
+    var frag = document.createDocumentFragment();
     groups.forEach(function (rows, route) {
-      html.push('<div class="comments-panel-file-group">');
-      html.push('<div class="comments-panel-file-name">' + shared.escapeHTML(route) + '</div>');
-      html.push('<div class="comments-panel-file-cards">');
+      var group = document.createElement('div');
+      group.className = 'comments-panel-file-group';
+      var name = document.createElement('div');
+      name.className = 'comments-panel-file-name';
+      name.textContent = route;
+      group.appendChild(name);
+      var cards = document.createElement('div');
+      cards.className = 'comments-panel-file-cards';
+
       rows.forEach(function (c) {
-        // Phase C: design pins use the dedicated row renderer (thumb + selector).
-        var rowMod = window.crit && window.crit.design && window.crit.design.row;
-        if (c.dom_anchor && rowMod) {
-          html.push(rowMod.renderDesignPinRowHTML(c));
+        if (c.dom_anchor && rowMod && typeof rowMod.renderDesignPinRow === 'function') {
+          cards.appendChild(rowMod.renderDesignPinRow(c, deps));
           return;
         }
+        // Fallback for non-pin (e.g. legacy review-level) comments — light
+        // navigation card.
         var body = (c.body || '').replace(/\s+/g, ' ').trim();
         var excerpt = body.length > 200 ? body.slice(0, 200) + '…' : body;
-        var resolvedAttr = c.resolved ? ' data-resolved="true"' : '';
-        html.push(
-          '<div class="comment-card" data-design-route="' + shared.escapeHTML(route) + '" data-id="' + shared.escapeHTML(String(c.id || '')) + '" tabindex="0" role="button"' + resolvedAttr + '>' +
-            '<div class="comment-card-body">' + shared.escapeHTML(excerpt) + '</div>' +
-            '<div class="comment-card-meta" style="font-size:11px;color:var(--crit-editor-fg-muted);display:flex;gap:8px">' +
-              '<span>' + shared.escapeHTML(c.author || '') + '</span>' +
-              (c.resolved ? '<span style="color:var(--crit-green)">resolved</span>' : '') +
-            '</div>' +
-          '</div>'
-        );
+        var fb = document.createElement('div');
+        fb.className = 'comment-card';
+        fb.dataset.designRoute = route;
+        fb.dataset.id = String(c.id || '');
+        fb.tabIndex = 0;
+        fb.setAttribute('role', 'button');
+        if (c.resolved) fb.dataset.resolved = 'true';
+        var fbBody = document.createElement('div');
+        fbBody.className = 'comment-card-body';
+        fbBody.textContent = excerpt;
+        fb.appendChild(fbBody);
+        var meta = document.createElement('div');
+        meta.className = 'comment-card-meta';
+        meta.style.cssText = 'font-size:11px;color:var(--crit-editor-fg-muted);display:flex;gap:8px';
+        var who = document.createElement('span');
+        who.textContent = c.author || '';
+        meta.appendChild(who);
+        if (c.resolved) {
+          var resolvedTag = document.createElement('span');
+          resolvedTag.style.color = 'var(--crit-green)';
+          resolvedTag.textContent = 'resolved';
+          meta.appendChild(resolvedTag);
+        }
+        fb.appendChild(meta);
+        cards.appendChild(fb);
       });
-      html.push('</div></div>');
+
+      group.appendChild(cards);
+      frag.appendChild(group);
     });
-    els.panelBody.innerHTML = html.join('');
+
+    els.panelBody.innerHTML = '';
+    els.panelBody.appendChild(frag);
   }
 
   registerPanelRefresh(function () {

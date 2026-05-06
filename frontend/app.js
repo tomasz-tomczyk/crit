@@ -370,14 +370,15 @@
 
   const enc = encodeURIComponent;
 
-  // Author color-coding for multi-reviewer comments
-  const AUTHOR_COLOR_COUNT = 6;
-
-  function authorColorIndex(name) {
-    let hash = 0;
-    for (const ch of name) hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
-    return Math.abs(hash) % AUTHOR_COLOR_COUNT;
-  }
+  // Author color-coding for multi-reviewer comments — shared helper so
+  // design-mode mounts produce matching swatch indices.
+  const AUTHOR_COLOR_COUNT = (window.crit && window.crit.commentCardHelpers && window.crit.commentCardHelpers.AUTHOR_COLOR_COUNT) || 6;
+  const authorColorIndex = (window.crit && window.crit.commentCardHelpers && window.crit.commentCardHelpers.authorColorIndex) ||
+    function authorColorIndex(name) {
+      let hash = 0;
+      for (const ch of name) hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
+      return Math.abs(hash) % AUTHOR_COLOR_COUNT;
+    };
 
   // Sort comparator: directories before files at each depth, then alphabetical.
   // In files mode the user's CLI argument order is meaningful, so preserve it

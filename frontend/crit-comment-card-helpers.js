@@ -49,6 +49,18 @@
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
+  // authorColorIndex — byte-identical to app.js's authorColorIndex. Picks a
+  // 0..N swatch slot for the author colour badge.
+  var AUTHOR_COLOR_COUNT = 6;
+  function authorColorIndex(name) {
+    var s = String(name == null ? '' : name);
+    var hash = 0;
+    for (var i = 0; i < s.length; i++) {
+      hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash) % AUTHOR_COLOR_COUNT;
+  }
+
   // formKeyFor — convention-based form-key for edit/reply/etc. forms keyed by
   // comment id. Used by the shared comment-card / comment-form modules and by
   // design-mode mounts so both controllers produce matching keys.
@@ -73,6 +85,8 @@
     relativeTime: relativeTime,
     formatTime: formatTime,
     formKeyFor: formKeyFor,
+    authorColorIndex: authorColorIndex,
+    AUTHOR_COLOR_COUNT: AUTHOR_COLOR_COUNT,
     BTN_CLASS: BTN_CLASS,
     BTN_SM_CLASS: BTN_SM_CLASS,
     COMMENT_CARD_CLASS: COMMENT_CARD_CLASS,

@@ -70,6 +70,25 @@ test('formKeyFor produces distinct keys for different kinds', () => {
   assert.notEqual(helpers.formKeyFor(id, 'edit'), helpers.formKeyFor(id, 'reply'));
 });
 
+test('authorColorIndex is deterministic and bounded by AUTHOR_COLOR_COUNT', () => {
+  assert.ok(helpers.AUTHOR_COLOR_COUNT >= 1);
+  const a = helpers.authorColorIndex('alice');
+  const b = helpers.authorColorIndex('alice');
+  assert.equal(a, b);
+  assert.ok(a >= 0 && a < helpers.AUTHOR_COLOR_COUNT);
+});
+
+test('authorColorIndex produces different slots for different names (usually)', () => {
+  // Not strictly guaranteed for all pairs, but these two diverge in practice.
+  assert.notEqual(helpers.authorColorIndex('alice'), helpers.authorColorIndex('bob'));
+});
+
+test('authorColorIndex tolerates empty / null', () => {
+  assert.equal(helpers.authorColorIndex(''), 0);
+  assert.equal(helpers.authorColorIndex(null), 0);
+  assert.equal(helpers.authorColorIndex(undefined), 0);
+});
+
 test('class constants are stable strings', () => {
   assert.equal(helpers.BTN_CLASS, 'btn');
   assert.equal(helpers.BTN_SM_CLASS, 'btn btn-sm');

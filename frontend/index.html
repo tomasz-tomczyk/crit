@@ -235,6 +235,12 @@
       var ru = document.createElement('script'); ru.src = 'design-route-utils.js';
       document.head.appendChild(ru);
 
+      // markdown-it powers comment-body rendering inside the shared
+      // buildCommentCard. Loaded for /design too so design rows reach parity
+      // with code-review's renderer.
+      var mi = document.createElement('script'); mi.src = 'markdown-it.min.js';
+      document.head.appendChild(mi);
+
       var l = document.createElement('link');
       l.rel = 'stylesheet';
       l.href = 'style-design.css';
@@ -277,8 +283,8 @@
         return t;
       });
 
-      // Defer design-mode.js until all deps have parsed.
-      var totalNeeded = 2 + depTags.length;
+      // Defer design-mode.js until all deps have parsed (sh, ru, mi + phaseC).
+      var totalNeeded = 3 + depTags.length;
       var loaded = 0;
       function maybeBoot() {
         loaded++;
@@ -290,6 +296,8 @@
       }
       sh.addEventListener('load', maybeBoot);
       ru.addEventListener('load', maybeBoot);
+      mi.addEventListener('load', maybeBoot);
+      mi.addEventListener('error', maybeBoot);
       depTags.forEach(function (t) { t.addEventListener('load', maybeBoot); t.addEventListener('error', maybeBoot); });
     } else {
       // Code-review chrome — load existing vendor + app.js.
