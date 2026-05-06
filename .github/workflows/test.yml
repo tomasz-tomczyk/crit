@@ -183,6 +183,10 @@ jobs:
 
   e2e-windows:
     runs-on: windows-latest
+    env:
+      # Stop Git Bash from auto-converting POSIX-looking arguments to Windows
+      # paths when invoking native binaries (crit.exe, taskkill, powershell).
+      MSYS_NO_PATHCONV: 1
     steps:
       - uses: actions/checkout@v6
 
