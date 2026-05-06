@@ -7862,84 +7862,54 @@
   });
 
   // ===== Settings Panel =====
+  // Open/close, focus trap, sliding underline, Esc/?, tab keyboard nav and
+  // click delegation are all owned by the shared settings-overlay shell
+  // (crit-settings-overlay.js). This file only supplies pane-render hooks
+  // (cfg fetch + renderSettingsPane/AboutPane/ShortcutsPane).
+  let settingsCtl = null;
+  function getSettingsCtl() {
+    if (settingsCtl) return settingsCtl;
+    const overlay = document.getElementById('settingsOverlay');
+    const toggle = document.getElementById('settingsToggle');
+    const closeBtn = document.getElementById('settingsClose');
+    if (!overlay || !window.crit || !window.crit.settingsOverlay) return null;
+    settingsCtl = window.crit.settingsOverlay.install({
+      overlay: overlay,
+      toggle: toggle,
+      closeBtn: closeBtn,
+      initialTab: 'settings',
+      onOpen: function (tab) {
+        settingsPanelOpen = true;
+        settingsPanelTab = tab || 'settings';
+        if (!cachedConfig) {
+          fetch('/api/config').then(function (r) { return r.json(); }).then(function (cfg) {
+            cachedConfig = cfg;
+            renderSettingsPane(cfg);
+            renderAboutPane(cfg);
+          });
+        }
+        renderShortcutsPane();
+      },
+      onTabSwitch: function (tab) { settingsPanelTab = tab; },
+      onClose: function () { settingsPanelOpen = false; },
+    });
+    return settingsCtl;
+  }
   function openSettingsPanel(tab) {
     settingsPanelTab = tab || 'settings';
     settingsPanelOpen = true;
-    const overlay = document.getElementById('settingsOverlay');
-    overlay.classList.add('active');
-    // Ensure the sliding underline element exists
-    if (!overlay.querySelector('.settings-tab-underline')) {
-      const underline = document.createElement('div');
-      underline.className = 'settings-tab-underline';
-      overlay.querySelector('.settings-tabs').appendChild(underline);
-    }
-    switchSettingsTab(settingsPanelTab);
-    // Fetch config if not cached
-    if (!cachedConfig) {
-      fetch('/api/config').then(function(r) { return r.json(); }).then(function(cfg) {
-        cachedConfig = cfg;
-        renderSettingsPane(cfg);
-        renderAboutPane(cfg);
-      });
-    }
-    renderShortcutsPane();
-    // Trap focus inside the settings dialog
-    trapFocusIn(overlay);
+    const ctl = getSettingsCtl();
+    if (ctl) ctl.open(settingsPanelTab);
   }
-
-  let focusTrapCleanup = null;
-
-  function trapFocusIn(container) {
-    releaseFocusTrap();
-    function handler(e) {
-      if (e.key !== 'Tab') return;
-      const focusable = container.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
-      } else {
-        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    }
-    container.addEventListener('keydown', handler);
-    focusTrapCleanup = function() { container.removeEventListener('keydown', handler); };
-    // Focus the first focusable element
-    const firstFocusable = container.querySelector('button:not([disabled]), [href], input:not([disabled])');
-    if (firstFocusable) requestAnimationFrame(function() { firstFocusable.focus(); });
-  }
-
-  function releaseFocusTrap() {
-    if (focusTrapCleanup) { focusTrapCleanup(); focusTrapCleanup = null; }
-  }
-
   function closeSettingsPanel() {
     settingsPanelOpen = false;
-    releaseFocusTrap();
-    document.getElementById('settingsOverlay').classList.remove('active');
+    const ctl = getSettingsCtl();
+    if (ctl) ctl.close();
   }
-
   function switchSettingsTab(tab) {
     settingsPanelTab = tab;
-    let activeBtn = null;
-    document.querySelectorAll('.settings-tab[role="tab"]').forEach(function(t) {
-      const isActive = t.dataset.tab === tab;
-      t.classList.toggle('active', isActive);
-      t.setAttribute('aria-selected', String(isActive));
-      if (isActive) activeBtn = t;
-    });
-    document.querySelectorAll('.settings-pane').forEach(function(p) {
-      p.classList.toggle('active', p.dataset.pane === tab);
-    });
-    // Position the sliding underline
-    const underline = document.querySelector('.settings-tab-underline');
-    if (underline && activeBtn) {
-      const tabsRect = activeBtn.parentElement.getBoundingClientRect();
-      const btnRect = activeBtn.getBoundingClientRect();
-      underline.style.left = (btnRect.left - tabsRect.left) + 'px';
-      underline.style.width = btnRect.width + 'px';
-    }
+    const ctl = getSettingsCtl();
+    if (ctl) ctl.switchTab(tab);
   }
 
   function applyHideResolved() {
@@ -8270,38 +8240,12 @@
     }
   }
 
-  // Gear icon opens Settings tab
-  document.getElementById('settingsToggle').addEventListener('click', function() {
-    if (settingsPanelOpen) closeSettingsPanel();
-    else openSettingsPanel('settings');
-  });
-
-  // Close button
-  document.getElementById('settingsClose').addEventListener('click', closeSettingsPanel);
-
-  // Click outside to close
-  document.getElementById('settingsOverlay').addEventListener('click', function(e) {
-    if (e.target === this) closeSettingsPanel();
-  });
-
-  // Tab switching
-  document.querySelectorAll('.settings-tab[data-tab]').forEach(function(tab) {
-    tab.addEventListener('click', function() { switchSettingsTab(tab.dataset.tab); });
-  });
-
-  // Arrow key navigation for ARIA tabs pattern
-  document.querySelector('.settings-tabs[role="tablist"]').addEventListener('keydown', function(e) {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    const tabs = Array.from(this.querySelectorAll('.settings-tab[data-tab]'));
-    const current = tabs.findIndex(function(t) { return t.getAttribute('aria-selected') === 'true'; });
-    if (current === -1) return;
-    let next = e.key === 'ArrowRight' ? current + 1 : current - 1;
-    if (next < 0) next = tabs.length - 1;
-    if (next >= tabs.length) next = 0;
-    e.preventDefault();
-    switchSettingsTab(tabs[next].dataset.tab);
-    tabs[next].focus();
-  });
+  // Settings overlay shell (open/close/Esc/?/focus-trap/sliding-underline/
+  // tab click + arrow nav) is owned by crit-settings-overlay.js. Initialize
+  // the controller now so its toggle/close/tab listeners are bound; keep
+  // openSettingsPanel/closeSettingsPanel/switchSettingsTab as the call sites
+  // used elsewhere in this file.
+  getSettingsCtl();
 
   document.getElementById('noChangesOverlay').addEventListener('click', function(e) {
     if (e.target === this) hideNoChangesConfirm();
@@ -8329,17 +8273,9 @@
       return;
     }
 
-    if (settingsPanelOpen) {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeSettingsPanel();
-      } else if (e.key === '?') {
-        e.preventDefault();
-        if (settingsPanelTab === 'shortcuts') closeSettingsPanel();
-        else switchSettingsTab('shortcuts');
-      }
-      return;
-    }
+    // Esc/? while settings overlay is open are owned by crit-settings-overlay.js;
+    // short-circuit the rest of the keymap so we don't double-handle.
+    if (settingsPanelOpen) return;
 
     if (e.metaKey || e.ctrlKey || e.altKey) return;
 

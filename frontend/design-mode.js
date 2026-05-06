@@ -1581,61 +1581,40 @@
       }
     }
 
-    function switchTab(tab) {
-      var tabs = overlay.querySelectorAll('.settings-tab[role="tab"]');
-      tabs.forEach(function (t) {
-        var isActive = t.dataset.tab === tab;
-        t.classList.toggle('active', isActive);
-        t.setAttribute('aria-selected', String(isActive));
-      });
-      var panes = overlay.querySelectorAll('.settings-pane');
-      panes.forEach(function (p) {
-        p.classList.toggle('active', p.dataset.pane === tab);
-      });
-    }
-
-    function open() {
-      overlay.classList.add('active');
-      var tabs = overlay.querySelectorAll('.settings-tab[role="tab"]');
-      tabs.forEach(function (t) { t.style.display = ''; });
-      switchTab('settings');
-      // Render once with whatever cfg/session we have, then re-render after
-      // /api/config + /api/session resolve so cards (update / account /
-      // integration / share) and the About session info populate.
-      renderAllPanes();
-      var pending = 2;
-      function done() { pending--; if (pending === 0) renderAllPanes(); }
-      try {
-        fetch('/api/config').then(function (r) { return r.ok ? r.json() : {}; }).then(function (c) {
-          state.config = c || {};
-        }).catch(function () {}).finally(done);
-        fetch('/api/session').then(function (r) { return r.ok ? r.json() : {}; }).then(function (s) {
-          state.session = s || {};
-        }).catch(function () {}).finally(done);
-      } catch (_) {
-        // best-effort
-      }
-    }
-    function close() { overlay.classList.remove('active'); }
-
     // Apply persisted hide-resolved on boot so the body class is in sync
     // before the overlay is opened the first time.
     document.body.classList.toggle('hide-resolved', getHideResolved());
 
-    toggle.addEventListener('click', function () {
-      if (overlay.classList.contains('active')) close(); else open();
-    });
-    overlay.addEventListener('click', function (e) {
-      if (e.target === overlay) { close(); return; }
-      var closeBtn = e.target.closest && e.target.closest('#settingsClose');
-      if (closeBtn) { close(); return; }
-      var tabBtn = e.target.closest && e.target.closest('.settings-tab[data-tab]');
-      if (tabBtn) { switchTab(tabBtn.dataset.tab); return; }
-      // theme/width/hide-resolved/copy/dismiss wiring lives inside
-      // renderSettingsTab — no overlay-level handlers needed for them.
-    });
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && overlay.classList.contains('active')) close();
+    // The overlay shell (open/close/Esc/?/focus-trap/sliding-underline/tab
+    // click + arrow-key nav) is shared with code-review via
+    // crit-settings-overlay.js. Pane content rendering happens in onOpen and
+    // is re-rendered after /api/config + /api/session resolve.
+    var overlayApi = window.crit && window.crit.settingsOverlay;
+    if (!overlayApi || !overlayApi.install) return;
+    var closeBtn = overlay.querySelector && overlay.querySelector('#settingsClose');
+    overlayApi.install({
+      overlay: overlay,
+      toggle: toggle,
+      closeBtn: closeBtn,
+      initialTab: 'settings',
+      onOpen: function () {
+        // Ensure all tabs are visible (some flows hide tabs; reset on open).
+        var tabs = overlay.querySelectorAll('.settings-tab[role="tab"]');
+        for (var i = 0; i < tabs.length; i++) tabs[i].style.display = '';
+        renderAllPanes();
+        var pending = 2;
+        function done() { pending--; if (pending === 0) renderAllPanes(); }
+        try {
+          fetch('/api/config').then(function (r) { return r.ok ? r.json() : {}; }).then(function (c) {
+            state.config = c || {};
+          }).catch(function () {}).finally(done);
+          fetch('/api/session').then(function (r) { return r.ok ? r.json() : {}; }).then(function (s) {
+            state.session = s || {};
+          }).catch(function () {}).finally(done);
+        } catch (_) {
+          // best-effort
+        }
+      },
     });
   });
 

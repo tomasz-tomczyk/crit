@@ -252,6 +252,7 @@
         'crit-comment-card-helpers.js',
         'crit-comment-card.js',
         'crit-settings-panes.js',
+        'crit-settings-overlay.js',
         'agent-protocol.js',
         'design-mode.dispatch.js',
         'design-mode.inflight.js',
@@ -319,6 +320,8 @@
       var cc = document.createElement('script'); cc.src = 'crit-comment-card.js'; document.body.appendChild(cc);
       // Shared settings-overlay panes (Shortcuts + About). Must load before app.js.
       var sp = document.createElement('script'); sp.src = 'crit-settings-panes.js'; document.body.appendChild(sp);
+      // Shared settings-overlay shell (open/close/Esc/focus-trap/tab nav). Must load before app.js.
+      var so = document.createElement('script'); so.src = 'crit-settings-overlay.js'; document.body.appendChild(so);
       var a = document.createElement('script'); a.src = 'app.js'; document.body.appendChild(a);
     }
   })();
