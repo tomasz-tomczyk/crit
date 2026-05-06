@@ -131,6 +131,11 @@ test.describe('design-mode agent — pin-mode interaction suppression', () => {
 
   test('pointerdown on a draggable element is preventDefault-ed in pin mode', async ({ page }) => {
     await waitForAgentReady(page);
+    // Reset the message log BEFORE navigating so the agent-ready check below
+    // observes the new iframe's handshake, not a stale one from /.
+    await page.evaluate(() => {
+      (window as unknown as { __critDesignMessages?: unknown[] }).__critDesignMessages = [];
+    });
     await setIframeRoute(page, '/widgets');
     await expect(getIframe(page).locator('#widgets-title')).toBeVisible();
     // Re-handshake against the new document's agent.
@@ -167,6 +172,11 @@ test.describe('design-mode agent — pin-mode interaction suppression', () => {
 
   test('Enter on a focused button does NOT activate it in pin mode', async ({ page }) => {
     await waitForAgentReady(page);
+    // Clear chrome message log so the agent-ready poll below observes the
+    // /widgets agent's handshake, not a stale one from /.
+    await page.evaluate(() => {
+      (window as unknown as { __critDesignMessages?: unknown[] }).__critDesignMessages = [];
+    });
     await setIframeRoute(page, '/widgets');
     await expect(getIframe(page).locator('#widgets-title')).toBeVisible();
     await expect.poll(
@@ -178,6 +188,15 @@ test.describe('design-mode agent — pin-mode interaction suppression', () => {
       { timeout: 15_000 },
     ).toBe(true);
     await enterPinMode(page);
+    // Wait for the agent (not just the chrome's button class) to flip to pin
+    // mode — set-mode postMessage is async and suppressKeyboardActivation
+    // gates on the agent's own state.mode.
+    await expect.poll(
+      () => getIframe(page).locator('body').evaluate(() => {
+        return (window as unknown as { __critAgentState?: { mode?: string } })
+          .__critAgentState?.mode;
+      }),
+    ).toBe('pin');
     await getIframe(page).locator('body').evaluate(() => {
       (window as unknown as { __widgetsBtnActivations?: number }).__widgetsBtnActivations = 0;
     });
@@ -192,6 +211,9 @@ test.describe('design-mode agent — pin-mode interaction suppression', () => {
 
   test('typing into an <input> still works in pin mode (suppression carve-out)', async ({ page }) => {
     await waitForAgentReady(page);
+    await page.evaluate(() => {
+      (window as unknown as { __critDesignMessages?: unknown[] }).__critDesignMessages = [];
+    });
     await setIframeRoute(page, '/widgets');
     await expect(getIframe(page).locator('#widgets-title')).toBeVisible();
     await expect.poll(
@@ -203,6 +225,12 @@ test.describe('design-mode agent — pin-mode interaction suppression', () => {
       { timeout: 15_000 },
     ).toBe(true);
     await enterPinMode(page);
+    await expect.poll(
+      () => getIframe(page).locator('body').evaluate(() => {
+        return (window as unknown as { __critAgentState?: { mode?: string } })
+          .__critAgentState?.mode;
+      }),
+    ).toBe('pin');
     const input = getIframe(page).locator('#widgets-input');
     await input.focus();
     // Type via keyboard so suppressInPinMode's input/textarea carve-out is exercised.

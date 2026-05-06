@@ -170,6 +170,58 @@ export async function openPinComposer(
 }
 
 /**
+ * Seed a design pin directly via the API. Used to bypass the iframe-mediated
+ * pin flow when the test needs a pre-existing pin (e.g. drift-tray scenarios
+ * that depend on resolution results against a specific DOM state).
+ *
+ * Pass css_selector / tag_chain / role+name+landmark to control the
+ * resolution outcome:
+ *   - a selector that matches and a tag_chain that verifies → resolved
+ *   - a selector that misses but role+name+landmark match an element → drifted-recoverable
+ *   - everything misses → drifted (lost)
+ */
+export async function seedDesignPin(
+  request: APIRequestContext,
+  body: string,
+  anchor: {
+    pathname: string;
+    css_selector: string;
+    tag_chain: string[];
+    accessible_name?: string;
+    role?: string;
+    landmark?: string;
+    outer_html?: string;
+    viewport_width?: number;
+    viewport_height?: number;
+  },
+): Promise<{ id: string }> {
+  const fullAnchor = {
+    accessible_name: '',
+    role: '',
+    landmark: '',
+    outer_html: '',
+    viewport_width: 1280,
+    viewport_height: 800,
+    ...anchor,
+  };
+  const resp = await request.post(
+    `/api/file/comments?path=${encodeURIComponent(anchor.pathname)}`,
+    {
+      data: {
+        start_line: 0,
+        end_line: 0,
+        body,
+        dom_anchor: fullAnchor,
+      },
+    },
+  );
+  if (!resp.ok()) {
+    throw new Error(`seedDesignPin failed: ${resp.status()} ${await resp.text()}`);
+  }
+  return resp.json() as Promise<{ id: string }>;
+}
+
+/**
  * Like openPinComposer but does not navigate. Use when the page is already
  * at /design and you only want to switch to Pin mode and click a target —
  * for example after setIframeRoute() to a non-default route.
