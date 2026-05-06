@@ -215,10 +215,53 @@
   </div>
 </div>
 
-<script src="markdown-it.min.js"></script>
-<script src="highlight.min.js"></script>
-<script src="mermaid.min.js"></script>
-<script src="diff-match-patch.min.js"></script>
-<script src="app.js"></script>
+<script>
+  (function () {
+    // Path-based fork. Phase A's handleDesignPage serves index.html raw at
+    // /design — pathname is the most reliable trigger (no Phase A query
+    // injection required, survives reload, survives missing query string).
+    var isDesign = window.location.pathname === '/design';
+
+    if (isDesign) {
+      // R1: do NOT wipe <body>. Mark <html> so style-design.css can hide
+      // code-review-only chrome (file tree, main-content, comments-panel,
+      // pr-panel, etc.) while keeping the header + settings overlay alive.
+      document.documentElement.classList.add('crit-mode-design');
+
+      // Pull in shared helpers + design-mode CSS, then the controller.
+      var sh = document.createElement('script'); sh.src = 'crit-shared.js';
+      document.head.appendChild(sh);
+
+      var ru = document.createElement('script'); ru.src = 'design-route-utils.js';
+      document.head.appendChild(ru);
+
+      var l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = 'style-design.css';
+      document.head.appendChild(l);
+
+      // Defer design-mode.js until crit-shared.js + design-route-utils.js
+      // have parsed.
+      var loaded = 0;
+      function maybeBoot() {
+        loaded++;
+        if (loaded < 2) return;
+        if (window.crit && window.crit.shared) window.crit.shared.applyThemeFromCookie();
+        var s = document.createElement('script');
+        s.src = 'design-mode.js';
+        document.body.appendChild(s);
+      }
+      sh.addEventListener('load', maybeBoot);
+      ru.addEventListener('load', maybeBoot);
+    } else {
+      // Code-review chrome — load existing vendor + app.js.
+      var v1 = document.createElement('script'); v1.src = 'markdown-it.min.js'; document.body.appendChild(v1);
+      var v2 = document.createElement('script'); v2.src = 'highlight.min.js'; document.body.appendChild(v2);
+      var v3 = document.createElement('script'); v3.src = 'mermaid.min.js'; document.body.appendChild(v3);
+      var v4 = document.createElement('script'); v4.src = 'diff-match-patch.min.js'; document.body.appendChild(v4);
+      var a = document.createElement('script'); a.src = 'app.js'; document.body.appendChild(a);
+    }
+  })();
+</script>
 </body>
 </html>

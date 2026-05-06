@@ -6,6 +6,7 @@ const SINGLE_PORT = process.env.CRIT_TEST_SINGLE_PORT || '3125';
 const NOGIT_PORT = process.env.CRIT_TEST_NOGIT_PORT || '3126';
 const MULTI_PORT = process.env.CRIT_TEST_MULTI_PORT || '3127';
 const RANGE_PORT = process.env.CRIT_TEST_RANGE_PORT || '3128';
+const DESIGN_PORT = process.env.CRIT_TEST_DESIGN_PORT || '3129';
 const debug = !!process.env.E2E_DEBUG;
 
 export default defineConfig({
@@ -37,7 +38,7 @@ export default defineConfig({
   projects: [
     {
       name: 'git-mode',
-      testMatch: /^(?!.*\.(filemode|singlefile|multifile|nogit|rangemode)\.).*\.spec\.ts$/,
+      testMatch: /^(?!.*\.(filemode|singlefile|multifile|nogit|rangemode|designmode)\.).*\.spec\.ts$/,
       use: {
         browserName: 'chromium',
         baseURL: `http://localhost:${GIT_PORT}`,
@@ -83,6 +84,17 @@ export default defineConfig({
       use: {
         browserName: 'chromium',
         baseURL: `http://localhost:${RANGE_PORT}`,
+      },
+    },
+    {
+      // TODO(phase-F): wire fixture script + webServer entry. Phase B
+      // authors tests against this project and verifies parse-only via
+      // `npx playwright test --list --project=design-mode`.
+      name: 'design-mode',
+      testMatch: /\.designmode\.spec\.ts$/,
+      use: {
+        browserName: 'chromium',
+        baseURL: `http://127.0.0.1:${DESIGN_PORT}`,
       },
     },
   ],
