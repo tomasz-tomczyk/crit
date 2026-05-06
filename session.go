@@ -271,6 +271,11 @@ type Session struct {
 	// render them collapsed by default. Read-only after construction.
 	generatedRules []generatedRule
 
+	// Design-mode runtime fields. Zero values are safe for code reviews.
+	ReviewType string // "" or "design"
+	Origin     string // upstream URL, e.g. "http://localhost:3000"
+	ProxyPort  int    // proxy server port; 0 for code reviews
+
 	reviewComments []Comment
 
 	// RoundSnapshots is in-memory state populated from <folder>/snapshots.json

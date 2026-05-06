@@ -3676,3 +3676,65 @@ func TestEvents_SafariCompat(t *testing.T) {
 		t.Errorf("heartbeat frame = %q, want %q", heartbeat, ":\n\n")
 	}
 }
+
+func TestDesignRoutes_NotGatedByWithReady(t *testing.T) {
+	s, err := NewServer(nil, frontendFS, "", "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/design", "/crit-agent.js", "/crit-vendor/html2canvas.js"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest("GET", path, nil)
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, req)
+			if w.Code == http.StatusServiceUnavailable {
+				t.Errorf("GET %s returned 503 before SetSession — must not be withReady gated", path)
+			}
+		})
+	}
+}
+
+func TestDesignAssets_CORSHeader(t *testing.T) {
+	s, err := NewServer(nil, frontendFS, "", "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/crit-agent.js", "/crit-vendor/html2canvas.js"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest("GET", path, nil)
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("GET %s status = %d", path, w.Code)
+			}
+			if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+				t.Errorf("GET %s Access-Control-Allow-Origin = %q, want %q", path, got, "*")
+			}
+		})
+	}
+}
+
+func TestHandleSession_DesignFields(t *testing.T) {
+	s, session := newTestServer(t)
+	session.ReviewType = "design"
+	session.Origin = "http://localhost:3000"
+	session.ProxyPort = 54322
+
+	req := httptest.NewRequest("GET", "/api/session", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["review_type"] != "design" {
+		t.Errorf("review_type = %v, want design", resp["review_type"])
+	}
+	if resp["origin"] != "http://localhost:3000" {
+		t.Errorf("origin = %v", resp["origin"])
+	}
+	if v, _ := resp["proxy_port"].(float64); int(v) != 54322 {
+		t.Errorf("proxy_port = %v, want 54322", resp["proxy_port"])
+	}
+}

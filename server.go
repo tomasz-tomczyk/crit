@@ -83,6 +83,11 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/qr", s.handleQR)
 
+	// Design-mode routes — NOT wrapped in withReady.
+	mux.HandleFunc("/design", s.handleDesignPage)
+	mux.HandleFunc("/crit-agent.js", s.handleCritAgentJS)
+	mux.HandleFunc("/crit-vendor/", s.handleCritVendor)
+
 	// Session-dependent endpoints (guarded by withReady middleware)
 	mux.HandleFunc("/api/review-cycle", s.withReady(s.handleReviewCycle))
 	mux.HandleFunc("/api/config", s.withReady(s.handleConfig))
@@ -404,7 +409,71 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	if hasRound && session != nil && session.Mode == "files" {
 		info.Files = filterFilesAtRound(session, info.Files, round)
 	}
-	writeJSON(w, info)
+	type designSessionResponse struct {
+		SessionInfo
+		ReviewType string `json:"review_type,omitempty"`
+		Origin     string `json:"origin,omitempty"`
+		ProxyPort  int    `json:"proxy_port,omitempty"`
+	}
+	resp := designSessionResponse{SessionInfo: info}
+	if session != nil {
+		resp.ReviewType = session.ReviewType
+		resp.Origin = session.Origin
+		resp.ProxyPort = session.ProxyPort
+	}
+	writeJSON(w, resp)
+}
+
+func (s *Server) handleDesignPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	f, err := s.assets.Open("index.html")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	io.Copy(w, f)
+}
+
+func (s *Server) handleCritAgentJS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	f, err := s.assets.Open("crit-agent.js")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	io.Copy(w, f)
+}
+
+func (s *Server) handleCritVendor(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	name := strings.TrimPrefix(r.URL.Path, "/crit-vendor/")
+	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	f, err := s.assets.Open("crit-vendor/" + name)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	io.Copy(w, f)
 }
 
 // filterFilesAtRound returns the subset of files that have a snapshot recorded
