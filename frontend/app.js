@@ -371,14 +371,11 @@
   const enc = encodeURIComponent;
 
   // Author color-coding for multi-reviewer comments — shared helper so
-  // design-mode mounts produce matching swatch indices.
-  const AUTHOR_COLOR_COUNT = (window.crit && window.crit.commentCardHelpers && window.crit.commentCardHelpers.AUTHOR_COLOR_COUNT) || 6;
-  const authorColorIndex = (window.crit && window.crit.commentCardHelpers && window.crit.commentCardHelpers.authorColorIndex) ||
-    function authorColorIndex(name) {
-      let hash = 0;
-      for (const ch of name) hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
-      return Math.abs(hash) % AUTHOR_COLOR_COUNT;
-    };
+  // design-mode mounts produce matching swatch indices. The helpers module
+  // is loaded before app.js via index.html script order, so we reference it
+  // directly without a local fallback.
+  const AUTHOR_COLOR_COUNT = window.crit.commentCardHelpers.AUTHOR_COLOR_COUNT;
+  const authorColorIndex = window.crit.commentCardHelpers.authorColorIndex;
 
   // Sort comparator: directories before files at each depth, then alphabetical.
   // In files mode the user's CLI argument order is meaningful, so preserve it
@@ -1314,27 +1311,12 @@
   }
 
   // Pure rendering helpers live in crit-comment-card-helpers.js so design-mode
-  // rows render with the same primitives. Behaviour is byte-identical to the
-  // previous inline implementations.
-  const _ccHelpers = (window.crit && window.crit.commentCardHelpers) || {};
-  const escapeHtml = _ccHelpers.escapeHtml || function (str) {
-    return String(str == null ? '' : str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  };
-  const relativeTime = _ccHelpers.relativeTime || function (dateStr) {
-    const now = Date.now();
-    const then = new Date(dateStr).getTime();
-    const diff = Math.floor((now - then) / 1000);
-    if (diff < 60) return 'just now';
-    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
-    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
-    if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
-    return Math.floor(diff / 604800) + 'w ago';
-  };
-  const formatTime = _ccHelpers.formatTime || function (isoStr) {
-    if (!isoStr) return '';
-    const d = new Date(isoStr);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
+  // rows render with the same primitives. The helpers module is loaded before
+  // app.js via index.html script order, so we reference it directly.
+  const _ccHelpers = window.crit.commentCardHelpers;
+  const escapeHtml = _ccHelpers.escapeHtml;
+  const relativeTime = _ccHelpers.relativeTime;
+  const formatTime = _ccHelpers.formatTime;
 
   function getFileByPath(path) {
     return files.find(f => f.path === path);
