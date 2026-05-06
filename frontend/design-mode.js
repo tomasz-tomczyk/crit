@@ -92,18 +92,17 @@
   }
   state.announce = announce;
 
-  // Resilient session poll: server can return 503 until SetSession completes.
+  // Resilient session poll: delegates to the shared base poll, which
+  // handles the 503-until-SetSession-completes window. Cap matches the
+  // historical 60 * 250ms = 15s budget; the prior implementation used
+  // shared.fetchJSON (which throws on 503) — the new helper polls
+  // natively, no error rethrow is needed.
   async function waitForSession() {
-    for (var i = 0; i < 60; i++) {
-      try {
-        var s = await shared.fetchJSON('/api/session');
-        if (s) return s;
-      } catch (e) {
-        if (e.status !== 503) throw e;
-      }
-      await new Promise(function (r) { setTimeout(r, 250); });
-    }
-    throw new Error('design-mode: /api/session never became ready');
+    return await shared.waitForSession({
+      url: '/api/session',
+      intervalMs: 250,
+      maxWaitMs: 15000,
+    });
   }
 
   function buildShell() {
@@ -864,59 +863,18 @@
   }
 
   async function doFinishReview() {
-    // Dedup guard: finish can be triggered by the header button, the
-    // "send anyway" path, and resolveAllAndFinish. Double-submit creates a
-    // duplicate review record on the server.
-    if (finishInFlight && finishInFlight.busy()) return;
-    if (finishInFlight) finishInFlight.set();
-    try {
-      var resp = await fetch('/api/finish', { method: 'POST' });
-      if (!resp.ok) throw new Error('Finish review failed: HTTP ' + resp.status);
-      var data = await resp.json();
-      var approved = !!data.approved;
-      var prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
-
-      var dialog = document.getElementById('waitingDialog');
-      var headingEl = document.getElementById('waitingHeading');
-      var messageEl = document.getElementById('waitingMessage');
-      var clipEl = document.getElementById('waitingClipboard');
-      var promptEl = document.getElementById('waitingPrompt');
-
-      if (promptEl) promptEl.textContent = prompt;
-      if (clipEl) {
-        clipEl.textContent = 'Copy prompt';
-        clipEl.classList.remove('clipboard-confirm');
-      }
-
-      if (dialog) {
-        dialog.classList.remove('approved');
-        if (approved) {
-          void dialog.offsetWidth;
-          dialog.classList.add('approved');
-        }
-      }
-      if (headingEl) headingEl.textContent = approved ? 'Approved' : 'Review Complete';
-      if (messageEl) {
-        if (approved) {
-          messageEl.textContent =
-            'Your agent has been notified — no further action needed. You can close this tab whenever you’re ready.';
-        } else {
-          messageEl.innerHTML =
-            'Your agent has been notified. Waiting for updates…' +
-            '<span class="waiting-fallback">If your agent wasn’t listening, paste the prompt below.</span>';
-        }
-      }
-
-      try { await navigator.clipboard.writeText(prompt); } catch (_) {}
-      setUIState('waiting');
-    } catch (err) {
-      console.error('[design-mode] finish review failed:', err);
-      showToast('Failed to finish review');
-    } finally {
-      if (finishInFlight) finishInFlight.clear();
-    }
+    // Delegates DOM/clipboard/animation logic to crit.shared.runFinishReview;
+    // this wrapper supplies the design-mode dedup flag and uiState wiring.
+    return await shared.runFinishReview({
+      dedup: finishInFlight,
+      onApproved: function () { setUIState('waiting'); },
+      onWaiting: function () { setUIState('waiting'); },
+      onError: function (err) {
+        console.error('[design-mode] finish review failed:', err);
+        showToast('Failed to finish review');
+      },
+    });
   }
-
   async function resolveAllAndFinish() {
     var all = state.comments || [];
     for (var i = 0; i < all.length; i++) {

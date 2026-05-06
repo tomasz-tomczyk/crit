@@ -301,3 +301,154 @@ test('showToast: timeout=0 keeps the toast open until dismiss()', () => {
   host._children[0].dispatchEvent({ type: 'transitionend' });
   assert.equal(host._children.length, 0);
 });
+
+// ----- runFinishReview -----
+// Sandbox: stub document.getElementById for the five waitingDialog ids,
+// stub window.crit.shared (loaded via the same Function shim used above),
+// provide a fake fetch + clipboard, and exercise the approved/non-approved
+// branches plus the dedup contract.
+function makeFinishSandbox(fetchImpl, clipboardImpl) {
+  function makeEl() {
+    return {
+      textContent: '', innerHTML: '', offsetWidth: 0,
+      style: {},
+      classList: {
+        _set: new Set(),
+        add(...c) { c.forEach((x) => this._set.add(x)); },
+        remove(...c) { c.forEach((x) => this._set.delete(x)); },
+        contains(c) { return this._set.has(c); },
+      },
+    };
+  }
+  const els = {
+    waitingDialog: makeEl(),
+    waitingHeading: makeEl(),
+    waitingMessage: makeEl(),
+    waitingClipboard: makeEl(),
+    waitingPrompt: makeEl(),
+  };
+  const win = {};
+  const doc = { cookie: '', getElementById: (id) => els[id] || null };
+  const fn = new Function('window', 'document', src + '\nreturn window;');
+  fn(win, doc);
+  // Wire fetch/navigator into the sandbox window AND globalThis (helper uses bare fetch).
+  win.fetch = fetchImpl;
+  win.navigator = { clipboard: clipboardImpl };
+  globalThis.fetch = fetchImpl;
+  globalThis.navigator = win.navigator;
+  globalThis.document = doc;
+  return { shared: win.crit.shared, els };
+}
+
+test('runFinishReview approved path: sets approved class + Approved heading + onApproved fires', async () => {
+  // Note: navigator.clipboard.writeText is wrapped in try/catch in the helper.
+  // Node's built-in navigator is non-writable, so the call no-ops here — same
+  // shape as a browser without clipboard permission, which is the contract
+  // we want.
+  const fetch = async () => ({ ok: true, json: async () => ({ approved: true, prompt: 'ok-prompt' }) });
+  const { shared: s, els } = makeFinishSandbox(fetch, { writeText: async () => {} });
+  let approvedArg = null;
+  let waitingCalled = false;
+  const result = await s.runFinishReview({
+    onApproved: (p) => { approvedArg = p; },
+    onWaiting: () => { waitingCalled = true; },
+  });
+  assert.deepEqual(result, { approved: true, prompt: 'ok-prompt' });
+  assert.equal(els.waitingHeading.textContent, 'Approved');
+  assert.equal(els.waitingPrompt.textContent, 'ok-prompt');
+  assert.equal(els.waitingDialog.classList.contains('approved'), true);
+  assert.equal(els.waitingClipboard.textContent, 'Copy prompt');
+  assert.equal(approvedArg, 'ok-prompt');
+  assert.equal(waitingCalled, false);
+});
+
+test('runFinishReview not-approved path: leaves approved class off + uses default prompt fallback', async () => {
+  const fetch = async () => ({ ok: true, json: async () => ({ approved: false }) });
+  const { shared: s, els } = makeFinishSandbox(fetch, { writeText: async () => {} });
+  let waitingCalled = false;
+  const result = await s.runFinishReview({ onWaiting: () => { waitingCalled = true; } });
+  assert.equal(result.approved, false);
+  assert.equal(result.prompt, 'I reviewed the changes, no feedback, good to go!');
+  assert.equal(els.waitingHeading.textContent, 'Review Complete');
+  assert.equal(els.waitingDialog.classList.contains('approved'), false);
+  assert.equal(waitingCalled, true);
+});
+
+test('runFinishReview dedup blocks the second concurrent call', async () => {
+  let calls = 0;
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const fetch = async () => {
+    calls++;
+    await gate;
+    return { ok: true, json: async () => ({ approved: false }) };
+  };
+  const { shared: s } = makeFinishSandbox(fetch, { writeText: async () => {} });
+  const dedup = (function () {
+    let busy = false;
+    return { busy: () => busy, set: () => { busy = true; }, clear: () => { busy = false; } };
+  })();
+  const p1 = s.runFinishReview({ dedup });
+  const p2 = s.runFinishReview({ dedup });
+  release();
+  const [r1, r2] = await Promise.all([p1, p2]);
+  assert.equal(calls, 1);
+  assert.equal(r1.approved, false);
+  assert.equal(r2, null, 'second call short-circuits to null');
+});
+
+test('runFinishReview onError catches and returns null', async () => {
+  const fetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
+  const { shared: s } = makeFinishSandbox(fetch, { writeText: async () => {} });
+  let captured = null;
+  const result = await s.runFinishReview({ onError: (e) => { captured = e; } });
+  assert.equal(result, null);
+  assert.match(String(captured), /HTTP 500/);
+});
+
+// ----- waitForSession -----
+test('waitForSession: 503 then 200 resolves with payload, fires onProgress', async () => {
+  let n = 0;
+  globalThis.fetch = async () => {
+    n++;
+    if (n < 3) return { status: 503 };
+    return { status: 200, ok: true, json: async () => ({ ready: true, n }) };
+  };
+  const win = {};
+  const doc = { cookie: '' };
+  new Function('window', 'document', src)(win, doc);
+  const progress = [];
+  const payload = await win.crit.shared.waitForSession({
+    intervalMs: 1,
+    onProgress: (e) => { progress.push(e); },
+  });
+  assert.deepEqual(payload, { ready: true, n: 3 });
+  assert.equal(progress.length, 2, 'onProgress fires once per 503');
+});
+
+test('waitForSession: maxWaitMs cap rejects with timeout', async () => {
+  globalThis.fetch = async () => ({ status: 503 });
+  const win = {};
+  const doc = { cookie: '' };
+  new Function('window', 'document', src)(win, doc);
+  await assert.rejects(
+    () => win.crit.shared.waitForSession({ intervalMs: 5, maxWaitMs: 20 }),
+    /timed out/,
+  );
+});
+
+test('waitForSession: AbortSignal aborts mid-poll', async () => {
+  globalThis.fetch = async (_url, opts) => {
+    if (opts && opts.signal && opts.signal.aborted) {
+      const e = new Error('aborted'); e.name = 'AbortError'; throw e;
+    }
+    return { status: 503 };
+  };
+  const win = {};
+  const doc = { cookie: '' };
+  new Function('window', 'document', src)(win, doc);
+  const ac = new AbortController();
+  const p = win.crit.shared.waitForSession({ intervalMs: 50, signal: ac.signal });
+  setTimeout(() => ac.abort(), 5);
+  await assert.rejects(() => p, (e) => e && e.name === 'AbortError');
+});

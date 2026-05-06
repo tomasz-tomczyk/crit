@@ -202,6 +202,154 @@
     return dismiss;
   }
 
+  // ===== runFinishReview =====
+  // Shared finish-review flow used by both code-review (app.js) and
+  // design-mode (design-mode.js). POSTs /api/finish, parses
+  // {approved, prompt}, drives the #waitingDialog modal (heading,
+  // message, prompt body, "Copy prompt" affordance), replays the
+  // approved-checkmark CSS animation via the offsetWidth reflow trick,
+  // and copies the prompt to the clipboard. The caller owns its own
+  // uiState transition via the onWaiting/onApproved callbacks.
+  //
+  // opts:
+  //   onWaiting()        — called after a non-approved finish (caller flips uiState).
+  //   onApproved(prompt) — called after an approved finish. Receives the prompt string.
+  //   onError(err)       — error surfacer (caller decides toast vs. console). Default: console.error.
+  //   dedup              — optional inflight flag (window.crit.design.inflight.makeInFlightFlag()).
+  //                        If provided and busy, the call is a no-op (returns null).
+  //
+  // Returns: Promise<{approved, prompt} | null>. Rejects only when onError is not
+  // supplied; if onError is supplied, the error is delivered there and the promise
+  // resolves to null (matches existing call-site ergonomics).
+  async function runFinishReview(opts) {
+    var o = opts || {};
+    var dedup = o.dedup;
+    if (dedup && typeof dedup.busy === 'function' && dedup.busy()) return null;
+    if (dedup && typeof dedup.set === 'function') dedup.set();
+    try {
+      var resp = await fetch('/api/finish', { method: 'POST' });
+      if (!resp.ok) throw new Error('Finish review failed: HTTP ' + resp.status);
+      var data = await resp.json();
+      var approved = !!data.approved;
+      var prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
+
+      var dialog = document.getElementById('waitingDialog');
+      var headingEl = document.getElementById('waitingHeading');
+      var messageEl = document.getElementById('waitingMessage');
+      var clipEl = document.getElementById('waitingClipboard');
+      var promptEl = document.getElementById('waitingPrompt');
+
+      if (promptEl) promptEl.textContent = prompt;
+      if (clipEl) {
+        clipEl.textContent = 'Copy prompt';
+        clipEl.classList.remove('clipboard-confirm');
+      }
+
+      if (dialog) {
+        dialog.classList.remove('approved');
+        if (approved) {
+          // Force reflow so the CSS animation restarts when the class is re-added.
+          void dialog.offsetWidth;
+          dialog.classList.add('approved');
+        }
+      }
+      if (headingEl) headingEl.textContent = approved ? 'Approved' : 'Review Complete';
+      if (messageEl) {
+        if (approved) {
+          messageEl.textContent =
+            'Your agent has been notified — no further action needed. ' +
+            'You can close this tab whenever you’re ready.';
+        } else {
+          messageEl.innerHTML =
+            'Your agent has been notified. Waiting for updates…' +
+            '<span class="waiting-fallback">If your agent wasn’t listening, paste the prompt below.</span>';
+        }
+      }
+
+      try { await navigator.clipboard.writeText(prompt); } catch (_) {}
+
+      if (approved && typeof o.onApproved === 'function') o.onApproved(prompt);
+      else if (!approved && typeof o.onWaiting === 'function') o.onWaiting();
+
+      return { approved: approved, prompt: prompt };
+    } catch (err) {
+      if (typeof o.onError === 'function') {
+        o.onError(err);
+        return null;
+      }
+      throw err;
+    } finally {
+      if (dedup && typeof dedup.clear === 'function') dedup.clear();
+    }
+  }
+
+  // ===== waitForSession =====
+  // Shared base poll for the deferred-init readiness gate. The server
+  // returns 503 until SetSession() completes — every endpoint other
+  // than /api/health is gated. Callers (code-review init,
+  // design-mode init) wrap this with their own UI hook via
+  // onProgress(elapsedMs).
+  //
+  // opts:
+  //   url        — defaults to '/api/session'.
+  //   intervalMs — poll interval, default 200.
+  //   maxWaitMs  — optional cap; rejects after with a timeout error.
+  //   onProgress — optional (elapsedMs) => void, called before each retry sleep.
+  //   signal     — optional AbortSignal; rejects with AbortError when aborted.
+  //
+  // Resolves with the parsed JSON payload on the first non-503 response.
+  // Throws on network error, 5xx (other than 503), or non-JSON-shaped failures.
+  async function waitForSession(opts) {
+    var o = opts || {};
+    var url = o.url || '/api/session';
+    var intervalMs = (typeof o.intervalMs === 'number') ? o.intervalMs : 200;
+    var maxWaitMs = (typeof o.maxWaitMs === 'number') ? o.maxWaitMs : 0;
+    var onProgress = (typeof o.onProgress === 'function') ? o.onProgress : null;
+    var signal = o.signal;
+    var start = Date.now();
+
+    function aborted() {
+      return signal && signal.aborted;
+    }
+    function abortError() {
+      var e = new Error('Aborted');
+      e.name = 'AbortError';
+      return e;
+    }
+
+    while (true) {
+      if (aborted()) throw abortError();
+      var elapsed = Date.now() - start;
+      if (maxWaitMs > 0 && elapsed > maxWaitMs) {
+        throw new Error('waitForSession: timed out after ' + maxWaitMs + 'ms');
+      }
+
+      var fetchOpts = signal ? { signal: signal } : undefined;
+      var r = await fetch(url, fetchOpts);
+      if (r.status !== 503) {
+        if (!r.ok) {
+          var err = new Error('waitForSession: HTTP ' + r.status);
+          err.status = r.status;
+          err.response = r;
+          throw err;
+        }
+        return await r.json();
+      }
+      if (onProgress) onProgress(elapsed);
+      await new Promise(function (resolve, reject) {
+        var t = setTimeout(function () {
+          if (signal) signal.removeEventListener('abort', onAbort);
+          resolve();
+        }, intervalMs);
+        function onAbort() {
+          clearTimeout(t);
+          reject(abortError());
+        }
+        if (signal) signal.addEventListener('abort', onAbort, { once: true });
+      });
+    }
+  }
+
   window.crit = window.crit || {};
   window.crit.shared = {
     escapeHTML,
@@ -214,5 +362,7 @@
     setSetting,
     updateCommentCountIndicator,
     showToast,
+    runFinishReview,
+    waitForSession,
   };
 })();

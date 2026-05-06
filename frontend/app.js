@@ -594,50 +594,44 @@
     }
   }
 
+  // Wraps crit.shared.waitForSession with the app.js-specific UI:
+  // an elapsed-seconds "Initializing..." loader in #filesContainer, a
+  // server-disconnected message on network failure, and a body.message
+  // surfacing on HTTP 500. Returns the parsed JSON payload (matches
+  // the previous .then(r => r.json()) call sites at the seam).
   async function fetchWhenReady(url) {
-    const start = Date.now();
-    const maxWait = 5 * 60 * 1000; // 5 minutes
-    while (true) {
-      let r;
-      try {
-        r = await fetch(url);
-      } catch {
-        // Network error — server may have shut down during init
-        const el = document.getElementById('filesContainer');
-        if (el) {
-          el.innerHTML =
-            '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">' +
-            'Server disconnected</div>';
-        }
-        throw new Error('Server disconnected');
-      }
-      if (r.status === 503) {
-        if (Date.now() - start > maxWait) {
-          throw new Error('Server did not finish initializing within 5 minutes');
-        }
-        const elapsed = Math.round((Date.now() - start) / 1000);
-        const loadingEl = document.getElementById('filesContainer');
-        if (loadingEl) {
-          loadingEl.innerHTML =
-            '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">' +
-            'Initializing\u2026 (' + elapsed + 's)</div>';
-        }
-        await new Promise(function(resolve) { setTimeout(resolve, 500); });
-        continue;
-      }
-      if (r.status === 500) {
-        let body = {};
-        try { body = await r.json(); } catch {}
-        const msg = body.message || 'Server initialization failed';
-        document.getElementById('filesContainer').innerHTML =
+    function renderLoading(text) {
+      const el = document.getElementById('filesContainer');
+      if (el) {
+        el.innerHTML =
           '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">' +
-          msg + '</div>';
+          text + '</div>';
+      }
+    }
+    try {
+      return await window.crit.shared.waitForSession({
+        url: url,
+        intervalMs: 500,
+        maxWaitMs: 5 * 60 * 1000,
+        onProgress: function (elapsedMs) {
+          const elapsed = Math.round(elapsedMs / 1000);
+          renderLoading('Initializing\u2026 (' + elapsed + 's)');
+        },
+      });
+    } catch (err) {
+      if (err && err.status === 500 && err.response) {
+        let body = {};
+        try { body = await err.response.json(); } catch {}
+        const msg = body.message || 'Server initialization failed';
+        renderLoading(msg);
         throw new Error(msg);
       }
-      if (!r.ok) {
-        throw new Error('Unexpected server response: ' + r.status);
+      if (err && err.name === 'TypeError') {
+        // fetch() rejects with TypeError on network failure (server shutdown during init).
+        renderLoading('Server disconnected');
+        throw new Error('Server disconnected');
       }
-      return r;
+      throw err;
     }
   }
 
@@ -659,8 +653,8 @@
       '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>';
 
     const [sessionRes, configRes] = await Promise.all([
-      fetchWhenReady('/api/session?scope=' + enc(diffScope)).then(r => r.json()),
-      fetchWhenReady('/api/config').then(r => r.json()),
+      fetchWhenReady('/api/session?scope=' + enc(diffScope)),
+      fetchWhenReady('/api/config'),
     ]);
 
     session = sessionRes;
@@ -771,7 +765,7 @@
         setSetting('diffScope', 'all');
         // Re-fetch session with corrected scope — the initial fetch used the
         // stale cookie value and may have returned an empty file list.
-        const corrected = await fetchWhenReady('/api/session?scope=all').then(r => r.json());
+        const corrected = await fetchWhenReady('/api/session?scope=all');
         session = corrected;
         reviewComments = corrected.review_comments || [];
       }
@@ -6486,47 +6480,18 @@
   // ===== General Comment Button (in panel header) =====
 
   // ===== Finish Review =====
+  // The DOM/clipboard/animation logic lives in crit.shared.runFinishReview;
+  // this thin wrapper preserves the app.js-specific waitingNotApproved flag
+  // and uiState transition (design-mode wires its own state machine).
   async function doFinishReview() {
-    try {
-      const resp = await fetch('/api/finish', { method: 'POST' });
-      if (!resp.ok) {
-        throw new Error('Finish review failed: HTTP ' + resp.status);
-      }
-      const data = await resp.json();
-      const approved = !!data.approved;
-      waitingNotApproved = !approved;
-      const prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
-
-      const dialog = document.getElementById('waitingDialog');
-      const headingEl = document.getElementById('waitingHeading');
-      const messageEl = document.getElementById('waitingMessage');
-      const clipEl = document.getElementById('waitingClipboard');
-
-      document.getElementById('waitingPrompt').textContent = prompt;
-      clipEl.textContent = 'Copy prompt';
-      clipEl.classList.remove('clipboard-confirm');
-
-      // Replay the success-mark draw animation each time we enter approved state.
-      dialog.classList.remove('approved');
-      if (approved) {
-        void dialog.offsetWidth; // force reflow — restarts CSS animations on re-added class
-        dialog.classList.add('approved');
-        headingEl.textContent = 'Approved';
-        messageEl.textContent =
-          'Your agent has been notified \u2014 no further action needed. You can close this tab whenever you\u2019re ready.';
-      } else {
-        headingEl.textContent = 'Review Complete';
-        messageEl.innerHTML =
-          'Your agent has been notified. Waiting for updates\u2026' +
-          '<span class="waiting-fallback">If your agent wasn\u2019t listening, paste the prompt below.</span>';
-      }
-
-      try { await navigator.clipboard.writeText(prompt); } catch {}
-      setUIState('waiting');
-    } catch (err) {
-      console.error('Error finishing review:', err);
-      showMiniToast('Failed to finish review');
-    }
+    return await window.crit.shared.runFinishReview({
+      onApproved: function () { waitingNotApproved = false; setUIState('waiting'); },
+      onWaiting: function () { waitingNotApproved = true; setUIState('waiting'); },
+      onError: function (err) {
+        console.error('Error finishing review:', err);
+        showMiniToast('Failed to finish review');
+      },
+    });
   }
 
   async function resolveAllAndFinish() {
