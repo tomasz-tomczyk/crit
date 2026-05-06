@@ -3799,6 +3799,50 @@ func TestHandleFileComments_AcceptsDOMAnchor_AutoRegistersRoute(t *testing.T) {
 	}
 }
 
+func TestDesign_PostFileCommentsWithDOMAnchor(t *testing.T) {
+	s, session := newTestServer(t)
+	session.ReviewType = "design"
+	session.Origin = "http://localhost:3000"
+	body := strings.NewReader(`{
+		"start_line": 0, "end_line": 0, "body": "looks off",
+		"dom_anchor": {
+			"pathname": "/dashboard",
+			"css_selector": "#main > h1:nth-of-type(1)",
+			"tag_chain": ["MAIN", "H1"],
+			"accessible_name": "Welcome",
+			"role": "heading",
+			"landmark": "main",
+			"outer_html": "<h1>Welcome</h1>",
+			"screenshot": "data:image/jpeg;base64,abc",
+			"viewport_width": 1280,
+			"viewport_height": 800
+		}
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/file/comments?path=/dashboard", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK && w.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var got Comment
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.DOMAnchor == nil {
+		t.Fatal("DOMAnchor not persisted")
+	}
+	if got.DOMAnchor.CSSSelector != "#main > h1:nth-of-type(1)" {
+		t.Fatalf("wrong selector: %q", got.DOMAnchor.CSSSelector)
+	}
+	if got.DOMAnchor.AccessibleName != "Welcome" {
+		t.Errorf("accessible_name lost: %q", got.DOMAnchor.AccessibleName)
+	}
+	if got.DOMAnchor.Role != "heading" {
+		t.Errorf("role lost: %q", got.DOMAnchor.Role)
+	}
+}
+
 func TestHandleFileComments_CodeComment_LineValidationUnchanged(t *testing.T) {
 	s, _ := newTestServer(t)
 	body := `{"start_line":0,"end_line":0,"body":"code comment"}`
