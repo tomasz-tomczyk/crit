@@ -71,6 +71,26 @@
     else html.removeAttribute('data-theme');
   }
 
+  // Generic crit-settings JSON cookie accessors (mirror app.js semantics).
+  function readSettings() {
+    const raw = getCookie('crit-settings');
+    if (!raw) return {};
+    try { return JSON.parse(decodeURIComponent(raw)) || {}; }
+    catch (_) { return {}; }
+  }
+  function writeSettings(obj) {
+    setCookie('crit-settings', encodeURIComponent(JSON.stringify(obj || {})));
+  }
+  function getSetting(key, fallback) {
+    const s = readSettings();
+    return Object.prototype.hasOwnProperty.call(s, key) ? s[key] : fallback;
+  }
+  function setSetting(key, value) {
+    const s = readSettings();
+    s[key] = value;
+    writeSettings(s);
+  }
+
   window.crit = window.crit || {};
   window.crit.shared = {
     escapeHTML,
@@ -79,5 +99,7 @@
     setCookie,
     readThemeFromSettings,
     applyThemeFromCookie,
+    getSetting,
+    setSetting,
   };
 })();

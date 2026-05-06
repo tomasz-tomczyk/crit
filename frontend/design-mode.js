@@ -113,25 +113,32 @@
       md.setAttribute('aria-label', 'Interaction mode');
       md.innerHTML =
         '<button type="button" class="toggle-btn active" data-mode="navigate" aria-pressed="true">Navigate</button>' +
-        '<button type="button" class="toggle-btn" data-mode="pin" disabled title="Pin mode (Phase C)">Pin</button>';
+        '<button type="button" class="toggle-btn" data-mode="pin" disabled title="Pin mode">Pin</button>';
 
-      // Round counter (R3): reuse .viewed-count style
-      var rc = document.createElement('span');
-      rc.className = 'viewed-count';
-      rc.id = 'designRoundCounter';
-      rc.textContent = 'round 1';
+      // Round counter (R3): reuse the existing .viewed-count element so it
+      // sits in the exact same DOM slot as code-review's round counter.
+      var rc = document.getElementById('viewedCount');
+      if (rc) {
+        rc.id = 'designRoundCounter';
+        rc.textContent = 'round 1';
+        rc.style.display = '';
+      } else {
+        rc = document.createElement('span');
+        rc.className = 'viewed-count';
+        rc.id = 'designRoundCounter';
+        rc.textContent = 'round 1';
+        headerRight.insertBefore(rc, headerRight.firstChild);
+      }
 
-      // Insert before the existing settings toggle (which keeps it as
-      // rightmost icon button).
+      // Insert viewport + mode toggles before the existing settings toggle
+      // (which keeps it as rightmost icon button).
       var settingsToggle = document.getElementById('settingsToggle');
       if (settingsToggle) {
         headerRight.insertBefore(vp, settingsToggle);
         headerRight.insertBefore(md, settingsToggle);
-        headerRight.insertBefore(rc, settingsToggle);
       } else {
         headerRight.appendChild(vp);
         headerRight.appendChild(md);
-        headerRight.appendChild(rc);
       }
     }
 
@@ -248,6 +255,11 @@
 
   function applyViewport(vp) {
     state.viewport = { w: vp.w, h: vp.h, key: vp.key };
+    // Bug 8: persist viewport key in crit-settings cookie. Skip 'custom'
+    // (drag-resize) so the next session restarts at the nearest preset.
+    if (vp.key && vp.key !== 'custom' && shared && shared.setSetting) {
+      try { shared.setSetting('design_viewport', vp.key); } catch (_) { /* noop */ }
+    }
     var paneRect = els.pane.getBoundingClientRect();
     var w, h;
     if (vp.key === 'fit') {
@@ -284,7 +296,10 @@
       var vp = VIEWPORTS.find(function (v) { return v.key === key; });
       if (vp) applyViewport(vp);
     });
-    var initial = VIEWPORTS.find(function (v) { return v.key === 'desktop'; });
+    // Bug 8: hydrate persisted viewport (desktop default).
+    var savedKey = (shared && shared.getSetting) ? shared.getSetting('design_viewport', 'desktop') : 'desktop';
+    var initial = VIEWPORTS.find(function (v) { return v.key === savedKey; })
+      || VIEWPORTS.find(function (v) { return v.key === 'desktop'; });
     applyViewport(initial);
 
     window.addEventListener('resize', function () {
@@ -323,19 +338,24 @@
     // while Pin mode is active.
     postToAgent({ type: 'set-marker-tabindex', value: next === 'pin' ? -1 : 0 });
     setActiveModeButton();
+    // Bug 9: announce mode change so the user knows it took effect.
+    announce(next === 'pin' ? 'Pin mode' : 'Navigate mode');
   }
   state.setMode = setMode;
 
   registerInstaller(function installMode() {
     if (!els.modeToggle) return;
     var pinBtn = els.modeToggle.querySelector('.toggle-btn[data-mode="pin"]');
+    // Bug 9: keep Pin disabled until the agent reports ready, so a click
+    // never races the iframe→agent boot. handleAgentReady() re-enables.
     if (pinBtn) {
-      pinBtn.removeAttribute('disabled');
-      pinBtn.removeAttribute('title');
+      pinBtn.setAttribute('disabled', '');
+      pinBtn.setAttribute('title', 'Loading…');
+      pinBtn.setAttribute('aria-disabled', 'true');
     }
     els.modeToggle.addEventListener('click', function (e) {
       var btn = e.target.closest('.toggle-btn');
-      if (!btn) return;
+      if (!btn || btn.hasAttribute('disabled')) return;
       var key = btn.dataset.mode;
       if (key !== 'navigate' && key !== 'pin') return;
       setMode(key);
@@ -486,7 +506,7 @@
     els.panelBody.innerHTML =
       '<div class="comments-panel-empty" style="padding:32px 16px;text-align:center;color:var(--crit-editor-fg-muted);font-size:13px;line-height:1.5">' +
       'No pins yet.<br>' +
-      'Pin mode activates in Phase C.' +
+      'Switch to Pin mode and click an element to leave a comment.' +
       '</div>';
   }
 
@@ -567,9 +587,41 @@
   });
 
   // ============================================================
+  // Bug 5 (partial): Resolve / Reopen click on design pin rows.
+  // Full edit/reply parity with code-review's renderCommentCard requires
+  // refactoring large chunks of app.js into a shared module — deferred.
+  // ============================================================
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.crit-design-comment-resolve');
+    if (!btn) return;
+    e.stopPropagation();
+    var id = btn.dataset.commentId;
+    var path = btn.dataset.pathname || '/';
+    if (!id) return;
+    var c = (state.comments || []).find(function (x) { return x && x.id === id; });
+    var resolved = c ? !c.resolved : true;
+    btn.disabled = true;
+    fetch('/api/comment/' + encodeURIComponent(id) + '/resolve?path=' + encodeURIComponent(path), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolved: resolved }),
+    }).then(function (r) {
+      if (!r.ok) throw new Error('resolve failed: ' + r.status);
+      if (c) c.resolved = resolved;
+      refreshPanel();
+    }).catch(function (err) {
+      showToast('Resolve failed: ' + (err && err.message || err));
+    }).finally(function () {
+      btn.disabled = false;
+    });
+  });
+
+  // ============================================================
   // Task 15: Clicking a comment row navigates iframe
   // ============================================================
   document.addEventListener('click', function (e) {
+    // Don't navigate when clicking interactive controls inside the card.
+    if (e.target.closest && e.target.closest('button, a, input, textarea')) return;
     var card = e.target.closest && e.target.closest('.comment-card[data-design-route]');
     if (!card) return;
     var route = card.dataset.designRoute || '/';
@@ -588,6 +640,81 @@
     if (els && els.iframe) els.iframe.src = proxyURL(utils.normaliseRoute(route));
     state.currentRoute = utils.normaliseRoute(route);
     renderBreadcrumb();
+  });
+
+  // ============================================================
+  // Settings overlay (Bug 7): wire #settingsToggle in design mode. Code
+  // review's app.js installs the full settings panel; design mode ships a
+  // minimal version with the theme pill + close. Other panes/tabs are
+  // hidden so the user isn't confused by half-rendered cards.
+  // ============================================================
+  registerInstaller(function installSettingsOverlay() {
+    var toggle = document.getElementById('settingsToggle');
+    var overlay = document.getElementById('settingsOverlay');
+    if (!toggle || !overlay) return;
+
+    function renderThemePane() {
+      var pane = overlay.querySelector('#settingsPane');
+      if (!pane) return;
+      var current = (shared.getSetting && shared.getSetting('theme', 'system')) || 'system';
+      var icons = {
+        system: '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v5.5A2.25 2.25 0 0 1 11.75 12H4.25A2.25 2.25 0 0 1 2 9.75v-5.5Z" clip-rule="evenodd"/></svg>',
+        light:  '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="3"/></svg>',
+        dark:   '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M14.4 10.1A5.5 5.5 0 0 1 6.4 2.3a6.5 6.5 0 1 0 8 7.8Z"/></svg>',
+      };
+      var html = '<div class="settings-section-label">Display</div>' +
+        '<div class="settings-display-group">' +
+          '<div class="settings-display-row">' +
+            '<span class="settings-display-label">Theme</span>' +
+            '<div class="settings-pill settings-pill--theme" role="group" aria-label="Theme">';
+      ['system', 'light', 'dark'].forEach(function (t) {
+        var active = t === current ? ' active' : '';
+        var label = t.charAt(0).toUpperCase() + t.slice(1);
+        html += '<button type="button" class="settings-pill-btn' + active + '" data-settings-theme="' + t + '" aria-pressed="' + (t === current) + '" title="' + label + ' theme">' + icons[t] + '</button>';
+      });
+      html += '</div></div></div>';
+      pane.innerHTML = html;
+    }
+
+    function open() {
+      overlay.classList.add('active');
+      // Hide tabs/panes other than Settings (no Shortcuts/About in design v1).
+      var tabs = overlay.querySelectorAll('.settings-tab[role="tab"]');
+      tabs.forEach(function (t) {
+        if (t.dataset.tab === 'settings') {
+          t.classList.add('active');
+          t.setAttribute('aria-selected', 'true');
+          t.style.display = '';
+        } else {
+          t.style.display = 'none';
+        }
+      });
+      var panes = overlay.querySelectorAll('.settings-pane');
+      panes.forEach(function (p) {
+        p.classList.toggle('active', p.dataset.pane === 'settings');
+      });
+      renderThemePane();
+    }
+    function close() { overlay.classList.remove('active'); }
+
+    toggle.addEventListener('click', function () {
+      if (overlay.classList.contains('active')) close(); else open();
+    });
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) close();
+      var closeBtn = e.target.closest && e.target.closest('#settingsClose');
+      if (closeBtn) { close(); return; }
+      var themeBtn = e.target.closest && e.target.closest('[data-settings-theme]');
+      if (themeBtn) {
+        var t = themeBtn.dataset.settingsTheme;
+        if (shared.setSetting) shared.setSetting('theme', t);
+        if (shared.applyThemeFromCookie) shared.applyThemeFromCookie();
+        renderThemePane();
+      }
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && overlay.classList.contains('active')) close();
+    });
   });
 
   // ============================================================
@@ -900,6 +1027,15 @@
   function handleAgentReady() {
     state.agentReady = true;
     if (_sender) _sender.markReady();
+    // Bug 9: now that the agent is listening, enable the Pin toggle.
+    if (els.modeToggle) {
+      var pinBtn = els.modeToggle.querySelector('.toggle-btn[data-mode="pin"]');
+      if (pinBtn) {
+        pinBtn.removeAttribute('disabled');
+        pinBtn.removeAttribute('aria-disabled');
+        pinBtn.removeAttribute('title');
+      }
+    }
     pushPinsToAgent();
   }
   function handleAgentError(e) {
