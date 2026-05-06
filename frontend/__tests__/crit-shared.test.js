@@ -482,3 +482,153 @@ test('waitForSession: AbortSignal aborts mid-poll', async () => {
   setTimeout(() => ac.abort(), 5);
   await assert.rejects(() => p, (e) => e && e.name === 'AbortError');
 });
+
+// ===== installSidebarResize =====
+// Pure-math + behavioural tests for the shared sidebar/panel resize helper.
+// The helper owns pointer capture, the body.sidebar-resizing class (cursor
+// lock — design-mode used to flicker without it), persistence on pointerup,
+// and min clamping. All four are pinned below.
+//
+// Pure math via computeResizeDelta first, then DOM-level behaviour through
+// a minimal element/event stub (jsdom-free for speed and parity with the
+// other tests in this file).
+test('computeResizeDelta: right-edge handle, drag right grows the panel', () => {
+  // edge=right, dir=+1; dx=+100 -> w = 400 + 100 = 500
+  assert.equal(shared.computeResizeDelta(400, 1000, 1100, 'right', 200), 500);
+});
+
+test('computeResizeDelta: left-edge handle, drag left grows the panel', () => {
+  // edge=left, dir=-1; dx=-100 -> delta=+100 -> w=500
+  assert.equal(shared.computeResizeDelta(400, 1000, 900, 'left', 200), 500);
+});
+
+test('computeResizeDelta: clamps to min', () => {
+  // left edge, dragging right shrinks; w would be -600, clamps at 200
+  assert.equal(shared.computeResizeDelta(400, 1000, 2000, 'left', 200), 200);
+});
+
+test('computeResizeDelta: NO upper clamp', () => {
+  assert.equal(shared.computeResizeDelta(400, 1000, -1000, 'left', 200), 2400);
+});
+
+test('computeResizeDelta: default min is 200', () => {
+  assert.equal(shared.computeResizeDelta(100, 0, 1000, 'left'), 200);
+});
+
+// ----- DOM-level behaviour -----
+function makeResizeSandbox(panelWidth) {
+  function classList() {
+    const set = new Set();
+    return {
+      _set: set,
+      add(...c) { c.forEach((x) => set.add(x)); },
+      remove(...c) { c.forEach((x) => set.delete(x)); },
+      contains(c) { return set.has(c); },
+    };
+  }
+  function makeEl() {
+    return {
+      _listeners: {},
+      classList: classList(),
+      style: {},
+      addEventListener(evt, cb) {
+        (this._listeners[evt] = this._listeners[evt] || []).push(cb);
+      },
+      removeEventListener(evt, cb) {
+        const arr = this._listeners[evt] || [];
+        const i = arr.indexOf(cb);
+        if (i >= 0) arr.splice(i, 1);
+      },
+      dispatch(type, props) {
+        const ev = Object.assign({ type, preventDefault() {} }, props || {});
+        (this._listeners[type] || []).slice().forEach((cb) => cb(ev));
+      },
+      setPointerCapture() {},
+      releasePointerCapture() {},
+      getBoundingClientRect() {
+        // Panel bounding rect: width comes from style if set; default to seed.
+        const w = parseFloat(this.style.width);
+        return { width: Number.isFinite(w) ? w : panelWidth };
+      },
+    };
+  }
+  const handle = makeEl();
+  const panel = makeEl();
+  const body = makeEl();
+  const win = {};
+  const doc = { cookie: '', body };
+  new Function('window', 'document', src)(win, doc);
+  return { shared: win.crit.shared, handle, panel, body, doc };
+}
+
+test('installSidebarResize: pointerdown adds body.sidebar-resizing + handle.dragging', () => {
+  const { shared: s, handle, panel, body } = makeResizeSandbox(400);
+  s.installSidebarResize(handle, panel, { settingKey: 'k', min: 200, edge: 'left' });
+  handle.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 1000 });
+  assert.equal(body.classList.contains('sidebar-resizing'), true);
+  assert.equal(handle.classList.contains('dragging'), true);
+});
+
+test('installSidebarResize: pointerup removes body.sidebar-resizing', () => {
+  const { shared: s, handle, panel, body } = makeResizeSandbox(400);
+  s.installSidebarResize(handle, panel, { settingKey: 'k', min: 200, edge: 'left' });
+  handle.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 1000 });
+  handle.dispatch('pointerup', { pointerId: 1, clientX: 900 });
+  assert.equal(body.classList.contains('sidebar-resizing'), false);
+  assert.equal(handle.classList.contains('dragging'), false);
+});
+
+test('installSidebarResize: pointermove updates panel.style.width (left edge grows on drag-left)', () => {
+  const { shared: s, handle, panel } = makeResizeSandbox(400);
+  s.installSidebarResize(handle, panel, { settingKey: 'k', min: 200, edge: 'left' });
+  handle.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 1000 });
+  handle.dispatch('pointermove', { pointerId: 1, clientX: 900 });
+  assert.equal(panel.style.width, '500px');
+});
+
+test('installSidebarResize: min is respected during drag', () => {
+  const { shared: s, handle, panel } = makeResizeSandbox(400);
+  s.installSidebarResize(handle, panel, { settingKey: 'k', min: 200, edge: 'left' });
+  handle.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 1000 });
+  handle.dispatch('pointermove', { pointerId: 1, clientX: 5000 }); // would be -3600
+  assert.equal(panel.style.width, '200px');
+});
+
+test('installSidebarResize: width persisted via setSetting on pointerup', () => {
+  const { shared: s, handle, panel, doc } = makeResizeSandbox(400);
+  s.installSidebarResize(handle, panel, { settingKey: 'design_commentsPanelWidth', min: 200, edge: 'left' });
+  handle.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 1000 });
+  handle.dispatch('pointermove', { pointerId: 1, clientX: 850 }); // w=550
+  handle.dispatch('pointerup', { pointerId: 1, clientX: 850 });
+  // The cookie write should contain the rounded width.
+  const m = doc.cookie.match(/^crit-settings=([^;]*)/);
+  assert.ok(m, 'crit-settings cookie was written');
+  const parsed = JSON.parse(decodeURIComponent(m[1]));
+  assert.equal(parsed.design_commentsPanelWidth, 550);
+});
+
+test('installSidebarResize: applies persisted width on install', () => {
+  const { shared: s, handle, panel, doc } = makeResizeSandbox(400);
+  doc.cookie = 'crit-settings=' + encodeURIComponent(JSON.stringify({ k: 612 }));
+  s.installSidebarResize(handle, panel, { settingKey: 'k', min: 200, edge: 'left' });
+  assert.equal(panel.style.width, '612px');
+});
+
+test('installSidebarResize: ignores non-primary mouse buttons', () => {
+  const { shared: s, handle, panel, body } = makeResizeSandbox(400);
+  s.installSidebarResize(handle, panel, { settingKey: 'k', min: 200, edge: 'left' });
+  handle.dispatch('pointerdown', { button: 2, pointerId: 1, clientX: 1000 });
+  assert.equal(body.classList.contains('sidebar-resizing'), false);
+  assert.equal(panel.style.width, undefined);
+});
+
+test('installSidebarResize: teardown clears listeners and class state', () => {
+  const { shared: s, handle, panel, body } = makeResizeSandbox(400);
+  const off = s.installSidebarResize(handle, panel, { settingKey: 'k', min: 200, edge: 'left' });
+  handle.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 1000 });
+  off();
+  assert.equal(body.classList.contains('sidebar-resizing'), false);
+  // Subsequent pointerdown is a no-op.
+  handle.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 1000 });
+  assert.equal(body.classList.contains('sidebar-resizing'), false);
+});

@@ -26,7 +26,8 @@
   //   utils          — window.crit.designUtils (groupCommentsByRoute)
   //   shared         — window.crit.shared (settings, indicators)
   //   refreshPanel   — () => void
-  //   panelHelpers   — window.crit.design.panel (computeResizeWidth)
+  //   (resize math/DOM wiring now lives in shared.installSidebarResize, so
+  //    panelHelpers is no longer required here)
   function create(deps) {
     deps = deps || {};
     var state = deps.state;
@@ -34,7 +35,6 @@
     var utils = deps.utils;
     var shared = deps.shared;
     var refreshPanel = deps.refreshPanel || function () {};
-    var panelHelpers = deps.panelHelpers || null;
 
     // Build the deps bundle once per render — buildCommentCard wants a
     // markdown-it instance + a few helpers. Code-review's app.js wires these
@@ -527,54 +527,19 @@
     // against viewport preset width — the user gets the width they ask
     // for. Persisted to crit-settings.design_commentsPanelWidth (separate
     // from code review's commentsPanelWidth so the two modes don't fight).
+    //
+    // Delegates to shared.installSidebarResize so design-mode picks up the
+    // body.sidebar-resizing cursor lock (no flicker when the pointer leaves
+    // the strip) and keyboard a11y for free, in lockstep with code-review.
     function installCommentsPanelResize() {
       var handle = document.getElementById('commentsPanelResizer');
       var panel = els.commentsPanel;
-      if (!handle || !panel || !panelHelpers) return;
-
-      // Apply persisted width on boot.
-      var saved = (shared && shared.getSetting)
-        ? shared.getSetting('design_commentsPanelWidth', null)
-        : null;
-      if (typeof saved === 'number' && saved > 0) {
-        panel.style.width = saved + 'px';
-      }
-
-      var dragging = false;
-      var activePointerId = null;
-      var startX = 0;
-      var startW = 0;
-
-      function onMove(e) {
-        if (!dragging || e.pointerId !== activePointerId) return;
-        var w = panelHelpers.computeResizeWidth(startW, startX, e.clientX, 200);
-        panel.style.width = w + 'px';
-      }
-      function onUp(e) {
-        if (!dragging || e.pointerId !== activePointerId) return;
-        dragging = false;
-        document.body.style.userSelect = '';
-        try { handle.releasePointerCapture(activePointerId); } catch (_) {}
-        handle.removeEventListener('pointermove', onMove);
-        handle.removeEventListener('pointerup', onUp);
-        handle.removeEventListener('pointercancel', onUp);
-        activePointerId = null;
-        var finalW = panel.getBoundingClientRect().width;
-        if (shared && shared.setSetting) {
-          try { shared.setSetting('design_commentsPanelWidth', Math.round(finalW)); } catch (_) {}
-        }
-      }
-      handle.addEventListener('pointerdown', function (e) {
-        e.preventDefault();
-        dragging = true;
-        activePointerId = e.pointerId;
-        startX = e.clientX;
-        startW = panel.getBoundingClientRect().width;
-        document.body.style.userSelect = 'none';
-        try { handle.setPointerCapture(e.pointerId); } catch (_) {}
-        handle.addEventListener('pointermove', onMove);
-        handle.addEventListener('pointerup', onUp);
-        handle.addEventListener('pointercancel', onUp);
+      if (!handle || !panel) return;
+      if (!shared || typeof shared.installSidebarResize !== 'function') return;
+      shared.installSidebarResize(handle, panel, {
+        settingKey: 'design_commentsPanelWidth',
+        min: 200,
+        edge: 'left',
       });
     }
 

@@ -7222,64 +7222,18 @@
     SIDEBAR_RESIZE.forEach(function(cfg) {
       const target = document.getElementById(cfg.targetId);
       if (!target) return;
-      const saved = getSetting(cfg.settingKey, null);
-      if (typeof saved === 'number' && saved >= cfg.min) {
-        target.style.width = saved + 'px';
-      }
       const handle = document.getElementById(cfg.handleId);
-      if (handle) attachSidebarResizeHandle(handle, target, cfg);
-    });
-  }
-
-  function attachSidebarResizeHandle(handle, target, cfg) {
-    // Pointer events + setPointerCapture: the handle keeps receiving move/up
-    // events even if the pointer leaves the window, devtools opens, or the
-    // user alt-tabs. Avoids the "stuck dragging" leak that document-level
-    // mousemove listeners suffer from.
-    handle.addEventListener('pointerdown', function(e) {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      handle.setPointerCapture(e.pointerId);
-      const startX = e.clientX;
-      const startWidth = target.getBoundingClientRect().width;
-      // For a left-edge handle (comments panel), dragging right shrinks the panel.
-      const dir = cfg.edge === 'left' ? -1 : 1;
-      handle.classList.add('dragging');
-      document.body.classList.add('sidebar-resizing');
-      let lastWidth = startWidth;
-
-      function onMove(ev) {
-        const delta = (ev.clientX - startX) * dir;
-        const w = Math.max(cfg.min, startWidth + delta);
-        target.style.width = w + 'px';
-        lastWidth = w;
-      }
-      function onEnd() {
-        handle.removeEventListener('pointermove', onMove);
-        handle.removeEventListener('pointerup', onEnd);
-        handle.removeEventListener('pointercancel', onEnd);
-        handle.classList.remove('dragging');
-        document.body.classList.remove('sidebar-resizing');
-        setSetting(cfg.settingKey, Math.round(lastWidth));
-      }
-      handle.addEventListener('pointermove', onMove);
-      handle.addEventListener('pointerup', onEnd);
-      handle.addEventListener('pointercancel', onEnd);
-    });
-
-    // Keyboard resize for a11y: ArrowLeft / ArrowRight nudges by 16px.
-    // For left-edge handles (comments panel) the direction flips so
-    // ArrowRight always shrinks the controlled panel — matching pointer
-    // drag semantics.
-    handle.addEventListener('keydown', function(e) {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-      e.preventDefault();
-      const dir = cfg.edge === 'left' ? -1 : 1;
-      const sign = e.key === 'ArrowRight' ? 1 : -1;
-      const current = target.getBoundingClientRect().width;
-      const w = Math.max(cfg.min, current + sign * dir * 16);
-      target.style.width = w + 'px';
-      setSetting(cfg.settingKey, Math.round(w));
+      if (!handle) return;
+      // Pointer capture, body.sidebar-resizing class, persistence, min clamp,
+      // and keyboard a11y all live in the shared helper. Both code-review
+      // handles (file-tree, comments-panel) and design-mode's comments-panel
+      // share the implementation so cursor-locking and keyboard nudge stay
+      // in lockstep across modes.
+      window.crit.shared.installSidebarResize(handle, target, {
+        settingKey: cfg.settingKey,
+        min: cfg.min,
+        edge: cfg.edge,
+      });
     });
   }
 

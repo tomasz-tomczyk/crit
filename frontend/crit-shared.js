@@ -358,6 +358,126 @@
     }
   }
 
+  // ===== installSidebarResize =====
+  // Shared sidebar/panel pointer-drag resize helper. Used by code-review
+  // (app.js: file-tree handle, comments-panel handle) and design-mode
+  // (panel-render: comments-panel handle).
+  //
+  // Owns all the bits the bare-bones design-mode implementation was missing:
+  //   - Pointer capture (drag survives leaving the handle / window).
+  //   - body.sidebar-resizing class — locks the cursor and disables text
+  //     selection page-wide so the cursor doesn't flicker when the pointer
+  //     leaves the strip mid-drag (style.css owns the rules).
+  //   - Persistence on pointerup via setSetting(settingKey, width).
+  //   - Min clamp (no upper bound — overflow is a horizontal scrollbar).
+  //   - Keyboard a11y: ArrowLeft / ArrowRight nudges by 16px.
+  //
+  // Args:
+  //   handle — the resize handle element (gets pointer events).
+  //   panel  — the panel whose width is being changed.
+  //   opts:
+  //     settingKey — string. crit-settings key for persistence (required for save).
+  //     min        — number. Minimum width in px (default 200).
+  //     edge       — 'left' | 'right'. Which edge of the panel the handle sits on.
+  //                  'right' (default): handle on panel's right edge, drag-right grows.
+  //                  'left':  handle on panel's left edge,  drag-left  grows.
+  //
+  // Returns a teardown function that removes the listeners and clears state.
+  //
+  // Pure helper exposed alongside (computeResizeDelta) so tests can exercise
+  // the math without a DOM.
+  function computeResizeDelta(startWidth, startX, currentX, edge, min) {
+    if (typeof min !== 'number' || min < 0) min = 200;
+    var dir = edge === 'left' ? -1 : 1;
+    var delta = (currentX - startX) * dir;
+    var w = startWidth + delta;
+    if (w < min) w = min;
+    return w;
+  }
+
+  function installSidebarResize(handle, panel, opts) {
+    if (!handle || !panel) return function () {};
+    var o = opts || {};
+    var settingKey = o.settingKey || null;
+    var min = (typeof o.min === 'number') ? o.min : 200;
+    var edge = (o.edge === 'left') ? 'left' : 'right';
+
+    // Apply persisted width on install.
+    if (settingKey) {
+      var saved = getSetting(settingKey, null);
+      if (typeof saved === 'number' && saved >= min) {
+        panel.style.width = saved + 'px';
+      }
+    }
+
+    var activePointerId = null;
+    var startX = 0;
+    var startW = 0;
+    var lastWidth = 0;
+
+    function onMove(ev) {
+      if (ev.pointerId !== activePointerId) return;
+      var w = computeResizeDelta(startW, startX, ev.clientX, edge, min);
+      panel.style.width = w + 'px';
+      lastWidth = w;
+    }
+    function onEnd(ev) {
+      if (ev.pointerId !== activePointerId) return;
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onEnd);
+      handle.removeEventListener('pointercancel', onEnd);
+      try { handle.releasePointerCapture(activePointerId); } catch (_) {}
+      activePointerId = null;
+      handle.classList.remove('dragging');
+      document.body.classList.remove('sidebar-resizing');
+      if (settingKey) {
+        try { setSetting(settingKey, Math.round(lastWidth)); } catch (_) {}
+      }
+    }
+    function onDown(e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      activePointerId = e.pointerId;
+      startX = e.clientX;
+      startW = panel.getBoundingClientRect().width;
+      lastWidth = startW;
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+      handle.classList.add('dragging');
+      document.body.classList.add('sidebar-resizing');
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onEnd);
+      handle.addEventListener('pointercancel', onEnd);
+    }
+    function onKey(e) {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      var dir = edge === 'left' ? -1 : 1;
+      var sign = e.key === 'ArrowRight' ? 1 : -1;
+      var current = panel.getBoundingClientRect().width;
+      var w = Math.max(min, current + sign * dir * 16);
+      panel.style.width = w + 'px';
+      if (settingKey) {
+        try { setSetting(settingKey, Math.round(w)); } catch (_) {}
+      }
+    }
+
+    handle.addEventListener('pointerdown', onDown);
+    handle.addEventListener('keydown', onKey);
+
+    return function teardown() {
+      handle.removeEventListener('pointerdown', onDown);
+      handle.removeEventListener('keydown', onKey);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onEnd);
+      handle.removeEventListener('pointercancel', onEnd);
+      if (activePointerId !== null) {
+        try { handle.releasePointerCapture(activePointerId); } catch (_) {}
+      }
+      handle.classList.remove('dragging');
+      document.body.classList.remove('sidebar-resizing');
+    };
+  }
+
   window.crit = window.crit || {};
   window.crit.shared = {
     escapeHTML,
@@ -372,5 +492,7 @@
     showToast,
     runFinishReview,
     waitForSession,
+    installSidebarResize,
+    computeResizeDelta,
   };
 })();
