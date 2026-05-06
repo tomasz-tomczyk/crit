@@ -201,7 +201,15 @@
     if (state.session.review_type !== 'design') {
       console.warn('[design-mode] /api/session.review_type != "design":', state.session.review_type);
     }
+    // Phase C: capture proxyOrigin once for the message handler. The agent
+    // posts from the proxy origin; the chrome lives on the API origin and
+    // accepts only that source+origin pair.
+    var s = state.session || {};
+    var proxyHost = window.location.hostname || 'localhost';
+    state.proxyOrigin = 'http://' + proxyHost + ':' + (s.proxy_port || 0);
     buildShell();
+    // Cache the iframeWindow once buildShell has inserted it.
+    state.iframeWindow = els.iframe ? els.iframe.contentWindow : null;
 
     // Run installers in registration order.
     installers.forEach(function (fn) {
@@ -599,6 +607,32 @@
     var err = document.querySelector('.crit-design-iframe-error');
     if (err) { err.remove(); }
   });
+
+  // ============================================================
+  // Phase C: agent message recorder + dispatcher
+  // ============================================================
+  registerInstaller(function installAgentBridge() {
+    if (!state.iframeWindow || !state.proxyOrigin) return;
+    var protocol = window.crit && window.crit.agentProtocol;
+    if (!protocol) return;
+    window.__critDesignMessages = [];
+    window.addEventListener('message', function (ev) {
+      if (ev.source !== state.iframeWindow) return;
+      if (ev.origin !== state.proxyOrigin) return;
+      var v = protocol.validateMessage(ev.data);
+      if (!v.ok) return;
+      window.__critDesignMessages.push(ev.data);
+      try { dispatchAgentMessage(ev.data); } catch (e) { console.error('[design-mode] dispatch error:', e); }
+    });
+  });
+
+  // Dispatcher and handlers wired in later Phase C tasks. Defined here so
+  // the install above has a target.
+  var _dispatcher = null;
+  function dispatchAgentMessage(msg) {
+    if (_dispatcher) _dispatcher(msg);
+  }
+  state._setDispatcher = function (fn) { _dispatcher = fn; };
 
   // ============================================================
   // Task 26: Lock window.crit.design contract for Phase C
