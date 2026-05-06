@@ -39,7 +39,7 @@ func checkCommentCLIAllowed(critPath string) error {
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
-		return nil
+		return nil //nolint:nilerr // malformed review file: do not block CLI
 	}
 	if cj.ReviewType == "design" {
 		return fmt.Errorf("crit comment <path>:<line> is not supported for design reviews; use the browser UI to add pins")

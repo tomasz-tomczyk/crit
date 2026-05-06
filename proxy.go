@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -100,7 +101,7 @@ func injectAgentScript(resp *http.Response, apiPort int) error {
 	resp.Body.Close()
 	// Tolerate ErrUnexpectedEOF: some upstreams set Content-Length larger
 	// than the actual body. Use what we got rather than 502-ing.
-	if err != nil && err != io.ErrUnexpectedEOF {
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return err
 	}
 	// Order matters: html2canvas must load before crit-agent so the agent
@@ -131,7 +132,7 @@ func injectSWShimHTML(resp *http.Response) error {
 	resp.Body.Close()
 	// Tolerate ErrUnexpectedEOF: some upstreams set Content-Length larger
 	// than the actual body. Use what we got rather than 502-ing.
-	if err != nil && err != io.ErrUnexpectedEOF {
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return err
 	}
 	if loc := headTagRE.FindIndex(body); loc != nil {
@@ -175,7 +176,7 @@ const routeAnnouncerScript = `<script data-crit-route-announcer>
 func injectRouteAnnouncer(resp *http.Response) error {
 	body, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if err != nil && err != io.ErrUnexpectedEOF {
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return err
 	}
 	if loc := headTagRE.FindIndex(body); loc != nil {
@@ -199,7 +200,10 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 		return nil
 	}
 	locURL, err := url.Parse(loc)
-	if err != nil || locURL.Host == "" {
+	if err != nil {
+		return nil //nolint:nilerr // unparseable Location: leave as-is (best effort)
+	}
+	if locURL.Host == "" {
 		return nil // relative — already proxy-relative
 	}
 	if locURL.Host == upstream.Host {

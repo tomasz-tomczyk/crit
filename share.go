@@ -34,7 +34,7 @@ func checkShareAllowed(critPath string) error {
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
-		return nil
+		return nil //nolint:nilerr // malformed review file: do not block share
 	}
 	if cj.ReviewType == "design" {
 		return fmt.Errorf("crit share is not supported for design reviews in v1")
