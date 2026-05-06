@@ -71,6 +71,18 @@ func sessionKey(cwd string, branch string, args []string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))[:12]
 }
 
+// designSessionKey returns the session/review key for a design-mode session.
+// Formula: sha256(cwd + "\0design\0" + origin)[:12].
+// The "\0design\0" separator ensures design reviews never collide with code
+// reviews in the same cwd (code reviews use "\0" + branch or "\0" + args).
+func designSessionKey(cwd, origin string) string {
+	h := sha256.New()
+	h.Write([]byte(cwd))
+	h.Write([]byte("\x00design\x00"))
+	h.Write([]byte(origin))
+	return fmt.Sprintf("%x", h.Sum(nil))[:12]
+}
+
 // sessionsDir returns the path to ~/.crit/sessions/.
 func sessionsDir() (string, error) {
 	home, err := os.UserHomeDir()
