@@ -1027,6 +1027,7 @@
   document.addEventListener('keydown', function (e) {
     var ta = e.target;
     if (!ta || !ta.classList || !ta.classList.contains('crit-design-reply-textarea')) return;
+    if (e.isComposing) return;
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       e.stopPropagation();
@@ -1385,7 +1386,23 @@
     if (ta) {
       ta.focus();
       ta.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape') { e.preventDefault(); closeComposer(); }
+        // Don't intercept while an IME composition is in progress.
+        if (e.isComposing) return;
+        // Cmd/Ctrl+Enter saves.
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          saveComposer(domAnchor);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          var dirty = ta.value.trim().length > 0;
+          if (dirty) {
+            var ok = window.confirm('Discard pin?');
+            if (!ok) return;
+          }
+          closeComposer();
+        }
       });
     }
     var cancelBtn = host.querySelector('.crit-design-composer-cancel');
