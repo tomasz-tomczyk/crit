@@ -164,6 +164,7 @@ Six Playwright projects, each with its own fixture script and port. Test naming 
 | `no-git-mode` | 3126 | `setup-fixtures-nogit.sh` (file mode without git) | `*.nogit.spec.ts` |
 | `multi-file-mode` | 3127 | `setup-fixtures-multifile.sh` (code + markdown files) | `*.multifile.spec.ts` |
 | `range-mode` | 3128 | `setup-fixtures-range-mode.sh` (`--range A..B` stacked git) | `*.rangemode.spec.ts` |
+| `design-mode` | 3129 | `setup-fixtures-designmode.sh` (Go upstream + crit design) | `*.designmode.spec.ts` |
 
 CI runs E2E on push to `main` and PRs via `.github/workflows/test.yml`. Failed test artifacts are uploaded.
 

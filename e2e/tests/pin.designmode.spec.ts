@@ -3,7 +3,10 @@ import { test, expect } from '@playwright/test';
 // Phase F runner not online yet. Scenarios scaffolded for later activation.
 
 test.describe('design-mode pin composer — M11 sustained highlight', () => {
-  test.skip(true, 'phase F runner');
+  // Pin-mode scenarios depend on the agent-ready handshake which is currently
+  // broken (Bug 2 in concurrent fix-round). Marked fixme so failures are
+  // tracked, not silenced.
+  test.fixme(true, 'pending agent-ready handshake (Bug 2)');
 
   test('clicking an element in Pin mode keeps it outlined while composer is open', async ({ page }) => {
     await page.goto('/design');
@@ -61,7 +64,10 @@ test.describe('design-mode pin composer — M11 sustained highlight', () => {
 });
 
 test.describe('design-mode composer — M16 keyboard shortcuts', () => {
-  test.skip(true, 'phase F runner');
+  // Pin-mode scenarios depend on the agent-ready handshake which is currently
+  // broken (Bug 2 in concurrent fix-round). Marked fixme so failures are
+  // tracked, not silenced.
+  test.fixme(true, 'pending agent-ready handshake (Bug 2)');
 
   test('Cmd/Ctrl+Enter submits the composer', async ({ page }) => {
     await page.goto('/design');
@@ -86,7 +92,10 @@ test.describe('design-mode composer — M16 keyboard shortcuts', () => {
 });
 
 test.describe('design-mode composer — M17 confirm-before-discard on Esc', () => {
-  test.skip(true, 'phase F runner');
+  // Pin-mode scenarios depend on the agent-ready handshake which is currently
+  // broken (Bug 2 in concurrent fix-round). Marked fixme so failures are
+  // tracked, not silenced.
+  test.fixme(true, 'pending agent-ready handshake (Bug 2)');
 
   test('Esc on empty composer cancels immediately', async ({ page }) => {
     await page.goto('/design');

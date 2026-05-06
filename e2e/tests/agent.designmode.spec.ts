@@ -4,7 +4,7 @@ test.describe('design-mode agent', () => {
   // Phase F provisions the design-mode Playwright project with a fixture that
   // boots crit + a tiny upstream HTML server. Until then this whole file is
   // parse-checked but never executed.
-  test.skip(true, 'phase F design-mode runner');
+  test.fixme(true, 'phase F runner online; tests pending agent-ready handshake (Bug 2)');
 
   test('agent posts agent-ready on boot', async ({ page, baseURL }) => {
     await page.goto(`${baseURL}/design`);

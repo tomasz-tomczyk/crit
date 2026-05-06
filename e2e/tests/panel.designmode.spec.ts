@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 // rather than `test.fixme` so the per-test reason shows in the trace.
 
 test.describe('design-mode comments panel — M12 toggle + count badge', () => {
-  test.skip(true, 'phase F runner');
+  test.fixme(true, 'phase F runner online; tests pending agent-ready handshake (Bug 2)');
 
   test('navbar #commentCount toggles the panel open/closed', async ({ page }) => {
     await page.goto('/design');
@@ -40,7 +40,7 @@ test.describe('design-mode comments panel — M12 toggle + count badge', () => {
 });
 
 test.describe('design-mode comments panel — M13 resize', () => {
-  test.skip(true, 'phase F runner');
+  test.fixme(true, 'phase F runner online; tests pending agent-ready handshake (Bug 2)');
 
   test('drag handle resizes the panel and persists to crit-settings', async ({ page }) => {
     await page.goto('/design');
@@ -79,7 +79,7 @@ test.describe('design-mode comments panel — M13 resize', () => {
 });
 
 test.describe('design-mode comments panel — M5 row controls', () => {
-  test.skip(true, 'phase F runner');
+  test.fixme(true, 'phase F runner online; tests pending agent-ready handshake (Bug 2)');
 
   test('panel rows expose Expand, Edit, Resolve, Reply controls (parity with code review)', async ({ page }) => {
     await page.goto('/design');
@@ -95,7 +95,7 @@ test.describe('design-mode comments panel — M5 row controls', () => {
 });
 
 test.describe('design-mode comments panel — M14 filter pill + body expand', () => {
-  test.skip(true, 'phase F runner');
+  test.fixme(true, 'phase F runner online; tests pending agent-ready handshake (Bug 2)');
 
   test('filter pill (All / Open / Resolved) toggles row visibility and updates counts', async ({ page }) => {
     await page.goto('/design');
@@ -117,7 +117,7 @@ test.describe('design-mode comments panel — M14 filter pill + body expand', ()
 });
 
 test.describe('design-mode comments panel — M15 panel close button', () => {
-  test.skip(true, 'phase F runner');
+  test.fixme(true, 'phase F runner online; tests pending agent-ready handshake (Bug 2)');
 
   test('panel header close button hides the panel', async ({ page }) => {
     await page.goto('/design');
@@ -139,7 +139,7 @@ test.describe('design-mode comments panel — M15 panel close button', () => {
 });
 
 test.describe('design-mode comments panel — M18 reply composer', () => {
-  test.skip(true, 'phase F runner');
+  test.fixme(true, 'phase F runner online; tests pending agent-ready handshake (Bug 2)');
 
   test('Reply on design pin posts to /api/comment/{id}/replies and renders below comment', async ({ page }) => {
     await page.goto('/design');

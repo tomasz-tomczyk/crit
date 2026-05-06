@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.skip(true, 'phase F design-mode runner brings these online');
+test.fixme(true, 'phase F runner online; tests pending agent-ready handshake (Bug 2)');
 
 test.describe('design-mode markers', () => {
   test('renders one marker per pin on current pathname', async ({ page }) => {

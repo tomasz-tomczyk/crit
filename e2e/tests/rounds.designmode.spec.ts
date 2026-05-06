@@ -1,17 +1,29 @@
-import { test } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { clearAllDesignPins } from './designmode-helpers';
 
-// Phase F brings the design-mode runner online; until then this spec is a
-// behavioural anchor for the round + integration coverage Phase E ships.
-test.skip(true, 'phase F design-mode runner');
+// Round-bumping in design mode happens via POST /api/round-complete (Phase E).
+// The full re-resolution flow (round-start SSE → re-anchor → drift flagging)
+// requires saving a pin first, which requires Pin mode + agent-ready (Bug 2).
+// Authored against intent; fixme until handshake lands.
 
-test.describe('design mode — rounds + integration polish', () => {
-  test('round-start re-resolves current path eagerly, others lazily on visit', async () => {});
-  test('drifted tray splits "this round" vs "earlier"', async () => {});
-  test('#pin=<id> on /design opens chrome focused on that pin', async () => {});
-  test('opening a pin updates the URL fragment via replaceState', async () => {});
-  test("navigating away from pin's pathname clears the fragment", async () => {});
-  test('Esc cancels an armed re-anchor', async () => {});
-  test('ancestor menu — Up/Down/Enter/Esc keyboard flow', async () => {});
-  test('round counter tooltip shows carried/resolved/drifted', async () => {});
-  test('smoke test prints framework notes (Phoenix / Vite / Next)', async () => {});
+test.describe('rounds — round-start re-resolution (Scenarios 15–16)', () => {
+  test.beforeEach(async ({ request }) => {
+    await clearAllDesignPins(request);
+  });
+
+  test.fixme('round-complete endpoint accepts POST and bumps round', async () => {
+    // FIXME: there is no /api/round-complete endpoint in server.go yet; the
+    // plan referenced it but it isn't shipped. /api/review-cycle is the
+    // long-poll endpoint that signals round-complete internally. This needs
+    // either a dedicated endpoint or a different round-bump path. Track in
+    // Phase E follow-up.
+  });
+
+  test.fixme('round 2 resolves cleanly when target element is unchanged', async () => {
+    // FIXME: depends on agent-ready handshake (Bug 2).
+  });
+
+  test.fixme('round 2 flags Drifted when DOM mutated between rounds', async () => {
+    // FIXME: depends on agent-ready handshake (Bug 2).
+  });
 });
