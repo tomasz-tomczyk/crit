@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { clearAllDesignPins, setViewportPreset } from './designmode-helpers';
+import {
+  clearAllDesignPins,
+  getIframe,
+  openPinComposer,
+  setViewportPreset,
+} from './designmode-helpers';
 
 test.describe('viewport — preset round-trip (Scenario 9)', () => {
   test.beforeEach(async ({ request }) => {
@@ -17,8 +22,15 @@ test.describe('viewport — preset round-trip (Scenario 9)', () => {
     }).toBe(390);
   });
 
-  test.fixme('marker re-resolves after viewport change', async () => {
-    // FIXME: depends on agent-ready handshake (Bug 2). Once Pin works,
-    // pin → switch viewport → assert marker still at element rect.
+  test('marker re-resolves after viewport change', async ({ page }) => {
+    await openPinComposer(page);
+    await page.locator('.crit-design-composer-body').fill('Pin');
+    await page.locator('.crit-design-composer-save').click();
+    await expect(page.locator('.crit-design-composer')).toHaveCount(0);
+    await expect(getIframe(page).locator('.crit-design-marker')).toHaveCount(1);
+    await setViewportPreset(page, 'mobile');
+    // After viewport change the marker still tracks one element.
+    await expect(getIframe(page).locator('.crit-design-marker')).toHaveCount(1);
+    await expect(getIframe(page).locator('.crit-design-marker')).toBeVisible();
   });
 });
