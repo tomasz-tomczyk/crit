@@ -61,6 +61,34 @@ func newDesignProxy(upstreamOrigin string, apiPort int) (http.Handler, error) {
 var bodyTagRE = regexp.MustCompile(`(?i)</body>`)
 var headTagRE = regexp.MustCompile(`(?i)<head[^>]*>`)
 
+// maskHTMLComments returns a copy of body with the contents of every HTML
+// comment (<!-- ... -->) overwritten with spaces. Length is preserved so
+// indexes from regex matches on the masked copy are valid for the original.
+// Used to keep <head>/</body> literals inside comments from misrouting
+// injections. Unterminated comments mask to end-of-input.
+func maskHTMLComments(body []byte) []byte {
+	out := make([]byte, len(body))
+	copy(out, body)
+	for i := 0; i < len(out)-3; {
+		if out[i] == '<' && out[i+1] == '!' && out[i+2] == '-' && out[i+3] == '-' {
+			end := bytes.Index(out[i+4:], []byte("-->"))
+			var stop int
+			if end < 0 {
+				stop = len(out)
+			} else {
+				stop = i + 4 + end + 3
+			}
+			for j := i; j < stop; j++ {
+				out[j] = ' '
+			}
+			i = stop
+			continue
+		}
+		i++
+	}
+	return out
+}
+
 // swShim runs once per top-level HTML document. It is injected as an inline
 // <script> at the top of <head> so it executes before any page script can
 // register a service worker. JS response bodies are NOT modified — service
@@ -98,10 +126,16 @@ func makeModifyResponse(apiPort int, upstream *url.URL) func(*http.Response) err
 
 		body, err := io.ReadAll(io.LimitReader(resp.Body, maxHTMLBodyBytes+1))
 		resp.Body.Close()
-		// Tolerate ErrUnexpectedEOF: some upstreams set Content-Length larger
-		// than the actual body. Use what we got rather than 502-ing.
-		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
-			return err
+		// Tolerate ErrUnexpectedEOF *only* if we already got a usable body —
+		// some upstreams set Content-Length larger than the actual body. If
+		// the read failed before any bytes arrived, surface a 502 via
+		// ErrorHandler instead of serving a blank 200 (confusing UX). Other
+		// mid-body errors (context.Canceled, net resets, ErrClosedPipe) are
+		// always returned.
+		if err != nil {
+			if !errors.Is(err, io.ErrUnexpectedEOF) || len(body) == 0 {
+				return err
+			}
 		}
 		if len(body) > maxHTMLBodyBytes {
 			// Oversized: pass through untouched, signal injection failure.
@@ -124,26 +158,13 @@ func makeModifyResponse(apiPort int, upstream *url.URL) func(*http.Response) err
 // body and whether the agent bundle was actually injected (caller sets
 // X-Crit-Agent-Injection: failed when false).
 func applyHTMLInjections(body []byte, apiPort int) ([]byte, bool) {
-	// SW shim + route announcer: insert after first <head ...>. Combined
-	// into one prepended string so we make a single splice.
+	// Match <head> / </body> against a comment-masked copy so literals
+	// inside <!-- ... --> don't misroute injections; indexes line up
+	// with the original because masking preserves length. Both lookups
+	// are done up front, then splices are applied back-to-front so the
+	// earlier offset stays valid.
+	masked := maskHTMLComments(body)
 	preamble := swShim + routeAnnouncerScript
-	if loc := headTagRE.FindIndex(body); loc != nil {
-		out := make([]byte, 0, len(body)+len(preamble))
-		out = append(out, body[:loc[1]]...)
-		out = append(out, []byte(preamble)...)
-		out = append(out, body[loc[1]:]...)
-		body = out
-	} else {
-		// No <head>: prepend so scripts still run before inline page scripts.
-		out := make([]byte, 0, len(body)+len(preamble))
-		out = append(out, []byte(preamble)...)
-		out = append(out, body...)
-		body = out
-	}
-
-	// Agent bundle: insert before the LAST </body>. Last match avoids
-	// matching `</body>` literals inside <script> string literals or
-	// HTML comments earlier in the document.
 	tags := fmt.Sprintf(
 		`<script src="http://localhost:%d/agent-protocol.js"></script>`+
 			`<script src="http://localhost:%d/agent-anchor-utils.js"></script>`+
@@ -155,18 +176,39 @@ func applyHTMLInjections(body []byte, apiPort int) ([]byte, bool) {
 			`<script src="http://localhost:%d/crit-agent.js"></script>`,
 		apiPort, apiPort, apiPort, apiPort, apiPort, apiPort, apiPort, apiPort,
 	)
-	matches := bodyTagRE.FindAllIndex(body, -1)
-	if len(matches) == 0 {
-		// No </body> — agent injection skipped. Caller will set the
-		// X-Crit-Agent-Injection: failed header.
-		return body, false
+
+	// Agent bundle insertion point: LAST </body>. Last match avoids matching
+	// `</body>` literals inside <script> string literals earlier in the doc.
+	bodyMatches := bodyTagRE.FindAllIndex(masked, -1)
+	agentInjected := len(bodyMatches) > 0
+	headLoc := headTagRE.FindIndex(masked)
+
+	// Splice agent bundle first (later offset), then preamble (earlier).
+	if agentInjected {
+		at := bodyMatches[len(bodyMatches)-1][0]
+		out := make([]byte, 0, len(body)+len(tags))
+		out = append(out, body[:at]...)
+		out = append(out, []byte(tags)...)
+		out = append(out, body[at:]...)
+		body = out
 	}
-	last := matches[len(matches)-1]
-	out := make([]byte, 0, len(body)+len(tags))
-	out = append(out, body[:last[0]]...)
-	out = append(out, []byte(tags)...)
-	out = append(out, body[last[0]:]...)
-	return out, true
+
+	// SW shim + route announcer: insert after first <head ...>, or prepend
+	// if absent so scripts still run before inline page scripts.
+	if headLoc != nil {
+		at := headLoc[1]
+		out := make([]byte, 0, len(body)+len(preamble))
+		out = append(out, body[:at]...)
+		out = append(out, []byte(preamble)...)
+		out = append(out, body[at:]...)
+		body = out
+	} else {
+		out := make([]byte, 0, len(body)+len(preamble))
+		out = append(out, []byte(preamble)...)
+		out = append(out, body...)
+		body = out
+	}
+	return body, agentInjected
 }
 
 // routeAnnouncerScript posts the iframe's pathname to the parent on initial

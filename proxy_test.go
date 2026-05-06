@@ -571,6 +571,112 @@ func TestBindProxyServer_PortIsAPIPlusOne(t *testing.T) {
 	}
 }
 
+func TestProxyModifyResponse_MidBodyReadFailureReturns502(t *testing.T) {
+	// Upstream sends Content-Length but hijacks the connection and closes it
+	// before writing any bytes. io.ReadAll returns ErrUnexpectedEOF with an
+	// empty body — must surface as a 502 (matching upstream-failure UX),
+	// not a blank 200 with agentInjected=false.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Length", "1024")
+		w.WriteHeader(http.StatusOK)
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatalf("hijacker not supported")
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			t.Fatalf("hijack: %v", err)
+		}
+		conn.Close()
+	}))
+	defer upstream.Close()
+	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+
+	resp, err := http.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("status = %d, want 502 on mid-body upstream close", resp.StatusCode)
+	}
+	if !strings.Contains(string(body), `"error"`) {
+		t.Errorf("expected JSON error envelope, got: %s", body)
+	}
+}
+
+func TestProxyModifyResponse_HeadInsideHTMLComment(t *testing.T) {
+	// A literal <head> inside an HTML comment must not misroute the SW shim
+	// — it must inject at the real <head>.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, `<!doctype html><!-- example: <head> --><html><head><title>x</title></head><body>hi</body></html>`)
+	}))
+	defer upstream.Close()
+	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	resp, err := http.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	bs := string(body)
+	commentEnd := strings.Index(bs, "-->")
+	shim := strings.Index(bs, "crit: service workers disabled")
+	title := strings.Index(bs, "<title>x</title>")
+	if commentEnd < 0 || shim < 0 || title < 0 {
+		t.Fatalf("missing markers: comment=%d shim=%d title=%d body=%s", commentEnd, shim, title, bs)
+	}
+	if shim < commentEnd {
+		t.Errorf("shim injected inside/before HTML comment (shim=%d commentEnd=%d)", shim, commentEnd)
+	}
+	// Shim must land between the real <head> and its <title> child — i.e.,
+	// inserted at the real <head>, not the commented one.
+	if shim > title {
+		t.Errorf("shim injected after <title>, not after the real <head> (shim=%d title=%d)", shim, title)
+	}
+}
+
+func TestProxyModifyResponse_BodyCloseInsideHTMLComment(t *testing.T) {
+	// </body> inside an HTML comment must not be picked up — agent bundle
+	// belongs before the LAST real </body>.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, `<html><head></head><body><p>hi</p><!-- legacy </body> remnant --></body></html>`)
+	}))
+	defer upstream.Close()
+	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	resp, err := http.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	bs := string(body)
+	agent := strings.Index(bs, "/crit-agent.js")
+	commentClose := strings.Index(bs, "remnant -->")
+	realBodyClose := strings.LastIndex(bs, "</body>")
+	if agent < 0 || commentClose < 0 || realBodyClose < 0 {
+		t.Fatalf("missing markers: agent=%d commentClose=%d realBodyClose=%d body=%s", agent, commentClose, realBodyClose, bs)
+	}
+	// Agent must inject after the comment closes (i.e., not before the
+	// commented </body>) and before the real </body>.
+	if agent < commentClose {
+		t.Errorf("agent inserted before/inside HTML comment (agent=%d commentEnd=%d)", agent, commentClose)
+	}
+	if agent > realBodyClose {
+		t.Errorf("agent inserted after real </body> (agent=%d realBody=%d)", agent, realBodyClose)
+	}
+}
+
 func TestProxyModifyResponse_InjectsRouteAnnouncer(t *testing.T) {
 	cases := []struct {
 		name string
