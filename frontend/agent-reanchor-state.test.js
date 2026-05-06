@@ -12,3 +12,14 @@ test('arms with pin_id, single-shot, then disarms', () => {
   assert.equal(s.armed, false);
   assert.equal(s.consume(), null);
 });
+
+test('disarm clears armed state and is idempotent', () => {
+  const s = new ReanchorState();
+  s.arm('p1');
+  assert.equal(s.armed, true);
+  s.disarm();
+  assert.equal(s.armed, false);
+  assert.equal(s.pinId, null);
+  s.disarm();
+  assert.equal(s.armed, false);
+});

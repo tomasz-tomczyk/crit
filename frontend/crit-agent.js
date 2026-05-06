@@ -226,7 +226,46 @@
       case C2A.REQUEST_RESOLUTION: resolveAllPins(); break;
       case C2A.ENTER_REANCHOR_MODE: onEnterReanchor(msg.pin_id); break;
       case C2A.SET_VIEWPORT: onSetViewport(msg.width, msg.height); break;
+      case C2A.FLASH_MARKER: onFlashMarker(msg.pin_id); break;
+      case C2A.CANCEL_REANCHOR: onCancelReanchor(); break;
+      case C2A.SET_MARKER_TABINDEX: onSetMarkerTabindex(msg.value); break;
       default: break;
+    }
+  }
+
+  // Phase E: flash a marker for 1500ms when chrome activates a deep-link.
+  function onFlashMarker(pinId) {
+    var overlay = state.overlay;
+    var byId = overlay && overlay.markersById;
+    if (!byId) return;
+    var el = byId.get ? byId.get(pinId) : byId[pinId];
+    if (!el) return;
+    try {
+      el.classList.add('crit-design-marker--flash');
+      setTimeout(function () {
+        try { el.classList.remove('crit-design-marker--flash'); } catch (_) { /* noop */ }
+      }, 1500);
+    } catch (_) { /* noop */ }
+  }
+
+  // Phase E: chrome cancels an armed re-anchor (Esc).
+  function onCancelReanchor() {
+    if (state.reanchor && typeof state.reanchor.disarm === 'function') {
+      state.reanchor.disarm();
+    }
+    try { document.documentElement.classList.remove('crit-design-reanchor-active'); } catch (_) { /* noop */ }
+  }
+
+  // Phase E: chrome flips marker tabindex when entering/leaving Pin mode so
+  // Tab order follows the user's intent instead of trapping in the iframe.
+  function onSetMarkerTabindex(value) {
+    if (state.overlay && markersAPI && markersAPI.setMarkersTabindex) {
+      markersAPI.setMarkersTabindex(state.overlay.markersById, String(value));
+    } else {
+      try {
+        var nodes = document.querySelectorAll('.crit-design-marker');
+        for (var i = 0; i < nodes.length; i++) nodes[i].setAttribute('tabindex', String(value));
+      } catch (_) { /* noop */ }
     }
   }
 
@@ -511,6 +550,24 @@
       pointer: { x: ev.clientX, y: ev.clientY },
     });
   }
+
+  // Phase E: while an ancestor menu request is in flight, broadcast the
+  // chain-level the user is currently hovering in the iframe so the chrome's
+  // menu can preview-highlight the matching row.
+  document.addEventListener('mousemove', function (ev) {
+    if (!state.pendingAncestor) return;
+    var t = topElementAt(ev.clientX, ev.clientY);
+    if (!t) return;
+    var chain = state.pendingAncestor.chain || [];
+    for (var i = 0; i < chain.length; i++) {
+      if (chain[i] === t || (chain[i] && chain[i].contains && chain[i].contains(t))) {
+        if (state._lastHoveredLevel === i) return;
+        state._lastHoveredLevel = i;
+        postToParent({ type: A2C.HOVERED_ANCESTOR_LEVEL, level: i });
+        return;
+      }
+    }
+  }, true);
 
   function commitAncestor(level) {
     if (!state.pendingAncestor) return;
