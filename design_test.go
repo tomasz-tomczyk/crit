@@ -78,3 +78,88 @@ var _ = os.Exit
 var _ = filepath.Join
 var _ = strings.Contains
 var _ = time.Second
+
+func TestSmokeTest_ConnectionRefused(t *testing.T) {
+	r := runSmokeTest("http://127.0.0.1:19999")
+	if r.kind != smokeConnRefused {
+		t.Errorf("kind = %v, want smokeConnRefused", r.kind)
+	}
+	if !r.fatal {
+		t.Error("conn refused should be fatal")
+	}
+}
+
+func TestSmokeTest_Non2xx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	r := runSmokeTest(srv.URL)
+	if r.kind != smokeNon2xx {
+		t.Errorf("kind = %v, want smokeNon2xx", r.kind)
+	}
+	if r.fatal {
+		t.Error("non-2xx should warn, not be fatal")
+	}
+}
+
+func TestSmokeTest_NonHTML(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"ok":true}`)
+	}))
+	defer srv.Close()
+	r := runSmokeTest(srv.URL)
+	if r.kind != smokeNonHTML {
+		t.Errorf("kind = %v, want smokeNonHTML", r.kind)
+	}
+	if !r.fatal {
+		t.Error("non-HTML should be fatal")
+	}
+}
+
+func TestSmokeTest_MissingBodyTag(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><head></head><!-- no closing body -->")
+	}))
+	defer srv.Close()
+	r := runSmokeTest(srv.URL)
+	if r.kind != smokeMissingBody {
+		t.Errorf("kind = %v, want smokeMissingBody", r.kind)
+	}
+	if r.fatal {
+		t.Error("missing </body> should warn, not be fatal")
+	}
+}
+
+func TestSmokeTest_OK(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body><p>hello</p></body></html>")
+	}))
+	defer srv.Close()
+	r := runSmokeTest(srv.URL)
+	if r.kind != smokeOK {
+		t.Errorf("kind = %v, want smokeOK", r.kind)
+	}
+	if r.fatal {
+		t.Error("OK should not be fatal")
+	}
+}
+
+func TestSmokeTest_CSPFrameAncestors_Informational(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		fmt.Fprintln(w, "<html><body>app</body></html>")
+	}))
+	defer srv.Close()
+	r := runSmokeTest(srv.URL)
+	if r.kind != smokeOK {
+		t.Errorf("kind = %v, want smokeOK (CSP stripped by proxy)", r.kind)
+	}
+	if !r.hasCSPFrameAncestors {
+		t.Error("hasCSPFrameAncestors should be true")
+	}
+}
