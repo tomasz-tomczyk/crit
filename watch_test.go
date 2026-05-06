@@ -1467,3 +1467,25 @@ func TestRemapLines(t *testing.T) {
 		})
 	}
 }
+
+func TestOnDesignRoundStart_OnlyForDesignReviews(t *testing.T) {
+	called := 0
+	prev := onDesignRoundStart
+	onDesignRoundStart = func(*Session, int, int) { called++ }
+	defer func() { onDesignRoundStart = prev }()
+
+	s := &Session{ReviewType: "", ReviewRound: 1}
+	advanceRoundForTest(s)
+	if called != 0 {
+		t.Fatalf("hook fired for code review (called=%d)", called)
+	}
+
+	s2 := &Session{ReviewType: "design", ReviewRound: 1}
+	advanceRoundForTest(s2)
+	if called != 1 {
+		t.Fatalf("hook did not fire for design review (called=%d)", called)
+	}
+	if s2.ReviewRound != 2 {
+		t.Fatalf("ReviewRound = %d, want 2", s2.ReviewRound)
+	}
+}

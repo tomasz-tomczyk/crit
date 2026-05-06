@@ -168,3 +168,27 @@ func TestGitEnvLeakStripped(t *testing.T) {
 		t.Fatalf(".git not created in tempdir — GIT_DIR leaked into runGit: %v", err)
 	}
 }
+
+// advanceRoundForTest mimics the post-roundComplete bump + design hook firing
+// path used by handleRoundCompleteGit / handleRoundCompleteFiles, so unit tests
+// can assert the design-only branch without spinning the full watcher.
+func advanceRoundForTest(s *Session) {
+	s.mu.Lock()
+	prev := s.ReviewRound
+	s.ReviewRound++
+	rt := s.ReviewType
+	next := s.ReviewRound
+	s.mu.Unlock()
+	if rt == "design" && onDesignRoundStart != nil {
+		onDesignRoundStart(s, prev, next)
+	}
+}
+
+// fireOnDesignRoundStart invokes the installed onDesignRoundStart hook
+// directly. Used by SSE tests to trigger an event without driving the
+// watcher loop.
+func fireOnDesignRoundStart(s *Session, prev, next int) {
+	if onDesignRoundStart != nil {
+		onDesignRoundStart(s, prev, next)
+	}
+}

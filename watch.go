@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// onDesignRoundStart, when non-nil and the session is a design review,
+// is invoked after ReviewRound is bumped. Tests substitute this hook;
+// production wiring lives in server.go (broadcasts SSE).
+var onDesignRoundStart func(s *Session, prevRound, newRound int)
+
 // RefreshDiffs re-computes diff hunks for all files.
 func (s *Session) RefreshDiffs() {
 	// Snapshot file list and baseRef under read lock
@@ -439,8 +444,14 @@ func (s *Session) handleRoundCompleteGit() {
 	s.restoreOrphanedComments()
 
 	s.mu.Lock()
+	prev := s.ReviewRound
 	s.ReviewRound++
+	rt := s.ReviewType
+	next := s.ReviewRound
 	s.mu.Unlock()
+	if rt == "design" && onDesignRoundStart != nil {
+		onDesignRoundStart(s, prev, next)
+	}
 
 	// Refresh diffs for all files
 	s.RefreshDiffs()
@@ -480,8 +491,14 @@ func (s *Session) handleRoundCompleteFiles() {
 	sidecarPath := reviewPathsFor(s.critJSONPath()).Snapshots
 	sf := SnapshotsFile{RoundSnapshots: cloneRoundSnapshots(s.RoundSnapshots)}
 	s.rereadFileContents(true)
+	prev := s.ReviewRound
 	s.ReviewRound++
+	rt := s.ReviewType
+	nextR := s.ReviewRound
 	s.mu.Unlock()
+	if rt == "design" && onDesignRoundStart != nil {
+		onDesignRoundStart(s, prev, nextR)
+	}
 
 	// File I/O off the hot path. Drift between review.json and snapshots.json
 	// is benign (degrades to "no timeline available").
