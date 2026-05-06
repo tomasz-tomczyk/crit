@@ -166,6 +166,7 @@ func runDesign(args []string) {
 	if entry, alive := findAliveSession(key); alive {
 		fmt.Fprintf(os.Stderr, "[crit] connected to design daemon at http://localhost:%d (proxy :%d)\n",
 			entry.Port, entry.Port+1)
+		fmt.Fprintf(os.Stderr, "[crit] open http://localhost:%d/design\n", entry.Port)
 		if !daemonHasBrowser(entry) {
 			go openBrowser(fmt.Sprintf("http://localhost:%d/design", entry.Port))
 		}
@@ -183,6 +184,7 @@ func runDesign(args []string) {
 
 	fmt.Fprintf(os.Stderr, "[crit] starting daemon on :%d (api), :%d (proxy)\n",
 		entry.Port, entry.Port+1)
+	fmt.Fprintf(os.Stderr, "[crit] open http://localhost:%d/design\n", entry.Port)
 
 	installDaemonSignalHandler(entry.PID)
 
