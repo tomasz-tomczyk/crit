@@ -71,7 +71,22 @@ func TestClientExitsOnFinish(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
+
+	// On Windows the daemon polls `git status` every second (watch.go) and
+	// runs other git/gh subprocesses during diff/PR work. Each child inherits
+	// repoDir as its cwd, so each holds a directory handle. terminateProcess
+	// on the daemon PID alone leaks any child still in flight, and t.TempDir's
+	// RemoveAll then fails with "file in use by another process". The Job
+	// Object collects the entire tree (parent client + daemon + every
+	// descendant) so we can tear it all down atomically on cleanup. Unix is
+	// a no-op — SIGTERM to the daemon is enough there.
+	group, err := newProcessGroup()
+	if err != nil {
+		t.Fatalf("create process group: %v", err)
+	}
+	t.Cleanup(group.close)
+
+	if err := group.startInGroup(cmd); err != nil {
 		t.Fatalf("start crit: %v", err)
 	}
 
@@ -80,13 +95,14 @@ func TestClientExitsOnFinish(t *testing.T) {
 	entry := waitForDaemonSession(t, resolvedHome, resolvedRepo)
 	port := entry.Port
 
-	// Whatever happens, don't leave the client (or its daemon) running. On
-	// Windows, the daemon's cwd is repoDir — if it survives the test, t.TempDir
-	// cleanup hits "file in use by another process" because the daemon still
-	// holds a directory handle. Stop the daemon, then explicitly RemoveAll the
-	// repo with retries — Windows can lag releasing handles for tens of ms
-	// after the process object reports exit.
+	// Whatever happens, don't leave the client (or its daemon, or any of the
+	// daemon's git/gh/sl children) running. On Windows the Job Object set up
+	// above lets us terminate the entire tree atomically; on Unix we fall
+	// back to terminateProcess on the known daemon PID plus killing the
+	// parent client. This Cleanup runs before the t.TempDir RemoveAll
+	// (LIFO ordering: registered after t.TempDir).
 	t.Cleanup(func() {
+		group.killAll()
 		if entry.PID > 0 {
 			if proc, err := os.FindProcess(entry.PID); err == nil {
 				_ = terminateProcess(proc)
@@ -104,18 +120,6 @@ func TestClientExitsOnFinish(t *testing.T) {
 		}
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
-		}
-		// Best-effort retry RemoveAll on the daemon's former cwd. Runs before
-		// t.TempDir's own cleanup (LIFO: this Cleanup registered last), so
-		// when t.TempDir gets to repoDir it's already empty and the testing
-		// framework doesn't surface a "file in use" error.
-		if runtime.GOOS == "windows" {
-			for i := 0; i < 40; i++ {
-				if err := os.RemoveAll(resolvedRepo); err == nil {
-					break
-				}
-				time.Sleep(50 * time.Millisecond)
-			}
 		}
 	})
 
