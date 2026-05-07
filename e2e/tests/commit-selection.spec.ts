@@ -65,12 +65,12 @@ test.describe('Commit Selection', () => {
     // Label should update to show the selected commit
     await expect(page.locator('#commitDropdownLabel')).not.toHaveText('All commits');
 
-    // The commit only has 4 files (server.go, deleted.txt, plan.md, handler.js)
+    // The commit has at most 5 files (server.go, deleted.txt, plan.md, handler.js, legacy.go)
     // whereas "All" has more (includes staged utils.go and unstaged config.yaml)
     const fileSections = page.locator('.file-section');
     await expect(async () => {
       const count = await fileSections.count();
-      expect(count).toBeLessThanOrEqual(4);
+      expect(count).toBeLessThanOrEqual(5);
       expect(count).toBeGreaterThan(0);
     }).toPass();
   });
