@@ -8,7 +8,7 @@ CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 # Resolve symlinks in temp paths (macOS: /var -> /private/var) so that
 # filepath.Abs agrees on the root.
-DIR=$(realpath "$(mktemp -d)")
+DIR=$(e2e_native_tempdir)
 BIN_DIR=$(mktemp -d)
 trap 'rm -rf "$DIR" "$BIN_DIR"' EXIT
 

@@ -30,6 +30,36 @@ e2e_state_file() {
   printf '%s/crit-e2e-state-%s' "$(e2e_state_dir)" "$port"
 }
 
+# Convert a (possibly MSYS-style) path to native Windows form on Git Bash,
+# leaving it unchanged on POSIX. Use this on every fixture tempdir so that
+# Go's filepath.Join (running under Windows) and Node's child_process cwd
+# get a path with a real drive letter.
+#
+# `realpath` on Git Bash returns POSIX form (e.g. /tmp/tmp.XXX). Go's
+# filepath.Join on Windows then builds `\tmp\tmp.XXX\.crit\reviews\...`,
+# which lacks a drive letter — Windows resolves it relative to the calling
+# process's current drive, so the daemon writing on D: and a Node test
+# reading on C: see different files. Node spawn(cwd) on a POSIX path also
+# fails outright with ENOENT before launching the shell.
+#
+# `cygpath -m` produces mixed form (C:/Users/...) which Go and Node both
+# understand. Fall back to the input unchanged if cygpath isn't available.
+e2e_native_path() {
+  local p="$1"
+  if [ "$E2E_IS_WINDOWS" -eq 1 ] && command -v cygpath >/dev/null 2>&1; then
+    cygpath -m "$p"
+  else
+    printf '%s' "$p"
+  fi
+}
+
+# Make a fresh tempdir and emit it in native form (drive-letter-prefixed on
+# Windows). Mirrors `realpath "$(mktemp -d)"` but produces a path that Go
+# and Node interpret consistently.
+e2e_native_tempdir() {
+  e2e_native_path "$(mktemp -d)"
+}
+
 # On Windows `go build -o foo` produces foo.exe automatically. Tests that
 # spawn the binary from Node need the .exe suffix in CRIT_BIN.
 e2e_bin_name() {
@@ -64,10 +94,11 @@ e2e_kill_port() {
 
 # Set HOME (and USERPROFILE on Windows) so crit picks up our isolated config.
 # Go's os.UserHomeDir on Windows uses USERPROFILE, not HOME. Callers MUST
-# pass a path that has been resolved with `realpath` on Git Bash so that
-# USERPROFILE is a native Windows path (D:\...) — Go's filepath operations
-# on Windows do not understand MSYS-style /d/... paths, and the resulting
-# joined paths fail to open.
+# pass a path produced by e2e_native_path / e2e_native_tempdir so that
+# USERPROFILE is a drive-letter-prefixed path (e.g. C:/Users/...) — Go's
+# filepath.Join on Windows does not understand MSYS-style /tmp/... paths
+# and silently builds `\tmp\...` which resolves against the calling
+# process's current drive (so the daemon and Node tests can disagree).
 e2e_export_fake_home() {
   local fake_home="$1"
   export HOME="$fake_home"

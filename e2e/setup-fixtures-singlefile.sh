@@ -7,8 +7,8 @@ CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
 # Resolve symlinks / convert MSYS-style paths to native Windows paths.
-DIR=$(realpath "$(mktemp -d)")
-BIN_DIR=$(realpath "$(mktemp -d)")
+DIR=$(e2e_native_tempdir)
+BIN_DIR=$(e2e_native_tempdir)
 trap 'rm -rf "$DIR" "$BIN_DIR"' EXIT
 
 cd "$DIR"

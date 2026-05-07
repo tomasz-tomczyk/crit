@@ -6,13 +6,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
-# Resolve symlinks / convert MSYS-style paths to native Windows paths.
-# Without realpath, mktemp -d returns "/tmp/tmp.XXX" under Git Bash, which
-# Node's child_process and Go's os.UserHomeDir consumers interpret with the
-# wrong drive root, breaking config loads, daemon registry lookups, and any
-# Node code that uses fixtureDir as a cwd.
-DIR=$(realpath "$(mktemp -d)")
-BIN_DIR=$(realpath "$(mktemp -d)")
+# Resolve to a native (drive-letter-prefixed) path on Git Bash. realpath
+# returns POSIX form (/tmp/...) that Go's filepath.Join silently builds
+# into a drive-less `\tmp\...` (resolved against the calling process's
+# current drive — daemon and Node test then disagree), and Node's spawn
+# cwd rejects POSIX paths with ENOENT. e2e_native_tempdir uses cygpath -m
+# so both runtimes interpret the path consistently.
+DIR=$(e2e_native_tempdir)
+BIN_DIR=$(e2e_native_tempdir)
 trap 'rm -rf "$DIR" "$BIN_DIR" "${FAKE_HOME:-}"' EXIT
 
 cd "$DIR"
@@ -523,7 +524,7 @@ fi
 # Isolate from user's ~/.crit.config.json — use a separate HOME so config
 # files don't appear as untracked in the git fixture. On Windows this also
 # overrides USERPROFILE (Go's os.UserHomeDir source on Windows).
-FAKE_HOME=$(realpath "$(mktemp -d)")
+FAKE_HOME=$(e2e_native_tempdir)
 e2e_export_fake_home "$FAKE_HOME"
 
 # Write fixture state for E2E tests that need to run CLI commands.
