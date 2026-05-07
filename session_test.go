@@ -4538,6 +4538,25 @@ func TestHandleCritJSONDeleted(t *testing.T) {
 	}
 }
 
+// TestHandleCritJSONDeleted_ResetsReviewRound: when the review file is wiped
+// out from under a long-lived daemon (`crit cleanup`, manual `rm`, hosted-side
+// unpublish), the next pin authored against a fresh review must land on round
+// 1 — not on whatever round the daemon's in-memory state still remembered.
+func TestHandleCritJSONDeleted_ResetsReviewRound(t *testing.T) {
+	s := &Session{
+		Files:         []*FileEntry{{Path: "/", Comments: []Comment{{ID: "c1"}}}},
+		ReviewRound:   3,
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+	}
+	if !s.handleCritJSONDeleted() {
+		t.Fatal("handleCritJSONDeleted should return true")
+	}
+	if s.ReviewRound != 1 {
+		t.Errorf("ReviewRound = %d after disk wipe, want 1", s.ReviewRound)
+	}
+}
+
 // --- GetShareScope / SetShareScope tests ---
 
 func TestGetShareScope(t *testing.T) {

@@ -102,6 +102,13 @@ func (s *Session) handleExternalDeletion(critPath string) bool {
 // clearAllCommentData resets all in-memory comment state (file comments,
 // review comments, and ID counters) and notifies if any comments existed.
 // Caller must NOT hold s.mu.
+//
+// ReviewRound is also reset to 1: this function runs when the review file
+// is deleted out from under the daemon (`crit cleanup`, manual `rm`,
+// hosted-side unpublish). Without the reset, a long-lived daemon (idle
+// timeout 1h) keeps an in-memory ReviewRound from a prior life, and the
+// next pin authored after the disk wipe ships against that stale round —
+// surfaced in the UI as "Round #2 (or higher) on a brand-new review".
 func (s *Session) clearAllCommentData() {
 	s.mu.Lock()
 	s.lastCritJSONMtime = time.Time{}
@@ -117,6 +124,8 @@ func (s *Session) clearAllCommentData() {
 	}
 	s.reviewComments = nil
 	s.deletedCommentIDs = nil
+	s.ReviewRound = 1
+	s.RoundSnapshots = nil
 	s.mu.Unlock()
 	if anyComments {
 		s.notify(SSEEvent{Type: "comments-changed"})
