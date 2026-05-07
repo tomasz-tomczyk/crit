@@ -5125,3 +5125,48 @@ func TestSession_GetCommits_WorkingTreeMode(t *testing.T) {
 		t.Errorf("messages = [%q, %q], want [B, A]", commits[0].Message, commits[1].Message)
 	}
 }
+
+func TestFileIgnored(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		pat  string
+		rel  string
+		want bool
+	}{
+		{"*.log", "foo.log", true},
+		{"*.log", "foo.go", false},
+		{"vendor/", "vendor/pkg.go", true}, // dir/ prefix also matches files inside
+		{"foo.go", "foo.go", true},
+		{"sub/foo.go", "sub/foo.go", true},
+		{"sub/foo.go", "other/foo.go", false},
+	}
+	for _, c := range cases {
+		full := filepath.Join(root, filepath.FromSlash(c.rel))
+		got := fileIgnored(full, root, []string{c.pat})
+		if got != c.want {
+			t.Errorf("fileIgnored(%q, %q): got %v, want %v", c.rel, c.pat, got, c.want)
+		}
+	}
+}
+
+func TestDirIgnored(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		pat  string
+		rel  string
+		want bool
+	}{
+		{"vendor/", "vendor", true},
+		{"vendor/", "other", false},
+		{"node_modules/", "node_modules", true},
+		{"node_modules", "node_modules", false}, // bare basename: NOT pruned (per contract)
+		{"sub/vendor/", "sub/vendor", true},
+	}
+	for _, c := range cases {
+		full := filepath.Join(root, filepath.FromSlash(c.rel))
+		got := dirIgnored(full, root, []string{c.pat})
+		if got != c.want {
+			t.Errorf("dirIgnored(%q, %q): got %v, want %v", c.rel, c.pat, got, c.want)
+		}
+	}
+}
