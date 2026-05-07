@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -105,4 +108,137 @@ func TestParseCommentFlagsFile(t *testing.T) {
 	if got.file != "-" {
 		t.Errorf("file = %q, want -", got.file)
 	}
+}
+
+func TestJSONErrorOffset(t *testing.T) {
+	var dst struct{ N int }
+	typeErr := json.Unmarshal([]byte(`{"n":"not-a-number"}`), &dst)
+	if typeErr == nil {
+		t.Fatal("setup: expected UnmarshalTypeError")
+	}
+	synErr := json.Unmarshal([]byte(`{`), &dst)
+	if synErr == nil {
+		t.Fatal("setup: expected SyntaxError")
+	}
+
+	tests := []struct {
+		name       string
+		err        error
+		wantOK     bool
+		wantPosOff bool
+	}{
+		{"syntax", synErr, true, true},
+		{"unmarshal-type", typeErr, true, true},
+		{"generic", errors.New("not a json err"), false, false},
+		{"nil", nil, false, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			off, ok := jsonErrorOffset(tc.err)
+			if ok != tc.wantOK {
+				t.Errorf("ok=%v, want %v", ok, tc.wantOK)
+			}
+			if tc.wantPosOff && off <= 0 {
+				t.Errorf("expected positive offset, got %d", off)
+			}
+		})
+	}
+}
+
+func TestVisibleControl(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"plain", "plain"},
+		{"a\nb", `a\nb`},
+		{"a\rb", `a\rb`},
+		{"a\tb", `a\tb`},
+		{"a\n\r\tb", `a\n\r\tb`},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			if got := visibleControl([]byte(tc.in)); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// runCommentJSONScoped calls os.Exit on error and writes to stdout/stderr, so
+// it's exercised end-to-end via the helper-subprocess pattern (matching
+// TestRunComment_* in main_test.go).
+
+func TestRunCommentJSON_FromFile(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_RunCommentJSONFile", "--")
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("subprocess: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(string(out), "Added 1 comment") {
+		t.Errorf("expected success summary, got: %s", out)
+	}
+}
+
+func TestHelperProcess_RunCommentJSONFile(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "test.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write src: %v", err)
+	}
+	j := filepath.Join(tmp, "comments.json")
+	if err := os.WriteFile(j, []byte(`[{"file":"test.go","line":1,"body":"hello"}]`), 0o644); err != nil {
+		t.Fatalf("write json: %v", err)
+	}
+	runComment([]string{"--json", "--file", j, "--output", tmp, "--author", "tester"})
+}
+
+func TestRunCommentJSON_ParseErrorExits(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_RunCommentJSONBad", "--")
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected non-zero exit; output: %s", out)
+	}
+	if !strings.Contains(string(out), "Error parsing JSON at byte ") {
+		t.Errorf("missing formatted parse error: %s", out)
+	}
+	if !strings.Contains(string(out), `>>>HERE<<<`) {
+		t.Errorf("missing snippet marker: %s", out)
+	}
+}
+
+func TestHelperProcess_RunCommentJSONBad(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	tmp := t.TempDir()
+	bad := filepath.Join(tmp, "bad.json")
+	if err := os.WriteFile(bad, []byte("[\n  {\"body\": \"line one\nline two\"}\n]"), 0o644); err != nil {
+		t.Fatalf("write bad json: %v", err)
+	}
+	runComment([]string{"--json", "--file", bad, "--output", tmp})
+}
+
+func TestRunCommentJSON_MissingFileExits(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_RunCommentJSONMissing", "--")
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected non-zero exit; output: %s", out)
+	}
+	if !strings.Contains(string(out), "Error: reading") {
+		t.Errorf("missing reading error in output: %s", out)
+	}
+}
+
+func TestHelperProcess_RunCommentJSONMissing(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	tmp := t.TempDir()
+	runComment([]string{"--json", "--file", filepath.Join(tmp, "does-not-exist.json"), "--output", tmp})
 }
