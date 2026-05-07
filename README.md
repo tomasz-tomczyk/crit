@@ -24,7 +24,7 @@ Works with Claude Code, Cursor, GitHub Copilot, Aider, Cline, Windsurf and any o
 ## Install
 
 ```bash
-brew install tomasz-tomczyk/tap/crit
+brew install crit
 ```
 
 Also available via [Go, Nix, or binary download](#other-install-methods).
