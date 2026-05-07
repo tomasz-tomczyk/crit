@@ -332,19 +332,27 @@
       });
     } else {
       // Code-review chrome — load existing vendor + app.js.
-      var v1 = document.createElement('script'); v1.src = 'markdown-it.min.js'; document.body.appendChild(v1);
-      var v2 = document.createElement('script'); v2.src = 'highlight.min.js'; document.body.appendChild(v2);
-      var v3 = document.createElement('script'); v3.src = 'mermaid.min.js'; document.body.appendChild(v3);
-      var v4 = document.createElement('script'); v4.src = 'diff-match-patch.min.js'; document.body.appendChild(v4);
+      // async=false on dynamically-inserted scripts preserves DOM order for
+      // execution while still loading in parallel. Without this, app.js may
+      // execute before crit-shared.js parses, producing
+      // "Cannot read properties of undefined (reading 'installSidebarResize')"
+      // (and similar for other window.crit.shared.* helpers).
+      var v1 = document.createElement('script'); v1.src = 'markdown-it.min.js'; v1.async = false; document.body.appendChild(v1);
+      var v2 = document.createElement('script'); v2.src = 'highlight.min.js'; v2.async = false; document.body.appendChild(v2);
+      var v3 = document.createElement('script'); v3.src = 'mermaid.min.js'; v3.async = false; document.body.appendChild(v3);
+      var v4 = document.createElement('script'); v4.src = 'diff-match-patch.min.js'; v4.async = false; document.body.appendChild(v4);
+      // Shared helpers (escapeHTML, fetchJSON, installSidebarResize, theme cookie, etc.)
+      // used by app.js. Must load before app.js.
+      var sh = document.createElement('script'); sh.src = 'crit-shared.js'; sh.async = false; document.body.appendChild(sh);
       // Pure rendering helpers shared with design-mode rows. Must load before app.js.
-      var ch = document.createElement('script'); ch.src = 'crit-comment-card-helpers.js'; document.body.appendChild(ch);
+      var ch = document.createElement('script'); ch.src = 'crit-comment-card-helpers.js'; ch.async = false; document.body.appendChild(ch);
       // Shared comment-card renderer (used by app.js and design-mode). Must load before app.js.
-      var cc = document.createElement('script'); cc.src = 'crit-comment-card.js'; document.body.appendChild(cc);
+      var cc = document.createElement('script'); cc.src = 'crit-comment-card.js'; cc.async = false; document.body.appendChild(cc);
       // Shared settings-overlay panes (Shortcuts + About). Must load before app.js.
-      var sp = document.createElement('script'); sp.src = 'crit-settings-panes.js'; document.body.appendChild(sp);
+      var sp = document.createElement('script'); sp.src = 'crit-settings-panes.js'; sp.async = false; document.body.appendChild(sp);
       // Shared settings-overlay shell (open/close/Esc/focus-trap/tab nav). Must load before app.js.
-      var so = document.createElement('script'); so.src = 'crit-settings-overlay.js'; document.body.appendChild(so);
-      var a = document.createElement('script'); a.src = 'app.js'; document.body.appendChild(a);
+      var so = document.createElement('script'); so.src = 'crit-settings-overlay.js'; so.async = false; document.body.appendChild(so);
+      var a = document.createElement('script'); a.src = 'app.js'; a.async = false; document.body.appendChild(a);
     }
   })();
 </script>
