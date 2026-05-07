@@ -1888,7 +1888,7 @@ func runReviewClientRaw(entry sessionEntry) (approved bool, prompt string) {
 	// Wait for the server to finish initializing before calling review-cycle.
 	if _, _, err := waitForDaemonReady(client, entry.Port); err != nil {
 		fmt.Fprintf(os.Stderr, "crit plan-hook: %v\n", err)
-		return true, ""
+		return false, "crit daemon was unreachable; plan was not reviewed."
 	}
 
 	resp, err := client.Post(
@@ -1897,26 +1897,36 @@ func runReviewClientRaw(entry sessionEntry) (approved bool, prompt string) {
 		nil,
 	)
 	if err != nil {
+		// Daemon died (graceful shutdown, crash, or `crit stop`) while we
+		// were waiting. Deny rather than silently auto-approve — an
+		// unreachable daemon means no human signed off on the plan.
 		fmt.Fprintf(os.Stderr, "crit plan-hook: could not reach daemon: %v\n", err)
-		return true, "" // allow through on error
+		return false, "crit daemon became unreachable before review was finished."
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "crit plan-hook: daemon returned %d\n", resp.StatusCode)
-		return true, "" // allow through on infrastructure error
-	}
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return true, ""
+		fmt.Fprintf(os.Stderr, "crit plan-hook: could not read daemon response: %v\n", err)
+		return false, "crit daemon response could not be read."
+	}
+
+	// Both 200 (finish) and 503 (server-shutdown) carry a structured
+	// {approved, prompt} body. Other statuses mean infrastructure failure —
+	// deny in that case rather than allowing through.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusServiceUnavailable {
+		fmt.Fprintf(os.Stderr, "crit plan-hook: daemon returned %d\n", resp.StatusCode)
+		return false, "crit daemon returned an unexpected status."
 	}
 
 	var result struct {
 		Approved bool   `json:"approved"`
 		Prompt   string `json:"prompt"`
 	}
-	json.Unmarshal(body, &result)
+	if err := json.Unmarshal(body, &result); err != nil {
+		fmt.Fprintf(os.Stderr, "crit plan-hook: malformed daemon response: %v\n", err)
+		return false, "crit daemon returned a malformed response."
+	}
 	return result.Approved, result.Prompt
 }
 

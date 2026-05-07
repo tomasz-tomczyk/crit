@@ -1467,6 +1467,21 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 				})
 				return
 			}
+			if event.Type == "server-shutdown" {
+				// Daemon is shutting down before the user finished reviewing.
+				// Tell the client explicitly so it can deny rather than fall
+				// through to the connection-error path and silently approve.
+				// Set Content-Type before WriteHeader — writeJSON sets it
+				// internally, but headers set after WriteHeader are dropped.
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				writeJSON(w, map[string]any{
+					"status":   "shutdown",
+					"approved": false,
+					"prompt":   "crit daemon shut down before review was finished.",
+				})
+				return
+			}
 		case <-r.Context().Done():
 			w.WriteHeader(http.StatusGatewayTimeout)
 			return

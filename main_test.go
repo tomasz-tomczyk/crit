@@ -1135,6 +1135,90 @@ func TestRunReviewClientRaw_NoReadinessDelay(t *testing.T) {
 	}
 }
 
+// TestRunReviewClientRaw_DaemonShutdownDeniesNotApproves regression-tests the
+// silent auto-approve bug: when the daemon shuts down mid-request the client
+// must return approved=false (with an explanatory prompt), never approved=true.
+// Covers two paths: the daemon answers /api/review-cycle with 503+shutdown
+// payload, and the daemon's HTTP server force-closes the connection.
+func TestRunReviewClientRaw_DaemonShutdownDeniesNotApproves(t *testing.T) {
+	t.Run("503 shutdown response", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/session":
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			case "/api/review-cycle":
+				w.WriteHeader(http.StatusServiceUnavailable)
+				json.NewEncoder(w).Encode(map[string]any{
+					"status":   "shutdown",
+					"approved": false,
+					"prompt":   "crit daemon shut down before review was finished.",
+				})
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer ts.Close()
+
+		port := 0
+		fmt.Sscanf(ts.URL, "http://127.0.0.1:%d", &port)
+		if port == 0 {
+			fmt.Sscanf(ts.URL, "http://localhost:%d", &port)
+		}
+
+		approved, prompt := runReviewClientRaw(sessionEntry{Port: port})
+		if approved {
+			t.Fatal("expected approved=false on daemon shutdown, got true (silent auto-approve)")
+		}
+		if prompt == "" {
+			t.Fatal("expected non-empty prompt explaining shutdown, got empty")
+		}
+	})
+
+	t.Run("connection drop mid-request", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/session":
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			case "/api/review-cycle":
+				// Simulate the HTTP server force-closing the connection
+				// (what happens after httpServer.Shutdown's 2s timeout).
+				// Use Errorf (not Fatal) inside the handler goroutine —
+				// t.Fatal must be called from the test goroutine.
+				hj, ok := w.(http.Hijacker)
+				if !ok {
+					t.Errorf("ResponseWriter does not support Hijacker")
+					return
+				}
+				conn, _, err := hj.Hijack()
+				if err != nil {
+					t.Errorf("hijack failed: %v", err)
+					return
+				}
+				conn.Close()
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer ts.Close()
+
+		port := 0
+		fmt.Sscanf(ts.URL, "http://127.0.0.1:%d", &port)
+		if port == 0 {
+			fmt.Sscanf(ts.URL, "http://localhost:%d", &port)
+		}
+
+		approved, prompt := runReviewClientRaw(sessionEntry{Port: port})
+		if approved {
+			t.Fatal("expected approved=false on connection drop, got true (silent auto-approve)")
+		}
+		if prompt == "" {
+			t.Fatal("expected non-empty prompt explaining the failure, got empty")
+		}
+	})
+}
+
 // TestFetch_PrintsReviewFilePath verifies that crit fetch prints the review
 // file path in both the "no new comments" and "fetched N comments" cases.
 func TestFetch_PrintsReviewFilePath(t *testing.T) {
