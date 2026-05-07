@@ -95,6 +95,34 @@ func TestParseCommentJSONEntriesRawNewlineInString(t *testing.T) {
 	}
 }
 
+func TestJSONSourceLabel(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", "stdin"},
+		{"-", "stdin"},
+		{"bulk.json", "bulk.json"},
+		{"path/to/file.json", "path/to/file.json"},
+	}
+	for _, c := range cases {
+		got := jsonSourceLabel(c.in)
+		if got != c.want {
+			t.Errorf("jsonSourceLabel(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestFormatJSONParseError_NoOffset(t *testing.T) {
+	// errors.New produces an error with no offset info — exercises the
+	// !hasOffset branch in formatJSONParseError.
+	err := formatJSONParseError([]byte(`[]`), "test.json", errors.New("generic error"))
+	msg := err.Error()
+	if !strings.Contains(msg, "Error parsing JSON from test.json") {
+		t.Errorf("missing source label: %s", msg)
+	}
+	if !strings.Contains(msg, "generic error") {
+		t.Errorf("missing wrapped error: %s", msg)
+	}
+}
+
 func TestParseCommentFlagsFile(t *testing.T) {
 	got := parseCommentFlags([]string{"--json", "--file", "bulk.json"})
 	if !got.json {
