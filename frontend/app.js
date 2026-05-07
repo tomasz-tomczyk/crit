@@ -3816,14 +3816,16 @@
   }
 
   // For unified diff: build a Set of visual indices that should have has-comment.
-  // This handles interleaved add/del lines correctly by using sequential position.
+  // Anchor strictly to the comment's side so unrelated lines elsewhere in the
+  // hunk that happen to share a number on the opposite side are not included.
+  // Lines between the anchored start/end are highlighted regardless of type
+  // (so deletions within a multi-line range still get highlighted).
   function buildUnifiedCommentVisualSet(hunks, comments) {
     if (!comments.length) return new Set();
-    // Flatten all hunk lines with their line numbers
     const lines = [];
     for (const hunk of hunks) {
       for (const line of hunk.Lines) {
-        lines.push({ oldNum: line.OldNum, newNum: line.NewNum });
+        lines.push({ type: line.Type, oldNum: line.OldNum, newNum: line.NewNum });
       }
     }
     const set = new Set();
@@ -3832,16 +3834,19 @@
       if (c.scope === 'file') continue;
       if (hideResolved && c.resolved) continue;
       const side = c.side || '';
+      // Only lines that *belong* to the comment's side can anchor. For new-side
+      // comments that means add/context lines (with a real NewNum); for old-side
+      // it means del/context lines (with a real OldNum).
       let startIdx = -1, endIdx = -1;
       for (let i = 0; i < lines.length; i++) {
-        // startIdx: match either OldNum or NewNum so deletions adjacent to
-        // the comment boundary are included in the visual range
-        if (startIdx === -1 && (lines[i].oldNum === c.start_line || lines[i].newNum === c.start_line)) {
-          startIdx = i;
-        }
-        // endIdx: match only the comment's side to avoid overshooting
-        const endNum = side === 'old' ? lines[i].oldNum : lines[i].newNum;
-        if (endNum === c.end_line) endIdx = i;
+        const ln = lines[i];
+        const num = side === 'old' ? ln.oldNum : ln.newNum;
+        const onSide = side === 'old'
+          ? (ln.type === 'del' || ln.type === 'context')
+          : (ln.type === 'add' || ln.type === 'context');
+        if (!onSide || !num) continue;
+        if (startIdx === -1 && num === c.start_line) startIdx = i;
+        if (num === c.end_line) endIdx = i;
       }
       if (startIdx !== -1 && endIdx !== -1) {
         for (let i = startIdx; i <= endIdx; i++) set.add(i);
