@@ -343,8 +343,24 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 func (s *Session) carryForwardAllComments() {
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, f := range s.Files {
-		// Skip if comments were already carried forward (e.g. by carryForwardComments)
-		if len(f.Comments) > 0 {
+		if len(f.PreviousComments) == 0 {
+			continue
+		}
+		// Skip if PreviousComments are already carried forward (e.g. by the
+		// LCS path in carryForwardComments). Detect via CarriedForward marker
+		// rather than `len(f.Comments) > 0`, because the latter spuriously
+		// skips files that only contain comments added between
+		// SignalRoundComplete and this handler — those are brand-new for the
+		// new round and don't satisfy carry-forward, so PreviousComments
+		// would be silently dropped.
+		alreadyCarried := false
+		for _, mc := range f.Comments {
+			if mc.CarriedForward {
+				alreadyCarried = true
+				break
+			}
+		}
+		if alreadyCarried {
 			continue
 		}
 		for _, c := range f.PreviousComments {
@@ -774,7 +790,24 @@ func (s *Session) carryForwardFileComments(f *FileEntry) {
 	}
 
 	s.mu.Lock()
-	f.Comments = nil // Clear before carry-forward to prevent duplicates
+	// Preserve any comments added between SignalRoundComplete (which clears
+	// f.Comments) and the watcher actually processing the signal. Such
+	// comments have IDs not present in PreviousComments (they're brand-new
+	// for this round). On Windows, slow file I/O widens that race window;
+	// without preservation, AddComment's append into the empty slice would
+	// be wiped out by the f.Comments = nil assignment below.
+	prevIDs := make(map[string]struct{}, len(prevComments))
+	for _, c := range prevComments {
+		prevIDs[c.ID] = struct{}{}
+	}
+	preserved := make([]Comment, 0, len(f.Comments))
+	for _, c := range f.Comments {
+		if _, isPrev := prevIDs[c.ID]; isPrev {
+			continue
+		}
+		preserved = append(preserved, c)
+	}
+	f.Comments = preserved
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, c := range prevComments {
 		s.trackDeletedComment(f.Path, c.ID)
