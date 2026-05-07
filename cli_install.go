@@ -343,7 +343,7 @@ func installGeminiSettings(path string, force bool) {
 			map[string]interface{}{
 				"type":    "command",
 				"command": "crit plan-hook",
-				"timeout": 345600,
+				"timeout": 345600000,
 			},
 		},
 	})
