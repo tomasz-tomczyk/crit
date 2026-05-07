@@ -542,22 +542,6 @@ body.hide-resolved .crit-design-comment-row-wrap:has(.resolved-card) {
   transition: outline-color 200ms;
 }
 
-/* ---- Phase E: drift tray "this round" / "earlier" partition ---- */
-.crit-design-drifted-tray-section {
-  display: flex; flex-direction: column;
-}
-.crit-design-drifted-tray-section h3 {
-  margin: 8px 0 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--crit-editor-fg-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.crit-design-drifted-tray-section--this-round h3 {
-  color: var(--crit-design-drifted-this-round-fg);
-}
-
 /* ---- Phase E: aria-live + skip-link ---- */
 .crit-design-sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;

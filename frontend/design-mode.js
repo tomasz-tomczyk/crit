@@ -750,6 +750,13 @@
             // Use dom_anchor.pathname for design comments; fallback to file path.
             var path = (c.dom_anchor && c.dom_anchor.pathname) || p;
             c.path = path;
+            // Stamp _createdInRound from the persisted review_round so the
+            // drift guard in handlePinResolutionResult survives reloads
+            // (initial boot, SSE refresh, refreshCommentsForRoute). Without
+            // this, navigating away and back triggers a resolution scan
+            // whose results land before route data settles, marking the
+            // just-created pin as drifted.
+            c._createdInRound = c.review_round || state.currentRound || 1;
             return c;
           });
         })
@@ -1530,6 +1537,11 @@
       var out = (list || []).map(function (c) {
         var path = (c.dom_anchor && c.dom_anchor.pathname) || pathname;
         c.path = path;
+        // Same _createdInRound stamping as loadAllComments — see comment
+        // there. refreshCommentsForRoute fires immediately after a pin POST
+        // (saveComposer) and would otherwise wipe the optimistic stamp,
+        // re-arming the drift PUT on the next route-change scan.
+        c._createdInRound = c.review_round || state.currentRound || 1;
         return c;
       });
       // Replace comments for that route only.

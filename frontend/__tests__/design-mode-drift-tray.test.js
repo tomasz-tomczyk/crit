@@ -29,6 +29,24 @@ test('renderDriftTrayHTML escapes pin body', () => {
   assert.match(html, /&lt;script&gt;/);
 });
 
+test('renderDriftTrayHTML omits section heading regardless of round', () => {
+  // Regression: the per-round partition with bright "Drifted on round N"
+  // headings was removed — drifted pins are already enumerated in the main
+  // panel with per-row badges, and the tray exists only for the Re-anchor
+  // affordance. A heading here would duplicate that surface area.
+  const rows = [
+    { id: 'a', body: 'x', pathname: '/', status: 'drifted', drifted_on_round: 2 },
+    { id: 'b', body: 'y', pathname: '/', status: 'drifted', drifted_on_round: 1 },
+  ];
+  const html = renderDriftTrayHTML(rows, 2);
+  assert.doesNotMatch(html, /<h3[^>]*>/);
+  assert.doesNotMatch(html, /Drifted on round/);
+  assert.doesNotMatch(html, /Drifted earlier/);
+  assert.doesNotMatch(html, /crit-design-drifted-tray-section/);
+  assert.match(html, /data-pin-id="a"/);
+  assert.match(html, /data-pin-id="b"/);
+});
+
 test('renderDriftTrayHTML truncates BEFORE escaping (no mid-entity chops)', () => {
   const body = '&'.repeat(122);
   const html = renderDriftTrayHTML([{ id: 'a', body, pathname: '/x', status: 'drifted' }]);

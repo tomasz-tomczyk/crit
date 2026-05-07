@@ -33,29 +33,16 @@
     `</li>`;
   }
 
-  function renderDriftTrayHTML(rows, currentRound) {
+  function renderDriftTrayHTML(rows, _currentRound) {
     if (!rows || !rows.length) return '';
-    if (typeof currentRound !== 'number' || currentRound <= 0) {
-      // Legacy: single flat list (no round partition).
-      const items = rows.map(renderRow).join('');
-      return `<ul class="crit-design-drifted-tray" aria-label="Drifted pins">${items}</ul>`;
-    }
-    const thisRound = rows.filter(r => r.drifted_on_round === currentRound);
-    const earlier = rows.filter(r => r.drifted_on_round !== currentRound);
-    let html = '';
-    if (thisRound.length) {
-      html += `<div class="crit-design-drifted-tray-section crit-design-drifted-tray-section--this-round">` +
-        `<h3>Drifted on round ${currentRound}</h3>` +
-        `<ul class="crit-design-drifted-tray" aria-label="Drifted pins (this round)">${thisRound.map(renderRow).join('')}</ul>` +
-        `</div>`;
-    }
-    if (earlier.length) {
-      html += `<div class="crit-design-drifted-tray-section">` +
-        `<h3>Drifted earlier</h3>` +
-        `<ul class="crit-design-drifted-tray" aria-label="Drifted pins (earlier)">${earlier.map(renderRow).join('')}</ul>` +
-        `</div>`;
-    }
-    return html;
+    // Single flat list. The earlier per-round partition with prominent
+    // "Drifted on round N" / "Drifted earlier" headings was redundant: the
+    // main panel already lists every pin with its own Drifted badge, and
+    // each row carries its pathname inline. The tray now exists solely to
+    // surface the Re-anchor affordance for recoverable pins. _currentRound
+    // is kept as a parameter for call-site stability.
+    const items = rows.map(renderRow).join('');
+    return `<ul class="crit-design-drifted-tray" aria-label="Drifted pins">${items}</ul>`;
   }
 
   return { renderDriftTrayHTML, escapeHTML };
