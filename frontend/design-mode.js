@@ -218,10 +218,16 @@
         '<div class="crit-design-iframe-resizer" id="critDesignResizer" role="separator" aria-orientation="vertical" aria-label="Resize design viewport" tabindex="0"></div>' +
         '</div>' +
         '</div>';
-      // Insert before commentsPanel if present, else before any .pr-panel,
-      // else append.
+      // Insert before #commentsPanelResizer if present so the resizer stays
+      // adjacent to the comments panel (the handle's drag target). Inserting
+      // before .comments-panel directly leaves the resizer stranded on the
+      // LEFT edge of the iframe pane — visually disconnected from the panel
+      // boundary the user wants to drag, so the resize handle never feels
+      // hit-testable. Falls back to .comments-panel / append for safety.
+      var resizerEl = mainLayout.querySelector('#commentsPanelResizer');
       var commentsPanelEl = mainLayout.querySelector('.comments-panel');
-      if (commentsPanelEl) mainLayout.insertBefore(pane, commentsPanelEl);
+      if (resizerEl) mainLayout.insertBefore(pane, resizerEl);
+      else if (commentsPanelEl) mainLayout.insertBefore(pane, commentsPanelEl);
       else mainLayout.appendChild(pane);
     }
 
@@ -831,6 +837,14 @@
   }
 
   document.addEventListener('click', function (e) {
+    // Don't open the reply-create composer when the user clicked Edit/Delete
+    // affordances inside an existing reply (those have their own handlers
+    // and would otherwise double-fire and `refreshPanel` would wipe our
+    // inline edit textarea).
+    if (e.target.closest && (
+      e.target.closest('.crit-design-reply-edit') ||
+      e.target.closest('.crit-design-reply-delete')
+    )) return;
     var btn = e.target.closest && e.target.closest('.crit-design-comment-reply');
     if (!btn) return;
     e.stopPropagation();
@@ -913,6 +927,132 @@
       return;
     }
     submitReply(c, path, body, btn, errEl);
+  });
+
+  // ============================================================
+  // Reply edit / delete — parity with code-review's `editReply` /
+  // `deleteReply` (app.js: renderReplyList wires these directly on each
+  // reply's edit/delete buttons). Design-mode renders the same chrome via
+  // makeReplyListBuilder (see design-mode.row.js: .crit-design-reply-edit /
+  // .crit-design-reply-delete) but the click wiring lived nowhere — replies
+  // appeared editable but nothing happened on click.
+  //
+  // Endpoints are mode-agnostic:
+  //   PUT    /api/comment/{id}/replies/{rid}?path=<pathname>
+  //   DELETE /api/comment/{id}/replies/{rid}?path=<pathname>
+  // ============================================================
+  function replyMutationUrl(commentId, replyId, pathname) {
+    return '/api/comment/' + encodeURIComponent(commentId) +
+      '/replies/' + encodeURIComponent(replyId) +
+      '?path=' + encodeURIComponent(pathname || '/');
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.crit-design-reply-edit');
+    if (!btn) return;
+    e.stopPropagation();
+    var commentId = btn.dataset.commentId;
+    var replyId = btn.dataset.replyId;
+    if (!commentId || !replyId) return;
+    var c = findCommentById(commentId);
+    if (!c) return;
+    var pathname = (c.dom_anchor && c.dom_anchor.pathname) || '/';
+    var replyEl = document.querySelector('[data-reply-id="' + (window.CSS && CSS.escape ? CSS.escape(replyId) : replyId) + '"]');
+    if (!replyEl) return;
+    if (replyEl.querySelector('.crit-design-reply-edit-textarea')) return; // already editing
+    var bodyEl = replyEl.querySelector('.reply-body');
+    if (!bodyEl) return;
+    var currentText = bodyEl.dataset.rawBody || bodyEl.textContent || '';
+
+    var ta = document.createElement('textarea');
+    ta.className = 'crit-design-reply-edit-textarea crit-design-reply-textarea';
+    ta.rows = 3;
+    ta.value = currentText;
+    bodyEl.replaceWith(ta);
+    ta.focus();
+    try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (_) {}
+
+    var actions = document.createElement('div');
+    actions.className = 'crit-design-reply-actions';
+    var saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'btn btn-sm btn-primary';
+    saveBtn.textContent = 'Save';
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn-sm';
+    cancelBtn.textContent = 'Cancel';
+    actions.appendChild(saveBtn);
+    actions.appendChild(cancelBtn);
+    replyEl.appendChild(actions);
+
+    function close() { refreshPanel(); }
+    cancelBtn.addEventListener('click', function (ev) { ev.stopPropagation(); close(); });
+    saveBtn.addEventListener('click', async function (ev) {
+      ev.stopPropagation();
+      var newBody = ta.value.trim();
+      if (!newBody) return;
+      saveBtn.disabled = true;
+      try {
+        var res = await fetch(replyMutationUrl(commentId, replyId, pathname), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body: newBody }),
+        });
+        if (!res.ok) throw new Error('Server returned ' + res.status);
+      } catch (err) {
+        saveBtn.disabled = false;
+        showToast('Edit failed: ' + (err && err.message || err));
+        return;
+      }
+      // Optimistic local update — comment-changed SSE refreshes canonical state.
+      if (Array.isArray(c.replies)) {
+        for (var i = 0; i < c.replies.length; i++) {
+          if (c.replies[i] && c.replies[i].id === replyId) {
+            c.replies[i].body = newBody;
+            break;
+          }
+        }
+      }
+      state.userActedThisRound = true;
+      close();
+    });
+    ta.addEventListener('keydown', function (ev) {
+      if (ev.isComposing) return;
+      if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        saveBtn.click();
+      } else if (ev.key === 'Escape') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        close();
+      }
+    });
+  });
+
+  document.addEventListener('click', async function (e) {
+    var btn = e.target.closest && e.target.closest('.crit-design-reply-delete');
+    if (!btn) return;
+    e.stopPropagation();
+    var commentId = btn.dataset.commentId;
+    var replyId = btn.dataset.replyId;
+    if (!commentId || !replyId) return;
+    var c = findCommentById(commentId);
+    if (!c) return;
+    var pathname = (c.dom_anchor && c.dom_anchor.pathname) || '/';
+    try {
+      var res = await fetch(replyMutationUrl(commentId, replyId, pathname), { method: 'DELETE' });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+    } catch (err) {
+      showToast('Delete failed: ' + (err && err.message || err));
+      return;
+    }
+    if (Array.isArray(c.replies)) {
+      c.replies = c.replies.filter(function (r) { return r && r.id !== replyId; });
+    }
+    state.userActedThisRound = true;
+    refreshPanel();
   });
 
   // Keep the in-memory draft in sync so refreshPanel doesn't drop typed text.

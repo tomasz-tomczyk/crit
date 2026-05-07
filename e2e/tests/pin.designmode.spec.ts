@@ -109,5 +109,71 @@ test.describe('design-mode composer — M17 confirm-before-discard on Esc', () =
   });
 });
 
+test.describe('design-mode reply edit / delete — parity with code-review', () => {
+  test.beforeEach(async ({ request }) => {
+    await clearAllDesignPins(request);
+  });
+
+  // Seed pin + reply by driving the UI. Uses `button.crit-design-comment-reply`
+  // (the action-bar Reply button) and `.crit-design-comment-replies
+  // .crit-design-comment-reply` (the rendered reply row) to avoid the dual
+  // meaning of `.crit-design-comment-reply` (matches both).
+  async function seedPinWithReply(page: import('@playwright/test').Page, replyBody: string) {
+    await openPinComposer(page);
+    await page.locator('.crit-design-composer-body').fill('Top-level pin');
+    await page.locator('.crit-design-composer-save').click();
+    await expect(page.locator('.crit-design-composer')).toHaveCount(0);
+    const row = page.locator('#commentsPanelBody .crit-design-comment-row').first();
+    await row.locator('button.crit-design-comment-reply').click();
+    const ta = page.locator('.crit-design-reply-textarea').first();
+    await ta.fill(replyBody);
+    await ta.press('Meta+Enter');
+    await expect(page.locator('.crit-design-reply-textarea')).toHaveCount(0);
+  }
+
+  test('clicking the reply Edit button opens an inline textarea + Save persists', async ({ page }) => {
+    await seedPinWithReply(page, 'Original reply');
+    const replyRow = page.locator('#commentsPanelBody .crit-design-comment-replies .crit-design-comment-reply').first();
+    await expect(replyRow).toBeVisible();
+    // Hover-only chrome — the button is in DOM but visibility may be hover-gated.
+    // dispatch click directly to bypass hover gating.
+    await replyRow.locator('.crit-design-reply-edit').dispatchEvent('click');
+    const editTa = page.locator('textarea.crit-design-reply-edit-textarea');
+    await expect(editTa).toBeVisible();
+    await editTa.fill('Edited reply body');
+    await page.locator('#commentsPanelBody .crit-design-comment-replies .crit-design-comment-reply button', { hasText: 'Save' }).click();
+    // After refresh, the new body is rendered.
+    await expect(page.locator('#commentsPanelBody .reply-body').filter({ hasText: 'Edited reply body' })).toBeVisible();
+  });
+
+  test('clicking the reply Delete button removes the reply', async ({ page }) => {
+    await seedPinWithReply(page, 'Doomed reply');
+    const repliesContainer = page.locator('#commentsPanelBody .crit-design-comment-replies');
+    await expect(repliesContainer.locator('.crit-design-comment-reply')).toHaveCount(1);
+    await repliesContainer.locator('.crit-design-reply-delete').first().dispatchEvent('click');
+    await expect(repliesContainer.locator('.crit-design-comment-reply')).toHaveCount(0);
+  });
+});
+
+test.describe('design-mode comments-panel resizer — DOM order', () => {
+  test.beforeEach(async ({ request }) => {
+    await clearAllDesignPins(request);
+  });
+
+  test('resizer sits adjacent to comments panel (right of iframe pane)', async ({ page }) => {
+    await openPinComposer(page); // ensures /design loaded + agent ready
+    await page.locator('.crit-design-composer-cancel').click();
+    // Resizer's next sibling must be the comments panel — otherwise the
+    // handle is stranded on the wrong edge of the iframe pane and feels
+    // un-draggable.
+    const order = await page.evaluate(() => {
+      const r = document.getElementById('commentsPanelResizer');
+      const next = r && r.nextElementSibling;
+      return next ? next.id || next.className : null;
+    });
+    expect(order).toContain('commentsPanel');
+  });
+});
+
 // Re-export PIN_TARGET so an unused-import lint never trips this spec.
 void PIN_TARGET;
