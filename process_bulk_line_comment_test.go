@@ -114,6 +114,28 @@ func TestProcessBulkFileOrLineEntryNormalizesBackslashes(t *testing.T) {
 	}
 }
 
+// TestProcessBulkFileOrLineEntryRejectsBackslashTraversal ensures that
+// Windows-style traversal paths ("subdir\..\..\etc\passwd") are rejected
+// even when the check runs on Unix, where filepath.Clean treats backslash
+// as a literal and would pass the raw input through isAbsoluteOrTraversal.
+func TestProcessBulkFileOrLineEntryRejectsBackslashTraversal(t *testing.T) {
+	cases := []string{
+		`subdir\..\..\etc\passwd`,
+		`..\etc\passwd`,
+		`a\b\..\..\..\secret`,
+	}
+	for _, input := range cases {
+		cj := &CritJSON{Files: map[string]CritJSONFile{}}
+		entry := BulkCommentEntry{File: input, Body: "x", Line: 1}
+		err := processBulkFileOrLineEntry(cj, 0, entry, "alice", "u1", inheritedScope{})
+		if err == nil {
+			t.Errorf("input %q: expected traversal error, got nil", input)
+		} else if !strings.Contains(err.Error(), "must be relative") {
+			t.Errorf("input %q: unexpected error: %v", input, err)
+		}
+	}
+}
+
 func keysOf(m map[string]CritJSONFile) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

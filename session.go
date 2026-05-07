@@ -762,9 +762,10 @@ func fileIgnored(full, root string, ignorePatterns []string) bool {
 }
 
 // dirIgnored reports whether the directory at full (relative to root) matches
-// any "dir/" ignore pattern. File-shaped patterns are deliberately ignored
-// here so they only apply per-file in walkDirSubsFirst. Best-effort: if the
-// relative path can't be computed, the directory is not pruned.
+// any "dir/" ignore pattern. Non-slash-suffixed patterns (e.g. bare "node_modules")
+// are intentionally skipped — they apply per-file via fileIgnored. Pruning only
+// fires for explicit trailing-slash patterns. Best-effort: if the relative path
+// can't be computed, the directory is not pruned.
 func dirIgnored(full, root string, ignorePatterns []string) bool {
 	relPath, err := filepath.Rel(root, full)
 	if err != nil {

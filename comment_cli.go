@@ -324,14 +324,15 @@ func processBulkFileOrLineEntry(cj *CritJSON, i int, e BulkCommentEntry, author,
 		return fmt.Errorf("entry %d: file is required for new comments", i)
 	}
 
-	if isAbsoluteOrTraversal(filePath) {
+	// Normalize backslashes before the traversal check — on Unix filepath.Clean
+	// treats backslash as a literal character, so "subdir\..\..\etc\passwd" would
+	// pass isAbsoluteOrTraversal and only reveal the traversal after conversion.
+	normalizedPath := strings.ReplaceAll(filePath, `\`, "/")
+	if isAbsoluteOrTraversal(normalizedPath) {
 		return fmt.Errorf("entry %d: path %q must be relative and within the repository", i, filePath)
 	}
 	// Normalize for cross-platform storage — see addCommentToCritJSONScoped.
-	// Replace backslashes first so Windows-authored bulk JSON ("subdir\file.go")
-	// normalizes correctly when processed on Unix, where filepath.Clean treats
-	// backslash as a literal filename character.
-	cleaned := filepath.ToSlash(filepath.Clean(strings.ReplaceAll(filePath, `\`, "/")))
+	cleaned := filepath.ToSlash(filepath.Clean(normalizedPath))
 
 	if e.Scope == "file" {
 		appendFileCommentScoped(cj, cleaned, e.Body, author, userID, scope)
