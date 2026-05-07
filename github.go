@@ -1440,7 +1440,7 @@ func updateCritJSONAfterDeletes(critPath string, drained []int64) error {
 		drainedSet[id] = struct{}{}
 	}
 
-	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
 	if err != nil {
 		return err
 	}

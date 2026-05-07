@@ -1171,27 +1171,40 @@ func readCommentJSONInput(path string, stdin io.Reader) ([]byte, error) {
 }
 
 // parseCommentJSONEntries unmarshals a bulk-comment JSON array, returning a
-// readable, located error message when the input is malformed.
-func parseCommentJSONEntries(data []byte) ([]BulkCommentEntry, error) {
+// readable, located error message when the input is malformed. The source
+// label ("-" for stdin, or the file path) is included in the error so callers
+// can tell file vs. stdin failures apart.
+func parseCommentJSONEntries(data []byte, source string) ([]BulkCommentEntry, error) {
 	var entries []BulkCommentEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
-		return nil, formatJSONParseError(data, err)
+		return nil, formatJSONParseError(data, source, err)
 	}
 	return entries, nil
 }
 
 // formatJSONParseError builds a multi-line error describing where in the input
 // JSON parsing failed: byte offset, line/column, a snippet around the offset
-// with control characters made visible, and the original error message.
-func formatJSONParseError(data []byte, err error) error {
+// with control characters made visible, and the original error message. The
+// source label identifies the input ("-" for stdin, otherwise a file path).
+func formatJSONParseError(data []byte, source string, err error) error {
+	label := jsonSourceLabel(source)
 	offset, hasOffset := jsonErrorOffset(err)
 	if !hasOffset {
-		return fmt.Errorf("Error parsing JSON: %w", err)
+		return fmt.Errorf("Error parsing JSON from %s: %w", label, err)
 	}
 	line, col := lineColForOffset(data, offset)
 	snippet := jsonSnippet(data, offset)
-	return fmt.Errorf("Error parsing JSON at byte %d (line %d, column %d):\n  %s\n  %w",
-		offset, line, col, snippet, err)
+	return fmt.Errorf("Error parsing JSON from %s at byte %d (line %d, column %d):\n  %s\n  %w",
+		label, offset, line, col, snippet, err)
+}
+
+// jsonSourceLabel renders a human-readable label for the JSON input source.
+// Empty or "-" means stdin; anything else is treated as a file path.
+func jsonSourceLabel(source string) string {
+	if source == "" || source == "-" {
+		return "stdin"
+	}
+	return source
 }
 
 // jsonErrorOffset extracts the byte offset from json package errors that carry
@@ -1294,7 +1307,7 @@ func runCommentJSONScoped(f commentFlags, scope inheritedScope) {
 		os.Exit(1)
 	}
 
-	entries, err := parseCommentJSONEntries(data)
+	entries, err := parseCommentJSONEntries(data, f.file)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

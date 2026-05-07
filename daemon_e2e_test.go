@@ -20,15 +20,16 @@ func TestDaemonLifecycle(t *testing.T) {
 		t.Skip("skipping daemon lifecycle test in short mode")
 	}
 	if runtime.GOOS == "windows" {
-		// TODO(windows): the spawned daemon now starts and writes its
-		// session file, but cmd.Wait hangs indefinitely after proc.Kill on
-		// Windows. The detached child + readiness-pipe (ExtraFiles FD 3)
-		// combination produces subprocess-lifecycle behavior that differs
-		// from POSIX in ways we haven't unwound. The runtime daemon code
-		// path is still exercised by daemon_test.go unit tests on Windows;
-		// revisit this E2E once the spawn handshake is reworked (e.g.
-		// port-file polling instead of FD inheritance).
-		t.Skip("daemon E2E spawn/wait/kill semantics differ on Windows; covered by daemon_test.go unit tests; TODO: revisit")
+		// TODO(windows): re-evaluate now that terminateProcess uses
+		// GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT) before falling back to
+		// TerminateProcess — the daemon's signal handler should now run on
+		// shutdown and let cmd.Wait return cleanly. The detached child +
+		// readiness-pipe (ExtraFiles FD 3) combo still produces
+		// subprocess-lifecycle behavior that differs from POSIX, so this
+		// suite remains skipped pending hands-on validation on a Windows
+		// runner. The runtime daemon code path is still exercised by
+		// daemon_test.go unit tests on Windows.
+		t.Skip("daemon E2E spawn/wait/kill semantics differ on Windows; covered by daemon_test.go unit tests; TODO: revisit after CTRL_BREAK shutdown lands")
 	}
 
 	// Build crit binary

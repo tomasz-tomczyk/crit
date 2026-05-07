@@ -83,3 +83,41 @@ func TestProcessBulkLineComment(t *testing.T) {
 		})
 	}
 }
+
+// TestProcessBulkFileOrLineEntryNormalizesBackslashes ensures Windows-style
+// backslash separators in bulk JSON are normalized to forward slashes on all
+// platforms. On Unix, filepath.Clean treats backslash as a literal filename
+// character, so without the explicit replacement a key like "subdir\file.go"
+// would survive into the review file as a single path component.
+func TestProcessBulkFileOrLineEntryNormalizesBackslashes(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		wantKey string
+	}{
+		{name: "windows separators", input: `subdir\file.go`, wantKey: "subdir/file.go"},
+		{name: "mixed separators", input: `a\b/c.go`, wantKey: "a/b/c.go"},
+		{name: "nested windows", input: `a\b\c\d.go`, wantKey: "a/b/c/d.go"},
+		{name: "already posix", input: "a/b/c.go", wantKey: "a/b/c.go"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cj := &CritJSON{Files: map[string]CritJSONFile{}}
+			entry := BulkCommentEntry{File: c.input, Body: "x", Line: 1}
+			if err := processBulkFileOrLineEntry(cj, 0, entry, "alice", "u1", inheritedScope{}); err != nil {
+				t.Fatalf("unexpected err: %v", err)
+			}
+			if _, ok := cj.Files[c.wantKey]; !ok {
+				t.Fatalf("expected key %q in cj.Files, got %v", c.wantKey, keysOf(cj.Files))
+			}
+		})
+	}
+}
+
+func keysOf(m map[string]CritJSONFile) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}

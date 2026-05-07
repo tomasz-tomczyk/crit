@@ -718,6 +718,9 @@ func walkDirSubsFirst(dir, root string, ignorePatterns []string, out *[]string) 
 			if skipDirs[name] {
 				continue
 			}
+			if dirIgnored(filepath.Join(dir, name), root, ignorePatterns) {
+				continue
+			}
 			subdirs = append(subdirs, e)
 			continue
 		}
@@ -729,18 +732,8 @@ func walkDirSubsFirst(dir, root string, ignorePatterns []string, out *[]string) 
 		if isBinaryExtension(ext) {
 			continue
 		}
-		full := filepath.Join(dir, name)
-		if relPath, relErr := filepath.Rel(root, full); relErr == nil {
-			skipped := false
-			for _, pat := range ignorePatterns {
-				if matchPattern(pat, relPath) {
-					skipped = true
-					break
-				}
-			}
-			if skipped {
-				continue
-			}
+		if fileIgnored(filepath.Join(dir, name), root, ignorePatterns) {
+			continue
 		}
 		fileEntries = append(fileEntries, e)
 	}
@@ -750,6 +743,43 @@ func walkDirSubsFirst(dir, root string, ignorePatterns []string, out *[]string) 
 	for _, f := range fileEntries {
 		*out = append(*out, filepath.Join(dir, f.Name()))
 	}
+}
+
+// fileIgnored reports whether the file at full (relative to root) matches any
+// ignore pattern. Best-effort: if the relative path can't be computed, the
+// file is not skipped.
+func fileIgnored(full, root string, ignorePatterns []string) bool {
+	relPath, err := filepath.Rel(root, full)
+	if err != nil {
+		return false
+	}
+	for _, pat := range ignorePatterns {
+		if matchPattern(pat, relPath) {
+			return true
+		}
+	}
+	return false
+}
+
+// dirIgnored reports whether the directory at full (relative to root) matches
+// any "dir/" ignore pattern. File-shaped patterns are deliberately ignored
+// here so they only apply per-file in walkDirSubsFirst. Best-effort: if the
+// relative path can't be computed, the directory is not pruned.
+func dirIgnored(full, root string, ignorePatterns []string) bool {
+	relPath, err := filepath.Rel(root, full)
+	if err != nil {
+		return false
+	}
+	dirPath := filepath.ToSlash(relPath) + "/"
+	for _, pat := range ignorePatterns {
+		if !strings.HasSuffix(pat, "/") {
+			continue
+		}
+		if matchPattern(pat, dirPath) {
+			return true
+		}
+	}
+	return false
 }
 
 // isBinaryExtension returns true for file extensions that are typically binary.

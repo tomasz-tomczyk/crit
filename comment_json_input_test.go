@@ -62,7 +62,7 @@ func TestReadCommentJSONInputMissingFile(t *testing.T) {
 
 func TestParseCommentJSONEntriesValid(t *testing.T) {
 	data := []byte(`[{"file":"main.go","line":42,"body":"fix"}]`)
-	entries, err := parseCommentJSONEntries(data)
+	entries, err := parseCommentJSONEntries(data, "-")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -76,13 +76,13 @@ func TestParseCommentJSONEntriesRawNewlineInString(t *testing.T) {
 	// to give a better error for. We assemble the bytes manually so the test
 	// source itself stays well-formed.
 	data := []byte("[\n  {\"body\": \"line one\nline two\"}\n]")
-	_, err := parseCommentJSONEntries(data)
+	_, err := parseCommentJSONEntries(data, "bulk.json")
 	if err == nil {
 		t.Fatal("expected parse error, got nil")
 	}
 	msg := err.Error()
 	wants := []string{
-		"Error parsing JSON at byte ",
+		"Error parsing JSON from bulk.json at byte ",
 		"line ",
 		"column ",
 		">>>HERE<<<",
@@ -203,7 +203,7 @@ func TestRunCommentJSON_ParseErrorExits(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected non-zero exit; output: %s", out)
 	}
-	if !strings.Contains(string(out), "Error parsing JSON at byte ") {
+	if !strings.Contains(string(out), "Error parsing JSON from ") {
 		t.Errorf("missing formatted parse error: %s", out)
 	}
 	if !strings.Contains(string(out), `>>>HERE<<<`) {

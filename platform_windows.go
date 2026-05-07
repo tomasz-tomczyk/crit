@@ -27,11 +27,16 @@ func terminationSignals() []os.Signal {
 	return []os.Signal{os.Interrupt}
 }
 
-// terminateProcess asks the given process to exit. On Windows there is no
-// equivalent of SIGTERM for arbitrary processes — os.Process.Signal only
-// accepts os.Kill and os.Interrupt, and os.Interrupt is unimplemented for
-// non-console children. We fall back to TerminateProcess via os.Process.Kill.
+// terminateProcess asks the given process to exit. On Windows we first try
+// GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) so the daemon's
+// signal.NotifyContext handler runs (the daemon child is spawned with
+// CREATE_NEW_PROCESS_GROUP, so the event targets only that group).
+// stopDaemon's polling loop gives the graceful path a moment to shut down
+// before falling back to TerminateProcess via os.Process.Kill.
 func terminateProcess(proc *os.Process) error {
+	if err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(proc.Pid)); err == nil {
+		return nil
+	}
 	return proc.Kill()
 }
 

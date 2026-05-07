@@ -328,7 +328,10 @@ func processBulkFileOrLineEntry(cj *CritJSON, i int, e BulkCommentEntry, author,
 		return fmt.Errorf("entry %d: path %q must be relative and within the repository", i, filePath)
 	}
 	// Normalize for cross-platform storage — see addCommentToCritJSONScoped.
-	cleaned := filepath.ToSlash(filepath.Clean(filePath))
+	// Replace backslashes first so Windows-authored bulk JSON ("subdir\file.go")
+	// normalizes correctly when processed on Unix, where filepath.Clean treats
+	// backslash as a literal filename character.
+	cleaned := filepath.ToSlash(filepath.Clean(strings.ReplaceAll(filePath, `\`, "/")))
 
 	if e.Scope == "file" {
 		appendFileCommentScoped(cj, cleaned, e.Body, author, userID, scope)

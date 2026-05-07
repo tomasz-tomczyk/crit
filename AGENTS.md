@@ -25,7 +25,7 @@ crit/
 ├── review_file.go       # Review file (~/.crit/reviews/<key>.json) read/write — saveCritJSON
 ├── pr_cache.go / pr_fetch.go / push_buckets.go  # GitHub PR fetch/cache, comment bucketing
 ├── remote_files.go      # Fetch files from a remote PR for cross-PR comparisons
-├── browser.go / autodetect.go / lru_bytes.go    # Browser open, base-branch detection, byte cache
+├── browser.go / lru_bytes.go    # Browser open, base-branch detection, byte cache
 ├── comment_cli.go       # `crit comment` headless implementation
 ├── gen_integration_hashes.go / integration_hashes_gen.go  # Build-time integration manifest
 ├── *_test.go            # Tests (testutil_test.go has shared helpers; *_integration_test.go behind build tag)

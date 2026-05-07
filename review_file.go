@@ -145,7 +145,7 @@ func reviewPathsFor(identity string) reviewPaths {
 // in the orphan-snapshots state which is benign on read).
 func loadSnapshotsFile(snapshotsPath string) (SnapshotsFile, error) {
 	sf := SnapshotsFile{RoundSnapshots: map[string]map[int]RoundSnapshot{}}
-	data, err := os.ReadFile(snapshotsPath)
+	data, err := readFileShared(snapshotsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return sf, nil
@@ -382,7 +382,7 @@ func walkReviewIdentities(visit func(identity string, data []byte) error) error 
 		name := de.Name()
 		if de.IsDir() {
 			folder := filepath.Join(dir, name)
-			data, readErr := os.ReadFile(filepath.Join(folder, "review.json"))
+			data, readErr := readFileShared(filepath.Join(folder, "review.json"))
 			if readErr != nil {
 				if !os.IsNotExist(readErr) {
 					fmt.Fprintf(os.Stderr, "crit: warning: could not read %s/review.json: %v\n", folder, readErr)

@@ -127,7 +127,7 @@ func (s *Session) clearAllCommentData() {
 // and merges per-file comments.
 func buildCritJSON(snap writeFilesSnapshot) CritJSON {
 	cj := CritJSON{Files: make(map[string]CritJSONFile)}
-	if data, err := os.ReadFile(reviewPathsFor(snap.critPath).Review); err == nil {
+	if data, err := readFileShared(reviewPathsFor(snap.critPath).Review); err == nil {
 		if unmarshalErr := json.Unmarshal(data, &cj); unmarshalErr != nil {
 			fmt.Fprintf(os.Stderr, "Warning: corrupt review file, starting fresh: %v\n", unmarshalErr)
 		}
