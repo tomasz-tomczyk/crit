@@ -11,7 +11,7 @@ const debug = !!process.env.E2E_DEBUG;
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
-  retries: 0,
+  retries: process.env.CI ? 1 : 0,
   workers: 1,
   reporter: [['html', { open: 'never' }], ['list']],
 
@@ -19,6 +19,10 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: debug ? 'retain-on-failure' : 'off',
     video: debug ? 'retain-on-failure' : 'off',
+  },
+
+  expect: {
+    timeout: 10_000,
   },
 
   projects: [

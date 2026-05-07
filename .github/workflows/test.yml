@@ -15,6 +15,13 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Cache Go build cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: go-build-${{ runner.os }}-
+
       - name: Check gofmt
         run: |
           unformatted=$(gofmt -l .)
@@ -77,6 +84,13 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Cache Go build cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: go-build-${{ runner.os }}-
+
       - name: Run tests with coverage
         run: |
           PKGS=$(go list ./... | grep -v /node_modules/)
@@ -97,6 +111,13 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+
+      - name: Cache Go build cache
+        uses: actions/cache@v5
+        with:
+          path: ~/AppData/Local/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: go-build-${{ runner.os }}-
 
       - name: Run tests
         run: go test ./...
@@ -119,6 +140,13 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+
+      - name: Cache Go build cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: go-build-${{ runner.os }}-
 
       - uses: actions/setup-node@v6
         with:
@@ -193,6 +221,13 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+
+      - name: Cache Go build cache
+        uses: actions/cache@v5
+        with:
+          path: ~/AppData/Local/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: go-build-${{ runner.os }}-
 
       - uses: actions/setup-node@v6
         with:

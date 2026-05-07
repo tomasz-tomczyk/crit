@@ -22,8 +22,8 @@ test.describe('Comment Range Highlighting — Document View', () => {
 
     const section = mdSection(page);
     const blocks = section.locator('.line-block.has-comment');
-    const count = await blocks.count();
-    expect(count).toBeGreaterThan(1);
+    await expect(blocks.first()).toBeVisible();
+    await expect(blocks).not.toHaveCount(1);
   });
 
   test('single-line comment highlights only that block', async ({ page, request }) => {
@@ -37,8 +37,7 @@ test.describe('Comment Range Highlighting — Document View', () => {
 
     const section = mdSection(page);
     const blocks = section.locator('.line-block.has-comment');
-    const count = await blocks.count();
-    expect(count).toBeGreaterThanOrEqual(1);
+    await expect(blocks.first()).toBeVisible();
   });
 
   test('deleting comment removes has-comment from all blocks', async ({ page, request }) => {
@@ -107,9 +106,9 @@ test.describe('Comment Range Highlighting — Unified Diff', () => {
 
     const section = goSection(page);
     const highlighted = section.locator('.diff-line.has-comment');
+    await expect(highlighted.first()).toBeVisible();
+    await expect(highlighted).not.toHaveCount(1);
     const count = await highlighted.count();
-    // Should highlight multiple lines (at least start to end)
-    expect(count).toBeGreaterThan(1);
 
     // ALL highlighted lines should have the comment-range background, not addition/deletion bg
     for (let i = 0; i < count; i++) {
@@ -213,8 +212,11 @@ test.describe('Comment Range Highlighting — Split Diff', () => {
     const section = goSection(page);
     // Right side (new) should have has-comment
     const rightHighlighted = section.locator('.diff-split-side.right.has-comment');
+    await expect(rightHighlighted.first()).toBeVisible();
+    await expect(rightHighlighted).not.toHaveCount(0);
+    await expect(rightHighlighted).not.toHaveCount(1);
+    await expect(rightHighlighted).not.toHaveCount(2);
     const count = await rightHighlighted.count();
-    expect(count).toBeGreaterThanOrEqual(3);
 
     // All highlighted right-side cells should have orange bg
     for (let i = 0; i < Math.min(count, 3); i++) {

@@ -31,6 +31,7 @@ test.describe('Auto-expand small gaps — Split Mode', () => {
     // as regular diff rows with line numbers.
     // Look for context rows (not addition, not deletion, not empty) with line numbers.
     const contextRows = section.locator('.diff-split-row');
+    await expect(contextRows.first()).toBeVisible();
     const count = await contextRows.count();
 
     // Find a context row: both sides present, neither addition nor deletion
@@ -60,6 +61,7 @@ test.describe('Auto-expand small gaps — Split Mode', () => {
 
     // Find a context line in the expanded gap area and verify commenting works
     const rows = section.locator('.diff-split-row');
+    await expect(rows.first()).toBeVisible();
     const count = await rows.count();
 
     for (let i = 0; i < count; i++) {
