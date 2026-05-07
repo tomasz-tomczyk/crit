@@ -621,15 +621,22 @@
         await document.fonts.ready;
       }
       var h2c = await loadHtml2Canvas();
-      // Constrain output to the viewport — covers the case where a
-      // reviewer's pin is on a fixed/sticky element on a long page.
-      // html2canvas honours width/height as the output canvas dims.
-      var canvas = await h2c(target, {
-        scale: 1,
-        logging: false,
-        width: Math.min(window.innerWidth || H2C_MAX_DOC_WIDTH, H2C_MAX_DOC_WIDTH),
-        height: Math.min(window.innerHeight || H2C_MAX_DOC_HEIGHT, H2C_MAX_DOC_HEIGHT),
-      });
+      // Crop the rasterised output to the target element's bounding rect.
+      // html2canvas, when given an element, walks the entire layout root
+      // and produces a canvas sized to the document by default; passing
+      // x/y/width/height (document-coords) restricts the output to just
+      // the element. Without these, large pages produce huge thumbnails
+      // even though only the clicked component is of interest.
+      var rect = (target && typeof target.getBoundingClientRect === 'function')
+        ? target.getBoundingClientRect() : null;
+      var opts = { scale: 1, logging: false };
+      if (rect && rect.width > 0 && rect.height > 0) {
+        opts.x = Math.max(0, Math.floor(rect.left + (window.scrollX || 0)));
+        opts.y = Math.max(0, Math.floor(rect.top + (window.scrollY || 0)));
+        opts.width = Math.ceil(rect.width);
+        opts.height = Math.ceil(rect.height);
+      }
+      var canvas = await h2c(target, opts);
       return canvas.toDataURL('image/jpeg', 0.7);
     } catch (err) {
       postToParent({ type: A2C.AGENT_ERROR, kind: 'capture-failed', message: String(err && err.message || err) });
