@@ -7637,8 +7637,26 @@
   });
 
   let reloadInFlight = null;
+  // Tracks the (scope, commit) the in-flight reload was started for. If a new
+  // reloadForScope() call happens with different inputs while the previous one
+  // is still running, we chain a follow-up rather than collapsing onto the
+  // stale promise — otherwise the caller awaits a fetch for the OLD scope and
+  // the new scope is never requested. Surfaced as a Windows-only e2e flake:
+  // slower file I/O made loadAllFileData() outlast the next click handler, so
+  // clicks that swapped scope returned the previous scope's in-flight promise.
+  let reloadInFlightKey = null;
   async function reloadForScope() {
-    if (reloadInFlight) return reloadInFlight;
+    const key = diffScope + '\0' + diffCommit;
+    if (reloadInFlight && reloadInFlightKey === key) return reloadInFlight;
+    if (reloadInFlight) {
+      // Different inputs — chain after the in-flight reload finishes so we
+      // don't tear down filesContainer mid-render. The previous reload's
+      // finally clears reloadInFlight; we then re-enter reloadForScope().
+      const prev = reloadInFlight;
+      const chained = prev.then(function() { return reloadForScope(); }, function() { return reloadForScope(); });
+      return chained;
+    }
+    reloadInFlightKey = key;
     reloadInFlight = (async function() {
       try {
         activeReplyForms.clear();
@@ -7677,6 +7695,7 @@
         updateViewedCount();
       } finally {
         reloadInFlight = null;
+        reloadInFlightKey = null;
       }
     })();
     return reloadInFlight;
