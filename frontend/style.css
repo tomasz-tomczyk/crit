@@ -90,6 +90,8 @@ body {
 /* Brand-tint variant — used by the active branch (head) chip. */
 .header-chip.header-context {
   color: var(--crit-brand);
+  background: var(--crit-brand-subtle);
+  border-color: var(--crit-brand-bg);
 }
 .header-chip.header-context .branch-icon { opacity: 1; }
 .header-chip.header-context #branchName {

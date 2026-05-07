@@ -245,6 +245,7 @@
   let configAuthor = '';
   let uiState = 'reviewing';
   let waitingNotApproved = false;
+  let hiddenUnresolved = 0;
   let pendingUpdates = [];
   let pendingUpdatesVersion = '';
 
@@ -783,6 +784,7 @@
       : 'Crit — ' + (session.files || []).map(f => f.path).join(', '));
 
     files = await loadAllFileData(session.files || [], diffScope);
+    hiddenUnresolved = session.hidden_unresolved || 0;
 
     files.sort(fileSortComparator);
 
@@ -6637,6 +6639,7 @@
           if (files[fi].comments) unresolvedComments += files[fi].comments.filter(function(c) { return !c.resolved; }).length;
         }
         unresolvedComments += reviewComments.filter(function(c) { return !c.resolved; }).length;
+        unresolvedComments += hiddenUnresolved;
         finishBtn.textContent = unresolvedComments === 0 ? 'Approve' : 'Finish Review';
         finishBtn.disabled = false;
         finishBtn.classList.add('btn-primary');
@@ -6841,6 +6844,7 @@
 
         // Reload all files
         files = await loadAllFileData(session.files || [], diffScope);
+        hiddenUnresolved = session.hidden_unresolved || 0;
 
         // Restore per-file user state from previous round
         for (let fi = 0; fi < files.length; fi++) {
@@ -7686,6 +7690,7 @@
         }
 
         files = await loadAllFileData(session.files, diffScope);
+        hiddenUnresolved = session.hidden_unresolved || 0;
         files.sort(fileSortComparator);
         restoreViewedState();
         renderFileTree();

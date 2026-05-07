@@ -2205,18 +2205,19 @@ func (s *Session) GetFileDiffSnapshot(path string) (map[string]any, bool) {
 
 // SessionInfo returns metadata about the session for the API.
 type SessionInfo struct {
-	Mode            string            `json:"mode"` // "files" or "git"
-	VCSName         string            `json:"vcs_name,omitempty"`
-	Branch          string            `json:"branch"`
-	BaseRef         string            `json:"base_ref"`
-	BaseBranchName  string            `json:"base_branch_name,omitempty"`
-	ReviewRound     int               `json:"review_round"`
-	AvailableScopes []string          `json:"available_scopes"`
-	Files           []SessionFileInfo `json:"files"`
-	ReviewComments  []Comment         `json:"review_comments"`
-	Cwd             string            `json:"cwd,omitempty"`
-	Focus           Focus             `json:"focus"`
-	LastRangeFocus  *Focus            `json:"last_range_focus,omitempty"`
+	Mode             string            `json:"mode"` // "files" or "git"
+	VCSName          string            `json:"vcs_name,omitempty"`
+	Branch           string            `json:"branch"`
+	BaseRef          string            `json:"base_ref"`
+	BaseBranchName   string            `json:"base_branch_name,omitempty"`
+	ReviewRound      int               `json:"review_round"`
+	AvailableScopes  []string          `json:"available_scopes"`
+	Files            []SessionFileInfo `json:"files"`
+	ReviewComments   []Comment         `json:"review_comments"`
+	Cwd              string            `json:"cwd,omitempty"`
+	Focus            Focus             `json:"focus"`
+	LastRangeFocus   *Focus            `json:"last_range_focus,omitempty"`
+	HiddenUnresolved int               `json:"hidden_unresolved"`
 }
 
 // SessionFileInfo is a summary of a file for the session API response.

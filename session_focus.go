@@ -556,19 +556,21 @@ func (s *Session) GetCommits() []CommitInfo {
 
 // scopedSessionSnapshot holds session state read under lock for scoped queries.
 type scopedSessionSnapshot struct {
-	vcs            VCS
-	baseRef        string
-	baseBranchName string
-	repoRoot       string
-	mode           string
-	branch         string
-	reviewRound    int
-	ignorePatterns []string
-	commentCounts  map[string]int
-	lazyFiles      map[string]*FileEntry
-	reviewComments []Comment
-	focus          Focus
-	lastRangeFocus *Focus
+	vcs              VCS
+	baseRef          string
+	baseBranchName   string
+	repoRoot         string
+	mode             string
+	branch           string
+	reviewRound      int
+	ignorePatterns   []string
+	commentCounts    map[string]int
+	unresolvedCounts map[string]int
+	totalUnresolved  int
+	lazyFiles        map[string]*FileEntry
+	reviewComments   []Comment
+	focus            Focus
+	lastRangeFocus   *Focus
 }
 
 func (s *Session) snapshotForScoped() scopedSessionSnapshot {
@@ -576,15 +578,26 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 	defer s.mu.RUnlock()
 
 	commentCounts := make(map[string]int, len(s.Files))
+	unresolvedCounts := make(map[string]int, len(s.Files))
 	lazyFiles := make(map[string]*FileEntry, len(s.Files))
+	totalUnresolved := 0
 	for _, f := range s.Files {
 		commentCounts[f.Path] = countVisibleComments(f.Comments, s.Focus)
+		for _, c := range f.Comments {
+			if !c.Resolved {
+				unresolvedCounts[f.Path]++
+				totalUnresolved++
+			}
+		}
 		if f.Lazy {
 			lazyFiles[f.Path] = f
 		}
 	}
 	rc := make([]Comment, 0, len(s.reviewComments))
 	for _, c := range s.reviewComments {
+		if !c.Resolved {
+			totalUnresolved++
+		}
 		if !visibleInFocus(c, s.Focus) {
 			continue
 		}
@@ -592,19 +605,21 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 	}
 
 	return scopedSessionSnapshot{
-		vcs:            s.VCS,
-		baseRef:        s.BaseRef,
-		baseBranchName: s.BaseBranchName,
-		repoRoot:       s.RepoRoot,
-		mode:           s.Mode,
-		branch:         s.Branch,
-		reviewRound:    s.ReviewRound,
-		ignorePatterns: s.IgnorePatterns,
-		commentCounts:  commentCounts,
-		lazyFiles:      lazyFiles,
-		reviewComments: rc,
-		focus:          s.Focus,
-		lastRangeFocus: s.LastRangeFocus,
+		vcs:              s.VCS,
+		baseRef:          s.BaseRef,
+		baseBranchName:   s.BaseBranchName,
+		repoRoot:         s.RepoRoot,
+		mode:             s.Mode,
+		branch:           s.Branch,
+		reviewRound:      s.ReviewRound,
+		ignorePatterns:   s.IgnorePatterns,
+		commentCounts:    commentCounts,
+		unresolvedCounts: unresolvedCounts,
+		totalUnresolved:  totalUnresolved,
+		lazyFiles:        lazyFiles,
+		reviewComments:   rc,
+		focus:            s.Focus,
+		lastRangeFocus:   s.LastRangeFocus,
 	}
 }
 
@@ -708,7 +723,28 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 		info.Files = append(info.Files, fi)
 	}
 
+	info.HiddenUnresolved = snap.hiddenUnresolved(info.Files)
 	return info
+}
+
+// hiddenUnresolved returns the count of unresolved comments that exist outside
+// the given file list (and outside the snapshot's review comments), so the
+// client can correctly label the finish button when out-of-scope comments are
+// not loaded. Computed from data captured under the same lock as the snapshot.
+func (snap *scopedSessionSnapshot) hiddenUnresolved(scopeFiles []SessionFileInfo) int {
+	scopeUnresolved := 0
+	for _, c := range snap.reviewComments {
+		if !c.Resolved {
+			scopeUnresolved++
+		}
+	}
+	for _, fi := range scopeFiles {
+		scopeUnresolved += snap.unresolvedCounts[fi.Path]
+	}
+	if hidden := snap.totalUnresolved - scopeUnresolved; hidden > 0 {
+		return hidden
+	}
+	return 0
 }
 
 // loadScopedFileState reads file state from the session or disk for scoped diff queries.
