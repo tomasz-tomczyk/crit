@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestAddDesignPin_AssignsMonotonicGlobalPinNumbers(t *testing.T) {
