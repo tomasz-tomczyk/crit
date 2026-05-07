@@ -90,8 +90,9 @@ if [ $# -eq 0 ]; then
     name=$(basename "$f" .log)
     if grep -q "failed" "$f"; then
       echo "=== $name (FAILED) ==="
-      # Show the failure details (last 30 lines captures errors + summary)
-      tail -30 "$f"
+      # Dump the full project log on failure so CI shows every error message
+      # (a 30-line tail buries per-test errors when many tests fail).
+      cat "$f"
     else
       echo "=== $name ==="
       tail -5 "$f"
