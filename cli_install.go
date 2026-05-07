@@ -129,9 +129,9 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/codex/skills/crit-cli/SKILL.md", dest: ".agents/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Codex agents when needed"},
 	},
 	"gemini": {
-		{source: "integrations/gemini/skills/crit-cli/SKILL.md", dest: ".gemini/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Gemini CLI agents when needed"},
-		{source: "integrations/gemini/commands/crit.toml", dest: ".gemini/commands/crit.toml", hint: "Run /crit in Gemini CLI to start a review loop"},
-		{source: "integrations/gemini/hooks/policy.toml", dest: ".gemini/policies/crit.toml", hint: "The crit policy allows exit_plan_mode without confirmation"},
+		{source: "integrations/gemini/skills/crit-cli/SKILL.md", dest: ".gemini/skills/crit-cli/SKILL.md", globalDest: ".gemini/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Gemini CLI agents when needed"},
+		{source: "integrations/gemini/commands/crit.toml", dest: ".gemini/commands/crit.toml", globalDest: ".gemini/commands/crit.toml", globalDestKind: globalDestRelHome, hint: "Run /crit in Gemini CLI to start a review loop"},
+		{source: "integrations/gemini/hooks/policy.toml", dest: ".gemini/policies/crit.toml", globalDest: ".gemini/policies/crit.toml", globalDestKind: globalDestRelHome, hint: "The crit policy allows exit_plan_mode without confirmation"},
 	},
 }
 
@@ -307,7 +307,10 @@ func installOneFile(f integration, dest string, force bool) {
 func installGeminiSettings(path string, force bool) {
 	existing := map[string]interface{}{}
 	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, &existing)
+		if err := json.Unmarshal(data, &existing); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s contains invalid JSON — use --force to overwrite\n", path)
+			os.Exit(1)
+		}
 	}
 
 	hooks, _ := existing["hooks"].(map[string]interface{})
