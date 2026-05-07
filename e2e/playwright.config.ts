@@ -13,7 +13,16 @@ export default defineConfig({
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
-  reporter: [['html', { open: 'never' }], ['list']],
+  reporter: process.env.CI
+    ? [['github'], ['html', { open: 'never' }], ['list']]
+    : [['html', { open: 'never' }], ['list']],
+
+  // Per-test timeout: 60s on CI (some tests write review files and wait for
+  // SSE events); 30s locally is fine since slow tests won't hit it in practice.
+  timeout: process.env.CI ? 60_000 : 30_000,
+
+  // Hard ceiling so a single hung test can't stall the entire job.
+  globalTimeout: process.env.CI ? 20 * 60 * 1000 : undefined,
 
   use: {
     screenshot: 'only-on-failure',

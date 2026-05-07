@@ -22,18 +22,15 @@ test.describe('File Tree — Git Mode', () => {
   });
 
   test('file tree shows correct file names', async ({ page }) => {
-    const fileNames = page.locator('.tree-file-name');
-    const names: string[] = [];
-    const count = await fileNames.count();
-    for (let i = 0; i < count; i++) {
-      names.push(await fileNames.nth(i).textContent() || '');
-    }
-    expect(names).toContain('plan.md');
-    expect(names).toContain('server.go');
-    expect(names).toContain('handler.js');
-    expect(names).toContain('deleted.txt');
-    expect(names).toContain('utils.go');
-    expect(names).toContain('config.yaml');
+    // Wait for the expected files to be visible individually rather than
+    // taking a count() snapshot that races with tree rendering.
+    const tree = page.locator('#fileTreePanel');
+    await expect(tree.locator('.tree-file-name', { hasText: 'plan.md' })).toBeVisible();
+    await expect(tree.locator('.tree-file-name', { hasText: 'server.go' })).toBeVisible();
+    await expect(tree.locator('.tree-file-name', { hasText: 'handler.js' })).toBeVisible();
+    await expect(tree.locator('.tree-file-name', { hasText: 'deleted.txt' })).toBeVisible();
+    await expect(tree.locator('.tree-file-name', { hasText: 'utils.go' })).toBeVisible();
+    await expect(tree.locator('.tree-file-name', { hasText: 'config.yaml' })).toBeVisible();
   });
 
   test('file tree header shows file count', async ({ page }) => {

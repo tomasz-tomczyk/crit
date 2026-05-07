@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loadPage } from './helpers';
+import { loadPage, clearAllComments } from './helpers';
 
 async function switchScope(page: Page, scope: string) {
   const responsePromise = page.waitForResponse(resp =>
@@ -10,6 +10,10 @@ async function switchScope(page: Page, scope: string) {
   // Wait for the clicked button to become active
   await expect(page.locator(`#scopeToggle .toggle-btn[data-scope="${scope}"]`)).toHaveClass(/active/);
 }
+
+test.beforeEach(async ({ request }) => {
+  await clearAllComments(request);
+});
 
 test.afterEach(async ({ page }) => {
   // Reset scope cookie so other test files aren't affected
