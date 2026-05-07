@@ -127,6 +127,12 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/codex/skills/crit/SKILL.md", dest: ".agents/skills/crit/SKILL.md", hint: "Use $crit in Codex to start a review loop"},
 		{source: "integrations/codex/skills/crit-cli/SKILL.md", dest: ".agents/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Codex agents when needed"},
 	},
+	"gemini": {
+		{source: "integrations/gemini/skills/crit/SKILL.md", dest: ".gemini/skills/crit/SKILL.md", hint: "Run /crit-review in Gemini CLI to start a review loop"},
+		{source: "integrations/gemini/skills/crit-cli/SKILL.md", dest: ".gemini/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Gemini CLI agents when needed"},
+		{source: "integrations/gemini/commands/crit-review.toml", dest: ".gemini/commands/crit-review.toml", hint: "Run /crit-review in Gemini CLI to start a review loop"},
+		{source: "integrations/gemini/hooks/policy.toml", dest: ".gemini/policies/crit.toml", hint: "The crit policy allows exit_plan_mode without confirmation"},
+	},
 }
 
 // availableIntegrations returns the sorted list of integration names that

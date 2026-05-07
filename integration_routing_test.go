@@ -98,6 +98,7 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 		"github-copilot": {{".agents/skills/crit/SKILL.md", globalDestRelHome}, {".agents/skills/crit-cli/SKILL.md", globalDestRelHome}},
 		"windsurf":       {{"", globalDestNone}},
 		"cline":          {{"Cline/Rules/crit.md", globalDestDocuments}},
+		"gemini":         {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
 	}
 	for tool, files := range expected {
 		got := integrationMap[tool]

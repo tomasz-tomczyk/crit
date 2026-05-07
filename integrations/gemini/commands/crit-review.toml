@@ -1,0 +1,6 @@
+description = "Review code changes or a GitHub PR with crit inline comments"
+prompt = """
+Activate the crit skill and follow it to run an interactive review loop.
+
+Arguments (if provided): {{args}}
+"""
