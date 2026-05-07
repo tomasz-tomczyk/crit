@@ -146,6 +146,34 @@ func TestInstallOneFile_WritesAndSkips(t *testing.T) {
 	}
 }
 
+// TestInstallIntegration_GeminiWritesSettingsJSON verifies that the gemini
+// special-case in installIntegration runs installGeminiSettings and produces
+// a .gemini/settings.json in the project directory.
+func TestInstallIntegration_GeminiWritesSettingsJSON(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := installIntegration("gemini", false); err != nil {
+		t.Fatalf("installIntegration: %v", err)
+	}
+	settingsPath := filepath.Join(dir, ".gemini", "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("expected .gemini/settings.json to be written: %v", err)
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("settings.json is not valid JSON: %v", err)
+	}
+	hooks, _ := m["hooks"].(map[string]interface{})
+	before, _ := hooks["BeforeTool"].([]interface{})
+	for _, e := range before {
+		if em, ok := e.(map[string]interface{}); ok && em["matcher"] == "exit_plan_mode" {
+			return
+		}
+	}
+	t.Error("exit_plan_mode hook not found in .gemini/settings.json")
+}
+
 func TestPrintUniqueHints_Dedups(t *testing.T) {
 	// printUniqueHints prints to stdout; we just verify it doesn't panic on
 	// duplicates and empty input. Output ordering and dedup logic are simple
