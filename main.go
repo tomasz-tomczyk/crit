@@ -1061,6 +1061,7 @@ type commentFlags struct {
 	resolve   bool
 	path      string
 	json      bool
+	file      string
 	plan      string
 	scope     commentFocusOverride
 	args      []string
@@ -1100,6 +1101,9 @@ func parseCommentFlags(args []string) commentFlags {
 			i++
 		case "--json":
 			f.json = true
+		case "--file", "-f":
+			f.file = requireFlagValue(args, i, arg)
+			i++
 		case "--scope":
 			override, err := commentScopeOverrideFromFlag(requireFlagValue(args, i, "--scope"))
 			if err != nil {
@@ -1148,20 +1152,151 @@ func resolveCommentFlags(f *commentFlags) {
 	}
 }
 
+// readCommentJSONInput reads bulk-comment JSON either from the given file path
+// or from stdin. A path of "" or "-" reads stdin (POSIX convention). Errors
+// include the source path so callers can spot file vs. stdin failures quickly.
+func readCommentJSONInput(path string, stdin io.Reader) ([]byte, error) {
+	if path == "" || path == "-" {
+		data, err := io.ReadAll(stdin)
+		if err != nil {
+			return nil, fmt.Errorf("reading stdin: %w", err)
+		}
+		return data, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	return data, nil
+}
+
+// parseCommentJSONEntries unmarshals a bulk-comment JSON array, returning a
+// readable, located error message when the input is malformed.
+func parseCommentJSONEntries(data []byte) ([]BulkCommentEntry, error) {
+	var entries []BulkCommentEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, formatJSONParseError(data, err)
+	}
+	return entries, nil
+}
+
+// formatJSONParseError builds a multi-line error describing where in the input
+// JSON parsing failed: byte offset, line/column, a snippet around the offset
+// with control characters made visible, and the original error message.
+func formatJSONParseError(data []byte, err error) error {
+	offset, hasOffset := jsonErrorOffset(err)
+	if !hasOffset {
+		return fmt.Errorf("Error parsing JSON: %w", err)
+	}
+	line, col := lineColForOffset(data, offset)
+	snippet := jsonSnippet(data, offset)
+	return fmt.Errorf("Error parsing JSON at byte %d (line %d, column %d):\n  %s\n  %w",
+		offset, line, col, snippet, err)
+}
+
+// jsonErrorOffset extracts the byte offset from json package errors that carry
+// one. Returns (0, false) if the error has no offset information.
+func jsonErrorOffset(err error) (int64, bool) {
+	var syn *json.SyntaxError
+	if errors.As(err, &syn) {
+		return syn.Offset, true
+	}
+	var typ *json.UnmarshalTypeError
+	if errors.As(err, &typ) {
+		return typ.Offset, true
+	}
+	return 0, false
+}
+
+// lineColForOffset returns 1-based line and column for the given byte offset
+// into data. Tolerates offsets at or past the end of input.
+func lineColForOffset(data []byte, offset int64) (int, int) {
+	if offset < 0 {
+		offset = 0
+	}
+	if int(offset) > len(data) {
+		offset = int64(len(data))
+	}
+	line, col := 1, 1
+	for i := int64(0); i < offset; i++ {
+		if data[i] == '\n' {
+			line++
+			col = 1
+			continue
+		}
+		col++
+	}
+	return line, col
+}
+
+// jsonSnippet returns a single-line excerpt of data around offset with the
+// offending position marked by >>>HERE<<<. Control bytes inside the snippet
+// are rendered as their visible escape forms so e.g. a raw newline appears as
+// the two characters \n rather than wrapping the output.
+func jsonSnippet(data []byte, offset int64) string {
+	const before, after = 40, 40
+	if offset < 0 {
+		offset = 0
+	}
+	if int(offset) > len(data) {
+		offset = int64(len(data))
+	}
+	start := offset - before
+	if start < 0 {
+		start = 0
+	}
+	end := offset + after
+	if int(end) > len(data) {
+		end = int64(len(data))
+	}
+	left := visibleControl(data[start:offset])
+	right := visibleControl(data[offset:end])
+	prefix := ""
+	if start > 0 {
+		prefix = "..."
+	}
+	suffix := ""
+	if int(end) < len(data) {
+		suffix = "..."
+	}
+	return prefix + left + ">>>HERE<<<" + right + suffix
+}
+
+// visibleControl replaces unprintable control bytes (newline, carriage return,
+// tab) with their escape-sequence representation so they survive a single-line
+// terminal print.
+func visibleControl(b []byte) string {
+	var out strings.Builder
+	out.Grow(len(b))
+	for _, c := range b {
+		switch c {
+		case '\n':
+			out.WriteString(`\n`)
+		case '\r':
+			out.WriteString(`\r`)
+		case '\t':
+			out.WriteString(`\t`)
+		default:
+			out.WriteByte(c)
+		}
+	}
+	return out.String()
+}
+
 func runCommentJSON(f commentFlags) {
 	runCommentJSONScoped(f, inheritedScope{})
 }
 
 func runCommentJSONScoped(f commentFlags, scope inheritedScope) {
-	data, err := io.ReadAll(os.Stdin)
+	data, err := readCommentJSONInput(f.file, os.Stdin)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	var entries []BulkCommentEntry
-	if err := json.Unmarshal(data, &entries); err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing JSON: %v\n", err)
+	entries, err := parseCommentJSONEntries(data)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
@@ -1223,7 +1358,8 @@ func printCommentUsage() {
 	fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] [--author <name>] <path> <body>             File-level comment")
 	fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] [--author <name>] <path>:<line[-end]> <body> Line-level comment")
 	fmt.Fprintln(os.Stderr, "       crit comment --reply-to <id> [--resolve] [--author <name>] <body>")
-	fmt.Fprintln(os.Stderr, "       crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON")
+	fmt.Fprintln(os.Stderr, "       crit comment --json [--file <path>] [--author <name>] [--output <dir>]")
+	fmt.Fprintln(os.Stderr, "                                                                  Bulk add comments from JSON (stdin by default; --file <path> or --file - for stdin)")
 	fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] --clear")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Examples:")
@@ -1234,6 +1370,7 @@ func printCommentUsage() {
 	fmt.Fprintln(os.Stderr, "  crit comment --reply-to c_a3f8b2 --resolve --author 'Claude' 'Split into two functions'")
 	fmt.Fprintln(os.Stderr, "  crit comment --output /tmp/reviews main.go:42 'Fix this bug'")
 	fmt.Fprintln(os.Stderr, "  echo '[{\"file\":\"main.go\",\"line\":42,\"body\":\"Fix this\"}]' | crit comment --json --author 'Claude'")
+	fmt.Fprintln(os.Stderr, "  crit comment --json --file comments.json --author 'Claude'")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Tips:")
 	fmt.Fprintln(os.Stderr, "  Use --author to identify who left the comment (recommended for AI agents)")

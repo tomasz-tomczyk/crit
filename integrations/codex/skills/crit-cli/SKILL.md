@@ -87,9 +87,10 @@ Hard rules:
 
 ## Bulk commenting (3+ comments)
 
-Use `--json` for atomicity (single write, no partial state) and speed (one process):
+Use `--json` for atomicity (single write, no partial state) and speed (one process). The JSON can come from stdin or `--file <path>`:
 
 ```bash
+# stdin — fine for short, single-line bodies:
 echo '[
   {"body": "overall feedback", "scope": "review"},
   {"path": "session.go", "body": "restructure", "scope": "file"},
@@ -99,6 +100,14 @@ echo '[
   {"reply_to": "r_f1e2d3", "body": "Done"}
 ]' | crit comment --json --author 'Codex'
 ```
+
+**For multi-paragraph bodies, prefer `--file`.** A literal newline inside a `"body"` string breaks JSON parsing, and shell-quoted heredocs make this easy to introduce by accident. Write the JSON to a temp file (use your file-edit tool), then:
+
+```bash
+crit comment --json --file /tmp/crit-bulk.json --author 'Codex'
+```
+
+`--file -` is an explicit "read stdin" if you ever need it.
 
 Per-entry schema:
 

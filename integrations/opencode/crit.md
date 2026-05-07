@@ -78,6 +78,19 @@ echo '[
 ]' | crit comment --json --author 'OpenCode'
 ```
 
+For multi-paragraph reply bodies, prefer `crit comment --json --file <path>` — a raw newline inside a JSON `"body"` string is invalid, and shell-quoted heredocs make that easy to slip in. Write the JSON to a temp file first, then point crit at it:
+
+```bash
+cat > /tmp/replies.json <<'EOF'
+[
+  {"reply_to": "c_a1b2c3", "body": "Fixed.\n\nDetails: split helper, added null guard."}
+]
+EOF
+crit comment --json --file /tmp/replies.json --author 'OpenCode'
+```
+
+`--file -` reads stdin (same as the default).
+
 **If there are zero review comments**: inform the user no changes were requested and stop.
 
 ## Step 5: Signal completion and start next round

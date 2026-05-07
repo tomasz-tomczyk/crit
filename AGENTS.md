@@ -92,7 +92,7 @@ crit pr <num|url>             # Thin shim — forwards to `crit review --pr <n>`
 crit fetch ...                # Fetch remote artefacts (see runFetch)
 crit comment <path>:<line[-end]> <body>         # Add a comment (no server needed)
 crit comment --reply-to <id> [--resolve] <body> # Reply to a comment
-crit comment --json [--author <name>]           # Bulk add comments from stdin JSON
+crit comment --json [--file <path>] [--author <name>]  # Bulk add comments from JSON (stdin or --file; - = stdin)
 crit share <file> [file...]   # Share files to crit-web, print URL
 crit unpublish                # Remove shared review from crit-web
 crit config [--generate]      # Print resolved config (or starter template)

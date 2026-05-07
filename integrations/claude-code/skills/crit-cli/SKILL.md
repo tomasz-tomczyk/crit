@@ -89,9 +89,10 @@ Hard rules:
 
 <important if="you are leaving 3+ comments in one operation">
 
-Use `--json` for atomicity (single write, no partial state) and speed (one process):
+Use `--json` for atomicity (single write, no partial state) and speed (one process). Two ways to feed the JSON:
 
 ```bash
+# Short, single-line bodies — pipe via stdin:
 echo '[
   {"body": "overall feedback", "scope": "review"},
   {"path": "session.go", "body": "restructure", "scope": "file"},
@@ -101,6 +102,15 @@ echo '[
   {"reply_to": "r_f1e2d3", "body": "Done"}
 ]' | crit comment --json --author 'Claude Code'
 ```
+
+**Prefer `--file <path>` for any multi-paragraph body.** Shell-quoted JSON breaks the moment a `"body"` string contains a raw newline — JSON forbids them, and the shell happily passes them through. Use the Write tool to author the JSON to a temp file, then point crit at it:
+
+```bash
+# After Write-ing /tmp/replies.json:
+crit comment --json --file /tmp/replies.json --author 'Claude Code'
+```
+
+`--file -` reads stdin (same as omitting the flag).
 
 Per-entry schema:
 

@@ -58,6 +58,19 @@ echo '[
 ]' | crit comment --json --author 'Cline'
 ```
 
+For multi-paragraph reply bodies, prefer `--file <path>` — embedding a raw newline inside a JSON `"body"` string breaks parsing, and shell quoting makes that easy to do by accident. Write the JSON to a temp file first:
+
+```bash
+cat > /tmp/replies.json <<'EOF'
+[
+  {"reply_to": "c_a1b2c3", "body": "Fixed.\n\nDetails: split the helper, added null guard."}
+]
+EOF
+crit comment --json --file /tmp/replies.json --author 'Cline'
+```
+
+(`--file -` reads stdin, same as the default.)
+
 ## Next round
 
 When done, run the command crit printed after `Next round:` in its previous output. The daemon is keyed by arguments, so this matters — `crit plan.md` and bare `crit` are different sessions.
@@ -87,7 +100,13 @@ If `crit comment` errors with "comment found in multiple files", disambiguate wi
 
 ### Bulk `--json`
 
-For 3+ comments, prefer `--json` (atomic, single write):
+For 3+ comments, prefer `--json` (atomic, single write). Synopsis:
+
+```
+crit comment --json [--file <path>] [--author <name>]
+```
+
+Stdin form (fine for short, single-line bodies):
 
 ```bash
 echo '[
@@ -97,6 +116,17 @@ echo '[
   {"file": "src/auth.go", "line": "50-55", "body": "Extract to helper"},
   {"reply_to": "c_a1b2c3", "body": "Fixed — added null check"}
 ]' | crit comment --json --author 'Cline'
+```
+
+`--file <path>` form — preferred when any body has paragraph breaks, since a raw newline in a JSON string is a parse error:
+
+```bash
+cat > /tmp/crit-bulk.json <<'EOF'
+[
+  {"file": "src/auth.go", "line": 42, "body": "First paragraph.\n\nSecond paragraph."}
+]
+EOF
+crit comment --json --file /tmp/crit-bulk.json --author 'Cline'
 ```
 
 Scope inference: `reply_to` → reply; no `file`/`line` → review; `path` only → file; `path` + `line` → line.
