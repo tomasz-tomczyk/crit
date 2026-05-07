@@ -23,7 +23,7 @@ Safe to re-run. Existing files are skipped (use `--force` to overwrite).
 | Windsurf | `crit install windsurf` | `.windsurf/rules/crit.md` | (not supported — Windsurf only allows a single shared `global_rules.md`) |
 | Cline | `crit install cline` | `.clinerules/crit.md` | `~/Documents/Cline/Rules/crit.md` (Linux uses `xdg-user-dir DOCUMENTS`; Windows uses `%USERPROFILE%\Documents\Cline\Rules\`) |
 | Aider | `crit install aider` | `.crit/aider-conventions.md` + adds entry under `read:` in `.aider.conf.yml` | `~/.crit-conventions.md` + adds entry under `read:` in `~/.aider.conf.yml` |
-| Gemini CLI | `crit install gemini` | `.gemini/skills/crit/SKILL.md` + `.gemini/skills/crit-cli/SKILL.md` + `.gemini/commands/crit-review.toml` | `~/.gemini/skills/crit/SKILL.md` + `~/.gemini/skills/crit-cli/SKILL.md` + `~/.gemini/commands/crit-review.toml` |
+| Gemini CLI | `crit install gemini` | `.gemini/skills/crit-cli/SKILL.md` + `.gemini/commands/crit.toml` + `.gemini/policies/crit.toml` + `.gemini/settings.json` (merged) | `~/.gemini/skills/crit-cli/SKILL.md` + `~/.gemini/commands/crit.toml` + `~/.gemini/policies/crit.toml` + `~/.gemini/settings.json` (merged) |
 
 ## Plugin marketplace (Claude Code)
 

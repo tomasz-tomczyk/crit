@@ -174,6 +174,32 @@ func TestHelperProcess_ShareMissing(t *testing.T) {
 	runShare([]string{})
 }
 
+// TestInstallGeminiSettings_MalformedJSON verifies that a malformed settings.json
+// causes a non-zero exit instead of silently overwriting user data.
+func TestInstallGeminiSettings_MalformedJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(path, []byte("not json{{{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_GeminiSettingsBadJSON", "--")
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1", "GO_TEST_SETTINGS_PATH="+path)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatal("expected non-zero exit for malformed settings.json")
+	}
+	if !strings.Contains(string(out), "invalid JSON") {
+		t.Errorf("expected 'invalid JSON' in stderr, got: %s", out)
+	}
+}
+
+func TestHelperProcess_GeminiSettingsBadJSON(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	installGeminiSettings(os.Getenv("GO_TEST_SETTINGS_PATH"), false)
+}
+
 // TestRunComment_FlagParsing verifies that --output and --author flags are parsed correctly.
 func TestRunComment_FlagParsing(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_CommentFlags", "--")
