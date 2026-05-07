@@ -75,16 +75,36 @@ func TestClientExitsOnFinish(t *testing.T) {
 		t.Fatalf("start crit: %v", err)
 	}
 
-	// Whatever happens, don't leave the client (or its daemon) running.
+	// `crit` spawns a daemon, registers a session file, then connects to it.
+	// Pick the port out of the session file rather than parsing stdout/stderr.
+	entry := waitForDaemonSession(t, resolvedHome, resolvedRepo)
+	port := entry.Port
+
+	// Whatever happens, don't leave the client (or its daemon) running. On
+	// Windows, the daemon's cwd is repoDir — if it survives the test, t.TempDir
+	// cleanup hits "file in use by another process" because the daemon still
+	// holds a directory handle. Stop the daemon BEFORE killing the client and
+	// poll for its exit so handles are released by the time RemoveAll runs.
 	t.Cleanup(func() {
+		if entry.PID > 0 {
+			if proc, err := os.FindProcess(entry.PID); err == nil {
+				_ = terminateProcess(proc)
+				deadline := time.Now().Add(2 * time.Second)
+				for time.Now().Before(deadline) {
+					if !processExists(proc) {
+						break
+					}
+					time.Sleep(50 * time.Millisecond)
+				}
+				if processExists(proc) {
+					_ = proc.Kill()
+				}
+			}
+		}
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
 	})
-
-	// `crit` spawns a daemon, registers a session file, then connects to it.
-	// Pick the port out of the session file rather than parsing stdout/stderr.
-	port := waitForDaemonPort(t, resolvedHome, resolvedRepo)
 
 	waitForSessionReady(t, port)
 
@@ -166,9 +186,10 @@ func clientFinishEnv(homeDir string) []string {
 	return out
 }
 
-// waitForDaemonPort polls ~/.crit/sessions for the session file the client's
-// daemon should have written, returns its Port. Fails the test on timeout.
-func waitForDaemonPort(t *testing.T, homeDir, cwd string) int {
+// waitForDaemonSession polls ~/.crit/sessions for the session file the
+// client's daemon should have written and returns the parsed entry (Port and
+// PID — the test cleanup needs both). Fails the test on timeout.
+func waitForDaemonSession(t *testing.T, homeDir, cwd string) sessionEntry {
 	t.Helper()
 	key := sessionKey(cwd, "main", nil)
 	sessionPath := filepath.Join(homeDir, ".crit", "sessions", key+".json")
@@ -177,14 +198,14 @@ func waitForDaemonPort(t *testing.T, homeDir, cwd string) int {
 		data, err := os.ReadFile(sessionPath)
 		if err == nil {
 			var entry sessionEntry
-			if err := json.Unmarshal(data, &entry); err == nil && entry.Port > 0 {
-				return entry.Port
+			if err := json.Unmarshal(data, &entry); err == nil && entry.Port > 0 && entry.PID > 0 {
+				return entry
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("daemon did not write session file at %s within 15s", sessionPath)
-	return 0
+	return sessionEntry{}
 }
 
 // waitForSessionReady blocks until /api/session returns 200 (the daemon
