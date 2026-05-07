@@ -46,10 +46,6 @@ type serverConfig struct {
 	// when in PR/range focus, bypassing the local-fetch + git show path. Diff and
 	// changed-file lists still use local git.
 	remoteFiles bool
-
-	// workingTree forces working-tree mode regardless of stack auto-detection.
-	// Set by --working-tree.
-	workingTree bool
 }
 
 // serverFlagSet holds the parsed flag values before config resolution.
@@ -75,10 +71,6 @@ type serverFlagSet struct {
 	// remoteFiles is the parsed --remote flag. When true, file content reads
 	// in PR/range mode go through `gh api` instead of local git.
 	remoteFiles bool
-
-	// workingTree is the parsed --working-tree flag. When true, the boot
-	// path skips stacked-PR / local-stack auto-detection.
-	workingTree bool
 }
 
 func parseServerFlags(args []string) serverFlagSet {
@@ -102,7 +94,6 @@ func parseServerFlags(args []string) serverFlagSet {
 	rangeSpec := fs.String("range", "", "Review a commit range, base..head (e.g. abc1234..def5678)")
 	scopeSpec := fs.String("scope", "", "Diff scope when reviewing a PR: layer (default) or full-stack")
 	remoteFiles := fs.Bool("remote", false, "Read PR file content via GitHub API instead of local git (avoids `git fetch`; requires gh)")
-	workingTree := fs.Bool("working-tree", false, "Force working-tree mode (skip auto-detection of stacked PR / branch)")
 	fs.Usage = func() {
 		printHelp()
 	}
@@ -125,7 +116,6 @@ func parseServerFlags(args []string) serverFlagSet {
 		rangeSpec:   *rangeSpec,
 		scopeSpec:   *scopeSpec,
 		remoteFiles: *remoteFiles,
-		workingTree: *workingTree,
 	}
 }
 
@@ -224,7 +214,6 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		cfg:                cfg,
 		focus:              focus,
 		remoteFiles:        sf.remoteFiles,
-		workingTree:        sf.workingTree,
 	}, nil
 }
 
@@ -313,14 +302,6 @@ func applySessionOverrides(session *Session, sc *serverConfig) {
 	if sc.outputDir != "" {
 		abs, _ := filepath.Abs(sc.outputDir)
 		session.OutputDir = abs
-	}
-	// Auto-detect stacked PR / local branch stack when no explicit focus
-	// was requested. Best-effort — any failure falls through to working-tree
-	// mode. Skipped in file mode or by --working-tree.
-	if sc.focus == nil && !sc.workingTree && len(sc.files) == 0 {
-		if detected := autoDetectStackedFocus(session.VCS, session.RepoRoot); detected != nil {
-			sc.focus = detected
-		}
 	}
 	// Apply --pr / --range focus, if requested. SetFocus rebuilds the file
 	// list from the SHA range and persists ActiveDiffScope; failure leaves
