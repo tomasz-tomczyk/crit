@@ -56,7 +56,7 @@ type Server struct {
 
 	// shutdownCtx is the daemon's signal-handled context; child operations
 	// (e.g. runAgentCmd subprocesses) derive their context from this so a
-	// SIGINT/SIGTERM/idle-timeout cancels them instead of leaking. Set via
+	// SIGINT/SIGTERM cancels them instead of leaking. Set via
 	// SetShutdownCtx; nil in tests, in which case a background context is used.
 	shutdownCtx context.Context
 	// bgWG tracks long-running background goroutines (e.g. agent subprocess
@@ -1817,7 +1817,7 @@ func buildAgentPrompt(c Comment, filePath string) string {
 // If agent_cmd contains {prompt}, the placeholder is replaced with the prompt
 // as a single argument. Otherwise, the prompt is piped via stdin.
 func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
-	// Parent on the daemon shutdown ctx so SIGINT/SIGTERM/idle-timeout kills
+	// Parent on the daemon shutdown ctx so SIGINT/SIGTERM kills
 	// the agent subprocess instead of orphaning it (the subprocess has its
 	// own session id via daemonSysProcAttr). Tests that don't wire a shutdown
 	// ctx fall back to context.Background() — same behavior as before.

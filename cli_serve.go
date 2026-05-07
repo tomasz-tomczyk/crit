@@ -12,7 +12,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -382,26 +381,6 @@ func checkStaleIntegrations(sc *serverConfig, srv *Server, cwd string) {
 	}
 }
 
-func runIdleTimeoutChecker(ctx context.Context, stop context.CancelFunc, idleMu *sync.Mutex, lastActivity *time.Time) {
-	const idleTimeout = 1 * time.Hour
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			idleMu.Lock()
-			idle := time.Since(*lastActivity)
-			idleMu.Unlock()
-			if idle >= idleTimeout {
-				stop()
-				return
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
 func runServe(args []string) {
 	pipe := openReadyPipe()
 
@@ -457,19 +436,8 @@ func runServe(args []string) {
 		daemonFatal(pipe, "Error writing session file: %v", err)
 	}
 
-	var idleMu sync.Mutex
-	lastActivity := time.Now()
-	resetActivity := func() {
-		idleMu.Lock()
-		lastActivity = time.Now()
-		idleMu.Unlock()
-	}
-
 	httpServer := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			resetActivity()
-			srv.ServeHTTP(w, r)
-		}),
+		Handler:     srv,
 		ReadTimeout: 15 * time.Second,
 		IdleTimeout: 60 * time.Second,
 	}
@@ -478,8 +446,8 @@ func runServe(args []string) {
 	defer stop()
 
 	// Wire the shutdown ctx into the server so background goroutines (agent
-	// runner, etc.) can be cancelled on SIGINT/SIGTERM/idle-timeout instead of
-	// orphaning subprocesses and racing with WriteFiles.
+	// runner, etc.) can be cancelled on SIGINT/SIGTERM instead of orphaning
+	// subprocesses and racing with WriteFiles.
 	srv.SetShutdownCtx(ctx)
 
 	go func() {
@@ -507,8 +475,6 @@ func runServe(args []string) {
 		go func() { _, _ = srv.prList.getCtx(ctx) }()
 	}
 
-	go runIdleTimeoutChecker(ctx, stop, &idleMu, &lastActivity)
-
 	type sessionResult struct {
 		session *Session
 		err     error
@@ -534,9 +500,9 @@ func runServe(args []string) {
 	if initErr != nil {
 		log.Printf("Error: %v", initErr)
 		srv.SetInitErr(initErr)
-		// Trigger immediate shutdown instead of waiting for SIGINT or the
-		// idle timeout. Without this the daemon would sit in 503-land for up
-		// to an hour after a failed init, burning a port and a process slot.
+		// Trigger immediate shutdown instead of waiting for SIGINT.
+		// Without this the daemon would sit in 503-land indefinitely
+		// after a failed init, burning a port and a process slot.
 		stop()
 		<-ctx.Done()
 		removeSessionFile(key)

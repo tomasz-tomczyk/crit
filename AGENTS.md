@@ -321,7 +321,7 @@ When the agent runs `crit` again (or calls `POST /api/round-complete`):
 3. **`crit plan.md`**: looks up daemon by hash(cwd + "plan.md") — reuses if alive, starts new if dead
 4. **Ctrl+C**: kills the daemon the client started
 5. **`crit stop`**: kills daemon for current cwd; `crit stop --all` kills all daemons for cwd
-6. **Idle timeout**: daemon exits after 1 hour of no HTTP activity
+6. **Lifetime**: daemon runs until killed (Ctrl+C, `crit stop`, or SIGINT/SIGTERM/SIGHUP). No idle timeout — walking away from a review session is fine.
 
 ### Deferred initialization & readiness
 
