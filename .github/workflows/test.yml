@@ -53,6 +53,15 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
+      - name: Check integration hashes are up to date
+        run: |
+          go run gen_integration_hashes.go
+          if ! git diff --exit-code -- integration_hashes_gen.go; then
+            echo "::error::integration_hashes_gen.go is out of sync with integrations/."
+            echo "::error::Run 'go run gen_integration_hashes.go' and commit the result."
+            exit 1
+          fi
+
       - name: Install and run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
