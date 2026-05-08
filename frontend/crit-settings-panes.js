@@ -70,7 +70,7 @@
         { key: '<kbd>Ctrl</kbd>+<kbd>Enter</kbd>', action: 'Comment', modes: BOTH },
       ]},
       { label: 'Review', shortcuts: [
-        { key: '<kbd>Shift</kbd>+<kbd>F</kbd>', action: 'Finish review', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>Shift</kbd>+<kbd>F</kbd>', action: 'Finish review', modes: BOTH },
         { key: '<kbd>Shift</kbd>+<kbd>C</kbd>', action: 'Toggle comments panel', modes: CODE_REVIEW_ONLY },
         { key: '<kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd>', action: 'Switch scope', mode: 'vcs mode', modes: CODE_REVIEW_ONLY },
       ]},

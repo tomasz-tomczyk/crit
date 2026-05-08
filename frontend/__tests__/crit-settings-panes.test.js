@@ -291,7 +291,10 @@ test('renderShortcutsPane: design mode omits code-review-only shortcuts', () => 
   assert.doesNotMatch(html, /<kbd>G<\/kbd>/);
   assert.doesNotMatch(html, /<kbd>t<\/kbd>/);
   assert.doesNotMatch(html, /<kbd>h<\/kbd>/);
-  assert.doesNotMatch(html, /Finish review/);
+  // Shift+F (Finish review) is shared with code-review now — design mode
+  // wires it up via design-mode.shortcut.handleShortcut.
+  assert.match(html, /Finish review/);
+  assert.match(html, /Shift<\/kbd>\+<kbd>F/);
   assert.doesNotMatch(html, /Toggle comments panel/);
   assert.doesNotMatch(html, /Switch scope/);
   // Shared bindings present

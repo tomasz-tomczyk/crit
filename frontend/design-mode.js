@@ -1971,6 +1971,16 @@
       focusInInput: !!state.focusInInput,
       getMode: function () { return state.mode; },
       setMode: function (m) { setMode(m); },
+      // Shift+F → click the finishBtn so the "no changes this round"
+      // overlay + dedup guard inside the click handler fire just like a
+      // mouse click. Skip when the button isn't installed yet or the UI
+      // is already in a non-reviewing state (Waiting for agent, etc).
+      finishReview: function () {
+        var btn = document.getElementById('finishBtn');
+        if (!btn || btn.disabled) return;
+        if (state.uiState && state.uiState !== 'reviewing') return;
+        btn.click();
+      },
     });
   });
 
