@@ -1153,10 +1153,27 @@ func (s *Server) handleFileCommentUpdate(w http.ResponseWriter, r *http.Request,
 		s.handleFileCommentPut(w, r, path, id)
 
 	case http.MethodDelete:
-		if !s.session.Load().DeleteComment(path, id) {
+		sess := s.session.Load()
+		// Authorize before delete: when the comment carries a non-empty
+		// UserID, only that user (matched against the daemon's configured
+		// AuthUserID) may delete it. Comments with empty UserID (legacy or
+		// unauthed sessions) remain deletable by anyone — preserving
+		// compatibility with file-mode reviews where AuthUserID is unset.
+		// Replies cascade automatically because they're nested inside the
+		// parent Comment struct.
+		switch sess.DeleteFileCommentAs(path, id, s.authUserID()) {
+		case deleteResultNotFound:
 			http.Error(w, "Comment not found", http.StatusNotFound)
 			return
+		case deleteResultForbidden:
+			http.Error(w, "Forbidden: only the comment's author may delete it", http.StatusForbidden)
+			return
 		}
+		// Fan out to SSE so other tabs (and the originating tab's review
+		// panel) drop the deleted comment without waiting for the watcher's
+		// 1s mtime tick. Insert and reply paths already broadcast; delete
+		// must too.
+		sess.notify(SSEEvent{Type: "comments-changed"})
 		writeJSON(w, map[string]string{"status": "deleted"})
 
 	default:

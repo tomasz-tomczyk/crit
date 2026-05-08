@@ -1308,6 +1308,46 @@ func (s *Session) SetCommentLive(filePath, id string) bool {
 // issue DELETE upstream — without that, deleting a pushed comment would leave
 // a ghost on the PR. trackDeletedComment guards against a concurrent reload
 // from disk resurrecting the just-removed entry before the next save.
+// deleteResult is the tri-state outcome of an authorized delete. Plain bool
+// can't distinguish "not found" from "forbidden" — handlers need both to
+// return the right HTTP status.
+type deleteResult int
+
+const (
+	deleteResultDeleted deleteResult = iota
+	deleteResultNotFound
+	deleteResultForbidden
+)
+
+// DeleteFileCommentAs is the authorization-aware variant of DeleteComment.
+// When the comment carries a non-empty UserID, requesterID must match;
+// otherwise (legacy / unauthed) anyone may delete. Replies cascade with the
+// parent struct.
+func (s *Session) DeleteFileCommentAs(filePath, id, requesterID string) deleteResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.fileByPathLocked(filePath)
+	if f == nil {
+		return deleteResultNotFound
+	}
+	for i, c := range f.Comments {
+		if c.ID != id {
+			continue
+		}
+		if c.UserID != "" && c.UserID != requesterID {
+			return deleteResultForbidden
+		}
+		if c.GitHubID != 0 {
+			s.appendPendingGHDelete(c.GitHubID)
+		}
+		f.Comments = append(f.Comments[:i], f.Comments[i+1:]...)
+		s.trackDeletedComment(filePath, id)
+		s.scheduleWrite()
+		return deleteResultDeleted
+	}
+	return deleteResultNotFound
+}
+
 func (s *Session) DeleteComment(filePath, id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -4108,3 +4108,97 @@ func TestPUTComment_AcceptsDriftedOnRound(t *testing.T) {
 		t.Fatalf("got %+v; want DriftedOnRound=4 Drifted=true", got)
 	}
 }
+
+// TestAPIDeleteComment_FansOutSSE pins down that DELETE /api/comment/{id}
+// emits a comments-changed SSE event. Without this fanout, the
+// frontend-agent's delete-affordance can't update other tabs (or even the
+// current tab's comment panel) until the watcher's mtime tick. Insert and
+// reply paths already broadcast (db0a12f, ea5297e); delete must too.
+func TestAPIDeleteComment_FansOutSSE(t *testing.T) {
+	s, session := newTestServer(t)
+	c, _ := session.AddComment("test.md", 1, 1, "", "to delete", "", "", "")
+
+	sub := session.Subscribe()
+	defer session.Unsubscribe(sub)
+
+	req := httptest.NewRequest("DELETE", "/api/comment/"+c.ID+"?path=test.md", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+
+	select {
+	case ev := <-sub:
+		if ev.Type != "comments-changed" {
+			t.Errorf("event type = %q, want comments-changed", ev.Type)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("no SSE event after DELETE — frontend tabs would stall on stale state")
+	}
+}
+
+// TestAPIDeleteComment_AuthorizationMatrix is the auth pin-down for the
+// design-mode delete affordance. When a comment carries a non-empty UserID,
+// only that user (matched against the daemon's configured AuthUserID) may
+// delete it. Comments with empty UserID (legacy / unauthed sessions) remain
+// deletable by anyone — preserving compatibility with existing tests.
+func TestAPIDeleteComment_AuthorizationMatrix(t *testing.T) {
+	cases := []struct {
+		name       string
+		commentUID string
+		serverUID  string
+		wantStatus int
+		wantGone   bool
+	}{
+		{"author matches", "u1", "u1", http.StatusOK, true},
+		{"author mismatch (anon requester)", "u1", "", http.StatusForbidden, false},
+		{"author mismatch (other user)", "u1", "u2", http.StatusForbidden, false},
+		{"legacy empty author allows anon", "", "", http.StatusOK, true},
+		{"legacy empty author allows any", "", "u1", http.StatusOK, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, sess := newTestServer(t)
+			srv.cfg.AuthUserID = tc.serverUID
+			c, _ := sess.AddComment("test.md", 1, 1, "", "owned", "", "alice", tc.commentUID)
+
+			req := httptest.NewRequest("DELETE", "/api/comment/"+c.ID+"?path=test.md", nil)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+			if w.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d (body=%s)", w.Code, tc.wantStatus, w.Body.String())
+			}
+			gone := len(sess.GetComments("test.md")) == 0
+			if gone != tc.wantGone {
+				t.Errorf("comment gone = %v, want %v", gone, tc.wantGone)
+			}
+		})
+	}
+}
+
+// TestAPIDeleteComment_CascadesReplies pins down that deleting a parent
+// comment removes its nested replies. Replies live inside Comment.Replies, so
+// removing the parent struct cascades naturally — this test guards against a
+// future refactor that splits replies into a separate top-level slice without
+// updating delete to walk it.
+func TestAPIDeleteComment_CascadesReplies(t *testing.T) {
+	srv, sess := newTestServer(t)
+	c, _ := sess.AddComment("test.md", 1, 1, "", "parent", "", "alice", "")
+	if _, ok := sess.AddReply("test.md", c.ID, "reply 1", "bob", ""); !ok {
+		t.Fatal("AddReply 1 returned ok=false")
+	}
+	if _, ok := sess.AddReply("test.md", c.ID, "reply 2", "carol", ""); !ok {
+		t.Fatal("AddReply 2 returned ok=false")
+	}
+
+	req := httptest.NewRequest("DELETE", "/api/comment/"+c.ID+"?path=test.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := sess.GetComments("test.md"); len(got) != 0 {
+		t.Errorf("comments remain after parent delete = %d (replies should cascade with the parent struct)", len(got))
+	}
+}
