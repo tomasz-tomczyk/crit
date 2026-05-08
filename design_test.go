@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -600,5 +602,75 @@ func TestHandleRoundCompleteFiles_DesignPinsSurvive(t *testing.T) {
 	}
 	if resolved.DOMAnchor == nil || resolved.DOMAnchor.CSSSelector != "#secondary-btn" {
 		t.Errorf("resolved pin DOMAnchor lost or mutated: %+v", resolved.DOMAnchor)
+	}
+}
+
+// TestCreateDesignSession_FreshStartsOnRoundOne pins down Bug 1: a previously
+// abandoned design daemon may persist `review_round: 2` to disk after a single
+// round-complete. When a new session boots against the same origin and finds
+// the file empty of comments, it must reset to round 1 — otherwise the next
+// pin authored ships against a stale counter.
+func TestCreateDesignSession_FreshStartsOnRoundOne(t *testing.T) {
+	dir := t.TempDir()
+	identity := filepath.Join(dir, "review-id")
+	if err := os.MkdirAll(identity, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	stale := CritJSON{
+		ReviewRound: 2,
+		Files:       map[string]CritJSONFile{},
+	}
+	data, _ := json.Marshal(stale)
+	if err := os.WriteFile(filepath.Join(identity, "review.json"), data, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	sc := &serverConfig{
+		designOrigin: "http://localhost:4000",
+		reviewPath:   identity,
+	}
+	s, err := createDesignSession(sc)
+	if err != nil {
+		t.Fatalf("createDesignSession: %v", err)
+	}
+	if s.ReviewRound != 1 {
+		t.Errorf("ReviewRound = %d, want 1 (stale round must not propagate when no comments exist)", s.ReviewRound)
+	}
+}
+
+// TestCreateDesignSession_HonorsRoundWhenCommentsPresent guards the inverse:
+// a real resumed session with persisted comments must keep its round counter
+// (carry-forward / drift detection depends on knowing which round each pin
+// was created in).
+func TestCreateDesignSession_HonorsRoundWhenCommentsPresent(t *testing.T) {
+	dir := t.TempDir()
+	identity := filepath.Join(dir, "review-id")
+	if err := os.MkdirAll(identity, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	cj := CritJSON{
+		ReviewRound: 3,
+		Files: map[string]CritJSONFile{
+			"/foo": {
+				Status:   "added",
+				Comments: []Comment{{ID: "c1", Body: "hi", PinNumber: 1}},
+			},
+		},
+	}
+	data, _ := json.Marshal(cj)
+	if err := os.WriteFile(filepath.Join(identity, "review.json"), data, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	sc := &serverConfig{
+		designOrigin: "http://localhost:4000",
+		reviewPath:   identity,
+	}
+	s, err := createDesignSession(sc)
+	if err != nil {
+		t.Fatalf("createDesignSession: %v", err)
+	}
+	if s.ReviewRound != 3 {
+		t.Errorf("ReviewRound = %d, want 3 (resumed session with comments must keep its round)", s.ReviewRound)
 	}
 }

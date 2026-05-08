@@ -343,7 +343,23 @@ func createDesignSession(sc *serverConfig) (*Session, error) {
 		// path naturally. Read errors are non-fatal here: a corrupt review
 		// file will be reported by the next save.
 		if cj, err := loadCritJSON(sc.reviewPath); err == nil {
-			if cj.ReviewRound > 0 {
+			// Only honor a stored ReviewRound when the review file actually
+			// carries comments. A bare `review_round: N` with no comments
+			// (e.g. a prior session that round-completed once and was then
+			// abandoned, or comments cleared but the round counter not reset)
+			// is meaningless — a brand-new pin must ship against round 1, not
+			// against the stale counter. This mirrors clearAllCommentData's
+			// rationale for resetting ReviewRound on file deletion.
+			hasComments := len(cj.ReviewComments) > 0
+			if !hasComments {
+				for _, fe := range cj.Files {
+					if len(fe.Comments) > 0 {
+						hasComments = true
+						break
+					}
+				}
+			}
+			if hasComments && cj.ReviewRound > 0 {
 				s.ReviewRound = cj.ReviewRound
 			}
 			for path, fe := range cj.Files {
