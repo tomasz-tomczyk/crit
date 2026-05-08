@@ -358,6 +358,20 @@
     replyBtn.innerHTML = deps.iconReply || '';
     parts.actions.appendChild(replyBtn);
 
+    // Delete affordance — mirrors code-review's `.delete-btn` icon button on
+    // every comment card. Reply rows already had one (`.crit-design-reply-delete`);
+    // top-level cards were missing the parent-comment delete entirely.
+    // Wired to `DELETE /api/comment/{id}?path=<pathname>` in design-mode.js.
+    var deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'delete-btn crit-design-comment-delete';
+    deleteBtn.dataset.commentId = commentId;
+    deleteBtn.dataset.pathname = pathname;
+    deleteBtn.title = 'Delete';
+    deleteBtn.setAttribute('aria-label', 'Delete comment');
+    deleteBtn.innerHTML = deps.iconDelete || '';
+    parts.actions.appendChild(deleteBtn);
+
     // Inline reply composer when open.
     if (c._replyOpen) {
       parts.card.appendChild(buildDesignReplyComposer(commentId, pathname, c._replyDraft || ''));

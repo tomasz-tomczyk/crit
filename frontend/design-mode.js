@@ -845,12 +845,13 @@
 
   document.addEventListener('click', function (e) {
     // Don't open the reply-create composer when the user clicked Edit/Delete
-    // affordances inside an existing reply (those have their own handlers
-    // and would otherwise double-fire and `refreshPanel` would wipe our
-    // inline edit textarea).
+    // affordances inside an existing reply, or the parent-comment Delete
+    // button (those have their own handlers and would otherwise double-fire
+    // and `refreshPanel` would wipe our inline edit textarea).
     if (e.target.closest && (
       e.target.closest('.crit-design-reply-edit') ||
-      e.target.closest('.crit-design-reply-delete')
+      e.target.closest('.crit-design-reply-delete') ||
+      e.target.closest('.crit-design-comment-delete')
     )) return;
     var btn = e.target.closest && e.target.closest('.crit-design-comment-reply');
     if (!btn) return;
@@ -1060,6 +1061,34 @@
     }
     state.userActedThisRound = true;
     refreshPanel();
+  });
+
+  // Delete top-level design pin — DELETE /api/comment/{id}?path=<pathname>.
+  // Mirrors code-review's deleteComment in app.js (no confirm prompt) but
+  // routes through the design-mode state path so SSE/round-state updates
+  // stay consistent.
+  document.addEventListener('click', async function (e) {
+    var btn = e.target.closest && e.target.closest('.crit-design-comment-delete');
+    if (!btn) return;
+    e.stopPropagation();
+    var commentId = btn.dataset.commentId;
+    if (!commentId) return;
+    var c = findCommentById(commentId);
+    if (!c) return;
+    var pathname = btn.dataset.pathname || (c.dom_anchor && c.dom_anchor.pathname) || '/';
+    try {
+      var res = await fetch('/api/comment/' + encodeURIComponent(commentId) + '?path=' + encodeURIComponent(pathname), { method: 'DELETE' });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+    } catch (err) {
+      showToast('Delete failed: ' + (err && err.message || err));
+      return;
+    }
+    if (Array.isArray(state.comments)) {
+      state.comments = state.comments.filter(function (cc) { return cc && cc.id !== commentId; });
+    }
+    state.userActedThisRound = true;
+    refreshPanel();
+    pushPinsToAgent();
   });
 
   // Keep the in-memory draft in sync so refreshPanel doesn't drop typed text.
