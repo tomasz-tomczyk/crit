@@ -24,6 +24,16 @@ jobs:
           sudo install /tmp/jj-install/jj /usr/local/bin/jj
           jj --version
 
+      - name: Install sapling
+        run: |
+          SL_VERSION="0.2.20260317-201835+0234c21f"
+          SL_VERSION_ENC="${SL_VERSION//+/%2B}"
+          sudo mkdir -p /opt/sapling
+          curl -fsSL "https://github.com/facebook/sapling/releases/download/${SL_VERSION_ENC}/sapling-${SL_VERSION}-linux-x64.tar.xz" \
+            | sudo tar xJ -C /opt/sapling
+          sudo ln -sf /opt/sapling/sl /usr/local/bin/sl
+          sl --version
+
       - name: Cache Go build cache
         uses: actions/cache@v5
         with:
@@ -101,6 +111,16 @@ jobs:
             | tar xz -C /tmp/jj-install
           sudo install /tmp/jj-install/jj /usr/local/bin/jj
           jj --version
+
+      - name: Install sapling
+        run: |
+          SL_VERSION="0.2.20260317-201835+0234c21f"
+          SL_VERSION_ENC="${SL_VERSION//+/%2B}"
+          sudo mkdir -p /opt/sapling
+          curl -fsSL "https://github.com/facebook/sapling/releases/download/${SL_VERSION_ENC}/sapling-${SL_VERSION}-linux-x64.tar.xz" \
+            | sudo tar xJ -C /opt/sapling
+          sudo ln -sf /opt/sapling/sl /usr/local/bin/sl
+          sl --version
 
       - name: Cache Go build cache
         uses: actions/cache@v5
