@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAddDesignPin_AssignsMonotonicGlobalPinNumbers(t *testing.T) {
@@ -672,5 +673,164 @@ func TestCreateDesignSession_HonorsRoundWhenCommentsPresent(t *testing.T) {
 	}
 	if s.ReviewRound != 3 {
 		t.Errorf("ReviewRound = %d, want 3 (resumed session with comments must keep its round)", s.ReviewRound)
+	}
+}
+
+// TestDesignSession_ExternalReplyEmitsCommentsChanged guards Bug 4: when
+// `crit comment --reply-to` writes a reply to a design pin via a separate
+// process, the running design daemon must detect the on-disk change and fan
+// out a `comments-changed` SSE event so subscribed clients can refresh
+// without a full page reload. Code-review mode already does this through
+// mergeExternalCritJSON; this test pins down that design mode does too.
+func TestDesignSession_ExternalReplyEmitsCommentsChanged(t *testing.T) {
+	dir := t.TempDir()
+	identity := filepath.Join(dir, "review-id")
+	if err := os.MkdirAll(identity, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	reviewPath := filepath.Join(identity, "review.json")
+
+	// Seed a design review file with a single pin.
+	pinAnchor := &DOMAnchor{Pathname: "/dashboard", CSSSelector: "#primary-btn", TagChain: []string{"BUTTON"}}
+	cj := CritJSON{
+		ReviewType:  "design",
+		Origin:      "http://localhost:3000",
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"/dashboard": {
+				Status: "added",
+				Comments: []Comment{
+					{
+						ID: "pin1", Body: "needs polish",
+						Author: "alice", UserID: "u1",
+						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z",
+						ReviewRound: 1, PinNumber: 1, DOMAnchor: pinAnchor,
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(cj)
+	if err := os.WriteFile(reviewPath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile seed: %v", err)
+	}
+	info, err := os.Stat(reviewPath)
+	if err != nil {
+		t.Fatalf("Stat seed: %v", err)
+	}
+
+	// Build a session that reflects the seeded state. lastCritJSONMtime is set
+	// to the seed's mtime so mergeExternalCritJSON will only fire when the
+	// file changes again (mirrors a daemon that has just (re)loaded).
+	s := &Session{
+		Mode:              "files",
+		RepoRoot:          dir,
+		ReviewType:        "design",
+		Origin:            "http://localhost:3000",
+		ReviewRound:       1,
+		ReviewFilePath:    identity,
+		lastCritJSONMtime: info.ModTime(),
+		subscribers:       make(map[chan SSEEvent]struct{}),
+		roundComplete:     make(chan struct{}, 1),
+		Files: []*FileEntry{
+			{Path: "/dashboard", FileType: "design-route", Status: "added", Comments: cj.Files["/dashboard"].Comments},
+		},
+	}
+
+	// Subscribe before mutating so we capture the broadcast.
+	sub := s.Subscribe()
+	defer s.Unsubscribe(sub)
+
+	// Simulate `crit comment --reply-to pin1 "looking better"` from a separate
+	// process: load, append reply, save through the same writer the CLI uses.
+	loaded, err := loadCritJSON(identity)
+	if err != nil {
+		t.Fatalf("loadCritJSON: %v", err)
+	}
+	if err := appendReply(&loaded, "pin1", "looking better", "bob", "u2", false, ""); err != nil {
+		t.Fatalf("appendReply: %v", err)
+	}
+	// Force a distinct mtime even on filesystems with low timestamp resolution.
+	time.Sleep(20 * time.Millisecond)
+	if err := saveCritJSON(identity, loaded); err != nil {
+		t.Fatalf("saveCritJSON: %v", err)
+	}
+
+	// The watcher tick that ultimately fires SSE.
+	if !s.mergeExternalCritJSON() {
+		t.Fatal("mergeExternalCritJSON returned false; daemon failed to detect external reply")
+	}
+
+	select {
+	case ev := <-sub:
+		if ev.Type != "comments-changed" {
+			t.Errorf("SSE event type = %q, want comments-changed", ev.Type)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("no SSE event received after external reply (subscribers were not notified)")
+	}
+
+	// And the reply must be visible in memory.
+	fe := s.Files[0]
+	if len(fe.Comments) != 1 {
+		t.Fatalf("Comments count = %d, want 1", len(fe.Comments))
+	}
+	if len(fe.Comments[0].Replies) != 1 {
+		t.Fatalf("Replies count = %d, want 1 (reply not merged from disk)", len(fe.Comments[0].Replies))
+	}
+	if got := fe.Comments[0].Replies[0].Body; got != "looking better" {
+		t.Errorf("Reply body = %q, want %q", got, "looking better")
+	}
+}
+
+// TestHandleFileComments_DesignPinFansOutSSE pins down the API-side broadcast
+// added for Bug 4: a successful POST /api/file/comments with a DOMAnchor must
+// emit a comments-changed SSE event so other tabs reviewing the same design
+// session refresh immediately. Without this, cross-tab sync stalls until the
+// watcher's 1s mtime tick, and the originating daemon's own writes never fire
+// the watcher path at all (lastCritJSONMtime equals the just-written mtime).
+func TestHandleFileComments_DesignPinFansOutSSE(t *testing.T) {
+	dir := t.TempDir()
+	identity := filepath.Join(dir, "review-id")
+	if err := os.MkdirAll(identity, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	sess := &Session{
+		Mode:           "files",
+		RepoRoot:       dir,
+		ReviewType:     "design",
+		Origin:         "http://localhost:3000",
+		ReviewRound:    1,
+		ReviewFilePath: identity,
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		roundComplete:  make(chan struct{}, 1),
+	}
+
+	srv, err := NewServer(nil, frontendFS, "", "", "tester", "test", 0, "")
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	srv.SetSession(sess)
+
+	sub := sess.Subscribe()
+	defer sess.Unsubscribe(sub)
+
+	body := strings.NewReader(`{"body":"first pin","author":"alice","dom_anchor":{"pathname":"/dashboard","css_selector":"#primary-btn","tag_chain":["BUTTON"]}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/file/comments?path=/dashboard", body)
+	rec := httptest.NewRecorder()
+	srv.handleFileComments(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case ev := <-sub:
+		if ev.Type != "comments-changed" {
+			t.Errorf("event type = %q, want comments-changed", ev.Type)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("no SSE event received after design-pin POST (cross-tab sync would stall)")
 	}
 }

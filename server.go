@@ -953,11 +953,19 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 
 		// Design pin: route to AddDesignPin before line validation.
 		if req.DOMAnchor != nil {
-			c, ok := s.session.Load().AddDesignPin(path, req.Body, req.Author, s.authUserID(), req.DOMAnchor)
+			sess := s.session.Load()
+			c, ok := sess.AddDesignPin(path, req.Body, req.Author, s.authUserID(), req.DOMAnchor)
 			if !ok {
 				http.Error(w, "Design pin rejected", http.StatusBadRequest)
 				return
 			}
+			// Fan out to SSE so other tabs (and the originating tab's review
+			// panel) refresh without waiting for the watcher's 1s mtime tick.
+			// The watcher's mergeExternalCritJSON path is suppressed for the
+			// daemon's own writes (lastCritJSONMtime equals disk mtime after
+			// WriteFiles), so cross-tab sync would otherwise stall until an
+			// external mutation. Emitting here closes that gap for design pins.
+			sess.notify(SSEEvent{Type: "comments-changed"})
 			w.WriteHeader(http.StatusCreated)
 			writeJSON(w, c)
 			return
@@ -1273,15 +1281,34 @@ func handleReplyCRUD(w http.ResponseWriter, r *http.Request, replyID string, ops
 }
 
 func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePath, commentID, replyID string) {
+	sess := s.session.Load()
+	// Wrap each op so that successful mutations fan out comments-changed to
+	// SSE subscribers. The watcher's mergeExternalCritJSON path is suppressed
+	// for the daemon's own writes (lastCritJSONMtime equals disk mtime after
+	// WriteFiles), so cross-tab sync would otherwise stall on reply CRUD in
+	// design mode until an external mutation arrived.
+	notify := func() { sess.notify(SSEEvent{Type: "comments-changed"}) }
 	handleReplyCRUD(w, r, replyID, replyOps{
 		add: func(body, author string) (Reply, bool) {
-			return s.session.Load().AddReply(filePath, commentID, body, author, s.authUserID())
+			rep, ok := sess.AddReply(filePath, commentID, body, author, s.authUserID())
+			if ok {
+				notify()
+			}
+			return rep, ok
 		},
 		update: func(rid, body string) (Reply, bool) {
-			return s.session.Load().UpdateReply(filePath, commentID, rid, body)
+			rep, ok := sess.UpdateReply(filePath, commentID, rid, body)
+			if ok {
+				notify()
+			}
+			return rep, ok
 		},
 		delete: func(rid string) bool {
-			return s.session.Load().DeleteReply(filePath, commentID, rid)
+			ok := sess.DeleteReply(filePath, commentID, rid)
+			if ok {
+				notify()
+			}
+			return ok
 		},
 	})
 }
