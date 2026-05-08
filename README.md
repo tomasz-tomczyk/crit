@@ -308,6 +308,18 @@ Use `--no-ignore` to temporarily bypass all patterns:
 crit --no-ignore
 ```
 
+### Collapsing generated files
+
+crit honors `linguist-generated` in a top-level `.gitattributes` file (same convention GitHub uses). Matching files appear in the review but start collapsed — expand them with the file header chevron.
+
+```gitattributes
+**/generated/** linguist-generated
+*.pb.go         linguist-generated
+bootstrap.min.css -linguist-generated
+```
+
+Unlike `ignore_patterns` (which hide files from the review entirely), this only changes the default fold state. The flag round-trips through `crit share` so shared reviews on crit-web start collapsed too.
+
 ### Environment variables
 
 | Variable                    | Description                                       |
