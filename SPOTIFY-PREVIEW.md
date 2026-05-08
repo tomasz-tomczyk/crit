@@ -43,8 +43,8 @@ You need both pieces, paired by branch / commit:
 
 | Component | Source | Pin to |
 |---|---|---|
-| `crit` binary | https://github.com/tomasz-tomczyk/crit/releases/tag/spotify-preview-1 | commit `bb4d9fb` of branch `share-receiver` |
-| `crit-web` server | https://github.com/tomasz-tomczyk/crit-web/tree/share-receiver-elixir | commit `ed01b25` of branch `share-receiver-elixir` |
+| `crit` binary | https://github.com/tomasz-tomczyk/crit/releases/tag/spotify-preview | commit `bb4d9fb` of branch `share-receiver` |
+| `crit-web` server | https://github.com/tomasz-tomczyk/crit-web/releases/tag/spotify-preview | docker image `ghcr.io/tomasz-tomczyk/crit-web:spotify-preview` (built from branch `share-receiver-elixir`) |
 
 The crit-web branch adds a new route, `GET /share-receiver`, which is
 the page the popup opens. The crit binary won't be able to use
@@ -55,39 +55,34 @@ route deployed.
 
 ## Setup
 
-### 1. Deploy `crit-web` from branch `share-receiver-elixir`
+### 1. Deploy `crit-web` from the `spotify-preview` tag
 
-There is **no pre-built artifact** for crit-web in this preview. Since
-you already self-host, the simplest path is to feed the preview branch
-through your existing deployment pipeline. Pin to commit `ed01b25` (or
-the current tip of `share-receiver-elixir` — they should match for as
-long as the preview is active).
+**Option A — pull the published Docker image (recommended)**
 
-**Option A — build from source (recommended)**
+A multi-arch image is published to GHCR for this preview:
 
-Use whatever you do for `main` today; just check out a different
-branch:
+```
+ghcr.io/tomasz-tomczyk/crit-web:spotify-preview
+```
+
+Pull it through whatever pipeline you'd normally use (direct pull, mirror
+into an internal registry, etc.) and run it the same way you run
+production today. The image is built from the
+[`spotify-preview` tag](https://github.com/tomasz-tomczyk/crit-web/releases/tag/spotify-preview)
+on the `share-receiver-elixir` branch.
+
+**Option B — build from source**
 
 ```bash
 git clone https://github.com/tomasz-tomczyk/crit-web.git
 cd crit-web
-git checkout share-receiver-elixir   # commit ed01b25 or later
-git rev-parse HEAD                   # confirm you're on ed01b25 or newer
+git checkout spotify-preview   # tag, points at share-receiver-elixir tip
 # ... your usual build / migrate / start steps
 #     (mix release, Dockerfile build, etc.)
 ```
 
 The `Dockerfile` at the repo root is the same one used for production
-on `main` — it works on this branch unchanged.
-
-**Option B — pull a published Docker image (on request)**
-
-We can publish `ghcr.io/tomasz-tomczyk/crit-web:spotify-preview-1` to
-GHCR if it's useful (it would mostly save you a `mix release` step).
-We haven't done it by default because most orgs at your scale mirror
-into an internal registry before deploying anyway. Reply on the issue
-(see bottom of this doc) if you'd like the image published and we'll
-flip it on.
+on `main` — it works on this tag unchanged.
 
 **Reverse proxy note**
 
@@ -100,7 +95,7 @@ the main app should be benign here.
 ### 2. Install the `crit` preview binary
 
 Pick the right binary for your platform from
-https://github.com/tomasz-tomczyk/crit/releases/tag/spotify-preview-1:
+https://github.com/tomasz-tomczyk/crit/releases/tag/spotify-preview:
 
 - `crit-darwin-arm64` — Apple Silicon Mac
 - `crit-darwin-amd64` — Intel Mac
@@ -110,7 +105,7 @@ https://github.com/tomasz-tomczyk/crit/releases/tag/spotify-preview-1:
 Verify the checksum (optional but recommended):
 
 ```bash
-curl -L -o crit-darwin-arm64 https://github.com/tomasz-tomczyk/crit/releases/download/spotify-preview-1/crit-darwin-arm64
+curl -L -o crit-darwin-arm64 https://github.com/tomasz-tomczyk/crit/releases/download/spotify-preview/crit-darwin-arm64
 shasum -a 256 crit-darwin-arm64
 # compare to checksums.txt from the release
 chmod +x crit-darwin-arm64
