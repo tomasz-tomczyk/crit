@@ -167,6 +167,10 @@ type FileEntry struct {
 	// Orphaned: file has comments in the review file but is no longer in the session's
 	// file list (e.g., added on branch then deleted). No content or diff available.
 	Orphaned bool `json:"-"`
+
+	// Generated: file is marked linguist-generated in the repo's top-level
+	// .gitattributes. The frontend renders these collapsed by default.
+	Generated bool `json:"-"`
 }
 
 // ensureLoaded loads content and diff hunks for a lazy file on first access.
@@ -237,6 +241,11 @@ type Session struct {
 	PlanDir        string // managed storage dir for plan mode (empty for git/files)
 	ReviewRound    int
 	IgnorePatterns []string
+
+	// generatedRules is the parsed top-level .gitattributes, loaded once per
+	// session. Used to flag files as linguist-generated so the frontend can
+	// render them collapsed by default. Read-only after construction.
+	generatedRules []generatedRule
 
 	reviewComments []Comment
 
@@ -478,6 +487,8 @@ func newGitSession(vcs VCS, ignorePatterns []string, requireChanges bool) (*Sess
 		return nil, err
 	}
 
+	genRules, _ := parseGeneratedRules(root)
+
 	s := &Session{
 		VCS:                 vcs,
 		Mode:                "git",
@@ -487,6 +498,7 @@ func newGitSession(vcs VCS, ignorePatterns []string, requireChanges bool) (*Sess
 		RepoRoot:            root,
 		ReviewRound:         1,
 		IgnorePatterns:      ignorePatterns,
+		generatedRules:      genRules,
 		subscribers:         make(map[chan SSEEvent]struct{}),
 		roundComplete:       make(chan struct{}, 1),
 		awaitingFirstReview: true,
@@ -501,10 +513,11 @@ func newGitSession(vcs VCS, ignorePatterns []string, requireChanges bool) (*Sess
 	for i, fc := range changes {
 		absPath := filepath.Join(root, fc.Path)
 		fe := &FileEntry{
-			Path:     fc.Path,
-			AbsPath:  absPath,
-			Status:   fc.Status,
-			FileType: detectFileType(fc.Path),
+			Path:      fc.Path,
+			AbsPath:   absPath,
+			Status:    fc.Status,
+			FileType:  detectFileType(fc.Path),
+			Generated: isGenerated(fc.Path, s.generatedRules),
 		}
 
 		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
@@ -586,6 +599,8 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 		root = filepath.Dir(expandedPaths[0])
 	}
 
+	genRules, _ := parseGeneratedRules(root)
+
 	s := &Session{
 		VCS:                 vcs,
 		Mode:                "files",
@@ -595,6 +610,7 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 		RepoRoot:            root,
 		ReviewRound:         1,
 		IgnorePatterns:      ignorePatterns,
+		generatedRules:      genRules,
 		subscribers:         make(map[chan SSEEvent]struct{}),
 		roundComplete:       make(chan struct{}, 1),
 		awaitingFirstReview: true,
@@ -626,13 +642,14 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 		}
 
 		fe := &FileEntry{
-			Path:     relPath,
-			AbsPath:  absPath,
-			Status:   "modified",
-			FileType: detectFileType(absPath),
-			Content:  string(data),
-			FileHash: fileHash(data),
-			Comments: []Comment{},
+			Path:      relPath,
+			AbsPath:   absPath,
+			Status:    "modified",
+			FileType:  detectFileType(absPath),
+			Content:   string(data),
+			FileHash:  fileHash(data),
+			Comments:  []Comment{},
+			Generated: isGenerated(relPath, s.generatedRules),
 		}
 
 		if vcs != nil {
@@ -1441,13 +1458,14 @@ func (s *Session) EnsureFileEntry(path string) bool {
 	}
 
 	fe := &FileEntry{
-		Path:     path,
-		AbsPath:  absPath,
-		Status:   status,
-		FileType: detectFileType(path),
-		Content:  string(data),
-		FileHash: fileHash(data),
-		Comments: []Comment{},
+		Path:      path,
+		AbsPath:   absPath,
+		Status:    status,
+		FileType:  detectFileType(path),
+		Content:   string(data),
+		FileHash:  fileHash(data),
+		Comments:  []Comment{},
+		Generated: isGenerated(path, s.generatedRules),
 	}
 
 	// Generate diff hunks
@@ -1517,6 +1535,7 @@ func (s *Session) LoadShareFilesFromDisk() []shareFile {
 		absPath               string
 		status                string
 		orphaned              bool
+		generated             bool
 		hasUnresolvedComments bool
 	}
 	infos := make([]fileInfo, 0, len(s.Files))
@@ -1528,7 +1547,7 @@ func (s *Session) LoadShareFilesFromDisk() []shareFile {
 				break
 			}
 		}
-		infos = append(infos, fileInfo{path: f.Path, absPath: f.AbsPath, status: f.Status, orphaned: f.Orphaned, hasUnresolvedComments: hasUnresolved})
+		infos = append(infos, fileInfo{path: f.Path, absPath: f.AbsPath, status: f.Status, orphaned: f.Orphaned, generated: f.Generated, hasUnresolvedComments: hasUnresolved})
 	}
 	s.mu.RUnlock()
 
@@ -1551,7 +1570,7 @@ func (s *Session) LoadShareFilesFromDisk() []shareFile {
 		if err != nil {
 			continue // file may have been removed since session started
 		}
-		files = append(files, shareFile{Path: fi.path, Content: string(data), Status: fi.status})
+		files = append(files, shareFile{Path: fi.path, Content: string(data), Status: fi.status, Generated: fi.generated})
 	}
 	return files
 }
@@ -1763,11 +1782,12 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 	for _, fc := range changes {
 		absPath := filepath.Join(repoRoot, fc.Path)
 		fe := &FileEntry{
-			Path:     fc.Path,
-			AbsPath:  absPath,
-			Status:   fc.Status,
-			FileType: detectFileType(fc.Path),
-			Comments: commentsByPath[fc.Path],
+			Path:      fc.Path,
+			AbsPath:   absPath,
+			Status:    fc.Status,
+			FileType:  detectFileType(fc.Path),
+			Comments:  commentsByPath[fc.Path],
+			Generated: isGenerated(fc.Path, s.generatedRules),
 		}
 		if fe.Comments == nil {
 			fe.Comments = []Comment{}
@@ -2230,6 +2250,7 @@ type SessionFileInfo struct {
 	Deletions    int    `json:"deletions"`
 	Lazy         bool   `json:"lazy,omitempty"`
 	Orphaned     bool   `json:"orphaned,omitempty"`
+	Generated    bool   `json:"generated,omitempty"`
 }
 
 // GetSessionInfo returns a snapshot of session metadata.
@@ -2284,6 +2305,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 			CommentCount: visibleCount,
 			Lazy:         f.Lazy,
 			Orphaned:     f.Orphaned,
+			Generated:    f.Generated,
 		}
 		if f.Lazy {
 			// Use pre-computed stats from git diff --numstat

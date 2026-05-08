@@ -65,9 +65,10 @@ func computeShareHash(files []shareFile, comments []shareComment) string {
 // Status values: "added", "modified", "deleted", "renamed", "removed".
 // "removed" means the file is orphaned (no longer in the review but has comments).
 type shareFile struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-	Status  string `json:"status,omitempty"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	Status    string `json:"status,omitempty"`
+	Generated bool   `json:"generated,omitempty"`
 }
 
 // shareReply represents a reply to include in the shared review.
@@ -94,16 +95,27 @@ type shareComment struct {
 	Resolved    bool         `json:"resolved,omitempty"`
 }
 
-// buildSharePayload constructs the JSON payload for POST /api/reviews.
-func buildSharePayload(files []shareFile, comments []shareComment, reviewRound int, cliArgs []string) map[string]any {
-	fileList := make([]map[string]any, len(files))
+// shareFileEntries serializes shareFile values into the JSON-friendly maps
+// used by both POST and PUT payloads. Keeping a single helper prevents the
+// two sites from drifting out of sync as new optional fields land.
+func shareFileEntries(files []shareFile) []map[string]any {
+	entries := make([]map[string]any, len(files))
 	for i, f := range files {
 		entry := map[string]any{"path": f.Path, "content": f.Content}
 		if f.Status != "" {
 			entry["status"] = f.Status
 		}
-		fileList[i] = entry
+		if f.Generated {
+			entry["generated"] = true
+		}
+		entries[i] = entry
 	}
+	return entries
+}
+
+// buildSharePayload constructs the JSON payload for POST /api/reviews.
+func buildSharePayload(files []shareFile, comments []shareComment, reviewRound int, cliArgs []string) map[string]any {
+	fileList := shareFileEntries(files)
 	if comments == nil {
 		comments = []shareComment{}
 	}
@@ -522,14 +534,7 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, 
 	}
 	apiURL := u.Scheme + "://" + u.Host + "/api/reviews/" + token
 
-	fileList := make([]map[string]any, len(files))
-	for i, f := range files {
-		entry := map[string]any{"path": f.Path, "content": f.Content}
-		if f.Status != "" {
-			entry["status"] = f.Status
-		}
-		fileList[i] = entry
-	}
+	fileList := shareFileEntries(files)
 
 	payload := map[string]any{
 		"delete_token": cfg.DeleteToken,

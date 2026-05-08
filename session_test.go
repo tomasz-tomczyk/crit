@@ -5170,3 +5170,72 @@ func TestDirIgnored(t *testing.T) {
 		}
 	}
 }
+
+// TestSession_GeneratedFlowsThrough verifies that a path matched by a top-level
+// .gitattributes linguist-generated rule is flagged on the FileEntry, exposed
+// through SessionFileInfo, and propagated to share payloads.
+func TestSession_GeneratedFlowsThrough(t *testing.T) {
+	dir := initTestRepo(t)
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(origDir) })
+
+	writeFile(t, filepath.Join(dir, ".gitattributes"), "*.pb.go linguist-generated\n")
+	writeFile(t, filepath.Join(dir, "api.pb.go"), "package main\n")
+	writeFile(t, filepath.Join(dir, "handwritten.go"), "package main\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "fixture")
+
+	session, err := NewSessionFromFiles(
+		[]string{"api.pb.go", "handwritten.go"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewSessionFromFiles: %v", err)
+	}
+
+	byPath := map[string]*FileEntry{}
+	for _, f := range session.Files {
+		byPath[f.Path] = f
+	}
+	if fe := byPath["api.pb.go"]; fe == nil || !fe.Generated {
+		t.Fatalf("expected api.pb.go FileEntry.Generated=true, got %+v (paths=%v)", fe, mapKeys(byPath))
+	}
+	if fe := byPath["handwritten.go"]; fe == nil || fe.Generated {
+		t.Fatalf("expected handwritten.go FileEntry.Generated=false, got %+v", fe)
+	}
+
+	info := session.GetSessionInfo()
+	infoByPath := map[string]SessionFileInfo{}
+	for _, fi := range info.Files {
+		infoByPath[fi.Path] = fi
+	}
+	if !infoByPath["api.pb.go"].Generated {
+		t.Fatalf("SessionFileInfo for api.pb.go should be Generated")
+	}
+	if infoByPath["handwritten.go"].Generated {
+		t.Fatalf("SessionFileInfo for handwritten.go should not be Generated")
+	}
+
+	share := session.LoadShareFilesFromDisk()
+	shareByPath := map[string]shareFile{}
+	for _, sf := range share {
+		shareByPath[sf.Path] = sf
+	}
+	if !shareByPath["api.pb.go"].Generated {
+		t.Fatalf("shareFile for api.pb.go should be Generated")
+	}
+	if shareByPath["handwritten.go"].Generated {
+		t.Fatalf("shareFile for handwritten.go should not be Generated")
+	}
+}
+
+func mapKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
