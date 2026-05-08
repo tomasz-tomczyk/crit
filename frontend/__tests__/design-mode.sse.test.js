@@ -59,6 +59,29 @@ test('applyRoundStart falls back to currentRoute then "/" for path', () => {
   assert.deepEqual(seen, ['/r']);
 });
 
+test('applyRoundStart re-fetches comments so replies posted mid-round appear', async () => {
+  // Regression for Bug D: replies posted during round N (e.g. by the agent
+  // via `crit comment --reply-to`) didn't appear when round N+1 started.
+  // Round-start re-rendered the panel from stale state; comments-changed
+  // SSE listener exists but events emitted during the round transition
+  // were lost (panel re-renders before the reload lands). Round-start
+  // itself must trigger a canonical re-fetch.
+  let reloads = 0;
+  const ctl = create({
+    state: {},
+    pinsByRoute: () => ({}),
+    scheduleResolutionForPath: () => {},
+    announceLive: () => {},
+    setUIState: () => {},
+    reloadComments: () => { reloads++; return Promise.resolve(); },
+  });
+  ctl.applyRoundStart(2);
+  // Allow the queued microtask (Promise chain in applyCommentsChanged) to settle.
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(reloads, 1, 'round-start must re-fetch comments to capture mid-round replies');
+});
+
 test('applyCommentsChanged invokes reloadComments', async () => {
   let reloads = 0;
   const ctl = create({

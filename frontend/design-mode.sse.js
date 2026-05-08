@@ -81,6 +81,12 @@
         : null;
       if (rcEl) rcEl.textContent = roundN > 1 ? 'Round #' + roundN : '';
       setUIState('reviewing');
+      // Re-fetch the canonical comment list. Replies posted during the
+      // previous round (e.g. via `crit comment --reply-to`) might still be
+      // in flight or emitted via a comments-changed event that races with
+      // this round-start re-render. Pulling fresh state here makes the
+      // re-render authoritative regardless of event timing.
+      applyCommentsChanged();
       scheduleResolutionForPath(state.currentPathname || state.currentRoute || '/');
       announceLive('Round ' + roundN + ' started.');
     }
