@@ -135,9 +135,8 @@ func resolvePort(flagPort, cfgPort int) int {
 }
 
 // resolveHost returns the effective listen host. Precedence: --host flag,
-// CRIT_HOST env var, config file value, then "127.0.0.1" as a final fallback
-// (LoadConfig should already have applied that default; the fallback here
-// guards direct callers that bypass LoadConfig).
+// CRIT_HOST env var, config file value (LoadConfig defaults Host to
+// "127.0.0.1" when no config sets it, so cfgHost is always populated).
 func resolveHost(flagHost, cfgHost string) string {
 	if flagHost != "" {
 		return flagHost
@@ -145,10 +144,7 @@ func resolveHost(flagHost, cfgHost string) string {
 	if envHost := os.Getenv("CRIT_HOST"); envHost != "" {
 		return envHost
 	}
-	if cfgHost != "" {
-		return cfgHost
-	}
-	return "127.0.0.1"
+	return cfgHost
 }
 
 func applyConfigDefaults(sf *serverFlagSet, cfg Config) {
@@ -340,9 +336,6 @@ func applySessionOverrides(session *Session, sc *serverConfig) {
 }
 
 func bindListener(host string, port int) (net.Listener, error) {
-	if host == "" {
-		host = "127.0.0.1"
-	}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	var listener net.Listener
 	var err error

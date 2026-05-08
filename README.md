@@ -234,7 +234,7 @@ After the first agent interaction, the comment becomes a **live thread**:
 - **Syntax highlighting.** Code blocks are highlighted and split per-line, so you can comment on individual lines inside a fence.
 - **Live file watching.** The browser reloads automatically when the source file changes.
 - **Dark/light/system theme.** Three-button pill in the header, persisted to localStorage.
-- **Local by default.** Server binds to `127.0.0.1`. Your files stay on your machine unless you explicitly share.
+- **Local by default.** Server binds to `127.0.0.1`. Your files stay on your machine unless you explicitly share. (Override with `--host` / `CRIT_HOST` / `host` config key — e.g. `0.0.0.0` to expose on your LAN. No auth, so it's an explicit opt-in.)
 - **No analytics or tracking.** Crit collects zero telemetry. No usage stats, no crash reports, no phone-home. If we ever add anonymous usage statistics in the future, they will be explicitly opt-in.
 - **Update check.** On startup, Crit makes one network request to check for a newer version and prints a notice if one is available. Set `CRIT_NO_UPDATE_CHECK=1` to disable it.
 
@@ -261,6 +261,7 @@ All keys are optional — omit any you don't need.
 | Key                    | Type     | Default                    | Description                                                                                                                                                                             |
 | ---------------------- | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `port`                 | int      | `0` (random)               | Port for the local server. `0` picks a random available port.                                                                                                                           |
+| `host`                 | string   | `"127.0.0.1"`              | Listen host. Set to `"0.0.0.0"` to expose the server on your LAN. There is no auth, so any non-loopback bind is an explicit opt-in.                                                     |
 | `no_open`              | bool     | `false`                    | Don't auto-open the browser when starting a review.                                                                                                                                     |
 | `share_url`            | string   | `"https://crit.md"`        | Base URL of the share service. Set to `""` to disable sharing entirely. Self-host with [`crit-web`](https://github.com/tomasz-tomczyk/crit-web).                                        |
 | `quiet`                | bool     | `false`                    | Suppress terminal status output.                                                                                                                                                        |
@@ -280,6 +281,7 @@ All keys are optional — omit any you don't need.
 | Flag            | Short | Equivalent config key | Description                            |
 | --------------- | ----- | --------------------- | -------------------------------------- |
 | `--port`        | `-p`  | `port`                | Port to listen on                      |
+| `--host`        |       | `host`                | Listen host (default `127.0.0.1`)      |
 | `--no-open`     |       | `no_open`             | Don't auto-open browser                |
 | `--share-url`   |       | `share_url`           | Share service URL                      |
 | `--output`      | `-o`  | `output`              | Output directory for review files      |
@@ -311,6 +313,7 @@ crit --no-ignore
 | Variable                    | Description                                       |
 | --------------------------- | ------------------------------------------------- |
 | `CRIT_PORT`                 | Default port for the local server                 |
+| `CRIT_HOST`                 | Listen host (default `127.0.0.1`)                 |
 | `CRIT_SHARE_URL`            | Override the share service URL                    |
 | `CRIT_AUTH_TOKEN`           | Override the auth token (skips `crit auth login`) |
 | `CRIT_NO_UPDATE_CHECK`      | Disable the update check on startup               |
