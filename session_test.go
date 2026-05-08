@@ -5198,7 +5198,7 @@ func TestSession_GeneratedFlowsThrough(t *testing.T) {
 
 	byPath := map[string]*FileEntry{}
 	for _, f := range session.Files {
-		byPath[f.Path] = f
+		byPath[filepath.Base(f.Path)] = f
 	}
 	if fe := byPath["api.pb.go"]; fe == nil || !fe.Generated {
 		t.Fatalf("expected api.pb.go FileEntry.Generated=true, got %+v (paths=%v)", fe, mapKeys(byPath))
@@ -5210,7 +5210,7 @@ func TestSession_GeneratedFlowsThrough(t *testing.T) {
 	info := session.GetSessionInfo()
 	infoByPath := map[string]SessionFileInfo{}
 	for _, fi := range info.Files {
-		infoByPath[fi.Path] = fi
+		infoByPath[filepath.Base(fi.Path)] = fi
 	}
 	if !infoByPath["api.pb.go"].Generated {
 		t.Fatalf("SessionFileInfo for api.pb.go should be Generated")
@@ -5222,7 +5222,7 @@ func TestSession_GeneratedFlowsThrough(t *testing.T) {
 	share := session.LoadShareFilesFromDisk()
 	shareByPath := map[string]shareFile{}
 	for _, sf := range share {
-		shareByPath[sf.Path] = sf
+		shareByPath[filepath.Base(sf.Path)] = sf
 	}
 	if !shareByPath["api.pb.go"].Generated {
 		t.Fatalf("shareFile for api.pb.go should be Generated")
