@@ -230,6 +230,10 @@ func TestHasSLDirFrom_DoesNotDetectDotGitSL(t *testing.T) {
 // missing on PATH.
 func runSL(t *testing.T, dir string, args ...string) string {
 	t.Helper()
+	// HGUSER is honored by older Sapling builds; newer builds require
+	// --config ui.username to be passed explicitly. Set both so the helper
+	// works on whatever sl version the test runner has installed.
+	args = append([]string{"--config", "ui.username=test <test@test.com>"}, args...)
 	cmd := exec.Command("sl", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "HGUSER=test <test@test.com>")
