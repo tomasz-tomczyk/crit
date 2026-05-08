@@ -2053,6 +2053,17 @@
     scheduleResolutionForPath: scheduleResolutionForPath,
     announceLive: announceLive,
     setUIState: setUIState,
+    // comments-changed handler: re-fetch the canonical comment list so
+    // CLI-driven mutations (`crit comment --reply-to`, etc.) and other
+    // client edits surface live without a manual refresh. refreshPanel
+    // already does granular DOM upsert (see commit 93b19fe), so this
+    // preserves scroll/focus inside open reply composers.
+    reloadComments: function () {
+      return loadAllComments().then(function () {
+        refreshPanel();
+        pushPinsToAgent();
+      });
+    },
   });
   registerInstaller(function installDesignSSE() {
     if (sseCtl) sseCtl.install();

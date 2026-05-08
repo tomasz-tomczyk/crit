@@ -59,6 +59,76 @@ test('applyRoundStart falls back to currentRoute then "/" for path', () => {
   assert.deepEqual(seen, ['/r']);
 });
 
+test('applyCommentsChanged invokes reloadComments', async () => {
+  let reloads = 0;
+  const ctl = create({
+    state: {},
+    pinsByRoute: () => ({}),
+    scheduleResolutionForPath: () => {},
+    announceLive: () => {},
+    setUIState: () => {},
+    reloadComments: () => { reloads++; return Promise.resolve(); },
+  });
+  await ctl.applyCommentsChanged();
+  assert.equal(reloads, 1);
+});
+
+test('applyCommentsChanged coalesces overlapping reloads', async () => {
+  // A burst of comments-changed events (e.g. agent posting many replies in
+  // quick succession) must not trigger N parallel reloads. The dedup guard
+  // collapses overlapping calls into a single trailing reload.
+  let inFlight = 0;
+  let maxConcurrent = 0;
+  let reloads = 0;
+  let resolveFirst;
+  const firstResolved = new Promise(function (r) { resolveFirst = r; });
+  const ctl = create({
+    state: {},
+    pinsByRoute: () => ({}),
+    scheduleResolutionForPath: () => {},
+    announceLive: () => {},
+    setUIState: () => {},
+    reloadComments: () => {
+      reloads++;
+      inFlight++;
+      maxConcurrent = Math.max(maxConcurrent, inFlight);
+      const p = reloads === 1 ? firstResolved : Promise.resolve();
+      return p.then(function () { inFlight--; });
+    },
+  });
+  const a = ctl.applyCommentsChanged();
+  ctl.applyCommentsChanged();
+  ctl.applyCommentsChanged();
+  resolveFirst();
+  await a;
+  // Wait one more microtask tick so the trailing reload can settle.
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(maxConcurrent, 1, 'reloads must not run in parallel');
+  assert.equal(reloads, 2, 'three events collapse to two reloads (initial + one trailing)');
+});
+
+test('applyCommentsChanged swallows reloadComments rejections', async () => {
+  // SSE handlers must not let an exception break the connection. A
+  // rejected reload should be logged and the in-flight guard reset so the
+  // next event can still trigger a reload.
+  let reloads = 0;
+  const ctl = create({
+    state: {},
+    pinsByRoute: () => ({}),
+    scheduleResolutionForPath: () => {},
+    announceLive: () => {},
+    setUIState: () => {},
+    reloadComments: () => {
+      reloads++;
+      return Promise.reject(new Error('boom'));
+    },
+  });
+  await ctl.applyCommentsChanged();
+  await ctl.applyCommentsChanged();
+  assert.equal(reloads, 2);
+});
+
 test('install does nothing when EventSource is unavailable', () => {
   // create() with no global EventSource — install() must not throw.
   const ctl = create({

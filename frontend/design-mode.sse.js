@@ -1,14 +1,16 @@
-// design-mode.sse.js — SSE round-start handler.
+// design-mode.sse.js — SSE handlers for design mode.
 //
-// Subscribes to /api/events and reacts to `design-round-start` events by
-// resetting per-round state (resolution cache, _roundResolved flags),
-// updating the round counter, scheduling lazy resolution for the current
-// pathname, and announcing via aria-live.
+// Subscribes to /api/events and reacts to:
+//   - `design-round-start`: resets per-round state (resolution cache,
+//     _roundResolved flags), updates the round counter, schedules lazy
+//     resolution for the current pathname, announces via aria-live.
+//   - `comments-changed`: re-fetches comments and re-renders the panel so
+//     CLI-driven mutations (`crit comment --reply-to`, etc.) appear live
+//     without a manual refresh.
 //
-// The actual scheduling/announcing helpers live on the controller; this
-// module just wires the SSE connection and calls them. file-changed and
-// other event kinds are owned by app.js's code-review handlers and ignored
-// here.
+// The scheduling/announcing/reload helpers live on the controller; this
+// module just wires the SSE connection and calls them. file-changed is
+// owned by app.js's code-review handlers and ignored here.
 'use strict';
 (function (root, factory) {
   var api = factory();
@@ -28,6 +30,7 @@
   //   scheduleResolutionForPath   — (path) => void
   //   announceLive                — (msg) => void
   //   setUIState                  — (s) => void  (for state transition on round start)
+  //   reloadComments              — () => Promise<void>  (handler for comments-changed)
   function create(deps) {
     deps = deps || {};
     var state = deps.state;
@@ -35,6 +38,35 @@
     var scheduleResolutionForPath = deps.scheduleResolutionForPath || function () {};
     var announceLive = deps.announceLive || function () {};
     var setUIState = deps.setUIState || function () {};
+    var reloadComments = deps.reloadComments || function () { return Promise.resolve(); };
+
+    // Dedup guard — if a burst of comments-changed events arrives while a
+    // reload is in flight, coalesce them into a single trailing reload.
+    var reloadInFlight = null;
+    var reloadPending = false;
+    function applyCommentsChanged() {
+      if (reloadInFlight) {
+        reloadPending = true;
+        return reloadInFlight;
+      }
+      reloadInFlight = Promise.resolve()
+        .then(function () { return reloadComments(); })
+        .catch(function (err) {
+          // Don't break the SSE stream if a reload throws — log and move on.
+          if (typeof console !== 'undefined' && console.warn) {
+            console.warn('[design-mode] comments-changed reload failed:', err);
+          }
+        })
+        .then(function () {
+          reloadInFlight = null;
+          if (reloadPending) {
+            reloadPending = false;
+            return applyCommentsChanged();
+          }
+          return null;
+        });
+      return reloadInFlight;
+    }
 
     function applyRoundStart(roundN) {
       state.currentRound = roundN;
@@ -62,12 +94,20 @@
         if (!payload || typeof payload.round !== 'number') return;
         applyRoundStart(payload.round);
       });
+      es.addEventListener('comments-changed', function () {
+        // Server emits this on any comment mutation (add/edit/delete/reply
+        // /resolve), including CLI-driven writes via `crit comment`. The
+        // payload is informational only — we always re-fetch the canonical
+        // list so we don't have to mirror reconciliation rules client-side.
+        applyCommentsChanged();
+      });
       state.designSSE = es;
       return es;
     }
 
     return {
       applyRoundStart: applyRoundStart,
+      applyCommentsChanged: applyCommentsChanged,
       install: install,
     };
   }
