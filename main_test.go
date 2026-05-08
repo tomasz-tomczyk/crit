@@ -540,6 +540,105 @@ func TestResolveServerConfig_PortPrecedence(t *testing.T) {
 	})
 }
 
+func TestResolveServerConfig_HostPrecedence(t *testing.T) {
+	orig := defaultBranchOverride
+	defer func() {
+		defaultBranchOverride = orig
+		defaultBranchOnce = sync.Once{}
+	}()
+
+	t.Run("CLI flag wins over env and config", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"host": "10.0.0.1"}`), 0644)
+		homeDir := t.TempDir()
+		setHome(t, homeDir)
+		t.Setenv("CRIT_HOST", "10.0.0.2")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{"--host", "0.0.0.0"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.host != "0.0.0.0" {
+			t.Errorf("host = %q, want 0.0.0.0 (CLI flag)", sc.host)
+		}
+	})
+
+	t.Run("env var wins over config when no CLI flag", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"host": "10.0.0.1"}`), 0644)
+		homeDir := t.TempDir()
+		setHome(t, homeDir)
+		t.Setenv("CRIT_HOST", "10.0.0.2")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.host != "10.0.0.2" {
+			t.Errorf("host = %q, want 10.0.0.2 (env var)", sc.host)
+		}
+	})
+
+	t.Run("config wins when no CLI flag or env var", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"host": "10.0.0.1"}`), 0644)
+		homeDir := t.TempDir()
+		setHome(t, homeDir)
+		t.Setenv("CRIT_HOST", "")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.host != "10.0.0.1" {
+			t.Errorf("host = %q, want 10.0.0.1 (config file)", sc.host)
+		}
+	})
+
+	t.Run("default 127.0.0.1 when nothing set", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		homeDir := t.TempDir()
+		setHome(t, homeDir)
+		t.Setenv("CRIT_HOST", "")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.host != "127.0.0.1" {
+			t.Errorf("host = %q, want 127.0.0.1 (default)", sc.host)
+		}
+	})
+}
+
 func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 	orig := defaultBranchOverride
 	defer func() {

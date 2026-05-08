@@ -53,7 +53,7 @@ crit/
 7. **Comments reference source line numbers** — stored in `~/.crit/reviews/<key>.json` with per-file sections
 8. **Real-time output** — review file written on every comment change (200ms debounce)
 9. **File watching** — git mode polls `git status --porcelain`; files mode polls mtimes; reloads via SSE
-10. **Localhost only** — server binds to `127.0.0.1`, no CORS headers needed
+10. **Localhost by default** — server binds to `127.0.0.1` (no CORS headers needed). Configurable via `--host` / `CRIT_HOST` / `host` config key (e.g. `0.0.0.0` for LAN). No auth, so non-loopback binds are explicit opt-in.
 11. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both. `agent_cmd` is global-only (prevents malicious repos from hijacking the agent command)
 12. **Headless CLI comment** — `crit comment` writes directly to the review file without starting the server; SSE notifies any running server
 13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array.
@@ -114,7 +114,7 @@ Two-level JSON config files, merged (project overrides global):
 - **Global**: `~/.crit.config.json` — user-wide defaults
 - **Project**: `.crit.config.json` in repo root — per-project overrides
 
-Config keys: `port`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `agent_cmd`, `auth_token`, `auth_user_name`, `auth_user_email`, `auth_user_id`, `cleanup_on_approve`, `no_update_check`, `no_integration_check`, `vcs`.
+Config keys: `port`, `host`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `agent_cmd`, `auth_token`, `auth_user_name`, `auth_user_email`, `auth_user_id`, `cleanup_on_approve`, `no_update_check`, `no_integration_check`, `vcs`.
 
 - `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to `git config user.name` if not set
@@ -242,7 +242,7 @@ Static: `GET /files/<path>` — serve files from repo root (path traversal prote
 
 <important if="you are modifying server security, request handling, or path-validation logic">
 
-- Server binds to `127.0.0.1` only
+- Server binds to `127.0.0.1` by default; user can opt into a different host via `--host` / `CRIT_HOST` / `host` config key. There is no auth, so any non-loopback bind exposes file content + comment-write API to anyone who can reach the port — that's why it's an explicit opt-in (CLI flag / env var / config key).
 - `/files/` validates paths, blocks `..` traversal, verifies resolved path stays within repo root
 - Body size: 10MB for comments, 1MB for share-url via `http.MaxBytesReader`
 - HTTP server: `ReadTimeout: 15s`, `IdleTimeout: 60s` (no `WriteTimeout` — SSE needs open connections)

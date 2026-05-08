@@ -13,6 +13,7 @@ import (
 // Config holds all configuration values from config files.
 type Config struct {
 	Port               int      `json:"port,omitempty"`
+	Host               string   `json:"host,omitempty"` // listen host (default 127.0.0.1)
 	NoOpen             bool     `json:"no_open,omitempty"`
 	ShareURL           string   `json:"share_url,omitempty"`
 	Quiet              bool     `json:"quiet,omitempty"`
@@ -55,6 +56,7 @@ func (c Config) String() string {
 func defaultConfig() generatedConfig {
 	return generatedConfig{
 		Port:       0,
+		Host:       "127.0.0.1",
 		NoOpen:     false,
 		ShareURL:   "https://crit.md",
 		Quiet:      false,
@@ -78,6 +80,7 @@ func defaultConfig() generatedConfig {
 // in project config files where it could be accidentally committed.
 type generatedConfig struct {
 	Port               int      `json:"port"`
+	Host               string   `json:"host"`
 	NoOpen             bool     `json:"no_open"`
 	ShareURL           string   `json:"share_url"`
 	Quiet              bool     `json:"quiet"`
@@ -153,6 +156,9 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	if project.Port != 0 {
 		merged.Port = project.Port
 	}
+	if project.Host != "" {
+		merged.Host = project.Host
+	}
 	if projectPresence.NoOpen {
 		merged.NoOpen = project.NoOpen
 	}
@@ -226,6 +232,9 @@ func LoadConfig(projectDir string) Config {
 	}
 	if !globalPresence.IgnorePatterns && !projectPresence.IgnorePatterns {
 		merged.IgnorePatterns = []string{".crit/"}
+	}
+	if merged.Host == "" {
+		merged.Host = "127.0.0.1"
 	}
 
 	// 5. Fall back to VCS user name if no author configured.
