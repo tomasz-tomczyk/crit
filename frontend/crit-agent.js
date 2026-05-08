@@ -603,6 +603,45 @@
   var H2C_MAX_DOC_HEIGHT = 20000;
   var H2C_MAX_DOC_WIDTH = 20000;
 
+  // resolvePageBackground — walks target -> ancestors -> body -> html and
+  // returns the first non-transparent computed background-color. Returns
+  // null when nothing in the chain has a real background, in which case
+  // html2canvas is given an explicit transparent backdrop rather than its
+  // default white. Logic mirrored in agent-screenshot-options.js for unit
+  // tests; keep both in sync.
+  function bgIsTransparent(color) {
+    if (!color) return true;
+    var c = String(color).replace(/\s+/g, '').toLowerCase();
+    if (c === 'transparent') return true;
+    var m = c.match(/^rgba?\(([^)]+)\)$/);
+    if (m) {
+      var parts = m[1].split(',');
+      if (parts.length === 4 && parseFloat(parts[3]) === 0) return true;
+    }
+    return false;
+  }
+  function resolvePageBackground(target) {
+    if (typeof window === 'undefined' || !window.getComputedStyle) return null;
+    var chain = [];
+    var el = target;
+    while (el && el.nodeType === 1) {
+      chain.push(el);
+      el = el.parentElement;
+    }
+    if (document.body && chain.indexOf(document.body) === -1) chain.push(document.body);
+    if (document.documentElement && chain.indexOf(document.documentElement) === -1) {
+      chain.push(document.documentElement);
+    }
+    for (var i = 0; i < chain.length; i++) {
+      try {
+        var cs = window.getComputedStyle(chain[i]);
+        if (!cs) continue;
+        if (!bgIsTransparent(cs.backgroundColor)) return cs.backgroundColor;
+      } catch (_) { /* getComputedStyle can throw on detached nodes */ }
+    }
+    return null;
+  }
+
   async function captureScreenshot(target) {
     try {
       if (shouldForceH2cFailure()) {
@@ -627,6 +666,13 @@
       // x/y/width/height (document-coords) restricts the output to just
       // the element. Without these, large pages produce huge thumbnails
       // even though only the clicked component is of interest.
+      //
+      // backgroundColor: html2canvas defaults to white, which on dark
+      // themes flooded the screenshot to pure white. Resolve the page's
+      // computed background-color (target -> ancestors -> body -> html)
+      // and pass it explicitly so the rasterised pin reflects what the
+      // reviewer actually saw. Logic mirrored in
+      // agent-screenshot-options.js (kept in sync for unit tests).
       var rect = (target && typeof target.getBoundingClientRect === 'function')
         ? target.getBoundingClientRect() : null;
       var opts = { scale: 1, logging: false };
@@ -636,6 +682,7 @@
         opts.width = Math.ceil(rect.width);
         opts.height = Math.ceil(rect.height);
       }
+      opts.backgroundColor = resolvePageBackground(target);
       var canvas = await h2c(target, opts);
       return canvas.toDataURL('image/jpeg', 0.7);
     } catch (err) {
