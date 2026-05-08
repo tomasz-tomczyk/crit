@@ -26,7 +26,7 @@
   --crit-brand-hover:   #94bcfb;
   --crit-brand-subtle:  rgba(133, 170, 248, 0.10);
   --crit-brand-bg:      rgba(133, 170, 248, 0.15);
-  --crit-line-focus-bg: rgba(133, 170, 248, 0.18);
+  --crit-line-focus-bg: rgba(133, 170, 248, 0.10);
   --crit-brand-cta:       #406fcc;
   --crit-brand-cta-hover: #4574cc;
 
@@ -187,7 +187,7 @@
     --crit-brand-hover:   #396ec6;
     --crit-brand-subtle:  rgba(41,96,188,0.08);
     --crit-brand-bg:      rgba(41,96,188,0.12);
-    --crit-line-focus-bg: rgba(41,96,188,0.18);
+    --crit-line-focus-bg: rgba(41,96,188,0.10);
     --crit-brand-cta:       #3a72d4;
     --crit-brand-cta-hover: #3568c8;
 
@@ -318,7 +318,7 @@
   --crit-brand-hover:   #94bcfb;
   --crit-brand-subtle:  rgba(133, 170, 248, 0.10);
   --crit-brand-bg:      rgba(133, 170, 248, 0.15);
-  --crit-line-focus-bg: rgba(133, 170, 248, 0.18);
+  --crit-line-focus-bg: rgba(133, 170, 248, 0.10);
   --crit-brand-cta:       #406fcc;
   --crit-brand-cta-hover: #4574cc;
 
@@ -448,7 +448,7 @@
   --crit-brand-hover:   #396ec6;
   --crit-brand-subtle:  rgba(41,96,188,0.08);
   --crit-brand-bg:      rgba(41,96,188,0.12);
-  --crit-line-focus-bg: rgba(41,96,188,0.18);
+  --crit-line-focus-bg: rgba(41,96,188,0.10);
   --crit-brand-cta:       #3a72d4;
   --crit-brand-cta-hover: #3568c8;
 

@@ -605,6 +605,7 @@ body {
 
 .line-block.focused {
   background: var(--crit-line-focus-bg);
+  box-shadow: inset 2px 0 0 var(--crit-brand);
 }
 
 .line-block.line-block-added {
@@ -643,11 +644,6 @@ body {
 }
 .deletion-marker.change-flash {
   animation: change-flash 1s ease-out;
-}
-
-.diff-line.focused,
-.diff-split-row.focused {
-  background: var(--crit-line-focus-bg);
 }
 
 /* ===== Gutter ===== */
@@ -3715,7 +3711,10 @@ body.sidebar-resizing * {
 .diff-container.unified .diff-line.addition { background: var(--crit-diff-add-bg); }
 .diff-container.unified .diff-line.deletion { background: var(--crit-diff-del-bg); }
 .diff-container.unified .diff-line.has-comment { background: var(--crit-comment-range-bg); }
-.diff-container.unified .diff-line.focused { background: var(--crit-line-focus-bg); }
+.diff-container.unified .diff-line.focused {
+  background: var(--crit-line-focus-bg);
+  border-left-color: var(--crit-brand);
+}
 .diff-container.unified .diff-line.selected,
 .diff-container.unified .diff-line.form-selected { background: var(--crit-brand-subtle); }
 .diff-container.unified .diff-gutter {
@@ -3757,7 +3756,10 @@ body.sidebar-resizing * {
 .diff-split-side.empty { background: var(--crit-editor-bg-card); }
 .diff-split-side.selected,
 .diff-split-side.form-selected { background: var(--crit-brand-subtle); }
-.diff-split-row.focused .diff-split-side { background: var(--crit-line-focus-bg); }
+.diff-split-row.focused .diff-split-side {
+  background: var(--crit-line-focus-bg);
+  border-left-color: var(--crit-brand);
+}
 .diff-split-side .diff-gutter-num { min-width: 44px; }
 .diff-split-side.deletion .diff-gutter-num { background: var(--crit-diff-del-gutter); }
 .diff-split-side.addition .diff-gutter-num { background: var(--crit-diff-add-gutter); }
