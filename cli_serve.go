@@ -327,14 +327,22 @@ func createDesignSession(sc *serverConfig) (*Session, error) {
 	}
 	cwd, _ := resolvedCWD()
 	s := &Session{
-		Mode:          "files",
-		RepoRoot:      cwd,
-		ReviewRound:   1,
-		ReviewType:    "design",
-		Origin:        sc.designOrigin,
-		subscribers:   make(map[chan SSEEvent]struct{}),
-		roundComplete: make(chan struct{}, 1),
-		Files:         []*FileEntry{},
+		Mode:        "files",
+		RepoRoot:    cwd,
+		ReviewRound: 1,
+		ReviewType:  "design",
+		Origin:      sc.designOrigin,
+		// awaitingFirstReview must be true so the daemon-client's first
+		// /api/review-cycle call does NOT fire SignalRoundComplete at boot.
+		// Without this gate the watcher bumps ReviewRound from 1 to 2 before
+		// the user authors a single pin, and AddDesignPin stamps the stale
+		// counter onto the first persisted comment. NewSessionFromFiles sets
+		// this for code-review mode; design mode hand-rolls the struct so we
+		// must set it explicitly.
+		awaitingFirstReview: true,
+		subscribers:         make(map[chan SSEEvent]struct{}),
+		roundComplete:       make(chan struct{}, 1),
+		Files:               []*FileEntry{},
 	}
 	if sc.reviewPath != "" {
 		s.ReviewFilePath = sc.reviewPath

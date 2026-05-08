@@ -834,3 +834,77 @@ func TestHandleFileComments_DesignPinFansOutSSE(t *testing.T) {
 		t.Fatal("no SSE event received after design-pin POST (cross-tab sync would stall)")
 	}
 }
+
+// TestCreateDesignSession_FreshAwaitsFirstReview pins down the second half of
+// Bug 1: a brand-new design session (no on-disk review file, no review dir)
+// must report IsAwaitingFirstReview()==true so the daemon-client's first
+// review-cycle call does NOT fire SignalRoundComplete() at boot. Without this,
+// the watcher's handleRoundCompleteFiles bumps ReviewRound from 1 to 2 before
+// the user authors a single pin, and the resulting comment ships against the
+// stale counter — surfaced in the UI as "Round #2 on a brand-new review".
+func TestCreateDesignSession_FreshAwaitsFirstReview(t *testing.T) {
+	dir := t.TempDir()
+	identity := filepath.Join(dir, "review-id-fresh")
+	// Deliberately do NOT create the directory or any review file: we are
+	// modelling the never-before-seen URL case.
+	sc := &serverConfig{
+		designOrigin: "http://localhost:4000",
+		reviewPath:   identity,
+	}
+	s, err := createDesignSession(sc)
+	if err != nil {
+		t.Fatalf("createDesignSession: %v", err)
+	}
+	if s.ReviewRound != 1 {
+		t.Errorf("ReviewRound = %d, want 1", s.ReviewRound)
+	}
+	if !s.IsAwaitingFirstReview() {
+		t.Fatal("IsAwaitingFirstReview() = false, want true (fresh design session must not auto-fire round-complete on first review-cycle call)")
+	}
+}
+
+// TestDesignSession_FirstPinAfterBootShipsRound1 is the end-to-end pin-down
+// for Bug 1 from the user's reproduction: user pins one element on a fresh
+// session, the persisted comment must carry review_round: 1. Without the
+// awaitingFirstReview default, the daemon-client's review-cycle call fires
+// SignalRoundComplete at boot, the watcher bumps the round to 2, and the
+// AddDesignPin stamps ReviewRound: 2 onto the user's first pin.
+func TestDesignSession_FirstPinAfterBootShipsRound1(t *testing.T) {
+	dir := t.TempDir()
+	identity := filepath.Join(dir, "review-id-firstpin")
+	sc := &serverConfig{
+		designOrigin: "http://localhost:4000",
+		reviewPath:   identity,
+	}
+	sess, err := createDesignSession(sc)
+	if err != nil {
+		t.Fatalf("createDesignSession: %v", err)
+	}
+
+	// Reproduce the daemon-client review-cycle gate: SignalRoundComplete is
+	// only fired when !IsAwaitingFirstReview. Bug repro: when the gate is
+	// missing, this fires on boot and the watcher bumps the round.
+	if !sess.IsAwaitingFirstReview() {
+		sess.SignalRoundComplete()
+		// Drain the channel synchronously through the files-mode handler so
+		// the round bump observable in this goroutine matches what the
+		// watcher would do in the live daemon.
+		select {
+		case <-sess.roundComplete:
+			sess.handleRoundCompleteFiles()
+		default:
+		}
+	}
+
+	anchor := &DOMAnchor{Pathname: "/", CSSSelector: "h1", TagChain: []string{"H1"}}
+	c, ok := sess.AddDesignPin("/", "first pin", "alice", "u1", anchor)
+	if !ok {
+		t.Fatal("AddDesignPin returned ok=false")
+	}
+	if c.ReviewRound != 1 {
+		t.Errorf("first pin ReviewRound = %d, want 1 (boot-time round bump leaked into the user's first pin)", c.ReviewRound)
+	}
+	if got := sess.GetReviewRound(); got != 1 {
+		t.Errorf("session GetReviewRound() = %d, want 1", got)
+	}
+}
