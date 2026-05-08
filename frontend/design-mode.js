@@ -2093,6 +2093,27 @@
         pushPinsToAgent();
       });
     },
+    // Reload the proxied target page on round transition so reviewers see
+    // the agent's freshly-rendered UI. Same-origin between agent and
+    // proxied page is guaranteed by proxy.go, so contentWindow.location
+    // .reload() is the cleanest path; fall back to re-setting iframe.src
+    // (with a cache-buster) if contentWindow access throws — defensive
+    // against detached frames during teardown.
+    reloadIframe: function () {
+      if (!els || !els.iframe) return;
+      try {
+        var w = els.iframe.contentWindow;
+        if (w && w.location && typeof w.location.reload === 'function') {
+          w.location.reload();
+          return;
+        }
+      } catch (_) { /* fall through to src reset */ }
+      try {
+        var url = els.iframe.src || proxyURL(state.currentRoute || '/');
+        var sep = url.indexOf('?') >= 0 ? '&' : '?';
+        els.iframe.src = url + sep + '_critRoundReload=' + Date.now();
+      } catch (_) { /* noop */ }
+    },
   });
   registerInstaller(function installDesignSSE() {
     if (sseCtl) sseCtl.install();

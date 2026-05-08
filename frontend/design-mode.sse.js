@@ -31,6 +31,7 @@
   //   announceLive                — (msg) => void
   //   setUIState                  — (s) => void  (for state transition on round start)
   //   reloadComments              — () => Promise<void>  (handler for comments-changed)
+  //   reloadIframe                — () => void  (re-set iframe.src on round transition)
   function create(deps) {
     deps = deps || {};
     var state = deps.state;
@@ -39,6 +40,7 @@
     var announceLive = deps.announceLive || function () {};
     var setUIState = deps.setUIState || function () {};
     var reloadComments = deps.reloadComments || function () { return Promise.resolve(); };
+    var reloadIframe = deps.reloadIframe || function () {};
 
     // Dedup guard — if a burst of comments-changed events arrives while a
     // reload is in flight, coalesce them into a single trailing reload.
@@ -87,6 +89,14 @@
       // this round-start re-render. Pulling fresh state here makes the
       // re-render authoritative regardless of event timing.
       applyCommentsChanged();
+      // Reload the iframe so reviewers see the agent's freshly-rendered UI
+      // for round N+1. Without this the proxied page kept its previous
+      // round's DOM and stale assets, even after the agent shipped fixes.
+      // TODO: skip the reload if a comment composer is currently focused
+      // and dirty (non-trivial dirty-detection — requires reaching into the
+      // composer module's per-pin draft state). Always-reload is safe for
+      // now because round transitions are agent-driven, not user-driven.
+      reloadIframe();
       scheduleResolutionForPath(state.currentPathname || state.currentRoute || '/');
       announceLive('Round ' + roundN + ' started.');
     }
