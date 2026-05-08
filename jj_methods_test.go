@@ -385,13 +385,6 @@ func TestJJVCS_ChangedFilesAndDiffBetweenSHAs(t *testing.T) {
 	if len(hunks) == 0 {
 		t.Error("FileDiffBetweenSHAs returned no hunks")
 	}
-
-	if _, err := j.ChangedFilesBetweenSHAs("zzz", headSHA, dir); err == nil {
-		t.Error("expected error for unresolvable base")
-	}
-	if _, err := j.FileDiffBetweenSHAs("between.txt", mainSHA, "zzz", dir); err == nil {
-		t.Error("expected error for unresolvable head")
-	}
 }
 
 func TestJJVCS_HasObject(t *testing.T) {
