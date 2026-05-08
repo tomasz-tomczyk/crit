@@ -43,6 +43,8 @@ func TestDestFor_GlobalMode(t *testing.T) {
 		{"claude-code", 1, ".claude/skills/crit-cli/SKILL.md"},
 		{"codex", 0, ".agents/skills/crit/SKILL.md"},
 		{"codex", 1, ".agents/skills/crit-cli/SKILL.md"},
+		{"qwen", 0, ".qwen/skills/crit/SKILL.md"},
+		{"qwen", 1, ".qwen/skills/crit-cli/SKILL.md"},
 		{"cursor", 0, ".cursor/skills/crit/SKILL.md"},
 		{"cursor", 1, ".cursor/skills/crit-cli/SKILL.md"},
 		// opencode: command stays cwd-relative; skill redirects globally to ~/.agents/skills/.
@@ -95,6 +97,7 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 		"claude-code":    {{"", globalDestNone}, {"", globalDestNone}},
 		"cursor":         {{"", globalDestNone}, {"", globalDestNone}},
 		"codex":          {{"", globalDestNone}, {"", globalDestNone}},
+		"qwen":           {{"", globalDestNone}, {"", globalDestNone}},
 		"opencode":       {{"", globalDestNone}, {".agents/skills/crit/SKILL.md", globalDestRelHome}},
 		"github-copilot": {{".agents/skills/crit/SKILL.md", globalDestRelHome}, {".agents/skills/crit-cli/SKILL.md", globalDestRelHome}},
 		"windsurf":       {{"", globalDestNone}},
