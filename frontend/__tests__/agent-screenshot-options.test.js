@@ -76,16 +76,31 @@ test('buildCaptureOptions never lets html2canvas default to white', () => {
   assert.equal(opts.height, 200);
 });
 
-test('buildCaptureOptions falls back to transparent (null) when no bg found', () => {
-  // Explicit `null` tells html2canvas to render a transparent backdrop —
-  // strictly better than white on a dark theme, even if we couldn't pick
-  // up the real colour.
+test('buildCaptureOptions falls back to opaque white when no bg found', () => {
+  // Regression for Bug A: passing null to html2canvas yields a transparent
+  // canvas. Encoding that with toDataURL('image/jpeg') flattens transparency
+  // to BLACK (JPEG has no alpha channel), so dark-theme pin screenshots
+  // came back as solid black rectangles. When the ancestor walk finds
+  // nothing usable, fall back to opaque white — that's html2canvas's own
+  // historical default and is at least visible on every theme.
   const html = mkEl('transparent');
   const body = mkEl('', html);
   const target = mkEl('', body);
   const opts = so.buildCaptureOptions(target, null, { x: 0, y: 0 }, mockDoc(body, html), gcsFactory());
-  assert.equal(opts.backgroundColor, null);
+  assert.equal(opts.backgroundColor, '#ffffff');
   assert.ok(!Object.prototype.hasOwnProperty.call(opts, 'x'));
+});
+
+test('buildCaptureOptions never returns null backgroundColor (JPEG flattens to black)', () => {
+  // Defensive: every code path through buildCaptureOptions must produce
+  // a string colour. If this ever returns null again, the JPEG-encoding
+  // step downstream silently produces a pure-black image.
+  const html = mkEl('transparent');
+  const body = mkEl('rgba(0,0,0,0)', html);
+  const target = mkEl('', body);
+  const opts = so.buildCaptureOptions(target, null, { x: 0, y: 0 }, mockDoc(body, html), gcsFactory());
+  assert.notEqual(opts.backgroundColor, null);
+  assert.equal(typeof opts.backgroundColor, 'string');
 });
 
 test('buildCaptureOptions applies scroll offset to crop coordinates', () => {

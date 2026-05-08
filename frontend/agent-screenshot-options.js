@@ -100,7 +100,12 @@
       opts.height = Math.ceil(rect.height);
     }
     var bg = resolvePageBackground(target, doc, getComputedStyleFn);
-    opts.backgroundColor = bg !== null ? bg : null;
+    // Must always be an opaque colour string. html2canvas + toDataURL('image/jpeg')
+    // flattens a transparent canvas to BLACK (JPEG has no alpha), which is
+    // worse than any visible mismatch. When the ancestor walk yields nothing,
+    // fall back to opaque white — html2canvas's historical default and at
+    // least visible on every theme.
+    opts.backgroundColor = bg !== null ? bg : '#ffffff';
     return opts;
   }
 

@@ -682,7 +682,11 @@
         opts.width = Math.ceil(rect.width);
         opts.height = Math.ceil(rect.height);
       }
-      opts.backgroundColor = resolvePageBackground(target);
+      // toDataURL('image/jpeg') flattens any transparent pixels to BLACK
+      // (JPEG has no alpha). If resolvePageBackground returns null, fall
+      // back to opaque white so the screenshot never comes back solid black.
+      var resolvedBg = resolvePageBackground(target);
+      opts.backgroundColor = resolvedBg !== null ? resolvedBg : '#ffffff';
       var canvas = await h2c(target, opts);
       return canvas.toDataURL('image/jpeg', 0.7);
     } catch (err) {
