@@ -134,6 +134,13 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/qwen/skills/crit/SKILL.md", dest: ".qwen/skills/crit/SKILL.md", hint: "Run /crit in Qwen Code to start a review loop"},
 		{source: "integrations/qwen/skills/crit-cli/SKILL.md", dest: ".qwen/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Qwen Code agents when needed"},
 	},
+	"hermes": {
+		// Hermes only auto-discovers skills under HERMES_HOME (default ~/.hermes/skills/).
+		// Project-local .hermes/skills/ is not loaded unless added to `external_dirs` in
+		// ~/.hermes/config.yaml — surfaced via the hint below.
+		{source: "integrations/hermes/skills/crit/SKILL.md", dest: ".hermes/skills/crit/SKILL.md", globalDest: ".hermes/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /crit in Hermes to start a review loop"},
+		{source: "integrations/hermes/skills/crit-cli/SKILL.md", dest: ".hermes/skills/crit-cli/SKILL.md", globalDest: ".hermes/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Hermes agents when needed"},
+	},
 	"gemini": {
 		{source: "integrations/gemini/skills/crit-cli/SKILL.md", dest: ".gemini/skills/crit-cli/SKILL.md", globalDest: ".gemini/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Gemini CLI agents when needed"},
 		{source: "integrations/gemini/commands/crit.toml", dest: ".gemini/commands/crit.toml", globalDest: ".gemini/commands/crit.toml", globalDestKind: globalDestRelHome, hint: "Run /crit in Gemini CLI to start a review loop"},
@@ -266,6 +273,14 @@ func installIntegration(name string, force bool) error {
 			settingsPath = filepath.Join(home, ".gemini", "settings.json")
 		}
 		installGeminiSettings(settingsPath, force)
+	}
+	if name == "hermes" && !global {
+		fmt.Println()
+		fmt.Println("  Note: Hermes only auto-discovers skills from ~/.hermes/skills/.")
+		fmt.Println("  For project-local skills to load, either:")
+		fmt.Println("    a) run `cd ~ && crit install hermes` to install globally, or")
+		fmt.Println("    b) add `.hermes/skills` to `external_dirs` under the `skills` section")
+		fmt.Println("       of ~/.hermes/config.yaml (Hermes scans those dirs read-only).")
 	}
 	printUniqueHints(hints)
 	fmt.Println()
