@@ -103,6 +103,22 @@ test('buildCaptureOptions never returns null backgroundColor (JPEG flattens to b
   assert.equal(typeof opts.backgroundColor, 'string');
 });
 
+test('buildCaptureOptions enables foreignObjectRendering so SVG and webfont text survive', () => {
+  // Regression for Bug A: with foreignObjectRendering off (html2canvas
+  // default) the rasterised pin captured only the element's background —
+  // inline SVG icons and webfont-rendered text were dropped, leaving a flat
+  // coloured rectangle. Routing through <foreignObject> + canvas uses the
+  // browser's own painter, which preserves both. useCORS lets cross-origin
+  // images through (same-origin between agent and proxied page should make
+  // this moot, but it's a no-op when not needed).
+  const html = mkEl('rgb(15,15,15)');
+  const body = mkEl('', html);
+  const target = mkEl('', body);
+  const opts = so.buildCaptureOptions(target, { left: 0, top: 0, width: 50, height: 20 }, { x: 0, y: 0 }, mockDoc(body, html), gcsFactory());
+  assert.equal(opts.foreignObjectRendering, true, 'foreignObjectRendering must be true so SVG + text render');
+  assert.equal(opts.useCORS, true, 'useCORS must be true so cross-origin images do not silently drop');
+});
+
 test('buildCaptureOptions applies scroll offset to crop coordinates', () => {
   const html = mkEl('rgb(0,0,0)');
   const body = mkEl('', html);

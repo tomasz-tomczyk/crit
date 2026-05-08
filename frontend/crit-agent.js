@@ -675,7 +675,11 @@
       // agent-screenshot-options.js (kept in sync for unit tests).
       var rect = (target && typeof target.getBoundingClientRect === 'function')
         ? target.getBoundingClientRect() : null;
-      var opts = { scale: 1, logging: false };
+      // foreignObjectRendering + useCORS: see agent-screenshot-options.js for
+      // the full rationale. Without foreignObjectRendering, html2canvas's
+      // own DOM painter drops inline <svg> and webfont text — a pinned
+      // button comes back as a flat coloured rectangle (Bug A).
+      var opts = { scale: 1, logging: false, foreignObjectRendering: true, useCORS: true };
       if (rect && rect.width > 0 && rect.height > 0) {
         opts.x = Math.max(0, Math.floor(rect.left + (window.scrollX || 0)));
         opts.y = Math.max(0, Math.floor(rect.top + (window.scrollY || 0)));

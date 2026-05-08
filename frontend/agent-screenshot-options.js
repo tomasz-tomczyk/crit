@@ -90,7 +90,20 @@
   // found one, or `null` (transparent) when we didn't. Never `undefined`,
   // because html2canvas treats `undefined` as "use the default white".
   function buildCaptureOptions(target, rect, scroll, doc, getComputedStyleFn) {
-    var opts = { scale: 1, logging: false };
+    // foreignObjectRendering: html2canvas's default DOM-to-canvas painter
+    // drops inline <svg> and webfont-rendered text in some layouts (Bug A:
+    // pinned button came back as a flat coloured rectangle with no icon or
+    // label). Enabling foreignObjectRendering routes through
+    // <foreignObject> + canvas, which uses the browser's own renderer and
+    // preserves both. useCORS is a no-op for same-origin captures (the
+    // agent and proxied page share an origin) but lets cross-origin
+    // images through if they ever appear.
+    var opts = {
+      scale: 1,
+      logging: false,
+      foreignObjectRendering: true,
+      useCORS: true,
+    };
     if (rect && rect.width > 0 && rect.height > 0) {
       var sx = (scroll && typeof scroll.x === 'number') ? scroll.x : 0;
       var sy = (scroll && typeof scroll.y === 'number') ? scroll.y : 0;
