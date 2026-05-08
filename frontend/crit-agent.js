@@ -84,7 +84,7 @@
         markers.push({ target: m.element || null, el: m.el });
       }
     });
-    markersAPI.applyRects(markers);
+    markersAPI.applyRects(markers, window);
   }
 
   function resolveAllPins() {

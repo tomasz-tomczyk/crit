@@ -2,24 +2,25 @@
 //
 // Marker overlay — coordinate-system reasoning (load-bearing; do not delete).
 //
-//   * Markers live INSIDE the proxied iframe's document, mounted under
-//     <body>. They are `position: fixed` relative to the iframe's viewport,
-//     not the chrome's viewport.
+//   * Markers live INSIDE the proxied iframe's document, mounted under a root
+//     anchored at the document origin (position:absolute; top:0; left:0).
 //
-//   * Because they are fixed inside the iframe, they track iframe-internal
-//     scrolling natively — we never compute scroll offsets manually.
+//   * Markers are `position: absolute` and positioned in DOCUMENT coords:
+//        x = rect.left + scrollX
+//        y = rect.top  + scrollY
+//     With document-coord placement we don't need a scroll listener — when
+//     the user scrolls, the marker scrolls naturally with the document.
 //
-//   * `getBoundingClientRect()` on the target element returns coords in the
-//     iframe's viewport space. Those are the exact coords we want for our
-//     `position: fixed` markers. No translation step is needed.
+//   * Why not `position: fixed`? Fixed markers stay glued to the viewport.
+//     `getBoundingClientRect()` returns viewport coords, so as the page
+//     scrolls the rect moves but our recompute only fires on mutations.
+//     The marker drifts away from the element it annotates. That was Bug B.
 //
-//   * Transformed ancestors are handled correctly by `getBoundingClientRect`.
+//   * Transformed ancestors are still handled correctly by
+//     `getBoundingClientRect` — we just add scroll offsets after.
 //
-//   * The chrome wraps the iframe in a horizontal-scroll container for narrow-
-//     viewport simulation. That wrapper lives in CHROME space, not iframe space,
-//     so it is irrelevant to markers.
-//
-// In short: `position: fixed` + `getBoundingClientRect` is the entire model.
+// In short: `position: absolute` + `getBoundingClientRect` + scroll offsets
+// is the entire model.
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -34,8 +35,11 @@
     const root = doc.createElement('div');
     root.setAttribute('id', 'crit-marker-root');
     root.setAttribute('aria-hidden', 'true');
-    root.style.position = 'fixed';
-    root.style.inset = '0';
+    // Anchor at document origin so absolute-positioned children resolve
+    // against page coords (not viewport coords). See top-of-file comment.
+    root.style.position = 'absolute';
+    root.style.top = '0';
+    root.style.left = '0';
     root.style.pointerEvents = 'none';
     root.style.zIndex = '2147483600';
     doc.body.appendChild(root);
@@ -54,21 +58,32 @@
     // for tests/back-compat, but production set-pins payloads carry pin_number.
     const number = (typeof pin.pin_number === 'number') ? pin.pin_number : (index + 1);
     el.setAttribute('aria-label', 'Comment ' + number);
-    el.style.position = 'fixed';
+    el.style.position = 'absolute';
+    el.style.top = '0';
+    el.style.left = '0';
     el.style.pointerEvents = 'auto';
     el.textContent = String(number);
     return el;
   }
 
   // Read all rects, then write all positions (no interleave).
-  function applyRects(markers) {
+  // `win` is optional and defaults to the global window — pass it explicitly
+  // from tests. Scroll offsets convert viewport coords (rect.left/top) into
+  // document coords, so absolute-positioned markers stay anchored to the
+  // element they annotate as the page scrolls.
+  function applyRects(markers, win) {
+    if (typeof win === 'undefined') {
+      win = (typeof window !== 'undefined') ? window : { scrollX: 0, scrollY: 0 };
+    }
+    const sx = (win && typeof win.scrollX === 'number') ? win.scrollX : 0;
+    const sy = (win && typeof win.scrollY === 'number') ? win.scrollY : 0;
     const reads = markers.map(m => (m.target ? m.target.getBoundingClientRect() : null));
     for (let i = 0; i < markers.length; i++) {
       const m = markers[i];
       const r = reads[i];
       if (!r) { m.el.style.display = 'none'; continue; }
       m.el.style.display = '';
-      m.el.style.transform = `translate(${Math.round(r.left)}px, ${Math.round(r.top)}px)`;
+      m.el.style.transform = `translate(${Math.round(r.left + sx)}px, ${Math.round(r.top + sy)}px)`;
     }
   }
 

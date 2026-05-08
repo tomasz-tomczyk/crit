@@ -40,7 +40,9 @@ test('createOverlay builds a root with pointer-events: none and high z-index', (
   assert.equal(fakeDoc.body._appended, ov.root);
   assert.equal(ov.root._attrs['aria-hidden'], 'true');
   assert.equal(ov.root._attrs.id, 'crit-marker-root');
-  assert.equal(ov.root.style.position, 'fixed');
+  assert.equal(ov.root.style.position, 'absolute');
+  assert.equal(ov.root.style.top, '0');
+  assert.equal(ov.root.style.left, '0');
   assert.equal(ov.root.style.pointerEvents, 'none');
   assert.equal(ov.root.style.zIndex, '2147483600');
 });
@@ -91,6 +93,49 @@ test('applyRects hides marker when target is null', () => {
   const m = { target: null, el: { style: {} } };
   overlay.applyRects([m]);
   assert.equal(m.el.style.display, 'none');
+});
+
+test('applyRects writes document coordinates so markers stay anchored on scroll', () => {
+  // Regression for Bug B: position:fixed + viewport-rect coords meant the
+  // marker stayed glued to the viewport when the page scrolled. With
+  // position:absolute + page coords (rect.top + scrollY), the marker tracks
+  // the element regardless of scroll position, no scroll listener needed.
+  const writes = [];
+  function makeStyleProxy(label) {
+    const obj = {};
+    return new Proxy(obj, {
+      set(t, k, v) {
+        if (k === 'transform') writes.push(label + ':' + v);
+        t[k] = v; return true;
+      },
+      get(t, k) { return t[k]; },
+    });
+  }
+  // Element is at page-coord y=800. With scrollY=400, viewport rect.top is 400.
+  const target = { getBoundingClientRect: () => ({ left: 100, top: 400 }) };
+  const win = { scrollX: 0, scrollY: 400 };
+  const markers = [{ target, el: { style: makeStyleProxy('a') } }];
+  overlay.applyRects(markers, win);
+  // Should write page coords (100, 800), not viewport coords (100, 400).
+  assert.deepEqual(writes, ['a:translate(100px, 800px)']);
+});
+
+test('applyRects without scroll offsets behaves as before (back-compat)', () => {
+  const writes = [];
+  function makeStyleProxy(label) {
+    const obj = {};
+    return new Proxy(obj, {
+      set(t, k, v) {
+        if (k === 'transform') writes.push(label + ':' + v);
+        t[k] = v; return true;
+      },
+      get(t, k) { return t[k]; },
+    });
+  }
+  const target = { getBoundingClientRect: () => ({ left: 5, top: 10 }) };
+  const markers = [{ target, el: { style: makeStyleProxy('a') } }];
+  overlay.applyRects(markers); // no win arg -> treat scroll as 0
+  assert.deepEqual(writes, ['a:translate(5px, 10px)']);
 });
 
 test('setMarkersTabindex toggles all markers atomically', () => {
