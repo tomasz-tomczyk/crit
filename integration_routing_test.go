@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -179,6 +181,45 @@ func TestInstallIntegration_GeminiWritesSettingsJSON(t *testing.T) {
 		}
 	}
 	t.Error("exit_plan_mode hook not found in .gemini/settings.json")
+}
+
+// TestInstallIntegration_HermesPrintsExternalDirsNote verifies that on a
+// project-mode install, the hermes special-case prints the external_dirs
+// guidance — Hermes does not auto-discover project-local skills, so the
+// note is the only thing that makes the project-install path useful.
+func TestInstallIntegration_HermesPrintsExternalDirsNote(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	prev := os.Stdout
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = prev })
+
+	done := make(chan string, 1)
+	go func() {
+		var b strings.Builder
+		_, _ = io.Copy(&b, r)
+		done <- b.String()
+	}()
+
+	if err := installIntegration("hermes", false); err != nil {
+		t.Fatalf("installIntegration: %v", err)
+	}
+	_ = w.Close()
+	out := <-done
+
+	if _, err := os.Stat(filepath.Join(dir, ".hermes/skills/crit/SKILL.md")); err != nil {
+		t.Fatalf("expected .hermes/skills/crit/SKILL.md to be written: %v", err)
+	}
+	for _, want := range []string{"~/.hermes/skills/", "external_dirs", "config.yaml"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("project install output missing %q\n--- output ---\n%s", want, out)
+		}
+	}
 }
 
 func TestPrintUniqueHints_Dedups(t *testing.T) {
