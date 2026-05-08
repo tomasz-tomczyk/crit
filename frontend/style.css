@@ -3715,7 +3715,10 @@ body.sidebar-resizing * {
   background: var(--crit-line-focus-bg);
   border-left-color: var(--crit-brand);
 }
-.diff-container.unified .diff-line.focused .diff-gutter-num { background: var(--crit-line-focus-bg); }
+.diff-container.unified .diff-line.focused .diff-gutter-num:first-child,
+.diff-container.unified .diff-line.focused .diff-gutter-num:last-child {
+  background: var(--crit-line-focus-bg);
+}
 .diff-container.unified .diff-line.selected,
 .diff-container.unified .diff-line.form-selected { background: var(--crit-brand-subtle); }
 .diff-container.unified .diff-gutter {
