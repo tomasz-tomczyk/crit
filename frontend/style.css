@@ -599,9 +599,12 @@ body {
 }
 
 .line-block.selected,
-.line-block.form-selected,
-.line-block.focused {
+.line-block.form-selected {
   background: var(--crit-brand-subtle);
+}
+
+.line-block.focused {
+  background: var(--crit-line-focus-bg);
 }
 
 .line-block.line-block-added {
@@ -643,7 +646,7 @@ body {
 }
 
 .diff-line.focused, .diff-split-row.focused {
-  background: var(--crit-brand-subtle);
+  background: var(--crit-line-focus-bg);
 }
 
 /* ===== Gutter ===== */
