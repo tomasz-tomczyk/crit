@@ -3715,6 +3715,7 @@ body.sidebar-resizing * {
   background: var(--crit-line-focus-bg);
   border-left-color: var(--crit-brand);
 }
+.diff-container.unified .diff-line.focused .diff-gutter-num { background: var(--crit-line-focus-bg); }
 .diff-container.unified .diff-line.selected,
 .diff-container.unified .diff-line.form-selected { background: var(--crit-brand-subtle); }
 .diff-container.unified .diff-gutter {
@@ -3760,6 +3761,7 @@ body.sidebar-resizing * {
   background: var(--crit-line-focus-bg);
   border-left-color: var(--crit-brand);
 }
+.diff-split-row.focused .diff-split-side .diff-gutter-num { background: var(--crit-line-focus-bg); }
 .diff-split-side .diff-gutter-num { min-width: 44px; }
 .diff-split-side.deletion .diff-gutter-num { background: var(--crit-diff-del-gutter); }
 .diff-split-side.addition .diff-gutter-num { background: var(--crit-diff-add-gutter); }
