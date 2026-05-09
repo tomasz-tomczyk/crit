@@ -293,9 +293,9 @@
     --crit-qr-bg: #fff;
 
     /* ---- Comment reference chip ---- */
-    --crit-comment-ref-color:       #0969da;
-    --crit-comment-ref-color-hover: #0550ae;
-    --crit-comment-ref-underline:   rgba(9, 105, 218, 0.40);
+    --crit-comment-ref-color:       #0550ae;
+    --crit-comment-ref-color-hover: #033d8b;
+    --crit-comment-ref-underline:   rgba(5, 80, 174, 0.50);
     --crit-comment-ref-flash-bg:    rgba(255, 212, 59, 0.55);
     --crit-comment-ref-flash-ring:  rgba(154, 103, 0, 0.70);
 
