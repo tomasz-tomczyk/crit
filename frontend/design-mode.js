@@ -798,6 +798,11 @@
       if (c) c.resolved = resolved;
       state.userActedThisRound = true;
       refreshPanel();
+      // Repaint the iframe overlay: design-mode-pin-filter drops resolved
+      // pins from the set-pins payload, so the marker for the just-resolved
+      // (or just-reopened) pin must be re-pushed in the originating tab.
+      // Without this, the marker stays painted until the next chrome boot.
+      pushPinsToAgent();
     }).catch(function (err) {
       showToast('Resolve failed: ' + (err && err.message || err));
     }).finally(function () {
