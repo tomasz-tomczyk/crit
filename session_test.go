@@ -5269,7 +5269,6 @@ func TestDOMAnchor_JSONRoundTrip(t *testing.T) {
 		Role:           "heading",
 		Landmark:       "main",
 		OuterHTML:      "<h2>Overview</h2>",
-		Screenshot:     "data:image/jpeg;base64,abc",
 		ViewportWidth:  1280,
 		ViewportHeight: 800,
 	}

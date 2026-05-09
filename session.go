@@ -91,10 +91,15 @@ type DOMAnchor struct {
 	Role           string `json:"role,omitempty"`
 	Landmark       string `json:"landmark,omitempty"`
 
-	OuterHTML      string `json:"outer_html"`
-	Screenshot     string `json:"screenshot,omitempty"`
-	ViewportWidth  int    `json:"viewport_width"`
-	ViewportHeight int    `json:"viewport_height"`
+	OuterHTML string `json:"outer_html"`
+	// Screenshot was a base64-encoded JPEG previously captured at pin
+	// authoring time. Removed: capture has been visually broken for
+	// multiple iterations and the data inflated review.json without
+	// adding any value the rendered review actually used. Legacy review
+	// files containing a "screenshot" key still load: encoding/json
+	// silently ignores unknown fields by default.
+	ViewportWidth  int `json:"viewport_width"`
+	ViewportHeight int `json:"viewport_height"`
 }
 
 // Comment represents a single inline review comment.

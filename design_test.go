@@ -941,3 +941,116 @@ func TestDesignSession_FirstPinAfterBootShipsRound1(t *testing.T) {
 		t.Errorf("session GetReviewRound() = %d, want 1", got)
 	}
 }
+
+// TestDOMAnchor_NoScreenshotField pins down that the Screenshot field has
+// been removed from DOMAnchor. Persisting base64 JPEGs in every comment
+// bloats review.json and the captured screenshots have been visually broken
+// for multiple iterations — they're not worth fixing.
+//
+// This is a structural assertion (Marshal must not produce a "screenshot"
+// key) rather than a struct-field absence check, because reflective
+// field-presence tests are brittle. The Marshal output is the contract that
+// matters.
+func TestDOMAnchor_NoScreenshotField(t *testing.T) {
+	a := &DOMAnchor{
+		Pathname:    "/dashboard",
+		CSSSelector: "#h1",
+		TagChain:    []string{"H1"},
+		OuterHTML:   "<h1>x</h1>",
+	}
+	data, err := json.Marshal(a)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "screenshot") {
+		t.Fatalf("DOMAnchor JSON must not contain a screenshot key, got: %s", data)
+	}
+}
+
+// TestDOMAnchor_LegacyScreenshotIgnored guards backwards compatibility: an
+// existing review.json on disk may contain a legacy `screenshot` JSON field
+// from before the field was removed. encoding/json silently ignores unknown
+// keys by default, so the load must succeed without error.
+func TestDOMAnchor_LegacyScreenshotIgnored(t *testing.T) {
+	raw := `{
+		"pathname": "/dashboard",
+		"css_selector": "#h1",
+		"tag_chain": ["H1"],
+		"outer_html": "<h1>x</h1>",
+		"screenshot": "data:image/jpeg;base64,abcdef",
+		"viewport_width": 1280,
+		"viewport_height": 800
+	}`
+	var got DOMAnchor
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("legacy review.json with screenshot must unmarshal cleanly: %v", err)
+	}
+	if got.CSSSelector != "#h1" {
+		t.Errorf("CSSSelector = %q, want #h1", got.CSSSelector)
+	}
+	if got.ViewportWidth != 1280 {
+		t.Errorf("ViewportWidth = %d, want 1280", got.ViewportWidth)
+	}
+}
+
+// TestDesign_PostFileCommentsDropsScreenshot pins down the persistence side:
+// a POST to /api/file/comments carrying a legacy screenshot field must
+// succeed (forward compat with old frontend builds), but the persisted
+// dom_anchor on the saved review.json must NOT contain a screenshot key.
+func TestDesign_PostFileCommentsDropsScreenshot(t *testing.T) {
+	dir := t.TempDir()
+	identity := filepath.Join(dir, "review-id")
+	if err := os.MkdirAll(identity, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	sess := &Session{
+		Mode:           "files",
+		RepoRoot:       dir,
+		ReviewType:     "design",
+		Origin:         "http://localhost:3000",
+		ReviewRound:    1,
+		ReviewFilePath: identity,
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		roundComplete:  make(chan struct{}, 1),
+	}
+
+	srv, err := NewServer(nil, frontendFS, "", "", "tester", "test", 0, "")
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	srv.SetSession(sess)
+
+	body := strings.NewReader(`{
+		"body": "first pin",
+		"author": "alice",
+		"dom_anchor": {
+			"pathname": "/dashboard",
+			"css_selector": "#primary-btn",
+			"tag_chain": ["BUTTON"],
+			"outer_html": "<button>Go</button>",
+			"screenshot": "data:image/jpeg;base64,abcdef",
+			"viewport_width": 1280,
+			"viewport_height": 800
+		}
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/file/comments?path=/dashboard", body)
+	rec := httptest.NewRecorder()
+	srv.handleFileComments(rec, req)
+	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 201/200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Force the debounced write to flush so we can read the persisted file.
+	if err := sess.SyncWriteFiles(); err != nil {
+		t.Fatalf("SyncWriteFiles: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(identity, "review.json"))
+	if err != nil {
+		t.Fatalf("ReadFile review.json: %v", err)
+	}
+	if strings.Contains(string(data), "screenshot") {
+		t.Fatalf("persisted review.json must not contain a screenshot key, got:\n%s", data)
+	}
+}
