@@ -325,7 +325,7 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 // metadata, focus tags, design-pin identity), it MUST be added here too —
 // otherwise it is silently dropped on round bump.
 func carryForwardComment(old Comment, newID string, now string) Comment {
-	return Comment{
+	c := Comment{
 		ID:          newID,
 		StartLine:   old.StartLine,
 		EndLine:     old.EndLine,
@@ -365,16 +365,26 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 
 		// Design-mode pin identity. DOMAnchor is the durable anchor for
 		// design pins (no line remapping applies); PinNumber is a stable,
-		// review-scoped reference; DriftedOnRound is the round on which the
-		// pin was newly classified as drifted. All three must round-trip
-		// across handleRoundComplete*, otherwise design pins silently
-		// disappear (or lose their drift annotation) on round bump.
-		UserID:         old.UserID,
-		DOMAnchor:      old.DOMAnchor,
-		PinNumber:      old.PinNumber,
-		Drifted:        old.Drifted,
-		DriftedOnRound: old.DriftedOnRound,
+		// review-scoped reference. Both must round-trip across
+		// handleRoundComplete*, otherwise design pins silently disappear
+		// on round bump.
+		UserID:    old.UserID,
+		DOMAnchor: old.DOMAnchor,
+		PinNumber: old.PinNumber,
 	}
+	// Drift fields are carried forward only for code-review comments. Design
+	// pins (DOMAnchor != nil) are never drifted: the live DOM can change
+	// without any code change (Phoenix LiveView re-renders, framework
+	// hydration, etc.), so any drift bit on a design pin is a false positive
+	// and is dropped here. carryForwardFileComments already skips drift
+	// detection for design pins; this guards the no-PreviousContent path
+	// (carryForwardAllComments) which would otherwise propagate stale bits
+	// from earlier rounds.
+	if old.DOMAnchor == nil {
+		c.Drifted = old.Drifted
+		c.DriftedOnRound = old.DriftedOnRound
+	}
+	return c
 }
 
 // carryForwardAllComments carries forward all PreviousComments at their original positions.

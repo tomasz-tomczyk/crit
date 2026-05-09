@@ -457,9 +457,14 @@ func TestDetectFrameworks(t *testing.T) {
 // TestCarryForwardComment_PreservesDesignPinFields guards against silent data
 // loss for design pins on round bump. carryForwardComment is called from
 // carryForwardAllComments for every file lacking PreviousContent — which is
-// the case for design-route entries (no on-disk content). Dropping DOMAnchor,
-// PinNumber, Drifted or DriftedOnRound here makes design pins disappear from
-// /api/file/comments after POST /api/round-complete.
+// the case for design-route entries (no on-disk content). Dropping DOMAnchor
+// or PinNumber here makes design pins disappear from /api/file/comments
+// after POST /api/round-complete.
+//
+// Drift fields (Drifted, DriftedOnRound) are NOT preserved for design pins —
+// drift detection is disabled for design mode because the live DOM can change
+// without any code change (LiveView re-renders, etc.). Design pins must
+// always emerge with Drifted=false after carry-forward.
 func TestCarryForwardComment_PreservesDesignPinFields(t *testing.T) {
 	old := Comment{
 		ID:             "pin-original",
@@ -486,14 +491,42 @@ func TestCarryForwardComment_PreservesDesignPinFields(t *testing.T) {
 	if carried.PinNumber != 7 {
 		t.Errorf("PinNumber = %d, want 7", carried.PinNumber)
 	}
-	if !carried.Drifted {
-		t.Error("Drifted = false, want true (preserved across rounds)")
+	if carried.Drifted {
+		t.Error("Drifted = true, want false (design pins must never be drifted)")
 	}
-	if carried.DriftedOnRound != 2 {
-		t.Errorf("DriftedOnRound = %d, want 2", carried.DriftedOnRound)
+	if carried.DriftedOnRound != 0 {
+		t.Errorf("DriftedOnRound = %d, want 0 (design pins must not carry drift round)", carried.DriftedOnRound)
 	}
 	if carried.UserID != "u1" {
 		t.Errorf("UserID = %q, want u1", carried.UserID)
+	}
+}
+
+// TestCarryForwardComment_CodeCommentDriftPreserved guards that the design-mode
+// drift suppression does NOT regress code-review drift carry-forward. Code
+// comments (DOMAnchor == nil) must continue to carry their Drifted and
+// DriftedOnRound fields across rounds.
+func TestCarryForwardComment_CodeCommentDriftPreserved(t *testing.T) {
+	old := Comment{
+		ID:             "code-original",
+		Body:           "needs work",
+		Author:         "alice",
+		CreatedAt:      "2026-01-01T00:00:00Z",
+		UpdatedAt:      "2026-01-01T00:00:00Z",
+		ReviewRound:    1,
+		StartLine:      10,
+		EndLine:        12,
+		Drifted:        true,
+		DriftedOnRound: 2,
+	}
+
+	carried := carryForwardComment(old, "code-new", "2026-02-01T00:00:00Z")
+
+	if !carried.Drifted {
+		t.Error("Drifted = false, want true (code comments preserve drift)")
+	}
+	if carried.DriftedOnRound != 2 {
+		t.Errorf("DriftedOnRound = %d, want 2", carried.DriftedOnRound)
 	}
 }
 
@@ -584,11 +617,11 @@ func TestHandleRoundCompleteFiles_DesignPinsSurvive(t *testing.T) {
 	if open.DOMAnchor == nil || open.DOMAnchor.CSSSelector != "#primary-btn" {
 		t.Errorf("open pin DOMAnchor lost or mutated: %+v", open.DOMAnchor)
 	}
-	if open.DriftedOnRound != 1 {
-		t.Errorf("open pin DriftedOnRound = %d, want 1 (preserved across rounds)", open.DriftedOnRound)
+	if open.DriftedOnRound != 0 {
+		t.Errorf("open pin DriftedOnRound = %d, want 0 (design pins must not carry drift round)", open.DriftedOnRound)
 	}
-	if !open.Drifted {
-		t.Error("open pin Drifted dropped on carry-forward")
+	if open.Drifted {
+		t.Error("open pin Drifted = true, want false (design pins must never be drifted)")
 	}
 	if !open.CarriedForward {
 		t.Error("open pin CarriedForward = false, want true")
