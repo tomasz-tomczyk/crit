@@ -444,6 +444,17 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 - **Week 1**: Middleware + key model
 - **Week 2**: Validation endpoint + tests
 - **Week 3**: Dashboard UI for key management
+
+## Nested Tasks
+
+- Top alpha
+  - Nested alpha-one
+  - Nested alpha-two
+- Top beta
+  - Nested beta-one
+    - Deep beta-one-a
+  - Nested beta-two
+- Top gamma
 MDFILE
 
 # Modify routes.go: change beginning and end, leave large middle gap (>20 unchanged lines)

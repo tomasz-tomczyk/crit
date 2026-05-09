@@ -139,7 +139,11 @@ signed with the user's webhook secret. Receivers should verify this before proce
 - [ ] GET /notifications feed with cursor pagination
 - [ ] POST /notifications/:id/read and POST /notifications/read-all
 - [ ] Email delivery via SES
-- [ ] Webhook delivery with HMAC signature verification
+- [ ] Webhook delivery with HMAC signature verification, supporting:
+  - `POST /webhooks/:id` → 2xx success, persist `delivered_at`.
+  - `POST /webhooks/:id` → 4xx client error, mark `dead` and stop retrying.
+  - `POST /webhooks/:id` → 5xx / timeout, schedule retry with backoff.
+  - `DELETE /webhooks/:id` → owner-only, requires `X-Internal-Token`.
 - [ ] Retry worker with exponential backoff
 - [ ] Integration tests for the delivery pipeline
 - [ ] Runbook: how to inspect and manually retry stuck deliveries

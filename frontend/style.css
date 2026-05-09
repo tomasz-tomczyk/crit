@@ -977,6 +977,21 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   list-style-type: '  \2022  ';
 }
 
+/* Outer wrappers added when a nested list item is split into its own line block.
+   They preserve semantic nesting (so CSS indentation works) without rendering
+   their own bullet/marker. */
+.line-content ul.crit-list-wrapper,
+.line-content ol.crit-list-wrapper {
+  padding-left: 24px;
+  margin: 0;
+}
+.line-content li.crit-list-wrapper {
+  list-style: none;
+}
+.line-content ul.crit-list-wrapper > li.crit-list-wrapper {
+  list-style-type: none;
+}
+
 .line-content table {
   width: 100%;
   border-collapse: collapse;

@@ -107,6 +107,42 @@ test.describe('Markdown Rendering — plan.md', () => {
     await expect(section.locator('blockquote', { hasText: 'rate-limit' })).toBeVisible();
   });
 
+  test('nested bullet items are split into individually-commentable line blocks', async ({ page }) => {
+    const section = mdSection(page);
+
+    // Each nested bullet from the "Nested Tasks" fixture should produce its own
+    // .line-block with a unique data-start-line, so users can comment on each
+    // nested item independently. Match by visible text rather than line number,
+    // because plan.md line offsets shift with fixture edits.
+    const items = [
+      'Top alpha',
+      'Nested alpha-one',
+      'Nested alpha-two',
+      'Top beta',
+      'Nested beta-one',
+      'Deep beta-one-a',
+      'Nested beta-two',
+      'Top gamma',
+    ];
+
+    const startLines = new Set<string>();
+    for (const text of items) {
+      // Find the .line-block that directly contains this item's bullet text.
+      // Use a tight locator: a line-block whose visible text contains the item label.
+      const block = section.locator('.line-block', { hasText: text }).first();
+      await expect(block).toBeVisible();
+      const startLine = await block.getAttribute('data-start-line');
+      expect(startLine, `block for "${text}" must expose data-start-line`).not.toBeNull();
+      startLines.add(startLine!);
+    }
+
+    // Each item lives in its own block — distinct data-start-line values.
+    expect(startLines.size).toBe(items.length);
+
+    // The nested wrapper class is present, confirming semantic nesting was preserved.
+    await expect(section.locator('.line-block ul.crit-list-wrapper').first()).toBeVisible();
+  });
+
   test('line gutters exist in DOM with visible line numbers', async ({ page }) => {
     const section = mdSection(page);
 

@@ -1058,45 +1058,170 @@
   }
 
   // Handle a list token (bullet or ordered) — split into per-item blocks.
-  function handleListToken(tokens, i, token, md, blocks, sourceLines, coveredUpTo, blockEnd) {
+  // Recurses into nested lists so each nested item is independently commentable.
+  // Nested-item blocks are rendered with semantic nesting preserved
+  // (e.g. <ul><li><ul><li>content</li></ul></li></ul>) with outer wrappers
+  // marked .crit-list-wrapper so CSS suppresses their bullets.
+  function handleListToken(tokens, i, _token, md, blocks, sourceLines, coveredUpTo, blockEnd) {
     const listCloseIdx = findCloseToken(tokens, i);
-    const listTag = token.type === 'bullet_list_open' ? 'ul' : 'ol';
-    let j = i + 1;
 
-    while (j < listCloseIdx) {
-      if (tokens[j].type === 'list_item_open') {
-        const itemMap = tokens[j].map;
-        const itemCloseIdx = findCloseToken(tokens, j);
+    splitListInto(tokens, i, listCloseIdx, md, blocks, sourceLines, coveredUpTo, function(html) {
+      return html;
+    });
 
-        if (itemMap) {
-          addGapLineBlocks(blocks, sourceLines, coveredUpTo, itemMap[0]);
-          let effectiveEnd = itemMap[1];
-          while (effectiveEnd > itemMap[0] + 1 && sourceLines[effectiveEnd - 1].trim() === '') {
-            effectiveEnd--;
-          }
-
-          const itemTokens = tokens.slice(j, itemCloseIdx + 1);
-          const startAttr = listTag === 'ol' && tokens[j].info ? ' start="' + tokens[j].info + '"' : '';
-          const itemHtml = '<' + listTag + startAttr + '>' +
-            md.renderer.render(itemTokens, md.options, {}) +
-            '</' + listTag + '>';
-
-          blocks.push({
-            startLine: itemMap[0] + 1,
-            endLine: effectiveEnd,
-            html: itemHtml,
-            isEmpty: false
-          });
-          coveredUpTo = effectiveEnd;
-        }
-        j = itemCloseIdx + 1;
-      } else {
-        j++;
-      }
+    // After splitListInto, blocks have been pushed and coveredUpTo updated
+    // implicitly via the last block's endLine. Recompute coveredUpTo from blocks.
+    if (blocks.length > 0) {
+      coveredUpTo = Math.max(coveredUpTo, blocks[blocks.length - 1].endLine);
     }
 
     coveredUpTo = addGapLineBlocks(blocks, sourceLines, coveredUpTo, blockEnd);
     return { nextIndex: listCloseIdx + 1, coveredUpTo: coveredUpTo };
+  }
+
+  // Recursively split a list (between listOpenIdx and listCloseIdx) into blocks.
+  // `wrap(innerHtml)` wraps the innermost item HTML with any enclosing list/li
+  // chrome from outer (parent) lists, preserving semantic nesting.
+  // Pushes blocks to `blocks` and emits gap-line blocks between items.
+  // Returns the line number through which content has been emitted (last block's endLine).
+  function splitListInto(tokens, listOpenIdx, listCloseIdx, md, blocks, sourceLines, coveredUpTo, wrap) {
+    const listOpen = tokens[listOpenIdx];
+    const listTag = listOpen.type === 'bullet_list_open' ? 'ul' : 'ol';
+    let j = listOpenIdx + 1;
+
+    while (j < listCloseIdx) {
+      if (tokens[j].type !== 'list_item_open') { j++; continue; }
+      const itemOpenIdx = j;
+      const itemCloseIdx = findCloseToken(tokens, j);
+      const itemMap = tokens[itemOpenIdx].map;
+
+      if (!itemMap) { j = itemCloseIdx + 1; continue; }
+
+      addGapLineBlocks(blocks, sourceLines, coveredUpTo, itemMap[0]);
+      coveredUpTo = itemMap[0];
+
+      // Find nested lists within this item (direct children only).
+      const nestedRanges = findDirectNestedLists(tokens, itemOpenIdx, itemCloseIdx);
+
+      // For ordered lists, preserve numbering across split blocks via start=N.
+      // markdown-it stores the numeric marker on the list_item_open token's info.
+      const itemStartAttr = (listTag === 'ol' && tokens[itemOpenIdx].info)
+        ? ' start="' + tokens[itemOpenIdx].info + '"'
+        : '';
+
+      // The "lead" portion: tokens between item_open and the first nested list (or item_close).
+      const firstNested = nestedRanges.length > 0 ? nestedRanges[0] : null;
+      const leadEndTokenIdx = firstNested ? firstNested.openIdx : itemCloseIdx;
+
+      // Determine source-line range for the lead.
+      const leadStartLine = itemMap[0] + 1;
+      let leadEndLine;
+      if (firstNested) {
+        const nestedFirstMap = tokens[firstNested.openIdx].map;
+        leadEndLine = nestedFirstMap ? nestedFirstMap[0] : itemMap[1];
+      } else {
+        leadEndLine = itemMap[1];
+        // Trim trailing blank lines (markdown-it often claims a trailing blank).
+        while (leadEndLine > leadStartLine && sourceLines[leadEndLine - 1].trim() === '') {
+          leadEndLine--;
+        }
+      }
+
+      // Render lead content: re-use renderer over tokens [item_open .. leadEndTokenIdx-1] + item_close synthetic.
+      // Easiest: render the tokens between item_open+1 and leadEndTokenIdx (exclusive) as inline content,
+      // then wrap in <li>.
+      const leadInnerTokens = tokens.slice(itemOpenIdx + 1, leadEndTokenIdx);
+      const leadInnerHtml = md.renderer.render(leadInnerTokens, md.options, {});
+      const leadLiClass = tokens[itemOpenIdx].attrGet && tokens[itemOpenIdx].attrGet('class');
+      const leadLiAttr = leadLiClass ? ' class="' + escapeAttr(leadLiClass) + '"' : '';
+      const leadInnerWrapped = '<' + listTag + itemStartAttr + '>' +
+        '<li' + leadLiAttr + '>' + leadInnerHtml + '</li>' +
+        '</' + listTag + '>';
+
+      if (leadEndLine > leadStartLine - 1) {
+        blocks.push({
+          startLine: leadStartLine,
+          endLine: leadEndLine,
+          html: wrap(leadInnerWrapped),
+          isEmpty: false
+        });
+        coveredUpTo = leadEndLine;
+      }
+
+      // Recurse into each nested list. Build a wrap-fn that wraps the child HTML
+      // in this item's <listTag><li class="crit-list-wrapper">...</li></listTag>,
+      // then through the parent wrap.
+      for (let n = 0; n < nestedRanges.length; n++) {
+        const nested = nestedRanges[n];
+        const childWrap = function(innerHtml) {
+          // Outer wrappers: marker-suppressed <li> so we don't get phantom bullets.
+          return wrap(
+            '<' + listTag + ' class="crit-list-wrapper">' +
+            '<li class="crit-list-wrapper">' + innerHtml + '</li>' +
+            '</' + listTag + '>'
+          );
+        };
+        coveredUpTo = splitListInto(tokens, nested.openIdx, nested.closeIdx, md, blocks, sourceLines, coveredUpTo, childWrap);
+      }
+
+      // Trailing content after last nested list (rare): handle it as another lead-style block.
+      if (nestedRanges.length > 0) {
+        const lastNested = nestedRanges[nestedRanges.length - 1];
+        const trailStartTokenIdx = lastNested.closeIdx + 1;
+        if (trailStartTokenIdx < itemCloseIdx) {
+          // Find first mapped token for trailing source-line range.
+          const trailStartLine = coveredUpTo;
+          let trailEndLine = itemMap[1];
+          while (trailEndLine > trailStartLine && sourceLines[trailEndLine - 1].trim() === '') {
+            trailEndLine--;
+          }
+          if (trailEndLine > trailStartLine) {
+            const trailInnerTokens = tokens.slice(trailStartTokenIdx, itemCloseIdx);
+            const trailInnerHtml = md.renderer.render(trailInnerTokens, md.options, {});
+            const trailWrapped = '<' + listTag + '>' +
+              '<li>' + trailInnerHtml + '</li>' +
+              '</' + listTag + '>';
+            blocks.push({
+              startLine: trailStartLine + 1,
+              endLine: trailEndLine,
+              html: wrap(trailWrapped),
+              isEmpty: false
+            });
+            coveredUpTo = trailEndLine;
+          }
+        }
+      }
+
+      j = itemCloseIdx + 1;
+    }
+
+    return coveredUpTo;
+  }
+
+  // Find direct-child nested lists within an item (not lists nested inside paragraphs etc.).
+  // Returns array of {openIdx, closeIdx} for each direct nested list_open token.
+  function findDirectNestedLists(tokens, itemOpenIdx, itemCloseIdx) {
+    const result = [];
+    let depth = 0;
+    for (let k = itemOpenIdx + 1; k < itemCloseIdx; k++) {
+      const t = tokens[k];
+      if (t.nesting === 1) {
+        if (depth === 0 && (t.type === 'bullet_list_open' || t.type === 'ordered_list_open')) {
+          const closeIdx = findCloseToken(tokens, k);
+          result.push({ openIdx: k, closeIdx: closeIdx });
+          k = closeIdx; // skip past
+          continue;
+        }
+        depth++;
+      } else if (t.nesting === -1) {
+        if (depth > 0) depth--;
+      }
+    }
+    return result;
+  }
+
+  function escapeAttr(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   }
 
   // Handle a table token — split into per-row blocks.
