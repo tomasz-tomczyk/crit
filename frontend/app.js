@@ -37,11 +37,11 @@
   };
 
   // Override code_inline so backtick-wrapped comment IDs render as the same chip.
-  var defaultCodeInline = commentMd.renderer.rules.code_inline || function(tokens, idx, options, env, self) {
+  const defaultCodeInline = commentMd.renderer.rules.code_inline || function(tokens, idx, options, _env, self) {
     return self.renderToken(tokens, idx, options);
   };
   commentMd.renderer.rules.code_inline = function(tokens, idx, options, env, self) {
-    var content = tokens[idx].content;
+    const content = tokens[idx].content;
     if (/^(c|r|rp)_[a-f0-9]{6,}$/.test(content)) {
       return '<span class="comment-ref comment-ref-code" data-ref-id="' + escapeHtml(content) + '">' + escapeHtml(content) + '</span>';
     }
@@ -49,23 +49,23 @@
   };
 
   function linkifyCommentRefsInDom(el) {
-    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
-    var textNodes = [];
-    var node;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+    const textNodes = [];
+    let node;
     while ((node = walker.nextNode())) {
       // skip text inside code/pre elements and already-linked chips
       if (node.parentNode.closest('code, pre, .comment-ref')) continue;
       textNodes.push(node);
     }
-    var re = /((?:c|r|rp)_[a-f0-9]{6,})/g;
+    const re = /((?:c|r|rp)_[a-f0-9]{6,})/g;
     textNodes.forEach(function(tn) {
       if (!re.test(tn.nodeValue)) { re.lastIndex = 0; return; }
       re.lastIndex = 0;
-      var frag = document.createDocumentFragment();
-      var last = 0, m;
+      const frag = document.createDocumentFragment();
+      let last = 0, m;
       while ((m = re.exec(tn.nodeValue)) !== null) {
         if (m.index > last) frag.appendChild(document.createTextNode(tn.nodeValue.slice(last, m.index)));
-        var span = document.createElement('span');
+        const span = document.createElement('span');
         span.className = 'comment-ref';
         span.dataset.refId = m[1];
         span.textContent = m[1];
@@ -80,10 +80,10 @@
   // Scroll/expand/flash a comment card located anywhere in the document, given just its id.
   // Distinct from scrollToComment(commentId, filePath) below — that one needs filePath context.
   function scrollToCommentRef(id) {
-    var card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
+    const card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
     if (!card) return;
     // Make sure any containing <details> file section is open
-    var section = card.closest('details');
+    const section = card.closest('details');
     if (section && !section.open) section.open = true;
     if (card.classList.contains('collapsed')) {
       card.classList.remove('collapsed');
@@ -97,7 +97,7 @@
   }
 
   document.addEventListener('click', function(e) {
-    var ref = e.target.closest && e.target.closest('.comment-ref');
+    const ref = e.target.closest && e.target.closest('.comment-ref');
     if (!ref) return;
     e.preventDefault();
     scrollToCommentRef(ref.dataset.refId);
