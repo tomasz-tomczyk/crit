@@ -1650,6 +1650,32 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   white-space: nowrap;
 }
 
+/* ===== Comment Reference Chip ===== */
+.comment-ref {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-family: var(--crit-font-mono);
+  font-size: 0.85em;
+  background: var(--crit-comment-ref-bg);
+  color: var(--crit-comment-ref-color);
+  border: 1px solid var(--crit-comment-ref-border);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background var(--crit-dur-fast) var(--crit-ease);
+  white-space: nowrap;
+}
+.comment-ref:hover {
+  background: var(--crit-comment-ref-hover-bg);
+}
+.comment-ref-flash {
+  animation: comment-ref-flash 1.2s ease-out;
+}
+@keyframes comment-ref-flash {
+  0%   { box-shadow: 0 0 0 3px var(--crit-comment-ref-color); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+
 /* ===== Save Template Dialog ===== */
 .save-template-overlay {
   display: none;

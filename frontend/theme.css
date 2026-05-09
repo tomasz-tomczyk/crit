@@ -151,6 +151,12 @@
   --crit-quote-highlight-border: rgba(250, 200, 60, 0.4);
   --crit-qr-bg: #fff;
 
+  /* ---- Comment reference chip ---- */
+  --crit-comment-ref-bg:        rgba(125, 207, 255, 0.12);
+  --crit-comment-ref-color:     #7dcfff;
+  --crit-comment-ref-border:    rgba(125, 207, 255, 0.30);
+  --crit-comment-ref-hover-bg:  rgba(125, 207, 255, 0.22);
+
   --author-0-bg: rgba(110,160,230,0.15);
   --author-0-border: rgba(110,160,230,0.35);
   --author-0-fg: #7ab0f0;
@@ -284,6 +290,12 @@
     --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.18);
     --crit-quote-highlight-border: rgba(200, 160, 30, 0.45);
     --crit-qr-bg: #fff;
+
+    /* ---- Comment reference chip ---- */
+    --crit-comment-ref-bg:        rgba(64, 111, 204, 0.10);
+    --crit-comment-ref-color:     #406fcc;
+    --crit-comment-ref-border:    rgba(64, 111, 204, 0.30);
+    --crit-comment-ref-hover-bg:  rgba(64, 111, 204, 0.18);
 
     --author-0-bg: rgba(26,95,160,0.10);
     --author-0-border: rgba(26,95,160,0.25);
@@ -419,6 +431,12 @@
   --crit-quote-highlight-border: rgba(250, 200, 60, 0.4);
   --crit-qr-bg: #fff;
 
+  /* ---- Comment reference chip ---- */
+  --crit-comment-ref-bg:        rgba(125, 207, 255, 0.12);
+  --crit-comment-ref-color:     #7dcfff;
+  --crit-comment-ref-border:    rgba(125, 207, 255, 0.30);
+  --crit-comment-ref-hover-bg:  rgba(125, 207, 255, 0.22);
+
   --author-0-bg: rgba(110,160,230,0.15);
   --author-0-border: rgba(110,160,230,0.35);
   --author-0-fg: #7ab0f0;
@@ -551,6 +569,12 @@
   --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.18);
   --crit-quote-highlight-border: rgba(200, 160, 30, 0.45);
   --crit-qr-bg: #fff;
+
+  /* ---- Comment reference chip ---- */
+  --crit-comment-ref-bg:        rgba(64, 111, 204, 0.10);
+  --crit-comment-ref-color:     #406fcc;
+  --crit-comment-ref-border:    rgba(64, 111, 204, 0.30);
+  --crit-comment-ref-hover-bg:  rgba(64, 111, 204, 0.18);
 
   --author-0-bg: rgba(26,95,160,0.10);
   --author-0-border: rgba(26,95,160,0.25);

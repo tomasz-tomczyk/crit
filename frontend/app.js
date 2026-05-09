@@ -36,6 +36,64 @@
     return '<span class="file-ref">' + escapeHtml(path) + '</span>';
   };
 
+  // ===== Comment Reference Inline Rule =====
+  // Linkify bare comment IDs (c_, r_, rp_ + 6+ hex chars) in comment bodies.
+  commentMd.inline.ruler.push('comment_ref', function(state, silent) {
+    var start = state.pos;
+    var src = state.src;
+    var m = /^(c|r|rp)_[a-f0-9]{6,}/.exec(src.slice(start));
+    if (!m) return false;
+    if (start > 0 && /[a-zA-Z0-9_]/.test(src[start - 1])) return false;
+    var end = start + m[0].length;
+    if (end < src.length && /[a-zA-Z0-9_]/.test(src[end])) return false;
+    if (!silent) {
+      var token = state.push('comment_ref', '', 0);
+      token.content = m[0];
+    }
+    state.pos = end;
+    return true;
+  });
+  commentMd.renderer.rules.comment_ref = function(tokens, idx) {
+    var id = tokens[idx].content;
+    return '<span class="comment-ref" data-ref-id="' + escapeHtml(id) + '">' + escapeHtml(id) + '</span>';
+  };
+
+  // Override code_inline so backtick-wrapped comment IDs render as the same chip.
+  var defaultCodeInline = commentMd.renderer.rules.code_inline || function(tokens, idx, options, env, self) {
+    return self.renderToken(tokens, idx, options);
+  };
+  commentMd.renderer.rules.code_inline = function(tokens, idx, options, env, self) {
+    var content = tokens[idx].content;
+    if (/^(c|r|rp)_[a-f0-9]{6,}$/.test(content)) {
+      return '<span class="comment-ref comment-ref-code" data-ref-id="' + escapeHtml(content) + '">' + escapeHtml(content) + '</span>';
+    }
+    return defaultCodeInline(tokens, idx, options, env, self);
+  };
+
+  // Scroll/expand/flash a comment card located anywhere in the document, given just its id.
+  // Distinct from scrollToComment(commentId, filePath) below — that one needs filePath context.
+  function scrollToCommentRef(id) {
+    var card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
+    if (!card) return;
+    // Make sure any containing <details> file section is open
+    var section = card.closest('details');
+    if (section && !section.open) section.open = true;
+    if (card.classList.contains('collapsed')) {
+      card.classList.remove('collapsed');
+      if (typeof commentCollapseOverrides !== 'undefined') commentCollapseOverrides[id] = false;
+    }
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('comment-ref-flash');
+    setTimeout(function() { card.classList.remove('comment-ref-flash'); }, 1200);
+  }
+
+  document.addEventListener('click', function(e) {
+    var ref = e.target.closest && e.target.closest('.comment-ref');
+    if (!ref) return;
+    e.preventDefault();
+    scrollToCommentRef(ref.dataset.refId);
+  });
+
   // ===== Suggestion Diff Renderer =====
   function renderSuggestionDiff(suggestionContent, originalLines) {
     const sugLines = suggestionContent.replace(/\n$/, '').split('\n');
