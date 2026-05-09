@@ -501,9 +501,7 @@ test.describe('Keyboard Visual Line Mode — Markdown', () => {
 
     // Multiple blocks should now have .selected.
     const selected = section.locator('.line-block.selected');
-    await expect(async () => {
-      expect(await selected.count()).toBeGreaterThan(1);
-    }).toPass();
+    await expect.poll(() => selected.count()).toBeGreaterThan(1);
 
     // Capture the furthest expansion line before opening the form
     const lastFocused = page.locator('.line-block.kb-nav.focused');
@@ -538,7 +536,7 @@ test.describe('Keyboard Visual Line Mode — Markdown', () => {
     await page.keyboard.press('j');
 
     // Selection is active across multiple blocks
-    expect(await section.locator('.line-block.selected').count()).toBeGreaterThan(1);
+    await expect.poll(() => section.locator('.line-block.selected').count()).toBeGreaterThan(1);
 
     // Capture the line currently focused (the furthest expansion)
     const beforeFocus = await page.locator('.line-block.kb-nav.focused').getAttribute('data-start-line');

@@ -3885,6 +3885,9 @@
       activeFilePath = fp;
       selectionStart = startLine;
       selectionEnd = endLine;
+      // Clear any stale unified-diff drag state so it can't bleed into render paths.
+      unifiedVisualStart = null;
+      unifiedVisualEnd = null;
       refreshVisualSelectionVisuals(fp);
       return true;
     }
@@ -3935,8 +3938,13 @@
     } else {
       if (!focusedElement.dataset.diffLineNum) return;
       // Don't extend across sides (old vs new) — selection must stay contiguous.
+      // Crossing sides exits visual mode (mirrors the cross-file branch above)
+      // so the focused-block / selection coupling stays visible to the user.
       const side = focusedElement.dataset.diffSide || '';
-      if (side !== visualMode.anchorSide) return;
+      if (side !== visualMode.anchorSide) {
+        exitVisualMode(true);
+        return;
+      }
       const ln = parseInt(focusedElement.dataset.diffLineNum);
       selectionStart = Math.min(visualMode.anchorStartLine, ln);
       selectionEnd = Math.max(visualMode.anchorEndLine, ln);
@@ -8721,14 +8729,16 @@
           if (visualMode.kind === 'markdown') {
             const file = getFileByPath(fp);
             if (file && file.lineBlocks) {
-              let lastBlockIndex = 0;
+              let lastBlockIndex = -1;
               for (let i = 0; i < file.lineBlocks.length; i++) {
                 if (file.lineBlocks[i].startLine >= selectionStart && file.lineBlocks[i].endLine <= selectionEnd) {
                   lastBlockIndex = i;
                 }
               }
-              visualMode = null;
-              openForm({ filePath: fp, afterBlockIndex: lastBlockIndex, startLine: selectionStart, endLine: selectionEnd, editingId: null });
+              if (lastBlockIndex >= 0) {
+                visualMode = null;
+                openForm({ filePath: fp, afterBlockIndex: lastBlockIndex, startLine: selectionStart, endLine: selectionEnd, editingId: null });
+              }
             }
           } else {
             const side = visualMode.anchorSide;
