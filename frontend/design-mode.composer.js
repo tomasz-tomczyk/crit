@@ -30,16 +30,12 @@
 
   function renderComposerHTML(a) {
     var label = chipLabel(a);
-    var thumb = a.screenshot
-      ? '<img class="crit-design-composer-thumb" src="' + escapeHTML(a.screenshot) + '" alt="">'
-      : '';
     return [
       '<div class="crit-design-composer" role="dialog" aria-label="New design pin">',
         '<div class="crit-design-composer-header">Pin on ' + escapeHTML(a.pathname || '/') + '</div>',
         '<div class="crit-design-composer-meta">',
           '<span class="crit-design-composer-chip">' + escapeHTML(label) + '</span>',
         '</div>',
-        thumb,
         '<textarea class="crit-design-composer-body" placeholder="Leave a design comment… (Ctrl+Enter to submit, Escape to cancel)" rows="4"></textarea>',
         '<div class="crit-design-composer-error" hidden></div>',
         '<div class="crit-design-composer-actions">',

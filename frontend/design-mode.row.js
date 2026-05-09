@@ -2,11 +2,10 @@
 //
 // Rows mount the shared buildCommentCard from frontend/crit-comment-card.js
 // so design pins reach parity with code-review's comment-card affordances
-// (Edit/Resolve/Reply/Collapse, body markdown render, drift context,
-// live-thread badge). Design-specific meta — route badge, chip label, and
-// screenshot thumbnail — is composed into the shared card before the body
-// so existing CSS rules (`.crit-design-comment-row`,
-// `.crit-design-comment-header`, `.crit-design-comment-thumb`) keep
+// (Edit/Resolve/Reply/Collapse, body markdown render, live-thread badge).
+// Design-specific meta — route badge, chip label — is composed into the
+// shared card before the body so existing CSS rules
+// (`.crit-design-comment-row`, `.crit-design-comment-header`) keep
 // targeting the same nodes.
 //
 // Public API:
@@ -306,17 +305,6 @@
       chip.textContent = chipLabel(anchor);
       chip.title = chipLabel(anchor);
       headerLeft.appendChild(chip);
-    }
-
-    // Screenshot thumbnail goes inside the body padding, above the prose.
-    if (anchor.screenshot) {
-      var bodyEl0 = parts.card.querySelector('.comment-body');
-      var thumb = document.createElement('img');
-      thumb.className = 'crit-design-comment-thumb';
-      thumb.src = anchor.screenshot;
-      thumb.alt = '';
-      if (bodyEl0) bodyEl0.insertBefore(thumb, bodyEl0.firstChild);
-      else parts.card.appendChild(thumb);
     }
 
     // Action buttons — match code-review's icon affordance + ordering

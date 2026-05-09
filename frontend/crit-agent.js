@@ -334,7 +334,6 @@
     if (value === 'pin') {
       attachHoverListeners();
       attachClickCapture();
-      warmHtml2Canvas();
     } else {
       detachHoverListeners();
       detachClickCapture();
@@ -442,7 +441,6 @@
       role: utils.roleFor(el),
       landmark: utils.landmarkFor(el),
       outer_html: utils.truncateOuterHTML(el.outerHTML || '', 2048),
-      screenshot: '',
       viewport_width: window.innerWidth,
       viewport_height: window.innerHeight,
     };
@@ -489,7 +487,7 @@
     var anchor = buildDOMAnchorFor(target);
     showOverlayFor(target);
     state.pendingSelection = { target: target, anchor: anchor, pointer: { x: ev.clientX, y: ev.clientY } };
-    emitSelection().catch(function () {});
+    emitSelection();
   }
 
   function suppressInPinMode(ev) {
@@ -528,12 +526,10 @@
     document.removeEventListener('keydown', suppressKeyboardActivation, true);
   }
 
-  // ---------- Selection emit (with screenshot) ----------
-  async function emitSelection() {
+  // ---------- Selection emit ----------
+  function emitSelection() {
     if (!state.pendingSelection) return;
     var sel = state.pendingSelection;
-    var shot = await captureScreenshot(sel.target);
-    sel.anchor.screenshot = shot;
     var msg = {
       type: A2C.SELECTION,
       dom_anchor: sel.anchor,
@@ -552,151 +548,6 @@
       }
     }
     postToParent(msg);
-  }
-
-  // ---------- html2canvas lazy loader ----------
-  var h2cPromise = null;
-  function loadHtml2Canvas() {
-    if (h2cPromise) return h2cPromise;
-    h2cPromise = new Promise(function (resolve, reject) {
-      if (window.html2canvas) { resolve(window.html2canvas); return; }
-      var s = document.createElement('script');
-      s.src = expectedApiOrigin + '/crit-vendor/html2canvas.js';
-      s.async = true;
-      s.crossOrigin = 'anonymous';
-      s.onload = function () {
-        if (window.html2canvas) resolve(window.html2canvas);
-        else reject(new Error('html2canvas missing after load'));
-      };
-      s.onerror = function () { reject(new Error('html2canvas load failed')); };
-      document.head.appendChild(s);
-    });
-    return h2cPromise;
-  }
-  function warmHtml2Canvas() {
-    loadHtml2Canvas().catch(function () { /* swallow */ });
-  }
-
-  // Test-only flag: when the iframe URL has ?crit-design-fail-h2c=1, force
-  // captureScreenshot() to take the failure path. Lets E2E exercise the
-  // empty-string + agent-error contract deterministically without needing to
-  // provoke a real cross-origin/tainted-canvas failure. Remove from prod parse
-  // if/when v2 ships.
-  function shouldForceH2cFailure() {
-    try {
-      var p = new URLSearchParams(window.location.search);
-      return p.get('crit-design-fail-h2c') === '1';
-    } catch (_) {
-      return false;
-    }
-  }
-
-  // Hard ceiling on the rasterised area html2canvas is asked to render.
-  // Real-world long-form pages (docs, dashboards) can exceed 30,000 px
-  // tall, and html2canvas walks the whole DOM at native resolution by
-  // default. That can stall the iframe for tens of seconds and OOM the
-  // canvas toDataURL on memory-constrained devices. Skipping capture
-  // above this threshold falls back cleanly to the empty-thumbnail path
-  // (pins still work without a screenshot — only the thumbnail is
-  // missing). 20,000 px ≈ 20 viewport heights at 1080p; well above any
-  // pin context a reviewer would actually need, well below the OOM cliff.
-  var H2C_MAX_DOC_HEIGHT = 20000;
-  var H2C_MAX_DOC_WIDTH = 20000;
-
-  // resolvePageBackground — walks target -> ancestors -> body -> html and
-  // returns the first non-transparent computed background-color. Returns
-  // null when nothing in the chain has a real background, in which case
-  // html2canvas is given an explicit transparent backdrop rather than its
-  // default white. Logic mirrored in agent-screenshot-options.js for unit
-  // tests; keep both in sync.
-  function bgIsTransparent(color) {
-    if (!color) return true;
-    var c = String(color).replace(/\s+/g, '').toLowerCase();
-    if (c === 'transparent') return true;
-    var m = c.match(/^rgba?\(([^)]+)\)$/);
-    if (m) {
-      var parts = m[1].split(',');
-      if (parts.length === 4 && parseFloat(parts[3]) === 0) return true;
-    }
-    return false;
-  }
-  function resolvePageBackground(target) {
-    if (typeof window === 'undefined' || !window.getComputedStyle) return null;
-    var chain = [];
-    var el = target;
-    while (el && el.nodeType === 1) {
-      chain.push(el);
-      el = el.parentElement;
-    }
-    if (document.body && chain.indexOf(document.body) === -1) chain.push(document.body);
-    if (document.documentElement && chain.indexOf(document.documentElement) === -1) {
-      chain.push(document.documentElement);
-    }
-    for (var i = 0; i < chain.length; i++) {
-      try {
-        var cs = window.getComputedStyle(chain[i]);
-        if (!cs) continue;
-        if (!bgIsTransparent(cs.backgroundColor)) return cs.backgroundColor;
-      } catch (_) { /* getComputedStyle can throw on detached nodes */ }
-    }
-    return null;
-  }
-
-  async function captureScreenshot(target) {
-    try {
-      if (shouldForceH2cFailure()) {
-        throw new Error('forced via crit-design-fail-h2c');
-      }
-      // Cap the input size before invoking html2canvas. Use the document
-      // bounds rather than the target's rect — html2canvas captures the
-      // whole layout root regardless of the element passed in.
-      var docEl = document.documentElement;
-      var docH = docEl ? docEl.scrollHeight : 0;
-      var docW = docEl ? docEl.scrollWidth : 0;
-      if (docH > H2C_MAX_DOC_HEIGHT || docW > H2C_MAX_DOC_WIDTH) {
-        throw new Error('document too large for screenshot capture (' + docW + 'x' + docH + ', cap ' + H2C_MAX_DOC_WIDTH + 'x' + H2C_MAX_DOC_HEIGHT + ')');
-      }
-      if (document.fonts && document.fonts.ready) {
-        await document.fonts.ready;
-      }
-      var h2c = await loadHtml2Canvas();
-      // Crop the rasterised output to the target element's bounding rect.
-      // html2canvas, when given an element, walks the entire layout root
-      // and produces a canvas sized to the document by default; passing
-      // x/y/width/height (document-coords) restricts the output to just
-      // the element. Without these, large pages produce huge thumbnails
-      // even though only the clicked component is of interest.
-      //
-      // backgroundColor: html2canvas defaults to white, which on dark
-      // themes flooded the screenshot to pure white. Resolve the page's
-      // computed background-color (target -> ancestors -> body -> html)
-      // and pass it explicitly so the rasterised pin reflects what the
-      // reviewer actually saw. Logic mirrored in
-      // agent-screenshot-options.js (kept in sync for unit tests).
-      var rect = (target && typeof target.getBoundingClientRect === 'function')
-        ? target.getBoundingClientRect() : null;
-      // foreignObjectRendering + useCORS: see agent-screenshot-options.js for
-      // the full rationale. Without foreignObjectRendering, html2canvas's
-      // own DOM painter drops inline <svg> and webfont text — a pinned
-      // button comes back as a flat coloured rectangle (Bug A).
-      var opts = { scale: 1, logging: false, foreignObjectRendering: true, useCORS: true };
-      if (rect && rect.width > 0 && rect.height > 0) {
-        opts.x = Math.max(0, Math.floor(rect.left + (window.scrollX || 0)));
-        opts.y = Math.max(0, Math.floor(rect.top + (window.scrollY || 0)));
-        opts.width = Math.ceil(rect.width);
-        opts.height = Math.ceil(rect.height);
-      }
-      // toDataURL('image/jpeg') flattens any transparent pixels to BLACK
-      // (JPEG has no alpha). If resolvePageBackground returns null, fall
-      // back to opaque white so the screenshot never comes back solid black.
-      var resolvedBg = resolvePageBackground(target);
-      opts.backgroundColor = resolvedBg !== null ? resolvedBg : '#ffffff';
-      var canvas = await h2c(target, opts);
-      return canvas.toDataURL('image/jpeg', 0.7);
-    } catch (err) {
-      postToParent({ type: A2C.AGENT_ERROR, kind: 'capture-failed', message: String(err && err.message || err) });
-      return '';
-    }
   }
 
   // ---------- Right-click ancestor menu ----------
@@ -752,7 +603,7 @@
     state.pendingSelection = { target: target, anchor: anchor, pointer: state.pointer };
     state.pendingAncestor = null;
     showOverlayFor(target);
-    emitSelection().catch(function () {});
+    emitSelection();
   }
 
   function cancelAncestor() {

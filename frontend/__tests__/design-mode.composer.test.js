@@ -6,7 +6,7 @@ const { renderComposerHTML, chipLabel } = require('../design-mode.composer.js');
 test('renderComposerHTML escapes user-controlled fields', () => {
   const html = renderComposerHTML({
     pathname: '/x', css_selector: '<script>',
-    tag_chain: [], outer_html: '<b>hi</b>', screenshot: '',
+    tag_chain: [], outer_html: '<b>hi</b>',
     viewport_width: 1, viewport_height: 1,
     accessible_name: '"<x>', role: '', landmark: '',
   });
@@ -16,22 +16,10 @@ test('renderComposerHTML escapes user-controlled fields', () => {
   assert.ok(!html.includes('css_selector'));
 });
 
-test('renderComposerHTML shows screenshot thumbnail when present', () => {
-  const html = renderComposerHTML({
-    pathname: '/x', css_selector: 'body', tag_chain: ['BODY'],
-    outer_html: '<body></body>',
-    screenshot: 'data:image/jpeg;base64,abc',
-    viewport_width: 1, viewport_height: 1,
-    accessible_name: 'Hi', role: '', landmark: '',
-  });
-  assert.ok(html.includes('data:image/jpeg;base64,abc'));
-});
-
-test('renderComposerHTML omits outerHTML preview when no screenshot', () => {
+test('renderComposerHTML omits outerHTML preview', () => {
   const html = renderComposerHTML({
     pathname: '/x', css_selector: 'body', tag_chain: ['BODY'],
     outer_html: '<body>hello world</body>',
-    screenshot: '',
     viewport_width: 1, viewport_height: 1,
     accessible_name: 'Greeting', role: '', landmark: '',
   });
@@ -43,7 +31,7 @@ test('renderComposerHTML omits outerHTML preview when no screenshot', () => {
 test('renderComposerHTML uses Cancel/Save with crit btn classes', () => {
   const html = renderComposerHTML({
     pathname: '/', css_selector: 'body', tag_chain: ['BODY'],
-    outer_html: '', screenshot: '',
+    outer_html: '',
     viewport_width: 1, viewport_height: 1,
     accessible_name: '', role: '', landmark: '',
   });

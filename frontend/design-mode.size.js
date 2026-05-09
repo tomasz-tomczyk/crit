@@ -11,7 +11,7 @@
   var MAX_BYTES = 5 * 1024 * 1024;
   function selectionTooLarge(a) {
     var n = 0;
-    var keys = ['css_selector', 'outer_html', 'screenshot', 'accessible_name', 'role', 'landmark'];
+    var keys = ['css_selector', 'outer_html', 'accessible_name', 'role', 'landmark'];
     for (var i = 0; i < keys.length; i++) {
       if (a[keys[i]]) n += a[keys[i]].length;
     }

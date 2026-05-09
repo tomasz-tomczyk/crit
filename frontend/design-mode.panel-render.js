@@ -126,7 +126,7 @@
     function commentSignature(c, isPin, reviewRound) {
       var anchor = c.dom_anchor || null;
       var anchorKey = anchor
-        ? (anchor.pathname || '') + '|' + (anchor.screenshot || '') + '|' +
+        ? (anchor.pathname || '') + '|' +
           (anchor.accessible_name || '') + '|' +
           ((anchor.tag_chain && anchor.tag_chain.join('>')) || '') + '|' +
           (anchor.outer_html || '')
