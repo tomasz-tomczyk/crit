@@ -36,28 +36,6 @@
     return '<span class="file-ref">' + escapeHtml(path) + '</span>';
   };
 
-  // ===== Comment Reference Inline Rule =====
-  // Linkify bare comment IDs (c_, r_, rp_ + 6+ hex chars) in comment bodies.
-  commentMd.inline.ruler.push('comment_ref', function(state, silent) {
-    var start = state.pos;
-    var src = state.src;
-    var m = /^(c|r|rp)_[a-f0-9]{6,}/.exec(src.slice(start));
-    if (!m) return false;
-    if (start > 0 && /[a-zA-Z0-9_]/.test(src[start - 1])) return false;
-    var end = start + m[0].length;
-    if (end < src.length && /[a-zA-Z0-9_]/.test(src[end])) return false;
-    if (!silent) {
-      var token = state.push('comment_ref', '', 0);
-      token.content = m[0];
-    }
-    state.pos = end;
-    return true;
-  });
-  commentMd.renderer.rules.comment_ref = function(tokens, idx) {
-    var id = tokens[idx].content;
-    return '<span class="comment-ref" data-ref-id="' + escapeHtml(id) + '">' + escapeHtml(id) + '</span>';
-  };
-
   // Override code_inline so backtick-wrapped comment IDs render as the same chip.
   var defaultCodeInline = commentMd.renderer.rules.code_inline || function(tokens, idx, options, env, self) {
     return self.renderToken(tokens, idx, options);
@@ -69,6 +47,35 @@
     }
     return defaultCodeInline(tokens, idx, options, env, self);
   };
+
+  function linkifyCommentRefsInDom(el) {
+    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+    var textNodes = [];
+    var node;
+    while ((node = walker.nextNode())) {
+      // skip text inside code/pre elements and already-linked chips
+      if (node.parentNode.closest('code, pre, .comment-ref')) continue;
+      textNodes.push(node);
+    }
+    var re = /((?:c|r|rp)_[a-f0-9]{6,})/g;
+    textNodes.forEach(function(tn) {
+      if (!re.test(tn.nodeValue)) { re.lastIndex = 0; return; }
+      re.lastIndex = 0;
+      var frag = document.createDocumentFragment();
+      var last = 0, m;
+      while ((m = re.exec(tn.nodeValue)) !== null) {
+        if (m.index > last) frag.appendChild(document.createTextNode(tn.nodeValue.slice(last, m.index)));
+        var span = document.createElement('span');
+        span.className = 'comment-ref';
+        span.dataset.refId = m[1];
+        span.textContent = m[1];
+        frag.appendChild(span);
+        last = m.index + m[0].length;
+      }
+      if (last < tn.nodeValue.length) frag.appendChild(document.createTextNode(tn.nodeValue.slice(last)));
+      tn.parentNode.replaceChild(frag, tn);
+    });
+  }
 
   // Scroll/expand/flash a comment card located anywhere in the document, given just its id.
   // Distinct from scrollToComment(commentId, filePath) below — that one needs filePath context.
@@ -5415,6 +5422,7 @@
     const bodyEl = document.createElement('div');
     bodyEl.className = 'comment-body';
     bodyEl.innerHTML = commentMd.render(comment.body, filePath ? buildCommentEnv(comment, filePath) : undefined);
+    linkifyCommentRefsInDom(bodyEl);
 
     card.appendChild(header);
 
@@ -5611,6 +5619,7 @@
       replyBody.className = 'reply-body';
       replyBody.dataset.rawBody = reply.body;
       replyBody.innerHTML = commentMd.render(reply.body);
+      linkifyCommentRefsInDom(replyBody);
       replyEl.appendChild(replyBody);
 
       repliesContainer.appendChild(replyEl);
@@ -6956,6 +6965,7 @@
       const descBody = document.createElement('div');
       descBody.className = 'pr-panel-description-body';
       descBody.innerHTML = commentMd.render(pr.pr_body);
+      linkifyCommentRefsInDom(descBody);
       descSection.appendChild(descBody);
 
       body.appendChild(descSection);
