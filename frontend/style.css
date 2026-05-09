@@ -1652,28 +1652,38 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 
 /* ===== Comment Reference Chip ===== */
 .comment-ref {
-  display: inline-block;
-  padding: 0 4px;
-  border-radius: 3px;
   font-family: var(--crit-font-mono);
-  font-size: 0.85em;
-  background: var(--crit-comment-ref-bg);
+  font-size: 0.92em;
   color: var(--crit-comment-ref-color);
-  border: 1px solid var(--crit-comment-ref-border);
-  cursor: pointer;
   text-decoration: none;
-  transition: background var(--crit-dur-fast) var(--crit-ease);
-  white-space: nowrap;
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0 1px;
+  margin: 0 -1px;
+  transition:
+    color var(--crit-dur-fast) var(--crit-ease),
+    background-color 1.6s var(--crit-ease),
+    box-shadow 1.6s var(--crit-ease);
 }
 .comment-ref:hover {
-  background: var(--crit-comment-ref-hover-bg);
+  color: var(--crit-comment-ref-color-hover);
+  text-decoration: underline;
+  text-decoration-color: var(--crit-comment-ref-underline);
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+.comment-ref:focus-visible {
+  outline: 2px solid var(--crit-comment-ref-color);
+  outline-offset: 2px;
+  text-decoration: none;
 }
 .comment-ref-flash {
-  animation: comment-ref-flash 1.2s ease-out;
+  animation: comment-ref-flash 1.6s var(--crit-ease);
 }
 @keyframes comment-ref-flash {
-  0%   { box-shadow: 0 0 0 3px var(--crit-comment-ref-color); }
-  100% { box-shadow: 0 0 0 3px transparent; }
+  0%   { background-color: var(--crit-comment-ref-flash-bg); box-shadow: 0 0 0 2px var(--crit-comment-ref-flash-ring); }
+  15%  { background-color: var(--crit-comment-ref-flash-bg); box-shadow: 0 0 0 2px var(--crit-comment-ref-flash-ring); }
+  100% { background-color: transparent; box-shadow: 0 0 0 2px transparent; }
 }
 
 /* ===== Save Template Dialog ===== */
