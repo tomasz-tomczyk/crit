@@ -136,8 +136,8 @@ func TestProxyModifyResponse_InjectsAgentBeforeBodyTag(t *testing.T) {
 	if !strings.Contains(bs, "http://localhost:54321/crit-agent.js") {
 		t.Errorf("agent tag not injected: %s", bs)
 	}
-	if !strings.Contains(bs, "http://localhost:54321/crit-vendor/html2canvas.js") {
-		t.Errorf("html2canvas tag not injected: %s", bs)
+	if strings.Contains(bs, "html2canvas") {
+		t.Errorf("html2canvas should not be injected: %s", bs)
 	}
 	if !strings.Contains(bs, "http://localhost:54321/agent-protocol.js") {
 		t.Errorf("protocol tag not injected: %s", bs)
@@ -147,14 +147,13 @@ func TestProxyModifyResponse_InjectsAgentBeforeBodyTag(t *testing.T) {
 	}
 	pi := strings.Index(bs, "/agent-protocol.js")
 	ui := strings.Index(bs, "/agent-anchor-utils.js")
-	hci := strings.Index(bs, "html2canvas.js")
 	ai := strings.Index(bs, "/crit-agent.js")
 	bi := strings.Index(bs, "</body>")
-	if pi < 0 || ui < 0 || hci < 0 || ai < 0 || bi < 0 {
-		t.Fatalf("missing tags or </body>: protocol=%d utils=%d html2canvas=%d agent=%d body=%d", pi, ui, hci, ai, bi)
+	if pi < 0 || ui < 0 || ai < 0 || bi < 0 {
+		t.Fatalf("missing tags or </body>: protocol=%d utils=%d agent=%d body=%d", pi, ui, ai, bi)
 	}
-	if !(pi < ui && ui < hci && hci < ai) {
-		t.Errorf("expected protocol < utils < html2canvas < agent, got pi=%d ui=%d hci=%d ai=%d", pi, ui, hci, ai)
+	if !(pi < ui && ui < ai) {
+		t.Errorf("expected protocol < utils < agent, got pi=%d ui=%d ai=%d", pi, ui, ai)
 	}
 	if ai > bi {
 		t.Errorf("agent tag not before </body>")

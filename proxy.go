@@ -199,9 +199,8 @@ func applyHTMLInjections(body []byte, apiPort int) ([]byte, bool) {
 			`<script src="http://localhost:%d/agent-mutation-batcher.js"></script>`+
 			`<script src="http://localhost:%d/agent-resolution.js"></script>`+
 			`<script src="http://localhost:%d/agent-reanchor-state.js"></script>`+
-			`<script src="http://localhost:%d/crit-vendor/html2canvas.js"></script>`+
 			`<script src="http://localhost:%d/crit-agent.js"></script>`,
-		apiPort, apiPort, apiPort, apiPort, apiPort, apiPort, apiPort, apiPort,
+		apiPort, apiPort, apiPort, apiPort, apiPort, apiPort, apiPort,
 	)
 
 	// Agent bundle insertion point: LAST </body>. Last match avoids matching

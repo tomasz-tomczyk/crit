@@ -3700,7 +3700,7 @@ func TestDesignRoutes_NotGatedByWithReady(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
-		"/design", "/crit-agent.js", "/crit-vendor/html2canvas.js",
+		"/design", "/crit-agent.js",
 		"/agent-protocol.js", "/agent-anchor-utils.js",
 		"/agent-marker-overlay.js", "/agent-mutation-batcher.js",
 		"/agent-resolution.js", "/agent-reanchor-state.js",
@@ -3773,7 +3773,7 @@ func TestDesignAssets_CORSHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/crit-agent.js", "/crit-vendor/html2canvas.js"} {
+	for _, path := range []string{"/crit-agent.js"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest("GET", path, nil)
 			w := httptest.NewRecorder()

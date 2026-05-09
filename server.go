@@ -86,7 +86,6 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	// Design-mode routes — NOT wrapped in withReady.
 	mux.HandleFunc("/design", s.handleDesignPage)
 	mux.HandleFunc("/crit-agent.js", s.handleCritAgentJS)
-	mux.HandleFunc("/crit-vendor/", s.handleCritVendor)
 	mux.HandleFunc("/agent-protocol.js", s.serveEmbeddedJS("agent-protocol.js"))
 	mux.HandleFunc("/agent-anchor-utils.js", s.serveEmbeddedJS("agent-anchor-utils.js"))
 	mux.HandleFunc("/agent-marker-overlay.js", s.serveEmbeddedJS("agent-marker-overlay.js"))
@@ -509,27 +508,6 @@ func (s *Server) serveEmbeddedCSS(name string) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-cache")
 		io.Copy(w, f)
 	}
-}
-
-func (s *Server) handleCritVendor(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	name := strings.TrimPrefix(r.URL.Path, "/crit-vendor/")
-	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	f, err := s.assets.Open("crit-vendor/" + name)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	defer f.Close()
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-	io.Copy(w, f)
 }
 
 // filterFilesAtRound returns the subset of files that have a snapshot recorded
