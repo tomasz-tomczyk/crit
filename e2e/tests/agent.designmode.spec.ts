@@ -240,120 +240,12 @@ test.describe('design-mode agent — pin-mode interaction suppression', () => {
   });
 });
 
-test.describe('design-mode agent — selection screenshot fallback', () => {
-  test.beforeEach(async ({ request }) => {
-    await clearAllDesignPins(request);
-  });
-
-  test('selection includes a non-empty data-URL screenshot when html2canvas loads', async ({ page }) => {
-    await openPinComposer(page);
-    // The composer thumb img has src= the captured screenshot. If html2canvas
-    // succeeded, the src is a data: URL.
-    const thumb = page.locator('.crit-design-composer-thumb');
-    await expect(thumb).toBeVisible();
-    const src = await thumb.getAttribute('src');
-    expect(src ?? '').toMatch(/^data:image\/(jpeg|png);base64,/);
-  });
-
-  test('screenshot is empty string on capture failure', async ({ page }) => {
-    // Force the html2canvas failure path via the agent's test-only query flag.
-    // Reload the iframe at /?crit-design-fail-h2c=1 so captureScreenshot()
-    // throws synthetically, posts agent-error{capture-failed}, and returns ''.
-    await waitForAgentReady(page);
-    await page.evaluate(() => {
-      (window as unknown as { __critDesignMessages?: unknown[] }).__critDesignMessages = [];
-    });
-    await setIframeRoute(page, '/?crit-design-fail-h2c=1');
-    await expect.poll(
-      () => page.evaluate(() => {
-        const log = (window as unknown as { __critDesignMessages?: { type: string }[] })
-          .__critDesignMessages;
-        return Array.isArray(log) && log.some((e) => e.type === 'agent-ready');
-      }),
-      { timeout: 15_000 },
-    ).toBe(true);
-    await enterPinMode(page);
-    await expect.poll(
-      () => getIframe(page).locator('body').evaluate(() => {
-        return (window as unknown as { __critAgentState?: { mode?: string } })
-          .__critAgentState?.mode;
-      }),
-    ).toBe('pin');
-    await getIframe(page).locator('#primary-btn').click();
-    // Selection is emitted with screenshot === ''.
-    await expect.poll(
-      () => page.evaluate(() => {
-        const log = (window as unknown as { __critDesignMessages?: { type: string; dom_anchor?: { screenshot?: string } }[] })
-          .__critDesignMessages || [];
-        return log.find((m) => m.type === 'selection') || null;
-      }),
-      { timeout: 10_000 },
-    ).not.toBeNull();
-    const sel = await page.evaluate(() => {
-      const log = (window as unknown as { __critDesignMessages?: { type: string; dom_anchor?: { screenshot?: string } }[] })
-        .__critDesignMessages || [];
-      return log.find((m) => m.type === 'selection') || null;
-    });
-    expect(sel?.dom_anchor?.screenshot).toBe('');
-    // And the agent emitted a capture-failed error.
-    const err = await page.evaluate(() => {
-      const log = (window as unknown as { __critDesignMessages?: { type: string; kind?: string }[] })
-        .__critDesignMessages || [];
-      return log.find((m) => m.type === 'agent-error' && m.kind === 'capture-failed') || null;
-    });
-    expect(err).not.toBeNull();
-    // Regression for commit 07bd353: capture-failed used to surface a scary
-    // chrome toast on real-world pages whose CSS html2canvas couldn't parse.
-    // The fix logs a console.warn instead. No toast must be visible.
-    await expect(page.locator('.crit-design-toast')).toHaveCount(0);
-  });
-
-  // Regression for commit 07bd353. Symmetric to the shadow-DOM agent-error
-  // toast assertion in the shadow-DOM error suite (which DOES surface a
-  // toast). capture-failed must NOT surface one — pins still work without
-  // the screenshot.
-  test('capture-failed agent-error does not surface a chrome toast', async ({ page }) => {
-    await waitForAgentReady(page);
-    await page.evaluate(() => {
-      (window as unknown as { __critDesignMessages?: unknown[] }).__critDesignMessages = [];
-    });
-    await setIframeRoute(page, '/?crit-design-fail-h2c=1');
-    await expect.poll(
-      () => page.evaluate(() => {
-        const log = (window as unknown as { __critDesignMessages?: { type: string }[] })
-          .__critDesignMessages;
-        return Array.isArray(log) && log.some((e) => e.type === 'agent-ready');
-      }),
-      { timeout: 15_000 },
-    ).toBe(true);
-    await enterPinMode(page);
-    await expect.poll(
-      () => getIframe(page).locator('body').evaluate(() => {
-        return (window as unknown as { __critAgentState?: { mode?: string } })
-          .__critAgentState?.mode;
-      }),
-    ).toBe('pin');
-    await getIframe(page).locator('#primary-btn').click();
-    // Wait for the agent-error to be logged so we know the path executed.
-    await expect.poll(
-      () => page.evaluate(() => {
-        const log = (window as unknown as { __critDesignMessages?: { type: string; kind?: string }[] })
-          .__critDesignMessages || [];
-        return log.some((m) => m.type === 'agent-error' && m.kind === 'capture-failed');
-      }),
-      { timeout: 10_000 },
-    ).toBe(true);
-    // No toast was surfaced.
-    await expect(page.locator('.crit-design-toast')).toHaveCount(0);
-  });
-});
-
 test.describe('design-mode agent — selection round-trip', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllDesignPins(request);
   });
 
-  test('selection event opens the composer with screenshot thumbnail', async ({ page }) => {
+  test('selection event opens the composer with anchor chip', async ({ page }) => {
     await openPinComposer(page);
     await expect(page.locator('.crit-design-composer')).toBeVisible();
     // Composer's chip carries the accessible name or a derived label, not raw outerHTML.
