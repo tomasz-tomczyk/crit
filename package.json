@@ -8,7 +8,7 @@
   },
   "scripts": {
     "update-deps": "bun run copy-deps.js",
-    "test:frontend": "node frontend/test-markdown-patch.mjs"
+    "test:frontend": "node frontend/test-markdown-patch.mjs && node frontend/test-diff-render.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.0",

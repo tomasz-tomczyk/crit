@@ -867,11 +867,12 @@
     if (!lang || !hljs.getLanguage(lang)) return null;
     try {
       const highlighted = hljs.highlight(file.content, { language: lang, ignoreIllegals: true }).value;
-      const lines = splitHighlightedCode(highlighted);
-      // Return 1-indexed: lines[1] = first line
+      const htmlLines = splitHighlightedCode(highlighted);
+      const rawLines = file.content.split('\n');
+      // Return 1-indexed: result[1] = first line
       const result = [null]; // index 0 unused
-      for (let i = 0; i < lines.length; i++) {
-        result.push(lines[i]);
+      for (let i = 0; i < htmlLines.length; i++) {
+        result.push({ html: htmlLines[i], raw: rawLines[i] });
       }
       return result;
     } catch {
@@ -881,12 +882,14 @@
 
   // Get highlighted HTML for a single diff line.
   // Uses pre-highlighted cache for new-side lines, falls back to per-line for old-side.
+  // The cache is keyed by working-tree line number, but in branch/staged/commit-pinned
+  // diffs the diff's NewNum may address a different revision. Verify the cached source
+  // line matches `content` before trusting the cache hit.
   function highlightDiffLine(content, lineNum, side, highlightCache, lang) {
-    // Try cache first (new-side lines: context and additions have NewNum mapped to file.content)
-    if (highlightCache && lineNum > 0 && side !== 'old' && highlightCache[lineNum]) {
-      return highlightCache[lineNum];
+    if (highlightCache && lineNum > 0 && side !== 'old') {
+      const entry = highlightCache[lineNum];
+      if (entry && entry.raw === content) return entry.html;
     }
-    // Fallback: highlight individual line
     if (lang && hljs.getLanguage(lang)) {
       try {
         return hljs.highlight(content, { language: lang, ignoreIllegals: true }).value;
@@ -946,8 +949,9 @@
     for (let i = 0; i < lines.length; i++) {
       const lineNum = i + 1;
       let html;
-      if (file.highlightCache && file.highlightCache[lineNum]) {
-        html = '<code class="hljs">' + file.highlightCache[lineNum] + '</code>';
+      const cacheEntry = file.highlightCache ? file.highlightCache[lineNum] : null;
+      if (cacheEntry && cacheEntry.raw === (lines[i] || '')) {
+        html = '<code class="hljs">' + cacheEntry.html + '</code>';
       } else {
         html = '<code class="hljs">' + escapeHtml(lines[i] || '') + '</code>';
       }
