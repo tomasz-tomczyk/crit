@@ -91,7 +91,7 @@ jobs:
         with:
           node-version: 22
       - name: Run frontend smoke tests
-        run: node frontend/test-markdown-patch.mjs
+        run: make test-frontend
 
   nix:
     runs-on: ubuntu-latest
