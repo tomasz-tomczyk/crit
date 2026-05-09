@@ -240,6 +240,9 @@
       // `.comment-card` (border, header bar, body padding) — see
       // style-design.css where `.crit-design-comment-row` is now neutralised.
       cardClassExtra: 'crit-design-comment-row' + (c.resolved ? ' resolved-card' : ''),
+      // Design mode has no drift concept — daemon stopped emitting the bit
+      // and there is no per-pin drift UI surface in this mode.
+      suppressDrift: true,
       // Auto-collapse resolved pins (parity with code-review's panel cards
       // at app.js#renderCommentsPanel — `collapseDefault: isResolved`).
       // Open pins stay expanded; resolved pins collapse to a one-line stub

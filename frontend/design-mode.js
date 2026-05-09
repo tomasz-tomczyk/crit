@@ -63,7 +63,6 @@
   var resolveInFlight = inflightAPI ? inflightAPI.makeInFlightSet() : null;
   var replyInFlight = inflightAPI ? inflightAPI.makeInFlightSet() : null;
   var editInFlight = inflightAPI ? inflightAPI.makeInFlightSet() : null;
-  var driftPutInFlight = inflightAPI ? inflightAPI.makeInFlightSet() : null;
   var composerInFlight = inflightAPI ? inflightAPI.makeInFlightFlag() : null;
   var finishInFlight = inflightAPI ? inflightAPI.makeInFlightFlag() : null;
 
@@ -1284,8 +1283,7 @@
     if (!card) return;
     var route = utils.normaliseRoute(card.dataset.designRoute || '/');
     // Skip iframe reassignment if already on this route — otherwise we'd
-    // trigger a route-change → request-resolution → drift PUT cycle for a
-    // pin that's still on its anchor.
+    // trigger a redundant route-change → request-resolution cycle.
     if (route === state.currentRoute) return;
     if (els && els.iframe) els.iframe.src = proxyURL(route);
     state.currentRoute = route;
@@ -1543,10 +1541,9 @@
   function optimisticInsertComment(pathname, comment) {
     if (!comment || !comment.id) return;
     var c = Object.assign({}, comment, { path: pathname });
-    // Stamp the round the pin was created in so a later route-change /
-    // round-start resolution scan can't mark it as drifted before the user
-    // has had a chance to navigate. A pin that fails to resolve in the
-    // round it was just created in is a transient agent miss, not drift.
+    // Stamp the round the pin was created in. Drift PUTs were removed,
+    // but the stamp is still consulted by round-resolve bookkeeping so
+    // freshly created pins aren't double-counted on route-change scans.
     c._createdInRound = state.currentRound || 1;
     state.comments = state.comments || [];
     state.comments.unshift(c);
@@ -1562,8 +1559,7 @@
         c.path = path;
         // Same _createdInRound stamping as loadAllComments — see comment
         // there. refreshCommentsForRoute fires immediately after a pin POST
-        // (saveComposer) and would otherwise wipe the optimistic stamp,
-        // re-arming the drift PUT on the next route-change scan.
+        // (saveComposer) and would otherwise wipe the optimistic stamp.
         c._createdInRound = c.review_round || state.currentRound || 1;
         return c;
       });
@@ -1761,11 +1757,10 @@
   }
 
   // ============================================================
-  // Pins, drift tray, resolution gate, re-anchor flow.
+  // Pins, resolution gate, re-anchor flow.
   // ============================================================
   var pinStateAPI = window.crit && window.crit.design && window.crit.design.pinState;
   var pinFilterAPI = window.crit && window.crit.design && window.crit.design.pinFilter;
-  var driftTrayAPI = window.crit && window.crit.design && window.crit.design.driftTray;
   var threadScrollAPI = window.crit && window.crit.design && window.crit.design.threadScroll;
   var reanchorClickAPI = window.crit && window.crit.design && window.crit.design.reanchorClick;
   var reanchorPutAPI = window.crit && window.crit.design && window.crit.design.reanchorPut;
@@ -1797,61 +1792,20 @@
     var pins = pinFilterAPI.filterPinsForPath(all, currentPathname());
     postToAgent({ type: 'set-pins', pins: pins });
     if (state.pinState) state.pinState.setComments(state.comments || []);
-    renderDriftTray();
-  }
-
-  function renderDriftTray() {
-    if (!driftTrayAPI || !state.pinState) return;
-    var host = document.querySelector('.crit-design-drifted-tray-host');
-    if (!host) {
-      var panel = document.querySelector('.comments-panel') || document.body;
-      host = document.createElement('div');
-      host.className = 'crit-design-drifted-tray-host';
-      panel.insertBefore(host, panel.firstChild);
-    }
-    host.innerHTML = driftTrayAPI.renderDriftTrayHTML(state.pinState.driftedRows(), state.currentRound);
   }
 
   function handlePinResolutionResult(msg) {
     var prev = lookupPin && lookupPin(msg && msg.pin_id);
     if (state.pinState) state.pinState.applyResolution(msg);
-    var rr = window.crit && window.crit.design && window.crit.design.roundResolve;
-    if (rr && prev) {
+    if (prev) {
       var path2 = (prev.dom_anchor && prev.dom_anchor.pathname) || state.currentPathname || '/';
-      // Only PUT drifted_on_round during the *initial round-start scan*.
-      // Resolution results that arrive outside an active scan (e.g. an
-      // ad-hoc request-resolution from a route-change with no pending
-      // pins, or a late result for an already-resolved pin) must not
-      // mark drift — that caused click-on-comment to silently drift
-      // unchanged pins.
       var inActiveScan = typeof state.pendingByPath[path2] === 'number' &&
                          state.pendingByPath[path2] > 0;
-      var alreadyResolvedThisRound = !!prev._roundResolved;
-      var createdThisRound = prev._createdInRound === state.currentRound;
-      if (inActiveScan && !alreadyResolvedThisRound && !createdThisRound) {
-        var c = rr.classifyPinForRound(prev, msg, state.currentRound);
-        if (c.driftedOnRound) {
-          var url = '/api/comment/' + encodeURIComponent(prev.id) + '?path=' + encodeURIComponent(path2);
-          // Dedup: late-arriving duplicate resolution results for the same pin
-          // would otherwise re-PUT drifted_on_round before the first finishes.
-          if (!driftPutInFlight || !driftPutInFlight.has(prev.id)) {
-            if (driftPutInFlight) driftPutInFlight.add(prev.id);
-            try {
-              fetch(url, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ drifted_on_round: c.driftedOnRound, drifted: true }),
-              }).then(function (r) { if (r && !r.ok) console.warn('[design] PUT drifted_on_round failed', r.status); })
-                .catch(function (e) { console.warn('[design] PUT drifted_on_round failed:', e); })
-                .finally(function () { if (driftPutInFlight) driftPutInFlight.delete(prev.id); });
-              prev.drifted = true;
-              prev.drifted_on_round = c.driftedOnRound;
-              announceLive('Pin ' + prev.id + ' drifted on round ' + c.driftedOnRound + '.');
-            } catch (_) {
-              if (driftPutInFlight) driftPutInFlight.delete(prev.id);
-            }
-          }
-        }
+      if (inActiveScan && !prev._roundResolved) {
+        // Drift detection PUT was removed — daemon no longer emits the
+        // drift bit on design pins. We still bookkeep
+        // pendingByPath so the resolution-gate / re-anchor flow stays
+        // accurate for route changes.
         prev._roundResolved = true;
         state.pendingByPath[path2] = Math.max(0, state.pendingByPath[path2] - 1);
         if (state.pendingByPath[path2] === 0) {
@@ -1860,7 +1814,6 @@
         }
       }
     }
-    renderDriftTray();
   }
 
   function handleViewportApplied(_msg) {
@@ -1921,7 +1874,7 @@
     }
   }
 
-  // Drift-tray click delegation: armed when the user clicks "Re-anchor here?".
+  // Re-anchor click delegation: armed when the user clicks "Re-anchor here?".
   document.addEventListener('click', function (ev) {
     if (!reanchorClickAPI) return;
     var t = ev.target;
@@ -2225,7 +2178,7 @@
     function show() {
       var allPins = (state.comments || []).filter(function (c) { return c && c.dom_anchor; });
       var t = tooltipMod.composeRoundTooltip({ round: state.currentRound, pins: allPins });
-      tip.textContent = 'Round ' + t.round + '. ' + t.carried + ' carried, ' + t.resolved + ' resolved, ' + t.driftedThisRound + ' drifted this round.';
+      tip.textContent = 'Round ' + t.round + '. ' + t.carried + ' carried, ' + t.resolved + ' resolved.';
       var r = btn.getBoundingClientRect();
       tip.style.left = r.left + 'px';
       tip.style.top  = (r.bottom + 6) + 'px';

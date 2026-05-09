@@ -159,3 +159,29 @@ test('replies list rendered when comment.replies non-empty', () => {
   );
   assert.equal(called, 1);
 });
+
+test('suppressDrift omits the Drifted badge and drifted-context block', () => {
+  // Design mode never wants the drift UI: the daemon is no longer setting
+  // the drifted bit on design pins, but legacy review files might still
+  // carry `drifted: true`. The shared card must accept a flag to hide both
+  // the header badge and the disclosure block, so design mode renders a
+  // clean card while code-review keeps the existing drift affordance.
+  const out = card.buildCommentCard(
+    { id: 'd1', body: 'x', drifted: true, anchor: 'old line\nstill old',
+      created_at: '2024-01-01T00:00:00Z' },
+    '',
+    { deps: baseDeps(), suppressDrift: true }
+  );
+  function find(el, pred, hits) {
+    hits = hits || [];
+    if (pred(el)) hits.push(el);
+    for (const c of (el.children || [])) find(c, pred, hits);
+    return hits;
+  }
+  const badges = find(out.card, (e) => e.className && /\boutdated-badge\b/.test(e.className));
+  assert.equal(badges.length, 0, 'no Drifted badge should render under suppressDrift');
+  const ctx = find(out.card, (e) => e.className && /\bdrifted-context\b/.test(e.className));
+  assert.equal(ctx.length, 0, 'no drifted-context disclosure should render under suppressDrift');
+  assert.equal(out.wrapper.classList.contains('outdated-comment'), false,
+    'wrapper should not get outdated-comment class');
+});

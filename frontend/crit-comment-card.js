@@ -129,7 +129,9 @@
       headerLeft.appendChild(badge);
     }
 
-    if (comment.drifted) {
+    // suppressDrift: design mode passes this so legacy comments carrying
+    // `drifted: true` from before the field was retired don't paint a badge.
+    if (comment.drifted && !opts.suppressDrift) {
       wrapper.classList.add('outdated-comment');
       var driftedBadge = document.createElement('span');
       driftedBadge.className = 'outdated-badge';
@@ -152,7 +154,7 @@
     card.appendChild(header);
 
     // Drifted anchor context — show original content that was commented on
-    if (comment.drifted && comment.anchor) {
+    if (comment.drifted && comment.anchor && !opts.suppressDrift) {
       var driftedCtx = document.createElement('div');
       driftedCtx.className = 'drifted-context';
 
