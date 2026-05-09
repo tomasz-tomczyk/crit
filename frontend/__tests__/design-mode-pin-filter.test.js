@@ -22,3 +22,16 @@ test('filterPinsForPath returns [] on empty pathname', () => {
 test('filterPinsForPath returns [] when pins is not array', () => {
   assert.deepEqual(filterPinsForPath(null, '/x'), []);
 });
+
+test('filterPinsForPath drops resolved pins so markers do not render for them', () => {
+  // Resolved comments shouldn't paint a pin marker on the proxied page.
+  // Hiding happens by omission from the set-pins payload — the agent
+  // never gets told a marker exists, so nothing is rendered.
+  const all = [
+    { id: 'open', resolved: false, dom_anchor: { pathname: '/foo' } },
+    { id: 'done', resolved: true, dom_anchor: { pathname: '/foo' } },
+    { id: 'open2', dom_anchor: { pathname: '/foo' } }, // no resolved field == open
+  ];
+  const out = filterPinsForPath(all, '/foo');
+  assert.deepEqual(out.map(p => p.id), ['open', 'open2']);
+});

@@ -10,7 +10,10 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   function filterPinsForPath(pins, pathname) {
     if (!Array.isArray(pins) || !pathname) return [];
-    return pins.filter(p => p && p.dom_anchor && p.dom_anchor.pathname === pathname);
+    // Resolved comments must not surface as pin markers on the proxied page —
+    // the marker overlay paints whatever is in `set-pins`, so dropping
+    // resolved pins here is the single source of truth for visibility.
+    return pins.filter(p => p && p.dom_anchor && p.dom_anchor.pathname === pathname && !p.resolved);
   }
   return { filterPinsForPath };
 });

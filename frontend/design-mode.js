@@ -1792,7 +1792,7 @@
   function pushPinsToAgent() {
     if (!state.agentReady || !pinFilterAPI) return;
     var all = (state.comments || []).filter(function (c) { return c && c.dom_anchor; }).map(function (c) {
-      return { id: c.id, pin_number: c.pin_number || 0, dom_anchor: c.dom_anchor };
+      return { id: c.id, pin_number: c.pin_number || 0, dom_anchor: c.dom_anchor, resolved: !!c.resolved };
     });
     var pins = pinFilterAPI.filterPinsForPath(all, currentPathname());
     postToAgent({ type: 'set-pins', pins: pins });
