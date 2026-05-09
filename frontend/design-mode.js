@@ -738,34 +738,28 @@
     if (goBack) goBack.addEventListener('click', hideNoChanges);
   });
 
+  // loadAllComments delegates to the shared comments-loader module. The
+  // loader refetches /api/session before reading files so a stale cached
+  // `files: []` (the design daemon's pre-first-pin state captured at boot)
+  // doesn't suppress every subsequent reload. Without that refresh, a
+  // reply posted via `crit comment --reply-to` between rounds was
+  // invisible until a full browser refresh — see the module header for
+  // the full failure mode.
+  var _commentsLoader = null;
+  function getCommentsLoader() {
+    if (_commentsLoader) return _commentsLoader;
+    var mod = window.crit && window.crit.design && window.crit.design.commentsLoader;
+    if (mod && typeof mod.create === 'function') {
+      _commentsLoader = mod.create({ state: state, shared: shared });
+    }
+    return _commentsLoader;
+  }
   async function loadAllComments() {
-    var s = state.session || {};
-    var files = (s.files || []).map(function (f) { return f.path; });
-    if (!files.length) return;
-    var results = await Promise.all(files.map(function (p) {
-      return shared.fetchJSON('/api/file/comments?path=' + encodeURIComponent(p))
-        .then(function (list) {
-          if (!Array.isArray(list)) return [];
-          return list.map(function (c) {
-            // Use dom_anchor.pathname for design comments; fallback to file path.
-            var path = (c.dom_anchor && c.dom_anchor.pathname) || p;
-            c.path = path;
-            // Stamp _createdInRound from the persisted review_round so the
-            // drift guard in handlePinResolutionResult survives reloads
-            // (initial boot, SSE refresh, refreshCommentsForRoute). Without
-            // this, navigating away and back triggers a resolution scan
-            // whose results land before route data settles, marking the
-            // just-created pin as drifted.
-            c._createdInRound = c.review_round || state.currentRound || 1;
-            return c;
-          });
-        })
-        .catch(function (e) {
-          console.warn('[design-mode] failed to load comments for', p, e);
-          return [];
-        });
-    }));
-    state.comments = results.reduce(function (acc, arr) { return acc.concat(arr); }, []);
+    var loader = getCommentsLoader();
+    if (loader && loader.loadAllComments) return loader.loadAllComments();
+    // Defensive fallback: should never happen in production (the loader
+    // module is loaded by index.html before design-mode.js runs).
+    return Promise.resolve();
   }
 
   registerInstaller(function loadComments() {
