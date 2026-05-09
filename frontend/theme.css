@@ -574,10 +574,11 @@
   --crit-qr-bg: #fff;
 
   /* ---- Comment reference chip ---- */
-  --crit-comment-ref-bg:        rgba(64, 111, 204, 0.10);
-  --crit-comment-ref-color:     #406fcc;
-  --crit-comment-ref-border:    rgba(64, 111, 204, 0.30);
-  --crit-comment-ref-hover-bg:  rgba(64, 111, 204, 0.18);
+  --crit-comment-ref-color:       #0c2461;
+  --crit-comment-ref-color-hover: #071440;
+  --crit-comment-ref-underline:   rgba(12, 36, 97, 0.55);
+  --crit-comment-ref-flash-bg:    rgba(255, 212, 59, 0.55);
+  --crit-comment-ref-flash-ring:  rgba(154, 103, 0, 0.70);
 
   --author-0-bg: rgba(26,95,160,0.10);
   --author-0-border: rgba(26,95,160,0.25);
