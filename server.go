@@ -1069,11 +1069,17 @@ func (s *Server) handleFileCommentResolve(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	c, ok := s.session.Load().SetCommentResolved(path, commentID, req.Resolved)
+	sess := s.session.Load()
+	c, ok := sess.SetCommentResolved(path, commentID, req.Resolved)
 	if !ok {
 		http.Error(w, "Comment not found", http.StatusNotFound)
 		return
 	}
+	// Fan out to SSE so other tabs (and the originating tab's review
+	// panel) reflect the resolved-state flip without waiting for the
+	// watcher's 1s mtime tick. Insert/reply/delete already broadcast;
+	// resolve must too.
+	sess.notify(SSEEvent{Type: "comments-changed"})
 	writeJSON(w, c)
 }
 
@@ -1394,11 +1400,17 @@ func (s *Server) handleReviewCommentResolve(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	c, ok := s.session.Load().ResolveReviewComment(commentID, req.Resolved)
+	sess := s.session.Load()
+	c, ok := sess.ResolveReviewComment(commentID, req.Resolved)
 	if !ok {
 		http.Error(w, "Comment not found", http.StatusNotFound)
 		return
 	}
+	// Fan out to SSE so other tabs (and the originating tab's review
+	// panel) reflect the resolved-state flip without waiting for the
+	// watcher's 1s mtime tick. Insert/reply/delete already broadcast;
+	// resolve must too.
+	sess.notify(SSEEvent{Type: "comments-changed"})
 	writeJSON(w, c)
 }
 

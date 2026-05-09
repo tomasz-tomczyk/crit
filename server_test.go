@@ -4138,6 +4138,82 @@ func TestAPIDeleteComment_FansOutSSE(t *testing.T) {
 	}
 }
 
+// TestAPIResolveComment_FansOutSSE pins down that PUT
+// /api/comment/{id}/resolve emits a comments-changed SSE event for both
+// resolve and unresolve transitions, on both the file-scoped and
+// review-scoped routes. Insert/reply/delete already broadcast (db0a12f,
+// 2c8b87d); resolve must too — without it, the resolve-affordance can't
+// update other tabs (or the originating tab's review panel) until the
+// watcher's 1s mtime tick.
+func TestAPIResolveComment_FansOutSSE(t *testing.T) {
+	cases := []struct {
+		name     string
+		resolved bool
+	}{
+		{"resolve", true},
+		{"unresolve", false},
+	}
+	for _, tc := range cases {
+		t.Run("file-scoped/"+tc.name, func(t *testing.T) {
+			s, session := newTestServer(t)
+			c, _ := session.AddComment("test.md", 1, 1, "", "to resolve", "", "", "")
+			// For unresolve, flip it to resolved first (no SSE drained — we
+			// subscribe after).
+			if !tc.resolved {
+				session.SetCommentResolved("test.md", c.ID, true)
+			}
+
+			sub := session.Subscribe()
+			defer session.Unsubscribe(sub)
+
+			body := strings.NewReader(fmt.Sprintf(`{"resolved":%t}`, tc.resolved))
+			req := httptest.NewRequest("PUT", "/api/comment/"+c.ID+"/resolve?path=test.md", body)
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+			}
+
+			select {
+			case ev := <-sub:
+				if ev.Type != "comments-changed" {
+					t.Errorf("event type = %q, want comments-changed", ev.Type)
+				}
+			case <-time.After(500 * time.Millisecond):
+				t.Fatal("no SSE event after PUT resolve — frontend tabs would stall on stale state")
+			}
+		})
+
+		t.Run("review-scoped/"+tc.name, func(t *testing.T) {
+			s, session := newTestServer(t)
+			c := session.AddReviewComment("review-level", "alice", "")
+			if !tc.resolved {
+				session.ResolveReviewComment(c.ID, true)
+			}
+
+			sub := session.Subscribe()
+			defer session.Unsubscribe(sub)
+
+			body := strings.NewReader(fmt.Sprintf(`{"resolved":%t}`, tc.resolved))
+			req := httptest.NewRequest("PUT", "/api/review-comment/"+c.ID+"/resolve", body)
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+			}
+
+			select {
+			case ev := <-sub:
+				if ev.Type != "comments-changed" {
+					t.Errorf("event type = %q, want comments-changed", ev.Type)
+				}
+			case <-time.After(500 * time.Millisecond):
+				t.Fatal("no SSE event after PUT review-comment resolve")
+			}
+		})
+	}
+}
+
 // TestAPIDeleteComment_AuthorizationMatrix is the auth pin-down for the
 // design-mode delete affordance. When a comment carries a non-empty UserID,
 // only that user (matched against the daemon's configured AuthUserID) may
