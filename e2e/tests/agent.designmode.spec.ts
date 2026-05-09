@@ -4,7 +4,6 @@ import {
   enterPinMode,
   getIframe,
   openPinComposer,
-  seedDesignPin,
   setIframeRoute,
   waitForAgentReady,
 } from './designmode-helpers';
@@ -481,52 +480,9 @@ test.describe('design-mode agent — end-to-end pin flow', () => {
   });
 });
 
-test.describe('design-mode agent — re-anchor click capture from Navigate mode', () => {
-  test.beforeEach(async ({ request }) => {
-    await clearAllDesignPins(request);
-  });
-
-  test('re-anchor armed in Navigate mode captures the next iframe click and emits selection with reanchor_for', async ({ page, request }) => {
-    const { id } = await seedDesignPin(request, 'recoverable for nav re-anchor', {
-      pathname: '/',
-      css_selector: '#nope',
-      tag_chain: ['BUTTON'],
-      accessible_name: 'Primary',
-      role: 'button',
-      landmark: 'main',
-    });
-    await waitForAgentReady(page);
-    // Stay in Navigate mode (default). Click the drift tray's re-anchor button.
-    const tray = page.locator('.crit-design-drifted-tray');
-    await expect(tray).toBeAttached();
-    await tray.locator('.crit-design-reanchor-btn').first().click();
-    // Agent's reanchor.armed flips true even though mode is 'navigate'.
-    // (armed is a getter — read it explicitly so it survives JSON serialization.)
-    await expect.poll(
-      () => getIframe(page).locator('body').evaluate(() => {
-        const s = (window as unknown as { __critAgentState?: { reanchor?: { armed?: boolean }; mode?: string } })
-          .__critAgentState;
-        return { mode: s?.mode ?? null, armed: !!s?.reanchor?.armed };
-      }),
-    ).toMatchObject({ mode: 'navigate', armed: true });
-    // Reset the message log so the selection we observe is the re-anchor one.
-    await page.evaluate(() => {
-      (window as unknown as { __critDesignMessages?: unknown[] }).__critDesignMessages = [];
-    });
-    await getIframe(page).locator('#secondary-btn').click();
-    await expect.poll(
-      () => page.evaluate(() => {
-        const log = (window as unknown as { __critDesignMessages?: { type: string; reanchor_for?: string }[] })
-          .__critDesignMessages || [];
-        return log.find((m) => m.type === 'selection') || null;
-      }),
-      { timeout: 10_000 },
-    ).not.toBeNull();
-    const sel = await page.evaluate(() => {
-      const log = (window as unknown as { __critDesignMessages?: { type: string; reanchor_for?: string }[] })
-        .__critDesignMessages || [];
-      return log.find((m) => m.type === 'selection') || null;
-    });
-    expect(sel?.reanchor_for).toBe(id);
-  });
-});
+// Drift tray UI was removed in c40534e. The agent's reanchor capture pathway
+// still exists internally (used when a future re-anchor entrypoint ships) but
+// is no longer reachable via a UI surface in design mode, so the user-facing
+// E2E test for it has been removed alongside the tray. crit-agent.js's
+// reanchor state machine remains covered at the unit level in
+// frontend/__tests__/design-mode-reanchor-click.test.js.

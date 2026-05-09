@@ -70,45 +70,4 @@ test.describe('rounds — round-start re-resolution (Scenarios 15–16)', () => 
     expect(pin!.drifted_on_round ?? 0).toBe(0);
   });
 
-  test('round 2 preserves drifted_on_round stamped in round 1', async ({ request }) => {
-    // A pin already classified as Drifted in round 1 must keep its drift
-    // metadata across round 2. The frontend's drift surfacing
-    // ("Drifted on round N") depends on this round-trip — without it,
-    // every round bump silently relabels drifted pins as fresh.
-    const seeded = await seedDesignPin(request, 'drifted pin', {
-      pathname: '/',
-      css_selector: '#missing-element',
-      tag_chain: ['BUTTON'],
-    });
-
-    // Stamp the pin as drifted in round 1.
-    const stamp = await request.put(`/api/comment/${seeded.id}?path=%2F`, {
-      data: { drifted: true, drifted_on_round: 1 },
-    });
-    expect(stamp.ok()).toBeTruthy();
-
-    // Flush in-memory state to disk; carry-forward reads PreviousComments
-    // from the review file, not from memory.
-    await request.post('/api/finish');
-
-    const bump = await request.post('/api/round-complete');
-    expect(bump.ok()).toBeTruthy();
-
-    await expect.poll(async () => {
-      const r = await request.get('/api/file/comments?path=%2F');
-      if (!r.ok()) return null;
-      const body = await r.json() as Array<{
-        id: string;
-        drifted?: boolean;
-        drifted_on_round?: number;
-        carried_forward?: boolean;
-      }>;
-      // Carried-forward pins get a fresh ID, so look up by drift metadata
-      // (the pin authored against #missing-element is the only one in the
-      // session) instead of by seeded ID.
-      const pin = body.find((c) => c.carried_forward);
-      if (!pin) return null;
-      return { drifted: pin.drifted ?? false, on: pin.drifted_on_round ?? 0 };
-    }, { timeout: 10_000 }).toEqual({ drifted: true, on: 1 });
-  });
 });

@@ -1,11 +1,9 @@
 import { test, expect } from '@playwright/test';
 import {
   clearAllDesignPins,
-  enterPinMode,
   getIframe,
   openPinComposer,
   openPinComposerNoNav,
-  seedDesignPin,
   setIframeRoute,
   waitForAgentReady,
 } from './designmode-helpers';
@@ -241,146 +239,6 @@ test.describe('design-mode markers — keyboard + click activation', () => {
   });
 });
 
-test.describe('design-mode markers — drift tray', () => {
-  test.beforeEach(async ({ request }) => {
-    await clearAllDesignPins(request);
-  });
-
-  test('drifted-recoverable shows in tray with re-anchor button', async ({ page, request }) => {
-    // Selector misses but role+name+landmark resolve to #primary-btn.
-    await seedDesignPin(request, 'recoverable pin', {
-      pathname: '/',
-      css_selector: '#nope',
-      tag_chain: ['BUTTON'],
-      accessible_name: 'Primary',
-      role: 'button',
-      landmark: 'main',
-      outer_html: '<button>Primary</button>',
-    });
-    await waitForAgentReady(page);
-    const tray = page.locator('.crit-design-drifted-tray');
-    await expect(tray).toBeAttached();
-    await expect(tray.locator('.crit-design-drifted-badge--recoverable')).toHaveCount(1);
-    await expect(tray.locator('.crit-design-reanchor-btn')).toHaveCount(1);
-  });
-
-  test('drifted (lost) shows badge but no re-anchor button', async ({ page, request }) => {
-    // No fallback fields → resolvePin returns 'drifted'.
-    await seedDesignPin(request, 'lost pin', {
-      pathname: '/',
-      css_selector: '#completely-missing',
-      tag_chain: ['DIV'],
-      // intentionally no role/name/landmark
-    });
-    await waitForAgentReady(page);
-    const tray = page.locator('.crit-design-drifted-tray');
-    await expect(tray).toBeAttached();
-    await expect(tray.locator('.crit-design-drifted-badge--lost')).toHaveCount(1);
-    await expect(tray.locator('.crit-design-reanchor-btn')).toHaveCount(0);
-  });
-
-  test('clicking re-anchor → next iframe click updates pin and tray clears', async ({ page, request }) => {
-    const { id } = await seedDesignPin(request, 'recoverable for re-anchor', {
-      pathname: '/',
-      css_selector: '#nope',
-      tag_chain: ['BUTTON'],
-      accessible_name: 'Primary',
-      role: 'button',
-      landmark: 'main',
-    });
-    void id;
-    await waitForAgentReady(page);
-    // Enter pin mode for parity with the historical drift-tray flow. Re-anchor
-    // capture also works from Navigate mode now (see agent.designmode.spec
-    // "re-anchor click capture from Navigate mode") — this scenario keeps Pin
-    // mode to mirror the original tray-driven workflow.
-    await enterPinMode(page);
-    const tray = page.locator('.crit-design-drifted-tray');
-    await expect(tray).toBeAttached();
-    await tray.locator('.crit-design-reanchor-btn').first().click();
-    await expect.poll(
-      () => getIframe(page).locator('body').evaluate(() => {
-        return (window as unknown as { __critAgentState?: { reanchor?: { armed?: boolean } } })
-          .__critAgentState?.reanchor?.armed === true;
-      }),
-    ).toBe(true);
-    await getIframe(page).locator('#secondary-btn').click();
-    await expect.poll(
-      () => page.locator('.crit-design-drifted-tray .crit-design-drifted-row').count(),
-      { timeout: 10_000 },
-    ).toBe(0);
-  });
-
-  test('re-anchor flow updates pin via PUT', async ({ page, request }) => {
-    const { id } = await seedDesignPin(request, 'recoverable for PUT', {
-      pathname: '/',
-      css_selector: '#nope',
-      tag_chain: ['BUTTON'],
-      accessible_name: 'Primary',
-      role: 'button',
-      landmark: 'main',
-    });
-    await waitForAgentReady(page);
-    await expect(page.locator('.crit-design-drifted-tray')).toBeAttached();
-
-    // Enter pin mode for parity with the original tray-driven workflow.
-    // Navigate-mode re-anchor is covered by agent.designmode.spec.
-    await enterPinMode(page);
-    const putPromise = page.waitForResponse((r) =>
-      r.url().includes(`/api/comment/${id}`) && r.request().method() === 'PUT',
-    );
-    await page.locator('.crit-design-reanchor-btn').first().click();
-    await expect.poll(
-      () => getIframe(page).locator('body').evaluate(() => {
-        return (window as unknown as { __critAgentState?: { reanchor?: { armed?: boolean } } })
-          .__critAgentState?.reanchor?.armed === true;
-      }),
-    ).toBe(true);
-    await getIframe(page).locator('#secondary-btn').click();
-    const resp = await putPromise;
-    expect(resp.ok()).toBeTruthy();
-  });
-
-  test('end-to-end three-status walkthrough: recoverable + lost coexist; recoverable can re-anchor', async ({ page, request }) => {
-    // One recoverable + one lost on the same path.
-    await seedDesignPin(request, 'recoverable A', {
-      pathname: '/',
-      css_selector: '#nope-a',
-      tag_chain: ['BUTTON'],
-      accessible_name: 'Primary',
-      role: 'button',
-      landmark: 'main',
-    });
-    await seedDesignPin(request, 'lost B', {
-      pathname: '/',
-      css_selector: '#nope-b',
-      tag_chain: ['SPAN'],
-    });
-    await waitForAgentReady(page);
-    const tray = page.locator('.crit-design-drifted-tray');
-    await expect(tray.locator('.crit-design-drifted-badge--recoverable')).toHaveCount(1);
-    await expect(tray.locator('.crit-design-drifted-badge--lost')).toHaveCount(1);
-
-    // Enter pin mode for parity with the tray-driven workflow.
-    await enterPinMode(page);
-    // Re-anchor the recoverable one.
-    await tray.locator('.crit-design-reanchor-btn').first().click();
-    await expect.poll(
-      () => getIframe(page).locator('body').evaluate(() => {
-        return (window as unknown as { __critAgentState?: { reanchor?: { armed?: boolean } } })
-          .__critAgentState?.reanchor?.armed === true;
-      }),
-    ).toBe(true);
-    await getIframe(page).locator('#secondary-btn').click();
-    // Recoverable disappears; lost remains (no re-anchor was attempted).
-    await expect.poll(
-      () => tray.locator('.crit-design-drifted-badge--recoverable').count(),
-      { timeout: 10_000 },
-    ).toBe(0);
-    await expect(tray.locator('.crit-design-drifted-badge--lost')).toHaveCount(1);
-  });
-});
-
 test.describe('design-mode markers — drift PUT guard for current-round pins', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllDesignPins(request);
@@ -448,5 +306,3 @@ test.describe('design-mode markers — drift PUT guard for current-round pins', 
   });
 });
 
-// Re-export to placate unused-import lint when only some imports are used.
-void enterPinMode;
