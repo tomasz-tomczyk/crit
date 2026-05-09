@@ -3888,6 +3888,7 @@
       // Clear any stale unified-diff drag state so it can't bleed into render paths.
       unifiedVisualStart = null;
       unifiedVisualEnd = null;
+      document.body.classList.add('visual-mode');
       refreshVisualSelectionVisuals(fp);
       return true;
     }
@@ -3898,6 +3899,7 @@
       activeFilePath = fp;
       selectionStart = lineNum;
       selectionEnd = lineNum;
+      document.body.classList.add('visual-mode');
       refreshVisualSelectionVisuals(fp);
       return true;
     }
@@ -3908,6 +3910,7 @@
     if (!visualMode) return;
     const fp = visualMode.filePath;
     visualMode = null;
+    document.body.classList.remove('visual-mode');
     if (clearSelection) {
       selectionStart = null;
       selectionEnd = null;
@@ -8737,12 +8740,14 @@
               }
               if (lastBlockIndex >= 0) {
                 visualMode = null;
+                document.body.classList.remove('visual-mode');
                 openForm({ filePath: fp, afterBlockIndex: lastBlockIndex, startLine: selectionStart, endLine: selectionEnd, editingId: null });
               }
             }
           } else {
             const side = visualMode.anchorSide;
             visualMode = null;
+            document.body.classList.remove('visual-mode');
             openForm({ filePath: fp, afterBlockIndex: null, startLine: selectionStart, endLine: selectionEnd, editingId: null, side: side || undefined });
           }
           return;

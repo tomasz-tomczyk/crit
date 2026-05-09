@@ -608,6 +608,16 @@ body {
   box-shadow: inset 2px 0 0 var(--crit-brand);
 }
 
+/* Visual line mode: recolor the focused block's left accent so it's clearly
+   distinct from the default j/k cursor, signalling that j/k now extends the
+   selection instead of moving focus. Uses --crit-orange because it reads as
+   warm amber in both light (#bc4c00) and dark (#ff9e64) themes. */
+body.visual-mode .line-block.focused,
+body.visual-mode .diff-line.focused,
+body.visual-mode .diff-split-row.focused {
+  box-shadow: inset 3px 0 0 var(--crit-orange);
+}
+
 .line-block.line-block-added {
   box-shadow: inset 2px 0 0 var(--crit-green);
 }
