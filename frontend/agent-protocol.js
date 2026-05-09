@@ -60,7 +60,13 @@
         if (!isString(a.pathname) || !isString(a.css_selector)) return { ok: false, reason: 'selection.fields' };
         if (!Array.isArray(a.tag_chain)) return { ok: false, reason: 'selection.tag_chain' };
         if (!isString(a.outer_html)) return { ok: false, reason: 'selection.outer_html' };
-        if (!isString(a.screenshot)) return { ok: false, reason: 'selection.screenshot' };
+        // NOTE: a.screenshot was required here until commits 3d29c41 +
+        // b522df7 removed the screenshot field from DOMAnchor and stopped
+        // populating it in the agent. The validator was not updated, so
+        // every selection message after b522df7 was silently rejected by
+        // the dispatcher (see design-mode.dispatch.js:19) — composer never
+        // opened. Field dropped from validation; do NOT re-add without
+        // also re-emitting from crit-agent.js.
         if (!isFiniteNumber(a.viewport_width) || !isFiniteNumber(a.viewport_height)) return { ok: false, reason: 'selection.viewport' };
         if (msg.reanchor_for !== undefined && !isString(msg.reanchor_for)) {
           return { ok: false, reason: 'selection.reanchor_for' };
