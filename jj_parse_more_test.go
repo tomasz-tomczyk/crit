@@ -91,7 +91,7 @@ func TestParseJJDiffSummary_EdgeCases(t *testing.T) {
 }
 
 func TestParseJJDiffStat_Empty(t *testing.T) {
-	got := parseJJDiffStat("")
+	got := parseSaplingDiffStat("")
 	if len(got) != 0 {
 		t.Errorf("expected empty map, got %v", got)
 	}

@@ -35,7 +35,7 @@ func TestParseJJDiffSummary(t *testing.T) {
 }
 
 func TestParseJJDiffStat(t *testing.T) {
-	got := parseJJDiffStat("app.go  | 2 +-\nnew.txt | 1 +\n2 files changed, 2 insertions(+), 1 deletion(-)")
+	got := parseSaplingDiffStat("app.go  | 2 +-\nnew.txt | 1 +\n2 files changed, 2 insertions(+), 1 deletion(-)")
 	want := map[string]NumstatEntry{
 		"app.go":  {Additions: 1, Deletions: 1},
 		"new.txt": {Additions: 1, Deletions: 0},
