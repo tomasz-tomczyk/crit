@@ -3893,8 +3893,26 @@
       return true;
     }
     if (focusedElement.dataset.diffLineNum) {
-      const lineNum = parseInt(focusedElement.dataset.diffLineNum);
-      const side = focusedElement.dataset.diffSide || '';
+      // Split rows carry both sides — tagDiffLine on the row records whichever
+      // side existed first (left when present), but the user's intent is
+      // usually the right (new) side. Prefer right; fall back to left for
+      // deleted-only rows. Unified rows are single-side, so just read directly.
+      let lineNum, side;
+      if (focusedElement.classList.contains('diff-split-row')) {
+        const right = focusedElement.querySelector('.diff-split-side.right:not(.empty)');
+        if (right && right.dataset.diffLineNum) {
+          lineNum = parseInt(right.dataset.diffLineNum);
+          side = '';
+        } else {
+          const left = focusedElement.querySelector('.diff-split-side.left:not(.empty)');
+          if (!left || !left.dataset.diffLineNum) return false;
+          lineNum = parseInt(left.dataset.diffLineNum);
+          side = 'old';
+        }
+      } else {
+        lineNum = parseInt(focusedElement.dataset.diffLineNum);
+        side = focusedElement.dataset.diffSide || '';
+      }
       visualMode = { kind: 'diff', filePath: fp, anchorStartLine: lineNum, anchorEndLine: lineNum, anchorSide: side };
       activeFilePath = fp;
       selectionStart = lineNum;
@@ -3939,16 +3957,28 @@
       selectionStart = Math.min(visualMode.anchorStartLine, sLine);
       selectionEnd = Math.max(visualMode.anchorEndLine, eLine);
     } else {
-      if (!focusedElement.dataset.diffLineNum) return;
-      // Don't extend across sides (old vs new) — selection must stay contiguous.
-      // Crossing sides exits visual mode (mirrors the cross-file branch above)
-      // so the focused-block / selection coupling stays visible to the user.
-      const side = focusedElement.dataset.diffSide || '';
-      if (side !== visualMode.anchorSide) {
-        exitVisualMode(true);
-        return;
+      // Find the line number on the anchor side. Split rows carry both sides
+      // (and the row's dataset.diffSide is whichever side was tagged first,
+      // which is unreliable for navigation), so query the child sides directly.
+      // Rows with no line on the anchor side (e.g. a deleted-only row when
+      // we anchored on the right) are skipped silently — selection stays put,
+      // visual mode stays active, focus continues moving with j/k.
+      let ln = null;
+      if (focusedElement.classList.contains('diff-split-row')) {
+        const sideSel = visualMode.anchorSide === 'old'
+          ? '.diff-split-side.left:not(.empty)'
+          : '.diff-split-side.right:not(.empty)';
+        const sideEl = focusedElement.querySelector(sideSel);
+        if (sideEl && sideEl.dataset.diffLineNum) {
+          ln = parseInt(sideEl.dataset.diffLineNum);
+        }
+      } else if (focusedElement.dataset.diffLineNum) {
+        // Unified mode — single-side per element, must match anchor.
+        const side = focusedElement.dataset.diffSide || '';
+        if (side !== visualMode.anchorSide) return;
+        ln = parseInt(focusedElement.dataset.diffLineNum);
       }
-      const ln = parseInt(focusedElement.dataset.diffLineNum);
+      if (ln === null) return;
       selectionStart = Math.min(visualMode.anchorStartLine, ln);
       selectionEnd = Math.max(visualMode.anchorEndLine, ln);
     }
@@ -3971,15 +4001,35 @@
         && sLine >= selectionStart && eLine <= selectionEnd;
       lb.classList.toggle('selected', inSel);
     }
-    const diffLines = section.querySelectorAll('[data-diff-file-path="' + filePath + '"]');
-    for (let i = 0; i < diffLines.length; i++) {
-      const dl = diffLines[i];
-      const ln = parseInt(dl.dataset.diffLineNum);
-      const side = dl.dataset.diffSide || '';
-      const sideMatches = !visualMode || visualMode.kind !== 'diff' || side === visualMode.anchorSide;
+    // Split-mode diff sides: each side has its own line numbers + side tag.
+    // .selected only applies on the anchor-matching side (matches the render
+    // path in makeSplitRow, lines 3730 / 3772).
+    const splitSides = section.querySelectorAll('.diff-split-side[data-diff-file-path="' + filePath + '"]');
+    const anchorSide = visualMode && visualMode.kind === 'diff' ? visualMode.anchorSide : null;
+    for (let i = 0; i < splitSides.length; i++) {
+      const sEl = splitSides[i];
+      if (sEl.classList.contains('empty') || !sEl.dataset.diffLineNum) {
+        sEl.classList.toggle('selected', false);
+        continue;
+      }
+      const ln = parseInt(sEl.dataset.diffLineNum);
+      const side = sEl.dataset.diffSide || '';
+      const sideMatches = anchorSide === null || side === anchorSide;
       const inSel = sideMatches && selectionStart !== null && selectionEnd !== null
         && ln >= selectionStart && ln <= selectionEnd;
-      dl.classList.toggle('selected', inSel);
+      sEl.classList.toggle('selected', inSel);
+    }
+    // Unified-mode diff lines: single-side per element, side matches anchor.
+    const unifiedLines = section.querySelectorAll('.diff-container.unified .diff-line[data-diff-file-path="' + filePath + '"]');
+    for (let i = 0; i < unifiedLines.length; i++) {
+      const ul = unifiedLines[i];
+      if (!ul.dataset.diffLineNum) continue;
+      const ln = parseInt(ul.dataset.diffLineNum);
+      const side = ul.dataset.diffSide || '';
+      const sideMatches = anchorSide === null || side === anchorSide;
+      const inSel = sideMatches && selectionStart !== null && selectionEnd !== null
+        && ln >= selectionStart && ln <= selectionEnd;
+      ul.classList.toggle('selected', inSel);
     }
   }
 

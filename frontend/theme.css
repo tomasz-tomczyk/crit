@@ -63,6 +63,9 @@
   --crit-orange: #ff9e64;
   --crit-yellow: #e0af68;
   --crit-purple: #a371f7;
+  /* Visual line mode cursor accent. Distinct from --crit-orange (modified
+     line indicator) and --crit-yellow (warning / modified badges). */
+  --crit-visual-accent: #e0af68;
 
   /* ---- Borders ---- */
   --crit-border:         #232632;
@@ -224,6 +227,9 @@
     --crit-orange: #bc4c00;
     --crit-yellow: #7a5800;
     --crit-purple: #8250df;
+    /* Visual line mode cursor accent. Saturated amber tuned to read on
+       light backgrounds (the muddy --crit-yellow #7a5800 looks olive at 3px). */
+    --crit-visual-accent: #b8860b;
 
     /* ---- Borders ---- */
     --crit-border:         #d8dee4;
@@ -355,6 +361,9 @@
   --crit-orange: #ff9e64;
   --crit-yellow: #e0af68;
   --crit-purple: #a371f7;
+  /* Visual line mode cursor accent. Distinct from --crit-orange (modified
+     line indicator) and --crit-yellow (warning / modified badges). */
+  --crit-visual-accent: #e0af68;
 
   /* ---- Borders ---- */
   --crit-border:         #232632;
@@ -485,6 +494,9 @@
   --crit-orange: #bc4c00;
   --crit-yellow: #7a5800;
   --crit-purple: #8250df;
+  /* Visual line mode cursor accent. Saturated amber tuned to read on
+     light backgrounds (the muddy --crit-yellow #7a5800 looks olive at 3px). */
+  --crit-visual-accent: #b8860b;
 
   /* ---- Borders ---- */
   --crit-border:         #d8dee4;

@@ -610,12 +610,13 @@ body {
 
 /* Visual line mode: recolor the focused block's left accent so it's clearly
    distinct from the default j/k cursor, signalling that j/k now extends the
-   selection instead of moving focus. Uses --crit-orange because it reads as
-   warm amber in both light (#bc4c00) and dark (#ff9e64) themes. */
+   selection instead of moving focus. Uses a dedicated --crit-visual-accent
+   so we don't conflate it with --crit-orange (modified-line indicator) or
+   --crit-yellow (modified-file badges, warning text). */
 body.visual-mode .line-block.focused,
 body.visual-mode .diff-line.focused,
 body.visual-mode .diff-split-row.focused {
-  box-shadow: inset 3px 0 0 var(--crit-orange);
+  box-shadow: inset 3px 0 0 var(--crit-visual-accent);
 }
 
 .line-block.line-block-added {
