@@ -7475,14 +7475,20 @@
     overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeShareModal(); });
     overlay.querySelector('#consentCancelBtn').addEventListener('click', closeShareModal);
     overlay.querySelector('#consentShareBtn').addEventListener('click', async function() {
-      closeShareModal();
       try {
         const r = await fetch('/api/share-consent', { method: 'POST' });
         if (r.ok) {
           needsShareConsent = false;
+          closeShareModal();
           document.getElementById('shareBtn').click();
+        } else {
+          closeShareModal();
+          showToast('share', 'error', '<span>Failed to record consent. Please try again.</span>');
         }
-      } catch (e) { /* best-effort */ }
+      } catch (e) {
+        closeShareModal();
+        showToast('share', 'error', '<span>Network error. Please try again.</span>');
+      }
     });
   }
 
