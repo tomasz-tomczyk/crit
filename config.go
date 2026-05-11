@@ -133,7 +133,7 @@ func loadConfigFile(path string) (Config, configPresence, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	_, presence.ShareURL = raw["share_url"]
+	_, presence.ShareURL = raw["share_url"] // for global config only; project-side ShareURL presence is intentionally ignored by mergeConfigs
 	_, presence.IgnorePatterns = raw["ignore_patterns"]
 	_, presence.NoOpen = raw["no_open"]
 	_, presence.Quiet = raw["quiet"]

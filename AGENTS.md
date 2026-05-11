@@ -54,7 +54,7 @@ crit/
 8. **Real-time output** — review file written on every comment change (200ms debounce)
 9. **File watching** — git mode polls `git status --porcelain`; files mode polls mtimes; reloads via SSE
 10. **Localhost by default** — server binds to `127.0.0.1` (no CORS headers needed). Configurable via `--host` / `CRIT_HOST` / `host` config key (e.g. `0.0.0.0` for LAN). No auth, so non-loopback binds are explicit opt-in.
-11. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both. `agent_cmd` is global-only (prevents malicious repos from hijacking the agent command)
+11. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both. `agent_cmd`, `auth_token`, and `share_url` are global-only (prevents malicious repos from hijacking the agent command or redirecting share requests to steal auth tokens)
 12. **Headless CLI comment** — `crit comment` writes directly to the review file without starting the server; SSE notifies any running server
 13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array.
 14. **Centralized review storage** — `~/.crit/reviews/<key>.json` keyed by cwd + branch (git mode) or cwd + args (file mode)
@@ -118,7 +118,7 @@ Config keys: `port`, `host`, `no_open`, `share_url`, `quiet`, `output`, `author`
 
 - `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to the configured VCS user name if not set
-- `agent_cmd` is **global config only**; project-level config cannot override (security)
+- `agent_cmd`, `auth_token`, and `share_url` are **global config only**; project-level config cannot override (security — prevents malicious repos from hijacking the agent command or redirecting share requests to an attacker-controlled host)
 - `cleanup_on_approve` (default: `true`) — auto-delete review file when reviewer approves with no unresolved comments
 - `ignore_patterns` are unioned (global + project both apply); types: `*.ext`, `dir/`, `exact.file`, `path/*.ext`
 - `vcs` selects backend: `"git"` (default), `"sl"` (sapling), or `"jj"` (Jujutsu)
