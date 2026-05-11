@@ -156,9 +156,9 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	if project.Port != 0 {
 		merged.Port = project.Port
 	}
-	if project.Host != "" {
-		merged.Host = project.Host
-	}
+	// Security: host is intentionally NOT merged from project config.
+	// A malicious repo setting host to "0.0.0.0" would disable the
+	// DNS-rebinding defense. Use --host flag or CRIT_HOST env var instead.
 	if projectPresence.NoOpen {
 		merged.NoOpen = project.NoOpen
 	}

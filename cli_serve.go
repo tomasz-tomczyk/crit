@@ -404,6 +404,8 @@ func runServe(args []string) {
 		daemonFatal(pipe, "Error creating server: %v", err)
 	}
 
+	srv.SetListenHost(sc.host)
+
 	// Set config-dependent fields for the settings panel
 	srv.cfg = sc.cfg
 	cwd, _ := resolvedCWD()

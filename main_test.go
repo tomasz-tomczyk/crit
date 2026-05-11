@@ -593,13 +593,13 @@ func TestResolveServerConfig_HostPrecedence(t *testing.T) {
 		}
 	})
 
-	t.Run("config wins when no CLI flag or env var", func(t *testing.T) {
+	t.Run("global config wins when no CLI flag or env var", func(t *testing.T) {
 		defaultBranchOverride = ""
 		defaultBranchOnce = sync.Once{}
 
 		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"host": "10.0.0.1"}`), 0644)
 		homeDir := t.TempDir()
+		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"host": "10.0.0.1"}`), 0644)
 		setHome(t, homeDir)
 		t.Setenv("CRIT_HOST", "")
 
@@ -612,7 +612,30 @@ func TestResolveServerConfig_HostPrecedence(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if sc.host != "10.0.0.1" {
-			t.Errorf("host = %q, want 10.0.0.1 (config file)", sc.host)
+			t.Errorf("host = %q, want 10.0.0.1 (global config)", sc.host)
+		}
+	})
+
+	t.Run("project config cannot override host", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"host": "0.0.0.0"}`), 0644)
+		homeDir := t.TempDir()
+		setHome(t, homeDir)
+		t.Setenv("CRIT_HOST", "")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.host != "127.0.0.1" {
+			t.Errorf("host = %q, want 127.0.0.1 (project config must not override host)", sc.host)
 		}
 	})
 

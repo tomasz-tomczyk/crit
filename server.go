@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os/exec"
 	"path/filepath"
@@ -53,6 +54,12 @@ type Server struct {
 	reviewPath        string
 	cliArgs           []string     // positional file args; flags (--pr, --range, etc.) are not preserved
 	prList            *prListCache // 60s cache for picker "Other PRs"
+
+	// listenHost is the host the server is bound to (e.g. "127.0.0.1" or
+	// "0.0.0.0"). Set via SetListenHost after construction. When set to a
+	// loopback address, ServeHTTP enforces that the request Host header is
+	// also a loopback hostname, blocking DNS-rebinding attacks.
+	listenHost string
 
 	// shutdownCtx is the daemon's signal-handled context; child operations
 	// (e.g. runAgentCmd subprocesses) derive their context from this so a
@@ -119,7 +126,48 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	return s, nil
 }
 
+// SetListenHost records the host the server is bound to. Call once after
+// construction, before serving requests. When the host is a loopback address,
+// ServeHTTP rejects requests whose Host header is not also a loopback address,
+// preventing DNS-rebinding attacks. When the host is non-loopback (e.g.
+// "0.0.0.0"), the check is skipped — the user has explicitly opted into
+// network exposure.
+func (s *Server) SetListenHost(host string) {
+	s.listenHost = host
+}
+
+// isLoopbackHost reports whether host (no port) is a loopback address.
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// checkHost returns true if the request is allowed to proceed. When the server
+// is bound to a loopback address, the request's Host header must also resolve
+// to a loopback hostname — this is the canonical DNS-rebinding defense.
+func (s *Server) checkHost(r *http.Request) bool {
+	if s.listenHost == "" || !isLoopbackHost(s.listenHost) {
+		return true
+	}
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	} else {
+		// SplitHostPort fails when there's no port (e.g. "Host: [::1]").
+		// Strip IPv6 brackets so ParseIP can recognise the address.
+		host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	}
+	return isLoopbackHost(host)
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !s.checkHost(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	s.mux.ServeHTTP(w, r)
 }
 

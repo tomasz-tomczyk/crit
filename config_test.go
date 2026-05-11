@@ -113,6 +113,17 @@ func TestMergeConfigs(t *testing.T) {
 	}
 }
 
+func TestMergeConfigsHostGlobalOnly(t *testing.T) {
+	// A project config must not override host — doing so would let a malicious
+	// repo disable the DNS-rebinding defense by setting host to "0.0.0.0".
+	global := Config{Host: "127.0.0.1"}
+	project := Config{Host: "0.0.0.0"}
+	merged := mergeConfigs(global, project, configPresence{})
+	if merged.Host != "127.0.0.1" {
+		t.Errorf("host = %q, want global value %q (project must not override)", merged.Host, "127.0.0.1")
+	}
+}
+
 func TestBaseBranchConfig(t *testing.T) {
 	t.Run("loadConfigFile parses base_branch", func(t *testing.T) {
 		dir := t.TempDir()

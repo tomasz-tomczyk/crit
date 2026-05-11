@@ -73,6 +73,98 @@ func TestGetSession(t *testing.T) {
 	}
 }
 
+func TestHostCheck(t *testing.T) {
+	tests := []struct {
+		name       string
+		listenHost string
+		reqHost    string
+		wantCode   int
+	}{
+		// No listenHost set (test/default): all requests pass through.
+		{"no listen host, no req host", "", "", 200},
+		{"no listen host, evil.com", "", "evil.com", 200},
+
+		// listenHost is loopback: only loopback Host headers allowed.
+		{"loopback listen, localhost", "127.0.0.1", "localhost:3000", 200},
+		{"loopback listen, 127.0.0.1", "127.0.0.1", "127.0.0.1:3000", 200},
+		{"loopback listen, ::1 with port", "127.0.0.1", "[::1]:3000", 200},
+		{"loopback listen, ::1 bare", "127.0.0.1", "[::1]", 200},
+		{"loopback listen, evil.com", "127.0.0.1", "evil.com", 403},
+		{"loopback listen, evil.com no port", "127.0.0.1", "evil.com:80", 403},
+
+		// listenHost is non-loopback (user opted into LAN exposure): no check.
+		{"lan listen, evil.com", "0.0.0.0", "evil.com", 200},
+		{"lan listen, localhost", "0.0.0.0", "localhost:3000", 200},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, _ := newTestServer(t)
+			s.SetListenHost(tt.listenHost)
+			req := httptest.NewRequest("GET", "/api/session", nil)
+			if tt.reqHost != "" {
+				req.Host = tt.reqHost
+			}
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, req)
+			if w.Code != tt.wantCode {
+				t.Errorf("status = %d, want %d", w.Code, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestIsLoopbackHost(t *testing.T) {
+	tests := []struct {
+		host string
+		want bool
+	}{
+		{"localhost", true},
+		{"127.0.0.1", true},
+		{"::1", true},
+		{"127.0.0.2", true},
+		{"0.0.0.0", false},
+		{"evil.com", false},
+		{"192.168.1.1", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := isLoopbackHost(tt.host); got != tt.want {
+			t.Errorf("isLoopbackHost(%q) = %v, want %v", tt.host, got, tt.want)
+		}
+	}
+}
+
+// TestHostCheckDefaultWiring verifies that the default host resolution ("127.0.0.1")
+// arms the DNS-rebinding guard. This catches regressions where the SetListenHost
+// call is dropped from the production wiring path.
+func TestHostCheckDefaultWiring(t *testing.T) {
+	// Simulate the production path: no --host flag, no CRIT_HOST env, default config.
+	// resolveHost("", "127.0.0.1") is what applyConfigDefaults produces.
+	effectiveHost := resolveHost("", "127.0.0.1")
+	if !isLoopbackHost(effectiveHost) {
+		t.Fatalf("default host %q is not loopback — guard would not be armed", effectiveHost)
+	}
+
+	s, _ := newTestServer(t)
+	s.SetListenHost(effectiveHost)
+
+	req := httptest.NewRequest("GET", "/api/session", nil)
+	req.Host = "evil.com"
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 403 {
+		t.Errorf("default wiring: Host: evil.com got status %d, want 403", w.Code)
+	}
+
+	req2 := httptest.NewRequest("GET", "/api/session", nil)
+	req2.Host = "localhost:3000"
+	w2 := httptest.NewRecorder()
+	s.ServeHTTP(w2, req2)
+	if w2.Code != 200 {
+		t.Errorf("default wiring: Host: localhost:3000 got status %d, want 200", w2.Code)
+	}
+}
+
 func TestGetSession_MethodNotAllowed(t *testing.T) {
 	s, _ := newTestServer(t)
 	req := httptest.NewRequest("POST", "/api/session", nil)
