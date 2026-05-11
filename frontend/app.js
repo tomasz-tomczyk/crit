@@ -7610,7 +7610,6 @@
     if (!shareModalEl) return;
     const dialog = shareModalEl.querySelector('.share-dialog');
     dialog.innerHTML =
-      '<h3>Unpublish</h3>' +
       '<div class="share-dialog-confirm">' +
         '<p>Unpublish this review?</p>' +
         '<p class="confirm-detail">The shared link will stop working. Comments added by viewers will be lost.</p>' +
