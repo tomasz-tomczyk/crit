@@ -7462,9 +7462,9 @@
     overlay.innerHTML =
       '<div class="share-dialog share-dialog--consent">' +
         '<h3 id="consentDialogTitle" class="share-dialog-headline">Share this review</h3>' +
-        ‘<p class="share-dialog-sub">Your review will be securely uploaded to crit.md. ‘ +
-          ‘You’ll get a private link — share it with whoever you choose. ‘ +
-          ‘You won’t be asked again after confirming.</p>’ +
+        '<p class="share-dialog-sub">Your review will be securely uploaded to crit.md. ' +
+          'You\'ll get a private link — share it with whoever you choose. ' +
+          'You won\'t be asked again after confirming.</p>' +
         '<div class="sd-actions">' +
           '<button class="sd-link-btn" id="consentCancelBtn">Cancel</button>' +
           '<button class="sd-primary" id="consentShareBtn">Share →</button>' +
