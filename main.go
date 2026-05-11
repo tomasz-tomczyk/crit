@@ -232,7 +232,7 @@ func runShare(args []string) {
 	if !ok && needsShareConsent(cfg, sf.svcURL) {
 		fmt.Fprintln(os.Stderr, "  Your review will be securely uploaded to crit.md.")
 		fmt.Fprintln(os.Stderr, "  You'll get a private link — share it with whoever you choose.")
-		fmt.Fprintln(os.Stderr, "  You'll only see this once.")
+		fmt.Fprintln(os.Stderr, "  You won't be asked again after confirming.")
 		fmt.Fprint(os.Stderr, "\n  Continue? [y/N] ")
 		reader := bufio.NewReader(os.Stdin)
 		answer, _ := reader.ReadString('\n')

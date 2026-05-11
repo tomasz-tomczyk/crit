@@ -543,7 +543,7 @@ body {
   font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.015em;
-  color: var(--crit-fg-primary);
+  color: var(--crit-green);
   margin: 0;
   line-height: 1.2;
 }
@@ -1971,7 +1971,7 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   text-align: center;
   box-shadow: var(--crit-shadow);
 }
-.waiting-dialog h3 { color: var(--crit-green); margin-bottom: 12px; }
+.waiting-dialog h3 { font-size: 20px; color: var(--crit-green); margin-bottom: 12px; }
 .waiting-dialog p { color: var(--crit-editor-fg-secondary); font-size: 14px; margin-bottom: 8px; }
 
 .waiting-spinner {
