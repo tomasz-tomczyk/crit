@@ -3817,3 +3817,71 @@ func TestHandleShare_ConsentRequired(t *testing.T) {
 		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
 	}
 }
+
+func TestConsentNeeded_AlreadyConsented(t *testing.T) {
+	setHome(t, t.TempDir())
+	s, _ := newTestServer(t)
+	s.shareURL = defaultShareURL
+	s.authMu.Lock()
+	s.cfg.ShareConsented = true
+	s.authMu.Unlock()
+
+	if s.consentNeeded() {
+		t.Error("consentNeeded() = true, want false when already consented")
+	}
+}
+
+func TestConsentNeeded_CustomShareURL(t *testing.T) {
+	setHome(t, t.TempDir())
+	s, _ := newTestServer(t)
+	s.shareURL = "https://custom.example.com"
+	s.authMu.Lock()
+	s.cfg.ShareConsented = false
+	s.authMu.Unlock()
+
+	if s.consentNeeded() {
+		t.Error("consentNeeded() = true, want false for non-default share URL")
+	}
+}
+
+func TestConsentNeeded_GlobalConfigConsented(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	s, _ := newTestServer(t)
+	s.shareURL = defaultShareURL
+	s.authMu.Lock()
+	s.cfg.ShareConsented = false
+	s.authMu.Unlock()
+
+	// Write consent to the global config as the CLI would.
+	if err := saveGlobalConfig(func(m map[string]json.RawMessage) error {
+		m["share_consented"] = json.RawMessage("true")
+		return nil
+	}); err != nil {
+		t.Fatalf("saveGlobalConfig: %v", err)
+	}
+
+	if s.consentNeeded() {
+		t.Error("consentNeeded() = true, want false when global config has ShareConsented=true")
+	}
+	s.authMu.RLock()
+	got := s.cfg.ShareConsented
+	s.authMu.RUnlock()
+	if !got {
+		t.Error("s.cfg.ShareConsented not updated after disk re-read")
+	}
+}
+
+func TestHandleShareConsent_SaveFails(t *testing.T) {
+	// Point HOME at a non-existent directory so saveGlobalConfig cannot write.
+	setHome(t, "/nonexistent-crit-test-home-dir")
+	s, _ := newTestServer(t)
+
+	req := httptest.NewRequest("POST", "/api/share-consent", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusInternalServerError, w.Body.String())
+	}
+}
