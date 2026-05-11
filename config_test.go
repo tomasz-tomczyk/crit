@@ -113,6 +113,17 @@ func TestMergeConfigs(t *testing.T) {
 	}
 }
 
+func TestMergeConfigsShareConsentedFromGlobal(t *testing.T) {
+	// share_consented is global-only state. A `true` value set in the global
+	// config must survive the merge regardless of project config presence.
+	global := Config{ShareConsented: true}
+	project := Config{}
+	merged := mergeConfigs(global, project, configPresence{})
+	if !merged.ShareConsented {
+		t.Errorf("merged.ShareConsented = false, want true (global value lost)")
+	}
+}
+
 func TestMergeConfigsHostGlobalOnly(t *testing.T) {
 	// A project config must not override host — doing so would let a malicious
 	// repo disable the DNS-rebinding defense by setting host to "0.0.0.0".

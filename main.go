@@ -240,10 +240,12 @@ func runShare(args []string) {
 		if answer != "y" {
 			return
 		}
-		_ = saveGlobalConfig(func(m map[string]json.RawMessage) error {
+		if err := saveGlobalConfig(func(m map[string]json.RawMessage) error {
 			m["share_consented"] = json.RawMessage("true")
 			return nil
-		})
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "  warning: could not save consent: %v\n", err)
+		}
 		cfg.ShareConsented = true
 	}
 	if ok {

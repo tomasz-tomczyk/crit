@@ -3768,3 +3768,52 @@ func TestEvents_SafariCompat(t *testing.T) {
 		t.Errorf("heartbeat frame = %q, want %q", heartbeat, ":\n\n")
 	}
 }
+
+func TestHandleShareConsent_OK(t *testing.T) {
+	setHome(t, t.TempDir())
+	s, _ := newTestServer(t)
+
+	req := httptest.NewRequest("POST", "/api/share-consent", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	s.authMu.RLock()
+	got := s.cfg.ShareConsented
+	s.authMu.RUnlock()
+	if !got {
+		t.Errorf("s.cfg.ShareConsented = false, want true")
+	}
+}
+
+func TestHandleShareConsent_MethodNotAllowed(t *testing.T) {
+	setHome(t, t.TempDir())
+	s, _ := newTestServer(t)
+
+	req := httptest.NewRequest("GET", "/api/share-consent", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestHandleShare_ConsentRequired(t *testing.T) {
+	setHome(t, t.TempDir())
+	s, _ := newTestServer(t)
+	s.shareURL = defaultShareURL
+	s.authMu.Lock()
+	s.cfg.ShareConsented = false
+	s.authMu.Unlock()
+
+	req := httptest.NewRequest("POST", "/api/share", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+}

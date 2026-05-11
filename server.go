@@ -323,7 +323,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	sess := s.session.Load()
 	resp := map[string]interface{}{
 		"share_url":         s.shareURL,
-		"needs_consent":     needsShareConsent(s.cfg, s.shareURL),
+		"needs_consent":     s.consentNeeded(),
 		"hosted_url":        sess.GetSharedURL(),
 		"delete_token":      sess.GetDeleteToken(),
 		"version":           s.currentVersion,
@@ -491,8 +491,33 @@ func (s *Server) handleShareConsent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to persist consent", http.StatusInternalServerError)
 		return
 	}
+	s.authMu.Lock()
 	s.cfg.ShareConsented = true
+	s.authMu.Unlock()
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// consentNeeded reports whether the user must still confirm before sharing.
+// It guards reads of s.cfg.ShareConsented under s.authMu and, if the in-memory
+// flag is false, re-checks the on-disk global config so consent granted by the
+// CLI (crit share) on a separate process is picked up by the running daemon.
+func (s *Server) consentNeeded() bool {
+	s.authMu.RLock()
+	consented := s.cfg.ShareConsented
+	s.authMu.RUnlock()
+	if consented {
+		return false
+	}
+	if s.shareURL != defaultShareURL {
+		return false
+	}
+	if globalCfg, _, err := loadConfigFile(globalConfigPath()); err == nil && globalCfg.ShareConsented {
+		s.authMu.Lock()
+		s.cfg.ShareConsented = true
+		s.authMu.Unlock()
+		return false
+	}
+	return true
 }
 
 func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
@@ -530,7 +555,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "share_url not configured", http.StatusBadRequest)
 		return
 	}
-	if needsShareConsent(s.cfg, s.shareURL) {
+	if s.consentNeeded() {
 		http.Error(w, "share consent required", http.StatusForbidden)
 		return
 	}
