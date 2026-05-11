@@ -7473,9 +7473,10 @@
     document.body.appendChild(overlay);
     shareModalEl = overlay;
 
-    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeShareModal(); });
-    overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeShareModal(); });
-    overlay.querySelector('#consentCancelBtn').addEventListener('click', closeShareModal);
+    var consentAborted = false;
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) { consentAborted = true; closeShareModal(); } });
+    overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') { consentAborted = true; closeShareModal(); } });
+    overlay.querySelector('#consentCancelBtn').addEventListener('click', function() { consentAborted = true; closeShareModal(); });
     overlay.querySelector('#consentShareBtn').addEventListener('click', async function() {
       this.disabled = true;
       try {
@@ -7483,7 +7484,10 @@
         if (r.ok) {
           needsShareConsent = false;
           closeShareModal();
-          document.getElementById('shareBtn').click();
+          if (!consentAborted) {
+            const btn = document.getElementById('shareBtn');
+            if (btn) btn.click();
+          }
         } else {
           closeShareModal();
           showToast('share', 'error', '<span>Failed to record consent. Please try again.</span>');
@@ -7505,7 +7509,7 @@
 
     const isSignedIn = !!authUserName;
     const initials = authUserName
-      ? authUserName.split(/\s+/).map(function(w) { return w[0]; }).join('').slice(0, 2).toUpperCase()
+      ? authUserName.split(/\s+/).filter(Boolean).map(function(w) { return w[0]; }).join('').slice(0, 2).toUpperCase()
       : '';
 
     const nextShareBlock = isSignedIn
@@ -7609,9 +7613,10 @@
   function showUnpublishConfirm() {
     if (!shareModalEl) return;
     const dialog = shareModalEl.querySelector('.share-dialog');
+    shareModalEl.setAttribute('aria-labelledby', 'unpublishDialogTitle');
     dialog.innerHTML =
       '<div class="share-dialog-confirm">' +
-        '<p>Unpublish this review?</p>' +
+        '<p id="unpublishDialogTitle">Unpublish this review?</p>' +
         '<p class="confirm-detail">The shared link will stop working. Comments added by viewers will be lost.</p>' +
         '<div class="confirm-actions">' +
           '<button class="btn btn-sm btn-danger" id="confirmUnpublishBtn">Unpublish</button>' +
