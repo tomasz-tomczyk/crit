@@ -7478,10 +7478,11 @@
       closeShareModal();
       try {
         const r = await fetch('/api/share-consent', { method: 'POST' });
-        if (r.ok) needsShareConsent = false;
+        if (r.ok) {
+          needsShareConsent = false;
+          document.getElementById('shareBtn').click();
+        }
       } catch (e) { /* best-effort */ }
-      // Proceed with share
-      document.getElementById('shareBtn').click();
     });
   }
 
