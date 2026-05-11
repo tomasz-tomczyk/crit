@@ -309,6 +309,8 @@
   let shareURL = '';
   let hostedURL = '';
   let deleteToken = '';
+  let needsShareConsent = false;
+  let authUserName = '';
   let configAuthor = '';
   let uiState = 'reviewing';
   let waitingNotApproved = false;
@@ -738,6 +740,8 @@
     shareURL = configRes.share_url || '';
     hostedURL = configRes.hosted_url || '';
     deleteToken = configRes.delete_token || '';
+    needsShareConsent = configRes.needs_consent || false;
+    authUserName = configRes.auth_user_name || '';
     configAuthor = configRes.author || '';
     agentEnabled = configRes.agent_cmd_enabled || false;
     agentName = configRes.agent_name || 'agent';
@@ -7446,66 +7450,147 @@
     }
   }
 
-  function showShareModal() {
+  function showConsentModal() {
     closeShareModal();
-
     const overlay = document.createElement('div');
     overlay.className = 'share-overlay';
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-label', 'Share review');
+    overlay.setAttribute('aria-labelledby', 'consentDialogTitle');
+    overlay.innerHTML =
+      '<div class="share-dialog share-dialog--consent">' +
+        '<h3 id="consentDialogTitle" class="share-dialog-headline">Share this review</h3>' +
+        '<p class="share-dialog-sub">Your review will be securely uploaded to crit.md. ' +
+          'You’ll get a private link — share it with whoever you choose. ' +
+          'You’ll only see this once.</p>' +
+        '<div class="sd-actions">' +
+          '<button class="sd-link-btn" id="consentCancelBtn">Cancel</button>' +
+          '<button class="sd-primary" id="consentShareBtn">Share →</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    shareModalEl = overlay;
+
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeShareModal(); });
+    overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeShareModal(); });
+    overlay.querySelector('#consentCancelBtn').addEventListener('click', closeShareModal);
+    overlay.querySelector('#consentShareBtn').addEventListener('click', async function() {
+      closeShareModal();
+      try {
+        const r = await fetch('/api/share-consent', { method: 'POST' });
+        if (r.ok) needsShareConsent = false;
+      } catch (e) { /* best-effort */ }
+      // Proceed with share
+      document.getElementById('shareBtn').click();
+    });
+  }
+
+  function showShareModal() {
+    closeShareModal();
+    const overlay = document.createElement('div');
+    overlay.className = 'share-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'shareDialogTitle');
+
+    const isSignedIn = !!authUserName;
+    const initials = authUserName
+      ? authUserName.split(/\s+/).map(function(w) { return w[0]; }).join('').slice(0, 2).toUpperCase()
+      : '';
+
+    const nextShareBlock = isSignedIn
+      ? '<div class="share-dialog-attrib">' +
+          '<span class="share-dialog-avatar" aria-hidden="true">' + escapeHtml(initials) + '</span>' +
+          '<span>Linked to <strong>' + escapeHtml(authUserName) + '</strong></span>' +
+        '</div>'
+      : '<div class="share-dialog-next">' +
+          '<span class="share-dialog-next-eyebrow">For your next share</span>' +
+          '<p class="share-dialog-next-body">Sign in once from your terminal and every review you share ' +
+            'after that will be attributed to you and listed in your dashboard.</p>' +
+          '<div class="share-dialog-cmd">' +
+            '<span class="share-dialog-cmd-prompt" aria-hidden="true">$</span>' +
+            '<span class="share-dialog-cmd-text">crit auth login</span>' +
+            '<button class="share-dialog-cmd-copy" id="modalCopyCmd" aria-label="Copy command">' +
+              ICON_CLIPBOARD +
+            '</button>' +
+          '</div>' +
+        '</div>';
+
     overlay.innerHTML =
       '<div class="share-dialog">' +
-        '<h3><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.25 5.5l-5.5 5.5-3.5-3.5"/></svg>Review shared</h3>' +
-        '<div class="share-dialog-qr" id="modalQR"></div>' +
-        '<div class="share-dialog-url">' +
-          '<span>' + escapeHtml(hostedURL) + '</span>' +
-          '<button class="copy-icon-btn" id="modalCopyBtn" title="Copy link" aria-label="Copy link">' +
-            ICON_CLIPBOARD +
-          '</button>' +
+        '<div class="share-dialog-body">' +
+          '<div class="share-dialog-qr-col">' +
+            '<div class="share-dialog-qr" id="modalQR"></div>' +
+            '<div class="share-dialog-qr-caption">Scan to open on a phone</div>' +
+          '</div>' +
+          '<div class="share-dialog-narrative">' +
+            '<h3 id="shareDialogTitle" class="share-dialog-headline">Your review is live.</h3>' +
+            '<p class="share-dialog-sub">Anyone with the link can read it. The page works without an account.</p>' +
+            '<div class="share-dialog-url">' +
+              '<span>' + escapeHtml(hostedURL) + '</span>' +
+              '<button class="copy-icon-btn" id="modalCopyBtn" aria-label="Copy link">' +
+                ICON_CLIPBOARD +
+              '</button>' +
+            '</div>' +
+            nextShareBlock +
+          '</div>' +
         '</div>' +
-        '<div class="share-dialog-actions">' +
-          (deleteToken ? '<button class="btn btn-sm btn-danger" id="modalUnpublishBtn">Unpublish</button>' : '') +
-          '<button class="btn btn-sm" id="modalCloseBtn">Close</button>' +
+        '<div class="sd-actions">' +
+          (deleteToken ? '<button class="sd-link-btn sd-link-btn--danger" id="modalUnpublishBtn">Unpublish</button>' : '<span></span>') +
+          '<div class="sd-actions-right">' +
+            '<button class="sd-primary" id="modalCloseBtn">Done</button>' +
+          '</div>' +
         '</div>' +
       '</div>';
 
     document.body.appendChild(overlay);
     shareModalEl = overlay;
 
-    // Fetch QR code
+    // QR code
     fetch('/api/qr?url=' + encodeURIComponent(hostedURL))
       .then(function(r) { return r.text(); })
       .then(function(svg) {
         const qrEl = document.getElementById('modalQR');
         if (qrEl) qrEl.innerHTML = svg;
       })
-      .catch(function() { /* QR fetch is optional */ });
+      .catch(function() { /* QR is optional */ });
 
-    // Close on overlay background click
-    overlay.addEventListener('click', function(e) {
-      if (e.target === overlay) closeShareModal();
-    });
+    // Close on backdrop or Escape
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeShareModal(); });
+    overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeShareModal(); });
 
-    // Close on Escape
-    overlay.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') closeShareModal();
-    });
-
-    overlay.querySelector('#modalCloseBtn').addEventListener('click', closeShareModal);
-
+    // Copy URL
     overlay.querySelector('#modalCopyBtn').addEventListener('click', function() {
-      navigator.clipboard.writeText(hostedURL).catch(function() { /* clipboard may be unavailable */ });
+      navigator.clipboard.writeText(hostedURL).catch(function() {});
       this.innerHTML = ICON_CHECK_SMALL;
       this.setAttribute('aria-label', 'Copied');
       announceCopy();
-      const copyBtn = this;
+      const btn = this;
       setTimeout(function() {
-        copyBtn.innerHTML = ICON_CLIPBOARD;
-        copyBtn.setAttribute('aria-label', 'Copy link');
+        btn.innerHTML = ICON_CLIPBOARD;
+        btn.setAttribute('aria-label', 'Copy link');
       }, 2000);
     });
 
+    // Copy command (anonymous only)
+    const copyCmdBtn = overlay.querySelector('#modalCopyCmd');
+    if (copyCmdBtn) {
+      copyCmdBtn.addEventListener('click', function() {
+        navigator.clipboard.writeText('crit auth login').catch(function() {});
+        this.innerHTML = ICON_CHECK_SMALL;
+        this.setAttribute('aria-label', 'Copied');
+        const btn = this;
+        setTimeout(function() {
+          btn.innerHTML = ICON_CLIPBOARD;
+          btn.setAttribute('aria-label', 'Copy command');
+        }, 2000);
+      });
+    }
+
+    // Done button
+    overlay.querySelector('#modalCloseBtn').addEventListener('click', closeShareModal);
+
+    // Unpublish
     if (deleteToken) {
       overlay.querySelector('#modalUnpublishBtn').addEventListener('click', showUnpublishConfirm);
     }
@@ -7567,6 +7652,12 @@
       } else {
         showShareModal();
       }
+      return;
+    }
+
+    // First-time consent gate
+    if (needsShareConsent) {
+      showConsentModal();
       return;
     }
 
