@@ -7473,7 +7473,7 @@
     document.body.appendChild(overlay);
     shareModalEl = overlay;
 
-    var consentAborted = false;
+    let consentAborted = false;
     overlay.addEventListener('click', function(e) { if (e.target === overlay) { consentAborted = true; closeShareModal(); } });
     overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') { consentAborted = true; closeShareModal(); } });
     overlay.querySelector('#consentCancelBtn').addEventListener('click', function() { consentAborted = true; closeShareModal(); });
@@ -7492,7 +7492,7 @@
           closeShareModal();
           showToast('share', 'error', '<span>Failed to record consent. Please try again.</span>');
         }
-      } catch (e) {
+      } catch {
         closeShareModal();
         showToast('share', 'error', '<span>Network error. Please try again.</span>');
       }
@@ -7575,7 +7575,7 @@
 
     // Copy URL
     overlay.querySelector('#modalCopyBtn').addEventListener('click', function() {
-      navigator.clipboard.writeText(hostedURL).catch(function() {});
+      navigator.clipboard.writeText(hostedURL).catch(function() { /* best-effort */ });
       this.innerHTML = ICON_CHECK_SMALL;
       this.setAttribute('aria-label', 'Copied');
       announceCopy();
@@ -7590,7 +7590,7 @@
     const copyCmdBtn = overlay.querySelector('#modalCopyCmd');
     if (copyCmdBtn) {
       copyCmdBtn.addEventListener('click', function() {
-        navigator.clipboard.writeText('crit auth login').catch(function() {});
+        navigator.clipboard.writeText('crit auth login').catch(function() { /* best-effort */ });
         this.innerHTML = ICON_CHECK_SMALL;
         this.setAttribute('aria-label', 'Copied');
         const btn = this;
