@@ -95,6 +95,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.HandleFunc("/api/config", s.withReady(s.handleConfig))
 	mux.HandleFunc("/api/session", s.withReady(s.handleSession))
 	mux.HandleFunc("/api/share", s.withReady(s.handleShare))
+	mux.HandleFunc("/api/share-consent", s.withReady(s.handleShareConsent))
 	mux.HandleFunc("/api/share-url", s.withReady(s.handleShareURL))
 	mux.HandleFunc("/api/finish", s.withReady(s.handleFinish))
 	mux.HandleFunc("/api/events", s.withReady(s.handleEvents))
@@ -322,6 +323,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	sess := s.session.Load()
 	resp := map[string]interface{}{
 		"share_url":         s.shareURL,
+		"needs_consent":     needsShareConsent(s.cfg, s.shareURL),
 		"hosted_url":        sess.GetSharedURL(),
 		"delete_token":      sess.GetDeleteToken(),
 		"version":           s.currentVersion,
@@ -472,6 +474,25 @@ func filterFilesAtRound(session *Session, files []SessionFileInfo, round int) []
 		out = append(out, f)
 	}
 	return out
+}
+
+// handleShareConsent records that the user has consented to sharing with the
+// default crit.md service. Called by the browser before the first share upload.
+// POST /api/share-consent
+func (s *Server) handleShareConsent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := saveGlobalConfig(func(m map[string]json.RawMessage) error {
+		m["share_consented"] = json.RawMessage("true")
+		return nil
+	}); err != nil {
+		http.Error(w, "failed to persist consent", http.StatusInternalServerError)
+		return
+	}
+	s.cfg.ShareConsented = true
+	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {

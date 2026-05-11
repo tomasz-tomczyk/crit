@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -226,6 +227,24 @@ func runShare(args []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+	// First-time consent gate: only for the default service, only for new shares
+	if !ok && needsShareConsent(cfg, sf.svcURL) {
+		fmt.Fprintln(os.Stderr, "  Your review will be securely uploaded to crit.md.")
+		fmt.Fprintln(os.Stderr, "  You'll get a private link — share it with whoever you choose.")
+		fmt.Fprintln(os.Stderr, "  You'll only see this once.")
+		fmt.Fprint(os.Stderr, "\n  Continue? [y/N] ")
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		if answer != "y" {
+			return
+		}
+		_ = saveGlobalConfig(func(m map[string]json.RawMessage) error {
+			m["share_consented"] = json.RawMessage("true")
+			return nil
+		})
+		cfg.ShareConsented = true
 	}
 	if ok {
 		runShareExisting(existingCfg, critPath, files, sharePaths, authToken, cfg.Author, sf.showQR)

@@ -794,3 +794,24 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("defaultConfig().String() is not valid JSON: %v", err)
 	}
 }
+
+func TestNeedsShareConsent(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      Config
+		shareURL string
+		want     bool
+	}{
+		{"default URL, not consented", Config{ShareConsented: false}, "https://crit.md", true},
+		{"default URL, already consented", Config{ShareConsented: true}, "https://crit.md", false},
+		{"self-hosted URL, not consented", Config{ShareConsented: false}, "https://my.company.com", false},
+		{"self-hosted URL, consented", Config{ShareConsented: true}, "https://my.company.com", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := needsShareConsent(tt.cfg, tt.shareURL); got != tt.want {
+				t.Errorf("needsShareConsent() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

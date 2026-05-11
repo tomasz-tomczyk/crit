@@ -30,6 +30,14 @@ type Config struct {
 	AuthUserID         string   `json:"auth_user_id,omitempty"`
 	CleanupOnApprove   *bool    `json:"cleanup_on_approve,omitempty"`
 	VCS                string   `json:"vcs,omitempty"` // preferred VCS backend: "git", "sl", "jj"
+	ShareConsented     bool     `json:"share_consented,omitempty"`
+}
+
+// needsShareConsent reports whether the user must confirm before sharing.
+// Only applies to the default crit.md service — self-hosted users opted in by
+// configuring a custom URL.
+func needsShareConsent(cfg Config, shareURL string) bool {
+	return shareURL == defaultShareURL && !cfg.ShareConsented
 }
 
 // CleanupOnApproveEnabled returns whether review files should be cleaned up
