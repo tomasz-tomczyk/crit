@@ -7511,7 +7511,7 @@
     const nextShareBlock = isSignedIn
       ? '<div class="share-dialog-attrib">' +
           '<span class="share-dialog-avatar" aria-hidden="true">' + escapeHtml(initials) + '</span>' +
-          '<span>Linked to <strong>' + escapeHtml(authUserName) + '</strong></span>' +
+          '<span>Shared as <strong>' + escapeHtml(authUserName) + '</strong></span>' +
         '</div>'
       : '<div class="share-dialog-next">' +
           '<span class="share-dialog-next-eyebrow">For your next share</span>' +
