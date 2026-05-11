@@ -7447,6 +7447,8 @@
     if (shareModalEl) {
       shareModalEl.remove();
       shareModalEl = null;
+      const trigger = document.getElementById('shareBtn');
+      if (trigger) trigger.focus();
     }
   }
 
@@ -7475,6 +7477,7 @@
     overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeShareModal(); });
     overlay.querySelector('#consentCancelBtn').addEventListener('click', closeShareModal);
     overlay.querySelector('#consentShareBtn').addEventListener('click', async function() {
+      this.disabled = true;
       try {
         const r = await fetch('/api/share-consent', { method: 'POST' });
         if (r.ok) {
@@ -7555,10 +7558,10 @@
 
     // QR code
     fetch('/api/qr?url=' + encodeURIComponent(hostedURL))
-      .then(function(r) { return r.text(); })
+      .then(function(r) { return r.ok ? r.text() : null; })
       .then(function(svg) {
         const qrEl = document.getElementById('modalQR');
-        if (qrEl) qrEl.innerHTML = svg;
+        if (qrEl && svg) qrEl.innerHTML = svg;
       })
       .catch(function() { /* QR is optional */ });
 
