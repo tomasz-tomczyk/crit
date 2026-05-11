@@ -292,6 +292,57 @@ func TestHelperProcess_ShareOutputMissing(t *testing.T) {
 	runShare([]string{"--output"})
 }
 
+func TestPromptShareConsent(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"y\n", true},
+		{"Y\n", true},
+		{"n\n", false},
+		{"N\n", false},
+		{"\n", false},
+		{"", false},
+		{"yes\n", false},
+	}
+	for _, tt := range tests {
+		var buf strings.Builder
+		got := promptShareConsent(&buf, strings.NewReader(tt.input))
+		if got != tt.want {
+			t.Errorf("promptShareConsent(input=%q) = %v, want %v", tt.input, got, tt.want)
+		}
+		if !strings.Contains(buf.String(), "Continue?") {
+			t.Errorf("promptShareConsent did not print prompt for input=%q", tt.input)
+		}
+	}
+}
+
+// TestRunShare_ConsentDenied verifies that answering "n" to the first-time
+// consent prompt exits cleanly without sharing.
+func TestRunShare_ConsentDenied(t *testing.T) {
+	home := t.TempDir()
+	outDir := t.TempDir()
+	f := filepath.Join(t.TempDir(), "review.md")
+	if err := os.WriteFile(f, []byte("# Hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_ShareConsentDenied", "--")
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1", "HOME="+home,
+		"GO_TEST_SHARE_FILE="+f, "GO_TEST_SHARE_OUT="+outDir)
+	cmd.Stdin = strings.NewReader("n\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected zero exit when user declines consent, got: %v\n%s", err, out)
+	}
+}
+
+func TestHelperProcess_ShareConsentDenied(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	runShare([]string{"--output", os.Getenv("GO_TEST_SHARE_OUT"), os.Getenv("GO_TEST_SHARE_FILE")})
+}
+
 // TestRunUnpublish_UnknownFlag verifies that an unknown flag prints usage and exits.
 func TestRunUnpublish_UnknownFlag(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_UnpublishBadFlag", "--")
