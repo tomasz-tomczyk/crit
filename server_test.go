@@ -3873,8 +3873,12 @@ func TestConsentNeeded_GlobalConfigConsented(t *testing.T) {
 }
 
 func TestHandleShareConsent_SaveFails(t *testing.T) {
-	// Point HOME at a non-existent directory so saveGlobalConfig cannot write.
-	setHome(t, "/nonexistent-crit-test-home-dir")
+	home := t.TempDir()
+	setHome(t, home)
+	// Place a directory at ~/.crit.config.json so file writes fail on all platforms.
+	if err := os.Mkdir(filepath.Join(home, ".crit.config.json"), 0o755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
 	s, _ := newTestServer(t)
 
 	req := httptest.NewRequest("POST", "/api/share-consent", nil)
