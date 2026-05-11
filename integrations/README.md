@@ -20,6 +20,7 @@ Safe to re-run. Existing files are skipped (use `--force` to overwrite).
 | GitHub Copilot | `crit install github-copilot` | `.github/skills/crit/SKILL.md` + `.github/skills/crit-cli/SKILL.md` | `~/.agents/skills/crit/SKILL.md` + `~/.agents/skills/crit-cli/SKILL.md` |
 | OpenCode | `crit install opencode` | `.opencode/commands/crit.md` + `.opencode/skills/crit/SKILL.md` | `~/.opencode/commands/crit.md` + `~/.agents/skills/crit/SKILL.md` |
 | Codex | `crit install codex` | `.agents/skills/crit/SKILL.md` + `.agents/skills/crit-cli/SKILL.md` | `~/.agents/skills/crit/SKILL.md` + `~/.agents/skills/crit-cli/SKILL.md` |
+| Pi | `crit install pi` | `.pi/skills/crit/SKILL.md` + `.pi/skills/crit-cli/SKILL.md` | `~/.pi/agent/skills/crit/SKILL.md` + `~/.pi/agent/skills/crit-cli/SKILL.md` |
 | Qwen Code | `crit install qwen` | `.qwen/skills/crit/SKILL.md` + `.qwen/skills/crit-cli/SKILL.md` | `~/.qwen/skills/crit/SKILL.md` + `~/.qwen/skills/crit-cli/SKILL.md` |
 | Hermes | `crit install hermes` | `.hermes/skills/crit/SKILL.md` + `.hermes/skills/crit-cli/SKILL.md` (requires adding `.hermes/skills` to `external_dirs` in `~/.hermes/config.yaml`) | `~/.hermes/skills/crit/SKILL.md` + `~/.hermes/skills/crit-cli/SKILL.md` |
 | Windsurf | `crit install windsurf` | `.windsurf/rules/crit.md` | (not supported — Windsurf only allows a single shared `global_rules.md`) |

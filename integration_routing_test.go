@@ -58,6 +58,9 @@ func TestDestFor_GlobalMode(t *testing.T) {
 		// hermes: both skills redirect to ~/.hermes/skills/.
 		{"hermes", 0, filepath.Join(home, ".hermes/skills/crit/SKILL.md")},
 		{"hermes", 1, filepath.Join(home, ".hermes/skills/crit-cli/SKILL.md")},
+		// pi: both skills redirect to ~/.pi/agent/skills/.
+		{"pi", 0, filepath.Join(home, ".pi/agent/skills/crit/SKILL.md")},
+		{"pi", 1, filepath.Join(home, ".pi/agent/skills/crit-cli/SKILL.md")},
 	}
 	for _, tc := range cases {
 		f := integrationMap[tc.tool][tc.fileIdx]
@@ -109,6 +112,7 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 		"cline":          {{"Cline/Rules/crit.md", globalDestDocuments}},
 		"gemini":         {{".gemini/skills/crit-cli/SKILL.md", globalDestRelHome}, {".gemini/commands/crit.toml", globalDestRelHome}, {".gemini/policies/crit.toml", globalDestRelHome}},
 		"hermes":         {{".hermes/skills/crit/SKILL.md", globalDestRelHome}, {".hermes/skills/crit-cli/SKILL.md", globalDestRelHome}},
+		"pi":             {{".pi/agent/skills/crit/SKILL.md", globalDestRelHome}, {".pi/agent/skills/crit-cli/SKILL.md", globalDestRelHome}},
 	}
 	for tool, files := range expected {
 		got := integrationMap[tool]

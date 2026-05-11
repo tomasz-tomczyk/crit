@@ -26,6 +26,8 @@ var integrationHashes = map[string]string{
 	"integrations/hermes/skills/crit/SKILL.md":             "5ebb454cbcce0843d353e50695802a5b151a65cf59c4aeb07f494d89bc65861e",
 	"integrations/opencode/SKILL.md":                       "ca9b81518527ca071cbcb72831c7331b6745fafeaa6a376cbe10f6c685df4f90",
 	"integrations/opencode/crit.md":                        "3d83ac53f2ce3dc88c128316fa91e073aee522152ec754ca9a207ba6106b4882",
+	"integrations/pi/skills/crit-cli/SKILL.md":             "cf6559531492f1a219c48e09e09420faf6e6adc59566c4537fa509813c91be20",
+	"integrations/pi/skills/crit/SKILL.md":                 "a6db7d5f3e8669febb4b4eb34d936edbb595e62a6b2a64a7ce13a86551f44d85",
 	"integrations/qwen/skills/crit-cli/SKILL.md":           "db988d282ab2eb3f0f886144eded6e6b1d12f0b8485c6a0089d72a14cfed63b8",
 	"integrations/qwen/skills/crit/SKILL.md":               "0cb405e60b12c8b43be97e3020ef64ee9700f2a94c433845c092f707b60b43d4",
 	"integrations/windsurf/crit.md":                        "22eec224e9bee78d2453be096f9137422b6e4ab3d5136bff59b12635ea1b619c",
