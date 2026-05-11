@@ -530,6 +530,10 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "share_url not configured", http.StatusBadRequest)
 		return
 	}
+	if needsShareConsent(s.cfg, s.shareURL) {
+		http.Error(w, "share consent required", http.StatusForbidden)
+		return
+	}
 
 	// Idempotent: if already shared, return the existing URL without calling crit-web.
 	// Uses GetShareState() to read both fields under a single lock (avoids TOCTOU race
