@@ -650,10 +650,11 @@ func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 		defaultBranchOverride = ""
 		defaultBranchOnce = sync.Once{}
 
-		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
 		homeDir := t.TempDir()
 		setHome(t, homeDir)
+		// share_url is global-only; write to global config
+		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
+		dir := t.TempDir()
 		t.Setenv("CRIT_SHARE_URL", "https://env.example.com")
 
 		origDir, _ := os.Getwd()
@@ -673,10 +674,11 @@ func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 		defaultBranchOverride = ""
 		defaultBranchOnce = sync.Once{}
 
-		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
 		homeDir := t.TempDir()
 		setHome(t, homeDir)
+		// share_url is global-only; write to global config
+		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
+		dir := t.TempDir()
 		t.Setenv("CRIT_SHARE_URL", "https://env.example.com")
 
 		origDir, _ := os.Getwd()
@@ -692,14 +694,15 @@ func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 		}
 	})
 
-	t.Run("config used when no CLI or env", func(t *testing.T) {
+	t.Run("global config used when no CLI or env", func(t *testing.T) {
 		defaultBranchOverride = ""
 		defaultBranchOnce = sync.Once{}
 
-		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
 		homeDir := t.TempDir()
 		setHome(t, homeDir)
+		// share_url is global-only; project config cannot set it
+		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
+		dir := t.TempDir()
 		os.Unsetenv("CRIT_SHARE_URL")
 
 		origDir, _ := os.Getwd()
@@ -711,7 +714,7 @@ func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if sc.shareURL != "https://config.example.com" {
-			t.Errorf("shareURL = %q, want config value", sc.shareURL)
+			t.Errorf("shareURL = %q, want global config value", sc.shareURL)
 		}
 	})
 }

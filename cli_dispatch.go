@@ -119,7 +119,7 @@ Precedence (highest to lowest):
 Available keys:
   port              int       Port to listen on (default: random)
   no_open           bool      Don't auto-open browser (default: false)
-  share_url         string    Share service URL
+  share_url         string    Share service URL (global config only)
   quiet             bool      Suppress status output (default: false)
   output            string    Output directory for review file
   author            string    Your name for comments (default: git config user.name)
@@ -129,7 +129,7 @@ Available keys:
   agent_cmd              string    Shell command to send comments to an AI agent (e.g. "claude -p")
   auth_token             string    Authentication token for crit-web share service
 
-Note: agent_cmd and auth_token are global-only (~/.crit.config.json).
+Note: agent_cmd, auth_token, and share_url are global-only (~/.crit.config.json).
 Project-level .crit.config.json cannot override them for security reasons.
 
 Ignore pattern syntax:

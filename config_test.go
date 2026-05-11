@@ -336,19 +336,53 @@ func TestLoadConfigRuntimeDefaults(t *testing.T) {
 }
 
 func TestLoadConfigRuntimeDefaultsOverriddenByEmptyValues(t *testing.T) {
-	// Config explicitly sets share_url to "" and ignore_patterns to [] — no defaults
+	// Project config sets ignore_patterns to [] — overrides the runtime default.
+	// share_url is global-only and cannot be suppressed via project config.
 	homeDir := t.TempDir()
 	setHome(t, homeDir)
 	projectDir := t.TempDir()
 	os.WriteFile(filepath.Join(projectDir, ".crit.config.json"),
-		[]byte(`{"share_url": "", "ignore_patterns": []}`), 0644)
+		[]byte(`{"ignore_patterns": []}`), 0644)
 
 	cfg := LoadConfig(projectDir)
-	if cfg.ShareURL != "" {
-		t.Errorf("ShareURL = %q, want empty (explicitly overridden)", cfg.ShareURL)
+	// share_url is global-only — project config cannot suppress the runtime default
+	if cfg.ShareURL != "https://crit.md" {
+		t.Errorf("ShareURL = %q, want runtime default https://crit.md (project cannot override)", cfg.ShareURL)
 	}
 	if len(cfg.IgnorePatterns) != 0 {
 		t.Errorf("IgnorePatterns = %v, want empty (explicitly overridden)", cfg.IgnorePatterns)
+	}
+}
+
+func TestLoadConfigShareURLProjectIgnored(t *testing.T) {
+	// share_url in project config must be ignored — only global config may set it.
+	// Prevents a malicious repo from redirecting crit share (and the auth token)
+	// to an attacker-controlled host.
+	homeDir := t.TempDir()
+	setHome(t, homeDir)
+	os.WriteFile(filepath.Join(homeDir, ".crit.config.json"),
+		[]byte(`{"share_url": "https://trusted.example.com"}`), 0644)
+	projectDir := t.TempDir()
+	os.WriteFile(filepath.Join(projectDir, ".crit.config.json"),
+		[]byte(`{"share_url": "https://attacker.example.com"}`), 0644)
+
+	cfg := LoadConfig(projectDir)
+	if cfg.ShareURL != "https://trusted.example.com" {
+		t.Errorf("ShareURL = %q, want global value (project override must be ignored)", cfg.ShareURL)
+	}
+}
+
+func TestLoadConfigShareURLProjectCannotSuppressDefault(t *testing.T) {
+	// share_url: "" in project config must not suppress the runtime default.
+	homeDir := t.TempDir()
+	setHome(t, homeDir)
+	projectDir := t.TempDir()
+	os.WriteFile(filepath.Join(projectDir, ".crit.config.json"),
+		[]byte(`{"share_url": ""}`), 0644)
+
+	cfg := LoadConfig(projectDir)
+	if cfg.ShareURL != "https://crit.md" {
+		t.Errorf("ShareURL = %q, want runtime default https://crit.md", cfg.ShareURL)
 	}
 }
 
@@ -627,6 +661,16 @@ func TestMergeConfigs_AgentCmdProjectIgnored(t *testing.T) {
 	merged := mergeConfigs(global, project, configPresence{})
 	if merged.AgentCmd != "" {
 		t.Errorf("project agent_cmd should be ignored, got %q", merged.AgentCmd)
+	}
+}
+
+func TestMergeConfigs_ShareURLProjectIgnored(t *testing.T) {
+	// share_url in project config must not override global — prevents token exfiltration
+	global := Config{ShareURL: "https://crit.md"}
+	project := Config{ShareURL: "https://attacker.example.com"}
+	merged := mergeConfigs(global, project, configPresence{ShareURL: true})
+	if merged.ShareURL != "https://crit.md" {
+		t.Errorf("project share_url should be ignored, got %q", merged.ShareURL)
 	}
 }
 
