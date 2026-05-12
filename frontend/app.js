@@ -2689,7 +2689,7 @@
 
     const { commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
 
-    const changeInfo = (file.viewMode === 'document' && session.mode !== 'git') ? getChangeInfo(file) : null;
+    const changeInfo = file.viewMode === 'document' ? getChangeInfo(file) : null;
     // Build a map of afterLine -> deletion marker for quick lookup
     const deletionMarkerMap = {};
     if (changeInfo) {
