@@ -43,7 +43,7 @@
   commentMd.renderer.rules.code_inline = function(tokens, idx, options, env, self) {
     const content = tokens[idx].content;
     if (/^(c|r|rp)_[a-f0-9]{6,}$/.test(content)) {
-      return '<span class="comment-ref comment-ref-code" data-ref-id="' + escapeHtml(content) + '">' + escapeHtml(content) + '</span>';
+      return '<span class="comment-ref comment-ref-code" data-ref-id="' + escapeHtml(content) + '" tabindex="0" role="link">' + escapeHtml(content) + '</span>';
     }
     return defaultCodeInline(tokens, idx, options, env, self);
   };
@@ -69,6 +69,8 @@
         span.className = 'comment-ref';
         span.dataset.refId = m[1];
         span.textContent = m[1];
+        span.tabIndex = 0;
+        span.setAttribute('role', 'link');
         frag.appendChild(span);
         last = m.index + m[0].length;
       }
@@ -93,10 +95,20 @@
     card.classList.remove('comment-ref-flash');
     void card.offsetWidth;
     card.classList.add('comment-ref-flash');
-    setTimeout(function() { card.classList.remove('comment-ref-flash'); }, 1650);
+    card.addEventListener('animationend', function() {
+      card.classList.remove('comment-ref-flash');
+    }, { once: true });
   }
 
   document.addEventListener('click', function(e) {
+    const ref = e.target.closest && e.target.closest('.comment-ref');
+    if (!ref) return;
+    e.preventDefault();
+    scrollToCommentRef(ref.dataset.refId);
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
     const ref = e.target.closest && e.target.closest('.comment-ref');
     if (!ref) return;
     e.preventDefault();
@@ -7664,6 +7676,10 @@
       '</div>';
     document.body.appendChild(overlay);
     shareModalEl = overlay;
+    requestAnimationFrame(function() {
+      const focusBtn = overlay.querySelector('#consentShareBtn');
+      if (focusBtn) focusBtn.focus();
+    });
 
     let consentAborted = false;
     overlay.addEventListener('click', function(e) { if (e.target === overlay) { consentAborted = true; closeShareModal(); } });
@@ -7751,6 +7767,10 @@
 
     document.body.appendChild(overlay);
     shareModalEl = overlay;
+    requestAnimationFrame(function() {
+      const closeBtn = overlay.querySelector('#modalCloseBtn');
+      if (closeBtn) closeBtn.focus();
+    });
 
     // QR code
     fetch('/api/qr?url=' + encodeURIComponent(hostedURL))
