@@ -21,6 +21,8 @@ import type { Plugin } from "@opencode-ai/plugin"
 
 const SHARING_BLOCK = `## Sharing
 
+If the user asks for a URL, a shareable link, or a QR code for the review:
+
 \`\`\`bash
 crit share <file> [file...]   # Upload and print URL
 crit share --qr <file>        # Also print QR code (terminal only)
