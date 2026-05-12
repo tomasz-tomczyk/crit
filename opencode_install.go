@@ -69,6 +69,14 @@ func installOpencodePluginEntry(path, entry string, force bool) error {
 			printManualPluginInstruction(path, "has other config keys we won't rewrite", entry)
 			return nil
 		}
+		// If `plugin` exists but isn't an array (string shorthand, null, object),
+		// we don't know how to safely append — bail rather than clobber.
+		if raw, ok := root["plugin"]; ok && raw != nil {
+			if _, ok := raw.([]interface{}); !ok {
+				printManualPluginInstruction(path, "\"plugin\" key is not an array", entry)
+				return nil
+			}
+		}
 	case errors.Is(readErr, os.ErrNotExist):
 		// new file
 	default:

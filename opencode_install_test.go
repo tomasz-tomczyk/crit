@@ -62,6 +62,16 @@ func TestInstallOpencodePluginEntry(t *testing.T) {
 			initial:    `{"theme":"dark","plugin":["other-plugin"]}`,
 			expectSkip: true,
 		},
+		{
+			name:       "plugin key is a string (not an array) — bail",
+			initial:    `{"plugin":"some-plugin.ts"}`,
+			expectSkip: true,
+		},
+		{
+			name:       "plugin key is an object — bail",
+			initial:    `{"plugin":{"name":"foo"}}`,
+			expectSkip: true,
+		},
 	}
 
 	for _, tc := range cases {
