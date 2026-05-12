@@ -66,7 +66,7 @@ Usage:
   crit help                                  Show this help message
 
   Agents:
-    claude-code, cursor, opencode, windsurf, github-copilot, cline, all
+    %s, all
 
 Options:
   -p, --port <port>           Port to listen on (default: random)
@@ -93,11 +93,15 @@ Environment:
 Configuration:
   Global config:   ~/.crit.config.json
   Project config:  .crit.config.json (in repo root)
-  agent_cmd        Shell command to send comments to an AI agent (e.g. "claude -p")
+  agent_cmd              Shell command to send comments to an AI agent (e.g. "claude -p")
+  cleanup_on_approve     Auto-delete review file when approved (default: true)
+  host                   Listen host (default: 127.0.0.1; e.g. 0.0.0.0 for LAN)
+  no_update_check        Disable update check on startup (default: false)
+  vcs                    Preferred VCS backend: git, sl, or jj (default: auto-detect)
   Run 'crit config' to see resolved configuration.
 
 Learn more: https://crit.md
-`)
+`, strings.Join(availableIntegrations(), ", "))
 }
 
 func printConfigHelp() {
@@ -118,18 +122,22 @@ Precedence (highest to lowest):
 
 Available keys:
   port              int       Port to listen on (default: random)
+  host              string    Listen host (default: 127.0.0.1; e.g. 0.0.0.0 for LAN)
   no_open           bool      Don't auto-open browser (default: false)
   share_url         string    Share service URL (global config only)
   quiet             bool      Suppress status output (default: false)
   output            string    Output directory for review file
   author            string    Your name for comments (default: git config user.name)
   base_branch       string    Base branch to diff against (overrides auto-detection)
+  vcs                    string    Preferred VCS backend: git, sl, or jj (default: auto-detect)
   ignore_patterns        []string  Gitignore-style patterns to exclude files from review
   no_integration_check   bool      Skip integration staleness check (default: false)
+  no_update_check        bool      Disable update check on startup (default: false)
+  cleanup_on_approve     bool      Auto-delete review file when approved (default: true)
   agent_cmd              string    Shell command to send comments to an AI agent (e.g. "claude -p")
   auth_token             string    Authentication token for crit-web share service
 
-Note: agent_cmd, auth_token, and share_url are global-only (~/.crit.config.json).
+Note: agent_cmd, auth_token, host, and share_url are global-only (~/.crit.config.json).
 Project-level .crit.config.json cannot override them for security reasons.
 
 Ignore pattern syntax:
