@@ -167,18 +167,6 @@ Requires `gh` CLI installed and authenticated. PR number is auto-detected from t
 
 `--event` values: `comment` (default), `approve`, `request-changes`. `-m` adds a review-level body message.
 
-## Sharing
-
-```bash
-crit share <file> [file...]   # Upload and print URL
-crit share --qr <file>        # Also print QR code (terminal only)
-crit unpublish                # Remove shared review
-```
-
-- **Always relay the output** — copy the URL (and QR if used) into your response. Don't make the user dig through tool output.
-- **`--qr` is terminal-only** — skip in mobile apps, web chat UIs, or anywhere Unicode block characters won't render correctly.
-- **Unpublish uses the persisted delete token** in the review file — no extra args needed.
-
 ## Guardrails
 
 - Do not continue past the review step until the user confirms they are done.

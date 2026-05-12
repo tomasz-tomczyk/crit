@@ -105,26 +105,3 @@ Tell the user: **"Changes applied. Review the diff in your browser and click Fin
 
 **Do NOT proceed until `crit` completes.** When it does, return to Step 3. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
 
-## Sharing
-
-If the user asks for a URL, a shareable link, or a QR code for the review:
-
-```bash
-crit share <file>
-```
-
-**Always relay the full output to the user** — copy the URL (and QR code if `--qr` was used) directly into your response. Don't make them dig through tool output.
-
-To remove a shared review:
-
-```bash
-crit unpublish
-```
-
-### QR caveat
-
-Only use `--qr` in real terminal environments with monospace rendering. Skip it in mobile apps or web chat UIs — Unicode block characters won't render.
-
-```bash
-crit share --qr <file>
-```

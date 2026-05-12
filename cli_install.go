@@ -110,6 +110,10 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/opencode/crit.md", dest: ".opencode/commands/crit.md", hint: "Run /crit in OpenCode to start a review loop"},
 		// opencode does NOT read ~/.opencode/skills/ globally — redirect to ~/.agents/skills/
 		{source: "integrations/opencode/SKILL.md", dest: ".opencode/skills/crit/SKILL.md", globalDest: ".agents/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit skill is available to OpenCode agents when needed"},
+		// Plugin file auto-loaded from project `.opencode/plugins/` or global
+		// `~/.config/opencode/plugins/`. Conditionally injects sharing instructions
+		// only when share_url is set in crit config.
+		{source: "integrations/opencode/plugin/crit.ts", dest: ".opencode/plugins/crit.ts", globalDest: ".config/opencode/plugins/crit.ts", globalDestKind: globalDestRelHome, hint: "Crit's opencode plugin gates sharing instructions on share_url being set"},
 	},
 	"windsurf": {
 		// windsurf has no per-tool global rules dir — global install rejected in installIntegration.
@@ -280,6 +284,11 @@ func installIntegration(name string, force bool) error {
 			settingsPath = filepath.Join(home, ".gemini", "settings.json")
 		}
 		installGeminiSettings(settingsPath, force)
+	}
+	if name == "opencode" {
+		if err := installOpencodePluginEntry(opencodeConfigPath(global, home), force); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not register plugin in opencode config: %v\n", err)
+		}
 	}
 	if name == "hermes" && !global {
 		fmt.Println()
