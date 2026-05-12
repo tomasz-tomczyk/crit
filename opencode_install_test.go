@@ -9,6 +9,7 @@ import (
 )
 
 func TestInstallOpencodePluginEntry(t *testing.T) {
+	projectEntry := opencodePluginEntry(false)
 	cases := []struct {
 		name         string
 		initial      string // existing file content; "" means file absent
@@ -19,27 +20,27 @@ func TestInstallOpencodePluginEntry(t *testing.T) {
 		{
 			name:         "missing file",
 			initial:      "",
-			expectPlugin: []interface{}{opencodePluginEntry},
+			expectPlugin: []interface{}{projectEntry},
 		},
 		{
 			name:         "empty object",
 			initial:      `{}`,
-			expectPlugin: []interface{}{opencodePluginEntry},
+			expectPlugin: []interface{}{projectEntry},
 		},
 		{
 			name:         "existing plugins, no crit entry",
 			initial:      `{"plugin":["some-other-plugin"]}`,
-			expectPlugin: []interface{}{"some-other-plugin", opencodePluginEntry},
+			expectPlugin: []interface{}{"some-other-plugin", projectEntry},
 		},
 		{
 			name:         "already registered as string (idempotent)",
 			initial:      `{"plugin":["./.opencode/plugins/crit.ts"]}`,
-			expectPlugin: []interface{}{opencodePluginEntry},
+			expectPlugin: []interface{}{projectEntry},
 		},
 		{
 			name:         "already registered as tuple",
 			initial:      `{"plugin":[["./.opencode/plugins/crit.ts",{}]]}`,
-			expectPlugin: []interface{}{[]interface{}{opencodePluginEntry, map[string]interface{}{}}},
+			expectPlugin: []interface{}{[]interface{}{projectEntry, map[string]interface{}{}}},
 		},
 		{
 			name:      "malformed json errors",
@@ -52,9 +53,14 @@ func TestInstallOpencodePluginEntry(t *testing.T) {
 			expectSkip: true,
 		},
 		{
-			name:         "string containing // is not a comment",
-			initial:      `{"note":"https://example.com","plugin":[]}`,
-			expectPlugin: []interface{}{opencodePluginEntry},
+			name:       "config with unrelated keys is left untouched",
+			initial:    `{"provider":{"anthropic":{"models":{"claude-3":{}}}},"model":"claude-3"}`,
+			expectSkip: true,
+		},
+		{
+			name:       "config with unrelated keys plus existing plugin is left untouched",
+			initial:    `{"theme":"dark","plugin":["other-plugin"]}`,
+			expectSkip: true,
 		},
 	}
 
@@ -68,7 +74,7 @@ func TestInstallOpencodePluginEntry(t *testing.T) {
 				}
 			}
 
-			err := installOpencodePluginEntry(path, false)
+			err := installOpencodePluginEntry(path, projectEntry, false)
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")
@@ -107,6 +113,36 @@ func TestInstallOpencodePluginEntry(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLooksLikeJSONC(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"plain JSON", `{"plugin":[]}`, false},
+		{"line comment", "// hi\n{\"plugin\":[]}", true},
+		{"block comment", "/* hi */\n{\"plugin\":[]}", true},
+		{"slashes inside string are not comments", `{"plugin":[],"note":"see https://x.com"}`, false},
+		{"escaped quote inside string", `{"a":"he said \"//\""}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := looksLikeJSONC([]byte(tc.in)); got != tc.want {
+				t.Errorf("looksLikeJSONC(%q) = %v want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestOpencodePluginEntryPath(t *testing.T) {
+	if got := opencodePluginEntry(false); got != "./.opencode/plugins/crit.ts" {
+		t.Errorf("project entry = %q", got)
+	}
+	if got := opencodePluginEntry(true); got != "./plugins/crit.ts" {
+		t.Errorf("global entry = %q", got)
 	}
 }
 

@@ -286,7 +286,7 @@ func installIntegration(name string, force bool) error {
 		installGeminiSettings(settingsPath, force)
 	}
 	if name == "opencode" {
-		if err := installOpencodePluginEntry(opencodeConfigPath(global, home), force); err != nil {
+		if err := installOpencodePluginEntry(opencodeConfigPath(global, home), opencodePluginEntry(global), force); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not register plugin in opencode config: %v\n", err)
 		}
 	}

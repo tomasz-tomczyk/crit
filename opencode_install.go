@@ -9,11 +9,21 @@ import (
 	"strings"
 )
 
-// opencodePluginEntry is the relative path entry written into the opencode
-// config's `plugin` array. opencode auto-loads anything in `.opencode/plugins/`
-// regardless of this entry — the registration is belt-and-suspenders so that
-// users who scan their config can see crit's plugin is wired up.
-const opencodePluginEntry = "./.opencode/plugins/crit.ts"
+// opencodePluginEntry returns the relative path written into the opencode
+// config's `plugin` array. opencode resolves relative paths against the config
+// file's directory, so project and global installs need different entries:
+//
+//	project: ./opencode.jsonc + ./.opencode/plugins/crit.ts → "./.opencode/plugins/crit.ts"
+//	global:  ~/.config/opencode/opencode.jsonc + ~/.config/opencode/plugins/crit.ts → "./plugins/crit.ts"
+//
+// opencode auto-loads any .ts under its plugin dir, so the registration is
+// informational — but if we write it at all, it has to point at the right file.
+func opencodePluginEntry(global bool) string {
+	if global {
+		return "./plugins/crit.ts"
+	}
+	return "./.opencode/plugins/crit.ts"
+}
 
 // opencodeConfigPath returns the opencode config file to edit. Project installs
 // target `./opencode.jsonc`; global installs target `~/.config/opencode/opencode.jsonc`.
@@ -38,22 +48,26 @@ func opencodeConfigPath(global bool, home string) string {
 // the user's opencode config, creating the file if missing. Idempotent: if the
 // entry already exists the file is left untouched.
 //
-// Limitation: opencode.jsonc may contain comments and trailing commas. We
-// parse with encoding/json which is strict — if the existing file has comments
-// or other JSONC-only syntax this returns an error and we don't touch it. Users
-// are advised in that case to add `"./.opencode/plugins/crit.ts"` to the
-// `plugin` array by hand.
-func installOpencodePluginEntry(path string, force bool) error {
+// To avoid clobbering hand-tuned configs (json.Marshal alphabetizes keys and
+// loses formatting), we only auto-write when the existing file is empty or
+// contains only the `plugin` key. Any other top-level keys → we print the
+// exact line the user needs to add and leave the file alone. Same policy for
+// JSONC files with comments, which encoding/json can't round-trip safely.
+func installOpencodePluginEntry(path, entry string, force bool) error {
 	root := map[string]interface{}{}
 	data, readErr := os.ReadFile(path)
 	switch {
 	case readErr == nil:
 		if looksLikeJSONC(data) {
-			fmt.Printf("  Skipped:   %s (contains comments — add %q to the \"plugin\" array manually)\n", path, opencodePluginEntry)
+			printManualPluginInstruction(path, "contains comments", entry)
 			return nil
 		}
 		if err := json.Unmarshal(data, &root); err != nil {
 			return fmt.Errorf("%s contains invalid JSON: %w", path, err)
+		}
+		if hasUnrelatedKeys(root) {
+			printManualPluginInstruction(path, "has other config keys we won't rewrite", entry)
+			return nil
 		}
 	case errors.Is(readErr, os.ErrNotExist):
 		// new file
@@ -62,13 +76,13 @@ func installOpencodePluginEntry(path string, force bool) error {
 	}
 
 	plugins, _ := root["plugin"].([]interface{})
-	if pluginEntryPresent(plugins, opencodePluginEntry) {
+	if pluginEntryPresent(plugins, entry) {
 		if !force {
 			fmt.Printf("  Skipped:   %s (plugin already registered)\n", path)
 			return nil
 		}
 	} else {
-		plugins = append(plugins, opencodePluginEntry)
+		plugins = append(plugins, entry)
 	}
 	root["plugin"] = plugins
 
@@ -81,6 +95,28 @@ func installOpencodePluginEntry(path string, force bool) error {
 	}
 	fmt.Printf("  Installed: %s\n", path)
 	return nil
+}
+
+// hasUnrelatedKeys reports whether the parsed root contains anything other
+// than the `plugin` key. Re-marshaling a map[string]interface{} reorders keys
+// and strips formatting, so we treat any extra content as a signal to leave
+// the file alone and ask the user to register the plugin manually.
+func hasUnrelatedKeys(root map[string]interface{}) bool {
+	for k := range root {
+		if k != "plugin" {
+			return true
+		}
+	}
+	return false
+}
+
+// printManualPluginInstruction tells the user the exact line to paste into
+// their opencode config when we decline to rewrite the file.
+func printManualPluginInstruction(path, reason, entry string) {
+	fmt.Printf("  Skipped:   %s (%s)\n", path, reason)
+	fmt.Printf("             Add the plugin manually — inside the top-level object, set:\n")
+	fmt.Printf("               \"plugin\": [%q]\n", entry)
+	fmt.Printf("             (or append %q to the existing \"plugin\" array)\n", entry)
 }
 
 // pluginEntryPresent reports whether `entry` (or its `[name, options]` tuple
