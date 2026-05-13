@@ -151,7 +151,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   unit-windows:
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     steps:
       - uses: actions/checkout@v6
 
@@ -261,7 +261,7 @@ jobs:
           retention-days: 7
 
   e2e-windows:
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     env:
       # Stop Git Bash from auto-converting POSIX-looking arguments to Windows
       # paths when invoking native binaries (crit.exe, taskkill, powershell).
