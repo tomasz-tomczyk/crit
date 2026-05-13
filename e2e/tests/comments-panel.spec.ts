@@ -343,7 +343,7 @@ test.describe('Comments Panel — Git Mode', () => {
     await switchToDocumentView(page);
     await page.keyboard.press('Shift+C');
 
-    const card = panelCards(page).filter({ has: page.locator(`[data-comment-id]`) }).first();
+    const card = page.locator('.panel-comment-block .comment-card[data-comment-id]').first();
     await card.locator('.comment-actions button[title="Resolve"]').click();
 
     // Card gets resolved-card class and button changes to Unresolve
@@ -365,7 +365,7 @@ test.describe('Comments Panel — Git Mode', () => {
     await page.locator('#commentsFilterPill .toggle-btn[data-filter="resolved"]').click();
     await expect(panelCards(page)).toHaveCount(1);
 
-    const card = panelCards(page).filter({ has: page.locator(`[data-comment-id="${comment.id}"]`) });
+    const card = page.locator(`.panel-comment-block .comment-card[data-comment-id="${comment.id}"]`);
     await card.locator('.comment-actions button[title="Unresolve"]').click();
 
     // Switch to "open" filter — comment is now unresolved so it appears there
@@ -382,7 +382,7 @@ test.describe('Comments Panel — Git Mode', () => {
     await switchToDocumentView(page);
     await page.keyboard.press('Shift+C');
 
-    const card = panelCards(page).filter({ has: page.locator(`[data-comment-id]`) }).first();
+    const card = page.locator('.panel-comment-block .comment-card[data-comment-id]').first();
     await card.locator('.comment-actions button[title="Resolve"]').click();
 
     // Wait for resolve to complete before checking negative
@@ -403,7 +403,7 @@ test.describe('Comments Panel — Git Mode', () => {
     await loadPage(page);
     await page.keyboard.press('Shift+C');
 
-    const card = panelCards(page).filter({ has: page.locator(`[data-comment-id="${comment.id}"]`) });
+    const card = page.locator(`.panel-comment-block .comment-card[data-comment-id="${comment.id}"]`);
     await expect(card.locator('.comment-actions button[title="Resolve"]')).toBeVisible();
 
     await card.locator('.comment-actions button[title="Resolve"]').click();
