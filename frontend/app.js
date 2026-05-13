@@ -7239,6 +7239,7 @@
     const el = document.getElementById('tipText');
     if (!el) return;
     const tips = buildTips();
+    if (tips.length === 0) return;
     let idx;
     do {
       idx = Math.floor(Math.random() * tips.length);
@@ -7317,7 +7318,7 @@
       const data = await resp.json();
       const approved = !!data.approved;
       waitingNotApproved = !approved;
-      const prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
+      const prompt = data.prompt || '';
 
       const dialog = document.getElementById('waitingDialog');
       const headingEl = document.getElementById('waitingHeading');
@@ -7545,9 +7546,11 @@
         const el = document.getElementById('waitingEdits');
         if (el && uiState === 'waiting') {
           el.innerHTML = '<span class="waiting-edits-badge"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="11"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>' + count + ' edit' + (count === 1 ? '' : 's') + '</span>';
-          // Hide prompt copy row once agent starts making edits
+          // Hide prompt copy row and divider once agent starts making edits
           const copyRow = document.getElementById('promptCopyRow');
+          const divider = document.getElementById('waitingDivider');
           if (copyRow) copyRow.style.display = 'none';
+          if (divider) divider.style.display = 'none';
           if (waitingNotApproved) {
             document.getElementById('waitingMessage').textContent = 'Waiting for your agent to finish...';
           }
