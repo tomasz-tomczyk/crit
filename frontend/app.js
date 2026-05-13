@@ -6845,7 +6845,10 @@
     resolveBtn.innerHTML = (isResolved ? ICON_UNRESOLVE : ICON_RESOLVE) + '<span>' + (isResolved ? 'Unresolve' : 'Resolve') + '</span>';
     resolveBtn.addEventListener('click', function(e) {
       e.stopPropagation();
-      toggleResolveStatus(comment.id, scope, resolveAction, filePath || null);
+      if (resolveBtn.disabled) return;
+      resolveBtn.disabled = true;
+      toggleResolveStatus(comment.id, scope, resolveAction, filePath || null)
+        .finally(function() { resolveBtn.disabled = false; });
     });
     parts.actions.appendChild(resolveBtn);
 

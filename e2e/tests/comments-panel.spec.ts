@@ -343,11 +343,12 @@ test.describe('Comments Panel — Git Mode', () => {
     await switchToDocumentView(page);
     await page.keyboard.press('Shift+C');
 
-    await panelCards(page).first().locator('.comment-actions button[title="Resolve"]').click();
+    const card = panelCards(page).filter({ has: page.locator(`[data-comment-id]`) }).first();
+    await card.locator('.comment-actions button[title="Resolve"]').click();
 
     // Card gets resolved-card class and button changes to Unresolve
-    await expect(panelCards(page).first()).toHaveClass(/resolved-card/);
-    await expect(panelCards(page).first().locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
+    await expect(card).toHaveClass(/resolved-card/);
+    await expect(card.locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
   });
 
   test('clicking Unresolve in panel unresolves the comment', async ({ page, request }) => {
@@ -364,13 +365,14 @@ test.describe('Comments Panel — Git Mode', () => {
     await page.locator('#commentsFilterPill .toggle-btn[data-filter="resolved"]').click();
     await expect(panelCards(page)).toHaveCount(1);
 
-    await panelCards(page).first().locator('.comment-actions button[title="Unresolve"]').click();
+    const card = panelCards(page).filter({ has: page.locator(`[data-comment-id="${comment.id}"]`) });
+    await card.locator('.comment-actions button[title="Unresolve"]').click();
 
     // Switch to "open" filter — comment is now unresolved so it appears there
     await page.locator('#commentsFilterPill .toggle-btn[data-filter="open"]').click();
     await expect(panelCards(page)).toHaveCount(1);
-    await expect(panelCards(page).first()).not.toHaveClass(/resolved-card/);
-    await expect(panelCards(page).first().locator('.comment-actions button[title="Resolve"]')).toBeVisible();
+    await expect(card).not.toHaveClass(/resolved-card/);
+    await expect(card.locator('.comment-actions button[title="Resolve"]')).toBeVisible();
   });
 
   test('clicking Resolve button does not trigger scroll-to-inline navigation', async ({ page, request }) => {
@@ -380,10 +382,32 @@ test.describe('Comments Panel — Git Mode', () => {
     await switchToDocumentView(page);
     await page.keyboard.press('Shift+C');
 
-    await panelCards(page).first().locator('.comment-actions button[title="Resolve"]').click();
+    const card = panelCards(page).filter({ has: page.locator(`[data-comment-id]`) }).first();
+    await card.locator('.comment-actions button[title="Resolve"]').click();
+
+    // Wait for resolve to complete before checking negative
+    await expect(card).toHaveClass(/resolved-card/);
 
     // The inline comment card should NOT receive the highlight animation
     const inlineCard = page.locator('.comment-block:not(.panel-comment-block) .comment-card[data-comment-id]').first();
     await expect(inlineCard).not.toHaveClass(/comment-card-highlight/);
+  });
+
+  test('panel resolve works for review-level comments', async ({ page, request }) => {
+    const resp = await request.post('/api/comments', {
+      data: { body: 'Review-level resolve test' },
+    });
+    expect(resp.ok()).toBeTruthy();
+    const comment = await resp.json();
+
+    await loadPage(page);
+    await page.keyboard.press('Shift+C');
+
+    const card = panelCards(page).filter({ has: page.locator(`[data-comment-id="${comment.id}"]`) });
+    await expect(card.locator('.comment-actions button[title="Resolve"]')).toBeVisible();
+
+    await card.locator('.comment-actions button[title="Resolve"]').click();
+    await expect(card).toHaveClass(/resolved-card/);
+    await expect(card.locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
   });
 });
