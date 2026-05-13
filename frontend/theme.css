@@ -130,6 +130,9 @@
   --crit-yellow-bg:     rgba(224, 175, 104, 0.14);
   --crit-yellow-border: rgba(224, 175, 104, 0.2);
 
+  /* ---- Green subtle ---- */
+  --crit-green-subtle: rgba(86, 211, 100, 0.10);
+
   /* ---- Finish/disconnected state ---- */
   --crit-finish-pill-bg:     rgba(86, 211, 100, 0.10);
   --crit-finish-pill-border: rgba(86, 211, 100, 0.20);
@@ -272,6 +275,9 @@
     --crit-yellow-bg:     rgba(122, 88, 0, 0.1);
     --crit-yellow-border: rgba(122, 88, 0, 0.16);
 
+    /* ---- Green subtle ---- */
+    --crit-green-subtle: rgba(22, 111, 48, 0.08);
+
     /* ---- Finish/disconnected state ---- */
     --crit-finish-pill-bg:     rgba(22, 127, 48, 0.08);
     --crit-finish-pill-border: rgba(22, 127, 48, 0.18);
@@ -413,6 +419,9 @@
   --crit-yellow-bg:     rgba(224, 175, 104, 0.14);
   --crit-yellow-border: rgba(224, 175, 104, 0.2);
 
+  /* ---- Green subtle ---- */
+  --crit-green-subtle: rgba(86, 211, 100, 0.10);
+
   /* ---- Finish/disconnected state ---- */
   --crit-finish-pill-bg:     rgba(86, 211, 100, 0.10);
   --crit-finish-pill-border: rgba(86, 211, 100, 0.20);
@@ -552,6 +561,9 @@
   --crit-yellow-subtle: rgba(122, 88, 0, 0.06);
   --crit-yellow-bg:     rgba(122, 88, 0, 0.1);
   --crit-yellow-border: rgba(122, 88, 0, 0.16);
+
+  /* ---- Green subtle ---- */
+  --crit-green-subtle: rgba(22, 111, 48, 0.08);
 
   /* ---- Finish/disconnected state ---- */
   --crit-finish-pill-bg:     rgba(22, 127, 48, 0.08);
