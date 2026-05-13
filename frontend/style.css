@@ -3019,6 +3019,45 @@ body.sidebar-resizing * {
   line-height: 1;
 }
 
+/* Copy path button in file header */
+.file-header-copy-path {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--crit-editor-fg-muted);
+  flex-shrink: 0;
+  line-height: 1;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.file-header:hover .file-header-copy-path,
+.file-header-copy-path:focus-visible {
+  opacity: 1;
+}
+.file-header-copy-path:hover {
+  color: var(--crit-brand);
+}
+/* Copy button in navbar (branch name / filename chip) */
+.header-copy-path {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0 0 0 4px;
+  cursor: pointer;
+  color: var(--crit-editor-fg-muted);
+  line-height: 1;
+}
+.header-copy-path:hover {
+  color: var(--crit-brand);
+}
+
 /* ===== Comments Panel (Right Sidebar) ===== */
 .comments-panel {
   width: 480px;
@@ -3515,6 +3554,9 @@ body.sidebar-resizing * {
   font-weight: 500;
   color: var(--crit-editor-fg);
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .file-header-name .dir { color: var(--crit-editor-fg-muted); }
 .file-header-badge {
