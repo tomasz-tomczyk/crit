@@ -5810,7 +5810,10 @@
     resolveBtn.setAttribute('aria-label', 'Resolve thread');
     resolveBtn.innerHTML = ICON_RESOLVE + '<span>Resolve</span>';
     resolveBtn.addEventListener('click', function() {
-      toggleResolveStatus(comment.id, 'file', 'resolve', filePath);
+      if (resolveBtn.disabled) return;
+      resolveBtn.disabled = true;
+      toggleResolveStatus(comment.id, 'file', 'resolve', filePath)
+        .finally(function() { resolveBtn.disabled = false; });
     });
 
     parts.actions.appendChild(resolveBtn);
@@ -6312,7 +6315,10 @@
       unresolveBtn.innerHTML = ICON_UNRESOLVE + '<span>Unresolve</span>';
       unresolveBtn.addEventListener('click', function(e) {
         e.stopPropagation();
-        toggleResolveStatus(comment.id, 'review', 'unresolve', null);
+        if (unresolveBtn.disabled) return;
+        unresolveBtn.disabled = true;
+        toggleResolveStatus(comment.id, 'review', 'unresolve', null)
+          .finally(function() { unresolveBtn.disabled = false; });
       });
       parts.actions.appendChild(unresolveBtn);
     } else {
@@ -6323,7 +6329,10 @@
       resolveBtn.innerHTML = ICON_RESOLVE + '<span>Resolve</span>';
       resolveBtn.addEventListener('click', function(e) {
         e.stopPropagation();
-        toggleResolveStatus(comment.id, 'review', 'resolve', null);
+        if (resolveBtn.disabled) return;
+        resolveBtn.disabled = true;
+        toggleResolveStatus(comment.id, 'review', 'resolve', null)
+          .finally(function() { resolveBtn.disabled = false; });
       });
       parts.actions.appendChild(resolveBtn);
     }
@@ -6777,7 +6786,10 @@
     unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
     unresolveBtn.innerHTML = ICON_UNRESOLVE + '<span>Unresolve</span>';
     unresolveBtn.addEventListener('click', function() {
-      toggleResolveStatus(comment.id, 'file', 'unresolve', filePath);
+      if (unresolveBtn.disabled) return;
+      unresolveBtn.disabled = true;
+      toggleResolveStatus(comment.id, 'file', 'unresolve', filePath)
+        .finally(function() { unresolveBtn.disabled = false; });
     });
 
     const deleteBtn = document.createElement('button');
