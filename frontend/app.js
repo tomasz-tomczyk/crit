@@ -6085,6 +6085,7 @@
     renderFileByPath(filePath);
     updateCommentCount();
     updateTreeCommentBadges();
+    renderCommentsPanel();
   }
 
   // ===== Review-Level (General) Comments =====
