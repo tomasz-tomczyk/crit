@@ -7212,32 +7212,48 @@
   }
 
   // ===== Waiting Modal Tips =====
-  var waitingTips = [
-    'Press <kbd>j</kbd> / <kbd>k</kbd> to jump between files in the review.',
-    'Press <kbd>c</kbd> on any line to start an inline comment.',
-    'Drag across line numbers to select a range, then comment on the whole block.',
-    'Press <kbd>?</kbd> anywhere to see all keyboard shortcuts.',
-    'Comments support full Markdown — use fenced code blocks for suggested fixes.',
-    'Press <kbd>a</kbd> to approve, or <kbd>r</kbd> to request changes.',
-    'Use <kbd>n</kbd> / <kbd>p</kbd> to navigate between comment threads.',
-    'Press <kbd>Esc</kbd> to discard a comment draft. Press it again to confirm.',
+  const waitingTips = [
+    'Press <kbd>?</kbd> to see all keyboard shortcuts.',
+    'Comments support full Markdown.',
+    'Press <kbd>@</kbd> to reference other files in your comments.',
+    'Select text and press <kbd>c</kbd> to comment on your selection.',
+    'Use <kbd>crit pull</kbd> to load existing GitHub PR comments into your local review.',
+    'Use <kbd>crit push</kbd> to post your comments as a GitHub PR review. Add <kbd>--dry-run</kbd> to preview first.',
+    'Enjoying Crit? A GitHub star or sharing it with colleagues helps a lot!',
   ];
-  var tipInterval = null;
+  let tipInterval = null;
+  let lastTip = '';
+
+  function buildTips() {
+    const tips = waitingTips.slice();
+    if (!agentEnabled) {
+      tips.push('Set <kbd>agent_cmd</kbd> in your config to send comments directly to your AI agent for immediate feedback.');
+    }
+    if (shareURL && !authUserName) {
+      tips.push('Run <kbd>crit auth login</kbd> to link shared reviews with your account.');
+    }
+    return tips;
+  }
 
   function showRandomTip() {
-    var el = document.getElementById('tipText');
+    const el = document.getElementById('tipText');
     if (!el) return;
-    var idx = Math.floor(Math.random() * waitingTips.length);
+    const tips = buildTips();
+    let idx;
+    do {
+      idx = Math.floor(Math.random() * tips.length);
+    } while (tips[idx] === lastTip && tips.length > 1);
+    lastTip = tips[idx];
     el.style.animation = 'none';
     void el.offsetWidth;
-    el.innerHTML = waitingTips[idx];
+    el.innerHTML = tips[idx];
     el.style.animation = '';
   }
 
   function startTipRotation() {
     if (tipInterval) return;
     showRandomTip();
-    tipInterval = setInterval(showRandomTip, 6000);
+    tipInterval = setInterval(showRandomTip, 8000);
   }
 
   function stopTipRotation() {
@@ -7323,7 +7339,7 @@
           'Your agent has been notified \u2014 no further action needed. You can close this tab whenever you\u2019re ready.';
       } else {
         headingEl.textContent = 'Review Complete';
-        messageEl.textContent = 'Waiting for your agent to pick up the feedback.';
+        messageEl.textContent = 'Agent notified. Copy the prompt below if it wasn’t listening.';
       }
 
       try { await navigator.clipboard.writeText(prompt); } catch {}
@@ -7425,11 +7441,11 @@
   });
 
   document.getElementById('waitingClipboard').addEventListener('click', async function() {
-    var prompt = document.getElementById('waitingPrompt').textContent;
+    const prompt = document.getElementById('waitingPrompt').textContent;
     try {
       await navigator.clipboard.writeText(prompt);
-      var el = document.getElementById('waitingClipboard');
-      var label = el.querySelector('.copy-label');
+      const el = document.getElementById('waitingClipboard');
+      const label = el.querySelector('.copy-label');
       label.textContent = 'Copied';
       el.classList.add('copied');
       el.setAttribute('aria-label', 'Copied');
@@ -7530,7 +7546,7 @@
         if (el && uiState === 'waiting') {
           el.innerHTML = '<span class="waiting-edits-badge"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="11"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>' + count + ' edit' + (count === 1 ? '' : 's') + '</span>';
           // Hide prompt copy row once agent starts making edits
-          var copyRow = document.getElementById('promptCopyRow');
+          const copyRow = document.getElementById('promptCopyRow');
           if (copyRow) copyRow.style.display = 'none';
           if (waitingNotApproved) {
             document.getElementById('waitingMessage').textContent = 'Waiting for your agent to finish...';

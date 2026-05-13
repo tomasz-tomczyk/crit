@@ -2187,6 +2187,7 @@ textarea.drag-active {
   font-size: 13px;
   color: var(--crit-fg-secondary);
   line-height: 1.45;
+  animation: tipFadeIn var(--crit-dur-slow) var(--crit-ease);
 }
 .tip-text kbd {
   display: inline-block;
@@ -2201,9 +2202,6 @@ textarea.drag-active {
   vertical-align: baseline;
 }
 
-.tip-text {
-  animation: tipFadeIn var(--crit-dur-slow) var(--crit-ease);
-}
 @keyframes tipFadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
