@@ -6835,12 +6835,26 @@
       showReplyInput: false,
     });
 
+    // Resolve/unresolve button — works for both file and review comments
+    const scope = isGeneral ? 'review' : 'file';
+    const resolveAction = isResolved ? 'unresolve' : 'resolve';
+    const resolveBtn = document.createElement('button');
+    resolveBtn.className = 'resolve-btn' + (isResolved ? ' resolve-btn--active' : '');
+    resolveBtn.title = isResolved ? 'Unresolve' : 'Resolve';
+    resolveBtn.setAttribute('aria-label', isResolved ? 'Unresolve thread' : 'Resolve thread');
+    resolveBtn.innerHTML = (isResolved ? ICON_UNRESOLVE : ICON_RESOLVE) + '<span>' + (isResolved ? 'Unresolve' : 'Resolve') + '</span>';
+    resolveBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      toggleResolveStatus(comment.id, scope, resolveAction, filePath || null);
+    });
+    parts.actions.appendChild(resolveBtn);
+
     if (isGeneral) {
-      // General comments are edited/resolved/deleted from the inline
-      // Review Conversation section. Panel cards navigate + flash the inline card,
-      // matching the line-comment behaviour.
       parts.wrapper.style.cursor = 'pointer';
-      parts.wrapper.addEventListener('click', function() { scrollToReviewComment(comment.id); });
+      parts.wrapper.addEventListener('click', function(e) {
+        if (e.target.closest('.comment-actions')) return;
+        scrollToReviewComment(comment.id);
+      });
     } else {
       // File comments are clickable to scroll to inline location
       parts.wrapper.style.cursor = 'pointer';
