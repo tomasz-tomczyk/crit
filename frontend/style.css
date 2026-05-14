@@ -2918,6 +2918,9 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   .change-nav { display: none; }
   .scope-toggle { display: none !important; }
   .diff-mode-toggle { display: none !important; }
+  .main-layout { overflow-x: hidden; }
+  .document-wrapper { max-width: 100vw; }
+  .line-content { padding-right: 12px; }
 
   /* Force split rows to stack vertically on mobile */
   .diff-split-row { flex-direction: column; }
