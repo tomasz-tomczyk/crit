@@ -14,7 +14,9 @@ const langDir = "node_modules/@highlightjs/cdn-assets/languages";
 const langFiles = readdirSync(langDir).filter(f => f.endsWith(".min.js")).sort();
 const langs = langFiles.map(f => readFileSync(`${langDir}/${f}`, "utf8")).join("\n");
 const patch = readFileSync(`${dest}/highlight-markdown-patch.js`, "utf8");
-writeFileSync(`${dest}/highlight.min.js`, core + "\n" + langs + "\n" + patch);
+const heex = readFileSync("node_modules/highlightjs-heex/dist/heex.min.js", "utf8");
+const heexReg = heex + "\nhljs.registerLanguage('heex', hljsDefineHeex);";
+writeFileSync(`${dest}/highlight.min.js`, core + "\n" + langs + "\n" + patch + "\n" + heexReg);
 
 // mermaid
 cpSync("node_modules/mermaid/dist/mermaid.min.js", `${dest}/mermaid.min.js`);

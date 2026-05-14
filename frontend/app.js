@@ -966,6 +966,8 @@
     sh: 'bash',
     zig: 'zig',        // not a built-in alias in our bundle
     md: 'markdown',    // normalize: callers compare lang against 'markdown'
+    heex: 'heex',
+    leex: 'heex',
   };
   // Files identified by basename rather than extension.
   const BASENAME_LANG = {
