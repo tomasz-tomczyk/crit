@@ -828,12 +828,12 @@
       branchCopyBtn.type = 'button';
       branchCopyBtn.innerHTML = ICON_COPY_PATH;
       branchCopyBtn.addEventListener('click', function() {
-        var originalLabel = branchCopyBtn.getAttribute('aria-label');
+        const originalLabel = branchCopyBtn.getAttribute('aria-label');
         navigator.clipboard.writeText(session.branch).then(function() {
           branchCopyBtn.innerHTML = ICON_COPY_PATH_CHECK;
           branchCopyBtn.setAttribute('aria-label', 'Copied!');
           setTimeout(function() { branchCopyBtn.innerHTML = ICON_COPY_PATH; branchCopyBtn.setAttribute('aria-label', originalLabel); }, 1500);
-        }).catch(function() {});
+        }).catch(function() { /* best-effort */ });
       });
       document.getElementById('branchContext').appendChild(branchCopyBtn);
       // Base branch picker: show in git mode when on a feature branch
@@ -853,13 +853,13 @@
       headerCopyBtn.type = 'button';
       headerCopyBtn.innerHTML = ICON_COPY_PATH;
       headerCopyBtn.addEventListener('click', function() {
-        var originalLabel = headerCopyBtn.getAttribute('aria-label');
+        const originalLabel = headerCopyBtn.getAttribute('aria-label');
         const abs = session.cwd ? session.cwd + '/' + session.files[0].path : session.files[0].path;
         navigator.clipboard.writeText(abs).then(function() {
           headerCopyBtn.innerHTML = ICON_COPY_PATH_CHECK;
           headerCopyBtn.setAttribute('aria-label', 'Copied!');
           setTimeout(function() { headerCopyBtn.innerHTML = ICON_COPY_PATH; headerCopyBtn.setAttribute('aria-label', originalLabel); }, 1500);
-        }).catch(function() {});
+        }).catch(function() { /* best-effort */ });
       });
       document.getElementById('branchContext').appendChild(headerCopyBtn);
     }
@@ -2244,13 +2244,13 @@
       copyPathBtn.addEventListener('click', function(e) {
         e.preventDefault();
         e.stopPropagation();
-        var originalLabel = copyPathBtn.getAttribute('aria-label');
+        const originalLabel = copyPathBtn.getAttribute('aria-label');
         const abs = session.cwd ? session.cwd + '/' + filePath : filePath;
         navigator.clipboard.writeText(abs).then(function() {
           copyPathBtn.innerHTML = ICON_COPY_PATH_CHECK;
           copyPathBtn.setAttribute('aria-label', 'Copied!');
           setTimeout(function() { copyPathBtn.innerHTML = ICON_COPY_PATH; copyPathBtn.setAttribute('aria-label', originalLabel); }, 1500);
-        }).catch(function() {});
+        }).catch(function() { /* best-effort */ });
       });
     })(file.path);
 
