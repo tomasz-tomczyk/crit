@@ -1343,14 +1343,6 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .comment-actions .resolve-btn--active { border-color: var(--crit-green); color: var(--crit-green); opacity: 0.65; }
 .comment-actions .resolve-btn--active svg { opacity: 1; }
 .comment-actions .resolve-btn--active:hover { opacity: 1; }
-[data-theme="light"] .comment-actions .resolve-btn:hover {
-  background: rgba(26, 127, 55, 0.08);
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .comment-actions .resolve-btn:hover {
-    background: rgba(26, 127, 55, 0.08);
-  }
-}
 
 .quote-highlight {
   color: inherit;
