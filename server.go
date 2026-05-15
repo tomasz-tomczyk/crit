@@ -835,13 +835,33 @@ func (s *Server) handleMergeComments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	critPath := sess.critJSONPath()
-	if err := mergeWebComments(critPath, req.Comments, nil); err != nil {
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, map[string]any{"merged": len(req.Comments)})
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	newComments, replyUpdates := dedupWebComments(cj, req.Comments)
+	if len(newComments) == 0 && len(replyUpdates) == 0 {
+		writeJSON(w, map[string]any{"merged": 0, "replies_updated": 0})
+		return
+	}
+	if err := mergeWebComments(critPath, newComments, replyUpdates); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"merged": len(newComments), "replies_updated": len(replyUpdates)})
 }
 
 // handleFile returns file content + metadata for a single file.
