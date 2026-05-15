@@ -16,8 +16,8 @@ func TestDecodeJSONOrHTMLHint_HTML(t *testing.T) {
 	resp := &http.Response{Body: io.NopCloser(strings.NewReader("<html>login</html>"))}
 	var v map[string]any
 	err := decodeJSONOrHTMLHint(resp, &v)
-	if err == nil || !strings.Contains(err.Error(), "share_flow") {
-		t.Errorf("got %v, want error mentioning share_flow", err)
+	if err == nil || !strings.Contains(err.Error(), "proxy_auth") {
+		t.Errorf("got %v, want error mentioning proxy_auth", err)
 	}
 }
 
@@ -25,8 +25,8 @@ func TestDecodeJSONOrHTMLHint_HTMLWithLeadingWhitespace(t *testing.T) {
 	resp := &http.Response{Body: io.NopCloser(strings.NewReader("\n\n  <!DOCTYPE html><html>x</html>"))}
 	var v map[string]any
 	err := decodeJSONOrHTMLHint(resp, &v)
-	if err == nil || !strings.Contains(err.Error(), "share_flow") {
-		t.Errorf("got %v, want share_flow hint", err)
+	if err == nil || !strings.Contains(err.Error(), "proxy_auth") {
+		t.Errorf("got %v, want proxy_auth hint", err)
 	}
 }
 
@@ -2151,5 +2151,122 @@ func TestShareReviewFiles_PlanMode_InlinesAttachments(t *testing.T) {
 	}
 	if !strings.Contains(rb, "data:image/png;base64,") {
 		t.Errorf("plan-mode reply body missing data URI: %q", truncate(rb, 200))
+	}
+}
+
+func TestDedupWebComments(t *testing.T) {
+	tests := []struct {
+		name        string
+		existing    CritJSON
+		incoming    []webComment
+		wantNew     int
+		wantReplies int
+	}{
+		{
+			name: "duplicate by external_id is skipped",
+			existing: CritJSON{
+				Files: map[string]CritJSONFile{
+					"main.go": {Comments: []Comment{{
+						ID: "c_abc", StartLine: 10, EndLine: 10,
+						Body: "fix this",
+					}}},
+				},
+			},
+			incoming: []webComment{{
+				ExternalID: "c_abc", FilePath: "main.go",
+				StartLine: 10, EndLine: 10, Body: "fix this",
+			}},
+			wantNew: 0, wantReplies: 0,
+		},
+		{
+			name: "duplicate by external_id with new replies merges replies",
+			existing: CritJSON{
+				Files: map[string]CritJSONFile{
+					"main.go": {Comments: []Comment{{
+						ID: "c_abc", StartLine: 10, EndLine: 10,
+						Body: "fix this",
+					}}},
+				},
+			},
+			incoming: []webComment{{
+				ExternalID: "c_abc", FilePath: "main.go",
+				StartLine: 10, EndLine: 10, Body: "fix this",
+				Replies: []webReply{{Body: "done", AuthorDisplayName: "reviewer"}},
+			}},
+			wantNew: 0, wantReplies: 1,
+		},
+		{
+			name: "duplicate by fingerprint is skipped",
+			existing: CritJSON{
+				Files: map[string]CritJSONFile{
+					"main.go": {Comments: []Comment{{
+						ID: "web-1", StartLine: 5, EndLine: 5,
+						Body: "typo here",
+					}}},
+				},
+			},
+			incoming: []webComment{{
+				FilePath: "main.go", StartLine: 5, EndLine: 5,
+				Body: "typo here",
+			}},
+			wantNew: 0, wantReplies: 0,
+		},
+		{
+			name: "genuinely new comment is kept",
+			existing: CritJSON{
+				Files: map[string]CritJSONFile{
+					"main.go": {Comments: []Comment{{
+						ID: "c_abc", StartLine: 10, EndLine: 10,
+						Body: "fix this",
+					}}},
+				},
+			},
+			incoming: []webComment{{
+				FilePath: "main.go", StartLine: 20, EndLine: 20,
+				Body:              "new issue here",
+				AuthorDisplayName: "reviewer",
+			}},
+			wantNew: 1, wantReplies: 0,
+		},
+		{
+			name: "mix of duplicates and new",
+			existing: CritJSON{
+				Files: map[string]CritJSONFile{
+					"main.go": {Comments: []Comment{{
+						ID: "c_abc", StartLine: 10, EndLine: 10,
+						Body: "existing",
+					}}},
+				},
+			},
+			incoming: []webComment{
+				{ExternalID: "c_abc", FilePath: "main.go", StartLine: 10, EndLine: 10, Body: "existing"},
+				{FilePath: "main.go", StartLine: 30, EndLine: 30, Body: "brand new"},
+			},
+			wantNew: 1, wantReplies: 0,
+		},
+		{
+			name: "review-level duplicate by fingerprint is skipped",
+			existing: CritJSON{
+				ReviewComments: []Comment{{
+					ID: "web-1", Body: "overall looks good",
+				}},
+			},
+			incoming: []webComment{{
+				Scope: "review", Body: "overall looks good",
+			}},
+			wantNew: 0, wantReplies: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			newComments, replyUpdates := dedupWebComments(tt.existing, tt.incoming)
+			if len(newComments) != tt.wantNew {
+				t.Errorf("got %d new comments, want %d", len(newComments), tt.wantNew)
+			}
+			if len(replyUpdates) != tt.wantReplies {
+				t.Errorf("got %d reply updates, want %d", len(replyUpdates), tt.wantReplies)
+			}
+		})
 	}
 }

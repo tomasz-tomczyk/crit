@@ -282,7 +282,7 @@ func unpublishFromWeb(shareURL string, deleteToken string, authToken string) err
 // decodeJSONOrHTMLHint reads up to 10MB from resp.Body, detects HTML
 // responses (typical of an SSO reverse proxy intercepting the request with a
 // login page), and either decodes the JSON into v or returns an actionable
-// error pointing the user at share_flow=popup.
+// error pointing the user at proxy_auth=true.
 //
 // Replaces direct json.NewDecoder(resp.Body).Decode(&v) at every share
 // network call site so the SSO failure path produces a meaningful error
@@ -295,7 +295,7 @@ func decodeJSONOrHTMLHint(resp *http.Response, v any) error {
 	trimmed := bytes.TrimLeft(raw, " \t\r\n")
 	if bytes.HasPrefix(trimmed, []byte("<")) {
 		return fmt.Errorf("crit-web returned an HTML page instead of JSON — likely behind an SSO reverse proxy. " +
-			"Set 'share_flow': 'popup' in your crit config and use the browser UI to share")
+			"Set 'proxy_auth': true in your crit config and use the browser UI to share")
 	}
 	if err := json.Unmarshal(raw, v); err != nil {
 		return fmt.Errorf("decode share response: %w", err)
@@ -665,6 +665,25 @@ func loadExistingShareCfg(critPath string, paths []string) (CritJSON, bool, erro
 		return CritJSON{}, false, nil
 	}
 	return cj, true, nil
+}
+
+// dedupWebComments filters incoming web comments against the local review state,
+// returning only genuinely new comments and any reply updates for existing ones.
+// This is the dedup entry point used by handleMergeComments (browser relay path)
+// to match the same dedup logic that fetchWebComments uses on the direct path.
+func dedupWebComments(cj CritJSON, incoming []webComment) ([]webComment, map[string][]webReply) {
+	localIDs := buildLocalIDSet(cj)
+	localFingerprints, localFingerprintIDs := buildLocalFingerprintIndex(cj)
+	replyUpdates := make(map[string][]webReply)
+
+	var newComments []webComment
+	for _, wc := range incoming {
+		if dropDuplicateWebComment(wc, localIDs, localFingerprints, localFingerprintIDs, replyUpdates) {
+			continue
+		}
+		newComments = append(newComments, wc)
+	}
+	return newComments, replyUpdates
 }
 
 // buildLocalIDSet collects all local comment IDs across all files and review comments.
