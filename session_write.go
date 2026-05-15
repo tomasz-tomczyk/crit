@@ -49,16 +49,19 @@ func (s *Session) critJSONPath() string {
 // writeFilesSnapshot holds all session state needed to write the review file,
 // captured under lock so that disk I/O can happen without holding the lock.
 type writeFilesSnapshot struct {
-	critPath       string
-	lastMtime      time.Time
-	branch         string
-	baseRef        string
-	reviewRound    int
-	sharedURL      string
-	deleteToken    string
-	shareScope     string
-	reviewComments []Comment
-	cliArgs        []string
+	critPath        string
+	lastMtime       time.Time
+	branch          string
+	baseRef         string
+	reviewRound     int
+	sharedURL       string
+	deleteToken     string
+	shareScope      string
+	shareOrg        string
+	shareOrgName    string
+	shareVisibility string
+	reviewComments  []Comment
+	cliArgs         []string
 	// pendingGHDeletes is the snapshot of session.pendingGitHubDeletes; carried
 	// into CritJSON so the next push can drain DELETE intents that were never
 	// flushed (e.g. user deleted, then quit before pushing).
@@ -142,6 +145,9 @@ func buildCritJSON(snap writeFilesSnapshot) CritJSON {
 	cj.ShareURL = snap.sharedURL
 	cj.DeleteToken = snap.deleteToken
 	cj.ShareScope = snap.shareScope
+	cj.ShareOrg = snap.shareOrg
+	cj.ShareOrgName = snap.shareOrgName
+	cj.ShareVisibility = snap.shareVisibility
 	cj.ReviewComments = snap.reviewComments
 	cj.CliArgs = snap.cliArgs
 	cj.PendingGitHubDeletes = reconcilePendingGHDeletes(
@@ -359,6 +365,9 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 		sharedURL:           s.sharedURL,
 		deleteToken:         s.deleteToken,
 		shareScope:          s.shareScope,
+		shareOrg:            s.shareOrg,
+		shareOrgName:        s.shareOrgName,
+		shareVisibility:     s.shareVisibility,
 		reviewComments:      rc,
 		cliArgs:             s.CLIArgs,
 		pendingGHDeletes:    pendDeletes,

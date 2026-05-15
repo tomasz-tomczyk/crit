@@ -179,6 +179,18 @@
   --author-5-bg: rgba(85,200,200,0.15);
   --author-5-border: rgba(85,200,200,0.35);
   --author-5-fg: #60d0d0;
+
+  /* ---- Org share modal ---- */
+  --crit-option-hover:       rgba(133, 170, 248, 0.06);
+  --crit-option-selected-bg: rgba(133, 170, 248, 0.08);
+  --crit-focus-ring:         rgba(133, 170, 248, 0.5);
+  --crit-green-hover:        #6ade7a;
+  --crit-vis-org-bg:         rgba(133, 170, 248, 0.10);
+  --crit-vis-org-fg:         #85aaf8;
+  --crit-vis-unlisted-bg:    rgba(255, 158, 100, 0.10);
+  --crit-vis-unlisted-fg:    #ff9e64;
+  --crit-vis-public-bg:      rgba(86, 211, 100, 0.10);
+  --crit-vis-public-fg:      #56d364;
 }
 
 /* ===== System preference: light ===== */
@@ -323,6 +335,18 @@
     --author-5-bg: rgba(14,110,110,0.10);
     --author-5-border: rgba(14,110,110,0.25);
     --author-5-fg: #0e6e6e;
+
+    /* ---- Org share modal ---- */
+    --crit-option-hover:       rgba(61, 106, 224, 0.04);
+    --crit-option-selected-bg: rgba(61, 106, 224, 0.06);
+    --crit-focus-ring:         rgba(61, 106, 224, 0.4);
+    --crit-green-hover:        #178a33;
+    --crit-vis-org-bg:         rgba(61, 106, 224, 0.08);
+    --crit-vis-org-fg:         #3d6ae0;
+    --crit-vis-unlisted-bg:    rgba(214, 122, 44, 0.08);
+    --crit-vis-unlisted-fg:    #d67a2c;
+    --crit-vis-public-bg:      rgba(26, 157, 59, 0.08);
+    --crit-vis-public-fg:      #1a9d3b;
   }
 }
 
@@ -467,6 +491,18 @@
   --author-5-bg: rgba(85,200,200,0.15);
   --author-5-border: rgba(85,200,200,0.35);
   --author-5-fg: #60d0d0;
+
+  /* ---- Org share modal ---- */
+  --crit-option-hover:       rgba(133, 170, 248, 0.06);
+  --crit-option-selected-bg: rgba(133, 170, 248, 0.08);
+  --crit-focus-ring:         rgba(133, 170, 248, 0.5);
+  --crit-green-hover:        #6ade7a;
+  --crit-vis-org-bg:         rgba(133, 170, 248, 0.10);
+  --crit-vis-org-fg:         #85aaf8;
+  --crit-vis-unlisted-bg:    rgba(255, 158, 100, 0.10);
+  --crit-vis-unlisted-fg:    #ff9e64;
+  --crit-vis-public-bg:      rgba(86, 211, 100, 0.10);
+  --crit-vis-public-fg:      #56d364;
 }
 
 /* ===== Light (explicit) ===== */
@@ -610,6 +646,18 @@
   --author-5-bg: rgba(14,110,110,0.10);
   --author-5-border: rgba(14,110,110,0.25);
   --author-5-fg: #0e6e6e;
+
+  /* ---- Org share modal ---- */
+  --crit-option-hover:       rgba(61, 106, 224, 0.04);
+  --crit-option-selected-bg: rgba(61, 106, 224, 0.06);
+  --crit-focus-ring:         rgba(61, 106, 224, 0.4);
+  --crit-green-hover:        #178a33;
+  --crit-vis-org-bg:         rgba(61, 106, 224, 0.08);
+  --crit-vis-org-fg:         #3d6ae0;
+  --crit-vis-unlisted-bg:    rgba(214, 122, 44, 0.08);
+  --crit-vis-unlisted-fg:    #d67a2c;
+  --crit-vis-public-bg:      rgba(26, 157, 59, 0.08);
+  --crit-vis-public-fg:      #1a9d3b;
 }
 
 /* ===== highlight.js Dark Theme (Tokyo Night Dark) =====

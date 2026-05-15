@@ -297,6 +297,9 @@ type Session struct {
 	sharedURL           string
 	deleteToken         string
 	shareScope          string
+	shareOrg            string
+	shareOrgName        string
+	shareVisibility     string
 	status              *Status
 	roundComplete       chan struct{}
 	pendingEdits        int
@@ -332,17 +335,20 @@ type Session struct {
 
 // CritJSON is the on-disk format for review files.
 type CritJSON struct {
-	Branch         string                  `json:"branch"`
-	BaseRef        string                  `json:"base_ref"`
-	UpdatedAt      string                  `json:"updated_at"`
-	ReviewRound    int                     `json:"review_round"`
-	ShareURL       string                  `json:"share_url,omitempty"`
-	DeleteToken    string                  `json:"delete_token,omitempty"`
-	ShareScope     string                  `json:"share_scope,omitempty"`
-	LastShareHash  string                  `json:"last_share_hash,omitempty"`
-	ReviewComments []Comment               `json:"review_comments,omitempty"`
-	CliArgs        []string                `json:"cli_args,omitempty"`
-	Files          map[string]CritJSONFile `json:"files"`
+	Branch          string                  `json:"branch"`
+	BaseRef         string                  `json:"base_ref"`
+	UpdatedAt       string                  `json:"updated_at"`
+	ReviewRound     int                     `json:"review_round"`
+	ShareURL        string                  `json:"share_url,omitempty"`
+	DeleteToken     string                  `json:"delete_token,omitempty"`
+	ShareScope      string                  `json:"share_scope,omitempty"`
+	ShareOrg        string                  `json:"share_org,omitempty"`
+	ShareOrgName    string                  `json:"share_org_name,omitempty"`
+	ShareVisibility string                  `json:"share_visibility,omitempty"`
+	LastShareHash   string                  `json:"last_share_hash,omitempty"`
+	ReviewComments  []Comment               `json:"review_comments,omitempty"`
+	CliArgs         []string                `json:"cli_args,omitempty"`
+	Files           map[string]CritJSONFile `json:"files"`
 
 	// ActiveDiffScope is the most recent focus diff_scope from this session.
 	// Read by `crit push` to gate full-stack pushes; "" indicates working-tree mode.
@@ -1531,6 +1537,21 @@ func (s *Session) GetShareState() (string, string) {
 	return s.sharedURL, s.deleteToken
 }
 
+func (s *Session) SetShareOrgInfo(org, orgName, visibility string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.shareOrg = org
+	s.shareOrgName = orgName
+	s.shareVisibility = visibility
+	s.scheduleWrite()
+}
+
+func (s *Session) GetShareOrgInfo() (string, string, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.shareOrg, s.shareOrgName, s.shareVisibility
+}
+
 // LoadShareFilesFromDisk reads file content from disk for all session files,
 // returning share-ready file entries. Orphaned files (removed between rounds)
 // are included with empty content and the orphaned flag set so crit-web can
@@ -1874,13 +1895,18 @@ func (s *Session) restoreShareStateLocked(cj *CritJSON) {
 			s.sharedURL = cj.ShareURL
 			s.deleteToken = cj.DeleteToken
 			s.shareScope = cj.ShareScope
+			s.shareOrg = cj.ShareOrg
+			s.shareOrgName = cj.ShareOrgName
+			s.shareVisibility = cj.ShareVisibility
 		}
 		return
 	}
 	if cj.ShareURL != "" {
-		// No scope recorded — load unconditionally.
 		s.sharedURL = cj.ShareURL
 		s.deleteToken = cj.DeleteToken
+		s.shareOrg = cj.ShareOrg
+		s.shareOrgName = cj.ShareOrgName
+		s.shareVisibility = cj.ShareVisibility
 	}
 }
 

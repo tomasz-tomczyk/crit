@@ -346,6 +346,7 @@
   let hostedToken = '';    // server-derived (tokenFromHostedURL); never URL-parsed in JS
   let configAuthor = '';
 
+
   // ===== Share Receiver Popup Relay =====
   // openShareReceiver(shareURL) opens the crit-web /share-receiver page in a
   // popup, exchanges a MessagePort handshake, and returns a session handle:
@@ -467,6 +468,9 @@
     };
   }
 
+  let cachedOrgs = null;
+  let sharedOrg = null; // {slug, name} if shared under an org, null if personal
+  let sharedVisibility = ''; // 'organization', 'unlisted', or 'public'
   let uiState = 'reviewing';
   let waitingNotApproved = false;
   let hiddenUnresolved = 0;
@@ -902,6 +906,13 @@
     proxyAuth = !!configRes.proxy_auth;
     hostedToken = configRes.hosted_token || '';
     configAuthor = configRes.author || '';
+    if (configRes.share_org) {
+      sharedOrg = { slug: configRes.share_org, name: configRes.share_org_name || configRes.share_org };
+      sharedVisibility = configRes.share_visibility || '';
+    } else {
+      sharedOrg = null;
+      sharedVisibility = '';
+    }
     agentEnabled = configRes.agent_cmd_enabled || false;
     agentName = configRes.agent_name || 'agent';
 
@@ -7916,6 +7927,336 @@
     }
   }
 
+  let fetchOrgsPromise = null;
+  async function fetchOrgs() {
+    if (cachedOrgs !== null) return cachedOrgs;
+    if (fetchOrgsPromise) return fetchOrgsPromise;
+    fetchOrgsPromise = (async function() {
+      try {
+        const resp = await fetch('/api/auth/orgs');
+        if (!resp.ok) { cachedOrgs = []; return cachedOrgs; }
+        cachedOrgs = await resp.json();
+      } catch {
+        cachedOrgs = [];
+      }
+      fetchOrgsPromise = null;
+      return cachedOrgs;
+    })();
+    return fetchOrgsPromise;
+  }
+
+  async function performShare(org, visibility, orgMeta, popupSession) {
+    if (shareInFlight) return;
+    shareInFlight = true;
+
+    setShareButtonState('sharing');
+    dismissToast('share');
+    try {
+      let result;
+      if (popupSession) {
+        const payloadResp = await fetch('/api/share/payload');
+        if (!payloadResp.ok) {
+          const errBody = await payloadResp.json().catch(function() { return {}; });
+          throw new Error(errBody.error || 'failed to build share payload');
+        }
+        const payload = await payloadResp.json();
+        if (org) payload.org = org;
+        if (visibility) payload.visibility = visibility;
+        if (orgMeta && orgMeta.name) payload.org_name = orgMeta.name;
+        result = await popupSession.run('share', { payload: payload });
+
+        const persistResp = await fetch('/api/share-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: result.url,
+            delete_token: result.delete_token || '',
+            org: org || '',
+            org_name: (orgMeta && orgMeta.name) || '',
+            visibility: visibility || '',
+          }),
+        });
+        if (!persistResp.ok) throw new Error('Server error persisting share state ' + persistResp.status);
+        const persisted = await persistResp.json().catch(function() { return {}; });
+        if (!persisted.hosted_token) {
+          console.warn('share: /api/share-url did not return hosted_token');
+        }
+        hostedToken = persisted.hosted_token || '';
+      } else {
+        const opts = { method: 'POST' };
+        if (org || visibility) {
+          opts.headers = { 'Content-Type': 'application/json' };
+          const shareBody = {};
+          if (org) shareBody.org = org;
+          if (visibility) shareBody.visibility = visibility;
+          if (orgMeta && orgMeta.name) shareBody.org_name = orgMeta.name;
+          opts.body = JSON.stringify(shareBody);
+        }
+        const resp = await fetch('/api/share', opts);
+        if (!resp.ok) {
+          const errBody = await resp.json().catch(function() { return {}; });
+          throw new Error(errBody.error || 'Server error ' + resp.status);
+        }
+        result = await resp.json();
+        try {
+          const cfgResp = await fetch('/api/config');
+          if (cfgResp.ok) {
+            const cfg = await cfgResp.json();
+            hostedToken = cfg.hosted_token || '';
+          }
+        } catch { /* non-fatal; hostedToken will be empty */ }
+      }
+      hostedURL = result.url;
+      deleteToken = result.delete_token || '';
+      sharedOrg = orgMeta || null;
+      sharedVisibility = visibility || 'unlisted';
+      setShareButtonState('shared');
+      showShareModal();
+    } catch (err) {
+      setShareButtonState('default');
+      showShareError(err);
+    } finally {
+      if (popupSession) popupSession.close();
+      shareInFlight = false;
+    }
+  }
+
+  function showOrgShareModal(orgs) {
+    closeShareModal();
+    const overlay = document.createElement('div');
+    overlay.className = 'share-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'orgShareTitle');
+
+    const savedOrg = getSetting('shareOrg', '');
+    const savedVis = getSetting('shareVisibility', '');
+    const initials = authUserName
+      ? authUserName.split(/\s+/).filter(Boolean).map(function(w) { return w[0]; }).join('').slice(0, 2).toUpperCase()
+      : '';
+
+    const ICON_ORG = '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 16A1.75 1.75 0 0 1 0 14.25V1.75C0 .784.784 0 1.75 0h8.5C11.216 0 12 .784 12 1.75v12.5c0 .085-.006.168-.018.25h2.268a.25.25 0 0 0 .25-.25V8.285a.25.25 0 0 0-.111-.208l-1.055-.703a.749.749 0 1 1 .832-1.248l1.055.703c.487.325.777.871.777 1.456v5.965A1.75 1.75 0 0 1 14.25 16h-3.5a.766.766 0 0 1-.197-.026c-.099.017-.2.026-.303.026h-3a.75.75 0 0 1-.75-.75V14h-1v1.25a.75.75 0 0 1-.75.75h-3Zm-.25-1.75c0 .138.112.25.25.25H4v-1.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 .75.75v1.25h2.25a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25ZM3.75 6h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5ZM3 3.75A.75.75 0 0 1 3.75 3h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 3 3.75Zm4 3A.75.75 0 0 1 7.75 6h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 7 6.75ZM7.75 3h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5ZM3 9.75A.75.75 0 0 1 3.75 9h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 3 9.75ZM7.75 9h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5Z"/></svg>';
+    const ICON_VIS_ORG = '<svg class="sd-org-vis-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 16A1.75 1.75 0 0 1 0 14.25V1.75C0 .784.784 0 1.75 0h8.5C11.216 0 12 .784 12 1.75v12.5c0 .085-.006.168-.018.25h2.268a.25.25 0 0 0 .25-.25V8.285a.25.25 0 0 0-.111-.208l-1.055-.703a.749.749 0 1 1 .832-1.248l1.055.703c.487.325.777.871.777 1.456v5.965A1.75 1.75 0 0 1 14.25 16h-3.5a.766.766 0 0 1-.197-.026c-.099.017-.2.026-.303.026h-3a.75.75 0 0 1-.75-.75V14h-1v1.25a.75.75 0 0 1-.75.75h-3Zm-.25-1.75c0 .138.112.25.25.25H4v-1.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 .75.75v1.25h2.25a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25ZM3.75 6h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5ZM3 3.75A.75.75 0 0 1 3.75 3h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 3 3.75Zm4 3A.75.75 0 0 1 7.75 6h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 7 6.75ZM7.75 3h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5ZM3 9.75A.75.75 0 0 1 3.75 9h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 3 9.75ZM7.75 9h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5Z"/></svg>';
+    const ICON_VIS_UNLISTED = '<svg class="sd-org-vis-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14s-3.671-.992-4.933-2.078C1.797 10.831.88 9.577.43 8.9a1.619 1.619 0 0 1 0-1.798c.45-.678 1.367-1.932 2.637-3.023C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5s2.825-.742 3.955-1.715c1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5S5.176 4.242 4.045 5.215C2.92 6.182 2.09 7.311 1.679 7.932ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"/></svg>';
+    const ICON_VIS_PUBLIC = '<svg class="sd-org-vis-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>';
+
+    const isPersonalSelected = !savedOrg || !orgs.some(function(o) { return o.slug === savedOrg; });
+
+    // Build owner rows using sd-org-owner-option (custom radio, no native input)
+    let ownerRows = '';
+    ownerRows +=
+      '<div class="sd-org-owner-option" role="radio" aria-checked="' + isPersonalSelected + '" tabindex="' + (isPersonalSelected ? '0' : '-1') + '" data-owner="" data-default-vis="unlisted">' +
+        '<span class="sd-org-radio"><span class="sd-org-radio-dot"></span></span>' +
+        '<span class="sd-org-avatar sd-org-avatar--personal">' + escapeHtml(initials || '?') + '</span>' +
+        '<span class="sd-org-owner-info"><span class="sd-org-owner-name">' + escapeHtml(authUserName || 'Personal') + '</span><span class="sd-org-owner-slug">Personal</span></span>' +
+      '</div>';
+    for (let oi = 0; oi < orgs.length; oi++) {
+      const org = orgs[oi];
+      const isSelected = savedOrg === org.slug;
+      ownerRows +=
+        '<div class="sd-org-owner-option" role="radio" aria-checked="' + isSelected + '" tabindex="' + (isSelected ? '0' : '-1') + '" data-owner="' + escapeHtml(org.slug) + '" data-default-vis="organization">' +
+          '<span class="sd-org-radio"><span class="sd-org-radio-dot"></span></span>' +
+          '<span class="sd-org-avatar sd-org-avatar--org">' + ICON_ORG + '</span>' +
+          '<span class="sd-org-owner-info"><span class="sd-org-owner-name">' + escapeHtml(org.name) + '</span><span class="sd-org-owner-slug">' + escapeHtml(org.slug) + '</span></span>' +
+        '</div>';
+    }
+
+    overlay.innerHTML =
+      '<div class="share-dialog sd-org-dialog">' +
+        '<div class="sd-org-header">' +
+          '<h3 id="orgShareTitle" class="sd-org-title">Share review</h3>' +
+          '<button class="sd-org-close" aria-label="Close"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z"/></svg></button>' +
+        '</div>' +
+        '<div class="sd-org-body">' +
+          '<div>' +
+            '<label class="sd-org-label" id="orgOwnerLabel">Owner</label>' +
+            '<div class="sd-org-owner-list" role="radiogroup" aria-labelledby="orgOwnerLabel">' + ownerRows + '</div>' +
+          '</div>' +
+          '<div>' +
+            '<label class="sd-org-label" id="orgVisLabel">Visibility</label>' +
+            '<div class="sd-org-vis-options" role="radiogroup" aria-labelledby="orgVisLabel" id="orgVisOptions">' +
+              '<div class="sd-org-vis-option" role="radio" aria-checked="false" tabindex="-1" data-vis="organization" style="display:none">' +
+                '<span class="sd-org-radio"><span class="sd-org-radio-dot"></span></span>' +
+                ICON_VIS_ORG +
+                '<span class="sd-org-vis-text"><span class="sd-org-vis-label">Organization</span><span class="sd-org-vis-desc" id="orgVisOrgDesc">Only members can view</span></span>' +
+              '</div>' +
+              '<div class="sd-org-vis-option" role="radio" aria-checked="false" tabindex="-1" data-vis="unlisted">' +
+                '<span class="sd-org-radio"><span class="sd-org-radio-dot"></span></span>' +
+                ICON_VIS_UNLISTED +
+                '<span class="sd-org-vis-text"><span class="sd-org-vis-label">Unlisted</span><span class="sd-org-vis-desc" id="orgVisUnlistedDesc">Anyone with the link can view</span></span>' +
+              '</div>' +
+              '<div class="sd-org-vis-option" role="radio" aria-checked="false" tabindex="-1" data-vis="public">' +
+                '<span class="sd-org-radio"><span class="sd-org-radio-dot"></span></span>' +
+                ICON_VIS_PUBLIC +
+                '<span class="sd-org-vis-text"><span class="sd-org-vis-label">Public</span><span class="sd-org-vis-desc">Discoverable by anyone on the web</span></span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<label class="sd-org-remember"><input type="checkbox" id="orgRememberCheck" /><span class="sd-org-remember-text">Remember my choice</span></label>' +
+        '</div>' +
+        '<div class="sd-org-footer">' +
+          '<span class="sd-org-consent">Uploads to <a href="' + escapeHtml(shareURL) + '" target="_blank" rel="noopener">' + escapeHtml(shareURL.replace(/^https?:\/\//, '')) + '</a></span>' +
+          '<div class="sd-org-footer-actions">' +
+            '<button class="sd-org-btn-cancel" id="orgCancelBtn">Cancel</button>' +
+            '<button class="sd-org-btn-share" id="orgShareBtn">Share</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+    shareModalEl = overlay;
+
+    const ownerList = overlay.querySelector('.sd-org-owner-list');
+    const visOptions = overlay.querySelector('#orgVisOptions');
+    const orgVisOption = visOptions.querySelector('[data-vis="organization"]');
+    const orgVisDesc = overlay.querySelector('#orgVisOrgDesc');
+    const unlistedVisDesc = overlay.querySelector('#orgVisUnlistedDesc');
+
+    function selectOwner(el) {
+      ownerList.querySelectorAll('.sd-org-owner-option').forEach(function(o) {
+        o.setAttribute('aria-checked', 'false');
+        o.setAttribute('tabindex', '-1');
+      });
+      el.setAttribute('aria-checked', 'true');
+      el.setAttribute('tabindex', '0');
+      el.focus();
+      const owner = el.getAttribute('data-owner');
+      const orgName = el.querySelector('.sd-org-owner-name').textContent;
+      if (owner) {
+        orgVisOption.style.display = '';
+        orgVisDesc.textContent = 'Only members of ' + orgName + ' can view';
+        unlistedVisDesc.textContent = 'Anyone with the link at ' + orgName + ' can view';
+      } else {
+        orgVisOption.style.display = 'none';
+        unlistedVisDesc.textContent = 'Anyone with the link can view';
+        if (orgVisOption.getAttribute('aria-checked') === 'true') {
+          selectVis(visOptions.querySelector('[data-vis="unlisted"]'));
+        }
+      }
+      selectVis(visOptions.querySelector('[data-vis="' + el.getAttribute('data-default-vis') + '"]'));
+    }
+
+    function selectVis(el) {
+      if (!el || el.style.display === 'none') return;
+      visOptions.querySelectorAll('.sd-org-vis-option').forEach(function(o) {
+        o.setAttribute('aria-checked', 'false');
+        o.setAttribute('tabindex', '-1');
+      });
+      el.setAttribute('aria-checked', 'true');
+      el.setAttribute('tabindex', '0');
+    }
+
+    function radioKeyNav(container, selector, selectFn) {
+      container.addEventListener('keydown', function(e) {
+        const items = Array.from(container.querySelectorAll(selector)).filter(function(o) { return o.style.display !== 'none'; });
+        const current = e.target.closest(selector);
+        if (!current) return;
+        const idx = items.indexOf(current);
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          selectFn(items[(idx + 1) % items.length]);
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          selectFn(items[(idx - 1 + items.length) % items.length]);
+        }
+      });
+    }
+
+    ownerList.addEventListener('click', function(e) {
+      const opt = e.target.closest('.sd-org-owner-option');
+      if (opt) selectOwner(opt);
+    });
+    radioKeyNav(ownerList, '.sd-org-owner-option', selectOwner);
+
+    visOptions.addEventListener('click', function(e) {
+      const opt = e.target.closest('.sd-org-vis-option');
+      if (opt && opt.style.display !== 'none') { selectVis(opt); opt.focus(); }
+    });
+    radioKeyNav(visOptions, '.sd-org-vis-option', function(el) { selectVis(el); el.focus(); });
+
+    // Apply initial selection
+    const initialOwner = ownerList.querySelector('[aria-checked="true"]');
+    if (initialOwner) {
+      const owner = initialOwner.getAttribute('data-owner');
+      if (owner) {
+        const initialOrgName = initialOwner.querySelector('.sd-org-owner-name').textContent;
+        orgVisOption.style.display = '';
+        orgVisDesc.textContent = 'Only members of ' + initialOrgName + ' can view';
+        unlistedVisDesc.textContent = 'Anyone with the link at ' + initialOrgName + ' can view';
+      }
+      const defVis = savedVis || initialOwner.getAttribute('data-default-vis');
+      const visEl = visOptions.querySelector('[data-vis="' + defVis + '"]');
+      if (visEl && visEl.style.display !== 'none') {
+        selectVis(visEl);
+      } else {
+        selectVis(visOptions.querySelector('[data-vis="' + initialOwner.getAttribute('data-default-vis') + '"]'));
+      }
+    }
+
+    // Close handlers
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeShareModal(); });
+    overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeShareModal(); });
+    overlay.querySelector('.sd-org-close').addEventListener('click', closeShareModal);
+    overlay.querySelector('#orgCancelBtn').addEventListener('click', closeShareModal);
+
+    // Share handler
+    overlay.querySelector('#orgShareBtn').addEventListener('click', async function() {
+      const btn = this;
+      btn.disabled = true;
+
+      const selectedOwnerEl = ownerList.querySelector('[aria-checked="true"]');
+      const selectedVisEl = visOptions.querySelector('[aria-checked="true"]');
+      const orgSlug = selectedOwnerEl ? selectedOwnerEl.getAttribute('data-owner') : '';
+      const visibility = selectedVisEl ? selectedVisEl.getAttribute('data-vis') : 'unlisted';
+      const remember = overlay.querySelector('#orgRememberCheck').checked;
+
+      if (remember) {
+        setSetting('shareOrg', orgSlug);
+        setSetting('shareVisibility', visibility);
+      }
+
+      const orgMeta = orgSlug && selectedOwnerEl
+        ? { slug: orgSlug, name: selectedOwnerEl.querySelector('.sd-org-owner-name').textContent }
+        : null;
+
+      closeShareModal();
+
+      // Open popup synchronously BEFORE any await — Safari blocks popups
+      // after async gaps.
+      let popupSession = null;
+      if (proxyAuth) {
+        try { popupSession = openShareReceiver(shareURL); }
+        catch (err) { btn.disabled = false; showShareError(err); return; }
+      }
+
+      if (needsShareConsent) {
+        try {
+          const cr = await fetch('/api/share-consent', { method: 'POST' });
+          if (cr.ok) {
+            needsShareConsent = false;
+          } else {
+            btn.disabled = false;
+            if (popupSession) popupSession.close();
+            showToast('share', 'error', '<span>Failed to record consent. Please try again.</span>');
+            return;
+          }
+        } catch {
+          btn.disabled = false;
+          if (popupSession) popupSession.close();
+          showToast('share', 'error', '<span>Network error. Please try again.</span>');
+          return;
+        }
+      }
+
+      performShare(orgSlug, visibility, orgMeta, popupSession);
+    });
+
+    requestAnimationFrame(function() {
+      const btn = overlay.querySelector('#orgShareBtn');
+      if (btn) btn.focus();
+    });
+  }
+
   function showConsentModal() {
     closeShareModal();
     const overlay = document.createElement('div');
@@ -7998,6 +8339,41 @@
           '</div>' +
         '</div>';
 
+    let subtitleText = 'Anyone with the link can read it. The page works without an account.';
+    let orgStripHtml = '';
+    if (sharedOrg) {
+      const orgName = escapeHtml(sharedOrg.name);
+      const vis = sharedVisibility || 'unlisted';
+      const ICON_BUILDING_SM = '<svg class="sd-shared-org-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1A1.75 1.75 0 000 2.75v10.5C0 14.216.784 15 1.75 15h4.5a.75.75 0 00.75-.75v-3.5a.25.25 0 01.25-.25h1.5a.25.25 0 01.25.25v3.5c0 .414.336.75.75.75h4.5A1.75 1.75 0 0016 13.25V2.75A1.75 1.75 0 0014.25 1H1.75zm.25 1.75a.25.25 0 01.25-.25h11.5a.25.25 0 01.25.25v10.5a.25.25 0 01-.25.25H10v-2.75A1.75 1.75 0 008.25 9h-1.5A1.75 1.75 0 005 10.75V14H2.25a.25.25 0 01-.25-.25V2.75zM4 4a1 1 0 011-1h1a1 1 0 010 2H5a1 1 0 01-1-1zm6-1a1 1 0 100 2h1a1 1 0 100-2h-1zM4 7a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm6-1a1 1 0 100 2h1a1 1 0 100-2h-1z"/></svg>';
+      let pillIcon = '';
+      const pillClass = 'sd-shared-vis-pill--' + vis;
+      let pillLabel = '';
+      let hintText = '';
+      if (vis === 'organization') {
+        subtitleText = 'Only ' + orgName + ' members can view this review.';
+        pillIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M7.467.133a1.75 1.75 0 011.066 0l5.25 1.68A1.75 1.75 0 0115 3.48V7c0 1.566-.32 3.182-1.303 4.682-.983 1.498-2.585 2.813-5.032 3.855a1.7 1.7 0 01-1.33 0c-2.447-1.042-4.049-2.357-5.032-3.855C1.32 10.182 1 8.566 1 7V3.48a1.75 1.75 0 011.217-1.667l5.25-1.68zm.61 1.429a.25.25 0 00-.153 0l-5.25 1.68a.25.25 0 00-.174.238V7c0 1.358.275 2.666 1.057 3.86.784 1.194 2.121 2.34 4.366 3.297a.2.2 0 00.154 0c2.245-.956 3.582-2.103 4.366-3.298C13.225 9.666 13.5 8.358 13.5 7V3.48a.25.25 0 00-.174-.238l-5.25-1.68z"/></svg>';
+        pillLabel = 'Members only';
+      } else if (vis === 'unlisted') {
+        subtitleText = 'Anyone at ' + orgName + ' with the link can view this review.';
+        pillIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z"/></svg>';
+        pillLabel = 'Unlisted';
+        hintText = 'Anyone at org with link';
+      } else if (vis === 'public') {
+        subtitleText = 'This review is discoverable by anyone on the web.';
+        pillIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>';
+        pillLabel = 'Public';
+        hintText = 'Discoverable by anyone';
+      }
+      orgStripHtml =
+        '<div class="sd-shared-org-strip">' +
+          ICON_BUILDING_SM +
+          '<span class="sd-shared-org-name">' + orgName + '</span>' +
+          '<span class="sd-shared-org-sep">&middot;</span>' +
+          '<span class="sd-shared-vis-pill ' + pillClass + '">' + pillIcon + pillLabel + '</span>' +
+          (hintText ? '<span class="sd-shared-vis-hint">' + hintText + '</span>' : '') +
+        '</div>';
+    }
+
     overlay.innerHTML =
       '<div class="share-dialog">' +
         '<div class="share-dialog-body">' +
@@ -8007,7 +8383,7 @@
           '</div>' +
           '<div class="share-dialog-narrative">' +
             '<h3 id="shareDialogTitle" class="share-dialog-headline">Your review is live.</h3>' +
-            '<p class="share-dialog-sub">Anyone with the link can read it. The page works without an account.</p>' +
+            '<p class="share-dialog-sub">' + subtitleText + '</p>' +
             '<div class="share-dialog-url">' +
               '<span>' + escapeHtml(hostedURL) + '</span>' +
               '<button class="copy-icon-btn" id="modalCopyBtn" aria-label="Copy link">' +
@@ -8015,6 +8391,7 @@
               '</button>' +
             '</div>' +
             nextShareBlock +
+            orgStripHtml +
           '</div>' +
         '</div>' +
         '<div class="sd-actions">' +
@@ -8308,6 +8685,8 @@
       hostedURL = '';
       deleteToken = '';
       hostedToken = '';
+      sharedOrg = null;
+      sharedVisibility = '';
       fetch('/api/share-url', { method: 'DELETE' }).catch(function() { /* fire-and-forget */ });
       closeShareModal();
       setShareButtonState('default');
@@ -8360,90 +8739,34 @@
       return;
     }
 
-    // First-time consent gate
-    if (needsShareConsent) {
-      showConsentModal();
-      return;
-    }
-
-    if (shareInFlight) return;
-    shareInFlight = true;
-
-    setShareButtonState('sharing');
-    dismissToast('share');
-
-    // CRITICAL: in popup mode, open the popup synchronously here — BEFORE any
-    // await — so the browser treats it as gesture-initiated. Awaiting first
-    // (e.g. fetching the payload) would cause Safari to popup-block.
+    // Open popup synchronously BEFORE any await — Safari blocks popups
+    // after async gaps. If we end up showing the org modal instead, close it.
     let popupSession = null;
     if (proxyAuth) {
-      try {
-        popupSession = openShareReceiver(shareURL);
-      } catch (err) {
-        setShareButtonState('default');
-        shareInFlight = false;
-        showShareError(err);
+      try { popupSession = openShareReceiver(shareURL); }
+      catch (err) { showShareError(err); return; }
+    }
+
+    // If user has orgs, show org share modal (handles consent inline)
+    if (authUserName) {
+      this.disabled = true;
+      const orgs = await fetchOrgs();
+      this.disabled = false;
+      if (orgs.length > 0) {
+        if (popupSession) popupSession.close();
+        showOrgShareModal(orgs);
         return;
       }
     }
 
-    try {
-      let result;
-      if (popupSession) {
-        const payloadResp = await fetch('/api/share/payload');
-        if (!payloadResp.ok) {
-          const errBody = await payloadResp.json().catch(function() { return {}; });
-          throw new Error(errBody.error || 'failed to build share payload');
-        }
-        const payload = await payloadResp.json();
-        result = await popupSession.run('share', { payload: payload });
-
-        // Persist server-side so unpublish/refresh paths know about the share.
-        // The Go server's POST /api/share-url derives hosted_token via
-        // tokenFromHostedURL — that derived token comes back in the response
-        // body so we don't need an /api/config re-poll.
-        const persistResp = await fetch('/api/share-url', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: result.url, delete_token: result.delete_token || '' }),
-        });
-        if (!persistResp.ok) throw new Error('Server error persisting share state ' + persistResp.status);
-        const persisted = await persistResp.json().catch(function() { return {}; });
-        if (!persisted.hosted_token) {
-          // Server-side bug: token derivation failed for a non-empty URL.
-          // Surface loudly rather than silently degrading.
-          console.warn('share: /api/share-url did not return hosted_token');
-        }
-        hostedToken = persisted.hosted_token || '';
-      } else {
-        // Legacy server-side share: Go server contacts crit-web directly.
-        const resp = await fetch('/api/share', { method: 'POST' });
-        if (!resp.ok) {
-          const errBody = await resp.json().catch(function() { return {}; });
-          throw new Error(errBody.error || 'Server error ' + resp.status);
-        }
-        result = await resp.json();
-        // Refresh hostedToken from /api/config (server-derived, single source
-        // of truth — never URL-parsed in JS).
-        try {
-          const cfgResp = await fetch('/api/config');
-          if (cfgResp.ok) {
-            const cfg = await cfgResp.json();
-            hostedToken = cfg.hosted_token || '';
-          }
-        } catch { /* non-fatal; hostedToken will be empty */ }
-      }
-      hostedURL = result.url;
-      deleteToken = result.delete_token || '';
-      setShareButtonState('shared');
-      showShareModal();
-    } catch (err) {
-      setShareButtonState('default');
-      showShareError(err);
-    } finally {
+    // No orgs — existing consent gate
+    if (needsShareConsent) {
       if (popupSession) popupSession.close();
-      shareInFlight = false;
+      showConsentModal();
+      return;
     }
+
+    performShare('', '', null, popupSession);
   });
 
   // Announce copy action to screen readers via live region

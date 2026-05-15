@@ -110,6 +110,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/api/focus", s.withReady(s.handleFocus))
 	mux.HandleFunc("/api/picker", s.withReady(s.handlePicker))
 
+	mux.HandleFunc("/api/auth/orgs", s.withReady(s.handleAuthOrgs))
 	mux.HandleFunc("/api/agent/request", s.withReady(s.handleAgentRequest))
 	mux.HandleFunc("/api/branches", s.withReady(s.handleBranches))
 	mux.HandleFunc("/api/base-branch", s.withReady(s.handleBaseBranch))
@@ -336,6 +337,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	latestVersion := s.latestVersion
 	s.versionMu.RUnlock()
 	sess := s.session.Load()
+	shareOrg, shareOrgName, shareVis := sess.GetShareOrgInfo()
 	resp := map[string]interface{}{
 		"share_url":         s.shareURL,
 		"needs_consent":     s.consentNeeded(),
@@ -343,6 +345,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"hosted_url":        sess.GetSharedURL(),
 		"hosted_token":      sess.GetToken(),
 		"delete_token":      sess.GetDeleteToken(),
+		"share_org":         shareOrg,
+		"share_org_name":    shareOrgName,
+		"share_visibility":  shareVis,
 		"version":           s.currentVersion,
 		"latest_version":    latestVersion,
 		"author":            s.author,
@@ -544,19 +549,35 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			URL         string `json:"url"`
 			DeleteToken string `json:"delete_token"`
+			Org         string `json:"org"`
+			OrgName     string `json:"org_name"`
+			Visibility  string `json:"visibility"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.URL == "" {
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
 		s.session.Load().SetSharedURLAndToken(body.URL, body.DeleteToken)
+		s.session.Load().SetShareOrgInfo(body.Org, body.OrgName, body.Visibility)
 		writeJSON(w, map[string]string{
 			"ok":           "true",
 			"hosted_token": tokenFromHostedURL(body.URL),
 		})
 
 	case http.MethodDelete:
+		// Unpublish from crit-web if we have a share URL and delete token.
+		if s.shareURL != "" {
+			if _, dt := s.session.Load().GetShareState(); dt != "" {
+				if err := unpublishFromWeb(s.shareURL, dt, s.authTokenSnapshot()); err != nil {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadGateway)
+					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+					return
+				}
+			}
+		}
 		s.session.Load().SetSharedURLAndToken("", "")
+		s.session.Load().SetShareOrgInfo("", "", "")
 		w.WriteHeader(http.StatusNoContent)
 
 	default:
@@ -606,8 +627,18 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		filePaths[i] = f.Path
 	}
 
+	// Parse optional org + visibility from request body.
+	var shareReq struct {
+		Org        string `json:"org"`
+		OrgName    string `json:"org_name"`
+		Visibility string `json:"visibility"`
+	}
+	if r.Body != nil && r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&shareReq)
+	}
+
 	critPath := s.session.Load().critJSONPath()
-	res, err := shareReviewFiles(critPath, files, filePaths, s.shareURL, s.authTokenSnapshot(), s.author)
+	res, err := shareReviewFiles(critPath, files, filePaths, s.shareURL, s.authTokenSnapshot(), s.author, shareReq.Org, shareReq.Visibility)
 	if err != nil {
 		if errors.Is(err, errShareUnauthorized) {
 			clearAuthIdentity()
@@ -621,6 +652,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 
 	s.session.Load().SetSharedURLAndToken(res.URL, res.DeleteToken)
 	s.session.Load().SetShareScope(shareScope(filePaths))
+	s.session.Load().SetShareOrgInfo(shareReq.Org, shareReq.OrgName, shareReq.Visibility)
 	writeJSON(w, map[string]any{"url": res.URL, "delete_token": res.DeleteToken})
 }
 
@@ -773,7 +805,7 @@ func (s *Server) handleSharePayload(w http.ResponseWriter, r *http.Request) {
 	critPath := sess.critJSONPath()
 	comments, reviewRound := loadCommentsForShare(critPath, filePaths, s.author)
 	cliArgs := loadCliArgsFromReviewFile(critPath)
-	writeJSON(w, buildSharePayload(files, comments, reviewRound, cliArgs))
+	writeJSON(w, buildSharePayload(files, comments, reviewRound, cliArgs, "", ""))
 }
 
 // handleUpsertPayload returns the JSON payload that would be PUT to
@@ -2273,6 +2305,54 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		}
 		sess.notify(SSEEvent{Type: "comments-changed"})
 	}
+}
+
+// handleAuthOrgs proxies GET /api/auth/orgs to the configured crit-web service,
+// forwarding the stored auth token. Returns an empty JSON array when the share
+// URL is not configured, the user is not authenticated, or the upstream request
+// fails — so the frontend always receives a valid orgs list.
+func (s *Server) handleAuthOrgs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	emptyArray := func() { writeJSON(w, []any{}) }
+
+	if s.shareURL == "" {
+		emptyArray()
+		return
+	}
+	token := s.authTokenSnapshot()
+	if token == "" {
+		emptyArray()
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.shareURL+"/api/auth/orgs", nil)
+	if err != nil {
+		emptyArray()
+		return
+	}
+	setBearer(req, token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		emptyArray()
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		emptyArray()
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
 }
 
 func (s *Server) authTokenSnapshot() string {

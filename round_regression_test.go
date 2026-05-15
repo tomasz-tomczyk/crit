@@ -51,7 +51,7 @@ func TestSharePayload_DoesNotIncludeRoundSnapshots(t *testing.T) {
 	files := []shareFile{{Path: "plan.md", Content: "current", Status: "modified"}}
 	comments := []shareComment{{File: "plan.md", Body: "x"}}
 
-	payload := buildSharePayload(files, comments, 2, []string{"plan.md"})
+	payload := buildSharePayload(files, comments, 2, []string{"plan.md"}, "", "")
 
 	if _, ok := payload["round_snapshots"]; ok {
 		t.Fatal("share payload contains round_snapshots key")

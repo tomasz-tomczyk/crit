@@ -44,10 +44,12 @@ func main() {
 }
 
 type shareFlags struct {
-	outputDir string
-	svcURL    string
-	showQR    bool
-	files     []string
+	outputDir  string
+	svcURL     string
+	showQR     bool
+	org        string
+	visibility string
+	files      []string
 }
 
 func parseShareFlags(args []string) shareFlags {
@@ -71,6 +73,20 @@ func parseShareFlags(args []string) shareFlags {
 			sf.svcURL = args[i]
 		case arg == "--qr":
 			sf.showQR = true
+		case arg == "--org":
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --org requires a value\n")
+				os.Exit(1)
+			}
+			i++
+			sf.org = args[i]
+		case arg == "--visibility":
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --visibility requires a value\n")
+				os.Exit(1)
+			}
+			i++
+			sf.visibility = args[i]
 		default:
 			sf.files = append(sf.files, arg)
 		}
@@ -79,7 +95,7 @@ func parseShareFlags(args []string) shareFlags {
 }
 
 func printShareUsage() {
-	fmt.Fprintln(os.Stderr, "Usage: crit share [--output <dir>] [--share-url <url>] [--qr] <file> [file...]")
+	fmt.Fprintln(os.Stderr, "Usage: crit share [--output <dir>] [--share-url <url>] [--org <slug>] [--visibility <level>] [--qr] <file> [file...]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Shares files to crit-web and prints the review URL.")
 	fmt.Fprintln(os.Stderr, "Comments from the review file are included automatically.")
@@ -169,8 +185,8 @@ func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, 
 	printQR(result.URL, showQR)
 }
 
-func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor string, showQR bool) {
-	res, err := shareReviewFiles(critPath, files, filePaths, svcURL, authToken, fallbackAuthor)
+func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor, org, visibility string, showQR bool) {
+	res, err := shareReviewFiles(critPath, files, filePaths, svcURL, authToken, fallbackAuthor, org, visibility)
 	if err != nil {
 		if errors.Is(err, errShareUnauthorized) {
 			handleShareAuthError()
@@ -179,7 +195,7 @@ func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL,
 		os.Exit(1)
 	}
 
-	if err := persistShareState(critPath, res.URL, res.DeleteToken, shareScope(filePaths)); err != nil {
+	if err := persistShareState(critPath, res.URL, res.DeleteToken, shareScope(filePaths), org, "", visibility); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state to review file: %v\n", err)
 	}
 
@@ -257,7 +273,7 @@ func runShare(args []string) {
 		return
 	}
 
-	runShareNew(critPath, files, sharePaths, sf.svcURL, authToken, cfg.Author, sf.showQR)
+	runShareNew(critPath, files, sharePaths, sf.svcURL, authToken, cfg.Author, sf.org, sf.visibility, sf.showQR)
 }
 
 func parseFetchOutputDir(args []string) string {

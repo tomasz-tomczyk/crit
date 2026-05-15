@@ -114,7 +114,7 @@ func shareFileEntries(files []shareFile) []map[string]any {
 }
 
 // buildSharePayload constructs the JSON payload for POST /api/reviews.
-func buildSharePayload(files []shareFile, comments []shareComment, reviewRound int, cliArgs []string) map[string]any {
+func buildSharePayload(files []shareFile, comments []shareComment, reviewRound int, cliArgs []string, org, visibility string) map[string]any {
 	fileList := shareFileEntries(files)
 	if comments == nil {
 		comments = []shareComment{}
@@ -126,6 +126,12 @@ func buildSharePayload(files []shareFile, comments []shareComment, reviewRound i
 	}
 	if len(cliArgs) > 0 {
 		payload["cli_args"] = cliArgs
+	}
+	if org != "" {
+		payload["org"] = org
+	}
+	if visibility != "" {
+		payload["visibility"] = visibility
 	}
 	return payload
 }
@@ -161,11 +167,11 @@ type shareReviewFilesResult struct {
 // shareReviewFiles loads comments + cli_args from the review file at critPath
 // and POSTs the files to crit-web. Used by both the CLI (`crit share`) and the
 // server's POST /api/share endpoint so payload wiring stays in one place.
-func shareReviewFiles(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor string) (shareReviewFilesResult, error) {
+func shareReviewFiles(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor, org, visibility string) (shareReviewFilesResult, error) {
 	comments, reviewRound := loadCommentsForShare(critPath, filePaths, fallbackAuthor)
 	cliArgs := loadCliArgsFromReviewFile(critPath)
 
-	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs)
+	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs, org, visibility)
 	if err != nil {
 		return shareReviewFilesResult{}, err
 	}
@@ -178,8 +184,8 @@ func shareReviewFiles(critPath string, files []shareFile, filePaths []string, sv
 }
 
 // shareFilesToWeb uploads files to a crit-web instance and returns the share URL and delete token.
-func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string, reviewRound int, authToken string, cliArgs []string) (string, string, error) {
-	payload := buildSharePayload(files, comments, reviewRound, cliArgs)
+func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string, reviewRound int, authToken string, cliArgs []string, org, visibility string) (string, string, error) {
+	payload := buildSharePayload(files, comments, reviewRound, cliArgs, org, visibility)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", "", fmt.Errorf("marshaling payload: %w", err)
@@ -847,7 +853,7 @@ func updateShareState(critPath string, hash string, reviewRound int) error {
 
 // persistShareState writes the share URL, delete token, and scope hash to the review file,
 // preserving any existing content.
-func persistShareState(critPath string, shareURL string, deleteToken string, scope string) error {
+func persistShareState(critPath string, shareURL string, deleteToken string, scope string, org, orgName, visibility string) error {
 	var cj CritJSON
 	if data, err := readFileShared(reviewPathsFor(critPath).Review); err == nil {
 		_ = json.Unmarshal(data, &cj)
@@ -858,6 +864,9 @@ func persistShareState(critPath string, shareURL string, deleteToken string, sco
 	cj.ShareURL = shareURL
 	cj.DeleteToken = deleteToken
 	cj.ShareScope = scope
+	cj.ShareOrg = org
+	cj.ShareOrgName = orgName
+	cj.ShareVisibility = visibility
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
 	return saveCritJSON(critPath, cj)

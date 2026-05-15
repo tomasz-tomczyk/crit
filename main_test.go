@@ -1595,6 +1595,29 @@ func TestParseShareFlags(t *testing.T) {
 	}
 }
 
+func TestParseShareFlags_OrgVisibility(t *testing.T) {
+	t.Run("--org flag", func(t *testing.T) {
+		sf := parseShareFlags([]string{"--org", "acme", "plan.md"})
+		if sf.org != "acme" {
+			t.Fatalf("expected org=acme, got %q", sf.org)
+		}
+	})
+
+	t.Run("--visibility flag", func(t *testing.T) {
+		sf := parseShareFlags([]string{"--visibility", "organization", "plan.md"})
+		if sf.visibility != "organization" {
+			t.Fatalf("expected visibility=organization, got %q", sf.visibility)
+		}
+	})
+
+	t.Run("both flags", func(t *testing.T) {
+		sf := parseShareFlags([]string{"--org", "acme", "--visibility", "unlisted", "plan.md"})
+		if sf.org != "acme" || sf.visibility != "unlisted" {
+			t.Fatalf("got org=%q vis=%q", sf.org, sf.visibility)
+		}
+	})
+}
+
 func TestLoadShareFiles(t *testing.T) {
 	dir := t.TempDir()
 

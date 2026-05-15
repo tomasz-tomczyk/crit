@@ -132,8 +132,12 @@ You can also share directly from the CLI without starting the browser UI:
 ```bash
 crit share plan.md                    # share files and print the URL
 crit share plan.md --qr               # also print a QR code in the terminal
+crit share plan.md --org acme         # share under an organization
+crit share plan.md --org acme --visibility unlisted  # org share with explicit visibility
 crit unpublish                        # remove the shared review
 ```
+
+When sharing under an org, visibility defaults to `organization` (members only). Override with `--visibility` (`organization`, `unlisted`, or `public`). The browser UI shows an org picker when you're signed in and belong to an organization.
 
 Sharing uses [crit.md](https://crit.md) by default. To self-host, deploy [`crit-web`](https://github.com/tomasz-tomczyk/crit-web) and point `CRIT_SHARE_URL` (or `--share-url`, or `share_url` in config) at your instance. Set `share_url` to `""` to disable sharing entirely.
 

@@ -265,7 +265,7 @@ func TestBuildSharePayload(t *testing.T) {
 		files := []shareFile{
 			{Path: "plan.md", Content: "# My Plan\n\nStep 1: do the thing"},
 		}
-		payload := buildSharePayload(files, nil, 1, nil)
+		payload := buildSharePayload(files, nil, 1, nil, "", "")
 
 		pFiles, ok := payload["files"].([]map[string]any)
 		if !ok {
@@ -297,7 +297,7 @@ func TestBuildSharePayload(t *testing.T) {
 			{Path: "plan.md", Content: "# Plan"},
 			{Path: "src/main.go", Content: "package main"},
 		}
-		payload := buildSharePayload(files, nil, 2, nil)
+		payload := buildSharePayload(files, nil, 2, nil, "", "")
 
 		pFiles := payload["files"].([]map[string]any)
 		if len(pFiles) != 2 {
@@ -315,7 +315,7 @@ func TestBuildSharePayload(t *testing.T) {
 		comments := []shareComment{
 			{File: "plan.md", StartLine: 1, EndLine: 3, Body: "Needs more detail", Author: "Claude"},
 		}
-		payload := buildSharePayload(files, comments, 1, nil)
+		payload := buildSharePayload(files, comments, 1, nil, "", "")
 
 		pComments := payload["comments"].([]shareComment)
 		if len(pComments) != 1 {
@@ -357,7 +357,7 @@ func TestShareFilesToWeb(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		url, token, err := shareFilesToWeb(files, nil, srv.URL, 1, "", nil)
+		url, token, err := shareFilesToWeb(files, nil, srv.URL, 1, "", nil, "", "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -376,13 +376,13 @@ func TestShareFilesToWeb(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		if _, _, err := shareFilesToWeb(files, nil, srv.URL, 1, "", nil); err == nil {
+		if _, _, err := shareFilesToWeb(files, nil, srv.URL, 1, "", nil, "", ""); err == nil {
 			t.Fatal("expected error for server error response")
 		}
 	})
 
 	t.Run("network error", func(t *testing.T) {
-		if _, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1, "", nil); err == nil {
+		if _, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1, "", nil, "", ""); err == nil {
 			t.Fatal("expected error for unreachable server")
 		}
 	})
@@ -518,7 +518,7 @@ func TestPersistShareState(t *testing.T) {
 	dir := t.TempDir()
 
 	// Persist to new .crit.json
-	err := persistShareState(filepath.Join(dir, ".crit"), "https://crit.md/r/abc", "tok_123", "")
+	err := persistShareState(filepath.Join(dir, ".crit"), "https://crit.md/r/abc", "tok_123", "", "", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestPersistShareState_PreservesExisting(t *testing.T) {
 	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
 
 	// Persist share state
-	err := persistShareState(filepath.Join(dir, ".crit"), "https://crit.md/r/def", "tok_456", "")
+	err := persistShareState(filepath.Join(dir, ".crit"), "https://crit.md/r/def", "tok_456", "", "", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1097,7 +1097,7 @@ func TestBuildSharePayload_WithStatusAndOrphaned(t *testing.T) {
 		{Path: "removed.go", Content: "", Status: "removed"},
 		{Path: "nostat.md", Content: "# Hello"},
 	}
-	payload := buildSharePayload(files, nil, 1, nil)
+	payload := buildSharePayload(files, nil, 1, nil, "", "")
 
 	pFiles, ok := payload["files"].([]map[string]any)
 	if !ok {
@@ -1191,7 +1191,7 @@ func TestBuildSharePayload_WithReplies(t *testing.T) {
 			{Body: "verified", Author: "Alice"},
 		},
 	}}
-	payload := buildSharePayload(files, comments, 1, nil)
+	payload := buildSharePayload(files, comments, 1, nil, "", "")
 	cs := payload["comments"].([]shareComment)
 	if len(cs) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(cs))
@@ -1212,7 +1212,7 @@ func TestBuildSharePayload_WithCliArgs(t *testing.T) {
 
 	t.Run("included when provided", func(t *testing.T) {
 		args := []string{"plan.md", "notes.md"}
-		payload := buildSharePayload(files, nil, 1, args)
+		payload := buildSharePayload(files, nil, 1, args, "", "")
 		got, ok := payload["cli_args"].([]string)
 		if !ok {
 			t.Fatal("expected cli_args in payload")
@@ -1223,16 +1223,50 @@ func TestBuildSharePayload_WithCliArgs(t *testing.T) {
 	})
 
 	t.Run("omitted when nil", func(t *testing.T) {
-		payload := buildSharePayload(files, nil, 1, nil)
+		payload := buildSharePayload(files, nil, 1, nil, "", "")
 		if _, ok := payload["cli_args"]; ok {
 			t.Error("cli_args should be absent when nil")
 		}
 	})
 
 	t.Run("omitted when empty", func(t *testing.T) {
-		payload := buildSharePayload(files, nil, 1, []string{})
+		payload := buildSharePayload(files, nil, 1, []string{}, "", "")
 		if _, ok := payload["cli_args"]; ok {
 			t.Error("cli_args should be absent when empty")
+		}
+	})
+}
+
+func TestBuildSharePayload_OrgVisibility(t *testing.T) {
+	files := []shareFile{{Path: "test.md", Content: "hello"}}
+
+	t.Run("without org", func(t *testing.T) {
+		p := buildSharePayload(files, nil, 1, nil, "", "")
+		if _, ok := p["org"]; ok {
+			t.Fatal("org should not be in payload when empty")
+		}
+		if _, ok := p["visibility"]; ok {
+			t.Fatal("visibility should not be in payload when empty")
+		}
+	})
+
+	t.Run("with org and visibility", func(t *testing.T) {
+		p := buildSharePayload(files, nil, 1, nil, "acme", "organization")
+		if p["org"] != "acme" {
+			t.Fatalf("expected org=acme, got %v", p["org"])
+		}
+		if p["visibility"] != "organization" {
+			t.Fatalf("expected visibility=organization, got %v", p["visibility"])
+		}
+	})
+
+	t.Run("with org only", func(t *testing.T) {
+		p := buildSharePayload(files, nil, 1, nil, "acme", "")
+		if p["org"] != "acme" {
+			t.Fatal("org should be in payload")
+		}
+		if _, ok := p["visibility"]; ok {
+			t.Fatal("visibility should not be in payload when empty")
 		}
 	})
 }
@@ -1289,7 +1323,7 @@ func TestShareFilesToWeb_SendsBearerToken(t *testing.T) {
 	defer server.Close()
 
 	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	shareFilesToWeb(files, nil, server.URL, 1, "crit_testtoken", nil)
+	shareFilesToWeb(files, nil, server.URL, 1, "crit_testtoken", nil, "", "")
 	if gotAuth != "Bearer crit_testtoken" {
 		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
 	}
@@ -2007,7 +2041,7 @@ func TestShareReviewFiles_InlinesAttachmentsEndToEnd(t *testing.T) {
 	defer srv.Close()
 
 	files := []shareFile{{Path: "README.md", Content: "stub content\n"}}
-	if _, err := shareReviewFiles(review, files, []string{"README.md"}, srv.URL, "", "Alice"); err != nil {
+	if _, err := shareReviewFiles(review, files, []string{"README.md"}, srv.URL, "", "Alice", "", ""); err != nil {
 		t.Fatalf("shareReviewFiles: %v", err)
 	}
 
@@ -2121,7 +2155,7 @@ func TestShareReviewFiles_PlanMode_InlinesAttachments(t *testing.T) {
 	defer srv.Close()
 
 	files := []shareFile{{Path: planFile, Content: "stub plan content\n"}}
-	if _, err := shareReviewFiles(critPath, files, []string{planFile}, srv.URL, "", "Samuel Tissot"); err != nil {
+	if _, err := shareReviewFiles(critPath, files, []string{planFile}, srv.URL, "", "Samuel Tissot", "", ""); err != nil {
 		t.Fatalf("shareReviewFiles: %v", err)
 	}
 
