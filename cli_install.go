@@ -157,6 +157,12 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/gemini/commands/crit.toml", dest: ".gemini/commands/crit.toml", globalDest: ".gemini/commands/crit.toml", globalDestKind: globalDestRelHome, hint: "Run /crit in Gemini CLI to start a review loop"},
 		{source: "integrations/gemini/hooks/policy.toml", dest: ".gemini/policies/crit.toml", globalDest: ".gemini/policies/crit.toml", globalDestKind: globalDestRelHome, hint: "The crit policy allows exit_plan_mode without confirmation"},
 	},
+	"grok": {
+		// Grok auto-discovers .grok/skills/ both project-locally and in ~/.grok/skills/ globally.
+		// Same shape in both cases, so no globalDest redirect is needed.
+		{source: "integrations/grok/skills/crit/SKILL.md", dest: ".grok/skills/crit/SKILL.md", hint: "Run /crit in Grok to start a review loop"},
+		{source: "integrations/grok/skills/crit-cli/SKILL.md", dest: ".grok/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Grok agents when needed"},
+	},
 }
 
 // availableIntegrations returns the sorted list of integration names that
