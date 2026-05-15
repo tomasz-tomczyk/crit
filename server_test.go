@@ -4072,3 +4072,359 @@ func TestHandleShareConsent_SaveFails(t *testing.T) {
 		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusInternalServerError, w.Body.String())
 	}
 }
+
+// --- handleSharePayload tests ---
+
+func TestHandleSharePayload_HappyPath(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "plan.md")
+	os.WriteFile(filePath, []byte("# Plan"), 0o644)
+
+	sess := &Session{
+		Mode:        "files",
+		OutputDir:   dir,
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files: []*FileEntry{
+			{Path: "plan.md", AbsPath: filePath, Status: "added"},
+		},
+	}
+
+	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/share/payload", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	files, ok := payload["files"].([]any)
+	if !ok || len(files) == 0 {
+		t.Fatal("expected non-empty files array in payload")
+	}
+}
+
+func TestHandleSharePayload_NoFiles(t *testing.T) {
+	dir := t.TempDir()
+	sess := &Session{
+		Mode:        "files",
+		OutputDir:   dir,
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{},
+	}
+	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/share/payload", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleSharePayload_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/share/payload", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleUpsertPayload tests ---
+
+func TestHandleUpsertPayload_HappyPath(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "plan.md")
+	os.WriteFile(filePath, []byte("# Plan"), 0o644)
+
+	sess := &Session{
+		Mode:        "files",
+		OutputDir:   dir,
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files: []*FileEntry{
+			{Path: "plan.md", AbsPath: filePath, Status: "added"},
+		},
+	}
+	sess.SetSharedURLAndToken("https://crit.md/r/tok123", "del-tok")
+
+	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/share/upsert-payload", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if payload["delete_token"] != "del-tok" {
+		t.Errorf("delete_token = %v, want del-tok", payload["delete_token"])
+	}
+}
+
+func TestHandleUpsertPayload_NoFiles(t *testing.T) {
+	dir := t.TempDir()
+	sess := &Session{
+		Mode:        "files",
+		OutputDir:   dir,
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{},
+	}
+	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/share/upsert-payload", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleUpsertPayload_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/share/upsert-payload", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+// --- handleMergeComments tests ---
+
+func TestHandleMergeComments_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/comments/merge", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 405 {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestHandleMergeComments_InvalidJSON(t *testing.T) {
+	srv, sess := newTestServer(t)
+	sess.SetSharedURLAndToken("https://crit.md/r/tok123", "del-tok")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/comments/merge", strings.NewReader("not json"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleMergeComments_NoSharedReview(t *testing.T) {
+	srv, _ := newTestServer(t)
+	// Session has no shared URL set.
+
+	body := `{"comments": []}`
+	req := httptest.NewRequest(http.MethodPost, "/api/comments/merge", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if !strings.Contains(resp["error"], "no shared review") {
+		t.Errorf("error = %q, want 'no shared review'", resp["error"])
+	}
+}
+
+func TestHandleMergeComments_EmptyComments(t *testing.T) {
+	dir := t.TempDir()
+	sess := &Session{
+		Mode:        "files",
+		OutputDir:   dir,
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{{Path: "test.md", AbsPath: filepath.Join(dir, "test.md")}},
+	}
+	sess.SetSharedURLAndToken("https://crit.md/r/tok123", "del-tok")
+
+	// Write a minimal review file so readFileShared succeeds.
+	writeCritJSONForTest(t, dir, CritJSON{
+		Files: map[string]CritJSONFile{
+			"test.md": {Comments: []Comment{}},
+		},
+	})
+
+	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"comments": []}`
+	req := httptest.NewRequest(http.MethodPost, "/api/comments/merge", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["merged"].(float64) != 0 {
+		t.Errorf("merged = %v, want 0", resp["merged"])
+	}
+	if resp["replies_updated"].(float64) != 0 {
+		t.Errorf("replies_updated = %v, want 0", resp["replies_updated"])
+	}
+}
+
+func TestHandleMergeComments_NewComment(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "plan.md")
+	os.WriteFile(filePath, []byte("# Plan\nline2\n"), 0o644)
+
+	sess := &Session{
+		Mode:        "files",
+		OutputDir:   dir,
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{{Path: "plan.md", AbsPath: filePath}},
+	}
+	sess.SetSharedURLAndToken("https://crit.md/r/tok123", "del-tok")
+
+	writeCritJSONForTest(t, dir, CritJSON{
+		Files: map[string]CritJSONFile{
+			"plan.md": {Comments: []Comment{}},
+		},
+	})
+
+	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload := `{"comments": [{"body": "new web comment", "file_path": "plan.md", "start_line": 1, "end_line": 1, "external_id": "ext-1", "author_display_name": "Web User"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/comments/merge", strings.NewReader(payload))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["merged"].(float64) != 1 {
+		t.Errorf("merged = %v, want 1", resp["merged"])
+	}
+}
+
+func TestHandleMergeComments_DuplicateFiltered(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "plan.md")
+	os.WriteFile(filePath, []byte("# Plan\n"), 0o644)
+
+	sess := &Session{
+		Mode:        "files",
+		OutputDir:   dir,
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{{Path: "plan.md", AbsPath: filePath}},
+	}
+	sess.SetSharedURLAndToken("https://crit.md/r/tok123", "del-tok")
+
+	// Pre-populate the review file with an existing comment.
+	writeCritJSONForTest(t, dir, CritJSON{
+		Files: map[string]CritJSONFile{
+			"plan.md": {Comments: []Comment{
+				{ID: "c1", Body: "existing", StartLine: 1, EndLine: 1, Author: "Web User"},
+			}},
+		},
+	})
+
+	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Send a web comment that matches the existing one by fingerprint.
+	payload := `{"comments": [{"body": "existing", "file_path": "plan.md", "start_line": 1, "end_line": 1, "author_display_name": "Web User"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/comments/merge", strings.NewReader(payload))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["merged"].(float64) != 0 {
+		t.Errorf("merged = %v, want 0 (duplicate should be filtered)", resp["merged"])
+	}
+}
+
+func TestHandleMergeComments_NoReviewFile(t *testing.T) {
+	dir := t.TempDir()
+	sess := &Session{
+		Mode:        "files",
+		OutputDir:   dir,
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{{Path: "test.md"}},
+	}
+	sess.SetSharedURLAndToken("https://crit.md/r/tok123", "del-tok")
+	// Intentionally don't write a review file.
+
+	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"comments": [{"body": "x", "file_path": "test.md", "start_line": 1, "end_line": 1}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/comments/merge", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 500 {
+		t.Errorf("status = %d, want 500 (no review file)", w.Code)
+	}
+}
