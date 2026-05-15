@@ -27,7 +27,7 @@ What *does* work, when you opt in via config:
 - **Re-share** button — pulls latest comments and uploads a new round in
   one popup session.
 - **Better error message** when the local Go server hits the SSO login
-  page directly (it now points at `share_flow: "popup"` instead of
+  page directly (it now points at `proxy_auth: true` instead of
   giving a cryptic JSON-decode error).
 
 Terminal `crit share` / `crit fetch` / `crit unpublish` are intentionally
@@ -48,7 +48,7 @@ You need both pieces, paired by branch / commit:
 
 The crit-web branch adds a new route, `GET /share-receiver`, which is
 the page the popup opens. The crit binary won't be able to use
-`share_flow: "popup"` against a `crit-web` that doesn't have this
+`proxy_auth: true` against a `crit-web` that doesn't have this
 route deployed.
 
 ---
@@ -121,29 +121,26 @@ xattr -d com.apple.quarantine ~/bin/crit
 (This is a preview build outside the normal Homebrew distribution, so
 it isn't notarised.)
 
-### 3. Configure `crit` to use the popup flow
+### 3. Configure `crit` to use proxy auth
 
-`share_flow` is **config-only** — there's no flag and no env var. It
-describes a property of the deployment (your crit-web is behind SSO),
-not a per-invocation choice.
+`proxy_auth` is **config-only and global-only** — there's no flag and
+no env var. It describes a property of the deployment (your crit-web
+is behind SSO), not a per-invocation choice.
 
 Edit `~/.crit.config.json` (create it if it doesn't exist):
 
 ```json
 {
   "share_url": "https://crit-web.your-spotify-domain.example",
-  "share_flow": "popup"
+  "proxy_auth": true
 }
 ```
-
-Or, if you want to scope this to a single repo, put the same keys in
-`.crit.config.json` at the repo root.
 
 Verify with:
 
 ```bash
 crit config
-# should print share_url and share_flow as you set them
+# should print share_url and proxy_auth as you set them
 ```
 
 ---
@@ -182,7 +179,7 @@ We'd love feedback on:
    tolerable, or does it need explicit guidance in the UI?
 3. **Terminal commands** — confirm that `crit share` / `crit fetch` /
    `crit unpublish` still fail (expected) but produce the new
-   `share_flow: "popup"` hint in the error message. If you see a
+   `proxy_auth: true` hint in the error message. If you see a
    different error, send the exact stderr.
 4. **Anything else surprising** — share state desync, stale comments
    after Re-share, popup orphaned after closing the main browser tab,

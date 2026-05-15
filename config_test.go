@@ -47,18 +47,18 @@ func TestLoadConfigFromFile(t *testing.T) {
 	}
 }
 
-func TestConfig_ShareFlowFromJSON(t *testing.T) {
+func TestConfig_ProxyAuthFromJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "crit.json")
-	if err := os.WriteFile(path, []byte(`{"share_flow":"popup","share_url":"https://example.com"}`), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"proxy_auth":true,"share_url":"https://example.com"}`), 0644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	cfg, _, err := loadConfigFile(path)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.ShareFlow != "popup" {
-		t.Errorf("got share_flow=%q, want popup", cfg.ShareFlow)
+	if !cfg.ProxyAuth {
+		t.Errorf("got proxy_auth=false, want true")
 	}
 }
 

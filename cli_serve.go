@@ -23,7 +23,7 @@ type serverConfig struct {
 	noOpen             bool
 	quiet              bool
 	shareURL           string
-	shareFlow          string
+	proxyAuth          bool
 	authToken          string
 	outputDir          string
 	author             string
@@ -56,7 +56,7 @@ type serverFlagSet struct {
 	noOpen      bool
 	showVersion bool
 	shareURL    string
-	shareFlow   string
+	proxyAuth   bool
 	outputDir   string
 	quiet       bool
 	noIgnore    bool
@@ -156,7 +156,7 @@ func applyConfigDefaults(sf *serverFlagSet, cfg Config) {
 		sf.noOpen = true
 	}
 	sf.shareURL = resolveShareURL(sf.shareURL, cfg, "")
-	sf.shareFlow = cfg.ShareFlow
+	sf.proxyAuth = cfg.ProxyAuth
 	if !sf.quiet && cfg.Quiet {
 		sf.quiet = true
 	}
@@ -220,7 +220,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		noOpen:             sf.noOpen,
 		quiet:              sf.quiet,
 		shareURL:           sf.shareURL,
-		shareFlow:          sf.shareFlow,
+		proxyAuth:          sf.proxyAuth,
 		authToken:          cfg.AuthToken,
 		outputDir:          sf.outputDir,
 		author:             cfg.Author,
@@ -428,7 +428,7 @@ func runServe(args []string) {
 	}
 	addr := listener.Addr().(*net.TCPAddr)
 
-	srv, err := NewServer(nil, frontendFS, sc.shareURL, sc.shareFlow, sc.authToken, sc.author, version, addr.Port, sc.agentCmd)
+	srv, err := NewServer(nil, frontendFS, sc.shareURL, sc.proxyAuth, sc.authToken, sc.author, version, addr.Port, sc.agentCmd)
 	if err != nil {
 		daemonFatal(pipe, "Error creating server: %v", err)
 	}

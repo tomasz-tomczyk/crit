@@ -43,7 +43,7 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 		},
 	}
 
-	s, err := NewServer(session, frontendFS, "", "", "", "", "test", 0, "")
+	s, err := NewServer(session, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -904,9 +904,9 @@ func TestApiCommentsMerge_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-func TestApiConfig_IncludesShareFlow(t *testing.T) {
+func TestApiConfig_IncludesProxyAuth(t *testing.T) {
 	s, _ := newTestServer(t)
-	s.shareFlow = "popup"
+	s.proxyAuth = true
 	req := httptest.NewRequest("GET", "/api/config", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -917,8 +917,8 @@ func TestApiConfig_IncludesShareFlow(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if body["share_flow"] != "popup" {
-		t.Errorf("got share_flow=%v, want popup", body["share_flow"])
+	if body["proxy_auth"] != true {
+		t.Errorf("got proxy_auth=%v, want true", body["proxy_auth"])
 	}
 }
 
@@ -952,15 +952,15 @@ func TestPostShareURL_ReturnsHostedToken(t *testing.T) {
 	}
 }
 
-func TestApiConfig_ShareFlowEmptyByDefault(t *testing.T) {
+func TestApiConfig_ProxyAuthFalseByDefault(t *testing.T) {
 	s, _ := newTestServer(t)
 	req := httptest.NewRequest("GET", "/api/config", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	var body map[string]any
 	json.Unmarshal(w.Body.Bytes(), &body)
-	if body["share_flow"] != "" {
-		t.Errorf("got share_flow=%v, want empty", body["share_flow"])
+	if body["proxy_auth"] != false {
+		t.Errorf("got proxy_auth=%v, want false", body["proxy_auth"])
 	}
 }
 
@@ -1681,7 +1681,7 @@ func TestGetFilesList(t *testing.T) {
 		Files:         []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", "", "", "", 0, "")
+	srv, err := NewServer(session, frontendFS, "", false, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1745,7 +1745,7 @@ func TestGetFilesList_RespectsIgnorePatterns(t *testing.T) {
 		Files:          []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", "", "", "", 0, "")
+	srv, err := NewServer(session, frontendFS, "", false, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1779,7 +1779,7 @@ func TestGetFilesList_FilesMode(t *testing.T) {
 		Files:         []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", "", "", "", 0, "")
+	srv, err := NewServer(session, frontendFS, "", false, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1850,7 +1850,7 @@ func TestGetFilesList_MethodNotAllowed(t *testing.T) {
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 	}
-	srv, _ := NewServer(session, frontendFS, "", "", "", "", "", 0, "")
+	srv, _ := NewServer(session, frontendFS, "", false, "", "", "", 0, "")
 	req := httptest.NewRequest("POST", "/api/files/list", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -2358,7 +2358,7 @@ func TestHandleSession_PlanMode(t *testing.T) {
 		},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
-	srv, _ := NewServer(session, frontendFS, "", "", "", "", "dev", 0, "")
+	srv, _ := NewServer(session, frontendFS, "", false, "", "", "dev", 0, "")
 
 	req := httptest.NewRequest("GET", "/api/session", nil)
 	w := httptest.NewRecorder()
@@ -2373,7 +2373,7 @@ func TestHandleSession_PlanMode(t *testing.T) {
 }
 
 func TestReadinessGate_Returns503WhenNotReady(t *testing.T) {
-	s, err := NewServer(nil, frontendFS, "", "", "", "", "test", 0, "")
+	s, err := NewServer(nil, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2399,7 +2399,7 @@ func TestReadinessGate_Returns503WhenNotReady(t *testing.T) {
 }
 
 func TestReadinessGate_HealthAlwaysOK(t *testing.T) {
-	s, err := NewServer(nil, frontendFS, "", "", "", "", "test", 0, "")
+	s, err := NewServer(nil, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2412,7 +2412,7 @@ func TestReadinessGate_HealthAlwaysOK(t *testing.T) {
 }
 
 func TestReadinessGate_Returns200AfterSetSession(t *testing.T) {
-	s, err := NewServer(nil, frontendFS, "", "", "", "", "test", 0, "")
+	s, err := NewServer(nil, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2478,7 +2478,7 @@ func TestRouteCommentByID(t *testing.T) {
 }
 
 func TestReadinessGate_Returns500OnInitError(t *testing.T) {
-	s, err := NewServer(nil, frontendFS, "", "", "", "", "test", 0, "")
+	s, err := NewServer(nil, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2767,7 +2767,7 @@ func TestHandleCommits_GitMode(t *testing.T) {
 		Files:       []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", "", "", "", 0, "")
+	srv, err := NewServer(session, frontendFS, "", false, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2835,7 +2835,7 @@ func TestHandleBranches_WithGitVCS(t *testing.T) {
 		Files:       []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", "", "", "", 0, "")
+	srv, err := NewServer(session, frontendFS, "", false, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2893,7 +2893,7 @@ func TestHandleBaseBranch_InvalidJSON(t *testing.T) {
 func TestHandleQR_Success(t *testing.T) {
 	srv, _ := newTestServer(t)
 	// Note: /api/qr is NOT guarded by withReady, so it works even without a session.
-	noSessionSrv, err := NewServer(nil, frontendFS, "", "", "", "", "test", 0, "")
+	noSessionSrv, err := NewServer(nil, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2920,7 +2920,7 @@ func TestHandleQR_Success(t *testing.T) {
 }
 
 func TestHandleQR_MissingURL(t *testing.T) {
-	srv, err := NewServer(nil, frontendFS, "", "", "", "", "test", 0, "")
+	srv, err := NewServer(nil, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2933,7 +2933,7 @@ func TestHandleQR_MissingURL(t *testing.T) {
 }
 
 func TestHandleQR_MethodNotAllowed(t *testing.T) {
-	srv, err := NewServer(nil, frontendFS, "", "", "", "", "test", 0, "")
+	srv, err := NewServer(nil, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3006,7 +3006,7 @@ func TestBuildPlanFeedback(t *testing.T) {
 		PlanDir:     "/tmp/plans/my-feature",
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
-	srv, err := NewServer(session, frontendFS, "", "", "", "", "test", 0, "")
+	srv, err := NewServer(session, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3522,7 +3522,7 @@ func TestHandleFinish_PlanMode(t *testing.T) {
 			},
 		},
 	}
-	srv, err := NewServer(session, frontendFS, "", "", "", "", "test", 0, "")
+	srv, err := NewServer(session, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3560,7 +3560,7 @@ func TestHandleFinish_WithStatus(t *testing.T) {
 			},
 		},
 	}
-	srv, err := NewServer(session, frontendFS, "", "", "", "", "test", 0, "")
+	srv, err := NewServer(session, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3682,7 +3682,7 @@ func TestHandleConfig_WithAuthToken(t *testing.T) {
 		subscribers: make(map[chan SSEEvent]struct{}),
 		Files:       []*FileEntry{},
 	}
-	srv, err := NewServer(session, frontendFS, "https://crit.md", "", "test-token", "tester", "v2.0.0", 3000, "claude -p")
+	srv, err := NewServer(session, frontendFS, "https://crit.md", false, "test-token", "tester", "v2.0.0", 3000, "claude -p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3724,7 +3724,7 @@ func TestHandleSession_WithScope(t *testing.T) {
 		Files:       []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", "", "", "", 0, "")
+	srv, err := NewServer(session, frontendFS, "", false, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3845,7 +3845,7 @@ func TestHandleSession_WithCommit(t *testing.T) {
 		Files:       []*FileEntry{},
 	}
 
-	srv, err := NewServer(session, frontendFS, "", "", "", "", "", 0, "")
+	srv, err := NewServer(session, frontendFS, "", false, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}

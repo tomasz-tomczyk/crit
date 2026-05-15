@@ -35,7 +35,7 @@ type Server struct {
 	mux               *http.ServeMux
 	assets            fs.FS
 	shareURL          string
-	shareFlow         string
+	proxyAuth         bool
 	authMu            sync.RWMutex // guards authToken + cfg.Auth* fields
 	authToken         string
 	prInfo            *PRInfo
@@ -75,13 +75,13 @@ type Server struct {
 }
 
 // NewServer creates a Server with the given session and configuration.
-func NewServer(session *Session, frontendFS embed.FS, shareURL string, shareFlow string, authToken string, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
+func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth bool, authToken string, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
 	assets, err := fs.Sub(frontendFS, "frontend")
 	if err != nil {
 		return nil, fmt.Errorf("loading frontend assets: %w", err)
 	}
 
-	s := &Server{assets: assets, shareURL: shareURL, shareFlow: shareFlow, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port, prList: &prListCache{}}
+	s := &Server{assets: assets, shareURL: shareURL, proxyAuth: proxyAuth, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port, prList: &prListCache{}}
 	if session != nil {
 		s.session.Store(session)
 	}
@@ -339,7 +339,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{
 		"share_url":         s.shareURL,
 		"needs_consent":     s.consentNeeded(),
-		"share_flow":        s.shareFlow,
+		"proxy_auth":        s.proxyAuth,
 		"hosted_url":        sess.GetSharedURL(),
 		"hosted_token":      sess.GetToken(),
 		"delete_token":      sess.GetDeleteToken(),
@@ -749,8 +749,8 @@ func lineStatsForRound(session *Session, n int) (int, int) {
 }
 
 // handleSharePayload returns the JSON payload that would be POSTed to crit-web
-// /api/reviews for a fresh share. Used by the popup-relay path (share_flow=
-// "popup") so the browser can forward it through the authenticated popup
+// /api/reviews for a fresh share. Used by the popup-relay path (proxy_auth=
+// true) so the browser can forward it through the authenticated popup
 // instead of the Go server contacting crit-web directly. Same payload shape
 // as POST /api/share would build internally.
 func (s *Server) handleSharePayload(w http.ResponseWriter, r *http.Request) {

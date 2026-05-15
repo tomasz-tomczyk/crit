@@ -1824,7 +1824,7 @@ func TestShareSyncResolvedRoundMapping(t *testing.T) {
 //
 //   - SSO failure path: stub returns HTML on /api/reviews to simulate a
 //     reverse-proxy login page intercepting the request.
-//   - share_flow=popup config plumbing through the local server isn't
+//   - proxy_auth=true config plumbing through the local server isn't
 //     exercised here — that's covered by server_test.go (handleConfig). These
 //     tests focus on what happens at the binary boundary.
 //
@@ -1877,11 +1877,11 @@ func runCritCmd(t *testing.T, binary, dir string, args ...string) (string, error
 	return strings.TrimSpace(string(out)), err
 }
 
-// TestShareReceiver_HTMLPostReturnsShareFlowError verifies that when crit-web
+// TestShareReceiver_HTMLPostReturnsProxyAuthError verifies that when crit-web
 // (or its reverse proxy) returns HTML on POST /api/reviews — the canonical
 // SSO failure path — `crit share` exits non-zero with an error message
-// pointing the user at share_flow=popup.
-func TestShareReceiver_HTMLPostReturnsShareFlowError(t *testing.T) {
+// pointing the user at proxy_auth=true.
+func TestShareReceiver_HTMLPostReturnsProxyAuthError(t *testing.T) {
 	binary := critBinary(t)
 	ts := htmlStubServer(t)
 	defer ts.Close()
@@ -1897,18 +1897,18 @@ func TestShareReceiver_HTMLPostReturnsShareFlowError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected non-zero exit, got success. output: %s", out)
 	}
-	if !strings.Contains(out, "share_flow") {
-		t.Errorf("expected error to mention share_flow, got: %s", out)
+	if !strings.Contains(out, "proxy_auth") {
+		t.Errorf("expected error to mention proxy_auth, got: %s", out)
 	}
 	if !strings.Contains(out, "popup") {
 		t.Errorf("expected error to mention popup, got: %s", out)
 	}
 }
 
-// TestShareReceiver_FetchHTMLReturnsShareFlowError verifies that `crit fetch`
+// TestShareReceiver_FetchHTMLReturnsProxyAuthError verifies that `crit fetch`
 // against an HTML-returning stub crit-web (SSO proxy intercepting GET
-// /api/reviews/:token/comments) gives the helpful share_flow=popup hint.
-func TestShareReceiver_FetchHTMLReturnsShareFlowError(t *testing.T) {
+// /api/reviews/:token/comments) gives the helpful proxy_auth=true hint.
+func TestShareReceiver_FetchHTMLReturnsProxyAuthError(t *testing.T) {
 	binary := critBinary(t)
 	ts := htmlStubServer(t)
 	defer ts.Close()
@@ -1930,14 +1930,14 @@ func TestShareReceiver_FetchHTMLReturnsShareFlowError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected non-zero exit, got success. output: %s", out)
 	}
-	if !strings.Contains(out, "share_flow") {
-		t.Errorf("expected error to mention share_flow, got: %s", out)
+	if !strings.Contains(out, "proxy_auth") {
+		t.Errorf("expected error to mention proxy_auth, got: %s", out)
 	}
 }
 
 // TestShareReceiver_LegacyShareStillWorks verifies that a successful JSON
 // response on POST /api/reviews — the legacy default path with no
-// share_flow=popup — produces a review URL and writes share state to
+// proxy_auth=true — produces a review URL and writes share state to
 // .crit.json. Regression coverage so the popup-relay work doesn't break the
 // default share flow.
 func TestShareReceiver_LegacyShareStillWorks(t *testing.T) {

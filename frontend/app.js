@@ -342,7 +342,7 @@
   let deleteToken = '';
   let needsShareConsent = false;
   let authUserName = '';
-  let shareFlow = '';      // '' = legacy server-side share; 'popup' = browser popup relay
+  let proxyAuth = false;   // false = direct server-side share; true = browser popup relay
   let hostedToken = '';    // server-derived (tokenFromHostedURL); never URL-parsed in JS
   let configAuthor = '';
 
@@ -899,7 +899,7 @@
     deleteToken = configRes.delete_token || '';
     needsShareConsent = configRes.needs_consent || false;
     authUserName = configRes.auth_user_name || '';
-    shareFlow = configRes.share_flow || '';
+    proxyAuth = !!configRes.proxy_auth;
     hostedToken = configRes.hosted_token || '';
     configAuthor = configRes.author || '';
     agentEnabled = configRes.agent_cmd_enabled || false;
@@ -8106,7 +8106,7 @@
   }
 
   // Pull remote comments through the popup relay (or directly when
-  // share_flow is unset), then merge into the local review file via
+  // proxy_auth is unset), then merge into the local review file via
   // /api/comments/merge, then refresh the UI in place.
   async function handlePullComments() {
     const btn = document.getElementById('modalPullBtn');
@@ -8117,7 +8117,7 @@
 
     // Open popup synchronously inside the click handler.
     let popupSession = null;
-    if (shareFlow === 'popup') {
+    if (proxyAuth) {
       try {
         popupSession = openShareReceiver(shareURL);
       } catch (err) {
@@ -8177,7 +8177,7 @@
 
     // Open popup synchronously inside the click handler.
     let popupSession = null;
-    if (shareFlow === 'popup') {
+    if (proxyAuth) {
       try {
         popupSession = openShareReceiver(shareURL);
       } catch (err) {
@@ -8282,7 +8282,7 @@
     // so this function is still inside the user-gesture tick when the user
     // clicks "Unpublish" in the confirm dialog.
     let popupSession = null;
-    if (shareFlow === 'popup') {
+    if (proxyAuth) {
       try {
         popupSession = openShareReceiver(shareURL);
       } catch (err) {
@@ -8376,7 +8376,7 @@
     // await — so the browser treats it as gesture-initiated. Awaiting first
     // (e.g. fetching the payload) would cause Safari to popup-block.
     let popupSession = null;
-    if (shareFlow === 'popup') {
+    if (proxyAuth) {
       try {
         popupSession = openShareReceiver(shareURL);
       } catch (err) {
