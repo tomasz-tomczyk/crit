@@ -114,7 +114,7 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 		"windsurf":       {{"", globalDestNone}},
 		"cline":          {{"Cline/Rules/crit.md", globalDestDocuments}},
 		"gemini":         {{".gemini/skills/crit-cli/SKILL.md", globalDestRelHome}, {".gemini/commands/crit.toml", globalDestRelHome}, {".gemini/policies/crit.toml", globalDestRelHome}},
-		"grok":            {{"", globalDestNone}, {"", globalDestNone}},
+		"grok":           {{"", globalDestNone}, {"", globalDestNone}},
 		"hermes":         {{".hermes/skills/crit/SKILL.md", globalDestRelHome}, {".hermes/skills/crit-cli/SKILL.md", globalDestRelHome}},
 		"pi":             {{".pi/agent/skills/crit/SKILL.md", globalDestRelHome}, {".pi/agent/skills/crit-cli/SKILL.md", globalDestRelHome}},
 	}
