@@ -336,6 +336,7 @@ func createDesignSession(sc *serverConfig) (*Session, error) {
 		ReviewRound: 1,
 		ReviewType:  "design",
 		Origin:      sc.designOrigin,
+		CLIArgs:     []string{sc.designOrigin},
 		// awaitingFirstReview must be true so the daemon-client's first
 		// /api/review-cycle call does NOT fire SignalRoundComplete at boot.
 		// Without this gate the watcher bumps ReviewRound from 1 to 2 before
