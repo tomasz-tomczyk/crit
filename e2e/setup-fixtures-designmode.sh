@@ -4,12 +4,18 @@ set -euo pipefail
 PORT="${1:-3129}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
-E2E_TMP=$(mktemp -d)
-BIN_DIR=$(mktemp -d)
-FAKE_HOME=$(mktemp -d)
+E2E_TMP=$(e2e_native_tempdir)
+BIN_DIR=$(e2e_native_tempdir)
+FAKE_HOME=$(e2e_native_tempdir)
 
-UPSTREAM_BIN="$E2E_TMP/upstream"
+if [ "$E2E_IS_WINDOWS" -eq 1 ]; then
+  UPSTREAM_BIN="$E2E_TMP/upstream.exe"
+else
+  UPSTREAM_BIN="$E2E_TMP/upstream"
+fi
 UPSTREAM_LOG="$E2E_TMP/upstream.log"
 UPSTREAM_PID=""
 CRIT_PID=""
@@ -28,7 +34,7 @@ trap cleanup EXIT INT TERM
 if [ -n "${CRIT_BIN:-}" ] && [ -f "$CRIT_BIN" ]; then
   echo "Using pre-built binary: $CRIT_BIN"
 else
-  CRIT_BIN="$BIN_DIR/crit"
+  CRIT_BIN="$BIN_DIR/$(e2e_bin_name)"
   (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
 fi
 
