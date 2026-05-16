@@ -47,6 +47,12 @@ func newDesignProxy(upstreamOrigin string, apiPort int) (http.Handler, error) {
 			req.Header.Del("Accept-Encoding")
 			req.Header.Del("If-None-Match")
 			req.Header.Del("If-Modified-Since")
+			if req.Header.Get("Origin") != "" {
+				req.Header.Set("Origin", target.Scheme+"://"+target.Host)
+			}
+			if req.Header.Get("Referer") != "" {
+				req.Header.Set("Referer", target.Scheme+"://"+target.Host+req.URL.Path)
+			}
 		},
 		Transport:      transport,
 		ModifyResponse: makeModifyResponse(apiPort, target),

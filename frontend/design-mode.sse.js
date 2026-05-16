@@ -97,7 +97,7 @@
       // composer module's per-pin draft state). Always-reload is safe for
       // now because round transitions are agent-driven, not user-driven.
       reloadIframe();
-      scheduleResolutionForPath(state.currentPathname || state.currentRoute || '/');
+      scheduleResolutionForPath(state.currentRoute || '/');
       announceLive('Round ' + roundN + ' started.');
     }
 

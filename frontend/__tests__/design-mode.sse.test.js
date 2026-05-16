@@ -9,7 +9,7 @@ test('applyRoundStart resets per-round flags and announces', () => {
     currentRound: 1,
     resolutionCache: { '/x': 'fresh' },
     userActedThisRound: true,
-    currentPathname: '/foo',
+    currentRoute: '/foo',
   };
   const ctl = create({
     state,
@@ -35,7 +35,7 @@ test('applyRoundStart clears _roundResolved on every existing pin', () => {
     { id: 'b', _roundResolved: true },
   ];
   const ctl = create({
-    state: { currentPathname: '/' },
+    state: { currentRoute: '/' },
     pinsByRoute: () => ({ '/': pins }),
     scheduleResolutionForPath: () => {},
     announceLive: () => {},
@@ -281,7 +281,7 @@ test('round transition surfaces a reply that landed between rounds (DOM-asserted
       designExpandAll: false,
       designCollapseOverrides: new Map(),
       session: { review_round: 1 },
-      currentPathname: '/',
+      currentRoute: '/',
     };
     const panelCtl = panelRender.create({
       state, els: { panelBody }, utils, shared: null,

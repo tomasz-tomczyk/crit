@@ -2351,6 +2351,12 @@ func addReviewStats(result map[string]interface{}, revPath string) {
 		return
 	}
 	result["round"] = cj.ReviewRound
+	if cj.ReviewType != "" {
+		result["review_type"] = cj.ReviewType
+	}
+	if cj.Origin != "" {
+		result["origin"] = cj.Origin
+	}
 	unresolved, resolved := countComments(cj)
 	result["comments"] = map[string]int{
 		"unresolved": unresolved,
@@ -2381,6 +2387,12 @@ func printStatusHuman(vcsName, branch, revPath string, revExists bool, session *
 	var cj CritJSON
 	if json.Unmarshal(data, &cj) != nil {
 		return
+	}
+	if cj.ReviewType == "design" {
+		fmt.Printf("Mode:        design\n")
+		if cj.Origin != "" {
+			fmt.Printf("Origin:      %s\n", cj.Origin)
+		}
 	}
 	fmt.Printf("Round:       %d\n", cj.ReviewRound)
 	unresolved, resolved := countComments(cj)

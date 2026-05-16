@@ -500,21 +500,8 @@
   }
 
   registerInstaller(function installRouteDetection() {
-    var s = state.session || {};
-    var proxyOrigin = 'http://' + (window.location.hostname || 'localhost') + ':' + (s.proxy_port || 0);
-    var altOrigin = 'http://localhost:' + (s.proxy_port || 0);
-
-    window.addEventListener('message', function (e) {
-      // Origin check: trust the proxy port on either localhost or 127.0.0.1.
-      // Tests dispatch synthetic events with origin '' — accept those too.
-      if (e.origin && e.origin !== proxyOrigin && e.origin !== altOrigin) return;
-      var data = e.data;
-      if (!data || data.type !== 'route-change') return;
-      if (typeof data.pathname !== 'string') return;
-      recordRoute(data.pathname);
-    });
-
-    // Initial render.
+    // Initial breadcrumb render. Subsequent route-change messages are handled
+    // by the agent bridge (handleRouteChange) which calls recordRoute().
     recordRoute(state.currentRoute);
   });
 
@@ -1878,9 +1865,7 @@
     : null;
 
   function currentPathname() {
-    // Active route in the iframe (last announced via route-change), falling
-    // back to the iframe URL pathname if known.
-    return state.currentPathname || '/';
+    return state.currentRoute || '/';
   }
 
   function pushPinsToAgent() {
@@ -1897,7 +1882,7 @@
     var prev = lookupPin && lookupPin(msg && msg.pin_id);
     if (state.pinState) state.pinState.applyResolution(msg);
     if (prev) {
-      var path2 = (prev.dom_anchor && prev.dom_anchor.pathname) || state.currentPathname || '/';
+      var path2 = (prev.dom_anchor && prev.dom_anchor.pathname) || state.currentRoute || '/';
       var inActiveScan = typeof state.pendingByPath[path2] === 'number' &&
                          state.pendingByPath[path2] > 0;
       if (inActiveScan && !prev._roundResolved) {
@@ -1926,26 +1911,24 @@
   }
 
   function handleRouteChange(msg) {
-    var prevPath = state.currentPathname;
-    state.currentPathname = msg.pathname || '/';
-    // Clear deep-link fragment when navigating away from the open pin.
+    var prevPath = state.currentRoute;
+    recordRoute(msg.pathname);
     var dl = window.crit && window.crit.design && window.crit.design.deeplink;
-    if (dl && dl.shouldClearOnRouteChange(state, state.currentPathname)) {
+    if (dl && dl.shouldClearOnRouteChange(state, state.currentRoute)) {
       try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (_) { /* noop */ }
       state.openPin = null;
     }
     pushPinsToAgent();
-    if (state.resolutionCache[state.currentPathname] !== 'fresh') {
-      scheduleResolutionForPath(state.currentPathname);
+    if (state.resolutionCache[state.currentRoute] !== 'fresh') {
+      scheduleResolutionForPath(state.currentRoute);
     }
-    // Pending deep-link flash on first nav-committed for the target pathname.
     if (state.pendingFlashOnLoad && state.pendingPinId) {
       var pin = lookupPin(state.pendingPinId);
-      if (pin && pin.dom_anchor && pin.dom_anchor.pathname === state.currentPathname) {
+      if (pin && pin.dom_anchor && pin.dom_anchor.pathname === state.currentRoute) {
         performFlashAndScroll(pin);
       }
     }
-    if (prevPath !== state.currentPathname) {
+    if (prevPath !== state.currentRoute) {
       // ignored — kept as anchor for future hooks
     }
   }
@@ -2196,7 +2179,7 @@
       return;
     }
     var targetPath = (pin.dom_anchor && pin.dom_anchor.pathname) || '/';
-    if (state.currentRoute !== targetPath && state.currentPathname !== targetPath) {
+    if (state.currentRoute !== targetPath) {
       if (els && els.iframe) {
         try { els.iframe.src = proxyURL(targetPath); } catch (_) { /* noop */ }
       }
