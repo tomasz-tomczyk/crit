@@ -562,6 +562,46 @@
 
 
   // ============================================================
+  // ===== Waiting Modal Tips (design-mode variant of app.js's tip rotation) =====
+  var designTips = [
+    'Pin comments persist across rounds — the agent sees them until you resolve.',
+    'Comments support full Markdown.',
+    'Click a pin in the panel to scroll the iframe to that element.',
+    'Use the filter pill to toggle between open and resolved pins.',
+    'Enjoying Crit? A GitHub star or sharing it with colleagues helps a lot!',
+  ];
+  var designTipInterval = null;
+  var designLastTip = '';
+
+  function showDesignRandomTip() {
+    var el = document.getElementById('tipText');
+    if (!el) return;
+    var tips = designTips;
+    if (tips.length === 0) return;
+    var idx;
+    do {
+      idx = Math.floor(Math.random() * tips.length);
+    } while (tips[idx] === designLastTip && tips.length > 1);
+    designLastTip = tips[idx];
+    el.style.animation = 'none';
+    void el.offsetWidth;
+    el.innerHTML = tips[idx];
+    el.style.animation = '';
+  }
+
+  function startDesignTipRotation() {
+    if (designTipInterval) return;
+    showDesignRandomTip();
+    designTipInterval = setInterval(showDesignRandomTip, 8000);
+  }
+
+  function stopDesignTipRotation() {
+    if (designTipInterval) {
+      clearInterval(designTipInterval);
+      designTipInterval = null;
+    }
+  }
+
   // Finish Review (parity with code-review's finish flow)
   //
   // - finishBtn text reflects unresolved count (Approve when 0, else Finish Review)
@@ -589,6 +629,7 @@
     var btn = document.getElementById('finishBtn');
     var overlay = document.getElementById('waitingOverlay');
     if (s === 'reviewing') {
+      stopDesignTipRotation();
       if (btn) {
         btn.disabled = false;
         btn.classList.add('btn-primary');
@@ -609,6 +650,13 @@
       if (prompt) prompt.style.display = '';
       var clip = document.getElementById('waitingClipboard');
       if (clip) clip.style.display = '';
+      var copyRow = document.getElementById('promptCopyRow');
+      if (copyRow) copyRow.style.display = '';
+      var divider = document.getElementById('waitingDivider');
+      if (divider) divider.style.display = '';
+      var tipSection = document.getElementById('tipSection');
+      if (tipSection) tipSection.style.display = '';
+      startDesignTipRotation();
       if (overlay) overlay.classList.add('active');
     }
   }

@@ -37,7 +37,9 @@
     if (text) return text.length > 60 ? text.slice(0, 60) + '…' : text;
     var chain = Array.isArray(a.tag_chain) ? a.tag_chain : [];
     var tag = chain.length ? chain[chain.length - 1] : '';
-    return tag ? '<' + tag.toLowerCase() + '>' : 'element';
+    if (tag) return '<' + tag.toLowerCase() + '>';
+    if (a.role) return a.role;
+    return 'pin';
   }
 
   function formatTimeFallback(s) {
@@ -197,6 +199,8 @@
   //   iconChevron     — SVG string
   function renderDesignPinRow(c, deps) {
     deps = deps || {};
+    // Default author to 'Reviewer' when user_id present but name missing
+    if (!c.author && c.user_id) c.author = 'Reviewer';
     var anchor = c.dom_anchor || {};
     var pathname = anchor.pathname || '';
     var commentId = c.id || '';
@@ -302,8 +306,16 @@
 
       var chip = document.createElement('span');
       chip.className = 'crit-design-comment-chip';
-      chip.textContent = chipLabel(anchor);
-      chip.title = chipLabel(anchor);
+      var chipText;
+      if (!c.dom_anchor) {
+        // No anchor — show body preview instead of useless "pin"
+        var bodyPreview = (c.body || '').replace(/\s+/g, ' ').trim();
+        chipText = bodyPreview.length > 40 ? bodyPreview.slice(0, 40) + '…' : (bodyPreview || 'pin');
+      } else {
+        chipText = chipLabel(anchor);
+      }
+      chip.textContent = chipText;
+      chip.title = chipText;
       headerLeft.appendChild(chip);
     }
 
