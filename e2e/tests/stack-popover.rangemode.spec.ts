@@ -95,7 +95,7 @@ test('default branch is rendered ONCE (no ghost duplicate stack entry)', async (
   // doesn't snapshot the empty pre-fetch DOM.
   await expect(page.locator('#stackPopover .stack-popover-item').first()).toBeVisible();
   const allLabels = await page.locator('#stackPopover .stack-popover-label').allTextContents();
-  const mainCount = allLabels.filter((s) => s.trim() === 'main').length;
+  const mainCount = allLabels.filter((s) => s.trim() === 'base: main').length;
   expect(mainCount).toBe(1);
 });
 
