@@ -37,30 +37,28 @@ test('popover lists feat-a, feat-b, feat-c', async ({ page }) => {
   await expect(page.locator('#stackPopover')).toContainText('feat-c');
 });
 
-test('popover renders the default branch as the first entry', async ({ page }) => {
+test('popover renders the default branch as the last entry (base marker)', async ({ page }) => {
   await loadPage(page);
   await page.locator('#stackChipBtn').click();
   const dbItem = page.locator('#stackPopover .stack-popover-default');
   await expect(dbItem).toBeVisible();
-  await expect(dbItem).toContainText(/main/);
+  await expect(dbItem).toContainText(/base:.*main/);
 });
 
-test('popover order is base->head (main, feat-a, feat-b, feat-c)', async ({ page }) => {
+test('popover order is head->base (feat-c, feat-b, feat-a, base: main)', async ({ page }) => {
   await loadPage(page);
   await page.locator('#stackChipBtn').click();
-  // Wait for the post-/api/picker render — the initial "Loading…" view has no
-  // .stack-popover-item nodes, so reading evaluateAll too soon yields [].
   const items = page.locator('#stackPopover .stack-popover-item');
   await expect(items.first()).toBeVisible();
-  // 4 entries expected: main + feat-a/b/c.
+  // 4 entries expected: feat-c/b/a + base: main.
   await expect(items).toHaveCount(4);
   const labels = await items.evaluateAll((els) =>
     els.map((el) => (el as HTMLElement).innerText.replace(/\s*\(reviewing\)\s*/i, '').replace(/\s*\(full stack\)\s*/i, '').trim())
   );
-  // First entry is the default branch label.
-  expect(labels[0]).toMatch(/main/);
-  const feats = labels.filter((s) => /^feat-[abc]$/.test(s.split('\n').pop() || ''));
-  expect(feats.map((s) => (s.split('\n').pop() || '').trim())).toEqual(['feat-a', 'feat-b', 'feat-c']);
+  // Last entry is the base marker.
+  expect(labels[labels.length - 1]).toMatch(/base:.*main/);
+  const feats = labels.filter((s) => /feat-[abc]/.test(s));
+  expect(feats.map((s) => (s.match(/feat-[abc]/) || [''])[0])).toEqual(['feat-c', 'feat-b', 'feat-a']);
 });
 
 test('clicking a different stack entry switches focus and rebuilds file list', async ({ page, request }) => {

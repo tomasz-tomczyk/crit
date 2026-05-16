@@ -10579,44 +10579,25 @@
       return;
     }
 
-    // Filter out the default-branch entry from the linear stack — it's
-    // surfaced separately as the root marker above the tree. Use the focus's
-    // default_sha when available; fall back to per-entry default_sha (stamped
-    // by assignStackBases) so range-mode focuses without a resolved
-    // default_sha still drop the redundant ghost row.
-    // Picker already excludes the literal default branch from `stack`
-    // (see stackTipLabels in picker.go), so no need to filter — just
-    // reverse so the topmost (deepest) entry renders first.
-    const ordered = stack.slice().reverse();
-    // Prefer the repo's actual default branch name (e.g. "master") over
-    // guessing from the topmost stack entry's base_ref_name (often empty
-    // for branch-tier entries) or hardcoding 'main'.
-    // defaultBranchNameCache is populated by /api/picker.
+    const ordered = stack.slice();
     const defaultBranchName = defaultBranchNameCache || (ordered[0] && ordered[0].base_ref_name) || 'main';
 
     const parts = [];
     parts.push('<div class="stack-popover-title">Stack</div>');
 
-    // Default-branch entry — non-interactive root marker. The
-    // layer/full-stack toggle inside this popover is the canonical
-    // way to switch scopes; clicking here used to flip diff_scope but
-    // that overlapped confusingly with the toggle.
-    parts.push('<span class="stack-popover-item stack-popover-root stack-popover-default" role="presentation">' +
-      '<span class="stack-popover-tree" aria-hidden="true">\u2502 </span>' +
-      '<span class="stack-popover-label">' + escapeHtml(defaultBranchName) + '</span>' +
-      '</span>');
-
-    // Stack entries — base→head, with ├─ / └─ prefixes.
+    // Stack entries — head→base (newest at top), with ├─ / └─ prefixes.
     ordered.forEach(function(entry, i) {
       const isLast = i === ordered.length - 1;
       const tree = isLast ? '\u2514\u2500 ' : '\u251C\u2500 ';
       const isCurrent = entry.head_sha === focus.head_sha;
-      const label = entryLabel(entry, 40);
+      const label = entryLabel(entry, 34);
+      const shortSha = entry.head_sha ? entry.head_sha.slice(0, 7) : '';
       if (isCurrent) {
         parts.push('<span class="stack-popover-item stack-popover-current" aria-current="page" role="menuitem"' +
           ' data-head-sha="' + escapeHtml(entry.head_sha || '') + '">' +
           '<span class="stack-popover-tree" aria-hidden="true">' + tree + '</span>' +
           '<span class="stack-popover-label">' + escapeHtml(label) + '</span>' +
+          (shortSha ? '<span class="stack-popover-sha">' + escapeHtml(shortSha) + '</span>' : '') +
           '</span>');
       } else {
         const payload = focusPayloadFromStackEntry(entry, focus);
@@ -10628,9 +10609,16 @@
           ' aria-label="' + escapeHtml(aria) + '">' +
           '<span class="stack-popover-tree" aria-hidden="true">' + tree + '</span>' +
           '<span class="stack-popover-label">' + escapeHtml(label) + '</span>' +
+          (shortSha ? '<span class="stack-popover-sha">' + escapeHtml(shortSha) + '</span>' : '') +
           '</button>');
       }
     });
+
+    // Base marker — non-interactive root at the bottom of the tree.
+    parts.push('<span class="stack-popover-item stack-popover-root stack-popover-default" role="presentation">' +
+      '<span class="stack-popover-tree" aria-hidden="true">  </span>' +
+      '<span class="stack-popover-label">base: ' + escapeHtml(defaultBranchName) + '</span>' +
+      '</span>');
 
     // "Compare against" radio section. Lives inside the popover so the
     // page header doesn't need a second toolbar row for what is a
