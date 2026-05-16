@@ -31,6 +31,7 @@ test:
 
 test-frontend:
 	node frontend/__tests__/markdown-patch.test.mjs
+	node frontend/test-diff-render.mjs
 
 setup-hooks:
 	git config core.hooksPath .githooks

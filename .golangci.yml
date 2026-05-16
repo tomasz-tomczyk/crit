@@ -27,7 +27,7 @@ linters:
         path: "node_modules/"
       - linters: [unparam]
         path: "_test\\.go"
-      - linters: [nilerr, gocritic, errorlint, unparam]
+      - linters: [nilerr, gocritic, errorlint, unparam, govet]
         path: "node_modules/"
 
 formatters:

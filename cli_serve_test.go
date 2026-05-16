@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -81,4 +82,37 @@ func TestPreflightNoChangedFiles_NotARepo(t *testing.T) {
 	if msg := preflightNoChangedFiles(sc); msg != "" {
 		t.Errorf("expected empty message outside a repo, got:\n%s", msg)
 	}
+}
+
+// TestResolveServeReviewPath_PlanModeColocatesWithReviewFile verifies that
+// plan-mode daemons compute a review path under the plan dir, so attachment
+// upload and share-payload inlining target the same folder. Pre-fix, plan
+// mode fell through to the centralized ~/.crit/reviews/<key> path while
+// session.critJSONPath() returned <planDir>/.crit — the split caused pasted
+// images to render as [image: <alt>] placeholders on crit-web.
+func TestResolveServeReviewPath(t *testing.T) {
+	t.Run("outputDir wins", func(t *testing.T) {
+		dir := t.TempDir()
+		got := resolveServeReviewPath(dir, "/some/plan/dir", "deadbeef")
+		want := filepath.Join(dir, ".crit")
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("planDir used when outputDir empty", func(t *testing.T) {
+		planDir := t.TempDir()
+		got := resolveServeReviewPath("", planDir, "deadbeef")
+		want := filepath.Join(planDir, ".crit")
+		if got != want {
+			t.Errorf("plan-mode review path: got %q, want %q (must co-locate with review.json so attachments/ inlining can find them)", got, want)
+		}
+	})
+
+	t.Run("centralized path when neither outputDir nor planDir set", func(t *testing.T) {
+		got := resolveServeReviewPath("", "", "deadbeef123")
+		if !strings.Contains(got, "deadbeef123") {
+			t.Errorf("centralized path should embed session key; got %q", got)
+		}
+	})
 }

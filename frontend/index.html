@@ -171,17 +171,44 @@
 
 <div class="waiting-overlay" id="waitingOverlay" role="dialog" aria-modal="true" aria-labelledby="waitingHeading">
   <div class="waiting-dialog" id="waitingDialog">
-    <div class="waiting-spinner" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-    <svg class="success-mark" viewBox="0 0 64 64" aria-hidden="true">
-      <circle class="success-mark-ring" cx="32" cy="32" r="28"/>
-      <path class="success-mark-check" d="M19 33 L28 42 L45 23"/>
-    </svg>
-    <h3 id="waitingHeading">Review Complete</h3>
-    <p id="waitingMessage"></p>
-    <p class="waiting-edits" id="waitingEdits"></p>
-    <div class="waiting-prompt" id="waitingPrompt"></div>
-    <button class="btn btn-sm" style="margin-top: 8px;" id="waitingClipboard" aria-label="Copy prompt to clipboard"></button>
-    <button class="btn btn-sm" id="backToEditing" style="margin-top: 16px;">Back to editing</button>
+    <!-- Header -->
+    <div class="waiting-header">
+      <div class="waiting-spinner" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+      <svg class="success-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <circle class="success-mark-ring" cx="32" cy="32" r="28"/>
+        <path class="success-mark-check" d="M19 33 L28 42 L45 23"/>
+      </svg>
+      <h3 id="waitingHeading">Review Complete</h3>
+      <p id="waitingMessage"></p>
+      <p class="waiting-edits" id="waitingEdits"></p>
+    </div>
+
+    <!-- Prompt copy row -->
+    <div class="prompt-copy-row" id="promptCopyRow">
+      <span class="prompt-preview" id="promptPreview"></span>
+      <button class="prompt-copy-btn" id="waitingClipboard" aria-label="Copy prompt to clipboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <span class="copy-label">Copy</span>
+      </button>
+    </div>
+    <div class="prompt-full-text" id="waitingPrompt"></div>
+
+    <!-- Divider -->
+    <div class="waiting-divider" id="waitingDivider"></div>
+
+    <!-- Tip -->
+    <div class="tip-section" id="tipSection">
+      <svg class="tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      <div class="tip-content">
+        <div class="tip-label">Tip</div>
+        <div class="tip-text" id="tipText"></div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="waiting-footer">
+      <button class="btn btn-sm" id="backToEditing">Back to editing</button>
+    </div>
   </div>
 </div>
 

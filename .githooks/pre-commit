@@ -3,9 +3,22 @@ set -e
 
 echo "Running pre-commit checks..."
 
+# Helper: run a command, trying mise exec as fallback for non-interactive shells
+# where mise-managed tools (go, node, npx) aren't on PATH.
+run_tool() {
+    if command -v "$1" >/dev/null 2>&1; then
+        "$@"
+    elif command -v mise >/dev/null 2>&1; then
+        mise exec -- "$@"
+    else
+        echo "  WARNING: '$1' not found and mise not available — skipping"
+        return 0
+    fi
+}
+
 # Check formatting
 echo "  Checking gofmt..."
-UNFORMATTED=$(gofmt -l . 2>&1)
+UNFORMATTED=$(run_tool gofmt -l . 2>&1)
 if [ -n "$UNFORMATTED" ]; then
     echo "  FAIL: Files need formatting:"
     echo "$UNFORMATTED" | sed 's/^/    /'
@@ -14,6 +27,7 @@ if [ -n "$UNFORMATTED" ]; then
 fi
 
 # Run golangci-lint (includes gocyclo, staticcheck, misspell, ineffassign)
+# golangci-lint is installed via `go install`, not mise — only run if on PATH.
 if command -v golangci-lint >/dev/null 2>&1; then
     echo "  Running golangci-lint..."
     if ! golangci-lint run ./... 2>&1; then
@@ -21,29 +35,29 @@ if command -v golangci-lint >/dev/null 2>&1; then
         exit 1
     fi
 else
-    echo "  Skipping golangci-lint (not installed). Run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+    echo "  Skipping golangci-lint (not on PATH). Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
 fi
 
 # Run tests
 echo "  Running tests..."
-if ! go test ./... 2>&1; then
+if ! run_tool go test ./... 2>&1; then
     echo "  FAIL: Tests failed"
     exit 1
 fi
 
-# Check JS linting
-if command -v npx >/dev/null 2>&1 && [ -f eslint.config.mjs ]; then
+# Check JS linting — npx is mise-managed, so run_tool finds it in agent shells
+if [ -f eslint.config.mjs ]; then
     echo "  Running ESLint..."
-    if ! npx eslint frontend/app.js 2>&1; then
+    if ! run_tool npx eslint frontend/app.js 2>&1; then
         echo "  FAIL: ESLint issues found"
         exit 1
     fi
 fi
 
 # Check CSS linting
-if command -v npx >/dev/null 2>&1 && [ -f .stylelintrc.json ]; then
+if [ -f .stylelintrc.json ]; then
     echo "  Running Stylelint..."
-    if ! npx stylelint "frontend/*.css" 2>&1; then
+    if ! run_tool npx stylelint "frontend/*.css" 2>&1; then
         echo "  FAIL: Stylelint issues found"
         exit 1
     fi

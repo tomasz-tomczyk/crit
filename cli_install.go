@@ -110,6 +110,10 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/opencode/crit.md", dest: ".opencode/commands/crit.md", hint: "Run /crit in OpenCode to start a review loop"},
 		// opencode does NOT read ~/.opencode/skills/ globally — redirect to ~/.agents/skills/
 		{source: "integrations/opencode/SKILL.md", dest: ".opencode/skills/crit/SKILL.md", globalDest: ".agents/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit skill is available to OpenCode agents when needed"},
+		// Plugin file auto-loaded from project `.opencode/plugins/` or global
+		// `~/.config/opencode/plugins/`. Conditionally injects sharing instructions
+		// only when share_url is set in crit config.
+		{source: "integrations/opencode/plugin/crit.ts", dest: ".opencode/plugins/crit.ts", globalDest: ".config/opencode/plugins/crit.ts", globalDestKind: globalDestRelHome, hint: "Crit's opencode plugin gates sharing instructions on share_url being set"},
 	},
 	"windsurf": {
 		// windsurf has no per-tool global rules dir — global install rejected in installIntegration.
@@ -134,6 +138,13 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/qwen/skills/crit/SKILL.md", dest: ".qwen/skills/crit/SKILL.md", hint: "Run /crit in Qwen Code to start a review loop"},
 		{source: "integrations/qwen/skills/crit-cli/SKILL.md", dest: ".qwen/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Qwen Code agents when needed"},
 	},
+	"pi": {
+		// Pi auto-discovers skills in both .pi/skills/ (project-local) and
+		// ~/.pi/agent/skills/ (global). Different shape between modes, so
+		// globalDest redirects the global install to the agent/skills path.
+		{source: "integrations/pi/skills/crit/SKILL.md", dest: ".pi/skills/crit/SKILL.md", globalDest: ".pi/agent/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /crit in Pi to start a review loop"},
+		{source: "integrations/pi/skills/crit-cli/SKILL.md", dest: ".pi/skills/crit-cli/SKILL.md", globalDest: ".pi/agent/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Pi agents when needed"},
+	},
 	"hermes": {
 		// Hermes only auto-discovers skills under HERMES_HOME (default ~/.hermes/skills/).
 		// Project-local .hermes/skills/ is not loaded unless added to `external_dirs` in
@@ -145,6 +156,12 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/gemini/skills/crit-cli/SKILL.md", dest: ".gemini/skills/crit-cli/SKILL.md", globalDest: ".gemini/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Gemini CLI agents when needed"},
 		{source: "integrations/gemini/commands/crit.toml", dest: ".gemini/commands/crit.toml", globalDest: ".gemini/commands/crit.toml", globalDestKind: globalDestRelHome, hint: "Run /crit in Gemini CLI to start a review loop"},
 		{source: "integrations/gemini/hooks/policy.toml", dest: ".gemini/policies/crit.toml", globalDest: ".gemini/policies/crit.toml", globalDestKind: globalDestRelHome, hint: "The crit policy allows exit_plan_mode without confirmation"},
+	},
+	"grok": {
+		// Grok auto-discovers .grok/skills/ both project-locally and in ~/.grok/skills/ globally.
+		// Same shape in both cases, so no globalDest redirect is needed.
+		{source: "integrations/grok/skills/crit/SKILL.md", dest: ".grok/skills/crit/SKILL.md", hint: "Run /crit in Grok to start a review loop"},
+		{source: "integrations/grok/skills/crit-cli/SKILL.md", dest: ".grok/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Grok agents when needed"},
 	},
 }
 
@@ -273,6 +290,11 @@ func installIntegration(name string, force bool) error {
 			settingsPath = filepath.Join(home, ".gemini", "settings.json")
 		}
 		installGeminiSettings(settingsPath, force)
+	}
+	if name == "opencode" {
+		if err := installOpencodePluginEntry(opencodeConfigPath(global, home), opencodePluginEntry(global), force); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not register plugin in opencode config: %v\n", err)
+		}
 	}
 	if name == "hermes" && !global {
 		fmt.Println()

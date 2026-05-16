@@ -288,7 +288,7 @@ func TestBucketsToGHComments_ShapesCorrectly(t *testing.T) {
 		{Path: "a.go", Comment: Comment{StartLine: 3, EndLine: 3, Body: "single"}},
 		{Path: "b.go", Comment: Comment{StartLine: 5, EndLine: 8, Body: "range"}},
 	}
-	got := bucketsToGHComments(postable)
+	got := bucketsToGHComments(postable, nil)
 	if len(got) != 2 {
 		t.Fatalf("len=%d want 2", len(got))
 	}
@@ -306,11 +306,67 @@ func TestBucketsToGHComments_ShapesCorrectly(t *testing.T) {
 }
 
 func TestBucketsToGHComments_EmptyInput(t *testing.T) {
-	if got := bucketsToGHComments(nil); got != nil {
+	if got := bucketsToGHComments(nil, nil); got != nil {
 		t.Errorf("nil input should return nil, got %+v", got)
 	}
-	if got := bucketsToGHComments([]scopedComment{}); got != nil {
+	if got := bucketsToGHComments([]scopedComment{}, nil); got != nil {
 		t.Errorf("empty input should return nil, got %+v", got)
+	}
+}
+
+// Default (nil) rewriter strips local attachment refs and appends a
+// "view in Crit" placeholder. Verifies the body sent to GitHub doesn't
+// leak relative attachments/<uuid> paths.
+func TestBucketsToGHComments_StripsLocalAttachmentRefsByDefault(t *testing.T) {
+	uuid, _ := randomUUID()
+	body := "look at this:\n\n![](attachments/" + uuid + ".png)\n\nthoughts?"
+	postable := []scopedComment{{
+		Path: "ui.tsx", Comment: Comment{StartLine: 1, EndLine: 1, Body: body},
+	}}
+	got := bucketsToGHComments(postable, nil)
+	if len(got) != 1 {
+		t.Fatalf("len=%d want 1", len(got))
+	}
+	out, _ := got[0]["body"].(string)
+	if strings.Contains(out, "](attachments/") {
+		t.Errorf("body still contains local attachment ref: %q", out)
+	}
+	if !strings.Contains(out, "view in Crit") {
+		t.Errorf("expected placeholder note in body: %q", out)
+	}
+}
+
+// Generic delegation check: when the caller passes a rewriter that swaps
+// attachments/<uuid> for some other URL, bucketsToGHComments forwards the
+// body unchanged through that rewriter (no placeholder appended). Not a
+// production scenario — production passes stripBodyRewriter — but the
+// rewriter parameter is part of the function's contract.
+func TestBucketsToGHComments_SwapsLocalAttachmentRefsWhenUpload(t *testing.T) {
+	uuid, _ := randomUUID()
+	body := "look at this:\n\n![bug.png](attachments/" + uuid + ".png)\n\nthoughts?"
+	swap := func(b string) string {
+		return strings.ReplaceAll(
+			b,
+			"attachments/"+uuid+".png",
+			"https://raw.githubusercontent.com/o/r/feature/.crit/images/"+uuid+".png",
+		)
+	}
+	postable := []scopedComment{{
+		Path: "ui.tsx", Comment: Comment{StartLine: 1, EndLine: 1, Body: body},
+	}}
+	got := bucketsToGHComments(postable, swap)
+	if len(got) != 1 {
+		t.Fatalf("len=%d want 1", len(got))
+	}
+	out, _ := got[0]["body"].(string)
+	if !strings.Contains(out, "raw.githubusercontent.com/o/r/feature/.crit/images/"+uuid+".png") {
+		t.Errorf("body missing GitHub raw URL: %q", out)
+	}
+	if strings.Contains(out, "](attachments/") {
+		t.Errorf("body still references local attachments/: %q", out)
+	}
+	if strings.Contains(out, "view in Crit") {
+		t.Errorf("body should not carry strip placeholder when upload swaps URL: %q", out)
 	}
 }
 

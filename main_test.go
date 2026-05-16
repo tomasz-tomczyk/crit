@@ -292,6 +292,57 @@ func TestHelperProcess_ShareOutputMissing(t *testing.T) {
 	runShare([]string{"--output"})
 }
 
+func TestPromptShareConsent(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"y\n", true},
+		{"Y\n", true},
+		{"n\n", false},
+		{"N\n", false},
+		{"\n", false},
+		{"", false},
+		{"yes\n", false},
+	}
+	for _, tt := range tests {
+		var buf strings.Builder
+		got := promptShareConsent(&buf, strings.NewReader(tt.input))
+		if got != tt.want {
+			t.Errorf("promptShareConsent(input=%q) = %v, want %v", tt.input, got, tt.want)
+		}
+		if !strings.Contains(buf.String(), "Continue?") {
+			t.Errorf("promptShareConsent did not print prompt for input=%q", tt.input)
+		}
+	}
+}
+
+// TestRunShare_ConsentDenied verifies that answering "n" to the first-time
+// consent prompt exits cleanly without sharing.
+func TestRunShare_ConsentDenied(t *testing.T) {
+	home := t.TempDir()
+	outDir := t.TempDir()
+	f := filepath.Join(t.TempDir(), "review.md")
+	if err := os.WriteFile(f, []byte("# Hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_ShareConsentDenied", "--")
+	cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1", "HOME="+home,
+		"GO_TEST_SHARE_FILE="+f, "GO_TEST_SHARE_OUT="+outDir)
+	cmd.Stdin = strings.NewReader("n\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected zero exit when user declines consent, got: %v\n%s", err, out)
+	}
+}
+
+func TestHelperProcess_ShareConsentDenied(t *testing.T) {
+	if os.Getenv("GO_TEST_HELPER") != "1" {
+		return
+	}
+	runShare([]string{"--output", os.Getenv("GO_TEST_SHARE_OUT"), os.Getenv("GO_TEST_SHARE_FILE")})
+}
+
 // TestRunUnpublish_UnknownFlag verifies that an unknown flag prints usage and exits.
 func TestRunUnpublish_UnknownFlag(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_UnpublishBadFlag", "--")
@@ -593,13 +644,13 @@ func TestResolveServerConfig_HostPrecedence(t *testing.T) {
 		}
 	})
 
-	t.Run("config wins when no CLI flag or env var", func(t *testing.T) {
+	t.Run("global config wins when no CLI flag or env var", func(t *testing.T) {
 		defaultBranchOverride = ""
 		defaultBranchOnce = sync.Once{}
 
 		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"host": "10.0.0.1"}`), 0644)
 		homeDir := t.TempDir()
+		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"host": "10.0.0.1"}`), 0644)
 		setHome(t, homeDir)
 		t.Setenv("CRIT_HOST", "")
 
@@ -612,7 +663,30 @@ func TestResolveServerConfig_HostPrecedence(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if sc.host != "10.0.0.1" {
-			t.Errorf("host = %q, want 10.0.0.1 (config file)", sc.host)
+			t.Errorf("host = %q, want 10.0.0.1 (global config)", sc.host)
+		}
+	})
+
+	t.Run("project config cannot override host", func(t *testing.T) {
+		defaultBranchOverride = ""
+		defaultBranchOnce = sync.Once{}
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"host": "0.0.0.0"}`), 0644)
+		homeDir := t.TempDir()
+		setHome(t, homeDir)
+		t.Setenv("CRIT_HOST", "")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := resolveServerConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.host != "127.0.0.1" {
+			t.Errorf("host = %q, want 127.0.0.1 (project config must not override host)", sc.host)
 		}
 	})
 
@@ -650,10 +724,11 @@ func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 		defaultBranchOverride = ""
 		defaultBranchOnce = sync.Once{}
 
-		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
 		homeDir := t.TempDir()
 		setHome(t, homeDir)
+		// share_url is global-only; write to global config
+		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
+		dir := t.TempDir()
 		t.Setenv("CRIT_SHARE_URL", "https://env.example.com")
 
 		origDir, _ := os.Getwd()
@@ -673,10 +748,11 @@ func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 		defaultBranchOverride = ""
 		defaultBranchOnce = sync.Once{}
 
-		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
 		homeDir := t.TempDir()
 		setHome(t, homeDir)
+		// share_url is global-only; write to global config
+		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
+		dir := t.TempDir()
 		t.Setenv("CRIT_SHARE_URL", "https://env.example.com")
 
 		origDir, _ := os.Getwd()
@@ -692,14 +768,15 @@ func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 		}
 	})
 
-	t.Run("config used when no CLI or env", func(t *testing.T) {
+	t.Run("global config used when no CLI or env", func(t *testing.T) {
 		defaultBranchOverride = ""
 		defaultBranchOnce = sync.Once{}
 
-		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
 		homeDir := t.TempDir()
 		setHome(t, homeDir)
+		// share_url is global-only; project config cannot set it
+		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
+		dir := t.TempDir()
 		os.Unsetenv("CRIT_SHARE_URL")
 
 		origDir, _ := os.Getwd()
@@ -711,7 +788,7 @@ func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if sc.shareURL != "https://config.example.com" {
-			t.Errorf("shareURL = %q, want config value", sc.shareURL)
+			t.Errorf("shareURL = %q, want global config value", sc.shareURL)
 		}
 	})
 }
@@ -1516,6 +1593,29 @@ func TestParseShareFlags(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseShareFlags_OrgVisibility(t *testing.T) {
+	t.Run("--org flag", func(t *testing.T) {
+		sf := parseShareFlags([]string{"--org", "acme", "plan.md"})
+		if sf.org != "acme" {
+			t.Fatalf("expected org=acme, got %q", sf.org)
+		}
+	})
+
+	t.Run("--visibility flag", func(t *testing.T) {
+		sf := parseShareFlags([]string{"--visibility", "organization", "plan.md"})
+		if sf.visibility != "organization" {
+			t.Fatalf("expected visibility=organization, got %q", sf.visibility)
+		}
+	})
+
+	t.Run("both flags", func(t *testing.T) {
+		sf := parseShareFlags([]string{"--org", "acme", "--visibility", "unlisted", "plan.md"})
+		if sf.org != "acme" || sf.visibility != "unlisted" {
+			t.Fatalf("got org=%q vis=%q", sf.org, sf.visibility)
+		}
+	})
 }
 
 func TestLoadShareFiles(t *testing.T) {

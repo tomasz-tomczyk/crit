@@ -49,8 +49,6 @@
    the same in-document navigation flow. Keep only the count toggle. */
 .crit-mode-design #commentNavGroup #commentNavPrev,
 .crit-mode-design #commentNavGroup #commentNavNext { display: none !important; }
-.crit-mode-design #commentsPanelResizer { display: block !important; }
-
 /* The base .sidebar-resize-handle uses position:sticky with top:var(--header-height)
    and height:calc(100vh - var(--header-height)). That's correct in code-review
    where .main-layout starts at the top of the page and the body scrolls. In
@@ -63,6 +61,7 @@
    Override to a plain stretching flex child so the 4px strip aligns with
    the panel's left edge across the full pane height. */
 .crit-mode-design #commentsPanelResizer {
+  display: block !important;
   position: relative;
   top: auto;
   height: 100%;
@@ -343,6 +342,9 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
   min-width: 160px;
   padding: 4px 0;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 .crit-design-ancestor-menu-item {
   appearance: none;
@@ -543,10 +545,6 @@ body.hide-resolved .crit-design-comment-row-wrap:has(.resolved-card) {
 }
 
 /* ---- Phase E: aria-live + skip-link ---- */
-.crit-design-sr-only {
-  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
-}
 .crit-design-skip-link {
   position: absolute; left: -9999px; top: 8px;
   background: var(--crit-design-tooltip-bg);
@@ -590,11 +588,6 @@ body.hide-resolved .crit-design-comment-row-wrap:has(.resolved-card) {
 .crit-design-round-tooltip--open { opacity: 1; }
 
 /* ---- Phase E: ancestor menu polish (fade + active row) ---- */
-.crit-design-ancestor-menu {
-  opacity: 0;
-  transform: translateY(-2px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
 .crit-design-ancestor-menu.crit-design-ancestor-menu--open {
   opacity: 1;
   transform: translateY(0);

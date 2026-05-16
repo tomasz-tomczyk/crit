@@ -7,11 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -144,7 +144,7 @@ func shareFileEntries(files []shareFile) []map[string]any {
 }
 
 // buildSharePayload constructs the JSON payload for POST /api/reviews.
-func buildSharePayload(files []shareFile, comments []shareComment, reviewRound int, cliArgs []string) map[string]any {
+func buildSharePayload(files []shareFile, comments []shareComment, reviewRound int, cliArgs []string, org, visibility string) map[string]any {
 	fileList := shareFileEntries(files)
 	if comments == nil {
 		comments = []shareComment{}
@@ -153,6 +153,32 @@ func buildSharePayload(files []shareFile, comments []shareComment, reviewRound i
 		"files":        fileList,
 		"review_round": reviewRound,
 		"comments":     comments,
+	}
+	if len(cliArgs) > 0 {
+		payload["cli_args"] = cliArgs
+	}
+	if org != "" {
+		payload["org"] = org
+	}
+	if visibility != "" {
+		payload["visibility"] = visibility
+	}
+	return payload
+}
+
+// buildUpsertPayload constructs the JSON payload for PUT /api/reviews/:token.
+// Used by both the CLI (upsertShareToWeb) and the browser popup-relay path
+// (handleUpsertPayload) so the wire format stays in one place.
+func buildUpsertPayload(files []shareFile, comments []shareComment, deleteToken string, reviewRound int, cliArgs []string) map[string]any {
+	fileList := shareFileEntries(files)
+	if comments == nil {
+		comments = []shareComment{}
+	}
+	payload := map[string]any{
+		"delete_token": deleteToken,
+		"files":        fileList,
+		"comments":     comments,
+		"review_round": reviewRound,
 	}
 	if len(cliArgs) > 0 {
 		payload["cli_args"] = cliArgs
@@ -171,11 +197,11 @@ type shareReviewFilesResult struct {
 // shareReviewFiles loads comments + cli_args from the review file at critPath
 // and POSTs the files to crit-web. Used by both the CLI (`crit share`) and the
 // server's POST /api/share endpoint so payload wiring stays in one place.
-func shareReviewFiles(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor string) (shareReviewFilesResult, error) {
+func shareReviewFiles(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor, org, visibility string) (shareReviewFilesResult, error) {
 	comments, reviewRound := loadCommentsForShare(critPath, filePaths, fallbackAuthor)
 	cliArgs := loadCliArgsFromReviewFile(critPath)
 
-	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs)
+	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs, org, visibility)
 	if err != nil {
 		return shareReviewFilesResult{}, err
 	}
@@ -188,8 +214,8 @@ func shareReviewFiles(critPath string, files []shareFile, filePaths []string, sv
 }
 
 // shareFilesToWeb uploads files to a crit-web instance and returns the share URL and delete token.
-func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string, reviewRound int, authToken string, cliArgs []string) (string, string, error) {
-	payload := buildSharePayload(files, comments, reviewRound, cliArgs)
+func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string, reviewRound int, authToken string, cliArgs []string, org, visibility string) (string, string, error) {
+	payload := buildSharePayload(files, comments, reviewRound, cliArgs, org, visibility)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", "", fmt.Errorf("marshaling payload: %w", err)
@@ -216,7 +242,9 @@ func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string
 		var errBody struct {
 			Error string `json:"error"`
 		}
-		_ = json.NewDecoder(resp.Body).Decode(&errBody)
+		if decErr := decodeJSONOrHTMLHint(resp, &errBody); decErr != nil {
+			return "", "", decErr
+		}
 		if errBody.Error != "" {
 			return "", "", fmt.Errorf("share service error: %s", errBody.Error)
 		}
@@ -227,8 +255,8 @@ func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string
 		URL         string `json:"url"`
 		DeleteToken string `json:"delete_token"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", fmt.Errorf("decoding share response: %w", err)
+	if err := decodeJSONOrHTMLHint(resp, &result); err != nil {
+		return "", "", err
 	}
 	return result.URL, result.DeleteToken, nil
 }
@@ -278,11 +306,37 @@ func unpublishFromWeb(shareURL string, deleteToken string, authToken string) err
 	var errBody struct {
 		Error string `json:"error"`
 	}
-	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	if decErr := decodeJSONOrHTMLHint(resp, &errBody); decErr != nil {
+		return decErr
+	}
 	if errBody.Error != "" {
 		return fmt.Errorf("share service error: %s", errBody.Error)
 	}
 	return fmt.Errorf("share service returned status %d", resp.StatusCode)
+}
+
+// decodeJSONOrHTMLHint reads up to 10MB from resp.Body, detects HTML
+// responses (typical of an SSO reverse proxy intercepting the request with a
+// login page), and either decodes the JSON into v or returns an actionable
+// error pointing the user at proxy_auth=true.
+//
+// Replaces direct json.NewDecoder(resp.Body).Decode(&v) at every share
+// network call site so the SSO failure path produces a meaningful error
+// instead of a cryptic "invalid character '<'".
+func decodeJSONOrHTMLHint(resp *http.Response, v any) error {
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+	trimmed := bytes.TrimLeft(raw, " \t\r\n")
+	if bytes.HasPrefix(trimmed, []byte("<")) {
+		return fmt.Errorf("crit-web returned an HTML page instead of JSON — likely behind an SSO reverse proxy. " +
+			"Set 'proxy_auth': true in your crit config and use the browser UI to share")
+	}
+	if err := json.Unmarshal(raw, v); err != nil {
+		return fmt.Errorf("decode share response: %w", err)
+	}
+	return nil
 }
 
 // setBearer sets the Authorization header to "Bearer <token>" when token is non-empty.
@@ -312,7 +366,15 @@ func loadCommentsForShare(critPath string, filePaths []string, fallbackAuthor st
 // includeResolved and setExternalID flags. The filePath and scope fields are
 // set by the caller based on context. fallbackAuthor is used when c.Author is
 // empty (typically cfg.Author).
-func commentToShareComment(c Comment, filePath, scope, fallbackAuthor string, includeResolved, setExternalID bool) shareComment {
+//
+// critPath is the v4 review identity (folder); it's used to locate the
+// attachments dir so any attachments/<uuid>.<ext> markdown references in
+// the body (or its replies) get rewritten to data: URIs before the share
+// payload leaves the host. crit-web has no asset endpoint, so this
+// inlining is the only way pasted screenshots survive a share. Passing
+// "" disables inlining (used in unit tests that don't write attachments
+// to disk).
+func commentToShareComment(c Comment, filePath, scope, fallbackAuthor, critPath string, includeResolved, setExternalID bool) shareComment {
 	author := c.Author
 	if author == "" {
 		author = fallbackAuthor
@@ -321,7 +383,7 @@ func commentToShareComment(c Comment, filePath, scope, fallbackAuthor string, in
 		File:      filePath,
 		StartLine: c.StartLine,
 		EndLine:   c.EndLine,
-		Body:      c.Body,
+		Body:      inlineAttachmentsAsDataURIs(critPath, c.Body),
 		Quote:     c.Quote,
 		Author:    author,
 		UserID:    c.UserID,
@@ -341,7 +403,7 @@ func commentToShareComment(c Comment, filePath, scope, fallbackAuthor string, in
 		if ra == "" {
 			ra = fallbackAuthor
 		}
-		sr := shareReply{Body: r.Body, Author: ra, UserID: r.UserID}
+		sr := shareReply{Body: inlineAttachmentsAsDataURIs(critPath, r.Body), Author: ra, UserID: r.UserID}
 		if setExternalID {
 			sr.ExternalID = r.ID
 		}
@@ -385,14 +447,14 @@ func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolv
 				continue
 			}
 			scope := c.Scope
-			comments = append(comments, commentToShareComment(c, filePath, scope, fallbackAuthor, includeResolved, setExternalID))
+			comments = append(comments, commentToShareComment(c, filePath, scope, fallbackAuthor, critPath, includeResolved, setExternalID))
 		}
 	}
 	for _, c := range cj.ReviewComments {
 		if !includeResolved && c.Resolved {
 			continue
 		}
-		comments = append(comments, commentToShareComment(c, "", "review", fallbackAuthor, includeResolved, setExternalID))
+		comments = append(comments, commentToShareComment(c, "", "review", fallbackAuthor, critPath, includeResolved, setExternalID))
 	}
 	return comments, round
 }
@@ -467,10 +529,13 @@ func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprin
 	var result fetchWebCommentsResult
 	result.ReplyUpdates = make(map[string][]webReply)
 
-	token := path.Base(shareURL)
+	token := tokenFromHostedURL(shareURL)
 	u, err := url.Parse(shareURL)
 	if err != nil {
 		return result, fmt.Errorf("invalid share URL: %w", err)
+	}
+	if token == "" {
+		return result, fmt.Errorf("invalid share URL: missing /r/<token> path")
 	}
 	apiURL := u.Scheme + "://" + u.Host + "/api/reviews/" + token + "/comments"
 
@@ -498,8 +563,8 @@ func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprin
 	}
 
 	var all []webComment
-	if err := json.NewDecoder(resp.Body).Decode(&all); err != nil {
-		return result, fmt.Errorf("decoding remote comments: %w", err)
+	if err := decodeJSONOrHTMLHint(resp, &all); err != nil {
+		return result, err
 	}
 
 	for _, wc := range all {
@@ -557,24 +622,17 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, 
 		return result, nil // nothing changed
 	}
 
-	token := path.Base(cfg.ShareURL)
+	token := tokenFromHostedURL(cfg.ShareURL)
 	u, err := url.Parse(cfg.ShareURL)
 	if err != nil {
 		return result, fmt.Errorf("invalid share URL: %w", err)
 	}
+	if token == "" {
+		return result, fmt.Errorf("invalid share URL: missing /r/<token> path")
+	}
 	apiURL := u.Scheme + "://" + u.Host + "/api/reviews/" + token
 
-	fileList := shareFileEntries(files)
-
-	payload := map[string]any{
-		"delete_token": cfg.DeleteToken,
-		"files":        fileList,
-		"comments":     comments,
-		"review_round": cfg.ReviewRound,
-	}
-	if len(cfg.CliArgs) > 0 {
-		payload["cli_args"] = cfg.CliArgs
-	}
+	payload := buildUpsertPayload(files, comments, cfg.DeleteToken, cfg.ReviewRound, cfg.CliArgs)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -607,8 +665,8 @@ func upsertShareToWeb(cfg CritJSON, files []shareFile, comments []shareComment, 
 		ReviewRound int    `json:"review_round"`
 		Changed     bool   `json:"changed"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
-		return result, fmt.Errorf("decoding upsert response: %w", err)
+	if err := decodeJSONOrHTMLHint(resp, &respBody); err != nil {
+		return result, err
 	}
 
 	result.Changed = respBody.Changed
@@ -643,6 +701,25 @@ func loadExistingShareCfg(critPath string, paths []string) (CritJSON, bool, erro
 		return CritJSON{}, false, nil
 	}
 	return cj, true, nil
+}
+
+// dedupWebComments filters incoming web comments against the local review state,
+// returning only genuinely new comments and any reply updates for existing ones.
+// This is the dedup entry point used by handleMergeComments (browser relay path)
+// to match the same dedup logic that fetchWebComments uses on the direct path.
+func dedupWebComments(cj CritJSON, incoming []webComment) ([]webComment, map[string][]webReply) {
+	localIDs := buildLocalIDSet(cj)
+	localFingerprints, localFingerprintIDs := buildLocalFingerprintIndex(cj)
+	replyUpdates := make(map[string][]webReply)
+
+	var newComments []webComment
+	for _, wc := range incoming {
+		if dropDuplicateWebComment(wc, localIDs, localFingerprints, localFingerprintIDs, replyUpdates) {
+			continue
+		}
+		newComments = append(newComments, wc)
+	}
+	return newComments, replyUpdates
 }
 
 // buildLocalIDSet collects all local comment IDs across all files and review comments.
@@ -806,7 +883,7 @@ func updateShareState(critPath string, hash string, reviewRound int) error {
 
 // persistShareState writes the share URL, delete token, and scope hash to the review file,
 // preserving any existing content.
-func persistShareState(critPath string, shareURL string, deleteToken string, scope string) error {
+func persistShareState(critPath string, shareURL string, deleteToken string, scope string, org, orgName, visibility string) error {
 	var cj CritJSON
 	if data, err := readFileShared(reviewPathsFor(critPath).Review); err == nil {
 		_ = json.Unmarshal(data, &cj)
@@ -817,6 +894,9 @@ func persistShareState(critPath string, shareURL string, deleteToken string, sco
 	cj.ShareURL = shareURL
 	cj.DeleteToken = deleteToken
 	cj.ShareScope = scope
+	cj.ShareOrg = org
+	cj.ShareOrgName = orgName
+	cj.ShareVisibility = visibility
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
 	return saveCritJSON(critPath, cj)
@@ -872,6 +952,29 @@ func resolveShareURL(flagValue string, cfg Config, fallback string) string {
 		return cfg.ShareURL
 	}
 	return fallback
+}
+
+// tokenFromHostedURL extracts the review token from a hosted URL of the form
+// https://crit.example/r/<token> (with optional trailing slash, query, or
+// fragment). Returns the empty string if the URL doesn't match the expected
+// shape. Single source of truth — replaces ad-hoc path.Base / strings.Contains
+// parses scattered across share.go and tests.
+func tokenFromHostedURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(strings.TrimSuffix(u.Path, "/"), "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	if parts[len(parts)-2] != "r" {
+		return ""
+	}
+	return parts[len(parts)-1]
 }
 
 // resolveAuthToken returns the auth token from env > config.

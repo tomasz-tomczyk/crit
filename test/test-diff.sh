@@ -530,6 +530,14 @@ C5=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PA
     "body": "These standards are good but we should split them into a separate doc once we'\''re past MVP. Having them inline in the plan adds noise for anyone skimming the implementation steps."
   }' | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
+# Seed a comment that references other comments by ID — exercises comment-ref linking
+curl -sf -X POST "http://127.0.0.1:$PORT/api/file/comments?path=$ENCODED_PATH" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"start_line\": 40, \"end_line\": 40,
+    \"body\": \"Same durability concern as \`$C1\` — if we switch to SQS we resolve both issues. Also ties into the rate-limiting work from $C2.\"
+  }" > /dev/null
+
 # Seed replies on comments to exercise threading (use captured IDs)
 curl -sf -X POST "http://127.0.0.1:$PORT/api/comment/$C2/replies?path=$ENCODED_PATH" \
   -H 'Content-Type: application/json' \

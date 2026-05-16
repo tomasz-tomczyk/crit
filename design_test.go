@@ -840,7 +840,7 @@ func TestHandleFileComments_DesignPinFansOutSSE(t *testing.T) {
 		roundComplete:  make(chan struct{}, 1),
 	}
 
-	srv, err := NewServer(nil, frontendFS, "", "", "tester", "test", 0, "")
+	srv, err := NewServer(nil, frontendFS, "", false, "", "tester", "test", 0, "")
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -1015,7 +1015,7 @@ func TestDesign_PostFileCommentsDropsScreenshot(t *testing.T) {
 		roundComplete:  make(chan struct{}, 1),
 	}
 
-	srv, err := NewServer(nil, frontendFS, "", "", "tester", "test", 0, "")
+	srv, err := NewServer(nil, frontendFS, "", false, "", "tester", "test", 0, "")
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

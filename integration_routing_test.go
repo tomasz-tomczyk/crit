@@ -49,6 +49,9 @@ func TestDestFor_GlobalMode(t *testing.T) {
 		{"qwen", 1, ".qwen/skills/crit-cli/SKILL.md"},
 		{"cursor", 0, ".cursor/skills/crit/SKILL.md"},
 		{"cursor", 1, ".cursor/skills/crit-cli/SKILL.md"},
+		// grok: same-shape .grok/skills/ project-locally and ~/.grok/skills/ globally (no globalDest redirect needed).
+		{"grok", 0, ".grok/skills/crit/SKILL.md"},
+		{"grok", 1, ".grok/skills/crit-cli/SKILL.md"},
 		// opencode: command stays cwd-relative; skill redirects globally to ~/.agents/skills/.
 		{"opencode", 0, ".opencode/commands/crit.md"},
 		{"opencode", 1, filepath.Join(home, ".agents/skills/crit/SKILL.md")},
@@ -58,6 +61,9 @@ func TestDestFor_GlobalMode(t *testing.T) {
 		// hermes: both skills redirect to ~/.hermes/skills/.
 		{"hermes", 0, filepath.Join(home, ".hermes/skills/crit/SKILL.md")},
 		{"hermes", 1, filepath.Join(home, ".hermes/skills/crit-cli/SKILL.md")},
+		// pi: both skills redirect to ~/.pi/agent/skills/.
+		{"pi", 0, filepath.Join(home, ".pi/agent/skills/crit/SKILL.md")},
+		{"pi", 1, filepath.Join(home, ".pi/agent/skills/crit-cli/SKILL.md")},
 	}
 	for _, tc := range cases {
 		f := integrationMap[tc.tool][tc.fileIdx]
@@ -103,12 +109,14 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 		"cursor":         {{"", globalDestNone}, {"", globalDestNone}},
 		"codex":          {{"", globalDestNone}, {"", globalDestNone}},
 		"qwen":           {{"", globalDestNone}, {"", globalDestNone}},
-		"opencode":       {{"", globalDestNone}, {".agents/skills/crit/SKILL.md", globalDestRelHome}},
+		"opencode":       {{"", globalDestNone}, {".agents/skills/crit/SKILL.md", globalDestRelHome}, {".config/opencode/plugins/crit.ts", globalDestRelHome}},
 		"github-copilot": {{".agents/skills/crit/SKILL.md", globalDestRelHome}, {".agents/skills/crit-cli/SKILL.md", globalDestRelHome}},
 		"windsurf":       {{"", globalDestNone}},
 		"cline":          {{"Cline/Rules/crit.md", globalDestDocuments}},
 		"gemini":         {{".gemini/skills/crit-cli/SKILL.md", globalDestRelHome}, {".gemini/commands/crit.toml", globalDestRelHome}, {".gemini/policies/crit.toml", globalDestRelHome}},
+		"grok":           {{"", globalDestNone}, {"", globalDestNone}},
 		"hermes":         {{".hermes/skills/crit/SKILL.md", globalDestRelHome}, {".hermes/skills/crit-cli/SKILL.md", globalDestRelHome}},
+		"pi":             {{".pi/agent/skills/crit/SKILL.md", globalDestRelHome}, {".pi/agent/skills/crit-cli/SKILL.md", globalDestRelHome}},
 	}
 	for tool, files := range expected {
 		got := integrationMap[tool]

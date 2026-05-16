@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func critWebURL(t *testing.T) string {
@@ -1447,7 +1449,7 @@ func TestShareSyncOrphanedFile(t *testing.T) {
 		{File: "old-code.go", Body: "file-level note about removal", Scope: "file"},
 	}
 
-	url, _, err := shareFilesToWeb(files, comments, baseURL, 2, "", nil)
+	url, _, err := shareFilesToWeb(files, comments, baseURL, 2, "", nil, "", "")
 	if err != nil {
 		t.Fatalf("sharing with orphaned file failed: %v", err)
 	}
@@ -1813,5 +1815,502 @@ func TestShareSyncResolvedRoundMapping(t *testing.T) {
 	if unresolvedComment.Resolved || unresolvedComment.ResolvedRound != 0 {
 		t.Errorf("after unresolve: got resolved=%v, resolved_round=%d; want false, 0",
 			unresolvedComment.Resolved, unresolvedComment.ResolvedRound)
+	}
+}
+
+// --- Share-receiver popup-relay coverage (issue #50) ---
+//
+// These tests use httptest.NewServer as a stub crit-web rather than a live
+// instance, because they exercise paths that don't depend on real persistence:
+//
+//   - SSO failure path: stub returns HTML on /api/reviews to simulate a
+//     reverse-proxy login page intercepting the request.
+//   - proxy_auth=true config plumbing through the local server isn't
+//     exercised here — that's covered by server_test.go (handleConfig). These
+//     tests focus on what happens at the binary boundary.
+//
+// What is NOT covered (by design):
+//   - The real popup window auth flow — there's no browser in `go test`. The
+//     popup-relay endpoints (/api/share/payload, /api/share/upsert-payload,
+//     /api/comments/merge) are unit-tested in server_test.go.
+//   - tokenFromHostedURL — covered by share_test.go.
+
+// htmlStubServer returns an httptest server that responds with an HTML login
+// page on every request — the canonical SSO reverse-proxy failure mode.
+func htmlStubServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<!DOCTYPE html><html><body>SSO login page</body></html>"))
+	}))
+}
+
+// jsonShareStub returns a stub server that mimics a successful crit-web
+// /api/reviews POST: returns {url, delete_token} so `crit share` can record
+// share state. Used to verify the legacy (non-popup) share path still works.
+func jsonShareStub(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/reviews", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"url":          "https://crit.stub/r/stubtoken",
+			"delete_token": "del-stub",
+		})
+	})
+	return httptest.NewServer(mux)
+}
+
+// runCritCmd is a thin wrapper over exec.Command that keeps env clean (no
+// CRIT_AUTH_TOKEN, no HOME inheriting global config) and returns combined
+// output + error.
+func runCritCmd(t *testing.T, binary, dir string, args ...string) (string, error) {
+	t.Helper()
+	cmd := exec.Command(binary, args...)
+	cmd.Dir = dir
+	cmd.Env = envWithout("CRIT_AUTH_TOKEN=", "HOME=", "CRIT_SHARE_URL=")
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+// seedOrg creates a test org on crit-web and adds the given user as admin.
+// Returns the org slug.
+func seedOrg(t *testing.T, baseURL, userID, name, slug string) string {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"user_id": userID, "name": name, "slug": slug})
+	resp, err := http.Post(baseURL+"/api/test/seed-org", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("seed-org request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("seed-org returned %d", resp.StatusCode)
+	}
+	var out struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decoding seed-org: %v", err)
+	}
+	return out.Slug
+}
+
+// reviewDocFromAPI fetches /api/reviews/:token/document from crit-web.
+// authToken is optional — pass "" for unauthenticated access.
+// Returns the decoded JSON body (files, visibility, comment_policy).
+func reviewDocFromAPI(t *testing.T, baseURL, token string, authToken ...string) map[string]any {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/reviews/%s/document", baseURL, token), nil)
+	if err != nil {
+		t.Fatalf("creating review doc request: %v", err)
+	}
+	if len(authToken) > 0 && authToken[0] != "" {
+		req.Header.Set("Authorization", "Bearer "+authToken[0])
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("review doc request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("review doc returned %d", resp.StatusCode)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decoding review doc: %v", err)
+	}
+	return body
+}
+
+// reviewDocInaccessible verifies that /api/reviews/:token/document returns non-200
+// without auth (org-scoped reviews should be inaccessible anonymously).
+func reviewDocInaccessible(t *testing.T, baseURL, token string) {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("%s/api/reviews/%s/document", baseURL, token))
+	if err != nil {
+		t.Fatalf("review doc request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Errorf("org-scoped review should not be accessible without auth, got 200")
+	}
+}
+
+// critShareCmdWithArgs runs `crit share` with arbitrary extra arguments before the file list.
+// Returns combined output. Fails the test on non-zero exit.
+func critShareCmdWithArgs(t *testing.T, binary, baseURL, dir string, extraArgs []string, files ...string) string {
+	t.Helper()
+	return critShareCmdWithEnv(t, binary, baseURL, dir, extraArgs, nil, files...)
+}
+
+// critShareCmdWithEnv runs `crit share` with extra args and env vars.
+func critShareCmdWithEnv(t *testing.T, binary, baseURL, dir string, extraArgs, extraEnv []string, files ...string) string {
+	t.Helper()
+	args := []string{"share", "--share-url", baseURL, "--output", dir}
+	args = append(args, extraArgs...)
+	args = append(args, files...)
+	cmd := exec.Command(binary, args...)
+	cmd.Dir = dir
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("crit share failed: %s\n%s", err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// critShareCmdExpectFail runs `crit share` and expects a non-zero exit code.
+// Returns combined output and the error.
+func critShareCmdExpectFail(t *testing.T, binary, baseURL, dir string, extraArgs, extraEnv, files []string) (string, error) {
+	t.Helper()
+	args := []string{"share", "--share-url", baseURL, "--output", dir}
+	args = append(args, extraArgs...)
+	args = append(args, files...)
+	cmd := exec.Command(binary, args...)
+	cmd.Dir = dir
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+// TestShareReceiver_HTMLPostReturnsProxyAuthError verifies that when crit-web
+// (or its reverse proxy) returns HTML on POST /api/reviews — the canonical
+// SSO failure path — `crit share` exits non-zero with an error message
+// pointing the user at proxy_auth=true.
+func TestShareReceiver_HTMLPostReturnsProxyAuthError(t *testing.T) {
+	binary := critBinary(t)
+	ts := htmlStubServer(t)
+	defer ts.Close()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+
+	out, err := runCritCmd(t, binary, dir,
+		"share", "--share-url", ts.URL, "--output", dir, "plan.md")
+	if err == nil {
+		t.Fatalf("expected non-zero exit, got success. output: %s", out)
+	}
+	if !strings.Contains(out, "proxy_auth") {
+		t.Errorf("expected error to mention proxy_auth, got: %s", out)
+	}
+	if !strings.Contains(out, "popup") {
+		t.Errorf("expected error to mention popup, got: %s", out)
+	}
+}
+
+// TestShareReceiver_FetchHTMLReturnsProxyAuthError verifies that `crit fetch`
+// against an HTML-returning stub crit-web (SSO proxy intercepting GET
+// /api/reviews/:token/comments) gives the helpful proxy_auth=true hint.
+func TestShareReceiver_FetchHTMLReturnsProxyAuthError(t *testing.T) {
+	binary := critBinary(t)
+	ts := htmlStubServer(t)
+	defer ts.Close()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-seed .crit.json with a share_url pointing at the stub so `crit
+	// fetch` has somewhere to look. tokenFromHostedURL parses /r/<token>.
+	writeTestCritJSON(t, dir, CritJSON{
+		ReviewRound: 1,
+		ShareURL:    ts.URL + "/r/sometoken",
+		DeleteToken: "del-x",
+		Files:       map[string]CritJSONFile{"plan.md": {}},
+	})
+
+	out, err := runCritCmd(t, binary, dir, "fetch", "--output", dir)
+	if err == nil {
+		t.Fatalf("expected non-zero exit, got success. output: %s", out)
+	}
+	if !strings.Contains(out, "proxy_auth") {
+		t.Errorf("expected error to mention proxy_auth, got: %s", out)
+	}
+}
+
+// TestShareReceiver_LegacyShareStillWorks verifies that a successful JSON
+// response on POST /api/reviews — the legacy default path with no
+// proxy_auth=true — produces a review URL and writes share state to
+// .crit.json. Regression coverage so the popup-relay work doesn't break the
+// default share flow.
+func TestShareReceiver_LegacyShareStillWorks(t *testing.T) {
+	binary := critBinary(t)
+	ts := jsonShareStub(t)
+	defer ts.Close()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+
+	out, err := runCritCmd(t, binary, dir,
+		"share", "--share-url", ts.URL, "--output", dir, "plan.md")
+	if err != nil {
+		t.Fatalf("expected success, got %v. output: %s", err, out)
+	}
+	if !strings.Contains(out, "/r/stubtoken") {
+		t.Errorf("expected output to contain stub review URL, got: %s", out)
+	}
+
+	// .crit.json should now record the share URL + delete token.
+	data, err := os.ReadFile(filepath.Join(dir, ".crit.json"))
+	if err != nil {
+		t.Fatalf("read .crit.json: %v", err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatalf("decode .crit.json: %v", err)
+	}
+	if cj.ShareURL != "https://crit.stub/r/stubtoken" {
+		t.Errorf("share_url = %q, want https://crit.stub/r/stubtoken", cj.ShareURL)
+	}
+	if cj.DeleteToken != "del-stub" {
+		t.Errorf("delete_token = %q, want del-stub", cj.DeleteToken)
+	}
+}
+
+// TestShareSyncOrgShare verifies that sharing with --org sets the org field on crit-web.
+func TestShareSyncOrgShare(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+	authToken, userID, _ := seedUser(t, baseURL, "Org Sharer")
+	slug := seedOrg(t, baseURL, userID, "Share Test Org", fmt.Sprintf("share-test-%d", time.Now().UnixNano()))
+	authEnv := []string{"CRIT_AUTH_TOKEN=" + authToken}
+
+	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Hello\n\nWorld\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+
+	output := critShareCmdWithEnv(t, binary, baseURL, dir, []string{"--org", slug}, authEnv, "readme.md")
+	logReview(t, output)
+	token := extractToken(t, output)
+
+	// Org-scoped review should be accessible with auth
+	doc := reviewDocFromAPI(t, baseURL, token, authToken)
+	if doc == nil {
+		t.Fatal("expected review document, got nil")
+	}
+
+	// Org-scoped review should NOT be accessible without auth
+	reviewDocInaccessible(t, baseURL, token)
+}
+
+// TestShareSyncOrgVisibility verifies that --visibility overrides the org default.
+func TestShareSyncOrgVisibility(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+	authToken, userID, _ := seedUser(t, baseURL, "Vis Sharer")
+	slug := seedOrg(t, baseURL, userID, "Vis Test Org", fmt.Sprintf("vis-test-%d", time.Now().UnixNano()))
+	authEnv := []string{"CRIT_AUTH_TOKEN=" + authToken}
+
+	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Hello\n\nWorld\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+
+	output := critShareCmdWithEnv(t, binary, baseURL, dir, []string{"--org", slug, "--visibility", "unlisted"}, authEnv, "readme.md")
+	logReview(t, output)
+	token := extractToken(t, output)
+
+	doc := reviewDocFromAPI(t, baseURL, token, authToken)
+	visibility, _ := doc["visibility"].(string)
+	if visibility != "unlisted" {
+		t.Errorf("expected visibility 'unlisted', got %q", visibility)
+	}
+
+	// Org-scoped review should NOT be accessible without auth
+	reviewDocInaccessible(t, baseURL, token)
+}
+
+// TestShareSyncPersonalNoOrg verifies that sharing without --org produces a personal review with no org.
+func TestShareSyncPersonalNoOrg(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Hello\n\nWorld\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+
+	output := critShareCmd(t, binary, baseURL, dir, "readme.md")
+	logReview(t, output)
+	token := extractToken(t, output)
+
+	// Personal review should be accessible without auth (not org-scoped)
+	doc := reviewDocFromAPI(t, baseURL, token)
+	if doc == nil {
+		t.Fatal("personal review should be accessible without auth")
+	}
+}
+
+// TestShareSyncOrgReshare verifies that re-sharing with --org preserves the same URL (upsert) and org.
+func TestShareSyncOrgReshare(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+	authToken, userID, _ := seedUser(t, baseURL, "Reshare Sharer")
+	slug := seedOrg(t, baseURL, userID, "Reshare Test Org", fmt.Sprintf("reshare-test-%d", time.Now().UnixNano()))
+	authEnv := []string{"CRIT_AUTH_TOKEN=" + authToken}
+
+	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Hello\n\nWorld\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+
+	// First share with org
+	output1 := critShareCmdWithEnv(t, binary, baseURL, dir, []string{"--org", slug}, authEnv, "readme.md")
+	logReview(t, output1)
+	token1 := extractToken(t, output1)
+
+	// Update content and re-share with same org
+	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Hello\n\nWorld (revised)\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	output2 := critShareCmdWithEnv(t, binary, baseURL, dir, []string{"--org", slug}, authEnv, "readme.md")
+	token2 := extractToken(t, output2)
+
+	// Same token means same URL (upsert, not new review)
+	if token1 != token2 {
+		t.Errorf("re-share should use same token: %s vs %s", token1, token2)
+	}
+
+	// Verify review still accessible with auth after re-share (org persists)
+	doc := reviewDocFromAPI(t, baseURL, token2, authToken)
+
+	// Verify updated content is on web
+	docFiles, _ := doc["files"].([]any)
+	if len(docFiles) == 0 {
+		t.Fatal("no files in document after re-share")
+	}
+	firstFile, _ := docFiles[0].(map[string]any)
+	if content, _ := firstFile["content"].(string); !strings.Contains(content, "World (revised)") {
+		t.Errorf("expected revised content on web, got %q", content)
+	}
+}
+
+// TestShareSyncOrgNonMemberError verifies that sharing with a non-existent org fails.
+func TestShareSyncOrgNonMemberError(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+	authToken, _, _ := seedUser(t, baseURL, "NonMember Sharer")
+	authEnv := []string{"CRIT_AUTH_TOKEN=" + authToken}
+
+	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Hello\n\nWorld\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+
+	output, err := critShareCmdExpectFail(t, binary, baseURL, dir, []string{"--org", "nonexistent-org-xyz"}, authEnv, []string{"readme.md"})
+	if err == nil {
+		t.Fatalf("expected crit share to fail for non-existent org, but it succeeded.\nOutput: %s", output)
+	}
+	t.Logf("Expected failure output: %s", output)
+	t.Logf("Expected failure error: %v", err)
+}
+
+// TestShareSyncOrgUnpublish verifies that unpublishing an org-scoped review works.
+// The delete_token should be sufficient authorization — no bearer token needed.
+func TestShareSyncOrgUnpublish(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+	authToken, userID, _ := seedUser(t, baseURL, "Unpub Sharer")
+	slug := seedOrg(t, baseURL, userID, "Unpub Test Org", fmt.Sprintf("unpub-test-%d", time.Now().UnixNano()))
+	authEnv := []string{"CRIT_AUTH_TOKEN=" + authToken}
+
+	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Unpublish Test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+
+	// Share with org
+	output := critShareCmdWithEnv(t, binary, baseURL, dir, []string{"--org", slug}, authEnv, "readme.md")
+	logReview(t, output)
+	token := extractToken(t, output)
+
+	// Verify it's accessible with auth
+	doc := reviewDocFromAPI(t, baseURL, token, authToken)
+	if doc == nil {
+		t.Fatal("review should be accessible after share")
+	}
+
+	// Unpublish (uses delete_token from the review file, no bearer token needed)
+	unpubCmd := exec.Command(binary, "unpublish", "--share-url", baseURL, "--output", dir)
+	unpubCmd.Dir = dir
+	unpubOut, err := unpubCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("crit unpublish failed: %s\n%s", err, unpubOut)
+	}
+	t.Logf("Unpublish output: %s", unpubOut)
+
+	// Verify the review is gone (should be 404; crit-web currently returns
+	// 401 for deleted org-scoped reviews because the org access check runs
+	// before the nil check — either is acceptable as "not accessible").
+	resp, err := http.Get(fmt.Sprintf("%s/api/reviews/%s/document", baseURL, token))
+	if err != nil {
+		t.Fatalf("document request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Errorf("expected review to be inaccessible after unpublish, got 200")
+	}
+}
+
+// TestShareSyncOrgPersistence verifies that org info is persisted in the review
+// file after sharing with --org, so it survives session restarts.
+func TestShareSyncOrgPersistence(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+	authToken, userID, _ := seedUser(t, baseURL, "Persist Sharer")
+	slug := seedOrg(t, baseURL, userID, "Persist Test Org", fmt.Sprintf("persist-test-%d", time.Now().UnixNano()))
+	authEnv := []string{"CRIT_AUTH_TOKEN=" + authToken}
+
+	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Persist Test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+
+	// Share with org and visibility
+	critShareCmdWithEnv(t, binary, baseURL, dir, []string{"--org", slug, "--visibility", "organization"}, authEnv, "readme.md")
+
+	// Read the review file and verify org fields are persisted
+	reviewPath := filepath.Join(dir, ".crit", "review.json")
+	data, err := os.ReadFile(reviewPath)
+	if err != nil {
+		t.Fatalf("reading review file: %v", err)
+	}
+
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatalf("parsing review file: %v", err)
+	}
+
+	if cj.ShareOrg != slug {
+		t.Errorf("expected share_org=%q in review file, got %q", slug, cj.ShareOrg)
+	}
+	if cj.ShareVisibility != "organization" {
+		t.Errorf("expected share_visibility=%q in review file, got %q", "organization", cj.ShareVisibility)
+	}
+	if cj.ShareURL == "" {
+		t.Error("expected share_url to be set in review file")
 	}
 }

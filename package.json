@@ -3,16 +3,17 @@
   "dependencies": {
     "@highlightjs/cdn-assets": "^11.11.1",
     "@sanity/diff-match-patch": "^3.2.0",
+    "highlightjs-heex": "^1.0.1",
     "markdown-it": "^14.1.1",
-    "mermaid": "^11.14.0"
+    "mermaid": "^11.15.0"
   },
   "scripts": {
     "update-deps": "bun run copy-deps.js",
-    "test:frontend": "node frontend/__tests__/markdown-patch.test.mjs"
+    "test:frontend": "node frontend/__tests__/markdown-patch.test.mjs && node frontend/test-diff-render.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.0",
-    "eslint": "^10.3.0",
-    "stylelint": "^17.9.1"
+    "eslint": "^10.4.0",
+    "stylelint": "^17.11.1"
   }
 }

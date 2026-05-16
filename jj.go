@@ -250,7 +250,7 @@ func (j *JJVCS) CommitLog(baseRef, headRef, dir string) ([]CommitInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseJJCommitLog(out), nil
+	return parseSaplingCommitLog(out), nil
 }
 
 func (j *JJVCS) WorkingTreeFingerprint() string {
@@ -305,7 +305,7 @@ func (j *JJVCS) DiffNumstat(baseRef, dir string) (map[string]NumstatEntry, error
 	if err != nil {
 		return nil, err
 	}
-	return parseJJDiffStat(out), nil
+	return parseSaplingDiffStat(out), nil
 }
 
 func (j *JJVCS) UserName() string { return jjUserName() }

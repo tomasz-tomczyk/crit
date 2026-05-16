@@ -468,6 +468,103 @@ test.describe('Keyboard Escape Behavior', () => {
 });
 
 // ============================================================
+// Visual Line Mode (V)
+// ============================================================
+test.describe('Keyboard Visual Line Mode — Markdown', () => {
+  test.beforeEach(async ({ page, request }) => {
+    await clearAllComments(request);
+    await loadPage(page);
+    await switchToDocumentView(page);
+    await clearFocus(page);
+  });
+
+  test('V enters visual mode; j extends selection; c opens form spanning the range', async ({ page, request }) => {
+    const section = mdSection(page);
+    const lineBlocks = section.locator('.line-block.kb-nav');
+    await expect(lineBlocks.first()).toBeAttached();
+
+    // Focus the first line-block
+    await lineBlocks.first().hover();
+    await page.keyboard.press('j');
+    const firstFocused = page.locator('.line-block.kb-nav.focused');
+    await expect(firstFocused).toHaveCount(1);
+    const anchorStart = parseInt((await firstFocused.getAttribute('data-start-line'))!);
+    const filePath = await firstFocused.getAttribute('data-file-path');
+
+    // Enter visual mode — anchor block becomes selected
+    await page.keyboard.press('Shift+V');
+    await expect(firstFocused).toHaveClass(/selected/);
+
+    // Extend selection downward with j
+    await page.keyboard.press('j');
+    await page.keyboard.press('j');
+
+    // Multiple blocks should now have .selected.
+    const selected = section.locator('.line-block.selected');
+    await expect.poll(() => selected.count()).toBeGreaterThan(1);
+
+    // Capture the furthest expansion line before opening the form
+    const lastFocused = page.locator('.line-block.kb-nav.focused');
+    const expansionEnd = parseInt((await lastFocused.getAttribute('data-end-line'))!);
+
+    // Open form on the selection
+    await page.keyboard.press('c');
+    const form = page.locator('.comment-form');
+    await expect(form).toBeVisible();
+
+    // Submit the comment and verify its persisted line range via the API.
+    const textarea = page.locator('.comment-form textarea');
+    await textarea.fill('multi-line via V');
+    await page.locator('.comment-form .btn-primary').click();
+    await expect(section.locator('.comment-card').filter({ hasText: 'multi-line via V' })).toBeVisible();
+
+    const resp = await request.get(`/api/file/comments?path=${encodeURIComponent(filePath!)}`);
+    const data = await resp.json() as Array<{ body: string; start_line: number; end_line: number }>;
+    const created = data.find((c) => c.body === 'multi-line via V');
+    expect(created).toBeDefined();
+    expect(created.start_line).toBe(anchorStart);
+    expect(created.end_line).toBe(expansionEnd);
+  });
+
+  test('Escape clears visual selection and keeps focus on current block', async ({ page }) => {
+    const section = mdSection(page);
+    const lineBlocks = section.locator('.line-block.kb-nav');
+    await lineBlocks.first().hover();
+    await page.keyboard.press('j');
+    await page.keyboard.press('Shift+V');
+    await page.keyboard.press('j');
+    await page.keyboard.press('j');
+
+    // Selection is active across multiple blocks
+    await expect.poll(() => section.locator('.line-block.selected').count()).toBeGreaterThan(1);
+
+    // Capture the line currently focused (the furthest expansion)
+    const beforeFocus = await page.locator('.line-block.kb-nav.focused').getAttribute('data-start-line');
+
+    await page.keyboard.press('Escape');
+
+    // Selection cleared
+    await expect(section.locator('.line-block.selected')).toHaveCount(0);
+
+    // Focused block stays at the furthest expansion (issue spec)
+    const afterFocus = await page.locator('.line-block.kb-nav.focused').getAttribute('data-start-line');
+    expect(afterFocus).toBe(beforeFocus);
+  });
+
+  test('V again exits visual mode (toggle)', async ({ page }) => {
+    const section = mdSection(page);
+    const lineBlocks = section.locator('.line-block.kb-nav');
+    await lineBlocks.first().hover();
+    await page.keyboard.press('j');
+    await page.keyboard.press('Shift+V');
+    await expect(section.locator('.line-block.selected').first()).toBeAttached();
+
+    await page.keyboard.press('Shift+V');
+    await expect(section.locator('.line-block.selected')).toHaveCount(0);
+  });
+});
+
+// ============================================================
 // Shortcuts Disabled When Typing
 // ============================================================
 test.describe('Shortcuts Disabled When Typing', () => {

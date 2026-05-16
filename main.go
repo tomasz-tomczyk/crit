@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -48,10 +49,12 @@ func main() {
 }
 
 type shareFlags struct {
-	outputDir string
-	svcURL    string
-	showQR    bool
-	files     []string
+	outputDir  string
+	svcURL     string
+	showQR     bool
+	org        string
+	visibility string
+	files      []string
 }
 
 func parseShareFlags(args []string) shareFlags {
@@ -75,6 +78,20 @@ func parseShareFlags(args []string) shareFlags {
 			sf.svcURL = args[i]
 		case arg == "--qr":
 			sf.showQR = true
+		case arg == "--org":
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --org requires a value\n")
+				os.Exit(1)
+			}
+			i++
+			sf.org = args[i]
+		case arg == "--visibility":
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: --visibility requires a value\n")
+				os.Exit(1)
+			}
+			i++
+			sf.visibility = args[i]
 		default:
 			sf.files = append(sf.files, arg)
 		}
@@ -83,7 +100,7 @@ func parseShareFlags(args []string) shareFlags {
 }
 
 func printShareUsage() {
-	fmt.Fprintln(os.Stderr, "Usage: crit share [--output <dir>] [--share-url <url>] [--qr] <file> [file...]")
+	fmt.Fprintln(os.Stderr, "Usage: crit share [--output <dir>] [--share-url <url>] [--org <slug>] [--visibility <level>] [--qr] <file> [file...]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Shares files to crit-web and prints the review URL.")
 	fmt.Fprintln(os.Stderr, "Comments from the review file are included automatically.")
@@ -173,8 +190,8 @@ func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, 
 	printQR(result.URL, showQR)
 }
 
-func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor string, showQR bool) {
-	res, err := shareReviewFiles(critPath, files, filePaths, svcURL, authToken, fallbackAuthor)
+func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor, org, visibility string, showQR bool) {
+	res, err := shareReviewFiles(critPath, files, filePaths, svcURL, authToken, fallbackAuthor, org, visibility)
 	if err != nil {
 		if errors.Is(err, errShareUnauthorized) {
 			handleShareAuthError()
@@ -183,7 +200,7 @@ func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL,
 		os.Exit(1)
 	}
 
-	if err := persistShareState(critPath, res.URL, res.DeleteToken, shareScope(filePaths)); err != nil {
+	if err := persistShareState(critPath, res.URL, res.DeleteToken, shareScope(filePaths), org, "", visibility); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state to review file: %v\n", err)
 	}
 
@@ -196,6 +213,17 @@ func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL,
 	if authToken == "" {
 		showLoginHint()
 	}
+}
+
+// promptShareConsent prints the first-time consent message to out and reads the
+// user's answer from in. Returns true only if the user typed "y".
+func promptShareConsent(out io.Writer, in io.Reader) bool {
+	fmt.Fprintln(out, "  Your review will be securely uploaded to crit.md.")
+	fmt.Fprintln(out, "  You'll get a private link — share it with whoever you choose.")
+	fmt.Fprintln(out, "  You won't be asked again after confirming.")
+	fmt.Fprint(out, "\n  Continue? [y/N] ")
+	answer, _ := bufio.NewReader(in).ReadString('\n')
+	return strings.TrimSpace(strings.ToLower(answer)) == "y"
 }
 
 func runShare(args []string) {
@@ -236,12 +264,25 @@ func runShare(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+	// First-time consent gate: only for the default service, only for new shares
+	if !ok && needsShareConsent(cfg, sf.svcURL) {
+		if !promptShareConsent(os.Stderr, os.Stdin) {
+			return
+		}
+		if err := saveGlobalConfig(func(m map[string]json.RawMessage) error {
+			m["share_consented"] = json.RawMessage("true")
+			return nil
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "  warning: could not save consent: %v\n", err)
+		}
+		cfg.ShareConsented = true
+	}
 	if ok {
 		runShareExisting(existingCfg, critPath, files, sharePaths, authToken, cfg.Author, sf.showQR)
 		return
 	}
 
-	runShareNew(critPath, files, sharePaths, sf.svcURL, authToken, cfg.Author, sf.showQR)
+	runShareNew(critPath, files, sharePaths, sf.svcURL, authToken, cfg.Author, sf.org, sf.visibility, sf.showQR)
 }
 
 func parseFetchOutputDir(args []string) string {
@@ -821,8 +862,10 @@ func runPushDryRun(ctx pushContext, b pushBuckets) {
 func runPushLive(ctx pushContext, b pushBuckets) int {
 	exportPath := writePushOrphanExport(ctx, b)
 
+	rewrite := stripBodyRewriter
+
 	postable := len(b.Postable)
-	posted, postFailed, postAuthFailed, commentIDs := runPushPostReview(ctx, b)
+	posted, postFailed, postAuthFailed, commentIDs := runPushPostReview(ctx, b, rewrite)
 
 	totalReplies := countNewReplies(ctx.cj)
 	postedReplies := 0
@@ -830,7 +873,7 @@ func runPushLive(ctx pushContext, b pushBuckets) int {
 	if !postFailed && !postAuthFailed {
 		var allReplies []ghReplyForPush
 		for _, cf := range ctx.cj.Files {
-			allReplies = append(allReplies, collectNewRepliesForPush(cf)...)
+			allReplies = append(allReplies, collectNewRepliesForPush(cf, rewrite)...)
 		}
 		var replyIDs map[replyKey]int64
 		replyIDs, postedReplies, replyAuthFailed = postPushReplies(ctx.prNumber, allReplies)
@@ -895,14 +938,16 @@ func writePushOrphanExport(ctx pushContext, b pushBuckets) string {
 }
 
 // runPushPostReview posts the Postable bucket as a single GitHub review.
+// rewrite preprocesses each comment body before it ships (image upload+swap
+// in production; nil falls back to strip-with-placeholder).
 // Returns the count posted, whether the call failed (any reason), whether
 // the failure was specifically an auth-rotation 401, and the path-to-id
 // mapping for body-hash bookkeeping.
-func runPushPostReview(ctx pushContext, b pushBuckets) (int, bool, bool, map[string]int64) {
+func runPushPostReview(ctx pushContext, b pushBuckets, rewrite bodyRewriter) (int, bool, bool, map[string]int64) {
 	if len(b.Postable) == 0 {
 		return 0, false, false, nil
 	}
-	ghComments := bucketsToGHComments(b.Postable)
+	ghComments := bucketsToGHComments(b.Postable, rewrite)
 	ids, err := createGHReview(ctx.prNumber, ghComments, ctx.flags.message, ctx.event)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error posting review: %v\n", err)
@@ -914,10 +959,11 @@ func runPushPostReview(ctx pushContext, b pushBuckets) (int, bool, bool, map[str
 // countNewReplies counts replies that would be sent in this push (no
 // GitHubID yet, parent already on GitHub). Mirrors collectNewRepliesForPush
 // without allocating the full slice — used purely for the K-of-N total.
+// nil rewriter is fine: the body content does not affect the count.
 func countNewReplies(cj CritJSON) int {
 	n := 0
 	for _, cf := range cj.Files {
-		n += len(collectNewRepliesForPush(cf))
+		n += len(collectNewRepliesForPush(cf, nil))
 	}
 	return n
 }
@@ -1735,8 +1781,8 @@ func removeStaleReviewPath(path string) bool {
 	return true
 }
 
-// cleanupOnApproval deletes the review file when the review is approved
-// and cleanup is enabled.
+// cleanupOnApproval deletes the review folder (review.json, snapshots.json,
+// and any attachments) when the review is approved and cleanup is enabled.
 func cleanupOnApproval(approved bool, reviewPath string, cleanupEnabled bool) {
 	if !(approved && cleanupEnabled && reviewPath != "") {
 		return

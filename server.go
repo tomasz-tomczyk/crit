@@ -10,7 +10,9 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -33,6 +35,7 @@ type Server struct {
 	mux               *http.ServeMux
 	assets            fs.FS
 	shareURL          string
+	proxyAuth         bool
 	authMu            sync.RWMutex // guards authToken + cfg.Auth* fields
 	authToken         string
 	prInfo            *PRInfo
@@ -54,6 +57,12 @@ type Server struct {
 	cliArgs           []string     // positional file args; flags (--pr, --range, etc.) are not preserved
 	prList            *prListCache // 60s cache for picker "Other PRs"
 
+	// listenHost is the host the server is bound to (e.g. "127.0.0.1" or
+	// "0.0.0.0"). Set via SetListenHost after construction. When set to a
+	// loopback address, ServeHTTP enforces that the request Host header is
+	// also a loopback hostname, blocking DNS-rebinding attacks.
+	listenHost string
+
 	// shutdownCtx is the daemon's signal-handled context; child operations
 	// (e.g. runAgentCmd subprocesses) derive their context from this so a
 	// SIGINT/SIGTERM cancels them instead of leaking. Set via
@@ -66,13 +75,13 @@ type Server struct {
 }
 
 // NewServer creates a Server with the given session and configuration.
-func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken string, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
+func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth bool, authToken string, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
 	assets, err := fs.Sub(frontendFS, "frontend")
 	if err != nil {
 		return nil, fmt.Errorf("loading frontend assets: %w", err)
 	}
 
-	s := &Server{assets: assets, shareURL: shareURL, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port, prList: &prListCache{}}
+	s := &Server{assets: assets, shareURL: shareURL, proxyAuth: proxyAuth, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port, prList: &prListCache{}}
 	if session != nil {
 		s.session.Store(session)
 	}
@@ -110,7 +119,11 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.HandleFunc("/api/config", s.withReady(s.handleConfig))
 	mux.HandleFunc("/api/session", s.withReady(s.handleSession))
 	mux.HandleFunc("/api/share", s.withReady(s.handleShare))
+	mux.HandleFunc("/api/share-consent", s.withReady(s.handleShareConsent))
+	mux.HandleFunc("/api/share/payload", s.withReady(s.handleSharePayload))
+	mux.HandleFunc("/api/share/upsert-payload", s.withReady(s.handleUpsertPayload))
 	mux.HandleFunc("/api/share-url", s.withReady(s.handleShareURL))
+	mux.HandleFunc("/api/comments/merge", s.withReady(s.handleMergeComments))
 	mux.HandleFunc("/api/finish", s.withReady(s.handleFinish))
 	mux.HandleFunc("/api/events", s.withReady(s.handleEvents))
 	mux.HandleFunc("/api/wait-for-event", s.withReady(s.handleWaitForEvent))
@@ -119,6 +132,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.HandleFunc("/api/focus", s.withReady(s.handleFocus))
 	mux.HandleFunc("/api/picker", s.withReady(s.handlePicker))
 
+	mux.HandleFunc("/api/auth/orgs", s.withReady(s.handleAuthOrgs))
 	mux.HandleFunc("/api/agent/request", s.withReady(s.handleAgentRequest))
 	mux.HandleFunc("/api/branches", s.withReady(s.handleBranches))
 	mux.HandleFunc("/api/base-branch", s.withReady(s.handleBaseBranch))
@@ -133,6 +147,16 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	mux.HandleFunc("/api/file/comments", s.withReady(s.handleFileComments))
 	mux.HandleFunc("/api/comment/", s.withReady(s.handleCommentByID))
 
+	// Attachment upload (POST) and serving (GET /api/attachments/{filename}).
+	// The trailing slash form ServeMux uses means the bare /api/attachments
+	// path is matched by the same handler; we route on method + presence of
+	// a suffix so both upload and fetch live in one place. Markdown stores
+	// the relative form `attachments/<uuid>.<ext>`; the frontend rewrites
+	// to /api/attachments/<uuid>.<ext> at render time so this URL space is
+	// only ever hit through the rewrite hook (or direct curl).
+	mux.HandleFunc("/api/attachments", s.withReady(s.handleAttachments))
+	mux.HandleFunc("/api/attachments/", s.withReady(s.handleAttachments))
+
 	// Static file serving (repo files need session; embedded assets do not)
 	mux.HandleFunc("/files/", s.withReady(s.handleFiles))
 	mux.Handle("/", http.FileServer(http.FS(assets)))
@@ -141,7 +165,48 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, authToken
 	return s, nil
 }
 
+// SetListenHost records the host the server is bound to. Call once after
+// construction, before serving requests. When the host is a loopback address,
+// ServeHTTP rejects requests whose Host header is not also a loopback address,
+// preventing DNS-rebinding attacks. When the host is non-loopback (e.g.
+// "0.0.0.0"), the check is skipped — the user has explicitly opted into
+// network exposure.
+func (s *Server) SetListenHost(host string) {
+	s.listenHost = host
+}
+
+// isLoopbackHost reports whether host (no port) is a loopback address.
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// checkHost returns true if the request is allowed to proceed. When the server
+// is bound to a loopback address, the request's Host header must also resolve
+// to a loopback hostname — this is the canonical DNS-rebinding defense.
+func (s *Server) checkHost(r *http.Request) bool {
+	if s.listenHost == "" || !isLoopbackHost(s.listenHost) {
+		return true
+	}
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	} else {
+		// SplitHostPort fails when there's no port (e.g. "Host: [::1]").
+		// Strip IPv6 brackets so ParseIP can recognise the address.
+		host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	}
+	return isLoopbackHost(host)
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !s.checkHost(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -294,10 +359,17 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	latestVersion := s.latestVersion
 	s.versionMu.RUnlock()
 	sess := s.session.Load()
+	shareOrg, shareOrgName, shareVis := sess.GetShareOrgInfo()
 	resp := map[string]interface{}{
 		"share_url":         s.shareURL,
+		"needs_consent":     s.consentNeeded(),
+		"proxy_auth":        s.proxyAuth,
 		"hosted_url":        sess.GetSharedURL(),
+		"hosted_token":      sess.GetToken(),
 		"delete_token":      sess.GetDeleteToken(),
+		"share_org":         shareOrg,
+		"share_org_name":    shareOrgName,
+		"share_visibility":  shareVis,
 		"version":           s.currentVersion,
 		"latest_version":    latestVersion,
 		"author":            s.author,
@@ -529,6 +601,50 @@ func filterFilesAtRound(session *Session, files []SessionFileInfo, round int) []
 	return out
 }
 
+// handleShareConsent records that the user has consented to sharing with the
+// default crit.md service. Called by the browser before the first share upload.
+// POST /api/share-consent
+func (s *Server) handleShareConsent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := saveGlobalConfig(func(m map[string]json.RawMessage) error {
+		m["share_consented"] = json.RawMessage("true")
+		return nil
+	}); err != nil {
+		http.Error(w, "failed to persist consent", http.StatusInternalServerError)
+		return
+	}
+	s.authMu.Lock()
+	s.cfg.ShareConsented = true
+	s.authMu.Unlock()
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// consentNeeded reports whether the user must still confirm before sharing.
+// It guards reads of s.cfg.ShareConsented under s.authMu and, if the in-memory
+// flag is false, re-checks the on-disk global config so consent granted by the
+// CLI (crit share) on a separate process is picked up by the running daemon.
+func (s *Server) consentNeeded() bool {
+	s.authMu.RLock()
+	consented := s.cfg.ShareConsented
+	s.authMu.RUnlock()
+	if consented {
+		return false
+	}
+	if s.shareURL != defaultShareURL {
+		return false
+	}
+	if globalCfg, _, err := loadConfigFile(globalConfigPath()); err == nil && globalCfg.ShareConsented {
+		s.authMu.Lock()
+		s.cfg.ShareConsented = true
+		s.authMu.Unlock()
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -536,16 +652,35 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			URL         string `json:"url"`
 			DeleteToken string `json:"delete_token"`
+			Org         string `json:"org"`
+			OrgName     string `json:"org_name"`
+			Visibility  string `json:"visibility"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.URL == "" {
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
 		s.session.Load().SetSharedURLAndToken(body.URL, body.DeleteToken)
-		writeJSON(w, map[string]string{"ok": "true"})
+		s.session.Load().SetShareOrgInfo(body.Org, body.OrgName, body.Visibility)
+		writeJSON(w, map[string]string{
+			"ok":           "true",
+			"hosted_token": tokenFromHostedURL(body.URL),
+		})
 
 	case http.MethodDelete:
+		// Unpublish from crit-web if we have a share URL and delete token.
+		if s.shareURL != "" {
+			if _, dt := s.session.Load().GetShareState(); dt != "" {
+				if err := unpublishFromWeb(s.shareURL, dt, s.authTokenSnapshot()); err != nil {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadGateway)
+					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+					return
+				}
+			}
+		}
 		s.session.Load().SetSharedURLAndToken("", "")
+		s.session.Load().SetShareOrgInfo("", "", "")
 		w.WriteHeader(http.StatusNoContent)
 
 	default:
@@ -562,6 +697,10 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.shareURL == "" {
 		http.Error(w, "share_url not configured", http.StatusBadRequest)
+		return
+	}
+	if s.consentNeeded() {
+		http.Error(w, "share consent required", http.StatusForbidden)
 		return
 	}
 
@@ -591,8 +730,18 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		filePaths[i] = f.Path
 	}
 
+	// Parse optional org + visibility from request body.
+	var shareReq struct {
+		Org        string `json:"org"`
+		OrgName    string `json:"org_name"`
+		Visibility string `json:"visibility"`
+	}
+	if r.Body != nil && r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&shareReq)
+	}
+
 	critPath := s.session.Load().critJSONPath()
-	res, err := shareReviewFiles(critPath, files, filePaths, s.shareURL, s.authTokenSnapshot(), s.author)
+	res, err := shareReviewFiles(critPath, files, filePaths, s.shareURL, s.authTokenSnapshot(), s.author, shareReq.Org, shareReq.Visibility)
 	if err != nil {
 		if errors.Is(err, errShareUnauthorized) {
 			clearAuthIdentity()
@@ -606,6 +755,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 
 	s.session.Load().SetSharedURLAndToken(res.URL, res.DeleteToken)
 	s.session.Load().SetShareScope(shareScope(filePaths))
+	s.session.Load().SetShareOrgInfo(shareReq.Org, shareReq.OrgName, shareReq.Visibility)
 	writeJSON(w, map[string]any{"url": res.URL, "delete_token": res.DeleteToken})
 }
 
@@ -731,6 +881,122 @@ func lineStatsForRound(session *Session, n int) (int, int) {
 		}
 	}
 	return adds, dels
+}
+
+// handleSharePayload returns the JSON payload that would be POSTed to crit-web
+// /api/reviews for a fresh share. Used by the popup-relay path (proxy_auth=
+// true) so the browser can forward it through the authenticated popup
+// instead of the Go server contacting crit-web directly. Same payload shape
+// as POST /api/share would build internally.
+func (s *Server) handleSharePayload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.session.Load()
+	files := sess.LoadShareFilesFromDisk()
+	if len(files) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no files in session"})
+		return
+	}
+	filePaths := make([]string, len(files))
+	for i, f := range files {
+		filePaths[i] = f.Path
+	}
+	critPath := sess.critJSONPath()
+	comments, reviewRound := loadCommentsForShare(critPath, filePaths, s.author)
+	cliArgs := loadCliArgsFromReviewFile(critPath)
+	writeJSON(w, buildSharePayload(files, comments, reviewRound, cliArgs, "", ""))
+}
+
+// handleUpsertPayload returns the JSON payload that would be PUT to
+// crit-web /api/reviews/:token for a re-share. Used by the popup-relay path.
+func (s *Server) handleUpsertPayload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.session.Load()
+	files := sess.LoadShareFilesFromDisk()
+	if len(files) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no files in session"})
+		return
+	}
+	filePaths := make([]string, len(files))
+	for i, f := range files {
+		filePaths[i] = f.Path
+	}
+	critPath := sess.critJSONPath()
+	comments, reviewRound := loadCommentsForShare(critPath, filePaths, s.author)
+	cliArgs := loadCliArgsFromReviewFile(critPath)
+	deleteToken := sess.GetDeleteToken()
+	writeJSON(w, buildUpsertPayload(files, comments, deleteToken, reviewRound, cliArgs))
+}
+
+// handleMergeComments accepts comments fetched from crit-web (via the popup
+// relay) and merges them into the local review file. The token is derived
+// server-side from the session's hosted URL — the client never supplies it.
+func (s *Server) handleMergeComments(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024)
+	var req struct {
+		Comments []webComment `json:"comments"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// http.MaxBytesError surfaces as a generic error from the decoder; we
+		// translate over-limit explicitly so clients can distinguish.
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+	sess := s.session.Load()
+	if tokenFromHostedURL(sess.GetSharedURL()) == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no shared review in this session"})
+		return
+	}
+	critPath := sess.critJSONPath()
+	data, err := readFileShared(reviewPathsFor(critPath).Review)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	newComments, replyUpdates := dedupWebComments(cj, req.Comments)
+	if len(newComments) == 0 && len(replyUpdates) == 0 {
+		writeJSON(w, map[string]any{"merged": 0, "replies_updated": 0})
+		return
+	}
+	if err := mergeWebComments(critPath, newComments, replyUpdates); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"merged": len(newComments), "replies_updated": len(replyUpdates)})
 }
 
 // handleFile returns file content + metadata for a single file.
@@ -1764,6 +2030,128 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleAttachments dispatches both attachment upload (POST /api/attachments)
+// and fetch (GET /api/attachments/{filename}). Storage lives at
+// reviewPathsFor(s.reviewPath).Attachments so the v4 clearReviewFolder pass
+// removes attachments alongside review.json on cleanup.
+func (s *Server) handleAttachments(w http.ResponseWriter, r *http.Request) {
+	if s.reviewPath == "" {
+		http.Error(w, "Attachment storage unavailable (no review path)", http.StatusServiceUnavailable)
+		return
+	}
+
+	suffix := strings.TrimPrefix(r.URL.Path, "/api/attachments")
+	suffix = strings.TrimPrefix(suffix, "/")
+
+	switch r.Method {
+	case http.MethodPost:
+		if suffix != "" {
+			http.Error(w, "POST takes no path suffix", http.StatusBadRequest)
+			return
+		}
+		s.handleAttachmentUpload(w, r)
+	case http.MethodGet:
+		if suffix == "" {
+			http.Error(w, "Filename required", http.StatusBadRequest)
+			return
+		}
+		s.handleAttachmentGet(w, r, suffix)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleAttachmentUpload accepts a single multipart form field named "file"
+// containing image bytes. Validates MIME, persists via saveAttachment, and
+// returns the *relative* URL (`attachments/<uuid>.<ext>`) the frontend
+// should embed verbatim in the comment markdown — the source of truth in
+// review.json is the relative form, with each render target rewriting at
+// its own publish boundary.
+//
+// The original_filename is sanitized server-side and returned so the
+// frontend can use it as alt text without trusting raw upload metadata.
+func (s *Server) handleAttachmentUpload(w http.ResponseWriter, r *http.Request) {
+	// Cap the entire request body. Multipart adds a small overhead beyond
+	// the raw image bytes; a generous +1MB ceiling keeps the math simple.
+	r.Body = http.MaxBytesReader(w, r.Body, maxAttachmentBytes+(1<<20))
+
+	if err := r.ParseMultipartForm(maxAttachmentBytes + (1 << 20)); err != nil {
+		http.Error(w, "Invalid multipart form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Missing 'file' field", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Read up to maxAttachmentBytes+1 so we can detect overflow distinctly
+	// from a successful read at exactly the cap.
+	buf := make([]byte, maxAttachmentBytes+1)
+	n, err := io.ReadFull(file, buf)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		http.Error(w, "Read upload: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if n > maxAttachmentBytes {
+		http.Error(w, fmt.Sprintf("Image too large (max %d bytes)", maxAttachmentBytes), http.StatusRequestEntityTooLarge)
+		return
+	}
+	data := buf[:n]
+
+	filename, err := saveAttachment(s.reviewPath, data)
+	if err != nil {
+		// MIME rejections deserve 415; everything else is 400.
+		if strings.HasPrefix(err.Error(), "unsupported image type") {
+			http.Error(w, err.Error(), http.StatusUnsupportedMediaType)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// header may be nil if FormFile is called creatively in tests; guard.
+	originalFilename := ""
+	if header != nil {
+		originalFilename = sanitizeAttachmentAltText(header.Filename)
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, map[string]string{
+		"filename":          filename,
+		"original_filename": originalFilename,
+		"url":               "attachments/" + filename,
+	})
+}
+
+// handleAttachmentGet serves a previously uploaded attachment by its UUID
+// filename. The filename regex makes path traversal impossible without the
+// caller having to look at r.URL.Path themselves.
+func (s *Server) handleAttachmentGet(w http.ResponseWriter, r *http.Request, filename string) {
+	path, mime, err := attachmentPathFor(s.reviewPath, filename)
+	if err != nil {
+		http.Error(w, "Invalid attachment filename", http.StatusBadRequest)
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		http.Error(w, "Attachment not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		http.Error(w, "Stat failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", mime)
+	// UUIDs are never reused; the bytes behind a URL never change.
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	http.ServeContent(w, r, filename, info.ModTime(), f)
+}
+
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -2119,6 +2507,54 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		}
 		sess.notify(SSEEvent{Type: "comments-changed"})
 	}
+}
+
+// handleAuthOrgs proxies GET /api/auth/orgs to the configured crit-web service,
+// forwarding the stored auth token. Returns an empty JSON array when the share
+// URL is not configured, the user is not authenticated, or the upstream request
+// fails — so the frontend always receives a valid orgs list.
+func (s *Server) handleAuthOrgs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	emptyArray := func() { writeJSON(w, []any{}) }
+
+	if s.shareURL == "" {
+		emptyArray()
+		return
+	}
+	token := s.authTokenSnapshot()
+	if token == "" {
+		emptyArray()
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.shareURL+"/api/auth/orgs", nil)
+	if err != nil {
+		emptyArray()
+		return
+	}
+	setBearer(req, token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		emptyArray()
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		emptyArray()
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
 }
 
 func (s *Server) authTokenSnapshot() string {

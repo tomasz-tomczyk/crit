@@ -325,4 +325,89 @@ test.describe('Comments Panel — Git Mode', () => {
     await expect(card.locator('.carried-forward-label')).toHaveCount(0);
     await expect(card.locator('.resolve-btn--active')).toHaveCount(0);
   });
+
+  test('panel comment card shows Resolve button', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Resolve from panel');
+    await loadPage(page);
+    await page.keyboard.press('Shift+C');
+
+    const card = panelCards(page).first();
+    await expect(card.locator('.comment-actions button[title="Resolve"]')).toBeVisible();
+  });
+
+  test('clicking Resolve in panel resolves the comment', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Panel resolve test');
+    await loadPage(page);
+    await switchToDocumentView(page);
+    await page.keyboard.press('Shift+C');
+
+    const card = page.locator('.panel-comment-block .comment-card[data-comment-id]').first();
+    await card.locator('.comment-actions button[title="Resolve"]').click();
+
+    // Card gets resolved-card class and button changes to Unresolve
+    await expect(card).toHaveClass(/resolved-card/);
+    await expect(card.locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
+  });
+
+  test('clicking Unresolve in panel unresolves the comment', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    const comment = await addComment(request, mdPath, 1, 'Panel unresolve test');
+    await request.fetch(`/api/comment/${comment.id}/resolve?path=${encodeURIComponent(mdPath)}`, {
+      method: 'PUT',
+      data: { resolved: true },
+    });
+    await loadPage(page);
+    await page.keyboard.press('Shift+C');
+
+    // Switch to resolved filter to see the resolved comment
+    await page.locator('#commentsFilterPill .toggle-btn[data-filter="resolved"]').click();
+    await expect(panelCards(page)).toHaveCount(1);
+
+    const card = page.locator(`.panel-comment-block .comment-card[data-comment-id="${comment.id}"]`);
+    await card.locator('.comment-actions button[title="Unresolve"]').click();
+
+    // Switch to "open" filter — comment is now unresolved so it appears there
+    await page.locator('#commentsFilterPill .toggle-btn[data-filter="open"]').click();
+    await expect(panelCards(page)).toHaveCount(1);
+    await expect(card).not.toHaveClass(/resolved-card/);
+    await expect(card.locator('.comment-actions button[title="Resolve"]')).toBeVisible();
+  });
+
+  test('clicking Resolve button does not trigger scroll-to-inline navigation', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'No scroll on resolve');
+    await loadPage(page);
+    await switchToDocumentView(page);
+    await page.keyboard.press('Shift+C');
+
+    const card = page.locator('.panel-comment-block .comment-card[data-comment-id]').first();
+    await card.locator('.comment-actions button[title="Resolve"]').click();
+
+    // Wait for resolve to complete before checking negative
+    await expect(card).toHaveClass(/resolved-card/);
+
+    // The inline comment card should NOT receive the highlight animation
+    const inlineCard = page.locator('.comment-block:not(.panel-comment-block) .comment-card[data-comment-id]').first();
+    await expect(inlineCard).not.toHaveClass(/comment-card-highlight/);
+  });
+
+  test('panel resolve works for review-level comments', async ({ page, request }) => {
+    const resp = await request.post('/api/comments', {
+      data: { body: 'Review-level resolve test' },
+    });
+    expect(resp.ok()).toBeTruthy();
+    const comment = await resp.json();
+
+    await loadPage(page);
+    await page.keyboard.press('Shift+C');
+
+    const card = page.locator(`.panel-comment-block .comment-card[data-comment-id="${comment.id}"]`);
+    await expect(card.locator('.comment-actions button[title="Resolve"]')).toBeVisible();
+
+    await card.locator('.comment-actions button[title="Resolve"]').click();
+    await expect(card).toHaveClass(/resolved-card/);
+    await expect(card.locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
+  });
 });

@@ -24,6 +24,7 @@ type serverConfig struct {
 	noOpen             bool
 	quiet              bool
 	shareURL           string
+	proxyAuth          bool
 	authToken          string
 	outputDir          string
 	author             string
@@ -59,6 +60,7 @@ type serverFlagSet struct {
 	noOpen      bool
 	showVersion bool
 	shareURL    string
+	proxyAuth   bool
 	outputDir   string
 	quiet       bool
 	noIgnore    bool
@@ -163,6 +165,7 @@ func applyConfigDefaults(sf *serverFlagSet, cfg Config) {
 		sf.noOpen = true
 	}
 	sf.shareURL = resolveShareURL(sf.shareURL, cfg, "")
+	sf.proxyAuth = cfg.ProxyAuth
 	if !sf.quiet && cfg.Quiet {
 		sf.quiet = true
 	}
@@ -224,6 +227,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		noOpen:             sf.noOpen,
 		quiet:              sf.quiet,
 		shareURL:           sf.shareURL,
+		proxyAuth:          sf.proxyAuth,
 		authToken:          cfg.AuthToken,
 		outputDir:          sf.outputDir,
 		author:             cfg.Author,
@@ -431,6 +435,31 @@ func bindListener(host string, port int) (net.Listener, error) {
 	return nil, err
 }
 
+// resolveServeReviewPath computes the daemon's review folder so that
+// srv.reviewPath, the session-registry entry, session.ReviewFilePath, and
+// session.critJSONPath() (post applyPlanOverrides, which sets OutputDir = planDir)
+// all agree on one folder. Precedence: --output > --plan-dir > centralized
+// ~/.crit/reviews/<key>.
+//
+// Bug history: before the planDir branch was added, plan-mode daemons wrote
+// attachments to ~/.crit/reviews/<key>/attachments/ while review.json and the
+// share-payload inliner targeted <planDir>/.crit/ — pasted images turned into
+// [image: <alt>] placeholders on crit-web because the inliner couldn't find
+// the file on disk and silently left the raw attachments/<uuid> ref in place.
+func resolveServeReviewPath(outputDir, planDir, sessionKey string) string {
+	switch {
+	case outputDir != "":
+		abs, _ := filepath.Abs(outputDir)
+		return filepath.Join(abs, ".crit")
+	case planDir != "":
+		abs, _ := filepath.Abs(planDir)
+		return filepath.Join(abs, ".crit")
+	default:
+		path, _ := reviewFilePath(sessionKey)
+		return path
+	}
+}
+
 func serveSessionKey(sc *serverConfig) string {
 	cwd, _ := resolvedCWD()
 	if sc.planDir != "" {
@@ -464,7 +493,6 @@ func checkStaleIntegrations(sc *serverConfig, srv *Server, cwd string) {
 // site (when one is added) can compare against the same identifier.
 const designSessionArgsTag = "design"
 
-
 func runServe(args []string) {
 	pipe := openReadyPipe()
 
@@ -483,10 +511,12 @@ func runServe(args []string) {
 	}
 	addr := listener.Addr().(*net.TCPAddr)
 
-	srv, err := NewServer(nil, frontendFS, sc.shareURL, sc.authToken, sc.author, version, addr.Port, sc.agentCmd)
+	srv, err := NewServer(nil, frontendFS, sc.shareURL, sc.proxyAuth, sc.authToken, sc.author, version, addr.Port, sc.agentCmd)
 	if err != nil {
 		daemonFatal(pipe, "Error creating server: %v", err)
 	}
+
+	srv.SetListenHost(sc.host)
 
 	// Set config-dependent fields for the settings panel
 	srv.cfg = sc.cfg
@@ -500,12 +530,7 @@ func runServe(args []string) {
 	if vcs := DetectVCS(sc.vcsOverride); vcs != nil {
 		branch = vcs.CurrentBranch()
 	}
-	if sc.outputDir != "" {
-		abs, _ := filepath.Abs(sc.outputDir)
-		sc.reviewPath = filepath.Join(abs, ".crit")
-	} else {
-		sc.reviewPath, _ = reviewFilePath(key)
-	}
+	sc.reviewPath = resolveServeReviewPath(sc.outputDir, sc.planDir, key)
 	srv.reviewPath = sc.reviewPath
 	srv.cliArgs = sc.files
 	sessionArgs := sc.files
@@ -545,7 +570,6 @@ func runServe(args []string) {
 			}
 		}()
 	}
-
 
 	httpServer := &http.Server{
 		Handler:     srv,

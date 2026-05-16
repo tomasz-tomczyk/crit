@@ -125,18 +125,20 @@ type SnapshotsFile struct {
 // The identity may have been a flat .json file in v3; v4 treats it uniformly
 // as a folder. Migration is handled by ensureReviewFolder.
 type reviewPaths struct {
-	Folder    string
-	Review    string
-	Snapshots string
+	Folder      string
+	Review      string
+	Snapshots   string
+	Attachments string
 }
 
 // reviewPathsFor returns the v4 folder-form paths for a review identity.
 // reviewPathsFor does not touch disk; migration is handled separately.
 func reviewPathsFor(identity string) reviewPaths {
 	return reviewPaths{
-		Folder:    identity,
-		Review:    filepath.Join(identity, "review.json"),
-		Snapshots: filepath.Join(identity, "snapshots.json"),
+		Folder:      identity,
+		Review:      filepath.Join(identity, "review.json"),
+		Snapshots:   filepath.Join(identity, "snapshots.json"),
+		Attachments: filepath.Join(identity, "attachments"),
 	}
 }
 
@@ -343,7 +345,8 @@ func saveCritJSON(critPath string, cj CritJSON) error {
 	return atomicWriteFile(reviewPathsFor(critPath).Review, append(data, '\n'), 0o644)
 }
 
-// clearCritJSON removes the review folder for the resolved path or outputDir.
+// clearCritJSON removes the review folder (review.json, snapshots.json, and
+// any attachments) for the resolved path or outputDir.
 func clearCritJSON(outputDir string) error {
 	critPath, err := resolveReviewPath(outputDir)
 	if err != nil {
@@ -353,7 +356,7 @@ func clearCritJSON(outputDir string) error {
 }
 
 // clearReviewFolder removes the entire review folder (review.json,
-// snapshots.json, future attachments). Idempotent: a missing folder is fine.
+// snapshots.json, attachments). Idempotent: a missing folder is fine.
 func clearReviewFolder(identity string) error {
 	if err := os.RemoveAll(identity); err != nil && !os.IsNotExist(err) {
 		return err

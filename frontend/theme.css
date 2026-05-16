@@ -26,6 +26,7 @@
   --crit-brand-hover:   #94bcfb;
   --crit-brand-subtle:  rgba(133, 170, 248, 0.10);
   --crit-brand-bg:      rgba(133, 170, 248, 0.15);
+  --crit-line-focus-bg: rgba(133, 170, 248, 0.10);
   --crit-brand-cta:       #406fcc;
   --crit-brand-cta-hover: #4574cc;
 
@@ -62,6 +63,9 @@
   --crit-orange: #ff9e64;
   --crit-yellow: #e0af68;
   --crit-purple: #a371f7;
+  /* Visual line mode cursor accent. Distinct from --crit-orange (modified
+     line indicator) and --crit-yellow (warning / modified badges). */
+  --crit-visual-accent: #e0af68;
 
   /* ---- Borders ---- */
   --crit-border:         #232632;
@@ -126,6 +130,9 @@
   --crit-yellow-bg:     rgba(224, 175, 104, 0.14);
   --crit-yellow-border: rgba(224, 175, 104, 0.2);
 
+  /* ---- Green subtle ---- */
+  --crit-green-subtle: rgba(86, 211, 100, 0.10);
+
   /* ---- Finish/disconnected state ---- */
   --crit-finish-pill-bg:     rgba(86, 211, 100, 0.10);
   --crit-finish-pill-border: rgba(86, 211, 100, 0.20);
@@ -146,6 +153,13 @@
   --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.12);
   --crit-quote-highlight-border: rgba(250, 200, 60, 0.4);
   --crit-qr-bg: #fff;
+
+  /* ---- Comment reference chip ---- */
+  --crit-comment-ref-color:       #85aaf8;
+  --crit-comment-ref-color-hover: #94bcfb;
+  --crit-comment-ref-underline:   rgba(133, 170, 248, 0.35);
+  --crit-comment-ref-flash-bg:    rgba(187, 128, 9, 0.35);
+  --crit-comment-ref-flash-ring:  rgba(187, 128, 9, 0.85);
 
   --author-0-bg: rgba(110,160,230,0.15);
   --author-0-border: rgba(110,160,230,0.35);
@@ -180,6 +194,9 @@
   --crit-design-ancestor-menu-hover-bg:#2f3342;
   --crit-design-mode-btn-active-bg:    #2d7ff9;
   --crit-design-mode-btn-active-fg:    #ffffff;
+  --crit-design-toast-bg:              #1a1c23;
+  --crit-design-toast-fg:              #e6e8ed;
+  --crit-design-toast-border:          #2f3342;
 
   /* ---- Phase D: markers + drifted tray + re-anchor ---- */
   --crit-design-marker-bg:             #3b82f6;
@@ -201,6 +218,18 @@
   --crit-design-marker-flash-bg:        rgba(245, 158, 11, 0.7);
   --crit-design-menu-highlight-bg:      rgba(59, 130, 246, 0.18);
   --crit-design-menu-highlight-fg:      #e6e8ef;
+
+  /* ---- Org share modal ---- */
+  --crit-option-hover:       rgba(133, 170, 248, 0.06);
+  --crit-option-selected-bg: rgba(133, 170, 248, 0.08);
+  --crit-focus-ring:         rgba(133, 170, 248, 0.5);
+  --crit-green-hover:        #6ade7a;
+  --crit-vis-org-bg:         rgba(133, 170, 248, 0.10);
+  --crit-vis-org-fg:         #85aaf8;
+  --crit-vis-unlisted-bg:    rgba(255, 158, 100, 0.10);
+  --crit-vis-unlisted-fg:    #ff9e64;
+  --crit-vis-public-bg:      rgba(86, 211, 100, 0.10);
+  --crit-vis-public-fg:      #56d364;
 }
 
 /* ===== System preference: light ===== */
@@ -222,6 +251,7 @@
     --crit-brand-hover:   #396ec6;
     --crit-brand-subtle:  rgba(41,96,188,0.08);
     --crit-brand-bg:      rgba(41,96,188,0.12);
+    --crit-line-focus-bg: rgba(41,96,188,0.10);
     --crit-brand-cta:       #3a72d4;
     --crit-brand-cta-hover: #3568c8;
 
@@ -258,6 +288,9 @@
     --crit-orange: #bc4c00;
     --crit-yellow: #7a5800;
     --crit-purple: #8250df;
+    /* Visual line mode cursor accent. Saturated amber tuned to read on
+       light backgrounds (the muddy --crit-yellow #7a5800 looks olive at 3px). */
+    --crit-visual-accent: #b8860b;
 
     /* ---- Borders ---- */
     --crit-border:         #d8dee4;
@@ -293,6 +326,9 @@
     --crit-yellow-bg:     rgba(122, 88, 0, 0.1);
     --crit-yellow-border: rgba(122, 88, 0, 0.16);
 
+    /* ---- Green subtle ---- */
+    --crit-green-subtle: rgba(22, 111, 48, 0.08);
+
     /* ---- Finish/disconnected state ---- */
     --crit-finish-pill-bg:     rgba(22, 127, 48, 0.08);
     --crit-finish-pill-border: rgba(22, 127, 48, 0.18);
@@ -312,6 +348,13 @@
     --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.18);
     --crit-quote-highlight-border: rgba(200, 160, 30, 0.45);
     --crit-qr-bg: #fff;
+
+    /* ---- Comment reference chip ---- */
+    --crit-comment-ref-color:       #0550ae;
+    --crit-comment-ref-color-hover: #033d8b;
+    --crit-comment-ref-underline:   rgba(5, 80, 174, 0.50);
+    --crit-comment-ref-flash-bg:    rgba(255, 212, 59, 0.55);
+    --crit-comment-ref-flash-ring:  rgba(154, 103, 0, 0.70);
 
     --author-0-bg: rgba(26,95,160,0.10);
     --author-0-border: rgba(26,95,160,0.25);
@@ -346,6 +389,9 @@
     --crit-design-ancestor-menu-hover-bg:#eef2f7;
     --crit-design-mode-btn-active-bg:    #2d7ff9;
     --crit-design-mode-btn-active-fg:    #ffffff;
+    --crit-design-toast-bg:              #ffffff;
+    --crit-design-toast-fg:              #1f2328;
+    --crit-design-toast-border:          #d0d7de;
 
     /* ---- Phase D: markers + drifted tray + re-anchor ---- */
     --crit-design-marker-bg:             #2563eb;
@@ -360,13 +406,25 @@
     --crit-design-reanchor-active-outline: #d97706;
 
     /* ---- Phase E ---- */
-      --crit-design-focus-ring:             #b45309;
+    --crit-design-focus-ring:             #b45309;
     --crit-design-tooltip-bg:             #1a1d23;
     --crit-design-tooltip-fg:             #ffffff;
     --crit-design-tooltip-border:         rgba(0,0,0,0.15);
     --crit-design-marker-flash-bg:        rgba(217, 119, 6, 0.6);
     --crit-design-menu-highlight-bg:      #e0e7ff;
     --crit-design-menu-highlight-fg:      #1a1d23;
+
+    /* ---- Org share modal ---- */
+    --crit-option-hover:       rgba(61, 106, 224, 0.04);
+    --crit-option-selected-bg: rgba(61, 106, 224, 0.06);
+    --crit-focus-ring:         rgba(61, 106, 224, 0.4);
+    --crit-green-hover:        #178a33;
+    --crit-vis-org-bg:         rgba(61, 106, 224, 0.08);
+    --crit-vis-org-fg:         #3d6ae0;
+    --crit-vis-unlisted-bg:    rgba(214, 122, 44, 0.08);
+    --crit-vis-unlisted-fg:    #d67a2c;
+    --crit-vis-public-bg:      rgba(26, 157, 59, 0.08);
+    --crit-vis-public-fg:      #1a9d3b;
   }
 }
 
@@ -388,6 +446,7 @@
   --crit-brand-hover:   #94bcfb;
   --crit-brand-subtle:  rgba(133, 170, 248, 0.10);
   --crit-brand-bg:      rgba(133, 170, 248, 0.15);
+  --crit-line-focus-bg: rgba(133, 170, 248, 0.10);
   --crit-brand-cta:       #406fcc;
   --crit-brand-cta-hover: #4574cc;
 
@@ -424,6 +483,9 @@
   --crit-orange: #ff9e64;
   --crit-yellow: #e0af68;
   --crit-purple: #a371f7;
+  /* Visual line mode cursor accent. Distinct from --crit-orange (modified
+     line indicator) and --crit-yellow (warning / modified badges). */
+  --crit-visual-accent: #e0af68;
 
   /* ---- Borders ---- */
   --crit-border:         #232632;
@@ -459,6 +521,9 @@
   --crit-yellow-bg:     rgba(224, 175, 104, 0.14);
   --crit-yellow-border: rgba(224, 175, 104, 0.2);
 
+  /* ---- Green subtle ---- */
+  --crit-green-subtle: rgba(86, 211, 100, 0.10);
+
   /* ---- Finish/disconnected state ---- */
   --crit-finish-pill-bg:     rgba(86, 211, 100, 0.10);
   --crit-finish-pill-border: rgba(86, 211, 100, 0.20);
@@ -478,6 +543,13 @@
   --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.12);
   --crit-quote-highlight-border: rgba(250, 200, 60, 0.4);
   --crit-qr-bg: #fff;
+
+  /* ---- Comment reference chip ---- */
+  --crit-comment-ref-color:       #85aaf8;
+  --crit-comment-ref-color-hover: #94bcfb;
+  --crit-comment-ref-underline:   rgba(133, 170, 248, 0.35);
+  --crit-comment-ref-flash-bg:    rgba(187, 128, 9, 0.35);
+  --crit-comment-ref-flash-ring:  rgba(187, 128, 9, 0.85);
 
   --author-0-bg: rgba(110,160,230,0.15);
   --author-0-border: rgba(110,160,230,0.35);
@@ -512,6 +584,9 @@
   --crit-design-ancestor-menu-hover-bg:#2f3342;
   --crit-design-mode-btn-active-bg:    #2d7ff9;
   --crit-design-mode-btn-active-fg:    #ffffff;
+  --crit-design-toast-bg:              #1a1c23;
+  --crit-design-toast-fg:              #e6e8ed;
+  --crit-design-toast-border:          #2f3342;
 
   /* ---- Phase D: markers + drifted tray + re-anchor ---- */
   --crit-design-marker-bg:             #3b82f6;
@@ -533,6 +608,18 @@
   --crit-design-marker-flash-bg:        rgba(245, 158, 11, 0.7);
   --crit-design-menu-highlight-bg:      rgba(59, 130, 246, 0.18);
   --crit-design-menu-highlight-fg:      #e6e8ef;
+
+  /* ---- Org share modal ---- */
+  --crit-option-hover:       rgba(133, 170, 248, 0.06);
+  --crit-option-selected-bg: rgba(133, 170, 248, 0.08);
+  --crit-focus-ring:         rgba(133, 170, 248, 0.5);
+  --crit-green-hover:        #6ade7a;
+  --crit-vis-org-bg:         rgba(133, 170, 248, 0.10);
+  --crit-vis-org-fg:         #85aaf8;
+  --crit-vis-unlisted-bg:    rgba(255, 158, 100, 0.10);
+  --crit-vis-unlisted-fg:    #ff9e64;
+  --crit-vis-public-bg:      rgba(86, 211, 100, 0.10);
+  --crit-vis-public-fg:      #56d364;
 }
 
 /* ===== Light (explicit) ===== */
@@ -553,6 +640,7 @@
   --crit-brand-hover:   #396ec6;
   --crit-brand-subtle:  rgba(41,96,188,0.08);
   --crit-brand-bg:      rgba(41,96,188,0.12);
+  --crit-line-focus-bg: rgba(41,96,188,0.10);
   --crit-brand-cta:       #3a72d4;
   --crit-brand-cta-hover: #3568c8;
 
@@ -589,6 +677,9 @@
   --crit-orange: #bc4c00;
   --crit-yellow: #7a5800;
   --crit-purple: #8250df;
+  /* Visual line mode cursor accent. Saturated amber tuned to read on
+     light backgrounds (the muddy --crit-yellow #7a5800 looks olive at 3px). */
+  --crit-visual-accent: #b8860b;
 
   /* ---- Borders ---- */
   --crit-border:         #d8dee4;
@@ -624,6 +715,9 @@
   --crit-yellow-bg:     rgba(122, 88, 0, 0.1);
   --crit-yellow-border: rgba(122, 88, 0, 0.16);
 
+  /* ---- Green subtle ---- */
+  --crit-green-subtle: rgba(22, 111, 48, 0.08);
+
   /* ---- Finish/disconnected state ---- */
   --crit-finish-pill-bg:     rgba(22, 127, 48, 0.08);
   --crit-finish-pill-border: rgba(22, 127, 48, 0.18);
@@ -643,6 +737,13 @@
   --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.18);
   --crit-quote-highlight-border: rgba(200, 160, 30, 0.45);
   --crit-qr-bg: #fff;
+
+  /* ---- Comment reference chip ---- */
+  --crit-comment-ref-color:       #0550ae;
+  --crit-comment-ref-color-hover: #033d8b;
+  --crit-comment-ref-underline:   rgba(5, 80, 174, 0.50);
+  --crit-comment-ref-flash-bg:    rgba(255, 212, 59, 0.55);
+  --crit-comment-ref-flash-ring:  rgba(154, 103, 0, 0.70);
 
   --author-0-bg: rgba(26,95,160,0.10);
   --author-0-border: rgba(26,95,160,0.25);
@@ -701,6 +802,18 @@
   --crit-design-marker-flash-bg:        rgba(217, 119, 6, 0.6);
   --crit-design-menu-highlight-bg:      #e0e7ff;
   --crit-design-menu-highlight-fg:      #1a1d23;
+
+  /* ---- Org share modal ---- */
+  --crit-option-hover:       rgba(61, 106, 224, 0.04);
+  --crit-option-selected-bg: rgba(61, 106, 224, 0.06);
+  --crit-focus-ring:         rgba(61, 106, 224, 0.4);
+  --crit-green-hover:        #178a33;
+  --crit-vis-org-bg:         rgba(61, 106, 224, 0.08);
+  --crit-vis-org-fg:         #3d6ae0;
+  --crit-vis-unlisted-bg:    rgba(214, 122, 44, 0.08);
+  --crit-vis-unlisted-fg:    #d67a2c;
+  --crit-vis-public-bg:      rgba(26, 157, 59, 0.08);
+  --crit-vis-public-fg:      #1a9d3b;
 }
 
 /* ===== highlight.js Dark Theme (Tokyo Night Dark) =====

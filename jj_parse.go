@@ -59,14 +59,3 @@ func parseJJRenameTarget(path string) string {
 	}
 	return strings.Trim(strings.TrimSpace(path[idx+4:]), "{}")
 }
-
-// parseJJDiffStat parses `jj diff --stat` output. JJ uses git-style stat lines,
-// so this reuses the shared stat-line parser used by the Sapling backend.
-func parseJJDiffStat(output string) map[string]NumstatEntry {
-	return parseSaplingDiffStat(output)
-}
-
-// parseJJCommitLog parses templated `jj log` output into CommitInfo values.
-func parseJJCommitLog(output string) []CommitInfo {
-	return parseSaplingCommitLog(output)
-}

@@ -270,7 +270,11 @@ func detailedDryRun(b pushBuckets) string {
 // writeDryRunLine appends one comment line to the dry-run output. Body is
 // truncated to 60 runes and newlines are squashed so the line stays compact.
 func writeDryRunLine(sb *strings.Builder, sc scopedComment) {
-	body := strings.ReplaceAll(sc.Comment.Body, "\n", " ")
+	// Dry-run preview shows the strip view (attachment refs gone, placeholder
+	// note appended). The live push may upload-and-swap instead — we don't
+	// run that side-effect here because dry-run is read-only.
+	stripped, _ := stripAttachmentReferences(sc.Comment.Body)
+	body := strings.ReplaceAll(stripped, "\n", " ")
 	fmt.Fprintf(sb, "  %s: %s\n", commentLocator(sc), truncateStr(body, 60))
 }
 
@@ -279,9 +283,15 @@ func writeDryRunLine(sb *strings.Builder, sc scopedComment) {
 // acts on already-filtered postable comments — the resolved/GitHubID checks
 // are redundant here (bucketCommentsForPush enforces them) but cheap and
 // defensive.
-func bucketsToGHComments(postable []scopedComment) []map[string]any {
+//
+// rewrite is applied to each comment body before it ships. Production push
+// passes stripBodyRewriter; tests may pass nil for strip behavior.
+func bucketsToGHComments(postable []scopedComment, rewrite bodyRewriter) []map[string]any {
 	if len(postable) == 0 {
 		return nil
+	}
+	if rewrite == nil {
+		rewrite = stripBodyRewriter
 	}
 	out := make([]map[string]any, 0, len(postable))
 	for _, sc := range postable {
@@ -293,7 +303,7 @@ func bucketsToGHComments(postable []scopedComment) []map[string]any {
 			"path": sc.Path,
 			"line": c.EndLine,
 			"side": "RIGHT",
-			"body": c.Body,
+			"body": rewrite(c.Body),
 		}
 		if c.StartLine != c.EndLine && c.StartLine > 0 {
 			comment["start_line"] = c.StartLine

@@ -137,18 +137,18 @@ test.describe('Markdown Document/Diff Toggle — Git Mode', () => {
     await expect(page.locator('.comment-form')).toHaveCount(0);
   });
 
-  test('document view does not show change indicators in git mode', async ({ page }) => {
+  test('document view shows change indicators in git mode', async ({ page }) => {
     const section = mdSection(page);
 
     // Switch to document view
     await section.locator('.file-header-toggle .toggle-btn[data-mode="document"]').click();
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
-    // Line blocks should exist but none should have any change indicator
+    // plan.md is added on the feature branch — every line block should be marked as added
     await expect(section.locator('.line-block').first()).toBeVisible();
-    await expect(section.locator('.line-block-added, .line-block-modified, .deletion-marker')).toHaveCount(0);
+    await expect(section.locator('.line-block-added').first()).toBeVisible();
 
-    // Change navigation widget should not be visible
+    // Change navigation widget remains file-mode only
     await expect(section.locator('.change-nav')).not.toBeVisible();
   });
 

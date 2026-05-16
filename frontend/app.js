@@ -36,6 +36,104 @@
     return '<span class="file-ref">' + escapeHtml(path) + '</span>';
   };
 
+  // Override code_inline so backtick-wrapped comment IDs render as the same chip.
+  const defaultCodeInline = commentMd.renderer.rules.code_inline || function(tokens, idx, options, _env, self) {
+    return self.renderToken(tokens, idx, options);
+  };
+  commentMd.renderer.rules.code_inline = function(tokens, idx, options, env, self) {
+    const content = tokens[idx].content;
+    if (/^(c|r|rp)_[a-f0-9]{6,}$/.test(content)) {
+      return '<span class="comment-ref comment-ref-code" data-ref-id="' + escapeHtml(content) + '" tabindex="0" role="link">' + escapeHtml(content) + '</span>';
+    }
+    return defaultCodeInline(tokens, idx, options, env, self);
+  };
+
+  function linkifyCommentRefsInDom(el) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      // skip text inside code/pre elements and already-linked chips
+      if (node.parentNode.closest('code, pre, .comment-ref')) continue;
+      textNodes.push(node);
+    }
+    const re = /((?:c|r|rp)_[a-f0-9]{6,})/g;
+    textNodes.forEach(function(tn) {
+      if (!re.test(tn.nodeValue)) { re.lastIndex = 0; return; }
+      re.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let last = 0, m;
+      while ((m = re.exec(tn.nodeValue)) !== null) {
+        if (m.index > last) frag.appendChild(document.createTextNode(tn.nodeValue.slice(last, m.index)));
+        const span = document.createElement('span');
+        span.className = 'comment-ref';
+        span.dataset.refId = m[1];
+        span.textContent = m[1];
+        span.tabIndex = 0;
+        span.setAttribute('role', 'link');
+        frag.appendChild(span);
+        last = m.index + m[0].length;
+      }
+      if (last < tn.nodeValue.length) frag.appendChild(document.createTextNode(tn.nodeValue.slice(last)));
+      tn.parentNode.replaceChild(frag, tn);
+    });
+  }
+
+  // Scroll/expand/flash a comment card located anywhere in the document, given just its id.
+  // Distinct from scrollToComment(commentId, filePath) below — that one needs filePath context.
+  function scrollToCommentRef(id) {
+    const card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
+    if (!card) return;
+    // Make sure any containing <details> file section is open
+    const section = card.closest('details');
+    if (section && !section.open) section.open = true;
+    if (card.classList.contains('collapsed')) {
+      card.classList.remove('collapsed');
+      if (typeof commentCollapseOverrides !== 'undefined') commentCollapseOverrides[id] = false;
+    }
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.remove('comment-ref-flash');
+    void card.offsetWidth;
+    card.classList.add('comment-ref-flash');
+    card.addEventListener('animationend', function() {
+      card.classList.remove('comment-ref-flash');
+    }, { once: true });
+  }
+
+  document.addEventListener('click', function(e) {
+    const ref = e.target.closest && e.target.closest('.comment-ref');
+    if (!ref) return;
+    e.preventDefault();
+    scrollToCommentRef(ref.dataset.refId);
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const ref = e.target.closest && e.target.closest('.comment-ref');
+    if (!ref) return;
+    e.preventDefault();
+    scrollToCommentRef(ref.dataset.refId);
+  });
+
+  // ===== Attachment Image Src Rewrite =====
+  // Markdown stored in review.json uses canonical relative paths
+  // (`attachments/<uuid>.<ext>`) — never absolute URLs. Each render target
+  // rewrites at its own publish boundary; in the local UI that means
+  // pointing the browser at /api/attachments/<uuid>.<ext>. External URLs
+  // (https/http/data/absolute paths) pass through untouched so historical
+  // GitHub raw URLs or external image hosts still render after `crit pull`.
+  commentMd.renderer.rules.image = function(tokens, idx, options, _env, self) {
+    const token = tokens[idx];
+    const srcIdx = token.attrIndex('src');
+    if (srcIdx >= 0) {
+      const src = token.attrs[srcIdx][1];
+      if (!/^https?:\/\/|^data:|^\//.test(src) && /^attachments\//.test(src)) {
+        token.attrs[srcIdx][1] = '/api/' + src;
+      }
+    }
+    return self.renderToken(tokens, idx, options);
+  };
+
   // ===== Suggestion Diff Renderer =====
   function renderSuggestionDiff(suggestionContent, originalLines) {
     const sugLines = suggestionContent.replace(/\n$/, '').split('\n');
@@ -242,7 +340,137 @@
   let shareURL = '';
   let hostedURL = '';
   let deleteToken = '';
+  let needsShareConsent = false;
+  let authUserName = '';
+  let proxyAuth = false;   // false = direct server-side share; true = browser popup relay
+  let hostedToken = '';    // server-derived (tokenFromHostedURL); never URL-parsed in JS
   let configAuthor = '';
+
+
+  // ===== Share Receiver Popup Relay =====
+  // openShareReceiver(shareURL) opens the crit-web /share-receiver page in a
+  // popup, exchanges a MessagePort handshake, and returns a session handle:
+  //   { ready: Promise, run(op, data, timeoutMs): Promise, close(): void }
+  //
+  // INVARIANTS — do not violate:
+  //   1. MUST be called synchronously inside a user-gesture event handler.
+  //      Any `await` before this call will cause Safari (and often Chrome/
+  //      Firefox) to popup-block the window.open.
+  //   2. The 'ready' postMessage listener is attached BEFORE window.open so
+  //      the receiver's 'ready' message can't arrive before we listen.
+  //   3. After the handshake, all communication is via the MessagePort. The
+  //      port has no origin — it's a private channel. event.origin is only
+  //      validated on the handshake postMessage.
+  //   4. Single persistent port.onmessage with a requestId -> resolver Map.
+  //      No listener-per-op accumulation.
+  //   5. A close-watchdog (setInterval) rejects pending ops if the popup
+  //      closes (user dismisses, navigates away, crashes).
+  function openShareReceiver(baseURL) {
+    if (!baseURL) throw new Error('share_url not configured');
+
+    const nonce = 'n_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const targetOrigin = new URL(baseURL).origin;
+    const popupURL = baseURL.replace(/\/$/, '') + '/share-receiver#nonce=' + encodeURIComponent(nonce);
+
+    let popup = null;
+    let port = null;
+    let readyResolve, readyReject;
+    const readyPromise = new Promise(function(res, rej) { readyResolve = res; readyReject = rej; });
+
+    const pending = new Map(); // requestId -> { resolve, reject, timer }
+    function rejectAllPending(err) {
+      for (const entry of pending.values()) {
+        clearTimeout(entry.timer);
+        entry.reject(err);
+      }
+      pending.clear();
+    }
+
+    function onPortMessage(event) {
+      const msg = event.data || {};
+      const entry = pending.get(msg.requestId);
+      if (!entry) return;
+      pending.delete(msg.requestId);
+      clearTimeout(entry.timer);
+      if (msg.ok) entry.resolve(msg.data);
+      else entry.reject(new Error(msg.error || 'unknown error'));
+    }
+
+    function onReady(event) {
+      // Validate handshake: source must be our popup, origin must match,
+      // payload must be `{type: 'ready', nonce}`.
+      if (popup && event.source !== popup) return;
+      if (event.origin !== targetOrigin) return;
+      if (!event.data || event.data.type !== 'ready' || event.data.nonce !== nonce) return;
+      window.removeEventListener('message', onReady);
+      const channel = new MessageChannel();
+      port = channel.port1;
+      port.onmessage = onPortMessage;
+      port.start();
+      try {
+        popup.postMessage({ type: 'init', nonce: nonce }, targetOrigin, [channel.port2]);
+      } catch (err) {
+        readyReject(err);
+        return;
+      }
+      readyResolve();
+    }
+
+    // Attach listener BEFORE opening the popup so the receiver's 'ready'
+    // postMessage cannot arrive before we are listening.
+    window.addEventListener('message', onReady);
+
+    popup = window.open(popupURL, 'crit_share_receiver', 'width=520,height=640,resizable=yes,scrollbars=yes');
+    if (!popup) {
+      window.removeEventListener('message', onReady);
+      throw new Error('popup blocked — allow popups for this page');
+    }
+
+    // Watchdog: if the popup closes before init or mid-op, reject everything.
+    const closeWatch = setInterval(function() {
+      if (popup.closed) {
+        clearInterval(closeWatch);
+        window.removeEventListener('message', onReady);
+        readyReject(new Error('popup closed before authenticating'));
+        rejectAllPending(new Error('popup closed'));
+      }
+    }, 500);
+
+    // Init handshake timeout: if the receiver never posts 'ready' (COOP, popup
+    // never navigated, ad blocker, etc.) reject after 60s.
+    const initTimer = setTimeout(function() {
+      window.removeEventListener('message', onReady);
+      readyReject(new Error('share-receiver did not respond — possibly blocked by COOP'));
+    }, 60000);
+    readyPromise.finally(function() { clearTimeout(initTimer); });
+
+    return {
+      ready: readyPromise,
+      async run(op, data, timeoutMs) {
+        await readyPromise;
+        const requestId = nonce + '_' + op + '_' + Math.random().toString(36).slice(2);
+        return new Promise(function(resolve, reject) {
+          const timer = setTimeout(function() {
+            pending.delete(requestId);
+            reject(new Error('share-receiver did not return a result for ' + op));
+          }, timeoutMs || 120000);
+          pending.set(requestId, { resolve: resolve, reject: reject, timer: timer });
+          port.postMessage(Object.assign({}, data, { type: op, requestId: requestId }));
+        });
+      },
+      close() {
+        clearInterval(closeWatch);
+        window.removeEventListener('message', onReady);
+        try { popup.close(); } catch { /* popup may already be closed */ }
+        try { if (port) port.close(); } catch { /* port may already be closed */ }
+        rejectAllPending(new Error('session closed'));
+      },
+    };
+  }
+
+  let cachedOrgs = null;
+  let sharedOrg = null; // {slug, name} if shared under an org, null if personal
+  let sharedVisibility = ''; // 'organization', 'unlisted', or 'public'
   let uiState = 'reviewing';
   let waitingNotApproved = false;
   let hiddenUnresolved = 0;
@@ -322,6 +550,8 @@
   const ICON_CLIPBOARD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
   const ICON_CHECK_SMALL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
   const ICON_COMMENT = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
+  const ICON_COPY_PATH = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25v-7.5z"/><path fill-rule="evenodd" d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25v-7.5zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25h-7.5z"/></svg>';
+  const ICON_COPY_PATH_CHECK = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0z"/></svg>';
 
   function formKey(form) {
     if (form.scope === 'review') return 'review:' + (form.editingId || 'new');
@@ -333,8 +563,6 @@
   // Convention-based form-key for edit/reply forms keyed by comment id.
   // Used by buildCommentCard reply input + design-mode mounts.
   // Delegates to the shared helper module so both controllers stay aligned.
-  const formKeyFor = (window.crit && window.crit.commentCardHelpers && window.crit.commentCardHelpers.formKeyFor) ||
-    function formKeyFor(commentId, kind) { return 'comment:' + kind + ':' + commentId; };
 
   function addForm(form) {
     form.formKey = formKey(form);
@@ -365,6 +593,9 @@
   let focusedFilePath = null;
   let focusedElement = null; // currently focused navigable element
   let navElements = []; // cached .kb-nav list, rebuilt on render
+  // Vim-style visual line mode (entered with V).
+  // { kind: 'markdown'|'diff', filePath, anchorStartLine, anchorEndLine, anchorSide }
+  let visualMode = null;
   let changeGroups = [];      // [{elements: [DOM], filePath: string}]
   let currentChangeIdx = -1;
 
@@ -374,7 +605,6 @@
   // design-mode mounts produce matching swatch indices. The helpers module
   // is loaded before app.js via index.html script order, so we reference it
   // directly without a local fallback.
-  const AUTHOR_COLOR_COUNT = window.crit.commentCardHelpers.AUTHOR_COLOR_COUNT;
   const authorColorIndex = window.crit.commentCardHelpers.authorColorIndex;
 
   // Sort comparator: directories before files at each depth, then alphabetical.
@@ -666,7 +896,18 @@
     shareURL = configRes.share_url || '';
     hostedURL = configRes.hosted_url || '';
     deleteToken = configRes.delete_token || '';
+    needsShareConsent = configRes.needs_consent || false;
+    authUserName = configRes.auth_user_name || '';
+    proxyAuth = !!configRes.proxy_auth;
+    hostedToken = configRes.hosted_token || '';
     configAuthor = configRes.author || '';
+    if (configRes.share_org) {
+      sharedOrg = { slug: configRes.share_org, name: configRes.share_org_name || configRes.share_org };
+      sharedVisibility = configRes.share_visibility || '';
+    } else {
+      sharedOrg = null;
+      sharedVisibility = '';
+    }
     agentEnabled = configRes.agent_cmd_enabled || false;
     agentName = configRes.agent_name || 'agent';
 
@@ -713,6 +954,20 @@
     if (session.mode === 'git' && session.branch) {
       document.getElementById('branchContext').style.display = '';
       document.getElementById('branchName').textContent = session.branch;
+      const branchCopyBtn = document.createElement('button');
+      branchCopyBtn.className = 'header-copy-path';
+      branchCopyBtn.setAttribute('aria-label', 'Copy branch name');
+      branchCopyBtn.type = 'button';
+      branchCopyBtn.innerHTML = ICON_COPY_PATH;
+      branchCopyBtn.addEventListener('click', function() {
+        const originalLabel = branchCopyBtn.getAttribute('aria-label');
+        navigator.clipboard.writeText(session.branch).then(function() {
+          branchCopyBtn.innerHTML = ICON_COPY_PATH_CHECK;
+          branchCopyBtn.setAttribute('aria-label', 'Copied!');
+          setTimeout(function() { branchCopyBtn.innerHTML = ICON_COPY_PATH; branchCopyBtn.setAttribute('aria-label', originalLabel); }, 1500);
+        }).catch(function() { /* best-effort */ });
+      });
+      document.getElementById('branchContext').appendChild(branchCopyBtn);
       // Base branch picker: show in git mode when on a feature branch
       if (session.base_ref) {
         currentBaseBranch = session.base_branch_name || '';
@@ -724,6 +979,21 @@
       document.getElementById('branchContext').style.display = '';
       document.querySelector('.branch-icon').innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>';
       document.getElementById('branchName').textContent = session.files[0].path.split('/').pop();
+      const headerCopyBtn = document.createElement('button');
+      headerCopyBtn.className = 'header-copy-path';
+      headerCopyBtn.setAttribute('aria-label', 'Copy file path');
+      headerCopyBtn.type = 'button';
+      headerCopyBtn.innerHTML = ICON_COPY_PATH;
+      headerCopyBtn.addEventListener('click', function() {
+        const originalLabel = headerCopyBtn.getAttribute('aria-label');
+        const abs = session.cwd ? session.cwd + '/' + session.files[0].path : session.files[0].path;
+        navigator.clipboard.writeText(abs).then(function() {
+          headerCopyBtn.innerHTML = ICON_COPY_PATH_CHECK;
+          headerCopyBtn.setAttribute('aria-label', 'Copied!');
+          setTimeout(function() { headerCopyBtn.innerHTML = ICON_COPY_PATH; headerCopyBtn.setAttribute('aria-label', originalLabel); }, 1500);
+        }).catch(function() { /* best-effort */ });
+      });
+      document.getElementById('branchContext').appendChild(headerCopyBtn);
     }
 
     // PR overview panel toggle
@@ -834,6 +1104,8 @@
     sh: 'bash',
     zig: 'zig',        // not a built-in alias in our bundle
     md: 'markdown',    // normalize: callers compare lang against 'markdown'
+    heex: 'heex',
+    leex: 'heex',
   };
   // Files identified by basename rather than extension.
   const BASENAME_LANG = {
@@ -865,11 +1137,12 @@
     if (!lang || !hljs.getLanguage(lang)) return null;
     try {
       const highlighted = hljs.highlight(file.content, { language: lang, ignoreIllegals: true }).value;
-      const lines = splitHighlightedCode(highlighted);
-      // Return 1-indexed: lines[1] = first line
+      const htmlLines = splitHighlightedCode(highlighted);
+      const rawLines = file.content.split('\n');
+      // Return 1-indexed: result[1] = first line
       const result = [null]; // index 0 unused
-      for (let i = 0; i < lines.length; i++) {
-        result.push(lines[i]);
+      for (let i = 0; i < htmlLines.length; i++) {
+        result.push({ html: htmlLines[i], raw: rawLines[i] });
       }
       return result;
     } catch {
@@ -879,12 +1152,14 @@
 
   // Get highlighted HTML for a single diff line.
   // Uses pre-highlighted cache for new-side lines, falls back to per-line for old-side.
+  // The cache is keyed by working-tree line number, but in branch/staged/commit-pinned
+  // diffs the diff's NewNum may address a different revision. Verify the cached source
+  // line matches `content` before trusting the cache hit.
   function highlightDiffLine(content, lineNum, side, highlightCache, lang) {
-    // Try cache first (new-side lines: context and additions have NewNum mapped to file.content)
-    if (highlightCache && lineNum > 0 && side !== 'old' && highlightCache[lineNum]) {
-      return highlightCache[lineNum];
+    if (highlightCache && lineNum > 0 && side !== 'old') {
+      const entry = highlightCache[lineNum];
+      if (entry && entry.raw === content) return entry.html;
     }
-    // Fallback: highlight individual line
     if (lang && hljs.getLanguage(lang)) {
       try {
         return hljs.highlight(content, { language: lang, ignoreIllegals: true }).value;
@@ -944,8 +1219,9 @@
     for (let i = 0; i < lines.length; i++) {
       const lineNum = i + 1;
       let html;
-      if (file.highlightCache && file.highlightCache[lineNum]) {
-        html = '<code class="hljs">' + file.highlightCache[lineNum] + '</code>';
+      const cacheEntry = file.highlightCache ? file.highlightCache[lineNum] : null;
+      if (cacheEntry && cacheEntry.raw === (lines[i] || '')) {
+        html = '<code class="hljs">' + cacheEntry.html + '</code>';
       } else {
         html = '<code class="hljs">' + escapeHtml(lines[i] || '') + '</code>';
       }
@@ -1049,45 +1325,170 @@
   }
 
   // Handle a list token (bullet or ordered) — split into per-item blocks.
-  function handleListToken(tokens, i, token, md, blocks, sourceLines, coveredUpTo, blockEnd) {
+  // Recurses into nested lists so each nested item is independently commentable.
+  // Nested-item blocks are rendered with semantic nesting preserved
+  // (e.g. <ul><li><ul><li>content</li></ul></li></ul>) with outer wrappers
+  // marked .crit-list-wrapper so CSS suppresses their bullets.
+  function handleListToken(tokens, i, _token, md, blocks, sourceLines, coveredUpTo, blockEnd) {
     const listCloseIdx = findCloseToken(tokens, i);
-    const listTag = token.type === 'bullet_list_open' ? 'ul' : 'ol';
-    let j = i + 1;
 
-    while (j < listCloseIdx) {
-      if (tokens[j].type === 'list_item_open') {
-        const itemMap = tokens[j].map;
-        const itemCloseIdx = findCloseToken(tokens, j);
+    splitListInto(tokens, i, listCloseIdx, md, blocks, sourceLines, coveredUpTo, function(html) {
+      return html;
+    });
 
-        if (itemMap) {
-          addGapLineBlocks(blocks, sourceLines, coveredUpTo, itemMap[0]);
-          let effectiveEnd = itemMap[1];
-          while (effectiveEnd > itemMap[0] + 1 && sourceLines[effectiveEnd - 1].trim() === '') {
-            effectiveEnd--;
-          }
-
-          const itemTokens = tokens.slice(j, itemCloseIdx + 1);
-          const startAttr = listTag === 'ol' && tokens[j].info ? ' start="' + tokens[j].info + '"' : '';
-          const itemHtml = '<' + listTag + startAttr + '>' +
-            md.renderer.render(itemTokens, md.options, {}) +
-            '</' + listTag + '>';
-
-          blocks.push({
-            startLine: itemMap[0] + 1,
-            endLine: effectiveEnd,
-            html: itemHtml,
-            isEmpty: false
-          });
-          coveredUpTo = effectiveEnd;
-        }
-        j = itemCloseIdx + 1;
-      } else {
-        j++;
-      }
+    // After splitListInto, blocks have been pushed and coveredUpTo updated
+    // implicitly via the last block's endLine. Recompute coveredUpTo from blocks.
+    if (blocks.length > 0) {
+      coveredUpTo = Math.max(coveredUpTo, blocks[blocks.length - 1].endLine);
     }
 
     coveredUpTo = addGapLineBlocks(blocks, sourceLines, coveredUpTo, blockEnd);
     return { nextIndex: listCloseIdx + 1, coveredUpTo: coveredUpTo };
+  }
+
+  // Recursively split a list (between listOpenIdx and listCloseIdx) into blocks.
+  // `wrap(innerHtml)` wraps the innermost item HTML with any enclosing list/li
+  // chrome from outer (parent) lists, preserving semantic nesting.
+  // Pushes blocks to `blocks` and emits gap-line blocks between items.
+  // Returns the line number through which content has been emitted (last block's endLine).
+  function splitListInto(tokens, listOpenIdx, listCloseIdx, md, blocks, sourceLines, coveredUpTo, wrap) {
+    const listOpen = tokens[listOpenIdx];
+    const listTag = listOpen.type === 'bullet_list_open' ? 'ul' : 'ol';
+    let j = listOpenIdx + 1;
+
+    while (j < listCloseIdx) {
+      if (tokens[j].type !== 'list_item_open') { j++; continue; }
+      const itemOpenIdx = j;
+      const itemCloseIdx = findCloseToken(tokens, j);
+      const itemMap = tokens[itemOpenIdx].map;
+
+      if (!itemMap) { j = itemCloseIdx + 1; continue; }
+
+      addGapLineBlocks(blocks, sourceLines, coveredUpTo, itemMap[0]);
+      coveredUpTo = itemMap[0];
+
+      // Find nested lists within this item (direct children only).
+      const nestedRanges = findDirectNestedLists(tokens, itemOpenIdx, itemCloseIdx);
+
+      // For ordered lists, preserve numbering across split blocks via start=N.
+      // markdown-it stores the numeric marker on the list_item_open token's info.
+      const itemStartAttr = (listTag === 'ol' && tokens[itemOpenIdx].info)
+        ? ' start="' + tokens[itemOpenIdx].info + '"'
+        : '';
+
+      // The "lead" portion: tokens between item_open and the first nested list (or item_close).
+      const firstNested = nestedRanges.length > 0 ? nestedRanges[0] : null;
+      const leadEndTokenIdx = firstNested ? firstNested.openIdx : itemCloseIdx;
+
+      // Determine source-line range for the lead.
+      const leadStartLine = itemMap[0] + 1;
+      let leadEndLine;
+      if (firstNested) {
+        const nestedFirstMap = tokens[firstNested.openIdx].map;
+        leadEndLine = nestedFirstMap ? nestedFirstMap[0] : itemMap[1];
+      } else {
+        leadEndLine = itemMap[1];
+        // Trim trailing blank lines (markdown-it often claims a trailing blank).
+        while (leadEndLine > leadStartLine && sourceLines[leadEndLine - 1].trim() === '') {
+          leadEndLine--;
+        }
+      }
+
+      // Render lead content: re-use renderer over tokens [item_open .. leadEndTokenIdx-1] + item_close synthetic.
+      // Easiest: render the tokens between item_open+1 and leadEndTokenIdx (exclusive) as inline content,
+      // then wrap in <li>.
+      const leadInnerTokens = tokens.slice(itemOpenIdx + 1, leadEndTokenIdx);
+      const leadInnerHtml = md.renderer.render(leadInnerTokens, md.options, {});
+      const leadLiClass = tokens[itemOpenIdx].attrGet && tokens[itemOpenIdx].attrGet('class');
+      const leadLiAttr = leadLiClass ? ' class="' + escapeAttr(leadLiClass) + '"' : '';
+      const leadInnerWrapped = '<' + listTag + itemStartAttr + '>' +
+        '<li' + leadLiAttr + '>' + leadInnerHtml + '</li>' +
+        '</' + listTag + '>';
+
+      if (leadEndLine > leadStartLine - 1) {
+        blocks.push({
+          startLine: leadStartLine,
+          endLine: leadEndLine,
+          html: wrap(leadInnerWrapped),
+          isEmpty: false
+        });
+        coveredUpTo = leadEndLine;
+      }
+
+      // Recurse into each nested list. Build a wrap-fn that wraps the child HTML
+      // in this item's <listTag><li class="crit-list-wrapper">...</li></listTag>,
+      // then through the parent wrap.
+      for (let n = 0; n < nestedRanges.length; n++) {
+        const nested = nestedRanges[n];
+        const childWrap = function(innerHtml) {
+          // Outer wrappers: marker-suppressed <li> so we don't get phantom bullets.
+          return wrap(
+            '<' + listTag + ' class="crit-list-wrapper">' +
+            '<li class="crit-list-wrapper">' + innerHtml + '</li>' +
+            '</' + listTag + '>'
+          );
+        };
+        coveredUpTo = splitListInto(tokens, nested.openIdx, nested.closeIdx, md, blocks, sourceLines, coveredUpTo, childWrap);
+      }
+
+      // Trailing content after last nested list (rare): handle it as another lead-style block.
+      if (nestedRanges.length > 0) {
+        const lastNested = nestedRanges[nestedRanges.length - 1];
+        const trailStartTokenIdx = lastNested.closeIdx + 1;
+        if (trailStartTokenIdx < itemCloseIdx) {
+          // Find first mapped token for trailing source-line range.
+          const trailStartLine = coveredUpTo;
+          let trailEndLine = itemMap[1];
+          while (trailEndLine > trailStartLine && sourceLines[trailEndLine - 1].trim() === '') {
+            trailEndLine--;
+          }
+          if (trailEndLine > trailStartLine) {
+            const trailInnerTokens = tokens.slice(trailStartTokenIdx, itemCloseIdx);
+            const trailInnerHtml = md.renderer.render(trailInnerTokens, md.options, {});
+            const trailWrapped = '<' + listTag + '>' +
+              '<li>' + trailInnerHtml + '</li>' +
+              '</' + listTag + '>';
+            blocks.push({
+              startLine: trailStartLine + 1,
+              endLine: trailEndLine,
+              html: wrap(trailWrapped),
+              isEmpty: false
+            });
+            coveredUpTo = trailEndLine;
+          }
+        }
+      }
+
+      j = itemCloseIdx + 1;
+    }
+
+    return coveredUpTo;
+  }
+
+  // Find direct-child nested lists within an item (not lists nested inside paragraphs etc.).
+  // Returns array of {openIdx, closeIdx} for each direct nested list_open token.
+  function findDirectNestedLists(tokens, itemOpenIdx, itemCloseIdx) {
+    const result = [];
+    let depth = 0;
+    for (let k = itemOpenIdx + 1; k < itemCloseIdx; k++) {
+      const t = tokens[k];
+      if (t.nesting === 1) {
+        if (depth === 0 && (t.type === 'bullet_list_open' || t.type === 'ordered_list_open')) {
+          const closeIdx = findCloseToken(tokens, k);
+          result.push({ openIdx: k, closeIdx: closeIdx });
+          k = closeIdx; // skip past
+          continue;
+        }
+        depth++;
+      } else if (t.nesting === -1) {
+        if (depth > 0) depth--;
+      }
+    }
+    return result;
+  }
+
+  function escapeAttr(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   }
 
   // Handle a table token — split into per-row blocks.
@@ -1947,13 +2348,30 @@
     header.innerHTML =
       '<div class="file-header-chevron"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z"/></svg></div>' +
       '<svg class="file-header-icon" viewBox="0 0 16 16" fill="var(--crit-editor-fg-muted)"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>' +
-      '<span class="file-header-name"><span class="dir">' + escapeHtml(dirPath) + '</span>' + escapeHtml(fileName) + '</span>' +
+      '<span class="file-header-name"><span class="dir">' + escapeHtml(dirPath) + '</span>' + escapeHtml(fileName) +
+        '<button type="button" class="file-header-copy-path" aria-label="Copy file path">' + ICON_COPY_PATH + '</button>' +
+      '</span>' +
       (showBadge ? '<span class="file-header-badge ' + escapeHtml(file.status) + '">' + escapeHtml(badgeLabel) + '</span>' : '') +
       (file.additions || file.deletions ? '<span class="file-header-stats">' +
         (file.additions ? '<span class="add">+' + file.additions + '</span>' : '') +
         (file.deletions ? '<span class="del">-' + file.deletions + '</span>' : '') +
       '</span>' : '') +
       '';
+
+    (function(filePath) {
+      const copyPathBtn = header.querySelector('.file-header-copy-path');
+      copyPathBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const originalLabel = copyPathBtn.getAttribute('aria-label');
+        const abs = session.cwd ? session.cwd + '/' + filePath : filePath;
+        navigator.clipboard.writeText(abs).then(function() {
+          copyPathBtn.innerHTML = ICON_COPY_PATH_CHECK;
+          copyPathBtn.setAttribute('aria-label', 'Copied!');
+          setTimeout(function() { copyPathBtn.innerHTML = ICON_COPY_PATH; copyPathBtn.setAttribute('aria-label', originalLabel); }, 1500);
+        }).catch(function() { /* best-effort */ });
+      });
+    })(file.path);
 
     // Add document/diff toggle for markdown files that have diff hunks
     // Hide when diffActive is on (header-level rendered diff overrides per-file toggle)
@@ -2452,7 +2870,7 @@
 
     const { commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
 
-    const changeInfo = (file.viewMode === 'document' && session.mode !== 'git') ? getChangeInfo(file) : null;
+    const changeInfo = file.viewMode === 'document' ? getChangeInfo(file) : null;
     // Build a map of afterLine -> deletion marker for quick lookup
     const deletionMarkerMap = {};
     if (changeInfo) {
@@ -3853,6 +4271,168 @@
     return result;
   }
 
+  // ===== Visual Line Mode (vim-style) =====
+  // Anchors on the currently focused block; j/k extend the range; Esc clears it.
+  function enterVisualMode() {
+    if (!focusedElement) return false;
+    const fp = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
+    if (!fp) return false;
+
+    if (focusedElement.dataset.blockIndex !== undefined && focusedElement.dataset.startLine) {
+      const startLine = parseInt(focusedElement.dataset.startLine);
+      const endLine = parseInt(focusedElement.dataset.endLine);
+      visualMode = { kind: 'markdown', filePath: fp, anchorStartLine: startLine, anchorEndLine: endLine };
+      activeFilePath = fp;
+      selectionStart = startLine;
+      selectionEnd = endLine;
+      // Clear any stale unified-diff drag state so it can't bleed into render paths.
+      unifiedVisualStart = null;
+      unifiedVisualEnd = null;
+      document.body.classList.add('visual-mode');
+      refreshVisualSelectionVisuals(fp);
+      return true;
+    }
+    if (focusedElement.dataset.diffLineNum) {
+      // Split rows carry both sides — tagDiffLine on the row records whichever
+      // side existed first (left when present), but the user's intent is
+      // usually the right (new) side. Prefer right; fall back to left for
+      // deleted-only rows. Unified rows are single-side, so just read directly.
+      let lineNum, side;
+      if (focusedElement.classList.contains('diff-split-row')) {
+        const right = focusedElement.querySelector('.diff-split-side.right:not(.empty)');
+        if (right && right.dataset.diffLineNum) {
+          lineNum = parseInt(right.dataset.diffLineNum);
+          side = '';
+        } else {
+          const left = focusedElement.querySelector('.diff-split-side.left:not(.empty)');
+          if (!left || !left.dataset.diffLineNum) return false;
+          lineNum = parseInt(left.dataset.diffLineNum);
+          side = 'old';
+        }
+      } else {
+        lineNum = parseInt(focusedElement.dataset.diffLineNum);
+        side = focusedElement.dataset.diffSide || '';
+      }
+      visualMode = { kind: 'diff', filePath: fp, anchorStartLine: lineNum, anchorEndLine: lineNum, anchorSide: side };
+      activeFilePath = fp;
+      selectionStart = lineNum;
+      selectionEnd = lineNum;
+      document.body.classList.add('visual-mode');
+      refreshVisualSelectionVisuals(fp);
+      return true;
+    }
+    return false;
+  }
+
+  function exitVisualMode(clearSelection) {
+    if (!visualMode) return;
+    const fp = visualMode.filePath;
+    visualMode = null;
+    document.body.classList.remove('visual-mode');
+    if (clearSelection) {
+      selectionStart = null;
+      selectionEnd = null;
+      unifiedVisualStart = null;
+      unifiedVisualEnd = null;
+      activeFilePath = null;
+      if (fp) refreshVisualSelectionVisuals(fp);
+    }
+  }
+
+  // After j/k moves focus, extend the visual selection from the anchor to the new focus.
+  function extendVisualSelection() {
+    if (!visualMode || !focusedElement) return;
+    const fp = visualMode.kind === 'markdown'
+      ? focusedElement.dataset.filePath
+      : focusedElement.dataset.diffFilePath;
+    if (fp !== visualMode.filePath) {
+      // Crossed file boundary — exit visual mode (focus already moved by j/k).
+      exitVisualMode(true);
+      return;
+    }
+    if (visualMode.kind === 'markdown') {
+      if (focusedElement.dataset.blockIndex === undefined) return;
+      const sLine = parseInt(focusedElement.dataset.startLine);
+      const eLine = parseInt(focusedElement.dataset.endLine);
+      selectionStart = Math.min(visualMode.anchorStartLine, sLine);
+      selectionEnd = Math.max(visualMode.anchorEndLine, eLine);
+    } else {
+      // Find the line number on the anchor side. Split rows carry both sides
+      // (and the row's dataset.diffSide is whichever side was tagged first,
+      // which is unreliable for navigation), so query the child sides directly.
+      // Rows with no line on the anchor side (e.g. a deleted-only row when
+      // we anchored on the right) are skipped silently — selection stays put,
+      // visual mode stays active, focus continues moving with j/k.
+      let ln = null;
+      if (focusedElement.classList.contains('diff-split-row')) {
+        const sideSel = visualMode.anchorSide === 'old'
+          ? '.diff-split-side.left:not(.empty)'
+          : '.diff-split-side.right:not(.empty)';
+        const sideEl = focusedElement.querySelector(sideSel);
+        if (sideEl && sideEl.dataset.diffLineNum) {
+          ln = parseInt(sideEl.dataset.diffLineNum);
+        }
+      } else if (focusedElement.dataset.diffLineNum) {
+        // Unified mode — single-side per element, must match anchor.
+        const side = focusedElement.dataset.diffSide || '';
+        if (side !== visualMode.anchorSide) return;
+        ln = parseInt(focusedElement.dataset.diffLineNum);
+      }
+      if (ln === null) return;
+      selectionStart = Math.min(visualMode.anchorStartLine, ln);
+      selectionEnd = Math.max(visualMode.anchorEndLine, ln);
+    }
+    // Update .selected classes incrementally rather than re-rendering the whole
+    // file — re-rendering invalidates the focusedElement reference and trips
+    // the j/k stale-ref recovery (which can mis-resolve when blockIndex values
+    // collide across files).
+    refreshVisualSelectionVisuals(visualMode.filePath);
+  }
+
+  function refreshVisualSelectionVisuals(filePath) {
+    const section = document.getElementById('file-section-' + filePath);
+    if (!section) return;
+    const blocks = section.querySelectorAll('.line-block.kb-nav[data-file-path="' + filePath + '"]');
+    for (let i = 0; i < blocks.length; i++) {
+      const lb = blocks[i];
+      const sLine = parseInt(lb.dataset.startLine);
+      const eLine = parseInt(lb.dataset.endLine);
+      const inSel = selectionStart !== null && selectionEnd !== null
+        && sLine >= selectionStart && eLine <= selectionEnd;
+      lb.classList.toggle('selected', inSel);
+    }
+    // Split-mode diff sides: each side has its own line numbers + side tag.
+    // .selected only applies on the anchor-matching side (matches the render
+    // path in makeSplitRow, lines 3730 / 3772).
+    const splitSides = section.querySelectorAll('.diff-split-side[data-diff-file-path="' + filePath + '"]');
+    const anchorSide = visualMode && visualMode.kind === 'diff' ? visualMode.anchorSide : null;
+    for (let i = 0; i < splitSides.length; i++) {
+      const sEl = splitSides[i];
+      if (sEl.classList.contains('empty') || !sEl.dataset.diffLineNum) {
+        sEl.classList.toggle('selected', false);
+        continue;
+      }
+      const ln = parseInt(sEl.dataset.diffLineNum);
+      const side = sEl.dataset.diffSide || '';
+      const sideMatches = anchorSide === null || side === anchorSide;
+      const inSel = sideMatches && selectionStart !== null && selectionEnd !== null
+        && ln >= selectionStart && ln <= selectionEnd;
+      sEl.classList.toggle('selected', inSel);
+    }
+    // Unified-mode diff lines: single-side per element, side matches anchor.
+    const unifiedLines = section.querySelectorAll('.diff-container.unified .diff-line[data-diff-file-path="' + filePath + '"]');
+    for (let i = 0; i < unifiedLines.length; i++) {
+      const ul = unifiedLines[i];
+      if (!ul.dataset.diffLineNum) continue;
+      const ln = parseInt(ul.dataset.diffLineNum);
+      const side = ul.dataset.diffSide || '';
+      const sideMatches = anchorSide === null || side === anchorSide;
+      const inSel = sideMatches && selectionStart !== null && selectionEnd !== null
+        && ln >= selectionStart && ln <= selectionEnd;
+      ul.classList.toggle('selected', inSel);
+    }
+  }
+
   // ===== Gutter Drag Selection =====
   let dragState = null;
 
@@ -4529,6 +5109,176 @@
     }
   }
 
+  // ===== Image Paste =====
+  // Attach a paste handler to a comment textarea so screenshots and other
+  // images on the clipboard upload via POST /api/attachments and get
+  // inserted as markdown image references at the cursor.
+  //
+  // The inserted markdown carries the *relative* path returned by the
+  // server (`attachments/<uuid>.<ext>`) — that's the canonical form stored
+  // in review.json. The local UI's render-time hook (commentMd image rule
+  // above) rewrites it to /api/attachments/... at display time.
+  //
+  // While an upload is in flight a `![uploading…](crit-pending-N)`
+  // placeholder sits at the cursor; on success it's swapped for the real
+  // markdown reference, on failure for an italic _[image upload failed]_
+  // note. The placeholder tag is suffixed with a per-textarea counter so
+  // simultaneous pastes don't collide.
+  let pendingImagePasteSeq = 0;
+  function attachImagePaste(textarea) {
+    textarea.addEventListener('paste', function(event) {
+      const clipboard = event.clipboardData;
+      if (!clipboard) return;
+      const items = clipboard.items;
+      if (!items || items.length === 0) return;
+
+      const images = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === 'file' && item.type && item.type.indexOf('image/') === 0) {
+          const file = item.getAsFile();
+          if (file) images.push(file);
+        }
+      }
+      if (images.length === 0) return;
+
+      // We're handling images — block the default paste so the raw bytes
+      // don't get dumped as garbage text into the textarea.
+      event.preventDefault();
+      images.forEach(function(file) { uploadAndInsertImage(textarea, file); });
+    });
+  }
+
+  // attachImageDragDrop wires drag-and-drop image uploads onto a textarea.
+  // Mirrors attachImagePaste's contract: filter for image/* files, route to
+  // uploadAndInsertImage, leave non-image drags to the browser's native
+  // text-drop behavior. dragover MUST preventDefault when we want to accept
+  // the drop — without it, the drop event never fires.
+  function attachImageDragDrop(textarea) {
+    function hasFiles(event) {
+      const dt = event.dataTransfer;
+      // dataTransfer.types is a DOMStringList; "Files" indicates an OS file
+      // drag. Text-only drags (selection drags, link drags) won't include it.
+      return !!(dt && dt.types && Array.prototype.indexOf.call(dt.types, 'Files') !== -1);
+    }
+
+    textarea.addEventListener('dragenter', function(event) {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      textarea.classList.add('drag-active');
+    });
+
+    textarea.addEventListener('dragover', function(event) {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      textarea.classList.add('drag-active');
+    });
+
+    textarea.addEventListener('dragleave', function(event) {
+      // Only clear when the drag truly leaves the textarea (not when crossing
+      // an internal selection boundary — textareas have no children, so we
+      // can rely on a simple class toggle without ref-counting).
+      if (event.target === textarea) {
+        textarea.classList.remove('drag-active');
+      }
+    });
+
+    textarea.addEventListener('drop', function(event) {
+      const dt = event.dataTransfer;
+      if (!dt || !dt.files || dt.files.length === 0) {
+        textarea.classList.remove('drag-active');
+        return;
+      }
+      const images = [];
+      for (let i = 0; i < dt.files.length; i++) {
+        const file = dt.files[i];
+        if (file && file.type && file.type.indexOf('image/') === 0) {
+          images.push(file);
+        }
+      }
+      if (images.length === 0) {
+        textarea.classList.remove('drag-active');
+        return;
+      }
+      // We're handling at least one image — claim the drop so the browser
+      // doesn't try to navigate to the dropped file URL.
+      event.preventDefault();
+      textarea.classList.remove('drag-active');
+      textarea.focus();
+      images.forEach(function(file) { uploadAndInsertImage(textarea, file); });
+    });
+  }
+
+  // Wires both paste and drag-drop image uploads onto a textarea. Single
+  // entry point so every comment textarea (top-level, edit, reply, reply edit)
+  // gets the same upload behavior.
+  function attachImageUploads(textarea) {
+    attachImagePaste(textarea);
+    attachImageDragDrop(textarea);
+  }
+
+  function uploadAndInsertImage(textarea, file) {
+    const seq = ++pendingImagePasteSeq;
+    const placeholder = '![uploading…](crit-pending-' + seq + ')';
+    insertAtCursor(textarea, placeholder);
+
+    const formData = new FormData();
+    // Pass the original filename explicitly so it survives any clipboard
+    // that strips it from the File object. Server sanitizes server-side.
+    formData.append('file', file, file.name || '');
+
+    fetch('/api/attachments', { method: 'POST', body: formData })
+      .then(function(res) {
+        if (!res.ok) {
+          return res.text().then(function(msg) {
+            throw new Error(msg || ('Upload failed: ' + res.status));
+          });
+        }
+        return res.json();
+      })
+      .then(function(data) {
+        if (!data || !data.url) throw new Error('Malformed upload response');
+        const alt = (data.original_filename || '').trim();
+        replaceInTextarea(textarea, placeholder, '![' + alt + '](' + data.url + ')');
+      })
+      .catch(function(err) {
+        console.error('Image paste upload failed:', err);
+        replaceInTextarea(textarea, placeholder, '_[image upload failed]_');
+      });
+  }
+
+  function insertAtCursor(textarea, text) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = textarea.value.substring(0, start);
+    const after = textarea.value.substring(end);
+    textarea.value = before + text + after;
+    const cursor = start + text.length;
+    textarea.selectionStart = textarea.selectionEnd = cursor;
+    textarea.focus();
+    // Trigger input listeners (draft autosave, etc.)
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function replaceInTextarea(textarea, needle, replacement) {
+    const idx = textarea.value.indexOf(needle);
+    if (idx === -1) return;
+    // Preserve cursor when the placeholder is not where the user is typing.
+    const selStart = textarea.selectionStart;
+    const selEnd = textarea.selectionEnd;
+    textarea.value = textarea.value.substring(0, idx) + replacement + textarea.value.substring(idx + needle.length);
+    const delta = replacement.length - needle.length;
+    if (selStart > idx + needle.length) {
+      textarea.selectionStart = selStart + delta;
+      textarea.selectionEnd = selEnd + delta;
+    } else if (selStart >= idx) {
+      // Cursor was inside the placeholder — drop it just after the replacement.
+      textarea.selectionStart = textarea.selectionEnd = idx + replacement.length;
+    }
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
   // ===== Comment Form =====
   function createCommentFormUI(opts) {
     const formObj = opts.formObj;
@@ -4550,6 +5300,7 @@
     if (opts.initialBody) textarea.value = opts.initialBody;
 
     attachFilePicker(textarea);
+    attachImageUploads(textarea);
 
     const doSubmit = opts.onSubmit
       ? function() { opts.onSubmit(textarea.value); }
@@ -5022,7 +5773,10 @@
     resolveBtn.setAttribute('aria-label', 'Resolve thread');
     resolveBtn.innerHTML = ICON_RESOLVE + '<span>Resolve</span>';
     resolveBtn.addEventListener('click', function() {
-      toggleResolveStatus(comment.id, 'file', 'resolve', filePath);
+      if (resolveBtn.disabled) return;
+      resolveBtn.disabled = true;
+      toggleResolveStatus(comment.id, 'file', 'resolve', filePath)
+        .finally(function() { resolveBtn.disabled = false; });
     });
 
     parts.actions.appendChild(resolveBtn);
@@ -5079,6 +5833,7 @@
       replyBody.className = 'reply-body';
       replyBody.dataset.rawBody = reply.body;
       replyBody.innerHTML = commentMd.render(reply.body);
+      linkifyCommentRefsInDom(replyBody);
       replyEl.appendChild(replyBody);
 
       repliesContainer.appendChild(replyEl);
@@ -5336,6 +6091,7 @@
     renderFileByPath(filePath);
     updateCommentCount();
     updateTreeCommentBadges();
+    renderCommentsPanel();
   }
 
   // ===== Review-Level (General) Comments =====
@@ -5521,7 +6277,10 @@
       unresolveBtn.innerHTML = ICON_UNRESOLVE + '<span>Unresolve</span>';
       unresolveBtn.addEventListener('click', function(e) {
         e.stopPropagation();
-        toggleResolveStatus(comment.id, 'review', 'unresolve', null);
+        if (unresolveBtn.disabled) return;
+        unresolveBtn.disabled = true;
+        toggleResolveStatus(comment.id, 'review', 'unresolve', null)
+          .finally(function() { unresolveBtn.disabled = false; });
       });
       parts.actions.appendChild(unresolveBtn);
     } else {
@@ -5532,7 +6291,10 @@
       resolveBtn.innerHTML = ICON_RESOLVE + '<span>Resolve</span>';
       resolveBtn.addEventListener('click', function(e) {
         e.stopPropagation();
-        toggleResolveStatus(comment.id, 'review', 'resolve', null);
+        if (resolveBtn.disabled) return;
+        resolveBtn.disabled = true;
+        toggleResolveStatus(comment.id, 'review', 'resolve', null)
+          .finally(function() { resolveBtn.disabled = false; });
       });
       parts.actions.appendChild(resolveBtn);
     }
@@ -5768,6 +6530,7 @@
     textarea.value = currentText;
     textarea.rows = 3;
     bodyEl.replaceWith(textarea);
+    attachImageUploads(textarea);
     textarea.focus();
 
     const saveBtn = document.createElement('button');
@@ -5855,6 +6618,7 @@
     buttons.appendChild(submitBtn);
 
     attachFilePicker(textarea);
+    attachImageUploads(textarea);
 
     function expand() {
       if (form.classList.contains('expanded')) return;
@@ -5983,7 +6747,10 @@
     unresolveBtn.setAttribute('aria-label', 'Unresolve thread');
     unresolveBtn.innerHTML = ICON_UNRESOLVE + '<span>Unresolve</span>';
     unresolveBtn.addEventListener('click', function() {
-      toggleResolveStatus(comment.id, 'file', 'unresolve', filePath);
+      if (unresolveBtn.disabled) return;
+      unresolveBtn.disabled = true;
+      toggleResolveStatus(comment.id, 'file', 'unresolve', filePath)
+        .finally(function() { unresolveBtn.disabled = false; });
     });
 
     const deleteBtn = document.createElement('button');
@@ -6062,12 +6829,29 @@
       showReplyInput: false,
     });
 
+    // Resolve/unresolve button — works for both file and review comments
+    const scope = isGeneral ? 'review' : 'file';
+    const resolveAction = isResolved ? 'unresolve' : 'resolve';
+    const resolveBtn = document.createElement('button');
+    resolveBtn.className = 'resolve-btn' + (isResolved ? ' resolve-btn--active' : '');
+    resolveBtn.title = isResolved ? 'Unresolve' : 'Resolve';
+    resolveBtn.setAttribute('aria-label', isResolved ? 'Unresolve thread' : 'Resolve thread');
+    resolveBtn.innerHTML = (isResolved ? ICON_UNRESOLVE : ICON_RESOLVE) + '<span>' + (isResolved ? 'Unresolve' : 'Resolve') + '</span>';
+    resolveBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (resolveBtn.disabled) return;
+      resolveBtn.disabled = true;
+      toggleResolveStatus(comment.id, scope, resolveAction, filePath || null)
+        .finally(function() { resolveBtn.disabled = false; });
+    });
+    parts.actions.appendChild(resolveBtn);
+
     if (isGeneral) {
-      // General comments are edited/resolved/deleted from the inline
-      // Review Conversation section. Panel cards navigate + flash the inline card,
-      // matching the line-comment behaviour.
       parts.wrapper.style.cursor = 'pointer';
-      parts.wrapper.addEventListener('click', function() { scrollToReviewComment(comment.id); });
+      parts.wrapper.addEventListener('click', function(e) {
+        if (e.target.closest('.comment-actions')) return;
+        scrollToReviewComment(comment.id);
+      });
     } else {
       // File comments are clickable to scroll to inline location
       parts.wrapper.style.cursor = 'pointer';
@@ -6402,6 +7186,7 @@
       const descBody = document.createElement('div');
       descBody.className = 'pr-panel-description-body';
       descBody.innerHTML = commentMd.render(pr.pr_body);
+      linkifyCommentRefsInDom(descBody);
       descSection.appendChild(descBody);
 
       body.appendChild(descSection);
@@ -6419,6 +7204,59 @@
     el.classList.toggle('all-viewed', viewed === files.length);
   }
 
+  // ===== Waiting Modal Tips =====
+  const waitingTips = [
+    'Press <kbd>?</kbd> to see all keyboard shortcuts.',
+    'Comments support full Markdown.',
+    'Press <kbd>@</kbd> to reference other files in your comments.',
+    'Select text and press <kbd>c</kbd> to comment on your selection.',
+    'Use <kbd>crit pull</kbd> to load existing GitHub PR comments into your local review.',
+    'Use <kbd>crit push</kbd> to post your comments as a GitHub PR review. Add <kbd>--dry-run</kbd> to preview first.',
+    'Enjoying Crit? A GitHub star or sharing it with colleagues helps a lot!',
+  ];
+  let tipInterval = null;
+  let lastTip = '';
+
+  function buildTips() {
+    const tips = waitingTips.slice();
+    if (!agentEnabled) {
+      tips.push('Set <kbd>agent_cmd</kbd> in your config to send comments directly to your AI agent for immediate feedback.');
+    }
+    if (shareURL && !authUserName) {
+      tips.push('Run <kbd>crit auth login</kbd> to link shared reviews with your account.');
+    }
+    return tips;
+  }
+
+  function showRandomTip() {
+    const el = document.getElementById('tipText');
+    if (!el) return;
+    const tips = buildTips();
+    if (tips.length === 0) return;
+    let idx;
+    do {
+      idx = Math.floor(Math.random() * tips.length);
+    } while (tips[idx] === lastTip && tips.length > 1);
+    lastTip = tips[idx];
+    el.style.animation = 'none';
+    void el.offsetWidth;
+    el.innerHTML = tips[idx];
+    el.style.animation = '';
+  }
+
+  function startTipRotation() {
+    if (tipInterval) return;
+    showRandomTip();
+    tipInterval = setInterval(showRandomTip, 8000);
+  }
+
+  function stopTipRotation() {
+    if (tipInterval) {
+      clearInterval(tipInterval);
+      tipInterval = null;
+    }
+  }
+
   // ===== UI State =====
   function updateHeaderRound() {
     const el = document.getElementById('headerNotify');
@@ -6429,7 +7267,7 @@
 
   function setUIState(state) {
     uiState = state;
-    if (state === 'reviewing') waitingNotApproved = false;
+    if (state === 'reviewing') { waitingNotApproved = false; stopTipRotation(); }
     const finishBtn = document.getElementById('finishBtn');
     const waitingOverlay = document.getElementById('waitingOverlay');
 
@@ -6452,8 +7290,10 @@
         finishBtn.disabled = true;
         finishBtn.classList.remove('btn-primary');
         document.getElementById('waitingEdits').textContent = '';
-        document.getElementById('waitingPrompt').style.display = '';
-        document.getElementById('waitingClipboard').style.display = '';
+        document.getElementById('promptCopyRow').style.display = '';
+        document.getElementById('waitingDivider').style.display = '';
+        document.getElementById('tipSection').style.display = '';
+        startTipRotation();
         waitingOverlay.classList.add('active');
         break;
     }
@@ -6571,15 +7411,15 @@
     try {
       await navigator.clipboard.writeText(prompt);
       const el = document.getElementById('waitingClipboard');
-      el.textContent = '\u2713 Copied';
+      const label = el.querySelector('.copy-label');
+      label.textContent = 'Copied';
+      el.classList.add('copied');
       el.setAttribute('aria-label', 'Copied');
       announceCopy();
-      el.classList.remove('clipboard-confirm');
-      void el.offsetWidth;
-      el.classList.add('clipboard-confirm');
       setTimeout(function() {
-        el.textContent = 'Copy prompt';
-        el.setAttribute('aria-label', 'Copy prompt');
+        label.textContent = 'Copy';
+        el.classList.remove('copied');
+        el.setAttribute('aria-label', 'Copy prompt to clipboard');
       }, 2000);
     } catch {}
   });
@@ -6670,12 +7510,12 @@
         const count = parseInt(data.content, 10);
         const el = document.getElementById('waitingEdits');
         if (el && uiState === 'waiting') {
-          el.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:4px"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="11"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>Your agent made ' + count + ' edit' + (count === 1 ? '' : 's');
-          // Hide prompt and clipboard once agent starts making edits
-          const promptEl = document.getElementById('waitingPrompt');
-          const clipEl = document.getElementById('waitingClipboard');
-          if (promptEl) promptEl.style.display = 'none';
-          if (clipEl) clipEl.style.display = 'none';
+          el.innerHTML = '<span class="waiting-edits-badge"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="11"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>' + count + ' edit' + (count === 1 ? '' : 's') + '</span>';
+          // Hide prompt copy row and divider once agent starts making edits
+          const copyRow = document.getElementById('promptCopyRow');
+          const divider = document.getElementById('waitingDivider');
+          if (copyRow) copyRow.style.display = 'none';
+          if (divider) divider.style.display = 'none';
           if (waitingNotApproved) {
             document.getElementById('waitingMessage').textContent = 'Waiting for your agent to finish...';
           }
@@ -6848,81 +7688,724 @@
     if (shareModalEl) {
       shareModalEl.remove();
       shareModalEl = null;
+      const trigger = document.getElementById('shareBtn');
+      if (trigger) trigger.focus();
     }
   }
 
-  function showShareModal() {
-    closeShareModal();
+  let fetchOrgsPromise = null;
+  async function fetchOrgs() {
+    if (cachedOrgs !== null) return cachedOrgs;
+    if (fetchOrgsPromise) return fetchOrgsPromise;
+    fetchOrgsPromise = (async function() {
+      try {
+        const resp = await fetch('/api/auth/orgs');
+        if (!resp.ok) { cachedOrgs = []; return cachedOrgs; }
+        cachedOrgs = await resp.json();
+      } catch {
+        cachedOrgs = [];
+      }
+      fetchOrgsPromise = null;
+      return cachedOrgs;
+    })();
+    return fetchOrgsPromise;
+  }
 
+  async function performShare(org, visibility, orgMeta, popupSession) {
+    if (shareInFlight) return;
+    shareInFlight = true;
+
+    setShareButtonState('sharing');
+    dismissToast('share');
+    try {
+      let result;
+      if (popupSession) {
+        const payloadResp = await fetch('/api/share/payload');
+        if (!payloadResp.ok) {
+          const errBody = await payloadResp.json().catch(function() { return {}; });
+          throw new Error(errBody.error || 'failed to build share payload');
+        }
+        const payload = await payloadResp.json();
+        if (org) payload.org = org;
+        if (visibility) payload.visibility = visibility;
+        if (orgMeta && orgMeta.name) payload.org_name = orgMeta.name;
+        result = await popupSession.run('share', { payload: payload });
+
+        const persistResp = await fetch('/api/share-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: result.url,
+            delete_token: result.delete_token || '',
+            org: org || '',
+            org_name: (orgMeta && orgMeta.name) || '',
+            visibility: visibility || '',
+          }),
+        });
+        if (!persistResp.ok) throw new Error('Server error persisting share state ' + persistResp.status);
+        const persisted = await persistResp.json().catch(function() { return {}; });
+        if (!persisted.hosted_token) {
+          console.warn('share: /api/share-url did not return hosted_token');
+        }
+        hostedToken = persisted.hosted_token || '';
+      } else {
+        const opts = { method: 'POST' };
+        if (org || visibility) {
+          opts.headers = { 'Content-Type': 'application/json' };
+          const shareBody = {};
+          if (org) shareBody.org = org;
+          if (visibility) shareBody.visibility = visibility;
+          if (orgMeta && orgMeta.name) shareBody.org_name = orgMeta.name;
+          opts.body = JSON.stringify(shareBody);
+        }
+        const resp = await fetch('/api/share', opts);
+        if (!resp.ok) {
+          const errBody = await resp.json().catch(function() { return {}; });
+          throw new Error(errBody.error || 'Server error ' + resp.status);
+        }
+        result = await resp.json();
+        try {
+          const cfgResp = await fetch('/api/config');
+          if (cfgResp.ok) {
+            const cfg = await cfgResp.json();
+            hostedToken = cfg.hosted_token || '';
+          }
+        } catch { /* non-fatal; hostedToken will be empty */ }
+      }
+      hostedURL = result.url;
+      deleteToken = result.delete_token || '';
+      sharedOrg = orgMeta || null;
+      sharedVisibility = visibility || 'unlisted';
+      setShareButtonState('shared');
+      showShareModal();
+    } catch (err) {
+      setShareButtonState('default');
+      showShareError(err);
+    } finally {
+      if (popupSession) popupSession.close();
+      shareInFlight = false;
+    }
+  }
+
+  function showOrgShareModal(orgs) {
+    closeShareModal();
     const overlay = document.createElement('div');
     overlay.className = 'share-overlay';
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-label', 'Share review');
+    overlay.setAttribute('aria-labelledby', 'orgShareTitle');
+
+    const savedOrg = getSetting('shareOrg', '');
+    const savedVis = getSetting('shareVisibility', '');
+    const initials = authUserName
+      ? authUserName.split(/\s+/).filter(Boolean).map(function(w) { return w[0]; }).join('').slice(0, 2).toUpperCase()
+      : '';
+
+    const ICON_ORG = '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 16A1.75 1.75 0 0 1 0 14.25V1.75C0 .784.784 0 1.75 0h8.5C11.216 0 12 .784 12 1.75v12.5c0 .085-.006.168-.018.25h2.268a.25.25 0 0 0 .25-.25V8.285a.25.25 0 0 0-.111-.208l-1.055-.703a.749.749 0 1 1 .832-1.248l1.055.703c.487.325.777.871.777 1.456v5.965A1.75 1.75 0 0 1 14.25 16h-3.5a.766.766 0 0 1-.197-.026c-.099.017-.2.026-.303.026h-3a.75.75 0 0 1-.75-.75V14h-1v1.25a.75.75 0 0 1-.75.75h-3Zm-.25-1.75c0 .138.112.25.25.25H4v-1.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 .75.75v1.25h2.25a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25ZM3.75 6h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5ZM3 3.75A.75.75 0 0 1 3.75 3h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 3 3.75Zm4 3A.75.75 0 0 1 7.75 6h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 7 6.75ZM7.75 3h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5ZM3 9.75A.75.75 0 0 1 3.75 9h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 3 9.75ZM7.75 9h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5Z"/></svg>';
+    const ICON_VIS_ORG = '<svg class="sd-org-vis-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 16A1.75 1.75 0 0 1 0 14.25V1.75C0 .784.784 0 1.75 0h8.5C11.216 0 12 .784 12 1.75v12.5c0 .085-.006.168-.018.25h2.268a.25.25 0 0 0 .25-.25V8.285a.25.25 0 0 0-.111-.208l-1.055-.703a.749.749 0 1 1 .832-1.248l1.055.703c.487.325.777.871.777 1.456v5.965A1.75 1.75 0 0 1 14.25 16h-3.5a.766.766 0 0 1-.197-.026c-.099.017-.2.026-.303.026h-3a.75.75 0 0 1-.75-.75V14h-1v1.25a.75.75 0 0 1-.75.75h-3Zm-.25-1.75c0 .138.112.25.25.25H4v-1.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 .75.75v1.25h2.25a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25ZM3.75 6h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5ZM3 3.75A.75.75 0 0 1 3.75 3h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 3 3.75Zm4 3A.75.75 0 0 1 7.75 6h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 7 6.75ZM7.75 3h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5ZM3 9.75A.75.75 0 0 1 3.75 9h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 3 9.75ZM7.75 9h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5Z"/></svg>';
+    const ICON_VIS_UNLISTED = '<svg class="sd-org-vis-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14s-3.671-.992-4.933-2.078C1.797 10.831.88 9.577.43 8.9a1.619 1.619 0 0 1 0-1.798c.45-.678 1.367-1.932 2.637-3.023C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5s2.825-.742 3.955-1.715c1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5S5.176 4.242 4.045 5.215C2.92 6.182 2.09 7.311 1.679 7.932ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"/></svg>';
+    const ICON_VIS_PUBLIC = '<svg class="sd-org-vis-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>';
+
+    const isPersonalSelected = !savedOrg || !orgs.some(function(o) { return o.slug === savedOrg; });
+
+    // Build owner rows using sd-org-owner-option (custom radio, no native input)
+    let ownerRows = '';
+    ownerRows +=
+      '<div class="sd-org-owner-option" role="radio" aria-checked="' + isPersonalSelected + '" tabindex="' + (isPersonalSelected ? '0' : '-1') + '" data-owner="" data-default-vis="unlisted">' +
+        '<span class="sd-org-radio"><span class="sd-org-radio-dot"></span></span>' +
+        '<span class="sd-org-avatar sd-org-avatar--personal">' + escapeHtml(initials || '?') + '</span>' +
+        '<span class="sd-org-owner-info"><span class="sd-org-owner-name">' + escapeHtml(authUserName || 'Personal') + '</span><span class="sd-org-owner-slug">Personal</span></span>' +
+      '</div>';
+    for (let oi = 0; oi < orgs.length; oi++) {
+      const org = orgs[oi];
+      const isSelected = savedOrg === org.slug;
+      ownerRows +=
+        '<div class="sd-org-owner-option" role="radio" aria-checked="' + isSelected + '" tabindex="' + (isSelected ? '0' : '-1') + '" data-owner="' + escapeHtml(org.slug) + '" data-default-vis="organization">' +
+          '<span class="sd-org-radio"><span class="sd-org-radio-dot"></span></span>' +
+          '<span class="sd-org-avatar sd-org-avatar--org">' + ICON_ORG + '</span>' +
+          '<span class="sd-org-owner-info"><span class="sd-org-owner-name">' + escapeHtml(org.name) + '</span><span class="sd-org-owner-slug">' + escapeHtml(org.slug) + '</span></span>' +
+        '</div>';
+    }
+
     overlay.innerHTML =
-      '<div class="share-dialog">' +
-        '<h3><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.25 5.5l-5.5 5.5-3.5-3.5"/></svg>Review shared</h3>' +
-        '<div class="share-dialog-qr" id="modalQR"></div>' +
-        '<div class="share-dialog-url">' +
-          '<span>' + escapeHtml(hostedURL) + '</span>' +
-          '<button class="copy-icon-btn" id="modalCopyBtn" title="Copy link" aria-label="Copy link">' +
-            ICON_CLIPBOARD +
-          '</button>' +
+      '<div class="share-dialog sd-org-dialog">' +
+        '<div class="sd-org-header">' +
+          '<h3 id="orgShareTitle" class="sd-org-title">Share review</h3>' +
+          '<button class="sd-org-close" aria-label="Close"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z"/></svg></button>' +
         '</div>' +
-        '<div class="share-dialog-actions">' +
-          (deleteToken ? '<button class="btn btn-sm btn-danger" id="modalUnpublishBtn">Unpublish</button>' : '') +
-          '<button class="btn btn-sm" id="modalCloseBtn">Close</button>' +
+        '<div class="sd-org-body">' +
+          '<div>' +
+            '<label class="sd-org-label" id="orgOwnerLabel">Owner</label>' +
+            '<div class="sd-org-owner-list" role="radiogroup" aria-labelledby="orgOwnerLabel">' + ownerRows + '</div>' +
+          '</div>' +
+          '<div>' +
+            '<label class="sd-org-label" id="orgVisLabel">Visibility</label>' +
+            '<div class="sd-org-vis-options" role="radiogroup" aria-labelledby="orgVisLabel" id="orgVisOptions">' +
+              '<div class="sd-org-vis-option" role="radio" aria-checked="false" tabindex="-1" data-vis="organization" style="display:none">' +
+                '<span class="sd-org-radio"><span class="sd-org-radio-dot"></span></span>' +
+                ICON_VIS_ORG +
+                '<span class="sd-org-vis-text"><span class="sd-org-vis-label">Organization</span><span class="sd-org-vis-desc" id="orgVisOrgDesc">Only members can view</span></span>' +
+              '</div>' +
+              '<div class="sd-org-vis-option" role="radio" aria-checked="false" tabindex="-1" data-vis="unlisted">' +
+                '<span class="sd-org-radio"><span class="sd-org-radio-dot"></span></span>' +
+                ICON_VIS_UNLISTED +
+                '<span class="sd-org-vis-text"><span class="sd-org-vis-label">Unlisted</span><span class="sd-org-vis-desc" id="orgVisUnlistedDesc">Anyone with the link can view</span></span>' +
+              '</div>' +
+              '<div class="sd-org-vis-option" role="radio" aria-checked="false" tabindex="-1" data-vis="public">' +
+                '<span class="sd-org-radio"><span class="sd-org-radio-dot"></span></span>' +
+                ICON_VIS_PUBLIC +
+                '<span class="sd-org-vis-text"><span class="sd-org-vis-label">Public</span><span class="sd-org-vis-desc">Discoverable by anyone on the web</span></span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<label class="sd-org-remember"><input type="checkbox" id="orgRememberCheck" /><span class="sd-org-remember-text">Remember my choice</span></label>' +
+        '</div>' +
+        '<div class="sd-org-footer">' +
+          '<span class="sd-org-consent">Uploads to <a href="' + escapeHtml(shareURL) + '" target="_blank" rel="noopener">' + escapeHtml(shareURL.replace(/^https?:\/\//, '')) + '</a></span>' +
+          '<div class="sd-org-footer-actions">' +
+            '<button class="sd-org-btn-cancel" id="orgCancelBtn">Cancel</button>' +
+            '<button class="sd-org-btn-share" id="orgShareBtn">Share</button>' +
+          '</div>' +
         '</div>' +
       '</div>';
 
     document.body.appendChild(overlay);
     shareModalEl = overlay;
 
-    // Fetch QR code
+    const ownerList = overlay.querySelector('.sd-org-owner-list');
+    const visOptions = overlay.querySelector('#orgVisOptions');
+    const orgVisOption = visOptions.querySelector('[data-vis="organization"]');
+    const orgVisDesc = overlay.querySelector('#orgVisOrgDesc');
+    const unlistedVisDesc = overlay.querySelector('#orgVisUnlistedDesc');
+
+    function selectOwner(el) {
+      ownerList.querySelectorAll('.sd-org-owner-option').forEach(function(o) {
+        o.setAttribute('aria-checked', 'false');
+        o.setAttribute('tabindex', '-1');
+      });
+      el.setAttribute('aria-checked', 'true');
+      el.setAttribute('tabindex', '0');
+      el.focus();
+      const owner = el.getAttribute('data-owner');
+      const orgName = el.querySelector('.sd-org-owner-name').textContent;
+      if (owner) {
+        orgVisOption.style.display = '';
+        orgVisDesc.textContent = 'Only members of ' + orgName + ' can view';
+        unlistedVisDesc.textContent = 'Anyone with the link at ' + orgName + ' can view';
+      } else {
+        orgVisOption.style.display = 'none';
+        unlistedVisDesc.textContent = 'Anyone with the link can view';
+        if (orgVisOption.getAttribute('aria-checked') === 'true') {
+          selectVis(visOptions.querySelector('[data-vis="unlisted"]'));
+        }
+      }
+      selectVis(visOptions.querySelector('[data-vis="' + el.getAttribute('data-default-vis') + '"]'));
+    }
+
+    function selectVis(el) {
+      if (!el || el.style.display === 'none') return;
+      visOptions.querySelectorAll('.sd-org-vis-option').forEach(function(o) {
+        o.setAttribute('aria-checked', 'false');
+        o.setAttribute('tabindex', '-1');
+      });
+      el.setAttribute('aria-checked', 'true');
+      el.setAttribute('tabindex', '0');
+    }
+
+    function radioKeyNav(container, selector, selectFn) {
+      container.addEventListener('keydown', function(e) {
+        const items = Array.from(container.querySelectorAll(selector)).filter(function(o) { return o.style.display !== 'none'; });
+        const current = e.target.closest(selector);
+        if (!current) return;
+        const idx = items.indexOf(current);
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          selectFn(items[(idx + 1) % items.length]);
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          selectFn(items[(idx - 1 + items.length) % items.length]);
+        }
+      });
+    }
+
+    ownerList.addEventListener('click', function(e) {
+      const opt = e.target.closest('.sd-org-owner-option');
+      if (opt) selectOwner(opt);
+    });
+    radioKeyNav(ownerList, '.sd-org-owner-option', selectOwner);
+
+    visOptions.addEventListener('click', function(e) {
+      const opt = e.target.closest('.sd-org-vis-option');
+      if (opt && opt.style.display !== 'none') { selectVis(opt); opt.focus(); }
+    });
+    radioKeyNav(visOptions, '.sd-org-vis-option', function(el) { selectVis(el); el.focus(); });
+
+    // Apply initial selection
+    const initialOwner = ownerList.querySelector('[aria-checked="true"]');
+    if (initialOwner) {
+      const owner = initialOwner.getAttribute('data-owner');
+      if (owner) {
+        const initialOrgName = initialOwner.querySelector('.sd-org-owner-name').textContent;
+        orgVisOption.style.display = '';
+        orgVisDesc.textContent = 'Only members of ' + initialOrgName + ' can view';
+        unlistedVisDesc.textContent = 'Anyone with the link at ' + initialOrgName + ' can view';
+      }
+      const defVis = savedVis || initialOwner.getAttribute('data-default-vis');
+      const visEl = visOptions.querySelector('[data-vis="' + defVis + '"]');
+      if (visEl && visEl.style.display !== 'none') {
+        selectVis(visEl);
+      } else {
+        selectVis(visOptions.querySelector('[data-vis="' + initialOwner.getAttribute('data-default-vis') + '"]'));
+      }
+    }
+
+    // Close handlers
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeShareModal(); });
+    overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeShareModal(); });
+    overlay.querySelector('.sd-org-close').addEventListener('click', closeShareModal);
+    overlay.querySelector('#orgCancelBtn').addEventListener('click', closeShareModal);
+
+    // Share handler
+    overlay.querySelector('#orgShareBtn').addEventListener('click', async function() {
+      const btn = this;
+      btn.disabled = true;
+
+      const selectedOwnerEl = ownerList.querySelector('[aria-checked="true"]');
+      const selectedVisEl = visOptions.querySelector('[aria-checked="true"]');
+      const orgSlug = selectedOwnerEl ? selectedOwnerEl.getAttribute('data-owner') : '';
+      const visibility = selectedVisEl ? selectedVisEl.getAttribute('data-vis') : 'unlisted';
+      const remember = overlay.querySelector('#orgRememberCheck').checked;
+
+      if (remember) {
+        setSetting('shareOrg', orgSlug);
+        setSetting('shareVisibility', visibility);
+      }
+
+      const orgMeta = orgSlug && selectedOwnerEl
+        ? { slug: orgSlug, name: selectedOwnerEl.querySelector('.sd-org-owner-name').textContent }
+        : null;
+
+      closeShareModal();
+
+      // Open popup synchronously BEFORE any await — Safari blocks popups
+      // after async gaps.
+      let popupSession = null;
+      if (proxyAuth) {
+        try { popupSession = openShareReceiver(shareURL); }
+        catch (err) { btn.disabled = false; showShareError(err); return; }
+      }
+
+      if (needsShareConsent) {
+        try {
+          const cr = await fetch('/api/share-consent', { method: 'POST' });
+          if (cr.ok) {
+            needsShareConsent = false;
+          } else {
+            btn.disabled = false;
+            if (popupSession) popupSession.close();
+            showToast('share', 'error', '<span>Failed to record consent. Please try again.</span>');
+            return;
+          }
+        } catch {
+          btn.disabled = false;
+          if (popupSession) popupSession.close();
+          showToast('share', 'error', '<span>Network error. Please try again.</span>');
+          return;
+        }
+      }
+
+      performShare(orgSlug, visibility, orgMeta, popupSession);
+    });
+
+    requestAnimationFrame(function() {
+      const btn = overlay.querySelector('#orgShareBtn');
+      if (btn) btn.focus();
+    });
+  }
+
+  function showConsentModal() {
+    closeShareModal();
+    const overlay = document.createElement('div');
+    overlay.className = 'share-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'consentDialogTitle');
+    overlay.innerHTML =
+      '<div class="share-dialog share-dialog--consent">' +
+        '<h3 id="consentDialogTitle" class="share-dialog-headline">Share this review</h3>' +
+        '<p class="share-dialog-sub">Your review will be securely uploaded to crit.md. ' +
+          'You\'ll get a private link — share it with whoever you choose. ' +
+          'You won\'t be asked again after confirming.</p>' +
+        '<div class="sd-actions">' +
+          '<button class="sd-link-btn" id="consentCancelBtn">Cancel</button>' +
+          '<button class="sd-primary" id="consentShareBtn">Share →</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    shareModalEl = overlay;
+    requestAnimationFrame(function() {
+      const focusBtn = overlay.querySelector('#consentShareBtn');
+      if (focusBtn) focusBtn.focus();
+    });
+
+    let consentAborted = false;
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) { consentAborted = true; closeShareModal(); } });
+    overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') { consentAborted = true; closeShareModal(); } });
+    overlay.querySelector('#consentCancelBtn').addEventListener('click', function() { consentAborted = true; closeShareModal(); });
+    overlay.querySelector('#consentShareBtn').addEventListener('click', async function() {
+      this.disabled = true;
+      try {
+        const r = await fetch('/api/share-consent', { method: 'POST' });
+        if (r.ok) {
+          needsShareConsent = false;
+          closeShareModal();
+          if (!consentAborted) {
+            const btn = document.getElementById('shareBtn');
+            if (btn) btn.click();
+          }
+        } else {
+          closeShareModal();
+          showToast('share', 'error', '<span>Failed to record consent. Please try again.</span>');
+        }
+      } catch {
+        closeShareModal();
+        showToast('share', 'error', '<span>Network error. Please try again.</span>');
+      }
+    });
+  }
+
+  function showShareModal() {
+    closeShareModal();
+    const overlay = document.createElement('div');
+    overlay.className = 'share-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'shareDialogTitle');
+
+    const isSignedIn = !!authUserName;
+    const initials = authUserName
+      ? authUserName.split(/\s+/).filter(Boolean).map(function(w) { return w[0]; }).join('').slice(0, 2).toUpperCase()
+      : '';
+
+    const nextShareBlock = isSignedIn
+      ? '<div class="share-dialog-attrib">' +
+          '<span class="share-dialog-avatar" aria-hidden="true">' + escapeHtml(initials) + '</span>' +
+          '<span>Shared as <strong>' + escapeHtml(authUserName) + '</strong></span>' +
+        '</div>'
+      : '<div class="share-dialog-next">' +
+          '<span class="share-dialog-next-eyebrow">For your next share</span>' +
+          '<p class="share-dialog-next-body">Sign in once from your terminal and every review you share ' +
+            'after that will be attributed to you and listed in your dashboard.</p>' +
+          '<div class="share-dialog-cmd">' +
+            '<span class="share-dialog-cmd-prompt" aria-hidden="true">$</span>' +
+            '<span class="share-dialog-cmd-text">crit auth login</span>' +
+            '<button class="share-dialog-cmd-copy" id="modalCopyCmd" aria-label="Copy command">' +
+              ICON_CLIPBOARD +
+            '</button>' +
+          '</div>' +
+        '</div>';
+
+    let subtitleText = 'Anyone with the link can read it. The page works without an account.';
+    let orgStripHtml = '';
+    if (sharedOrg) {
+      const orgName = escapeHtml(sharedOrg.name);
+      const vis = sharedVisibility || 'unlisted';
+      const ICON_BUILDING_SM = '<svg class="sd-shared-org-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1A1.75 1.75 0 000 2.75v10.5C0 14.216.784 15 1.75 15h4.5a.75.75 0 00.75-.75v-3.5a.25.25 0 01.25-.25h1.5a.25.25 0 01.25.25v3.5c0 .414.336.75.75.75h4.5A1.75 1.75 0 0016 13.25V2.75A1.75 1.75 0 0014.25 1H1.75zm.25 1.75a.25.25 0 01.25-.25h11.5a.25.25 0 01.25.25v10.5a.25.25 0 01-.25.25H10v-2.75A1.75 1.75 0 008.25 9h-1.5A1.75 1.75 0 005 10.75V14H2.25a.25.25 0 01-.25-.25V2.75zM4 4a1 1 0 011-1h1a1 1 0 010 2H5a1 1 0 01-1-1zm6-1a1 1 0 100 2h1a1 1 0 100-2h-1zM4 7a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm6-1a1 1 0 100 2h1a1 1 0 100-2h-1z"/></svg>';
+      let pillIcon = '';
+      const pillClass = 'sd-shared-vis-pill--' + vis;
+      let pillLabel = '';
+      let hintText = '';
+      if (vis === 'organization') {
+        subtitleText = 'Only ' + orgName + ' members can view this review.';
+        pillIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M7.467.133a1.75 1.75 0 011.066 0l5.25 1.68A1.75 1.75 0 0115 3.48V7c0 1.566-.32 3.182-1.303 4.682-.983 1.498-2.585 2.813-5.032 3.855a1.7 1.7 0 01-1.33 0c-2.447-1.042-4.049-2.357-5.032-3.855C1.32 10.182 1 8.566 1 7V3.48a1.75 1.75 0 011.217-1.667l5.25-1.68zm.61 1.429a.25.25 0 00-.153 0l-5.25 1.68a.25.25 0 00-.174.238V7c0 1.358.275 2.666 1.057 3.86.784 1.194 2.121 2.34 4.366 3.297a.2.2 0 00.154 0c2.245-.956 3.582-2.103 4.366-3.298C13.225 9.666 13.5 8.358 13.5 7V3.48a.25.25 0 00-.174-.238l-5.25-1.68z"/></svg>';
+        pillLabel = 'Members only';
+      } else if (vis === 'unlisted') {
+        subtitleText = 'Anyone at ' + orgName + ' with the link can view this review.';
+        pillIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z"/></svg>';
+        pillLabel = 'Unlisted';
+        hintText = 'Anyone at org with link';
+      } else if (vis === 'public') {
+        subtitleText = 'This review is discoverable by anyone on the web.';
+        pillIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>';
+        pillLabel = 'Public';
+        hintText = 'Discoverable by anyone';
+      }
+      orgStripHtml =
+        '<div class="sd-shared-org-strip">' +
+          ICON_BUILDING_SM +
+          '<span class="sd-shared-org-name">' + orgName + '</span>' +
+          '<span class="sd-shared-org-sep">&middot;</span>' +
+          '<span class="sd-shared-vis-pill ' + pillClass + '">' + pillIcon + pillLabel + '</span>' +
+          (hintText ? '<span class="sd-shared-vis-hint">' + hintText + '</span>' : '') +
+        '</div>';
+    }
+
+    overlay.innerHTML =
+      '<div class="share-dialog">' +
+        '<div class="share-dialog-body">' +
+          '<div class="share-dialog-qr-col">' +
+            '<div class="share-dialog-qr" id="modalQR"></div>' +
+            '<div class="share-dialog-qr-caption">Scan to open on a phone</div>' +
+          '</div>' +
+          '<div class="share-dialog-narrative">' +
+            '<h3 id="shareDialogTitle" class="share-dialog-headline">Your review is live.</h3>' +
+            '<p class="share-dialog-sub">' + subtitleText + '</p>' +
+            '<div class="share-dialog-url">' +
+              '<span>' + escapeHtml(hostedURL) + '</span>' +
+              '<button class="copy-icon-btn" id="modalCopyBtn" aria-label="Copy link">' +
+                ICON_CLIPBOARD +
+              '</button>' +
+            '</div>' +
+            nextShareBlock +
+            orgStripHtml +
+          '</div>' +
+        '</div>' +
+        '<div class="sd-actions">' +
+          (deleteToken ? '<button class="sd-link-btn sd-link-btn--danger" id="modalUnpublishBtn">Unpublish</button>' : '<span></span>') +
+          '<div class="sd-actions-right">' +
+            '<button class="sd-link-btn" id="modalPullBtn">Pull comments</button>' +
+            '<button class="sd-link-btn" id="modalReshareBtn">Re-share</button>' +
+            '<button class="sd-primary" id="modalCloseBtn">Done</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+    shareModalEl = overlay;
+    requestAnimationFrame(function() {
+      const closeBtn = overlay.querySelector('#modalCloseBtn');
+      if (closeBtn) closeBtn.focus();
+    });
+
+    // QR code
     fetch('/api/qr?url=' + encodeURIComponent(hostedURL))
-      .then(function(r) { return r.text(); })
+      .then(function(r) { return r.ok ? r.text() : null; })
       .then(function(svg) {
         const qrEl = document.getElementById('modalQR');
-        if (qrEl) qrEl.innerHTML = svg;
+        if (qrEl && svg) qrEl.innerHTML = svg;
       })
-      .catch(function() { /* QR fetch is optional */ });
+      .catch(function() { /* QR is optional */ });
 
-    // Close on overlay background click
-    overlay.addEventListener('click', function(e) {
-      if (e.target === overlay) closeShareModal();
-    });
+    // Close on backdrop or Escape
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeShareModal(); });
+    overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeShareModal(); });
 
-    // Close on Escape
-    overlay.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') closeShareModal();
-    });
-
-    overlay.querySelector('#modalCloseBtn').addEventListener('click', closeShareModal);
-
+    // Copy URL
     overlay.querySelector('#modalCopyBtn').addEventListener('click', function() {
-      navigator.clipboard.writeText(hostedURL).catch(function() { /* clipboard may be unavailable */ });
+      navigator.clipboard.writeText(hostedURL).catch(function() { /* best-effort */ });
       this.innerHTML = ICON_CHECK_SMALL;
       this.setAttribute('aria-label', 'Copied');
       announceCopy();
-      const copyBtn = this;
+      const btn = this;
       setTimeout(function() {
-        copyBtn.innerHTML = ICON_CLIPBOARD;
-        copyBtn.setAttribute('aria-label', 'Copy link');
+        btn.innerHTML = ICON_CLIPBOARD;
+        btn.setAttribute('aria-label', 'Copy link');
       }, 2000);
     });
 
+    // Copy command (anonymous only)
+    const copyCmdBtn = overlay.querySelector('#modalCopyCmd');
+    if (copyCmdBtn) {
+      copyCmdBtn.addEventListener('click', function() {
+        navigator.clipboard.writeText('crit auth login').catch(function() { /* best-effort */ });
+        this.innerHTML = ICON_CHECK_SMALL;
+        this.setAttribute('aria-label', 'Copied');
+        const btn = this;
+        setTimeout(function() {
+          btn.innerHTML = ICON_CLIPBOARD;
+          btn.setAttribute('aria-label', 'Copy command');
+        }, 2000);
+      });
+    }
+
+    // Done button
+    overlay.querySelector('#modalCloseBtn').addEventListener('click', closeShareModal);
+
+    // Unpublish
     if (deleteToken) {
       overlay.querySelector('#modalUnpublishBtn').addEventListener('click', showUnpublishConfirm);
+    }
+
+    overlay.querySelector('#modalPullBtn').addEventListener('click', handlePullComments);
+    overlay.querySelector('#modalReshareBtn').addEventListener('click', handleReshare);
+  }
+
+  // After /api/comments/merge updates the local review file, re-fetch each
+  // file's comments and re-render in place. Uses the existing per-file
+  // refresh + render-panel path — preserves scroll position, expanded
+  // threads, and unsubmitted drafts (no location.reload).
+  async function refreshAllComments() {
+    await Promise.all(files.map(async function(f) {
+      try {
+        const r = await fetch('/api/file/comments?path=' + enc(f.path));
+        if (r.ok) {
+          f.comments = await r.json();
+        }
+      } catch { /* per-file refresh is best-effort */ }
+    }));
+    renderCommentsPanel();
+    updateCommentCount();
+    updateTreeCommentBadges();
+  }
+
+  // Pull remote comments through the popup relay (or directly when
+  // proxy_auth is unset), then merge into the local review file via
+  // /api/comments/merge, then refresh the UI in place.
+  async function handlePullComments() {
+    const btn = document.getElementById('modalPullBtn');
+    if (!btn) return;
+    btn.disabled = true;
+    const origLabel = btn.textContent;
+    btn.textContent = 'Pulling…';
+
+    // Open popup synchronously inside the click handler.
+    let popupSession = null;
+    if (proxyAuth) {
+      try {
+        popupSession = openShareReceiver(shareURL);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = origLabel;
+        showToast('share', 'error', '<span>Pull failed: ' + escapeHtml(err.message) + '</span>');
+        return;
+      }
+    }
+
+    try {
+      if (!hostedToken) throw new Error('no shared review token (try re-sharing)');
+
+      let comments;
+      if (popupSession) {
+        comments = await popupSession.run('fetch', { token: hostedToken });
+      } else {
+        const r = await fetch(shareURL.replace(/\/$/, '') + '/api/reviews/' + encodeURIComponent(hostedToken) + '/comments');
+        if (!r.ok) throw new Error('Server error ' + r.status);
+        comments = await r.json();
+      }
+
+      const mergeResp = await fetch('/api/comments/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comments: comments }),
+      });
+      if (!mergeResp.ok) {
+        const errBody = await mergeResp.json().catch(function() { return {}; });
+        throw new Error(errBody.error || 'merge failed: ' + mergeResp.status);
+      }
+
+      await refreshAllComments();
+      showToast('share', 'success', '<span>Comments pulled</span>', { autoDismiss: true });
+    } catch (err) {
+      showToast('share', 'error', '<span>Pull failed: ' + escapeHtml(err.message) + '</span>');
+    } finally {
+      if (popupSession) popupSession.close();
+      const liveBtn = document.getElementById('modalPullBtn');
+      if (liveBtn) {
+        liveBtn.disabled = false;
+        liveBtn.textContent = origLabel;
+      }
+    }
+  }
+
+  // Re-share chains pull -> merge -> upsert in a single popup session.
+  // If the upsert fails after the merge succeeds, the local review file is
+  // already updated with remote comments; the user must re-click Re-share
+  // (and possibly re-authenticate) to push the merged state back up.
+  async function handleReshare() {
+    const btn = document.getElementById('modalReshareBtn');
+    if (!btn) return;
+    btn.disabled = true;
+    const origLabel = btn.textContent;
+    btn.textContent = 'Re-sharing…';
+
+    // Open popup synchronously inside the click handler.
+    let popupSession = null;
+    if (proxyAuth) {
+      try {
+        popupSession = openShareReceiver(shareURL);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = origLabel;
+        showToast('share', 'error', '<span>Re-share failed: ' + escapeHtml(err.message) + '</span>');
+        return;
+      }
+    }
+
+    try {
+      if (!hostedToken) throw new Error('no shared review token (try re-sharing)');
+
+      // 1. Pull remote comments through the (still authenticated) popup.
+      let remoteComments;
+      if (popupSession) {
+        remoteComments = await popupSession.run('fetch', { token: hostedToken });
+      } else {
+        const r = await fetch(shareURL.replace(/\/$/, '') + '/api/reviews/' + encodeURIComponent(hostedToken) + '/comments');
+        if (!r.ok) throw new Error('Server error ' + r.status);
+        remoteComments = await r.json();
+      }
+
+      // 2. Merge locally. NOTE: this mutates the local review file even if
+      // the upsert in step 4 fails — the toast in the catch block documents
+      // the partial-failure recovery path.
+      const mergeResp = await fetch('/api/comments/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comments: remoteComments }),
+      });
+      if (!mergeResp.ok) {
+        const errBody = await mergeResp.json().catch(function() { return {}; });
+        throw new Error(errBody.error || 'merge failed: ' + mergeResp.status);
+      }
+
+      // 3. Build upsert payload from the merged local state.
+      const payloadResp = await fetch('/api/share/upsert-payload');
+      if (!payloadResp.ok) {
+        const errBody = await payloadResp.json().catch(function() { return {}; });
+        throw new Error(errBody.error || 'failed to build upsert payload');
+      }
+      const payload = await payloadResp.json();
+
+      // 4. PUT through the same popup session (still authenticated).
+      if (popupSession) {
+        await popupSession.run('upsert', { token: hostedToken, payload: payload });
+      } else {
+        const r = await fetch(shareURL.replace(/\/$/, '') + '/api/reviews/' + encodeURIComponent(hostedToken), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) throw new Error('Server error ' + r.status);
+      }
+
+      await refreshAllComments();
+      showToast('share', 'success', '<span>Re-shared</span>', { autoDismiss: true });
+    } catch (err) {
+      // Document partial-failure state explicitly. If the merge succeeded
+      // but the upsert failed, the user's local review file already contains
+      // the remote comments — clicking Re-share again will retry the upsert
+      // (idempotent on the server) but may require re-authentication if the
+      // popup was closed.
+      showToast('share', 'error',
+        '<span>Re-share failed: ' + escapeHtml(err.message) +
+        '. Local comments may have been updated; click Re-share again to retry ' +
+        '(you may need to re-authenticate in the popup).</span>');
+    } finally {
+      if (popupSession) popupSession.close();
+      const liveBtn = document.getElementById('modalReshareBtn');
+      if (liveBtn) {
+        liveBtn.disabled = false;
+        liveBtn.textContent = origLabel;
+      }
     }
   }
 
   function showUnpublishConfirm() {
     if (!shareModalEl) return;
     const dialog = shareModalEl.querySelector('.share-dialog');
+    shareModalEl.setAttribute('aria-labelledby', 'unpublishDialogTitle');
     dialog.innerHTML =
-      '<h3>Unpublish</h3>' +
       '<div class="share-dialog-confirm">' +
-        '<p>Unpublish this review?</p>' +
+        '<p id="unpublishDialogTitle">Unpublish this review?</p>' +
         '<p class="confirm-detail">The shared link will stop working. Comments added by viewers will be lost.</p>' +
         '<div class="confirm-actions">' +
           '<button class="btn btn-sm btn-danger" id="confirmUnpublishBtn">Unpublish</button>' +
@@ -6936,32 +8419,79 @@
   async function handleUnpublish() {
     const btn = document.getElementById('confirmUnpublishBtn');
     if (btn) { btn.textContent = 'Unpublishing\u2026'; btn.disabled = true; }
+
+    // Popup-relay path: open the popup synchronously inside the click chain.
+    // handleUnpublish is wired via addEventListener in showUnpublishConfirm,
+    // so this function is still inside the user-gesture tick when the user
+    // clicks "Unpublish" in the confirm dialog.
+    let popupSession = null;
+    if (proxyAuth) {
+      try {
+        popupSession = openShareReceiver(shareURL);
+      } catch (err) {
+        closeShareModal();
+        showUnpublishError(err);
+        return;
+      }
+    }
+
     try {
-      const resp = await fetch(shareURL + '/api/reviews', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ delete_token: deleteToken }),
-      });
-      const alreadyDeleted = resp.status === 404;
-      if (!alreadyDeleted && !resp.ok) throw new Error('Server error ' + resp.status);
+      if (popupSession) {
+        // Receiver normalises 404 (already deleted) to {already_deleted: true}.
+        await popupSession.run('unpublish', { delete_token: deleteToken });
+      } else {
+        const resp = await fetch(shareURL + '/api/reviews', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ delete_token: deleteToken }),
+        });
+        const alreadyDeleted = resp.status === 404;
+        if (!alreadyDeleted && !resp.ok) throw new Error('Server error ' + resp.status);
+      }
       hostedURL = '';
       deleteToken = '';
+      hostedToken = '';
+      sharedOrg = null;
+      sharedVisibility = '';
       fetch('/api/share-url', { method: 'DELETE' }).catch(function() { /* fire-and-forget */ });
       closeShareModal();
       setShareButtonState('default');
     } catch (err) {
       closeShareModal();
-      const el = showToast('share', 'error',
-        '<span>Unpublish failed: ' + escapeHtml(err.message) + '</span>' +
-        '<div class="toast-actions">' +
-          '<button class="toast-btn toast-btn-filled" id="shareUnpublishRetryBtn">Retry</button>' +
-          '<button class="toast-btn toast-btn-ghost" data-dismiss-toast="share">Dismiss</button>' +
-        '</div>');
-      el.querySelector('#shareUnpublishRetryBtn').addEventListener('click', function() {
-        dismissToast('share');
-        handleUnpublish();
-      });
+      showUnpublishError(err);
+    } finally {
+      if (popupSession) popupSession.close();
     }
+  }
+
+  function showUnpublishError(err) {
+    const el = showToast('share', 'error',
+      '<span>Unpublish failed: ' + escapeHtml(err.message) + '</span>' +
+      '<div class="toast-actions">' +
+        '<button class="toast-btn toast-btn-filled" id="shareUnpublishRetryBtn">Retry</button>' +
+        '<button class="toast-btn toast-btn-ghost" data-dismiss-toast="share">Dismiss</button>' +
+      '</div>');
+    el.querySelector('#shareUnpublishRetryBtn').addEventListener('click', function() {
+      dismissToast('share');
+      handleUnpublish();
+    });
+  }
+
+  // Dedup guard: prevents a double-click from opening two popups racing for
+  // the same crit-web review.
+  let shareInFlight = false;
+
+  function showShareError(err) {
+    const el = showToast('share', 'error',
+      '<span>Share failed: ' + escapeHtml(err.message) + '</span>' +
+      '<div class="toast-actions">' +
+        '<button class="toast-btn toast-btn-filled" id="shareRetryBtn">Retry</button>' +
+        '<button class="toast-btn toast-btn-ghost" data-dismiss-toast="share">Dismiss</button>' +
+      '</div>');
+    el.querySelector('#shareRetryBtn').addEventListener('click', function() {
+      dismissToast('share');
+      document.getElementById('shareBtn').click();
+    });
   }
 
   document.getElementById('shareBtn').addEventListener('click', async function() {
@@ -6975,33 +8505,34 @@
       return;
     }
 
-    setShareButtonState('sharing');
-    dismissToast('share');
-
-    try {
-      const resp = await fetch('/api/share', { method: 'POST' });
-      if (!resp.ok) {
-        const errBody = await resp.json().catch(function() { return {}; });
-        throw new Error(errBody.error || 'Server error ' + resp.status);
-      }
-      const result = await resp.json();
-      hostedURL = result.url;
-      deleteToken = result.delete_token || '';
-      setShareButtonState('shared');
-      showShareModal();
-    } catch (err) {
-      setShareButtonState('default');
-      const el = showToast('share', 'error',
-        '<span>Share failed: ' + escapeHtml(err.message) + '</span>' +
-        '<div class="toast-actions">' +
-          '<button class="toast-btn toast-btn-filled" id="shareRetryBtn">Retry</button>' +
-          '<button class="toast-btn toast-btn-ghost" data-dismiss-toast="share">Dismiss</button>' +
-        '</div>');
-      el.querySelector('#shareRetryBtn').addEventListener('click', function() {
-        dismissToast('share');
-        document.getElementById('shareBtn').click();
-      });
+    // Open popup synchronously BEFORE any await — Safari blocks popups
+    // after async gaps. If we end up showing the org modal instead, close it.
+    let popupSession = null;
+    if (proxyAuth) {
+      try { popupSession = openShareReceiver(shareURL); }
+      catch (err) { showShareError(err); return; }
     }
+
+    // If user has orgs, show org share modal (handles consent inline)
+    if (authUserName) {
+      this.disabled = true;
+      const orgs = await fetchOrgs();
+      this.disabled = false;
+      if (orgs.length > 0) {
+        if (popupSession) popupSession.close();
+        showOrgShareModal(orgs);
+        return;
+      }
+    }
+
+    // No orgs — existing consent gate
+    if (needsShareConsent) {
+      if (popupSession) popupSession.close();
+      showConsentModal();
+      return;
+    }
+
+    performShare('', '', null, popupSession);
   });
 
   // Announce copy action to screen readers via live region
@@ -7780,16 +9311,6 @@
     const ctl = getSettingsCtl();
     if (ctl) ctl.open(settingsPanelTab);
   }
-  function closeSettingsPanel() {
-    settingsPanelOpen = false;
-    const ctl = getSettingsCtl();
-    if (ctl) ctl.close();
-  }
-  function switchSettingsTab(tab) {
-    settingsPanelTab = tab;
-    const ctl = getSettingsCtl();
-    if (ctl) ctl.switchTab(tab);
-  }
 
   function applyHideResolved() {
     // State -> CSS via body class. Visibility rules live in style.css under
@@ -8106,24 +9627,21 @@
   }
 
   function renderShortcutsPane() {
-    var shared = window.crit && window.crit.settingsPanes;
+    const shared = window.crit && window.crit.settingsPanes;
     if (shared && shared.renderShortcutsPane) {
       shared.renderShortcutsPane(document.getElementById('shortcutsPane'), { mode: 'code-review' });
     }
   }
 
   function renderAboutPane(cfg) {
-    var shared = window.crit && window.crit.settingsPanes;
+    const shared = window.crit && window.crit.settingsPanes;
     if (shared && shared.renderAboutPane) {
       shared.renderAboutPane(document.getElementById('aboutPane'), cfg, session);
     }
   }
 
   // Settings overlay shell (open/close/Esc/?/focus-trap/sliding-underline/
-  // tab click + arrow nav) is owned by crit-settings-overlay.js. Initialize
-  // the controller now so its toggle/close/tab listeners are bound; keep
-  // openSettingsPanel/closeSettingsPanel/switchSettingsTab as the call sites
-  // used elsewhere in this file.
+  // tab click + arrow nav) is owned by crit-settings-overlay.js.
   getSettingsCtl();
 
   document.getElementById('noChangesOverlay').addEventListener('click', function(e) {
@@ -8193,10 +9711,47 @@
           focusedFilePath = focusedElement.dataset.diffFilePath;
           focusedBlockIndex = null;
         }
+        if (visualMode) extendVisualSelection();
+        break;
+      }
+      case 'V': {
+        e.preventDefault();
+        if (visualMode) {
+          // Toggle off — preserve the focus on the current expansion point.
+          exitVisualMode(true);
+        } else {
+          enterVisualMode();
+        }
         break;
       }
       case 'c': {
         e.preventDefault();
+        // Visual mode: comment on the active selection.
+        if (visualMode && selectionStart !== null && selectionEnd !== null) {
+          const fp = visualMode.filePath;
+          if (visualMode.kind === 'markdown') {
+            const file = getFileByPath(fp);
+            if (file && file.lineBlocks) {
+              let lastBlockIndex = -1;
+              for (let i = 0; i < file.lineBlocks.length; i++) {
+                if (file.lineBlocks[i].startLine >= selectionStart && file.lineBlocks[i].endLine <= selectionEnd) {
+                  lastBlockIndex = i;
+                }
+              }
+              if (lastBlockIndex >= 0) {
+                visualMode = null;
+                document.body.classList.remove('visual-mode');
+                openForm({ filePath: fp, afterBlockIndex: lastBlockIndex, startLine: selectionStart, endLine: selectionEnd, editingId: null });
+              }
+            }
+          } else {
+            const side = visualMode.anchorSide;
+            visualMode = null;
+            document.body.classList.remove('visual-mode');
+            openForm({ filePath: fp, afterBlockIndex: null, startLine: selectionStart, endLine: selectionEnd, editingId: null, side: side || undefined });
+          }
+          return;
+        }
         // If text is selected, comment on the selection (with quote).
         // Otherwise fall back to the focused block.
         if (tryOpenFormFromSelection()) return;
@@ -8321,6 +9876,9 @@
         else if (activeForms.length > 0) {
           const form = activeForms[activeForms.length - 1];
           if (confirmDiscardCommentForm(form)) cancelComment(form);
+        }
+        else if (visualMode) {
+          exitVisualMode(true);
         }
         else if (selectionStart !== null) {
           const clearPath = activeFilePath;

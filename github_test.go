@@ -602,7 +602,7 @@ func TestCollectNewRepliesForPush(t *testing.T) {
 		},
 	}
 
-	replies := collectNewRepliesForPush(cf)
+	replies := collectNewRepliesForPush(cf, nil)
 	if len(replies) != 1 {
 		t.Fatalf("expected 1 new reply, got %d", len(replies))
 	}
@@ -625,7 +625,7 @@ func TestCollectNewRepliesForPush_NoGitHubRoot(t *testing.T) {
 		},
 	}
 
-	replies := collectNewRepliesForPush(cf)
+	replies := collectNewRepliesForPush(cf, nil)
 	if len(replies) != 0 {
 		t.Fatalf("expected 0 replies for local-only comment, got %d", len(replies))
 	}
@@ -674,7 +674,7 @@ func TestCollectNewRepliesForPush_ParentSources(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := collectNewRepliesForPush(tc.cf)
+			got := collectNewRepliesForPush(tc.cf, nil)
 			if len(got) != tc.wantReplies {
 				t.Fatalf("got %d replies, want %d: %+v", len(got), tc.wantReplies, got)
 			}
@@ -3046,7 +3046,7 @@ func TestZeroGitHubID_TreatedAsNotPushed(t *testing.T) {
 				{ID: "rp1", GitHubID: 0, Body: "local reply"},
 			}},
 		}}
-		got := collectNewRepliesForPush(cf)
+		got := collectNewRepliesForPush(cf, nil)
 		if len(got) != 0 {
 			t.Fatalf("reply with GitHubID==0 parent must be skipped; got %d", len(got))
 		}
@@ -3060,7 +3060,7 @@ func TestZeroGitHubID_TreatedAsNotPushed(t *testing.T) {
 				{ID: "rp1", GitHubID: 0, Body: "new local reply"},
 			}},
 		}}
-		got := collectNewRepliesForPush(cf)
+		got := collectNewRepliesForPush(cf, nil)
 		if len(got) != 1 {
 			t.Fatalf("reply (GitHubID==0, parent!=0) must be queued; got %d", len(got))
 		}
@@ -3076,7 +3076,7 @@ func TestZeroGitHubID_TreatedAsNotPushed(t *testing.T) {
 				{ID: "rp1", GitHubID: 200, Body: "remote reply"},
 			}},
 		}}
-		got := collectNewRepliesForPush(cf)
+		got := collectNewRepliesForPush(cf, nil)
 		if len(got) != 0 {
 			t.Fatalf("reply with GitHubID!=0 must be skipped; got %d", len(got))
 		}
