@@ -32,7 +32,6 @@
     var label = chipLabel(a);
     return [
       '<div class="crit-design-composer" role="dialog" aria-label="New design pin">',
-        '<div class="crit-design-composer-header">Pin on ' + escapeHTML(a.pathname || '/') + '</div>',
         '<div class="crit-design-composer-meta">',
           '<span class="crit-design-composer-chip">' + escapeHTML(label) + '</span>',
         '</div>',

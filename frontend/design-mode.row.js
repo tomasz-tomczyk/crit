@@ -298,25 +298,15 @@
     // gives us one consistent header bar instead of a second band stacked
     // above the body.
     var headerLeft = parts.card.querySelector('.comment-header-left');
-    if (headerLeft) {
-      var routeBadge = document.createElement('span');
-      routeBadge.className = 'crit-design-comment-route-badge';
-      routeBadge.textContent = pathname;
-      headerLeft.appendChild(routeBadge);
-
-      var chip = document.createElement('span');
-      chip.className = 'crit-design-comment-chip';
-      var chipText;
-      if (!c.dom_anchor) {
-        // No anchor — show body preview instead of useless "pin"
-        var bodyPreview = (c.body || '').replace(/\s+/g, ' ').trim();
-        chipText = bodyPreview.length > 40 ? bodyPreview.slice(0, 40) + '…' : (bodyPreview || 'pin');
-      } else {
-        chipText = chipLabel(anchor);
+    if (headerLeft && c.dom_anchor) {
+      var chipText = chipLabel(anchor);
+      if (chipText) {
+        var chip = document.createElement('span');
+        chip.className = 'crit-design-comment-chip';
+        chip.textContent = chipText;
+        chip.title = chipText;
+        headerLeft.appendChild(chip);
       }
-      chip.textContent = chipText;
-      chip.title = chipText;
-      headerLeft.appendChild(chip);
     }
 
     // Action buttons — match code-review's icon affordance + ordering
