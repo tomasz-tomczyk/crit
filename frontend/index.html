@@ -260,6 +260,9 @@
       var sh = document.createElement('script'); sh.src = 'crit-shared.js';
       document.head.appendChild(sh);
 
+      var cr = document.createElement('script'); cr.src = 'crit-renderer.js';
+      document.head.appendChild(cr);
+
       var ru = document.createElement('script'); ru.src = 'design-route-utils.js';
       document.head.appendChild(ru);
 
@@ -341,7 +344,7 @@
           });
         });
       }
-      var bootGate = [trackTag(sh), trackTag(ru), trackTag(mi, true)]
+      var bootGate = [trackTag(sh), trackTag(cr), trackTag(ru), trackTag(mi, true)]
         .concat(depTags.map(function (t) { return trackTag(t); }));
       Promise.all(bootGate).then(function (results) {
         var failed = results.filter(function (r) { return !r.ok && !r.optional; });
@@ -371,6 +374,7 @@
       // Shared helpers (escapeHTML, fetchJSON, installSidebarResize, theme cookie, etc.)
       // used by app.js. Must load before app.js.
       var sh = document.createElement('script'); sh.src = 'crit-shared.js'; sh.async = false; document.body.appendChild(sh);
+      var cr = document.createElement('script'); cr.src = 'crit-renderer.js'; cr.async = false; document.body.appendChild(cr);
       // Pure rendering helpers shared with design-mode rows. Must load before app.js.
       var ch = document.createElement('script'); ch.src = 'crit-comment-card-helpers.js'; ch.async = false; document.body.appendChild(ch);
       // Shared comment-card renderer (used by app.js and design-mode). Must load before app.js.
