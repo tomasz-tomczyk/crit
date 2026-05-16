@@ -594,6 +594,37 @@
     attachImageDragDrop(textarea);
   }
 
+  // ===== Tip rotation for waiting modal =====
+  var _tipInterval = null;
+  var _lastTip = '';
+  var _baseTips = [
+    'Comments support full Markdown.',
+    'Enjoying Crit? A GitHub star or sharing it with colleagues helps a lot!',
+  ];
+
+  function startTipRotation(extraTips) {
+    if (_tipInterval) return;
+    var tips = _baseTips.concat(extraTips || []);
+    function show() {
+      var el = document.getElementById('tipText');
+      if (!el || tips.length === 0) return;
+      var idx;
+      do { idx = Math.floor(Math.random() * tips.length); }
+      while (tips[idx] === _lastTip && tips.length > 1);
+      _lastTip = tips[idx];
+      el.style.animation = 'none';
+      void el.offsetWidth;
+      el.innerHTML = tips[idx];
+      el.style.animation = '';
+    }
+    show();
+    _tipInterval = setInterval(show, 8000);
+  }
+
+  function stopTipRotation() {
+    if (_tipInterval) { clearInterval(_tipInterval); _tipInterval = null; }
+  }
+
   function showDisconnected() {
     if (document.querySelector('.disconnected-banner')) return;
     var header = document.querySelector('.header');
@@ -640,5 +671,7 @@
     computeResizeDelta,
     attachImageUploads,
     showDisconnected,
+    startTipRotation,
+    stopTipRotation,
   };
 })();

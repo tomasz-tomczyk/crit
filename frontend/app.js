@@ -7146,20 +7146,14 @@
   }
 
   // ===== Waiting Modal Tips =====
-  const waitingTips = [
-    'Press <kbd>?</kbd> to see all keyboard shortcuts.',
-    'Comments support full Markdown.',
-    'Press <kbd>@</kbd> to reference other files in your comments.',
-    'Select text and press <kbd>c</kbd> to comment on your selection.',
-    'Use <kbd>crit pull</kbd> to load existing GitHub PR comments into your local review.',
-    'Use <kbd>crit push</kbd> to post your comments as a GitHub PR review. Add <kbd>--dry-run</kbd> to preview first.',
-    'Enjoying Crit? A GitHub star or sharing it with colleagues helps a lot!',
-  ];
-  let tipInterval = null;
-  let lastTip = '';
-
-  function buildTips() {
-    const tips = waitingTips.slice();
+  function buildCodeReviewTips() {
+    const tips = [
+      'Press <kbd>?</kbd> to see all keyboard shortcuts.',
+      'Press <kbd>@</kbd> to reference other files in your comments.',
+      'Select text and press <kbd>c</kbd> to comment on your selection.',
+      'Use <kbd>crit pull</kbd> to load existing GitHub PR comments into your local review.',
+      'Use <kbd>crit push</kbd> to post your comments as a GitHub PR review. Add <kbd>--dry-run</kbd> to preview first.',
+    ];
     if (!agentEnabled) {
       tips.push('Set <kbd>agent_cmd</kbd> in your config to send comments directly to your AI agent for immediate feedback.');
     }
@@ -7169,33 +7163,12 @@
     return tips;
   }
 
-  function showRandomTip() {
-    const el = document.getElementById('tipText');
-    if (!el) return;
-    const tips = buildTips();
-    if (tips.length === 0) return;
-    let idx;
-    do {
-      idx = Math.floor(Math.random() * tips.length);
-    } while (tips[idx] === lastTip && tips.length > 1);
-    lastTip = tips[idx];
-    el.style.animation = 'none';
-    void el.offsetWidth;
-    el.innerHTML = tips[idx];
-    el.style.animation = '';
-  }
-
   function startTipRotation() {
-    if (tipInterval) return;
-    showRandomTip();
-    tipInterval = setInterval(showRandomTip, 8000);
+    window.crit.shared.startTipRotation(buildCodeReviewTips());
   }
 
   function stopTipRotation() {
-    if (tipInterval) {
-      clearInterval(tipInterval);
-      tipInterval = null;
-    }
+    window.crit.shared.stopTipRotation();
   }
 
   // ===== UI State =====
