@@ -162,15 +162,18 @@ Requires the `gh` CLI installed and authenticated. PR number is auto-detected fr
 <important if="the user asked to share, get a URL, get a QR code, or unpublish a review">
 
 ```bash
-crit share <file> [file...]   # Upload and print URL
-crit share --qr <file>        # Also print QR code (terminal only — Unicode blocks)
-crit unpublish                # Remove shared review
+crit share <file> [file...]                          # Upload and print URL
+crit share --qr <file>                               # Also print QR code (terminal only)
+crit share --org <slug> <file>                       # Share under an organization
+crit share --org <slug> --visibility unlisted <file> # Org share with explicit visibility
+crit unpublish                                       # Remove shared review
 ```
 
-- **No server needed** — reads files directly from disk. If a review file exists, its comments are included automatically.
+- **No server needed** — reads files directly from disk. If a review file exists, comments for the shared files are included automatically.
 - **Always relay the output** — copy the URL (and QR if used) into your response.
 - **`--qr` is terminal-only** — skip in web/chat UIs where block characters won't render.
-- **Unpublish** uses the persisted `delete_token` stored in the review file.
+- **`--org <slug>`** shares under an organization. Visibility defaults to `organization` (members only). Override with `--visibility` (`organization`, `unlisted`, `public`).
+- **Unpublish** uses the persisted delete token in the review file — no extra args needed.
 </important>
 
 ## Review file location quick reference

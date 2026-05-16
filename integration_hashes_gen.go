@@ -22,7 +22,7 @@ var integrationHashes = map[string]string{
 	"integrations/gemini/skills/crit/SKILL.md":             "894a0ab70ea2a29e725f9d577471ef7173d5c1bbfca053ce5e150d22c4389ec4",
 	"integrations/github-copilot/skills/crit-cli/SKILL.md": "5c6fb609bc47c25f4d95169aedb3ddff650572c9f5a87afd7129ae88be209e78",
 	"integrations/github-copilot/skills/crit/SKILL.md":     "0d4ffd47448ac726b48c70b14e19d2cbfe48632459063355c7829760df2dd6b9",
-	"integrations/grok/skills/crit-cli/SKILL.md":           "1d13ec4e338994b8d9a947d2ce95aefd8b803c67785f8dfcc420f491f344e9b5",
+	"integrations/grok/skills/crit-cli/SKILL.md":           "f1c76c0956c98a25ec5a581a8b6830dacca42e32b33ee92b14d2faad91e0f26a",
 	"integrations/grok/skills/crit/SKILL.md":               "cc3f0a6f183feb7de6deacadc3e1c1d9fdb01baa658f8591b0ab3834ad1fb1df",
 	"integrations/hermes/skills/crit-cli/SKILL.md":         "39b072c785c765ae93cb94e15b58d2e631fbe7e303e9013a734238f1098909d3",
 	"integrations/hermes/skills/crit/SKILL.md":             "5ebb454cbcce0843d353e50695802a5b151a65cf59c4aeb07f494d89bc65861e",
