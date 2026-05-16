@@ -25,6 +25,7 @@ var commandDispatch = map[string]func([]string){
 	"comment":   runComment,
 	"review":    runReview,
 	"design":    runDesign,
+	"preview":   runPreview,
 	"plan":      runPlan,
 	"plan-hook": func([]string) { runPlanHook() },
 	"auth":      runAuth,

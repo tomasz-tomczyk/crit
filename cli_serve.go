@@ -51,6 +51,9 @@ type serverConfig struct {
 
 	// designOrigin is the parsed --design-origin flag (design-mode daemon).
 	designOrigin string
+
+	// previewFile is the absolute path to an HTML file for preview mode.
+	previewFile string
 }
 
 // serverFlagSet holds the parsed flag values before config resolution.
@@ -81,6 +84,9 @@ type serverFlagSet struct {
 
 	// designOrigin is the parsed --design-origin flag (design-mode daemon).
 	designOrigin string
+
+	// previewFile is the parsed --preview-file flag (preview-mode daemon).
+	previewFile string
 }
 
 func parseServerFlags(args []string) serverFlagSet {
@@ -106,6 +112,7 @@ func parseServerFlags(args []string) serverFlagSet {
 	scopeSpec := fs.String("scope", "", "Diff scope when reviewing a PR: layer (default) or full-stack")
 	remoteFiles := fs.Bool("remote", false, "Read PR file content via GitHub API instead of local git (avoids `git fetch`; requires gh)")
 	designOrigin := fs.String("design-origin", "", "")
+	previewFile := fs.String("preview-file", "", "")
 	fs.Usage = func() {
 		printHelp()
 	}
@@ -130,6 +137,7 @@ func parseServerFlags(args []string) serverFlagSet {
 		scopeSpec:    *scopeSpec,
 		remoteFiles:  *remoteFiles,
 		designOrigin: *designOrigin,
+		previewFile:  *previewFile,
 	}
 }
 
@@ -244,6 +252,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		focus:              focus,
 		remoteFiles:        sf.remoteFiles,
 		designOrigin:       sf.designOrigin,
+		previewFile:        sf.previewFile,
 	}, nil
 }
 
@@ -286,6 +295,9 @@ func preflightNoChangedFiles(sc *serverConfig) string {
 func createSession(sc *serverConfig) (*Session, error) {
 	if sc.designOrigin != "" {
 		return createDesignSession(sc)
+	}
+	if sc.previewFile != "" {
+		return createPreviewSession(sc)
 	}
 	var session *Session
 	var err error
@@ -469,6 +481,9 @@ func serveSessionKey(sc *serverConfig) string {
 	if sc.designOrigin != "" {
 		return designSessionKey(cwd, sc.designOrigin)
 	}
+	if sc.previewFile != "" {
+		return previewSessionKey(cwd, sc.previewFile)
+	}
 	branch := ""
 	if vcs := DetectVCS(sc.vcsOverride); vcs != nil {
 		branch = vcs.CurrentBranch()
@@ -537,6 +552,9 @@ func runServe(args []string) {
 	sessionArgs := sc.files
 	if sc.designOrigin != "" {
 		sessionArgs = []string{designSessionArgsTag, sc.designOrigin}
+	}
+	if sc.previewFile != "" {
+		sessionArgs = []string{"preview", sc.previewFile}
 	}
 	if err := writeSessionFile(key, sessionEntry{
 		PID:        os.Getpid(),

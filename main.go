@@ -45,6 +45,10 @@ func main() {
 		runDesign(args)
 		return
 	}
+	if looksLikePreviewArgs(args) {
+		runPreview(args)
+		return
+	}
 	runReview(args)
 }
 

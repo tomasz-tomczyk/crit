@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Sample Page</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hero">
+    <h1>Interactive Preview Demo</h1>
+    <p>This page tests that JS, CSS, and interactivity work inside the crit preview iframe.</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Counter</h2>
+      <div class="counter">
+        <button id="decrement" aria-label="Decrement">−</button>
+        <span id="count">0</span>
+        <button id="increment" aria-label="Increment">+</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Form Inputs</h2>
+      <form id="demo-form" onsubmit="return false">
+        <label for="name-input">Name</label>
+        <input type="text" id="name-input" placeholder="Type here...">
+
+        <label for="color-select">Favorite color</label>
+        <select id="color-select">
+          <option value="">Choose...</option>
+          <option value="red">Red</option>
+          <option value="blue">Blue</option>
+          <option value="green">Green</option>
+        </select>
+
+        <button type="submit" id="submit-btn">Submit</button>
+        <div id="form-output" class="output" hidden></div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Animation</h2>
+      <div class="animation-box">
+        <div id="bouncer" class="bouncer"></div>
+      </div>
+      <button id="toggle-animation" aria-label="Toggle animation">Toggle Animation</button>
+    </section>
+
+    <section class="card">
+      <h2>Dynamic List</h2>
+      <ul id="item-list"></ul>
+      <div class="list-controls">
+        <input type="text" id="new-item" placeholder="New item...">
+        <button id="add-item" aria-label="Add item">Add</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

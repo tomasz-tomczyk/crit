@@ -1,0 +1,88 @@
+/* Preview mode layout — iframe + source panel side by side */
+
+.crit-mode-preview .sidebar,
+.crit-mode-preview .main-content,
+.crit-mode-preview .comments-panel,
+.crit-mode-preview .pr-panel {
+  display: none !important;
+}
+
+.crit-preview-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: calc(100vh - var(--crit-header-height, 48px));
+  overflow: hidden;
+}
+
+.crit-preview-iframe-pane {
+  position: relative;
+  overflow: hidden;
+  border-right: 1px solid var(--crit-border);
+}
+
+.crit-preview-iframe-pane iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+}
+
+.crit-preview-source-pane {
+  overflow-y: auto;
+  padding: 0;
+  background: var(--crit-bg);
+}
+
+.crit-preview-source-pane .source-content {
+  font-family: var(--crit-font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 0;
+}
+
+.crit-preview-source-pane .source-line {
+  display: flex;
+  min-height: 20px;
+  padding: 0 12px 0 0;
+}
+
+.crit-preview-source-pane .source-line:hover {
+  background: var(--crit-bg-hover);
+}
+
+.crit-preview-source-pane .source-gutter {
+  flex: 0 0 48px;
+  text-align: right;
+  padding-right: 12px;
+  color: var(--crit-text-muted);
+  user-select: none;
+  cursor: pointer;
+  position: relative;
+}
+
+.crit-preview-source-pane .source-gutter:hover::after {
+  content: '+';
+  position: absolute;
+  left: 4px;
+  top: 0;
+  color: var(--crit-accent);
+  font-weight: bold;
+}
+
+.crit-preview-source-pane .source-text {
+  flex: 1;
+  white-space: pre;
+  overflow-x: auto;
+  padding: 0 8px;
+}
+
+.crit-preview-source-pane .source-line-commented {
+  background: var(--crit-bg-comment-highlight);
+}
+
+.crit-preview-comment-inline {
+  padding: 8px 12px 8px 60px;
+  border-top: 1px solid var(--crit-border);
+  border-bottom: 1px solid var(--crit-border);
+  background: var(--crit-bg-card);
+}

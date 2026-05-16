@@ -248,8 +248,36 @@
     // so pathname is the most reliable trigger — survives reload, doesn't
     // depend on a query string being present.
     var isDesign = window.location.pathname === '/design';
+    var isPreview = window.location.pathname === '/preview';
 
-    if (isDesign) {
+    if (isPreview) {
+      document.documentElement.classList.add('crit-mode-preview');
+
+      var sh = document.createElement('script'); sh.src = 'crit-shared.js'; sh.async = false;
+      document.head.appendChild(sh);
+      var cr = document.createElement('script'); cr.src = 'crit-renderer.js'; cr.async = false;
+      document.head.appendChild(cr);
+      var sse = document.createElement('script'); sse.src = 'crit-sse.js'; sse.async = false;
+      document.head.appendChild(sse);
+      var mi = document.createElement('script'); mi.src = 'markdown-it.min.js'; mi.async = false;
+      document.head.appendChild(mi);
+      var ch = document.createElement('script'); ch.src = 'crit-comment-card-helpers.js'; ch.async = false;
+      document.head.appendChild(ch);
+      var cc = document.createElement('script'); cc.src = 'crit-comment-card.js'; cc.async = false;
+      document.head.appendChild(cc);
+      var cf = document.createElement('script'); cf.src = 'crit-comment-form.js'; cf.async = false;
+      document.head.appendChild(cf);
+      var dr = document.createElement('script'); dr.src = 'crit-draft.js'; dr.async = false;
+      document.head.appendChild(dr);
+      var ctpl = document.createElement('script'); ctpl.src = 'crit-comment-templates.js'; ctpl.async = false;
+      document.head.appendChild(ctpl);
+
+      var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'style-preview.css';
+      document.head.appendChild(l);
+
+      var pm = document.createElement('script'); pm.src = 'preview-mode.js'; pm.async = false;
+      document.head.appendChild(pm);
+    } else if (isDesign) {
       // Keep <body> intact and just mark <html> with a mode class. style-design.css
       // hides code-review-only chrome (file tree, main-content, comments-panel,
       // pr-panel, etc.) while keeping the header + settings overlay alive, so the

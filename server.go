@@ -92,6 +92,11 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/qr", s.handleQR)
 
+	// Preview-mode routes — NOT wrapped in withReady (page loads before session).
+	mux.HandleFunc("/preview", s.handlePreviewPage)
+	mux.HandleFunc("/preview-content/", s.handlePreviewContent)
+	mux.HandleFunc("/preview-content", s.handlePreviewContent)
+
 	// Design-mode routes — NOT wrapped in withReady.
 	mux.HandleFunc("/design", s.handleDesignPage)
 	mux.HandleFunc("/crit-agent.js", s.handleCritAgentJS)

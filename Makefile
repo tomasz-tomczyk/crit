@@ -73,4 +73,8 @@ e2e-report:
 e2e-design-utils:
 	node --test frontend/__tests__/*.test.js
 
-.PHONY: build build-all generate verify-generate update-deps test test-frontend setup-hooks clean test-diff test-share-sync test-share-sync-selfhosted e2e-share e2e-roundtrip test-daemon test-plan-daemon e2e e2e-failed e2e-report e2e-design-utils
+test-preview: build
+	@echo "Starting preview mode with sample page..."
+	./crit preview test/preview-sample/index.html
+
+.PHONY: build build-all generate verify-generate update-deps test test-frontend setup-hooks clean test-diff test-share-sync test-share-sync-selfhosted e2e-share e2e-roundtrip test-daemon test-plan-daemon e2e e2e-failed e2e-report e2e-design-utils test-preview
