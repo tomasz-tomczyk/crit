@@ -274,9 +274,8 @@
             'Your agent has been notified — no further action needed. ' +
             'You can close this tab whenever you’re ready.';
         } else {
-          messageEl.innerHTML =
-            'Your agent has been notified. Waiting for updates…' +
-            '<span class="waiting-fallback">If your agent wasn’t listening, paste the prompt below.</span>';
+          messageEl.textContent =
+            ‘Agent notified. Copy the prompt below if it wasn’t listening.’;
         }
       }
 
