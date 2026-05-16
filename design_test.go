@@ -1054,3 +1054,59 @@ func TestDesign_PostFileCommentsDropsScreenshot(t *testing.T) {
 		t.Fatalf("persisted review.json must not contain a screenshot key, got:\n%s", data)
 	}
 }
+
+func TestDesignSession_ReinvokeCommandIncludesOrigin(t *testing.T) {
+	sc := &serverConfig{
+		designOrigin: "http://localhost:4000",
+		reviewPath:   filepath.Join(t.TempDir(), "review-reinvoke"),
+	}
+	sess, err := createDesignSession(sc)
+	if err != nil {
+		t.Fatalf("createDesignSession: %v", err)
+	}
+	// Simulate the post-creation override that runServe does.
+	if sc.designOrigin != "" {
+		sess.CLIArgs = []string{sc.designOrigin}
+	} else {
+		sess.CLIArgs = sc.files
+	}
+
+	got := sess.ReinvokeCommand()
+	want := "crit http://localhost:4000"
+	if got != want {
+		t.Errorf("ReinvokeCommand() = %q, want %q", got, want)
+	}
+}
+
+func TestDesignSession_AuthorFromConfig(t *testing.T) {
+	setHome(t, t.TempDir())
+	s, _ := newTestServer(t)
+	s.author = "Tomasz"
+
+	sess := &Session{
+		Mode:        "files",
+		ReviewType:  "design",
+		ReviewRound: 1,
+		Files:       []*FileEntry{{Path: "/", Status: "added"}},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+	s.session.Store(sess)
+
+	body := `{"start_line":0,"end_line":0,"body":"test pin","dom_anchor":{"pathname":"/","css_selector":"#btn","tag_chain":["BUTTON"]}}`
+	req := httptest.NewRequest("POST", "/api/file/comments?path=/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	comments := sess.GetComments("/")
+	if len(comments) == 0 {
+		t.Fatal("no comments after POST")
+	}
+	if comments[0].Author != "Tomasz" {
+		t.Errorf("comment.Author = %q, want %q", comments[0].Author, "Tomasz")
+	}
+}

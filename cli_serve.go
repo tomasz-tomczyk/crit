@@ -658,7 +658,11 @@ func runServe(args []string) {
 		return
 	}
 	applySessionOverrides(session, sc)
-	session.CLIArgs = sc.files
+	if sc.designOrigin != "" {
+		session.CLIArgs = []string{sc.designOrigin}
+	} else {
+		session.CLIArgs = sc.files
+	}
 
 	checkStaleIntegrations(sc, srv, cwd)
 

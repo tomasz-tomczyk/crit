@@ -1197,8 +1197,12 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 
 		// Design pin: route to AddDesignPin before line validation.
 		if req.DOMAnchor != nil {
+			author := req.Author
+			if author == "" {
+				author = s.author
+			}
 			sess := s.session.Load()
-			c, ok := sess.AddDesignPin(path, req.Body, req.Author, s.authUserID(), req.DOMAnchor)
+			c, ok := sess.AddDesignPin(path, req.Body, author, s.authUserID(), req.DOMAnchor)
 			if !ok {
 				http.Error(w, "Design pin rejected", http.StatusBadRequest)
 				return
