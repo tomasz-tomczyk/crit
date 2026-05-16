@@ -43,6 +43,9 @@ crit/
 │   ├── crit-sse.js      # Shared SSE client factory — window.crit.sse
 │   ├── crit-draft.js    # Draft autosave — window.crit.draft
 │   ├── crit-comment-*.js # Shared comment form, card, templates — window.crit.comment*
+│   ├── crit-icons.js    # SVG icon constants — window.crit.icons
+│   ├── crit-line-blocks.js    # buildLineBlocks, splitHighlightedCode — window.crit.lineBlocks
+│   ├── crit-diff-renderer.js  # Word-level diff computation — window.crit.diffRenderer
 │   ├── style.css        # Code-review layout, diff rendering, file sections, components
 │   ├── style-design.css # Design-mode layout (iframe pane, panel, markers)
 │   ├── theme.css        # Color themes (light/dark/system CSS variables)

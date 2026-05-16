@@ -46,6 +46,14 @@ All custom JS uses the IIFE + dual-export pattern:
 | `crit-settings-overlay.js` | `window.crit.settingsOverlay` | Settings dialog lifecycle |
 | `crit-settings-panes.js` | `window.crit.settingsPanes` | Settings tab content |
 
+## Code-Review Modules (used only by code-review mode)
+
+| Module | Namespace | Purpose |
+|--------|-----------|---------|
+| `crit-icons.js` | `window.crit.icons` | SVG icon constants (ICON_CHEVRON, ICON_EDIT, etc.) |
+| `crit-line-blocks.js` | `window.crit.lineBlocks` | buildLineBlocks, splitHighlightedCode, buildCodeLineBlocks |
+| `crit-diff-renderer.js` | `window.crit.diffRenderer` | Word-level diff computation (lineSimilarity, wordDiff, etc.) |
+
 ## ContentRenderer Interface
 
 Modes register a renderer that the shared chrome (comment cards, settings) can call without knowing the active mode:
