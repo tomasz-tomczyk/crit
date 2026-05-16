@@ -828,6 +828,10 @@
       if (!card) return;
       var ta = card.querySelector('.crit-design-reply-textarea');
       if (!ta) return;
+      if (window.crit && window.crit.shared && window.crit.shared.attachImageUploads && !ta._imageUploadsAttached) {
+        window.crit.shared.attachImageUploads(ta);
+        ta._imageUploadsAttached = true;
+      }
       ta.focus();
       // Place cursor at end so existing draft text is preserved usefully.
       try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (_) {}
@@ -975,6 +979,9 @@
     ta.rows = 3;
     ta.value = currentText;
     bodyEl.replaceWith(ta);
+    if (window.crit && window.crit.shared && window.crit.shared.attachImageUploads) {
+      window.crit.shared.attachImageUploads(ta);
+    }
     ta.focus();
     try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (_) {}
 
@@ -1141,6 +1148,10 @@
       if (!card) return;
       var ta = card.querySelector('.crit-design-edit-textarea');
       if (!ta) return;
+      if (window.crit && window.crit.shared && window.crit.shared.attachImageUploads && !ta._imageUploadsAttached) {
+        window.crit.shared.attachImageUploads(ta);
+        ta._imageUploadsAttached = true;
+      }
       ta.focus();
       try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (_) {}
     });
@@ -1618,6 +1629,9 @@
     }
     var ta = host.querySelector('.crit-design-composer-body');
     if (ta) {
+      if (window.crit && window.crit.shared && window.crit.shared.attachImageUploads) {
+        window.crit.shared.attachImageUploads(ta);
+      }
       ta.focus();
       ta.addEventListener('keydown', function (e) {
         // Don't intercept while an IME composition is in progress.
