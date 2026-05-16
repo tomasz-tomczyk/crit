@@ -4001,6 +4001,24 @@ func TestHandleShare_ConsentRequired(t *testing.T) {
 	}
 }
 
+func TestHandleShare_MalformedBody(t *testing.T) {
+	setHome(t, t.TempDir())
+	s, _ := newTestServer(t)
+	s.shareURL = defaultShareURL
+	s.authMu.Lock()
+	s.cfg.ShareConsented = true
+	s.authMu.Unlock()
+
+	req := httptest.NewRequest("POST", "/api/share", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
 func TestConsentNeeded_AlreadyConsented(t *testing.T) {
 	setHome(t, t.TempDir())
 	s, _ := newTestServer(t)
