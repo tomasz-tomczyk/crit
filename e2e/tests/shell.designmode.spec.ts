@@ -277,7 +277,7 @@ test.describe('design-mode shell — deep-link / a11y / errors', () => {
       return {
         hasSession: 'session' in d,
         hasRoutes: Array.isArray(d.routes),
-        hasUnsaved: d.unsavedRoutes instanceof Set,
+        hasCurrentRoute: typeof d.currentRoute === 'string',
         hasViewport: typeof d.viewport === 'object',
         hasMode: d.mode === 'navigate',
         hasComments: Array.isArray(d.comments),
@@ -289,7 +289,7 @@ test.describe('design-mode shell — deep-link / a11y / errors', () => {
       };
     });
     expect(shape).toEqual({
-      hasSession: true, hasRoutes: true, hasUnsaved: true, hasViewport: true,
+      hasSession: true, hasRoutes: true, hasCurrentRoute: true, hasViewport: true,
       hasMode: true, hasComments: true, hasPinModeEnabled: true,
     });
   });

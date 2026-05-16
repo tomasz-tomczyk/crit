@@ -34,8 +34,8 @@ test.describe('design-mode image paste/drop in composer', () => {
       el.dispatchEvent(event);
     });
 
-    // The placeholder should appear while uploading
-    await expect(textarea).toHaveValue(/!\[uploading…\]\(crit-pending-/);
+    // Upload completes near-instantly on localhost — assert the final markdown
+    await expect(textarea).toHaveValue(/!\[.*\]\(attachments\/[a-f0-9-]+\.png\)/);
   });
 
   test('drag-and-drop an image file onto the composer textarea', async ({ page }) => {
@@ -60,8 +60,8 @@ test.describe('design-mode image paste/drop in composer', () => {
       el.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true }));
     });
 
-    // The placeholder should appear
-    await expect(textarea).toHaveValue(/!\[uploading…\]\(crit-pending-/);
+    // Upload completes near-instantly on localhost — assert the final markdown
+    await expect(textarea).toHaveValue(/!\[.*\]\(attachments\/[a-f0-9-]+\.png\)/);
   });
 
   test('textarea gets drag-active class during dragover', async ({ page }) => {

@@ -128,6 +128,30 @@ func TestDispatch_PlainArgNotDesign(t *testing.T) {
 	}
 }
 
+func TestLooksLikeDesignArgs(t *testing.T) {
+	cases := []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"http://localhost:3000"}, true},
+		{[]string{"https://example.com"}, true},
+		{[]string{"https://localhost:8080/path"}, true},
+		{[]string{"ftp://x.com"}, false},
+		{[]string{"localhost:3000"}, false},
+		{[]string{"README.md"}, false},
+		{[]string{"http://a.com", "http://b.com"}, false},
+		{nil, false},
+		{[]string{}, false},
+		{[]string{"://invalid"}, false},
+	}
+	for _, tc := range cases {
+		got := looksLikeDesignArgs(tc.args)
+		if got != tc.want {
+			t.Errorf("looksLikeDesignArgs(%v) = %v, want %v", tc.args, got, tc.want)
+		}
+	}
+}
+
 func TestSmokeTest_ConnectionRefused(t *testing.T) {
 	r := runSmokeTest("http://127.0.0.1:19999")
 	if r.kind != smokeConnRefused {
