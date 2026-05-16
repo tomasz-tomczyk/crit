@@ -200,6 +200,7 @@
       }
       if (enableQ && e.key === '?') {
         e.preventDefault();
+        e.stopImmediatePropagation();
         if (currentTab === 'shortcuts') close();
         else switchTab('shortcuts');
       }

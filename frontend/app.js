@@ -9865,6 +9865,7 @@
         break;
       }
       case '?': {
+        if (settingsPanelOpen) break;
         e.preventDefault();
         openSettingsPanel('shortcuts');
         break;
