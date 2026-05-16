@@ -10514,6 +10514,64 @@
       }
     })
     .then(connectSSE)
+    .then(function() {
+      // Register as InlineContentRenderer
+      if (window.crit && window.crit.renderer) {
+        // eslint-disable-next-line no-unused-vars
+        let annotationIntentCb = null;
+
+        window.crit.renderer.register({
+          scrollToAnchor: function (anchor) {
+            if (anchor.type !== 'line') return Promise.resolve();
+            const section = document.getElementById('file-section-' + anchor.filePath);
+            if (!section) return Promise.resolve();
+            if (!section.open) section.open = true;
+            const el = section.querySelector('.line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"][data-end-line="' + anchor.endLine + '"]');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return Promise.resolve();
+          },
+
+          highlightAnchor: function (anchor) {
+            if (anchor.type !== 'line') return Promise.resolve();
+            const section = document.getElementById('file-section-' + anchor.filePath);
+            if (!section) return Promise.resolve();
+            const blocks = section.querySelectorAll('.line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"]');
+            blocks.forEach(function (el) {
+              const start = parseInt(el.dataset.startLine);
+              const end = parseInt(el.dataset.endLine);
+              if (start >= anchor.startLine && end <= anchor.endLine) {
+                el.classList.remove('comment-card-highlight');
+                void el.offsetWidth;
+                el.classList.add('comment-card-highlight');
+                el.addEventListener('animationend', function () {
+                  el.classList.remove('comment-card-highlight');
+                }, { once: true });
+              }
+            });
+            return Promise.resolve();
+          },
+
+          clearHighlight: function () {
+            document.querySelectorAll('.line-block.comment-card-highlight').forEach(function (el) {
+              el.classList.remove('comment-card-highlight');
+            });
+          },
+
+          onAnnotationIntent: function (callback) {
+            annotationIntentCb = callback;
+            return function () { annotationIntentCb = null; };
+          },
+
+          getMode: function () {
+            return (session && session.mode) || 'files';
+          },
+
+          getAnchorType: function () {
+            return 'line';
+          },
+        });
+      }
+    })
     .catch(function(err) {
       console.error('Init failed:', err.message);
     });
