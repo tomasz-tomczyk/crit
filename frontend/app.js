@@ -10623,8 +10623,8 @@
     // "Compare against" radio section. Lives inside the popover so the
     // page header doesn't need a second toolbar row for what is a
     // relatively rare action. One-line subcopy explains what each scope
-    // means — first-time users always ask "wait, what does Layer mean?"
-    // Scope rows are always rendered in range mode — Layer is the
+    // means — first-time users always ask "wait, what does This commit mean?"
+    // Scope rows are always rendered in range mode — "This commit" is the
     // canonical default. Full stack is disabled (with explanation) when
     // default_sha is missing, which keeps the option discoverable so the
     // user understands why they can't reach it rather than wondering
@@ -10644,8 +10644,8 @@
         ' data-action="scope" data-diff-scope="layer">' +
           '<span class="stack-popover-scope-radio" aria-hidden="true"></span>' +
           '<span class="stack-popover-scope-text">' +
-            '<span class="stack-popover-scope-name">Layer</span>' +
-            '<span class="stack-popover-scope-sub">Only changes in this layer</span>' +
+            '<span class="stack-popover-scope-name">This commit</span>' +
+            '<span class="stack-popover-scope-sub">Only changes in this commit</span>' +
           '</span>' +
         '</button>'
       );
