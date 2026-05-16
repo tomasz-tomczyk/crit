@@ -88,9 +88,7 @@ Run `crit design <url>` to review a running web app instead of files. Crit rever
 crit design http://localhost:3000     # review your local dev server
 ```
 
-Pins store a CSS selector plus a screenshot, so comments survive minor DOM changes and surface as `Drifted` when the element moves. All state stays local — no sharing in v1.
-
-See [`specs/2026-05-06-design-mode.md`](specs/2026-05-06-design-mode.md) for the full design.
+Pins store a CSS selector and semantic anchor (tag chain, accessible name, landmark), so comments survive minor DOM changes and surface as `Drifted` when the element moves. All state stays local — no sharing in v1.
 
 ### Round-to-round diff
 

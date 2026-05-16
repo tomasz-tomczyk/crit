@@ -270,12 +270,12 @@
     var overlay = state.overlay;
     var byId = overlay && overlay.markersById;
     if (!byId) return;
-    var el = byId.get ? byId.get(pinId) : byId[pinId];
-    if (!el) return;
+    var entry = byId.get ? byId.get(pinId) : byId[pinId];
+    if (!entry || !entry.el) return;
     try {
-      el.classList.add('crit-design-marker--flash');
+      entry.el.classList.add('crit-design-marker--flash');
       setTimeout(function () {
-        try { el.classList.remove('crit-design-marker--flash'); } catch (_) { /* noop */ }
+        try { entry.el.classList.remove('crit-design-marker--flash'); } catch (_) { /* noop */ }
       }, 1500);
     } catch (_) { /* noop */ }
   }

@@ -29,11 +29,24 @@ crit/
 ├── comment_cli.go       # `crit comment` headless implementation
 ├── gen_integration_hashes.go / integration_hashes_gen.go  # Build-time integration manifest
 ├── *_test.go            # Tests (testutil_test.go has shared helpers; *_integration_test.go behind build tag)
+├── design.go            # `crit design <url>` command — design-mode session bootstrap
+├── proxy.go             # Reverse proxy for design-mode iframe (HTML injection, redirect rewriting)
 ├── frontend/
-│   ├── index.html       # HTML shell — references style.css, theme.css, and app.js
-│   ├── app.js           # All JS (multi-file state, rendering, comments, SSE, keyboard shortcuts)
-│   ├── style.css        # Layout, diff rendering, file sections, components
+│   ├── index.html       # HTML shell — two-paradigm fork loads code-review OR design-mode scripts
+│   ├── app.js           # Code-review mode JS (file tree, rendering, comments, SSE, shortcuts)
+│   ├── design-mode.js   # Design-mode entry point (iframe chrome, pin workflow, panel)
+│   ├── design-mode.*.js # Design-mode sub-modules (toggle, composer, panel, sse, etc.)
+│   ├── crit-agent.js    # Injected into iframe — captures DOM clicks for pin anchoring
+│   ├── agent-*.js       # Agent sub-modules (protocol, marker overlay, mutation batcher)
+│   ├── crit-shared.js   # Shared helpers (cookies, theme, image upload) — window.crit.shared
+│   ├── crit-renderer.js # ContentRenderer registry — window.crit.renderer
+│   ├── crit-sse.js      # Shared SSE client factory — window.crit.sse
+│   ├── crit-draft.js    # Draft autosave — window.crit.draft
+│   ├── crit-comment-*.js # Shared comment form, card, templates — window.crit.comment*
+│   ├── style.css        # Code-review layout, diff rendering, file sections, components
+│   ├── style-design.css # Design-mode layout (iframe pane, panel, markers)
 │   ├── theme.css        # Color themes (light/dark/system CSS variables)
+│   ├── __tests__/       # Node.js unit tests for extracted modules (node --test)
 │   └── *.min.js         # Vendored markdown-it, highlight.js, mermaid
 ├── integrations/        # Drop-in config files for AI coding tools (claude-code, cursor, aider, etc.)
 ├── e2e/                 # Playwright E2E tests for the frontend (multi-project setup, see below)
@@ -83,6 +96,7 @@ Subcommands are dispatched via `commandDispatch` in `main.go`. Anything not in t
 crit                          # Review git changes (starts daemon, blocks for feedback)
 crit <file|dir> [...]         # Review specific files or directories (falls through to runReview)
 crit review [...]             # Explicit review invocation (same as default)
+crit design <url>             # Review a running web app in design mode (also: crit <url>)
 crit stop [--all]             # Stop daemon(s) for current directory
 crit status [--json]          # Show review file path, daemon status, comment stats
 crit cleanup [--days N] [--force]  # Delete stale review files from ~/.crit/reviews/

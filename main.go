@@ -2444,12 +2444,7 @@ func runCleanup(args []string) {
 
 	fmt.Printf("Found %d stale review file%s:\n", len(stale), plural(len(stale)))
 	for _, s := range stale {
-		ageDays := int(s.age.Hours() / 24)
-		branchInfo := ""
-		if s.branch != "" {
-			branchInfo = s.branch + ", "
-		}
-		fmt.Printf("  %s  (%s%d days old, %d comment%s)\n", s.path, branchInfo, ageDays, s.comments, plural(s.comments))
+		fmt.Printf("  %s  (%s%d days old, %d comment%s)\n", s.path, s.metaLabel(), int(s.age.Hours()/24), s.comments, plural(s.comments))
 	}
 
 	if !force {
@@ -2468,11 +2463,26 @@ func runCleanup(args []string) {
 }
 
 type staleReview struct {
-	key      string
-	path     string
-	branch   string
-	age      time.Duration
-	comments int
+	key        string
+	path       string
+	branch     string
+	reviewType string
+	origin     string
+	age        time.Duration
+	comments   int
+}
+
+func (s staleReview) metaLabel() string {
+	if s.reviewType == "design" {
+		if s.origin != "" {
+			return "design: " + s.origin + ", "
+		}
+		return "design, "
+	}
+	if s.branch != "" {
+		return s.branch + ", "
+	}
+	return ""
 }
 
 func findStaleReviews(revDir string, days int) []staleReview {
@@ -2538,9 +2548,13 @@ func checkStaleReviewFolder(revDir string, de os.DirEntry, key string, cutoff ti
 		var cj CritJSON
 		var updatedAt time.Time
 		var branch string
+		var reviewType string
+		var origin string
 		var commentCount int
 		if json.Unmarshal(data, &cj) == nil {
 			branch = cj.Branch
+			reviewType = cj.ReviewType
+			origin = cj.Origin
 			if t, parseErr := time.Parse(time.RFC3339, cj.UpdatedAt); parseErr == nil {
 				updatedAt = t
 			}
@@ -2558,11 +2572,13 @@ func checkStaleReviewFolder(revDir string, de os.DirEntry, key string, cutoff ti
 			return staleReview{}, false
 		}
 		return staleReview{
-			key:      key,
-			path:     folder,
-			branch:   branch,
-			age:      time.Since(updatedAt),
-			comments: commentCount,
+			key:        key,
+			path:       folder,
+			branch:     branch,
+			reviewType: reviewType,
+			origin:     origin,
+			age:        time.Since(updatedAt),
+			comments:   commentCount,
 		}, true
 	}
 
