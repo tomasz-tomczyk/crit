@@ -10629,8 +10629,7 @@
     // default_sha is missing, which keeps the option discoverable so the
     // user understands why they can't reach it rather than wondering
     // where the option went.
-    const showScope = true;
-    if (showScope) {
+    {
       const activeScope = focus.diff_scope || 'layer';
       const fullStackEnabled = !!focus.default_sha;
       // Subcopy mirrors what full-stack diffs against: the literal

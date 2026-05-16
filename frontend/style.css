@@ -802,6 +802,7 @@ body {
 .sd-org-btn-cancel:hover { background: var(--crit-bg-card); }
 .sd-org-btn-share { background: var(--crit-green); border: 1px solid transparent; color: var(--crit-bg-page); font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 6px; cursor: pointer; transition: background 100ms; line-height: 1; white-space: nowrap; }
 .sd-org-btn-share:hover { background: var(--crit-green-hover); }
+.sd-org-btn-share:disabled { opacity: 0.5; cursor: default; }
 /* Focus rings */
 .sd-org-owner-option:focus-visible,
 .sd-org-vis-option:focus-visible,

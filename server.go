@@ -634,7 +634,10 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		Visibility string `json:"visibility"`
 	}
 	if r.Body != nil && r.ContentLength > 0 {
-		_ = json.NewDecoder(r.Body).Decode(&shareReq)
+		if err := json.NewDecoder(r.Body).Decode(&shareReq); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
 	}
 
 	critPath := s.session.Load().critJSONPath()
