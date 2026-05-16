@@ -7146,25 +7146,15 @@
   }
 
   // ===== Waiting Modal Tips =====
-  function buildCodeReviewTips() {
-    const tips = [
-      'Press <kbd>?</kbd> to see all keyboard shortcuts.',
-      'Press <kbd>@</kbd> to reference other files in your comments.',
-      'Select text and press <kbd>c</kbd> to comment on your selection.',
-      'Use <kbd>crit pull</kbd> to load existing GitHub PR comments into your local review.',
-      'Use <kbd>crit push</kbd> to post your comments as a GitHub PR review. Add <kbd>--dry-run</kbd> to preview first.',
-    ];
+  function startTipRotation() {
+    const extra = [];
     if (!agentEnabled) {
-      tips.push('Set <kbd>agent_cmd</kbd> in your config to send comments directly to your AI agent for immediate feedback.');
+      extra.push('Set <kbd>agent_cmd</kbd> in your config to send comments directly to your AI agent for immediate feedback.');
     }
     if (shareURL && !authUserName) {
-      tips.push('Run <kbd>crit auth login</kbd> to link shared reviews with your account.');
+      extra.push('Run <kbd>crit auth login</kbd> to link shared reviews with your account.');
     }
-    return tips;
-  }
-
-  function startTipRotation() {
-    window.crit.shared.startTipRotation(buildCodeReviewTips());
+    window.crit.shared.startTipRotation(extra);
   }
 
   function stopTipRotation() {

@@ -561,14 +561,8 @@
   });
 
 
-  var designTips = [
-    'Pin comments persist across rounds — the agent sees them until you resolve.',
-    'Click a pin in the panel to scroll the iframe to that element.',
-    'Use the filter pill to toggle between open and resolved pins.',
-  ];
-
   function startDesignTipRotation() {
-    if (shared && shared.startTipRotation) shared.startTipRotation(designTips);
+    if (shared && shared.startTipRotation) shared.startTipRotation();
   }
 
   function stopDesignTipRotation() {
