@@ -534,6 +534,35 @@
       updateUnresolvedBadge();
     }
 
+    // Navigate to comment via ContentRenderer interface. Validates that
+    // scrollToAnchor + highlightAnchor work for design-mode pins when a
+    // comment card is clicked in the panel.
+    function navigateToCommentViaRenderer(comment) {
+      var renderer = window.crit && window.crit.renderer && window.crit.renderer.current();
+      if (!renderer) return;
+      var anchor = window.crit.renderer.anchorFromComment(comment);
+      renderer.scrollToAnchor(anchor).then(function () {
+        renderer.highlightAnchor(anchor);
+      });
+    }
+
+    // Delegated click listener on panelBody — when a comment card is
+    // clicked, invoke the ContentRenderer scroll+highlight alongside the
+    // existing route-navigation handled by design-mode.js.
+    function installPanelCardRendererClick() {
+      if (!els.panelBody) return;
+      els.panelBody.addEventListener('click', function (e) {
+        // Don't interfere with interactive controls
+        if (e.target.closest && e.target.closest('button, a, input, textarea')) return;
+        var card = e.target.closest && e.target.closest('.comment-card[data-id]');
+        if (!card) return;
+        var id = card.dataset.id;
+        if (!id || !state.comments) return;
+        var comment = state.comments.find(function (c) { return String(c.id) === id; });
+        if (comment) navigateToCommentViaRenderer(comment);
+      });
+    }
+
     // Resizable side panel. Reuses #commentsPanelResizer. NO clamping
     // against viewport preset width — the user gets the width they ask
     // for. Persisted to crit-settings.design_commentsPanelWidth (separate
@@ -566,6 +595,7 @@
       installFilterPillAndExpandAll: installFilterPillAndExpandAll,
       installCommentsPanelToggle: installCommentsPanelToggle,
       installCommentsPanelResize: installCommentsPanelResize,
+      installPanelCardRendererClick: installPanelCardRendererClick,
     };
   }
 

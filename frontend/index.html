@@ -272,6 +272,9 @@
       var sse = document.createElement('script'); sse.src = 'crit-sse.js';
       document.head.appendChild(sse);
 
+      var cf = document.createElement('script'); cf.src = 'crit-comment-form.js';
+      document.head.appendChild(cf);
+
       var ru = document.createElement('script'); ru.src = 'design-route-utils.js';
       document.head.appendChild(ru);
 
@@ -387,6 +390,7 @@
       var dr = document.createElement('script'); dr.src = 'crit-draft.js'; dr.async = false; document.body.appendChild(dr);
       var ctpl = document.createElement('script'); ctpl.src = 'crit-comment-templates.js'; ctpl.async = false; document.body.appendChild(ctpl);
       var sse = document.createElement('script'); sse.src = 'crit-sse.js'; sse.async = false; document.body.appendChild(sse);
+      var cf = document.createElement('script'); cf.src = 'crit-comment-form.js'; cf.async = false; document.body.appendChild(cf);
       // Pure rendering helpers shared with design-mode rows. Must load before app.js.
       var ch = document.createElement('script'); ch.src = 'crit-comment-card-helpers.js'; ch.async = false; document.body.appendChild(ch);
       // Shared comment-card renderer (used by app.js and design-mode). Must load before app.js.
