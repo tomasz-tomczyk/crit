@@ -1756,6 +1756,55 @@
       }
     }
     pushPinsToAgent();
+
+    // Register as the active ContentRenderer so chrome modules (comment
+    // list click-to-scroll, deeplinks) can interact with the design iframe
+    // through the unified renderer interface.
+    if (window.crit && window.crit.renderer) {
+      window.crit.renderer.register({
+        scrollToAnchor: function (anchor) {
+          if (anchor.type !== 'dom') return Promise.resolve();
+          // Use keep-highlight which causes the agent to find and scroll
+          // the element into view. Resolve after a timeout since the agent
+          // does not ack scroll completion.
+          return new Promise(function (resolve) {
+            try {
+              postToAgent({ type: 'keep-highlight', selector: anchor.selector });
+            } catch (_) { /* noop */ }
+            setTimeout(resolve, 500);
+          });
+        },
+
+        highlightAnchor: function (anchor) {
+          if (anchor.type !== 'dom') return Promise.resolve();
+          try {
+            postToAgent({ type: 'keep-highlight', selector: anchor.selector });
+          } catch (_) { /* noop */ }
+          return Promise.resolve();
+        },
+
+        clearHighlight: function () {
+          try {
+            postToAgent({ type: 'clear-highlight' });
+          } catch (_) { /* noop */ }
+        },
+
+        onAnnotationIntent: function () {
+          // Design mode's pin flow IS the annotation intent. The pin
+          // composer UX is already built and triggered by the agent's
+          // selection message — no additional wiring needed here.
+          return function () {};
+        },
+
+        getMode: function () {
+          return 'design';
+        },
+
+        getAnchorType: function () {
+          return 'dom';
+        },
+      });
+    }
   }
   function handleAgentError(e) {
     // Screenshot capture is best-effort. Real-world pages frequently use CSS
