@@ -401,6 +401,8 @@
       var so = document.createElement('script'); so.src = 'crit-settings-overlay.js'; so.async = false; document.body.appendChild(so);
       // Line-block building (buildLineBlocks, splitHighlightedCode). Must load before app.js.
       var lb = document.createElement('script'); lb.src = 'crit-line-blocks.js'; lb.async = false; document.body.appendChild(lb);
+      // Word-level diff computation (pure functions). Must load before app.js.
+      var df = document.createElement('script'); df.src = 'crit-diff-renderer.js'; df.async = false; document.body.appendChild(df);
       // SVG icon constants used by app.js. Must load before app.js.
       var ic = document.createElement('script'); ic.src = 'crit-icons.js'; ic.async = false; document.body.appendChild(ic);
       var a = document.createElement('script'); a.src = 'app.js'; a.async = false; document.body.appendChild(a);
