@@ -932,7 +932,7 @@
       var res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: body }),
+        body: JSON.stringify({ body: body, author: (state.config && state.config.author) || '' }),
       });
       if (!res.ok) throw new Error('Server returned ' + res.status);
       var reply = await res.json();
@@ -1595,7 +1595,7 @@
       var res = await shared.fetchJSON(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ start_line: 0, end_line: 0, body: body, dom_anchor: domAnchor }),
+        body: JSON.stringify({ start_line: 0, end_line: 0, body: body, dom_anchor: domAnchor, author: (state.config && state.config.author) || '' }),
       });
       optimisticInsertComment(domAnchor.pathname, res);
       closeComposer();

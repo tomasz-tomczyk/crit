@@ -7567,39 +7567,7 @@
   }
 
   function showDisconnected() {
-    // Idempotent: bail if a banner is already present.
-    if (document.querySelector('.disconnected-banner')) return;
-
-    const header = document.querySelector('.header');
-    const banner = document.createElement('div');
-    banner.className = 'disconnected-banner';
-    banner.setAttribute('role', 'status');
-    banner.setAttribute('aria-live', 'polite');
-
-    const pill = document.createElement('div');
-    pill.className = 'disconnected-pill';
-    pill.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="currentColor" opacity="0.18"/><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.25"/><path d="M4.5 7.1 L6.3 8.9 L9.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Session complete';
-
-    const text = document.createElement('span');
-    text.className = 'disconnected-text';
-    text.textContent = 'Server stopped \u2014 your review is now read only. Safe to close this tab.';
-
-    banner.appendChild(pill);
-    banner.appendChild(text);
-    header.insertAdjacentElement('afterend', banner);
-
-    // Sticky offset is driven by the --crit-header-height CSS variable, kept
-    // in sync by ResizeObserver below — no inline style, so resize is handled.
-    const setHeaderVar = function() {
-      document.documentElement.style.setProperty('--crit-header-height', header.offsetHeight + 'px');
-    };
-    setHeaderVar();
-    if (typeof ResizeObserver !== 'undefined') {
-      const ro = new ResizeObserver(setHeaderVar);
-      ro.observe(header);
-    } else {
-      window.addEventListener('resize', setHeaderVar);
-    }
+    window.crit.shared.showDisconnected();
   }
 
   // ===== Share =====

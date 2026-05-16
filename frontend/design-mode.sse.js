@@ -102,26 +102,10 @@
     }
 
     function showDesignDisconnected() {
-      if (typeof document === 'undefined') return;
-      if (document.querySelector('.disconnected-banner')) return;
-      var header = document.querySelector('.header');
-      if (!header) return;
-      var banner = document.createElement('div');
-      banner.className = 'disconnected-banner';
-      banner.setAttribute('role', 'status');
-      banner.setAttribute('aria-live', 'polite');
-
-      var pill = document.createElement('div');
-      pill.className = 'disconnected-pill';
-      pill.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="currentColor" opacity="0.18"/><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.25"/><path d="M4.5 7.1 L6.3 8.9 L9.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Session complete';
-
-      var text = document.createElement('span');
-      text.className = 'disconnected-text';
-      text.textContent = 'Server stopped — restart crit to continue.';
-
-      banner.appendChild(pill);
-      banner.appendChild(text);
-      header.insertAdjacentElement('afterend', banner);
+      var shared = window.crit && window.crit.shared;
+      if (shared && typeof shared.showDisconnected === 'function') {
+        shared.showDisconnected();
+      }
     }
 
     function install() {
