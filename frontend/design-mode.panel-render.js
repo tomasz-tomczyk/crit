@@ -173,8 +173,16 @@
       if (rowMod && typeof rowMod.renderDesignPinRow === 'function') {
         return rowMod.renderDesignPinRow(c, cardDeps);
       }
-      // Last-ditch fallback (should not happen — row module is wired by
-      // design-mode.js at boot). Render a minimal navigation card.
+      // Row module not loaded — fall through to buildCommentCard directly.
+      var ccMod = window.crit && window.crit.commentCard;
+      if (ccMod && typeof ccMod.buildCommentCard === 'function') {
+        var pathname = (c.dom_anchor && c.dom_anchor.pathname) || '/';
+        var parts = ccMod.buildCommentCard(c, pathname, {
+          wrapperClass: 'comment-block panel-comment-block crit-design-comment-row-wrap',
+          deps: cardDeps,
+        });
+        return parts.wrapper;
+      }
       return buildFallbackCard(c, (c.dom_anchor && c.dom_anchor.pathname) || '/');
     }
 
@@ -340,7 +348,7 @@
             // node from the document.
             wrapper = existing.wrapper;
           } else {
-            wrapper = isPin ? buildPinCard(c, cardDeps) : buildFallbackCard(c, route);
+            wrapper = buildPinCard(c, cardDeps);
             _cardEntries.set(idStr, {
               wrapper: wrapper, sig: sig, route: route, isPin: isPin,
             });
