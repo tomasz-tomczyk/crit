@@ -4788,72 +4788,21 @@
   }
 
   // ===== Comment Templates =====
-  function getTemplates() {
-    try {
-      const raw = getCookie('crit-templates');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {}
-    return [];
-  }
-
-  function saveTemplates(templates) {
-    setCookie('crit-templates', JSON.stringify(templates));
-  }
-
-  function populateTemplateBar(bar, textarea) {
-    bar.innerHTML = '';
-    const templates = getTemplates();
-    if (templates.length === 0) {
-      bar.style.display = 'none';
-      return;
-    }
-    bar.style.display = '';
-    templates.forEach(function(tmpl, i) {
-      const chip = document.createElement('button');
-      chip.className = 'template-chip';
-      chip.title = tmpl;
-      const label = document.createElement('span');
-      label.className = 'template-chip-label';
-      label.textContent = tmpl;
-      chip.appendChild(label);
-      const del = document.createElement('span');
-      del.className = 'template-chip-delete';
-      del.textContent = '\u00d7';
-      del.title = 'Remove template';
-      del.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const t = getTemplates();
-        t.splice(i, 1);
-        saveTemplates(t);
-        populateTemplateBar(bar, textarea);
-      });
-      chip.appendChild(del);
-      chip.addEventListener('click', function(e) {
-        e.preventDefault();
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        textarea.value = textarea.value.substring(0, start) + tmpl + textarea.value.substring(end);
-        textarea.selectionStart = textarea.selectionEnd = start + tmpl.length;
-        textarea.focus();
-        textarea.dispatchEvent(new Event('input'));
-      });
-      bar.appendChild(chip);
-    });
-  }
-
-  function createTemplateBar(textarea) {
-    const bar = document.createElement('div');
-    bar.className = 'comment-template-bar';
-    populateTemplateBar(bar, textarea);
-    return bar;
-  }
+  // Template CRUD and bar DOM delegated to window.crit.commentTemplates (crit-comment-templates.js).
 
   function attachTemplateUI(form, textarea, actions) {
-    const templateBar = createTemplateBar(textarea);
+    const tmplModule = window.crit.commentTemplates;
+
+    const templateBar = tmplModule.buildTemplateBar({
+      onInsert: function(text) {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        textarea.value = textarea.value.substring(0, start) + text + textarea.value.substring(end);
+        textarea.selectionStart = textarea.selectionEnd = start + text.length;
+        textarea.focus();
+        textarea.dispatchEvent(new Event('input'));
+      }
+    });
 
     const saveTemplateBtn = document.createElement('button');
     saveTemplateBtn.className = 'btn btn-sm';
@@ -4865,7 +4814,7 @@
 
     const suggestBtn = document.createElement('button');
     suggestBtn.className = 'btn btn-sm';
-    suggestBtn.textContent = '\u00B1 Suggest';
+    suggestBtn.textContent = '± Suggest';
     suggestBtn.title = 'Insert the selected lines as a suggestion';
     suggestBtn.addEventListener('click', function() { insertSuggestion(textarea); });
 
@@ -4918,11 +4867,8 @@
     saveBtn.addEventListener('click', function() {
       const val = input.value.trim();
       if (!val) return;
-      const t = getTemplates();
-      t.push(val);
-      saveTemplates(t);
+      templateBar._saveNew(val);
       overlay.remove();
-      populateTemplateBar(templateBar, textarea);
       textarea.focus();
     });
 
@@ -5548,51 +5494,42 @@
     renderFileByPath(formObj.filePath);
   }
 
-  // ===== Draft Autosave =====
-  const draftTimers = {};
-
-  function getDraftKey(formObj) {
-    if (!formObj) return null;
-    return 'crit-draft-' + formObj.formKey;
-  }
+  // ===== Draft Autosave (delegates to window.crit.draft) =====
+  const draftMod = window.crit.draft;
 
   function saveDraft(body, formObj) {
     if (!formObj) return;
-    const key = getDraftKey(formObj);
-    if (!key) return;
-    try {
-      localStorage.setItem(key, JSON.stringify({
-        filePath: formObj.filePath,
-        startLine: formObj.startLine,
-        endLine: formObj.endLine,
-        afterBlockIndex: formObj.afterBlockIndex,
-        editingId: formObj.editingId,
-        side: formObj.side || '',
-        scope: formObj.scope || '',
-        body: body,
-        savedAt: Date.now()
-      }));
-    } catch {}
+    draftMod.saveDraftImmediate(formObj.formKey, {
+      filePath: formObj.filePath,
+      startLine: formObj.startLine,
+      endLine: formObj.endLine,
+      afterBlockIndex: formObj.afterBlockIndex,
+      editingId: formObj.editingId,
+      side: formObj.side || '',
+      scope: formObj.scope || '',
+      body: body,
+      savedAt: Date.now()
+    });
   }
 
   function debouncedSaveDraft(body, formObj) {
     if (!formObj) return;
-    const key = formObj.formKey;
-    clearTimeout(draftTimers[key]);
-    draftTimers[key] = setTimeout(function() { saveDraft(body, formObj); }, 500);
+    draftMod.saveDraft(formObj.formKey, {
+      filePath: formObj.filePath,
+      startLine: formObj.startLine,
+      endLine: formObj.endLine,
+      afterBlockIndex: formObj.afterBlockIndex,
+      editingId: formObj.editingId,
+      side: formObj.side || '',
+      scope: formObj.scope || '',
+      body: body,
+      savedAt: Date.now()
+    });
   }
 
   function clearDraft(formObj) {
     if (!formObj) return;
-    const key = formObj.formKey;
-    if (draftTimers[key]) {
-      clearTimeout(draftTimers[key]);
-      delete draftTimers[key];
-    }
-    const draftKey = getDraftKey(formObj);
-    if (draftKey) {
-      try { localStorage.removeItem(draftKey); } catch {}
-    }
+    draftMod.clearDraft(formObj.formKey);
   }
 
   window.addEventListener('beforeunload', function() {
@@ -5600,6 +5537,7 @@
       const el = document.querySelector('.comment-form[data-form-key="' + formObj.formKey + '"] textarea');
       if (el) saveDraft(el.value, formObj);
     });
+    draftMod.flushAll();
   });
 
   function restoreDrafts() {
@@ -7430,9 +7368,10 @@
   // ===== SSE Client =====
 
   function connectSSE() {
-    const source = new EventSource('/api/events');
+    let sseErrorCount = 0;
 
-    source.addEventListener('file-changed', async function() {
+    const conn = window.crit.sse.createSSE('/api/events', {
+      'file-changed': async function() {
       try {
         // Reset action tracking for new round
         userActedThisRound = false;
@@ -7505,11 +7444,9 @@
       } catch (err) {
         console.error('Error handling file-changed:', err);
       }
-    });
-
-    source.addEventListener('edit-detected', function(e) {
+      },
+      'edit-detected': function(data) {
       try {
-        const data = JSON.parse(e.data);
         const count = parseInt(data.content, 10);
         const el = document.getElementById('waitingEdits');
         if (el && uiState === 'waiting') {
@@ -7524,9 +7461,8 @@
           }
         }
       } catch {}
-    });
-
-    source.addEventListener('comments-changed', async function() {
+      },
+      'comments-changed': async function() {
       try {
         // Only re-fetch comments data, not file content or diffs (those only
         // change on file-changed events). This reduces O(3N) to O(N) requests.
@@ -7573,19 +7509,17 @@
       } catch (err) {
         console.error('Error handling comments-changed:', err);
       }
-    });
-
-    source.addEventListener('base-changed', function() {
+      },
+      'base-changed': function() {
       reloadForScope();
       fetchCommits();
-    });
-
-    source.addEventListener('focus-changed', function(e) {
+      },
+      'focus-changed': function(data) {
       try {
         // Server SSE wraps every event in {type, filename, content} where
         // `content` is a JSON string carrying the actual payload. Parse the
         // SSE envelope first, then the inner content for the focus object.
-        const envelope = JSON.parse(e.data || '{}');
+        const envelope = data || {};
         const inner = envelope.content ? JSON.parse(envelope.content) : envelope;
         const focus = inner && inner.focus;
         if (focus) {
@@ -7611,25 +7545,25 @@
       // Reuse the same refresh path as base-changed.
       reloadForScope();
       fetchCommits();
-    });
-
-    source.addEventListener('server-shutdown', function() {
-      source.close();
+      },
+      'server-shutdown': function() {
+      conn.close();
       showDisconnected();
+      },
+    }, {
+      onError: function() {
+        sseErrorCount++;
+        if (sseErrorCount >= 3) {
+          showMiniToast('Connection lost \u2014 retrying\u2026');
+        }
+      },
     });
 
-    let sseErrorCount = 0;
-    source.addEventListener('message', function() { sseErrorCount = 0; });
-    source.addEventListener('file-changed', function() { sseErrorCount = 0; });
-    source.addEventListener('comments-changed', function() { sseErrorCount = 0; });
-    source.addEventListener('base-changed', function() { sseErrorCount = 0; });
-
-    source.onerror = function() {
-      sseErrorCount++;
-      if (sseErrorCount >= 3) {
-        showMiniToast('Connection lost \u2014 retrying\u2026');
-      }
-    };
+    // Reset error count on successful events by wrapping source listeners
+    conn.source.addEventListener('message', function() { sseErrorCount = 0; });
+    conn.source.addEventListener('file-changed', function() { sseErrorCount = 0; });
+    conn.source.addEventListener('comments-changed', function() { sseErrorCount = 0; });
+    conn.source.addEventListener('base-changed', function() { sseErrorCount = 0; });
   }
 
   function showDisconnected() {

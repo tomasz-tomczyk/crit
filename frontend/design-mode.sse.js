@@ -102,23 +102,22 @@
     }
 
     function install() {
-      var es;
-      try { es = new EventSource('/api/events'); } catch (_) { return; }
-      es.addEventListener('design-round-start', function (ev) {
-        var payload;
-        try { payload = JSON.parse(ev.data); } catch (_) { return; }
-        if (!payload || typeof payload.round !== 'number') return;
-        applyRoundStart(payload.round);
+      if (!window.crit || !window.crit.sse) return;
+      var conn = window.crit.sse.createSSE('/api/events', {
+        'design-round-start': function (data) {
+          if (!data || typeof data.round !== 'number') return;
+          applyRoundStart(data.round);
+        },
+        'comments-changed': function () {
+          // Server emits this on any comment mutation (add/edit/delete/reply
+          // /resolve), including CLI-driven writes via `crit comment`. The
+          // payload is informational only — we always re-fetch the canonical
+          // list so we don't have to mirror reconciliation rules client-side.
+          applyCommentsChanged();
+        },
       });
-      es.addEventListener('comments-changed', function () {
-        // Server emits this on any comment mutation (add/edit/delete/reply
-        // /resolve), including CLI-driven writes via `crit comment`. The
-        // payload is informational only — we always re-fetch the canonical
-        // list so we don't have to mirror reconciliation rules client-side.
-        applyCommentsChanged();
-      });
-      state.designSSE = es;
-      return es;
+      state.designSSE = conn;
+      return conn;
     }
 
     return {
