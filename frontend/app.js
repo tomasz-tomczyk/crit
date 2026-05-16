@@ -5217,9 +5217,6 @@
     attachImagePaste(textarea);
     attachImageDragDrop(textarea);
   }
-  if (window.crit && window.crit.shared) {
-    window.crit.shared.attachImageUploads = attachImageUploads;
-  }
 
   function uploadAndInsertImage(textarea, file) {
     const seq = ++pendingImagePasteSeq;

@@ -482,6 +482,118 @@
     };
   }
 
+  // ===== Image upload (paste + drag-drop) for comment textareas =====
+  var pendingImageSeq = 0;
+
+  function insertAtCursor(textarea, text) {
+    var start = textarea.selectionStart;
+    var end = textarea.selectionEnd;
+    var before = textarea.value.substring(0, start);
+    var after = textarea.value.substring(end);
+    textarea.value = before + text + after;
+    var cursor = start + text.length;
+    textarea.selectionStart = textarea.selectionEnd = cursor;
+    textarea.focus();
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function replaceInTextarea(textarea, needle, replacement) {
+    var idx = textarea.value.indexOf(needle);
+    if (idx === -1) return;
+    var selStart = textarea.selectionStart;
+    var selEnd = textarea.selectionEnd;
+    textarea.value = textarea.value.substring(0, idx) + replacement + textarea.value.substring(idx + needle.length);
+    var delta = replacement.length - needle.length;
+    if (selStart > idx + needle.length) {
+      textarea.selectionStart = selStart + delta;
+      textarea.selectionEnd = selEnd + delta;
+    } else if (selStart >= idx) {
+      textarea.selectionStart = textarea.selectionEnd = idx + replacement.length;
+    }
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function uploadAndInsertImage(textarea, file) {
+    var seq = ++pendingImageSeq;
+    var placeholder = '![uploading…](crit-pending-' + seq + ')';
+    insertAtCursor(textarea, placeholder);
+    var formData = new FormData();
+    formData.append('file', file, file.name || '');
+    fetch('/api/attachments', { method: 'POST', body: formData })
+      .then(function (res) {
+        if (!res.ok) return res.text().then(function (msg) { throw new Error(msg || 'Upload failed: ' + res.status); });
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data || !data.url) throw new Error('Malformed upload response');
+        var alt = (data.original_filename || '').trim();
+        replaceInTextarea(textarea, placeholder, '![' + alt + '](' + data.url + ')');
+      })
+      .catch(function (err) {
+        console.error('Image paste upload failed:', err);
+        replaceInTextarea(textarea, placeholder, '_[image upload failed]_');
+      });
+  }
+
+  function attachImagePaste(textarea) {
+    textarea.addEventListener('paste', function (event) {
+      var clipboard = event.clipboardData;
+      if (!clipboard) return;
+      var items = clipboard.items;
+      if (!items || items.length === 0) return;
+      var images = [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].kind === 'file' && items[i].type && items[i].type.indexOf('image/') === 0) {
+          var f = items[i].getAsFile();
+          if (f) images.push(f);
+        }
+      }
+      if (images.length === 0) return;
+      event.preventDefault();
+      images.forEach(function (file) { uploadAndInsertImage(textarea, file); });
+    });
+  }
+
+  function attachImageDragDrop(textarea) {
+    function hasFiles(event) {
+      var dt = event.dataTransfer;
+      return !!(dt && dt.types && Array.prototype.indexOf.call(dt.types, 'Files') !== -1);
+    }
+    textarea.addEventListener('dragenter', function (event) {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      textarea.classList.add('drag-active');
+    });
+    textarea.addEventListener('dragover', function (event) {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      textarea.classList.add('drag-active');
+    });
+    textarea.addEventListener('dragleave', function (event) {
+      if (event.target === textarea) textarea.classList.remove('drag-active');
+    });
+    textarea.addEventListener('drop', function (event) {
+      var dt = event.dataTransfer;
+      if (!dt || !dt.files || dt.files.length === 0) { textarea.classList.remove('drag-active'); return; }
+      var images = [];
+      for (var i = 0; i < dt.files.length; i++) {
+        var file = dt.files[i];
+        if (file && file.type && file.type.indexOf('image/') === 0) images.push(file);
+      }
+      if (images.length === 0) { textarea.classList.remove('drag-active'); return; }
+      event.preventDefault();
+      textarea.classList.remove('drag-active');
+      textarea.focus();
+      images.forEach(function (file) { uploadAndInsertImage(textarea, file); });
+    });
+  }
+
+  function attachImageUploads(textarea) {
+    attachImagePaste(textarea);
+    attachImageDragDrop(textarea);
+  }
+
   window.crit = window.crit || {};
   window.crit.shared = {
     escapeHTML,
@@ -498,5 +610,6 @@
     waitForSession,
     installSidebarResize,
     computeResizeDelta,
+    attachImageUploads,
   };
 })();
