@@ -5739,6 +5739,7 @@
       renderReplyList: renderReplyList,
       createReplyInput: createReplyInput,
       iconChevron: ICON_CHEVRON,
+      linkifyDom: linkifyCommentRefsInDom,
     }, opts.deps || {});
     return window.crit.commentCard.buildCommentCard(comment, filePath, merged);
   }

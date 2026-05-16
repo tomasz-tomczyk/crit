@@ -83,12 +83,15 @@
     var collapseBtn = document.createElement('button');
     collapseBtn.className = 'comment-collapse-btn';
     collapseBtn.title = isCollapsed ? 'Expand comment' : 'Collapse comment';
+    collapseBtn.setAttribute('aria-label', isCollapsed ? 'Expand comment' : 'Collapse comment');
     collapseBtn.innerHTML = iconChevron;
     collapseBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       card.classList.toggle('collapsed');
-      setCollapseOverride(comment.id, card.classList.contains('collapsed'));
-      collapseBtn.title = card.classList.contains('collapsed') ? 'Expand comment' : 'Collapse comment';
+      var collapsed = card.classList.contains('collapsed');
+      setCollapseOverride(comment.id, collapsed);
+      collapseBtn.title = collapsed ? 'Expand comment' : 'Collapse comment';
+      collapseBtn.setAttribute('aria-label', collapsed ? 'Expand comment' : 'Collapse comment');
     });
 
     var headerLeft = document.createElement('div');
@@ -150,6 +153,7 @@
     bodyEl.innerHTML = commentMd
       ? commentMd.render(comment.body, filePath ? buildCommentEnv(comment, filePath) : undefined)
       : (comment.body || '');
+    if (typeof deps.linkifyDom === 'function') deps.linkifyDom(bodyEl);
 
     card.appendChild(header);
 

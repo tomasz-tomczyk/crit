@@ -235,6 +235,10 @@
     if (dedup && typeof dedup.busy === 'function' && dedup.busy()) return null;
     if (dedup && typeof dedup.set === 'function') dedup.set();
     try {
+      if (typeof o.checkConsent === 'function') {
+        var consentOk = await o.checkConsent();
+        if (!consentOk) return null;
+      }
       var resp = await fetch('/api/finish', { method: 'POST' });
       if (!resp.ok) throw new Error('Finish review failed: HTTP ' + resp.status);
       var data = await resp.json();

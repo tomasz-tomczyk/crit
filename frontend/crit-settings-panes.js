@@ -57,6 +57,7 @@
       { label: 'Navigation', shortcuts: [
         { key: '<kbd>j</kbd>', action: 'Next block', modes: CODE_REVIEW_ONLY },
         { key: '<kbd>k</kbd>', action: 'Previous block', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>Shift</kbd>+<kbd>V</kbd>', action: 'Visual line mode (extend with j/k, then c to comment)', modes: CODE_REVIEW_ONLY },
         { key: '<kbd>]</kbd>', action: 'Next comment', modes: CODE_REVIEW_ONLY },
         { key: '<kbd>[</kbd>', action: 'Previous comment', modes: CODE_REVIEW_ONLY },
         { key: '<kbd>n</kbd>', action: 'Next change', mode: 'file mode', modes: CODE_REVIEW_ONLY },
