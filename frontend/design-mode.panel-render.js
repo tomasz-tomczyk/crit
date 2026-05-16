@@ -47,6 +47,17 @@
       try {
         if (typeof window.markdownit === 'function') {
           commentMd = window.markdownit({ html: false, linkify: true, breaks: true });
+          commentMd.renderer.rules.image = function (tokens, idx, options, _env, self) {
+            var token = tokens[idx];
+            var srcIdx = token.attrIndex('src');
+            if (srcIdx >= 0) {
+              var src = token.attrs[srcIdx][1];
+              if (!/^https?:\/\/|^data:|^\//.test(src) && /^attachments\//.test(src)) {
+                token.attrs[srcIdx][1] = '/api/' + src;
+              }
+            }
+            return self.renderToken(tokens, idx, options);
+          };
         }
       } catch (_) {}
       _designCardDeps = {
