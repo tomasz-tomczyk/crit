@@ -138,15 +138,6 @@
   font-family: var(--crit-font-mono);
   font-size: 12px;
 }
-.crit-design-breadcrumb-unsaved {
-  margin-left: 6px;
-  font-size: 10px;
-  color: var(--crit-yellow);
-  background: var(--crit-yellow-subtle);
-  padding: 1px 6px;
-  border-radius: 999px;
-  border: 1px solid var(--crit-yellow-border);
-}
 
 /* Drift tray heading colour reserved for Phase D — use --crit-yellow. */
 

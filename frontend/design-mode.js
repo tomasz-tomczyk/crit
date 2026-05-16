@@ -19,7 +19,6 @@
    * @typedef {object} CritDesignState
    * @property {object|null} session         /api/session payload
    * @property {string[]}    routes          Pathnames seen this session
-   * @property {Set<string>} unsavedRoutes   Routes visited but not yet pinned
    * @property {string}      currentRoute    Currently displayed pathname
    * @property {{w:number,h:number,key:string}} viewport
    * @property {"navigate"|"pin"} mode
@@ -39,7 +38,6 @@
   var stateDefaults = {
     session: null,
     routes: [],
-    unsavedRoutes: new Set(),
     currentRoute: '/',
     viewport: { w: 1280, h: 800, key: 'desktop' },
     mode: 'navigate',
@@ -194,12 +192,7 @@
       bc.className = 'header-chip';
       bc.id = 'designRouteChip';
       bc.innerHTML =
-        '<span class="branch-icon">' +
-        '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
-        '<path d="M2 2.75A.75.75 0 0 1 2.75 2h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 2.75z"/>' +
-        '</svg></span>' +
-        '<span id="designRouteName">/</span>' +
-        '<span class="crit-design-breadcrumb-unsaved" id="designRouteUnsaved" style="display:none">(unsaved)</span>';
+        '<span id="designRouteName">/</span>';
       headerLeft.appendChild(bc);
     }
 
@@ -262,7 +255,6 @@
     els.modeToggle = document.getElementById('designModeToggle');
     els.routeChip = document.getElementById('designRouteChip');
     els.routeName = document.getElementById('designRouteName');
-    els.routeUnsaved = document.getElementById('designRouteUnsaved');
     els.round = document.getElementById('designRoundCounter');
     els.pane = document.getElementById('critDesignPane');
     els.frame = document.getElementById('critDesignFrame');
@@ -488,8 +480,6 @@
   function renderBreadcrumb() {
     if (!els.routeName) return;
     els.routeName.textContent = state.currentRoute;
-    var unsaved = state.unsavedRoutes.has(state.currentRoute);
-    if (els.routeUnsaved) els.routeUnsaved.style.display = unsaved ? '' : 'none';
   }
 
   function recordRoute(pathname) {
@@ -497,12 +487,6 @@
     state.currentRoute = route;
     if (state.routes.indexOf(route) === -1) {
       state.routes.push(route);
-      var known = new Set(state.comments.map(function (c) { return utils.normaliseRoute(c.path || '/'); }));
-      if (!known.has(route)) state.unsavedRoutes.add(route);
-    } else {
-      // Already seen — re-evaluate unsaved status against current comments.
-      var known2 = new Set(state.comments.map(function (c) { return utils.normaliseRoute(c.path || '/'); }));
-      if (known2.has(route)) state.unsavedRoutes.delete(route);
     }
     renderBreadcrumb();
     refreshPanel();
