@@ -7045,14 +7045,6 @@
     updateExpandAllLabel();
   }
 
-  function navigateToCommentViaRenderer(comment) {
-    const renderer = window.crit && window.crit.renderer && window.crit.renderer.current();
-    if (!renderer) return;
-    const anchor = window.crit.renderer.anchorFromComment(comment);
-    renderer.scrollToAnchor(anchor).then(function () {
-      renderer.highlightAnchor(anchor);
-    });
-  }
 
   function scrollToComment(commentId, filePath) {
     // 1. Find the file section and expand if collapsed
@@ -7075,12 +7067,6 @@
       commentCard.classList.remove('comment-card-highlight');
     }, { once: true });
 
-    // 5. Validate ContentRenderer interface — scroll + highlight via renderer
-    const comment = files.reduce(function(found, f) {
-      if (found) return found;
-      return f.comments.find(function(c) { return c.id === commentId; });
-    }, null);
-    if (comment) navigateToCommentViaRenderer(comment);
   }
 
   // ===== PR Overview Panel =====

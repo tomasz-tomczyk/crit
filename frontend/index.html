@@ -356,7 +356,7 @@
           });
         });
       }
-      var bootGate = [trackTag(sh), trackTag(cr), trackTag(dr), trackTag(ctpl), trackTag(ru), trackTag(mi, true)]
+      var bootGate = [trackTag(sh), trackTag(cr), trackTag(dr), trackTag(ctpl), trackTag(sse), trackTag(cf), trackTag(ru), trackTag(mi, true)]
         .concat(depTags.map(function (t) { return trackTag(t); }));
       Promise.all(bootGate).then(function (results) {
         var failed = results.filter(function (r) { return !r.ok && !r.optional; });
