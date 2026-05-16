@@ -842,6 +842,7 @@
     if (!c) return;
     c._replyOpen = false;
     c._replyDraft = '';
+    if (c.id) draftMod.clearDraft('design-reply-' + c.id);
     refreshPanel();
   }
 
@@ -863,6 +864,8 @@
     var c = findCommentById(id);
     if (!c) return;
     c._replyOpen = true;
+    var saved = draftMod.loadDraft('design-reply-' + id);
+    if (saved && saved.body && !c._replyDraft) { c._replyDraft = saved.body; }
     refreshPanel();
     focusReplyTextareaFor(id);
   });
@@ -905,6 +908,7 @@
       c.replies.push(reply);
       c._replyOpen = false;
       c._replyDraft = '';
+      if (c.id) draftMod.clearDraft('design-reply-' + c.id);
       state.userActedThisRound = true;
       refreshPanel();
     } catch (err) {
@@ -1097,6 +1101,7 @@
   });
 
   // Keep the in-memory draft in sync so refreshPanel doesn't drop typed text.
+  // Also persist to localStorage via crit-draft module.
   document.addEventListener('input', function (e) {
     var ta = e.target;
     if (!ta || !ta.classList || !ta.classList.contains('crit-design-reply-textarea')) return;
@@ -1106,6 +1111,7 @@
     var c = findCommentById(id);
     if (!c) return;
     c._replyDraft = ta.value;
+    draftMod.saveDraft('design-reply-' + id, { body: ta.value, savedAt: Date.now() });
   });
 
   document.addEventListener('keydown', function (e) {
@@ -1161,6 +1167,7 @@
     if (!c) return;
     c._editOpen = false;
     c._editDraft = null;
+    if (c.id) draftMod.clearDraft('design-edit-' + c.id);
     refreshPanel();
   }
 
@@ -1173,7 +1180,8 @@
     var c = findCommentById(id);
     if (!c) return;
     c._editOpen = true;
-    c._editDraft = c.body || '';
+    var savedEdit = draftMod.loadDraft('design-edit-' + id);
+    c._editDraft = (savedEdit && savedEdit.body) ? savedEdit.body : (c.body || '');
     refreshPanel();
     focusEditTextareaFor(id);
   });
@@ -1215,6 +1223,7 @@
       c.body = body;
       c._editOpen = false;
       c._editDraft = null;
+      if (c.id) draftMod.clearDraft('design-edit-' + c.id);
       state.userActedThisRound = true;
       refreshPanel();
     } catch (err) {
@@ -1250,6 +1259,7 @@
   });
 
   // Keep edit draft in sync so refreshPanel doesn't drop typed text.
+  // Also persist to localStorage via crit-draft module.
   document.addEventListener('input', function (e) {
     var ta = e.target;
     if (!ta || !ta.classList || !ta.classList.contains('crit-design-edit-textarea')) return;
@@ -1259,6 +1269,7 @@
     var c = findCommentById(id);
     if (!c) return;
     c._editDraft = ta.value;
+    draftMod.saveDraft('design-edit-' + id, { body: ta.value, savedAt: Date.now() });
   });
 
   document.addEventListener('keydown', function (e) {
@@ -1508,7 +1519,21 @@
     return h;
   }
 
+  // ===== Draft persistence (delegates to window.crit.draft) =====
+  var draftMod = window.crit.draft;
+  var activeComposerKey = null;
+
+  function composerDraftKey(domAnchor) {
+    // Stable key per page path + selector so re-opening the same element restores text.
+    var base = (domAnchor && domAnchor.pathname || '/') + '|' + (domAnchor && domAnchor.css_selector || '');
+    // Simple hash to keep key short.
+    var h = 0;
+    for (var i = 0; i < base.length; i++) { h = ((h << 5) - h + base.charCodeAt(i)) | 0; }
+    return 'design-new-' + (h >>> 0).toString(36);
+  }
+
   function closeComposer() {
+    if (activeComposerKey) { draftMod.clearDraft(activeComposerKey); activeComposerKey = null; }
     var h = document.querySelector('.crit-design-composer-host');
     if (h) { h.innerHTML = ''; delete h.dataset.active; }
     // Drop the sustained outline on the captured element.
@@ -1632,6 +1657,13 @@
       if (window.crit && window.crit.shared && window.crit.shared.attachImageUploads) {
         window.crit.shared.attachImageUploads(ta);
       }
+      // Restore draft if one exists for this element.
+      activeComposerKey = composerDraftKey(domAnchor);
+      var existing = draftMod.loadDraft(activeComposerKey);
+      if (existing && existing.body) { ta.value = existing.body; }
+      ta.addEventListener('input', function () {
+        draftMod.saveDraft(activeComposerKey, { body: ta.value, savedAt: Date.now() });
+      });
       ta.focus();
       ta.addEventListener('keydown', function (e) {
         // Don't intercept while an IME composition is in progress.
