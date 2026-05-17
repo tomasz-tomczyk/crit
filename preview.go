@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -94,22 +93,6 @@ func createPreviewSession(sc *serverConfig) (*Session, error) {
 		s.loadCritJSON()
 	}
 	return s, nil
-}
-
-// handlePreviewPage serves index.html for the /preview path.
-func (s *Server) handlePreviewPage(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	f, err := s.assets.Open("index.html")
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	defer f.Close()
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.Copy(w, f)
 }
 
 // handlePreviewContent serves the previewed HTML file and its sibling assets

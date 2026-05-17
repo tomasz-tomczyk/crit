@@ -87,6 +87,8 @@ func runSmokeTest(origin string) smokeResult {
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
+		// A read failure already signals an unstable upstream; skip the
+		// missing-</body> warning here so it doesn't add noise on top.
 		return smokeResult{kind: smokeOK, hasCSPFrameAncestors: hasCSP}
 	}
 

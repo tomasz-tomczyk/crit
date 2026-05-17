@@ -147,7 +147,7 @@ func TestHandlePreviewPage(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/preview", nil)
 	w := httptest.NewRecorder()
-	s.handlePreviewPage(w, req)
+	s.serveIndexHTML()(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
@@ -164,7 +164,7 @@ func TestHandlePreviewPage_MethodNotAllowed(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/preview", nil)
 	w := httptest.NewRecorder()
-	s.handlePreviewPage(w, req)
+	s.serveIndexHTML()(w, req)
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", w.Code)

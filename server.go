@@ -93,12 +93,12 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/api/qr", s.handleQR)
 
 	// Preview-mode routes — NOT wrapped in withReady (page loads before session).
-	mux.HandleFunc("/preview", s.handlePreviewPage)
+	mux.HandleFunc("/preview", s.serveIndexHTML())
 	mux.HandleFunc("/preview-content/", s.handlePreviewContent)
 	mux.HandleFunc("/preview-content", s.handlePreviewContent)
 
 	// Live-mode routes — NOT wrapped in withReady.
-	mux.HandleFunc("/live", s.handleLivePage)
+	mux.HandleFunc("/live", s.serveIndexHTML())
 	mux.HandleFunc("/crit-agent.js", s.handleCritAgentJS)
 	mux.HandleFunc("/agent-protocol.js", s.serveEmbeddedJS("agent-protocol.js"))
 	mux.HandleFunc("/agent-anchor-utils.js", s.serveEmbeddedJS("agent-anchor-utils.js"))
@@ -518,19 +518,25 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
-func (s *Server) handleLivePage(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+// serveIndexHTML returns a handler that serves the embedded index.html shell.
+// Used for routes (such as /live and /preview) that all render the same shell.
+func (s *Server) serveIndexHTML() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		f, err := s.assets.Open("index.html")
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		defer f.Close()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if _, err := io.Copy(w, f); err != nil {
+			log.Printf("serveIndexHTML: %v", err)
+		}
 	}
-	f, err := s.assets.Open("index.html")
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	defer f.Close()
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.Copy(w, f)
 }
 
 func (s *Server) handleCritAgentJS(w http.ResponseWriter, r *http.Request) {
