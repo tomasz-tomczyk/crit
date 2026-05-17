@@ -143,9 +143,19 @@ func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
 	// Serve sibling assets relative to the preview file's directory
 	resolved := filepath.Join(baseDir, filepath.Clean(reqPath))
 
-	// Path traversal check
-	if !strings.HasPrefix(resolved, baseDir) {
+	// Path traversal check (trailing separator prevents prefix collisions)
+	if !strings.HasPrefix(resolved, baseDir+string(filepath.Separator)) {
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if info.IsDir() {
+		http.NotFound(w, r)
 		return
 	}
 
