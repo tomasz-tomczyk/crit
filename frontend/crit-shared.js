@@ -7,16 +7,17 @@
 (function () {
   'use strict';
 
-  // escapeHTML mirrors app.js's escapeHtml (lowercase h) semantics: escapes
-  // &, <, >, " — not single quotes. Phase B does not touch app.js, so we
-  // duplicate the logic here under the camelCase public name.
+  // escapeHTML — canonical HTML escaper for the entire frontend. Escapes
+  // &, <, >, ", and ' (single quote). Safe in both content and attribute
+  // contexts.
   function escapeHTML(s) {
     if (s === null || s === undefined) return '';
     return String(s)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   async function fetchJSON(url, opts) {

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -40,14 +41,14 @@ func looksLikePreviewArgs(args []string) bool {
 
 // connectToPreviewDaemon attaches the current CLI to an already-running preview
 // daemon for key, blocking on its review session.
-func connectToPreviewDaemon(key string) bool {
+func connectToPreviewDaemon(key string, noOpen bool) bool {
 	entry, alive := findAliveSession(key)
 	if !alive {
 		return false
 	}
 	fmt.Fprintf(os.Stderr, "[crit] connected to preview daemon at http://localhost:%d\n", entry.Port)
 	fmt.Fprintf(os.Stderr, "[crit] open http://localhost:%d/preview\n", entry.Port)
-	if !daemonHasBrowser(entry) {
+	if !noOpen && !daemonHasBrowser(entry) {
 		go openBrowser(fmt.Sprintf("http://localhost:%d/preview", entry.Port))
 	}
 	runReviewClient(entry)
@@ -178,8 +179,7 @@ func (s *Server) servePreviewHTML(w http.ResponseWriter, filePath string) {
 		`<script src="/agent-mutation-batcher.js"></script>` +
 		`<script src="/agent-resolution.js"></script>` +
 		`<script src="/agent-reanchor-state.js"></script>` +
-		`<script src="/crit-agent.js"></script>` +
-		`<link rel="stylesheet" href="/agent-marker.css">`
+		`<script src="/crit-agent.js"></script>`
 
 	// Inject before last </body>
 	idx := bytes.LastIndex(bytes.ToLower(body), []byte("</body>"))
@@ -198,13 +198,30 @@ func (s *Server) servePreviewHTML(w http.ResponseWriter, filePath string) {
 
 // runPreview is the entry point for `crit preview <file.html>`.
 func runPreview(args []string) {
+	fs := flag.NewFlagSet("preview", flag.ExitOnError)
+	noOpen := fs.Bool("no-open", false, "Don't auto-open browser")
+	fs.Parse(args)
+
+	remaining := fs.Args()
 	rawPath := ""
-	for _, a := range args {
+	for _, a := range remaining {
 		if len(a) > 0 && a[0] != '-' {
 			rawPath = a
 			break
 		}
 	}
+
+	// Also respect config file setting.
+	cwd, err := resolvedCWD()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	cfg := LoadConfig(cwd)
+	if cfg.NoOpen {
+		*noOpen = true
+	}
+
 	if rawPath == "" {
 		fmt.Fprintln(os.Stderr, "Usage: crit preview <file.html>")
 		os.Exit(1)
@@ -222,13 +239,8 @@ func runPreview(args []string) {
 		os.Exit(1)
 	}
 
-	cwd, err := resolvedCWD()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
 	key := previewSessionKey(cwd, absPath)
-	if connectToPreviewDaemon(key) {
+	if connectToPreviewDaemon(key, *noOpen) {
 		return
 	}
 
@@ -244,7 +256,9 @@ func runPreview(args []string) {
 
 	installDaemonSignalHandler(entry.PID)
 
-	go openBrowser(fmt.Sprintf("http://localhost:%d/preview", entry.Port))
+	if !*noOpen {
+		go openBrowser(fmt.Sprintf("http://localhost:%d/preview", entry.Port))
+	}
 
 	runReviewClient(entry)
 }

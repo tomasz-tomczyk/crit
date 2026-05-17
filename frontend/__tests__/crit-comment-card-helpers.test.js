@@ -3,14 +3,11 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const helpers = require('../crit-comment-card-helpers.js');
 
-test('escapeHtml escapes &, <, >, "', () => {
+test('escapeHtml escapes &, <, >, ", and single quotes', () => {
   assert.equal(helpers.escapeHtml('a & b'), 'a &amp; b');
   assert.equal(helpers.escapeHtml('<script>'), '&lt;script&gt;');
   assert.equal(helpers.escapeHtml('"x"'), '&quot;x&quot;');
-});
-
-test('escapeHtml does NOT escape single quotes (matches app.js)', () => {
-  assert.equal(helpers.escapeHtml("it's"), "it's");
+  assert.equal(helpers.escapeHtml("it's"), 'it&#39;s');
 });
 
 test('escapeHtml handles null/undefined', () => {

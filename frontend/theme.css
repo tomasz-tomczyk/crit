@@ -204,10 +204,6 @@
   --crit-design-marker-border:         rgba(255,255,255,0.18);
   --crit-design-marker-shadow:         0 1px 3px rgba(0,0,0,0.5);
   --crit-design-marker-focus-ring:     #fbbf24;
-  --crit-design-drifted-recoverable-bg: rgba(251, 191, 36, 0.15);
-  --crit-design-drifted-recoverable-fg: #fbbf24;
-  --crit-design-drifted-lost-bg:        rgba(247, 118, 142, 0.15);
-  --crit-design-drifted-lost-fg:        #f7768e;
   --crit-design-reanchor-active-outline: #f59e0b;
 
   /* ---- Phase E: drift-this-round, focus, tooltip, marker flash, menu hl ---- */
@@ -399,10 +395,6 @@
     --crit-design-marker-border:         rgba(0,0,0,0.15);
     --crit-design-marker-shadow:         0 1px 2px rgba(0,0,0,0.25);
     --crit-design-marker-focus-ring:     #b45309;
-    --crit-design-drifted-recoverable-bg: #fef3c7;
-    --crit-design-drifted-recoverable-fg: #78350f;
-    --crit-design-drifted-lost-bg:        #fee2e2;
-    --crit-design-drifted-lost-fg:        #7f1d1d;
     --crit-design-reanchor-active-outline: #d97706;
 
     /* ---- Phase E ---- */
@@ -594,10 +586,6 @@
   --crit-design-marker-border:         rgba(255,255,255,0.18);
   --crit-design-marker-shadow:         0 1px 3px rgba(0,0,0,0.5);
   --crit-design-marker-focus-ring:     #fbbf24;
-  --crit-design-drifted-recoverable-bg: rgba(251, 191, 36, 0.15);
-  --crit-design-drifted-recoverable-fg: #fbbf24;
-  --crit-design-drifted-lost-bg:        rgba(247, 118, 142, 0.15);
-  --crit-design-drifted-lost-fg:        #f7768e;
   --crit-design-reanchor-active-outline: #f59e0b;
 
   /* ---- Phase E ---- */
@@ -788,10 +776,6 @@
   --crit-design-marker-border:         rgba(0,0,0,0.15);
   --crit-design-marker-shadow:         0 1px 2px rgba(0,0,0,0.25);
   --crit-design-marker-focus-ring:     #b45309;
-  --crit-design-drifted-recoverable-bg: #fef3c7;
-  --crit-design-drifted-recoverable-fg: #78350f;
-  --crit-design-drifted-lost-bg:        #fee2e2;
-  --crit-design-drifted-lost-fg:        #7f1d1d;
   --crit-design-reanchor-active-outline: #d97706;
 
   /* ---- Phase E ---- */

@@ -19,16 +19,15 @@
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
 
-  // escapeHtml — byte-identical to app.js's escapeHtml (escapes &, <, >, ").
-  // Does NOT escape single quotes; design rows that need that should use the
-  // row-local variant (see design-mode.row.js chipLabel handling).
-  function escapeHtml(str) {
-    return String(str == null ? '' : str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
+  // escapeHtml — delegates to the canonical window.crit.shared.escapeHTML.
+  // Alias preserves the lowercase-h export name for existing consumers.
+  var escapeHtml = (typeof window !== 'undefined' && window.crit && window.crit.shared)
+    ? window.crit.shared.escapeHTML
+    : function (str) {
+        return String(str == null ? '' : str)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      };
 
   // relativeTime — byte-identical to app.js's relativeTime.
   function relativeTime(dateStr) {
@@ -69,6 +68,22 @@
     return 'comment:' + kind + ':' + commentId;
   }
 
+  // chipLabel — canonical design-pin label heuristic. Prefers accessible_name,
+  // then a short slice of textContent extracted from outer_html, then the leaf
+  // tag from tag_chain, then a.role, and finally falls back to 'pin'.
+  function chipLabel(a) {
+    var name = (a.accessible_name || '').trim();
+    if (name) return name.length > 60 ? name.slice(0, 60) + '…' : name;
+    var html = a.outer_html || '';
+    var text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (text) return text.length > 60 ? text.slice(0, 60) + '…' : text;
+    var chain = Array.isArray(a.tag_chain) ? a.tag_chain : [];
+    var tag = chain.length ? chain[chain.length - 1] : '';
+    if (tag) return '<' + tag.toLowerCase() + '>';
+    if (a.role) return a.role;
+    return 'pin';
+  }
+
   // Standard class strings. These are deliberately simple constants so that
   // both renderers stay in sync if we tweak them later. Adding a class here
   // does NOT make every existing card pick it up — call sites still need to
@@ -82,6 +97,7 @@
 
   return {
     escapeHtml: escapeHtml,
+    chipLabel: chipLabel,
     relativeTime: relativeTime,
     formatTime: formatTime,
     formKeyFor: formKeyFor,

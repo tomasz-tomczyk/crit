@@ -18,16 +18,12 @@ const REQUIRED_VARS = [
   '--crit-design-ancestor-menu-hover-bg',
   '--crit-design-mode-btn-active-bg',
   '--crit-design-mode-btn-active-fg',
-  // Phase D markers + drifted tray + re-anchor
+  // Phase D markers + re-anchor
   '--crit-design-marker-bg',
   '--crit-design-marker-fg',
   '--crit-design-marker-border',
   '--crit-design-marker-shadow',
   '--crit-design-marker-focus-ring',
-  '--crit-design-drifted-recoverable-bg',
-  '--crit-design-drifted-recoverable-fg',
-  '--crit-design-drifted-lost-bg',
-  '--crit-design-drifted-lost-fg',
   '--crit-design-reanchor-active-outline',
 ];
 

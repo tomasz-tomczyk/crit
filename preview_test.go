@@ -205,8 +205,8 @@ func TestHandlePreviewContent_InjectsAgent(t *testing.T) {
 	if !strings.Contains(body, "agent-protocol.js") {
 		t.Error("agent-protocol.js not injected")
 	}
-	if !strings.Contains(body, "agent-marker.css") {
-		t.Error("agent-marker.css not injected")
+	if strings.Contains(body, "agent-marker.css") {
+		t.Error("agent-marker.css should not be injected (loaded dynamically by crit-agent.js)")
 	}
 	// Verify injection is before </body>
 	agentIdx := strings.Index(body, "crit-agent.js")

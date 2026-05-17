@@ -8,25 +8,17 @@
     root.crit.design.composer = api;
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
-  function escapeHTML(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
+  // escapeHTML — delegates to the canonical window.crit.shared.escapeHTML.
+  var escapeHTML = (typeof window !== 'undefined' && window.crit && window.crit.shared)
+    ? window.crit.shared.escapeHTML
+    : function (s) { return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;'); };
 
-  // Tidewave-style chip label: prefer accessible_name, then a short slice of
-  // textContent extracted from outer_html, then fall back to the leaf tag.
-  function chipLabel(a) {
-    var name = (a.accessible_name || '').trim();
-    if (name) return name.length > 60 ? name.slice(0, 60) + '…' : name;
-    var html = a.outer_html || '';
-    // crude text extract: strip tags, collapse whitespace.
-    var text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (text) return text.length > 60 ? text.slice(0, 60) + '…' : text;
-    var chain = Array.isArray(a.tag_chain) ? a.tag_chain : [];
-    var tag = chain.length ? chain[chain.length - 1] : '';
-    return tag ? '<' + tag.toLowerCase() + '>' : 'element';
-  }
+  // chipLabel is the canonical version from crit-comment-card-helpers.js.
+  var chipLabel = (typeof window !== 'undefined' && window.crit && window.crit.commentCardHelpers)
+    ? window.crit.commentCardHelpers.chipLabel
+    : function () { return 'pin'; };
 
   function renderComposerHTML(a) {
     var label = chipLabel(a);

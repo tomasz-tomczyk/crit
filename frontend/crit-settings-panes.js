@@ -27,14 +27,9 @@
 (function () {
   'use strict';
 
-  function escapeHTML(s) {
-    if (s === null || s === undefined) return '';
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
+  // escapeHTML — delegates to the canonical window.crit.shared.escapeHTML.
+  // crit-shared.js loads before this file per index.html script order.
+  var escapeHTML = window.crit.shared.escapeHTML;
 
   // Each shortcut declares which modes it actually fires in. The renderer
   // filters out entries that don't apply to the current mode so design-mode

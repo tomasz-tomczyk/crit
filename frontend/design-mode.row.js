@@ -27,20 +27,10 @@
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
 
-  // Mirrors design-mode.composer.js's chip label heuristic, kept in sync but
-  // duplicated to avoid module-load ordering surprises.
-  function chipLabel(a) {
-    var name = (a.accessible_name || '').trim();
-    if (name) return name.length > 60 ? name.slice(0, 60) + '…' : name;
-    var html = a.outer_html || '';
-    var text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (text) return text.length > 60 ? text.slice(0, 60) + '…' : text;
-    var chain = Array.isArray(a.tag_chain) ? a.tag_chain : [];
-    var tag = chain.length ? chain[chain.length - 1] : '';
-    if (tag) return '<' + tag.toLowerCase() + '>';
-    if (a.role) return a.role;
-    return 'pin';
-  }
+  // chipLabel — canonical version from crit-comment-card-helpers.js.
+  var chipLabel = (typeof window !== 'undefined' && window.crit && window.crit.commentCardHelpers)
+    ? window.crit.commentCardHelpers.chipLabel
+    : function () { return 'pin'; };
 
   function formatTimeFallback(s) {
     if (!s) return '';

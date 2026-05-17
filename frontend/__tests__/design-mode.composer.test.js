@@ -1,6 +1,17 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+
+// chipLabel and escapeHTML now delegate to shared modules at runtime.
+// In Node.js test context, set up the globals before requiring the composer.
+const helpers = require('../crit-comment-card-helpers.js');
+globalThis.window = globalThis.window || globalThis;
+globalThis.window.crit = globalThis.window.crit || {};
+globalThis.window.crit.commentCardHelpers = helpers;
+globalThis.window.crit.shared = { escapeHTML: helpers.escapeHtml };
+
+// Now require the composer — it will pick up the globals.
+delete require.cache[require.resolve('../design-mode.composer.js')];
 const { renderComposerHTML, chipLabel } = require('../design-mode.composer.js');
 
 test('renderComposerHTML escapes user-controlled fields', () => {

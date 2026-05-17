@@ -228,12 +228,6 @@
   background: var(--crit-design-mode-btn-active-bg);
   color: var(--crit-design-mode-btn-active-fg);
 }
-.crit-design-mode-btn[disabled],
-.crit-design-mode-btn-disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .crit-design-composer-host {
   padding: 8px;
 }
@@ -250,15 +244,6 @@
   overflow: hidden;
   box-shadow: 0 0 0 2px var(--crit-brand-subtle);
 }
-.crit-design-composer-header {
-  padding: 8px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--crit-brand);
-  font-family: var(--crit-font-mono);
-  background: var(--crit-brand-subtle);
-  border-bottom: 1px solid var(--crit-design-composer-border);
-}
 .crit-design-composer-meta {
   display: flex;
   flex-wrap: wrap;
@@ -267,15 +252,6 @@
   padding: 6px 14px 0;
   font-size: 11px;
   color: var(--crit-editor-fg-muted);
-}
-.crit-design-composer-thumb {
-  display: block;
-  margin: 8px 14px 0;
-  max-width: calc(100% - 28px);
-  max-height: 180px;
-  border: 1px solid var(--crit-design-composer-border);
-  border-radius: var(--crit-r-sm);
-  background: #fff;
 }
 .crit-design-composer-chip {
   display: inline-block;
@@ -369,15 +345,6 @@ body.hide-resolved .crit-design-comment-row-wrap:has(.resolved-card) {
   display: none;
 }
 
-.crit-design-comment-route-badge {
-  font-size: 11px;
-  color: var(--crit-editor-fg-muted);
-  font-family: var(--crit-font-mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 16ch;
-}
 .crit-design-comment-chip {
   display: inline-block;
   max-width: 18ch;
@@ -398,24 +365,6 @@ body.hide-resolved .crit-design-comment-row-wrap:has(.resolved-card) {
   border: 1px solid var(--crit-border);
   border-radius: var(--crit-r-sm);
 }
-.crit-design-comment-html-preview {
-  margin: 0;
-  padding: 4px;
-  background: var(--crit-editor-code-bg);
-  font-family: var(--crit-font-mono);
-  font-size: 11px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 80px;
-  overflow: auto;
-}
-.crit-design-comment-selector {
-  font-family: var(--crit-font-mono);
-  font-size: 10px;
-  color: var(--crit-editor-fg-muted);
-  word-break: break-all;
-}
-
 /* Per-reply Edit/Delete affordance buttons inside design replies inherit
    the shared `.reply-actions button` chrome — no overrides needed. The
    class hooks `.crit-design-reply-edit` / `.crit-design-reply-delete` are
@@ -473,46 +422,6 @@ body.hide-resolved .crit-design-comment-row-wrap:has(.resolved-card) {
    strikethrough/opacity override that lived here was a half-baked
    replacement and led to inconsistent visuals between modes. */
 
-/* ---- Phase D: drifted tray ---- */
-.crit-design-drifted-tray {
-  list-style: none;
-  margin: 0; padding: 8px 0;
-  display: flex; flex-direction: column; gap: 6px;
-}
-.crit-design-drifted-row {
-  display: grid;
-  grid-template-columns: max-content max-content 1fr max-content;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--crit-border, rgba(127,127,127,0.25));
-  border-radius: 6px;
-}
-.crit-design-drifted-route {
-  font-family: var(--crit-font-mono);
-  font-size: 11px;
-  color: var(--crit-editor-fg-muted);
-}
-.crit-design-drifted-badge {
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 999px;
-}
-.crit-design-drifted-badge--recoverable {
-  background: var(--crit-design-drifted-recoverable-bg);
-  color: var(--crit-design-drifted-recoverable-fg);
-}
-.crit-design-drifted-badge--lost {
-  background: var(--crit-design-drifted-lost-bg);
-  color: var(--crit-design-drifted-lost-fg);
-}
-.crit-design-drifted-body {
-  font-size: 12px;
-  color: var(--crit-editor-fg-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .crit-design-reanchor-btn {
   font-size: 12px;
   padding: 2px 8px;
@@ -589,11 +498,8 @@ body.hide-resolved .crit-design-comment-row-wrap:has(.resolved-card) {
 }
 
 /* ---- Phase E: :focus-visible across all interactive design-mode elements ---- */
-.crit-design-toolbar button:focus-visible,
-.crit-design-toolbar [role="radio"]:focus-visible,
 .crit-design-thread button:focus-visible,
 .crit-design-thread [tabindex="0"]:focus-visible,
-.crit-design-drifted-row button:focus-visible,
 .crit-design-ancestor-menu-item:focus-visible,
 .crit-design-skip-link:focus-visible,
 .crit-design-reanchor-btn:focus-visible,

@@ -8,11 +8,12 @@
     root.crit.design.menu = api;
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
-  function escapeHTML(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
+  // escapeHTML — delegates to the canonical window.crit.shared.escapeHTML.
+  var escapeHTML = (typeof window !== 'undefined' && window.crit && window.crit.shared)
+    ? window.crit.shared.escapeHTML
+    : function (s) { return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;'); };
   function renderAncestorMenuHTML(options) {
     var items = options.map(function (o) {
       return '<button type="button" class="crit-design-ancestor-menu-item" data-level="' + o.level + '">' + escapeHTML(o.label) + '</button>';

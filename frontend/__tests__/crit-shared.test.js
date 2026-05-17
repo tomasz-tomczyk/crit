@@ -10,9 +10,10 @@ const fn = new Function('window', 'document', src + '\nreturn window;');
 fn(sandbox.window, sandbox.document);
 const shared = sandbox.window.crit.shared;
 
-test('escapeHTML escapes <, >, &, "', () => {
+test('escapeHTML escapes <, >, &, ", and single quotes', () => {
   assert.equal(shared.escapeHTML('<a href="x">&</a>'),
     '&lt;a href=&quot;x&quot;&gt;&amp;&lt;/a&gt;');
+  assert.equal(shared.escapeHTML("it's"), 'it&#39;s');
 });
 
 test('escapeHTML returns empty string for null/undefined', () => {

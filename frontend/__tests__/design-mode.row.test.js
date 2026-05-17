@@ -1,6 +1,16 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+
+// chipLabel now delegates to crit-comment-card-helpers.js at runtime.
+// Set up the globals before requiring design-mode.row.js.
+const helpers = require('../crit-comment-card-helpers.js');
+globalThis.window = globalThis.window || globalThis;
+globalThis.window.crit = globalThis.window.crit || {};
+globalThis.window.crit.commentCardHelpers = helpers;
+
+// Clear require cache so the module picks up the globals.
+delete require.cache[require.resolve('../design-mode.row.js')];
 const { chipLabel, renderDesignPinRow } = require('../design-mode.row.js');
 
 test('chipLabel handles missing fields', () => {
@@ -24,7 +34,7 @@ test('chipLabel falls back to outer_html text when no accessible_name', () => {
 
 test('chipLabel falls back to tag name as a last resort', () => {
   assert.equal(chipLabel({ tag_chain: ['SECTION'] }), '<section>');
-  assert.equal(chipLabel({}), 'element');
+  assert.equal(chipLabel({}), 'pin');
 });
 
 test('chipLabel truncates long values to 60 chars + ellipsis', () => {
