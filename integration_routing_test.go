@@ -52,8 +52,8 @@ func TestDestFor_GlobalMode(t *testing.T) {
 		// grok: same-shape .grok/skills/ project-locally and ~/.grok/skills/ globally (no globalDest redirect needed).
 		{"grok", 0, ".grok/skills/crit/SKILL.md"},
 		{"grok", 1, ".grok/skills/crit-cli/SKILL.md"},
-		// opencode: command stays cwd-relative; skill redirects globally to ~/.agents/skills/.
-		{"opencode", 0, ".opencode/commands/crit.md"},
+		// opencode: command redirects to ~/.config/opencode/commands/; skill redirects to ~/.agents/skills/.
+		{"opencode", 0, filepath.Join(home, ".config/opencode/commands/crit.md")},
 		{"opencode", 1, filepath.Join(home, ".agents/skills/crit/SKILL.md")},
 		// github-copilot: both skills redirect to ~/.agents/skills/.
 		{"github-copilot", 0, filepath.Join(home, ".agents/skills/crit/SKILL.md")},
@@ -109,7 +109,7 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 		"cursor":         {{"", globalDestNone}, {"", globalDestNone}},
 		"codex":          {{"", globalDestNone}, {"", globalDestNone}},
 		"qwen":           {{"", globalDestNone}, {"", globalDestNone}},
-		"opencode":       {{"", globalDestNone}, {".agents/skills/crit/SKILL.md", globalDestRelHome}, {".config/opencode/plugins/crit.ts", globalDestRelHome}},
+		"opencode":       {{".config/opencode/commands/crit.md", globalDestRelHome}, {".agents/skills/crit/SKILL.md", globalDestRelHome}, {".config/opencode/plugins/crit.ts", globalDestRelHome}},
 		"github-copilot": {{".agents/skills/crit/SKILL.md", globalDestRelHome}, {".agents/skills/crit-cli/SKILL.md", globalDestRelHome}},
 		"windsurf":       {{"", globalDestNone}},
 		"cline":          {{"Cline/Rules/crit.md", globalDestDocuments}},

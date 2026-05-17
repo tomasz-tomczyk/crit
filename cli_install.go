@@ -106,8 +106,11 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/cursor/skills/crit-cli/SKILL.md", dest: ".cursor/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Cursor agents when needed"},
 	},
 	"opencode": {
-		// command stays at ~/.opencode/commands/ globally (works there)
-		{source: "integrations/opencode/crit.md", dest: ".opencode/commands/crit.md", hint: "Run /crit in OpenCode to start a review loop"},
+		// opencode reads commands from `.opencode/commands/` (project) and
+		// `~/.config/opencode/commands/` (global) — NOT `~/.opencode/commands/`.
+		// Without the globalDest redirect a global install lands in a dir
+		// opencode never scans, so `/crit` silently never appears.
+		{source: "integrations/opencode/crit.md", dest: ".opencode/commands/crit.md", globalDest: ".config/opencode/commands/crit.md", globalDestKind: globalDestRelHome, hint: "Run /crit in OpenCode to start a review loop"},
 		// opencode does NOT read ~/.opencode/skills/ globally — redirect to ~/.agents/skills/
 		{source: "integrations/opencode/SKILL.md", dest: ".opencode/skills/crit/SKILL.md", globalDest: ".agents/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit skill is available to OpenCode agents when needed"},
 		// Plugin file auto-loaded from project `.opencode/plugins/` or global
