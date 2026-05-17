@@ -1,25 +1,24 @@
 ---
 name: crit
-description: "Review code changes, a plan, a design, or an HTML preview with crit inline comments"
+description: "Review code changes, a plan, a live page (running dev server), or a local HTML file with crit inline comments"
 allowed-tools: Bash(crit:*), Bash(command ls:*), Read, Edit, Glob
 argument-hint: "[file|url]"
 ---
 
 # Review with Crit
 
-Review and revise code changes, plans, designs, or HTML previews using `crit` for inline comment review.
+Review and revise code changes, plans, live pages (running dev servers, staging URLs), or local HTML files using `crit` for inline comment review.
 
 ## Step 1: Pass arguments to `crit`
 
 The CLI auto-detects the review mode from its arguments. **Do not ask the user which mode to use.** Pass `$ARGUMENTS` through:
 
 ```
-crit $ARGUMENTS               # file, dir, URL, .html — CLI detects mode
+crit $ARGUMENTS               # file, dir, URL, .html — CLI auto-detects mode
 crit --pr <num|url>            # GitHub PR (range mode)
 crit --range <base>..<head>    # commit range (range mode)
 crit                           # no args → branch diff
 ```
-
 If no arguments, check conversation context:
 
 1. A plan file was written earlier in this conversation → `crit <plan-file>`
