@@ -16,8 +16,6 @@ const REQUIRED_VARS = [
   '--crit-live-ancestor-menu-bg',
   '--crit-live-ancestor-menu-fg',
   '--crit-live-ancestor-menu-hover-bg',
-  '--crit-live-mode-btn-active-bg',
-  '--crit-live-mode-btn-active-fg',
   // Phase D markers + re-anchor
   '--crit-live-marker-bg',
   '--crit-live-marker-fg',

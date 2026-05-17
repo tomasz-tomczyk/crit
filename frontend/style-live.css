@@ -224,10 +224,6 @@
 /* ============================================================
  * Phase C: composer, ancestor menu, toast, mode toggle, comment row
  * ============================================================ */
-.crit-live-mode-btn-active {
-  background: var(--crit-live-mode-btn-active-bg);
-  color: var(--crit-live-mode-btn-active-fg);
-}
 .crit-live-composer-host {
   padding: 8px;
 }
@@ -356,14 +352,6 @@ body.hide-resolved .crit-live-comment-row-wrap:has(.resolved-card) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.crit-live-comment-thumb {
-  display: block;
-  max-width: 100%;
-  max-height: 120px;
-  margin: 0 0 8px 0;
-  border: 1px solid var(--crit-border);
-  border-radius: var(--crit-r-sm);
 }
 /* Per-reply Edit/Delete affordance buttons inside live replies inherit
    the shared `.reply-actions button` chrome — no overrides needed. The
