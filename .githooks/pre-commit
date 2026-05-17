@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 set -e
 
 echo "Running pre-commit checks..."
@@ -52,6 +52,15 @@ if [ -f eslint.config.mjs ]; then
         echo "  FAIL: ESLint issues found"
         exit 1
     fi
+fi
+
+# Check for unicode confusables in JS (curly quotes break syntax)
+echo "  Checking for unicode confusables in JS..."
+CURLY=$(grep -rn $’[‘’“”]’ frontend/*.js 2>/dev/null | grep -v ‘\.min\.js:’ || true)
+if [ -n "$CURLY" ]; then
+    echo "  FAIL: Curly quotes found in JS files (use straight quotes):"
+    echo "$CURLY" | sed 's/^/    /'
+    exit 1
 fi
 
 # Check CSS linting

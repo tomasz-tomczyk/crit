@@ -272,10 +272,10 @@
         if (approved) {
           messageEl.textContent =
             'Your agent has been notified — no further action needed. ' +
-            'You can close this tab whenever you’re ready.';
+            'You can close this tab whenever you\'re ready.';
         } else {
           messageEl.textContent =
-            "Agent notified. Copy the prompt below if it wasn’t listening.";
+            "Agent notified. Copy the prompt below if it wasn't listening.";
         }
       }
 
