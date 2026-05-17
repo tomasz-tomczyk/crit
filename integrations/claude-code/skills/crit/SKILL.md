@@ -1,25 +1,29 @@
 ---
 name: crit
-description: "Review code changes or a plan with crit inline comments"
+description: "Review code changes, a plan, a design, or an HTML preview with crit inline comments"
 allowed-tools: Bash(crit:*), Bash(command ls:*), Read, Edit, Glob
-argument-hint: "[file]"
+argument-hint: "[file|url]"
 ---
 
 # Review with Crit
 
-Review and revise code changes or a plan using `crit` for inline comment review.
+Review and revise code changes, plans, designs, or HTML previews using `crit` for inline comment review.
 
-## Step 1: Determine review mode
+## Step 1: Pass arguments to `crit`
 
-Pick whichever applies — don't ask for confirmation:
+The CLI auto-detects the review mode from its arguments. **Do not ask the user which mode to use.** Pass `$ARGUMENTS` through:
 
-1. **User argument** — `$ARGUMENTS` provided (e.g., `/crit my-plan.md`) → review that file
-2. **Recent plan** — no argument, but a plan was written earlier in this conversation → `crit <plan-file>`
-3. **Branch review** — otherwise → bare `crit`. Auto-detects uncommitted changes or branch-vs-default-branch diff. Works on clean branches.
+```
+crit $ARGUMENTS               # file, dir, URL, .html — CLI detects mode
+crit --pr <num|url>            # GitHub PR (range mode)
+crit --range <base>..<head>    # commit range (range mode)
+crit                           # no args → branch diff
+```
 
-<important if="the user asked to review a specific GitHub PR or a commit range">
-Use `crit --pr <num|url>` or `crit --range <baseSHA>..<headSHA>`. This boots crit in *range mode*, scoping the review to a fixed range of commits rather than the working tree.
-</important>
+If no arguments, check conversation context:
+
+1. A plan file was written earlier in this conversation → `crit <plan-file>`
+2. Otherwise → bare `crit` (branch diff)
 
 ## Step 2: Launch crit and block until review completes
 

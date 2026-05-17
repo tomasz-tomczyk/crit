@@ -1,12 +1,12 @@
 ---
 name: crit
-description: Use when an agent needs to author or reply to crit inline comments programmatically (including multi-agent workflows commenting on shared code/plans/docs/proposals), publish or unpublish a crit review with crit share, sync a crit review to or from a GitHub PR, or read/interpret a crit review JSON file. Covers crit comment, crit share, crit unpublish, crit pull, crit push, review file format, and resolution workflow. Not for invoking an interactive review loop — that's the `crit` skill.
+description: "Review code changes, a plan, a design, or an HTML preview with crit inline comments. Use when asked to review code, a plan, a diff, a running web app, or when you want structured human feedback on your work. Also covers programmatic comment authoring, crit share/unpublish, GitHub PR sync, and review file interpretation."
 compatibility: opencode
 ---
 
 ## What I do
 
-- Launch Crit for a plan file or the current git diff.
+- Launch Crit for a plan file, the current git diff, a design (URL), or an HTML preview.
 - Wait for the user to review changes in the browser.
 - Read the review file and address unresolved inline comments.
 - Signal the next review round with `crit` when edits are done.
@@ -15,7 +15,23 @@ compatibility: opencode
 
 ## When to use me
 
-Use this when the user asks to review a plan, spec, or code changes in Crit, when project instructions require a Crit pass before accepting non-trivial changes, when leaving inline comments on code, or when syncing reviews with GitHub PRs.
+Use this when the user asks to review a plan, spec, code changes, a design (running web app URL), or an HTML preview in Crit, when project instructions require a Crit pass before accepting non-trivial changes, when leaving inline comments on code, or when syncing reviews with GitHub PRs.
+
+## Launching `crit`
+
+The CLI auto-detects the review mode from its arguments. **Do not ask the user which mode to use.** Pass arguments through:
+
+```
+crit <arguments>               # file, dir, URL, .html — CLI detects mode
+crit --pr <num|url>            # GitHub PR (range mode)
+crit --range <base>..<head>    # commit range (range mode)
+crit                           # no args → branch diff
+```
+
+If no arguments, check conversation context:
+
+1. A plan file was written earlier in this conversation → `crit <plan-file>`
+2. Otherwise → bare `crit` (branch diff)
 
 ## Review file format
 
