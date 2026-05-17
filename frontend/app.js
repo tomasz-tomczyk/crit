@@ -6424,6 +6424,9 @@
     if (shareURL && !authUserName) {
       extra.push('Run <kbd>crit auth login</kbd> to link shared reviews with your account.');
     }
+    if (shareURL) {
+      extra.push('Create a team on <kbd>' + shareURL.replace(/^https?:\/\//, '') + '</kbd> to group and secure your shared reviews.');
+    }
     window.crit.shared.startTipRotation(extra);
   }
 

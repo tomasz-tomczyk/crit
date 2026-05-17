@@ -600,13 +600,14 @@
   var _lastTip = '';
   var _baseTips = [
     'Press <kbd>?</kbd> to see all keyboard shortcuts.',
-    'Comments support full Markdown.',
     'Press <kbd>@</kbd> to reference other files in your comments.',
     'Select text and press <kbd>c</kbd> to comment on your selection.',
-    'Use the filter pill to toggle between open and resolved comments.',
     'Use <kbd>crit pull</kbd> to load existing GitHub PR comments into your local review.',
     'Use <kbd>crit push</kbd> to post your comments as a GitHub PR review. Add <kbd>--dry-run</kbd> to preview first.',
-    'Pin comments persist across rounds until you resolve them.',
+    'Comments persist across rounds until you resolve them.',
+    'Run <kbd>crit</kbd> with a URL to review your local website visually.',
+    'Run <kbd>crit overview.html</kbd> to review an artifact HTML file visually.',
+    'Ask your agent to review your work with Crit and leave comments with it.',
     'Enjoying Crit? A GitHub star or sharing it with colleagues helps a lot!',
   ];
 
