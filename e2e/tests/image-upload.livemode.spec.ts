@@ -120,7 +120,7 @@ test.describe('live-mode reply textarea image upload', () => {
       }));
     });
 
-    await expect(replyTa).toHaveValue(/!\[uploading…\]\(crit-pending-/);
+    await expect(replyTa).toHaveValue(/!\[.*\]\(attachments\/[a-f0-9-]+\.png\)/);
   });
 });
 
