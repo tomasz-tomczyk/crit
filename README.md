@@ -90,6 +90,17 @@ crit design http://localhost:3000     # review your local dev server
 
 Pins store a CSS selector and semantic anchor (tag chain, accessible name, landmark), so comments survive minor DOM changes and surface as `Drifted` when the element moves. All state stays local — no sharing in v1.
 
+### Preview mode
+
+Run `crit preview <file.html>` to review a local HTML file rendered in an iframe — same pin commenting as design mode, but for static files instead of a running dev server. `crit <file.html>` also works (auto-detected from the `.html` extension).
+
+```bash
+crit preview index.html               # explicit preview command
+crit landing-page.html                 # auto-detected from extension
+```
+
+The server injects the crit agent into the HTML and serves sibling assets (CSS, JS, images) so the page renders interactively inside the iframe.
+
 ### Round-to-round diff
 
 After your agent edits the file, Crit shows a split or unified diff of what changed - toggle it in the header.

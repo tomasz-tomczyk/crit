@@ -42,6 +42,7 @@ Usage:
   crit                                       Auto-detect changed files via git
   crit <file|dir> [...]                      Review specific files or directories
   crit design <url>                          Review a running web app in design mode
+  crit preview <file.html>                   Review a local HTML file in preview mode
   crit --pr <num|url>                        Review a GitHub pull request (range mode)
   crit pr <num|url>                          Review a GitHub pull request (alias for --pr)
   crit --range <baseSHA>..<headSHA>          Review a commit range (range mode)

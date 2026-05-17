@@ -30,6 +30,7 @@ crit/
 ├── gen_integration_hashes.go / integration_hashes_gen.go  # Build-time integration manifest
 ├── *_test.go            # Tests (testutil_test.go has shared helpers; *_integration_test.go behind build tag)
 ├── design.go            # `crit design <url>` command — design-mode session bootstrap
+├── preview.go           # `crit preview <file.html>` command — preview-mode session bootstrap + content serving
 ├── proxy.go             # Reverse proxy for design-mode iframe (HTML injection, redirect rewriting)
 ├── frontend/
 │   ├── index.html       # HTML shell — two-paradigm fork loads code-review OR design-mode scripts
@@ -100,6 +101,7 @@ crit                          # Review git changes (starts daemon, blocks for fe
 crit <file|dir> [...]         # Review specific files or directories (falls through to runReview)
 crit review [...]             # Explicit review invocation (same as default)
 crit design <url>             # Review a running web app in design mode (also: crit <url>)
+crit preview <file.html>      # Review a local HTML file in preview mode (also: crit <file.html>)
 crit stop [--all]             # Stop daemon(s) for current directory
 crit status [--json]          # Show review file path, daemon status, comment stats
 crit cleanup [--days N] [--force]  # Delete stale review files from ~/.crit/reviews/
