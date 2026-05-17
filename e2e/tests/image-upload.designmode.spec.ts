@@ -98,6 +98,12 @@ test.describe('design-mode reply textarea image upload', () => {
     await expect(replyTa).toBeVisible();
     await replyTa.focus();
 
+    // Wait for image upload handler (attached in requestAnimationFrame)
+    await expect.poll(
+      () => replyTa.evaluate((el: HTMLTextAreaElement & { _imageUploadsAttached?: boolean }) => el._imageUploadsAttached === true),
+      { timeout: 5_000 },
+    ).toBe(true);
+
     // Simulate paste
     await replyTa.evaluate((el) => {
       const file = new File(
