@@ -267,15 +267,21 @@
   async function boot() {
     if (shared && shared.applyThemeFromCookie) shared.applyThemeFromCookie();
     state.session = await waitForSession();
-    if (state.session.review_type !== 'design') {
-      console.warn('[design-mode] /api/session.review_type != "design":', state.session.review_type);
+    if (state.session.review_type !== 'design' && state.session.review_type !== 'preview') {
+      console.warn('[design-mode] unexpected review_type:', state.session.review_type);
     }
+    state.isPreview = state.session.review_type === 'preview';
     // Capture proxyOrigin once for the message handler. The agent
     // posts from the proxy origin; the chrome lives on the API origin and
     // accepts only that source+origin pair.
+    // Preview mode: same-origin (agent served from /preview-content/).
     var s = state.session || {};
     var proxyHost = window.location.hostname || 'localhost';
-    state.proxyOrigin = 'http://' + proxyHost + ':' + (s.proxy_port || 0);
+    if (state.isPreview) {
+      state.proxyOrigin = window.location.origin;
+    } else {
+      state.proxyOrigin = 'http://' + proxyHost + ':' + (s.proxy_port || 0);
+    }
     buildShell();
     // Cache the iframeWindow once buildShell has inserted it.
     state.iframeWindow = els.iframe ? els.iframe.contentWindow : null;
@@ -410,6 +416,9 @@
   // Iframe src wired to proxy_port
   // ============================================================
   function proxyURL(pathname) {
+    if (state.isPreview) {
+      return '/preview-content' + (pathname || '/');
+    }
     var s = state.session || {};
     var port = s.proxy_port || 0;
     if (!port) return 'about:blank';
@@ -479,7 +488,11 @@
   // ============================================================
   function renderBreadcrumb() {
     if (!els.routeName) return;
-    els.routeName.textContent = state.currentRoute;
+    if (state.isPreview && state.session && state.session.files && state.session.files.length) {
+      els.routeName.textContent = state.session.files[0].path;
+    } else {
+      els.routeName.textContent = state.currentRoute;
+    }
   }
 
   function recordRoute(pathname) {

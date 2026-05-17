@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -113,6 +114,8 @@ func (s *Server) handlePreviewPage(w http.ResponseWriter, r *http.Request) {
 // handlePreviewContent serves the previewed HTML file and its sibling assets
 // (CSS, JS, images) so the iframe can load them. Paths under /preview-content/
 // are resolved relative to the previewed file's directory.
+// The main HTML file gets crit-agent.js injected before </body> so pin
+// commenting works (same approach as the design-mode proxy).
 func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -129,14 +132,15 @@ func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reqPath := strings.TrimPrefix(r.URL.Path, "/preview-content")
+	baseDir := filepath.Dir(sess.Origin)
+
 	if reqPath == "" || reqPath == "/" {
-		// Serve the main preview file
-		http.ServeFile(w, r, sess.Origin)
+		// Serve the main HTML with agent injection
+		s.servePreviewHTML(w, sess.Origin)
 		return
 	}
 
 	// Serve sibling assets relative to the preview file's directory
-	baseDir := filepath.Dir(sess.Origin)
 	resolved := filepath.Join(baseDir, filepath.Clean(reqPath))
 
 	// Path traversal check
@@ -146,6 +150,40 @@ func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.ServeFile(w, r, resolved)
+}
+
+// servePreviewHTML reads the HTML file and injects agent scripts before </body>.
+// Same-origin injection so no absolute URLs needed — just relative paths to
+// the embedded agent JS served at the root.
+func (s *Server) servePreviewHTML(w http.ResponseWriter, filePath string) {
+	body, err := os.ReadFile(filePath)
+	if err != nil {
+		http.Error(w, "failed to read preview file", http.StatusInternalServerError)
+		return
+	}
+
+	agentScripts := `<script src="/agent-protocol.js"></script>` +
+		`<script src="/agent-anchor-utils.js"></script>` +
+		`<script src="/agent-marker-overlay.js"></script>` +
+		`<script src="/agent-mutation-batcher.js"></script>` +
+		`<script src="/agent-resolution.js"></script>` +
+		`<script src="/agent-reanchor-state.js"></script>` +
+		`<script src="/crit-agent.js"></script>` +
+		`<link rel="stylesheet" href="/agent-marker.css">`
+
+	// Inject before last </body>
+	idx := bytes.LastIndex(bytes.ToLower(body), []byte("</body>"))
+	if idx >= 0 {
+		var out []byte
+		out = append(out, body[:idx]...)
+		out = append(out, []byte(agentScripts)...)
+		out = append(out, body[idx:]...)
+		body = out
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(body)
 }
 
 // runPreview is the entry point for `crit preview <file.html>`.
