@@ -1526,7 +1526,7 @@ func TestRemapLines(t *testing.T) {
 	}
 }
 
-func TestOnDesignRoundStart_OnlyForDesignReviews(t *testing.T) {
+func TestOnDesignRoundStart_OnlyForDesignAndPreviewReviews(t *testing.T) {
 	called := 0
 	hook := func(int, int) { called++ }
 
@@ -1543,5 +1543,14 @@ func TestOnDesignRoundStart_OnlyForDesignReviews(t *testing.T) {
 	}
 	if s2.ReviewRound != 2 {
 		t.Fatalf("ReviewRound = %d, want 2", s2.ReviewRound)
+	}
+
+	s3 := &Session{ReviewType: "preview", ReviewRound: 1, designRoundStart: hook}
+	advanceRoundForTest(s3)
+	if called != 2 {
+		t.Fatalf("hook did not fire for preview review (called=%d)", called)
+	}
+	if s3.ReviewRound != 2 {
+		t.Fatalf("ReviewRound = %d, want 2", s3.ReviewRound)
 	}
 }

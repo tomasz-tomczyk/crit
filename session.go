@@ -291,14 +291,15 @@ type Session struct {
 	generatedRules []generatedRule
 
 	// Design-mode runtime fields. Zero values are safe for code reviews.
-	ReviewType string // "" or "design"
+	ReviewType string // "", "design", or "preview"
 	Origin     string // upstream URL, e.g. "http://localhost:3000"
 	ProxyPort  int    // proxy server port; 0 for code reviews
 
-	// designRoundStart, when non-nil and ReviewType=="design", is invoked
-	// after ReviewRound is bumped. Production wiring sets this in runServe
-	// before SetSession; tests assign it before driving the session. Must
-	// be installed before the watcher goroutine starts — read-only after.
+	// designRoundStart, when non-nil and ReviewType is "design" or
+	// "preview", is invoked after ReviewRound is bumped. Production wiring
+	// sets this in runServe before SetSession; tests assign it before
+	// driving the session. Must be installed before the watcher goroutine
+	// starts — read-only after.
 	designRoundStart func(prevRound, newRound int)
 
 	reviewComments []Comment

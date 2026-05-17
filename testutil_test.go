@@ -179,7 +179,7 @@ func advanceRoundForTest(s *Session) {
 	rt := s.ReviewType
 	next := s.ReviewRound
 	s.mu.Unlock()
-	if rt == "design" && s.designRoundStart != nil {
+	if (rt == "design" || rt == "preview") && s.designRoundStart != nil {
 		s.designRoundStart(prev, next)
 	}
 }
