@@ -28,7 +28,7 @@ func isAbsoluteOrTraversal(p string) bool {
 }
 
 // checkCommentCLIAllowed returns an error if the review at critPath is a
-// design review.
+// live review.
 func checkCommentCLIAllowed(critPath string) error {
 	data, err := os.ReadFile(reviewPathsFor(critPath).Review)
 	if err != nil {
@@ -41,8 +41,8 @@ func checkCommentCLIAllowed(critPath string) error {
 	if err := json.Unmarshal(data, &cj); err != nil {
 		return nil //nolint:nilerr // malformed review file: do not block CLI
 	}
-	if cj.ReviewType == "design" {
-		return fmt.Errorf("crit comment <path>:<line> is not supported for design reviews; use the browser UI to add pins")
+	if cj.ReviewType == "live" {
+		return fmt.Errorf("crit comment <path>:<line> is not supported for live reviews; use the browser UI to add pins")
 	}
 	return nil
 }

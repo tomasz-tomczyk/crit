@@ -50,7 +50,7 @@
 
   function makeMarker(doc, pin, index) {
     const el = doc.createElement('div');
-    el.className = 'crit-design-marker';
+    el.className = 'crit-live-marker';
     el.setAttribute('role', 'button');
     el.setAttribute('tabindex', '0');
     el.setAttribute('data-pin-id', pin.id);

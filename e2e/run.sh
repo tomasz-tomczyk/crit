@@ -11,7 +11,7 @@ SINGLE_PORT="${CRIT_TEST_SINGLE_PORT:-3125}"
 NOGIT_PORT="${CRIT_TEST_NOGIT_PORT:-3126}"
 MULTI_PORT="${CRIT_TEST_MULTI_PORT:-3127}"
 RANGE_PORT="${CRIT_TEST_RANGE_PORT:-3128}"
-DESIGN_PORT="${CRIT_TEST_DESIGN_PORT:-3129}"
+LIVE_PORT="${CRIT_TEST_LIVE_PORT:-3129}"
 
 # Build crit once (skip if CRIT_BIN already points to an existing binary, e.g. CI coverage builds)
 if [ -n "${CRIT_BIN:-}" ] && [ -f "$CRIT_BIN" ]; then
@@ -24,7 +24,7 @@ else
 fi
 
 # Kill any stale processes on our test ports before starting fresh
-for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$DESIGN_PORT"; do
+for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT"; do
   e2e_kill_port "$port"
 done
 
@@ -42,12 +42,12 @@ bash setup-fixtures-multifile.sh "$MULTI_PORT" &
 MULTI_PID=$!
 bash setup-fixtures-range-mode.sh "$RANGE_PORT" &
 RANGE_PID=$!
-bash setup-fixtures-designmode.sh "$DESIGN_PORT" &
-DESIGN_PID=$!
+bash setup-fixtures-livemode.sh "$LIVE_PORT" &
+LIVE_PID=$!
 
 cleanup() {
-  kill "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" "$DESIGN_PID" 2>/dev/null || true
-  wait "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" "$DESIGN_PID" 2>/dev/null || true
+  kill "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" "$LIVE_PID" 2>/dev/null || true
+  wait "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" "$LIVE_PID" 2>/dev/null || true
   # On Git Bash `kill <bash-pid>` doesn't reap the spawned crit.exe child;
   # taskkill /T flushes the whole tree.
   e2e_kill_stray_crit
@@ -56,7 +56,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Wait for servers to be ready
-for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$DESIGN_PORT"; do
+for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT"; do
   while ! curl -sf "http://localhost:$port/api/session" >/dev/null 2>&1; do
     sleep 0.1
   done
@@ -80,7 +80,7 @@ if [ $# -eq 0 ]; then
   PW5=$!
   npx playwright test --project=range-mode > "$PWLOGS/range.log" 2>&1 &
   PW6=$!
-  npx playwright test --project=design-mode > "$PWLOGS/design.log" 2>&1 &
+  npx playwright test --project=live-mode > "$PWLOGS/live.log" 2>&1 &
   PW7=$!
 
   wait $PW1 || FAILED=1

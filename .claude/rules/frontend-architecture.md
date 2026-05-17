@@ -3,7 +3,7 @@
 ## Two-Paradigm Page Fork
 
 `index.html` serves both modes from a single HTML shell. A script block at load time checks `window.location.pathname`:
-- `/design` → design mode (iframe-based pin review)
+- `/live` → live mode (iframe-based pin review)
 - Everything else → code-review mode (file tree + diff/document views)
 
 Each mode dynamically loads its own script set. They share: theme pill, settings overlay, and extracted modules.
@@ -64,48 +64,48 @@ window.crit.renderer.register({
   highlightAnchor(anchor),    // visually highlight the target
   clearHighlight(),           // remove highlight
   onAnnotationIntent(cb),     // subscribe to "user wants to comment here"
-  getMode(),                  // "code-review" | "design"
+  getMode(),                  // "code-review" | "live"
   getAnchorType(),            // "line" | "dom"
 });
 ```
 
-Code-review registers its renderer in `app.js`. Design-mode registers in `design-mode.js`.
+Code-review registers its renderer in `app.js`. Live-mode registers in `live-mode.js`.
 
 ## Script Loading
 
 No bundler. Scripts are loaded dynamically with `async=false` (preserves execution order while loading in parallel). A Promise-based boot gate waits for all dependencies before loading the mode's main entry point:
 
 1. Early scripts (shared helpers) load first
-2. `designDeps` array lists all sub-modules
+2. `liveDeps` array lists all sub-modules
 3. `Promise.all(bootGate)` waits for all load events
-4. Only then loads `design-mode.js` (or `app.js` for code-review)
+4. Only then loads `live-mode.js` (or `app.js` for code-review)
 
 When adding a new shared module:
-- Add to `designDeps` array in `index.html` if design-mode needs it
+- Add to `liveDeps` array in `index.html` if live-mode needs it
 - Add to the code-review script chain if code-review needs it
 - Both modes must load shared modules BEFORE their main entry point
 
-## Design-Mode Sub-Modules
+## Live-Mode Sub-Modules
 
-Design-mode splits into focused files under `window.crit.design.<name>`:
+Live-mode splits into focused files under `window.crit.live.<name>`:
 
 | File | Namespace | Concern |
 |------|-----------|---------|
-| `design-mode.dispatch.js` | `.design.dispatch` | Message dispatch table |
-| `design-mode.toggle.js` | `.design.toggle` | Pin/Browse mode toggle |
-| `design-mode.composer.js` | `.design.composer` | Comment composition UI |
-| `design-mode.panel.js` | `.design.panel` | Side panel lifecycle |
-| `design-mode.panel-render.js` | `.design.panelRender` | Panel card rendering |
-| `design-mode.sse.js` | `.design.sse` | Design-mode SSE handlers |
-| `design-mode.size.js` | `.design.size` | Panel resize logic |
-| `design-mode.queue.js` | `.design.queue` | Batched pin push queue |
-| `design-mode.origin.js` | `.design.origin` | Origin/proxy URL resolution |
-| `design-mode.row.js` | `.design.row` | Per-route section rendering |
+| `live-mode.dispatch.js` | `.live.dispatch` | Message dispatch table |
+| `live-mode.toggle.js` | `.live.toggle` | Pin/Browse mode toggle |
+| `live-mode.composer.js` | `.live.composer` | Comment composition UI |
+| `live-mode.panel.js` | `.live.panel` | Side panel lifecycle |
+| `live-mode.panel-render.js` | `.live.panelRender` | Panel card rendering |
+| `live-mode.sse.js` | `.live.sse` | Live-mode SSE handlers |
+| `live-mode.size.js` | `.live.size` | Panel resize logic |
+| `live-mode.queue.js` | `.live.queue` | Batched pin push queue |
+| `live-mode.origin.js` | `.live.origin` | Origin/proxy URL resolution |
+| `live-mode.row.js` | `.live.row` | Per-route section rendering |
 
 ## Adding a New Module
 
 1. Create the IIFE file with the dual-export pattern
-2. Add it to `designDeps` or code-review script chain in `index.html`
+2. Add it to `liveDeps` or code-review script chain in `index.html`
 3. Create a matching `frontend/__tests__/<name>.test.js` using Node's `--test`
-4. Add the test file to `Makefile` `e2e-design-utils` target (if design-mode)
+4. Add the test file to `Makefile` `e2e-live-utils` target (if live-mode)
 5. Document dependencies in a header comment (which `window.crit.*` namespaces it reads)

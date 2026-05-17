@@ -34,11 +34,11 @@ describe('crit-draft', () => {
   it('clearAllDrafts removes matching keys', () => {
     draft.saveDraftImmediate('file-a', { body: 'a' });
     draft.saveDraftImmediate('file-b', { body: 'b' });
-    draft.saveDraftImmediate('design-c', { body: 'c' });
+    draft.saveDraftImmediate('live-c', { body: 'c' });
     draft.clearAllDrafts('file-');
     assert.equal(draft.loadDraft('file-a'), null);
     assert.equal(draft.loadDraft('file-b'), null);
-    assert.deepEqual(draft.loadDraft('design-c'), { body: 'c' });
+    assert.deepEqual(draft.loadDraft('live-c'), { body: 'c' });
   });
 
   it('loadDraft returns null for missing key', () => {

@@ -4437,7 +4437,7 @@ body.sidebar-resizing * {
 
 /* ===== Mini Toast =====
    Host is a single fixed container; toasts stack inside. Both code-review
-   (app.js) and design-mode (design-mode.js) feed this via
+   (app.js) and live-mode (live-mode.js) feed this via
    crit.shared.showToast(). Modifier classes (.mini-toast--info / --error /
    --success) are reserved; default styling is shared. Exit cleanup is
    transitionend-driven in JS — see frontend-js.md (no .remove() on elements

@@ -49,8 +49,8 @@ type serverConfig struct {
 	// changed-file lists still use local git.
 	remoteFiles bool
 
-	// designOrigin is the parsed --design-origin flag (design-mode daemon).
-	designOrigin string
+	// liveOrigin is the parsed --live-origin flag (live-mode daemon).
+	liveOrigin string
 
 	// previewFile is the absolute path to an HTML file for preview mode.
 	previewFile string
@@ -82,8 +82,8 @@ type serverFlagSet struct {
 	// in PR/range mode go through `gh api` instead of local git.
 	remoteFiles bool
 
-	// designOrigin is the parsed --design-origin flag (design-mode daemon).
-	designOrigin string
+	// liveOrigin is the parsed --live-origin flag (live-mode daemon).
+	liveOrigin string
 
 	// previewFile is the parsed --preview-file flag (preview-mode daemon).
 	previewFile string
@@ -111,7 +111,7 @@ func parseServerFlags(args []string) serverFlagSet {
 	rangeSpec := fs.String("range", "", "Review a commit range, base..head (e.g. abc1234..def5678)")
 	scopeSpec := fs.String("scope", "", "Diff scope when reviewing a PR: layer (default) or full-stack")
 	remoteFiles := fs.Bool("remote", false, "Read PR file content via GitHub API instead of local git (avoids `git fetch`; requires gh)")
-	designOrigin := fs.String("design-origin", "", "")
+	liveOrigin := fs.String("live-origin", "", "")
 	previewFile := fs.String("preview-file", "", "")
 	fs.Usage = func() {
 		printHelp()
@@ -119,25 +119,25 @@ func parseServerFlags(args []string) serverFlagSet {
 	fs.Parse(args)
 
 	return serverFlagSet{
-		port:         *port,
-		host:         *host,
-		noOpen:       *noOpen,
-		showVersion:  *showVersion,
-		shareURL:     *shareURL,
-		outputDir:    *outputDir,
-		quiet:        *quiet,
-		noIgnore:     *noIgnore,
-		baseBranch:   *baseBranch,
-		vcsOverride:  *vcsFlag,
-		planDir:      *planDir,
-		planName:     *planName,
-		fileArgs:     fs.Args(),
-		prSpec:       *prSpec,
-		rangeSpec:    *rangeSpec,
-		scopeSpec:    *scopeSpec,
-		remoteFiles:  *remoteFiles,
-		designOrigin: *designOrigin,
-		previewFile:  *previewFile,
+		port:        *port,
+		host:        *host,
+		noOpen:      *noOpen,
+		showVersion: *showVersion,
+		shareURL:    *shareURL,
+		outputDir:   *outputDir,
+		quiet:       *quiet,
+		noIgnore:    *noIgnore,
+		baseBranch:  *baseBranch,
+		vcsOverride: *vcsFlag,
+		planDir:     *planDir,
+		planName:    *planName,
+		fileArgs:    fs.Args(),
+		prSpec:      *prSpec,
+		rangeSpec:   *rangeSpec,
+		scopeSpec:   *scopeSpec,
+		remoteFiles: *remoteFiles,
+		liveOrigin:  *liveOrigin,
+		previewFile: *previewFile,
 	}
 }
 
@@ -251,7 +251,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		cfg:                cfg,
 		focus:              focus,
 		remoteFiles:        sf.remoteFiles,
-		designOrigin:       sf.designOrigin,
+		liveOrigin:         sf.liveOrigin,
 		previewFile:        sf.previewFile,
 	}, nil
 }
@@ -293,8 +293,8 @@ func preflightNoChangedFiles(sc *serverConfig) string {
 }
 
 func createSession(sc *serverConfig) (*Session, error) {
-	if sc.designOrigin != "" {
-		return createDesignSession(sc)
+	if sc.liveOrigin != "" {
+		return createLiveSession(sc)
 	}
 	if sc.previewFile != "" {
 		return createPreviewSession(sc)
@@ -335,26 +335,26 @@ func createSession(sc *serverConfig) (*Session, error) {
 	return session, nil
 }
 
-// createDesignSession builds a minimal session for design mode (no files,
+// createLiveSession builds a minimal session for live mode (no files,
 // no VCS).
-func createDesignSession(sc *serverConfig) (*Session, error) {
-	if sc.designOrigin == "" {
-		return nil, fmt.Errorf("createDesignSession: designOrigin is empty (internal bug; --design-origin must be set)")
+func createLiveSession(sc *serverConfig) (*Session, error) {
+	if sc.liveOrigin == "" {
+		return nil, fmt.Errorf("createLiveSession: liveOrigin is empty (internal bug; --live-origin must be set)")
 	}
 	cwd, _ := resolvedCWD()
 	s := &Session{
 		Mode:        "files",
 		RepoRoot:    cwd,
 		ReviewRound: 1,
-		ReviewType:  "design",
-		Origin:      sc.designOrigin,
-		CLIArgs:     []string{sc.designOrigin},
+		ReviewType:  "live",
+		Origin:      sc.liveOrigin,
+		CLIArgs:     []string{sc.liveOrigin},
 		// awaitingFirstReview must be true so the daemon-client's first
 		// /api/review-cycle call does NOT fire SignalRoundComplete at boot.
 		// Without this gate the watcher bumps ReviewRound from 1 to 2 before
-		// the user authors a single pin, and AddDesignPin stamps the stale
+		// the user authors a single pin, and AddLivePin stamps the stale
 		// counter onto the first persisted comment. NewSessionFromFiles sets
-		// this for code-review mode; design mode hand-rolls the struct so we
+		// this for code-review mode; live mode hand-rolls the struct so we
 		// must set it explicitly.
 		awaitingFirstReview: true,
 		subscribers:         make(map[chan SSEEvent]struct{}),
@@ -364,7 +364,7 @@ func createDesignSession(sc *serverConfig) (*Session, error) {
 	if sc.reviewPath != "" {
 		s.ReviewFilePath = sc.reviewPath
 		// loadCritJSON returns a fresh CritJSON if the file doesn't exist,
-		// so a brand-new design daemon (no prior pins) lands on the empty
+		// so a brand-new live daemon (no prior pins) lands on the empty
 		// path naturally. Read errors are non-fatal here: a corrupt review
 		// file will be reported by the next save.
 		if cj, err := loadCritJSON(sc.reviewPath); err == nil {
@@ -390,7 +390,7 @@ func createDesignSession(sc *serverConfig) (*Session, error) {
 			for path, fe := range cj.Files {
 				s.Files = append(s.Files, &FileEntry{
 					Path:     path,
-					FileType: "design-route",
+					FileType: "live-route",
 					Comments: fe.Comments,
 					Status:   fe.Status,
 				})
@@ -478,8 +478,8 @@ func serveSessionKey(sc *serverConfig) string {
 	if sc.planDir != "" {
 		return planSessionKey(cwd, sc.planName)
 	}
-	if sc.designOrigin != "" {
-		return designSessionKey(cwd, sc.designOrigin)
+	if sc.liveOrigin != "" {
+		return liveSessionKey(cwd, sc.liveOrigin)
 	}
 	if sc.previewFile != "" {
 		return previewSessionKey(cwd, sc.previewFile)
@@ -504,10 +504,10 @@ func checkStaleIntegrations(sc *serverConfig, srv *Server, cwd string) {
 	}
 }
 
-// designSessionArgsTag is the leading element of sessionEntry.Args for a
-// design daemon: ["design", "<origin>"]. Promoted to a const so the read
+// liveSessionArgsTag is the leading element of sessionEntry.Args for a
+// live daemon: ["live", "<origin>"]. Promoted to a const so the read
 // site (when one is added) can compare against the same identifier.
-const designSessionArgsTag = "design"
+const liveSessionArgsTag = "live"
 
 func runServe(args []string) {
 	pipe := openReadyPipe()
@@ -550,8 +550,8 @@ func runServe(args []string) {
 	srv.reviewPath = sc.reviewPath
 	srv.cliArgs = sc.files
 	sessionArgs := sc.files
-	if sc.designOrigin != "" {
-		sessionArgs = []string{designSessionArgsTag, sc.designOrigin}
+	if sc.liveOrigin != "" {
+		sessionArgs = []string{liveSessionArgsTag, sc.liveOrigin}
 	}
 	if sc.previewFile != "" {
 		sessionArgs = []string{"preview", sc.previewFile}
@@ -568,11 +568,11 @@ func runServe(args []string) {
 		daemonFatal(pipe, "Error writing session file: %v", err)
 	}
 
-	// Design-mode proxy server: bind on apiPort+1 and start serving.
+	// Live-mode proxy server: bind on apiPort+1 and start serving.
 	var proxyLn net.Listener
 	var proxySrv *http.Server
-	if sc.designOrigin != "" {
-		pl, ps, err := bindProxyServer(sc.designOrigin, addr.Port)
+	if sc.liveOrigin != "" {
+		pl, ps, err := bindProxyServer(sc.liveOrigin, addr.Port)
 		if err != nil {
 			daemonFatal(pipe, "Error starting proxy server: %v", err)
 		}
@@ -614,15 +614,15 @@ func runServe(args []string) {
 	signalReadiness(pipe, addr.Port)
 
 	if !sc.noOpen {
-		// In design/preview mode, route the auto-open to /design or /preview
+		// In live/preview mode, route the auto-open to /live or /preview
 		// instead of /, so the browser lands on the correct chrome (not the
 		// empty code-review shell). The parent CLI also kicks an open;
 		// macOS `open` is idempotent enough that the duplicate is harmless,
 		// but routing both to the same URL prevents the browser from briefly
 		// opening / first when the daemon spawns the open before the parent.
 		openURL := fmt.Sprintf("http://localhost:%d", addr.Port)
-		if sc.designOrigin != "" {
-			openURL = fmt.Sprintf("http://localhost:%d/design", addr.Port)
+		if sc.liveOrigin != "" {
+			openURL = fmt.Sprintf("http://localhost:%d/live", addr.Port)
 		} else if sc.previewFile != "" {
 			openURL = fmt.Sprintf("http://localhost:%d/preview", addr.Port)
 		}
@@ -678,8 +678,8 @@ func runServe(args []string) {
 		return
 	}
 	applySessionOverrides(session, sc)
-	if sc.designOrigin != "" {
-		session.CLIArgs = []string{sc.designOrigin}
+	if sc.liveOrigin != "" {
+		session.CLIArgs = []string{sc.liveOrigin}
 	} else {
 		session.CLIArgs = sc.files
 	}
@@ -689,18 +689,18 @@ func runServe(args []string) {
 	if !sc.noUpdateCheck && os.Getenv("CRIT_NO_UPDATE_CHECK") == "" {
 		go srv.CheckForUpdates()
 	}
-	if sc.designOrigin != "" && proxyLn != nil {
+	if sc.liveOrigin != "" && proxyLn != nil {
 		session.ProxyPort = proxyLn.Addr().(*net.TCPAddr).Port
-		session.ReviewType = "design"
-		session.Origin = sc.designOrigin
+		session.ReviewType = "live"
+		session.Origin = sc.liveOrigin
 	}
-	if session.ReviewType == "design" || session.ReviewType == "preview" {
+	if session.ReviewType == "live" || session.ReviewType == "preview" {
 		// Wire the round-start hook to broadcast over the same SSE channel
 		// handleEvents serves. The watcher fires this from a single
 		// goroutine after the round bump. Set before SetSession so the
 		// watcher goroutine never observes a partial assignment.
-		session.designRoundStart = func(_, next int) {
-			session.notify(SSEEvent{Type: "design-round-start", Round: next})
+		session.liveRoundStart = func(_, next int) {
+			session.notify(SSEEvent{Type: "live-round-start", Round: next})
 		}
 	}
 	srv.SetSession(session)

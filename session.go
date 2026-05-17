@@ -77,7 +77,7 @@ type Reply struct {
 	LastPushedBodyHash string `json:"last_pushed_body_hash,omitempty"`
 }
 
-// DOMAnchor identifies a DOM element for a design-mode pin.
+// DOMAnchor identifies a DOM element for a live-mode pin.
 // Nil on all code-review comments. The existing Comment.Anchor field
 // (a textual line-anchor string for drift correction) is unrelated and
 // is left unchanged.
@@ -114,7 +114,7 @@ type Comment struct {
 	Anchor      string `json:"anchor,omitempty"`
 	Drifted     bool   `json:"drifted,omitempty"`
 	// DriftedOnRound is set to the review round that newly classified this pin
-	// as Drifted. Used to surface "Drifted on round N" in the design-mode side
+	// as Drifted. Used to surface "Drifted on round N" in the live-mode side
 	// panel. Zero (omitempty) means "not stamped". Distinct from `Drifted bool`
 	// so we can show "drifted earlier" vs "drifted just now" without ambiguity.
 	DriftedOnRound int    `json:"drifted_on_round,omitempty"`
@@ -152,14 +152,14 @@ type Comment struct {
 	// Distinct from Comment.Scope ("line" | "file" | "review").
 	DiffScope string `json:"diff_scope,omitempty"`
 
-	// DOMAnchor is non-nil iff this comment is a design-mode pin.
+	// DOMAnchor is non-nil iff this comment is a live-mode pin.
 	// For code-review comments DOMAnchor is always nil.
 	DOMAnchor *DOMAnchor `json:"dom_anchor,omitempty"`
 
-	// PinNumber is a monotonic, review-scoped integer assigned at design-pin
+	// PinNumber is a monotonic, review-scoped integer assigned at live-pin
 	// creation, so reviewers can refer to "pin #7" regardless of route. Set
 	// only on comments where DOMAnchor != nil. Zero (omitempty) for code
-	// comments and for any legacy design pin lacking a number.
+	// comments and for any legacy live pin lacking a number.
 	PinNumber int `json:"pin_number,omitempty"`
 
 	// FocusKey identifies the *view* this comment was authored in.
@@ -175,7 +175,7 @@ type SSEEvent struct {
 	Type     string `json:"type"`
 	Filename string `json:"filename"`
 	Content  string `json:"content"`
-	// Round is non-zero for design-mode round-start events; carries the
+	// Round is non-zero for live-mode round-start events; carries the
 	// round number that just started.
 	Round int `json:"round,omitempty"`
 }
@@ -290,17 +290,17 @@ type Session struct {
 	// render them collapsed by default. Read-only after construction.
 	generatedRules []generatedRule
 
-	// Design-mode runtime fields. Zero values are safe for code reviews.
-	ReviewType string // "", "design", or "preview"
+	// Live-mode runtime fields. Zero values are safe for code reviews.
+	ReviewType string // "", "live", or "preview"
 	Origin     string // upstream URL, e.g. "http://localhost:3000"
 	ProxyPort  int    // proxy server port; 0 for code reviews
 
-	// designRoundStart, when non-nil and ReviewType is "design" or
+	// liveRoundStart, when non-nil and ReviewType is "live" or
 	// "preview", is invoked after ReviewRound is bumped. Production wiring
 	// sets this in runServe before SetSession; tests assign it before
 	// driving the session. Must be installed before the watcher goroutine
 	// starts — read-only after.
-	designRoundStart func(prevRound, newRound int)
+	liveRoundStart func(prevRound, newRound int)
 
 	reviewComments []Comment
 
@@ -417,10 +417,10 @@ type CritJSON struct {
 	PendingGitHubDeletes []int64 `json:"pending_github_deletes,omitempty"`
 
 	// ReviewType distinguishes review modes. "" (zero value) = code review.
-	// "design" = design mode. Omitted from JSON when empty for back-compat.
+	// "live" = live mode. Omitted from JSON when empty for back-compat.
 	ReviewType string `json:"review_type,omitempty"`
 
-	// Origin is the upstream URL for design reviews (e.g. "http://localhost:3000").
+	// Origin is the upstream URL for live reviews (e.g. "http://localhost:3000").
 	// Empty for code reviews.
 	Origin string `json:"origin,omitempty"`
 }
@@ -991,18 +991,18 @@ func (s *Session) AddFileComment(filePath, body, author, userID string) (Comment
 	return c, true
 }
 
-// AddDesignPin appends a design-mode pin (zero lines, DOMAnchor set) to a
-// file. If no FileEntry exists for filePath yet, one is auto-created — design
+// AddLivePin appends a live-mode pin (zero lines, DOMAnchor set) to a
+// file. If no FileEntry exists for filePath yet, one is auto-created — live
 // sessions start with an empty Files slice and routes register lazily on
 // first pin.
-func (s *Session) AddDesignPin(filePath, body, author, userID string, anchor *DOMAnchor) (Comment, bool) {
+func (s *Session) AddLivePin(filePath, body, author, userID string, anchor *DOMAnchor) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	fe := s.fileByPathLocked(filePath)
 	if fe == nil {
 		fe = &FileEntry{
 			Path:     filePath,
-			FileType: "design-route",
+			FileType: "live-route",
 			Status:   "added",
 		}
 		s.Files = append(s.Files, fe)
@@ -1016,10 +1016,10 @@ func (s *Session) AddDesignPin(filePath, body, author, userID string, anchor *DO
 	//
 	// Caveat: deleting the top pin and immediately adding another DOES reuse
 	// that number (4 → delete 4 → add gets 4 again). That's acceptable for the
-	// design-mode workflow today; tightening it would require a persisted
+	// live-mode workflow today; tightening it would require a persisted
 	// session-scoped counter (CritJSON.NextPinNumber).
 	//
-	// O(N×M) scan is fine at this scale: design sessions are bounded to a
+	// O(N×M) scan is fine at this scale: live sessions are bounded to a
 	// handful of routes with <50 pins total. Profile before caching.
 	nextNum := 1
 	for _, file := range s.Files {
@@ -1211,7 +1211,7 @@ func (s *Session) UpdateComment(filePath, id, body string) (Comment, bool) {
 // UpdateCommentWithAnchor updates a comment's body and optionally its DOMAnchor.
 // - body == "" leaves the body unchanged.
 // - newAnchor == nil leaves the existing anchor unchanged.
-// - newAnchor != nil requires the existing comment to be a design pin.
+// - newAnchor != nil requires the existing comment to be a live pin.
 // Returns (comment, true, "") on success.
 func (s *Session) UpdateCommentWithAnchor(filePath, id, body string, newAnchor *DOMAnchor) (Comment, bool, string) {
 	s.mu.Lock()
@@ -1241,7 +1241,7 @@ func (s *Session) UpdateCommentWithAnchor(filePath, id, body string, newAnchor *
 	return Comment{}, false, "not_found"
 }
 
-// PatchCommentDrift partially updates the design-pin drift fields on a
+// PatchCommentDrift partially updates the live-pin drift fields on a
 // comment. Pointer arguments distinguish "not set" from "set to zero/false":
 // only non-nil arguments are written. Returns the updated comment and true
 // on success; (zero, false) when the comment is not found.

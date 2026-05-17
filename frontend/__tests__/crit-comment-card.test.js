@@ -161,10 +161,10 @@ test('replies list rendered when comment.replies non-empty', () => {
 });
 
 test('suppressDrift omits the Drifted badge and drifted-context block', () => {
-  // Design mode never wants the drift UI: the daemon is no longer setting
-  // the drifted bit on design pins, but legacy review files might still
+  // Live mode never wants the drift UI: the daemon is no longer setting
+  // the drifted bit on live pins, but legacy review files might still
   // carry `drifted: true`. The shared card must accept a flag to hide both
-  // the header badge and the disclosure block, so design mode renders a
+  // the header badge and the disclosure block, so live mode renders a
   // clean card while code-review keeps the existing drift affordance.
   const out = card.buildCommentCard(
     { id: 'd1', body: 'x', drifted: true, anchor: 'old line\nstill old',

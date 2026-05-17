@@ -938,16 +938,16 @@ func TestCleanOrphanedSessions(t *testing.T) {
 	}
 }
 
-func TestDesignSessionKey_MatchesSpec(t *testing.T) {
+func TestLiveSessionKey_MatchesSpec(t *testing.T) {
 	cwd := "/Users/alice/myapp"
 	origin := "http://localhost:3000"
-	got := designSessionKey(cwd, origin)
+	got := liveSessionKey(cwd, origin)
 	if len(got) != 12 {
 		t.Errorf("key length = %d, want 12", len(got))
 	}
 	h := sha256.New()
 	h.Write([]byte(cwd))
-	h.Write([]byte("\x00design\x00"))
+	h.Write([]byte("\x00live\x00"))
 	h.Write([]byte(origin))
 	want := fmt.Sprintf("%x", h.Sum(nil))[:12]
 	if got != want {
@@ -955,27 +955,27 @@ func TestDesignSessionKey_MatchesSpec(t *testing.T) {
 	}
 }
 
-func TestDesignSessionKey_NoCollisionWithCodeKey(t *testing.T) {
+func TestLiveSessionKey_NoCollisionWithCodeKey(t *testing.T) {
 	cwd := "/Users/alice/myapp"
-	dk := designSessionKey(cwd, "http://localhost:3000")
+	dk := liveSessionKey(cwd, "http://localhost:3000")
 	ck := sessionKey(cwd, "main", nil)
 	if dk == ck {
-		t.Errorf("design key collides with code key: %s", dk)
+		t.Errorf("live key collides with code key: %s", dk)
 	}
 }
 
-func TestDesignSessionKey_DifferentOriginsProduceDifferentKeys(t *testing.T) {
+func TestLiveSessionKey_DifferentOriginsProduceDifferentKeys(t *testing.T) {
 	cwd := "/Users/alice/myapp"
-	k1 := designSessionKey(cwd, "http://localhost:3000")
-	k2 := designSessionKey(cwd, "http://localhost:4000")
+	k1 := liveSessionKey(cwd, "http://localhost:3000")
+	k2 := liveSessionKey(cwd, "http://localhost:4000")
 	if k1 == k2 {
 		t.Errorf("different origins produced same key: %s", k1)
 	}
 }
 
-func TestDesignSessionKey_Deterministic(t *testing.T) {
-	k1 := designSessionKey("/app", "http://localhost:3000")
-	k2 := designSessionKey("/app", "http://localhost:3000")
+func TestLiveSessionKey_Deterministic(t *testing.T) {
+	k1 := liveSessionKey("/app", "http://localhost:3000")
+	k2 := liveSessionKey("/app", "http://localhost:3000")
 	if k1 != k2 {
 		t.Errorf("non-deterministic: %s vs %s", k1, k2)
 	}

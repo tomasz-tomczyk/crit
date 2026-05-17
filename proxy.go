@@ -17,10 +17,10 @@ import (
 	"time"
 )
 
-// newDesignProxy builds a reverse proxy for a design-mode session.
+// newLiveProxy builds a reverse proxy for a live-mode session.
 // upstreamOrigin is the target scheme+host+port (e.g. "http://localhost:3000").
 // apiPort is the API server's port, used to construct the agent script URL.
-func newDesignProxy(upstreamOrigin string, apiPort int) (http.Handler, error) {
+func newLiveProxy(upstreamOrigin string, apiPort int) (http.Handler, error) {
 	target, err := url.Parse(upstreamOrigin)
 	if err != nil {
 		return nil, fmt.Errorf("parsing upstream origin %q: %w", upstreamOrigin, err)
@@ -60,7 +60,7 @@ func newDesignProxy(upstreamOrigin string, apiPort int) (http.Handler, error) {
 			// Log the full error to stderr for debugging — it may include
 			// the upstream URL or local file paths that we don't want to
 			// echo back into a JSON envelope served to the browser.
-			log.Printf("design proxy: upstream error for %s: %v", r.URL.Path, err)
+			log.Printf("live proxy: upstream error for %s: %v", r.URL.Path, err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadGateway)
 			fmt.Fprint(w, `{"error":"upstream unreachable"}`)
@@ -357,7 +357,7 @@ func bindProxyServer(upstreamOrigin string, apiPort int) (net.Listener, *http.Se
 	if err != nil {
 		return nil, nil, fmt.Errorf("proxy port %d already in use: %w", proxyPort, err)
 	}
-	handler, err := newDesignProxy(upstreamOrigin, apiPort)
+	handler, err := newLiveProxy(upstreamOrigin, apiPort)
 	if err != nil {
 		ln.Close()
 		return nil, nil, err

@@ -1,0 +1,511 @@
+/* style-live.css — live-mode chrome layout. Loaded only when
+   pathname is /live (bootstrap fork in index.html).
+
+   R1: <html class="crit-mode-live"> hides code-review-only chrome but
+       keeps the existing .header and #settingsOverlay alive.
+   R3: viewport / mode toggles inject into the existing .header-right
+       using .scope-toggle / .diff-mode-toggle classes from style.css.
+   R5: comment list reuses .comments-panel / .comment-card.
+
+   Class prefix: .crit-live-*. Do not collide with .crit-*, .line-*. */
+
+/* Hide code-review chunks. Settings overlay survives (R6).
+   M12/M13/M15 (Phase F): keep #commentNavGroup (toggle + count badge) and
+   #commentsPanelResizer (resize handle for comments panel) visible in live
+   mode — JS wiring shipped in Phase D, but the chrome was still hidden. Only
+   the file-tree sidebar resizer (#fileTreeResizer) needs hiding. */
+.crit-mode-live .file-tree-panel,
+.crit-mode-live #fileTreeResizer,
+.crit-mode-live .main-content,
+.crit-mode-live #filesContainer,
+.crit-mode-live .pr-panel,
+.crit-mode-live .toc,
+.crit-mode-live .compare-rail,
+.crit-mode-live #scopeToggle,
+.crit-mode-live #diffToggle,
+.crit-mode-live #diffModeToggle,
+.crit-mode-live #prToggle,
+.crit-mode-live #shareBtn,
+.crit-mode-live #tocToggle,
+.crit-mode-live #updateBtn { display: none !important; }
+
+/* The comments-panel survives but is shown for live-mode comments.
+   The base stylesheet hides .comments-panel for code-review boot via an
+   inline `.comments-panel-hidden` class; we need to undo that for live
+   mode while still letting the user toggle it via #commentCount. So we
+   only force display:flex when the panel is NOT marked hidden — that way
+   `.comments-panel-hidden { display: none }` still wins on toggle. */
+.crit-mode-live .comments-panel:not(.comments-panel-hidden) {
+  display: flex !important;
+}
+
+/* M12/M13/M15: comments toggle (#commentNavGroup, #commentCount) and
+   resizer (#commentsPanelResizer) are wired by live-mode.js but the
+   index.html template inlines `style="display:none"` on commentNavGroup
+   for code-review boot. Override here so the navbar comments-panel toggle
+   + count badge render in live mode. */
+.crit-mode-live #commentNavGroup { display: inline-flex !important; }
+/* Hide the prev/next nav arrows in live mode — live pins don't have
+   the same in-document navigation flow. Keep only the count toggle. */
+.crit-mode-live #commentNavGroup #commentNavPrev,
+.crit-mode-live #commentNavGroup #commentNavNext { display: none !important; }
+/* The base .sidebar-resize-handle uses position:sticky with top:var(--header-height)
+   and height:calc(100vh - var(--header-height)). That's correct in code-review
+   where .main-layout starts at the top of the page and the body scrolls. In
+   live mode .main-layout is itself a fixed-height flex child below the
+   header (`height: calc(100vh - var(--crit-header-height))`), so the sticky
+   `top` offset shifts the handle DOWN by 49px inside an already-clipped
+   container — the visible drag strip ends up offset below where the user
+   expects it (or partially clipped off-screen), and the panel "doesn't
+   resize" because the user is hitting the iframe pane, not the handle.
+   Override to a plain stretching flex child so the 4px strip aligns with
+   the panel's left edge across the full pane height. */
+.crit-mode-live #commentsPanelResizer {
+  display: block !important;
+  position: relative;
+  top: auto;
+  height: 100%;
+  align-self: stretch;
+}
+
+/* main-layout becomes live-mode container: header on top (existing),
+   then iframe pane + comments panel side-by-side. */
+.crit-mode-live .main-layout {
+  display: flex;
+  flex-direction: row;
+  height: calc(100vh - var(--crit-header-height, 56px));
+}
+
+/* Iframe pane sits as a sibling of .comments-panel inside .main-layout. */
+.crit-live-iframe-pane {
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  background: var(--crit-live-iframe-bg);
+  padding: 16px;
+}
+
+.crit-live-iframe-pane-inner {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-width: 100%;
+  width: max-content;
+}
+
+.crit-live-iframe-frame {
+  position: relative;
+  background: #fff;
+  border: 1px solid var(--crit-live-iframe-frame);
+  border-radius: var(--crit-r-md);
+  box-shadow: var(--crit-shadow);
+  flex: 0 0 auto;
+}
+
+.crit-live-iframe-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: var(--crit-r-md);
+}
+
+.crit-live-iframe-resizer {
+  position: absolute;
+  top: 0; right: -3px; bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  background: transparent;
+  z-index: 2;
+}
+.crit-live-iframe-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 2px; height: 36px;
+  margin: -18px 0 0 -1px;
+  background: var(--crit-pill-border);
+  border-radius: 1px;
+  transition: background var(--crit-dur-fast) var(--crit-ease);
+}
+.crit-live-iframe-resizer:hover::after,
+.crit-live-iframe-resizer:active::after {
+  background: var(--crit-focus, var(--crit-brand));
+}
+
+/* Breadcrumb chip (header-chip) — colour comes from existing pill tokens. */
+.crit-mode-live #liveRouteName {
+  font-family: var(--crit-font-mono);
+  font-size: 12px;
+}
+
+/* Drift tray heading colour reserved for Phase D — use --crit-yellow. */
+
+/* a11y: visually hidden live region. */
+.crit-live-sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  border: 0;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Iframe load-error banner. */
+.crit-live-iframe-error {
+  position: absolute;
+  inset: 16px;
+  background: var(--crit-bg-card);
+  border: 1px dashed var(--crit-red);
+  color: var(--crit-fg-primary);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: var(--crit-r-md);
+}
+.crit-live-iframe-error button {
+  appearance: none;
+  background: var(--crit-brand-cta);
+  color: var(--crit-fg-on-brand);
+  border: 0;
+  padding: 6px 14px;
+  border-radius: var(--crit-r-sm);
+  cursor: pointer;
+}
+
+/* Cross-origin redirect notice. */
+.crit-live-redirect-notice {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--crit-bg-card);
+  color: var(--crit-fg-primary);
+  border: 1px solid var(--crit-border, var(--crit-pill-border));
+  padding: 8px 12px;
+  border-radius: var(--crit-r-md);
+  box-shadow: var(--crit-shadow);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.crit-live-redirect-notice code {
+  font-family: var(--crit-font-mono);
+  background: var(--crit-editor-code-bg);
+  padding: 0 4px;
+  border-radius: var(--crit-r-sm);
+}
+.crit-live-redirect-notice button {
+  appearance: none;
+  background: transparent;
+  color: var(--crit-brand);
+  border: 1px solid var(--crit-pill-border);
+  padding: 2px 8px;
+  border-radius: var(--crit-r-sm);
+  cursor: pointer;
+}
+
+/* Comment-card live-route hint (R5): re-uses .comment-card chrome. */
+.crit-mode-live .comment-card[data-live-route] {
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .crit-mode-live .main-layout {
+    flex-direction: column;
+  }
+}
+
+/* ============================================================
+ * Phase C: composer, ancestor menu, toast, mode toggle, comment row
+ * ============================================================ */
+.crit-live-mode-btn-active {
+  background: var(--crit-live-mode-btn-active-bg);
+  color: var(--crit-live-mode-btn-active-fg);
+}
+.crit-live-composer-host {
+  padding: 8px;
+}
+/* Capture composer — mirrors code-review's `.comment-form` chrome:
+   brand-colored border + subtle outer ring + brand header strip,
+   borderless integrated textarea, top-bordered actions row. */
+.crit-live-composer {
+  position: relative;
+  display: block;
+  margin: 0;
+  background: var(--crit-editor-comment-bg);
+  border: 1px solid var(--crit-brand);
+  border-radius: var(--crit-r-md);
+  overflow: hidden;
+  box-shadow: 0 0 0 2px var(--crit-brand-subtle);
+}
+.crit-live-composer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 0;
+  font-size: 11px;
+  color: var(--crit-editor-fg-muted);
+}
+.crit-live-composer-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--crit-r-sm);
+  background: var(--crit-editor-code-bg);
+  color: var(--crit-editor-fg);
+  font-size: 12px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crit-live-composer-body {
+  display: block;
+  width: 100%;
+  min-height: 80px;
+  margin-top: 8px;
+  padding: 10px 14px;
+  border: none;
+  background: var(--crit-editor-comment-bg);
+  color: var(--crit-editor-fg);
+  font-family: var(--crit-font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  resize: none;
+  field-sizing: content;
+  outline: none;
+}
+.crit-live-composer-body::placeholder {
+  color: var(--crit-editor-fg-muted);
+}
+.crit-live-composer-error {
+  padding: 0 14px 8px;
+  font-size: 12px;
+  color: var(--crit-live-composer-error-fg);
+}
+.crit-live-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--crit-live-composer-border);
+}
+.crit-live-ancestor-menu-host {
+  pointer-events: auto;
+}
+.crit-live-ancestor-menu {
+  display: flex;
+  flex-direction: column;
+  background: var(--crit-live-ancestor-menu-bg);
+  color: var(--crit-live-ancestor-menu-fg);
+  border: 1px solid var(--crit-pill-border);
+  border-radius: var(--crit-r-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  min-width: 160px;
+  padding: 4px 0;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.crit-live-ancestor-menu-item {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.crit-live-ancestor-menu-item:hover,
+.crit-live-ancestor-menu-item:focus {
+  background: var(--crit-live-ancestor-menu-hover-bg);
+}
+
+/* Phase D parity: live pin rows mount the shared `.comment-card` chrome
+   from style.css (border, header bar, body padding). The `.crit-live-comment-row`
+   marker class stays so composer/edit selectors keep targeting live pins,
+   but it adds NO chrome of its own — that's the source of the prior
+   "card-in-a-card" mismatch with code-review. */
+.crit-live-comment-row {
+  /* intentionally empty marker class */
+}
+
+/* Hide-resolved parity: the base rule in style.css excludes
+   .panel-comment-block (because code-review's panel reflects the inline
+   list). Live pins live ONLY in the panel, so we need an explicit
+   companion rule keyed on the live-row marker class. */
+body.hide-resolved .crit-live-comment-row-wrap:has(.resolved-card) {
+  display: none;
+}
+
+.crit-live-comment-chip {
+  display: inline-block;
+  max-width: 18ch;
+  padding: 1px 6px;
+  border-radius: var(--crit-r-sm);
+  background: var(--crit-editor-code-bg);
+  color: var(--crit-editor-fg);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crit-live-comment-thumb {
+  display: block;
+  max-width: 100%;
+  max-height: 120px;
+  margin: 0 0 8px 0;
+  border: 1px solid var(--crit-border);
+  border-radius: var(--crit-r-sm);
+}
+/* Per-reply Edit/Delete affordance buttons inside live replies inherit
+   the shared `.reply-actions button` chrome — no overrides needed. The
+   class hooks `.crit-live-reply-edit` / `.crit-live-reply-delete` are
+   here purely so future event delegation in live-mode.js can target
+   them without colliding with code-review's reply edit/delete. */
+/* Reply + edit composers — mirror code-review's expanded `.reply-form`
+   chrome: flush textarea on the comment-card surface, borderless, with a
+   top border separating the actions row. The composer sits inside an
+   existing card, so it should not introduce its own outer border or
+   rounded corners. */
+.crit-live-reply-composer,
+.crit-live-edit-composer {
+  display: block;
+  margin: 8px -8px 0; /* extend to card edges (.crit-live-comment-row has 8px padding) */
+  padding: 0;
+  background: var(--crit-editor-comment-bg);
+  border-top: 1px solid var(--crit-live-composer-border);
+}
+.crit-live-reply-textarea,
+.crit-live-edit-textarea {
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 14px;
+  border: none;
+  background: var(--crit-editor-comment-bg);
+  color: var(--crit-editor-fg);
+  font-family: var(--crit-font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+.crit-live-reply-textarea::placeholder,
+.crit-live-edit-textarea::placeholder {
+  color: var(--crit-editor-fg-muted);
+}
+.crit-live-reply-error,
+.crit-live-edit-error {
+  padding: 0 14px 6px;
+  font-size: 12px;
+  color: var(--crit-live-composer-error-fg);
+}
+.crit-live-reply-actions,
+.crit-live-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--crit-live-composer-border);
+}
+
+/* Resolved styling now reuses code-review's `.comment-card.resolved`
+   rule from style.css (greyed bg + reduced opacity). The bespoke
+   strikethrough/opacity override that lived here was a half-baked
+   replacement and led to inconsistent visuals between modes. */
+
+.crit-live-reanchor-btn {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--crit-border-strong);
+  background: var(--crit-bg-elevated);
+  color: var(--crit-fg-primary);
+  cursor: pointer;
+}
+.crit-live-reanchor-btn:hover {
+  background: var(--crit-pill-bg-hover);
+}
+.crit-live-reanchor-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.crit-live-thread-highlight {
+  outline: 2px solid var(--crit-live-marker-focus-ring);
+  outline-offset: 2px;
+  transition: outline-color 200ms;
+}
+
+/* ---- Phase E: aria-live + skip-link ---- */
+.crit-live-skip-link {
+  position: absolute; left: -9999px; top: 8px;
+  background: var(--crit-live-tooltip-bg);
+  color: var(--crit-live-tooltip-fg);
+  padding: 8px 12px; border-radius: 6px;
+  z-index: 2147483600;
+  text-decoration: none;
+}
+.crit-live-skip-link:focus,
+.crit-live-skip-link:focus-visible {
+  left: 8px;
+  outline: 2px solid var(--crit-live-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---- Phase E: marker flash animation ---- */
+.crit-live-marker--flash {
+  animation: crit-live-marker-flash 1.5s ease-out;
+}
+@keyframes crit-live-marker-flash {
+  0%   { box-shadow: 0 0 0 0 var(--crit-live-marker-flash-bg); }
+  70%  { box-shadow: 0 0 0 14px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* ---- Phase E: round-counter tooltip ---- */
+.crit-live-round-tooltip {
+  position: fixed;
+  max-width: 320px;
+  padding: 8px 10px;
+  background: var(--crit-live-tooltip-bg);
+  color: var(--crit-live-tooltip-fg);
+  border: 1px solid var(--crit-live-tooltip-border);
+  border-radius: 6px;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 2147483600;
+}
+.crit-live-round-tooltip--open { opacity: 1; }
+
+/* ---- Phase E: ancestor menu polish (fade + active row) ---- */
+.crit-live-ancestor-menu.crit-live-ancestor-menu--open {
+  opacity: 1;
+  transform: translateY(0);
+}
+.crit-live-ancestor-menu-item--active {
+  background: var(--crit-live-menu-highlight-bg);
+  color: var(--crit-live-menu-highlight-fg);
+}
+
+/* ---- Phase E: :focus-visible across all interactive live-mode elements ---- */
+.crit-live-thread button:focus-visible,
+.crit-live-thread [tabindex="0"]:focus-visible,
+.crit-live-ancestor-menu-item:focus-visible,
+.crit-live-skip-link:focus-visible,
+.crit-live-reanchor-btn:focus-visible,
+#liveRoundCounter:focus-visible,
+.crit-live-iframe-resizer:focus-visible {
+  outline: 2px solid var(--crit-live-focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

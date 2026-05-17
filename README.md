@@ -80,19 +80,19 @@ Run `crit` with no arguments. Crit auto-detects changed files in your repo and o
 
 ![Crit review for your branch](images/git-mode.png)
 
-### Design review
+### Live review
 
-Run `crit design <url>` to review a running web app instead of files. Crit reverse-proxies the target origin into an iframe and injects an agent script that captures clicks. In Pin mode, clicking any DOM element anchors a comment to it; threading, resolution, and rounds work the same as file review.
+Run `crit live <url>` to review a running web app instead of files. Crit reverse-proxies the target origin into an iframe and injects an agent script that captures clicks. In Pin mode, clicking any DOM element anchors a comment to it; threading, resolution, and rounds work the same as file review.
 
 ```bash
-crit design http://localhost:3000     # review your local dev server
+crit live http://localhost:3000     # review your local dev server
 ```
 
 Pins store a CSS selector and semantic anchor (tag chain, accessible name, landmark), so comments survive minor DOM changes and surface as `Drifted` when the element moves. All state stays local — no sharing in v1.
 
 ### Preview mode
 
-Run `crit preview <file.html>` to review a local HTML file rendered in an iframe — same pin commenting as design mode, but for static files instead of a running dev server. `crit <file.html>` also works (auto-detected from the `.html` extension).
+Run `crit preview <file.html>` to review a local HTML file rendered in an iframe — same pin commenting as live mode, but for static files instead of a running dev server. `crit <file.html>` also works (auto-detected from the `.html` extension).
 
 ```bash
 crit preview index.html               # explicit preview command

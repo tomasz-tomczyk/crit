@@ -30,19 +30,19 @@ test('crit-agent.js does not capture or attach a screenshot to DOMAnchor', () =>
     'html2canvas loader / references must be removed from crit-agent.js');
 });
 
-test('design-mode.composer.js does not render a screenshot thumbnail', () => {
-  const src = read('design-mode.composer.js');
+test('live-mode.composer.js does not render a screenshot thumbnail', () => {
+  const src = read('live-mode.composer.js');
   assert.equal(src.includes('screenshot'), false,
     'composer thumbnail rendering should be removed');
 });
 
-test('design-mode.row.js does not render a pin screenshot <img>', () => {
-  const src = read('design-mode.row.js');
+test('live-mode.row.js does not render a pin screenshot <img>', () => {
+  const src = read('live-mode.row.js');
   // Allow header/comment text but not screenshot rendering or property reads.
   assert.equal(/anchor\.screenshot/.test(src), false,
     'row card should not read anchor.screenshot');
-  assert.equal(src.includes('crit-design-comment-thumb'), false,
-    'row card should not append a .crit-design-comment-thumb image');
+  assert.equal(src.includes('crit-live-comment-thumb'), false,
+    'row card should not append a .crit-live-comment-thumb image');
 });
 
 test('agent-screenshot-options.js module is removed', () => {
@@ -52,10 +52,10 @@ test('agent-screenshot-options.js module is removed', () => {
     'agent-screenshot-options.test.js should be deleted');
 });
 
-test('design-mode.panel-render.js comment signature drops screenshot key', () => {
+test('live-mode.panel-render.js comment signature drops screenshot key', () => {
   // The signature is what panel reuse decisions key off; including
   // anchor.screenshot in it just kept stale data alive across reuse.
-  const src = read('design-mode.panel-render.js');
+  const src = read('live-mode.panel-render.js');
   assert.equal(/anchor\.screenshot/.test(src), false,
     'commentSignature should not reference anchor.screenshot');
 });

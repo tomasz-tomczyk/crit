@@ -90,7 +90,7 @@ func bucketCommentsForPush(cj CritJSON, currentHeadSHA string, inRangeMode bool)
 				continue // already on GitHub; skip (matches critJSONToGHComments)
 			}
 			if c.DOMAnchor != nil {
-				continue // design pins are local-only; never post to GitHub
+				continue // live pins are local-only; never post to GitHub
 			}
 			sc := scopedComment{Path: path, Comment: c}
 			classifyComment(&sc, currentHeadSHA, inRangeMode)

@@ -116,7 +116,7 @@ func (s *Server) handlePreviewPage(w http.ResponseWriter, r *http.Request) {
 // (CSS, JS, images) so the iframe can load them. Paths under /preview-content/
 // are resolved relative to the previewed file's directory.
 // The main HTML file gets crit-agent.js injected before </body> so pin
-// commenting works (same approach as the design-mode proxy).
+// commenting works (same approach as the live-mode proxy).
 func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

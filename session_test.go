@@ -5327,7 +5327,7 @@ func TestDOMAnchor_NilOmitted(t *testing.T) {
 	}
 }
 
-func TestComment_LegacyFileNoDesignFields(t *testing.T) {
+func TestComment_LegacyFileNoLiveFields(t *testing.T) {
 	raw := `{"id":"c_old","start_line":5,"end_line":5,"body":"old","created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}`
 	var c Comment
 	if err := json.Unmarshal([]byte(raw), &c); err != nil {
@@ -5338,11 +5338,11 @@ func TestComment_LegacyFileNoDesignFields(t *testing.T) {
 	}
 }
 
-func TestCritJSON_DesignFields_RoundTrip(t *testing.T) {
+func TestCritJSON_LiveFields_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	critPath := filepath.Join(dir, "test-review")
 	cj := CritJSON{
-		ReviewType:  "design",
+		ReviewType:  "live",
 		Origin:      "http://localhost:3000",
 		ReviewRound: 1,
 		Files:       map[string]CritJSONFile{},
@@ -5364,8 +5364,8 @@ func TestCritJSON_DesignFields_RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &loaded); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if loaded.ReviewType != "design" {
-		t.Errorf("ReviewType = %q, want design", loaded.ReviewType)
+	if loaded.ReviewType != "live" {
+		t.Errorf("ReviewType = %q, want live", loaded.ReviewType)
 	}
 	if loaded.Origin != "http://localhost:3000" {
 		t.Errorf("Origin = %q, want http://localhost:3000", loaded.Origin)

@@ -30,12 +30,12 @@ func TestPreviewSessionKey(t *testing.T) {
 	}
 }
 
-func TestPreviewSessionKey_NoCollisionWithDesign(t *testing.T) {
+func TestPreviewSessionKey_NoCollisionWithLive(t *testing.T) {
 	cwd := "/app"
 	pk := previewSessionKey(cwd, "http://localhost:3000")
-	dk := designSessionKey(cwd, "http://localhost:3000")
+	dk := liveSessionKey(cwd, "http://localhost:3000")
 	if pk == dk {
-		t.Error("preview and design keys collide for same input")
+		t.Error("preview and live keys collide for same input")
 	}
 }
 

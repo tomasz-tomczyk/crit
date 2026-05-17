@@ -1,5 +1,5 @@
 // crit-comment-card-helpers.js — pure rendering helpers shared between the
-// code-review comment card (app.js) and design-mode rows (design-mode.row.js).
+// code-review comment card (app.js) and live-mode rows (live-mode.row.js).
 //
 // Rules for adding helpers here:
 //   1. Pure: no closures over module state, no DOM mutation, no fetch.
@@ -8,7 +8,7 @@
 //      so code review keeps rendering exactly the same HTML.
 //
 // Exports onto window.crit.commentCardHelpers. Loaded before app.js and
-// design-mode.js via index.html script order.
+// live-mode.js via index.html script order.
 'use strict';
 (function (root, factory) {
   var api = factory();
@@ -62,13 +62,13 @@
 
   // formKeyFor — convention-based form-key for edit/reply/etc. forms keyed by
   // comment id. Used by the shared comment-card / comment-form modules and by
-  // design-mode mounts so both controllers produce matching keys.
+  // live-mode mounts so both controllers produce matching keys.
   // kind: 'edit' | 'reply' | string
   function formKeyFor(commentId, kind) {
     return 'comment:' + kind + ':' + commentId;
   }
 
-  // chipLabel — canonical design-pin label heuristic. Prefers accessible_name,
+  // chipLabel — canonical live-pin label heuristic. Prefers accessible_name,
   // then a short slice of textContent extracted from outer_html, then the leaf
   // tag from tag_chain, then a.role, and finally falls back to 'pin'.
   function chipLabel(a) {

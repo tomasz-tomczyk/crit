@@ -244,20 +244,20 @@
 
 <script>
   (function () {
-    // Path-based fork. The server serves this same index.html raw at /design,
+    // Path-based fork. The server serves this same index.html raw at /live,
     // so pathname is the most reliable trigger — survives reload, doesn't
     // depend on a query string being present.
-    var isDesign = window.location.pathname === '/design';
+    var isLive = window.location.pathname === '/live';
     var isPreview = window.location.pathname === '/preview';
 
-    if (isDesign || isPreview) {
-      // Keep <body> intact and just mark <html> with a mode class. style-design.css
+    if (isLive || isPreview) {
+      // Keep <body> intact and just mark <html> with a mode class. style-live.css
       // hides code-review-only chrome (file tree, main-content, comments-panel,
       // pr-panel, etc.) while keeping the header + settings overlay alive, so the
       // shared bootstrap (theme pill, settings dialog, shared helpers) keeps working.
-      document.documentElement.classList.add('crit-mode-design');
+      document.documentElement.classList.add('crit-mode-live');
 
-      // Pull in shared helpers + design-mode CSS, then the controller.
+      // Pull in shared helpers + live-mode CSS, then the controller.
       var sh = document.createElement('script'); sh.src = 'crit-shared.js';
       document.head.appendChild(sh);
 
@@ -276,60 +276,60 @@
       var cf = document.createElement('script'); cf.src = 'crit-comment-form.js';
       document.head.appendChild(cf);
 
-      var ru = document.createElement('script'); ru.src = 'design-route-utils.js';
+      var ru = document.createElement('script'); ru.src = 'live-route-utils.js';
       document.head.appendChild(ru);
 
       // markdown-it powers comment-body rendering inside the shared
-      // buildCommentCard. Loaded for /design too so design rows reach parity
+      // buildCommentCard. Loaded for /live too so live rows reach parity
       // with code-review's renderer.
       var mi = document.createElement('script'); mi.src = 'markdown-it.min.js';
       document.head.appendChild(mi);
 
       var l = document.createElement('link');
       l.rel = 'stylesheet';
-      l.href = 'style-design.css';
+      l.href = 'style-live.css';
       document.head.appendChild(l);
 
-      // Sub-modules loaded in parallel; design-mode.js (loaded last) requires
-      // their window.crit.* / window.crit.design.* namespaces to be present.
-      var designDeps = [
+      // Sub-modules loaded in parallel; live-mode.js (loaded last) requires
+      // their window.crit.* / window.crit.live.* namespaces to be present.
+      var liveDeps = [
         'crit-comment-card-helpers.js',
         'crit-comment-card.js',
         'crit-settings-panes.js',
         'crit-settings-overlay.js',
         'agent-protocol.js',
-        'design-mode.dispatch.js',
-        'design-mode.inflight.js',
-        'design-mode.toggle.js',
-        'design-mode.composer.js',
-        'design-mode.menu.js',
-        'design-mode.shortcut.js',
-        'design-mode.queue.js',
-        'design-mode.origin.js',
-        'design-mode.size.js',
-        'design-mode.row.js',
-        'design-mode.panel.js',
-        'design-mode.panel-render.js',
-        'design-mode.sse.js',
-        'design-mode.comments-loader.js',
-        'design-mode.redirect-notice.js',
-        'design-mode-pin-filter.js',
-        'design-mode-resolution-gate.js',
-        'design-mode-pin-state.js',
-        'design-mode-thread-scroll.js',
-        'design-mode-reanchor-click.js',
-        'design-mode-reanchor-put.js',
-        'design-mode-deeplink.js',
-        'design-mode-round-resolve.js',
-        'design-mode-round-tooltip.js',
-        'design-mode.menu-controller.js',
+        'live-mode.dispatch.js',
+        'live-mode.inflight.js',
+        'live-mode.toggle.js',
+        'live-mode.composer.js',
+        'live-mode.menu.js',
+        'live-mode.shortcut.js',
+        'live-mode.queue.js',
+        'live-mode.origin.js',
+        'live-mode.size.js',
+        'live-mode.row.js',
+        'live-mode.panel.js',
+        'live-mode.panel-render.js',
+        'live-mode.sse.js',
+        'live-mode.comments-loader.js',
+        'live-mode.redirect-notice.js',
+        'live-mode-pin-filter.js',
+        'live-mode-resolution-gate.js',
+        'live-mode-pin-state.js',
+        'live-mode-thread-scroll.js',
+        'live-mode-reanchor-click.js',
+        'live-mode-reanchor-put.js',
+        'live-mode-deeplink.js',
+        'live-mode-round-resolve.js',
+        'live-mode-round-tooltip.js',
+        'live-mode.menu-controller.js',
       ];
       // async=false on dynamically-inserted scripts preserves DOM order for
       // execution while still loading in parallel. Without this, a module
-      // like design-mode.dispatch.js may execute before agent-protocol.js
+      // like live-mode.dispatch.js may execute before agent-protocol.js
       // has parsed, leaving window.crit.agentProtocol undefined and crashing
       // boot with "Cannot read properties of undefined (reading 'A2C')".
-      var depTags = designDeps.map(function (p) {
+      var depTags = liveDeps.map(function (p) {
         var t = document.createElement('script');
         t.src = p;
         t.async = false;
@@ -337,9 +337,9 @@
         return t;
       });
 
-      // Defer design-mode.js until all deps have parsed. Promise.all over a
+      // Defer live-mode.js until all deps have parsed. Promise.all over a
       // settled-on-either-load-or-error promise per tag means adding a new
-      // module to designDeps automatically participates in the gate — no
+      // module to liveDeps automatically participates in the gate — no
       // hand-counted totalNeeded to keep in sync. Errors don't hang boot;
       // they surface a banner and log a console error with the failed src
       // so the user can see which module failed.
@@ -351,7 +351,7 @@
             // rendering but doesn't crash the app. Treat as resolved for the
             // boot gate; render path falls back to plain text.
             if (!optional) {
-              try { console.error('[crit] design-mode dep failed to load:', tag.src); } catch (_) {}
+              try { console.error('[crit] live-mode dep failed to load:', tag.src); } catch (_) {}
             }
             resolve({ ok: false, src: tag.src, optional: !!optional });
           });
@@ -364,13 +364,13 @@
         if (failed.length) {
           var box = document.createElement('div');
           box.style.cssText = 'position:fixed;inset:24px;background:var(--crit-bg-card,#1a1d24);color:var(--crit-red,#f7768e);border:1px dashed var(--crit-red,#f7768e);border-radius:6px;padding:16px;font-family:var(--crit-font-mono,monospace);font-size:13px;z-index:2147483647;white-space:pre-wrap';
-          box.textContent = 'Design mode failed to load:\n' + failed.map(function (r) { return '  • ' + r.src; }).join('\n');
+          box.textContent = 'Live mode failed to load:\n' + failed.map(function (r) { return '  • ' + r.src; }).join('\n');
           document.body.appendChild(box);
           return;
         }
         if (window.crit && window.crit.shared) window.crit.shared.applyThemeFromCookie();
         var s = document.createElement('script');
-        s.src = 'design-mode.js';
+        s.src = 'live-mode.js';
         document.body.appendChild(s);
       });
     } else {
@@ -392,9 +392,9 @@
       var ctpl = document.createElement('script'); ctpl.src = 'crit-comment-templates.js'; ctpl.async = false; document.body.appendChild(ctpl);
       var sse = document.createElement('script'); sse.src = 'crit-sse.js'; sse.async = false; document.body.appendChild(sse);
       var cf = document.createElement('script'); cf.src = 'crit-comment-form.js'; cf.async = false; document.body.appendChild(cf);
-      // Pure rendering helpers shared with design-mode rows. Must load before app.js.
+      // Pure rendering helpers shared with live-mode rows. Must load before app.js.
       var ch = document.createElement('script'); ch.src = 'crit-comment-card-helpers.js'; ch.async = false; document.body.appendChild(ch);
-      // Shared comment-card renderer (used by app.js and design-mode). Must load before app.js.
+      // Shared comment-card renderer (used by app.js and live-mode). Must load before app.js.
       var cc = document.createElement('script'); cc.src = 'crit-comment-card.js'; cc.async = false; document.body.appendChild(cc);
       // Shared settings-overlay panes (Shortcuts + About). Must load before app.js.
       var sp = document.createElement('script'); sp.src = 'crit-settings-panes.js'; sp.async = false; document.body.appendChild(sp);

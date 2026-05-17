@@ -23,7 +23,7 @@ func TestProxyDirector_StripsAcceptEncoding(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 
@@ -50,7 +50,7 @@ func TestProxyDirector_PreservesCookieAndAuth(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 
@@ -77,7 +77,7 @@ func TestProxyDirector_SetsUpstreamHost(t *testing.T) {
 	defer upstream.Close()
 	upstreamURL, _ := url.Parse(upstream.URL)
 
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 
@@ -99,7 +99,7 @@ func TestProxyModifyResponse_StripsSecurityHeaders(t *testing.T) {
 		fmt.Fprintln(w, "<html><body>app</body></html>")
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 	resp, _ := http.Get(ps.URL + "/")
@@ -123,7 +123,7 @@ func TestProxyModifyResponse_InjectsAgentBeforeBodyTag(t *testing.T) {
 		fmt.Fprintln(w, "<html><body><p>Hello</p></body></html>")
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 54321)
+	proxy, _ := newLiveProxy(upstream.URL, 54321)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 	resp, err := http.Get(ps.URL + "/")
@@ -169,7 +169,7 @@ func TestProxyModifyResponse_InjectsAtLastBodyTag(t *testing.T) {
 		fmt.Fprintln(w, `<html><body><script>var s = "</body>";</script><p>Real content</p></body></html>`)
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 54321)
+	proxy, _ := newLiveProxy(upstream.URL, 54321)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 	resp, err := http.Get(ps.URL + "/")
@@ -204,7 +204,7 @@ func TestProxyModifyResponse_OversizedBodyPassesThrough(t *testing.T) {
 		w.Write(huge)
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 	resp, err := http.Get(ps.URL + "/")
@@ -223,7 +223,7 @@ func TestProxyModifyResponse_SkipsInjectionWhenNoBodyTag(t *testing.T) {
 		fmt.Fprintln(w, "<html><!-- no body tag -->")
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 	resp, err := http.Get(ps.URL + "/")
@@ -250,7 +250,7 @@ func TestProxyModifyResponse_SameOriginRedirectRewritten(t *testing.T) {
 	}))
 	defer upstream.Close()
 	upURL, _ := url.Parse(upstream.URL)
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}
@@ -272,7 +272,7 @@ func TestProxyModifyResponse_CrossOriginRedirect200Stub(t *testing.T) {
 		http.Redirect(w, r, "https://accounts.google.com/oauth", http.StatusFound)
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}
@@ -332,7 +332,7 @@ func TestProxyModifyResponse_CrossOriginRedirectStubEscaping(t *testing.T) {
 				w.WriteHeader(http.StatusFound)
 			}))
 			defer upstream.Close()
-			proxy, _ := newDesignProxy(upstream.URL, 9001)
+			proxy, _ := newLiveProxy(upstream.URL, 9001)
 			client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse
 			}}
@@ -366,7 +366,7 @@ func TestProxyModifyResponse_StripsCookieDomain(t *testing.T) {
 		fmt.Fprintln(w, "<html><body>ok</body></html>")
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 	resp, _ := http.Get(ps.URL + "/")
@@ -438,7 +438,7 @@ func TestProxyModifyResponse_RewritesCookieAttributes(t *testing.T) {
 				fmt.Fprintln(w, "<html><body>ok</body></html>")
 			}))
 			defer upstream.Close()
-			proxy, _ := newDesignProxy(upstream.URL, 9001)
+			proxy, _ := newLiveProxy(upstream.URL, 9001)
 			ps := httptest.NewServer(proxy)
 			defer ps.Close()
 			resp, _ := http.Get(ps.URL + "/")
@@ -502,7 +502,7 @@ func TestProxyModifyResponse_SWShimInjectedInHTMLHead(t *testing.T) {
 		fmt.Fprintln(w, `<html><head><title>app</title></head><body><script>navigator.serviceWorker.register('/sw.js');</script></body></html>`)
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 	resp, err := http.Get(ps.URL + "/")
@@ -533,7 +533,7 @@ func TestProxyModifyResponse_JSResponsesPassThrough(t *testing.T) {
 		fmt.Fprint(w, js)
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 	resp, err := http.Get(ps.URL + "/app.js")
@@ -554,7 +554,7 @@ func TestProxyModifyResponse_NonHTMLPassedThrough(t *testing.T) {
 		fmt.Fprintln(w, `{"ok":true}`)
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 	resp, err := http.Get(ps.URL + "/api/data")
@@ -572,7 +572,7 @@ func TestProxyModifyResponse_NonHTMLPassedThrough(t *testing.T) {
 }
 
 func TestProxyErrorHandler_Returns502JSON(t *testing.T) {
-	proxy, _ := newDesignProxy("http://127.0.0.1:19998", 9001)
+	proxy, _ := newLiveProxy("http://127.0.0.1:19998", 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 	resp, err := http.Get(ps.URL + "/")
@@ -636,7 +636,7 @@ func TestProxyModifyResponse_MidBodyReadFailureReturns502(t *testing.T) {
 		conn.Close()
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 
@@ -662,7 +662,7 @@ func TestProxyModifyResponse_HeadInsideHTMLComment(t *testing.T) {
 		fmt.Fprintln(w, `<!doctype html><!-- example: <head> --><html><head><title>x</title></head><body>hi</body></html>`)
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 	resp, err := http.Get(ps.URL + "/")
@@ -696,7 +696,7 @@ func TestProxyModifyResponse_BodyCloseInsideHTMLComment(t *testing.T) {
 		fmt.Fprintln(w, `<html><head></head><body><p>hi</p><!-- legacy </body> remnant --></body></html>`)
 	}))
 	defer upstream.Close()
-	proxy, _ := newDesignProxy(upstream.URL, 9001)
+	proxy, _ := newLiveProxy(upstream.URL, 9001)
 	ps := httptest.NewServer(proxy)
 	defer ps.Close()
 	resp, err := http.Get(ps.URL + "/")
@@ -740,7 +740,7 @@ func TestProxyModifyResponse_InjectsRouteAnnouncer(t *testing.T) {
 			}))
 			defer upstream.Close()
 
-			handler, err := newDesignProxy(upstream.URL, 4101)
+			handler, err := newLiveProxy(upstream.URL, 4101)
 			if err != nil {
 				t.Fatal(err)
 			}

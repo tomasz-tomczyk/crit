@@ -1,5 +1,5 @@
 // crit-settings-overlay.js — shared "shell" for the Settings overlay used
-// by both code review (app.js) and design mode (design-mode.js).
+// by both code review (app.js) and live mode (live-mode.js).
 //
 // The shell owns the cross-cutting concerns that are hard to keep in sync
 // across two callers: open/close, Esc handling, focus trap, sliding-tab

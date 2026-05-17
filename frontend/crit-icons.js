@@ -1,5 +1,5 @@
 // crit-icons.js — SVG icon constants used by both code-review (app.js) and
-// design-mode. Extracted to avoid duplicating raw SVG strings across modules.
+// live-mode. Extracted to avoid duplicating raw SVG strings across modules.
 //
 // Exports onto window.crit.icons. No dependencies on other crit modules.
 

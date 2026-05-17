@@ -169,9 +169,9 @@ func TestGitEnvLeakStripped(t *testing.T) {
 	}
 }
 
-// advanceRoundForTest mimics the post-roundComplete bump + design hook firing
+// advanceRoundForTest mimics the post-roundComplete bump + live hook firing
 // path used by handleRoundCompleteGit / handleRoundCompleteFiles, so unit tests
-// can assert the design-only branch without spinning the full watcher.
+// can assert the live-only branch without spinning the full watcher.
 func advanceRoundForTest(s *Session) {
 	s.mu.Lock()
 	prev := s.ReviewRound
@@ -179,16 +179,16 @@ func advanceRoundForTest(s *Session) {
 	rt := s.ReviewType
 	next := s.ReviewRound
 	s.mu.Unlock()
-	if (rt == "design" || rt == "preview") && s.designRoundStart != nil {
-		s.designRoundStart(prev, next)
+	if (rt == "live" || rt == "preview") && s.liveRoundStart != nil {
+		s.liveRoundStart(prev, next)
 	}
 }
 
-// fireOnDesignRoundStart invokes the installed designRoundStart hook
+// fireOnLiveRoundStart invokes the installed liveRoundStart hook
 // directly. Used by SSE tests to trigger an event without driving the
 // watcher loop.
-func fireOnDesignRoundStart(s *Session, prev, next int) {
-	if s.designRoundStart != nil {
-		s.designRoundStart(prev, next)
+func fireOnLiveRoundStart(s *Session, prev, next int) {
+	if s.liveRoundStart != nil {
+		s.liveRoundStart(prev, next)
 	}
 }

@@ -1,10 +1,10 @@
 'use strict';
 // Parity-fix coverage: exercises the contract changes that close gaps
-// between code-review (app.js) and design-mode (design-mode.js +
-// design-mode.row.js).
+// between code-review (app.js) and live-mode (live-mode.js +
+// live-mode.row.js).
 //
 // Scope:
-//   1. Resolved design pins auto-collapse (collapseDefault: !!c.resolved).
+//   1. Resolved live pins auto-collapse (collapseDefault: !!c.resolved).
 //   2. agent-marker.css carries the pin-mode pointer-events override.
 //   3. crit-agent's setMode toggles .crit-marker-root--pin-mode on the
 //      overlay root (Pin: pass-through; Navigate: clickable for deep-link).
@@ -70,8 +70,8 @@ function baseDeps() {
   };
 }
 
-test('resolved design pin defaults to collapsed (collapseDefault: true)', () => {
-  // Mirrors design-mode.row.js: `collapseDefault: !!c.resolved`. With no
+test('resolved live pin defaults to collapsed (collapseDefault: true)', () => {
+  // Mirrors live-mode.row.js: `collapseDefault: !!c.resolved`. With no
   // override and a resolved comment, the card should boot collapsed.
   const out = card.buildCommentCard(
     { id: 'c1', body: 'x', resolved: true, created_at: '2024-01-01T00:00:00Z' },
@@ -86,7 +86,7 @@ test('resolved design pin defaults to collapsed (collapseDefault: true)', () => 
   assert.equal(out.card.classList.contains('collapsed'), true);
 });
 
-test('open design pin stays expanded (collapseDefault: false)', () => {
+test('open live pin stays expanded (collapseDefault: false)', () => {
   const out = card.buildCommentCard(
     { id: 'c2', body: 'x', resolved: false, created_at: '2024-01-01T00:00:00Z' },
     '/route',
@@ -105,7 +105,7 @@ test('agent-marker.css disables marker pointer-events in pin mode', () => {
   // #crit-marker-root from crit-agent.js. We assert the rule is present so
   // pin-mode hover passes through markers to the underlying element.
   const css = fs.readFileSync(path.join(__dirname, '..', 'agent-marker.css'), 'utf8');
-  assert.match(css, /\.crit-marker-root--pin-mode\s+\.crit-design-marker\s*\{[^}]*pointer-events\s*:\s*none/);
+  assert.match(css, /\.crit-marker-root--pin-mode\s+\.crit-live-marker\s*\{[^}]*pointer-events\s*:\s*none/);
 });
 
 test('crit-agent setMode toggles pin-mode class on overlay root', () => {
@@ -118,24 +118,24 @@ test('crit-agent setMode toggles pin-mode class on overlay root', () => {
   );
 });
 
-test('design-mode expand-all button updates textContent label', () => {
-  // Mirrors app.js#updateExpandAllLabel — the design-mode handler must flip
+test('live-mode expand-all button updates textContent label', () => {
+  // Mirrors app.js#updateExpandAllLabel — the live-mode handler must flip
   // the visible button text in addition to aria-pressed and title. The
-  // handler now lives in design-mode.panel-render.js.
-  const js = fs.readFileSync(path.join(__dirname, '..', 'design-mode.panel-render.js'), 'utf8');
+  // handler now lives in live-mode.panel-render.js.
+  const js = fs.readFileSync(path.join(__dirname, '..', 'live-mode.panel-render.js'), 'utf8');
   assert.match(
     js,
-    /expandBtn\.textContent\s*=\s*state\.designExpandAll\s*\?\s*['"]Collapse all['"]\s*:\s*['"]Expand all['"]/
+    /expandBtn\.textContent\s*=\s*state\.liveExpandAll\s*\?\s*['"]Collapse all['"]\s*:\s*['"]Expand all['"]/
   );
 });
 
-test('design-mode comment-count button gets dynamic title (parity with app.js)', () => {
+test('live-mode comment-count button gets dynamic title (parity with app.js)', () => {
   // The navbar pill (count text + dynamic title + resolved-state class) is
   // now driven by the shared helper crit.shared.updateCommentCountIndicator,
-  // so design-mode and app.js can't drift. Verify both modes call it and
-  // the helper itself owns the strings. Design-mode call lives in the
+  // so live-mode and app.js can't drift. Verify both modes call it and
+  // the helper itself owns the strings. Live-mode call lives in the
   // panel-render module.
-  const dm = fs.readFileSync(path.join(__dirname, '..', 'design-mode.panel-render.js'), 'utf8');
+  const dm = fs.readFileSync(path.join(__dirname, '..', 'live-mode.panel-render.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   const shared = fs.readFileSync(path.join(__dirname, '..', 'crit-shared.js'), 'utf8');
   assert.match(dm, /updateCommentCountIndicator/);

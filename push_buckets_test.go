@@ -502,11 +502,11 @@ func TestBucketComments_DOMAnchorFiltered(t *testing.T) {
 	}
 	b := bucketCommentsForPush(cj, "", false)
 	if len(b.Postable) != 1 || b.Postable[0].Comment.ID != "code1" {
-		t.Errorf("Postable = %v; design pin must be filtered", b.Postable)
+		t.Errorf("Postable = %v; live pin must be filtered", b.Postable)
 	}
 	for _, sc := range append(b.FullStack, b.Unmapped...) {
 		if sc.Comment.DOMAnchor != nil {
-			t.Errorf("design pin leaked into FullStack/Unmapped: %v", sc)
+			t.Errorf("live pin leaked into FullStack/Unmapped: %v", sc)
 		}
 	}
 }

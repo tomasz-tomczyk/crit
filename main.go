@@ -41,8 +41,8 @@ func main() {
 		return
 	}
 	args := os.Args[1:]
-	if looksLikeDesignArgs(args) {
-		runDesign(args)
+	if looksLikeLiveArgs(args) {
+		runLive(args)
 		return
 	}
 	if looksLikePreviewArgs(args) {
@@ -563,7 +563,7 @@ func redirectReviewPathForPR(prNumber int, cwdBranch, cwdCritPath string) (strin
 	return altPath, altCJ, true
 }
 
-func runPull(args []string) { //nolint:gocyclo // CLI dispatcher: branches for arg/flag parsing, file load, scope resolution, and design-review guard
+func runPull(args []string) { //nolint:gocyclo // CLI dispatcher: branches for arg/flag parsing, file load, scope resolution, and live-review guard
 	if err := requireGH(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -2392,8 +2392,8 @@ func printStatusHuman(vcsName, branch, revPath string, revExists bool, session *
 	if json.Unmarshal(data, &cj) != nil {
 		return
 	}
-	if cj.ReviewType == "design" {
-		fmt.Printf("Mode:        design\n")
+	if cj.ReviewType == "live" {
+		fmt.Printf("Mode:        live\n")
 		if cj.Origin != "" {
 			fmt.Printf("Origin:      %s\n", cj.Origin)
 		}
@@ -2489,11 +2489,11 @@ type staleReview struct {
 }
 
 func (s staleReview) metaLabel() string {
-	if s.reviewType == "design" {
+	if s.reviewType == "live" {
 		if s.origin != "" {
-			return "design: " + s.origin + ", "
+			return "live: " + s.origin + ", "
 		}
-		return "design, "
+		return "live, "
 	}
 	if s.branch != "" {
 		return s.branch + ", "

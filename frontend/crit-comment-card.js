@@ -1,5 +1,5 @@
 // crit-comment-card.js — shared comment-card renderer for code-review and
-// design-mode. Mounted on window.crit.commentCard.
+// live-mode. Mounted on window.crit.commentCard.
 //
 // Extracted from app.js's buildCommentCard. The function is structurally
 // identical to the original — same DOM, same classes, same data attrs —
@@ -132,7 +132,7 @@
       headerLeft.appendChild(badge);
     }
 
-    // suppressDrift: design mode passes this so legacy comments carrying
+    // suppressDrift: live mode passes this so legacy comments carrying
     // `drifted: true` from before the field was retired don't paint a badge.
     if (comment.drifted && !opts.suppressDrift) {
       wrapper.classList.add('outdated-comment');

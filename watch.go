@@ -322,7 +322,7 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 //
 // Every other field on Comment should be enumerated below. If a new field is
 // added to Comment and is round-scoped state (resolved metadata, GitHub-sync
-// metadata, focus tags, design-pin identity), it MUST be added here too —
+// metadata, focus tags, live-pin identity), it MUST be added here too —
 // otherwise it is silently dropped on round bump.
 func carryForwardComment(old Comment, newID string, now string) Comment {
 	c := Comment{
@@ -363,21 +363,21 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 		DiffScope: old.DiffScope,
 		FocusKey:  old.FocusKey,
 
-		// Design-mode pin identity. DOMAnchor is the durable anchor for
-		// design pins (no line remapping applies); PinNumber is a stable,
+		// Live-mode pin identity. DOMAnchor is the durable anchor for
+		// live pins (no line remapping applies); PinNumber is a stable,
 		// review-scoped reference. Both must round-trip across
-		// handleRoundComplete*, otherwise design pins silently disappear
+		// handleRoundComplete*, otherwise live pins silently disappear
 		// on round bump.
 		UserID:    old.UserID,
 		DOMAnchor: old.DOMAnchor,
 		PinNumber: old.PinNumber,
 	}
-	// Drift fields are carried forward only for code-review comments. Design
+	// Drift fields are carried forward only for code-review comments. Live
 	// pins (DOMAnchor != nil) are never drifted: the live DOM can change
 	// without any code change (Phoenix LiveView re-renders, framework
-	// hydration, etc.), so any drift bit on a design pin is a false positive
+	// hydration, etc.), so any drift bit on a live pin is a false positive
 	// and is dropped here. carryForwardFileComments already skips drift
-	// detection for design pins; this guards the no-PreviousContent path
+	// detection for live pins; this guards the no-PreviousContent path
 	// (carryForwardAllComments) which would otherwise propagate stale bits
 	// from earlier rounds.
 	if old.DOMAnchor == nil {
@@ -493,8 +493,8 @@ func (s *Session) handleRoundCompleteGit() {
 	rt := s.ReviewType
 	next := s.ReviewRound
 	s.mu.Unlock()
-	if (rt == "design" || rt == "preview") && s.designRoundStart != nil {
-		s.designRoundStart(prev, next)
+	if (rt == "live" || rt == "preview") && s.liveRoundStart != nil {
+		s.liveRoundStart(prev, next)
 	}
 
 	// Refresh diffs for all files
@@ -540,8 +540,8 @@ func (s *Session) handleRoundCompleteFiles() {
 	rt := s.ReviewType
 	nextR := s.ReviewRound
 	s.mu.Unlock()
-	if (rt == "design" || rt == "preview") && s.designRoundStart != nil {
-		s.designRoundStart(prev, nextR)
+	if (rt == "live" || rt == "preview") && s.liveRoundStart != nil {
+		s.liveRoundStart(prev, nextR)
 	}
 
 	// File I/O off the hot path. Drift between review.json and snapshots.json
@@ -873,7 +873,7 @@ func (s *Session) carryForwardFileComments(f *FileEntry) {
 	for _, c := range prevComments {
 		s.trackDeletedComment(f.Path, c.ID)
 
-		// Design pins use DOMAnchor for positioning; skip line remapping.
+		// Live pins use DOMAnchor for positioning; skip line remapping.
 		if c.DOMAnchor != nil {
 			carried := carryForwardComment(c, randomCommentID(), now)
 			carried.DOMAnchor = c.DOMAnchor

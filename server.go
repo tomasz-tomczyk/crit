@@ -97,8 +97,8 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/preview-content/", s.handlePreviewContent)
 	mux.HandleFunc("/preview-content", s.handlePreviewContent)
 
-	// Design-mode routes — NOT wrapped in withReady.
-	mux.HandleFunc("/design", s.handleDesignPage)
+	// Live-mode routes — NOT wrapped in withReady.
+	mux.HandleFunc("/live", s.handleLivePage)
 	mux.HandleFunc("/crit-agent.js", s.handleCritAgentJS)
 	mux.HandleFunc("/agent-protocol.js", s.serveEmbeddedJS("agent-protocol.js"))
 	mux.HandleFunc("/agent-anchor-utils.js", s.serveEmbeddedJS("agent-anchor-utils.js"))
@@ -107,17 +107,17 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/agent-resolution.js", s.serveEmbeddedJS("agent-resolution.js"))
 	mux.HandleFunc("/agent-reanchor-state.js", s.serveEmbeddedJS("agent-reanchor-state.js"))
 	mux.HandleFunc("/agent-marker.css", s.serveEmbeddedCSS("agent-marker.css"))
-	mux.HandleFunc("/design-mode-pin-filter.js", s.serveEmbeddedJS("design-mode-pin-filter.js"))
-	mux.HandleFunc("/design-mode-resolution-gate.js", s.serveEmbeddedJS("design-mode-resolution-gate.js"))
-	mux.HandleFunc("/design-mode-drift-tray.js", s.serveEmbeddedJS("design-mode-drift-tray.js"))
-	mux.HandleFunc("/design-mode-pin-state.js", s.serveEmbeddedJS("design-mode-pin-state.js"))
-	mux.HandleFunc("/design-mode-thread-scroll.js", s.serveEmbeddedJS("design-mode-thread-scroll.js"))
-	mux.HandleFunc("/design-mode-reanchor-click.js", s.serveEmbeddedJS("design-mode-reanchor-click.js"))
-	mux.HandleFunc("/design-mode-reanchor-put.js", s.serveEmbeddedJS("design-mode-reanchor-put.js"))
-	mux.HandleFunc("/design-mode-deeplink.js", s.serveEmbeddedJS("design-mode-deeplink.js"))
-	mux.HandleFunc("/design-mode-round-resolve.js", s.serveEmbeddedJS("design-mode-round-resolve.js"))
-	mux.HandleFunc("/design-mode-round-tooltip.js", s.serveEmbeddedJS("design-mode-round-tooltip.js"))
-	mux.HandleFunc("/design-mode.menu-controller.js", s.serveEmbeddedJS("design-mode.menu-controller.js"))
+	mux.HandleFunc("/live-mode-pin-filter.js", s.serveEmbeddedJS("live-mode-pin-filter.js"))
+	mux.HandleFunc("/live-mode-resolution-gate.js", s.serveEmbeddedJS("live-mode-resolution-gate.js"))
+	mux.HandleFunc("/live-mode-drift-tray.js", s.serveEmbeddedJS("live-mode-drift-tray.js"))
+	mux.HandleFunc("/live-mode-pin-state.js", s.serveEmbeddedJS("live-mode-pin-state.js"))
+	mux.HandleFunc("/live-mode-thread-scroll.js", s.serveEmbeddedJS("live-mode-thread-scroll.js"))
+	mux.HandleFunc("/live-mode-reanchor-click.js", s.serveEmbeddedJS("live-mode-reanchor-click.js"))
+	mux.HandleFunc("/live-mode-reanchor-put.js", s.serveEmbeddedJS("live-mode-reanchor-put.js"))
+	mux.HandleFunc("/live-mode-deeplink.js", s.serveEmbeddedJS("live-mode-deeplink.js"))
+	mux.HandleFunc("/live-mode-round-resolve.js", s.serveEmbeddedJS("live-mode-round-resolve.js"))
+	mux.HandleFunc("/live-mode-round-tooltip.js", s.serveEmbeddedJS("live-mode-round-tooltip.js"))
+	mux.HandleFunc("/live-mode.menu-controller.js", s.serveEmbeddedJS("live-mode.menu-controller.js"))
 
 	// Session-dependent endpoints (guarded by withReady middleware)
 	mux.HandleFunc("/api/review-cycle", s.withReady(s.handleReviewCycle))
@@ -503,13 +503,13 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	if hasRound && session != nil && session.Mode == "files" {
 		info.Files = filterFilesAtRound(session, info.Files, round)
 	}
-	type designSessionResponse struct {
+	type liveSessionResponse struct {
 		SessionInfo
 		ReviewType string `json:"review_type,omitempty"`
 		Origin     string `json:"origin,omitempty"`
 		ProxyPort  int    `json:"proxy_port,omitempty"`
 	}
-	resp := designSessionResponse{SessionInfo: info}
+	resp := liveSessionResponse{SessionInfo: info}
 	if session != nil {
 		resp.ReviewType = session.ReviewType
 		resp.Origin = session.Origin
@@ -518,7 +518,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
-func (s *Server) handleDesignPage(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleLivePage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1203,16 +1203,16 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Design pin: route to AddDesignPin before line validation.
+		// Live pin: route to AddLivePin before line validation.
 		if req.DOMAnchor != nil {
 			author := req.Author
 			if author == "" {
 				author = s.author
 			}
 			sess := s.session.Load()
-			c, ok := sess.AddDesignPin(path, req.Body, author, s.authUserID(), req.DOMAnchor)
+			c, ok := sess.AddLivePin(path, req.Body, author, s.authUserID(), req.DOMAnchor)
 			if !ok {
-				http.Error(w, "Design pin rejected", http.StatusBadRequest)
+				http.Error(w, "Live pin rejected", http.StatusBadRequest)
 				return
 			}
 			// Fan out to SSE so other tabs (and the originating tab's review
@@ -1220,7 +1220,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			// The watcher's mergeExternalCritJSON path is suppressed for the
 			// daemon's own writes (lastCritJSONMtime equals disk mtime after
 			// WriteFiles), so cross-tab sync would otherwise stall until an
-			// external mutation. Emitting here closes that gap for design pins.
+			// external mutation. Emitting here closes that gap for live pins.
 			sess.notify(SSEEvent{Type: "comments-changed"})
 			w.WriteHeader(http.StatusCreated)
 			writeJSON(w, c)
@@ -1362,7 +1362,7 @@ func (s *Server) handleFileCommentResolve(w http.ResponseWriter, r *http.Request
 }
 
 // handleFileCommentPut decodes the PUT patch and applies body/anchor +
-// design-mode drift patches in one shot. Extracted from handleFileCommentUpdate
+// live-mode drift patches in one shot. Extracted from handleFileCommentUpdate
 // to keep that switch's cyclomatic complexity within budget.
 func (s *Server) handleFileCommentPut(w http.ResponseWriter, r *http.Request, path, id string) {
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
@@ -1399,7 +1399,7 @@ func (s *Server) handleFileCommentPut(w http.ResponseWriter, r *http.Request, pa
 		case "not_found":
 			http.Error(w, "Comment not found", http.StatusNotFound)
 		case "anchor_on_code_comment":
-			http.Error(w, "dom_anchor is only valid on design pins", http.StatusBadRequest)
+			http.Error(w, "dom_anchor is only valid on live pins", http.StatusBadRequest)
 		default:
 			http.Error(w, "Update failed", http.StatusBadRequest)
 		}
@@ -1565,7 +1565,7 @@ func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePa
 	// SSE subscribers. The watcher's mergeExternalCritJSON path is suppressed
 	// for the daemon's own writes (lastCritJSONMtime equals disk mtime after
 	// WriteFiles), so cross-tab sync would otherwise stall on reply CRUD in
-	// design mode until an external mutation arrived.
+	// live mode until an external mutation arrived.
 	notify := func() { sess.notify(SSEEvent{Type: "comments-changed"}) }
 	handleReplyCRUD(w, r, replyID, replyOps{
 		add: func(body, author string) (Reply, bool) {

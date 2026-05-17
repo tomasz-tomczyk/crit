@@ -64,7 +64,7 @@
         // b522df7 removed the screenshot field from DOMAnchor and stopped
         // populating it in the agent. The validator was not updated, so
         // every selection message after b522df7 was silently rejected by
-        // the dispatcher (see design-mode.dispatch.js:19) — composer never
+        // the dispatcher (see live-mode.dispatch.js:19) — composer never
         // opened. Field dropped from validation; do NOT re-add without
         // also re-emitting from crit-agent.js.
         if (!isFiniteNumber(a.viewport_width) || !isFiniteNumber(a.viewport_height)) return { ok: false, reason: 'selection.viewport' };

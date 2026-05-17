@@ -1,5 +1,5 @@
 // crit-agent.js — runs inside the proxied (user app) origin. Communicates
-// with the chrome (design page) via window.parent.postMessage. Origin and
+// with the chrome (live page) via window.parent.postMessage. Origin and
 // source are validated on every inbound message.
 'use strict';
 (function () {
@@ -248,7 +248,7 @@
     try {
       var el = document.querySelector(selector);
       if (!el) return;
-      el.classList.add('crit-design-pending-highlight');
+      el.classList.add('crit-live-pending-highlight');
       state._pendingHighlightEl = el;
       // Suppress the dashed hover overlay while the user is composing —
       // chasing the cursor at this point is just visual noise. Overlay
@@ -261,7 +261,7 @@
     var el = state._pendingHighlightEl;
     state.suppressHover = false;
     if (!el) return;
-    try { el.classList.remove('crit-design-pending-highlight'); } catch (_) {}
+    try { el.classList.remove('crit-live-pending-highlight'); } catch (_) {}
     state._pendingHighlightEl = null;
   }
 
@@ -273,9 +273,9 @@
     var entry = byId.get ? byId.get(pinId) : byId[pinId];
     if (!entry || !entry.el) return;
     try {
-      entry.el.classList.add('crit-design-marker--flash');
+      entry.el.classList.add('crit-live-marker--flash');
       setTimeout(function () {
-        try { entry.el.classList.remove('crit-design-marker--flash'); } catch (_) { /* noop */ }
+        try { entry.el.classList.remove('crit-live-marker--flash'); } catch (_) { /* noop */ }
       }, 1500);
     } catch (_) { /* noop */ }
   }
@@ -285,7 +285,7 @@
     if (state.reanchor && typeof state.reanchor.disarm === 'function') {
       state.reanchor.disarm();
     }
-    try { document.documentElement.classList.remove('crit-design-reanchor-active'); } catch (_) { /* noop */ }
+    try { document.documentElement.classList.remove('crit-live-reanchor-active'); } catch (_) { /* noop */ }
   }
 
   // Phase E: chrome flips marker tabindex when entering/leaving Pin mode so
@@ -295,7 +295,7 @@
       markersAPI.setMarkersTabindex(state.overlay.markersById, String(value));
     } else {
       try {
-        var nodes = document.querySelectorAll('.crit-design-marker');
+        var nodes = document.querySelectorAll('.crit-live-marker');
         for (var i = 0; i < nodes.length; i++) nodes[i].setAttribute('tabindex', String(value));
       } catch (_) { /* noop */ }
     }
@@ -304,7 +304,7 @@
   function onEnterReanchor(pinId) {
     if (!state.reanchor) return;
     state.reanchor.arm(pinId);
-    try { document.documentElement.classList.add('crit-design-reanchor-active'); } catch (_) {}
+    try { document.documentElement.classList.add('crit-live-reanchor-active'); } catch (_) {}
     // Ensure click capture is active so the next click is consumed regardless
     // of current mode. We don't flip state.mode — the chrome's mode toggle is
     // independent of re-anchor capture (one-shot).
@@ -539,7 +539,7 @@
     if (state.reanchor && state.reanchor.armed) {
       var pinId = state.reanchor.consume();
       if (pinId) msg.reanchor_for = pinId;
-      try { document.documentElement.classList.remove('crit-design-reanchor-active'); } catch (_) {}
+      try { document.documentElement.classList.remove('crit-live-reanchor-active'); } catch (_) {}
       // If we attached capture transiently for re-anchor (mode is navigate),
       // detach again so clicks resume normal app behavior.
       if (state.mode !== 'pin') {

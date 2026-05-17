@@ -1,12 +1,12 @@
 /* frontend/agent-marker.css */
-.crit-design-marker {
+.crit-live-marker {
   width: 22px;
   height: 22px;
   border-radius: 11px;
-  background: var(--crit-design-marker-bg, #2563eb);
-  color: var(--crit-design-marker-fg, #ffffff);
-  border: 1px solid var(--crit-design-marker-border, rgba(0,0,0,0.15));
-  box-shadow: var(--crit-design-marker-shadow, 0 1px 2px rgba(0,0,0,0.25));
+  background: var(--crit-live-marker-bg, #2563eb);
+  color: var(--crit-live-marker-fg, #ffffff);
+  border: 1px solid var(--crit-live-marker-border, rgba(0,0,0,0.15));
+  box-shadow: var(--crit-live-marker-shadow, 0 1px 2px rgba(0,0,0,0.25));
   font: 600 12px/1 system-ui, sans-serif;
   display: inline-flex;
   align-items: center;
@@ -14,23 +14,23 @@
   user-select: none;
   cursor: pointer;
 }
-.crit-design-marker:focus-visible {
-  outline: 2px solid var(--crit-design-marker-focus-ring, #fbbf24);
+.crit-live-marker:focus-visible {
+  outline: 2px solid var(--crit-live-marker-focus-ring, #fbbf24);
   outline-offset: 2px;
 }
 
 /* In Pin mode, the user is hovering the iframe to pick a target element for
    a NEW pin. If a numbered marker sits on top of the element they want, the
    hover overlay locks onto the marker instead of the underlying DOM, and a
-   click creates a pin anchored to the marker rather than the design surface.
+   click creates a pin anchored to the marker rather than the live surface.
    While in Pin mode we make markers visually pass-through so events fall
    through to the element beneath. In Navigate mode markers stay clickable
    for deep-linking — this is the toggle the chrome cares about. */
-#crit-marker-root.crit-marker-root--pin-mode .crit-design-marker {
+#crit-marker-root.crit-marker-root--pin-mode .crit-live-marker {
   pointer-events: none;
 }
-html.crit-design-reanchor-active {
-  outline: 3px solid var(--crit-design-reanchor-active-outline, #f59e0b);
+html.crit-live-reanchor-active {
+  outline: 3px solid var(--crit-live-reanchor-active-outline, #f59e0b);
   outline-offset: -3px;
 }
 
@@ -40,7 +40,7 @@ html.crit-design-reanchor-active {
    Mirrors crit's `.line-block.selected/.form-selected` treatment — a
    soft brand-subtle wash with a thin brand outline — so writing a pin
    feels like writing an inline comment in code review. */
-.crit-design-pending-highlight {
+.crit-live-pending-highlight {
   background: var(--crit-brand-subtle, rgba(37, 99, 235, 0.12)) !important;
   outline: 1px solid var(--crit-brand, #2563eb) !important;
   outline-offset: 1px !important;

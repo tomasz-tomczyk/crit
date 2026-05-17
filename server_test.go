@@ -1821,7 +1821,7 @@ func TestHealthEndpoint(t *testing.T) {
 }
 
 // Regression: /api/review-cycle is POST-only. The frontend used to GET it
-// for round-counter init, which 405'd; design-mode.js now reads
+// for round-counter init, which 405'd; live-mode.js now reads
 // review_round from /api/session instead. Lock the contract so future
 // frontend pulls on the wrong verb fail loudly.
 func TestReviewCycle_GETMethodNotAllowed(t *testing.T) {
@@ -3968,13 +3968,13 @@ func TestEvents_SafariCompat(t *testing.T) {
 	}
 }
 
-func TestDesignRoutes_NotGatedByWithReady(t *testing.T) {
+func TestLiveRoutes_NotGatedByWithReady(t *testing.T) {
 	s, err := NewServer(nil, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
-		"/design", "/crit-agent.js",
+		"/live", "/crit-agent.js",
 		"/agent-protocol.js", "/agent-anchor-utils.js",
 		"/agent-marker-overlay.js", "/agent-mutation-batcher.js",
 		"/agent-resolution.js", "/agent-reanchor-state.js",
@@ -3991,7 +3991,7 @@ func TestDesignRoutes_NotGatedByWithReady(t *testing.T) {
 	}
 }
 
-func TestDesign_ProtocolAndUtilsServedUnguarded(t *testing.T) {
+func TestLive_ProtocolAndUtilsServedUnguarded(t *testing.T) {
 	s, err := NewServer(nil, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
@@ -4030,7 +4030,7 @@ func TestAgentMarkerCSS_ServedUnguarded(t *testing.T) {
 		t.Fatalf("content-type %q, want text/css*", ct)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, ".crit-design-marker") {
+	if !strings.Contains(body, ".crit-live-marker") {
 		end := 200
 		if len(body) < end {
 			end = len(body)
@@ -4042,7 +4042,7 @@ func TestAgentMarkerCSS_ServedUnguarded(t *testing.T) {
 	}
 }
 
-func TestDesignAssets_CORSHeader(t *testing.T) {
+func TestLiveAssets_CORSHeader(t *testing.T) {
 	s, err := NewServer(nil, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
 		t.Fatal(err)
@@ -4062,9 +4062,9 @@ func TestDesignAssets_CORSHeader(t *testing.T) {
 	}
 }
 
-func TestHandleSession_DesignFields(t *testing.T) {
+func TestHandleSession_LiveFields(t *testing.T) {
 	s, session := newTestServer(t)
-	session.ReviewType = "design"
+	session.ReviewType = "live"
 	session.Origin = "http://localhost:3000"
 	session.ProxyPort = 54322
 
@@ -4076,8 +4076,8 @@ func TestHandleSession_DesignFields(t *testing.T) {
 	}
 	var resp map[string]interface{}
 	json.NewDecoder(w.Body).Decode(&resp)
-	if resp["review_type"] != "design" {
-		t.Errorf("review_type = %v, want design", resp["review_type"])
+	if resp["review_type"] != "live" {
+		t.Errorf("review_type = %v, want live", resp["review_type"])
 	}
 	if resp["origin"] != "http://localhost:3000" {
 		t.Errorf("origin = %v", resp["origin"])
@@ -4089,7 +4089,7 @@ func TestHandleSession_DesignFields(t *testing.T) {
 
 func TestHandleFileComments_AcceptsDOMAnchor_AutoRegistersRoute(t *testing.T) {
 	s, session := newTestServer(t)
-	session.ReviewType = "design"
+	session.ReviewType = "live"
 	session.Origin = "http://localhost:3000"
 	session.Files = []*FileEntry{}
 
@@ -4124,9 +4124,9 @@ func TestHandleFileComments_AcceptsDOMAnchor_AutoRegistersRoute(t *testing.T) {
 	}
 }
 
-func TestDesign_PostFileCommentsWithDOMAnchor(t *testing.T) {
+func TestLive_PostFileCommentsWithDOMAnchor(t *testing.T) {
 	s, session := newTestServer(t)
-	session.ReviewType = "design"
+	session.ReviewType = "live"
 	session.Origin = "http://localhost:3000"
 	body := strings.NewReader(`{
 		"start_line": 0, "end_line": 0, "body": "looks off",
@@ -4190,7 +4190,7 @@ func TestHandleFileCommentUpdate_AcceptsDOMAnchor(t *testing.T) {
 	}
 	cases := []tc{
 		{
-			name:       "PUT dom_anchor on existing design pin replaces anchor",
+			name:       "PUT dom_anchor on existing live pin replaces anchor",
 			seedAnchor: &DOMAnchor{Pathname: "/dashboard", CSSSelector: "#old"},
 			body:       `{"body":"pin","dom_anchor":{"pathname":"/dashboard","css_selector":"#new","tag_chain":["MAIN","H2"],"outer_html":"<h2>x</h2>","viewport_width":1280,"viewport_height":800}}`,
 			wantStatus: http.StatusOK,
@@ -4204,7 +4204,7 @@ func TestHandleFileCommentUpdate_AcceptsDOMAnchor(t *testing.T) {
 			wantAnchor: func(a *DOMAnchor) bool { return a != nil && a.CSSSelector == "#keep" },
 		},
 		{
-			name:       "PUT dom_anchor on code comment is rejected (only design pins re-anchor)",
+			name:       "PUT dom_anchor on code comment is rejected (only live pins re-anchor)",
 			seedAnchor: nil,
 			body:       `{"body":"x","dom_anchor":{"pathname":"/x","css_selector":"#y","tag_chain":["H1"],"outer_html":"<h1/>","viewport_width":1,"viewport_height":1}}`,
 			wantStatus: http.StatusBadRequest,
@@ -4214,10 +4214,10 @@ func TestHandleFileCommentUpdate_AcceptsDOMAnchor(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s, session := newTestServer(t)
-			session.ReviewType = "design"
+			session.ReviewType = "live"
 			session.Origin = "http://localhost:3000"
 			session.Files = []*FileEntry{{
-				Path: "/dashboard", FileType: "design-route", Status: "added",
+				Path: "/dashboard", FileType: "live-route", Status: "added",
 				Comments: []Comment{{ID: "c1", Body: "seed", DOMAnchor: c.seedAnchor}},
 			}}
 			req := httptest.NewRequest("PUT", "/api/comment/c1?path=/dashboard", strings.NewReader(c.body))
@@ -4242,15 +4242,15 @@ func TestHandleFileCommentUpdate_AcceptsDOMAnchor(t *testing.T) {
 	}
 }
 
-func TestSSE_DesignRoundStart_Broadcasts(t *testing.T) {
+func TestSSE_LiveRoundStart_Broadcasts(t *testing.T) {
 	prev := sseHeartbeatInterval
 	sseHeartbeatInterval = 50 * time.Millisecond
 	t.Cleanup(func() { sseHeartbeatInterval = prev })
 
 	srv, session := newTestServer(t)
-	session.ReviewType = "design"
-	session.designRoundStart = func(_, next int) {
-		session.notify(SSEEvent{Type: "design-round-start", Round: next})
+	session.ReviewType = "live"
+	session.liveRoundStart = func(_, next int) {
+		session.notify(SSEEvent{Type: "live-round-start", Round: next})
 	}
 
 	ts := httptest.NewServer(srv)
@@ -4286,12 +4286,12 @@ func TestSSE_DesignRoundStart_Broadcasts(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	fireOnDesignRoundStart(session, 1, 2)
+	fireOnLiveRoundStart(session, 1, 2)
 
-	// Read until we see the design-round-start event.
+	// Read until we see the live-round-start event.
 	scanCtx, scanCancel := context.WithTimeout(ctx, 2*time.Second)
 	defer scanCancel()
-	got := readSSEUntil(t, scanCtx, resp.Body, "design-round-start")
+	got := readSSEUntil(t, scanCtx, resp.Body, "live-round-start")
 	if !strings.Contains(got, `"round":2`) {
 		t.Fatalf("missing round field: %q", got)
 	}
@@ -4347,9 +4347,9 @@ func readSSEUntil(t *testing.T, ctx context.Context, r io.Reader, eventName stri
 
 func TestPUTComment_AcceptsDriftedOnRound(t *testing.T) {
 	srv, session := newTestServer(t)
-	session.ReviewType = "design"
-	c, _ := session.AddComment("test.md", 1, 1, "", "design pin", "", "", "")
-	// Tag as a design pin so the patch path is meaningful.
+	session.ReviewType = "live"
+	c, _ := session.AddComment("test.md", 1, 1, "", "live pin", "", "", "")
+	// Tag as a live pin so the patch path is meaningful.
 	session.mu.Lock()
 	for i := range session.Files[0].Comments {
 		if session.Files[0].Comments[i].ID == c.ID {
@@ -4489,7 +4489,7 @@ func TestAPIResolveComment_FansOutSSE(t *testing.T) {
 }
 
 // TestAPIDeleteComment_AuthorizationMatrix is the auth pin-down for the
-// design-mode delete affordance. When a comment carries a non-empty UserID,
+// live-mode delete affordance. When a comment carries a non-empty UserID,
 // only that user (matched against the daemon's configured AuthUserID) may
 // delete it. Comments with empty UserID (legacy / unauthed sessions) remain
 // deletable by anyone — preserving compatibility with existing tests.

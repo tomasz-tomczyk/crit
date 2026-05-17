@@ -4,7 +4,7 @@
   /**
    * createForm(opts) → { el, focus, getBody, setBody, destroy }
    *
-   * Shared comment form creation used by both code-review and design-mode.
+   * Shared comment form creation used by both code-review and live-mode.
    * The caller decides WHERE to insert and WHAT to do on submit/cancel.
    *
    * opts:

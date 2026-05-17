@@ -1526,26 +1526,26 @@ func TestRemapLines(t *testing.T) {
 	}
 }
 
-func TestOnDesignRoundStart_OnlyForDesignAndPreviewReviews(t *testing.T) {
+func TestOnLiveRoundStart_OnlyForLiveAndPreviewReviews(t *testing.T) {
 	called := 0
 	hook := func(int, int) { called++ }
 
-	s := &Session{ReviewType: "", ReviewRound: 1, designRoundStart: hook}
+	s := &Session{ReviewType: "", ReviewRound: 1, liveRoundStart: hook}
 	advanceRoundForTest(s)
 	if called != 0 {
 		t.Fatalf("hook fired for code review (called=%d)", called)
 	}
 
-	s2 := &Session{ReviewType: "design", ReviewRound: 1, designRoundStart: hook}
+	s2 := &Session{ReviewType: "live", ReviewRound: 1, liveRoundStart: hook}
 	advanceRoundForTest(s2)
 	if called != 1 {
-		t.Fatalf("hook did not fire for design review (called=%d)", called)
+		t.Fatalf("hook did not fire for live review (called=%d)", called)
 	}
 	if s2.ReviewRound != 2 {
 		t.Fatalf("ReviewRound = %d, want 2", s2.ReviewRound)
 	}
 
-	s3 := &Session{ReviewType: "preview", ReviewRound: 1, designRoundStart: hook}
+	s3 := &Session{ReviewType: "preview", ReviewRound: 1, liveRoundStart: hook}
 	advanceRoundForTest(s3)
 	if called != 2 {
 		t.Fatalf("hook did not fire for preview review (called=%d)", called)

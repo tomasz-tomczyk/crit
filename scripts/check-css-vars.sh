@@ -7,7 +7,7 @@ set -e
 # ── Allowlists ──────────────────────────────────────────────────────────────
 
 # Variables set dynamically via JS or intentionally unreferenced
-DEAD_VAR_ALLOWLIST="--font-sans --header-height --crit-border-strong --crit-dur-base --crit-dur-slow --crit-ease-in --crit-ease-out --crit-editor-bg-gutter --crit-fg-muted --crit-fg-secondary --crit-header-height --crit-r-sm --crit-r-xl --crit-design-composer-bg --crit-design-composer-input-bg --crit-design-marker-bg --crit-design-marker-border --crit-design-marker-fg --crit-design-marker-shadow --crit-design-reanchor-active-outline --crit-design-toast-bg --crit-design-toast-border --crit-design-toast-fg"
+DEAD_VAR_ALLOWLIST="--font-sans --header-height --crit-border-strong --crit-dur-base --crit-dur-slow --crit-ease-in --crit-ease-out --crit-editor-bg-gutter --crit-fg-muted --crit-fg-secondary --crit-header-height --crit-r-sm --crit-r-xl --crit-live-composer-bg --crit-live-composer-input-bg --crit-live-marker-bg --crit-live-marker-border --crit-live-marker-fg --crit-live-marker-shadow --crit-live-reanchor-active-outline --crit-live-toast-bg --crit-live-toast-border --crit-live-toast-fg"
 
 # Variables that legitimately exist in only some theme blocks (e.g. hljs vars
 # are scoped to their own selector blocks, not the 4 custom-property blocks)
@@ -16,10 +16,10 @@ BLOCK_ALLOWLIST="--crit-dur-base --crit-dur-fast --crit-dur-slow --crit-ease --c
 # ── Extract refs and defs ───────────────────────────────────────────────────
 
 # All var(--xxx) references (POSIX ERE, works on macOS and Linux)
-REFS=$(grep -oE 'var\(--[a-zA-Z0-9_-]+' frontend/style.css frontend/style-design.css frontend/theme.css 2>/dev/null | sed 's/.*var(//' | sort -u)
+REFS=$(grep -oE 'var\(--[a-zA-Z0-9_-]+' frontend/style.css frontend/style-live.css frontend/theme.css 2>/dev/null | sed 's/.*var(//' | sort -u)
 
 # All --xxx: definitions (use perl for lookahead, portable)
-DEFS=$(perl -nle 'print $1 if /^\s*(--[a-zA-Z0-9_-]+)\s*:/' frontend/theme.css frontend/style.css frontend/style-design.css 2>/dev/null | sort -u)
+DEFS=$(perl -nle 'print $1 if /^\s*(--[a-zA-Z0-9_-]+)\s*:/' frontend/theme.css frontend/style.css frontend/style-live.css 2>/dev/null | sort -u)
 
 # Add dynamic vars to definitions for the undefined-ref check
 DEFS_PLUS_DYNAMIC="$DEFS"

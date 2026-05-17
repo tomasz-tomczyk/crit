@@ -29,14 +29,14 @@ crit/
 ├── comment_cli.go       # `crit comment` headless implementation
 ├── gen_integration_hashes.go / integration_hashes_gen.go  # Build-time integration manifest
 ├── *_test.go            # Tests (testutil_test.go has shared helpers; *_integration_test.go behind build tag)
-├── design.go            # `crit design <url>` command — design-mode session bootstrap
+├── live.go              # `crit live <url>` command — live-mode session bootstrap
 ├── preview.go           # `crit preview <file.html>` command — preview-mode session bootstrap + content serving
-├── proxy.go             # Reverse proxy for design-mode iframe (HTML injection, redirect rewriting)
+├── proxy.go             # Reverse proxy for live-mode iframe (HTML injection, redirect rewriting)
 ├── frontend/
-│   ├── index.html       # HTML shell — two-paradigm fork loads code-review OR design-mode scripts
+│   ├── index.html       # HTML shell — two-paradigm fork loads code-review OR live-mode scripts
 │   ├── app.js           # Code-review mode JS (file tree, rendering, comments, SSE, shortcuts)
-│   ├── design-mode.js   # Design-mode entry point (iframe chrome, pin workflow, panel)
-│   ├── design-mode.*.js # Design-mode sub-modules (toggle, composer, panel, sse, etc.)
+│   ├── live-mode.js     # Live-mode entry point (iframe chrome, pin workflow, panel)
+│   ├── live-mode.*.js   # Live-mode sub-modules (toggle, composer, panel, sse, etc.)
 │   ├── crit-agent.js    # Injected into iframe — captures DOM clicks for pin anchoring
 │   ├── agent-*.js       # Agent sub-modules (protocol, marker overlay, mutation batcher)
 │   ├── crit-shared.js   # Shared helpers (cookies, theme, image upload) — window.crit.shared
@@ -48,7 +48,7 @@ crit/
 │   ├── crit-line-blocks.js    # buildLineBlocks, splitHighlightedCode — window.crit.lineBlocks
 │   ├── crit-diff-renderer.js  # Word-level diff computation — window.crit.diffRenderer
 │   ├── style.css        # Code-review layout, diff rendering, file sections, components
-│   ├── style-design.css # Design-mode layout (iframe pane, panel, markers)
+│   ├── style-live.css   # Live-mode layout (iframe pane, panel, markers)
 │   ├── theme.css        # Color themes (light/dark/system CSS variables)
 │   ├── __tests__/       # Node.js unit tests for extracted modules (node --test)
 │   └── *.min.js         # Vendored markdown-it, highlight.js, mermaid
@@ -100,7 +100,7 @@ Subcommands are dispatched via `commandDispatch` in `main.go`. Anything not in t
 crit                          # Review git changes (starts daemon, blocks for feedback)
 crit <file|dir> [...]         # Review specific files or directories (falls through to runReview)
 crit review [...]             # Explicit review invocation (same as default)
-crit design <url>             # Review a running web app in design mode (also: crit <url>)
+crit live <url>               # Review a running web app in live mode (also: crit <url>)
 crit preview <file.html>      # Review a local HTML file in preview mode (also: crit <file.html>)
 crit stop [--all]             # Stop daemon(s) for current directory
 crit status [--json]          # Show review file path, daemon status, comment stats
@@ -185,7 +185,7 @@ Six Playwright projects, each with its own fixture script and port. Test naming 
 | `no-git-mode` | 3126 | `setup-fixtures-nogit.sh` (file mode without git) | `*.nogit.spec.ts` |
 | `multi-file-mode` | 3127 | `setup-fixtures-multifile.sh` (code + markdown files) | `*.multifile.spec.ts` |
 | `range-mode` | 3128 | `setup-fixtures-range-mode.sh` (`--range A..B` stacked git) | `*.rangemode.spec.ts` |
-| `design-mode` | 3129 | `setup-fixtures-designmode.sh` (Go upstream + crit design) | `*.designmode.spec.ts` |
+| `live-mode` | 3129 | `setup-fixtures-livemode.sh` (Go upstream + crit live) | `*.livemode.spec.ts` |
 
 CI runs E2E on push to `main` and PRs via `.github/workflows/test.yml`. Failed test artifacts are uploaded.
 

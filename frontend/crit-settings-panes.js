@@ -1,17 +1,17 @@
 // crit-settings-panes.js — shared renderers for the Settings overlay.
 // Owns ALL three tabs (Settings / Shortcuts / About) so code review and
-// design mode mount the same panes without duplication. Mode-specific
+// live mode mount the same panes without duplication. Mode-specific
 // behaviour is injected via the `hooks` and `show` options on
 // renderSettingsTab — see below.
 //
 // Exports on window.crit.settingsPanes:
 //   renderShortcutsPane(pane, opts)
-//     opts.mode : 'code-review' | 'design' (default: 'code-review')
-//                  Filters entries by their `modes` array so design users
+//     opts.mode : 'code-review' | 'live' (default: 'code-review')
+//                  Filters entries by their `modes` array so live users
 //                  don't see code-review-only bindings (j/k, ]/[, c/e/d, …).
 //   renderAboutPane(pane, cfg, sessionInfo)
 //   renderSettingsTab(pane, opts)
-//     opts.mode    : 'code-review' | 'design'
+//     opts.mode    : 'code-review' | 'live'
 //     opts.cfg     : /api/config response or {}
 //     opts.show    : { width, hideResolved, update, account, agent,
 //                       integration, share } — booleans, defaulted from mode
@@ -32,15 +32,15 @@
   var escapeHTML = window.crit.shared.escapeHTML;
 
   // Each shortcut declares which modes it actually fires in. The renderer
-  // filters out entries that don't apply to the current mode so design-mode
+  // filters out entries that don't apply to the current mode so live-mode
   // users aren't shown bindings that do nothing for them. Investigated
   // bindings:
-  //   - design-mode: Esc, Ctrl+Enter, ? (and `p/P` for pin mode — design-only)
+  //   - live-mode: Esc, Ctrl+Enter, ? (and `p/P` for pin mode — live-only)
   //   - code-review: j, k, ], [, n, N, c, e, d, G, Shift+F, Shift+C,
   //                  Shift+1/2/3/4, t, h, Esc, Ctrl+Enter, ?
-  var BOTH = ['code-review', 'design'];
+  var BOTH = ['code-review', 'live'];
   var CODE_REVIEW_ONLY = ['code-review'];
-  var DESIGN_ONLY = ['design'];
+  var LIVE_ONLY = ['live'];
 
   function renderShortcutsPane(pane, opts) {
     if (!pane) return;
@@ -70,8 +70,8 @@
         { key: '<kbd>Shift</kbd>+<kbd>C</kbd>', action: 'Toggle comments panel', modes: CODE_REVIEW_ONLY },
         { key: '<kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd>', action: 'Switch scope', mode: 'vcs mode', modes: CODE_REVIEW_ONLY },
       ]},
-      { label: 'Design', shortcuts: [
-        { key: '<kbd>p</kbd>', action: 'Toggle pin mode', modes: DESIGN_ONLY },
+      { label: 'Live', shortcuts: [
+        { key: '<kbd>p</kbd>', action: 'Toggle pin mode', modes: LIVE_ONLY },
       ]},
       { label: 'View', shortcuts: [
         { key: '<kbd>t</kbd>', action: 'Toggle table of contents', mode: 'file mode', modes: CODE_REVIEW_ONLY },
@@ -121,7 +121,7 @@
     // Session info
     html += '<div class="settings-section-label">Current Session</div>';
     html += '<div class="about-session"><div class="about-session-grid">';
-    var modeLabel = session.vcs_name || session.mode || 'design';
+    var modeLabel = session.vcs_name || session.mode || 'live';
     html += '<span class="about-session-label">Mode</span><span class="about-session-value">' + escapeHTML(modeLabel) + '</span>';
     if (session.mode === 'git' && session.branch) {
       html += '<span class="about-session-label">Branch</span><span class="about-session-value">' + escapeHTML(session.branch) + '</span>';
@@ -159,7 +159,7 @@
   // ============================================================
 
   function defaultsForMode(mode) {
-    if (mode === 'design') {
+    if (mode === 'live') {
       return {
         width: false,         // width pill is file-mode only
         hideResolved: true,
@@ -239,7 +239,7 @@
     });
     html += '</div></div>';
 
-    // Width row (file-mode in code review; off in design)
+    // Width row (file-mode in code review; off in live)
     if (show.width) {
       html += '<div class="settings-display-row">';
       html += '<span class="settings-display-label">Content Width <span style="font-weight:400;color:var(--crit-editor-fg-muted)">(file mode)</span></span>';

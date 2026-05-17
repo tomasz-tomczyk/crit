@@ -1,5 +1,5 @@
 // crit-settings-panes.test.js — exercise the shared Settings overlay
-// renderer used by both code-review (app.js) and design-mode.js.
+// renderer used by both code-review (app.js) and live-mode.js.
 //
 // The renderer writes its markup as a single `pane.innerHTML = html`
 // assignment, then runs querySelectorAll to wire events. We stub a
@@ -86,12 +86,12 @@ test('renderSettingsTab: code-review mode renders theme + width + hide-resolved'
   assert.match(html, /id="hideResolvedToggle"/);
 });
 
-test('renderSettingsTab: design mode hides width pill but keeps theme + hide-resolved', () => {
+test('renderSettingsTab: live mode hides width pill but keeps theme + hide-resolved', () => {
   const sp = loadShared();
   const pane = makePane();
 
   sp.renderSettingsTab(pane, {
-    mode: 'design',
+    mode: 'live',
     cfg: {},
     hooks: {
       applyTheme: () => {},
@@ -102,7 +102,7 @@ test('renderSettingsTab: design mode hides width pill but keeps theme + hide-res
 
   const html = pane.innerHTML;
   assert.match(html, /data-settings-theme="system"/);
-  assert.doesNotMatch(html, /data-settings-width=/, 'no width pill in design mode');
+  assert.doesNotMatch(html, /data-settings-width=/, 'no width pill in live mode');
   assert.match(html, /id="hideResolvedToggle"/);
 });
 
@@ -111,7 +111,7 @@ test('renderSettingsTab: pre-checks hide-resolved checkbox when getHideResolved 
   const pane = makePane();
 
   sp.renderSettingsTab(pane, {
-    mode: 'design',
+    mode: 'live',
     cfg: {},
     hooks: { applyTheme: () => {}, getHideResolved: () => true, setHideResolved: () => {} },
   });
@@ -148,7 +148,7 @@ test('renderSettingsTab: agent card unconfigured snippet when agent_cmd_enabled 
   const sp = loadShared();
   const pane = makePane();
   sp.renderSettingsTab(pane, {
-    mode: 'design',
+    mode: 'live',
     cfg: { agent_cmd_enabled: false, no_integration_check: true },
     hooks: { applyTheme: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
   });
@@ -160,7 +160,7 @@ test('renderSettingsTab: agent card configured shows agent_cmd value', () => {
   const sp = loadShared();
   const pane = makePane();
   sp.renderSettingsTab(pane, {
-    mode: 'design',
+    mode: 'live',
     cfg: { agent_cmd_enabled: true, agent_cmd: 'claude -p', no_integration_check: true },
     hooks: { applyTheme: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
   });
@@ -171,7 +171,7 @@ test('renderSettingsTab: integration card omitted when no_integration_check', ()
   const sp = loadShared();
   const pane = makePane();
   sp.renderSettingsTab(pane, {
-    mode: 'design',
+    mode: 'live',
     cfg: { no_integration_check: true },
     hooks: { applyTheme: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
   });
@@ -182,7 +182,7 @@ test('renderSettingsTab: integration card unconfigured CTA when nothing installe
   const sp = loadShared();
   const pane = makePane();
   sp.renderSettingsTab(pane, {
-    mode: 'design',
+    mode: 'live',
     cfg: { integrations: [], integrations_available: ['claude-code', 'cursor'] },
     hooks: { applyTheme: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
   });
@@ -195,7 +195,7 @@ test('renderSettingsTab: share card disabled when no share_url', () => {
   const sp = loadShared();
   const pane = makePane();
   sp.renderSettingsTab(pane, {
-    mode: 'design',
+    mode: 'live',
     cfg: { no_integration_check: true },
     hooks: { applyTheme: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
   });
@@ -206,7 +206,7 @@ test('renderSettingsTab: share card enabled shows hostname', () => {
   const sp = loadShared();
   const pane = makePane();
   sp.renderSettingsTab(pane, {
-    mode: 'design',
+    mode: 'live',
     cfg: { share_url: 'https://example.com/api', no_integration_check: true },
     hooks: { applyTheme: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
   });
@@ -218,7 +218,7 @@ test('renderSettingsTab: account card present when share_url + auth_logged_in', 
   const sp = loadShared();
   const pane = makePane();
   sp.renderSettingsTab(pane, {
-    mode: 'design',
+    mode: 'live',
     cfg: { share_url: 'https://example.com', auth_logged_in: true, auth_user_email: 'a@b.com', no_integration_check: true },
     hooks: { applyTheme: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
   });
@@ -270,14 +270,14 @@ test('renderShortcutsPane: code-review mode shows code-review-only shortcuts', (
   assert.match(html, /<kbd>Esc<\/kbd>/);
   assert.match(html, /<kbd>\?<\/kbd>/);
   assert.match(html, /Ctrl<\/kbd>\+<kbd>Enter/);
-  // Design-only binding absent
+  // Live-only binding absent
   assert.doesNotMatch(html, /Toggle pin mode/);
 });
 
-test('renderShortcutsPane: design mode omits code-review-only shortcuts', () => {
+test('renderShortcutsPane: live mode omits code-review-only shortcuts', () => {
   const sp = loadShared();
   const pane = makePane();
-  sp.renderShortcutsPane(pane, { mode: 'design' });
+  sp.renderShortcutsPane(pane, { mode: 'live' });
   const html = pane.innerHTML;
   // Code-review-only bindings absent
   assert.doesNotMatch(html, /<kbd>j<\/kbd>/);
@@ -291,8 +291,8 @@ test('renderShortcutsPane: design mode omits code-review-only shortcuts', () => 
   assert.doesNotMatch(html, /<kbd>G<\/kbd>/);
   assert.doesNotMatch(html, /<kbd>t<\/kbd>/);
   assert.doesNotMatch(html, /<kbd>h<\/kbd>/);
-  // Shift+F (Finish review) is shared with code-review now — design mode
-  // wires it up via design-mode.shortcut.handleShortcut.
+  // Shift+F (Finish review) is shared with code-review now — live mode
+  // wires it up via live-mode.shortcut.handleShortcut.
   assert.match(html, /Finish review/);
   assert.match(html, /Shift<\/kbd>\+<kbd>F/);
   assert.doesNotMatch(html, /Toggle comments panel/);
@@ -301,7 +301,7 @@ test('renderShortcutsPane: design mode omits code-review-only shortcuts', () => 
   assert.match(html, /<kbd>Esc<\/kbd>/);
   assert.match(html, /<kbd>\?<\/kbd>/);
   assert.match(html, /Ctrl<\/kbd>\+<kbd>Enter/);
-  // Design-only binding present
+  // Live-only binding present
   assert.match(html, /<kbd>p<\/kbd>/);
   assert.match(html, /Toggle pin mode/);
 });
