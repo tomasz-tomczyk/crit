@@ -614,15 +614,17 @@ func runServe(args []string) {
 	signalReadiness(pipe, addr.Port)
 
 	if !sc.noOpen {
-		// In design mode, route the auto-open to /design instead of /, so the
-		// browser lands on the design-review chrome (not the empty
-		// code-review shell). The parent CLI (runDesign) also kicks an open;
+		// In design/preview mode, route the auto-open to /design or /preview
+		// instead of /, so the browser lands on the correct chrome (not the
+		// empty code-review shell). The parent CLI also kicks an open;
 		// macOS `open` is idempotent enough that the duplicate is harmless,
 		// but routing both to the same URL prevents the browser from briefly
-		// opening / first when the daemon spawns the open before runDesign.
+		// opening / first when the daemon spawns the open before the parent.
 		openURL := fmt.Sprintf("http://localhost:%d", addr.Port)
 		if sc.designOrigin != "" {
 			openURL = fmt.Sprintf("http://localhost:%d/design", addr.Port)
+		} else if sc.previewFile != "" {
+			openURL = fmt.Sprintf("http://localhost:%d/preview", addr.Port)
 		}
 		go openBrowser(openURL)
 	}
