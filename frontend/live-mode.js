@@ -1835,6 +1835,13 @@
         pinBtn.removeAttribute('title');
       }
     }
+    // After a round transition the iframe reloads and the new agent starts
+    // in navigate mode. If the user was in pin mode, re-sync so the agent
+    // honours pin clicks without requiring a manual navigate→pin toggle.
+    if (state.mode === 'pin') {
+      postToAgent({ type: 'set-mode', value: 'pin' });
+      postToAgent({ type: 'set-marker-tabindex', value: -1 });
+    }
     pushPinsToAgent();
 
     // Register as the active ContentRenderer so chrome modules (comment
