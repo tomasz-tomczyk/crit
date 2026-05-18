@@ -1705,6 +1705,12 @@
       showToast('selection too large to save');
       return;
     }
+    if (!state.commentsPanelOpen && panelCtl) {
+      panelCtl.applyCommentsPanelOpen(true);
+      if (shared && shared.setSetting) {
+        try { shared.setSetting('live_commentsPanelOpen', true); } catch (_) {}
+      }
+    }
     var host = ensureComposerHost();
     host.innerHTML = window.crit.live.composer.renderComposerHTML(domAnchor);
     host.dataset.active = '1';
