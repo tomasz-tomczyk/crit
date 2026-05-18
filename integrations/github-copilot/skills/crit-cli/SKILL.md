@@ -59,7 +59,7 @@ Field rules:
 - `quote` (optional): the specific text the reviewer selected — narrows scope within the line range. Focus changes on the quoted text rather than the entire range.
 - `anchor` (line comments): full text of the commented lines when placed. When edits shift line numbers, locate content by anchor rather than trusting `start_line`/`end_line`.
 - `drifted: true`: original content was removed or heavily rewritten — line numbers are approximate at best.
-- Before acting on a comment, check `replies` — if you've already replied, the reviewer may be following up rather than requesting a new change.
+- Unresolved comments may have `replies` — read them before acting.
 
 ## Authoring and replying with `crit comment`
 

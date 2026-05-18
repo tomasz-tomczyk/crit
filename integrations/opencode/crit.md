@@ -53,7 +53,7 @@ When a comment has a `quote`, `anchor`, or `drifted` field:
 - `anchor`: use it to locate the current position of the content; line numbers may be stale after edits
 - `drifted: true`: original content was removed or heavily rewritten — line numbers are approximate at best
 
-Before acting on a comment, check its `replies` array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change.
+Unresolved comments may have `replies` — read them before acting.
 
 ## Step 4: Address each review comment
 

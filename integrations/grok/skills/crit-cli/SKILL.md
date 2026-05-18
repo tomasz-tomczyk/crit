@@ -57,7 +57,7 @@ Field rules:
 - `quote` (optional): the exact text the reviewer highlighted.
 - `anchor` (line comments): the full text of the commented lines at the time the comment was placed. Use the anchor to locate content after edits.
 - `drifted: true`: content was removed or heavily rewritten — treat line numbers as approximate.
-- Before acting on a comment, always check its `replies` array.
+- Unresolved comments may have `replies` — read them before acting.
 
 <important if="you are authoring or replying to comments via crit comment">
 

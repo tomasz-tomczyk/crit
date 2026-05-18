@@ -50,7 +50,7 @@ The file contains structured JSON. Three comment types:
 - File comments (per-file `comments` array, no `start_line`/`end_line`) — about the file as a whole
 - Line comments (per-file `comments` array, with `start_line`/`end_line`) — about specific lines
 
-Identify all comments where `resolved` is `false` or missing.
+Identify all comments where `resolved` is `false` or missing. Unresolved comments may have `replies` — read them before acting.
 
 When a comment has these fields:
 - `quote`: the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range
