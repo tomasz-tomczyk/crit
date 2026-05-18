@@ -542,13 +542,24 @@
       updateUnresolvedBadge();
     }
 
-    // Flash the pin marker in the iframe when a comment card is clicked
-    // in the panel — same visual as clicking the marker directly.
-    function flashPinForComment(comment) {
+    // Scroll to pinned element and flash its marker badge when a comment
+    // card is clicked in the panel. keep-highlight scrolls into view +
+    // adds a transient highlight; clear-highlight removes it after 1s.
+    // flash-marker pulses the badge overlay (1.5s, agent-managed).
+    var _highlightTimer = null;
+    function scrollAndFlashPin(comment) {
       if (!comment || !comment.id) return;
-      if (state && state.postToAgent) {
-        state.postToAgent({ type: 'flash-marker', pin_id: comment.id });
+      if (!state || !state.postToAgent) return;
+      if (_highlightTimer) { clearTimeout(_highlightTimer); _highlightTimer = null; }
+      var anchor = comment.dom_anchor || comment.domAnchor;
+      if (anchor && anchor.css_selector) {
+        state.postToAgent({ type: 'keep-highlight', selector: anchor.css_selector });
+        _highlightTimer = setTimeout(function () {
+          state.postToAgent({ type: 'clear-highlight' });
+          _highlightTimer = null;
+        }, 1000);
       }
+      state.postToAgent({ type: 'flash-marker', pin_id: comment.id });
     }
 
     var _cardClickInstalled = false;
@@ -563,7 +574,7 @@
         var id = card.dataset.id;
         if (!id || !state.comments) return;
         var comment = state.comments.find(function (c) { return String(c.id) === id; });
-        if (comment) flashPinForComment(comment);
+        if (comment) scrollAndFlashPin(comment);
       });
     }
 
