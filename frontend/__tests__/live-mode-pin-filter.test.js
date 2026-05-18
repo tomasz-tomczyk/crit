@@ -23,6 +23,18 @@ test('filterPinsForPath returns [] when pins is not array', () => {
   assert.deepEqual(filterPinsForPath(null, '/x'), []);
 });
 
+test('filterPinsForPath matches when trailing slash differs (preview mode)', () => {
+  const all = [
+    { id: 'a', dom_anchor: { pathname: '/preview-content/' } },
+    { id: 'b', dom_anchor: { pathname: '/preview-content' } },
+    { id: 'c', dom_anchor: { pathname: '/other' } },
+  ];
+  const out = filterPinsForPath(all, '/preview-content');
+  assert.deepEqual(out.map(p => p.id), ['a', 'b']);
+  const out2 = filterPinsForPath(all, '/preview-content/');
+  assert.deepEqual(out2.map(p => p.id), ['a', 'b']);
+});
+
 test('filterPinsForPath drops resolved pins so markers do not render for them', () => {
   // Resolved comments shouldn't paint a pin marker on the proxied page.
   // Hiding happens by omission from the set-pins payload — the agent
