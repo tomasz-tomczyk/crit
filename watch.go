@@ -503,6 +503,54 @@ func (s *Session) handleRoundCompleteGit() {
 	s.finishRoundComplete(edits)
 }
 
+// relPathFromRoot returns a slash-separated path relative to repoRoot, falling
+// back to the absolute path when the result would escape the root.
+func relPathFromRoot(absPath, repoRoot string) string {
+	if repoRoot == "" {
+		return absPath
+	}
+	rel, err := filepath.Rel(repoRoot, absPath)
+	if err != nil {
+		return filepath.ToSlash(absPath)
+	}
+	slash := filepath.ToSlash(rel)
+	if strings.HasPrefix(slash, "../") || slash == ".." {
+		return filepath.ToSlash(absPath)
+	}
+	return slash
+}
+
+// buildFileEntry reads absPath from disk and constructs a FileEntry suitable
+// for appending to s.Files. Returns nil if the file cannot be read.
+func (s *Session) buildFileEntry(absPath, repoRoot, baseRef string, vcs VCS) *FileEntry {
+	relPath := relPathFromRoot(absPath, repoRoot)
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil
+	}
+
+	fe := &FileEntry{
+		Path:      relPath,
+		AbsPath:   absPath,
+		Status:    "modified",
+		FileType:  detectFileType(absPath),
+		Content:   string(data),
+		FileHash:  fileHash(data),
+		Comments:  []Comment{},
+		Generated: isGenerated(relPath, s.generatedRules),
+	}
+
+	if vcs != nil {
+		hunks, diffErr := vcs.FileDiffUnified(relPath, baseRef, repoRoot)
+		if diffErr == nil {
+			fe.DiffHunks = hunks
+		}
+	}
+
+	return fe
+}
+
 // refreshFilesFromCLIDirs re-walks the original CLI arguments and appends any
 // newly-discovered files to s.Files. Mirrors the construction loop in
 // NewSessionFromFiles so file-mode picks up files created by the agent between
@@ -535,8 +583,6 @@ func (s *Session) refreshFilesFromCLIDirs() {
 
 	expandedPaths, err := expandAndDedupPaths(cliArgs, ignorePatterns)
 	if err != nil {
-		// Best-effort: a missing or unreadable CLI arg between rounds (e.g.
-		// the user deleted a watched dir) shouldn't abort the round.
 		return
 	}
 
@@ -545,43 +591,9 @@ func (s *Session) refreshFilesFromCLIDirs() {
 		if _, ok := existing[absPath]; ok {
 			continue
 		}
-
-		relPath := absPath
-		if repoRoot != "" {
-			if rel, relErr := filepath.Rel(repoRoot, absPath); relErr == nil {
-				slash := filepath.ToSlash(rel)
-				if strings.HasPrefix(slash, "../") || slash == ".." {
-					relPath = filepath.ToSlash(absPath)
-				} else {
-					relPath = slash
-				}
-			}
+		if fe := s.buildFileEntry(absPath, repoRoot, baseRef, vcs); fe != nil {
+			newFiles = append(newFiles, fe)
 		}
-
-		data, readErr := os.ReadFile(absPath)
-		if readErr != nil {
-			continue
-		}
-
-		fe := &FileEntry{
-			Path:      relPath,
-			AbsPath:   absPath,
-			Status:    "modified",
-			FileType:  detectFileType(absPath),
-			Content:   string(data),
-			FileHash:  fileHash(data),
-			Comments:  []Comment{},
-			Generated: isGenerated(relPath, s.generatedRules),
-		}
-
-		if vcs != nil {
-			hunks, diffErr := vcs.FileDiffUnified(relPath, baseRef, repoRoot)
-			if diffErr == nil {
-				fe.DiffHunks = hunks
-			}
-		}
-
-		newFiles = append(newFiles, fe)
 	}
 
 	if len(newFiles) == 0 {
@@ -589,10 +601,6 @@ func (s *Session) refreshFilesFromCLIDirs() {
 	}
 
 	s.mu.Lock()
-	// Re-check membership under the write lock: another writer (or this same
-	// helper from a future round) could have appended the same path between
-	// our RLock snapshot and now. Cheap O(n) over s.Files — file lists in
-	// files-mode are small.
 	have := make(map[string]struct{}, len(s.Files))
 	for _, f := range s.Files {
 		have[f.AbsPath] = struct{}{}
