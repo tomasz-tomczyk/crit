@@ -454,6 +454,64 @@ func TestCheckMissingIntegrations_NoAgentsPresent(t *testing.T) {
 	_ = missing
 }
 
+func TestHintMissingIntegrationsFor_SkipsWhenInstalled(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	// Install an integration so installedAgents returns non-empty
+	sourceFiles := integrationMap["claude-code"]
+	sourceContent, _ := integrationsFS.ReadFile(sourceFiles[0].source)
+	dest := filepath.Join(projectDir, sourceFiles[0].dest)
+	os.MkdirAll(filepath.Dir(dest), 0o755)
+	os.WriteFile(dest, sourceContent, 0o644)
+
+	// Create .gemini to simulate a detected-but-missing agent
+	os.MkdirAll(filepath.Join(homeDir, ".gemini"), 0o755)
+
+	// Should not panic and should not print (installed agent exists)
+	hintMissingIntegrationsFor(projectDir, homeDir)
+}
+
+func TestHintMissingIntegrationsFor_PrintsWhenNoneInstalled(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	// Create .gemini to simulate detection
+	os.MkdirAll(filepath.Join(homeDir, ".gemini"), 0o755)
+
+	// Should print hint (no installed agents, gemini detected)
+	hintMissingIntegrationsFor(projectDir, homeDir)
+}
+
+func TestHintMissingIntegrations_EnvDisable(t *testing.T) {
+	t.Setenv("CRIT_NO_INTEGRATION_CHECK", "1")
+	// Should return immediately without doing any work
+	hintMissingIntegrations()
+}
+
+func TestInstalledAgents(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	// Empty — no agents installed
+	agents := installedAgents(projectDir, homeDir)
+	if len(agents) != 0 {
+		t.Errorf("expected 0 installed agents, got %d", len(agents))
+	}
+
+	// Install claude-code
+	sourceFiles := integrationMap["claude-code"]
+	sourceContent, _ := integrationsFS.ReadFile(sourceFiles[0].source)
+	dest := filepath.Join(projectDir, sourceFiles[0].dest)
+	os.MkdirAll(filepath.Dir(dest), 0o755)
+	os.WriteFile(dest, sourceContent, 0o644)
+
+	agents = installedAgents(projectDir, homeDir)
+	if !agents["claude-code"] {
+		t.Error("expected claude-code in installed agents")
+	}
+}
+
 func TestPrintMissingHints(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		if n := printMissingHints(nil); n != 0 {

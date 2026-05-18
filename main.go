@@ -1734,7 +1734,10 @@ func hintMissingIntegrations() {
 	if err != nil {
 		return
 	}
-	cwd := mustGetwd()
+	hintMissingIntegrationsFor(mustGetwd(), home)
+}
+
+func hintMissingIntegrationsFor(cwd, home string) {
 	if len(installedAgents(cwd, home)) > 0 {
 		return
 	}
