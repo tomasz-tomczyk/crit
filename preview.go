@@ -207,9 +207,7 @@ func runPreview(args []string) {
 		os.Exit(1)
 	}
 	cfg := LoadConfig(cwd)
-	if cfg.NoOpen {
-		*noOpen = true
-	}
+	noOpenResolved := *noOpen || cfg.NoOpen
 
 	if rawPath == "" {
 		fmt.Fprintln(os.Stderr, "Usage: crit preview <file.html>")
@@ -229,7 +227,7 @@ func runPreview(args []string) {
 	}
 
 	key := previewSessionKey(cwd, absPath)
-	if connectToPreviewDaemon(key, *noOpen) {
+	if connectToPreviewDaemon(key, noOpenResolved) {
 		return
 	}
 
@@ -237,6 +235,7 @@ func runPreview(args []string) {
 	daemonArgs = appendCommonDaemonFlags(daemonArgs, commonDaemonFlags{
 		port:     resolvePort(*port, cfg.Port),
 		host:     resolveHost(*host, cfg.Host),
+		noOpen:   noOpenResolved,
 		quiet:    *quiet || cfg.Quiet,
 		shareURL: resolveShareURL(*shareURL, cfg, ""),
 	})
@@ -251,7 +250,7 @@ func runPreview(args []string) {
 
 	installDaemonSignalHandler(entry.PID)
 
-	if !*noOpen {
+	if !noOpenResolved {
 		go openBrowser(fmt.Sprintf("http://localhost:%d/preview", entry.Port))
 	}
 

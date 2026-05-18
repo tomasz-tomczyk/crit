@@ -816,23 +816,23 @@ func TestReadDaemonLog(t *testing.T) {
 }
 
 func TestOpenReadyPipe_NoEnvVar(t *testing.T) {
-	t.Setenv("_CRIT_READY_FD", "")
-	os.Unsetenv("_CRIT_READY_FD")
+	t.Setenv("_CRIT_READY_STDOUT", "")
+	os.Unsetenv("_CRIT_READY_STDOUT")
 
 	pipe := openReadyPipe()
 	if pipe != nil {
 		pipe.Close()
-		t.Error("expected nil when _CRIT_READY_FD is not set")
+		t.Error("expected nil when _CRIT_READY_STDOUT is not set")
 	}
 }
 
 func TestOpenReadyPipe_WrongValue(t *testing.T) {
-	t.Setenv("_CRIT_READY_FD", "99")
+	t.Setenv("_CRIT_READY_STDOUT", "99")
 
 	pipe := openReadyPipe()
 	if pipe != nil {
 		pipe.Close()
-		t.Error("expected nil when _CRIT_READY_FD is not 3")
+		t.Error("expected nil when _CRIT_READY_STDOUT is not 3")
 	}
 }
 
