@@ -542,22 +542,13 @@
       updateUnresolvedBadge();
     }
 
-    // Navigate to comment via ContentRenderer interface. Validates that
-    // scrollToAnchor + highlightAnchor work for live-mode pins when a
-    // comment card is clicked in the panel.
-    var _highlightTimer = null;
-    function navigateToCommentViaRenderer(comment) {
-      var renderer = window.crit && window.crit.renderer && window.crit.renderer.current();
-      if (!renderer) return;
-      if (_highlightTimer) { clearTimeout(_highlightTimer); _highlightTimer = null; }
-      var anchor = window.crit.renderer.anchorFromComment(comment);
-      renderer.scrollToAnchor(anchor).then(function () {
-        renderer.highlightAnchor(anchor);
-        _highlightTimer = setTimeout(function () {
-          renderer.clearHighlight();
-          _highlightTimer = null;
-        }, 1000);
-      });
+    // Flash the pin marker in the iframe when a comment card is clicked
+    // in the panel — same visual as clicking the marker directly.
+    function flashPinForComment(comment) {
+      if (!comment || !comment.id) return;
+      if (state && state.postToAgent) {
+        state.postToAgent({ type: 'flash-marker', pin_id: comment.id });
+      }
     }
 
     var _cardClickInstalled = false;
@@ -572,7 +563,7 @@
         var id = card.dataset.id;
         if (!id || !state.comments) return;
         var comment = state.comments.find(function (c) { return String(c.id) === id; });
-        if (comment) navigateToCommentViaRenderer(comment);
+        if (comment) flashPinForComment(comment);
       });
     }
 
