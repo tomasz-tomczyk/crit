@@ -138,6 +138,37 @@ test('applyRects without scroll offsets behaves as before (back-compat)', () => 
   assert.deepEqual(writes, ['a:translate(5px, 10px)']);
 });
 
+test('applyRects hides marker when target is disconnected from DOM', () => {
+  const target = {
+    isConnected: false,
+    getBoundingClientRect: () => { throw new Error('should not be called'); },
+  };
+  const m = { target, el: { style: {} } };
+  overlay.applyRects([m]);
+  assert.equal(m.el.style.display, 'none');
+});
+
+test('applyRects hides marker when target has zero-size rect (detached element)', () => {
+  const target = {
+    isConnected: true,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
+  };
+  const m = { target, el: { style: {} } };
+  overlay.applyRects([m]);
+  assert.equal(m.el.style.display, 'none');
+});
+
+test('applyRects shows marker when target is connected with non-zero rect', () => {
+  const target = {
+    isConnected: true,
+    getBoundingClientRect: () => ({ left: 10, top: 20, width: 100, height: 50 }),
+  };
+  const m = { target, el: { style: {} } };
+  overlay.applyRects([m]);
+  assert.equal(m.el.style.display, '');
+  assert.equal(m.el.style.transform, 'translate(10px, 20px)');
+});
+
 test('setMarkersTabindex toggles all markers atomically', () => {
   const m1 = { _attrs: { tabindex: '0' }, setAttribute(k, v) { this._attrs[k] = v; } };
   const m2 = { _attrs: { tabindex: '0' }, setAttribute(k, v) { this._attrs[k] = v; } };
