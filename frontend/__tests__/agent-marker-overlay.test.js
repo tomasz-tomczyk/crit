@@ -182,24 +182,8 @@ test('setMarkersTabindex toggles all markers atomically', () => {
   assert.equal(m2._attrs.tabindex, '0');
 });
 
-test('marker keyboard handler fires on Enter and Space', () => {
-  // Verify the wiring contract: when the agent attaches a keydown handler,
-  // Enter and Space both trigger the post.
-  const handlers = {};
-  const el = {
-    addEventListener: (t, fn) => { (handlers[t] = handlers[t] || []).push(fn); },
-  };
-  let posted = null;
-  const post = (m) => (posted = m);
-  el.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      post({ type: 'pin-clicked', pin_id: 'p1' });
-    }
-  });
-  handlers.keydown[0]({ key: 'Enter', preventDefault() {} });
-  assert.deepEqual(posted, { type: 'pin-clicked', pin_id: 'p1' });
-  posted = null;
-  handlers.keydown[0]({ key: ' ', preventDefault() {} });
-  assert.deepEqual(posted, { type: 'pin-clicked', pin_id: 'p1' });
-});
+// TODO: This test previously reimplemented the keyboard handler locally instead
+// of exercising the real handler from crit-agent.js (which runs inside the iframe
+// and wires up during initialization). It passed regardless of what the real code
+// did. Replace with an E2E test in e2e/ that verifies Enter/Space on markers in
+// live-mode triggers pin-clicked via the actual iframe agent wiring.

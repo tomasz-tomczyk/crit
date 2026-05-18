@@ -207,6 +207,10 @@
     dark: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M14.438 10.148c.19-.425-.321-.787-.748-.601A5.5 5.5 0 0 1 6.453 2.31c.186-.427-.176-.938-.6-.748a6.501 6.501 0 1 0 8.585 8.586Z"/></svg>',
   };
 
+  function formatAgentName(slug) {
+    return slug.replace(/\b\w/g, function (c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+  }
+
   function renderSettingsTab(pane, opts) {
     if (!pane) return;
     opts = opts || {};
@@ -346,7 +350,7 @@
           var undismissedStale = stale.filter(function (si) { return !si.hash || dismissedMap[si.agent] !== si.hash; });
           if (undismissedStale.length > 0) {
             var si = undismissedStale[0];
-            var name = si.agent.replace(/\b\w/g, function (c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+            var name = formatAgentName(si.agent);
             html += '<div class="config-card config-card--yellow"><div class="config-card-header">';
             html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#9888;</span>';
             html += '<span class="config-card-title">AI Integration</span>';
@@ -371,7 +375,7 @@
             html += '</div>';
           } else if (current.length > 0 || stale.length > 0) {
             var best = current[0] || stale[0];
-            var nm = best.agent.replace(/\b\w/g, function (c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+            var nm = formatAgentName(best.agent);
             html += '<div class="config-card config-card--green"><div class="config-card-header">';
             html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
             html += '<span class="config-card-title">AI Integration</span>';
@@ -399,7 +403,7 @@
         var undismissed = missingAgents.filter(function (a) { return !dismissedMap['missing:' + a]; });
         if (undismissed.length > 0) {
           undismissed.forEach(function (agent) {
-            var name = agent.replace(/\b\w/g, function (c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+            var name = formatAgentName(agent);
             html += '<div class="config-card config-card--blue"><div class="config-card-header">';
             html += '<span class="config-card-icon" style="color:var(--crit-brand)">&#128161;</span>';
             html += '<span class="config-card-title">Integration Available</span>';

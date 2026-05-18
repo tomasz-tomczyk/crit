@@ -21,6 +21,8 @@
   var resolutionAPI = window.crit && window.crit.agent && window.crit.agent.resolution;
   var ReanchorStateCtor = window.crit && window.crit.agent && window.crit.agent.reanchorState && window.crit.agent.reanchorState.ReanchorState;
 
+  var _flashTimer = null; // Track flash-marker timeout to prevent stacking
+
   // Derive the API origin (where the chrome lives) from the agent <script> tag URL.
   // This is the only origin we accept inbound messages from and post to.
   function guessApiOriginFromAgentTag() {
@@ -274,8 +276,10 @@
     var entry = byId.get ? byId.get(pinId) : byId[pinId];
     if (!entry || !entry.el) return;
     try {
+      if (_flashTimer) { clearTimeout(_flashTimer); _flashTimer = null; }
       entry.el.classList.add('crit-live-marker--flash');
-      setTimeout(function () {
+      _flashTimer = setTimeout(function () {
+        _flashTimer = null;
         try { entry.el.classList.remove('crit-live-marker--flash'); } catch (_) { /* noop */ }
       }, 1500);
     } catch (_) { /* noop */ }
