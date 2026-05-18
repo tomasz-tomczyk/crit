@@ -75,7 +75,7 @@ func createPreviewSession(sc *serverConfig) (*Session, error) {
 		ReviewRound:         1,
 		ReviewType:          "preview",
 		Origin:              sc.previewFile,
-		CLIArgs:             []string{sc.previewFile},
+		CLIArgs:             []string{"preview", sc.previewFile},
 		awaitingFirstReview: true,
 		subscribers:         make(map[chan SSEEvent]struct{}),
 		roundComplete:       make(chan struct{}, 1),

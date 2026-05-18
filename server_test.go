@@ -638,6 +638,8 @@ func TestReviewCycle_NextCommand(t *testing.T) {
 		{"unknown leading-dash arg formats verbatim", []string{"--pr", "42"}, "crit --pr 42"},
 		{"non-ASCII arg passes through", []string{"résumé.md"}, "crit résumé.md"},
 		{"single quote in arg is escaped", []string{"it's.md"}, `crit 'it'\''s.md'`},
+		{"live mode", []string{"live", "http://localhost:4000"}, "crit live http://localhost:4000"},
+		{"preview mode", []string{"preview", "/tmp/mock.html"}, "crit preview /tmp/mock.html"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

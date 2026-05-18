@@ -1088,15 +1088,8 @@ func TestLiveSession_ReinvokeCommandIncludesOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("createLiveSession: %v", err)
 	}
-	// Simulate the post-creation override that runServe does.
-	if sc.liveOrigin != "" {
-		sess.CLIArgs = []string{sc.liveOrigin}
-	} else {
-		sess.CLIArgs = sc.files
-	}
-
 	got := sess.ReinvokeCommand()
-	want := "crit http://localhost:4000"
+	want := "crit live http://localhost:4000"
 	if got != want {
 		t.Errorf("ReinvokeCommand() = %q, want %q", got, want)
 	}

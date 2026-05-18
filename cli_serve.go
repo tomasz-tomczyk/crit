@@ -348,7 +348,7 @@ func createLiveSession(sc *serverConfig) (*Session, error) {
 		ReviewRound: 1,
 		ReviewType:  "live",
 		Origin:      sc.liveOrigin,
-		CLIArgs:     []string{sc.liveOrigin},
+		CLIArgs:     []string{"live", sc.liveOrigin},
 		// awaitingFirstReview must be true so the daemon-client's first
 		// /api/review-cycle call does NOT fire SignalRoundComplete at boot.
 		// Without this gate the watcher bumps ReviewRound from 1 to 2 before
@@ -550,7 +550,14 @@ func runServe(args []string) {
 	}
 	sc.reviewPath = resolveServeReviewPath(sc.outputDir, sc.planDir, key)
 	srv.reviewPath = sc.reviewPath
-	srv.cliArgs = sc.files
+	switch {
+	case sc.liveOrigin != "":
+		srv.cliArgs = []string{"live", sc.liveOrigin}
+	case sc.previewFile != "":
+		srv.cliArgs = []string{"preview", sc.previewFile}
+	default:
+		srv.cliArgs = sc.files
+	}
 	sessionArgs := sc.files
 	if sc.liveOrigin != "" {
 		sessionArgs = []string{liveSessionArgsTag, sc.liveOrigin}
@@ -680,9 +687,12 @@ func runServe(args []string) {
 		return
 	}
 	applySessionOverrides(session, sc)
-	if sc.liveOrigin != "" {
-		session.CLIArgs = []string{sc.liveOrigin}
-	} else {
+	switch {
+	case sc.liveOrigin != "":
+		session.CLIArgs = []string{"live", sc.liveOrigin}
+	case sc.previewFile != "":
+		session.CLIArgs = []string{"preview", sc.previewFile}
+	default:
 		session.CLIArgs = sc.files
 	}
 
