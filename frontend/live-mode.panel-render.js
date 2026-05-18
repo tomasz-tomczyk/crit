@@ -545,21 +545,25 @@
     // Navigate to comment via ContentRenderer interface. Validates that
     // scrollToAnchor + highlightAnchor work for live-mode pins when a
     // comment card is clicked in the panel.
+    var _highlightTimer = null;
     function navigateToCommentViaRenderer(comment) {
       var renderer = window.crit && window.crit.renderer && window.crit.renderer.current();
       if (!renderer) return;
+      if (_highlightTimer) { clearTimeout(_highlightTimer); _highlightTimer = null; }
       var anchor = window.crit.renderer.anchorFromComment(comment);
       renderer.scrollToAnchor(anchor).then(function () {
         renderer.highlightAnchor(anchor);
-        setTimeout(function () { renderer.clearHighlight(); }, 1000);
+        _highlightTimer = setTimeout(function () {
+          renderer.clearHighlight();
+          _highlightTimer = null;
+        }, 1000);
       });
     }
 
-    // Delegated click listener on panelBody — when a comment card is
-    // clicked, invoke the ContentRenderer scroll+highlight alongside the
-    // existing route-navigation handled by live-mode.js.
+    var _cardClickInstalled = false;
     function installPanelCardRendererClick() {
-      if (!els.panelBody) return;
+      if (!els.panelBody || _cardClickInstalled) return;
+      _cardClickInstalled = true;
       els.panelBody.addEventListener('click', function (e) {
         // Don't interfere with interactive controls
         if (e.target.closest && e.target.closest('button, a, input, textarea')) return;
