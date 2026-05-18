@@ -342,11 +342,11 @@
         if (anyInstalled) {
           var current = integrations.filter(function (i) { return i.status === 'current'; });
           var stale = integrations.filter(function (i) { return i.status === 'stale'; });
-          if (stale.length > 0) {
-            var si = stale[0];
+          var dismissedMap = getSetting('dismissedIntegrations', {}) || {};
+          var undismissedStale = stale.filter(function (si) { return !si.hash || dismissedMap[si.agent] !== si.hash; });
+          if (undismissedStale.length > 0) {
+            var si = undismissedStale[0];
             var name = si.agent.replace(/\b\w/g, function (c) { return c.toUpperCase(); }).replace(/-/g, ' ');
-            var dismissedMap = getSetting('dismissedIntegrations', {}) || {};
-            var intAlreadyDismissed = !!si.hash && dismissedMap[si.agent] === si.hash;
             html += '<div class="config-card config-card--yellow"><div class="config-card-header">';
             html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#9888;</span>';
             html += '<span class="config-card-title">AI Integration</span>';
@@ -365,23 +365,20 @@
             if (si.hash) {
               html += '<div class="config-card-body" id="integrationCardBody">';
               html += '<div class="config-card-actions config-card-actions--end">';
-              if (intAlreadyDismissed) {
-                html += '<span class="config-card-dismissed" id="integrationDismissedNote">Dismissed — will remind you when this integration changes</span>';
-              } else {
-                html += '<button type="button" class="config-card-dismiss" id="integrationDismissBtn" data-agent="' + esc(si.agent) + '" data-hash="' + esc(si.hash) + '">Don\'t remind me until next version</button>';
-              }
+              html += '<button type="button" class="config-card-dismiss" id="integrationDismissBtn" data-agent="' + esc(si.agent) + '" data-hash="' + esc(si.hash) + '">Don\'t remind me until next version</button>';
               html += '</div></div>';
             }
             html += '</div>';
-          } else if (current.length > 0) {
-            var nm = current[0].agent.replace(/\b\w/g, function (c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+          } else if (current.length > 0 || stale.length > 0) {
+            var best = current[0] || stale[0];
+            var nm = best.agent.replace(/\b\w/g, function (c) { return c.toUpperCase(); }).replace(/-/g, ' ');
             html += '<div class="config-card config-card--green"><div class="config-card-header">';
             html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
             html += '<span class="config-card-title">AI Integration</span>';
             html += '<span class="config-card-value">' + esc(nm) + ' (up to date)</span>';
             html += '</div></div>';
           }
-        } else {
+        } else if (!(cfg.missing_integrations && cfg.missing_integrations.length > 0)) {
           var available = (cfg.integrations_available || []).join(' · ');
           html += '<div class="config-card config-card--blue config-card--unconfigured"><div class="config-card-header">';
           html += '<span class="config-card-icon" style="color:var(--crit-brand)">&#128161;</span>';
@@ -392,6 +389,29 @@
           html += '<div class="config-card-cmd"><span>$ crit install claude-code</span><button class="config-card-copy" data-copy="crit install claude-code">Copy</button></div>';
           if (available) html += '<div class="config-card-agents">Also: ' + esc(available) + '</div>';
           html += '</div>';
+        }
+      }
+
+      // Missing integrations card (detected agents without crit integration)
+      if (show.integration && !cfg.no_integration_check) {
+        var missingAgents = cfg.missing_integrations || [];
+        var dismissedMap = getSetting('dismissedIntegrations', {}) || {};
+        var undismissed = missingAgents.filter(function (a) { return !dismissedMap['missing:' + a]; });
+        if (undismissed.length > 0) {
+          undismissed.forEach(function (agent) {
+            var name = agent.replace(/\b\w/g, function (c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+            html += '<div class="config-card config-card--blue"><div class="config-card-header">';
+            html += '<span class="config-card-icon" style="color:var(--crit-brand)">&#128161;</span>';
+            html += '<span class="config-card-title">Integration Available</span>';
+            html += '<span class="config-card-value">' + esc(name) + ' detected</span>';
+            html += '</div>';
+            html += '<div class="config-card-body">' + esc(name) + ' is installed on your system but doesn\'t have the crit integration yet.</div>';
+            html += '<div class="config-card-cmd"><span>$ crit install ' + esc(agent) + '</span><button class="config-card-copy" data-copy="crit install ' + esc(agent) + '">Copy</button></div>';
+            html += '<div class="config-card-body"><div class="config-card-actions config-card-actions--end">';
+            html += '<button type="button" class="config-card-dismiss" data-dismiss-missing="' + esc(agent) + '">Don\'t show again</button>';
+            html += '</div></div>';
+            html += '</div>';
+          });
         }
       }
 
@@ -489,6 +509,21 @@
         integrationDismissBtn.outerHTML = '<span class="config-card-dismissed" id="integrationDismissedNote">Dismissed — will remind you when this integration changes</span>';
       });
     }
+
+    pane.querySelectorAll('[data-dismiss-missing]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var agent = btn.dataset.dismissMissing || '';
+        if (!agent) return;
+        var map = getSetting('dismissedIntegrations', {}) || {};
+        map['missing:' + agent] = true;
+        setSetting('dismissedIntegrations', map);
+        var updateBtn = document.getElementById('updateBtn');
+        var pending = hooks.hasActivePendingUpdates ? !!hooks.hasActivePendingUpdates() : false;
+        if (updateBtn && !pending) updateBtn.style.display = 'none';
+        var card = btn.closest('.config-card');
+        if (card) card.remove();
+      });
+    });
 
     pane.querySelectorAll('.config-card-copy').forEach(function (btn) {
       btn.addEventListener('click', function () {

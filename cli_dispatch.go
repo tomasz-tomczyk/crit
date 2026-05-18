@@ -38,51 +38,56 @@ var commandDispatch = map[string]func([]string){
 func printHelp() {
 	fmt.Fprintf(os.Stderr, `crit — inline code review for AI agent workflows
 
-Usage:
+Getting started:
+  crit install <agent>                       Set up crit for your AI coding tool
+  crit                                       Review your current changes (auto-detects git)
+
+Review:
   crit                                       Auto-detect changed files via git
   crit <file|dir> [...]                      Review specific files or directories
-  crit live <url>                          Review a running web app in live mode
+  crit live <url>                            Review a running web app in live mode
   crit preview <file.html>                   Review a local HTML file in preview mode
-  crit --pr <num|url>                        Review a GitHub pull request (range mode)
-  crit pr <num|url>                          Review a GitHub pull request (alias for --pr)
-  crit --range <baseSHA>..<headSHA>          Review a commit range (range mode)
-  crit stop [files...]                       Stop the daemon for current directory (and args)
-  crit stop --all                            Stop all daemons for current directory
-  crit comment <path>:<line[-end]> <body>    Add a review comment
-  crit comment --reply-to <id> [--resolve] [--author <name>] <body>  Reply to a comment
-  crit comment --json [--author <name>] [--output <dir>]    Read comments from stdin as JSON
-  crit comment --clear                       Remove all comments from the review file
-  crit share <file> [file...]                Share files to crit-web and print the URL
-  crit fetch [--output <dir>]               Fetch comments from crit-web into the review file
-  crit unpublish                             Remove a shared review from crit-web
-  crit pull [--output <dir>] [pr-number]     Fetch GitHub PR comments into the review file
-  crit push [--dry-run] [--event <type>] [-m <msg>] [-o <dir>] [pr-number]  Post review comments to a GitHub PR
-  crit plan --name <slug> <file>             Review a plan file (manages versioned copies)
-  crit plan --name <slug>                    Read plan from stdin
-  crit auth login                            Log in to crit-web via browser
-  crit auth logout                           Log out and revoke token
-  crit auth whoami                           Show current user info
-  crit install <agent>                       Install integration files for an AI coding tool
-  crit status [--json]                        Print session info (review file, daemon, comments)
-  crit cleanup [--days N] [--force]           Delete stale review files (default: 7 days)
-  crit check                                 Check if installed integrations are up to date
-  crit config [--generate]                    Show resolved configuration
-  crit help                                  Show this help message
+  crit --pr <num|url>                        Review a GitHub pull request
+  crit --range <base>..<head>               Review a commit range
+  crit plan --name <slug> <file>             Review a plan file
 
-  Agents:
-    %s, all
+Comments:
+  crit comment <path>:<line[-end]> <body>    Add a comment (headless, no server needed)
+  crit comment --reply-to <id> <body>        Reply to a comment
+  crit comment --json                        Bulk add comments from JSON on stdin
+  crit comment --clear                       Remove all comments
+
+Sharing:
+  crit share <file> [file...]                Share files to crit-web, print URL
+  crit fetch [--output <dir>]                Fetch comments from crit-web
+  crit unpublish                             Remove a shared review from crit-web
+
+GitHub PR sync:
+  crit pull [pr-number]                      Fetch PR comments into the review file
+  crit push [--dry-run] [pr-number]          Post review comments to a GitHub PR
+
+Setup & management:
+  crit install <agent>                       Install integration for an AI coding tool
+  crit check                                 Check integrations (staleness + missing)
+  crit status [--json]                       Print session info
+  crit stop [--all]                          Stop the daemon
+  crit cleanup [--days N] [--force]          Delete stale review files (default: 7 days)
+  crit config [--generate]                   Show resolved configuration
+  crit auth login|logout|whoami              Manage crit-web authentication
+
+  Agents: %s, all
 
 Options:
   -p, --port <port>           Port to listen on (default: random)
-      --host <host>           Host to listen on (default: 127.0.0.1; e.g. 0.0.0.0 to expose on LAN)
+      --host <host>           Listen host (default: 127.0.0.1; e.g. 0.0.0.0 for LAN)
   -o, --output <dir>          Output directory for review file
       --no-open               Don't auto-open browser
       --no-ignore             Disable all file ignore patterns
   -q, --quiet                 Suppress status output
       --share-url <url>       Share service URL (e.g. https://crit.md or self-hosted)
       --base-branch <branch>  Base branch to diff against (overrides auto-detection)
-      --scope <mode>          Diff scope when reviewing a PR: layer (default) or full-stack
-      --remote                Read PR file content via GitHub API instead of local git (requires gh)
+      --scope <mode>          Diff scope for PR review: layer (default) or full-stack
+      --remote                Read PR files via GitHub API instead of local git
       --qr                    Print QR code of share URL (with crit share)
   -v, --version               Print version
 
@@ -92,17 +97,11 @@ Environment:
   CRIT_HOST                   Override the listen host (default 127.0.0.1)
   CRIT_NO_UPDATE_CHECK        Disable update check on startup
   CRIT_AUTH_TOKEN              Override the auth token (skip login)
-  CRIT_NO_INTEGRATION_CHECK   Disable integration staleness check
+  CRIT_NO_INTEGRATION_CHECK   Disable staleness check and agent detection on startup
 
 Configuration:
-  Global config:   ~/.crit.config.json
-  Project config:  .crit.config.json (in repo root)
-  agent_cmd              Shell command to send comments to an AI agent (e.g. "claude -p")
-  cleanup_on_approve     Auto-delete review file when approved (default: true)
-  host                   Listen host (default: 127.0.0.1; e.g. 0.0.0.0 for LAN)
-  no_update_check        Disable update check on startup (default: false)
-  vcs                    Preferred VCS backend: git, sl, or jj (default: auto-detect)
-  Run 'crit config' to see resolved configuration.
+  Global: ~/.crit.config.json   Project: .crit.config.json (in repo root)
+  Run 'crit config' to see all keys and resolved values.
 
 Learn more: https://crit.md
 `, strings.Join(availableIntegrations(), ", "))

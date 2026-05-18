@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -247,6 +248,112 @@ func printStaleWarnings(stale []staleFile) int {
 	return len(seen)
 }
 
+// agentProbe describes how to detect whether an AI coding tool is present on
+// the system. Checked in order: CLI binary on PATH, then config directory in
+// $HOME.
+type agentProbe struct {
+	agent    string   // integration name (key in integrationMap)
+	bins     []string // CLI binary names to look for on PATH
+	homeDirs []string // directories relative to $HOME whose existence signals the agent
+}
+
+var agentProbes = []agentProbe{
+	{"claude-code", []string{"claude"}, []string{".claude"}},
+	{"cursor", []string{"cursor"}, []string{".cursor"}},
+	{"windsurf", []string{"windsurf"}, []string{".windsurf"}},
+	{"github-copilot", []string{"github-copilot"}, []string{".config/github-copilot"}},
+	{"cline", nil, []string{".cline"}},
+	{"codex", []string{"codex"}, nil},
+	{"opencode", []string{"opencode"}, []string{".opencode"}},
+	{"aider", []string{"aider"}, nil},
+	{"qwen", []string{"qwen"}, []string{".qwen"}},
+	{"pi", []string{"pi"}, []string{".pi"}},
+	{"hermes", []string{"hermes"}, []string{".hermes"}},
+	{"gemini", []string{"gemini"}, []string{".gemini"}},
+	{"grok", []string{"grok"}, []string{".grok"}},
+}
+
+// detectPresentAgents returns the names of AI coding tools that appear to be
+// installed on the system (binary on PATH or config dir in $HOME).
+func detectPresentAgents(homeDir string) []string {
+	var present []string
+	seen := make(map[string]bool)
+	for _, p := range agentProbes {
+		if seen[p.agent] {
+			continue
+		}
+		for _, bin := range p.bins {
+			if _, err := exec.LookPath(bin); err == nil {
+				present = append(present, p.agent)
+				seen[p.agent] = true
+				break
+			}
+		}
+		if seen[p.agent] {
+			continue
+		}
+		for _, dir := range p.homeDirs {
+			if fi, err := os.Stat(filepath.Join(homeDir, dir)); err == nil && fi.IsDir() {
+				present = append(present, p.agent)
+				seen[p.agent] = true
+				break
+			}
+		}
+	}
+	return present
+}
+
+// installedAgents returns the set of agents that have at least one crit
+// integration file installed (project-local, home, marketplace, or cache),
+// plus aider if its conventions file exists.
+func installedAgents(projectDir, homeDir string) map[string]bool {
+	installed := make(map[string]bool)
+	for _, s := range detectInstalledIntegrations(projectDir, homeDir) {
+		installed[s.Agent] = true
+	}
+	paths := aiderPaths(projectDir, homeDir)
+	if _, err := os.Stat(paths.conventionsDest); err == nil {
+		installed["aider"] = true
+	}
+	return installed
+}
+
+// checkMissingIntegrations returns agents that are present on the system but
+// have no crit integration installed (project-local or home).
+func checkMissingIntegrations(projectDir, homeDir string) []string {
+	present := detectPresentAgents(homeDir)
+	if len(present) == 0 {
+		return nil
+	}
+
+	installed := installedAgents(projectDir, homeDir)
+
+	var missing []string
+	for _, agent := range present {
+		if !installed[agent] {
+			missing = append(missing, agent)
+		}
+	}
+	return missing
+}
+
+// printMissingHints prints a suggestion for each detected-but-not-installed
+// agent. Returns the number of hints printed.
+func printMissingHints(missing []string) int {
+	if len(missing) == 0 {
+		return 0
+	}
+	if len(missing) == 1 {
+		fmt.Fprintf(os.Stderr, "Tip: %s detected but crit integration not installed.\n", missing[0])
+		fmt.Fprintf(os.Stderr, "     Run: crit install %s\n", missing[0])
+	} else {
+		fmt.Fprintf(os.Stderr, "Tip: detected AI tools without crit integration: %s\n", strings.Join(missing, ", "))
+		fmt.Fprintf(os.Stderr, "     Run: crit install all  (or crit install <agent> for a specific one)\n")
+	}
+	fmt.Fprintf(os.Stderr, "     Disable: CRIT_NO_INTEGRATION_CHECK=1\n")
+	return len(missing)
+}
+
 // runCheck implements the "crit check" subcommand.
 func runCheck() {
 	cwd, err := os.Getwd()
@@ -263,23 +370,32 @@ func runCheck() {
 	fmt.Fprintf(os.Stderr, "crit %s — checking installed integrations...\n\n", version)
 
 	stale := checkInstalledIntegrations(cwd, home)
+	missing := checkMissingIntegrations(cwd, home)
 
-	if len(stale) == 0 {
+	if len(stale) == 0 && len(missing) == 0 {
 		fmt.Fprintln(os.Stderr, "All installed integrations are up to date.")
 		return
 	}
 
-	// Deduplicate by hint — show each unique update action only once
-	seenHints := make(map[string]bool)
-	for _, s := range stale {
-		hint := s.updateHint()
-		if seenHints[hint] {
-			continue
+	if len(stale) > 0 {
+		// Deduplicate by hint — show each unique update action only once
+		seenHints := make(map[string]bool)
+		for _, s := range stale {
+			hint := s.updateHint()
+			if seenHints[hint] {
+				continue
+			}
+			seenHints[hint] = true
+			fmt.Fprintf(os.Stderr, "  outdated: %s\n", s.dest)
+			termHint := strings.ReplaceAll(hint, "|", ": ")
+			fmt.Fprintf(os.Stderr, "    → %s\n", termHint)
 		}
-		seenHints[hint] = true
-		fmt.Fprintf(os.Stderr, "  outdated: %s\n", s.dest)
-		// Replace label|cmd separators with ": " for terminal display
-		termHint := strings.ReplaceAll(hint, "|", ": ")
-		fmt.Fprintf(os.Stderr, "    → %s\n\n", termHint)
+	}
+
+	if len(missing) > 0 {
+		if len(stale) > 0 {
+			fmt.Fprintln(os.Stderr)
+		}
+		printMissingHints(missing)
 	}
 }

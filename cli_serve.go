@@ -495,13 +495,15 @@ func checkStaleIntegrations(sc *serverConfig, srv *Server, cwd string) {
 	if sc.noIntegrationCheck || os.Getenv("CRIT_NO_INTEGRATION_CHECK") != "" {
 		return
 	}
-	if home, err := os.UserHomeDir(); err == nil {
-		stale := checkInstalledIntegrations(cwd, home)
-		srv.staleIntegrations = stale
-		if len(stale) > 0 {
-			go printStaleWarnings(stale)
-		}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
 	}
+	stale := checkInstalledIntegrations(cwd, home)
+	srv.staleIntegrations = stale
+
+	missing := checkMissingIntegrations(cwd, home)
+	srv.missingIntegrations = missing
 }
 
 // liveSessionArgsTag is the leading element of sessionEntry.Args for a

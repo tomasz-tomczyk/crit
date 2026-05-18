@@ -490,6 +490,8 @@
         if (brewDismissed !== pendingUpdatesVersion) return true;
       } else if (u.kind === 'integration') {
         if (!u.hash || intDismissed[u.agent] !== u.hash) return true;
+      } else if (u.kind === 'missing-integration') {
+        if (!intDismissed['missing:' + u.agent]) return true;
       } else {
         return true;
       }
@@ -941,6 +943,17 @@
           hash: si.hash || '',
           label: name + ' plugin outdated',
           hint: si.hint
+        });
+      });
+    }
+    if (configRes.missing_integrations) {
+      configRes.missing_integrations.forEach(function(agent) {
+        const name = agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+        pendingUpdates.push({
+          kind: 'missing-integration',
+          agent: agent,
+          label: name + ' detected — install integration',
+          hint: 'crit install ' + agent
         });
       });
     }

@@ -31,31 +31,32 @@ var sseHeartbeatInterval = 30 * time.Second
 
 // Server handles HTTP requests for the crit review UI.
 type Server struct {
-	session           atomic.Pointer[Session]
-	mux               *http.ServeMux
-	assets            fs.FS
-	shareURL          string
-	proxyAuth         bool
-	authMu            sync.RWMutex // guards authToken + cfg.Auth* fields
-	authToken         string
-	prInfo            *PRInfo
-	prInfoMu          sync.RWMutex
-	author            string
-	agentCmd          string
-	currentVersion    string
-	latestVersion     string
-	versionMu         sync.RWMutex
-	staleIntegrations []staleFile
-	githubAPIURL      string // override for testing; defaults to "https://api.github.com"
-	port              int
-	status            *Status
-	initErr           atomic.Pointer[error]
-	projectDir        string
-	homeDir           string
-	cfg               Config
-	reviewPath        string
-	cliArgs           []string     // positional file args; flags (--pr, --range, etc.) are not preserved
-	prList            *prListCache // 60s cache for picker "Other PRs"
+	session             atomic.Pointer[Session]
+	mux                 *http.ServeMux
+	assets              fs.FS
+	shareURL            string
+	proxyAuth           bool
+	authMu              sync.RWMutex // guards authToken + cfg.Auth* fields
+	authToken           string
+	prInfo              *PRInfo
+	prInfoMu            sync.RWMutex
+	author              string
+	agentCmd            string
+	currentVersion      string
+	latestVersion       string
+	versionMu           sync.RWMutex
+	staleIntegrations   []staleFile
+	missingIntegrations []string
+	githubAPIURL        string // override for testing; defaults to "https://api.github.com"
+	port                int
+	status              *Status
+	initErr             atomic.Pointer[error]
+	projectDir          string
+	homeDir             string
+	cfg                 Config
+	reviewPath          string
+	cliArgs             []string     // positional file args; flags (--pr, --range, etc.) are not preserved
+	prList              *prListCache // 60s cache for picker "Other PRs"
 
 	// listenHost is the host the server is bound to (e.g. "127.0.0.1" or
 	// "0.0.0.0"). Set via SetListenHost after construction. When set to a
@@ -419,6 +420,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			items = append(items, staleInfo{Agent: sf.agent, Location: sf.location, Hint: hint, Hash: sf.hash})
 		}
 		resp["stale_integrations"] = items
+	}
+	if len(s.missingIntegrations) > 0 {
+		resp["missing_integrations"] = s.missingIntegrations
 	}
 	s.prInfoMu.RLock()
 	prInfo := s.prInfo
