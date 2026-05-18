@@ -256,8 +256,10 @@
       if (promptEl) promptEl.textContent = prompt;
       if (previewEl) previewEl.textContent = prompt;
       if (clipEl) {
-        clipEl.textContent = 'Copy prompt';
-        clipEl.classList.remove('clipboard-confirm');
+        var copyLabel = clipEl.querySelector('.copy-label');
+        if (copyLabel) copyLabel.textContent = 'Copy';
+        clipEl.classList.remove('copied');
+        clipEl.setAttribute('aria-label', 'Copy prompt to clipboard');
       }
 
       if (dialog) {

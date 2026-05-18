@@ -705,14 +705,14 @@
         var text = p ? p.textContent : '';
         try {
           await navigator.clipboard.writeText(text);
-          clip.textContent = '✓ Copied';
+          var label = clip.querySelector('.copy-label');
+          if (label) label.textContent = 'Copied';
+          clip.classList.add('copied');
           clip.setAttribute('aria-label', 'Copied');
-          clip.classList.remove('clipboard-confirm');
-          void clip.offsetWidth;
-          clip.classList.add('clipboard-confirm');
           setTimeout(function () {
-            clip.textContent = 'Copy prompt';
-            clip.setAttribute('aria-label', 'Copy prompt');
+            if (label) label.textContent = 'Copy';
+            clip.classList.remove('copied');
+            clip.setAttribute('aria-label', 'Copy prompt to clipboard');
           }, 2000);
         } catch (_) {}
       });
