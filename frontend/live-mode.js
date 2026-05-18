@@ -55,6 +55,46 @@
   var utils = window.crit.liveUtils;
   var inflightAPI = (window.crit && window.crit.live && window.crit.live.inflight) || null;
 
+  // ===== Tab-Ready Indicator =====
+  // Same pattern as app.js: prepends ● to document.title when a new round
+  // starts while the tab is hidden. Clears on visibilitychange → visible.
+  var BADGE_PREFIX = '\u25CF ';
+  var baseTitle = document.title;
+  var badgeActive = false;
+
+  function setDocumentTitle(nextBase) {
+    baseTitle = nextBase;
+    document.title = badgeActive ? BADGE_PREFIX + baseTitle : baseTitle;
+  }
+
+  function setTabBadge() {
+    if (badgeActive) return;
+    badgeActive = true;
+    if (!document.title.startsWith(BADGE_PREFIX)) {
+      document.title = BADGE_PREFIX + baseTitle;
+    }
+  }
+
+  function clearTabBadge() {
+    if (!badgeActive) return;
+    badgeActive = false;
+    document.title = baseTitle;
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') clearTabBadge();
+  });
+
+  state.setTabBadge = setTabBadge;
+
+  if (location.search.includes('test')) {
+    window.__critTabBadge = {
+      set: setTabBadge,
+      clear: clearTabBadge,
+      isActive: function () { return badgeActive; },
+    };
+  }
+
   // Dedup guards for async ops triggerable from multiple sources (button
   // click + Cmd+Enter, double-click, race between Esc-then-Save, etc.).
   // Per-id Sets for comment-scoped ops; singleton flag for finish review.
@@ -271,6 +311,15 @@
       console.warn('[live-mode] unexpected review_type:', state.session.review_type);
     }
     state.isPreview = state.session.review_type === 'preview';
+
+    if (state.isPreview) {
+      var firstFile = (state.session.files && state.session.files.length)
+        ? state.session.files[0].path : 'preview';
+      setDocumentTitle('Crit — ' + firstFile);
+    } else {
+      setDocumentTitle('Crit — ' + (state.session.origin || 'live'));
+    }
+
     // Capture proxyOrigin once for the message handler. The agent
     // posts from the proxy origin; the chrome lives on the API origin and
     // accepts only that source+origin pair.

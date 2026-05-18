@@ -82,6 +82,39 @@ test('applyRoundStart re-fetches comments so replies posted mid-round appear', a
   assert.equal(reloads, 1, 'round-start must re-fetch comments to capture mid-round replies');
 });
 
+test('applyRoundStart fires tab badge when document is hidden', () => {
+  let badgeCalls = 0;
+  const state = { setTabBadge: () => { badgeCalls++; } };
+  // Simulate hidden tab: define global document with visibilityState='hidden'
+  global.document = { visibilityState: 'hidden', getElementById: () => null };
+  const ctl = create({
+    state,
+    pinsByRoute: () => ({}),
+    scheduleResolutionForPath: () => {},
+    announceLive: () => {},
+    setUIState: () => {},
+  });
+  ctl.applyRoundStart(2);
+  assert.equal(badgeCalls, 1);
+  delete global.document;
+});
+
+test('applyRoundStart skips tab badge when document is visible', () => {
+  let badgeCalls = 0;
+  const state = { setTabBadge: () => { badgeCalls++; } };
+  global.document = { visibilityState: 'visible', getElementById: () => null };
+  const ctl = create({
+    state,
+    pinsByRoute: () => ({}),
+    scheduleResolutionForPath: () => {},
+    announceLive: () => {},
+    setUIState: () => {},
+  });
+  ctl.applyRoundStart(2);
+  assert.equal(badgeCalls, 0);
+  delete global.document;
+});
+
 test('applyCommentsChanged invokes reloadComments', async () => {
   let reloads = 0;
   const ctl = create({
