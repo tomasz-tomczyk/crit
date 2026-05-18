@@ -18,8 +18,8 @@ Agents don't just write code. They write plans, generate HTML pages, modify runn
 
 - **Plans & docs** — `crit plan.md` renders markdown in the browser. Comment on the section that's wrong, not the whole document.
 - **Code** — `crit` auto-detects branch changes and shows syntax-highlighted diffs. Like a PR review, but instant and local.
-- **Live** — `crit live http://localhost:3000` proxies your running app into a review surface. Click the misaligned button, pin a comment to it.
-- **Preview** — `crit preview landing.html` renders a static HTML artifact in an iframe. Pin comments to elements, no dev server needed.
+- **Live** — `crit http://localhost:3000` proxies your running app into a review surface. Click the misaligned button, pin a comment to it.
+- **Preview** — `crit landing.html` renders a static HTML artifact in an iframe. Pin comments to elements, no dev server needed.
 
 Single binary. Local by default. No account, no config, no dependencies.
 
@@ -62,13 +62,13 @@ The recommended way is to use `/crit` command with your agent after any piece of
 crit                              # auto-detect changed files in your repo
 crit plan.md                      # review a specific file
 crit plan.md api-spec.md          # review multiple files
-crit live http://localhost:3000   # review a running dev server
-crit preview landing.html         # review a static HTML file
+crit http://localhost:3000        # review a running dev server
+crit landing.html                 # review a static HTML file
 ```
 
 ```bash
-crit status                   # show review file path and daemon status
-crit cleanup                  # delete stale review files
+crit status                       # show review file path and daemon status
+crit cleanup                      # delete stale review files
 ```
 
 ## Features
