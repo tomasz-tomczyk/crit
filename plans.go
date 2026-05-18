@@ -90,17 +90,8 @@ func latestPlanVersion(dir string) int {
 	return max
 }
 
-func buildPlanDaemonArgs(currentPath, storageDir, slug string, port int, noOpen, quiet bool) []string {
-	var args []string
-	if port != 0 {
-		args = append(args, "--port", fmt.Sprintf("%d", port))
-	}
-	if noOpen {
-		args = append(args, "--no-open")
-	}
-	if quiet {
-		args = append(args, "--quiet")
-	}
+func buildPlanDaemonArgs(currentPath, storageDir, slug string, flags commonDaemonFlags) []string {
+	args := appendCommonDaemonFlags(nil, flags)
 	args = append(args, "--plan-dir", storageDir)
 	args = append(args, "--name", slug)
 	args = append(args, currentPath)

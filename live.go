@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -145,6 +144,11 @@ func runLive(args []string) {
 	fs := flag.NewFlagSet("live", flag.ExitOnError)
 	port := fs.Int("port", 0, "Port to listen on")
 	fs.IntVar(port, "p", 0, "Port (shorthand)")
+	host := fs.String("host", "", "Host to listen on")
+	noOpen := fs.Bool("no-open", false, "Don't auto-open browser")
+	quiet := fs.Bool("quiet", false, "Suppress status output")
+	fs.BoolVar(quiet, "q", false, "Suppress status (shorthand)")
+	shareURL := fs.String("share-url", "", "Share service URL")
 	fs.Parse(args)
 
 	rawURL := ""
@@ -181,11 +185,15 @@ func runLive(args []string) {
 	}
 
 	// 3. Spawn daemon via _serve. startDaemon prepends "_serve" itself.
-	resolvedPort := resolvePort(*port, cfg.Port)
+	noOpenResolved := *noOpen || cfg.NoOpen
 	daemonArgs := []string{"--live-origin", origin}
-	if resolvedPort != 0 {
-		daemonArgs = append(daemonArgs, "--port", strconv.Itoa(resolvedPort))
-	}
+	daemonArgs = appendCommonDaemonFlags(daemonArgs, commonDaemonFlags{
+		port:     resolvePort(*port, cfg.Port),
+		host:     resolveHost(*host, cfg.Host),
+		noOpen:   noOpenResolved,
+		quiet:    *quiet || cfg.Quiet,
+		shareURL: resolveShareURL(*shareURL, cfg, ""),
+	})
 	entry, err := startDaemon(key, daemonArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: could not start live daemon: %v\n", err)
@@ -199,7 +207,9 @@ func runLive(args []string) {
 	installDaemonSignalHandler(entry.PID)
 
 	// 4. Open browser.
-	go openBrowser(fmt.Sprintf("http://localhost:%d/live", entry.Port))
+	if !noOpenResolved {
+		go openBrowser(fmt.Sprintf("http://localhost:%d/live", entry.Port))
+	}
 
 	// 5. Block until review complete.
 	runReviewClient(entry)

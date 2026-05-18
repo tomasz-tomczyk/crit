@@ -16,6 +16,33 @@ import (
 	"time"
 )
 
+type commonDaemonFlags struct {
+	port     int
+	host     string
+	noOpen   bool
+	quiet    bool
+	shareURL string
+}
+
+func appendCommonDaemonFlags(args []string, f commonDaemonFlags) []string {
+	if f.port != 0 {
+		args = append(args, "--port", strconv.Itoa(f.port))
+	}
+	if f.host != "" && f.host != "127.0.0.1" {
+		args = append(args, "--host", f.host)
+	}
+	if f.noOpen {
+		args = append(args, "--no-open")
+	}
+	if f.quiet {
+		args = append(args, "--quiet")
+	}
+	if f.shareURL != "" {
+		args = append(args, "--share-url", f.shareURL)
+	}
+	return args
+}
+
 // aliveClient is used by isDaemonAlive which is called in a loop by
 // listSessionsForCWD — a short timeout keeps listing responsive.
 var aliveClient = &http.Client{Timeout: time.Second}

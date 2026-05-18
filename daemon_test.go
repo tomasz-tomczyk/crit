@@ -980,3 +980,57 @@ func TestLiveSessionKey_Deterministic(t *testing.T) {
 		t.Errorf("non-deterministic: %s vs %s", k1, k2)
 	}
 }
+
+func TestAppendCommonDaemonFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		f    commonDaemonFlags
+		want []string
+	}{
+		{
+			name: "empty flags produce no args",
+			f:    commonDaemonFlags{},
+			want: []string{"--preview-file", "/tmp/x.html"},
+		},
+		{
+			name: "all flags set",
+			f: commonDaemonFlags{
+				port:     3456,
+				host:     "0.0.0.0",
+				noOpen:   true,
+				quiet:    true,
+				shareURL: "https://crit.md",
+			},
+			want: []string{"--preview-file", "/tmp/x.html",
+				"--port", "3456",
+				"--host", "0.0.0.0",
+				"--no-open",
+				"--quiet",
+				"--share-url", "https://crit.md"},
+		},
+		{
+			name: "default host 127.0.0.1 is not forwarded",
+			f:    commonDaemonFlags{host: "127.0.0.1"},
+			want: []string{"--preview-file", "/tmp/x.html"},
+		},
+		{
+			name: "port only",
+			f:    commonDaemonFlags{port: 8080},
+			want: []string{"--preview-file", "/tmp/x.html", "--port", "8080"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := []string{"--preview-file", "/tmp/x.html"}
+			got := appendCommonDaemonFlags(base, tt.f)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("arg[%d]: got %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}

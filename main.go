@@ -1624,8 +1624,10 @@ type planConfig struct {
 	filePath      string
 	stdinExpected bool
 	port          int
+	host          string
 	noOpen        bool
 	quiet         bool
+	shareURL      string
 }
 
 func resolvePlanConfig(args []string) planConfig {
@@ -1633,16 +1635,20 @@ func resolvePlanConfig(args []string) planConfig {
 	name := fs.String("name", "", "Plan name/slug for session identification")
 	port := fs.Int("port", 0, "Port to listen on")
 	fs.IntVar(port, "p", 0, "Port (shorthand)")
+	host := fs.String("host", "", "Host to listen on")
 	noOpen := fs.Bool("no-open", false, "Don't auto-open browser")
 	quiet := fs.Bool("quiet", false, "Suppress status output")
 	fs.BoolVar(quiet, "q", false, "Suppress status (shorthand)")
+	shareURL := fs.String("share-url", "", "Share service URL")
 	fs.Parse(args)
 
 	pc := planConfig{
-		name:   *name,
-		port:   *port,
-		noOpen: *noOpen,
-		quiet:  *quiet,
+		name:     *name,
+		port:     *port,
+		host:     *host,
+		noOpen:   *noOpen,
+		quiet:    *quiet,
+		shareURL: *shareURL,
 	}
 
 	remaining := fs.Args()
@@ -1819,7 +1825,14 @@ func runPlan(args []string) {
 	cwd, _ := resolvedCWD()
 	key := planSessionKey(cwd, slug)
 	currentPath := filepath.Join(storageDir, "current.md")
-	daemonArgs := buildPlanDaemonArgs(currentPath, storageDir, slug, pc.port, pc.noOpen, pc.quiet)
+	cfg := LoadConfig(cwd)
+	daemonArgs := buildPlanDaemonArgs(currentPath, storageDir, slug, commonDaemonFlags{
+		port:     resolvePort(pc.port, cfg.Port),
+		host:     resolveHost(pc.host, cfg.Host),
+		noOpen:   pc.noOpen || cfg.NoOpen,
+		quiet:    pc.quiet || cfg.Quiet,
+		shareURL: resolveShareURL(pc.shareURL, cfg, ""),
+	})
 
 	entry, weStartedDaemon := connectOrStartDaemon(key, daemonArgs, pc.noOpen)
 
@@ -1915,7 +1928,7 @@ func runPlanHook() {
 	cwd, _ := resolvedCWD()
 	key := planSessionKey(cwd, slug)
 	currentPath := filepath.Join(storageDir, "current.md")
-	daemonArgs := buildPlanDaemonArgs(currentPath, storageDir, slug, 0, false, false)
+	daemonArgs := buildPlanDaemonArgs(currentPath, storageDir, slug, commonDaemonFlags{})
 
 	entry, alive := findAliveSession(key)
 	weStartedDaemon := false

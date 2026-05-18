@@ -225,7 +225,7 @@ func TestPlanSessionKey(t *testing.T) {
 }
 
 func TestBuildPlanDaemonArgs(t *testing.T) {
-	args := buildPlanDaemonArgs("/tmp/plans/auth-flow/current.md", "/tmp/plans/auth-flow", "auth-flow", 3000, false, false)
+	args := buildPlanDaemonArgs("/tmp/plans/auth-flow/current.md", "/tmp/plans/auth-flow", "auth-flow", commonDaemonFlags{port: 3000})
 
 	found := false
 	for _, a := range args {
