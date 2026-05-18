@@ -477,7 +477,7 @@
   function proxyURL(pathname) {
     if (state.isPreview) {
       var p = pathname || '/';
-      if (p.indexOf('/preview-content') === 0) return p;
+      if (p.indexOf('/preview-content') === 0) p = p.slice('/preview-content'.length) || '/';
       return '/preview-content' + p;
     }
     var s = state.session || {};
