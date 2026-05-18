@@ -40,6 +40,36 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await expect(prompt).toContainText('crit');
   });
 
+  test('copy prompt button shows "Copied" feedback then reverts', async ({ page, request }) => {
+    // Add a comment so the prompt is non-empty
+    const filePath = await getTestFilePath(request);
+    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
+      data: { start_line: 1, end_line: 1, body: 'Copy feedback test' },
+    });
+
+    await page.reload();
+    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+
+    await page.locator('#finishBtn').click();
+    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+
+    const copyBtn = page.locator('#waitingClipboard');
+    const label = copyBtn.locator('.copy-label');
+
+    // Clipboard API may not be available in headless — grant permission
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await copyBtn.click();
+
+    // Label should change to "Copied" and button should get .copied class
+    await expect(label).toHaveText('Copied');
+    await expect(copyBtn).toHaveClass(/copied/);
+
+    // Should revert after timeout
+    await expect(label).toHaveText('Copy', { timeout: 5_000 });
+    await expect(copyBtn).not.toHaveClass(/copied/);
+  });
+
   test('finish review with no comments shows "no feedback" message', async ({ page }) => {
     await page.locator('#finishBtn').click();
 

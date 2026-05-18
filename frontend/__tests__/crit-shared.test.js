@@ -343,20 +343,34 @@ function makeFinishSandbox(fetchImpl, clipboardImpl) {
     return {
       textContent: '', innerHTML: '', offsetWidth: 0,
       style: {},
+      _attrs: {},
+      setAttribute(k, v) { this._attrs[k] = v; },
+      getAttribute(k) { return this._attrs[k] || null; },
       classList: {
         _set: new Set(),
         add(...c) { c.forEach((x) => this._set.add(x)); },
         remove(...c) { c.forEach((x) => this._set.delete(x)); },
         contains(c) { return this._set.has(c); },
       },
+      querySelector() { return null; },
     };
   }
+  const copyLabel = makeEl();
+  copyLabel.textContent = 'Copy';
+  const clipEl = makeEl();
+  clipEl._attrs['aria-label'] = 'Copy prompt to clipboard';
+  clipEl.querySelector = function (sel) {
+    if (sel === '.copy-label') return copyLabel;
+    return null;
+  };
   const els = {
     waitingDialog: makeEl(),
     waitingHeading: makeEl(),
     waitingMessage: makeEl(),
-    waitingClipboard: makeEl(),
+    waitingClipboard: clipEl,
     waitingPrompt: makeEl(),
+    promptPreview: makeEl(),
+    _copyLabel: copyLabel,
   };
   const win = {};
   const doc = { cookie: '', getElementById: (id) => els[id] || null };
@@ -388,9 +402,29 @@ test('runFinishReview approved path: sets approved class + Approved heading + on
   assert.equal(els.waitingHeading.textContent, 'Approved');
   assert.equal(els.waitingPrompt.textContent, 'ok-prompt');
   assert.equal(els.waitingDialog.classList.contains('approved'), true);
-  assert.equal(els.waitingClipboard.textContent, 'Copy prompt');
+  assert.equal(els._copyLabel.textContent, 'Copy');
+  assert.equal(els.waitingClipboard.classList.contains('copied'), false);
+  assert.equal(els.waitingClipboard.getAttribute('aria-label'), 'Copy prompt to clipboard');
   assert.equal(approvedArg, 'ok-prompt');
   assert.equal(waitingCalled, false);
+});
+
+test('runFinishReview resets copy button via .copy-label span, not textContent (regression)', async () => {
+  const fetch = async () => ({ ok: true, json: async () => ({ approved: true, prompt: 'p' }) });
+  const { shared: s, els } = makeFinishSandbox(fetch, { writeText: async () => {} });
+  // Simulate a prior "Copied" state
+  els._copyLabel.textContent = 'Copied';
+  els.waitingClipboard.classList.add('copied');
+  els.waitingClipboard.setAttribute('aria-label', 'Copied');
+
+  await s.runFinishReview({});
+
+  // The reset must target the .copy-label span, not clobber the parent's textContent
+  assert.equal(els._copyLabel.textContent, 'Copy');
+  assert.equal(els.waitingClipboard.classList.contains('copied'), false);
+  assert.equal(els.waitingClipboard.getAttribute('aria-label'), 'Copy prompt to clipboard');
+  // querySelector must still work (DOM structure preserved)
+  assert.ok(els.waitingClipboard.querySelector('.copy-label'), '.copy-label span still accessible');
 });
 
 test('runFinishReview not-approved path: leaves approved class off + uses default prompt fallback', async () => {
