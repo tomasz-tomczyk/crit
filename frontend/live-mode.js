@@ -608,6 +608,9 @@
   registerInstaller(function installCommentsPanelResize() {
     if (panelCtl) panelCtl.installCommentsPanelResize();
   });
+  registerInstaller(function installPanelCardRendererClick() {
+    if (panelCtl) panelCtl.installPanelCardRendererClick();
+  });
 
 
   function startLiveTipRotation() {

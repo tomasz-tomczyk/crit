@@ -80,9 +80,7 @@
     const reads = markers.map(m => {
       if (!m.target) return null;
       if (typeof m.target.isConnected !== 'undefined' && !m.target.isConnected) return null;
-      const rect = m.target.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) return null;
-      return rect;
+      return m.target.getBoundingClientRect();
     });
     for (let i = 0; i < markers.length; i++) {
       const m = markers[i];

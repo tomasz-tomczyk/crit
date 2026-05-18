@@ -148,14 +148,15 @@ test('applyRects hides marker when target is disconnected from DOM', () => {
   assert.equal(m.el.style.display, 'none');
 });
 
-test('applyRects hides marker when target has zero-size rect (detached element)', () => {
+test('applyRects positions marker when target is connected with zero-size rect', () => {
   const target = {
     isConnected: true,
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
   };
   const m = { target, el: { style: {} } };
   overlay.applyRects([m]);
-  assert.equal(m.el.style.display, 'none');
+  assert.equal(m.el.style.display, '');
+  assert.equal(m.el.style.transform, 'translate(0px, 0px)');
 });
 
 test('applyRects shows marker when target is connected with non-zero rect', () => {

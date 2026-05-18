@@ -551,6 +551,7 @@
       var anchor = window.crit.renderer.anchorFromComment(comment);
       renderer.scrollToAnchor(anchor).then(function () {
         renderer.highlightAnchor(anchor);
+        setTimeout(function () { renderer.clearHighlight(); }, 1000);
       });
     }
 
