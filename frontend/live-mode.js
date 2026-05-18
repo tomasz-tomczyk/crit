@@ -323,7 +323,9 @@
     // Extract initial route from the origin URL path (e.g.
     // "http://localhost:3333/live.html" → "/live.html") so the iframe
     // loads the correct page instead of always requesting "/".
-    if (!state.isPreview && state.session.origin) {
+    if (state.isPreview) {
+      state.currentRoute = '/preview-content';
+    } else if (state.session.origin) {
       try {
         var originPath = new URL(state.session.origin).pathname;
         if (originPath && originPath !== '/') state.currentRoute = originPath;
