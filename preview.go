@@ -156,13 +156,13 @@ func (s *Server) servePreviewHTML(w http.ResponseWriter, filePath string) {
 		return
 	}
 
-	agentScripts := `<script src="/agent-protocol.js"></script>` +
-		`<script src="/agent-anchor-utils.js"></script>` +
-		`<script src="/agent-marker-overlay.js"></script>` +
-		`<script src="/agent-mutation-batcher.js"></script>` +
-		`<script src="/agent-resolution.js"></script>` +
-		`<script src="/agent-reanchor-state.js"></script>` +
-		`<script src="/crit-agent.js"></script>`
+	var sb strings.Builder
+	for _, f := range agentScriptFiles {
+		sb.WriteString(`<script src="/`)
+		sb.WriteString(f)
+		sb.WriteString(`"></script>`)
+	}
+	agentScripts := sb.String()
 
 	// Inject before last </body>
 	idx := bytes.LastIndex(bytes.ToLower(body), []byte("</body>"))

@@ -29,6 +29,20 @@ import (
 // so tests can shrink it. 30s comfortably under the server's 60s IdleTimeout.
 var sseHeartbeatInterval = 30 * time.Second
 
+// agentScriptFiles lists the JS files injected into live/preview iframes.
+// Used by server.go (route registration), preview.go (relative script tags),
+// and proxy.go (absolute script tags). Order matters: protocol first, then
+// helpers, then the main agent entry point last.
+var agentScriptFiles = []string{
+	"agent-protocol.js",
+	"agent-anchor-utils.js",
+	"agent-marker-overlay.js",
+	"agent-mutation-batcher.js",
+	"agent-resolution.js",
+	"agent-reanchor-state.js",
+	"crit-agent.js",
+}
+
 // Server handles HTTP requests for the crit review UI.
 type Server struct {
 	session             atomic.Pointer[Session]
@@ -100,13 +114,13 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 
 	// Live-mode routes — NOT wrapped in withReady.
 	mux.HandleFunc("/live", s.serveIndexHTML())
-	mux.HandleFunc("/crit-agent.js", s.handleCritAgentJS)
-	mux.HandleFunc("/agent-protocol.js", s.serveEmbeddedJS("agent-protocol.js"))
-	mux.HandleFunc("/agent-anchor-utils.js", s.serveEmbeddedJS("agent-anchor-utils.js"))
-	mux.HandleFunc("/agent-marker-overlay.js", s.serveEmbeddedJS("agent-marker-overlay.js"))
-	mux.HandleFunc("/agent-mutation-batcher.js", s.serveEmbeddedJS("agent-mutation-batcher.js"))
-	mux.HandleFunc("/agent-resolution.js", s.serveEmbeddedJS("agent-resolution.js"))
-	mux.HandleFunc("/agent-reanchor-state.js", s.serveEmbeddedJS("agent-reanchor-state.js"))
+	for _, f := range agentScriptFiles {
+		if f == "crit-agent.js" {
+			mux.HandleFunc("/"+f, s.handleCritAgentJS)
+		} else {
+			mux.HandleFunc("/"+f, s.serveEmbeddedJS(f))
+		}
+	}
 	mux.HandleFunc("/agent-marker.css", s.serveEmbeddedCSS("agent-marker.css"))
 	mux.HandleFunc("/live-mode-pin-filter.js", s.serveEmbeddedJS("live-mode-pin-filter.js"))
 	mux.HandleFunc("/live-mode-resolution-gate.js", s.serveEmbeddedJS("live-mode-resolution-gate.js"))

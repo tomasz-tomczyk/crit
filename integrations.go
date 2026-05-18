@@ -3,6 +3,7 @@ package main
 //go:generate go run gen_integration_hashes.go
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // computeFileHash returns the hex-encoded SHA256 hash of data.
@@ -250,27 +252,35 @@ func printStaleWarnings(stale []staleFile) int {
 
 // agentProbe describes how to detect whether an AI coding tool is present on
 // the system. Checked in order: CLI binary on PATH, then config directory in
-// $HOME.
+// $HOME. For ambiguous binary names (e.g. "pi", "gemini") that collide with
+// unrelated tools, versionMatch requires a secondary --version output check.
 type agentProbe struct {
-	agent    string   // integration name (key in integrationMap)
-	bins     []string // CLI binary names to look for on PATH
-	homeDirs []string // directories relative to $HOME whose existence signals the agent
+	agent        string   // integration name (key in integrationMap)
+	bins         []string // CLI binary names to look for on PATH
+	homeDirs     []string // directories relative to $HOME whose existence signals the agent
+	versionMatch string   // if set, --version output must contain this substring (case-insensitive)
 }
 
+// versionTimeout is the maximum time to wait for a binary's --version output.
+var versionTimeout = 2 * time.Second
+
 var agentProbes = []agentProbe{
-	{"claude-code", []string{"claude"}, []string{".claude"}},
-	{"cursor", []string{"cursor"}, []string{".cursor"}},
-	{"windsurf", []string{"windsurf"}, []string{".windsurf"}},
-	{"github-copilot", []string{"github-copilot"}, []string{".config/github-copilot"}},
-	{"cline", nil, []string{".cline"}},
-	{"codex", []string{"codex"}, nil},
-	{"opencode", []string{"opencode"}, []string{".opencode"}},
-	{"aider", []string{"aider"}, nil},
-	{"qwen", []string{"qwen"}, []string{".qwen"}},
-	{"pi", []string{"pi"}, []string{".pi"}},
-	{"hermes", []string{"hermes"}, []string{".hermes"}},
-	{"gemini", []string{"gemini"}, []string{".gemini"}},
-	{"grok", []string{"grok"}, []string{".grok"}},
+	{"claude-code", []string{"claude"}, []string{".claude"}, ""},
+	{"cursor", []string{"cursor"}, []string{".cursor"}, ""},
+	{"windsurf", []string{"windsurf"}, []string{".windsurf"}, ""},
+	{"github-copilot", []string{"github-copilot"}, []string{".config/github-copilot"}, ""},
+	{"cline", nil, []string{".cline"}, ""},
+	{"codex", []string{"codex"}, nil, ""},
+	{"opencode", []string{"opencode"}, []string{".opencode"}, ""},
+	{"aider", []string{"aider"}, nil, ""},
+	{"qwen", []string{"qwen"}, []string{".qwen"}, ""},
+	// Ambiguous names: secondary version check prevents false positives from
+	// Raspberry Pi utils, Meta Hermes JS engine, Gemini protocol clients, etc.
+	// NOTE: match strings are best guesses — update if the real AI tool output differs.
+	{"pi", []string{"pi"}, []string{".pi"}, "inflection"},
+	{"hermes", []string{"hermes"}, []string{".hermes"}, "hermes-ai"},
+	{"gemini", []string{"gemini"}, []string{".gemini"}, "google"},
+	{"grok", []string{"grok"}, []string{".grok"}, "xai"},
 }
 
 // detectPresentAgents returns the names of AI coding tools that appear to be
@@ -284,8 +294,10 @@ func detectPresentAgents(homeDir string) []string {
 		}
 		for _, bin := range p.bins {
 			if _, err := exec.LookPath(bin); err == nil {
-				present = append(present, p.agent)
-				seen[p.agent] = true
+				if p.versionMatch == "" || confirmBinaryVersion(bin, p.versionMatch) {
+					present = append(present, p.agent)
+					seen[p.agent] = true
+				}
 				break
 			}
 		}
@@ -301,6 +313,21 @@ func detectPresentAgents(homeDir string) []string {
 		}
 	}
 	return present
+}
+
+// confirmBinaryVersion runs "<bin> --version" with a short timeout and checks
+// whether the output contains the expected substring (case-insensitive). This
+// prevents false positives from unrelated binaries that share an ambiguous name.
+// Returns false if the binary doesn't support --version, times out, or the
+// output doesn't contain the expected string.
+func confirmBinaryVersion(bin, expected string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "--version").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(out)), strings.ToLower(expected))
 }
 
 // installedAgents returns the set of agents that have at least one crit

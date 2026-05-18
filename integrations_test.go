@@ -3,8 +3,10 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestComputeFileHash(t *testing.T) {
@@ -398,6 +400,47 @@ func TestDetectPresentAgents_NoDuplicates(t *testing.T) {
 	}
 	if count > 1 {
 		t.Errorf("expected 1 claude-code entry, got %d", count)
+	}
+}
+
+func TestConfirmBinaryVersion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses shell scripts")
+	}
+
+	dir := t.TempDir()
+	match := filepath.Join(dir, "fake-tool")
+	os.WriteFile(match, []byte("#!/bin/sh\necho 'FakeTool v1.2 by Acme Corp'\n"), 0o755)
+
+	noMatch := filepath.Join(dir, "wrong-tool")
+	os.WriteFile(noMatch, []byte("#!/bin/sh\necho 'SomeOtherTool v3.0'\n"), 0o755)
+
+	failing := filepath.Join(dir, "bad-tool")
+	os.WriteFile(failing, []byte("#!/bin/sh\nexit 1\n"), 0o755)
+
+	old := versionTimeout
+	versionTimeout = 2 * time.Second
+	defer func() { versionTimeout = old }()
+
+	tests := []struct {
+		name     string
+		bin      string
+		expected string
+		want     bool
+	}{
+		{"match", match, "acme", true},
+		{"case-insensitive", match, "ACME", true},
+		{"no-match", noMatch, "acme", false},
+		{"error-exit", failing, "anything", false},
+		{"nonexistent", "/nonexistent/binary", "x", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := confirmBinaryVersion(tt.bin, tt.expected)
+			if got != tt.want {
+				t.Errorf("confirmBinaryVersion(%q, %q) = %v, want %v", tt.bin, tt.expected, got, tt.want)
+			}
+		})
 	}
 }
 
