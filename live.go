@@ -167,7 +167,11 @@ func runLive(args []string) {
 		fmt.Fprintf(os.Stderr, "crit live: %q is not a valid http/https URL\n", rawURL)
 		os.Exit(1)
 	}
-	origin := u.Scheme + "://" + u.Host
+	// Preserve the full URL including path so the frontend can load the
+	// correct page (e.g. http://localhost:3333/live.html, not just /).
+	u.RawQuery = ""
+	u.Fragment = ""
+	origin := strings.TrimSuffix(u.String(), "/")
 
 	// 1. Smoke test.
 	checkLiveSmoke(origin)

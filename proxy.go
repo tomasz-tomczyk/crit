@@ -18,7 +18,8 @@ import (
 )
 
 // newLiveProxy builds a reverse proxy for a live-mode session.
-// upstreamOrigin is the target scheme+host+port (e.g. "http://localhost:3000").
+// upstreamOrigin is the target URL, optionally including a path prefix
+// (e.g. "http://localhost:3000" or "http://localhost:3333/live.html").
 // apiPort is the API server's port, used to construct the agent script URL.
 func newLiveProxy(upstreamOrigin string, apiPort int) (http.Handler, error) {
 	target, err := url.Parse(upstreamOrigin)
