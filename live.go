@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -140,8 +142,13 @@ func connectToLiveDaemon(key string) bool {
 
 // runLive is the entry point for `crit live <url>`.
 func runLive(args []string) {
+	fs := flag.NewFlagSet("live", flag.ExitOnError)
+	port := fs.Int("port", 0, "Port to listen on")
+	fs.IntVar(port, "p", 0, "Port (shorthand)")
+	fs.Parse(args)
+
 	rawURL := ""
-	for _, a := range args {
+	for _, a := range fs.Args() {
 		if len(a) > 0 && a[0] != '-' {
 			rawURL = a
 			break
@@ -159,20 +166,7 @@ func runLive(args []string) {
 	origin := u.Scheme + "://" + u.Host
 
 	// 1. Smoke test.
-	result := runSmokeTest(origin)
-	switch result.kind {
-	case smokeConnRefused, smokeNonHTML:
-		fmt.Fprintf(os.Stderr, "Error: %s\n", result.message)
-		os.Exit(1)
-	case smokeNon2xx, smokeMissingBody:
-		fmt.Fprintf(os.Stderr, "[crit] warning: %s\n", result.message)
-	}
-	if result.hasCSPFrameAncestors {
-		fmt.Fprintf(os.Stderr, "[crit] note: upstream has frame-ancestors CSP; stripped by proxy\n")
-	}
-	for _, n := range result.frameworkNotes {
-		fmt.Fprintf(os.Stderr, "[crit] note: %s\n", n)
-	}
+	checkLiveSmoke(origin)
 
 	// 2. Session key + existing daemon check.
 	cwd, err := resolvedCWD()
@@ -180,13 +174,18 @@ func runLive(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+	cfg := LoadConfig(cwd)
 	key := liveSessionKey(cwd, origin)
 	if connectToLiveDaemon(key) {
 		return
 	}
 
 	// 3. Spawn daemon via _serve. startDaemon prepends "_serve" itself.
+	resolvedPort := resolvePort(*port, cfg.Port)
 	daemonArgs := []string{"--live-origin", origin}
+	if resolvedPort != 0 {
+		daemonArgs = append(daemonArgs, "--port", strconv.Itoa(resolvedPort))
+	}
 	entry, err := startDaemon(key, daemonArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: could not start live daemon: %v\n", err)
@@ -204,4 +203,21 @@ func runLive(args []string) {
 
 	// 5. Block until review complete.
 	runReviewClient(entry)
+}
+
+func checkLiveSmoke(origin string) {
+	result := runSmokeTest(origin)
+	switch result.kind {
+	case smokeConnRefused, smokeNonHTML:
+		fmt.Fprintf(os.Stderr, "Error: %s\n", result.message)
+		os.Exit(1)
+	case smokeNon2xx, smokeMissingBody:
+		fmt.Fprintf(os.Stderr, "[crit] warning: %s\n", result.message)
+	}
+	if result.hasCSPFrameAncestors {
+		fmt.Fprintf(os.Stderr, "[crit] note: upstream has frame-ancestors CSP; stripped by proxy\n")
+	}
+	for _, n := range result.frameworkNotes {
+		fmt.Fprintf(os.Stderr, "[crit] note: %s\n", n)
+	}
 }

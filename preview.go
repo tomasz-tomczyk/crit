@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -183,6 +184,8 @@ func (s *Server) servePreviewHTML(w http.ResponseWriter, filePath string) {
 func runPreview(args []string) {
 	fs := flag.NewFlagSet("preview", flag.ExitOnError)
 	noOpen := fs.Bool("no-open", false, "Don't auto-open browser")
+	port := fs.Int("port", 0, "Port to listen on")
+	fs.IntVar(port, "p", 0, "Port (shorthand)")
 	fs.Parse(args)
 
 	remaining := fs.Args()
@@ -227,7 +230,11 @@ func runPreview(args []string) {
 		return
 	}
 
+	resolvedPort := resolvePort(*port, cfg.Port)
 	daemonArgs := []string{"--preview-file", absPath}
+	if resolvedPort != 0 {
+		daemonArgs = append(daemonArgs, "--port", strconv.Itoa(resolvedPort))
+	}
 	entry, err := startDaemon(key, daemonArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: could not start preview daemon: %v\n", err)
