@@ -250,7 +250,6 @@
     try {
       var el = document.querySelector(selector);
       if (!el) return;
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       el.classList.add('crit-live-pending-highlight');
       state._pendingHighlightEl = el;
       // Suppress the dashed hover overlay while the user is composing —
