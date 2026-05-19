@@ -2130,6 +2130,11 @@ func runReview(args []string) {
 			os.Exit(1)
 		}
 		fmt.Fprintf(os.Stderr, "Started crit daemon at %s (PID %d)\n", entry.baseURL(), entry.PID)
+		if dirs := dirArgs(sc.files); len(dirs) > 0 {
+			fmt.Fprintf(os.Stderr, "\nNote: scanning %s — file paths are intended for reviewing a small set of\n"+
+				"documents or plans. To review code changes, run `crit` with no arguments\n"+
+				"on a feature branch.\n\n", strings.Join(dirs, ", "))
+		}
 		if !sc.noIntegrationCheck {
 			hintMissingIntegrations()
 		}
@@ -2222,6 +2227,17 @@ func runReviewClient(entry sessionEntry) (approved bool) {
 		return result.Approved
 	}
 	return false
+}
+
+// dirArgs returns the subset of paths that are directories.
+func dirArgs(paths []string) []string {
+	var dirs []string
+	for _, p := range paths {
+		if info, err := os.Stat(p); err == nil && info.IsDir() {
+			dirs = append(dirs, p)
+		}
+	}
+	return dirs
 }
 
 // TODO: runStop, runStatus, and other subcommands use DetectVCS("") for auto-detection.
