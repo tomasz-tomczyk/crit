@@ -1435,7 +1435,7 @@ func TestWaitForDaemonReady_SurfacesDaemonLog(t *testing.T) {
 		ln.Close()
 
 		dir := t.TempDir()
-		t.Setenv("HOME", dir)
+		setHome(t, dir)
 
 		sessDir := filepath.Join(dir, ".crit", "sessions")
 		os.MkdirAll(sessDir, 0700)
