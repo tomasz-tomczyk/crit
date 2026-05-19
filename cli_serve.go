@@ -568,6 +568,7 @@ func runServe(args []string) {
 	if err := writeSessionFile(key, sessionEntry{
 		PID:        os.Getpid(),
 		Port:       addr.Port,
+		Host:       sc.host,
 		CWD:        cwd,
 		Args:       sessionArgs,
 		Branch:     branch,
@@ -629,11 +630,12 @@ func runServe(args []string) {
 		// macOS `open` is idempotent enough that the duplicate is harmless,
 		// but routing both to the same URL prevents the browser from briefly
 		// opening / first when the daemon spawns the open before the parent.
-		openURL := fmt.Sprintf("http://localhost:%d", addr.Port)
+		dh := hostForDisplay(sc.host)
+		openURL := fmt.Sprintf("http://%s:%d", dh, addr.Port)
 		if sc.liveOrigin != "" {
-			openURL = fmt.Sprintf("http://localhost:%d/live", addr.Port)
+			openURL = fmt.Sprintf("http://%s:%d/live", dh, addr.Port)
 		} else if sc.previewFile != "" {
-			openURL = fmt.Sprintf("http://localhost:%d/preview", addr.Port)
+			openURL = fmt.Sprintf("http://%s:%d/preview", dh, addr.Port)
 		}
 		go openBrowser(openURL)
 	}

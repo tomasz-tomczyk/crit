@@ -77,6 +77,44 @@ func TestSessionKey_Length(t *testing.T) {
 	}
 }
 
+func TestSessionEntry_DisplayHost(t *testing.T) {
+	tests := []struct {
+		host string
+		want string
+	}{
+		{"", "localhost"},
+		{"127.0.0.1", "localhost"},
+		{"0.0.0.0", "0.0.0.0"},
+		{"::", "::"},
+		{"192.168.1.10", "192.168.1.10"},
+	}
+	for _, tt := range tests {
+		e := sessionEntry{Host: tt.host, Port: 3000}
+		if got := e.displayHost(); got != tt.want {
+			t.Errorf("displayHost(%q) = %q, want %q", tt.host, got, tt.want)
+		}
+	}
+}
+
+func TestSessionEntry_BaseURL(t *testing.T) {
+	tests := []struct {
+		host string
+		port int
+		want string
+	}{
+		{"", 3000, "http://localhost:3000"},
+		{"127.0.0.1", 4567, "http://localhost:4567"},
+		{"0.0.0.0", 8080, "http://0.0.0.0:8080"},
+		{"192.168.1.10", 3000, "http://192.168.1.10:3000"},
+	}
+	for _, tt := range tests {
+		e := sessionEntry{Host: tt.host, Port: tt.port}
+		if got := e.baseURL(); got != tt.want {
+			t.Errorf("baseURL(host=%q, port=%d) = %q, want %q", tt.host, tt.port, got, tt.want)
+		}
+	}
+}
+
 func TestSessionFileRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)

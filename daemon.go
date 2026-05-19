@@ -55,11 +55,32 @@ var browserClient = &http.Client{Timeout: 2 * time.Second}
 type sessionEntry struct {
 	PID        int      `json:"pid"`
 	Port       int      `json:"port"`
+	Host       string   `json:"host,omitempty"`
 	CWD        string   `json:"cwd"`
 	Args       []string `json:"args,omitempty"`
 	Branch     string   `json:"branch"`
 	ReviewPath string   `json:"review_path"`
 	StartedAt  string   `json:"started_at"`
+}
+
+// displayHost returns the host suitable for user-facing URLs.
+// Falls back to "localhost" for the default 127.0.0.1 binding or
+// when host is empty (older session files).
+func (e sessionEntry) displayHost() string {
+	return hostForDisplay(e.Host)
+}
+
+// baseURL returns the HTTP base URL for connecting to this daemon.
+func (e sessionEntry) baseURL() string {
+	return fmt.Sprintf("http://%s:%d", e.displayHost(), e.Port)
+}
+
+// hostForDisplay maps a listen host to a user-facing hostname.
+func hostForDisplay(host string) string {
+	if host == "" || host == "127.0.0.1" {
+		return "localhost"
+	}
+	return host
 }
 
 // resolvedCWD returns the current working directory with symlinks resolved.

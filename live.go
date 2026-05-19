@@ -129,11 +129,11 @@ func connectToLiveDaemon(key string) bool {
 	if !alive {
 		return false
 	}
-	fmt.Fprintf(os.Stderr, "[crit] connected to live daemon at http://localhost:%d (proxy :%d)\n",
-		entry.Port, entry.Port+1)
-	fmt.Fprintf(os.Stderr, "[crit] open http://localhost:%d/live\n", entry.Port)
+	fmt.Fprintf(os.Stderr, "[crit] connected to live daemon at %s (proxy :%d)\n",
+		entry.baseURL(), entry.Port+1)
+	fmt.Fprintf(os.Stderr, "[crit] open %s/live\n", entry.baseURL())
 	if !daemonHasBrowser(entry) {
-		go openBrowser(fmt.Sprintf("http://localhost:%d/live", entry.Port))
+		go openBrowser(entry.baseURL() + "/live")
 	}
 	runReviewClient(entry)
 	return true
@@ -206,13 +206,13 @@ func runLive(args []string) {
 
 	fmt.Fprintf(os.Stderr, "[crit] starting daemon on :%d (api), :%d (proxy)\n",
 		entry.Port, entry.Port+1)
-	fmt.Fprintf(os.Stderr, "[crit] open http://localhost:%d/live\n", entry.Port)
+	fmt.Fprintf(os.Stderr, "[crit] open %s/live\n", entry.baseURL())
 
 	installDaemonSignalHandler(entry.PID)
 
 	// 4. Open browser.
 	if !noOpenResolved {
-		go openBrowser(fmt.Sprintf("http://localhost:%d/live", entry.Port))
+		go openBrowser(entry.baseURL() + "/live")
 	}
 
 	// 5. Block until review complete.

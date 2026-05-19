@@ -45,10 +45,10 @@ func connectToPreviewDaemon(key string, noOpen bool) bool {
 	if !alive {
 		return false
 	}
-	fmt.Fprintf(os.Stderr, "[crit] connected to preview daemon at http://localhost:%d\n", entry.Port)
-	fmt.Fprintf(os.Stderr, "[crit] open http://localhost:%d/preview\n", entry.Port)
+	fmt.Fprintf(os.Stderr, "[crit] connected to preview daemon at %s\n", entry.baseURL())
+	fmt.Fprintf(os.Stderr, "[crit] open %s/preview\n", entry.baseURL())
 	if !noOpen && !daemonHasBrowser(entry) {
-		go openBrowser(fmt.Sprintf("http://localhost:%d/preview", entry.Port))
+		go openBrowser(entry.baseURL() + "/preview")
 	}
 	runReviewClient(entry)
 	return true
@@ -246,12 +246,12 @@ func runPreview(args []string) {
 	}
 
 	fmt.Fprintf(os.Stderr, "[crit] preview mode: %s\n", filepath.Base(absPath))
-	fmt.Fprintf(os.Stderr, "[crit] open http://localhost:%d/preview\n", entry.Port)
+	fmt.Fprintf(os.Stderr, "[crit] open %s/preview\n", entry.baseURL())
 
 	installDaemonSignalHandler(entry.PID)
 
 	if !noOpenResolved {
-		go openBrowser(fmt.Sprintf("http://localhost:%d/preview", entry.Port))
+		go openBrowser(entry.baseURL() + "/preview")
 	}
 
 	runReviewClient(entry)

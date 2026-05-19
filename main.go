@@ -1705,9 +1705,9 @@ func resolvePlanSlug(name string, content []byte) string {
 func connectOrStartDaemon(key string, args []string, noOpen bool) (sessionEntry, bool) {
 	entry, alive := findAliveSession(key)
 	if alive {
-		fmt.Fprintf(os.Stderr, "Connected to crit daemon at http://localhost:%d\n", entry.Port)
+		fmt.Fprintf(os.Stderr, "Connected to crit daemon at %s\n", entry.baseURL())
 		if !noOpen && !daemonHasBrowser(entry) {
-			go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
+			go openBrowser(entry.baseURL())
 		}
 		return entry, false
 	}
@@ -1718,7 +1718,7 @@ func connectOrStartDaemon(key string, args []string, noOpen bool) (sessionEntry,
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "Started crit daemon at http://localhost:%d (PID %d)\n", entry.Port, entry.PID)
+	fmt.Fprintf(os.Stderr, "Started crit daemon at %s (PID %d)\n", entry.baseURL(), entry.PID)
 	hintMissingIntegrations()
 	return entry, true
 }
@@ -1958,9 +1958,9 @@ func runPlanHook() {
 	weStartedDaemon := false
 
 	if alive {
-		fmt.Fprintf(os.Stderr, "crit plan-hook: connected to daemon at http://localhost:%d\n", entry.Port)
+		fmt.Fprintf(os.Stderr, "crit plan-hook: connected to daemon at %s\n", entry.baseURL())
 		if !daemonHasBrowser(entry) {
-			go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
+			go openBrowser(entry.baseURL())
 		}
 	} else {
 		entry, err = startDaemon(key, daemonArgs)
@@ -1968,7 +1968,7 @@ func runPlanHook() {
 			fmt.Fprintf(os.Stderr, "crit plan-hook: error starting daemon: %v\n", err)
 			return
 		}
-		fmt.Fprintf(os.Stderr, "crit plan-hook: started daemon at http://localhost:%d (PID %d)\n", entry.Port, entry.PID)
+		fmt.Fprintf(os.Stderr, "crit plan-hook: started daemon at %s (PID %d)\n", entry.baseURL(), entry.PID)
 		weStartedDaemon = true
 	}
 
@@ -2107,10 +2107,10 @@ func runReview(args []string) {
 	weStartedDaemon := false
 
 	if alive {
-		fmt.Fprintf(os.Stderr, "Connected to crit daemon at http://localhost:%d\n", entry.Port)
+		fmt.Fprintf(os.Stderr, "Connected to crit daemon at %s\n", entry.baseURL())
 		// Re-open browser if no browser tab is connected (user closed it)
 		if !sc.noOpen && !daemonHasBrowser(entry) {
-			go openBrowser(fmt.Sprintf("http://localhost:%d", entry.Port))
+			go openBrowser(entry.baseURL())
 		}
 	} else {
 		// Pre-flight: in default git mode (no files, no focus, no plan), surface
@@ -2129,7 +2129,7 @@ func runReview(args []string) {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "Started crit daemon at http://localhost:%d (PID %d)\n", entry.Port, entry.PID)
+		fmt.Fprintf(os.Stderr, "Started crit daemon at %s (PID %d)\n", entry.baseURL(), entry.PID)
 		if !sc.noIntegrationCheck {
 			hintMissingIntegrations()
 		}
