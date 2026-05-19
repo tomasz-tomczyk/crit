@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1283,7 +1284,7 @@ func TestRunReviewClientRaw_WaitsForReadiness(t *testing.T) {
 	}
 
 	entry := sessionEntry{Port: port}
-	approved, _ := runReviewClientRaw(entry)
+	approved, _ := runReviewClientRaw(entry, "")
 
 	if !reviewCycleCalled.Load() {
 		t.Error("review-cycle was never called")
@@ -1323,7 +1324,7 @@ func TestRunReviewClientRaw_NoReadinessDelay(t *testing.T) {
 	}
 
 	start := time.Now()
-	approved, prompt := runReviewClientRaw(sessionEntry{Port: port})
+	approved, prompt := runReviewClientRaw(sessionEntry{Port: port}, "")
 	elapsed := time.Since(start)
 
 	if approved {
@@ -1368,7 +1369,7 @@ func TestRunReviewClientRaw_DaemonShutdownDeniesNotApproves(t *testing.T) {
 			fmt.Sscanf(ts.URL, "http://localhost:%d", &port)
 		}
 
-		approved, prompt := runReviewClientRaw(sessionEntry{Port: port})
+		approved, prompt := runReviewClientRaw(sessionEntry{Port: port}, "")
 		if approved {
 			t.Fatal("expected approved=false on daemon shutdown, got true (silent auto-approve)")
 		}
@@ -1411,12 +1412,60 @@ func TestRunReviewClientRaw_DaemonShutdownDeniesNotApproves(t *testing.T) {
 			fmt.Sscanf(ts.URL, "http://localhost:%d", &port)
 		}
 
-		approved, prompt := runReviewClientRaw(sessionEntry{Port: port})
+		approved, prompt := runReviewClientRaw(sessionEntry{Port: port}, "")
 		if approved {
 			t.Fatal("expected approved=false on connection drop, got true (silent auto-approve)")
 		}
 		if prompt == "" {
 			t.Fatal("expected non-empty prompt explaining the failure, got empty")
+		}
+	})
+}
+
+// TestWaitForDaemonReady_SurfacesDaemonLog verifies that when the daemon is
+// unreachable (e.g. crashed during init), the error message surfaces the daemon
+// log contents instead of the misleading "connection refused" network error.
+func TestWaitForDaemonReady_SurfacesDaemonLog(t *testing.T) {
+	t.Run("surfaces daemon log on connection error", func(t *testing.T) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+		ln.Close()
+
+		dir := t.TempDir()
+		t.Setenv("HOME", dir)
+
+		sessDir := filepath.Join(dir, ".crit", "sessions")
+		os.MkdirAll(sessDir, 0700)
+		os.WriteFile(filepath.Join(sessDir, "testkey123.log"), []byte("Error: not in a git repository"), 0600)
+
+		client := &http.Client{Timeout: 1 * time.Second}
+		_, _, err = waitForDaemonReady(client, port, "testkey123")
+		if err == nil {
+			t.Fatal("expected error for unreachable daemon")
+		}
+		if !strings.Contains(err.Error(), "not in a git repository") {
+			t.Errorf("expected daemon log message in error, got: %v", err)
+		}
+	})
+
+	t.Run("falls back to network error when no log", func(t *testing.T) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+		ln.Close()
+
+		client := &http.Client{Timeout: 1 * time.Second}
+		_, _, err = waitForDaemonReady(client, port, "")
+		if err == nil {
+			t.Fatal("expected error for unreachable daemon")
+		}
+		if !strings.Contains(err.Error(), "could not reach daemon") {
+			t.Errorf("expected 'could not reach daemon' fallback, got: %v", err)
 		}
 	})
 }

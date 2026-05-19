@@ -135,7 +135,7 @@ func connectToLiveDaemon(key string) bool {
 	if !daemonHasBrowser(entry) {
 		go openBrowser(entry.baseURL() + "/live")
 	}
-	runReviewClient(entry)
+	runReviewClient(entry, key)
 	return true
 }
 
@@ -216,7 +216,7 @@ func runLive(args []string) {
 	}
 
 	// 5. Block until review complete.
-	runReviewClient(entry)
+	runReviewClient(entry, key)
 }
 
 func checkLiveSmoke(origin string) {

@@ -1864,7 +1864,7 @@ func runPlan(args []string) {
 		installDaemonSignalHandler(entry.PID)
 	}
 
-	approved := runReviewClient(entry)
+	approved := runReviewClient(entry, key)
 	killDaemonOnApproval(approved, entry.PID)
 	cleanupOnApproval(approved, entry.ReviewPath, LoadConfig(cwd).CleanupOnApproveEnabled())
 }
@@ -1976,7 +1976,7 @@ func runPlanHook() {
 		installDaemonSignalHandler(entry.PID)
 	}
 
-	approved, prompt := runReviewClientRaw(entry)
+	approved, prompt := runReviewClientRaw(entry, key)
 	killDaemonOnApproval(approved, entry.PID)
 	cleanupOnApproval(approved, entry.ReviewPath, LoadConfig(cwd).CleanupOnApproveEnabled())
 	emitHookDecision(approved, prompt)
@@ -1986,11 +1986,19 @@ func runPlanHook() {
 // returning 503 Service Unavailable (session not yet initialized). Returns the
 // last response status code and body, or an error if the daemon is unreachable
 // or the 5-minute deadline expires.
-func waitForDaemonReady(client *http.Client, port int) (statusCode int, body []byte, err error) {
+//
+// On connection errors (e.g. "connection refused"), the daemon log is consulted
+// to surface the actual init failure instead of the misleading network error.
+func waitForDaemonReady(client *http.Client, port int, sessionKey string) (statusCode int, body []byte, err error) {
 	deadline := time.Now().Add(5 * time.Minute)
 	for {
 		resp, reqErr := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/session", port))
 		if reqErr != nil {
+			if sessionKey != "" {
+				if msg := readDaemonLog(sessionKey); msg != "" {
+					return 0, nil, fmt.Errorf("%s", msg)
+				}
+			}
 			return 0, nil, fmt.Errorf("could not reach daemon on port %d: %w", port, reqErr)
 		}
 		respBody, _ := io.ReadAll(resp.Body)
@@ -2007,11 +2015,11 @@ func waitForDaemonReady(client *http.Client, port int) (statusCode int, body []b
 
 // runReviewClientRaw is like runReviewClient but returns (approved, prompt)
 // without writing to stdout — used by runPlanHook to construct hookSpecificOutput.
-func runReviewClientRaw(entry sessionEntry) (approved bool, prompt string) {
+func runReviewClientRaw(entry sessionEntry, sessionKey string) (approved bool, prompt string) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 
 	// Wait for the server to finish initializing before calling review-cycle.
-	if _, _, err := waitForDaemonReady(client, entry.Port); err != nil {
+	if _, _, err := waitForDaemonReady(client, entry.Port, sessionKey); err != nil {
 		fmt.Fprintf(os.Stderr, "crit plan-hook: %v\n", err)
 		return false, "crit daemon was unreachable; plan was not reviewed."
 	}
@@ -2146,7 +2154,7 @@ func runReview(args []string) {
 		installDaemonSignalHandler(entry.PID)
 	}
 
-	approved := runReviewClient(entry)
+	approved := runReviewClient(entry, key)
 	killDaemonOnApproval(approved, entry.PID)
 	cleanupOnApproval(approved, entry.ReviewPath, LoadConfig(cwd).CleanupOnApproveEnabled())
 }
@@ -2171,11 +2179,11 @@ func readReviewCycleResponse(resp *http.Response) ([]byte, error) {
 // runReviewClient connects to a running daemon/server, blocks until the user
 // finishes reviewing, prints feedback to stdout, and returns whether the
 // review was approved (no unresolved comments).
-func runReviewClient(entry sessionEntry) (approved bool) {
+func runReviewClient(entry sessionEntry, sessionKey string) (approved bool) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 
 	// Wait for the server to finish initializing before calling review-cycle.
-	statusCode, body, err := waitForDaemonReady(client, entry.Port)
+	statusCode, body, err := waitForDaemonReady(client, entry.Port, sessionKey)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

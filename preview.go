@@ -50,7 +50,7 @@ func connectToPreviewDaemon(key string, noOpen bool) bool {
 	if !noOpen && !daemonHasBrowser(entry) {
 		go openBrowser(entry.baseURL() + "/preview")
 	}
-	runReviewClient(entry)
+	runReviewClient(entry, key)
 	return true
 }
 
@@ -254,5 +254,5 @@ func runPreview(args []string) {
 		go openBrowser(entry.baseURL() + "/preview")
 	}
 
-	runReviewClient(entry)
+	runReviewClient(entry, key)
 }
