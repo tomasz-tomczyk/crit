@@ -9,6 +9,14 @@
     : function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
   var hljs = (typeof window !== 'undefined') ? window.hljs : null;
 
+  function slugifyHeading(text) {
+    return text
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s-]/gu, '')
+      .replace(/[\s-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
   // Split highlighted HTML into per-line strings, preserving open spans across lines.
   function splitHighlightedCode(html) {
     var result = [];
@@ -486,7 +494,8 @@
     handleFenceToken: handleFenceToken,
     handleListToken: handleListToken,
     handleTableToken: handleTableToken,
-    handleBlockquoteToken: handleBlockquoteToken
+    handleBlockquoteToken: handleBlockquoteToken,
+    slugifyHeading: slugifyHeading
   };
   if (typeof window !== 'undefined') {
     window.crit = window.crit || {};

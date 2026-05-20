@@ -1028,6 +1028,33 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
 .line-content h4 { font-size: 1.05rem; }
 .line-content h5 { font-size: 0.95rem; color: var(--crit-editor-fg-secondary); }
 
+.line-content h1,
+.line-content h2,
+.line-content h3,
+.line-content h4,
+.line-content h5,
+.line-content h6 { position: relative; }
+
+.line-content .heading-anchor {
+  opacity: 0;
+  margin-left: 6px;
+  color: var(--crit-editor-fg-secondary);
+  text-decoration: none;
+  border: none !important;
+  border-bottom: none !important;
+  transition: opacity 0.15s;
+}
+.line-content .heading-anchor:hover { color: var(--crit-brand); }
+.line-content h1:hover .heading-anchor,
+.line-content h2:hover .heading-anchor,
+.line-content h3:hover .heading-anchor,
+.line-content h4:hover .heading-anchor,
+.line-content h5:hover .heading-anchor,
+.line-content h6:hover .heading-anchor { opacity: 1; }
+
+.heading-anchor-icon { display: inline-block; fill: currentColor; }
+.heading-anchor-copied { opacity: 1; color: var(--crit-green); }
+
 .line-content p {
   margin: 4px 0;
 }
