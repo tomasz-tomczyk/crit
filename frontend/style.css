@@ -1040,11 +1040,16 @@ body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { op
   margin-left: 6px;
   color: var(--crit-editor-fg-secondary);
   text-decoration: none;
-  border: none !important;
-  border-bottom: none !important;
+  border: none;
+  border-bottom: none;
   transition: opacity 0.15s;
 }
 .line-content .heading-anchor:hover { color: var(--crit-brand); }
+.line-content .heading-anchor:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--crit-brand);
+  outline-offset: 1px;
+}
 .line-content h1:hover .heading-anchor,
 .line-content h2:hover .heading-anchor,
 .line-content h3:hover .heading-anchor,

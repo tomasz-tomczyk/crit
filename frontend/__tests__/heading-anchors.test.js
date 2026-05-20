@@ -65,3 +65,46 @@ test('slugifyHeading matches GitHub-style slug for typical headings', () => {
   assert.equal(slugifyHeading('API Reference (v3)'), 'api-reference-v3');
   assert.equal(slugifyHeading('1. First Step'), '1-first-step');
 });
+
+// --- Duplicate heading dedup (mirrors the Map-based counter in app.js heading_open) ---
+
+// Helper: simulates the dedup logic used in app.js heading_open renderer
+function dedupSlug(baseSlug, counter) {
+  const count = counter.get(baseSlug) || 0;
+  const slug = count === 0 ? baseSlug : baseSlug + '-' + count;
+  counter.set(baseSlug, count + 1);
+  return slug;
+}
+
+test('duplicate headings get unique IDs (GitHub-style -1, -2 suffix)', () => {
+  const counter = new Map();
+  const slug1 = dedupSlug(slugifyHeading('Examples'), counter);
+  const slug2 = dedupSlug(slugifyHeading('Examples'), counter);
+  const slug3 = dedupSlug(slugifyHeading('Examples'), counter);
+  assert.equal(slug1, 'examples');
+  assert.equal(slug2, 'examples-1');
+  assert.equal(slug3, 'examples-2');
+});
+
+test('different headings do not interfere with each other', () => {
+  const counter = new Map();
+  const slug1 = dedupSlug(slugifyHeading('Setup'), counter);
+  const slug2 = dedupSlug(slugifyHeading('Usage'), counter);
+  const slug3 = dedupSlug(slugifyHeading('Setup'), counter);
+  assert.equal(slug1, 'setup');
+  assert.equal(slug2, 'usage');
+  assert.equal(slug3, 'setup-1');
+});
+
+test('counter resets between render passes (fresh Map)', () => {
+  const counter1 = new Map();
+  const first = dedupSlug(slugifyHeading('Examples'), counter1);
+  dedupSlug(slugifyHeading('Examples'), counter1);
+
+  // Simulate new render pass — fresh counter
+  const counter2 = new Map();
+  const fresh = dedupSlug(slugifyHeading('Examples'), counter2);
+
+  assert.equal(first, 'examples');
+  assert.equal(fresh, 'examples', 'fresh render should produce same ID as first render');
+});
