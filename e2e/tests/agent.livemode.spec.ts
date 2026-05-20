@@ -358,12 +358,12 @@ test.describe('live-mode agent — focus-state protocol', () => {
   });
 });
 
-test.describe('live-mode agent — shadow DOM error surface', () => {
+test.describe('live-mode agent — shadow DOM host fallback', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllLivePins(request);
   });
 
-  test('clicking inside shadow DOM emits agent-error and does not pin', async ({ page }) => {
+  test('clicking inside shadow DOM pins to the shadow host', async ({ page }) => {
     await waitForAgentReady(page);
     await page.evaluate(() => {
       (window as unknown as { __critLiveMessages?: unknown[] }).__critLiveMessages = [];
@@ -385,7 +385,6 @@ test.describe('live-mode agent — shadow DOM error surface', () => {
           .__critAgentState?.mode;
       }),
     ).toBe('pin');
-    // Clear the message log so the agent-error we observe is the new one.
     await page.evaluate(() => {
       (window as unknown as { __critLiveMessages?: unknown[] }).__critLiveMessages = [];
     });
@@ -404,63 +403,24 @@ test.describe('live-mode agent — shadow DOM error surface', () => {
         clientY: rect.top + rect.height / 2,
       }));
     });
+    // Should emit a selection anchored to the shadow host with enriched
+    // accessible_name showing the deep element context.
     await expect.poll(
       () => page.evaluate(() => {
-        const log = (window as unknown as { __critLiveMessages?: { type: string; kind?: string }[] })
+        const log = (window as unknown as { __critLiveMessages?: { type: string; dom_anchor?: { accessible_name?: string } }[] })
           .__critLiveMessages || [];
-        return log.find((m) => m.type === 'agent-error' && m.kind === 'shadow-dom') || null;
+        const sel = log.find((m) => m.type === 'selection');
+        return sel?.dom_anchor?.accessible_name || null;
       }),
       { timeout: 5_000 },
-    ).not.toBeNull();
-    // No selection event was emitted.
-    const sel = await page.evaluate(() => {
-      const log = (window as unknown as { __critLiveMessages?: { type: string }[] })
+    ).toContain('div');
+    // No error toast — shadow fallback is silent.
+    const errorMsgs = await page.evaluate(() => {
+      const log = (window as unknown as { __critLiveMessages?: { type: string; kind?: string }[] })
         .__critLiveMessages || [];
-      return log.find((m) => m.type === 'selection') || null;
+      return log.filter((m) => m.type === 'agent-error' && m.kind === 'shadow-dom');
     });
-    expect(sel).toBeNull();
-  });
-
-  test('shadow-DOM agent-error surfaces a toast in chrome', async ({ page }) => {
-    await waitForAgentReady(page);
-    await page.evaluate(() => {
-      (window as unknown as { __critLiveMessages?: unknown[] }).__critLiveMessages = [];
-    });
-    await setIframeRoute(page, '/widgets');
-    await expect(getIframe(page).locator('#widgets-title')).toBeVisible();
-    await expect.poll(
-      () => page.evaluate(() => {
-        const log = (window as unknown as { __critLiveMessages?: { type: string }[] })
-          .__critLiveMessages;
-        return Array.isArray(log) && log.some((e) => e.type === 'agent-ready');
-      }),
-      { timeout: 15_000 },
-    ).toBe(true);
-    await enterPinMode(page);
-    await expect.poll(
-      () => getIframe(page).locator('body').evaluate(() => {
-        return (window as unknown as { __critAgentState?: { mode?: string } })
-          .__critAgentState?.mode;
-      }),
-    ).toBe('pin');
-    await getIframe(page).locator('body').evaluate(() => {
-      const host = document.getElementById('shadow-host') as HTMLElement | null;
-      const sr = host?.shadowRoot;
-      const btn = sr?.getElementById('shadow-btn') as HTMLElement | null;
-      if (!btn) throw new Error('shadow-btn not found');
-      const rect = btn.getBoundingClientRect();
-      btn.dispatchEvent(new MouseEvent('click', {
-        bubbles: true, cancelable: true, composed: true, button: 0,
-        clientX: rect.left + rect.width / 2,
-        clientY: rect.top + rect.height / 2,
-      }));
-    });
-    // Chrome's handleAgentError pipes agent-error through showToast, which
-    // since aaa0600 lives in crit.shared and renders into .mini-toast-host
-    // with .mini-toast nodes (unified across code-review + live-mode).
-    const toast = page.locator('.mini-toast');
-    await expect(toast.first()).toBeVisible({ timeout: 5_000 });
-    await expect(toast.first()).toContainText(/shadow-dom/);
+    expect(errorMsgs).toHaveLength(0);
   });
 });
 

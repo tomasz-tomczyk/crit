@@ -417,7 +417,9 @@
     state.pointer.x = ev.clientX;
     state.pointer.y = ev.clientY;
     var t = topElementAt(ev.clientX, ev.clientY);
-    showOverlayFor(t);
+    var deep = deepestElementFromEvent(ev);
+    var visual = (deep && isInShadowDOM(deep)) ? deep : t;
+    showOverlayFor(visual);
   }
 
   function attachHoverListeners() {
@@ -475,21 +477,21 @@
     if (!target) return;
     ev.preventDefault();
     ev.stopPropagation();
-    // Use the event's composedPath() to detect shadow-DOM clicks: browsers
-    // retarget elementFromPoint() to the shadow host (target above), but the
-    // event's actual path includes the inner element. If the deepest element
-    // in the path lives inside a shadow tree, refuse to pin.
+    // Shadow DOM fallback: browsers retarget elementFromPoint() to the shadow
+    // host, so `target` is already the host element. If the real click landed
+    // inside a shadow tree (detected via composedPath), pin to the host instead
+    // of rejecting — the user still gets to comment on the component.
     var deep = deepestElementFromEvent(ev);
-    if (deep && isInShadowDOM(deep)) {
-      postToParent({ type: A2C.AGENT_ERROR, kind: 'shadow-dom', message: "can't pin inside shadow DOM" });
-      return;
-    }
-    if (isInShadowDOM(target)) {
-      postToParent({ type: A2C.AGENT_ERROR, kind: 'shadow-dom', message: "can't pin inside shadow DOM" });
-      return;
-    }
+    var shadowFallback = (deep && isInShadowDOM(deep)) || isInShadowDOM(target);
     var anchor = buildDOMAnchorFor(target);
-    showOverlayFor(target);
+    if (shadowFallback && deep && deep !== target) {
+      var hostTag = (target.tagName || '').toLowerCase();
+      var deepName = utils.accessibleNameFor(deep);
+      var deepRole = utils.roleFor(deep);
+      var label = deepName || deepRole || (deep.tagName || '').toLowerCase();
+      if (label) anchor.accessible_name = '<' + hostTag + '> › ' + label;
+    }
+    showOverlayFor(shadowFallback && deep ? deep : target);
     state.pendingSelection = { target: target, anchor: anchor, pointer: { x: ev.clientX, y: ev.clientY } };
     emitSelection();
   }

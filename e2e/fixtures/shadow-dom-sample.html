@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Shadow DOM Sample — Crit Preview Test</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; padding: 2rem; background: #f8f9fa; color: #1a1a1a; }
+    h1 { margin-bottom: 1rem; }
+    p { margin-bottom: 1rem; line-height: 1.5; max-width: 60ch; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; max-width: 480px; }
+    .card h2 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+    button.open-dialog { padding: 0.5rem 1rem; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+    button.open-dialog:hover { background: #1d4ed8; }
+  </style>
+</head>
+<body>
+  <h1>Shadow DOM Components</h1>
+  <p>
+    This page has three components that use Shadow DOM.
+    Try pinning comments on them in crit preview mode:
+    <code>crit preview shadow-dom-sample.html</code>
+  </p>
+
+  <!-- 1. Regular light-DOM card (for comparison) -->
+  <div class="card">
+    <h2>Regular Card (light DOM)</h2>
+    <p>This card is in the light DOM. You can pin directly to any element inside it.</p>
+  </div>
+
+  <!-- 2. Shadow DOM tooltip component -->
+  <tooltip-hint id="tip-host">
+    Hover me for a tooltip
+  </tooltip-hint>
+
+  <br><br>
+
+  <!-- 3. Shadow DOM floating dialog (Dan's use case) -->
+  <floating-dialog id="dialog-host"></floating-dialog>
+
+  <br><br>
+
+  <!-- 4. Shadow DOM custom button -->
+  <fancy-button id="btn-host"></fancy-button>
+
+  <script>
+    // --- Tooltip component ---
+    class TooltipHint extends HTMLElement {
+      constructor() {
+        super();
+        const shadow = this.attachShadow({ mode: 'open' });
+        shadow.innerHTML = `
+          <style>
+            :host { display: inline-block; position: relative; cursor: help;
+                    padding: 0.4rem 0.8rem; background: #e0f2fe; border-radius: 4px; font-size: 0.9rem; }
+            .tip { display: none; position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
+                   background: #1e293b; color: #fff; padding: 0.4rem 0.8rem; border-radius: 6px;
+                   font-size: 0.8rem; white-space: nowrap; pointer-events: none; }
+            :host(:hover) .tip { display: block; }
+          </style>
+          <slot></slot>
+          <div class="tip">I'm a shadow DOM tooltip!</div>
+        `;
+      }
+    }
+    customElements.define('tooltip-hint', TooltipHint);
+
+    // --- Floating dialog component (Dan's use case) ---
+    class FloatingDialog extends HTMLElement {
+      constructor() {
+        super();
+        const shadow = this.attachShadow({ mode: 'open' });
+        shadow.innerHTML = `
+          <style>
+            :host { display: block; max-width: 480px; }
+            .trigger { padding: 0.5rem 1rem; background: #2563eb; color: #fff; border: none;
+                       border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+            .trigger:hover { background: #1d4ed8; }
+            .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 999; }
+            .dialog { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                      background: #fff; border-radius: 12px; padding: 1.5rem; min-width: 320px;
+                      box-shadow: 0 20px 60px rgba(0,0,0,0.2); z-index: 1000; }
+            .dialog h3 { margin-bottom: 0.75rem; font-size: 1rem; }
+            .dialog p { margin-bottom: 1rem; font-size: 0.9rem; color: #555; line-height: 1.5; }
+            .dialog input { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 6px;
+                            font-size: 0.9rem; margin-bottom: 1rem; }
+            .dialog .actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+            .dialog button { padding: 0.4rem 1rem; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+            .dialog .cancel { background: #e5e7eb; color: #374151; }
+            .dialog .confirm { background: #2563eb; color: #fff; }
+            :host([open]) .overlay, :host([open]) .dialog { display: block; }
+          </style>
+          <button class="trigger" id="open-btn">Open Floating Dialog</button>
+          <div class="overlay" id="overlay"></div>
+          <div class="dialog" role="dialog" aria-label="Sample dialog">
+            <h3>Floating Dialog</h3>
+            <p>This is a shadow DOM dialog — the kind Dan was working on. In crit, clicking anywhere
+               on this component pins a comment to the host element.</p>
+            <input type="text" placeholder="Type something...">
+            <div class="actions">
+              <button class="cancel" id="cancel-btn">Cancel</button>
+              <button class="confirm" id="confirm-btn">Confirm</button>
+            </div>
+          </div>
+        `;
+        shadow.getElementById('open-btn').addEventListener('click', () => this.setAttribute('open', ''));
+        shadow.getElementById('cancel-btn').addEventListener('click', () => this.removeAttribute('open'));
+        shadow.getElementById('confirm-btn').addEventListener('click', () => this.removeAttribute('open'));
+        shadow.getElementById('overlay').addEventListener('click', () => this.removeAttribute('open'));
+      }
+    }
+    customElements.define('floating-dialog', FloatingDialog);
+
+    // --- Custom button component ---
+    class FancyButton extends HTMLElement {
+      constructor() {
+        super();
+        const shadow = this.attachShadow({ mode: 'open' });
+        shadow.innerHTML = `
+          <style>
+            :host { display: inline-block; }
+            button { padding: 0.6rem 1.2rem; background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+                     color: #fff; border: none; border-radius: 8px; font-size: 0.9rem; cursor: pointer;
+                     transition: transform 0.1s; }
+            button:active { transform: scale(0.97); }
+            .counter { margin-top: 0.3rem; font-size: 0.75rem; color: #6b7280; text-align: center; }
+          </style>
+          <button id="fancy-btn">Click me</button>
+          <div class="counter">Clicks: <span id="count">0</span></div>
+        `;
+        let n = 0;
+        shadow.getElementById('fancy-btn').addEventListener('click', () => {
+          n++;
+          shadow.getElementById('count').textContent = String(n);
+        });
+      }
+    }
+    customElements.define('fancy-button', FancyButton);
+  </script>
+</body>
+</html>
