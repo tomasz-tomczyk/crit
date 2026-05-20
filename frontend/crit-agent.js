@@ -417,7 +417,7 @@
     state.pointer.x = ev.clientX;
     state.pointer.y = ev.clientY;
     var t = topElementAt(ev.clientX, ev.clientY);
-    var deep = deepestElementFromEvent(ev);
+    var deep = (t && t.shadowRoot) ? deepestElementFromEvent(ev) : null;
     var visual = (deep && isInShadowDOM(deep)) ? deep : t;
     showOverlayFor(visual);
   }

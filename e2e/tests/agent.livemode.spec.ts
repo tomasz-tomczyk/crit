@@ -413,7 +413,7 @@ test.describe('live-mode agent — shadow DOM host fallback', () => {
         return sel?.dom_anchor?.accessible_name || null;
       }),
       { timeout: 5_000 },
-    ).toContain('div');
+    ).toMatch(/^<[\w-]+>\s*›/);
     // No error toast — shadow fallback is silent.
     const errorMsgs = await page.evaluate(() => {
       const log = (window as unknown as { __critLiveMessages?: { type: string; kind?: string }[] })
