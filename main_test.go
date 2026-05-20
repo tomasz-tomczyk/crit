@@ -1442,7 +1442,7 @@ func TestWaitForDaemonReady_SurfacesDaemonLog(t *testing.T) {
 		os.WriteFile(filepath.Join(sessDir, "testkey123.log"), []byte("Error: not in a git repository"), 0600)
 
 		client := &http.Client{Timeout: 1 * time.Second}
-		_, _, err = waitForDaemonReady(client, port, "testkey123")
+		_, _, err = waitForDaemonReady(client, "", port, "testkey123")
 		if err == nil {
 			t.Fatal("expected error for unreachable daemon")
 		}
@@ -1460,7 +1460,7 @@ func TestWaitForDaemonReady_SurfacesDaemonLog(t *testing.T) {
 		ln.Close()
 
 		client := &http.Client{Timeout: 1 * time.Second}
-		_, _, err = waitForDaemonReady(client, port, "")
+		_, _, err = waitForDaemonReady(client, "", port, "")
 		if err == nil {
 			t.Fatal("expected error for unreachable daemon")
 		}

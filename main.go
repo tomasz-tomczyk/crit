@@ -1989,10 +1989,11 @@ func runPlanHook() {
 //
 // On connection errors (e.g. "connection refused"), the daemon log is consulted
 // to surface the actual init failure instead of the misleading network error.
-func waitForDaemonReady(client *http.Client, port int, sessionKey string) (statusCode int, body []byte, err error) {
+func waitForDaemonReady(client *http.Client, host string, port int, sessionKey string) (statusCode int, body []byte, err error) {
+	base := fmt.Sprintf("http://%s:%d", hostForDisplay(host), port)
 	deadline := time.Now().Add(5 * time.Minute)
 	for {
-		resp, reqErr := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/session", port))
+		resp, reqErr := client.Get(base + "/api/session")
 		if reqErr != nil {
 			if sessionKey != "" {
 				if msg := readDaemonLog(sessionKey); msg != "" {
@@ -2019,13 +2020,13 @@ func runReviewClientRaw(entry sessionEntry, sessionKey string) (approved bool, p
 	client := &http.Client{Timeout: 24 * time.Hour}
 
 	// Wait for the server to finish initializing before calling review-cycle.
-	if _, _, err := waitForDaemonReady(client, entry.Port, sessionKey); err != nil {
+	if _, _, err := waitForDaemonReady(client, entry.Host, entry.Port, sessionKey); err != nil {
 		fmt.Fprintf(os.Stderr, "crit plan-hook: %v\n", err)
 		return false, "crit daemon was unreachable; plan was not reviewed."
 	}
 
 	resp, err := client.Post(
-		fmt.Sprintf("http://127.0.0.1:%d/api/review-cycle", entry.Port),
+		entry.baseURL()+"/api/review-cycle",
 		"application/json",
 		nil,
 	)
@@ -2183,7 +2184,7 @@ func runReviewClient(entry sessionEntry, sessionKey string) (approved bool) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 
 	// Wait for the server to finish initializing before calling review-cycle.
-	statusCode, body, err := waitForDaemonReady(client, entry.Port, sessionKey)
+	statusCode, body, err := waitForDaemonReady(client, entry.Host, entry.Port, sessionKey)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -2201,7 +2202,7 @@ func runReviewClient(entry sessionEntry, sessionKey string) (approved bool) {
 	}
 
 	resp, err := client.Post(
-		fmt.Sprintf("http://127.0.0.1:%d/api/review-cycle", entry.Port),
+		entry.baseURL()+"/api/review-cycle",
 		"application/json",
 		nil,
 	)

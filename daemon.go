@@ -348,7 +348,7 @@ func isDaemonAlive(s sessionEntry) bool {
 	}
 	// HTTP health probe — ensures the port belongs to our daemon, not a reused PID.
 	// We validate the response body to guard against a non-crit process on the same port.
-	resp, err := aliveClient.Get(fmt.Sprintf("http://127.0.0.1:%d/api/health", s.Port))
+	resp, err := aliveClient.Get(s.baseURL() + "/api/health")
 	if err != nil {
 		return false
 	}
@@ -369,7 +369,7 @@ func isDaemonAlive(s sessionEntry) bool {
 // Uses a pointer to distinguish "field missing" (older daemon) from "false".
 // When the field is missing, assumes a browser is connected (safe default).
 func daemonHasBrowser(s sessionEntry) bool {
-	resp, err := browserClient.Get(fmt.Sprintf("http://127.0.0.1:%d/api/health", s.Port))
+	resp, err := browserClient.Get(s.baseURL() + "/api/health")
 	if err != nil {
 		return true // can't reach daemon, assume browser exists
 	}
