@@ -8,11 +8,10 @@ import (
 	"testing"
 )
 
-// TestPreflightNoChangedFiles_CleanRepo verifies that running crit in a clean
-// git repo with no changes returns the user-facing message instead of letting
+// TestPreflightCheck_CleanRepo verifies that running crit in a clean
+// repo with no changes returns the user-facing message instead of letting
 // the daemon spawn and crash with a misleading "could not reach daemon" error.
-// Reproduces issue #438.
-func TestPreflightNoChangedFiles_CleanRepo(t *testing.T) {
+func TestPreflightCheck_CleanRepo(t *testing.T) {
 	dir := initTestRepo(t)
 	defaultBranchOnce = sync.Once{}
 
@@ -23,7 +22,7 @@ func TestPreflightNoChangedFiles_CleanRepo(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	sc := &serverConfig{}
-	msg := preflightNoChangedFiles(sc)
+	msg := preflightCheck(sc)
 	if msg == "" {
 		t.Fatal("expected a no-changes message, got empty string")
 	}
@@ -47,9 +46,9 @@ func TestPreflightNoChangedFiles_CleanRepo(t *testing.T) {
 	}
 }
 
-// TestPreflightNoChangedFiles_WithChanges verifies the preflight is silent
+// TestPreflightCheck_WithChanges verifies the preflight is silent
 // (returns "") when the repo has changes, so the daemon proceeds normally.
-func TestPreflightNoChangedFiles_WithChanges(t *testing.T) {
+func TestPreflightCheck_WithChanges(t *testing.T) {
 	dir := initTestRepo(t)
 	defaultBranchOnce = sync.Once{}
 
@@ -63,14 +62,14 @@ func TestPreflightNoChangedFiles_WithChanges(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	sc := &serverConfig{}
-	if msg := preflightNoChangedFiles(sc); msg != "" {
+	if msg := preflightCheck(sc); msg != "" {
 		t.Errorf("expected empty message when repo has changes, got:\n%s", msg)
 	}
 }
 
-// TestPreflightNoChangedFiles_NotARepo verifies the preflight is silent (so
-// the existing not-a-repo error path in createSession surfaces normally).
-func TestPreflightNoChangedFiles_NotARepo(t *testing.T) {
+// TestPreflightCheck_NotARepo verifies that preflightCheck returns a
+// user-facing error when run outside a VCS repo. Issue #593.
+func TestPreflightCheck_NotARepo(t *testing.T) {
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
@@ -79,8 +78,20 @@ func TestPreflightNoChangedFiles_NotARepo(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	sc := &serverConfig{}
-	if msg := preflightNoChangedFiles(sc); msg != "" {
-		t.Errorf("expected empty message outside a repo, got:\n%s", msg)
+	msg := preflightCheck(sc)
+	if msg == "" {
+		t.Fatal("expected a not-in-repo message, got empty string")
+	}
+	if !strings.Contains(msg, "Not in a version-controlled repository") {
+		t.Errorf("missing headline; got:\n%s", msg)
+	}
+	if !strings.Contains(msg, "crit <file") {
+		t.Errorf("missing file-args hint; got:\n%s", msg)
+	}
+	for _, banned := range []string{"daemon", "port", "connection", "127.0.0.1"} {
+		if strings.Contains(strings.ToLower(msg), banned) {
+			t.Errorf("message mentions %q; should be free of networking/daemon noise:\n%s", banned, msg)
+		}
 	}
 }
 

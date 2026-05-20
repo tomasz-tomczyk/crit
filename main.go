@@ -2123,11 +2123,11 @@ func runReview(args []string) {
 		}
 	} else {
 		// Pre-flight: in default git mode (no files, no focus, no plan), surface
-		// "no changed files" up front instead of letting the daemon spawn, signal
-		// readiness, then crash on init — which leaves the user with a misleading
-		// "could not reach daemon / connection refused" error. See issue #438.
+		// errors up front instead of letting the daemon spawn, signal readiness,
+		// then crash on init — which leaves the user with a misleading
+		// "could not reach daemon / connection refused" error. See #438, #593.
 		if len(sc.files) == 0 && sc.focus == nil && sc.planDir == "" {
-			if msg := preflightNoChangedFiles(sc); msg != "" {
+			if msg := preflightCheck(sc); msg != "" {
 				fmt.Fprint(os.Stderr, msg)
 				os.Exit(1)
 			}

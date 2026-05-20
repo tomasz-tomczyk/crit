@@ -265,16 +265,19 @@ func resolveVCSOverride(flag, config string) string {
 	return config
 }
 
-// preflightNoChangedFiles runs the git-mode change detection up front so the
-// CLI can print a clean message instead of failing inside the daemon (issue
-// #438). Returns the user-facing message to print on stderr if there are no
-// changes, or "" if the daemon should proceed normally (changes present, not
-// a VCS repo, or any other detection error — those are surfaced by the
-// daemon's normal init path).
-func preflightNoChangedFiles(sc *serverConfig) string {
+// preflightCheck runs pre-spawn checks for default git mode (no files, no
+// focus, no plan). Returns a user-facing message to print on stderr if the
+// daemon should not be spawned, or "" if everything looks fine.
+//
+// Two cases:
+//   - Not in a VCS repo at all → clear "not in a git repository" message (#593)
+//   - In a VCS repo but no changed files → "no changed files found" message (#438)
+func preflightCheck(sc *serverConfig) string {
 	vcs := DetectVCS(sc.vcsOverride)
 	if vcs == nil {
-		return ""
+		return "Not in a version-controlled repository.\n\n" +
+			"  crit              review changed files (run inside a git/sapling/jj repo)\n" +
+			"  crit <file...>    review specific file(s)\n"
 	}
 	if sc.baseBranch != "" {
 		vcs.SetDefaultBranchOverride(sc.baseBranch)
