@@ -199,6 +199,54 @@ func captureStderr(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
+func TestResolveReviewPathWithArgs(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	t.Run("no args delegates to resolveReviewPath", func(t *testing.T) {
+		withArgs, err := resolveReviewPathWithArgs("", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		without, err := resolveReviewPath("")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if withArgs != without {
+			t.Errorf("expected same path, got %q vs %q", withArgs, without)
+		}
+	})
+
+	t.Run("file args produce different path than no args", func(t *testing.T) {
+		noArgs, err := resolveReviewPathWithArgs("", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		withArgs, err := resolveReviewPathWithArgs("", []string{"file.md"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if noArgs == withArgs {
+			t.Error("expected different paths for no-args vs file-args")
+		}
+	})
+
+	t.Run("outputDir takes precedence over file args", func(t *testing.T) {
+		dir := filepath.Join(tmp, "out")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		path, err := resolveReviewPathWithArgs(dir, []string{"file.md"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := filepath.Join(dir, ".crit")
+		if path != want {
+			t.Errorf("got %q, want %q", path, want)
+		}
+	})
+}
+
 func TestRedirectReviewPathForPR(t *testing.T) {
 	type stub func(int) (*PRInfo, error)
 
