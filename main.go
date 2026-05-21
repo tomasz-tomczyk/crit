@@ -230,6 +230,7 @@ func promptShareConsent(out io.Writer, in io.Reader) bool {
 	return strings.TrimSpace(strings.ToLower(answer)) == "y"
 }
 
+// promptShareURLConfirm asks the user to confirm sharing to a custom URL.
 func promptShareURLConfirm(out io.Writer, in io.Reader, shareURL string) bool {
 	fmt.Fprintf(out, "  Sharing to %s — continue? [y/N] ", shareURL)
 	answer, _ := bufio.NewReader(in).ReadString('\n')
