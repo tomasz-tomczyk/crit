@@ -230,12 +230,20 @@ func promptShareConsent(out io.Writer, in io.Reader) bool {
 	return strings.TrimSpace(strings.ToLower(answer)) == "y"
 }
 
+func promptShareURLConfirm(out io.Writer, in io.Reader, shareURL string) bool {
+	fmt.Fprintf(out, "  Sharing to %s — continue? [y/N] ", shareURL)
+	answer, _ := bufio.NewReader(in).ReadString('\n')
+	return strings.TrimSpace(strings.ToLower(answer)) == "y"
+}
+
 func runShare(args []string) {
 	sf := parseShareFlags(args)
 
 	if len(sf.files) == 0 {
 		printShareUsage()
 	}
+
+	flagURL := sf.svcURL != ""
 
 	cfg := loadShareConfig()
 	sf.svcURL = resolveShareURL(sf.svcURL, cfg, defaultShareURL)
@@ -280,6 +288,11 @@ func runShare(args []string) {
 			fmt.Fprintf(os.Stderr, "  warning: could not save consent: %v\n", err)
 		}
 		cfg.ShareConsented = true
+	}
+	if flagURL {
+		if !promptShareURLConfirm(os.Stderr, os.Stdin, sf.svcURL) {
+			return
+		}
 	}
 	if ok {
 		runShareExisting(existingCfg, critPath, files, sharePaths, authToken, cfg.Author, sf.showQR)

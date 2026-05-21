@@ -318,6 +318,35 @@ func TestPromptShareConsent(t *testing.T) {
 	}
 }
 
+func TestPromptShareURLConfirm(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"y\n", true},
+		{"Y\n", true},
+		{"n\n", false},
+		{"N\n", false},
+		{"\n", false},
+		{"", false},
+		{"yes\n", false},
+	}
+	for _, tt := range tests {
+		var buf strings.Builder
+		got := promptShareURLConfirm(&buf, strings.NewReader(tt.input), "https://example.com")
+		if got != tt.want {
+			t.Errorf("promptShareURLConfirm(input=%q) = %v, want %v", tt.input, got, tt.want)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "https://example.com") {
+			t.Errorf("promptShareURLConfirm did not print URL for input=%q, got %q", tt.input, out)
+		}
+		if !strings.Contains(out, "continue?") && !strings.Contains(out, "Continue?") {
+			t.Errorf("promptShareURLConfirm did not print prompt for input=%q, got %q", tt.input, out)
+		}
+	}
+}
+
 // TestRunShare_ConsentDenied verifies that answering "n" to the first-time
 // consent prompt exits cleanly without sharing.
 func TestRunShare_ConsentDenied(t *testing.T) {
