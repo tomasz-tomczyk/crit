@@ -4,7 +4,7 @@ package main
 
 var integrationHashes = map[string]string{
 	"integrations/aider/CONVENTIONS.md":                    "9c36261ba7fab0513191717b6333c83d27168778aa5e9da47d8dc1d17ec91db5",
-	"integrations/claude-code/.claude-plugin/plugin.json":  "29740e6706601e665ce60debd71ed178ef9bb6a405d13463cc231f60b082edaf",
+	"integrations/claude-code/.claude-plugin/plugin.json":  "87e7a833d8d9fef9d98ea8c0be9848e72cff54e599e4cc69eda20f5d75f4722d",
 	"integrations/claude-code/hooks/hooks.json":            "beba2c8bd252637ff31b57ed868e4d56135e1a3f429f872befbd2d34b834512b",
 	"integrations/claude-code/skills/crit-cli/SKILL.md":    "1b887cb9ca2117783f41c9facd4265b1de926c95e982984b4a9198e5b554f174",
 	"integrations/claude-code/skills/crit/SKILL.md":        "5b8b5f183c40058d6b3d07eba9f7bb13dc1948f78910fefe9c615822acbfd7f3",
