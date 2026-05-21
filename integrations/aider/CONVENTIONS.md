@@ -138,7 +138,7 @@ crit share <file> [file...]                          # Upload and print URL
 crit share --qr <file>                               # Also print QR code (terminal only)
 crit share --org <slug> <file>                       # Share under an organization
 crit share --org <slug> --visibility unlisted <file> # Org share with explicit visibility
-crit unpublish                                       # Remove shared review
+crit unpublish [file...]                              # Remove shared review
 ```
 
 Always relay the full output (URL, QR) directly in your response — don't make the user dig through tool output.

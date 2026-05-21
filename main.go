@@ -391,6 +391,7 @@ func runFetch(args []string) {
 func runUnpublish(args []string) {
 	unpubOutputDir := ""
 	unpubSvcURL := ""
+	var unpubFiles []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
@@ -409,8 +410,7 @@ func runUnpublish(args []string) {
 			i++
 			unpubSvcURL = args[i]
 		default:
-			fmt.Fprintf(os.Stderr, "Usage: crit unpublish [--output <dir>] [--share-url <url>]\n")
-			os.Exit(1)
+			unpubFiles = append(unpubFiles, arg)
 		}
 	}
 
@@ -418,7 +418,7 @@ func runUnpublish(args []string) {
 	unpubSvcURL = resolveShareURL(unpubSvcURL, unpubCfg, defaultShareURL)
 	unpubAuthToken := resolveAuthToken(unpubCfg)
 
-	critPath, err := resolveReviewPath(unpubOutputDir)
+	critPath, err := resolveReviewPathWithArgs(unpubOutputDir, unpubFiles)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

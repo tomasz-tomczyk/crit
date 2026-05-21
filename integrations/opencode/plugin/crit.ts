@@ -26,7 +26,7 @@ If the user asks for a URL, a shareable link, or a QR code for the review:
 \`\`\`bash
 crit share <file> [file...]   # Upload and print URL
 crit share --qr <file>        # Also print QR code (terminal only)
-crit unpublish                # Remove shared review
+crit unpublish [file...]                              # Remove shared review
 \`\`\`
 
 - **Always relay the output** — copy the URL (and QR if used) into your response. Don't make the user dig through tool output.

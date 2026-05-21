@@ -107,7 +107,7 @@ crit share <file>
 To remove a shared review:
 
 ```bash
-crit unpublish
+crit unpublish [file...]
 ```
 
 ### QR caveat

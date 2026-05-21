@@ -60,7 +60,7 @@ Comments:
 Sharing:
   crit share <file> [file...]                Share files to crit-web, print URL
   crit fetch [--output <dir>]                Fetch comments from crit-web
-  crit unpublish                             Remove a shared review from crit-web
+  crit unpublish [file...]                    Remove a shared review from crit-web
 
 GitHub PR sync:
   crit pull [pr-number]                      Fetch PR comments into the review file

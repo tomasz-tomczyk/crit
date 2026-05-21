@@ -60,6 +60,38 @@ func resolveReviewPath(outputDir string) (string, error) {
 	return path, nil
 }
 
+// resolveReviewPathWithArgs is like resolveReviewPath but includes file args
+// in the session key, matching the key that file-mode sessions use.
+func resolveReviewPathWithArgs(outputDir string, fileArgs []string) (string, error) {
+	if len(fileArgs) == 0 {
+		return resolveReviewPath(outputDir)
+	}
+	if outputDir != "" {
+		abs, err := filepath.Abs(outputDir)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(abs, ".crit"), nil
+	}
+
+	cwd, err := resolvedCWD()
+	if err != nil {
+		return "", err
+	}
+
+	if path := resolveReviewPathFromDaemon(cwd); path != "" {
+		return path, nil
+	}
+
+	key := sessionKey(cwd, "", fileArgs)
+	path, err := reviewFilePath(key)
+	if err != nil {
+		return "", err
+	}
+
+	return path, nil
+}
+
 // resolveReviewPathFromDaemon checks the daemon registry for a running session
 // and returns its review path. Tries exact CWD match first, then falls back to
 // matching by git repo root (handles subdirectory mismatch — e.g. daemon started

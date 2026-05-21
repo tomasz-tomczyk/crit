@@ -95,6 +95,6 @@ crit share <file>
 
 **Always relay the full output to the user** — copy the URL directly into your response.
 
-To remove a shared review: `crit unpublish`
+To remove a shared review: `crit unpublish [file...]`
 </important>
 """
