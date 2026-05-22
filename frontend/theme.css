@@ -130,6 +130,13 @@
   --crit-yellow-bg:     rgba(224, 175, 104, 0.14);
   --crit-yellow-border: rgba(224, 175, 104, 0.2);
 
+  /* ---- Drifted comment ---- */
+  --crit-drift-badge-fg:     #f0a030;
+  --crit-drift-badge-bg:     rgba(240, 160, 48, 0.14);
+  --crit-drift-badge-border: rgba(240, 160, 48, 0.30);
+
+  --crit-drift-card-border:  rgba(240, 160, 48, 0.25);
+
   /* ---- Green subtle ---- */
   --crit-green-subtle: rgba(86, 211, 100, 0.10);
 
@@ -320,6 +327,13 @@
     --crit-yellow-bg:     rgba(122, 88, 0, 0.1);
     --crit-yellow-border: rgba(122, 88, 0, 0.16);
 
+    /* ---- Drifted comment ---- */
+    --crit-drift-badge-fg:     #8a5200;
+    --crit-drift-badge-bg:     rgba(138, 82, 0, 0.09);
+    --crit-drift-badge-border: rgba(138, 82, 0, 0.22);
+
+    --crit-drift-card-border:  rgba(138, 82, 0, 0.20);
+
     /* ---- Green subtle ---- */
     --crit-green-subtle: rgba(22, 111, 48, 0.08);
 
@@ -509,6 +523,13 @@
   --crit-yellow-bg:     rgba(224, 175, 104, 0.14);
   --crit-yellow-border: rgba(224, 175, 104, 0.2);
 
+  /* ---- Drifted comment ---- */
+  --crit-drift-badge-fg:     #f0a030;
+  --crit-drift-badge-bg:     rgba(240, 160, 48, 0.14);
+  --crit-drift-badge-border: rgba(240, 160, 48, 0.30);
+
+  --crit-drift-card-border:  rgba(240, 160, 48, 0.25);
+
   /* ---- Green subtle ---- */
   --crit-green-subtle: rgba(86, 211, 100, 0.10);
 
@@ -696,6 +717,12 @@
   --crit-yellow-subtle: rgba(122, 88, 0, 0.06);
   --crit-yellow-bg:     rgba(122, 88, 0, 0.1);
   --crit-yellow-border: rgba(122, 88, 0, 0.16);
+
+  /* ---- Drifted comment ---- */
+  --crit-drift-badge-fg:     #8a5200;
+  --crit-drift-badge-bg:     rgba(138, 82, 0, 0.09);
+  --crit-drift-badge-border: rgba(138, 82, 0, 0.22);
+  --crit-drift-card-border:  rgba(138, 82, 0, 0.20);
 
   /* ---- Green subtle ---- */
   --crit-green-subtle: rgba(22, 111, 48, 0.08);

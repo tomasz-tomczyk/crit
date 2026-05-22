@@ -4327,14 +4327,34 @@ body.sidebar-resizing * {
   padding: 8px 0;
 }
 .outdated-badge {
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--crit-badge-modified-bg);
-  color: var(--crit-yellow);
-  border: 1px solid var(--crit-yellow-border);
+  padding: 1px 7px 1px 4px;
+  border-radius: 10px;
+  background: var(--crit-drift-badge-bg);
+  color: var(--crit-drift-badge-fg);
+  border: 1px solid var(--crit-drift-badge-border);
   white-space: nowrap;
+}
+.outdated-badge::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  background-color: var(--crit-drift-badge-fg);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='currentColor'%3E%3Cpath d='M5.22 14.78a.75.75 0 001.06-1.06L4.56 12h8.69a.75.75 0 000-1.5H4.56l1.72-1.72a.75.75 0 00-1.06-1.06l-3 3a.75.75 0 000 1.06l3 3zM10.78 1.22a.75.75 0 00-1.06 1.06L11.44 4H2.75a.75.75 0 000 1.5h8.69l-1.72 1.72a.75.75 0 101.06 1.06l3-3a.75.75 0 000-1.06l-3-3z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='currentColor'%3E%3Cpath d='M5.22 14.78a.75.75 0 001.06-1.06L4.56 12h8.69a.75.75 0 000-1.5H4.56l1.72-1.72a.75.75 0 00-1.06-1.06l-3 3a.75.75 0 000 1.06l3 3zM10.78 1.22a.75.75 0 00-1.06 1.06L11.44 4H2.75a.75.75 0 000 1.5h8.69l-1.72 1.72a.75.75 0 101.06 1.06l3-3a.75.75 0 000-1.06l-3-3z'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+.outdated-comment .comment-card {
+  border-color: var(--crit-drift-card-border);
 }
 /* Drifted anchor context — full-width disclosure bar + line-numbered panel */
 .drifted-context {
