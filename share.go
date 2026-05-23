@@ -102,14 +102,33 @@ type shareFile struct {
 }
 
 // shareReply represents a reply to include in the shared review.
+//
+// GitHubID is the GitHub PR review-comment ID this reply was synced from
+// (zero when the reply originated locally). crit-web uses a non-zero value
+// as the signal that the reply was imported from GitHub and renders an
+// inline marker so re-sharers can tell synced replies apart from native
+// crit replies. Encoded with `omitempty` so locally-authored replies stay
+// indistinguishable on the wire (issue #370).
 type shareReply struct {
 	Body       string `json:"body"`
 	Author     string `json:"author_display_name,omitempty"`
 	UserID     string `json:"user_id,omitempty"`
 	ExternalID string `json:"external_id,omitempty"`
+	GitHubID   int64  `json:"github_id,omitempty"`
 }
 
 // shareComment represents a comment to include in the shared review.
+//
+// GitHubID is the GitHub PR review-comment ID this comment was synced from
+// (zero when the comment originated locally). crit-web treats any non-zero
+// value as the GitHub-synced signal so it can paint a badge on the
+// re-shared review. Encoded with `omitempty` so locally-authored comments
+// produce identical wire output to before this field landed (issue #370).
+//
+// A non-zero github_id already discriminates GitHub-synced entries from
+// native crit comments, so a separate `source` field would be redundant.
+// If we add other sync sources (GitLab, Gerrit) later, we can introduce a
+// `source` enum at that point.
 type shareComment struct {
 	File        string       `json:"file,omitempty"`
 	StartLine   int          `json:"start_line,omitempty"`
@@ -123,6 +142,7 @@ type shareComment struct {
 	Replies     []shareReply `json:"replies,omitempty"`
 	ExternalID  string       `json:"external_id,omitempty"`
 	Resolved    bool         `json:"resolved,omitempty"`
+	GitHubID    int64        `json:"github_id,omitempty"`
 }
 
 // shareFileEntries serializes shareFile values into the JSON-friendly maps
@@ -388,6 +408,7 @@ func commentToShareComment(c Comment, filePath, scope, fallbackAuthor, critPath 
 		Author:    author,
 		UserID:    c.UserID,
 		Scope:     scope,
+		GitHubID:  c.GitHubID,
 	}
 	if includeResolved {
 		sc.Resolved = c.Resolved
@@ -403,7 +424,12 @@ func commentToShareComment(c Comment, filePath, scope, fallbackAuthor, critPath 
 		if ra == "" {
 			ra = fallbackAuthor
 		}
-		sr := shareReply{Body: inlineAttachmentsAsDataURIs(critPath, r.Body), Author: ra, UserID: r.UserID}
+		sr := shareReply{
+			Body:     inlineAttachmentsAsDataURIs(critPath, r.Body),
+			Author:   ra,
+			UserID:   r.UserID,
+			GitHubID: r.GitHubID,
+		}
 		if setExternalID {
 			sr.ExternalID = r.ID
 		}

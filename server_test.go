@@ -5049,3 +5049,32 @@ func TestHandleMergeComments_NoReviewFile(t *testing.T) {
 		t.Errorf("status = %d, want 500 (no review file)", w.Code)
 	}
 }
+
+// TestHandleFileCommentsGitHubID verifies that the GET path serializes
+// Comment.GitHubID into the JSON response when the field is non-zero.
+// This locks the wire contract so consumers (crit-web, frontend) can
+// rely on the field being present for GitHub-synced comments.
+func TestHandleFileCommentsGitHubID(t *testing.T) {
+	srv, session := newTestServer(t)
+	session.Files[0].Comments = []Comment{
+		{
+			ID:        "gh-test-1",
+			StartLine: 1,
+			EndLine:   1,
+			Body:      "synced comment",
+			GitHubID:  12345,
+		},
+	}
+
+	req := httptest.NewRequest("GET", "/api/file/comments?path=test.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"github_id":12345`) {
+		t.Errorf("response missing github_id field:\n%s", body)
+	}
+}

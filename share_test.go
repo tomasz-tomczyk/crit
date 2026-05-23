@@ -2304,3 +2304,73 @@ func TestDedupWebComments(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildSharePayload_GitHubSynced verifies that comments and replies
+// synced from GitHub carry their GitHubID into the wire payload as
+// "github_id". crit-web reads this signal to badge re-shared reviews
+// (issue #370).
+func TestBuildSharePayload_GitHubSynced(t *testing.T) {
+	c := Comment{
+		ID:        "c1",
+		StartLine: 5,
+		EndLine:   5,
+		Body:      "from GitHub",
+		Author:    "Alice",
+		GitHubID:  12345,
+		Replies: []Reply{
+			{ID: "r1", Body: "reply too", Author: "Bob", GitHubID: 67890},
+		},
+	}
+	sc := commentToShareComment(c, "main.go", "line", "", "", false, true)
+	if sc.GitHubID != 12345 {
+		t.Errorf("shareComment.GitHubID = %d, want 12345", sc.GitHubID)
+	}
+	if len(sc.Replies) != 1 || sc.Replies[0].GitHubID != 67890 {
+		t.Errorf("shareReply.GitHubID = %d, want 67890", sc.Replies[0].GitHubID)
+	}
+
+	payload := buildSharePayload(nil, []shareComment{sc}, 1, nil, "", "")
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	js := string(body)
+	if !strings.Contains(js, `"github_id":12345`) {
+		t.Errorf("comment github_id missing from payload JSON: %s", js)
+	}
+	if !strings.Contains(js, `"github_id":67890`) {
+		t.Errorf("reply github_id missing from payload JSON: %s", js)
+	}
+}
+
+// TestBuildSharePayload_NotGitHubSynced verifies that the github_id field is
+// elided entirely when the local comment has no GitHub ID, so locally-authored
+// comments stay byte-equivalent to the pre-#370 wire format.
+func TestBuildSharePayload_NotGitHubSynced(t *testing.T) {
+	c := Comment{
+		ID:        "c1",
+		StartLine: 5,
+		EndLine:   5,
+		Body:      "local only",
+		Author:    "Alice",
+		Replies: []Reply{
+			{ID: "r1", Body: "local reply", Author: "Bob"},
+		},
+	}
+	sc := commentToShareComment(c, "main.go", "line", "", "", false, true)
+	if sc.GitHubID != 0 {
+		t.Errorf("shareComment.GitHubID = %d, want 0", sc.GitHubID)
+	}
+	if len(sc.Replies) != 1 || sc.Replies[0].GitHubID != 0 {
+		t.Errorf("shareReply.GitHubID = %d, want 0", sc.Replies[0].GitHubID)
+	}
+
+	payload := buildSharePayload(nil, []shareComment{sc}, 1, nil, "", "")
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	if strings.Contains(string(body), "github_id") {
+		t.Errorf("github_id should be omitted when zero, got: %s", body)
+	}
+}
