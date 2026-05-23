@@ -4454,6 +4454,36 @@ body.sidebar-resizing * {
 .outdated-comment .comment-card {
   border-color: var(--crit-drift-card-border);
 }
+/* GitHub-synced comment badge -- small pill with the GitHub mark, same
+   sizing as .outdated-badge. Uses neutral pill tokens so it reads as
+   informational ("synced from GitHub") rather than warning (#370). */
+.github-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px 1px 4px;
+  border-radius: 10px;
+  background: var(--crit-pill-bg);
+  color: var(--crit-pill-fg);
+  border: 1px solid var(--crit-pill-border);
+  white-space: nowrap;
+}
+.github-badge::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  background-color: var(--crit-pill-fg);
+  -webkit-mask-image: var(--crit-icon-github);
+  mask-image: var(--crit-icon-github);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
 /* Drifted anchor context — full-width disclosure bar + line-numbered panel */
 .drifted-context {
   font-size: 12px;

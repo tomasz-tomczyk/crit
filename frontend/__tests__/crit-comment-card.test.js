@@ -49,6 +49,16 @@ global.document = {
 
 const card = require('../crit-comment-card.js');
 
+// Shared helper: recursively find elements matching a predicate.
+function findByClass(root, className) {
+  const hits = [];
+  (function walk(el) {
+    if (el.className && new RegExp('\\b' + className + '\\b').test(el.className)) hits.push(el);
+    for (const c of (el.children || [])) walk(c);
+  })(root);
+  return hits;
+}
+
 function baseDeps() {
   return {
     commentMd: { render: (b) => '<p>' + (b || '') + '</p>' },
@@ -172,16 +182,41 @@ test('suppressDrift omits the Drifted badge and drifted-context block', () => {
     '',
     { deps: baseDeps(), suppressDrift: true }
   );
-  function find(el, pred, hits) {
-    hits = hits || [];
-    if (pred(el)) hits.push(el);
-    for (const c of (el.children || [])) find(c, pred, hits);
-    return hits;
-  }
-  const badges = find(out.card, (e) => e.className && /\boutdated-badge\b/.test(e.className));
+  const badges = findByClass(out.card, 'outdated-badge');
   assert.equal(badges.length, 0, 'no Drifted badge should render under suppressDrift');
-  const ctx = find(out.card, (e) => e.className && /\bdrifted-context\b/.test(e.className));
+  const ctx = findByClass(out.card, 'drifted-context');
   assert.equal(ctx.length, 0, 'no drifted-context disclosure should render under suppressDrift');
   assert.equal(out.wrapper.classList.contains('outdated-comment'), false,
     'wrapper should not get outdated-comment class');
+});
+
+test('GitHub badge renders when comment.github_id is set', () => {
+  // Comments synced from a GitHub PR carry a non-zero github_id from the
+  // Go side. The shared card paints a small pill so reviewers can tell
+  // imported comments apart from native crit comments (#370).
+  const out = card.buildCommentCard(
+    { id: 'gh1', body: 'x', github_id: 12345,
+      created_at: '2024-01-01T00:00:00Z' },
+    '',
+    { deps: baseDeps() }
+  );
+  const badges = findByClass(out.card, 'github-badge');
+  assert.equal(badges.length, 1, 'one GitHub badge should render when github_id is set');
+  assert.equal(badges[0].textContent, 'GitHub');
+  assert.equal(badges[0].attrs['aria-label'], 'Synced from GitHub');
+});
+
+test('GitHub badge omitted when comment.github_id is missing or zero', () => {
+  const noField = card.buildCommentCard(
+    { id: 'n1', body: 'x', created_at: '2024-01-01T00:00:00Z' },
+    '',
+    { deps: baseDeps() }
+  );
+  assert.equal(findByClass(noField.card, 'github-badge').length, 0, 'no badge when github_id is absent');
+  const zero = card.buildCommentCard(
+    { id: 'n2', body: 'x', github_id: 0, created_at: '2024-01-01T00:00:00Z' },
+    '',
+    { deps: baseDeps() }
+  );
+  assert.equal(findByClass(zero.card, 'github-badge').length, 0, 'no badge when github_id is 0');
 });

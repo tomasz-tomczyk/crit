@@ -132,6 +132,20 @@
       headerLeft.appendChild(badge);
     }
 
+    // GitHub-synced badge — surfaces comments imported from a GitHub PR
+    // so re-sharers and reviewers can tell them apart from native crit
+    // comments. The signal is GitHubID != 0 on the Comment struct, which
+    // serializes as `github_id` (omitempty) on the JSON the API returns.
+    // See issue #370.
+    if (comment.github_id) {
+      var ghBadge = document.createElement('span');
+      ghBadge.className = 'github-badge';
+      ghBadge.textContent = 'GitHub';
+      ghBadge.title = 'Synced from GitHub';
+      ghBadge.setAttribute('aria-label', 'Synced from GitHub');
+      headerLeft.appendChild(ghBadge);
+    }
+
     // suppressDrift: live mode passes this so legacy comments carrying
     // `drifted: true` from before the field was retired don't paint a badge.
     if (comment.drifted && !opts.suppressDrift) {
