@@ -77,9 +77,9 @@ body {
   gap: 6px;
   font-family: var(--crit-font-mono);
   font-size: 12px;
-  color: var(--crit-pill-fg);
-  background: var(--crit-pill-bg);
-  border: 1px solid var(--crit-pill-border);
+  color: var(--crit-brand);
+  background: var(--crit-brand-subtle);
+  border: 1px solid var(--crit-brand-bg);
   padding: 3px 10px;
   border-radius: 6px;
   height: 24px;

@@ -33,7 +33,6 @@
   /* ---- Header pill tokens (neutral chip palette) ---- */
   --crit-pill-bg:        #21262d;
   --crit-pill-bg-hover:  #2a3038;
-  --crit-pill-fg:        #c9d1d9;
   --crit-pill-fg-muted:  #8b949e;
   --crit-pill-border:    #30363d;
   --crit-rail-fg:        #7d8590;
@@ -259,7 +258,6 @@
     /* ---- Header pill tokens (neutral chip palette) ---- */
     --crit-pill-bg:        #f6f8fa;
     --crit-pill-bg-hover:  #eef1f4;
-    --crit-pill-fg:        #1f2328;
     --crit-pill-fg-muted:  #59636e;
     --crit-pill-border:    #d0d7de;
     --crit-rail-fg:        #59636e;
@@ -455,7 +453,6 @@
   /* ---- Header pill tokens (neutral chip palette) ---- */
   --crit-pill-bg:        #21262d;
   --crit-pill-bg-hover:  #2a3038;
-  --crit-pill-fg:        #c9d1d9;
   --crit-pill-fg-muted:  #8b949e;
   --crit-pill-border:    #30363d;
   --crit-rail-fg:        #7d8590;
@@ -650,7 +647,6 @@
   /* ---- Header pill tokens (neutral chip palette) ---- */
   --crit-pill-bg:        #f6f8fa;
   --crit-pill-bg-hover:  #eef1f4;
-  --crit-pill-fg:        #1f2328;
   --crit-pill-fg-muted:  #59636e;
   --crit-pill-border:    #d0d7de;
   --crit-rail-fg:        #59636e;
