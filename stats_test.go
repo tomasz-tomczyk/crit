@@ -9,7 +9,7 @@ import (
 )
 
 func TestLoadStats_MissingFile(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	sf, err := loadStats()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -24,7 +24,7 @@ func TestLoadStats_MissingFile(t *testing.T) {
 
 func TestAppendSession(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	rec := sessionRecord{
 		StartedAt: "2026-05-27T10:00:00Z",
@@ -99,7 +99,7 @@ func TestAppendSession(t *testing.T) {
 
 func TestLoadStats_CorruptFile(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	dir := filepath.Join(home, ".crit")
 	os.MkdirAll(dir, 0o755)
@@ -287,7 +287,7 @@ func TestSessionActivity(t *testing.T) {
 
 func TestRecordSessionStats_SkipsEmptySessions(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	sess := &Session{Mode: "git"}
 	recordSessionStats(sess, "alice", time.Now().Add(-5*time.Minute))
@@ -301,7 +301,7 @@ func TestRecordSessionStats_SkipsEmptySessions(t *testing.T) {
 
 func TestRecordSessionStats_WritesForActivity(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	start := time.Now().Add(-10 * time.Minute)
 	sess := &Session{
@@ -345,7 +345,7 @@ func TestRecordSessionStats_WritesForActivity(t *testing.T) {
 
 func TestStatsJSON_EmptyFile(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	sf, err := loadStats()
 	if err != nil {
