@@ -568,6 +568,8 @@ func runServe(args []string) {
 	if sc.previewFile != "" {
 		sessionArgs = []string{"preview", sc.previewFile}
 	}
+	sessionStartedAt := time.Now().UTC()
+	srv.sessionStartedAt = sessionStartedAt
 	if err := writeSessionFile(key, sessionEntry{
 		PID:        os.Getpid(),
 		Port:       addr.Port,
@@ -576,7 +578,7 @@ func runServe(args []string) {
 		Args:       sessionArgs,
 		Branch:     branch,
 		ReviewPath: sc.reviewPath,
-		StartedAt:  time.Now().UTC().Format(time.RFC3339),
+		StartedAt:  sessionStartedAt.Format(time.RFC3339),
 	}); err != nil {
 		daemonFatal(pipe, "Error writing session file: %v", err)
 	}
@@ -788,6 +790,10 @@ func runServe(args []string) {
 	}
 
 	session.WriteFiles()
+
+	if !srv.statsRecorded && !srv.cfg.DisableStats {
+		recordSessionStats(session, srv.author, sessionStartedAt)
+	}
 
 	if session.ReviewFilePath != "" {
 		fmt.Fprintf(os.Stderr, "Review file: %s\n", reviewPathsFor(session.ReviewFilePath).Review)

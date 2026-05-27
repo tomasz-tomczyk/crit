@@ -30,6 +30,7 @@ type Config struct {
 	AuthUserEmail      string   `json:"auth_user_email,omitempty"`
 	AuthUserID         string   `json:"auth_user_id,omitempty"`
 	CleanupOnApprove   *bool    `json:"cleanup_on_approve,omitempty"`
+	DisableStats       bool     `json:"disable_stats,omitempty"`
 	VCS                string   `json:"vcs,omitempty"` // preferred VCS backend: "git", "sl", "jj"
 	ShareConsented     bool     `json:"share_consented,omitempty"`
 }
@@ -101,6 +102,7 @@ type generatedConfig struct {
 	IgnorePatterns     []string `json:"ignore_patterns"`
 	NoIntegrationCheck bool     `json:"no_integration_check"`
 	NoUpdateCheck      bool     `json:"no_update_check"`
+	DisableStats       bool     `json:"disable_stats"`
 	AgentCmd           string   `json:"agent_cmd"`
 	CleanupOnApprove   bool     `json:"cleanup_on_approve"`
 	VCS                string   `json:"vcs"`

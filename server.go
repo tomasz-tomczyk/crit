@@ -87,6 +87,13 @@ type Server struct {
 	// runners) that must complete before the daemon writes the review file
 	// during shutdown. The shutdown path Wait()s on this with a timeout.
 	bgWG sync.WaitGroup
+
+	// sessionStartedAt records when the daemon started, used by stats recording.
+	sessionStartedAt time.Time
+	// statsRecorded is set after the first stats write so shutdown doesn't
+	// double-count. Accessed only from handleFinish (serialized by HTTP) and
+	// the shutdown path (after the server has stopped), so no mutex needed.
+	statsRecorded bool
 }
 
 // NewServer creates a Server with the given session and configuration.
@@ -1868,6 +1875,11 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		if unresolvedComments > 0 {
 			s.status.WaitingForAgent()
 		}
+	}
+
+	if approved && !s.statsRecorded && !s.sessionStartedAt.IsZero() && !s.cfg.DisableStats {
+		recordSessionStats(sess, s.author, s.sessionStartedAt)
+		s.statsRecorded = true
 	}
 
 }

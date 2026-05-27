@@ -133,13 +133,14 @@ Two-level JSON config files, merged (project overrides global):
 - **Global**: `~/.crit.config.json` — user-wide defaults
 - **Project**: `.crit.config.json` in repo root — per-project overrides
 
-Config keys: `port`, `host`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `agent_cmd`, `auth_token`, `auth_user_name`, `auth_user_email`, `auth_user_id`, `cleanup_on_approve`, `no_update_check`, `no_integration_check`, `vcs`, `proxy_auth`.
+Config keys: `port`, `host`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `agent_cmd`, `auth_token`, `auth_user_name`, `auth_user_email`, `auth_user_id`, `cleanup_on_approve`, `disable_stats`, `no_update_check`, `no_integration_check`, `vcs`, `proxy_auth`.
 
 - `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to the configured VCS user name if not set
 - `agent_cmd`, `auth_token`, `share_url`, and `proxy_auth` are **global config only**; project-level config cannot override (security — prevents malicious repos from hijacking the agent command or redirecting share requests to an attacker-controlled host)
 - `proxy_auth` (default: `false`) — when `true`, share/pull/unpublish use browser popup relay instead of direct CLI HTTP. Global-only for security.
 - `cleanup_on_approve` (default: `true`) — auto-delete review file when reviewer approves with no unresolved comments
+- `disable_stats` (default: `false`) — disable session stats recording to `~/.crit/stats.json`
 - `ignore_patterns` are unioned (global + project both apply); types: `*.ext`, `dir/`, `exact.file`, `path/*.ext`
 - `vcs` selects backend: `"git"` (default), `"sl"` (sapling), or `"jj"` (Jujutsu)
 - `auth_*` keys hold cached hosted-crit-web credentials (set by `crit auth`); treat as secrets

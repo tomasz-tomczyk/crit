@@ -68,6 +68,7 @@ crit landing.html                 # review a static HTML file
 
 ```bash
 crit status                       # show review file path and daemon status
+crit stats                        # show lifetime review statistics
 crit cleanup                      # delete stale review files
 ```
 

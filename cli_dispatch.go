@@ -31,6 +31,7 @@ var commandDispatch = map[string]func([]string){
 	"auth":      runAuth,
 	"stop":      runStop,
 	"status":    runStatus,
+	"stats":     runStats,
 	"cleanup":   runCleanup,
 	"_serve":    runServe,
 }
@@ -70,6 +71,7 @@ Setup & management:
   crit install <agent>                       Install integration for an AI coding tool
   crit check                                 Check integrations (staleness + missing)
   crit status [--json]                       Print session info
+  crit stats [--json]                        Show lifetime review statistics
   crit stop [--all]                          Stop the daemon
   crit cleanup [--days N] [--force]          Delete stale review files (default: 7 days)
   crit config [--generate]                   Show resolved configuration
@@ -173,6 +175,7 @@ Available keys:
   no_integration_check   bool      Skip integration staleness check (default: false)
   no_update_check        bool      Disable update check on startup (default: false)
   cleanup_on_approve     bool      Auto-delete review file when approved (default: true)
+  disable_stats          bool      Disable session stats recording (default: false)
   agent_cmd              string    Shell command to send comments to an AI agent (e.g. "claude -p")
   auth_token             string    Authentication token for crit-web share service
 
