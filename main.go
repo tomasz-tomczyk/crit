@@ -2099,7 +2099,7 @@ func runPlanReviewHook(logPrefix, sessionID string, content []byte, emitDecision
 	weStartedDaemon := false
 
 	if alive {
-		fmt.Fprintf(os.Stderr, "crit plan-hook: connected to daemon at %s\n", entry.baseURL())
+		fmt.Fprintf(os.Stderr, "%s: connected to daemon at %s\n", logPrefix, entry.baseURL())
 		if !daemonHasBrowser(entry) {
 			go openBrowser(entry.baseURL())
 		}
@@ -2110,7 +2110,7 @@ func runPlanReviewHook(logPrefix, sessionID string, content []byte, emitDecision
 			emitDecision(false, fmt.Sprintf("Crit could not start the review UI: %v", err))
 			return
 		}
-		fmt.Fprintf(os.Stderr, "crit plan-hook: started daemon at %s (PID %d)\n", entry.baseURL(), entry.PID)
+		fmt.Fprintf(os.Stderr, "%s: started daemon at %s (PID %d)\n", logPrefix, entry.baseURL(), entry.PID)
 		weStartedDaemon = true
 	}
 

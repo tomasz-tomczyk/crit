@@ -829,13 +829,6 @@ func samePath(a, b string) bool {
 	return absA == absB
 }
 
-func codexPluginSourceRoot(global bool, home string) string {
-	if global {
-		return filepath.Join(home, ".codex", "plugins", "crit")
-	}
-	return filepath.Join("plugins", "crit")
-}
-
 const codexPluginEmbeddedPrefix = "integrations/codex/plugin/crit/"
 
 //nolint:unparam // global is passed for symmetry with other install* funcs; activation always targets ~/.codex
