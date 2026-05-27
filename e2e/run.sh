@@ -6,6 +6,7 @@ CRIT_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
 GIT_PORT="${CRIT_TEST_PORT:-3123}"
+GIT2_PORT="${CRIT_TEST_GIT2_PORT:-3130}"
 FILE_PORT="${CRIT_TEST_FILE_PORT:-3124}"
 SINGLE_PORT="${CRIT_TEST_SINGLE_PORT:-3125}"
 NOGIT_PORT="${CRIT_TEST_NOGIT_PORT:-3126}"
@@ -24,7 +25,7 @@ else
 fi
 
 # Kill any stale processes on our test ports before starting fresh
-for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT"; do
+for port in "$GIT_PORT" "$GIT2_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT"; do
   e2e_kill_port "$port"
 done
 
@@ -32,6 +33,8 @@ done
 cd "$SCRIPT_DIR"
 bash setup-fixtures.sh "$GIT_PORT" &
 GIT_PID=$!
+bash setup-fixtures.sh "$GIT2_PORT" &
+GIT2_PID=$!
 bash setup-fixtures-filemode.sh "$FILE_PORT" &
 FILE_PID=$!
 bash setup-fixtures-singlefile.sh "$SINGLE_PORT" &
@@ -46,8 +49,8 @@ bash setup-fixtures-livemode.sh "$LIVE_PORT" &
 LIVE_PID=$!
 
 cleanup() {
-  kill "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" "$LIVE_PID" 2>/dev/null || true
-  wait "$GIT_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" "$LIVE_PID" 2>/dev/null || true
+  kill "$GIT_PID" "$GIT2_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" "$LIVE_PID" 2>/dev/null || true
+  wait "$GIT_PID" "$GIT2_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" "$LIVE_PID" 2>/dev/null || true
   # On Git Bash `kill <bash-pid>` doesn't reap the spawned crit.exe child;
   # taskkill /T flushes the whole tree.
   e2e_kill_stray_crit
@@ -56,7 +59,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Wait for servers to be ready
-for port in "$GIT_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT"; do
+for port in "$GIT_PORT" "$GIT2_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT"; do
   while ! curl -sf "http://localhost:$port/api/session" >/dev/null 2>&1; do
     sleep 0.1
   done
@@ -68,8 +71,10 @@ if [ $# -eq 0 ]; then
   PWLOGS=$(mktemp -d)
   FAILED=0
 
-  npx playwright test --project=git-mode > "$PWLOGS/git.log" 2>&1 &
-  PW_GIT=$!
+  npx playwright test --project=git-mode --shard=1/2 > "$PWLOGS/git-1.log" 2>&1 &
+  PW_GIT1=$!
+  CRIT_TEST_PORT="$GIT2_PORT" npx playwright test --project=git-mode --shard=2/2 > "$PWLOGS/git-2.log" 2>&1 &
+  PW_GIT2=$!
   npx playwright test --project=file-mode > "$PWLOGS/file.log" 2>&1 &
   PW_FILE=$!
   npx playwright test --project=single-file-mode > "$PWLOGS/single.log" 2>&1 &
@@ -85,10 +90,11 @@ if [ $# -eq 0 ]; then
 
   # Mobile shares the git-mode fixture (port 3123) and both projects call
   # DELETE /api/comments in beforeEach, so they must not overlap. Wait for
-  # git-mode only, then launch mobile in parallel with the remaining projects.
+  # both git-mode shards, then launch mobile against the first fixture.
   # Skip on Windows — touch emulation is a Chromium feature identical across
   # OS, and Windows headless has reliability issues with touchscreen.tap().
-  wait $PW_GIT || FAILED=1
+  wait $PW_GIT1 || FAILED=1
+  wait $PW_GIT2 || FAILED=1
   if [[ "$OSTYPE" != msys && "$OSTYPE" != cygwin ]]; then
     npx playwright test --project=mobile > "$PWLOGS/mobile.log" 2>&1 &
     PW_MOBILE=$!
