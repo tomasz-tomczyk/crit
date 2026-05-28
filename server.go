@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -1818,44 +1819,26 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	totalComments := sess.TotalCommentCount()
 	newComments := sess.NewCommentCount()
 	unresolvedComments := sess.UnresolvedCommentCount()
 	// In v4 the session identity is a folder (.../<key>/ or .../.crit/); the
 	// agent-facing review payload lives at <identity>/review.json. Surface the
 	// file path, not the folder, so `cat $review_file` works.
 	reviewFile := reviewPathsFor(sess.critJSONPath()).Review
-	prompt := ""
-	if totalComments > 0 && unresolvedComments > 0 {
-		if sess.Mode == "plan" {
-			// Plan mode: concise feedback for the hook workflow.
-			// Claude revises the plan text directly — no need for crit comment or review file instructions.
-			prompt = s.buildPlanFeedback(reviewFile)
-		} else {
-			prompt = fmt.Sprintf(
-				"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
-					"Each comment has a scope field: \"line\" for inline comments, \"file\" for file-level comments, or \"review\" for review-level comments. "+
-					"Review-level comments appear in the top-level review_comments array (not tied to any file). "+
-					"Read the file, address each unresolved comment in the relevant file and location. "+
-					"Before acting, check each comment's replies array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change. "+
-					"For each comment, reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> \"<explanation>\"`. "+
-					"When done run: `%s`",
-				reviewFile, sess.ReinvokeCommand())
-		}
-	} else if totalComments > 0 && unresolvedComments == 0 {
-		prompt = "All comments are resolved — no changes needed, please proceed."
-	}
-
+	prompt := s.buildFinishPrompt(sess, reviewFile)
 	approved := unresolvedComments == 0
 	if !approved {
 		sess.setWaitingForAgent(true)
 	}
+
+	stats := s.buildSessionStats(sess)
 
 	writeJSON(w, map[string]any{
 		"status":      "finished",
 		"review_file": reviewFile,
 		"prompt":      prompt,
 		"approved":    approved,
+		"stats":       stats,
 	})
 
 	// Encode approved status into SSE event content as JSON so review-cycle
@@ -1863,6 +1846,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	eventData, _ := json.Marshal(map[string]any{
 		"prompt":   prompt,
 		"approved": approved,
+		"stats":    stats,
 	})
 	sess.notify(SSEEvent{
 		Type:    "finish",
@@ -1882,6 +1866,45 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		s.statsRecorded = true
 	}
 
+}
+
+// buildSessionStats returns duration/files/comments for the current session,
+// or nil if the session start time was never recorded.
+func (s *Server) buildSessionStats(sess *Session) map[string]any {
+	if s.sessionStartedAt.IsZero() {
+		return nil
+	}
+	duration := int(math.Round(time.Since(s.sessionStartedAt).Seconds()))
+	files, comments := sessionActivity(sess, s.author)
+	return map[string]any{
+		"duration_seconds":   duration,
+		"files_reviewed":     files,
+		"comments_submitted": comments,
+	}
+}
+
+// buildFinishPrompt returns the agent-facing prompt string based on comment state.
+func (s *Server) buildFinishPrompt(sess *Session, reviewFile string) string {
+	totalComments := sess.TotalCommentCount()
+	unresolvedComments := sess.UnresolvedCommentCount()
+	if totalComments > 0 && unresolvedComments > 0 {
+		if sess.Mode == "plan" {
+			return s.buildPlanFeedback(reviewFile)
+		}
+		return fmt.Sprintf(
+			"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
+				"Each comment has a scope field: \"line\" for inline comments, \"file\" for file-level comments, or \"review\" for review-level comments. "+
+				"Review-level comments appear in the top-level review_comments array (not tied to any file). "+
+				"Read the file, address each unresolved comment in the relevant file and location. "+
+				"Before acting, check each comment's replies array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change. "+
+				"For each comment, reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> \"<explanation>\"`. "+
+				"When done run: `%s`",
+			reviewFile, sess.ReinvokeCommand())
+	}
+	if totalComments > 0 && unresolvedComments == 0 {
+		return "All comments are resolved — no changes needed, please proceed."
+	}
+	return ""
 }
 
 // buildPlanFeedback formats review feedback for plan mode.
@@ -1971,8 +1994,9 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 				sess.SetAwaitingFirstReview(false)
 				// Parse the structured finish event data
 				var finishData struct {
-					Prompt   string `json:"prompt"`
-					Approved bool   `json:"approved"`
+					Prompt   string         `json:"prompt"`
+					Approved bool           `json:"approved"`
+					Stats    map[string]any `json:"stats"`
 				}
 				json.Unmarshal([]byte(event.Content), &finishData)
 				writeJSON(w, map[string]any{
@@ -1980,6 +2004,7 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 					"review_file":  reviewPathsFor(sess.critJSONPath()).Review,
 					"prompt":       finishData.Prompt,
 					"approved":     finishData.Approved,
+					"stats":        finishData.Stats,
 					"next_command": buildNextCommand(s.cliArgs),
 				})
 				return

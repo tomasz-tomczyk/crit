@@ -211,6 +211,17 @@
     return dismiss;
   }
 
+  // ===== formatStatsDuration =====
+  // Human-readable duration: "42s", "3m", "1h", "1h 15m".
+  function formatStatsDuration(seconds) {
+    if (seconds < 60) return seconds + 's';
+    var hours = Math.floor(seconds / 3600);
+    var minutes = Math.floor((seconds % 3600) / 60);
+    if (hours === 0) return minutes + 'm';
+    if (minutes === 0) return hours + 'h';
+    return hours + 'h ' + minutes + 'm';
+  }
+
   // ===== runFinishReview =====
   // Shared finish-review flow used by both code-review (app.js) and
   // live-mode (live-mode.js). POSTs /api/finish, parses
@@ -273,12 +284,38 @@
       if (headingEl) headingEl.textContent = approved ? 'Approved' : 'Review Complete';
       if (messageEl) {
         if (approved) {
-          messageEl.textContent =
-            'Your agent has been notified — no further action needed. ' +
-            'You can close this tab whenever you\'re ready.';
+          var phrases = [
+            'Ship it!',
+            'Looks good to me!',
+            'Clean as a whistle.',
+            'Nothing to see here — all good.',
+            'Ready to roll.',
+            'Two thumbs up.',
+            'Stamp of approval.',
+            'Good to go!',
+            'Nailed it.',
+            'All clear, captain.',
+          ];
+          messageEl.textContent = phrases[Math.floor(Math.random() * phrases.length)];
         } else {
           messageEl.textContent =
             "Agent notified. Copy the prompt below if it wasn't listening.";
+        }
+      }
+
+      var statsEl = document.getElementById('waitingStats');
+      if (statsEl) {
+        if (approved && data.stats) {
+          var parts = [];
+          var dur = data.stats.duration_seconds;
+          if (dur != null) parts.push(formatStatsDuration(dur));
+          if (data.stats.files_reviewed) parts.push(data.stats.files_reviewed + (data.stats.files_reviewed === 1 ? ' file' : ' files'));
+          if (data.stats.comments_submitted) parts.push(data.stats.comments_submitted + (data.stats.comments_submitted === 1 ? ' comment' : ' comments'));
+          statsEl.textContent = parts.length ? parts.join(' · ') : '';
+          statsEl.style.display = parts.length ? '' : 'none';
+        } else {
+          statsEl.textContent = '';
+          statsEl.style.display = 'none';
         }
       }
 

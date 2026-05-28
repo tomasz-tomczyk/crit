@@ -2204,6 +2204,13 @@ textarea.drag-active {
   .waiting-spinner .dot { animation: none; opacity: 0.6; }
 }
 
+.waiting-dialog .waiting-stats {
+  font-size: 0.95rem;
+  color: var(--crit-editor-fg-secondary);
+  margin: 0.25rem 0 0;
+  letter-spacing: 0.01em;
+}
+
 .waiting-dialog .waiting-edits {
   font-size: 14px;
   font-weight: 600;

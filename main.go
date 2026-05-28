@@ -2406,6 +2406,11 @@ func runReviewClient(entry sessionEntry, sessionKey string) (approved bool) {
 	var result struct {
 		Approved    bool   `json:"approved"`
 		NextCommand string `json:"next_command"`
+		Stats       *struct {
+			Duration int `json:"duration_seconds"`
+			Files    int `json:"files_reviewed"`
+			Comments int `json:"comments_submitted"`
+		} `json:"stats"`
 	}
 	if json.Unmarshal(body, &result) == nil {
 		// Print the exact command for the next round so the agent can
@@ -2414,6 +2419,15 @@ func runReviewClient(entry sessionEntry, sessionKey string) (approved bool) {
 		// or may not end with one.
 		if !result.Approved && result.NextCommand != "" {
 			fmt.Fprintf(os.Stdout, "\nNext round: %s\n", result.NextCommand)
+		}
+		if result.Approved && result.Stats != nil {
+			s := result.Stats
+			if s.Files > 0 || s.Comments > 0 {
+				fmt.Fprintf(os.Stderr, "\n%s · %d %s · %d %s\n",
+					formatDuration(s.Duration),
+					s.Files, pluralize(s.Files, "file", "files"),
+					s.Comments, pluralize(s.Comments, "comment", "comments"))
+			}
 		}
 		return result.Approved
 	}
