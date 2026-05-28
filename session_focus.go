@@ -672,6 +672,18 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 		return s.GetSessionInfo()
 	}
 
+	// Range focus already pins the file list to BaseSHA..HeadSHA via
+	// buildFilesForFocus. Working-tree scopes (branch, staged, unstaged) are
+	// meaningless in this mode — they would run git diff against HEAD instead
+	// of the range's head SHA, leaking files outside the range. Delegate to
+	// GetSessionInfo which returns the pre-built range-scoped file list.
+	s.mu.RLock()
+	inRange := s.Focus.Kind == FocusRange
+	s.mu.RUnlock()
+	if inRange && commit == "" {
+		return s.GetSessionInfo()
+	}
+
 	snap := s.snapshotForScoped()
 
 	info := SessionInfo{

@@ -1052,11 +1052,17 @@
           b.classList.add('disabled');
         }
       });
+      // Range focus pins the file list to BaseSHA..HeadSHA server-side;
+      // working-tree scopes (branch/staged/unstaged) don't apply. Skip
+      // the scope re-fetch — the initial /api/session response is already
+      // correct, and the scope toggle will be hidden once the range chrome
+      // renders.
+      const inRangeFocus = session.focus && session.focus.kind === 'range';
       if (diffScope === null) {
         // First launch — prefer "branch" (committed changes only) over "all"
         // (which includes untracked files and can overwhelm large repos).
         diffScope = scopes.indexOf('branch') !== -1 ? 'branch' : 'all';
-        if (diffScope !== 'all') {
+        if (diffScope !== 'all' && !inRangeFocus) {
           const corrected = await fetchWhenReady('/api/session?scope=' + enc(diffScope));
           session = corrected;
           reviewComments = corrected.review_comments || [];
