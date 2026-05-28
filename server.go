@@ -1852,10 +1852,11 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, map[string]any{
-		"status":      "finished",
-		"review_file": reviewFile,
-		"prompt":      prompt,
-		"approved":    approved,
+		"status":         "finished",
+		"review_file":    reviewFile,
+		"prompt":         prompt,
+		"approved":       approved,
+		"resume_command": sess.GetSessionInfo().ResumeCommand,
 	})
 
 	// Encode approved status into SSE event content as JSON so review-cycle
@@ -1928,6 +1929,10 @@ func buildNextCommand(args []string) string {
 	return strings.Join(parts, " ")
 }
 
+func buildResumeCommand(cwd, branch string, args []string) string {
+	return fmt.Sprintf("cd %s && git checkout %s && %s", shellQuoteArg(cwd), shellQuoteArg(branch), buildNextCommand(args))
+}
+
 // shellQuoteArg quotes a single CLI arg using POSIX single-quote syntax when
 // it contains whitespace or shell metacharacters; returns it unchanged
 // otherwise. Single quotes inside the arg are escaped as '\”.
@@ -1976,11 +1981,12 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 				}
 				json.Unmarshal([]byte(event.Content), &finishData)
 				writeJSON(w, map[string]any{
-					"status":       "finished",
-					"review_file":  reviewPathsFor(sess.critJSONPath()).Review,
-					"prompt":       finishData.Prompt,
-					"approved":     finishData.Approved,
-					"next_command": buildNextCommand(s.cliArgs),
+					"status":         "finished",
+					"review_file":    reviewPathsFor(sess.critJSONPath()).Review,
+					"prompt":         finishData.Prompt,
+					"approved":       finishData.Approved,
+					"next_command":   buildNextCommand(s.cliArgs),
+					"resume_command": sess.GetSessionInfo().ResumeCommand,
 				})
 				return
 			}

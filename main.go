@@ -1761,16 +1761,31 @@ func hintMissingIntegrationsFor(cwd, home string) {
 	}
 }
 
-func installDaemonSignalHandler(pid int) {
+func installDaemonSignalHandler(pid int, beforeExit ...func()) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, terminationSignals()...)
 	go func() {
 		<-sigCh
-		if proc, err := os.FindProcess(pid); err == nil {
-			_ = terminateProcess(proc)
-		}
-		os.Exit(0)
+		handleDaemonSignal(pid, beforeExit, os.Exit)
 	}()
+}
+
+func handleDaemonSignal(pid int, beforeExit []func(), exit func(int)) {
+	handleDaemonSignalWith(pid, beforeExit, terminateProcess, exit)
+}
+
+func handleDaemonSignalWith(pid int, beforeExit []func(), terminate func(*os.Process) error, exit func(int)) {
+	for _, fn := range beforeExit {
+		if fn != nil {
+			fn()
+		}
+	}
+	if pid > 0 {
+		if proc, err := os.FindProcess(pid); err == nil {
+			_ = terminate(proc)
+		}
+	}
+	exit(0)
 }
 
 func killDaemonOnApproval(approved bool, pid int) {
@@ -2332,16 +2347,22 @@ func runReview(args []string) {
 		weStartedDaemon = true
 	}
 
-	// If we started the daemon, clean it up on Ctrl+C
-	if weStartedDaemon {
-		installDaemonSignalHandler(entry.PID)
-	}
+	installDaemonSignalHandler(resumeSignalPID(weStartedDaemon, entry), func() {
+		printSessionResumeInstructions(entry, args, os.Stderr, isTerminal(os.Stderr))
+	})
 
 	approved := runReviewClient(entry, key)
 	printSessionResumeInstructions(entry, args, os.Stderr, isTerminal(os.Stderr))
 
 	killDaemonOnApproval(approved, entry.PID)
 	cleanupOnApproval(approved, entry.ReviewPath, LoadConfig(cwd).CleanupOnApproveEnabled())
+}
+
+func resumeSignalPID(weStartedDaemon bool, entry sessionEntry) int {
+	if weStartedDaemon {
+		return entry.PID
+	}
+	return 0
 }
 
 func printSessionResumeInstructions(entry sessionEntry, args []string, w io.Writer, color bool) {

@@ -245,6 +245,7 @@
       var data = await resp.json();
       var approved = !!data.approved;
       var prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
+      var resumeCommand = o.resumeCommand || data.resume_command || '';
 
       var dialog = document.getElementById('waitingDialog');
       var headingEl = document.getElementById('waitingHeading');
@@ -259,23 +260,31 @@
         var copyLabel = clipEl.querySelector('.copy-label');
         if (copyLabel) copyLabel.textContent = 'Copy';
         clipEl.classList.remove('copied');
-        clipEl.setAttribute('aria-label', 'Copy prompt to clipboard');
+        clipEl.setAttribute('aria-label', approved && resumeCommand ? 'Copy resume command to clipboard' : 'Copy prompt to clipboard');
       }
 
       if (dialog) {
         dialog.classList.remove('approved');
+        dialog.classList.remove('has-resume-command');
         if (approved) {
           // Force reflow so the CSS animation restarts when the class is re-added.
           void dialog.offsetWidth;
           dialog.classList.add('approved');
+          if (resumeCommand) dialog.classList.add('has-resume-command');
         }
       }
+      if (approved && resumeCommand) {
+        prompt = resumeCommand;
+        if (promptEl) promptEl.textContent = resumeCommand;
+        if (previewEl) previewEl.textContent = resumeCommand;
+      }
+
       if (headingEl) headingEl.textContent = approved ? 'Approved' : 'Review Complete';
       if (messageEl) {
         if (approved) {
-          messageEl.textContent =
-            'Your agent has been notified — no further action needed. ' +
-            'You can close this tab whenever you\'re ready.';
+          messageEl.textContent = resumeCommand
+            ? 'Copy the resume command if you want to return to this review later.'
+            : 'Your agent has been notified — no further action needed. You can close this tab whenever you\'re ready.';
         } else {
           messageEl.textContent =
             "Agent notified. Copy the prompt below if it wasn't listening.";
@@ -637,7 +646,7 @@
     if (_tipInterval) { clearInterval(_tipInterval); _tipInterval = null; }
   }
 
-  function showDisconnected() {
+  function showDisconnected(resumeCommand) {
     if (document.querySelector('.disconnected-banner')) return;
     var header = document.querySelector('.header');
     if (!header) return;
@@ -653,6 +662,32 @@
     text.textContent = 'Server stopped — your review is now read only. Safe to close this tab.';
     banner.appendChild(pill);
     banner.appendChild(text);
+    if (resumeCommand) {
+      var resumeRow = document.createElement('div');
+      resumeRow.className = 'disconnected-resume-row';
+      var code = document.createElement('code');
+      code.className = 'disconnected-resume-command';
+      code.textContent = resumeCommand;
+      var copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'disconnected-copy-btn';
+      copy.setAttribute('aria-label', 'Copy resume command');
+      copy.textContent = 'Copy';
+      copy.addEventListener('click', function () {
+        if (!navigator.clipboard || !navigator.clipboard.writeText) return;
+        return navigator.clipboard.writeText(resumeCommand).then(function () {
+          copy.textContent = 'Copied';
+          copy.classList.add('copied');
+          setTimeout(function () {
+            copy.textContent = 'Copy';
+            copy.classList.remove('copied');
+          }, 1200);
+        }).catch(function () {});
+      });
+      resumeRow.appendChild(code);
+      resumeRow.appendChild(copy);
+      banner.appendChild(resumeRow);
+    }
     header.insertAdjacentElement('afterend', banner);
     var setHeaderVar = function () {
       document.documentElement.style.setProperty('--crit-header-height', header.offsetHeight + 'px');

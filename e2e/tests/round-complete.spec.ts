@@ -275,8 +275,10 @@ test.describe('Multi-Round — Frontend', () => {
 
     const dialog = page.locator('#waitingDialog');
     await expect(dialog).toHaveClass(/approved/, { timeout: 10_000 });
+    await expect(dialog).toHaveClass(/has-resume-command/);
     await expect(page.locator('#waitingHeading')).toHaveText('Approved');
-    await expect(page.locator('#waitingMessage')).toContainText('close this tab');
+    await expect(page.locator('#waitingMessage')).toContainText('Copy the resume command');
+    await expect(page.locator('#promptPreview')).toContainText('git checkout');
   });
 
   test('round-complete SSE triggers UI refresh and exits waiting state', async ({ page, request }) => {

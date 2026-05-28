@@ -11,15 +11,22 @@ async function switchScope(page: Page, scope: string) {
   await expect(page.locator(`#scopeToggle .toggle-btn[data-scope="${scope}"]`)).toHaveClass(/active/);
 }
 
+async function setDiffScope(page: Page, scope: string) {
+  await page.context().addCookies([{
+    name: 'crit-settings',
+    value: encodeURIComponent(JSON.stringify({ diffScope: scope })),
+    domain: 'localhost',
+    path: '/',
+  }]);
+}
+
 test.beforeEach(async ({ request }) => {
   await clearAllComments(request);
 });
 
 test.afterEach(async ({ page }) => {
   // Reset scope cookie so other test files aren't affected
-  await page.evaluate(() => {
-    document.cookie = 'crit-diff-scope=all; path=/; max-age=31536000; SameSite=Strict';
-  });
+  await setDiffScope(page, 'all');
 });
 
 async function pressShiftScope(page: Page, digit: string, scope: string) {
@@ -30,17 +37,20 @@ async function pressShiftScope(page: Page, digit: string, scope: string) {
 
 test.describe('Scope Toggle', () => {
   test('scope toggle is visible in git mode with All active by default', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     await expect(page.locator('#scopeToggle')).toBeVisible();
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
   });
 
   test('Branch button is visible on feature branch', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="branch"]')).toBeVisible();
   });
 
   test('switching to branch scope shows only committed files', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     await switchScope(page, 'branch');
     // Branch: server.go, deleted.txt, plan.md, handler.js, routes.go, legacy.go (6 committed)
@@ -50,6 +60,7 @@ test.describe('Scope Toggle', () => {
   });
 
   test('switching to staged scope shows only staged files', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     await switchScope(page, 'staged');
     // Staged: utils.go, login.feature
@@ -60,6 +71,7 @@ test.describe('Scope Toggle', () => {
   });
 
   test('switching to unstaged scope shows only unstaged files', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     await switchScope(page, 'unstaged');
     // Unstaged: config.yaml only
@@ -70,6 +82,7 @@ test.describe('Scope Toggle', () => {
   });
 
   test('switching back to all scope restores full file list', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     await switchScope(page, 'staged');
     await expect(page.locator('.file-section')).toHaveCount(2);
@@ -81,6 +94,7 @@ test.describe('Scope Toggle', () => {
   });
 
   test('active button styling updates on click', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     await switchScope(page, 'staged');
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="staged"]')).toHaveClass(/active/);
@@ -88,6 +102,7 @@ test.describe('Scope Toggle', () => {
   });
 
   test('scope persists across page reload', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     await switchScope(page, 'staged');
     await expect(page.locator('.file-section')).toHaveCount(2);
@@ -98,6 +113,7 @@ test.describe('Scope Toggle', () => {
   });
 
   test('file tree updates when scope changes', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     await switchScope(page, 'staged');
     await expect(page.locator('.tree-file')).toHaveCount(2);
@@ -105,6 +121,7 @@ test.describe('Scope Toggle', () => {
   });
 
   test('unavailable scopes are disabled not hidden', async ({ page }) => {
+    await setDiffScope(page, 'all');
     // Intercept session API to return only "all" and "branch" as available
     await page.route('**/api/session*', async route => {
       const response = await route.fetch();
@@ -127,12 +144,7 @@ test.describe('Scope Toggle', () => {
 
   test('falls back to all when saved scope becomes unavailable', async ({ page }) => {
     // Set cookie to "staged" before loading
-    await page.context().addCookies([{
-      name: 'crit-diff-scope',
-      value: 'staged',
-      domain: 'localhost',
-      path: '/',
-    }]);
+    await setDiffScope(page, 'staged');
     // Intercept session API to exclude "staged" from available scopes
     await page.route('**/api/session*', async route => {
       const response = await route.fetch();
@@ -149,12 +161,7 @@ test.describe('Scope Toggle', () => {
   test('falls back to all and re-fetches files when stale scope returns empty list', async ({ page }) => {
     // Simulate: user was on a feature branch with "branch" scope, then switched to
     // the default branch where branch scope returns no files.
-    await page.context().addCookies([{
-      name: 'crit-diff-scope',
-      value: 'branch',
-      domain: 'localhost',
-      path: '/',
-    }]);
+    await setDiffScope(page, 'branch');
 
     let requestCount = 0;
     await page.route('**/api/session*', async route => {
@@ -185,6 +192,7 @@ test.describe('Scope Toggle', () => {
   });
 
   test('Shift+1 activates All scope', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     // Start on branch scope so the shortcut has a visible effect
     await switchScope(page, 'branch');
@@ -195,24 +203,28 @@ test.describe('Scope Toggle', () => {
   });
 
   test('Shift+2 activates Branch scope', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     await pressShiftScope(page, '2', 'branch');
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).not.toHaveClass(/active/);
   });
 
   test('Shift+3 activates Staged scope', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     await pressShiftScope(page, '3', 'staged');
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).not.toHaveClass(/active/);
   });
 
   test('Shift+4 activates Unstaged scope', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     await pressShiftScope(page, '4', 'unstaged');
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).not.toHaveClass(/active/);
   });
 
   test('pressing Shift+1 when All is already active does nothing', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await loadPage(page);
     // All is active by default
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
@@ -223,6 +235,7 @@ test.describe('Scope Toggle', () => {
   });
 
   test('clicking a disabled scope button does nothing', async ({ page }) => {
+    await setDiffScope(page, 'all');
     await page.route('**/api/session*', async route => {
       const response = await route.fetch();
       const json = await response.json();

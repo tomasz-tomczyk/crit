@@ -6608,6 +6608,7 @@
   // and uiState transition (live-mode wires its own state machine).
   async function doFinishReview() {
     return await window.crit.shared.runFinishReview({
+      resumeCommand: session && session.resume_command,
       onApproved: function () { waitingNotApproved = false; setUIState('waiting'); },
       onWaiting: function () { waitingNotApproved = true; setUIState('waiting'); },
       onError: function (err) {
@@ -6908,7 +6909,7 @@
       },
       'server-shutdown': function() {
       conn.close();
-      showDisconnected();
+      showDisconnected(session && session.resume_command);
       },
     }, {
       onError: function() {

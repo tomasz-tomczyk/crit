@@ -1959,6 +1959,14 @@ func TestPrintSessionResumeInstructions_GitBranch(t *testing.T) {
 	}
 }
 
+func TestBuildResumeCommand_QuotesPathBranchAndArgs(t *testing.T) {
+	got := buildResumeCommand("/home/user/my project", "feat/special branch", []string{"docs/read me.md"})
+	want := "cd '/home/user/my project' && git checkout 'feat/special branch' && crit 'docs/read me.md'"
+	if got != want {
+		t.Errorf("buildResumeCommand() = %q, want %q", got, want)
+	}
+}
+
 func TestPrintSessionResumeInstructions_NoBranch(t *testing.T) {
 	var buf strings.Builder
 	entry := sessionEntry{CWD: "/home/user/project"}
@@ -1966,6 +1974,54 @@ func TestPrintSessionResumeInstructions_NoBranch(t *testing.T) {
 
 	if got := buf.String(); got != "" {
 		t.Errorf("resume instructions = %q, want empty output", got)
+	}
+}
+
+func TestResumeSignalPID(t *testing.T) {
+	entry := sessionEntry{PID: 4321}
+	if got := resumeSignalPID(true, entry); got != 4321 {
+		t.Fatalf("resumeSignalPID(true) = %d, want 4321", got)
+	}
+	if got := resumeSignalPID(false, entry); got != 0 {
+		t.Fatalf("resumeSignalPID(false) = %d, want 0", got)
+	}
+}
+
+func TestHandleDaemonSignal_RunsCallbacksAndExits(t *testing.T) {
+	called := 0
+	exitCode := -1
+	handleDaemonSignal(0, []func(){
+		nil,
+		func() { called++ },
+		func() { called += 2 },
+	}, func(code int) {
+		exitCode = code
+	})
+
+	if called != 3 {
+		t.Fatalf("callbacks called = %d, want 3", called)
+	}
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0", exitCode)
+	}
+}
+
+func TestHandleDaemonSignal_TerminatesPositivePID(t *testing.T) {
+	pid := os.Getpid()
+	terminated := 0
+	exitCode := -1
+	handleDaemonSignalWith(pid, nil, func(proc *os.Process) error {
+		terminated = proc.Pid
+		return nil
+	}, func(code int) {
+		exitCode = code
+	})
+
+	if terminated != pid {
+		t.Fatalf("terminated pid = %d, want %d", terminated, pid)
+	}
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0", exitCode)
 	}
 }
 

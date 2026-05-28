@@ -1,6 +1,15 @@
 import { test, expect } from '@playwright/test';
 import { loadPage, goSection, jsSection } from './helpers';
 
+test.beforeEach(async ({ page }) => {
+  await page.context().addCookies([{
+    name: 'crit-settings',
+    value: encodeURIComponent(JSON.stringify({ diffScope: 'all' })),
+    domain: 'localhost',
+    path: '/',
+  }]);
+});
+
 // ============================================================
 // Syntax Highlighting in Diff Views
 // ============================================================

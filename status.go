@@ -78,9 +78,8 @@ func (s *Status) FileUpdated(editCount int) {
 
 // ResumeInstructions prints a hint showing how to return to this review later.
 func (s *Status) ResumeInstructions(cwd, branch string, args []string) {
-	cmd := buildNextCommand(args)
 	fmt.Fprintf(s.w, "\n%s\n", s.dim("To resume this review:"))
-	fmt.Fprintf(s.w, "  %s\n", s.dim(fmt.Sprintf("cd %s && git checkout %s && %s", shellQuoteArg(cwd), shellQuoteArg(branch), cmd)))
+	fmt.Fprintf(s.w, "  %s\n", s.dim(buildResumeCommand(cwd, branch, args)))
 }
 
 func isTerminal(f *os.File) bool {

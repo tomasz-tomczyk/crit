@@ -2489,6 +2489,7 @@ type SessionInfo struct {
 	Files            []SessionFileInfo `json:"files"`
 	ReviewComments   []Comment         `json:"review_comments"`
 	Cwd              string            `json:"cwd,omitempty"`
+	ResumeCommand    string            `json:"resume_command,omitempty"`
 	Focus            Focus             `json:"focus"`
 	LastRangeFocus   *Focus            `json:"last_range_focus,omitempty"`
 	HiddenUnresolved int               `json:"hidden_unresolved"`
@@ -2538,6 +2539,9 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		Cwd:            s.RepoRoot,
 		Focus:          s.Focus,
 		LastRangeFocus: s.LastRangeFocus,
+	}
+	if s.Branch != "" {
+		info.ResumeCommand = buildResumeCommand(s.RepoRoot, s.Branch, s.CLIArgs)
 	}
 
 	info.AvailableScopes = cachedAvailableScopes(info.BaseRef, vcs)

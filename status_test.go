@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
@@ -170,5 +171,16 @@ func TestResumeInstructions_QuotesSpecialChars(t *testing.T) {
 	}
 	if !strings.Contains(got, "'/home/user/my project'") {
 		t.Errorf("expected cwd to be quoted, got %q", got)
+	}
+}
+
+func TestIsTerminal_RegularFile(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "not-a-terminal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if isTerminal(f) {
+		t.Fatal("regular file reported as terminal")
 	}
 }

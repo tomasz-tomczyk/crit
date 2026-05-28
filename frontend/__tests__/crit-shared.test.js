@@ -409,6 +409,21 @@ test('runFinishReview approved path: sets approved class + Approved heading + on
   assert.equal(waitingCalled, false);
 });
 
+test('runFinishReview approved path shows resume command when available', async () => {
+  const resume = 'cd /repo && git checkout feature && crit README.md';
+  const fetch = async () => ({ ok: true, json: async () => ({ approved: true, prompt: 'ok-prompt', resume_command: resume }) });
+  const { shared: s, els } = makeFinishSandbox(fetch, { writeText: async () => {} });
+
+  const result = await s.runFinishReview({});
+
+  assert.deepEqual(result, { approved: true, prompt: resume });
+  assert.equal(els.waitingPrompt.textContent, resume);
+  assert.equal(els.promptPreview.textContent, resume);
+  assert.equal(els.waitingMessage.textContent, 'Copy the resume command if you want to return to this review later.');
+  assert.equal(els.waitingClipboard.getAttribute('aria-label'), 'Copy resume command to clipboard');
+  assert.equal(els.waitingDialog.classList.contains('has-resume-command'), true);
+});
+
 test('runFinishReview resets copy button via .copy-label span, not textContent (regression)', async () => {
   const fetch = async () => ({ ok: true, json: async () => ({ approved: true, prompt: 'p' }) });
   const { shared: s, els } = makeFinishSandbox(fetch, { writeText: async () => {} });
@@ -469,6 +484,68 @@ test('runFinishReview onError catches and returns null', async () => {
   const result = await s.runFinishReview({ onError: (e) => { captured = e; } });
   assert.equal(result, null);
   assert.match(String(captured), /HTTP 500/);
+});
+
+test('showDisconnected renders a copyable resume command', async () => {
+  const resume = 'cd /repo && git checkout feature && crit README.md';
+  const header = {
+    offsetHeight: 42,
+    insertAdjacentElement(pos, el) { this.inserted = { pos, el }; },
+  };
+  const created = [];
+  function makeEl(tag) {
+    const el = {
+      tagName: tag,
+      className: '',
+      textContent: '',
+      children: [],
+      style: {},
+      _attrs: {},
+      _listeners: {},
+      appendChild(child) { this.children.push(child); return child; },
+      setAttribute(k, v) { this._attrs[k] = v; },
+      getAttribute(k) { return this._attrs[k] || null; },
+      addEventListener(type, fn) { this._listeners[type] = fn; },
+      classList: {
+        _set: new Set(),
+        add(...c) { c.forEach((x) => this._set.add(x)); },
+        remove(...c) { c.forEach((x) => this._set.delete(x)); },
+        contains(c) { return this._set.has(c); },
+      },
+    };
+    created.push(el);
+    return el;
+  }
+  const doc = {
+    cookie: '',
+    documentElement: { style: { setProperty() {} } },
+    querySelector(sel) {
+      if (sel === '.disconnected-banner') return null;
+      if (sel === '.header') return header;
+      return null;
+    },
+    createElement: makeEl,
+  };
+  const win = { setTimeout: (fn) => fn(), addEventListener() {}, crit: {} };
+  Object.defineProperty(globalThis.navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: async (value) => { win.copied = value; } },
+  });
+  win.navigator = globalThis.navigator;
+  globalThis.document = doc;
+  globalThis.setTimeout = win.setTimeout;
+  const fn = new Function('window', 'document', src + '\nreturn window;');
+  fn(win, doc);
+
+  win.crit.shared.showDisconnected(resume);
+
+  assert.equal(header.inserted.pos, 'afterend');
+  const code = created.find((el) => el.className === 'disconnected-resume-command');
+  const copy = created.find((el) => el.className === 'disconnected-copy-btn');
+  assert.equal(code.textContent, resume);
+  assert.equal(copy.getAttribute('aria-label'), 'Copy resume command');
+  await copy._listeners.click();
+  assert.equal(win.copied, resume);
 });
 
 // ----- waitForSession -----

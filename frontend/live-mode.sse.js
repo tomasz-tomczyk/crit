@@ -107,7 +107,7 @@
     function showLiveDisconnected() {
       var shared = window.crit && window.crit.shared;
       if (shared && typeof shared.showDisconnected === 'function') {
-        shared.showDisconnected();
+        shared.showDisconnected(state && state.session && state.session.resume_command);
       }
     }
 

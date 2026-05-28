@@ -2090,6 +2090,62 @@ textarea.drag-active {
   color: var(--crit-finish-body-fg);
 }
 
+.disconnected-resume-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.disconnected-resume-command {
+  max-width: min(56vw, 760px);
+  padding: 4px 8px;
+  border-radius: var(--crit-r-sm);
+  background: var(--crit-editor-bg-elevated);
+  color: var(--crit-editor-fg-muted);
+  font-family: var(--crit-font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.disconnected-copy-btn {
+  flex-shrink: 0;
+  border: 1px solid var(--crit-border);
+  border-radius: var(--crit-r-sm);
+  background: var(--crit-bg-card);
+  color: var(--crit-brand);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.disconnected-copy-btn:hover {
+  background: var(--crit-brand-subtle);
+}
+
+.disconnected-copy-btn.copied {
+  color: var(--crit-green);
+}
+
+@media (max-width: 760px) {
+  .disconnected-banner {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .disconnected-resume-row {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  .disconnected-resume-command {
+    max-width: none;
+  }
+}
+
 /* ===== Waiting Overlay ===== */
 .waiting-overlay {
   display: none;
@@ -2172,10 +2228,13 @@ textarea.drag-active {
   animation: success-check-draw 0.35s cubic-bezier(0.4, 0, 0.2, 1) 0.4s forwards;
 }
 .waiting-dialog.approved .waiting-spinner { display: none; }
-.waiting-dialog.approved .prompt-copy-row,
+.waiting-dialog.approved:not(.has-resume-command) .prompt-copy-row,
 .waiting-dialog.approved .waiting-divider,
 .waiting-dialog.approved .tip-section,
 .waiting-dialog.approved .waiting-footer { display: none; }
+.waiting-dialog.approved.has-resume-command .prompt-copy-row {
+  margin-bottom: 24px;
+}
 .waiting-dialog.approved .success-mark {
   display: inline-block;
   filter: drop-shadow(0 0 0 transparent);

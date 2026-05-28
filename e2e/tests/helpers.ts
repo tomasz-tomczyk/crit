@@ -7,8 +7,33 @@ export async function clearAllComments(request: APIRequestContext) {
 
 // Navigate to the root page and wait for loading to complete.
 export async function loadPage(page: Page) {
+  await ensureDefaultSettings(page);
   await page.goto('/');
   await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+}
+
+async function ensureDefaultSettings(page: Page) {
+  const cookies = await page.context().cookies();
+  const existing = cookies.find(cookie => cookie.name === 'crit-settings');
+  let settings: Record<string, unknown> = {};
+  if (existing && existing.value) {
+    try {
+      settings = JSON.parse(decodeURIComponent(existing.value));
+    } catch {
+      settings = {};
+    }
+  }
+  if (settings.diffScope && settings.diffMode) return;
+  await page.context().addCookies([{
+    name: 'crit-settings',
+    value: encodeURIComponent(JSON.stringify({
+      diffScope: settings.diffScope || 'all',
+      diffMode: settings.diffMode || 'split',
+      ...settings,
+    })),
+    domain: 'localhost',
+    path: '/',
+  }]);
 }
 
 // Scope selectors to the plan.md file section.
