@@ -760,6 +760,35 @@ func TestDetectFileType(t *testing.T) {
 	}
 }
 
+func TestFilterBinary(t *testing.T) {
+	changes := []FileChange{
+		{Path: "main.go", Status: "modified"},
+		{Path: "lib.dylib", Status: "untracked"},
+		{Path: "README.md", Status: "added"},
+		{Path: "image.PNG", Status: "added"},
+		{Path: "archive.tar.gz", Status: "untracked"},
+		{Path: "Makefile", Status: "modified"},
+		{Path: ".gitignore", Status: "modified"},
+	}
+	got := filterBinary(changes)
+	want := []string{"main.go", "README.md", "Makefile", ".gitignore"}
+	if len(got) != len(want) {
+		t.Fatalf("filterBinary returned %d files, want %d", len(got), len(want))
+	}
+	for i, fc := range got {
+		if fc.Path != want[i] {
+			t.Errorf("filterBinary[%d].Path = %q, want %q", i, fc.Path, want[i])
+		}
+	}
+}
+
+func TestFilterBinaryEmpty(t *testing.T) {
+	got := filterBinary(nil)
+	if len(got) != 0 {
+		t.Errorf("filterBinary(nil) returned %d files, want 0", len(got))
+	}
+}
+
 func TestSession_CritJSONPath_Default(t *testing.T) {
 	s := newTestSession(t)
 	want := filepath.Join(s.RepoRoot, ".crit")

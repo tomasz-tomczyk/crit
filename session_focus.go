@@ -456,6 +456,7 @@ func (s *Session) buildFilesForWorkingTree(vcs VCS, repoRoot string) ([]*FileEnt
 		return nil, "", err
 	}
 	changes = filterIgnored(changes, ignorePatterns)
+	changes = filterBinary(changes)
 	out := make([]*FileEntry, 0, len(changes))
 	for _, fc := range changes {
 		fe := &FileEntry{
@@ -701,6 +702,7 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	}
 
 	changes = filterIgnored(changes, snap.ignorePatterns)
+	changes = filterBinary(changes)
 
 	for _, fc := range changes {
 		fi := SessionFileInfo{
