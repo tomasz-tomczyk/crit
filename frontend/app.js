@@ -555,7 +555,7 @@
       renderAllFiles();
     });
   }
-  let diffScope = getSetting('diffScope', 'all'); // 'all', 'branch', 'staged', or 'unstaged'
+  let diffScope = getSetting('diffScope', null); // null = no preference saved yet
 
   // Single source of truth for hide-resolved state. Persisted via the
   // consolidated `crit-settings` cookie (not localStorage) so the setting
@@ -929,7 +929,7 @@
       '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>';
 
     const [sessionRes, configRes] = await Promise.all([
-      fetchWhenReady('/api/session?scope=' + enc(diffScope)),
+      fetchWhenReady('/api/session' + (diffScope ? '?scope=' + enc(diffScope) : '')),
       fetchWhenReady('/api/config'),
     ]);
 
@@ -1087,7 +1087,14 @@
           b.classList.add('disabled');
         }
       });
-      if (scopes.indexOf(diffScope) === -1) {
+      if (diffScope === null) {
+        // First launch — prefer "branch" (committed changes only) over "all"
+        // (which includes untracked files and can overwhelm large repos).
+        diffScope = scopes.indexOf('branch') !== -1 ? 'branch' : 'all';
+        const corrected = await fetchWhenReady('/api/session?scope=' + enc(diffScope));
+        session = corrected;
+        reviewComments = corrected.review_comments || [];
+      } else if (scopes.indexOf(diffScope) === -1) {
         diffScope = 'all';
         setSetting('diffScope', 'all');
         // Re-fetch session with corrected scope — the initial fetch used the
