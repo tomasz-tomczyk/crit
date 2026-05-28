@@ -1948,6 +1948,27 @@ func TestDirArgs(t *testing.T) {
 	}
 }
 
+func TestPrintSessionResumeInstructions_GitBranch(t *testing.T) {
+	var buf strings.Builder
+	entry := sessionEntry{CWD: "/home/user/project", Branch: "feature-branch"}
+	printSessionResumeInstructions(entry, []string{"--no-open", "--port", "0"}, &buf, false)
+
+	want := "\nTo resume this review:\n  cd /home/user/project && git checkout feature-branch && crit --no-open --port 0\n"
+	if got := buf.String(); got != want {
+		t.Errorf("resume instructions = %q, want %q", got, want)
+	}
+}
+
+func TestPrintSessionResumeInstructions_NoBranch(t *testing.T) {
+	var buf strings.Builder
+	entry := sessionEntry{CWD: "/home/user/project"}
+	printSessionResumeInstructions(entry, nil, &buf, false)
+
+	if got := buf.String(); got != "" {
+		t.Errorf("resume instructions = %q, want empty output", got)
+	}
+}
+
 func TestParseShareFlags(t *testing.T) {
 	tests := []struct {
 		name      string

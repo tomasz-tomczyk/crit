@@ -140,3 +140,35 @@ func TestStatusColor_GreenInRoundReady(t *testing.T) {
 		t.Error("expected green ANSI code for resolved count")
 	}
 }
+
+func TestResumeInstructions_NoArgs(t *testing.T) {
+	s, buf := testStatus()
+	s.ResumeInstructions("/home/user/project", "feature-branch", nil)
+	got := buf.String()
+	want := "\nTo resume this review:\n  cd /home/user/project && git checkout feature-branch && crit\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResumeInstructions_WithArgs(t *testing.T) {
+	s, buf := testStatus()
+	s.ResumeInstructions("/home/user/project", "main", []string{"--port", "3000"})
+	got := buf.String()
+	want := "\nTo resume this review:\n  cd /home/user/project && git checkout main && crit --port 3000\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResumeInstructions_QuotesSpecialChars(t *testing.T) {
+	s, buf := testStatus()
+	s.ResumeInstructions("/home/user/my project", "feat/special branch", nil)
+	got := buf.String()
+	if !strings.Contains(got, "'feat/special branch'") {
+		t.Errorf("expected branch to be quoted, got %q", got)
+	}
+	if !strings.Contains(got, "'/home/user/my project'") {
+		t.Errorf("expected cwd to be quoted, got %q", got)
+	}
+}

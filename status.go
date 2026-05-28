@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
+
+	"golang.org/x/term"
 )
 
 const (
@@ -71,6 +74,17 @@ func (s *Status) FileUpdated(editCount int) {
 		noun = "edit"
 	}
 	fmt.Fprintf(s.w, "%s %s\n", s.arrow(), s.dim(fmt.Sprintf("File updated (%d %s detected)", editCount, noun)))
+}
+
+// ResumeInstructions prints a hint showing how to return to this review later.
+func (s *Status) ResumeInstructions(cwd, branch string, args []string) {
+	cmd := buildNextCommand(args)
+	fmt.Fprintf(s.w, "\n%s\n", s.dim("To resume this review:"))
+	fmt.Fprintf(s.w, "  %s\n", s.dim(fmt.Sprintf("cd %s && git checkout %s && %s", shellQuoteArg(cwd), shellQuoteArg(branch), cmd)))
+}
+
+func isTerminal(f *os.File) bool {
+	return term.IsTerminal(int(f.Fd()))
 }
 
 // RoundReady prints the new round summary with resolved/open counts.

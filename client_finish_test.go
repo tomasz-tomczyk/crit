@@ -178,6 +178,10 @@ waitLoop:
 	if summary.ReviewFile == "" {
 		t.Errorf("summary.review_file is empty; agents rely on this path")
 	}
+	wantResume := fmt.Sprintf("To resume this review:\n  cd %s && git checkout main && crit --no-open --port 0\n", shellQuoteArg(resolvedRepo))
+	if !strings.Contains(stderr.String(), wantResume) {
+		t.Errorf("stderr missing resume instructions\nwant contains:\n%s\nstderr:\n%s", wantResume, stderr.String())
+	}
 }
 
 // clientFinishEnv builds an env that pins HOME (and the Windows equivalents)

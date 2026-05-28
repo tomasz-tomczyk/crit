@@ -2338,8 +2338,18 @@ func runReview(args []string) {
 	}
 
 	approved := runReviewClient(entry, key)
+	printSessionResumeInstructions(entry, args, os.Stderr, isTerminal(os.Stderr))
+
 	killDaemonOnApproval(approved, entry.PID)
 	cleanupOnApproval(approved, entry.ReviewPath, LoadConfig(cwd).CleanupOnApproveEnabled())
+}
+
+func printSessionResumeInstructions(entry sessionEntry, args []string, w io.Writer, color bool) {
+	if entry.Branch == "" {
+		return
+	}
+	status := &Status{w: w, color: color}
+	status.ResumeInstructions(entry.CWD, entry.Branch, args)
 }
 
 // readReviewCycleResponse reads and closes the response body, returning an
