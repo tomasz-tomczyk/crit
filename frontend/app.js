@@ -1091,9 +1091,11 @@
         // First launch — prefer "branch" (committed changes only) over "all"
         // (which includes untracked files and can overwhelm large repos).
         diffScope = scopes.indexOf('branch') !== -1 ? 'branch' : 'all';
-        const corrected = await fetchWhenReady('/api/session?scope=' + enc(diffScope));
-        session = corrected;
-        reviewComments = corrected.review_comments || [];
+        if (diffScope !== 'all') {
+          const corrected = await fetchWhenReady('/api/session?scope=' + enc(diffScope));
+          session = corrected;
+          reviewComments = corrected.review_comments || [];
+        }
       } else if (scopes.indexOf(diffScope) === -1) {
         diffScope = 'all';
         setSetting('diffScope', 'all');
