@@ -309,41 +309,6 @@
     setCookie(SETTINGS_COOKIE, JSON.stringify(s));
   }
 
-  // One-time migration from legacy per-setting cookies into the consolidated
-  // `crit-settings` blob. Idempotent: after first run, legacy cookies are
-  // expired and this loop becomes a no-op. `crit-templates` is intentionally
-  // excluded — it stays in its own cookie.
-  (function migrateLegacySettings() {
-    const legacy = [
-      { name: 'crit-theme',                          key: 'theme',              type: 'string'  },
-      { name: 'crit-width',                          key: 'width',              type: 'string'  },
-      { name: 'crit-diff-mode',                      key: 'diffMode',           type: 'string'  },
-      { name: 'crit-diff-scope',                     key: 'diffScope',          type: 'string'  },
-      { name: 'crit-hide-resolved',                  key: 'hideResolved',       type: 'boolTF'  }, // 'true'/'false'
-      { name: 'crit-toc',                            key: 'toc',                type: 'string'  },
-      { name: 'crit-review-conversation-collapsed',  key: 'reviewConvCollapsed', type: 'bool10' }, // '1'/'0'
-      { name: 'crit-updates-dismissed',              key: 'updatesDismissed',   type: 'string'  },
-    ];
-    const settings = loadSettings();
-    let changed = false;
-    legacy.forEach(function(l) {
-      const v = getCookie(l.name);
-      if (v === null) return;
-      if (settings[l.key] === undefined) {
-        if (l.type === 'boolTF') settings[l.key] = (v === 'true');
-        else if (l.type === 'bool10') settings[l.key] = (v === '1');
-        else settings[l.key] = v;
-        changed = true;
-      }
-      // Expire the legacy cookie regardless of whether we needed its value.
-      document.cookie = l.name + '=; path=/; max-age=0; SameSite=Strict';
-    });
-    if (changed) {
-      settingsCache = settings;
-      setCookie(SETTINGS_COOKIE, JSON.stringify(settings));
-    }
-  })();
-
   // Bind Ctrl/Cmd+Enter (submit) and Escape (cancel) to a text input/textarea.
   // opts.stopPropagation defaults to true (matches comment-form keydown behavior).
   function bindSubmitCancelKeys(el, onSubmit, onCancel, opts) {
