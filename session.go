@@ -517,6 +517,7 @@ func detectVCSChanges(vcs VCS, root string, ignorePatterns []string) (branch, ba
 		return "", "", "", nil, fmt.Errorf("detecting changes: %w", err)
 	}
 	changes = filterIgnored(changes, ignorePatterns)
+	changes = filterBinary(changes)
 
 	if len(changes) == 0 {
 		return "", "", "", nil, ErrNoChangedFiles
@@ -867,6 +868,17 @@ func dirIgnored(full, root string, ignorePatterns []string) bool {
 		}
 	}
 	return false
+}
+
+// filterBinary removes files with binary extensions from a change list.
+func filterBinary(changes []FileChange) []FileChange {
+	filtered := changes[:0:0]
+	for _, fc := range changes {
+		if !isBinaryExtension(strings.ToLower(filepath.Ext(fc.Path))) {
+			filtered = append(filtered, fc)
+		}
+	}
+	return filtered
 }
 
 // isBinaryExtension returns true for file extensions that are typically binary.
@@ -2012,6 +2024,7 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 		return fmt.Errorf("detecting changes: %w", err)
 	}
 	changes = filterIgnored(changes, ignorePatterns)
+	changes = filterBinary(changes)
 
 	// Build new file entries, preserving comments
 	var newFiles []*FileEntry

@@ -98,6 +98,7 @@ func (s *Session) RefreshFileList() {
 
 	// Apply ignore patterns
 	changes = filterIgnored(changes, s.IgnorePatterns)
+	changes = filterBinary(changes)
 
 	// Snapshot existing files under read lock
 	s.mu.RLock()
