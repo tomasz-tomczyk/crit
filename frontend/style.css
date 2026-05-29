@@ -2230,12 +2230,9 @@ textarea.drag-active {
 .waiting-dialog .summary-line {
   font-size: 14px;
   line-height: 1.5;
-  color: var(--crit-fg-primary);
+  color: var(--crit-editor-fg-secondary);
   letter-spacing: -0.01em;
   white-space: nowrap;
-}
-.waiting-dialog .summary-line .sep {
-  color: var(--crit-fg-muted);
 }
 .waiting-dialog .summary-copy-btn {
   flex-shrink: 0;
