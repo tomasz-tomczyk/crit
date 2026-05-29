@@ -948,7 +948,7 @@ func (s *Server) handleSharePayload(w http.ResponseWriter, r *http.Request) {
 	critPath := sess.critJSONPath()
 	comments, reviewRound := loadCommentsForShare(critPath, filePaths, s.author)
 	cliArgs := loadCliArgsFromReviewFile(critPath)
-	writeJSON(w, buildSharePayload(files, comments, reviewRound, cliArgs, "", ""))
+	writeJSON(w, buildSharePayload(files, comments, reviewRound, cliArgs, "", "", ""))
 }
 
 // handleUpsertPayload returns the JSON payload that would be PUT to

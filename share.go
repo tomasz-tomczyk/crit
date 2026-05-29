@@ -159,13 +159,16 @@ func shareFileEntries(files []shareFile) []map[string]any {
 		if f.Generated {
 			entry["generated"] = true
 		}
+		if f.Encoding != "" {
+			entry["encoding"] = f.Encoding
+		}
 		entries[i] = entry
 	}
 	return entries
 }
 
 // buildSharePayload constructs the JSON payload for POST /api/reviews.
-func buildSharePayload(files []shareFile, comments []shareComment, reviewRound int, cliArgs []string, org, visibility string) map[string]any {
+func buildSharePayload(files []shareFile, comments []shareComment, reviewRound int, cliArgs []string, org, visibility, reviewType string) map[string]any {
 	fileList := shareFileEntries(files)
 	if comments == nil {
 		comments = []shareComment{}
@@ -183,6 +186,9 @@ func buildSharePayload(files []shareFile, comments []shareComment, reviewRound i
 	}
 	if visibility != "" {
 		payload["visibility"] = visibility
+	}
+	if reviewType != "" {
+		payload["review_type"] = reviewType
 	}
 	return payload
 }
@@ -236,7 +242,7 @@ func shareReviewFiles(critPath string, files []shareFile, filePaths []string, sv
 
 // shareFilesToWeb uploads files to a crit-web instance and returns the share URL and delete token.
 func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string, reviewRound int, authToken string, cliArgs []string, org, visibility string) (string, string, error) {
-	payload := buildSharePayload(files, comments, reviewRound, cliArgs, org, visibility)
+	payload := buildSharePayload(files, comments, reviewRound, cliArgs, org, visibility, "")
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", "", fmt.Errorf("marshaling payload: %w", err)
