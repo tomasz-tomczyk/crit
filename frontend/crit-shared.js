@@ -262,7 +262,7 @@
       dot.style.left = (8 + Math.random() * 84) + '%';
       dot.style.top = (10 + Math.random() * 30) + '%';
       dot.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
-      dot.style.setProperty('--confetti-delay', (Math.random() * 0.5) + 's');
+      dot.style.animationDelay = (Math.random() * 0.5) + 's';
       container.appendChild(dot);
     }
   }

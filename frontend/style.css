@@ -2211,7 +2211,6 @@ textarea.drag-active {
   opacity: 0;
   pointer-events: none;
   animation: confetti-fall 1.6s var(--crit-ease) forwards;
-  animation-delay: var(--confetti-delay, 0s);
 }
 @keyframes confetti-fall {
   0%   { opacity: 0; transform: translateY(-16px) scale(0.5); }
