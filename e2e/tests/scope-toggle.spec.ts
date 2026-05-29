@@ -150,8 +150,8 @@ test.describe('Scope Toggle', () => {
     // Simulate: user was on a feature branch with "branch" scope, then switched to
     // the default branch where branch scope returns no files.
     await page.context().addCookies([{
-      name: 'crit-diff-scope',
-      value: 'branch',
+      name: 'crit-settings',
+      value: encodeURIComponent(JSON.stringify({ diffScope: 'branch' })),
       domain: 'localhost',
       path: '/',
     }]);
