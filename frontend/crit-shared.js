@@ -235,14 +235,12 @@
       if (!text) return;
       navigator.clipboard.writeText(text).then(function () {
         btn.classList.add('copied');
-        receipt.classList.add('copied');
         var iconCopy = btn.querySelector('.icon-copy');
         var iconCheck = btn.querySelector('.icon-check');
         if (iconCopy) iconCopy.style.display = 'none';
         if (iconCheck) iconCheck.style.display = '';
         setTimeout(function () {
           btn.classList.remove('copied');
-          receipt.classList.remove('copied');
           if (iconCopy) iconCopy.style.display = '';
           if (iconCheck) iconCheck.style.display = 'none';
         }, 1800);
@@ -316,7 +314,6 @@
             'Nice work, you\'re all done',
             'All wrapped up',
             'Review complete',
-            'That\'s a wrap',
           ];
           messageEl.textContent = subtitles[Math.floor(Math.random() * subtitles.length)];
         } else {

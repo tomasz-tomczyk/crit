@@ -2208,20 +2208,8 @@ textarea.drag-active {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--crit-editor-bg-elevated);
-  border: 1px solid var(--crit-border);
-  border-radius: 10px;
-  padding: 10px 12px 10px 16px;
   margin: 12px 0 0;
   cursor: text;
-  transition: border-color var(--crit-dur-fast) ease, background var(--crit-dur-fast) ease;
-}
-.waiting-dialog .summary-receipt:hover {
-  border-color: var(--crit-fg-muted);
-}
-.waiting-dialog .summary-receipt.copied {
-  border-color: var(--crit-green);
-  background: var(--crit-green-subtle);
 }
 .waiting-dialog .summary-line {
   flex: 1;
