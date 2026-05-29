@@ -2216,8 +2216,6 @@ textarea.drag-active {
   font-size: 14px;
   line-height: 1.5;
   color: var(--crit-fg-primary);
-  user-select: all;
-  -webkit-user-select: all;
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
