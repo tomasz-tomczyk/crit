@@ -138,7 +138,7 @@
     // serializes as `github_id` (omitempty) on the JSON the API returns.
     // See issue #370.
     if (comment.github_id) {
-      var ghBadge = document.createElement('span');
+      const ghBadge = document.createElement('span');
       ghBadge.className = 'github-badge';
       ghBadge.textContent = 'GitHub';
       ghBadge.title = 'Synced from GitHub';

@@ -5144,7 +5144,7 @@
       replyTime.textContent = formatTime(reply.created_at);
       replyMeta.appendChild(replyTime);
       if (reply.github_id) {
-        var ghBadge = document.createElement('span');
+        const ghBadge = document.createElement('span');
         ghBadge.className = 'github-badge';
         ghBadge.textContent = 'GitHub';
         ghBadge.title = 'Synced from GitHub';
