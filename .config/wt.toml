@@ -1,6 +1,8 @@
 # Trust mise.toml before the worktree's shell auto-loads mise — otherwise
 # the shell entry triggers a mise parse error and aborts subsequent hooks.
-[pre-start]
+# Array-of-tables form ([[pre-start]]) — the deprecated [pre-start] table form
+# changes behavior in future worktrunk versions.
+[[pre-start]]
 mise-trust = "mise trust ."
 
 # Copy gitignored files (node_modules, caches, .env, etc.) from the primary
