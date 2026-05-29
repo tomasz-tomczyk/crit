@@ -4,7 +4,7 @@
     "@highlightjs/cdn-assets": "^11.11.1",
     "@sanity/diff-match-patch": "^3.2.0",
     "highlightjs-heex": "^1.0.1",
-    "markdown-it": "^14.1.1",
+    "markdown-it": "^14.2.0",
     "mermaid": "^11.15.0"
   },
   "scripts": {
