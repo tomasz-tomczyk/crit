@@ -2202,17 +2202,32 @@ textarea.drag-active {
     animation: none;
   }
   .waiting-spinner .dot { animation: none; opacity: 0.6; }
+  .confetti-dot { animation: none !important; display: none; }
+}
+
+.confetti-dot {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  animation: confetti-fall 1.6s var(--crit-ease) forwards;
+  animation-delay: var(--confetti-delay, 0s);
+}
+@keyframes confetti-fall {
+  0%   { opacity: 0; transform: translateY(-16px) scale(0.5); }
+  15%  { opacity: 0.8; }
+  100% { opacity: 0; transform: translateY(50px) scale(0.3); }
 }
 
 .waiting-dialog .summary-receipt {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   margin: 12px 0 0;
   cursor: text;
 }
 .waiting-dialog .summary-line {
-  flex: 1;
   font-size: 14px;
   line-height: 1.5;
   color: var(--crit-fg-primary);

@@ -248,6 +248,25 @@
     });
   }
 
+  var CONFETTI_COLORS = ['#56d364', '#85aaf8', '#ff8c6b', '#e8c555', '#d285f8'];
+  function spawnConfetti(container) {
+    if (!container) return;
+    container.style.position = 'relative';
+    container.style.overflow = 'hidden';
+    for (var i = 0; i < 14; i++) {
+      var dot = document.createElement('span');
+      dot.className = 'confetti-dot';
+      var size = 4 + Math.random() * 5;
+      dot.style.width = size + 'px';
+      dot.style.height = size + 'px';
+      dot.style.left = (8 + Math.random() * 84) + '%';
+      dot.style.top = (10 + Math.random() * 30) + '%';
+      dot.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+      dot.style.setProperty('--confetti-delay', (Math.random() * 0.5) + 's');
+      container.appendChild(dot);
+    }
+  }
+
   // ===== runFinishReview =====
   // Shared finish-review flow used by both code-review (app.js) and
   // live-mode (live-mode.js). POSTs /api/finish, parses
@@ -301,10 +320,12 @@
 
       if (dialog) {
         dialog.classList.remove('approved');
+        dialog.querySelectorAll('.confetti-dot').forEach(function (d) { d.remove(); });
         if (approved) {
           // Force reflow so the CSS animation restarts when the class is re-added.
           void dialog.offsetWidth;
           dialog.classList.add('approved');
+          spawnConfetti(dialog.querySelector('.waiting-header'));
         }
       }
       if (headingEl) headingEl.textContent = approved ? 'Approved' : 'Review Complete';
