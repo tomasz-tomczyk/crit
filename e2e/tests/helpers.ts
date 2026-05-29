@@ -6,7 +6,17 @@ export async function clearAllComments(request: APIRequestContext) {
 }
 
 // Navigate to the root page and wait for loading to complete.
+// Sets diffScope=all via cookie so tests see all files (branch+untracked),
+// matching the pre-smart-default behavior. Without this, first-launch
+// defaults to "branch" scope which excludes untracked files and breaks
+// count assertions across many test suites.
 export async function loadPage(page: Page) {
+  await page.context().addCookies([{
+    name: 'crit-settings',
+    value: encodeURIComponent(JSON.stringify({ diffScope: 'all' })),
+    domain: 'localhost',
+    path: '/',
+  }]);
   await page.goto('/');
   await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 }

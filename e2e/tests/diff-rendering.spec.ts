@@ -50,7 +50,7 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
     await expect(hunkText).toContainText('@@');
   });
 
-  test('deleted file shows deletion diff or placeholder', async ({ page }) => {
+  test('deleted file shows "This file was deleted."', async ({ page }) => {
     await loadPage(page);
 
     // The deleted file section starts collapsed (<details> closed).
@@ -61,11 +61,9 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
     const header = deletedSection.locator('summary.file-header');
     await header.click();
 
-    // In branch scope, deleted files render actual deletion hunks.
-    // In all scope, they show a placeholder. Accept either.
     const placeholder = deletedSection.locator('.diff-deleted-placeholder');
-    const diffContainer = deletedSection.locator('.diff-container');
-    await expect(placeholder.or(diffContainer).first()).toBeVisible();
+    await expect(placeholder).toBeVisible();
+    await expect(placeholder).toHaveText('This file was deleted.');
   });
 
   test('spacer shows hunk header between hunks', async ({ page }) => {
