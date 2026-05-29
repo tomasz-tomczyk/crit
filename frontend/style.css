@@ -2108,7 +2108,7 @@ textarea.drag-active {
   background: var(--crit-bg-card);
   border: 1px solid var(--crit-border);
   border-radius: 12px;
-  max-width: 520px;
+  max-width: 480px;
   width: 90vw;
   box-shadow: var(--crit-shadow);
   overflow: hidden;
@@ -2204,11 +2204,66 @@ textarea.drag-active {
   .waiting-spinner .dot { animation: none; opacity: 0.6; }
 }
 
-.waiting-dialog .waiting-stats {
-  font-size: 0.95rem;
-  color: var(--crit-editor-fg-secondary);
-  margin: 0.25rem 0 0;
-  letter-spacing: 0.01em;
+.waiting-dialog .summary-receipt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--crit-editor-bg-elevated);
+  border: 1px solid var(--crit-border);
+  border-radius: 10px;
+  padding: 10px 12px 10px 16px;
+  margin: 12px 0 0;
+  cursor: text;
+  transition: border-color var(--crit-dur-fast) ease, background var(--crit-dur-fast) ease;
+}
+.waiting-dialog .summary-receipt:hover {
+  border-color: var(--crit-fg-muted);
+}
+.waiting-dialog .summary-receipt.copied {
+  border-color: var(--crit-green);
+  background: var(--crit-green-subtle);
+}
+.waiting-dialog .summary-line {
+  flex: 1;
+  font-family: var(--crit-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--crit-fg-primary);
+  user-select: all;
+  -webkit-user-select: all;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.waiting-dialog .summary-line .sep {
+  color: var(--crit-fg-muted);
+}
+.waiting-dialog .summary-copy-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--crit-fg-muted);
+  cursor: pointer;
+  transition: background var(--crit-dur-fast) ease, color var(--crit-dur-fast) ease;
+}
+.waiting-dialog .summary-copy-btn:hover {
+  background: var(--crit-brand-subtle);
+  color: var(--crit-brand);
+}
+.waiting-dialog .summary-copy-btn:active {
+  transform: scale(0.92);
+}
+.waiting-dialog .summary-copy-btn.copied {
+  color: var(--crit-green);
+}
+.waiting-dialog .summary-copy-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .waiting-dialog .waiting-edits {

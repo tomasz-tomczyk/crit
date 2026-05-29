@@ -185,7 +185,13 @@
       </svg>
       <h3 id="waitingHeading">Review Complete</h3>
       <p id="waitingMessage"></p>
-      <p class="waiting-stats" id="waitingStats"></p>
+      <div class="summary-receipt" id="summaryReceipt" style="display:none">
+        <span class="summary-line" id="summaryLine"></span>
+        <button class="summary-copy-btn" id="summaryCopyBtn" aria-label="Copy summary to clipboard">
+          <svg class="icon-copy" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5"/></svg>
+          <svg class="icon-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M3 8.5L6.5 12L13 4"/></svg>
+        </button>
+      </div>
       <p class="waiting-edits" id="waitingEdits"></p>
     </div>
 

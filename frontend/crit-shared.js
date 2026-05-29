@@ -222,6 +222,34 @@
     return hours + 'h ' + minutes + 'm';
   }
 
+  // Wire up the summary receipt copy button (once).
+  var _summaryBtnWired = false;
+  function wireSummaryCopyBtn() {
+    if (_summaryBtnWired) return;
+    var btn = document.getElementById('summaryCopyBtn');
+    if (!btn) return;
+    _summaryBtnWired = true;
+    btn.addEventListener('click', function () {
+      var receipt = btn.closest('.summary-receipt');
+      var text = receipt ? receipt.getAttribute('data-copy-text') : '';
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(function () {
+        btn.classList.add('copied');
+        receipt.classList.add('copied');
+        var iconCopy = btn.querySelector('.icon-copy');
+        var iconCheck = btn.querySelector('.icon-check');
+        if (iconCopy) iconCopy.style.display = 'none';
+        if (iconCheck) iconCheck.style.display = '';
+        setTimeout(function () {
+          btn.classList.remove('copied');
+          receipt.classList.remove('copied');
+          if (iconCopy) iconCopy.style.display = '';
+          if (iconCheck) iconCheck.style.display = 'none';
+        }, 1800);
+      });
+    });
+  }
+
   // ===== runFinishReview =====
   // Shared finish-review flow used by both code-review (app.js) and
   // live-mode (live-mode.js). POSTs /api/finish, parses
@@ -284,38 +312,41 @@
       if (headingEl) headingEl.textContent = approved ? 'Approved' : 'Review Complete';
       if (messageEl) {
         if (approved) {
-          var phrases = [
-            'Ship it!',
-            'Looks good to me!',
-            'Clean as a whistle.',
-            'Nothing to see here — all good.',
-            'Ready to roll.',
-            'Two thumbs up.',
-            'Stamp of approval.',
-            'Good to go!',
-            'Nailed it.',
-            'All clear, captain.',
+          var subtitles = [
+            'Nice work, you\'re all done',
+            'All wrapped up',
+            'Review complete',
+            'That\'s a wrap',
           ];
-          messageEl.textContent = phrases[Math.floor(Math.random() * phrases.length)];
+          messageEl.textContent = subtitles[Math.floor(Math.random() * subtitles.length)];
         } else {
           messageEl.textContent =
             "Agent notified. Copy the prompt below if it wasn't listening.";
         }
       }
 
-      var statsEl = document.getElementById('waitingStats');
-      if (statsEl) {
+      var receiptEl = document.getElementById('summaryReceipt');
+      var lineEl = document.getElementById('summaryLine');
+      if (receiptEl && lineEl) {
         if (approved && data.stats) {
-          var parts = [];
+          var statParts = [];
+          if (data.stats.files_reviewed) statParts.push(data.stats.files_reviewed + (data.stats.files_reviewed === 1 ? ' file' : ' files'));
+          if (data.stats.comments_submitted) statParts.push(data.stats.comments_submitted + (data.stats.comments_submitted === 1 ? ' comment' : ' comments'));
           var dur = data.stats.duration_seconds;
-          if (dur != null) parts.push(formatStatsDuration(dur));
-          if (data.stats.files_reviewed) parts.push(data.stats.files_reviewed + (data.stats.files_reviewed === 1 ? ' file' : ' files'));
-          if (data.stats.comments_submitted) parts.push(data.stats.comments_submitted + (data.stats.comments_submitted === 1 ? ' comment' : ' comments'));
-          statsEl.textContent = parts.length ? parts.join(' · ') : '';
-          statsEl.style.display = parts.length ? '' : 'none';
+          if (dur != null) statParts.push(formatStatsDuration(dur));
+          if (statParts.length) {
+            var plainText = 'Done reviewing — ' + statParts.join(' · ');
+            receiptEl.setAttribute('data-copy-text', plainText);
+            var html = 'Done reviewing <span class="sep">—</span> ';
+            html += statParts.join(' <span class="sep">·</span> ');
+            lineEl.innerHTML = html;
+            receiptEl.style.display = '';
+            wireSummaryCopyBtn();
+          } else {
+            receiptEl.style.display = 'none';
+          }
         } else {
-          statsEl.textContent = '';
-          statsEl.style.display = 'none';
+          receiptEl.style.display = 'none';
         }
       }
 
