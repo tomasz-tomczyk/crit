@@ -586,6 +586,70 @@ curl -sf -X POST "http://127.0.0.1:$PORT/api/comments" \
 # Finish the review to write the review file
 REVIEW_FILE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/finish" | python3 -c "import json, sys; print(json.load(sys.stdin)['review_file'])")
 
+# --- Seed GitHub-synced comments (issue #370) ---
+# The POST API has no `github_id` field (synced comments normally arrive via
+# `crit pull`), so we inject them directly into the review file. The daemon's
+# file watcher (mergeExternalCritJSON, ~1s tick) appends brand-new comments
+# wholesale — preserving GitHubID — and appends synced replies onto existing
+# comments, so both render with the `.github-badge` pill the PR adds. This
+# demonstrates the badge on (a) a fully-synced comment header, (b) a synced
+# reply inside that thread, and (c) a synced reply mixed into a native thread.
+python3 - "$REVIEW_FILE" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+with open(path) as f:
+    cj = json.load(f)
+
+# The single reviewed file (everything except the .crit.json control file).
+fk = next(k for k in cj["files"] if k != ".crit.json")
+comments = cj["files"][fk]["comments"]
+
+# (a) + (b): a fully GitHub-synced comment carrying a synced reply.
+comments.append({
+    "id": "c_gh_demo1",
+    "start_line": 8,
+    "end_line": 8,
+    "side": "",
+    "body": "Are webhook deliveries going to be signed? If we're POSTing to "
+            "user-controlled URLs the receiver needs a way to verify the payload "
+            "came from us — an HMAC signature header is the usual approach.\n\n"
+            "_Imported from the GitHub PR review._",
+    "author": "octocat",
+    "scope": "line",
+    "created_at": "2024-01-15T10:00:00Z",
+    "updated_at": "2024-01-15T10:00:00Z",
+    "github_id": 2147483001,
+    "replies": [
+        {
+            "id": "rp_gh_demo1",
+            "body": "Good point — we'll add an `X-Signature` HMAC header in "
+                    "Phase 1. Tracked in the security checklist below.",
+            "author": "maintainer",
+            "created_at": "2024-01-15T10:05:00Z",
+            "github_id": 2147483002,
+        }
+    ],
+})
+
+# (c): a synced reply mixed into the first native comment's thread.
+if comments and comments[0].get("id") != "c_gh_demo1":
+    comments[0].setdefault("replies", []).append({
+        "id": "rp_gh_demo2",
+        "body": "GitHub reviewer here — +1 on SQS. We already hit the "
+                "Redis-restart data loss in staging last quarter.",
+        "author": "octocat",
+        "created_at": "2024-01-15T10:10:00Z",
+        "github_id": 2147483003,
+    })
+
+with open(path, "w") as f:
+    json.dump(cj, f, indent=2)
+PYEOF
+
+# Give the file watcher a tick to merge the injected synced comments into the
+# running session before the script moves on.
+sleep 1.2
+
 # --- Seed carry-forward comments (file-mode) ---
 curl -sf -X DELETE "http://127.0.0.1:$CF_FILE_PORT/api/comments" > /dev/null
 
@@ -836,6 +900,13 @@ echo "  4. Carry-forward (git-mode):      http://127.0.0.1:$CF_GIT_PORT"
 echo "  5. Range mode (--range A..B):     http://127.0.0.1:$RANGE_PORT"
 echo "  6. Stacked PR (layer/full-stack): http://127.0.0.1:$TOGGLE_PORT"
 echo ""
+echo "Instance 1 — GitHub-synced comment badge (#370):"
+echo "  The overview paragraph (line 8) has a comment authored by 'octocat' that"
+echo "  was synced from a GitHub PR — it shows a 'GitHub' pill in the header, and"
+echo "  its reply does too. The first comment (Redis/SQS durability) also has a"
+echo "  synced reply mixed in with the native replies. Native comments stay"
+echo "  unbadged, so you can tell synced from native at a glance."
+echo ""
 echo "Instance 2 — folded-line comment (#317):"
 echo "  server.go has a comment on line 59 (/version handler), which is in a"
 echo "  spacer gap between the /health and startup-code hunks. The spacer should"
@@ -975,6 +1046,8 @@ echo "Instance 1: diff view with resolved comments + threaded replies + deletion
 echo "            Comment #2 (resolved): 2 agent replies — visible when expanded."
 echo "            Comment #4 (unresolved): 2 replies (agent + reviewer) — visible inline."
 echo "            Comment #5 (on Code Standards heading): tests formatting near deletion markers."
+echo "            GitHub-synced (#370): the 'octocat' comment on the overview carries a"
+echo "            'GitHub' badge (header + reply); the durability comment has a synced reply."
 echo "            Scroll to bottom: deletion markers interrupt the markdown code fence."
 echo "Instance 2: word-level diff + folded-line comment (#317) + orphaned comments"
 echo "            server.go: comment on line 59 should be at its correct position"
