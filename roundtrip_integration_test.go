@@ -96,13 +96,6 @@ func dumpRemote(rs []remoteComment) string {
 	return b.String()
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
-}
-
 func TestRoundtrip_PullIsIdempotent(t *testing.T) {
 	e := newRoundtripEnv(t)
 
