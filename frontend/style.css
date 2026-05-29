@@ -2213,8 +2213,7 @@ textarea.drag-active {
 }
 .waiting-dialog .summary-line {
   flex: 1;
-  font-family: var(--crit-font-mono);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--crit-fg-primary);
   user-select: all;

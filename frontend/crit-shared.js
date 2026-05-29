@@ -310,13 +310,9 @@
       if (headingEl) headingEl.textContent = approved ? 'Approved' : 'Review Complete';
       if (messageEl) {
         if (approved) {
-          var subtitles = [
-            'Nice work, you\'re all done',
-            'All wrapped up',
-            'Review complete',
-          ];
-          messageEl.textContent = subtitles[Math.floor(Math.random() * subtitles.length)];
+          messageEl.style.display = 'none';
         } else {
+          messageEl.style.display = '';
           messageEl.textContent =
             "Agent notified. Copy the prompt below if it wasn't listening.";
         }
