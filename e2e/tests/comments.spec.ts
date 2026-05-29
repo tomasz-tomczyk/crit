@@ -340,7 +340,10 @@ test.describe('Diff Comments — Unified Mode', () => {
     // Switch to unified mode
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await unifiedBtn.click();
-    await expect(page.locator('.diff-container.unified').first()).toBeVisible();
+    // Wait for the unified container inside server.go (which is always expanded).
+    // deleted.txt also has a .diff-container.unified but is inside a collapsed
+    // <details> (status=deleted), so .first() would pick the hidden one.
+    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
   });
 
   test('comments work on addition lines in unified mode', async ({ page }) => {

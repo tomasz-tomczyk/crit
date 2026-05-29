@@ -110,7 +110,10 @@ test.describe('Auto-expand small gaps — Unified Mode', () => {
     await loadPage(page);
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await unifiedBtn.click();
-    await expect(page.locator('.diff-container.unified').first()).toBeVisible();
+    // Wait for the unified container inside server.go (which is always expanded).
+    // deleted.txt also has a .diff-container.unified but is inside a collapsed
+    // <details> (status=deleted), so .first() would pick the hidden one.
+    await expect(serverSection(page).locator('.diff-container.unified')).toBeVisible();
   });
 
   test('small gaps are auto-expanded in unified mode (no spacer)', async ({ page }) => {
