@@ -99,6 +99,7 @@ type shareFile struct {
 	Content   string `json:"content"`
 	Status    string `json:"status,omitempty"`
 	Generated bool   `json:"generated,omitempty"`
+	Encoding  string `json:"encoding,omitempty"`
 }
 
 // shareReply represents a reply to include in the shared review.
