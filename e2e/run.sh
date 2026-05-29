@@ -24,6 +24,14 @@ else
   (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
 fi
 
+# Ensure the Chromium build matching this project's pinned @playwright/test is
+# installed. The browser cache (~/Library/Caches/ms-playwright on macOS) is
+# global and version-specific, so a machine that only has another project's
+# Playwright version (e.g. crit-web's) won't have the build crit needs and every
+# test fails with "Executable doesn't exist". Idempotent — skips the download
+# when the build is already cached, so it's a fast no-op in CI and on reruns.
+(cd "$SCRIPT_DIR" && npx playwright install chromium)
+
 # Kill any stale processes on our test ports before starting fresh
 for port in "$GIT_PORT" "$GIT2_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT"; do
   e2e_kill_port "$port"
