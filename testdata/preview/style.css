@@ -1,0 +1,31 @@
+:root {
+  --fg: #1a1a1a;
+  --bg: #ffffff;
+  --accent: #3399ff;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+.page {
+  max-width: 40rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+#title {
+  font-size: 1.5rem;
+}
+
+#action {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+  color: #ffffff;
+  cursor: pointer;
+}

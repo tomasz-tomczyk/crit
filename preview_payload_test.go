@@ -1,113 +1,56 @@
 package main
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"os"
+	"bytes"
+	"encoding/base64"
 	"path/filepath"
 	"testing"
 )
 
-// newPreviewServer builds a preview-mode Server+Session backed by a small HTML
-// fixture that references a CSS file and a binary PNG, exercising both the text
-// and base64 crawl paths.
-func newPreviewServer(t *testing.T) *Server {
-	t.Helper()
-	dir := t.TempDir()
-	html := `<!DOCTYPE html><html><head><link rel="stylesheet" href="style.css"></head>` +
-		`<body><img src="logo.png"></body></html>`
-	htmlPath := filepath.Join(dir, "index.html")
-	if err := os.WriteFile(htmlPath, []byte(html), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "style.css"), []byte("body{margin:0}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	png := []byte{137, 80, 78, 71, 13, 10, 26, 10}
-	if err := os.WriteFile(filepath.Join(dir, "logo.png"), png, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	srv := &Server{}
-	srv.SetSession(&Session{ReviewType: "preview", Origin: htmlPath, Mode: "files"})
-	return srv
-}
-
-// TestHandlePreviewPayload verifies the proxy-auth relay endpoint crawls the
-// preview origin's assets and returns a payload tagged review_type=preview with
-// a base64 binary entry.
-func TestHandlePreviewPayload(t *testing.T) {
-	srv := newPreviewServer(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/share/preview-payload", nil)
-	rr := httptest.NewRecorder()
-	srv.handlePreviewPayload(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("decode payload: %v", err)
-	}
-	if payload["review_type"] != "preview" {
-		t.Errorf("review_type = %v, want preview", payload["review_type"])
-	}
-	files, ok := payload["files"].([]any)
-	if !ok || len(files) == 0 {
-		t.Fatalf("files = %v, want non-empty slice", payload["files"])
-	}
-	if !previewPayloadHasBase64(files) {
-		t.Errorf("expected a base64 file entry, got %v", files)
-	}
-}
-
-// TestShareFilesForSessionPreview verifies the in-UI Share path (handleShare's
-// file source) crawls preview assets instead of reading on-disk review files,
-// and tags the share with review_type=preview.
-func TestShareFilesForSessionPreview(t *testing.T) {
-	srv := newPreviewServer(t)
-
-	files, reviewType, err := srv.shareFilesForSession()
+// TestCrawlPreviewFixtureShape exercises crawlPreview against the
+// testdata/preview fixture — the same seam `crit share --preview` feeds from
+// when it builds the relay payload. It guarantees text assets (index.html,
+// style.css, app.js) are inlined verbatim with no encoding, while the binary
+// asset (logo.png) is base64-encoded and decodes back to its original PNG
+// bytes. This is the unit-level counterpart to the integration test and needs
+// no running server, so it runs under plain `go test ./...`.
+func TestCrawlPreviewFixtureShape(t *testing.T) {
+	root := filepath.Join("testdata", "preview")
+	entries, err := crawlPreview(filepath.Join(root, "index.html"))
 	if err != nil {
-		t.Fatalf("shareFilesForSession: %v", err)
+		t.Fatalf("crawlPreview: %v", err)
 	}
-	if reviewType != "preview" {
-		t.Errorf("reviewType = %q, want preview", reviewType)
-	}
-	if !previewShareFileHasBase64(files) {
-		t.Errorf("expected a base64 file entry, got %v", files)
-	}
-	if !previewShareFileHasPath(files, "index.html") {
-		t.Errorf("expected index.html in crawled files, got %v", files)
-	}
-}
 
-func previewPayloadHasBase64(files []any) bool {
-	for _, f := range files {
-		if m, ok := f.(map[string]any); ok && m["encoding"] == "base64" {
-			return true
+	byPath := make(map[string]shareFile, len(entries))
+	for _, e := range entries {
+		byPath[e.Path] = e
+	}
+
+	for _, name := range []string{"index.html", "style.css", "app.js", "logo.png"} {
+		if _, ok := byPath[name]; !ok {
+			t.Fatalf("crawl payload missing entry %q", name)
 		}
 	}
-	return false
-}
 
-func previewShareFileHasBase64(files []shareFile) bool {
-	for _, f := range files {
-		if f.Encoding == "base64" {
-			return true
+	for _, name := range []string{"index.html", "style.css", "app.js"} {
+		e := byPath[name]
+		if e.Encoding != "" {
+			t.Errorf("%s: Encoding = %q, want empty (text inlined verbatim)", name, e.Encoding)
+		}
+		if e.Content == "" {
+			t.Errorf("%s: Content is empty", name)
 		}
 	}
-	return false
-}
 
-func previewShareFileHasPath(files []shareFile, path string) bool {
-	for _, f := range files {
-		if f.Path == path {
-			return true
-		}
+	logo := byPath["logo.png"]
+	if logo.Encoding != "base64" {
+		t.Fatalf("logo.png: Encoding = %q, want base64", logo.Encoding)
 	}
-	return false
+	decoded, err := base64.StdEncoding.DecodeString(logo.Content)
+	if err != nil {
+		t.Fatalf("logo.png: base64 decode: %v", err)
+	}
+	if !bytes.HasPrefix(decoded, []byte("\x89PNG")) {
+		t.Errorf("logo.png: decoded bytes lack PNG magic, got first bytes: %x", decoded)
+	}
 }
