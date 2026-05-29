@@ -927,7 +927,10 @@
     agentEnabled = configRes.agent_cmd_enabled || false;
     agentName = configRes.agent_name || 'agent';
 
-    if (shareURL && session.mode !== 'git') {
+    // Share is available in files + preview review, but not vcs/diff (git) or
+    // design/live mode (reviewType 'live'): a live design preview proxies a
+    // running app, so there's nothing self-contained to publish.
+    if (shareURL && session.mode !== 'git' && reviewType !== 'live') {
       const shareBtn = document.getElementById('shareBtn');
       shareBtn.style.display = '';
       if (hostedURL) {

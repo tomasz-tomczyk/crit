@@ -233,11 +233,15 @@ func runPreview(args []string) {
 
 	daemonArgs := []string{"--preview-file", absPath}
 	daemonArgs = appendCommonDaemonFlags(daemonArgs, commonDaemonFlags{
-		port:     resolvePort(*port, cfg.Port),
-		host:     resolveHost(*host, cfg.Host),
-		noOpen:   noOpenResolved,
-		quiet:    *quiet || cfg.Quiet,
-		shareURL: resolveShareURL(*shareURL, cfg, ""),
+		port:   resolvePort(*port, cfg.Port),
+		host:   resolveHost(*host, cfg.Host),
+		noOpen: noOpenResolved,
+		quiet:  *quiet || cfg.Quiet,
+		// Preview is shareable to crit-web (CRI-78), so default the share URL
+		// the same way code review does — otherwise the Share button never
+		// appears in preview mode. Design/live mode keeps the empty default and
+		// is gated off client-side; it is intentionally not shareable.
+		shareURL: resolveShareURL(*shareURL, cfg, defaultShareURL),
 	})
 	entry, err := startDaemon(key, daemonArgs)
 	if err != nil {
