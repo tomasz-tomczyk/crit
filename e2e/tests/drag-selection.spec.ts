@@ -238,7 +238,7 @@ test.describe('Diff Drag Selection — Unified Mode', () => {
     // Switch to unified mode
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await unifiedBtn.click();
-    await expect(page.locator('.diff-container.unified').first()).toBeVisible();
+    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
   });
 
   test('dragging across diff lines in unified mode opens comment form', async ({ page }) => {

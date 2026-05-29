@@ -87,7 +87,7 @@ test.describe('Syntax Highlighting — Unified Mode', () => {
   test('Go file has syntax-highlighted code in unified diff', async ({ page }) => {
     await loadPage(page);
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-    await expect(page.locator('.diff-container.unified').first()).toBeVisible();
+    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
 
     const section = goSection(page);
     const additionLine = section.locator('.diff-container.unified .diff-line.addition .diff-content').first();

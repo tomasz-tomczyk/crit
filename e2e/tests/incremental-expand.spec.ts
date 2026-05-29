@@ -121,7 +121,7 @@ test.describe('Incremental Expand — Unified Mode', () => {
     // Switch to unified mode
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await unifiedBtn.click();
-    await expect(page.locator('.diff-container.unified').first()).toBeVisible();
+    await expect(routesSection(page).locator('.diff-container.unified')).toBeVisible();
   });
 
   test('large gap spacer shows expand-down and expand-up controls in unified mode', async ({ page }) => {

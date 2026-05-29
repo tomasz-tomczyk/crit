@@ -25,7 +25,7 @@ async function switchToUnified(page: Page) {
   const btn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
   await expect(btn).toBeVisible();
   await btn.click();
-  await expect(page.locator('.diff-container.unified').first()).toBeVisible();
+  await expect(serverSection(page).locator('.diff-container.unified')).toBeVisible();
 }
 
 // ============================================================

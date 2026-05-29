@@ -223,7 +223,7 @@ test.describe('Expanded Context Comments — Unified Mode', () => {
     // Switch to unified mode
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await unifiedBtn.click();
-    await expect(page.locator('.diff-container.unified').first()).toBeVisible();
+    await expect(serverSection(page).locator('.diff-container.unified')).toBeVisible();
   });
 
   test('submit comment on expanded context line in unified mode', async ({ page }) => {
