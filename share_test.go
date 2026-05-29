@@ -357,7 +357,7 @@ func TestShareFilesToWeb(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		url, token, err := shareFilesToWeb(files, nil, srv.URL, 1, "", nil, "", "")
+		url, token, err := shareFilesToWeb(files, nil, srv.URL, 1, "", nil, "", "", "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -376,13 +376,13 @@ func TestShareFilesToWeb(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		if _, _, err := shareFilesToWeb(files, nil, srv.URL, 1, "", nil, "", ""); err == nil {
+		if _, _, err := shareFilesToWeb(files, nil, srv.URL, 1, "", nil, "", "", ""); err == nil {
 			t.Fatal("expected error for server error response")
 		}
 	})
 
 	t.Run("network error", func(t *testing.T) {
-		if _, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1, "", nil, "", ""); err == nil {
+		if _, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1, "", nil, "", "", ""); err == nil {
 			t.Fatal("expected error for unreachable server")
 		}
 	})
@@ -1323,7 +1323,7 @@ func TestShareFilesToWeb_SendsBearerToken(t *testing.T) {
 	defer server.Close()
 
 	files := []shareFile{{Path: "plan.md", Content: "# Plan"}}
-	shareFilesToWeb(files, nil, server.URL, 1, "crit_testtoken", nil, "", "")
+	shareFilesToWeb(files, nil, server.URL, 1, "crit_testtoken", nil, "", "", "")
 	if gotAuth != "Bearer crit_testtoken" {
 		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
 	}
@@ -2041,7 +2041,7 @@ func TestShareReviewFiles_InlinesAttachmentsEndToEnd(t *testing.T) {
 	defer srv.Close()
 
 	files := []shareFile{{Path: "README.md", Content: "stub content\n"}}
-	if _, err := shareReviewFiles(review, files, []string{"README.md"}, srv.URL, "", "Alice", "", ""); err != nil {
+	if _, err := shareReviewFiles(review, files, []string{"README.md"}, srv.URL, "", "Alice", "", "", ""); err != nil {
 		t.Fatalf("shareReviewFiles: %v", err)
 	}
 
@@ -2155,7 +2155,7 @@ func TestShareReviewFiles_PlanMode_InlinesAttachments(t *testing.T) {
 	defer srv.Close()
 
 	files := []shareFile{{Path: planFile, Content: "stub plan content\n"}}
-	if _, err := shareReviewFiles(critPath, files, []string{planFile}, srv.URL, "", "Samuel Tissot", "", ""); err != nil {
+	if _, err := shareReviewFiles(critPath, files, []string{planFile}, srv.URL, "", "Samuel Tissot", "", "", ""); err != nil {
 		t.Fatalf("shareReviewFiles: %v", err)
 	}
 

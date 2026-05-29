@@ -270,7 +270,7 @@ func runShareExisting(existingCfg CritJSON, critPath string, files []shareFile, 
 }
 
 func runShareNew(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor, org, visibility string, showQR bool) {
-	res, err := shareReviewFiles(critPath, files, filePaths, svcURL, authToken, fallbackAuthor, org, visibility)
+	res, err := shareReviewFiles(critPath, files, filePaths, svcURL, authToken, fallbackAuthor, org, visibility, "")
 	if err != nil {
 		if errors.Is(err, errShareUnauthorized) {
 			handleShareAuthError()

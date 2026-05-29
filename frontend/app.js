@@ -335,6 +335,7 @@
   let needsShareConsent = false;
   let authUserName = '';
   let proxyAuth = false;   // false = direct server-side share; true = browser popup relay
+  let reviewType = '';     // '' = files/code review; 'preview' = crawled HTML snapshot
   let hostedToken = '';    // server-derived (tokenFromHostedURL); never URL-parsed in JS
   let configAuthor = '';
 
@@ -913,6 +914,7 @@
     needsShareConsent = configRes.needs_consent || false;
     authUserName = configRes.auth_user_name || '';
     proxyAuth = !!configRes.proxy_auth;
+    reviewType = configRes.review_type || '';
     hostedToken = configRes.hosted_token || '';
     configAuthor = configRes.author || '';
     if (configRes.share_org) {
@@ -6993,7 +6995,13 @@
     try {
       let result;
       if (popupSession) {
-        const payloadResp = await fetch('/api/share/payload');
+        // Preview sessions crawl their HTML origin + assets server-side and
+        // tag the payload review_type=preview; the relay still hits the same
+        // POST /api/reviews endpoint (transport, not protocol).
+        const payloadPath = reviewType === 'preview'
+          ? '/api/share/preview-payload'
+          : '/api/share/payload';
+        const payloadResp = await fetch(payloadPath);
         if (!payloadResp.ok) {
           const errBody = await payloadResp.json().catch(function() { return {}; });
           throw new Error(errBody.error || 'failed to build share payload');

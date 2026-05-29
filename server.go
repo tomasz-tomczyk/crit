@@ -149,6 +149,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/api/share", s.withReady(s.handleShare))
 	mux.HandleFunc("/api/share-consent", s.withReady(s.handleShareConsent))
 	mux.HandleFunc("/api/share/payload", s.withReady(s.handleSharePayload))
+	mux.HandleFunc("/api/share/preview-payload", s.withReady(s.handlePreviewPayload))
 	mux.HandleFunc("/api/share/upsert-payload", s.withReady(s.handleUpsertPayload))
 	mux.HandleFunc("/api/share-url", s.withReady(s.handleShareURL))
 	mux.HandleFunc("/api/comments/merge", s.withReady(s.handleMergeComments))
@@ -423,6 +424,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 	// Integration detection
 	s.addIntegrationStatus(resp)
+
+	if sess != nil && sess.ReviewType != "" {
+		resp["review_type"] = sess.ReviewType
+	}
 
 	if len(s.staleIntegrations) > 0 {
 		type staleInfo struct {
@@ -725,6 +730,23 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// shareFilesForSession returns the files to upload for the active session plus
+// the review_type to tag the share with. For preview sessions it crawls the
+// previewed HTML origin and its local assets; otherwise it loads the on-disk
+// review files unchanged. Single source of truth for both the direct Share
+// button path (handleShare) and the proxy-auth relay (handlePreviewPayload).
+func (s *Server) shareFilesForSession() (files []shareFile, reviewType string, err error) {
+	sess := s.session.Load()
+	if sess != nil && sess.ReviewType == "preview" {
+		files, err = crawlPreview(sess.Origin)
+		if err != nil {
+			return nil, "", fmt.Errorf("crawling preview assets: %w", err)
+		}
+		return files, "preview", nil
+	}
+	return sess.LoadShareFilesFromDisk(), "", nil
+}
+
 // handleShare uploads the current session to crit-web and returns the share URL.
 // POST /api/share
 func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
@@ -752,11 +774,15 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read file content from disk and comments from the review file.
-	// This uses the same disk-based path as `crit share` (CLI), ensuring
-	// a single source of truth for the share payload. The review file is
-	// kept current by saveCritJSON (200ms debounce on every comment change).
-	files := s.session.Load().LoadShareFilesFromDisk()
+	// Read file content for the share. Preview sessions crawl the previewed
+	// HTML origin + assets; other sessions use the on-disk review files (kept
+	// current by saveCritJSON). shareFilesForSession is the single source of
+	// truth shared with the proxy-auth relay path.
+	files, reviewType, err := s.shareFilesForSession()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if len(files) == 0 {
 		http.Error(w, "no files in session", http.StatusBadRequest)
 		return
@@ -781,7 +807,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	critPath := s.session.Load().critJSONPath()
-	res, err := shareReviewFiles(critPath, files, filePaths, s.shareURL, s.authTokenSnapshot(), s.author, shareReq.Org, shareReq.Visibility)
+	res, err := shareReviewFiles(critPath, files, filePaths, s.shareURL, s.authTokenSnapshot(), s.author, shareReq.Org, shareReq.Visibility, reviewType)
 	if err != nil {
 		if errors.Is(err, errShareUnauthorized) {
 			clearAuthIdentity()
@@ -949,6 +975,30 @@ func (s *Server) handleSharePayload(w http.ResponseWriter, r *http.Request) {
 	comments, reviewRound := loadCommentsForShare(critPath, filePaths, s.author)
 	cliArgs := loadCliArgsFromReviewFile(critPath)
 	writeJSON(w, buildSharePayload(files, comments, reviewRound, cliArgs, "", "", ""))
+}
+
+// handlePreviewPayload returns the share payload for a preview session: it
+// crawls the previewed HTML origin and its local assets, then builds the same
+// POST /api/reviews payload the direct Share path produces, tagged with
+// review_type=preview. Used by the proxy-auth relay so the browser popup can
+// forward the snapshot through an authenticated session (relay is transport,
+// not protocol — same endpoint, same payload shape).
+func (s *Server) handlePreviewPayload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.session.Load()
+	if sess == nil || sess.ReviewType != "preview" {
+		http.Error(w, "not a preview session", http.StatusBadRequest)
+		return
+	}
+	files, err := crawlPreview(sess.Origin)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, buildSharePayload(files, nil, 1, nil, "", "", "preview"))
 }
 
 // handleUpsertPayload returns the JSON payload that would be PUT to

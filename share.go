@@ -224,11 +224,11 @@ type shareReviewFilesResult struct {
 // shareReviewFiles loads comments + cli_args from the review file at critPath
 // and POSTs the files to crit-web. Used by both the CLI (`crit share`) and the
 // server's POST /api/share endpoint so payload wiring stays in one place.
-func shareReviewFiles(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor, org, visibility string) (shareReviewFilesResult, error) {
+func shareReviewFiles(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor, org, visibility, reviewType string) (shareReviewFilesResult, error) {
 	comments, reviewRound := loadCommentsForShare(critPath, filePaths, fallbackAuthor)
 	cliArgs := loadCliArgsFromReviewFile(critPath)
 
-	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs, org, visibility)
+	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs, org, visibility, reviewType)
 	if err != nil {
 		return shareReviewFilesResult{}, err
 	}
@@ -241,8 +241,8 @@ func shareReviewFiles(critPath string, files []shareFile, filePaths []string, sv
 }
 
 // shareFilesToWeb uploads files to a crit-web instance and returns the share URL and delete token.
-func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string, reviewRound int, authToken string, cliArgs []string, org, visibility string) (string, string, error) {
-	payload := buildSharePayload(files, comments, reviewRound, cliArgs, org, visibility, "")
+func shareFilesToWeb(files []shareFile, comments []shareComment, shareURL string, reviewRound int, authToken string, cliArgs []string, org, visibility, reviewType string) (string, string, error) {
+	payload := buildSharePayload(files, comments, reviewRound, cliArgs, org, visibility, reviewType)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", "", fmt.Errorf("marshaling payload: %w", err)
