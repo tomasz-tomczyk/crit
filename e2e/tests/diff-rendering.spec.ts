@@ -1,18 +1,20 @@
 import { test, expect } from '@playwright/test';
-import { loadPage } from './helpers';
+import { loadPage, goSection } from './helpers';
 
 test.describe('Diff Rendering — Split Mode (default)', () => {
   test('shows split diff by default', async ({ page }) => {
     await loadPage(page);
 
-    const splitContainer = page.locator('.diff-container.split');
-    await expect(splitContainer.first()).toBeVisible();
+    // Scope to server.go (always expanded) — deleted.txt has a .diff-container
+    // inside a collapsed <details> which .first() would pick as hidden.
+    const splitContainer = goSection(page).locator('.diff-container.split');
+    await expect(splitContainer).toBeVisible();
   });
 
   test('split diff has left and right sides', async ({ page }) => {
     await loadPage(page);
 
-    const row = page.locator('.diff-split-row').first();
+    const row = goSection(page).locator('.diff-split-row').first();
     await expect(row).toBeVisible();
 
     const left = row.locator('.diff-split-side.left');
@@ -25,28 +27,30 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
   test('addition lines have addition class', async ({ page }) => {
     await loadPage(page);
 
-    const additionSide = page.locator('.diff-split-side.addition');
+    const additionSide = goSection(page).locator('.diff-split-side.addition');
     await expect(additionSide.first()).toBeVisible();
   });
 
   test('deletion lines have deletion class', async ({ page }) => {
     await loadPage(page);
 
-    const deletionSide = page.locator('.diff-split-side.deletion');
+    const deletionSide = goSection(page).locator('.diff-split-side.deletion');
     await expect(deletionSide.first()).toBeVisible();
   });
 
   test('hunk headers show @@ notation', async ({ page }) => {
     await loadPage(page);
 
-    const hunkHeader = page.locator('.diff-hunk-header').first();
+    // routes.go has multiple hunks with visible hunk headers
+    const routesSection = page.locator('#file-section-routes\\.go');
+    const hunkHeader = routesSection.locator('.diff-hunk-header').first();
     await expect(hunkHeader).toBeVisible();
 
     const hunkText = hunkHeader.locator('.hunk-text');
     await expect(hunkText).toContainText('@@');
   });
 
-  test('deleted file shows "This file was deleted."', async ({ page }) => {
+  test('deleted file shows deletion diff or placeholder', async ({ page }) => {
     await loadPage(page);
 
     // The deleted file section starts collapsed (<details> closed).
@@ -57,9 +61,11 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
     const header = deletedSection.locator('summary.file-header');
     await header.click();
 
+    // In branch scope, deleted files render actual deletion hunks.
+    // In all scope, they show a placeholder. Accept either.
     const placeholder = deletedSection.locator('.diff-deleted-placeholder');
-    await expect(placeholder).toBeVisible();
-    await expect(placeholder).toHaveText('This file was deleted.');
+    const diffContainer = deletedSection.locator('.diff-container');
+    await expect(placeholder.or(diffContainer).first()).toBeVisible();
   });
 
   test('spacer shows hunk header between hunks', async ({ page }) => {
@@ -139,12 +145,12 @@ test.describe('Diff Mode Toggle', () => {
     await expect(unifiedBtn).toBeVisible();
     await unifiedBtn.click();
 
-    // Unified container should now be visible
-    const unifiedContainer = page.locator('.diff-container.unified');
-    await expect(unifiedContainer.first()).toBeVisible();
+    // Unified container should now be visible (scoped to expanded section)
+    const unifiedContainer = goSection(page).locator('.diff-container.unified');
+    await expect(unifiedContainer).toBeVisible();
 
-    // Split container should no longer exist
-    await expect(page.locator('.diff-container.split')).toHaveCount(0);
+    // Split container should no longer exist in expanded sections
+    await expect(goSection(page).locator('.diff-container.split')).toHaveCount(0);
   });
 
   test('unified mode shows single-pane diff lines', async ({ page }) => {
@@ -153,7 +159,7 @@ test.describe('Diff Mode Toggle', () => {
     // Switch to unified mode
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
 
-    const diffLine = page.locator('.diff-container.unified .diff-line');
+    const diffLine = goSection(page).locator('.diff-container.unified .diff-line');
     await expect(diffLine.first()).toBeVisible();
   });
 
@@ -164,7 +170,7 @@ test.describe('Diff Mode Toggle', () => {
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
 
     // Find an addition line's gutter sign
-    const additionLine = page.locator('.diff-container.unified .diff-line.addition').first();
+    const additionLine = goSection(page).locator('.diff-container.unified .diff-line.addition').first();
     await expect(additionLine).toBeVisible();
 
     const sign = additionLine.locator('.diff-gutter-sign');
@@ -178,19 +184,19 @@ test.describe('Diff Mode Toggle', () => {
     await loadPage(page);
 
     // Default should be split
-    await expect(page.locator('.diff-container.split').first()).toBeVisible();
+    await expect(goSection(page).locator('.diff-container.split')).toBeVisible();
 
     // Switch to unified
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-    await expect(page.locator('.diff-container.unified').first()).toBeVisible();
+    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
 
     // Reload page
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
     // Should still be in unified mode after reload
-    await expect(page.locator('.diff-container.unified').first()).toBeVisible();
-    await expect(page.locator('.diff-container.split')).toHaveCount(0);
+    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
+    await expect(goSection(page).locator('.diff-container.split')).toHaveCount(0);
   });
 
   test('can switch back to split', async ({ page }) => {
@@ -198,14 +204,14 @@ test.describe('Diff Mode Toggle', () => {
 
     // Switch to unified first
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-    await expect(page.locator('.diff-container.unified').first()).toBeVisible();
+    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
 
     // Switch back to split
     const splitBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="split"]');
     await splitBtn.click();
 
-    await expect(page.locator('.diff-container.split').first()).toBeVisible();
-    await expect(page.locator('.diff-container.unified')).toHaveCount(0);
+    await expect(goSection(page).locator('.diff-container.split')).toBeVisible();
+    await expect(goSection(page).locator('.diff-container.unified')).toHaveCount(0);
   });
 });
 
@@ -215,7 +221,7 @@ test.describe('Unified Mode — Drag Indicator Across Line Types', () => {
 
     // Switch to unified mode
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-    await expect(page.locator('.diff-container.unified').first()).toBeVisible();
+    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
 
     // Find the server.go section — the second hunk has both del and add lines
     const serverSection = page.locator('#file-section-server\\.go');
@@ -286,7 +292,7 @@ test.describe('Unified Mode — Drag Indicator Across Line Types', () => {
 
     // Switch to unified mode
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-    await expect(page.locator('.diff-container.unified').first()).toBeVisible();
+    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
 
     const serverSection = page.locator('#file-section-server\\.go');
     await expect(serverSection).toBeVisible();

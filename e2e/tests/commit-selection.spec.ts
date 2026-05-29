@@ -128,7 +128,17 @@ test.describe('Commit Selection', () => {
   });
 
   test('commit picker visible on Branch scope', async ({ page }) => {
-    const responsePromise = page.waitForResponse(r =>
+    // First switch to staged (which hides the picker), then switch to branch
+    // to verify branch scope shows it. Direct click on branch may be a no-op
+    // if the page already defaults to branch scope (no cookie).
+    let responsePromise = page.waitForResponse(r =>
+      r.url().includes('/api/session') && r.status() === 200
+    );
+    await page.click('#scopeToggle .toggle-btn[data-scope="staged"]');
+    await responsePromise;
+    await expect(page.locator('#commitDropdown')).toBeHidden();
+
+    responsePromise = page.waitForResponse(r =>
       r.url().includes('/api/session') && r.status() === 200
     );
     await page.click('#scopeToggle .toggle-btn[data-scope="branch"]');
