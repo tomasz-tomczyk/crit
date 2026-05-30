@@ -18,6 +18,7 @@ import (
 	"time"
 
 	qrterminal "github.com/mdp/qrterminal/v3"
+	"golang.org/x/term"
 )
 
 //go:embed frontend/*.html frontend/*.css frontend/*.js frontend/*.png frontend/*.svg frontend/*.ico frontend/*.webmanifest
@@ -291,7 +292,12 @@ func runShare(args []string) {
 		}
 		cfg.ShareConsented = true
 	}
-	if flagURL {
+	// Confirm sharing to a custom URL — but only in genuine interactive
+	// sessions. In non-interactive contexts (CI, the integration suite,
+	// scripted/agent usage) there is no TTY, so the prompt would read EOF,
+	// abort, and the share would never persist its result to the review file.
+	// Auto-proceed there; keep the confirm for real terminals.
+	if flagURL && term.IsTerminal(int(os.Stdin.Fd())) {
 		if !promptShareURLConfirm(os.Stderr, os.Stdin, sf.svcURL) {
 			return
 		}
