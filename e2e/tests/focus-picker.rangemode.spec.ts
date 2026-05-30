@@ -1,6 +1,24 @@
 import { test, expect } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { loadPage, clearAllComments } from './helpers';
 import { ensureStackedFocus, rangeFixture } from './range-helpers';
+
+// Opening the stack chip paints "Loading…" synchronously, then swaps in the
+// .stack-popover-item entries once /api/picker resolves (it shells out to git,
+// so under CI load the round-trip can exceed the default 5s expect timeout).
+// Drive the click and the fetch together so assertions never race the network:
+// the prefetch fired at init may already be in flight or done, so we wait for a
+// picker response if one lands but never hang if the cache is already warm.
+async function openStackPopover(page: Page): Promise<void> {
+  const pickerResponse = page
+    .waitForResponse(
+      (resp) => resp.url().includes('/api/picker') && resp.status() === 200,
+      { timeout: 10_000 },
+    )
+    .catch(() => null);
+  await page.locator('#stackChipBtn').click();
+  await pickerResponse;
+}
 
 // The stack chip + popover replace the old multi-section focus-picker
 // popover. The CLI (`crit --pr <N>` / `crit --range A..B`) is still the
@@ -28,9 +46,13 @@ test('stack chip ✕ exit is visible in range focus', async ({ page }) => {
 
 test('popover lists feat-a, feat-b, feat-c', async ({ page }) => {
   await loadPage(page);
-  await page.locator('#stackChipBtn').click();
-  // Popover renders "Loading…" first, then re-renders with stack items
-  // after /api/picker resolves. Wait for an actual stack item before reading text.
+  // Opening the chip renders "Loading…" synchronously and fires /api/picker;
+  // the .stack-popover-item entries only paint once that fetch resolves.
+  // /api/picker shells out to git (and on CI can exceed the default expect
+  // timeout under load), so wait for the response that actually produces the
+  // items instead of racing it. An in-flight prefetch may already be settling,
+  // hence the generous timeout.
+  await openStackPopover(page);
   await expect(page.locator('#stackPopover .stack-popover-item').first()).toBeVisible();
   await expect(page.locator('#stackPopover')).toContainText('feat-a');
   await expect(page.locator('#stackPopover')).toContainText('feat-b');
@@ -47,7 +69,7 @@ test('popover renders the default branch as the last entry (base marker)', async
 
 test('popover order is head->base (feat-c, feat-b, feat-a, base: main)', async ({ page }) => {
   await loadPage(page);
-  await page.locator('#stackChipBtn').click();
+  await openStackPopover(page);
   const items = page.locator('#stackPopover .stack-popover-item');
   await expect(items.first()).toBeVisible();
   // 4 entries expected: feat-c/b/a + base: main.
