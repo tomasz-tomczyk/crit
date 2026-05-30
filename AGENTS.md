@@ -305,6 +305,18 @@ Hunk headers (`@@ -27,6 +31,23 @@`), dual gutters, colored backgrounds for addit
 - `splitHighlightedCode()` tracks open `<span>` tags across lines to properly close/reopen them.
 </important>
 
+<important if="you are changing any agent-*.js, crit-agent.js, or agent-marker.css in frontend/">
+
+These files are the scripts crit injects into live/preview iframes — the canonical set + order is `agentScriptFiles` in `server.go`, plus `agent-marker.css` (served at `/agent-marker.css`). **crit-web vendors them verbatim** into `crit-web/priv/static/preview-agent/` so DOM anchoring stays byte-identical across both renderers.
+
+When you change any of these files here:
+
+1. Re-sync into crit-web: run `crit-web/scripts/sync-preview-agent.sh` (copies the 8 files from `../crit/frontend/`).
+2. Commit the change in **both** repos.
+
+crit-web's drift-guard test `test/crit_web/preview_agent_sync_test.exs` fails loudly if the vendored copies diverge (and skips when the sibling `crit/` checkout is absent, e.g. CI). Don't hand-edit `crit-web/priv/static/preview-agent/*` — always re-sync from here.
+</important>
+
 <important if="you are adding CSS variables or modifying theme.css">
 
 Header has a 3-button theme pill (System / Light / Dark):
