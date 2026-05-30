@@ -302,6 +302,99 @@
     els.resizer = document.getElementById('critLiveResizer');
     els.commentsPanel = document.getElementById('commentsPanel');
     els.panelBody = document.getElementById('commentsPanelBody');
+
+    // --- Share (preview mode only) ---
+    // Preview sessions publish a self-contained HTML snapshot, so the shared
+    // Share flow (window.crit.share) applies. Design/live sessions
+    // (review_type 'live') proxy a running app — there's nothing
+    // self-contained to publish — so the button stays hidden.
+    if (state.isPreview) {
+      installShareController();
+    }
+  }
+
+  // Share modal clipboard icons come from the canonical crit-icons.js module
+  // (now in liveDeps), so preview's copy buttons match code-review exactly —
+  // single source of truth, no drift. Fall back to '' defensively if the module
+  // somehow failed to load (the share flow degrades to text-only copy buttons).
+  var sharedIcons = (window.crit && window.crit.icons) || {};
+  var SHARE_ICON_CLIPBOARD = sharedIcons.ICON_CLIPBOARD || '';
+  var SHARE_ICON_CHECK = sharedIcons.ICON_CHECK_SMALL || '';
+
+  // Live-mode share controller (window.crit.share). Created lazily in
+  // buildShell for preview sessions only. Stored so SSE/other code could
+  // reach it if needed later.
+  var shareCtl = null;
+
+  // Id-keyed toast adapter matching crit-share.js's expected interface:
+  //   show(id, type, htmlContent, opts) -> element ; dismiss(id)
+  // The shared chrome's #toastContainer lives in index.html and is present in
+  // live mode too, so the share modal's toasts (retry buttons, etc.) render
+  // identically to code-review. crit.shared.showToast has a different
+  // (message, opts) signature, so we implement the id-keyed variant locally.
+  function shareToastDismiss(id) {
+    var el = document.getElementById('toast-' + id);
+    if (!el) return;
+    el.classList.add('toast-out');
+    el.addEventListener('animationend', function () { el.remove(); }, { once: true });
+  }
+  function shareToastShow(id, type, content, opts) {
+    shareToastDismiss(id);
+    var container = document.getElementById('toastContainer');
+    var el = document.createElement('div');
+    el.className = 'toast toast-' + type;
+    el.id = 'toast-' + id;
+    el.innerHTML = content;
+    if (container) container.appendChild(el);
+    if (opts && opts.autoDismiss) {
+      setTimeout(function () { shareToastDismiss(id); }, 4000);
+    }
+    // Wire data-dismiss-toast buttons inside this toast (the shared chrome's
+    // delegated handler is registered by app.js, which doesn't run in live
+    // mode — so attach a local listener here).
+    el.querySelectorAll('[data-dismiss-toast]').forEach(function (btn) {
+      btn.addEventListener('click', function () { shareToastDismiss(btn.getAttribute('data-dismiss-toast')); });
+    });
+    return el;
+  }
+
+  function installShareController() {
+    var shareBtnEl = document.getElementById('shareBtn');
+    if (!shareBtnEl) return;
+    if (!(window.crit && window.crit.share && window.crit.share.create)) return;
+
+    // Read share config from /api/config (the same endpoint code-review uses).
+    // Build + reveal the controller once config resolves. Until then the
+    // button stays hidden (its index.html default), so there's no flash.
+    fetch('/api/config')
+      .then(function (r) { return r.ok ? r.json() : {}; })
+      .then(function (cfg) {
+        cfg = cfg || {};
+        shareCtl = window.crit.share.create({
+          reviewType: 'preview',
+          canShare: true,
+          shareBtnEl: shareBtnEl,
+          shareURL: cfg.share_url || '',
+          hostedURL: cfg.hosted_url || '',
+          deleteToken: cfg.delete_token || '',
+          hostedToken: cfg.hosted_token || '',
+          needsShareConsent: cfg.needs_consent || false,
+          authUserName: cfg.auth_user_name || '',
+          proxyAuth: !!cfg.proxy_auth,
+          sharedOrg: cfg.share_org
+            ? { slug: cfg.share_org, name: cfg.share_org_name || cfg.share_org }
+            : null,
+          sharedVisibility: cfg.share_org ? (cfg.share_visibility || '') : '',
+          onCommentsRefreshed: function () { refreshPanel(); return Promise.resolve(); },
+          toast: { show: shareToastShow, dismiss: shareToastDismiss },
+          escapeHtml: (shared && shared.escapeHTML) ? shared.escapeHTML : function (s) { return s == null ? '' : String(s); },
+          getSetting: (shared && shared.getSetting) ? shared.getSetting : function (_k, fb) { return fb; },
+          setSetting: (shared && shared.setSetting) ? shared.setSetting : function () {},
+          icons: { clipboard: SHARE_ICON_CLIPBOARD, check: SHARE_ICON_CHECK },
+        });
+        shareCtl.reveal();
+      })
+      .catch(function () { /* share is optional; leave button hidden */ });
   }
 
   async function boot() {

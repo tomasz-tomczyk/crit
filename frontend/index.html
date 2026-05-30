@@ -268,6 +268,10 @@
       // pr-panel, etc.) while keeping the header + settings overlay alive, so the
       // shared bootstrap (theme pill, settings dialog, shared helpers) keeps working.
       document.documentElement.classList.add('crit-mode-live');
+      // Preview is a self-contained, shareable snapshot, so mark it distinctly:
+      // style-live.css un-hides the Share button for preview (design/live keeps
+      // it hidden — there's a running app behind it, nothing to publish).
+      if (isPreview) document.documentElement.classList.add('crit-mode-preview');
 
       // Pull in shared helpers + live-mode CSS, then the controller.
       var sh = document.createElement('script'); sh.src = 'crit-shared.js';
@@ -305,10 +309,12 @@
       // Sub-modules loaded in parallel; live-mode.js (loaded last) requires
       // their window.crit.* / window.crit.live.* namespaces to be present.
       var liveDeps = [
+        'crit-icons.js',
         'crit-comment-card-helpers.js',
         'crit-comment-card.js',
         'crit-settings-panes.js',
         'crit-settings-overlay.js',
+        'crit-share.js',
         'agent-protocol.js',
         'live-mode.dispatch.js',
         'live-mode.inflight.js',
@@ -418,6 +424,8 @@
       var df = document.createElement('script'); df.src = 'crit-diff-renderer.js'; df.async = false; document.body.appendChild(df);
       // SVG icon constants used by app.js. Must load before app.js.
       var ic = document.createElement('script'); ic.src = 'crit-icons.js'; ic.async = false; document.body.appendChild(ic);
+      // Shared Share flow (window.crit.share). Must load before app.js.
+      var shr = document.createElement('script'); shr.src = 'crit-share.js'; shr.async = false; document.body.appendChild(shr);
       var a = document.createElement('script'); a.src = 'app.js'; a.async = false; document.body.appendChild(a);
     }
   })();
