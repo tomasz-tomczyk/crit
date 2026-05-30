@@ -221,11 +221,29 @@ type shareReviewFilesResult struct {
 	Comments    []shareComment
 }
 
+// remapPreviewCommentFiles re-keys per-file comments to previewMainHTMLKey so
+// they attach to the crawled HTML entry in a preview share payload. Review-level
+// comments (empty File) are left untouched. A preview session has exactly one
+// reviewable file, so every per-file comment belongs to the previewed HTML.
+func remapPreviewCommentFiles(comments []shareComment) {
+	for i := range comments {
+		if comments[i].File != "" {
+			comments[i].File = previewMainHTMLKey
+		}
+	}
+}
+
 // shareReviewFiles loads comments + cli_args from the review file at critPath
 // and POSTs the files to crit-web. Used by both the CLI (`crit share`) and the
 // server's POST /api/share endpoint so payload wiring stays in one place.
 func shareReviewFiles(critPath string, files []shareFile, filePaths []string, svcURL, authToken, fallbackAuthor, org, visibility, reviewType string) (shareReviewFilesResult, error) {
 	comments, reviewRound := loadCommentsForShare(critPath, filePaths, fallbackAuthor)
+	if reviewType == "preview" {
+		// Preview comments are stored under the session's on-disk path (passed
+		// in filePaths) but the crawled payload keys the HTML as
+		// previewMainHTMLKey — re-key so crit-web attaches them to that entry.
+		remapPreviewCommentFiles(comments)
+	}
 	cliArgs := loadCliArgsFromReviewFile(critPath)
 
 	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs, org, visibility, reviewType)

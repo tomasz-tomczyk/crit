@@ -704,6 +704,10 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 		}
 		s.session.Load().SetSharedURLAndToken(body.URL, body.DeleteToken)
 		s.session.Load().SetShareOrgInfo(body.Org, body.OrgName, body.Visibility)
+		// Persist the share scope from the session's file identity (matches the
+		// direct POST /api/share path) so the shared status is restored on
+		// restart in proxy-auth mode too, not just direct mode.
+		s.session.Load().SetShareScope(shareScope(s.session.Load().FilePathsSnapshot()))
 		writeJSON(w, map[string]string{
 			"ok":           "true",
 			"hosted_token": tokenFromHostedURL(body.URL),
@@ -807,7 +811,20 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	critPath := s.session.Load().critJSONPath()
-	res, err := shareReviewFiles(critPath, files, filePaths, s.shareURL, s.authTokenSnapshot(), s.author, shareReq.Org, shareReq.Visibility, reviewType)
+
+	// Comments are loaded from the review file by their session path. For a
+	// preview the uploaded files are crawled (keyed "index.html"), but the
+	// comments live under the session's previewed-file path — pass that so they
+	// load, then shareReviewFiles re-keys them to the crawl entry. The scope is
+	// always the session's file identity so restoreShareStateLocked matches it
+	// on restart (it recomputes scope from s.Files, not from the crawled set).
+	scopePaths := s.session.Load().FilePathsSnapshot()
+	commentPaths := filePaths
+	if reviewType == "preview" {
+		commentPaths = scopePaths
+	}
+
+	res, err := shareReviewFiles(critPath, files, commentPaths, s.shareURL, s.authTokenSnapshot(), s.author, shareReq.Org, shareReq.Visibility, reviewType)
 	if err != nil {
 		if errors.Is(err, errShareUnauthorized) {
 			clearAuthIdentity()
@@ -820,7 +837,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.session.Load().SetSharedURLAndToken(res.URL, res.DeleteToken)
-	s.session.Load().SetShareScope(shareScope(filePaths))
+	s.session.Load().SetShareScope(shareScope(scopePaths))
 	s.session.Load().SetShareOrgInfo(shareReq.Org, shareReq.OrgName, shareReq.Visibility)
 	writeJSON(w, map[string]any{"url": res.URL, "delete_token": res.DeleteToken})
 }
@@ -998,7 +1015,19 @@ func (s *Server) handlePreviewPayload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, buildSharePayload(files, nil, 1, nil, "", "", "preview"))
+	// Include the previewed file's comments, re-keyed to the crawl entry, so the
+	// proxy relay uploads the same payload (files + comments) as the direct
+	// POST /api/share path. Without this, sharing via popup loses comments.
+	previewPath := ""
+	if paths := sess.FilePathsSnapshot(); len(paths) > 0 {
+		previewPath = paths[0]
+	}
+	comments, reviewRound := loadCommentsForShare(sess.critJSONPath(), []string{previewPath}, s.author)
+	remapPreviewCommentFiles(comments)
+	if reviewRound == 0 {
+		reviewRound = 1
+	}
+	writeJSON(w, buildSharePayload(files, comments, reviewRound, nil, "", "", "preview"))
 }
 
 // handleUpsertPayload returns the JSON payload that would be PUT to

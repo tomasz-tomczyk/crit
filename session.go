@@ -1750,6 +1750,21 @@ func (s *Session) GetShareScope() string {
 	return s.shareScope
 }
 
+// FilePathsSnapshot returns the session's file paths under read lock. The share
+// scope is computed from these (the session's stable review identity) rather
+// than from the uploaded payload — for preview that's the single previewed
+// HTML's session path, not the crawled asset set, so the scope still matches on
+// restart when restoreShareStateLocked recomputes it from s.Files.
+func (s *Session) FilePathsSnapshot() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	paths := make([]string, 0, len(s.Files))
+	for _, f := range s.Files {
+		paths = append(paths, f.Path)
+	}
+	return paths
+}
+
 // GetShareState returns the shared URL and delete token atomically.
 func (s *Session) GetShareState() (string, string) {
 	s.mu.RLock()

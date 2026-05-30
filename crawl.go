@@ -14,6 +14,14 @@ import (
 
 const maxPreviewBytes = 10 * 1024 * 1024 // 10MB total snapshot limit
 
+// previewMainHTMLKey is the share-payload path under which the previewed HTML
+// file is stored. The crawler roots the snapshot here and assets hang off it by
+// their relative paths. Comments authored on the preview are stored under the
+// session's on-disk path, so they must be re-keyed to this constant when built
+// into a share payload (see remapPreviewCommentFiles) — otherwise crit-web has
+// no matching file to attach them to. Single constant so the two can't drift.
+const previewMainHTMLKey = "index.html"
+
 // textExtensions lists file extensions served as plain text (not base64).
 var textExtensions = map[string]bool{
 	".html": true,
@@ -90,7 +98,7 @@ func crawlPreview(htmlPath string) ([]shareFile, error) {
 
 	c := newPreviewCollector(filepath.Dir(absHTML))
 
-	if err := c.add("index.html", htmlData); err != nil {
+	if err := c.add(previewMainHTMLKey, htmlData); err != nil {
 		return nil, err
 	}
 
