@@ -40,6 +40,10 @@ func TestShareReviewFiles_PreviewRemapsComments(t *testing.T) {
 		Files: map[string]CritJSONFile{
 			"sub/index.html": {Comments: []Comment{
 				{ID: "c1", StartLine: 2, EndLine: 2, Body: "unresolved here", Author: "Alice", Scope: "line"},
+				// Resolved comments are dropped at load (before the re-key); this
+				// guards the filter-then-remap ordering so a future refactor can't
+				// leak a resolved comment into the shared payload.
+				{ID: "c2", StartLine: 4, EndLine: 4, Body: "resolved", Author: "Alice", Scope: "line", Resolved: true},
 			}},
 		},
 	}

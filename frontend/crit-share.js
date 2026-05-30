@@ -15,9 +15,10 @@
 // Dependencies (via window.crit.*):
 //   - none at module scope; all collaborators are injected through options.
 //
-// options:
-//   config:   shareURL, hostedURL, deleteToken, hostedToken, needsShareConsent,
-//             authUserName, proxyAuth, reviewType, sharedOrg, sharedVisibility
+// options (all flat top-level keys, not nested):
+//   config fields: shareURL, hostedURL, deleteToken, hostedToken,
+//             needsShareConsent, authUserName, proxyAuth, reviewType,
+//             sharedOrg, sharedVisibility
 //   shareBtnEl: the #shareBtn element (click handler attached internally)
 //   canShare:  bool — reveal() shows the button iff (shareURL && canShare).
 //              code-review passes session.mode !== 'git'; preview passes true.
