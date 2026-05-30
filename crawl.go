@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -145,7 +146,7 @@ func collectCSSAssets(c *previewCollector, cssFiles []string) error {
 		if readErr != nil {
 			continue
 		}
-		cssDir := filepath.Dir(cssRel)
+		cssDir := path.Dir(cssRel)
 		for _, ref := range extractCSSURLs(string(cssData)) {
 			if isExternalURL(ref) {
 				continue
@@ -170,9 +171,9 @@ func resolveCSSRef(cssDir, ref string) string {
 		return ""
 	}
 	if cssDir != "." {
-		rel = filepath.Join(cssDir, rel)
+		rel = path.Join(cssDir, rel)
 	}
-	return filepath.Clean(rel)
+	return path.Clean(rel)
 }
 
 // extractHTMLRefs parses HTML and returns local asset paths referenced by
@@ -322,7 +323,11 @@ func cleanRelPath(p string) string {
 		return ""
 	}
 
-	p = filepath.Clean(p)
+	// Web asset paths are always forward-slash (they become shareFile keys and
+	// must match HTML/CSS refs + crit-web's served paths), so clean with `path`,
+	// not `filepath` — the latter yields backslashes on Windows. Disk reads in
+	// tryAdd still join via filepath, which accepts these forward-slash rels.
+	p = path.Clean(p)
 
 	// Reject parent traversal.
 	if strings.HasPrefix(p, "..") {
