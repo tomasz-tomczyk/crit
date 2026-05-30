@@ -92,11 +92,16 @@ func TestHandlePreviewPayload_IncludesRemappedComments(t *testing.T) {
 		t.Fatal(err)
 	}
 	const sessPath = "testdata/preview/index.html"
+	// DOM pins are stored under the iframe pathname (/preview-content) in a
+	// separate "live-route" FileEntry — NOT the previewed HTML's path. This
+	// mirrors how the live composer persists preview comments (AddLivePin), and
+	// is exactly the case the previous paths[0]-only code missed.
 	cj := CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
-			sessPath: {Comments: []Comment{
-				{ID: "c1", StartLine: 1, EndLine: 1, Body: "preview comment", Author: "Alice", Scope: "line"},
+			"/preview-content": {Comments: []Comment{
+				{ID: "c1", StartLine: 0, EndLine: 0, Body: "pin on the page", Author: "Alice",
+					DOMAnchor: &DOMAnchor{Pathname: "/preview-content", CSSSelector: "body > h1"}},
 			}},
 		},
 	}
@@ -104,19 +109,7 @@ func TestHandlePreviewPayload_IncludesRemappedComments(t *testing.T) {
 		t.Fatalf("saveCritJSON: %v", err)
 	}
 
-	sess := &Session{
-		Mode:           "files",
-		ReviewType:     "preview",
-		RepoRoot:       dir,
-		Origin:         origin,
-		ReviewFilePath: review,
-		ReviewRound:    1,
-		subscribers:    make(map[chan SSEEvent]struct{}),
-		roundComplete:  make(chan struct{}, 1),
-		Files: []*FileEntry{
-			{Path: sessPath, AbsPath: origin, FileType: "code", Content: "<html></html>"},
-		},
-	}
+	sess := previewSessionWithPin(dir, origin, review, sessPath)
 	s, err := NewServer(sess, frontendFS, "", false, "", "Alice", "test", 0, "")
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -133,6 +126,85 @@ func TestHandlePreviewPayload_IncludesRemappedComments(t *testing.T) {
 	var payload map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode payload: %v", err)
+	}
+	comments, _ := payload["comments"].([]any)
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d\nbody=%s", len(comments), rec.Body.String())
+	}
+	if got := comments[0].(map[string]any)["file"]; got != previewMainHTMLKey {
+		t.Errorf("comment file = %v, want %q", got, previewMainHTMLKey)
+	}
+}
+
+// previewSessionWithPin builds a preview Session with two FileEntries: the
+// previewed HTML ("code") and a live-route entry holding DOM pins, matching how
+// a real preview session looks after the user adds a comment (AddLivePin
+// auto-creates the live-route entry keyed by the iframe pathname).
+func previewSessionWithPin(dir, origin, review, sessPath string) *Session {
+	return &Session{
+		Mode:           "files",
+		ReviewType:     "preview",
+		RepoRoot:       dir,
+		Origin:         origin,
+		ReviewFilePath: review,
+		ReviewRound:    1,
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		roundComplete:  make(chan struct{}, 1),
+		Files: []*FileEntry{
+			{Path: sessPath, AbsPath: origin, FileType: "code", Content: "<html></html>"},
+			{Path: "/preview-content", FileType: "live-route", Status: "added"},
+		},
+	}
+}
+
+// TestHandleUpsertPayload_PreviewIncludesPins is the re-share regression for
+// "no files in session" + dropped comments: the upsert builder used
+// LoadShareFilesFromDisk (empty for a preview session, whose FileEntry has no
+// AbsPath) and never re-keyed pins. It must crawl the preview and include the
+// DOM pins, re-keyed to the crawl entry.
+func TestHandleUpsertPayload_PreviewIncludesPins(t *testing.T) {
+	dir := t.TempDir()
+	review := filepath.Join(dir, "review.json")
+	origin, err := filepath.Abs(filepath.Join("testdata", "preview", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cj := CritJSON{
+		ReviewRound: 2,
+		ShareURL:    "https://crit.example.com/r/tok",
+		DeleteToken: "dtok",
+		Files: map[string]CritJSONFile{
+			"/preview-content": {Comments: []Comment{
+				{ID: "c1", StartLine: 0, EndLine: 0, Body: "pin", Author: "Alice",
+					DOMAnchor: &DOMAnchor{Pathname: "/preview-content", CSSSelector: "body"}},
+			}},
+		},
+	}
+	if err := saveCritJSON(review, cj); err != nil {
+		t.Fatalf("saveCritJSON: %v", err)
+	}
+
+	sess := previewSessionWithPin(dir, origin, review, "testdata/preview/index.html")
+	sess.SetSharedURLAndToken("https://crit.example.com/r/tok", "dtok")
+	s, err := NewServer(sess, frontendFS, "", false, "", "Alice", "test", 0, "")
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	s.SetSession(sess)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/share/upsert-payload", nil)
+	rec := httptest.NewRecorder()
+	s.handleUpsertPayload(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (want 200; 'no files in session' is the bug), body = %s", rec.Code, rec.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if files, _ := payload["files"].([]any); len(files) == 0 {
+		t.Fatalf("upsert payload has no files — the 'no files in session' bug\nbody=%s", rec.Body.String())
 	}
 	comments, _ := payload["comments"].([]any)
 	if len(comments) != 1 {

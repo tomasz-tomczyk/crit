@@ -221,10 +221,25 @@ type shareReviewFilesResult struct {
 	Comments    []shareComment
 }
 
+// loadPreviewShareComments loads ALL of a preview session's comments and re-keys
+// them to previewMainHTMLKey. Preview DOM pins live in separate "live-route"
+// FileEntries keyed by the iframe pathname (/preview-content), distinct from the
+// previewed HTML's "code" entry — so comments must be loaded across EVERY
+// session path (sessionPaths = Session.FilePathsSnapshot()), not just the HTML's,
+// then collapsed onto the single crawl entry. Used by the proxy preview-payload
+// and re-share upsert-payload builders; handleShare gets the same effect by
+// passing all session paths through shareReviewFiles.
+func loadPreviewShareComments(critPath string, sessionPaths []string, fallbackAuthor string) ([]shareComment, int) {
+	comments, reviewRound := loadCommentsForShare(critPath, sessionPaths, fallbackAuthor)
+	remapPreviewCommentFiles(comments)
+	return comments, reviewRound
+}
+
 // remapPreviewCommentFiles re-keys per-file comments to previewMainHTMLKey so
 // they attach to the crawled HTML entry in a preview share payload. Review-level
-// comments (empty File) are left untouched. A preview session has exactly one
-// reviewable file, so every per-file comment belongs to the previewed HTML.
+// comments (empty File) are left untouched. Preview is a single rendered page,
+// so every per-file comment (including DOM pins on live-route entries) collapses
+// onto the one previewed HTML.
 func remapPreviewCommentFiles(comments []shareComment) {
 	for i := range comments {
 		if comments[i].File != "" {

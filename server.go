@@ -1017,13 +1017,10 @@ func (s *Server) handlePreviewPayload(w http.ResponseWriter, r *http.Request) {
 	}
 	// Include the previewed file's comments, re-keyed to the crawl entry, so the
 	// proxy relay uploads the same payload (files + comments) as the direct
-	// POST /api/share path. Without this, sharing via popup loses comments.
-	previewPath := ""
-	if paths := sess.FilePathsSnapshot(); len(paths) > 0 {
-		previewPath = paths[0]
-	}
-	comments, reviewRound := loadCommentsForShare(sess.critJSONPath(), []string{previewPath}, s.author)
-	remapPreviewCommentFiles(comments)
+	// POST /api/share path. Comments span all session paths (DOM pins live on
+	// live-route entries, not the HTML's "code" entry), so load across all of
+	// them — not just the first. Without this, sharing via popup loses comments.
+	comments, reviewRound := loadPreviewShareComments(sess.critJSONPath(), sess.FilePathsSnapshot(), s.author)
 	if reviewRound == 0 {
 		reviewRound = 1
 	}
@@ -1038,19 +1035,37 @@ func (s *Server) handleUpsertPayload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := s.session.Load()
-	files := sess.LoadShareFilesFromDisk()
+	// Preview sessions have no on-disk review files (the FileEntry has no AbsPath),
+	// so LoadShareFilesFromDisk returns empty → "no files in session". Use
+	// shareFilesForSession, which crawls the preview HTML origin + assets (the same
+	// source as the initial share) and returns on-disk files for other modes.
+	files, reviewType, err := s.shareFilesForSession()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
 	if len(files) == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "no files in session"})
 		return
 	}
-	filePaths := make([]string, len(files))
-	for i, f := range files {
-		filePaths[i] = f.Path
-	}
 	critPath := sess.critJSONPath()
-	comments, reviewRound := loadCommentsForShare(critPath, filePaths, s.author)
+	var comments []shareComment
+	var reviewRound int
+	if reviewType == "preview" {
+		// Load comments across all session paths (DOM pins on live-route entries)
+		// and collapse onto the crawl entry, matching the initial-share payload.
+		comments, reviewRound = loadPreviewShareComments(critPath, sess.FilePathsSnapshot(), s.author)
+	} else {
+		filePaths := make([]string, len(files))
+		for i, f := range files {
+			filePaths[i] = f.Path
+		}
+		comments, reviewRound = loadCommentsForShare(critPath, filePaths, s.author)
+	}
 	cliArgs := loadCliArgsFromReviewFile(critPath)
 	deleteToken := sess.GetDeleteToken()
 	writeJSON(w, buildUpsertPayload(files, comments, deleteToken, reviewRound, cliArgs))
