@@ -628,6 +628,13 @@ func scopedHunks(fc FileChange, scope, commit, baseRef, repoRoot string, vcs VCS
 	if vcs == nil {
 		return nil
 	}
+	if base, head, ok := splitCommitRange(commit); ok {
+		h, err := vcs.FileDiffBetweenSHAs(fc.Path, base, head, repoRoot, false)
+		if err == nil {
+			return h
+		}
+		return nil
+	}
 	if commit != "" {
 		h, err := vcs.FileDiffForCommit(fc.Path, commit, repoRoot, false)
 		if err == nil {
@@ -704,7 +711,9 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 
 	var changes []FileChange
 	var err error
-	if commit != "" {
+	if base, head, ok := splitCommitRange(commit); ok {
+		changes, err = snap.vcs.ChangedFilesBetweenSHAs(base, head, snap.repoRoot)
+	} else if commit != "" {
 		changes, err = snap.vcs.ChangedFilesForCommit(commit, snap.repoRoot)
 	} else {
 		changes, err = snap.vcs.ChangedFilesScoped(scope, snap.baseRef)
@@ -811,6 +820,13 @@ func computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoR
 		return FileDiffUnifiedNewFile(content)
 	}
 	if vcs == nil {
+		return nil
+	}
+	if base, head, ok := splitCommitRange(commit); ok {
+		h, err := vcs.FileDiffBetweenSHAs(path, base, head, repoRoot, ignoreWhitespace)
+		if err == nil {
+			return h
+		}
 		return nil
 	}
 	if commit != "" {

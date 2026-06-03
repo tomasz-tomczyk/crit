@@ -4111,6 +4111,29 @@ body.sidebar-resizing * {
   color: var(--crit-brand);
   font-weight: 600;
 }
+.commit-picker-item-check {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--crit-brand);
+  cursor: pointer;
+  align-self: center;
+}
+/* Commits that fall between two checked commits: included in the diff range
+   but not themselves checked. Left accent bar + muted hint make this honest. */
+.commit-picker-item.in-range {
+  border-left: 2px solid var(--crit-brand);
+  padding-left: 6px;
+  color: var(--crit-editor-fg-muted);
+}
+.commit-picker-item-range {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--crit-brand);
+  flex-shrink: 0;
+}
 .commit-picker-item-sha {
   font-family: var(--crit-font-mono);
   font-size: 10px;

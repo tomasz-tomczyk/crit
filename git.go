@@ -410,6 +410,31 @@ func CommitLog(baseRef, headRef, dir string) ([]CommitInfo, error) {
 	return commits, nil
 }
 
+// commitishRe matches a safe git ref token: a hex string 4–40 chars long.
+// Restricting to hex rejects option-injection (a token starting with "-")
+// since base+".."+head is passed to git as a single argument.
+var commitishRe = regexp.MustCompile(`^[0-9a-fA-F]{4,40}$`)
+
+// isCommitish reports whether s is a safe ref token (hex SHA, 4–40 chars).
+func isCommitish(s string) bool {
+	return commitishRe.MatchString(s)
+}
+
+// splitCommitRange parses a commit query param of the form "<baseSHA>..<headSHA>".
+// Returns ok=false for a single-SHA (no "..") param, which keeps single-commit
+// behavior. Both parts must be valid commit-ish tokens; otherwise ok=false.
+func splitCommitRange(commit string) (base, head string, ok bool) {
+	i := strings.Index(commit, "..")
+	if i < 0 {
+		return "", "", false
+	}
+	base, head = commit[:i], commit[i+2:]
+	if !isCommitish(base) || !isCommitish(head) {
+		return "", "", false
+	}
+	return base, head, true
+}
+
 // ChangedFilesForCommit returns the files changed in a single commit.
 // The dir parameter sets the working directory for the git command.
 func ChangedFilesForCommit(sha, dir string) ([]FileChange, error) {

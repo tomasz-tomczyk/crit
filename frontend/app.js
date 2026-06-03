@@ -415,7 +415,15 @@
     document.body.classList.toggle('hide-resolved', hideResolvedState);
   }
 
+  // diffCommit is the DERIVED backend param string (kept so the existing
+  // &commit= append sites and the reloadForScope key work unchanged):
+  //   0 selected      -> ''                  (all commits)
+  //   exactly 1       -> '<full sha>'         (single-commit path)
+  //   2+ selected     -> '<baseSHA>..<headSHA>' (git range)
+  // selectedCommits holds the user-checked full SHAs; diffCommit is recomputed
+  // from it via recomputeDiffCommit() whenever the selection changes.
   let diffCommit = '';
+  const selectedCommits = new Set();
   let commitList = [];
   let diffActive = false; // rendered diff view toggle for file mode
 
@@ -981,6 +989,7 @@
         fetchCommits();
       } else {
         commitDropdownEl.style.display = 'none';
+        selectedCommits.clear();
         diffCommit = '';
       }
     }
@@ -6653,6 +6662,7 @@
         }
 
         // Clear commit filter on round-complete
+        selectedCommits.clear();
         diffCommit = '';
 
         // Re-fetch everything on file-changed (round complete)
@@ -7156,12 +7166,17 @@
       commitList = await res.json();
       if (!commitList || commitList.length < 2) {
         commitDropdownEl.style.display = 'none';
-        diffCommit = '';
+        selectedCommits.clear();
+        recomputeDiffCommit();
         return;
       }
-      if (diffCommit && !commitList.some(function(c) { return c.sha === diffCommit; })) {
-        diffCommit = '';
-      }
+      // Drop any selected SHA that's no longer present in the new commit list,
+      // then recompute the derived backend param.
+      const present = new Set(commitList.map(function(c) { return c.sha; }));
+      selectedCommits.forEach(function(sha) {
+        if (!present.has(sha)) selectedCommits.delete(sha);
+      });
+      recomputeDiffCommit();
       commitDropdownEl.style.display = '';
       renderCommitPicker();
     } catch {
@@ -7169,26 +7184,93 @@
     }
   }
 
+  // Recompute the derived diffCommit backend param from selectedCommits.
+  // commitList is newest-first, so the smallest index is the newest (head)
+  // and the largest index is the oldest. For a 2+ range the base is the
+  // PARENT of the oldest selected commit (commitList[oldestIdx + 1].sha) or
+  // session.base_ref when the oldest selected commit is the first commit.
+  // Emits FULL 40-char SHAs (the backend validates hex 4-40): commitList SHAs
+  // come from /api/commits, and session.base_ref is a merge-base SHA — both are
+  // guaranteed present and hex whenever the picker is interactive, because
+  // GetCommits returns nil (→ commitList empty → picker hidden) when base_ref
+  // is unset. The empty-base guard below is belt-and-suspenders for that
+  // invariant: never emit a malformed "..<head>" range that would silently
+  // fall back to the full unscoped diff on the backend.
+  function recomputeDiffCommit() {
+    if (selectedCommits.size === 0) {
+      diffCommit = '';
+      return;
+    }
+    if (selectedCommits.size === 1) {
+      diffCommit = selectedCommits.values().next().value;
+      return;
+    }
+    let newestIdx = Infinity;
+    let oldestIdx = -1;
+    commitList.forEach(function(c, i) {
+      if (selectedCommits.has(c.sha)) {
+        if (i < newestIdx) newestIdx = i;
+        if (i > oldestIdx) oldestIdx = i;
+      }
+    });
+    const head = commitList[newestIdx].sha;
+    const base = commitList[oldestIdx + 1]
+      ? commitList[oldestIdx + 1].sha
+      : (session.base_ref || '');
+    // Defensive: if base is somehow unavailable, fall back to the newest
+    // selected commit alone rather than a broken range.
+    diffCommit = base ? base + '..' + head : head;
+  }
+
   function renderCommitPicker() {
     const list = document.getElementById('commitDropdownList');
     const allItem = document.querySelector('.commit-picker-item[data-commit=""]');
     const label = document.getElementById('commitDropdownLabel');
 
-    if (diffCommit) {
-      if (allItem) allItem.classList.remove('active');
-      const sel = commitList.find(function(c) { return c.sha === diffCommit; });
-      if (sel && label) label.textContent = sel.short_sha + ' ' + (sel.message.length > 30 ? sel.message.slice(0, 30) + '\u2026' : sel.message);
-    } else {
-      if (allItem) allItem.classList.add('active');
-      if (label) label.textContent = 'All commits';
+    // Compute the contiguous in-range span [newestIdx, oldestIdx] so commits
+    // between two checked commits show an "in range" indicator even when not
+    // themselves checked (the diff includes them).
+    let newestIdx = Infinity;
+    let oldestIdx = -1;
+    if (selectedCommits.size >= 2) {
+      commitList.forEach(function(c, i) {
+        if (selectedCommits.has(c.sha)) {
+          if (i < newestIdx) newestIdx = i;
+          if (i > oldestIdx) oldestIdx = i;
+        }
+      });
     }
 
-    list.innerHTML = commitList.map(function(c) {
-      const active = c.sha === diffCommit ? ' active' : '';
+    // "All commits" is active when nothing is checked.
+    if (selectedCommits.size === 0) {
+      if (allItem) allItem.classList.add('active');
+      if (label) label.textContent = 'All commits';
+    } else {
+      if (allItem) allItem.classList.remove('active');
+      if (selectedCommits.size === 1) {
+        const sel = commitList.find(function(c) { return selectedCommits.has(c.sha); });
+        if (sel && label) label.textContent = sel.short_sha + ' ' + (sel.message.length > 30 ? sel.message.slice(0, 30) + '\u2026' : sel.message);
+      } else if (label) {
+        // The diff spans the whole contiguous range, so count commits in the
+        // span (oldestIdx - newestIdx + 1) \u2014 not just the checked ones \u2014 so the
+        // label stays honest when in-between commits are included.
+        const spanCount = oldestIdx - newestIdx + 1;
+        label.textContent = spanCount + ' commits';
+      }
+    }
+
+    list.innerHTML = commitList.map(function(c, i) {
+      const checked = selectedCommits.has(c.sha);
+      const inRange = !checked && i > newestIdx && i < oldestIdx;
+      const cls = 'commit-picker-item' + (checked ? ' active' : '') + (inRange ? ' in-range' : '');
       const time = c.date ? '<span class="commit-picker-item-time">' + relativeTime(c.date) + '</span>' : '';
-      return '<div class="commit-picker-item' + active + '" data-commit="' + c.sha + '">'
+      const rangeHint = inRange ? '<span class="commit-picker-item-range">in range</span>' : '';
+      return '<div class="' + cls + '" data-commit="' + c.sha + '">'
+        + '<input type="checkbox" class="commit-picker-item-check"' + (checked ? ' checked' : '')
+        + ' aria-label="Select commit ' + escapeHtml(c.short_sha) + '">'
         + '<span class="commit-picker-item-sha">' + escapeHtml(c.short_sha) + '</span>'
         + '<span class="commit-picker-item-msg">' + escapeHtml(c.message.length > 40 ? c.message.slice(0, 40) + '\u2026' : c.message) + '</span>'
+        + rangeHint
         + time
         + '</div>';
     }).join('');
@@ -7214,19 +7296,34 @@
     }
   });
 
-  // Item selection (delegate from dropdown menu)
+  // Item selection (delegate from dropdown menu). Multi-select: clicking a row
+  // toggles its checkbox and keeps the dropdown OPEN. Clicking the checkbox
+  // directly is handled by the same path (we drive the Set, not the input's
+  // own checked state) so there's no double-toggle. The "All commits" row
+  // (data-commit="") clears the entire selection.
   document.getElementById('commitDropdownMenu').addEventListener('click', function(e) {
     const item = e.target.closest('.commit-picker-item');
     if (!item) return;
+    // renderCommitPicker() below replaces #commitDropdownList's innerHTML,
+    // orphaning the clicked node. Without this, the click bubbles to the
+    // document outside-click handler, where commitDropdownEl.contains(e.target)
+    // is false for the now-detached node and the dropdown closes — defeating
+    // multi-select stay-open. Stop propagation so the menu owns this click.
+    e.stopPropagation();
     const sha = item.dataset.commit;
-    if (sha === diffCommit) {
-      commitDropdownEl.classList.remove('open');
-      return;
+    const prevDiffCommit = diffCommit;
+    if (sha === '') {
+      selectedCommits.clear();
+    } else if (selectedCommits.has(sha)) {
+      selectedCommits.delete(sha);
+    } else {
+      selectedCommits.add(sha);
     }
-    diffCommit = sha;
+    recomputeDiffCommit();
     renderCommitPicker();
-    commitDropdownEl.classList.remove('open');
-    reloadForScope();
+    // Only reload if the derived range actually changed (e.g. checking a commit
+    // already inside the in-range span doesn't change the diff).
+    if (diffCommit !== prevDiffCommit) reloadForScope();
   });
 
   // ===== Scope Toggle (All / Branch / Staged / Unstaged) =====
@@ -7238,6 +7335,7 @@
     navCommentId = null;
     setSetting('diffScope', scope);
     if (scope !== 'all' && scope !== 'branch') {
+      selectedCommits.clear();
       diffCommit = '';
       commitDropdownEl.style.display = 'none';
     } else {
