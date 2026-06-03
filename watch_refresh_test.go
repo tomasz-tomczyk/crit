@@ -48,7 +48,7 @@ func (f *fakeWatchVCS) ChangedFilesFromBaseInDir(_, _ string) ([]FileChange, err
 	return out, nil
 }
 
-func (f *fakeWatchVCS) FileDiffUnified(path, _, _ string) ([]DiffHunk, error) {
+func (f *fakeWatchVCS) FileDiffUnified(path, _, _ string, _ bool) ([]DiffHunk, error) {
 	atomic.AddInt32(&f.diffCalls, 1)
 	f.mu.Lock()
 	defer f.mu.Unlock()

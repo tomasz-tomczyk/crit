@@ -135,13 +135,15 @@ func (s *SaplingVCS) ChangedFilesForCommit(sha, dir string) ([]FileChange, error
 }
 
 // FileDiffUnified returns parsed diff hunks for a file against a base ref.
-func (s *SaplingVCS) FileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
-	return s.FileDiffUnifiedCtx(context.Background(), path, baseRef, dir)
+// When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
+func (s *SaplingVCS) FileDiffUnified(path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	return s.FileDiffUnifiedCtx(context.Background(), path, baseRef, dir, ignoreWhitespace)
 }
 
 // FileDiffUnifiedCtx is like FileDiffUnified but accepts a context for cancellation.
-func (s *SaplingVCS) FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string) ([]DiffHunk, error) {
-	args := buildDiffArgs(baseRef, path)
+// When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
+func (s *SaplingVCS) FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	args := buildDiffArgs(baseRef, path, ignoreWhitespace)
 	cmd := exec.CommandContext(ctx, "sl", args...)
 	if dir != "" {
 		cmd.Dir = dir
@@ -159,17 +161,24 @@ func (s *SaplingVCS) FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir 
 
 // FileDiffScoped returns diff hunks for a file using a scope-appropriate diff.
 // Sapling has no staging area, so "staged" and "unstaged" return nil.
-func (s *SaplingVCS) FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHunk, error) {
+// When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
+func (s *SaplingVCS) FileDiffScoped(path, scope, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
 	if scope == "branch" {
-		return s.FileDiffUnified(path, baseRef, dir)
+		return s.FileDiffUnified(path, baseRef, dir, ignoreWhitespace)
 	}
 	return nil, nil
 }
 
 // FileDiffForCommit returns diff hunks for a file in a single commit.
 // Uses --change which handles initial commits (no parent) correctly.
-func (s *SaplingVCS) FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
-	cmd := exec.Command("sl", "diff", "--change", sha, path)
+// When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
+func (s *SaplingVCS) FileDiffForCommit(path, sha, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	args := []string{"diff"}
+	if ignoreWhitespace {
+		args = append(args, "-w")
+	}
+	args = append(args, "--change", sha, path)
+	cmd := exec.Command("sl", args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -331,8 +340,14 @@ func (s *SaplingVCS) ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]Fi
 }
 
 // FileDiffBetweenSHAs returns parsed diff hunks for path in the range baseSHA..headSHA.
-func (s *SaplingVCS) FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string) ([]DiffHunk, error) {
-	cmd := exec.Command("sl", "diff", "--rev", baseSHA, "--rev", headSHA, path)
+// When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
+func (s *SaplingVCS) FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	args := []string{"diff"}
+	if ignoreWhitespace {
+		args = append(args, "-w")
+	}
+	args = append(args, "--rev", baseSHA, "--rev", headSHA, path)
+	cmd := exec.Command("sl", args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -400,9 +415,13 @@ func slCommandInDir(dir string, args ...string) (string, error) {
 	return string(out), nil
 }
 
-// buildDiffArgs constructs arguments for sl diff.
-func buildDiffArgs(baseRef, path string) []string {
+// buildDiffArgs constructs arguments for sl diff. When ignoreWhitespace is
+// true, "-w" is inserted right after "diff" (hg-compatible whitespace flag).
+func buildDiffArgs(baseRef, path string, ignoreWhitespace bool) []string {
 	args := []string{"diff"}
+	if ignoreWhitespace {
+		args = append(args, "-w")
+	}
 	if baseRef != "" {
 		args = append(args, "-r", baseRef)
 	}

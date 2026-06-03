@@ -45,7 +45,7 @@ func (s *Session) RefreshDiffs() {
 		if snap.status == "added" || snap.status == "untracked" {
 			hunks = FileDiffUnifiedNewFile(snap.content)
 		} else if vcs != nil {
-			h, err := vcs.FileDiffUnified(snap.path, baseRef, repoRoot)
+			h, err := vcs.FileDiffUnified(snap.path, baseRef, repoRoot, false)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: diff failed for %s: %v\n", snap.path, err)
 			} else {
@@ -543,7 +543,7 @@ func (s *Session) buildFileEntry(absPath, repoRoot, baseRef string, vcs VCS) *Fi
 	}
 
 	if vcs != nil {
-		hunks, diffErr := vcs.FileDiffUnified(relPath, baseRef, repoRoot)
+		hunks, diffErr := vcs.FileDiffUnified(relPath, baseRef, repoRoot, false)
 		if diffErr == nil {
 			fe.DiffHunks = hunks
 		}

@@ -871,7 +871,7 @@ func TestGetFileDiffSnapshotScoped_AddedFileUnstagedScope(t *testing.T) {
 	s.Files[1].Status = "added"
 	s.Files[1].Content = "package main\n\nfunc main() {}\n"
 
-	result, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged", "")
+	result, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged", "", false)
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -895,7 +895,7 @@ func TestGetFileDiffSnapshotScoped_UntrackedFileUnstagedScope(t *testing.T) {
 	s.Files[1].Status = "untracked"
 	s.Files[1].Content = "package main\n\nfunc main() {}\n"
 
-	result, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged", "")
+	result, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged", "", false)
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -1623,7 +1623,7 @@ func TestFileDiffUnified_ColorConfigDoesNotBreakParsing(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "README.md"), "# Modified\n\nNew content\n")
 
 	// fileDiffUnified uses --no-color, so it should parse correctly despite the config
-	hunks, err := fileDiffUnified("README.md", "HEAD", dir)
+	hunks, err := fileDiffUnified("README.md", "HEAD", dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2461,7 +2461,7 @@ func TestGetFileDiffSnapshotScoped_RuntimeFile(t *testing.T) {
 
 	// When the file status can't be determined from git (no git repo),
 	// we still get a valid response (empty hunks, not a 404).
-	result, ok := s.GetFileDiffSnapshotScoped("newfile.py", "unstaged", "")
+	result, ok := s.GetFileDiffSnapshotScoped("newfile.py", "unstaged", "", false)
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -3059,7 +3059,7 @@ func TestGetFileSnapshotLazy(t *testing.T) {
 	}
 
 	// GetFileDiffSnapshot should also work for the now-loaded file
-	diffSnap, ok := s.GetFileDiffSnapshot("snap.go")
+	diffSnap, ok := s.GetFileDiffSnapshot("snap.go", false)
 	if !ok {
 		t.Fatal("expected diff snapshot to be found")
 	}
@@ -4950,14 +4950,14 @@ func TestFilterDeletedReviewComments_SomeDeleted(t *testing.T) {
 // --- computeScopedDiffHunks tests ---
 
 func TestComputeScopedDiffHunks_UntrackedFile(t *testing.T) {
-	hunks := computeScopedDiffHunks("test.go", "unstaged", "", "untracked", "package main\n", "", "", nil)
+	hunks := computeScopedDiffHunks("test.go", "unstaged", "", "untracked", "package main\n", "", "", nil, false)
 	if len(hunks) == 0 {
 		t.Error("expected hunks for untracked file")
 	}
 }
 
 func TestComputeScopedDiffHunks_AddedFileAllScope(t *testing.T) {
-	hunks := computeScopedDiffHunks("test.go", "all", "", "added", "package main\n", "", "", nil)
+	hunks := computeScopedDiffHunks("test.go", "all", "", "added", "package main\n", "", "", nil, false)
 	if len(hunks) == 0 {
 		t.Error("expected hunks for added file with all scope")
 	}
@@ -4965,7 +4965,7 @@ func TestComputeScopedDiffHunks_AddedFileAllScope(t *testing.T) {
 
 func TestComputeScopedDiffHunks_AddedFileUnstagedScope(t *testing.T) {
 	// scope=unstaged + status=added => does not use FileDiffUnifiedNewFile
-	hunks := computeScopedDiffHunks("test.go", "unstaged", "", "added", "package main\n", "", "", nil)
+	hunks := computeScopedDiffHunks("test.go", "unstaged", "", "added", "package main\n", "", "", nil, false)
 	// No VCS to fall back on, should return nil.
 	if hunks != nil {
 		t.Error("expected nil hunks for added file with unstaged scope and no VCS")
@@ -4973,7 +4973,7 @@ func TestComputeScopedDiffHunks_AddedFileUnstagedScope(t *testing.T) {
 }
 
 func TestComputeScopedDiffHunks_NilVCS(t *testing.T) {
-	hunks := computeScopedDiffHunks("test.go", "branch", "", "modified", "package main\n", "main", "/tmp", nil)
+	hunks := computeScopedDiffHunks("test.go", "branch", "", "modified", "package main\n", "main", "/tmp", nil, false)
 	if hunks != nil {
 		t.Error("expected nil hunks with no VCS")
 	}

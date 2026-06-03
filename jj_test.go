@@ -127,7 +127,7 @@ func TestJJVCS_ChangedFilesAndDiffFromBase(t *testing.T) {
 		{Path: "new.txt", Status: "added"},
 	})
 
-	hunks, err := j.FileDiffUnified("app.txt", base, dir)
+	hunks, err := j.FileDiffUnified("app.txt", base, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}

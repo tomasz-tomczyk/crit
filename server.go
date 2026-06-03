@@ -1208,12 +1208,15 @@ func serveFileAtRound(w http.ResponseWriter, r *http.Request, session *Session, 
 
 // handleFileDiff returns diff hunks for a file.
 // For code files: git diff hunks. For markdown files: inter-round LCS diff.
-// GET /api/file/diff?path=server.go[&round=N]
+// GET /api/file/diff?path=server.go[&round=N][&w=1]
 //
 // In files mode, ?round=N returns the diff between round N's snapshot and
 // round (N-1)'s snapshot. R1 is the baseline and has no previous content,
 // so the response carries empty hunks. In git/range mode, the round
 // parameter is ignored.
+//
+// ?w=1 recomputes the code diff with whitespace ignored (GitHub's ?w=1 parity);
+// the markdown round diff always renders raw.
 func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1231,7 +1234,8 @@ func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 
 	scope := r.URL.Query().Get("scope")
 	commit := r.URL.Query().Get("commit")
-	snapshot, ok := s.session.Load().GetFileDiffSnapshotScoped(path, scope, commit)
+	ignoreWS := r.URL.Query().Get("w") == "1"
+	snapshot, ok := s.session.Load().GetFileDiffSnapshotScoped(path, scope, commit, ignoreWS)
 	if !ok {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return

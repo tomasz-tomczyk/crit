@@ -253,7 +253,7 @@ func (fe *FileEntry) ensureLoaded(repoRoot, baseRef string, vcs VCS) error {
 // loadDiff computes diff hunks via the VCS interface or git package-level fallback.
 func (fe *FileEntry) loadDiff(ctx context.Context, repoRoot, baseRef string, vcs VCS) {
 	if vcs != nil {
-		hunks, err := vcs.FileDiffUnifiedCtx(ctx, fe.Path, baseRef, repoRoot)
+		hunks, err := vcs.FileDiffUnifiedCtx(ctx, fe.Path, baseRef, repoRoot, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: diff failed for %s: %v\n", fe.Path, err)
 		} else {
@@ -261,7 +261,7 @@ func (fe *FileEntry) loadDiff(ctx context.Context, repoRoot, baseRef string, vcs
 		}
 		return
 	}
-	hunks, err := fileDiffUnifiedCtx(ctx, fe.Path, baseRef, repoRoot)
+	hunks, err := fileDiffUnifiedCtx(ctx, fe.Path, baseRef, repoRoot, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", fe.Path, err)
 	} else {
@@ -477,7 +477,7 @@ func populateEagerFile(fe *FileEntry, fc FileChange, baseRef, root string, vcs V
 // populateEagerFileDiff computes diff hunks for an eager-loaded file.
 func populateEagerFileDiff(fe *FileEntry, fc FileChange, baseRef, root string, vcs VCS) {
 	if vcs != nil {
-		hunks, err := vcs.FileDiffUnified(fc.Path, baseRef, root)
+		hunks, err := vcs.FileDiffUnified(fc.Path, baseRef, root, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: diff failed for %s: %v\n", fc.Path, err)
 		} else {
@@ -485,7 +485,7 @@ func populateEagerFileDiff(fe *FileEntry, fc FileChange, baseRef, root string, v
 		}
 		return
 	}
-	hunks, err := fileDiffUnified(fc.Path, baseRef, root)
+	hunks, err := fileDiffUnified(fc.Path, baseRef, root, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", fc.Path, err)
 	} else {
@@ -723,7 +723,7 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 		}
 
 		if vcs != nil {
-			hunks, diffErr := vcs.FileDiffUnified(relPath, baseRef, root)
+			hunks, diffErr := vcs.FileDiffUnified(relPath, baseRef, root, false)
 			if diffErr != nil {
 				fmt.Fprintf(os.Stderr, "Warning: diff failed for %s: %v\n", relPath, diffErr)
 			} else {
@@ -1698,7 +1698,7 @@ func (s *Session) EnsureFileEntry(path string) bool {
 	if status == "added" || status == "untracked" {
 		fe.DiffHunks = FileDiffUnifiedNewFile(fe.Content)
 	} else if status != "deleted" && vcs != nil {
-		if hunks, err := vcs.FileDiffUnified(path, baseRef, repoRoot); err == nil {
+		if hunks, err := vcs.FileDiffUnified(path, baseRef, repoRoot, false); err == nil {
 			fe.DiffHunks = hunks
 		}
 	}
@@ -2063,7 +2063,7 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 			}
 		}
 		if fc.Status != "added" && fc.Status != "untracked" {
-			if hunks, diffErr := vcs.FileDiffUnified(fc.Path, mb, repoRoot); diffErr == nil {
+			if hunks, diffErr := vcs.FileDiffUnified(fc.Path, mb, repoRoot, false); diffErr == nil {
 				fe.DiffHunks = hunks
 			}
 		} else {
@@ -2449,7 +2449,29 @@ func (s *Session) GetFileSnapshotFromDisk(path string) (map[string]any, bool) {
 }
 
 // GetFileDiffSnapshot returns diff data for the /api/file/diff endpoint.
-func (s *Session) GetFileDiffSnapshot(path string) (map[string]any, bool) {
+// whitespaceIgnoredHunks recomputes a fresh whitespace-ignored diff for a
+// normal modified file when ignoreWhitespace is requested. For added/untracked/
+// deleted files (where whitespace-ignore changes nothing) and the markdown
+// branch, it returns the cached hunks unchanged. On any recompute error it logs
+// a warning and falls back to the cached hunks — the request never fails.
+func whitespaceIgnoredHunks(cached []DiffHunk, status string, ignoreWhitespace bool, path, baseRef, repoRoot string, vcs VCS) []DiffHunk {
+	if !ignoreWhitespace || vcs == nil {
+		return cached
+	}
+	if status == "added" || status == "untracked" || status == "deleted" {
+		return cached
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	hunks, err := vcs.FileDiffUnifiedCtx(ctx, path, baseRef, repoRoot, true)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: whitespace-ignored diff failed for %s: %v\n", path, err)
+		return cached
+	}
+	return hunks
+}
+
+func (s *Session) GetFileDiffSnapshot(path string, ignoreWhitespace bool) (map[string]any, bool) {
 	s.mu.RLock()
 	f := s.fileByPathLocked(path)
 	if f == nil {
@@ -2469,7 +2491,9 @@ func (s *Session) GetFileDiffSnapshot(path string) (map[string]any, bool) {
 	s.mu.RLock()
 	if f.FileType == "code" || s.Mode == "git" {
 		hunks := f.DiffHunks
+		status := f.Status
 		s.mu.RUnlock()
+		hunks = whitespaceIgnoredHunks(hunks, status, ignoreWhitespace, path, baseRef, repoRoot, vcs)
 		if hunks == nil {
 			hunks = []DiffHunk{}
 		}

@@ -123,13 +123,13 @@ func TestJJVCS_FileDiffScoped(t *testing.T) {
 	withCwd(t, dir)
 
 	// Non-branch scopes return (nil, nil).
-	hunks, err := j.FileDiffScoped("app.txt", "staged", base, dir)
+	hunks, err := j.FileDiffScoped("app.txt", "staged", base, dir, false)
 	if err != nil || hunks != nil {
 		t.Errorf("FileDiffScoped(staged) = (%v, %v), want (nil, nil)", hunks, err)
 	}
 
 	// "branch" delegates and produces hunks.
-	hunks, err = j.FileDiffScoped("app.txt", "branch", base, dir)
+	hunks, err = j.FileDiffScoped("app.txt", "branch", base, dir, false)
 	if err != nil {
 		t.Fatalf("FileDiffScoped(branch): %v", err)
 	}
@@ -155,7 +155,7 @@ func TestJJVCS_FileDiffForCommit_AndChangedFilesForCommit(t *testing.T) {
 	}
 	assertFileChangesEqual(t, changes, []FileChange{{Path: "feature.txt", Status: "added"}})
 
-	hunks, err := j.FileDiffForCommit("feature.txt", commitSHA, dir)
+	hunks, err := j.FileDiffForCommit("feature.txt", commitSHA, dir, false)
 	if err != nil {
 		t.Fatalf("FileDiffForCommit: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestJJVCS_FileDiffForCommit_AndChangedFilesForCommit(t *testing.T) {
 	}
 
 	// Unknown sha errors on resolve.
-	if _, err := j.FileDiffForCommit("feature.txt", "deadbeefdeadbeef", dir); err == nil {
+	if _, err := j.FileDiffForCommit("feature.txt", "deadbeefdeadbeef", dir, false); err == nil {
 		t.Error("FileDiffForCommit on unknown sha should error")
 	}
 	if _, err := j.ChangedFilesForCommit("deadbeefdeadbeef", dir); err == nil {
@@ -183,7 +183,7 @@ func TestJJVCS_FileDiffUnifiedCtx_Cancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel before invoking — jj subprocess exits with cancellation error.
 
-	_, err := j.FileDiffUnifiedCtx(ctx, "app.txt", base, dir)
+	_, err := j.FileDiffUnifiedCtx(ctx, "app.txt", base, dir, false)
 	if err == nil {
 		t.Fatal("FileDiffUnifiedCtx with cancelled ctx should error")
 	}
@@ -202,7 +202,7 @@ func TestJJVCS_FileDiffUnifiedCtx_DeadlineExceeded(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 	defer cancel()
-	_, err := j.FileDiffUnifiedCtx(ctx, "app.txt", base, dir)
+	_, err := j.FileDiffUnifiedCtx(ctx, "app.txt", base, dir, false)
 	if err == nil {
 		t.Fatal("FileDiffUnifiedCtx with expired deadline should error")
 	}
@@ -378,7 +378,7 @@ func TestJJVCS_ChangedFilesAndDiffBetweenSHAs(t *testing.T) {
 	}
 	assertFileChangesEqual(t, changes, []FileChange{{Path: "between.txt", Status: "added"}})
 
-	hunks, err := j.FileDiffBetweenSHAs("between.txt", mainSHA, headSHA, dir)
+	hunks, err := j.FileDiffBetweenSHAs("between.txt", mainSHA, headSHA, dir, false)
 	if err != nil {
 		t.Fatalf("FileDiffBetweenSHAs: %v", err)
 	}

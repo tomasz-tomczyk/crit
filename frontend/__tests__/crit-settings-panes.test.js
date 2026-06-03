@@ -241,6 +241,74 @@ test('renderSettingsTab: opts.show overrides defaults', () => {
   assert.doesNotMatch(pane.innerHTML, /Configuration/);
 });
 
+test('renderSettingsTab: ignore-whitespace toggle omitted by default (no hook / show off)', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  sp.renderSettingsTab(pane, {
+    mode: 'code-review',
+    cfg: {},
+    hooks: { applyTheme: () => {}, applyWidth: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
+  });
+  // Defaults: ignoreWhitespace is off, so the row never renders even though
+  // the hide-resolved row does.
+  assert.match(pane.innerHTML, /id="hideResolvedToggle"/);
+  assert.doesNotMatch(pane.innerHTML, /id="ignoreWhitespaceToggle"/);
+});
+
+test('renderSettingsTab: ignore-whitespace toggle renders when show.ignoreWhitespace + hook provided', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  sp.renderSettingsTab(pane, {
+    mode: 'code-review',
+    cfg: {},
+    show: { ignoreWhitespace: true },
+    hooks: {
+      applyTheme: () => {},
+      applyWidth: () => {},
+      getHideResolved: () => false,
+      setHideResolved: () => {},
+      getIgnoreWhitespace: () => false,
+      setIgnoreWhitespace: () => {},
+      onIgnoreWhitespaceChange: () => {},
+    },
+  });
+  assert.match(pane.innerHTML, /id="ignoreWhitespaceToggle"/);
+  assert.match(pane.innerHTML, /Ignore whitespace/);
+  // Unchecked when getIgnoreWhitespace returns false.
+  assert.doesNotMatch(pane.innerHTML, /id="ignoreWhitespaceToggle"[^>]*checked/);
+});
+
+test('renderSettingsTab: ignore-whitespace toggle omitted when show on but hook absent', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  sp.renderSettingsTab(pane, {
+    mode: 'code-review',
+    cfg: {},
+    show: { ignoreWhitespace: true },
+    hooks: { applyTheme: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
+  });
+  // Same guard as hide-resolved: needs BOTH show flag and the getter hook.
+  assert.doesNotMatch(pane.innerHTML, /id="ignoreWhitespaceToggle"/);
+});
+
+test('renderSettingsTab: pre-checks ignore-whitespace when getIgnoreWhitespace returns true', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  sp.renderSettingsTab(pane, {
+    mode: 'code-review',
+    cfg: {},
+    show: { ignoreWhitespace: true },
+    hooks: {
+      applyTheme: () => {},
+      getHideResolved: () => false,
+      setHideResolved: () => {},
+      getIgnoreWhitespace: () => true,
+      setIgnoreWhitespace: () => {},
+    },
+  });
+  assert.match(pane.innerHTML, /id="ignoreWhitespaceToggle"[^>]*checked/);
+});
+
 test('renderShortcutsPane / renderAboutPane still exposed', () => {
   const sp = loadShared();
   assert.equal(typeof sp.renderShortcutsPane, 'function');

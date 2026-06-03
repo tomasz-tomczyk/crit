@@ -414,7 +414,7 @@ func (s *Session) buildFilesForFocus(f Focus, vcs VCS, repoRoot string) ([]*File
 			fe.FileHash = fileHash(data)
 		}
 		if fc.Status != "added" && fc.Status != "untracked" {
-			hunks, _ := vcs.FileDiffBetweenSHAs(fc.Path, f.DiffBaseSHA(), f.HeadSHA, repoRoot)
+			hunks, _ := vcs.FileDiffBetweenSHAs(fc.Path, f.DiffBaseSHA(), f.HeadSHA, repoRoot, false)
 			fe.DiffHunks = hunks
 		} else {
 			fe.DiffHunks = FileDiffUnifiedNewFile(fe.Content)
@@ -629,7 +629,7 @@ func scopedHunks(fc FileChange, scope, commit, baseRef, repoRoot string, vcs VCS
 		return nil
 	}
 	if commit != "" {
-		h, err := vcs.FileDiffForCommit(fc.Path, commit, repoRoot)
+		h, err := vcs.FileDiffForCommit(fc.Path, commit, repoRoot, false)
 		if err == nil {
 			return h
 		}
@@ -642,7 +642,7 @@ func scopedHunks(fc FileChange, scope, commit, baseRef, repoRoot string, vcs VCS
 		}
 		return nil
 	}
-	h, err := vcs.FileDiffScoped(fc.Path, scope, baseRef, repoRoot)
+	h, err := vcs.FileDiffScoped(fc.Path, scope, baseRef, repoRoot, false)
 	if err == nil {
 		return h
 	}
@@ -802,7 +802,7 @@ func (s *Session) loadScopedFileState(path, scope string) (status, content, base
 	return status, content, baseRef, repoRoot
 }
 
-func computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoRoot string, vcs VCS) []DiffHunk {
+func computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoRoot string, vcs VCS, ignoreWhitespace bool) []DiffHunk {
 	// Pure content-based diffs don't need VCS.
 	if status == "untracked" && (scope == "unstaged" || scope == "all" || scope == "") {
 		return FileDiffUnifiedNewFile(content)
@@ -814,13 +814,13 @@ func computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoR
 		return nil
 	}
 	if commit != "" {
-		h, err := vcs.FileDiffForCommit(path, commit, repoRoot)
+		h, err := vcs.FileDiffForCommit(path, commit, repoRoot, ignoreWhitespace)
 		if err == nil {
 			return h
 		}
 		return nil
 	}
-	h, err := vcs.FileDiffScoped(path, scope, baseRef, repoRoot)
+	h, err := vcs.FileDiffScoped(path, scope, baseRef, repoRoot, ignoreWhitespace)
 	if err == nil {
 		return h
 	}
@@ -830,9 +830,10 @@ func computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoR
 // GetFileDiffSnapshotScoped returns diff data for a file filtered by scope.
 // When scope is "" or in file mode (scopes only apply to git), delegates to GetFileDiffSnapshot.
 // When commit is non-empty, returns the diff for that single commit.
-func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string) (map[string]any, bool) {
+// When ignoreWhitespace is true, whitespace-only changes collapse to context (code diffs only).
+func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string, ignoreWhitespace bool) (map[string]any, bool) {
 	if commit == "" && (scope == "" || scope == "all" || s.Mode == "files" || s.Mode == "plan") {
-		return s.GetFileDiffSnapshot(path)
+		return s.GetFileDiffSnapshot(path, ignoreWhitespace)
 	}
 
 	status, content, baseRef, repoRoot := s.loadScopedFileState(path, scope)
@@ -841,7 +842,7 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string) (map[str
 	vcs := s.VCS
 	s.mu.RUnlock()
 
-	hunks := computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoRoot, vcs)
+	hunks := computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoRoot, vcs, ignoreWhitespace)
 	if hunks == nil {
 		hunks = []DiffHunk{}
 	}

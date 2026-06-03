@@ -152,7 +152,7 @@ func TestFileDiffBetweenSHAs_HappyPath(t *testing.T) {
 	commitAt(t, dir, "a.txt", "line1\nline2\nline3\n", "modify a")
 	head := gitT(t, dir, "rev-parse", "HEAD")
 
-	hunks, err := FileDiffBetweenSHAs("a.txt", base, head, dir)
+	hunks, err := FileDiffBetweenSHAs("a.txt", base, head, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestFileDiffBetweenSHAs_IdenticalSHAs(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "a.txt", "line1\n", "add a")
 	sha := gitT(t, dir, "rev-parse", "HEAD")
-	hunks, err := FileDiffBetweenSHAs("a.txt", sha, sha, dir)
+	hunks, err := FileDiffBetweenSHAs("a.txt", sha, sha, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestFileDiffBetweenSHAs_MissingPath(t *testing.T) {
 	dir := initTestRepo(t)
 	base := gitT(t, dir, "rev-parse", "HEAD")
 	head := commitAt(t, dir, "a.txt", "x", "add a")
-	hunks, err := FileDiffBetweenSHAs("does-not-exist.txt", base, head, dir)
+	hunks, err := FileDiffBetweenSHAs("does-not-exist.txt", base, head, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}

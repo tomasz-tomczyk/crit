@@ -178,12 +178,12 @@ func (j *JJVCS) ChangedFilesForCommit(sha, dir string) ([]FileChange, error) {
 	return parseJJDiffSummary(out), nil
 }
 
-func (j *JJVCS) FileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
-	return j.FileDiffUnifiedCtx(context.Background(), path, baseRef, dir)
+func (j *JJVCS) FileDiffUnified(path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	return j.FileDiffUnifiedCtx(context.Background(), path, baseRef, dir, ignoreWhitespace)
 }
 
-func (j *JJVCS) FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string) ([]DiffHunk, error) {
-	args := []string{"diff", "--git"}
+func (j *JJVCS) FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	args := jjDiffArgs(ignoreWhitespace)
 	if strings.TrimSpace(baseRef) == "" {
 		args = append(args, "-r", "@")
 	} else {
@@ -201,23 +201,34 @@ func (j *JJVCS) FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir strin
 	return ParseUnifiedDiff(out), nil
 }
 
-func (j *JJVCS) FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHunk, error) {
+func (j *JJVCS) FileDiffScoped(path, scope, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
 	if scope == "branch" {
-		return j.FileDiffUnified(path, baseRef, dir)
+		return j.FileDiffUnified(path, baseRef, dir, ignoreWhitespace)
 	}
 	return nil, nil
 }
 
-func (j *JJVCS) FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
+func (j *JJVCS) FileDiffForCommit(path, sha, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
 	rev, err := resolveJJRevisionToCommitID(dir, sha)
 	if err != nil {
 		return nil, err
 	}
-	out, err := jjCommandInDir(dir, "diff", "--git", "-r", jjCommitRevset(rev), "--", path)
+	args := append(jjDiffArgs(ignoreWhitespace), "-r", jjCommitRevset(rev), "--", path)
+	out, err := jjCommandInDir(dir, args...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseUnifiedDiff(out), nil
+}
+
+// jjDiffArgs returns the leading jj diff arguments. When ignoreWhitespace is
+// true, "--ignore-all-space" is inserted right after "--git".
+func jjDiffArgs(ignoreWhitespace bool) []string {
+	args := []string{"diff", "--git"}
+	if ignoreWhitespace {
+		args = append(args, "--ignore-all-space")
+	}
+	return args
 }
 
 func (j *JJVCS) FileDiffUnifiedNewFile(path string) ([]DiffHunk, error) {
@@ -334,7 +345,7 @@ func (j *JJVCS) ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileCha
 	return parseJJDiffSummary(out), nil
 }
 
-func (j *JJVCS) FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string) ([]DiffHunk, error) {
+func (j *JJVCS) FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
 	base, err := resolveJJRevisionToCommitID(dir, baseSHA)
 	if err != nil {
 		return nil, err
@@ -343,7 +354,8 @@ func (j *JJVCS) FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string) ([]DiffH
 	if err != nil {
 		return nil, err
 	}
-	out, err := jjCommandInDir(dir, "diff", "--git", "--from", jjCommitRevset(base), "--to", jjCommitRevset(head), "--", path)
+	args := append(jjDiffArgs(ignoreWhitespace), "--from", jjCommitRevset(base), "--to", jjCommitRevset(head), "--", path)
+	out, err := jjCommandInDir(dir, args...)
 	if err != nil {
 		return nil, err
 	}

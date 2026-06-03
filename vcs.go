@@ -52,16 +52,20 @@ type VCS interface {
 	ChangedFilesForCommit(sha, dir string) ([]FileChange, error)
 
 	// FileDiffUnified returns parsed diff hunks for a file against a base ref.
-	FileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error)
+	// When ignoreWhitespace is true, whitespace-only changes collapse to context.
+	FileDiffUnified(path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error)
 
 	// FileDiffUnifiedCtx is like FileDiffUnified but accepts a context for timeout control.
-	FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string) ([]DiffHunk, error)
+	// When ignoreWhitespace is true, whitespace-only changes collapse to context.
+	FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error)
 
 	// FileDiffScoped returns diff hunks for a file using a scope-appropriate diff command.
-	FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHunk, error)
+	// When ignoreWhitespace is true, whitespace-only changes collapse to context.
+	FileDiffScoped(path, scope, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error)
 
 	// FileDiffForCommit returns diff hunks for a file in a single commit.
-	FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error)
+	// When ignoreWhitespace is true, whitespace-only changes collapse to context.
+	FileDiffForCommit(path, sha, dir string, ignoreWhitespace bool) ([]DiffHunk, error)
 
 	// FileDiffUnifiedNewFile returns diff hunks showing an entire file as added.
 	FileDiffUnifiedNewFile(path string) ([]DiffHunk, error)
@@ -98,7 +102,8 @@ type VCS interface {
 
 	// FileDiffBetweenSHAs returns parsed diff hunks for path in the range
 	// baseSHA..headSHA. Returns nil hunks when there is no diff for that path.
-	FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string) ([]DiffHunk, error)
+	// When ignoreWhitespace is true, whitespace-only changes collapse to context.
+	FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error)
 
 	// ReadFileAtSHA returns the bytes of path at the given SHA. Returns
 	// (nil, nil) when the file does not exist at that SHA. Errors are

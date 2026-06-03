@@ -151,16 +151,16 @@ func (*fakeJJVCSForFetch) ChangedFilesScoped(string, string) ([]FileChange, erro
 func (*fakeJJVCSForFetch) ChangedFilesForCommit(string, string) ([]FileChange, error) {
 	return nil, nil
 }
-func (*fakeJJVCSForFetch) FileDiffUnified(string, string, string) ([]DiffHunk, error) {
+func (*fakeJJVCSForFetch) FileDiffUnified(string, string, string, bool) ([]DiffHunk, error) {
 	return nil, nil
 }
-func (*fakeJJVCSForFetch) FileDiffUnifiedCtx(context.Context, string, string, string) ([]DiffHunk, error) {
+func (*fakeJJVCSForFetch) FileDiffUnifiedCtx(context.Context, string, string, string, bool) ([]DiffHunk, error) {
 	return nil, nil
 }
-func (*fakeJJVCSForFetch) FileDiffScoped(string, string, string, string) ([]DiffHunk, error) {
+func (*fakeJJVCSForFetch) FileDiffScoped(string, string, string, string, bool) ([]DiffHunk, error) {
 	return nil, nil
 }
-func (*fakeJJVCSForFetch) FileDiffForCommit(string, string, string) ([]DiffHunk, error) {
+func (*fakeJJVCSForFetch) FileDiffForCommit(string, string, string, bool) ([]DiffHunk, error) {
 	return nil, nil
 }
 func (*fakeJJVCSForFetch) FileDiffUnifiedNewFile(string) ([]DiffHunk, error) { return nil, nil }
@@ -181,7 +181,7 @@ func (*fakeJJVCSForFetch) FileContentAtRef(string, string, string) (string, erro
 func (*fakeJJVCSForFetch) ChangedFilesBetweenSHAs(string, string, string) ([]FileChange, error) {
 	return nil, nil
 }
-func (*fakeJJVCSForFetch) FileDiffBetweenSHAs(string, string, string, string) ([]DiffHunk, error) {
+func (*fakeJJVCSForFetch) FileDiffBetweenSHAs(string, string, string, string, bool) ([]DiffHunk, error) {
 	return nil, nil
 }
 func (*fakeJJVCSForFetch) ReadFileAtSHA(string, string, string) ([]byte, error) {

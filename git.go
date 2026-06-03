@@ -325,20 +325,22 @@ func changedFilesBranch(baseRef string) ([]FileChange, error) {
 // FileDiffScoped returns parsed diff hunks for a file using a scope-appropriate git diff command.
 // Supported scopes: "branch", "staged", "unstaged". Any other value delegates to fileDiffUnified.
 // The dir parameter sets the working directory for git commands (use repo root for correct path resolution).
-func FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHunk, error) {
+// When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
+func FileDiffScoped(path, scope, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	base := diffBaseArgs(ignoreWhitespace)
 	var cmd *exec.Cmd
 	switch scope {
 	case "branch":
 		if baseRef == "" {
 			return nil, nil
 		}
-		cmd = exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", baseRef+"..HEAD", "--", path)
+		cmd = exec.Command("git", append(base, baseRef+"..HEAD", "--", path)...)
 	case "staged":
-		cmd = exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", "--cached", "--", path)
+		cmd = exec.Command("git", append(base, "--cached", "--", path)...)
 	case "unstaged":
-		cmd = exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", "--", path)
+		cmd = exec.Command("git", append(base, "--", path)...)
 	default:
-		return fileDiffUnified(path, baseRef, dir)
+		return fileDiffUnified(path, baseRef, dir, ignoreWhitespace)
 	}
 	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
@@ -425,8 +427,9 @@ func ChangedFilesForCommit(sha, dir string) ([]FileChange, error) {
 // FileDiffForCommit returns parsed diff hunks for a file in a single commit.
 // The dir parameter sets the working directory for the git command.
 // For the initial (root) commit, sha^ is undefined so we diff against the empty tree.
-func FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
-	cmd := exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", sha+"^.."+sha, "--", path)
+// When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
+func FileDiffForCommit(path, sha, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	cmd := exec.Command("git", append(diffBaseArgs(ignoreWhitespace), sha+"^.."+sha, "--", path)...)
 	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir
@@ -440,7 +443,7 @@ func FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
 		case errors.As(err, &exitErr) && exitErr.ExitCode() == 128:
 			// sha^ failed (root commit) — diff against the empty tree
 			emptyTree := "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-			cmd2 := exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", emptyTree+".."+sha, "--", path)
+			cmd2 := exec.Command("git", append(diffBaseArgs(ignoreWhitespace), emptyTree+".."+sha, "--", path)...)
 			cmd2.Env = stripExternalDiffEnv()
 			if dir != "" {
 				cmd2.Dir = dir
@@ -799,10 +802,9 @@ func ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileChange, error)
 
 // FileDiffBetweenSHAs returns parsed diff hunks for path in the range
 // baseSHA..headSHA. Returns nil hunks when there is no diff.
-func FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string) ([]DiffHunk, error) {
-	cmd := exec.Command("git", "-c", "diff.external=", "diff",
-		"--no-color", "--no-ext-diff",
-		baseSHA+".."+headSHA, "--", path)
+// When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
+func FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	cmd := exec.Command("git", append(diffBaseArgs(ignoreWhitespace), baseSHA+".."+headSHA, "--", path)...)
 	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir
@@ -1051,15 +1053,26 @@ func dedup(changes []FileChange) []FileChange {
 	return result
 }
 
+// diffBaseArgs returns the leading git diff arguments. When ignoreWhitespace
+// is true, "-w" is inserted right after "--no-ext-diff" (GitHub's ?w=1 parity).
+func diffBaseArgs(ignoreWhitespace bool) []string {
+	args := []string{"-c", "diff.external=", "diff", "--no-color", "--no-ext-diff"}
+	if ignoreWhitespace {
+		args = append(args, "-w")
+	}
+	return args
+}
+
 // fileDiffUnified returns the parsed diff hunks for a file against a base ref.
 // If baseRef is empty, diffs against HEAD. The dir parameter sets the working directory.
-func fileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
-	var cmd *exec.Cmd
-	if baseRef == "" {
-		cmd = exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", "HEAD", "--", path)
-	} else {
-		cmd = exec.Command("git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", baseRef, "--", path)
+// When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
+func fileDiffUnified(path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	ref := baseRef
+	if ref == "" {
+		ref = "HEAD"
 	}
+	args := append(diffBaseArgs(ignoreWhitespace), ref, "--", path)
+	cmd := exec.Command("git", args...)
 	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir
@@ -1078,13 +1091,14 @@ func fileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
 }
 
 // fileDiffUnifiedCtx is like fileDiffUnified but accepts a context for timeout control.
-func fileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string) ([]DiffHunk, error) {
-	var cmd *exec.Cmd
-	if baseRef == "" {
-		cmd = exec.CommandContext(ctx, "git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", "HEAD", "--", path)
-	} else {
-		cmd = exec.CommandContext(ctx, "git", "-c", "diff.external=", "diff", "--no-color", "--no-ext-diff", baseRef, "--", path)
+// When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
+func fileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	ref := baseRef
+	if ref == "" {
+		ref = "HEAD"
 	}
+	args := append(diffBaseArgs(ignoreWhitespace), ref, "--", path)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir

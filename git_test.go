@@ -273,7 +273,7 @@ func TestFileDiffUnified_RealRepo(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "README.md"), "# Modified\n\nNew content\n")
 	gitT(t, dir, "add", "README.md")
 
-	hunks, err := fileDiffUnified("README.md", "HEAD", "")
+	hunks, err := fileDiffUnified("README.md", "HEAD", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -789,7 +789,7 @@ func TestFileDiffScoped_Branch(t *testing.T) {
 	gitT(t, dir, "add", "README.md")
 	gitT(t, dir, "commit", "-m", "modify readme")
 
-	hunks, err := FileDiffScoped("README.md", "branch", baseRef, dir)
+	hunks, err := FileDiffScoped("README.md", "branch", baseRef, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -808,7 +808,7 @@ func TestFileDiffScoped_Staged(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "README.md"), "# Staged content\n")
 	gitT(t, dir, "add", "README.md")
 
-	hunks, err := FileDiffScoped("README.md", "staged", "", dir)
+	hunks, err := FileDiffScoped("README.md", "staged", "", dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -826,7 +826,7 @@ func TestFileDiffScoped_Unstaged(t *testing.T) {
 	// Modify without staging
 	writeFile(t, filepath.Join(dir, "README.md"), "# Unstaged content\n")
 
-	hunks, err := FileDiffScoped("README.md", "unstaged", "", dir)
+	hunks, err := FileDiffScoped("README.md", "unstaged", "", dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -845,7 +845,7 @@ func TestFileDiffScoped_Default(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "README.md"), "# Default scope\n")
 	gitT(t, dir, "add", "README.md")
 
-	hunks, err := FileDiffScoped("README.md", "", "HEAD", dir)
+	hunks, err := FileDiffScoped("README.md", "", "HEAD", dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -860,7 +860,7 @@ func TestFileDiffScoped_BranchEmptyBaseRef(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	hunks, err := FileDiffScoped("README.md", "branch", "", dir)
+	hunks, err := FileDiffScoped("README.md", "branch", "", dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -890,17 +890,17 @@ func TestFileDiffScoped_DifferentHunksPerScope(t *testing.T) {
 	// Make an unstaged change on top
 	writeFile(t, filepath.Join(dir, "README.md"), "# Branch change\n\nStaged line\nUnstaged line\n")
 
-	branchHunks, err := FileDiffScoped("README.md", "branch", baseRef, dir)
+	branchHunks, err := FileDiffScoped("README.md", "branch", baseRef, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	stagedHunks, err := FileDiffScoped("README.md", "staged", "", dir)
+	stagedHunks, err := FileDiffScoped("README.md", "staged", "", dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	unstagedHunks, err := FileDiffScoped("README.md", "unstaged", "", dir)
+	unstagedHunks, err := FileDiffScoped("README.md", "unstaged", "", dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1039,7 +1039,7 @@ func TestFileDiff_SuppressBlankEmpty(t *testing.T) {
 
 	writeFile(t, filepath.Join(dir, "code.go"), modified)
 
-	hunks, err := fileDiffUnified("code.go", "HEAD", dir)
+	hunks, err := fileDiffUnified("code.go", "HEAD", dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1369,7 +1369,7 @@ func TestFileDiffForCommit(t *testing.T) {
 	// Get HEAD SHA
 	sha := gitT(t, dir, "rev-parse", "HEAD")
 
-	hunks, err := FileDiffForCommit("code.go", sha, dir)
+	hunks, err := FileDiffForCommit("code.go", sha, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1603,7 +1603,7 @@ func TestFileDiffForCommit_RootCommit(t *testing.T) {
 	// Get the initial (root) commit SHA.
 	sha := gitT(t, dir, "rev-parse", "HEAD")
 
-	hunks, err := FileDiffForCommit("README.md", sha, dir)
+	hunks, err := FileDiffForCommit("README.md", sha, dir, false)
 	if err != nil {
 		t.Fatalf("FileDiffForCommit on root commit: %v", err)
 	}
@@ -1619,7 +1619,7 @@ func TestFileDiffForCommit_NormalCommit(t *testing.T) {
 	gitT(t, dir, "commit", "-m", "update readme")
 	sha := gitT(t, dir, "rev-parse", "HEAD")
 
-	hunks, err := FileDiffForCommit("README.md", sha, dir)
+	hunks, err := FileDiffForCommit("README.md", sha, dir, false)
 	if err != nil {
 		t.Fatalf("FileDiffForCommit: %v", err)
 	}
@@ -1636,7 +1636,7 @@ func TestFileDiffForCommit_FileNotInCommit(t *testing.T) {
 	sha := gitT(t, dir, "rev-parse", "HEAD")
 
 	// README.md was not changed in this commit.
-	hunks, err := FileDiffForCommit("README.md", sha, dir)
+	hunks, err := FileDiffForCommit("README.md", sha, dir, false)
 	if err != nil {
 		t.Fatalf("FileDiffForCommit: %v", err)
 	}

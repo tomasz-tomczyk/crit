@@ -397,6 +397,12 @@
   }
   let diffScope = getSetting('diffScope', null); // null = no preference saved yet
 
+  // Whether code diffs are fetched with whitespace ignored (appends `&w=1` to
+  // /api/file/diff). Persisted via the consolidated `crit-settings` cookie (not
+  // localStorage) so it survives random-port restarts. Only meaningful in git
+  // mode — the settings toggle is gated to git mode in renderSettingsPane().
+  let ignoreWhitespace = !!getSetting('ignoreWhitespace', false);
+
   // Single source of truth for hide-resolved state. Persisted via the
   // consolidated `crit-settings` cookie (not localStorage) so the setting
   // survives random-port server restarts — localStorage is scoped per origin
@@ -599,6 +605,9 @@
     }
     if (diffCommit) {
       diffUrl += '&commit=' + enc(diffCommit);
+    }
+    if (ignoreWhitespace) {
+      diffUrl += '&w=1';
     }
     const [fileRes, commentsRes, diffRes] = await Promise.all([
       fetch('/api/file?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : { content: '' }; }).catch(function() { return { content: '' }; }),
@@ -7675,19 +7684,30 @@
     const pane = document.getElementById('settingsPane');
     const shared = window.crit && window.crit.settingsPanes;
     if (shared && shared.renderSettingsTab) {
+      const isGit = session.mode === 'git';
+      const hooks = {
+        applyTheme: window.applyTheme,
+        applyWidth: applyWidth,
+        getHideResolved: isHideResolved,
+        setHideResolved: setHideResolved,
+        onHideResolvedChange: function () { renderAllFiles(); },
+        hasActivePendingUpdates: hasActivePendingUpdates,
+        announceCopy: announceCopy,
+        escape: escapeHtml,
+      };
+      // Ignore-whitespace only applies to code diffs (git mode). Providing the
+      // hooks + show flag only in git mode keeps the toggle out of file/preview
+      // review, where there are no git diffs to recompute.
+      if (isGit) {
+        hooks.getIgnoreWhitespace = function () { return ignoreWhitespace; };
+        hooks.setIgnoreWhitespace = function (v) { ignoreWhitespace = !!v; setSetting('ignoreWhitespace', ignoreWhitespace); };
+        hooks.onIgnoreWhitespaceChange = function () { reloadForScope(); };
+      }
       shared.renderSettingsTab(pane, {
         mode: 'code-review',
         cfg: cfg,
-        hooks: {
-          applyTheme: window.applyTheme,
-          applyWidth: applyWidth,
-          getHideResolved: isHideResolved,
-          setHideResolved: setHideResolved,
-          onHideResolvedChange: function () { renderAllFiles(); },
-          hasActivePendingUpdates: hasActivePendingUpdates,
-          announceCopy: announceCopy,
-          escape: escapeHtml,
-        },
+        show: isGit ? { ignoreWhitespace: true } : undefined,
+        hooks: hooks,
       });
       return;
     }

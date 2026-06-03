@@ -13,13 +13,18 @@
 //   renderSettingsTab(pane, opts)
 //     opts.mode    : 'code-review' | 'live'
 //     opts.cfg     : /api/config response or {}
-//     opts.show    : { width, hideResolved, update, account, agent,
-//                       integration, share } — booleans, defaulted from mode
+//     opts.show    : { width, hideResolved, ignoreWhitespace, update, account,
+//                       agent, integration, share } — booleans, defaulted from
+//                       mode. ignoreWhitespace defaults off; the caller enables
+//                       it only when code diffs exist (git mode).
 //     opts.hooks   : {
 //                      applyTheme(choice),                   // required
 //                      applyWidth(choice),                   // required if show.width
 //                      getHideResolved(), setHideResolved(v),// required if show.hideResolved
 //                      onHideResolvedChange(),               // optional, called after toggle
+//                      getIgnoreWhitespace(),                // required if show.ignoreWhitespace
+//                      setIgnoreWhitespace(v),               // required if show.ignoreWhitespace
+//                      onIgnoreWhitespaceChange(),           // optional, called after toggle (reloads diffs)
 //                      hasActivePendingUpdates(),            // optional, default false
 //                      announceCopy(),                       // optional
 //                    }
@@ -163,6 +168,7 @@
       return {
         width: false,         // width pill is file-mode only
         hideResolved: true,
+        ignoreWhitespace: false, // code-diff only; enabled per-call in git mode
         update: true,
         account: true,
         agent: true,
@@ -174,6 +180,7 @@
     return {
       width: true,
       hideResolved: true,
+      ignoreWhitespace: false, // code-diff only; enabled per-call in git mode
       update: true,
       account: true,
       agent: true,
@@ -264,6 +271,18 @@
       html += '<span class="settings-display-label">Hide resolved comments</span>';
       html += '<label class="comments-panel-switch">';
       html += '<input type="checkbox" id="hideResolvedToggle" aria-label="Hide resolved comments"' + (hideResolved ? ' checked' : '') + '>';
+      html += '<span class="comments-panel-switch-track"><span class="comments-panel-switch-thumb"></span></span>';
+      html += '</label>';
+      html += '</div>';
+    }
+
+    // Ignore whitespace row (code diffs / git mode only)
+    if (show.ignoreWhitespace && hooks.getIgnoreWhitespace) {
+      var ignoreWhitespace = !!hooks.getIgnoreWhitespace();
+      html += '<div class="settings-display-row">';
+      html += '<span class="settings-display-label">Ignore whitespace</span>';
+      html += '<label class="comments-panel-switch">';
+      html += '<input type="checkbox" id="ignoreWhitespaceToggle" aria-label="Ignore whitespace changes in diffs"' + (ignoreWhitespace ? ' checked' : '') + '>';
       html += '<span class="comments-panel-switch-track"><span class="comments-panel-switch-thumb"></span></span>';
       html += '</label>';
       html += '</div>';
@@ -479,6 +498,16 @@
         hrToggle.addEventListener('change', function () {
           if (hooks.setHideResolved) hooks.setHideResolved(hrToggle.checked);
           if (hooks.onHideResolvedChange) hooks.onHideResolvedChange();
+        });
+      }
+    }
+
+    if (show.ignoreWhitespace && hooks.getIgnoreWhitespace) {
+      var iwToggle = pane.querySelector('#ignoreWhitespaceToggle');
+      if (iwToggle) {
+        iwToggle.addEventListener('change', function () {
+          if (hooks.setIgnoreWhitespace) hooks.setIgnoreWhitespace(iwToggle.checked);
+          if (hooks.onIgnoreWhitespaceChange) hooks.onIgnoreWhitespaceChange();
         });
       }
     }

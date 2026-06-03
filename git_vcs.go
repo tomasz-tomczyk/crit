@@ -43,20 +43,20 @@ func (g *GitVCS) ChangedFilesForCommit(sha, dir string) ([]FileChange, error) {
 	return ChangedFilesForCommit(sha, dir)
 }
 
-func (g *GitVCS) FileDiffUnified(path, baseRef, dir string) ([]DiffHunk, error) {
-	return fileDiffUnified(path, baseRef, dir)
+func (g *GitVCS) FileDiffUnified(path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	return fileDiffUnified(path, baseRef, dir, ignoreWhitespace)
 }
 
-func (g *GitVCS) FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string) ([]DiffHunk, error) {
-	return fileDiffUnifiedCtx(ctx, path, baseRef, dir)
+func (g *GitVCS) FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	return fileDiffUnifiedCtx(ctx, path, baseRef, dir, ignoreWhitespace)
 }
 
-func (g *GitVCS) FileDiffScoped(path, scope, baseRef, dir string) ([]DiffHunk, error) {
-	return FileDiffScoped(path, scope, baseRef, dir)
+func (g *GitVCS) FileDiffScoped(path, scope, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	return FileDiffScoped(path, scope, baseRef, dir, ignoreWhitespace)
 }
 
-func (g *GitVCS) FileDiffForCommit(path, sha, dir string) ([]DiffHunk, error) {
-	return FileDiffForCommit(path, sha, dir)
+func (g *GitVCS) FileDiffForCommit(path, sha, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	return FileDiffForCommit(path, sha, dir, ignoreWhitespace)
 }
 
 func (g *GitVCS) FileDiffUnifiedNewFile(path string) ([]DiffHunk, error) {
@@ -109,8 +109,8 @@ func (g *GitVCS) ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileCh
 }
 
 // FileDiffBetweenSHAs returns parsed diff hunks for path in the range baseSHA..headSHA.
-func (g *GitVCS) FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string) ([]DiffHunk, error) {
-	return FileDiffBetweenSHAs(path, baseSHA, headSHA, dir)
+func (g *GitVCS) FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	return FileDiffBetweenSHAs(path, baseSHA, headSHA, dir, ignoreWhitespace)
 }
 
 // ReadFileAtSHA returns the bytes of path at the given SHA.
