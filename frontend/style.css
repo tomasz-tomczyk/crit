@@ -1021,6 +1021,13 @@ body.dragging { user-select: none; cursor: grabbing; }
 }
 
 /* ===== Markdown Styles ===== */
+/* Heading/paragraph top spacing lives on the .line-block row (see the
+   .line-block:has(...) rules below), NOT as margin-top on the heading itself.
+   A margin-top here would push the rendered text down inside the flex row
+   while the gutter line-number stays pinned at the row top (align-items:
+   flex-start), misaligning the number with its text (#631). Putting the
+   spacing on the row moves number and text down together, keeping them
+   aligned while preserving the breathing room above the block. */
 .line-content h1,
 .line-content h2,
 .line-content h3,
@@ -1029,14 +1036,25 @@ body.dragging { user-select: none; cursor: grabbing; }
   color: var(--crit-editor-fg);
   font-weight: 600;
   line-height: 1.3;
-  margin-top: 8px;
+  margin-top: 0;
 }
 .line-content h6 {
   font-weight: 600;
   line-height: 1.3;
-  margin-top: 8px;
+  margin-top: 0;
   font-size: 0.9rem;
   color: var(--crit-editor-fg-muted);
+}
+
+/* Re-express the removed top spacing as row padding so the gutter number and
+   the heading text share the same top edge (#631). */
+.line-block:has(> .line-content > h1),
+.line-block:has(> .line-content > h2),
+.line-block:has(> .line-content > h3),
+.line-block:has(> .line-content > h4),
+.line-block:has(> .line-content > h5),
+.line-block:has(> .line-content > h6) {
+  padding-top: 8px;
 }
 
 .line-content h1 { font-size: 1.8rem; padding-bottom: 8px; border-bottom: 1px solid var(--crit-border); margin-bottom: 4px; }
@@ -1079,6 +1097,16 @@ body.dragging { user-select: none; cursor: grabbing; }
 
 .line-content p {
   margin: 4px 0;
+}
+/* For a top-level paragraph (the block's own content element) move the top
+   spacing onto the row so the gutter number lines up with the first text line
+   (#631); keep the bottom margin for rhythm. Nested paragraphs (in lists,
+   blockquotes) keep the descendant margin above and are unaffected. */
+.line-content > p {
+  margin-top: 0;
+}
+.line-block:has(> .line-content > p) {
+  padding-top: 4px;
 }
 
 .line-content a {
