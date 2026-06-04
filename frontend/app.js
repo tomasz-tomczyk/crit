@@ -990,7 +990,7 @@
       } else {
         commitDropdownEl.style.display = 'none';
         selectedCommits.clear();
-        diffCommit = '';
+        recomputeDiffCommit();
       }
     }
 
@@ -6663,7 +6663,7 @@
 
         // Clear commit filter on round-complete
         selectedCommits.clear();
-        diffCommit = '';
+        recomputeDiffCommit();
 
         // Re-fetch everything on file-changed (round complete)
         const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(r => r.json());
@@ -7326,6 +7326,18 @@
     if (diffCommit !== prevDiffCommit) reloadForScope();
   });
 
+  // The "All commits" row (data-commit="") has no focusable child — unlike the
+  // dynamic commit rows, whose checkbox is keyboard-operable — so it carries
+  // role="button" tabindex="0". Route Enter/Space through the same click path
+  // so clearing the selection is keyboard-reachable.
+  document.getElementById('commitDropdownMenu').addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    const item = e.target.closest('.commit-picker-item[data-commit=""]');
+    if (!item) return;
+    e.preventDefault();
+    item.click();
+  });
+
   // ===== Scope Toggle (All / Branch / Staged / Unstaged) =====
   document.getElementById('scopeToggle').addEventListener('click', async function(e) {
     const btn = e.target.closest('.toggle-btn');
@@ -7336,7 +7348,7 @@
     setSetting('diffScope', scope);
     if (scope !== 'all' && scope !== 'branch') {
       selectedCommits.clear();
-      diffCommit = '';
+      recomputeDiffCommit();
       commitDropdownEl.style.display = 'none';
     } else {
       fetchCommits();

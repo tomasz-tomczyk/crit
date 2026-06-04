@@ -4148,6 +4148,14 @@ body.sidebar-resizing * {
   cursor: pointer;
   align-self: center;
 }
+/* Non-interactive spacer that mirrors the checkbox footprint so the "All
+   commits" row's text aligns with the SHA column of the checkbox-prefixed
+   commit rows. Hidden from AT (aria-hidden) since "All commits" is not itself
+   a selectable commit. Width matches .commit-picker-item-check exactly. */
+.commit-picker-item-check-spacer {
+  width: 13px;
+  flex-shrink: 0;
+}
 /* Commits that fall between two checked commits: included in the diff range
    but not themselves checked. Left accent bar + muted hint make this honest. */
 .commit-picker-item.in-range {

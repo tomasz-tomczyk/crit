@@ -2448,7 +2448,6 @@ func (s *Session) GetFileSnapshotFromDisk(path string) (map[string]any, bool) {
 	}, true
 }
 
-// GetFileDiffSnapshot returns diff data for the /api/file/diff endpoint.
 // whitespaceIgnoredHunks recomputes a fresh whitespace-ignored diff for a
 // normal modified file when ignoreWhitespace is requested. For added/untracked/
 // deleted files (where whitespace-ignore changes nothing) and the markdown
@@ -2471,6 +2470,7 @@ func whitespaceIgnoredHunks(cached []DiffHunk, status string, ignoreWhitespace b
 	return hunks
 }
 
+// GetFileDiffSnapshot returns diff data for the /api/file/diff endpoint.
 func (s *Session) GetFileDiffSnapshot(path string, ignoreWhitespace bool) (map[string]any, bool) {
 	s.mu.RLock()
 	f := s.fileByPathLocked(path)
