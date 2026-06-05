@@ -2256,7 +2256,11 @@ func runCodexPlanHook() {
 // On connection errors (e.g. "connection refused"), the daemon log is consulted
 // to surface the actual init failure instead of the misleading network error.
 func waitForDaemonReady(client *http.Client, host string, port int, sessionKey string) (statusCode int, body []byte, err error) {
-	base := fmt.Sprintf("http://%s:%d", hostForDisplay(host), port)
+	connHost := host
+	if connHost == "" {
+		connHost = "127.0.0.1"
+	}
+	base := fmt.Sprintf("http://%s:%d", connHost, port)
 	deadline := time.Now().Add(5 * time.Minute)
 	for {
 		resp, reqErr := client.Get(base + "/api/session")
@@ -2292,7 +2296,7 @@ func runReviewClientRaw(entry sessionEntry, sessionKey string) (approved bool, p
 	}
 
 	resp, err := client.Post(
-		entry.baseURL()+"/api/review-cycle",
+		entry.connURL()+"/api/review-cycle",
 		"application/json",
 		nil,
 	)
@@ -2468,7 +2472,7 @@ func runReviewClient(entry sessionEntry, sessionKey string) (approved bool) {
 	}
 
 	resp, err := client.Post(
-		entry.baseURL()+"/api/review-cycle",
+		entry.connURL()+"/api/review-cycle",
 		"application/json",
 		nil,
 	)

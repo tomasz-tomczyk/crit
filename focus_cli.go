@@ -305,7 +305,11 @@ func probeDaemonFocusReal() *Focus {
 // (nil on any error). Factored out so probeDaemonFocusReal can iterate over
 // every matching daemon without ballooning its complexity.
 func fetchSessionFocus(client *http.Client, host string, port int) *Focus {
-	resp, err := client.Get(fmt.Sprintf("http://%s:%d/api/session", hostForDisplay(host), port))
+	connHost := host
+	if connHost == "" {
+		connHost = "127.0.0.1"
+	}
+	resp, err := client.Get(fmt.Sprintf("http://%s:%d/api/session", connHost, port))
 	if err != nil {
 		return nil
 	}

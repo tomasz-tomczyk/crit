@@ -75,6 +75,16 @@ func (e sessionEntry) baseURL() string {
 	return fmt.Sprintf("http://%s:%d", e.displayHost(), e.Port)
 }
 
+// connURL returns the HTTP base URL for internal connectivity (health checks, API calls).
+// Uses the raw bind address to avoid DNS resolution mismatches (e.g. localhost → [::1]).
+func (e sessionEntry) connURL() string {
+	host := e.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return fmt.Sprintf("http://%s:%d", host, e.Port)
+}
+
 // hostForDisplay maps a listen host to a user-facing hostname.
 func hostForDisplay(host string) string {
 	if host == "" || host == "127.0.0.1" {
@@ -348,7 +358,7 @@ func isDaemonAlive(s sessionEntry) bool {
 	}
 	// HTTP health probe — ensures the port belongs to our daemon, not a reused PID.
 	// We validate the response body to guard against a non-crit process on the same port.
-	resp, err := aliveClient.Get(s.baseURL() + "/api/health")
+	resp, err := aliveClient.Get(s.connURL() + "/api/health")
 	if err != nil {
 		return false
 	}
@@ -369,7 +379,7 @@ func isDaemonAlive(s sessionEntry) bool {
 // Uses a pointer to distinguish "field missing" (older daemon) from "false".
 // When the field is missing, assumes a browser is connected (safe default).
 func daemonHasBrowser(s sessionEntry) bool {
-	resp, err := browserClient.Get(s.baseURL() + "/api/health")
+	resp, err := browserClient.Get(s.connURL() + "/api/health")
 	if err != nil {
 		return true // can't reach daemon, assume browser exists
 	}
