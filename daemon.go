@@ -70,7 +70,7 @@ func (e sessionEntry) displayHost() string {
 	return hostForDisplay(e.Host)
 }
 
-// baseURL returns the HTTP base URL for connecting to this daemon.
+// baseURL returns the user-facing HTTP base URL (browser, stderr).
 func (e sessionEntry) baseURL() string {
 	return fmt.Sprintf("http://%s:%d", e.displayHost(), e.Port)
 }

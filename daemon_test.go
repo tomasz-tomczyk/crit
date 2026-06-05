@@ -115,6 +115,25 @@ func TestSessionEntry_BaseURL(t *testing.T) {
 	}
 }
 
+func TestSessionEntry_ConnURL(t *testing.T) {
+	tests := []struct {
+		host string
+		port int
+		want string
+	}{
+		{"", 3000, "http://127.0.0.1:3000"},
+		{"127.0.0.1", 4567, "http://127.0.0.1:4567"},
+		{"0.0.0.0", 8080, "http://0.0.0.0:8080"},
+		{"192.168.1.10", 3000, "http://192.168.1.10:3000"},
+	}
+	for _, tt := range tests {
+		e := sessionEntry{Host: tt.host, Port: tt.port}
+		if got := e.connURL(); got != tt.want {
+			t.Errorf("connURL(host=%q, port=%d) = %q, want %q", tt.host, tt.port, got, tt.want)
+		}
+	}
+}
+
 func TestSessionFileRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
