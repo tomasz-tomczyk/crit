@@ -496,6 +496,8 @@
   let focusedFilePath = null;
   let focusedElement = null; // currently focused navigable element
   let navElements = []; // cached .kb-nav list, rebuilt on render
+  // Stable j/k position across re-renders (DOM refs and block indices alone are not enough).
+  let keyboardFocusTarget = null; // { filePath, blockIndex?, diffLineNum?, diffSide?, startLine?, endLine? }
   // Vim-style visual line mode (entered with V).
   // { kind: 'markdown'|'diff', filePath, anchorStartLine, anchorEndLine, anchorSide }
   let visualMode = null;
@@ -1599,6 +1601,167 @@
   function rebuildNavList() {
     navElements = Array.from(document.querySelectorAll('.kb-nav'));
     buildChangeGroups();
+    restoreKeyboardFocus();
+  }
+
+  function rememberKeyboardFocusTarget(target) {
+    if (!target || !target.filePath) return;
+    keyboardFocusTarget = target;
+  }
+
+  function rememberKeyboardFocusFromForm(formObj) {
+    if (!formObj || !formObj.filePath || formObj.scope === 'file') return;
+    const target = { filePath: formObj.filePath };
+    if (formObj.afterBlockIndex !== null && formObj.afterBlockIndex !== undefined) {
+      target.blockIndex = String(formObj.afterBlockIndex);
+    }
+    if (formObj.startLine) target.startLine = String(formObj.startLine);
+    if (formObj.endLine) target.endLine = String(formObj.endLine);
+    if (formObj.afterBlockIndex === null && formObj.startLine) {
+      target.diffLineNum = String(formObj.startLine);
+      target.diffSide = formObj.side || '';
+    }
+    rememberKeyboardFocusTarget(target);
+  }
+
+  function navFocusTargetFromElement(el) {
+    if (!el) return null;
+    const fp = el.dataset.filePath || el.dataset.diffFilePath;
+    if (!fp) return null;
+    const target = { filePath: fp };
+    if (el.dataset.blockIndex !== undefined) {
+      target.blockIndex = el.dataset.blockIndex;
+      if (el.dataset.startLine) target.startLine = el.dataset.startLine;
+      if (el.dataset.endLine) target.endLine = el.dataset.endLine;
+      return target;
+    }
+    if (el.classList.contains('diff-split-row')) {
+      const rightSide = el.querySelector('.diff-split-side.right:not(.empty)[data-diff-line-num], .diff-split-side.addition[data-diff-line-num]');
+      const leftSide = el.querySelector('.diff-split-side.left[data-diff-line-num], .diff-split-side.deletion[data-diff-line-num]');
+      const sideEl = rightSide || leftSide;
+      if (sideEl) {
+        target.diffLineNum = sideEl.dataset.diffLineNum;
+        target.diffSide = sideEl.dataset.diffSide || '';
+      }
+      return target;
+    }
+    if (el.dataset.diffLineNum) {
+      target.diffLineNum = el.dataset.diffLineNum;
+      target.diffSide = el.dataset.diffSide || '';
+    }
+    return target;
+  }
+
+  function rememberKeyboardFocusFromNav(el) {
+    const target = navFocusTargetFromElement(el);
+    rememberKeyboardFocusTarget(target);
+  }
+
+  function clearKeyboardFocusTarget() {
+    keyboardFocusTarget = null;
+  }
+
+  function getKeyboardFocusTarget() {
+    if (keyboardFocusTarget) return keyboardFocusTarget;
+    if (!focusedFilePath && !focusedElement) return null;
+    const fp = focusedFilePath || (focusedElement && (focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath));
+    if (!fp) return null;
+    const target = { filePath: fp };
+    if (focusedBlockIndex !== null && focusedBlockIndex !== undefined && !isNaN(focusedBlockIndex)) {
+      target.blockIndex = String(focusedBlockIndex);
+    } else if (focusedElement) {
+      const fromEl = navFocusTargetFromElement(focusedElement);
+      if (fromEl) return fromEl;
+    }
+    return target;
+  }
+
+  function findNavElementForFocusTarget(target) {
+    for (let i = 0; i < navElements.length; i++) {
+      const n = navElements[i];
+      if (target.blockIndex !== undefined && n.dataset.filePath === target.filePath && n.dataset.blockIndex === target.blockIndex) {
+        return n;
+      }
+      if (target.startLine && n.dataset.filePath === target.filePath &&
+          n.dataset.startLine === target.startLine &&
+          (n.dataset.endLine || target.startLine) === (target.endLine || target.startLine)) {
+        return n;
+      }
+    }
+    if (!target.diffLineNum) return null;
+    const side = target.diffSide || '';
+    for (let i = 0; i < navElements.length; i++) {
+      const n = navElements[i];
+      if (n.dataset.diffFilePath !== target.filePath) continue;
+      if (n.dataset.diffLineNum === target.diffLineNum &&
+          (!side || (n.dataset.diffSide || '') === side || n.classList.contains('diff-split-row'))) {
+        return n;
+      }
+      if (n.classList.contains('diff-split-row')) {
+        const sides = n.querySelectorAll('.diff-split-side[data-diff-line-num]');
+        for (let si = 0; si < sides.length; si++) {
+          const sideEl = sides[si];
+          if (sideEl.dataset.diffLineNum === target.diffLineNum &&
+              (sideEl.dataset.diffSide || '') === side) {
+            return n;
+          }
+        }
+      } else if (n.classList.contains('diff-line') &&
+          n.dataset.diffLineNum === target.diffLineNum &&
+          (n.dataset.diffSide || '') === side) {
+        return n;
+      }
+    }
+    return null;
+  }
+
+  function getFocusedCommentLocation() {
+    const target = getKeyboardFocusTarget();
+    if (target) {
+      return {
+        filePath: target.filePath,
+        blockIndex: target.blockIndex !== undefined ? parseInt(target.blockIndex) : undefined,
+        lineNum: target.diffLineNum ? parseInt(target.diffLineNum) :
+          (target.startLine ? parseInt(target.startLine) : undefined),
+        side: target.diffSide || '',
+      };
+    }
+    if (!focusedElement) return null;
+    const filePath = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
+    if (!filePath) return null;
+    if (focusedElement.dataset.blockIndex !== undefined) {
+      return {
+        filePath: filePath,
+        blockIndex: parseInt(focusedElement.dataset.blockIndex),
+        lineNum: focusedElement.dataset.startLine ? parseInt(focusedElement.dataset.startLine) : undefined,
+        side: '',
+      };
+    }
+    if (focusedElement.dataset.diffLineNum) {
+      return {
+        filePath: filePath,
+        lineNum: parseInt(focusedElement.dataset.diffLineNum),
+        side: focusedElement.dataset.diffSide || '',
+      };
+    }
+    return null;
+  }
+
+  function restoreKeyboardFocus() {
+    const target = getKeyboardFocusTarget();
+    if (!target) return;
+    const match = findNavElementForFocusTarget(target);
+    if (!match) return;
+    document.querySelectorAll('.kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
+    focusedElement = match;
+    match.classList.add('focused');
+    if (match.dataset.filePath) {
+      focusedFilePath = match.dataset.filePath;
+      focusedBlockIndex = parseInt(match.dataset.blockIndex);
+    } else if (match.dataset.diffFilePath) {
+      focusedFilePath = match.dataset.diffFilePath;
+      focusedBlockIndex = null;
+    }
   }
 
   function buildChangeGroups() {
@@ -2064,14 +2227,6 @@
     el.classList.toggle('form-selected', hasForm && !inSelection);
 
     if (blockIndex !== undefined) {
-      (function(fp, idx, elem) {
-        elem.addEventListener('mouseenter', function() {
-          focusedFilePath = fp;
-          focusedBlockIndex = idx;
-          focusedElement = elem;
-        });
-      })(filePath, blockIndex, el);
-
       if (focusedFilePath === filePath && focusedBlockIndex === blockIndex) {
         el.classList.add('focused');
       }
@@ -2534,11 +2689,6 @@
       nav.dataset.diffLineNum = lineNum;
       nav.dataset.diffSide = side || '';
     }
-    el.addEventListener('mouseenter', function() {
-      focusedElement = nav;
-      focusedFilePath = filePath;
-      focusedBlockIndex = null;
-    });
   }
 
   // Creates a dedicated comment gutter column element with a + button.
@@ -4015,6 +4165,7 @@
   }
 
   function openForm(newForm) {
+    rememberKeyboardFocusFromForm(newForm);
     const fk = formKey(newForm);
     const existing = activeForms.find(function(f) { return f.formKey === fk; });
     if (existing) {
@@ -4695,6 +4846,7 @@
 
   async function submitComment(body, formObj) {
     if (!body.trim() || !formObj) return null;
+    rememberKeyboardFocusFromForm(formObj);
     clearDraft(formObj);
     let created;
     const filePath = formObj.filePath;
@@ -4750,9 +4902,6 @@
         selectionStart = null;
         selectionEnd = null;
       }
-      focusedFilePath = null;
-      focusedBlockIndex = null;
-      focusedElement = null;
     }
     renderFileByPath(filePath);
     updateTreeCommentBadges();
@@ -4780,6 +4929,7 @@
 
   function cancelComment(formObj) {
     if (!formObj) return;
+    rememberKeyboardFocusFromForm(formObj);
     clearDraft(formObj);
     removeForm(formObj.formKey);
     if (getFormsForFile(formObj.filePath).length === 0) {
@@ -4788,9 +4938,6 @@
         selectionStart = null;
         selectionEnd = null;
       }
-      focusedFilePath = null;
-      focusedBlockIndex = null;
-      focusedElement = null;
     }
     renderFileByPath(formObj.filePath);
   }
@@ -8182,10 +8329,11 @@
         if (focusedElement.dataset.filePath) {
           focusedFilePath = focusedElement.dataset.filePath;
           focusedBlockIndex = parseInt(focusedElement.dataset.blockIndex);
-        } else if (focusedElement.dataset.diffFilePath) {
+        } else         if (focusedElement.dataset.diffFilePath) {
           focusedFilePath = focusedElement.dataset.diffFilePath;
           focusedBlockIndex = null;
         }
+        rememberKeyboardFocusFromNav(focusedElement);
         if (visualMode) extendVisualSelection();
         break;
       }
@@ -8241,37 +8389,33 @@
           openForm({ filePath: fp, afterBlockIndex: bi, startLine: block.startLine, endLine: block.endLine, editingId: null });
         }
         // Diff line
-        else if (focusedElement.dataset.diffFilePath && focusedElement.dataset.diffLineNum) {
-          const dfp = focusedElement.dataset.diffFilePath;
-          const lineNum = parseInt(focusedElement.dataset.diffLineNum);
-          const side = focusedElement.dataset.diffSide || '';
-          openForm({ filePath: dfp, afterBlockIndex: null, startLine: lineNum, endLine: lineNum, editingId: null, side: side || undefined });
+        else {
+          const loc = getFocusedCommentLocation();
+          if (!loc || loc.lineNum === undefined) return;
+          openForm({ filePath: loc.filePath, afterBlockIndex: null, startLine: loc.lineNum, endLine: loc.lineNum, editingId: null, side: loc.side || undefined });
         }
         break;
       }
       case 'e':
       case 'd': {
         e.preventDefault();
-        if (!focusedElement) return;
-        const fp = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
-        if (!fp) return;
-        const file = getFileByPath(fp);
+        const loc = getFocusedCommentLocation();
+        if (!loc) return;
+        const file = getFileByPath(loc.filePath);
         if (!file || !file.comments || file.comments.length === 0) return;
         // Find comments for the focused line
         let comment = null;
-        if (focusedElement.dataset.blockIndex !== undefined) {
-          const block = file.lineBlocks[parseInt(focusedElement.dataset.blockIndex)];
+        if (loc.blockIndex !== undefined && !isNaN(loc.blockIndex)) {
+          const block = file.lineBlocks[loc.blockIndex];
           if (block) {
             comment = file.comments.find(function(c) { return c.end_line >= block.startLine && c.end_line <= block.endLine; });
           }
-        } else if (focusedElement.dataset.diffLineNum) {
-          const ln = parseInt(focusedElement.dataset.diffLineNum);
-          const sd = focusedElement.dataset.diffSide || '';
-          comment = file.comments.find(function(c) { return c.end_line === ln && (c.side || '') === sd; });
+        } else if (loc.lineNum !== undefined) {
+          comment = file.comments.find(function(c) { return c.end_line === loc.lineNum && (c.side || '') === loc.side; });
         }
         if (!comment) return;
-        if (e.key === 'e') editComment(comment, fp);
-        else deleteComment(comment.id, fp);
+        if (e.key === 'e') editComment(comment, loc.filePath);
+        else deleteComment(comment.id, loc.filePath);
         break;
       }
       case 'F': {
@@ -8367,6 +8511,7 @@
           focusedBlockIndex = null;
           focusedFilePath = null;
           focusedElement = null;
+          clearKeyboardFocusTarget();
         }
         break;
       }

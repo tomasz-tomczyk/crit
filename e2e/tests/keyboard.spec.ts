@@ -1,6 +1,29 @@
 import { test, expect } from '@playwright/test';
 import { clearAllComments, loadPage, mdSection, goSection, clearFocus, switchToDocumentView } from './helpers';
 
+async function focusKbNavByJ(page: import('@playwright/test').Page, presses: number) {
+  for (let i = 0; i < presses; i++) {
+    await page.keyboard.press('j');
+  }
+}
+
+async function kbNavIndex(page: import('@playwright/test').Page, locator: import('@playwright/test').Locator) {
+  return locator.evaluate(el => Array.from(document.querySelectorAll('.kb-nav')).indexOf(el));
+}
+
+async function focusKbNavElement(page: import('@playwright/test').Page, locator: import('@playwright/test').Locator) {
+  await clearFocus(page);
+  const index = await kbNavIndex(page, locator);
+  expect(index).toBeGreaterThanOrEqual(0);
+  await focusKbNavByJ(page, index + 1);
+}
+
+async function focusMarkdownBlockWithStartLine(page: import('@playwright/test').Page, startLine: string) {
+  const block = mdSection(page).locator(`.line-block.kb-nav[data-start-line="${startLine}"]`);
+  await expect(block).toBeAttached();
+  await focusKbNavElement(page, block);
+}
+
 // ============================================================
 // j/k Navigation on Diff Blocks (Split Mode)
 // ============================================================
@@ -66,9 +89,8 @@ test.describe('Keyboard Navigation — Diff Split Mode', () => {
     const diffRows = page.locator('.diff-split-row.kb-nav');
     await expect(diffRows.first()).toBeAttached();
 
-    // Hover a diff-split-row to set focusedElement, then press j to focus it
-    await diffRows.first().hover();
-    await page.keyboard.press('j');
+    // Focus the first row, then advance one row with j
+    await focusKbNavByJ(page, 2);
 
     const currentRow = page.locator('.diff-split-row.kb-nav.focused');
     await expect(currentRow).toHaveCount(1);
@@ -90,6 +112,85 @@ test.describe('Keyboard Navigation — Diff Split Mode', () => {
 
     // Should have moved forward by exactly 1
     expect(nextIndex).toBe(currentIndex + 1);
+  });
+
+  test('j/k stays continuous when mouse is stationary over the document', async ({ page }) => {
+    const allNav = page.locator('.kb-nav');
+    const count = await allNav.count();
+    expect(count).toBeGreaterThan(15);
+
+    // Rest the pointer over the document while navigating purely with j/k.
+    const box = await allNav.nth(8).boundingBox();
+    expect(box).toBeTruthy();
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+
+    let prevIndex = -1;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('j');
+      const focused = page.locator('.kb-nav.focused');
+      await expect(focused).toHaveCount(1);
+      const index = await focused.evaluate(el => {
+        return Array.from(document.querySelectorAll('.kb-nav')).indexOf(el);
+      });
+      expect(index).toBeGreaterThanOrEqual(prevIndex);
+      prevIndex = index;
+    }
+  });
+
+  test('j/k resumes after canceling comment form with Escape', async ({ page }) => {
+    const targetIdx = 15;
+    await focusKbNavByJ(page, targetIdx + 1);
+
+    const beforeCancel = await page.locator('.kb-nav.focused').evaluate(el =>
+      Array.from(document.querySelectorAll('.kb-nav')).indexOf(el)
+    );
+    expect(beforeCancel).toBe(targetIdx);
+
+    await page.keyboard.press('c');
+    await expect(page.locator('.comment-form')).toBeVisible();
+    await page.locator('.comment-form textarea').press('Escape');
+    await expect(page.locator('.comment-form')).toHaveCount(0);
+
+    // Focus should still be on the same line after cancel (not reset to top).
+    const afterEscape = await page.locator('.kb-nav.focused').evaluate(el =>
+      Array.from(document.querySelectorAll('.kb-nav')).indexOf(el)
+    );
+    expect(afterEscape).toBe(targetIdx);
+
+    await page.keyboard.press('j');
+    const afterJ = await page.locator('.kb-nav.focused').evaluate(el =>
+      Array.from(document.querySelectorAll('.kb-nav')).indexOf(el)
+    );
+    expect(afterJ).toBe(targetIdx + 1);
+  });
+
+  test('j/k resumes after submitting a new comment', async ({ page }) => {
+    const targetIdx = 15;
+    await focusKbNavByJ(page, targetIdx + 1);
+
+    const beforeSubmit = await page.locator('.kb-nav.focused').evaluate(el =>
+      Array.from(document.querySelectorAll('.kb-nav')).indexOf(el)
+    );
+    expect(beforeSubmit).toBe(targetIdx);
+
+    await page.keyboard.press('c');
+    const textarea = page.locator('.comment-form textarea');
+    await expect(textarea).toBeVisible();
+    await textarea.fill('resume focus after submit');
+    await page.locator('.comment-form .btn-primary').click();
+    await expect(page.locator('.comment-form')).toHaveCount(0);
+    await expect(page.locator('.comment-card').filter({ hasText: 'resume focus after submit' })).toBeVisible();
+
+    const afterSubmit = await page.locator('.kb-nav.focused').evaluate(el =>
+      Array.from(document.querySelectorAll('.kb-nav')).indexOf(el)
+    );
+    expect(afterSubmit).toBe(targetIdx);
+
+    await page.keyboard.press('j');
+    const afterJ = await page.locator('.kb-nav.focused').evaluate(el =>
+      Array.from(document.querySelectorAll('.kb-nav')).indexOf(el)
+    );
+    expect(afterJ).toBe(targetIdx + 1);
   });
 
   test('k from first element stays at first element', async ({ page }) => {
@@ -131,10 +232,9 @@ test.describe('Keyboard Navigation — Markdown Document View', () => {
     const count = await lineBlocks.count();
     expect(count).toBeGreaterThan(2);
 
-    // Hover the first markdown line-block to set focusedElement, then press j to focus it
+    // Focus the first markdown line-block, then advance one block with j
     const firstBlock = lineBlocks.first();
-    await firstBlock.hover();
-    await page.keyboard.press('j');
+    await focusKbNavElement(page, firstBlock);
 
     await expect(page.locator('.line-block.kb-nav.focused')).toHaveCount(1);
     const firstFocusedText = await page.locator('.line-block.kb-nav.focused').textContent();
@@ -162,12 +262,9 @@ test.describe('Keyboard Comment Shortcuts — Diff', () => {
   });
 
   test('c opens comment form on focused diff block', async ({ page }) => {
-    // Hover a diff row to set focusedElement via mouseenter
-    const diffRow = page.locator('.diff-split-row.kb-nav').first();
-    await expect(diffRow).toBeAttached();
-    await diffRow.hover();
+    await focusKbNavByJ(page, 1);
 
-    // Press c to open comment form (uses focusedElement directly)
+    // Press c to open comment form (uses keyboard-focused element)
     await page.keyboard.press('c');
 
     const form = page.locator('.comment-form');
@@ -180,6 +277,7 @@ test.describe('Keyboard Comment Shortcuts — Diff', () => {
     // Use the UI to create a comment on server.go, then test editing via keyboard
     const section = goSection(page);
     const additionSide = section.locator('.diff-split-side.addition').first();
+    const commentedRow = additionSide.locator('xpath=ancestor::*[contains(@class,"diff-split-row") and contains(@class,"kb-nav")][1]');
     await additionSide.hover();
     const commentBtn = additionSide.locator('.diff-comment-btn');
     await commentBtn.click();
@@ -191,12 +289,7 @@ test.describe('Keyboard Comment Shortcuts — Diff', () => {
     // Comment card should appear
     await expect(section.locator('.comment-card')).toBeVisible();
 
-    // Hover over the addition side with the comment to set focusedElement via mouseenter
-    const commentedSide = section.locator('.diff-split-side.has-comment').first();
-    await expect(commentedSide).toBeVisible();
-    await commentedSide.hover();
-
-    // Press e to edit — the hover set focusedElement to the row's nav element
+    // Submit restores keyboard focus to the commented line
     await page.keyboard.press('e');
 
     const editTextarea = page.locator('.comment-form textarea');
@@ -208,6 +301,7 @@ test.describe('Keyboard Comment Shortcuts — Diff', () => {
     // Use the UI to create a comment on server.go
     const section = goSection(page);
     const additionSide = section.locator('.diff-split-side.addition').first();
+    const commentedRow = additionSide.locator('xpath=ancestor::*[contains(@class,"diff-split-row") and contains(@class,"kb-nav")][1]');
     await additionSide.hover();
     const commentBtn = additionSide.locator('.diff-comment-btn');
     await commentBtn.click();
@@ -220,12 +314,7 @@ test.describe('Keyboard Comment Shortcuts — Diff', () => {
     const commentCard = section.locator('.comment-card');
     await expect(commentCard).toBeVisible();
 
-    // Hover over the addition side with the comment to set focusedElement via mouseenter
-    const commentedSide = section.locator('.diff-split-side.has-comment').first();
-    await expect(commentedSide).toBeVisible();
-    await commentedSide.hover();
-
-    // Press d to delete — the hover set focusedElement to the row's nav element
+    // Submit restores keyboard focus to the commented line
     await page.keyboard.press('d');
 
     // Comment should be removed
@@ -243,13 +332,8 @@ test.describe('Keyboard Comment Shortcuts — Markdown', () => {
     await switchToDocumentView(page);
     await clearFocus(page);
 
-    // Hover a markdown line-block to set focusedElement via mouseenter
-    const section = mdSection(page);
-    const lineBlock = section.locator('.line-block.kb-nav').first();
-    await expect(lineBlock).toBeAttached();
-    await lineBlock.hover();
+    await focusKbNavElement(page, mdSection(page).locator('.line-block.kb-nav').first());
 
-    // c uses focusedElement directly (set by hover), no j-key needed
     await page.keyboard.press('c');
 
     const form = page.locator('.comment-form');
@@ -268,13 +352,8 @@ test.describe('Keyboard Comment Shortcuts — Markdown', () => {
     await switchToDocumentView(page);
     await clearFocus(page);
 
-    // Hover the line-block covering line 1 to set focusedElement via mouseenter
-    const section = mdSection(page);
-    const lineBlock = section.locator('.line-block.kb-nav[data-start-line="1"]');
-    await expect(lineBlock).toBeAttached();
-    await lineBlock.hover();
+    await focusMarkdownBlockWithStartLine(page, '1');
 
-    // e uses focusedElement directly (set by hover), no j-key needed
     await page.keyboard.press('e');
 
     const textarea = page.locator('.comment-form textarea');
@@ -296,12 +375,8 @@ test.describe('Keyboard Comment Shortcuts — Markdown', () => {
     const section = mdSection(page);
     await expect(section.locator('.comment-card')).toBeVisible();
 
-    // Hover the line-block covering line 1 to set focusedElement via mouseenter
-    const lineBlock = section.locator('.line-block.kb-nav[data-start-line="1"]');
-    await expect(lineBlock).toBeAttached();
-    await lineBlock.hover();
+    await focusMarkdownBlockWithStartLine(page, '1');
 
-    // d uses focusedElement directly (set by hover), no j-key needed
     await page.keyboard.press('d');
 
     await expect(section.locator('.comment-card')).toHaveCount(0);
@@ -377,10 +452,7 @@ test.describe('Keyboard Escape Behavior', () => {
   });
 
   test('Escape closes open comment form', async ({ page }) => {
-    // Hover a diff row to set focusedElement, then open comment form
-    const diffRow = page.locator('.diff-split-row.kb-nav').first();
-    await expect(diffRow).toBeAttached();
-    await diffRow.hover();
+    await focusKbNavByJ(page, 1);
     await page.keyboard.press('c');
 
     const form = page.locator('.comment-form');
@@ -403,9 +475,7 @@ test.describe('Keyboard Escape Behavior', () => {
   });
 
   test('Escape on non-empty comment form prompts for confirmation', async ({ page }) => {
-    const diffRow = page.locator('.diff-split-row.kb-nav').first();
-    await expect(diffRow).toBeAttached();
-    await diffRow.hover();
+    await focusKbNavByJ(page, 1);
     await page.keyboard.press('c');
 
     const textarea = page.locator('.comment-form textarea');
@@ -431,9 +501,7 @@ test.describe('Keyboard Escape Behavior', () => {
   });
 
   test('Cancel button on non-empty comment form discards immediately (no confirm)', async ({ page }) => {
-    const diffRow = page.locator('.diff-split-row.kb-nav').first();
-    await expect(diffRow).toBeAttached();
-    await diffRow.hover();
+    await focusKbNavByJ(page, 1);
     await page.keyboard.press('c');
 
     const textarea = page.locator('.comment-form textarea');
@@ -449,9 +517,7 @@ test.describe('Keyboard Escape Behavior', () => {
   });
 
   test('Escape on empty comment form closes silently (no confirm)', async ({ page }) => {
-    const diffRow = page.locator('.diff-split-row.kb-nav').first();
-    await expect(diffRow).toBeAttached();
-    await diffRow.hover();
+    await focusKbNavByJ(page, 1);
     await page.keyboard.press('c');
 
     const textarea = page.locator('.comment-form textarea');
@@ -483,9 +549,8 @@ test.describe('Keyboard Visual Line Mode — Markdown', () => {
     const lineBlocks = section.locator('.line-block.kb-nav');
     await expect(lineBlocks.first()).toBeAttached();
 
-    // Focus the first line-block
-    await lineBlocks.first().hover();
-    await page.keyboard.press('j');
+    // Focus the first line-block with j/k
+    await focusKbNavElement(page, lineBlocks.first());
     const firstFocused = page.locator('.line-block.kb-nav.focused');
     await expect(firstFocused).toHaveCount(1);
     const anchorStart = parseInt((await firstFocused.getAttribute('data-start-line'))!);
@@ -529,8 +594,7 @@ test.describe('Keyboard Visual Line Mode — Markdown', () => {
   test('Escape clears visual selection and keeps focus on current block', async ({ page }) => {
     const section = mdSection(page);
     const lineBlocks = section.locator('.line-block.kb-nav');
-    await lineBlocks.first().hover();
-    await page.keyboard.press('j');
+    await focusKbNavElement(page, lineBlocks.first());
     await page.keyboard.press('Shift+V');
     await page.keyboard.press('j');
     await page.keyboard.press('j');
@@ -554,8 +618,7 @@ test.describe('Keyboard Visual Line Mode — Markdown', () => {
   test('V again exits visual mode (toggle)', async ({ page }) => {
     const section = mdSection(page);
     const lineBlocks = section.locator('.line-block.kb-nav');
-    await lineBlocks.first().hover();
-    await page.keyboard.press('j');
+    await focusKbNavElement(page, lineBlocks.first());
     await page.keyboard.press('Shift+V');
     await expect(section.locator('.line-block.selected').first()).toBeAttached();
 
@@ -575,10 +638,7 @@ test.describe('Shortcuts Disabled When Typing', () => {
   });
 
   test('j types into textarea instead of navigating when textarea is focused', async ({ page }) => {
-    // Hover a diff row to set focusedElement, then open comment form
-    const diffRow = page.locator('.diff-split-row.kb-nav').first();
-    await expect(diffRow).toBeAttached();
-    await diffRow.hover();
+    await focusKbNavByJ(page, 1);
     await page.keyboard.press('c');
 
     const textarea = page.locator('.comment-form textarea');
@@ -594,10 +654,7 @@ test.describe('Shortcuts Disabled When Typing', () => {
   });
 
   test('other shortcuts (?, t) do not fire when textarea is focused', async ({ page }) => {
-    // Hover a diff row to set focusedElement, then open comment form
-    const diffRow = page.locator('.diff-split-row.kb-nav').first();
-    await expect(diffRow).toBeAttached();
-    await diffRow.hover();
+    await focusKbNavByJ(page, 1);
     await page.keyboard.press('c');
 
     const textarea = page.locator('.comment-form textarea');

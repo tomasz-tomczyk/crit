@@ -834,6 +834,8 @@ body {
   display: flex;
 }
 
+.line-block:hover { background: var(--crit-brand-subtle); }
+
 .line-block.has-comment {
   background: var(--crit-comment-range-bg);
 }
@@ -847,6 +849,7 @@ body {
   background: var(--crit-line-focus-bg);
   box-shadow: inset 2px 0 0 var(--crit-brand);
 }
+.line-block.focused .line-gutter { background: var(--crit-line-focus-bg); }
 
 /* Visual line mode: recolor the focused block's left accent so it's clearly
    distinct from the default j/k cursor, signalling that j/k now extends the
