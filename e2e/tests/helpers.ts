@@ -75,6 +75,23 @@ export async function clearFocus(page: Page) {
   await page.locator('body').click({ position: { x: 0, y: 0 } });
 }
 
+export async function focusKbNavByJ(page: Page, presses: number) {
+  for (let i = 0; i < presses; i++) {
+    await page.keyboard.press('j');
+  }
+}
+
+async function kbNavIndex(page: Page, locator: ReturnType<Page['locator']>) {
+  return locator.evaluate(el => Array.from(document.querySelectorAll('.kb-nav')).indexOf(el));
+}
+
+export async function focusKbNavElement(page: Page, locator: ReturnType<Page['locator']>) {
+  await clearFocus(page);
+  const index = await kbNavIndex(page, locator);
+  expect(index).toBeGreaterThanOrEqual(0);
+  await focusKbNavByJ(page, index + 1);
+}
+
 // Add a comment via API and return the created comment object.
 export async function addComment(request: APIRequestContext, path: string, line: number, body: string) {
   const resp = await request.post(`/api/file/comments?path=${encodeURIComponent(path)}`, {

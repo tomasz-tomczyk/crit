@@ -81,7 +81,7 @@ test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
     await switchToDocumentView(page);
   });
 
-  test('drag-select then submit clears all selected/focused classes', async ({ page }) => {
+  test('drag-select then submit clears selected class and keeps keyboard focus', async ({ page }) => {
     const section = mdSection(page);
     const gutters = section.locator('.line-comment-gutter');
     const firstGutter = gutters.nth(0);
@@ -100,12 +100,11 @@ test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
     await page.locator('.comment-form .btn-primary').click();
     await expect(page.locator('.comment-card')).toBeVisible();
 
-    // No line blocks should have .selected or .focused
     await expect(section.locator('.line-block.selected')).toHaveCount(0);
-    await expect(section.locator('.line-block.focused')).toHaveCount(0);
+    await expect(section.locator('.line-block.focused')).toHaveCount(1);
   });
 
-  test('drag-select then cancel clears all selected/focused classes', async ({ page }) => {
+  test('drag-select then cancel clears selected class and keeps keyboard focus', async ({ page }) => {
     const section = mdSection(page);
     const gutters = section.locator('.line-comment-gutter');
     const firstGutter = gutters.nth(0);
@@ -122,12 +121,11 @@ test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
     await page.locator('.comment-form button', { hasText: 'Cancel' }).click();
     await expect(form).toBeHidden();
 
-    // No line blocks should have .selected or .focused
     await expect(section.locator('.line-block.selected')).toHaveCount(0);
-    await expect(section.locator('.line-block.focused')).toHaveCount(0);
+    await expect(section.locator('.line-block.focused')).toHaveCount(1);
   });
 
-  test('single-line click then submit clears all selected/focused classes', async ({ page }) => {
+  test('single-line click then submit clears selected class and keeps keyboard focus', async ({ page }) => {
     const section = mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
@@ -144,9 +142,8 @@ test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
     await page.locator('.comment-form .btn-primary').click();
     await expect(page.locator('.comment-card')).toBeVisible();
 
-    // No line blocks should have .selected or .focused
     await expect(section.locator('.line-block.selected')).toHaveCount(0);
-    await expect(section.locator('.line-block.focused')).toHaveCount(0);
+    await expect(section.locator('.line-block.focused')).toHaveCount(1);
   });
 });
 

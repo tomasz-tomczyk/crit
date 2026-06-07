@@ -1,22 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, goSection, clearFocus, switchToDocumentView } from './helpers';
-
-async function focusKbNavByJ(page: import('@playwright/test').Page, presses: number) {
-  for (let i = 0; i < presses; i++) {
-    await page.keyboard.press('j');
-  }
-}
-
-async function kbNavIndex(page: import('@playwright/test').Page, locator: import('@playwright/test').Locator) {
-  return locator.evaluate(el => Array.from(document.querySelectorAll('.kb-nav')).indexOf(el));
-}
-
-async function focusKbNavElement(page: import('@playwright/test').Page, locator: import('@playwright/test').Locator) {
-  await clearFocus(page);
-  const index = await kbNavIndex(page, locator);
-  expect(index).toBeGreaterThanOrEqual(0);
-  await focusKbNavByJ(page, index + 1);
-}
+import {
+  clearAllComments, loadPage, mdSection, goSection, clearFocus, switchToDocumentView,
+  focusKbNavByJ, focusKbNavElement,
+} from './helpers';
 
 async function focusMarkdownBlockWithStartLine(page: import('@playwright/test').Page, startLine: string) {
   const block = mdSection(page).locator(`.line-block.kb-nav[data-start-line="${startLine}"]`);
