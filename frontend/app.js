@@ -509,8 +509,10 @@
   // is loaded before app.js via index.html script order, so we reference it
   // directly without a local fallback.
   const authorColorIndex = window.crit.commentCardHelpers.authorColorIndex;
+  const pathCompare = window.crit.shared.pathCompare;
 
-  // Sort comparator: directories before files at each depth, then alphabetical.
+  // Sort comparator: directories before files at each depth, then path order
+  // matching GitHub PR diffs (ASCII byte compare, not localeCompare).
   // In files mode the user's CLI argument order is meaningful, so preserve it
   // (Array.prototype.sort is stable, so returning 0 keeps original order).
   function fileSortComparator(a, b) {
@@ -518,10 +520,10 @@
     const pa = a.path.split('/'), pb = b.path.split('/');
     const min = Math.min(pa.length, pb.length);
     for (let i = 0; i < min - 1; i++) {
-      if (pa[i] !== pb[i]) return pa[i].localeCompare(pb[i]);
+      if (pa[i] !== pb[i]) return pathCompare(pa[i], pb[i]);
     }
     if (pa.length !== pb.length) return pb.length - pa.length;
-    return pa[pa.length - 1].localeCompare(pb[pa.length - 1]);
+    return pathCompare(pa[pa.length - 1], pb[pa.length - 1]);
   }
 
   // Fetch and build file objects from the API for a list of file infos.
@@ -1418,7 +1420,7 @@
     // Render files. In files mode preserve user-provided CLI order.
     const sortedFiles = session.mode === 'files'
       ? node.files.slice()
-      : node.files.slice().sort(function(a, b) { return a.path.localeCompare(b.path); });
+      : node.files.slice().sort(function(a, b) { return pathCompare(a.path, b.path); });
     for (let fi = 0; fi < sortedFiles.length; fi++) {
       const f = sortedFiles[fi];
       const fileName = f.path.split('/').pop();

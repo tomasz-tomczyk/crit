@@ -747,8 +747,20 @@
     }
   }
 
+  // pathCompare — byte-order string compare matching Go sort.Strings and GitHub
+  // PR file order. localeCompare puts '_' before '.' (foo_test.go before foo.go).
+  function pathCompare(a, b) {
+    const min = Math.min(a.length, b.length);
+    for (let i = 0; i < min; i++) {
+      const diff = a.charCodeAt(i) - b.charCodeAt(i);
+      if (diff !== 0) return diff;
+    }
+    return a.length - b.length;
+  }
+
   window.crit = window.crit || {};
   window.crit.shared = {
+    pathCompare,
     escapeHTML,
     fetchJSON,
     getCookie,

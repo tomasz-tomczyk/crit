@@ -10,6 +10,13 @@ const fn = new Function('window', 'document', src + '\nreturn window;');
 fn(sandbox.window, sandbox.document);
 const shared = sandbox.window.crit.shared;
 
+test('pathCompare matches GitHub PR byte order (foo.go before foo_test.go)', () => {
+  assert.ok(shared.pathCompare('foo.go', 'foo_test.go') < 0);
+  assert.ok(shared.pathCompare('foo_test.go', 'foo.go') > 0);
+  assert.equal(shared.pathCompare('pkg/foo.go', 'pkg/foo_test.go'), -49);
+  assert.equal(shared.pathCompare('a/b', 'a/b'), 0);
+});
+
 test('escapeHTML escapes <, >, &, ", and single quotes', () => {
   assert.equal(shared.escapeHTML('<a href="x">&</a>'),
     '&lt;a href=&quot;x&quot;&gt;&amp;&lt;/a&gt;');
