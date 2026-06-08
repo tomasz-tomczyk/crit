@@ -598,22 +598,31 @@ func TestProxyErrorHandler_Returns502JSON(t *testing.T) {
 }
 
 func TestBindProxyServer_PortIsAPIPlusOne(t *testing.T) {
-	ln0, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	apiPort := ln0.Addr().(*net.TCPAddr).Port
-	ln0.Close()
+	const maxAttempts = 20
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		apiLn, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		apiPort := apiLn.Addr().(*net.TCPAddr).Port
 
-	ln, srv, err := bindProxyServer("http://127.0.0.1:19997", apiPort)
-	if err != nil {
-		t.Fatalf("bindProxyServer: %v", err)
+		ln, srv, err := bindProxyServer("http://127.0.0.1:19997", apiPort)
+		if err != nil {
+			apiLn.Close()
+			if attempt < maxAttempts-1 && strings.Contains(err.Error(), "already in use") {
+				continue
+			}
+			t.Fatalf("bindProxyServer: %v", err)
+		}
+		defer ln.Close()
+		apiLn.Close()
+		_ = srv
+		if ln.Addr().(*net.TCPAddr).Port != apiPort+1 {
+			t.Errorf("proxy port = %d, want %d", ln.Addr().(*net.TCPAddr).Port, apiPort+1)
+		}
+		return
 	}
-	defer ln.Close()
-	_ = srv
-	if ln.Addr().(*net.TCPAddr).Port != apiPort+1 {
-		t.Errorf("proxy port = %d, want %d", ln.Addr().(*net.TCPAddr).Port, apiPort+1)
-	}
+	t.Fatalf("could not bind proxy after %d attempts", maxAttempts)
 }
 
 func TestProxyModifyResponse_MidBodyReadFailureReturns502(t *testing.T) {
