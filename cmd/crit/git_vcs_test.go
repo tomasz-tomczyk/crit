@@ -104,8 +104,16 @@ func TestChangedFilesBetweenSHAs_Rename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Path != "new.go" || got[0].Status != "renamed" {
-		t.Fatalf("got %+v, want [{new.go renamed}]", got)
+	if len(got) != 1 || got[0].Path != "new.go" || got[0].OldPath != "old.go" || got[0].Status != "renamed" {
+		t.Fatalf("got %+v, want [{Path:new.go OldPath:old.go renamed}]", got)
+	}
+
+	hunks, err := FileDiffBetweenSHAs("new.go", "old.go", base, head, dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hunks) != 0 {
+		t.Fatalf("rename-only diff: got %d hunks, want 0", len(hunks))
 	}
 }
 
@@ -152,7 +160,7 @@ func TestFileDiffBetweenSHAs_HappyPath(t *testing.T) {
 	commitAt(t, dir, "a.txt", "line1\nline2\nline3\n", "modify a")
 	head := gitT(t, dir, "rev-parse", "HEAD")
 
-	hunks, err := FileDiffBetweenSHAs("a.txt", base, head, dir, false)
+	hunks, err := FileDiffBetweenSHAs("a.txt", "", base, head, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +173,7 @@ func TestFileDiffBetweenSHAs_IdenticalSHAs(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "a.txt", "line1\n", "add a")
 	sha := gitT(t, dir, "rev-parse", "HEAD")
-	hunks, err := FileDiffBetweenSHAs("a.txt", sha, sha, dir, false)
+	hunks, err := FileDiffBetweenSHAs("a.txt", "", sha, sha, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +186,7 @@ func TestFileDiffBetweenSHAs_MissingPath(t *testing.T) {
 	dir := initTestRepo(t)
 	base := gitT(t, dir, "rev-parse", "HEAD")
 	head := commitAt(t, dir, "a.txt", "x", "add a")
-	hunks, err := FileDiffBetweenSHAs("does-not-exist.txt", base, head, dir, false)
+	hunks, err := FileDiffBetweenSHAs("does-not-exist.txt", "", base, head, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}

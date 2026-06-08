@@ -48,7 +48,7 @@ func (g *GitVCS) FileDiffUnified(path, baseRef, dir string, ignoreWhitespace boo
 }
 
 func (g *GitVCS) FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
-	return fileDiffUnifiedCtx(ctx, path, baseRef, dir, ignoreWhitespace)
+	return fileDiffUnifiedCtx(ctx, path, "", baseRef, dir, ignoreWhitespace)
 }
 
 func (g *GitVCS) FileDiffScoped(path, scope, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
@@ -109,8 +109,8 @@ func (g *GitVCS) ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileCh
 }
 
 // FileDiffBetweenSHAs returns parsed diff hunks for path in the range baseSHA..headSHA.
-func (g *GitVCS) FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
-	return FileDiffBetweenSHAs(path, baseSHA, headSHA, dir, ignoreWhitespace)
+func (g *GitVCS) FileDiffBetweenSHAs(path, oldPath, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	return FileDiffBetweenSHAs(path, oldPath, baseSHA, headSHA, dir, ignoreWhitespace)
 }
 
 // ReadFileAtSHA returns the bytes of path at the given SHA.

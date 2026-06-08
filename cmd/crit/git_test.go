@@ -24,7 +24,7 @@ func TestParseNameStatus(t *testing.T) {
 	if changes[2].Path != "old.go" || changes[2].Status != "deleted" {
 		t.Errorf("changes[2] = %+v", changes[2])
 	}
-	if changes[3].Path != "new_name.go" || changes[3].Status != "renamed" {
+	if changes[3].Path != "new_name.go" || changes[3].OldPath != "old_name.go" || changes[3].Status != "renamed" {
 		t.Errorf("changes[3] = %+v", changes[3])
 	}
 }

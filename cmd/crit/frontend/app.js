@@ -557,6 +557,7 @@
     const lazyFiles = lazy.map(function(fi) {
       return {
         path: fi.path,
+        oldPath: fi.old_path || '',
         status: fi.status,
         fileType: fi.file_type,
         content: '',
@@ -629,6 +630,7 @@
 
     const f = {
       path: fi.path,
+      oldPath: fi.old_path || '',
       status: fi.status,
       fileType: fi.file_type,
       content: fileRes.content || '',
@@ -638,7 +640,8 @@
       lineBlocks: null,
       previousLineBlocks: null,
       tocItems: [],
-      collapsed: fi.status === 'deleted' || fi.generated === true,
+      collapsed: fi.status === 'deleted' || fi.generated === true ||
+        (fi.status === 'renamed' && !fi.additions && !fi.deletions),
       viewMode: (session.mode === 'git') ? 'diff' : 'document',
       additions: fi.additions || 0,
       deletions: fi.deletions || 0,
@@ -1954,12 +1957,14 @@
 
         loadSingleFile({
           path: file.path,
+          old_path: file.oldPath,
           status: file.status,
           file_type: file.fileType,
           additions: file.additions,
           deletions: file.deletions,
         }, diffScope).then(function(loaded) {
           // Copy loaded data into the existing file object
+          file.oldPath = loaded.oldPath;
           file.content = loaded.content;
           file.previousContent = loaded.previousContent;
           file.comments = loaded.comments;
@@ -2006,15 +2011,21 @@
     if (file.status === 'untracked') badgeLabel = 'New';
     if (file.status === 'added') badgeLabel = 'New File';
     if (file.status === 'removed') badgeLabel = 'Removed';
+    if (file.status === 'renamed') badgeLabel = 'Renamed';
 
     // In single-file file mode, hide the file header (filename is shown in the header bar)
     const singleFileMode = session.mode !== 'git' && files.length === 1;
     if (singleFileMode) header.style.display = 'none';
 
+    const renameHeader = file.status === 'renamed' && file.oldPath
+      ? '<span class="rename-paths"><span class="rename-old">' + escapeHtml(file.oldPath) + '</span>' +
+        '<span class="rename-arrow"> → </span><span class="rename-new">' + escapeHtml(file.path) + '</span></span>'
+      : '<span class="dir">' + escapeHtml(dirPath) + '</span><span class="filename">' + escapeHtml(fileName) + '</span>';
+
     header.innerHTML =
       '<div class="file-header-chevron"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z"/></svg></div>' +
       '<svg class="file-header-icon" viewBox="0 0 16 16" fill="var(--crit-editor-fg-muted)"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>' +
-      '<span class="file-header-name"><span class="dir">' + escapeHtml(dirPath) + '</span><span class="filename">' + escapeHtml(fileName) + '</span>' +
+      '<span class="file-header-name">' + renameHeader +
         '<button type="button" class="file-header-copy-path" aria-label="Copy file path">' + ICON_COPY_PATH + '</button>' +
       '</span>' +
       (showBadge ? '<span class="file-header-badge ' + escapeHtml(file.status) + '">' + escapeHtml(badgeLabel) + '</span>' : '') +
@@ -2161,6 +2172,11 @@
       deleted.className = 'diff-deleted-placeholder';
       deleted.textContent = 'This file was deleted.';
       body.appendChild(deleted);
+    } else if (file.status === 'renamed' && (!file.diffHunks || file.diffHunks.length === 0)) {
+      const renamed = document.createElement('div');
+      renamed.className = 'diff-deleted-placeholder rename-placeholder';
+      renamed.textContent = 'File renamed without changes.';
+      body.appendChild(renamed);
     } else if (showDiff && file.diffTooLarge && !file.diffLoaded) {
       let diffLineCount = 0;
       if (file.diffHunks) {

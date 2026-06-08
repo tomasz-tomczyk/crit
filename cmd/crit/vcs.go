@@ -103,7 +103,7 @@ type VCS interface {
 	// FileDiffBetweenSHAs returns parsed diff hunks for path in the range
 	// baseSHA..headSHA. Returns nil hunks when there is no diff for that path.
 	// When ignoreWhitespace is true, whitespace-only changes collapse to context.
-	FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error)
+	FileDiffBetweenSHAs(path, oldPath, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error)
 
 	// ReadFileAtSHA returns the bytes of path at the given SHA. Returns
 	// (nil, nil) when the file does not exist at that SHA. Errors are

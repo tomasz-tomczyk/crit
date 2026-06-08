@@ -345,7 +345,7 @@ func (j *JJVCS) ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileCha
 	return parseJJDiffSummary(out), nil
 }
 
-func (j *JJVCS) FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+func (j *JJVCS) FileDiffBetweenSHAs(path, _ string, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
 	base, err := resolveJJRevisionToCommitID(dir, baseSHA)
 	if err != nil {
 		return nil, err

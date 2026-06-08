@@ -378,7 +378,7 @@ func TestJJVCS_ChangedFilesAndDiffBetweenSHAs(t *testing.T) {
 	}
 	assertFileChangesEqual(t, changes, []FileChange{{Path: "between.txt", Status: "added"}})
 
-	hunks, err := j.FileDiffBetweenSHAs("between.txt", mainSHA, headSHA, dir, false)
+	hunks, err := j.FileDiffBetweenSHAs("between.txt", "", mainSHA, headSHA, dir, false)
 	if err != nil {
 		t.Fatalf("FileDiffBetweenSHAs: %v", err)
 	}

@@ -182,13 +182,14 @@ type SSEEvent struct {
 
 // FileEntry holds the state for a single file in a review session.
 type FileEntry struct {
-	Path     string    `json:"path"`      // relative (e.g., "auth/middleware.go")
-	AbsPath  string    `json:"-"`         // absolute on disk
-	Status   string    `json:"status"`    // "added", "modified", "deleted", "untracked"
-	FileType string    `json:"file_type"` // "markdown" or "code"
-	Content  string    `json:"-"`         // current file content
-	FileHash string    `json:"-"`         // sha256 hash of content
-	Comments []Comment `json:"-"`         // this file's comments
+	Path     string    `json:"path"`               // relative (e.g., "auth/middleware.go")
+	AbsPath  string    `json:"-"`                  // absolute on disk
+	Status   string    `json:"status"`             // "added", "modified", "deleted", "renamed", "untracked"
+	OldPath  string    `json:"old_path,omitempty"` // previous path when renamed
+	FileType string    `json:"file_type"`          // "markdown" or "code"
+	Content  string    `json:"-"`                  // current file content
+	FileHash string    `json:"-"`                  // sha256 hash of content
+	Comments []Comment `json:"-"`                  // this file's comments
 
 	// Diff hunks for code files (from git diff)
 	DiffHunks []DiffHunk `json:"-"`
@@ -252,21 +253,27 @@ func (fe *FileEntry) ensureLoaded(repoRoot, baseRef string, vcs VCS) error {
 
 // loadDiff computes diff hunks via the VCS interface or git package-level fallback.
 func (fe *FileEntry) loadDiff(ctx context.Context, repoRoot, baseRef string, vcs VCS) {
-	if vcs != nil {
-		hunks, err := vcs.FileDiffUnifiedCtx(ctx, fe.Path, baseRef, repoRoot, false)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: diff failed for %s: %v\n", fe.Path, err)
-		} else {
-			fe.DiffHunks = hunks
-		}
-		return
-	}
-	hunks, err := fileDiffUnifiedCtx(ctx, fe.Path, baseRef, repoRoot, false)
+	hunks, err := diffHunksForFileCtx(ctx, fe.Path, fe.OldPath, fe.Status, baseRef, repoRoot, false, vcs)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", fe.Path, err)
+		fmt.Fprintf(os.Stderr, "Warning: diff failed for %s: %v\n", fe.Path, err)
 	} else {
 		fe.DiffHunks = hunks
 	}
+}
+
+// diffHunksForFile returns diff hunks for a file, pairing old+new paths for renames.
+func diffHunksForFile(path, oldPath, status, baseRef, repoRoot string, ignoreWhitespace bool, vcs VCS) ([]DiffHunk, error) {
+	return diffHunksForFileCtx(context.Background(), path, oldPath, status, baseRef, repoRoot, ignoreWhitespace, vcs)
+}
+
+func diffHunksForFileCtx(ctx context.Context, path, oldPath, status, baseRef, repoRoot string, ignoreWhitespace bool, vcs VCS) ([]DiffHunk, error) {
+	if status == "renamed" && oldPath != "" {
+		return fileDiffUnifiedCtx(ctx, path, oldPath, baseRef, repoRoot, ignoreWhitespace)
+	}
+	if vcs != nil {
+		return vcs.FileDiffUnifiedCtx(ctx, path, baseRef, repoRoot, ignoreWhitespace)
+	}
+	return fileDiffUnifiedCtx(ctx, path, "", baseRef, repoRoot, ignoreWhitespace)
 }
 
 // Session is the top-level state manager for a multi-file review.
@@ -476,18 +483,9 @@ func populateEagerFile(fe *FileEntry, fc FileChange, baseRef, root string, vcs V
 
 // populateEagerFileDiff computes diff hunks for an eager-loaded file.
 func populateEagerFileDiff(fe *FileEntry, fc FileChange, baseRef, root string, vcs VCS) {
-	if vcs != nil {
-		hunks, err := vcs.FileDiffUnified(fc.Path, baseRef, root, false)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: diff failed for %s: %v\n", fc.Path, err)
-		} else {
-			fe.DiffHunks = hunks
-		}
-		return
-	}
-	hunks, err := fileDiffUnified(fc.Path, baseRef, root, false)
+	hunks, err := diffHunksForFile(fc.Path, fc.OldPath, fc.Status, baseRef, root, false, vcs)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: git diff failed for %s: %v\n", fc.Path, err)
+		fmt.Fprintf(os.Stderr, "Warning: diff failed for %s: %v\n", fc.Path, err)
 	} else {
 		fe.DiffHunks = hunks
 	}
@@ -584,6 +582,7 @@ func newGitSession(vcs VCS, ignorePatterns []string, requireChanges bool) (*Sess
 		absPath := filepath.Join(root, fc.Path)
 		fe := &FileEntry{
 			Path:      fc.Path,
+			OldPath:   fc.OldPath,
 			AbsPath:   absPath,
 			Status:    fc.Status,
 			FileType:  detectFileType(fc.Path),
@@ -2453,16 +2452,19 @@ func (s *Session) GetFileSnapshotFromDisk(path string) (map[string]any, bool) {
 // deleted files (where whitespace-ignore changes nothing) and the markdown
 // branch, it returns the cached hunks unchanged. On any recompute error it logs
 // a warning and falls back to the cached hunks — the request never fails.
-func whitespaceIgnoredHunks(cached []DiffHunk, status string, ignoreWhitespace bool, path, baseRef, repoRoot string, vcs VCS) []DiffHunk {
-	if !ignoreWhitespace || vcs == nil {
+func whitespaceIgnoredHunks(cached []DiffHunk, status, oldPath string, ignoreWhitespace bool, path, baseRef, repoRoot string, vcs VCS) []DiffHunk {
+	if !ignoreWhitespace {
 		return cached
 	}
 	if status == "added" || status == "untracked" || status == "deleted" {
 		return cached
 	}
+	if vcs == nil && (status != "renamed" || oldPath == "") {
+		return cached
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	hunks, err := vcs.FileDiffUnifiedCtx(ctx, path, baseRef, repoRoot, true)
+	hunks, err := diffHunksForFileCtx(ctx, path, oldPath, status, baseRef, repoRoot, true, vcs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: whitespace-ignored diff failed for %s: %v\n", path, err)
 		return cached
@@ -2492,8 +2494,9 @@ func (s *Session) GetFileDiffSnapshot(path string, ignoreWhitespace bool) (map[s
 	if f.FileType == "code" || s.Mode == "git" {
 		hunks := f.DiffHunks
 		status := f.Status
+		oldPath := f.OldPath
 		s.mu.RUnlock()
-		hunks = whitespaceIgnoredHunks(hunks, status, ignoreWhitespace, path, baseRef, repoRoot, vcs)
+		hunks = whitespaceIgnoredHunks(hunks, status, oldPath, ignoreWhitespace, path, baseRef, repoRoot, vcs)
 		if hunks == nil {
 			hunks = []DiffHunk{}
 		}
@@ -2536,6 +2539,7 @@ type SessionInfo struct {
 // SessionFileInfo is a summary of a file for the session API response.
 type SessionFileInfo struct {
 	Path         string `json:"path"`
+	OldPath      string `json:"old_path,omitempty"`
 	Status       string `json:"status"`
 	FileType     string `json:"file_type"`
 	CommentCount int    `json:"comment_count"`
@@ -2593,6 +2597,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		}
 		fi := SessionFileInfo{
 			Path:         f.Path,
+			OldPath:      f.OldPath,
 			Status:       f.Status,
 			FileType:     f.FileType,
 			CommentCount: visibleCount,

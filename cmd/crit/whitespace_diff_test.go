@@ -145,7 +145,7 @@ func TestWhitespaceIgnoredHunks_ShortCircuits(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := whitespaceIgnoredHunks(sentinel, tt.status, tt.ignoreWS, "code.go", "HEAD", t.TempDir(), tt.vcs)
+			got := whitespaceIgnoredHunks(sentinel, tt.status, "", tt.ignoreWS, "code.go", "HEAD", t.TempDir(), tt.vcs)
 			cachedBack := len(got) == 1 && got[0].Header == sentinel[0].Header
 			if cachedBack != tt.wantCachedBack {
 				t.Errorf("got %v (cachedBack=%v), want cachedBack=%v", got, cachedBack, tt.wantCachedBack)
@@ -162,7 +162,7 @@ func TestWhitespaceIgnoredHunks_ShortCircuits(t *testing.T) {
 		gitT(t, dir, "commit", "-m", "add code.go")
 		writeFile(t, filepath.Join(dir, "code.go"), "func main() {\n\treturn\n}\n")
 
-		got := whitespaceIgnoredHunks(sentinel, "modified", true, "code.go", "HEAD", dir, &GitVCS{})
+		got := whitespaceIgnoredHunks(sentinel, "modified", "", true, "code.go", "HEAD", dir, &GitVCS{})
 		if len(got) != 0 {
 			t.Errorf("recompute: got %d hunks, want 0 (whitespace-only change collapses)", len(got))
 		}

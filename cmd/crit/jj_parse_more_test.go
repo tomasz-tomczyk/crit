@@ -13,12 +13,12 @@ func TestParseJJDiffSummary_EdgeCases(t *testing.T) {
 		{
 			name:  "nested rename braces",
 			input: "R src/a/{b/old.go => c/new.go}",
-			want:  []FileChange{{Path: "src/a/c/new.go", Status: "renamed"}},
+			want:  []FileChange{{Path: "src/a/c/new.go", OldPath: "src/a/b/old.go", Status: "renamed"}},
 		},
 		{
 			name:  "rename with trailing newline",
 			input: "R {old.txt => new.txt}\n",
-			want:  []FileChange{{Path: "new.txt", Status: "renamed"}},
+			want:  []FileChange{{Path: "new.txt", OldPath: "old.txt", Status: "renamed"}},
 		},
 		{
 			name:  "copy status ignored",
@@ -34,7 +34,7 @@ func TestParseJJDiffSummary_EdgeCases(t *testing.T) {
 		{
 			name:  "path with spaces inside braces",
 			input: "R src/{old name.txt => new name.txt}",
-			want:  []FileChange{{Path: "src/new name.txt", Status: "renamed"}},
+			want:  []FileChange{{Path: "src/new name.txt", OldPath: "src/old name.txt", Status: "renamed"}},
 		},
 		{
 			name:  "crlf only",

@@ -12,15 +12,15 @@ func TestParseJJDiffSummary(t *testing.T) {
 		{name: "modified", input: "M src/main.go", want: []FileChange{{Path: "src/main.go", Status: "modified"}}},
 		{name: "added", input: "A new file.txt", want: []FileChange{{Path: "new file.txt", Status: "added"}}},
 		{name: "deleted", input: "D old.go", want: []FileChange{{Path: "old.go", Status: "deleted"}}},
-		{name: "rename whole path", input: "R {old.txt => new.txt}", want: []FileChange{{Path: "new.txt", Status: "renamed"}}},
-		{name: "rename shared prefix", input: "R src/{old.go => new.go}", want: []FileChange{{Path: "src/new.go", Status: "renamed"}}},
+		{name: "rename whole path", input: "R {old.txt => new.txt}", want: []FileChange{{Path: "new.txt", OldPath: "old.txt", Status: "renamed"}}},
+		{name: "rename shared prefix", input: "R src/{old.go => new.go}", want: []FileChange{{Path: "src/new.go", OldPath: "src/old.go", Status: "renamed"}}},
 		{
 			name:  "mixed",
 			input: "M app.go\r\nA docs/plan.md\nR {a.txt => b.txt}\nD gone.txt",
 			want: []FileChange{
 				{Path: "app.go", Status: "modified"},
 				{Path: "docs/plan.md", Status: "added"},
-				{Path: "b.txt", Status: "renamed"},
+				{Path: "b.txt", OldPath: "a.txt", Status: "renamed"},
 				{Path: "gone.txt", Status: "deleted"},
 			},
 		},

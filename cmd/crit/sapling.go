@@ -341,7 +341,7 @@ func (s *SaplingVCS) ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]Fi
 
 // FileDiffBetweenSHAs returns parsed diff hunks for path in the range baseSHA..headSHA.
 // When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
-func (s *SaplingVCS) FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+func (s *SaplingVCS) FileDiffBetweenSHAs(path, _ string, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
 	args := []string{"diff"}
 	if ignoreWhitespace {
 		args = append(args, "-w")

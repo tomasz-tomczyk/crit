@@ -400,6 +400,7 @@ func (s *Session) buildFilesForFocus(f Focus, vcs VCS, repoRoot string) ([]*File
 	for _, fc := range changes {
 		fe := &FileEntry{
 			Path:     fc.Path,
+			OldPath:  fc.OldPath,
 			AbsPath:  filepath.Join(repoRoot, fc.Path),
 			Status:   fc.Status,
 			FileType: detectFileType(fc.Path),
@@ -414,7 +415,7 @@ func (s *Session) buildFilesForFocus(f Focus, vcs VCS, repoRoot string) ([]*File
 			fe.FileHash = fileHash(data)
 		}
 		if fc.Status != "added" && fc.Status != "untracked" {
-			hunks, _ := vcs.FileDiffBetweenSHAs(fc.Path, f.DiffBaseSHA(), f.HeadSHA, repoRoot, false)
+			hunks, _ := vcs.FileDiffBetweenSHAs(fc.Path, fc.OldPath, f.DiffBaseSHA(), f.HeadSHA, repoRoot, false)
 			fe.DiffHunks = hunks
 		} else {
 			fe.DiffHunks = FileDiffUnifiedNewFile(fe.Content)
@@ -461,6 +462,7 @@ func (s *Session) buildFilesForWorkingTree(vcs VCS, repoRoot string) ([]*FileEnt
 	for _, fc := range changes {
 		fe := &FileEntry{
 			Path:     fc.Path,
+			OldPath:  fc.OldPath,
 			AbsPath:  filepath.Join(repoRoot, fc.Path),
 			Status:   fc.Status,
 			FileType: detectFileType(fc.Path),
@@ -629,7 +631,7 @@ func scopedHunks(fc FileChange, scope, commit, baseRef, repoRoot string, vcs VCS
 		return nil
 	}
 	if base, head, ok := splitCommitRange(commit); ok {
-		h, err := vcs.FileDiffBetweenSHAs(fc.Path, base, head, repoRoot, false)
+		h, err := vcs.FileDiffBetweenSHAs(fc.Path, fc.OldPath, base, head, repoRoot, false)
 		if err == nil {
 			return h
 		}
@@ -646,6 +648,13 @@ func scopedHunks(fc FileChange, scope, commit, baseRef, repoRoot string, vcs VCS
 		absPath := filepath.Join(repoRoot, fc.Path)
 		if data, err := os.ReadFile(absPath); err == nil {
 			return FileDiffUnifiedNewFile(string(data))
+		}
+		return nil
+	}
+	if fc.Status == "renamed" && fc.OldPath != "" {
+		h, err := diffHunksForFile(fc.Path, fc.OldPath, fc.Status, baseRef, repoRoot, false, vcs)
+		if err == nil {
+			return h
 		}
 		return nil
 	}
@@ -728,6 +737,7 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	for _, fc := range changes {
 		fi := SessionFileInfo{
 			Path:         fc.Path,
+			OldPath:      fc.OldPath,
 			Status:       fc.Status,
 			FileType:     detectFileType(fc.Path),
 			CommentCount: snap.commentCounts[fc.Path],
@@ -823,7 +833,7 @@ func computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoR
 		return nil
 	}
 	if base, head, ok := splitCommitRange(commit); ok {
-		h, err := vcs.FileDiffBetweenSHAs(path, base, head, repoRoot, ignoreWhitespace)
+		h, err := vcs.FileDiffBetweenSHAs(path, "", base, head, repoRoot, ignoreWhitespace)
 		if err == nil {
 			return h
 		}

@@ -16,8 +16,9 @@ import (
 
 // FileChange represents a single file change detected by git.
 type FileChange struct {
-	Path   string // relative to repo root
-	Status string // "added", "modified", "deleted", "renamed", "untracked"
+	Path    string // relative to repo root (new path for renames)
+	OldPath string // previous path when Status is "renamed"
+	Status  string // "added", "modified", "deleted", "renamed", "untracked"
 }
 
 // DiffHunk represents a single hunk in a unified diff.
@@ -810,8 +811,8 @@ func remoteBranchTipsSapling(repoRoot, defaultBranch string) ([]BranchEntry, err
 }
 
 // ChangedFilesBetweenSHAs returns the files changed in the range baseSHA..headSHA.
-// Renames are reported with status "renamed" and the new path; the old path is
-// not surfaced (matches existing parseNameStatus behavior).
+// Renames are reported with status "renamed", OldPath set to the previous path,
+// and Path set to the new path.
 // Untracked working-tree files are NOT included — this is a pure git-history range.
 func ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileChange, error) {
 	cmd := exec.Command("git", "diff", "--name-status", "-M", baseSHA+".."+headSHA)
@@ -826,10 +827,13 @@ func ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileChange, error)
 }
 
 // FileDiffBetweenSHAs returns parsed diff hunks for path in the range
-// baseSHA..headSHA. Returns nil hunks when there is no diff.
+// baseSHA..headSHA. Pass oldPath when status is "renamed" so git pairs the
+// rename instead of treating the new path as a full-file add.
+// Returns nil hunks when there is no diff.
 // When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
-func FileDiffBetweenSHAs(path, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
-	cmd := exec.Command("git", append(diffBaseArgs(ignoreWhitespace), baseSHA+".."+headSHA, "--", path)...)
+func FileDiffBetweenSHAs(path, oldPath, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+	pathArgs := diffPathArgs(oldPath, path)
+	cmd := exec.Command("git", append(diffBaseArgs(ignoreWhitespace), append([]string{baseSHA + ".." + headSHA, "--"}, pathArgs...)...)...)
 	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir
@@ -1006,10 +1010,13 @@ func parseNameStatus(output string) []FileChange {
 		}
 		status := parts[0]
 		path := parts[1]
-		// For renames (R100\told\tnew), use the new path
+		// For renames (R100\told\tnew), keep both paths
 		if strings.HasPrefix(status, "R") && len(parts) >= 3 {
-			path = parts[2]
-			changes = append(changes, FileChange{Path: path, Status: "renamed"})
+			changes = append(changes, FileChange{
+				Path:    parts[2],
+				OldPath: parts[1],
+				Status:  "renamed",
+			})
 			continue
 		}
 		switch status {
@@ -1088,41 +1095,32 @@ func diffBaseArgs(ignoreWhitespace bool) []string {
 	return args
 }
 
+// diffPathArgs returns git diff path arguments for a file, pairing old+new
+// paths for renames so git reports rename-only diffs instead of full adds.
+func diffPathArgs(oldPath, path string) []string {
+	if oldPath != "" {
+		return []string{oldPath, path}
+	}
+	return []string{path}
+}
+
 // fileDiffUnified returns the parsed diff hunks for a file against a base ref.
 // If baseRef is empty, diffs against HEAD. The dir parameter sets the working directory.
 // When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
+// For renames, use diffHunksForFile which passes old+new paths via fileDiffUnifiedCtx.
 func fileDiffUnified(path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
-	ref := baseRef
-	if ref == "" {
-		ref = "HEAD"
-	}
-	args := append(diffBaseArgs(ignoreWhitespace), ref, "--", path)
-	cmd := exec.Command("git", args...)
-	cmd.Env = stripExternalDiffEnv()
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	out, err := cmd.Output()
-	if err != nil {
-		// Exit code 1 means diff found changes (normal), check for actual errors
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			// git diff exits 1 when there are differences
-		} else {
-			return nil, fmt.Errorf("git diff failed: %w", err)
-		}
-	}
-	return ParseUnifiedDiff(string(out)), nil
+	return fileDiffUnifiedCtx(context.Background(), path, "", baseRef, dir, ignoreWhitespace)
 }
 
 // fileDiffUnifiedCtx is like fileDiffUnified but accepts a context for timeout control.
 // When ignoreWhitespace is true, whitespace-only changes collapse to context ("-w").
-func fileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
+func fileDiffUnifiedCtx(ctx context.Context, path, oldPath, baseRef, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
 	ref := baseRef
 	if ref == "" {
 		ref = "HEAD"
 	}
-	args := append(diffBaseArgs(ignoreWhitespace), ref, "--", path)
+	pathArgs := diffPathArgs(oldPath, path)
+	args := append(diffBaseArgs(ignoreWhitespace), append([]string{ref, "--"}, pathArgs...)...)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
@@ -1208,7 +1206,12 @@ func DiffNumstatDir(baseRef, dir string) (map[string]NumstatEntry, error) {
 		if err1 != nil || err2 != nil {
 			adds, dels = 0, 0
 		}
-		stats[path] = NumstatEntry{Additions: adds, Deletions: dels}
+		entry := NumstatEntry{Additions: adds, Deletions: dels}
+		stats[path] = entry
+		// Rename lines look like "old.go => new.go" — index by new path too.
+		if i := strings.Index(path, " => "); i >= 0 {
+			stats[path[i+4:]] = entry
+		}
 	}
 	return stats, nil
 }

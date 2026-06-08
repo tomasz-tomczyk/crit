@@ -181,7 +181,7 @@ func (*fakeJJVCSForFetch) FileContentAtRef(string, string, string) (string, erro
 func (*fakeJJVCSForFetch) ChangedFilesBetweenSHAs(string, string, string) ([]FileChange, error) {
 	return nil, nil
 }
-func (*fakeJJVCSForFetch) FileDiffBetweenSHAs(string, string, string, string, bool) ([]DiffHunk, error) {
+func (*fakeJJVCSForFetch) FileDiffBetweenSHAs(string, string, string, string, string, bool) ([]DiffHunk, error) {
 	return nil, nil
 }
 func (*fakeJJVCSForFetch) ReadFileAtSHA(string, string, string) ([]byte, error) {

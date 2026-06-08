@@ -4477,6 +4477,13 @@ body.sidebar-resizing * {
   color: var(--crit-editor-fg-muted);
   font-size: 14px;
 }
+.file-header-name .rename-paths {
+  font-family: var(--crit-font-mono, ui-monospace, monospace);
+  font-size: 13px;
+}
+.file-header-name .rename-arrow {
+  color: var(--crit-editor-fg-muted);
+}
 .orphaned-placeholder {
   font-style: italic;
   color: var(--crit-editor-fg-muted);
