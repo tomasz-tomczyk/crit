@@ -33,7 +33,7 @@ Also available via [Go, Nix, or binary download](#other-install-methods).
 
 ## Agent Integrations
 
-Works with Claude Code, Cursor, GitHub Copilot, OpenCode, Codex, Gemini, Qwen, Hermes, Windsurf, Cline, Grok, Aider, and Pi — any agent that can read a file and run a command. See [`integrations/`](integrations/) for all install methods and details.
+Works with Claude Code, Cursor, GitHub Copilot, OpenCode, Codex, Gemini, Qwen, Hermes, Windsurf, Cline, Grok, Aider, and Pi — any agent that can read a file and run a command. See [`cmd/crit/integrations/`](cmd/crit/integrations/) for all install methods and details.
 
 ### Plugin install (Claude Code)
 
@@ -326,14 +326,14 @@ Requires Go 1.26+:
 ```bash
 git clone https://github.com/tomasz-tomczyk/crit.git
 cd crit
-go build -o crit .
+go build -o crit ./cmd/crit
 mv crit /usr/local/bin/
 ```
 
 ### Go
 
 ```bash
-go install github.com/tomasz-tomczyk/crit@latest
+go install github.com/tomasz-tomczyk/crit/cmd/crit@latest
 ```
 
 ### Nix
@@ -360,7 +360,7 @@ WSL: install the Linux binary as you would on Linux (`go install`, `nix run`, or
 
 ### Docker (sandboxed agents)
 
-For running crit alongside an AI agent inside a container, with the review UI reachable from your host browser, see [`integrations/docker/`](integrations/docker/). Includes a working `Dockerfile` + `entrypoint.sh` that bridges crit's loopback-bound server via `socat` so `docker -p` forwarding works without changing crit's threat model.
+For running crit alongside an AI agent inside a container, with the review UI reachable from your host browser, see [`cmd/crit/integrations/docker/`](cmd/crit/integrations/docker/). Includes a working `Dockerfile` + `entrypoint.sh` that bridges crit's loopback-bound server via `socat` so `docker -p` forwarding works without changing crit's threat model.
 
 ## Acknowledgements
 

@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-// TestShareSyncPreview publishes the testdata/preview fixture to a live
+// TestShareSyncPreview publishes the test/fixtures/preview fixture to a live
 // crit-web via `crit share --preview` and verifies every asset round-trips
 // through the hosted raw endpoint. It proves that a preview shared to crit-web
 // serves the same bytes the local crit server would, including base64-decoded
@@ -130,7 +130,7 @@ func getPreviewRawStatus(t *testing.T, baseURL, token, path string) (int, []byte
 	return resp.StatusCode, body, resp.Header.Get("Content-Type")
 }
 
-// copyPreviewFixture copies the testdata/preview fixture into dir and returns
+// copyPreviewFixture copies the test/fixtures/preview fixture into dir and returns
 // the path to the copied index.html. crawlPreview resolves sibling assets
 // relative to the HTML file's directory, so the whole set must live together.
 func copyPreviewFixture(t *testing.T, dir string) string {
@@ -144,10 +144,10 @@ func copyPreviewFixture(t *testing.T, dir string) string {
 	return filepath.Join(dir, "index.html")
 }
 
-// readPreviewFixture reads a named file from the testdata/preview directory.
+// readPreviewFixture reads a named file from the test/fixtures/preview directory.
 func readPreviewFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("testdata", "preview", name))
+	data, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "preview", name))
 	if err != nil {
 		t.Fatalf("read fixture %s: %v", name, err)
 	}

@@ -1,6 +1,6 @@
 ---
 description: crit — frontend js
-globs: crit/frontend/app.js,crit/frontend/*.js
+globs: cmd/crit/frontend/app.js,cmd/crit/frontend/*.js
 alwaysApply: false
 ---
 

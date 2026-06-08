@@ -28,7 +28,7 @@ BINARY="$ROOT/crit"
 
 if [ ! -f "$BINARY" ]; then
   echo "Binary not found — building..."
-  (cd "$ROOT" && go build -o crit .)
+  (cd "$ROOT" && go build -o crit ./cmd/crit)
 fi
 
 # Kill any stale process on our test port

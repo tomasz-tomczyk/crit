@@ -87,11 +87,11 @@ func TestShareReviewFiles_PreviewRemapsComments(t *testing.T) {
 func TestHandlePreviewPayload_IncludesRemappedComments(t *testing.T) {
 	dir := t.TempDir()
 	review := filepath.Join(dir, "review.json")
-	origin, err := filepath.Abs(filepath.Join("testdata", "preview", "index.html"))
+	origin, err := filepath.Abs(filepath.Join("..", "..", "test", "fixtures", "preview", "index.html"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	const sessPath = "testdata/preview/index.html"
+	const sessPath = "../../test/fixtures/preview/index.html"
 	// DOM pins are stored under the iframe pathname (/preview-content) in a
 	// separate "live-route" FileEntry — NOT the previewed HTML's path. This
 	// mirrors how the live composer persists preview comments (AddLivePin), and
@@ -165,7 +165,7 @@ func previewSessionWithPin(dir, origin, review, sessPath string) *Session {
 func TestHandleUpsertPayload_PreviewIncludesPins(t *testing.T) {
 	dir := t.TempDir()
 	review := filepath.Join(dir, "review.json")
-	origin, err := filepath.Abs(filepath.Join("testdata", "preview", "index.html"))
+	origin, err := filepath.Abs(filepath.Join("..", "..", "test", "fixtures", "preview", "index.html"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestHandleUpsertPayload_PreviewIncludesPins(t *testing.T) {
 		t.Fatalf("saveCritJSON: %v", err)
 	}
 
-	sess := previewSessionWithPin(dir, origin, review, "testdata/preview/index.html")
+	sess := previewSessionWithPin(dir, origin, review, "../../test/fixtures/preview/index.html")
 	sess.SetSharedURLAndToken("https://crit.example.com/r/tok", "dtok")
 	s, err := NewServer(sess, frontendFS, "", false, "", "Alice", "test", 0, "")
 	if err != nil {

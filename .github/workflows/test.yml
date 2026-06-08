@@ -55,10 +55,10 @@ jobs:
 
       - name: Check integration hashes are up to date
         run: |
-          go run gen_integration_hashes.go
-          if ! git diff --exit-code -- integration_hashes_gen.go; then
+          go run ./cmd/crit/gen_integration_hashes.go
+          if ! git diff --exit-code -- cmd/crit/integration_hashes_gen.go; then
             echo "::error::integration_hashes_gen.go is out of sync with integrations/."
-            echo "::error::Run 'go run gen_integration_hashes.go' and commit the result."
+            echo "::error::Run 'go run ./cmd/crit/gen_integration_hashes.go' and commit the result."
             exit 1
           fi
 
@@ -77,9 +77,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: ESLint
-        run: npx eslint frontend/app.js
+        run: npx eslint cmd/crit/frontend/app.js
       - name: Stylelint
-        run: npx stylelint "frontend/*.css"
+        run: npx stylelint "cmd/crit/frontend/*.css"
       - name: CSS variable validation
         run: bash scripts/check-css-vars.sh
 
@@ -228,7 +228,7 @@ jobs:
       - name: Build crit with coverage instrumentation
         run: |
           mkdir -p /tmp/crit-coverdir
-          go build -cover -o /tmp/crit-cover-bin .
+          go build -cover -o /tmp/crit-cover-bin ./cmd/crit
 
       - name: Run E2E tests
         working-directory: e2e
@@ -306,7 +306,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p "${RUNNER_TEMP}/crit-coverdir"
-          go build -cover -o crit-cover-bin.exe .
+          go build -cover -o crit-cover-bin.exe ./cmd/crit
 
       - name: Run E2E tests
         working-directory: e2e

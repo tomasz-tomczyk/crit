@@ -41,7 +41,7 @@ claude plugin marketplace add tomasz-tomczyk/crit
 claude plugin install crit@crit
 ```
 
-The marketplace manifest lives at the repo root (`.claude-plugin/marketplace.json`) and points to the plugin files in `integrations/claude-code/`.
+The marketplace manifest lives at the repo root (`.claude-plugin/marketplace.json`) and points to the plugin files in `cmd/crit/integrations/claude-code/`.
 
 ### `crit install` vs plugin marketplace
 

@@ -8,14 +8,14 @@ import (
 )
 
 // TestCrawlPreviewFixtureShape exercises crawlPreview against the
-// testdata/preview fixture — the same seam `crit share --preview` feeds from
+// test/fixtures/preview fixture — the same seam `crit share --preview` feeds from
 // when it builds the relay payload. It guarantees text assets (index.html,
 // style.css, app.js) are inlined verbatim with no encoding, while the binary
 // asset (logo.png) is base64-encoded and decodes back to its original PNG
 // bytes. This is the unit-level counterpart to the integration test and needs
 // no running server, so it runs under plain `go test ./...`.
 func TestCrawlPreviewFixtureShape(t *testing.T) {
-	root := filepath.Join("testdata", "preview")
+	root := filepath.Join("..", "..", "test", "fixtures", "preview")
 	entries, err := crawlPreview(filepath.Join(root, "index.html"))
 	if err != nil {
 		t.Fatalf("crawlPreview: %v", err)

@@ -162,7 +162,7 @@ JSFILE
 # Build crit binary outside the fixture dir (skip if CRIT_BIN is set)
 if [ -z "${CRIT_BIN:-}" ]; then
   CRIT_BIN="$BIN_DIR/$(e2e_bin_name)"
-  (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
+  (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" ./cmd/crit)
 fi
 
 # Isolate from user's ~/.crit.config.json (and USERPROFILE on Windows).

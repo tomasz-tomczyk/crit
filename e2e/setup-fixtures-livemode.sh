@@ -35,7 +35,7 @@ if [ -n "${CRIT_BIN:-}" ] && [ -f "$CRIT_BIN" ]; then
   echo "Using pre-built binary: $CRIT_BIN"
 else
   CRIT_BIN="$BIN_DIR/$(e2e_bin_name)"
-  (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
+  (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" ./cmd/crit)
 fi
 
 # 3. Launch upstream on a free port; capture origin from its stdout.

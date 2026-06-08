@@ -16,10 +16,10 @@ BLOCK_ALLOWLIST="--crit-dur-base --crit-dur-fast --crit-dur-slow --crit-ease --c
 # ── Extract refs and defs ───────────────────────────────────────────────────
 
 # All var(--xxx) references (POSIX ERE, works on macOS and Linux)
-REFS=$(grep -oE 'var\(--[a-zA-Z0-9_-]+' frontend/style.css frontend/style-live.css frontend/theme.css 2>/dev/null | sed 's/.*var(//' | sort -u)
+REFS=$(grep -oE 'var\(--[a-zA-Z0-9_-]+' cmd/crit/frontend/style.css cmd/crit/frontend/style-live.css cmd/crit/frontend/theme.css 2>/dev/null | sed 's/.*var(//' | sort -u)
 
 # All --xxx: definitions (use perl for lookahead, portable)
-DEFS=$(perl -nle 'print $1 if /^\s*(--[a-zA-Z0-9_-]+)\s*:/' frontend/theme.css frontend/style.css frontend/style-live.css 2>/dev/null | sort -u)
+DEFS=$(perl -nle 'print $1 if /^\s*(--[a-zA-Z0-9_-]+)\s*:/' cmd/crit/frontend/theme.css cmd/crit/frontend/style.css cmd/crit/frontend/style-live.css 2>/dev/null | sort -u)
 
 # Add dynamic vars to definitions for the undefined-ref check
 DEFS_PLUS_DYNAMIC="$DEFS"
@@ -69,7 +69,7 @@ echo "OK: No dead CSS variable definitions."
 # 4 theme custom-property blocks, not from hljs selector blocks.
 # Strategy: parse theme.css, track which block we're in, collect var names.
 
-THEME_FILE="frontend/theme.css"
+THEME_FILE="cmd/crit/frontend/theme.css"
 
 # We use perl to parse the file and emit "BLOCK_NAME\tVAR_NAME" pairs.
 # The 4 blocks are identified by their opening patterns:

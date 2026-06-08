@@ -60,9 +60,9 @@ git checkout -q feat-c
 if [ -z "${CRIT_BIN:-}" ]; then
   CRIT_BIN="$BIN_DIR/$(e2e_bin_name)"
   if command -v mise >/dev/null 2>&1; then
-    (cd "$CRIT_SRC" && mise exec -- go build -o "$CRIT_BIN" .)
+    (cd "$CRIT_SRC" && mise exec -- go build -o "$CRIT_BIN" ./cmd/crit)
   else
-    (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
+    (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" ./cmd/crit)
   fi
 fi
 

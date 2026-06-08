@@ -1,7 +1,7 @@
 ---
 paths:
-  - "frontend/app.js"
-  - "frontend/*.js"
+  - "cmd/crit/frontend/app.js"
+  - "cmd/crit/frontend/*.js"
 ---
 
 # Frontend JS Rules (semantic — ESLint handles syntax/style)

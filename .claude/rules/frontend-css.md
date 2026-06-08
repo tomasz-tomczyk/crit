@@ -1,7 +1,7 @@
 ---
 paths:
-  - "frontend/style.css"
-  - "frontend/theme.css"
+  - "cmd/crit/frontend/style.css"
+  - "cmd/crit/frontend/theme.css"
 ---
 
 # CSS Rules

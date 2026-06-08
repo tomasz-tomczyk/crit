@@ -63,7 +63,7 @@ No daemon, no database, no background services. The `crit` binary is ~20 MB stat
 
 ## Customising
 
-- **Pin a crit version:** change `go install github.com/tomasz-tomczyk/crit@latest` to `@v0.10.1` (or whichever release tag).
+- **Pin a crit version:** change `go install github.com/tomasz-tomczyk/crit/cmd/crit@latest` to `@v0.10.1` (or whichever release tag).
 - **Different agent:** swap the `npm install -g @anthropic-ai/claude-code` line for whatever your tool uses (e.g. `pnpm add -g opencode`, or `pip install` something).
 - **Persist auth:** mount `~/.claude` (or the agent's config dir) as a volume so login state survives container restarts.
 - **Different ports:** override `BRIDGE_PORT` and/or `CRIT_PORT` via `-e`. The entrypoint shifts `CRIT_PORT` by +1 if you accidentally set them equal.

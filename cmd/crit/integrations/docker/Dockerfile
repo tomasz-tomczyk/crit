@@ -8,7 +8,7 @@
 #     to 127.0.0.1)
 
 FROM golang:1.26-bookworm AS builder
-RUN go install github.com/tomasz-tomczyk/crit@latest
+RUN go install github.com/tomasz-tomczyk/crit/cmd/crit@latest
 
 FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \

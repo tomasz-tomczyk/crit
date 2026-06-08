@@ -4,23 +4,23 @@ DATE ?= $(shell date -u +%Y-%m-%d)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
 build: generate
-	go build -ldflags "$(LDFLAGS)" -o crit .
+	go build -ldflags "$(LDFLAGS)" -o crit ./cmd/crit
 
 generate:
 	go generate ./...
 
 verify-generate:
 	go generate ./...
-	git diff --exit-code integration_hashes_gen.go || (echo "ERROR: integration_hashes_gen.go is stale. Run 'go generate ./...' and commit." && exit 1)
+	git diff --exit-code cmd/crit/integration_hashes_gen.go || (echo "ERROR: integration_hashes_gen.go is stale. Run 'go generate ./...' and commit." && exit 1)
 
 build-all:
 	mkdir -p dist
-	GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/crit-darwin-arm64 .
-	GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/crit-darwin-amd64 .
-	GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/crit-linux-amd64 .
-	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/crit-linux-arm64 .
-	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/crit-windows-amd64.exe .
-	GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/crit-windows-arm64.exe .
+	GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/crit-darwin-arm64 ./cmd/crit
+	GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/crit-darwin-amd64 ./cmd/crit
+	GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/crit-linux-amd64 ./cmd/crit
+	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/crit-linux-arm64 ./cmd/crit
+	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/crit-windows-amd64.exe ./cmd/crit
+	GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/crit-windows-arm64.exe ./cmd/crit
 
 update-deps:
 	bun install
@@ -30,8 +30,8 @@ test:
 	go test ./...
 
 test-frontend:
-	node frontend/__tests__/markdown-patch.test.mjs
-	node frontend/test-diff-render.mjs
+	node cmd/crit/frontend/__tests__/markdown-patch.test.mjs
+	node cmd/crit/frontend/test-diff-render.mjs
 
 setup-hooks:
 	git config core.hooksPath .githooks
@@ -71,7 +71,7 @@ e2e-report:
 	cd e2e && npx playwright show-report
 
 e2e-live-utils:
-	node --test frontend/__tests__/*.test.js
+	node --test cmd/crit/frontend/__tests__/*.test.js
 
 test-preview: build
 	@echo "Starting preview mode with sample page..."

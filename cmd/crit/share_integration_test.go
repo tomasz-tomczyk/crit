@@ -31,12 +31,20 @@ func critBinary(t *testing.T) string {
 	if b := os.Getenv("CRIT_BINARY"); b != "" {
 		return b
 	}
-	// Default: built binary next to the test
+	// Default: binary from `make build` at repo root (../../crit from cmd/crit).
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return filepath.Join(wd, "crit")
+	for _, p := range []string{
+		filepath.Join(wd, "..", "..", "crit"),
+		filepath.Join(wd, "crit"),
+	} {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return filepath.Join(wd, "..", "..", "crit")
 }
 
 // TestShareSyncIntegration exercises the full share -> review -> re-share loop.

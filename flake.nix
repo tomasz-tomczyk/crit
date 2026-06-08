@@ -16,7 +16,7 @@
             pname = "crit";
             inherit version;
             src = self;
-            subPackages = [ "." ];
+            subPackages = [ "cmd/crit" ];
             vendorHash = "sha256-Y/0K+tVkaYVvyKk0EYzomKc4BwHMMrc9vcDkxpCq/N8=";
             # Tests run in dedicated CI jobs (test + e2e); the Nix sandbox's
             # /build TMPDIR cleanup races with the debounced review file writer.

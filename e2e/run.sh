@@ -21,7 +21,7 @@ else
   BIN_DIR=$(mktemp -d)
   trap 'rm -rf "$BIN_DIR"' EXIT
   export CRIT_BIN="$BIN_DIR/$(e2e_bin_name)"
-  (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" .)
+  (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" ./cmd/crit)
 fi
 
 # Ensure the Chromium build matching this project's pinned @playwright/test is

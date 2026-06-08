@@ -1,6 +1,6 @@
 ---
 description: crit — frontend css
-globs: crit/frontend/style.css,crit/frontend/theme.css
+globs: cmd/crit/frontend/style.css,cmd/crit/frontend/theme.css
 alwaysApply: false
 ---
 

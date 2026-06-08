@@ -6,57 +6,60 @@ Single-binary Go CLI that opens a browser-based UI for reviewing code changes an
 
 ```
 crit/
-├── main.go              # Entry point: subcommand dispatcher + individual runX() functions
-├── server.go            # HTTP handlers: REST API (session, file, comments CRUD, finish, share, config)
-├── session.go           # Core state: multi-file session, comment storage, review file persistence, SSE
-├── watch.go             # File/git watching, round-complete handlers, comment carry-forward
-├── git.go               # Git integration: branch detection, changed files, diff parsing
-├── github.go            # GitHub PR sync: fetch/post PR comments, crit comment CLI, review file I/O
-├── config.go            # Config file loading: ~/.crit.config.json + .crit.config.json merge, ignore patterns
-├── diff.go              # LCS-based line diff for inter-round markdown comparison
-├── status.go            # Terminal status output formatting
-├── daemon.go            # Daemon lifecycle: spawn, connect, stop, session registry
-├── share.go             # Share/unpublish to crit-web, share CLI subcommand
-├── plans.go             # Plan file detection and handling
-├── integrations.go      # Integration config installation (crit install <agent>)
-├── vcs.go / git_vcs.go / sapling.go / jj.go  # VCS abstraction (git + sapling + jj)
-├── auth.go              # Hosted crit-web auth flow (login/logout, token storage)
-├── focus_*.go / picker.go  # Focus mode (range, stacked) + file picker backend
-├── review_file.go       # Review file (~/.crit/reviews/<key>.json) read/write — saveCritJSON
-├── pr_cache.go / pr_fetch.go / push_buckets.go  # GitHub PR fetch/cache, comment bucketing
-├── remote_files.go      # Fetch files from a remote PR for cross-PR comparisons
-├── browser.go / lru_bytes.go    # Browser open, base-branch detection, byte cache
-├── comment_cli.go       # `crit comment` headless implementation
-├── gen_integration_hashes.go / integration_hashes_gen.go  # Build-time integration manifest
-├── *_test.go            # Tests (testutil_test.go has shared helpers; *_integration_test.go behind build tag)
-├── live.go              # `crit live <url>` command — live-mode session bootstrap
-├── preview.go           # `crit preview <file.html>` command — preview-mode session bootstrap + content serving
-├── proxy.go             # Reverse proxy for live-mode iframe (HTML injection, redirect rewriting)
-├── frontend/
-│   ├── index.html       # HTML shell — two-paradigm fork loads code-review OR live-mode scripts
-│   ├── app.js           # Code-review mode JS (file tree, rendering, comments, SSE, shortcuts)
-│   ├── live-mode.js     # Live-mode entry point (iframe chrome, pin workflow, panel)
-│   ├── live-mode.*.js   # Live-mode sub-modules (toggle, composer, panel, sse, etc.)
-│   ├── crit-agent.js    # Injected into iframe — captures DOM clicks for pin anchoring
-│   ├── agent-*.js       # Agent sub-modules (protocol, marker overlay, mutation batcher)
-│   ├── crit-shared.js   # Shared helpers (cookies, theme, image upload) — window.crit.shared
-│   ├── crit-renderer.js # ContentRenderer registry — window.crit.renderer
-│   ├── crit-sse.js      # Shared SSE client factory — window.crit.sse
-│   ├── crit-draft.js    # Draft autosave — window.crit.draft
-│   ├── crit-comment-*.js # Shared comment form, card, templates — window.crit.comment*
-│   ├── crit-icons.js    # SVG icon constants — window.crit.icons
-│   ├── crit-line-blocks.js    # buildLineBlocks, splitHighlightedCode — window.crit.lineBlocks
-│   ├── crit-diff-renderer.js  # Word-level diff computation — window.crit.diffRenderer
-│   ├── style.css        # Code-review layout, diff rendering, file sections, components
-│   ├── style-live.css   # Live-mode layout (iframe pane, panel, markers)
-│   ├── theme.css        # Color themes (light/dark/system CSS variables)
-│   ├── __tests__/       # Node.js unit tests for extracted modules (node --test)
-│   └── *.min.js         # Vendored markdown-it, highlight.js, mermaid
-├── integrations/        # Drop-in config files for AI coding tools (claude-code, cursor, aider, etc.)
+├── cmd/crit/            # package main — all Go sources, embedded assets
+│   ├── main.go          # Entry point: subcommand dispatcher + individual runX() functions
+│   ├── server.go        # HTTP handlers: REST API (session, file, comments CRUD, finish, share, config)
+│   ├── session.go       # Core state: multi-file session, comment storage, review file persistence, SSE
+│   ├── watch.go         # File/git watching, round-complete handlers, comment carry-forward
+│   ├── git.go           # Git integration: branch detection, changed files, diff parsing
+│   ├── github.go        # GitHub PR sync: fetch/post PR comments, crit comment CLI, review file I/O
+│   ├── config.go        # Config file loading: ~/.crit.config.json + .crit.config.json merge, ignore patterns
+│   ├── diff.go          # LCS-based line diff for inter-round markdown comparison
+│   ├── status.go        # Terminal status output formatting
+│   ├── daemon.go        # Daemon lifecycle: spawn, connect, stop, session registry
+│   ├── share.go         # Share/unpublish to crit-web, share CLI subcommand
+│   ├── plans.go         # Plan file detection and handling
+│   ├── integrations.go  # Integration config installation (crit install <agent>)
+│   ├── vcs.go / git_vcs.go / sapling.go / jj.go  # VCS abstraction (git + sapling + jj)
+│   ├── auth.go          # Hosted crit-web auth flow (login/logout, token storage)
+│   ├── focus_*.go / picker.go  # Focus mode (range, stacked) + file picker backend
+│   ├── review_file.go   # Review file (~/.crit/reviews/<key>.json) read/write — saveCritJSON
+│   ├── pr_cache.go / pr_fetch.go / push_buckets.go  # GitHub PR fetch/cache, comment bucketing
+│   ├── remote_files.go  # Fetch files from a remote PR for cross-PR comparisons
+│   ├── browser.go / lru_bytes.go    # Browser open, base-branch detection, byte cache
+│   ├── comment_cli.go   # `crit comment` headless implementation
+│   ├── gen_integration_hashes.go / integration_hashes_gen.go  # Build-time integration manifest
+│   ├── *_test.go        # Tests (testutil_test.go has shared helpers; *_integration_test.go behind build tag)
+│   ├── live.go          # `crit live <url>` command — live-mode session bootstrap
+│   ├── preview.go       # `crit preview <file.html>` command — preview-mode session bootstrap + content serving
+│   ├── proxy.go         # Reverse proxy for live-mode iframe (HTML injection, redirect rewriting)
+│   ├── frontend/
+│   │   ├── index.html       # HTML shell — two-paradigm fork loads code-review OR live-mode scripts
+│   │   ├── app.js           # Code-review mode JS (file tree, rendering, comments, SSE, shortcuts)
+│   │   ├── live-mode.js     # Live-mode entry point (iframe chrome, pin workflow, panel)
+│   │   ├── live-mode.*.js   # Live-mode sub-modules (toggle, composer, panel, sse, etc.)
+│   │   ├── crit-agent.js    # Injected into iframe — captures DOM clicks for pin anchoring
+│   │   ├── agent-*.js       # Agent sub-modules (protocol, marker overlay, mutation batcher)
+│   │   ├── crit-shared.js   # Shared helpers (cookies, theme, image upload) — window.crit.shared
+│   │   ├── crit-renderer.js # ContentRenderer registry — window.crit.renderer
+│   │   ├── crit-sse.js      # Shared SSE client factory — window.crit.sse
+│   │   ├── crit-draft.js    # Draft autosave — window.crit.draft
+│   │   ├── crit-comment-*.js # Shared comment form, card, templates — window.crit.comment*
+│   │   ├── crit-icons.js    # SVG icon constants — window.crit.icons
+│   │   ├── crit-line-blocks.js    # buildLineBlocks, splitHighlightedCode — window.crit.lineBlocks
+│   │   ├── crit-diff-renderer.js  # Word-level diff computation — window.crit.diffRenderer
+│   │   ├── style.css        # Code-review layout, diff rendering, file sections, components
+│   │   ├── style-live.css   # Live-mode layout (iframe pane, panel, markers)
+│   │   ├── theme.css        # Color themes (light/dark/system CSS variables)
+│   │   ├── __tests__/       # Node.js unit tests for extracted modules (node --test)
+│   │   └── *.min.js         # Vendored markdown-it, highlight.js, mermaid
+│   └── integrations/    # Drop-in config files for AI coding tools (claude-code, cursor, aider, etc.)
 ├── e2e/                 # Playwright E2E tests for the frontend (multi-project setup, see below)
+├── test/                # Shell test harnesses, roundtrip docs, shared fixtures
+│   └── fixtures/preview/  # Preview share test HTML/CSS/JS (used by preview_*_test.go)
 ├── Makefile             # build / build-all (cross-compile) / update-deps / clean / e2e
 ├── package.json         # Frontend dependency management (markdown-it, highlight.js, mermaid)
-└── copy-deps.js         # Copies npm deps to frontend/ for embedding
+└── copy-deps.js         # Copies npm deps to cmd/crit/frontend/ for embedding
 ```
 
 ## Key architecture decisions
@@ -81,7 +84,7 @@ crit/
 <important if="you need to build, test, lint, or run crit">
 
 ```bash
-go build -o crit .                                    # Build
+go build -o crit ./cmd/crit                           # Build
 go test ./...                                         # Run all tests
 gofmt -l .                                            # Check formatting (should be clean)
 golangci-lint run ./...                               # Lint (should be clean)
@@ -276,7 +279,7 @@ Static: `GET /files/<path>` — serve files from repo root (path traversal prote
 - Document renderer uses `html: true` intentionally (reviewing local files)
 </important>
 
-<important if="you are modifying frontend/ — app.js, style.css, theme.css, or index.html">
+<important if="you are modifying cmd/crit/frontend/ — app.js, style.css, theme.css, or index.html">
 
 Frontend split: `index.html` (HTML shell), `app.js` (all logic), `style.css` (layout/components), `theme.css` (theme variables).
 
@@ -305,13 +308,13 @@ Hunk headers (`@@ -27,6 +31,23 @@`), dual gutters, colored backgrounds for addit
 - `splitHighlightedCode()` tracks open `<span>` tags across lines to properly close/reopen them.
 </important>
 
-<important if="you are changing any agent-*.js, crit-agent.js, or agent-marker.css in frontend/">
+<important if="you are changing any agent-*.js, crit-agent.js, or agent-marker.css in cmd/crit/frontend/">
 
 These files are the scripts crit injects into live/preview iframes — the canonical set + order is `agentScriptFiles` in `server.go`, plus `agent-marker.css` (served at `/agent-marker.css`). **crit-web vendors them verbatim** into `crit-web/priv/static/preview-agent/` so DOM anchoring stays byte-identical across both renderers.
 
 When you change any of these files here:
 
-1. Re-sync into crit-web: run `crit-web/scripts/sync-preview-agent.sh` (copies the 8 files from `../crit/frontend/`).
+1. Re-sync into crit-web: run `crit-web/scripts/sync-preview-agent.sh` (copies the 8 files from `../crit/cmd/crit/frontend/`).
 2. Commit the change in **both** repos.
 
 crit-web's drift-guard test `test/crit_web/preview_agent_sync_test.exs` fails loudly if the vendored copies diverge (and skips when the sibling `crit/` checkout is absent, e.g. CI). Don't hand-edit `crit-web/priv/static/preview-agent/*` — always re-sync from here.

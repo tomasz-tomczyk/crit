@@ -8,13 +8,23 @@ import (
 	"go/format"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
 
 func main() {
+	_, self, _, ok := runtime.Caller(0)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "Error locating gen_integration_hashes.go")
+		os.Exit(1)
+	}
+	base := filepath.Dir(self)
+	integrationsDir := filepath.Join(base, "integrations")
+	outFile := filepath.Join(base, "integration_hashes_gen.go")
+
 	hashes := map[string]string{}
-	err := filepath.Walk("integrations", func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(integrationsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -29,8 +39,12 @@ func main() {
 		if err != nil {
 			return err
 		}
+		rel, err := filepath.Rel(base, path)
+		if err != nil {
+			return err
+		}
 		h := sha256.Sum256(data)
-		hashes[path] = fmt.Sprintf("%x", h)
+		hashes[filepath.ToSlash(rel)] = fmt.Sprintf("%x", h)
 		return nil
 	})
 	if err != nil {
@@ -62,7 +76,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := os.WriteFile("integration_hashes_gen.go", formatted, 0o644); err != nil {
+	if err := os.WriteFile(outFile, formatted, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing generated file: %v\n", err)
 		os.Exit(1)
 	}

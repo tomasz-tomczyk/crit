@@ -30,7 +30,7 @@ FILE="test/test-plan-copy.md"
 
 if [ ! -f "$BINARY" ]; then
   echo "Binary not found — building..."
-  go build -o crit .
+  go build -o crit ./cmd/crit
 fi
 
 # Kill any stale processes on test ports

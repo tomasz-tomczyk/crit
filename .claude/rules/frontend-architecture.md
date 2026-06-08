@@ -106,6 +106,6 @@ Live-mode splits into focused files under `window.crit.live.<name>`:
 
 1. Create the IIFE file with the dual-export pattern
 2. Add it to `liveDeps` or code-review script chain in `index.html`
-3. Create a matching `frontend/__tests__/<name>.test.js` using Node's `--test`
+3. Create a matching `cmd/crit/frontend/__tests__/<name>.test.js` using Node's `--test`
 4. Add the test file to `Makefile` `e2e-live-utils` target (if live-mode)
 5. Document dependencies in a header comment (which `window.crit.*` namespaces it reads)
