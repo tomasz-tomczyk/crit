@@ -143,7 +143,21 @@ func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Multi-page previews (e.g. static sites with chapter/*.html) must get
+	// the same crit-agent injection as the root page — otherwise in-iframe
+	// navigation leaves Pin mode enabled in the chrome but the new document
+	// has no agent listening for clicks.
+	if isPreviewHTMLPath(resolved) {
+		s.servePreviewHTML(w, resolved)
+		return
+	}
+
 	http.ServeFile(w, r, resolved)
+}
+
+func isPreviewHTMLPath(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".html" || ext == ".htm"
 }
 
 // servePreviewHTML reads the HTML file and injects agent scripts before </body>.

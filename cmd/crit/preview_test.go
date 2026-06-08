@@ -216,6 +216,30 @@ func TestHandlePreviewContent_InjectsAgent(t *testing.T) {
 	}
 }
 
+func TestHandlePreviewContent_InjectsAgentOnSiblingHTML(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html><body>home</body></html>"), 0644)
+	chDir := filepath.Join(dir, "chapters")
+	os.Mkdir(chDir, 0755)
+	os.WriteFile(filepath.Join(chDir, "01-intro.html"), []byte("<html><body>chapter</body></html>"), 0644)
+	s, _ := newPreviewTestServer(t, dir)
+
+	req := httptest.NewRequest("GET", "/preview-content/chapters/01-intro.html", nil)
+	w := httptest.NewRecorder()
+	s.handlePreviewContent(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "chapter") {
+		t.Error("response missing chapter content")
+	}
+	if !strings.Contains(body, "crit-agent.js") {
+		t.Error("agent script not injected into sibling HTML")
+	}
+}
+
 func TestHandlePreviewContent_ServesSiblingAssets(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html></html>"), 0644)

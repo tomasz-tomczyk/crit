@@ -246,7 +246,7 @@
         '<div class="crit-live-iframe-pane-inner">' +
         '<div class="crit-live-iframe-frame" id="critLiveFrame">' +
         // No `sandbox` attribute by design — see spec security section.
-        '<iframe id="critLiveIframe" title="Live target" referrerpolicy="no-referrer" allow="*"></iframe>' +
+        '<iframe id="critLiveIframe" title="Live target" referrerpolicy="no-referrer"></iframe>' +
         '<div class="crit-live-iframe-resizer" id="critLiveResizer" role="separator" aria-orientation="vertical" aria-label="Resize live viewport" tabindex="0"></div>' +
         '</div>' +
         '</div>';
