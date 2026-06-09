@@ -1629,6 +1629,19 @@
 
   function navFocusTargetFromElement(el) {
     if (!el) return null;
+    if (el.classList.contains('diff-split-row')) {
+      const rightSide = el.querySelector('.diff-split-side.right:not(.empty)[data-diff-line-num], .diff-split-side.addition[data-diff-line-num]');
+      const leftSide = el.querySelector('.diff-split-side.left[data-diff-line-num], .diff-split-side.deletion[data-diff-line-num]');
+      const sideEl = rightSide || leftSide;
+      if (!sideEl) return null;
+      const fp = sideEl.dataset.diffFilePath;
+      if (!fp) return null;
+      return {
+        filePath: fp,
+        diffLineNum: sideEl.dataset.diffLineNum,
+        diffSide: sideEl.dataset.diffSide || '',
+      };
+    }
     const fp = el.dataset.filePath || el.dataset.diffFilePath;
     if (!fp) return null;
     const target = { filePath: fp };
@@ -1636,16 +1649,6 @@
       target.blockIndex = el.dataset.blockIndex;
       if (el.dataset.startLine) target.startLine = el.dataset.startLine;
       if (el.dataset.endLine) target.endLine = el.dataset.endLine;
-      return target;
-    }
-    if (el.classList.contains('diff-split-row')) {
-      const rightSide = el.querySelector('.diff-split-side.right:not(.empty)[data-diff-line-num], .diff-split-side.addition[data-diff-line-num]');
-      const leftSide = el.querySelector('.diff-split-side.left[data-diff-line-num], .diff-split-side.deletion[data-diff-line-num]');
-      const sideEl = rightSide || leftSide;
-      if (sideEl) {
-        target.diffLineNum = sideEl.dataset.diffLineNum;
-        target.diffSide = sideEl.dataset.diffSide || '';
-      }
       return target;
     }
     if (el.dataset.diffLineNum) {
@@ -1667,19 +1670,21 @@
   function getKeyboardFocusTarget() {
     if (keyboardFocusTarget) return keyboardFocusTarget;
     if (!focusedFilePath && !focusedElement) return null;
+    if (focusedElement) {
+      const fromEl = navFocusTargetFromElement(focusedElement);
+      if (fromEl) return fromEl;
+    }
     const fp = focusedFilePath || (focusedElement && (focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath));
     if (!fp) return null;
     const target = { filePath: fp };
     if (focusedBlockIndex !== null && focusedBlockIndex !== undefined && !isNaN(focusedBlockIndex)) {
       target.blockIndex = String(focusedBlockIndex);
-    } else if (focusedElement) {
-      const fromEl = navFocusTargetFromElement(focusedElement);
-      if (fromEl) return fromEl;
     }
     return target;
   }
 
   function findNavElementForFocusTarget(target) {
+    if (!target) return null;
     for (let i = 0; i < navElements.length; i++) {
       const n = navElements[i];
       if (target.blockIndex !== undefined && n.dataset.filePath === target.filePath && n.dataset.blockIndex === target.blockIndex) {
@@ -1695,21 +1700,20 @@
     const side = target.diffSide || '';
     for (let i = 0; i < navElements.length; i++) {
       const n = navElements[i];
-      if (n.dataset.diffFilePath !== target.filePath) continue;
-      if (n.dataset.diffLineNum === target.diffLineNum &&
-          (!side || (n.dataset.diffSide || '') === side || n.classList.contains('diff-split-row'))) {
-        return n;
-      }
       if (n.classList.contains('diff-split-row')) {
         const sides = n.querySelectorAll('.diff-split-side[data-diff-line-num]');
         for (let si = 0; si < sides.length; si++) {
           const sideEl = sides[si];
+          if (sideEl.dataset.diffFilePath !== target.filePath) continue;
           if (sideEl.dataset.diffLineNum === target.diffLineNum &&
               (sideEl.dataset.diffSide || '') === side) {
             return n;
           }
         }
-      } else if (n.classList.contains('diff-line') &&
+        continue;
+      }
+      if (n.dataset.diffFilePath !== target.filePath) continue;
+      if (n.classList.contains('diff-line') &&
           n.dataset.diffLineNum === target.diffLineNum &&
           (n.dataset.diffSide || '') === side) {
         return n;
@@ -1730,6 +1734,16 @@
       };
     }
     if (!focusedElement) return null;
+    const fromEl = navFocusTargetFromElement(focusedElement);
+    if (fromEl) {
+      return {
+        filePath: fromEl.filePath,
+        blockIndex: fromEl.blockIndex !== undefined ? parseInt(fromEl.blockIndex) : undefined,
+        lineNum: fromEl.diffLineNum ? parseInt(fromEl.diffLineNum) :
+          (fromEl.startLine ? parseInt(fromEl.startLine) : undefined),
+        side: fromEl.diffSide || '',
+      };
+    }
     const filePath = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
     if (!filePath) return null;
     if (focusedElement.dataset.blockIndex !== undefined) {
@@ -1761,9 +1775,15 @@
     if (match.dataset.filePath) {
       focusedFilePath = match.dataset.filePath;
       focusedBlockIndex = parseInt(match.dataset.blockIndex);
-    } else if (match.dataset.diffFilePath) {
-      focusedFilePath = match.dataset.diffFilePath;
-      focusedBlockIndex = null;
+    } else {
+      const navTarget = navFocusTargetFromElement(match);
+      if (navTarget) {
+        focusedFilePath = navTarget.filePath;
+        focusedBlockIndex = null;
+      } else if (match.dataset.diffFilePath) {
+        focusedFilePath = match.dataset.diffFilePath;
+        focusedBlockIndex = null;
+      }
     }
   }
 
@@ -2693,15 +2713,16 @@
   let diffDragState = null; // { filePath, side, anchorLine, currentLine }
 
   // Tag a diff line element with data attributes for drag detection + keyboard nav
-  // For split mode, navEl (the row) gets kb-nav; el (the side) gets data attrs for drag.
+  // For split mode, navEl (the row) gets kb-nav only; el (the side) carries line attrs.
   function tagDiffLine(el, filePath, lineNum, side, navEl) {
     el.dataset.diffFilePath = filePath;
     el.dataset.diffLineNum = lineNum;
     el.dataset.diffSide = side || '';
-    // In split mode, kb-nav goes on the row; in unified, on the line itself
     const nav = navEl || el;
     if (!nav.classList.contains('kb-nav')) {
       nav.classList.add('kb-nav');
+    }
+    if (nav === el) {
       nav.dataset.diffFilePath = filePath;
       nav.dataset.diffLineNum = lineNum;
       nav.dataset.diffSide = side || '';
@@ -3717,7 +3738,9 @@
   // Anchors on the currently focused block; j/k extend the range; Esc clears it.
   function enterVisualMode() {
     if (!focusedElement) return false;
-    const fp = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
+    const navTarget = navFocusTargetFromElement(focusedElement);
+    const fp = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath ||
+      (navTarget && navTarget.filePath);
     if (!fp) return false;
 
     if (focusedElement.dataset.blockIndex !== undefined && focusedElement.dataset.startLine) {
@@ -3734,11 +3757,10 @@
       refreshVisualSelectionVisuals(fp);
       return true;
     }
-    if (focusedElement.dataset.diffLineNum) {
-      // Split rows carry both sides — tagDiffLine on the row records whichever
-      // side existed first (left when present), but the user's intent is
-      // usually the right (new) side. Prefer right; fall back to left for
-      // deleted-only rows. Unified rows are single-side, so just read directly.
+    if (focusedElement.dataset.diffLineNum || focusedElement.classList.contains('diff-split-row')) {
+      // Split rows carry both sides on child .diff-split-side elements. Prefer
+      // right (new) side; fall back to left for deleted-only rows. Unified rows
+      // are single-side, so just read directly.
       let lineNum, side;
       if (focusedElement.classList.contains('diff-split-row')) {
         const right = focusedElement.querySelector('.diff-split-side.right:not(.empty)');
@@ -3784,9 +3806,10 @@
   // After j/k moves focus, extend the visual selection from the anchor to the new focus.
   function extendVisualSelection() {
     if (!visualMode || !focusedElement) return;
+    const navTarget = navFocusTargetFromElement(focusedElement);
     const fp = visualMode.kind === 'markdown'
       ? focusedElement.dataset.filePath
-      : focusedElement.dataset.diffFilePath;
+      : (focusedElement.dataset.diffFilePath || (navTarget && navTarget.filePath));
     if (fp !== visualMode.filePath) {
       // Crossed file boundary — exit visual mode (focus already moved by j/k).
       exitVisualMode(true);
@@ -3800,8 +3823,7 @@
       selectionEnd = Math.max(visualMode.anchorEndLine, eLine);
     } else {
       // Find the line number on the anchor side. Split rows carry both sides
-      // (and the row's dataset.diffSide is whichever side was tagged first,
-      // which is unreliable for navigation), so query the child sides directly.
+      // on child .diff-split-side elements, so query them directly.
       // Rows with no line on the anchor side (e.g. a deleted-only row when
       // we anchored on the right) are skipped silently — selection stays put,
       // visual mode stays active, focus continues moving with j/k.
@@ -8295,16 +8317,9 @@
         const allNav = navElements;
         if (allNav.length === 0) return;
         let curIdx = focusedElement ? allNav.indexOf(focusedElement) : -1;
-        if (curIdx === -1 && focusedElement) {
-          // Stale ref after re-render — find nearest match by data attributes
-          const fp = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
-          const bi = focusedElement.dataset.blockIndex;
-          const dln = focusedElement.dataset.diffLineNum;
-          for (let ni = 0; ni < allNav.length; ni++) {
-            const n = allNav[ni];
-            if (fp && bi !== undefined && n.dataset.filePath === fp && n.dataset.blockIndex === bi) { curIdx = ni; break; }
-            if (fp && dln && n.dataset.diffFilePath === fp && n.dataset.diffLineNum === dln) { curIdx = ni; break; }
-          }
+        if (curIdx === -1) {
+          const match = findNavElementForFocusTarget(getKeyboardFocusTarget());
+          if (match) curIdx = allNav.indexOf(match);
         }
         if (curIdx === -1) {
           curIdx = e.key === 'j' ? 0 : allNav.length - 1;
@@ -8320,9 +8335,12 @@
         if (focusedElement.dataset.filePath) {
           focusedFilePath = focusedElement.dataset.filePath;
           focusedBlockIndex = parseInt(focusedElement.dataset.blockIndex);
-        } else         if (focusedElement.dataset.diffFilePath) {
-          focusedFilePath = focusedElement.dataset.diffFilePath;
-          focusedBlockIndex = null;
+        } else {
+          const navTarget = navFocusTargetFromElement(focusedElement);
+          if (navTarget) {
+            focusedFilePath = navTarget.filePath;
+            focusedBlockIndex = null;
+          }
         }
         rememberKeyboardFocusFromNav(focusedElement);
         if (visualMode) extendVisualSelection();
