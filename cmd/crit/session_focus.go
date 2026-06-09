@@ -799,35 +799,52 @@ func (s *Session) loadScopedFileState(path, scope, commit string) (status, conte
 			content = f.Content
 			s.mu.RUnlock()
 		}
-		return status, content, oldPath, baseRef, repoRoot
+		if commit == "" {
+			return status, content, oldPath, baseRef, repoRoot
+		}
 	}
 
 	if repoRoot == "" {
 		return status, content, oldPath, baseRef, repoRoot
 	}
-	absPath := filepath.Join(repoRoot, path)
-	if data, err := os.ReadFile(absPath); err == nil {
-		content = string(data)
-		if vcs != nil {
-			var changes []FileChange
-			var err error
-			if base, head, ok := splitCommitRange(commit); ok {
-				changes, err = vcs.ChangedFilesBetweenSHAs(base, head, repoRoot)
-			} else if commit != "" {
-				changes, err = vcs.ChangedFilesForCommit(commit, repoRoot)
-			} else {
-				changes, err = vcs.ChangedFilesScoped(scope, baseRef)
-			}
-			if err == nil {
-				for _, fc := range changes {
-					if fc.Path == path {
-						status = fc.Status
-						oldPath = fc.OldPath
-						break
-					}
+
+	lookupScopedStatus := func() {
+		if vcs == nil {
+			return
+		}
+		var changes []FileChange
+		var err error
+		if base, head, ok := splitCommitRange(commit); ok {
+			changes, err = vcs.ChangedFilesBetweenSHAs(base, head, repoRoot)
+		} else if commit != "" {
+			changes, err = vcs.ChangedFilesForCommit(commit, repoRoot)
+		} else {
+			changes, err = vcs.ChangedFilesScoped(scope, baseRef)
+		}
+		if err == nil {
+			for _, fc := range changes {
+				if fc.Path == path {
+					status = fc.Status
+					oldPath = fc.OldPath
+					break
 				}
 			}
 		}
+	}
+
+	if commit != "" {
+		lookupScopedStatus()
+		return status, content, oldPath, baseRef, repoRoot
+	}
+
+	if f != nil {
+		return status, content, oldPath, baseRef, repoRoot
+	}
+
+	absPath := filepath.Join(repoRoot, path)
+	if data, err := os.ReadFile(absPath); err == nil {
+		content = string(data)
+		lookupScopedStatus()
 	}
 	return status, content, oldPath, baseRef, repoRoot
 }

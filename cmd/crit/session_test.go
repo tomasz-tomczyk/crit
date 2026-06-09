@@ -5031,6 +5031,43 @@ func TestGetFileDiffSnapshotScoped_CommitRangeRename(t *testing.T) {
 	}
 }
 
+func TestGetFileDiffSnapshotScoped_CommitRangeRename_PreloadedFile(t *testing.T) {
+	dir := initTestRepo(t)
+	commitAt(t, dir, "old.go", "package x\n", "add old")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "mv", "old.go", "new.go")
+	gitT(t, dir, "commit", "-m", "rename")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Session file preloaded without OldPath (common merge-base working-tree path).
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		BaseRef:     "main",
+		VCS:         &GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files: []*FileEntry{{
+			Path:    "new.go",
+			Status:  "modified",
+			Content: "package x\n",
+		}},
+	}
+
+	result, ok := s.GetFileDiffSnapshotScoped("new.go", "branch", base+".."+head, false)
+	if !ok {
+		t.Fatal("expected snapshot")
+	}
+	hunks, _ := result["hunks"].([]DiffHunk)
+	if len(hunks) != 0 {
+		t.Fatalf("preloaded file without OldPath: got %d hunks, want 0 for rename-only", len(hunks))
+	}
+}
+
 // --- scopedHunks tests ---
 
 func TestScopedHunks_NilVCS(t *testing.T) {
