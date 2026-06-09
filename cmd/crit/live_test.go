@@ -435,6 +435,133 @@ func TestRunLive_SmokeFailFatal(t *testing.T) {
 	}
 }
 
+func TestParseLiveCLIFlags(t *testing.T) {
+	f := parseLiveCLIFlags([]string{
+		"-p", "8080",
+		"--host", "0.0.0.0",
+		"--no-open",
+		"-q",
+		"--share-url", "https://share.example",
+		"--cookie", "a=1",
+		"--cookie", "b=2",
+		"--cookie-file", "/tmp/jar.txt",
+		"https://example.com/app?q=1#frag",
+	})
+	if f.origin != "https://example.com/app" {
+		t.Fatalf("origin = %q", f.origin)
+	}
+	if f.port != 8080 || f.host != "0.0.0.0" || !f.noOpen || !f.quiet {
+		t.Fatalf("flags = %+v", f)
+	}
+	if f.shareURL != "https://share.example" || f.cookieFile != "/tmp/jar.txt" {
+		t.Fatalf("share/cookie file = %+v", f)
+	}
+	if len(f.cookieFlags) != 2 || f.cookieFlags[0] != "a=1" || f.cookieFlags[1] != "b=2" {
+		t.Fatalf("cookieFlags = %v", f.cookieFlags)
+	}
+}
+
+func TestBuildLiveDaemonArgs(t *testing.T) {
+	f := liveCLIFlags{port: 9000, host: "127.0.0.1", quiet: true}
+	cfg := Config{Port: 3000, Quiet: false}
+
+	withCookie := buildLiveDaemonArgs("http://localhost:3000/dashboard", "sess=abc", f, cfg, true)
+	if !containsArgPair(withCookie, "--live-origin", "http://localhost:3000/dashboard") {
+		t.Fatalf("missing live-origin: %v", withCookie)
+	}
+	if !containsArgPair(withCookie, "--live-cookie", "sess=abc") {
+		t.Fatalf("missing live-cookie: %v", withCookie)
+	}
+	if !containsArgPair(withCookie, "--port", "9000") {
+		t.Fatalf("missing port: %v", withCookie)
+	}
+	if !containsArgPair(withCookie, "--no-open", "") {
+		t.Fatalf("missing no-open: %v", withCookie)
+	}
+	if !containsArgPair(withCookie, "--quiet", "") {
+		t.Fatalf("missing quiet: %v", withCookie)
+	}
+
+	withoutCookie := buildLiveDaemonArgs("http://localhost:3000", "", f, cfg, false)
+	for i, a := range withoutCookie {
+		if a == "--live-cookie" {
+			t.Fatalf("unexpected --live-cookie at %d in %v", i, withoutCookie)
+		}
+	}
+}
+
+func containsArgPair(args []string, key, want string) bool {
+	for i := 0; i < len(args); i++ {
+		if args[i] != key {
+			continue
+		}
+		if want == "" {
+			return true
+		}
+		if i+1 < len(args) && args[i+1] == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRunSmokeTest_WithCookies(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Cookie") != "session=abc" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body>ok</body></html>")
+	}))
+	defer srv.Close()
+
+	result := runSmokeTest(srv.URL, "session=abc")
+	if result.fatal {
+		t.Fatalf("unexpected fatal: %+v", result)
+	}
+	if result.kind != smokeOK {
+		t.Fatalf("kind = %v, want smokeOK", result.kind)
+	}
+}
+
+func TestRunSmokeTest_WithCookies_Unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	result := runSmokeTest(srv.URL, "wrong=1")
+	if result.kind != smokeNon2xx {
+		t.Fatalf("kind = %v, want smokeNon2xx", result.kind)
+	}
+	if result.fatal {
+		t.Fatal("non-2xx should warn, not fatal")
+	}
+}
+
+func TestCheckLiveSmoke_WarnsOnNon2xx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprintln(w, "<html><body>nope</body></html>")
+	}))
+	defer srv.Close()
+
+	checkLiveSmoke(srv.URL, "")
+}
+
+func TestCheckLiveSmoke_NotesFrameworkAndCSP(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, `<html><head></head><body id="__next">ok</body></html>`)
+	}))
+	defer srv.Close()
+
+	checkLiveSmoke(srv.URL, "")
+}
+
 func TestRunLive_OriginNormalisedToSchemeHost(t *testing.T) {
 	u, _ := url.Parse("https://myapp.test:4000/dashboard?q=1")
 	origin := u.Scheme + "://" + u.Host

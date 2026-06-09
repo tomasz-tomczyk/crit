@@ -96,3 +96,82 @@ func TestParseServerFlags_LiveCookie(t *testing.T) {
 		t.Fatalf("liveCookie = %q, want session=abc", f.liveCookie)
 	}
 }
+
+func TestResolveCookieFilePath(t *testing.T) {
+	t.Run("absolute unchanged", func(t *testing.T) {
+		got := resolveCookieFilePath("/etc/cookies.txt", "/repo")
+		if got != "/etc/cookies.txt" {
+			t.Fatalf("got %q", got)
+		}
+	})
+	t.Run("relative joins config dir", func(t *testing.T) {
+		got := resolveCookieFilePath(".crit/live-cookies.txt", "/repo")
+		want := filepath.Join("/repo", ".crit/live-cookies.txt")
+		if got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+	t.Run("empty config dir leaves relative", func(t *testing.T) {
+		got := resolveCookieFilePath("cookies.txt", "")
+		if got != "cookies.txt" {
+			t.Fatalf("got %q", got)
+		}
+	})
+}
+
+func TestJoinCookieHeader_SkipsEmptyParts(t *testing.T) {
+	got := joinCookieHeader([]string{" a=1 ", "", "  ", "b=2"})
+	if got != "a=1; b=2" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestReadLiveCookieFile_Missing(t *testing.T) {
+	_, err := readLiveCookieFile(filepath.Join(t.TempDir(), "nope.txt"))
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestReadLiveCookieFile_RawMultiLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cookies.txt")
+	if err := os.WriteFile(path, []byte("a=1\nb=2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readLiveCookieFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "a=1; b=2" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestParseNetscapeCookieLine_Invalid(t *testing.T) {
+	if _, _, ok := parseNetscapeCookieLine("not-a-jar-line"); ok {
+		t.Fatal("expected false for non-netscape line")
+	}
+	if _, _, ok := parseNetscapeCookieLine("a\tb\tc\td\te\t\tvalue"); ok {
+		t.Fatal("expected false when cookie name empty")
+	}
+}
+
+func TestStringSliceFlag_SetAndString(t *testing.T) {
+	var f stringSliceFlag
+	if err := f.Set("a=1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Set("b=2"); err != nil {
+		t.Fatal(err)
+	}
+	if f.String() != "a=1; b=2" {
+		t.Fatalf("String() = %q", f.String())
+	}
+}
+
+func TestResolveLiveCookies_MissingFile(t *testing.T) {
+	_, err := resolveLiveCookies(nil, filepath.Join(t.TempDir(), "missing.txt"), Config{}, t.TempDir())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
