@@ -26,7 +26,7 @@ func renameAtomic(src, dst string) error {
 		if err == nil {
 			return nil
 		}
-		if !isWindowsSharingViolation(err) {
+		if !isWindowsTransientIOErr(err) {
 			return err
 		}
 		time.Sleep(delay)
@@ -41,6 +41,9 @@ func renameAtomic(src, dst string) error {
 // While renameAtomic protects writers from short-lived readers, the inverse
 // race exists too: os.ReadFile fails with ERROR_SHARING_VIOLATION /
 // ERROR_LOCK_VIOLATION when a writer is mid-rename over the destination.
+// MoveFileEx with MOVEFILE_REPLACE_EXISTING can also briefly surface
+// ERROR_FILE_NOT_FOUND on the destination between delete-and-replace;
+// retry that the same way (see TestConcurrentSaveCritJSON_NoCorruption).
 // 10 attempts with 1→50ms backoff covers any realistic crit workload.
 func readFileShared(path string) ([]byte, error) {
 	const maxAttempts = 10
@@ -51,7 +54,7 @@ func readFileShared(path string) ([]byte, error) {
 	)
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		data, err = os.ReadFile(path)
-		if err == nil || !isWindowsSharingViolation(err) {
+		if err == nil || !isWindowsTransientIOErr(err) {
 			return data, err
 		}
 		time.Sleep(delay)
@@ -62,7 +65,12 @@ func readFileShared(path string) ([]byte, error) {
 	return data, err
 }
 
-func isWindowsSharingViolation(err error) bool {
+// isWindowsTransientIOErr reports Windows errors that can appear briefly
+// during concurrent rename/read of the same path and are worth retrying.
+func isWindowsTransientIOErr(err error) bool {
+	if os.IsNotExist(err) {
+		return true
+	}
 	var errno windows.Errno
 	if !errors.As(err, &errno) {
 		return false
