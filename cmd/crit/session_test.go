@@ -4950,14 +4950,14 @@ func TestFilterDeletedReviewComments_SomeDeleted(t *testing.T) {
 // --- computeScopedDiffHunks tests ---
 
 func TestComputeScopedDiffHunks_UntrackedFile(t *testing.T) {
-	hunks := computeScopedDiffHunks("test.go", "unstaged", "", "untracked", "package main\n", "", "", nil, false)
+	hunks := computeScopedDiffHunks("test.go", "unstaged", "", "untracked", "", "package main\n", "", "", nil, false)
 	if len(hunks) == 0 {
 		t.Error("expected hunks for untracked file")
 	}
 }
 
 func TestComputeScopedDiffHunks_AddedFileAllScope(t *testing.T) {
-	hunks := computeScopedDiffHunks("test.go", "all", "", "added", "package main\n", "", "", nil, false)
+	hunks := computeScopedDiffHunks("test.go", "all", "", "added", "", "package main\n", "", "", nil, false)
 	if len(hunks) == 0 {
 		t.Error("expected hunks for added file with all scope")
 	}
@@ -4965,7 +4965,7 @@ func TestComputeScopedDiffHunks_AddedFileAllScope(t *testing.T) {
 
 func TestComputeScopedDiffHunks_AddedFileUnstagedScope(t *testing.T) {
 	// scope=unstaged + status=added => does not use FileDiffUnifiedNewFile
-	hunks := computeScopedDiffHunks("test.go", "unstaged", "", "added", "package main\n", "", "", nil, false)
+	hunks := computeScopedDiffHunks("test.go", "unstaged", "", "added", "", "package main\n", "", "", nil, false)
 	// No VCS to fall back on, should return nil.
 	if hunks != nil {
 		t.Error("expected nil hunks for added file with unstaged scope and no VCS")
@@ -4973,9 +4973,61 @@ func TestComputeScopedDiffHunks_AddedFileUnstagedScope(t *testing.T) {
 }
 
 func TestComputeScopedDiffHunks_NilVCS(t *testing.T) {
-	hunks := computeScopedDiffHunks("test.go", "branch", "", "modified", "package main\n", "main", "/tmp", nil, false)
+	hunks := computeScopedDiffHunks("test.go", "branch", "", "modified", "", "package main\n", "main", "/tmp", nil, false)
 	if hunks != nil {
 		t.Error("expected nil hunks with no VCS")
+	}
+}
+
+func TestComputeScopedDiffHunks_CommitRangeRename(t *testing.T) {
+	dir := initTestRepo(t)
+	commitAt(t, dir, "old.go", "package x\n", "add old")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "mv", "old.go", "new.go")
+	gitT(t, dir, "commit", "-m", "rename")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+	commit := base + ".." + head
+
+	hunks := computeScopedDiffHunks("new.go", "branch", commit, "renamed", "old.go", "package x\n", "", dir, &GitVCS{}, false)
+	if len(hunks) != 0 {
+		t.Fatalf("rename-only diff with oldPath: got %d hunks, want 0", len(hunks))
+	}
+	// Without oldPath git treats the new path as an added file.
+	wrong := computeScopedDiffHunks("new.go", "branch", commit, "renamed", "", "package x\n", "", dir, &GitVCS{}, false)
+	if len(wrong) == 0 {
+		t.Fatal("without oldPath, expected spurious add hunks for rename")
+	}
+}
+
+func TestGetFileDiffSnapshotScoped_CommitRangeRename(t *testing.T) {
+	dir := initTestRepo(t)
+	commitAt(t, dir, "old.go", "package x\n", "add old")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "mv", "old.go", "new.go")
+	gitT(t, dir, "commit", "-m", "rename")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		BaseRef:     "main",
+		VCS:         &GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files:       []*FileEntry{},
+	}
+
+	result, ok := s.GetFileDiffSnapshotScoped("new.go", "branch", base+".."+head, false)
+	if !ok {
+		t.Fatal("expected snapshot")
+	}
+	hunks, _ := result["hunks"].([]DiffHunk)
+	if len(hunks) != 0 {
+		t.Fatalf("rename-only diff: got %d hunks, want 0", len(hunks))
 	}
 }
 
@@ -4983,7 +5035,7 @@ func TestComputeScopedDiffHunks_NilVCS(t *testing.T) {
 
 func TestScopedHunks_NilVCS(t *testing.T) {
 	fc := FileChange{Path: "test.go", Status: "modified"}
-	hunks := scopedHunks(fc, "branch", "", "main", "/tmp", nil)
+	hunks := scopedHunks(fc, "branch", "", "main", "/tmp", nil, false)
 	if hunks != nil {
 		t.Error("expected nil hunks with nil VCS")
 	}
@@ -4999,7 +5051,7 @@ func TestScopedHunks_AddedFile(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	fc := FileChange{Path: "new.go", Status: "added"}
-	hunks := scopedHunks(fc, "branch", "", "main", dir, &GitVCS{})
+	hunks := scopedHunks(fc, "branch", "", "main", dir, &GitVCS{}, false)
 	if len(hunks) == 0 {
 		t.Error("expected hunks for added file showing full content")
 	}
@@ -5014,7 +5066,7 @@ func TestScopedHunks_UntrackedFile(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	fc := FileChange{Path: "untracked.go", Status: "untracked"}
-	hunks := scopedHunks(fc, "all", "", "", dir, &GitVCS{})
+	hunks := scopedHunks(fc, "all", "", "", dir, &GitVCS{}, false)
 	if len(hunks) == 0 {
 		t.Error("expected hunks for untracked file")
 	}

@@ -626,19 +626,19 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 	}
 }
 
-func scopedHunks(fc FileChange, scope, commit, baseRef, repoRoot string, vcs VCS) []DiffHunk {
+func scopedHunks(fc FileChange, scope, commit, baseRef, repoRoot string, vcs VCS, ignoreWhitespace bool) []DiffHunk {
 	if vcs == nil {
 		return nil
 	}
 	if base, head, ok := splitCommitRange(commit); ok {
-		h, err := vcs.FileDiffBetweenSHAs(fc.Path, fc.OldPath, base, head, repoRoot, false)
+		h, err := vcs.FileDiffBetweenSHAs(fc.Path, fc.OldPath, base, head, repoRoot, ignoreWhitespace)
 		if err == nil {
 			return h
 		}
 		return nil
 	}
 	if commit != "" {
-		h, err := vcs.FileDiffForCommit(fc.Path, commit, repoRoot, false)
+		h, err := vcs.FileDiffForCommit(fc.Path, commit, repoRoot, ignoreWhitespace)
 		if err == nil {
 			return h
 		}
@@ -652,13 +652,13 @@ func scopedHunks(fc FileChange, scope, commit, baseRef, repoRoot string, vcs VCS
 		return nil
 	}
 	if fc.Status == "renamed" && fc.OldPath != "" {
-		h, err := diffHunksForFile(fc.Path, fc.OldPath, fc.Status, baseRef, repoRoot, false, vcs)
+		h, err := diffHunksForFile(fc.Path, fc.OldPath, fc.Status, baseRef, repoRoot, ignoreWhitespace, vcs)
 		if err == nil {
 			return h
 		}
 		return nil
 	}
-	h, err := vcs.FileDiffScoped(fc.Path, scope, baseRef, repoRoot, false)
+	h, err := vcs.FileDiffScoped(fc.Path, scope, baseRef, repoRoot, ignoreWhitespace)
 	if err == nil {
 		return h
 	}
@@ -751,7 +751,7 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 			continue
 		}
 
-		hunks := scopedHunks(fc, scope, commit, snap.baseRef, snap.repoRoot, snap.vcs)
+		hunks := scopedHunks(fc, scope, commit, snap.baseRef, snap.repoRoot, snap.vcs, false)
 		fi.Additions, fi.Deletions = countHunkStats(hunks)
 		info.Files = append(info.Files, fi)
 	}
@@ -781,7 +781,7 @@ func (snap *scopedSessionSnapshot) hiddenUnresolved(scopeFiles []SessionFileInfo
 }
 
 // loadScopedFileState reads file state from the session or disk for scoped diff queries.
-func (s *Session) loadScopedFileState(path, scope string) (status, content, baseRef, repoRoot string) {
+func (s *Session) loadScopedFileState(path, scope, commit string) (status, content, oldPath, baseRef, repoRoot string) {
 	s.mu.RLock()
 	f := s.fileByPathLocked(path)
 	baseRef = s.BaseRef
@@ -789,6 +789,7 @@ func (s *Session) loadScopedFileState(path, scope string) (status, content, base
 	vcs := s.VCS
 	if f != nil {
 		status = f.Status
+		oldPath = f.OldPath
 	}
 	s.mu.RUnlock()
 
@@ -798,30 +799,40 @@ func (s *Session) loadScopedFileState(path, scope string) (status, content, base
 			content = f.Content
 			s.mu.RUnlock()
 		}
-		return status, content, baseRef, repoRoot
+		return status, content, oldPath, baseRef, repoRoot
 	}
 
 	if repoRoot == "" {
-		return status, content, baseRef, repoRoot
+		return status, content, oldPath, baseRef, repoRoot
 	}
 	absPath := filepath.Join(repoRoot, path)
 	if data, err := os.ReadFile(absPath); err == nil {
 		content = string(data)
 		if vcs != nil {
-			if changes, err := vcs.ChangedFilesScoped(scope, baseRef); err == nil {
+			var changes []FileChange
+			var err error
+			if base, head, ok := splitCommitRange(commit); ok {
+				changes, err = vcs.ChangedFilesBetweenSHAs(base, head, repoRoot)
+			} else if commit != "" {
+				changes, err = vcs.ChangedFilesForCommit(commit, repoRoot)
+			} else {
+				changes, err = vcs.ChangedFilesScoped(scope, baseRef)
+			}
+			if err == nil {
 				for _, fc := range changes {
 					if fc.Path == path {
 						status = fc.Status
+						oldPath = fc.OldPath
 						break
 					}
 				}
 			}
 		}
 	}
-	return status, content, baseRef, repoRoot
+	return status, content, oldPath, baseRef, repoRoot
 }
 
-func computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoRoot string, vcs VCS, ignoreWhitespace bool) []DiffHunk {
+func computeScopedDiffHunks(path, scope, commit, status, oldPath, content, baseRef, repoRoot string, vcs VCS, ignoreWhitespace bool) []DiffHunk {
 	// Pure content-based diffs don't need VCS.
 	if status == "untracked" && (scope == "unstaged" || scope == "all" || scope == "") {
 		return FileDiffUnifiedNewFile(content)
@@ -829,28 +840,7 @@ func computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoR
 	if status == "added" && scope != "unstaged" {
 		return FileDiffUnifiedNewFile(content)
 	}
-	if vcs == nil {
-		return nil
-	}
-	if base, head, ok := splitCommitRange(commit); ok {
-		h, err := vcs.FileDiffBetweenSHAs(path, "", base, head, repoRoot, ignoreWhitespace)
-		if err == nil {
-			return h
-		}
-		return nil
-	}
-	if commit != "" {
-		h, err := vcs.FileDiffForCommit(path, commit, repoRoot, ignoreWhitespace)
-		if err == nil {
-			return h
-		}
-		return nil
-	}
-	h, err := vcs.FileDiffScoped(path, scope, baseRef, repoRoot, ignoreWhitespace)
-	if err == nil {
-		return h
-	}
-	return nil
+	return scopedHunks(FileChange{Path: path, OldPath: oldPath, Status: status}, scope, commit, baseRef, repoRoot, vcs, ignoreWhitespace)
 }
 
 // GetFileDiffSnapshotScoped returns diff data for a file filtered by scope.
@@ -862,13 +852,13 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string, ignoreWh
 		return s.GetFileDiffSnapshot(path, ignoreWhitespace)
 	}
 
-	status, content, baseRef, repoRoot := s.loadScopedFileState(path, scope)
+	status, content, oldPath, baseRef, repoRoot := s.loadScopedFileState(path, scope, commit)
 
 	s.mu.RLock()
 	vcs := s.VCS
 	s.mu.RUnlock()
 
-	hunks := computeScopedDiffHunks(path, scope, commit, status, content, baseRef, repoRoot, vcs, ignoreWhitespace)
+	hunks := computeScopedDiffHunks(path, scope, commit, status, oldPath, content, baseRef, repoRoot, vcs, ignoreWhitespace)
 	if hunks == nil {
 		hunks = []DiffHunk{}
 	}
