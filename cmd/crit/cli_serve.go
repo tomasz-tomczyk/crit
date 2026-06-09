@@ -52,6 +52,9 @@ type serverConfig struct {
 	// liveOrigin is the parsed --live-origin flag (live-mode daemon).
 	liveOrigin string
 
+	// liveCookie is the Cookie header value forwarded to the upstream app.
+	liveCookie string
+
 	// previewFile is the absolute path to an HTML file for preview mode.
 	previewFile string
 }
@@ -85,6 +88,9 @@ type serverFlagSet struct {
 	// liveOrigin is the parsed --live-origin flag (live-mode daemon).
 	liveOrigin string
 
+	// liveCookie is the parsed --live-cookie flag (live-mode daemon).
+	liveCookie string
+
 	// previewFile is the parsed --preview-file flag (preview-mode daemon).
 	previewFile string
 }
@@ -112,6 +118,7 @@ func parseServerFlags(args []string) serverFlagSet {
 	scopeSpec := fs.String("scope", "", "Diff scope when reviewing a PR: layer (default) or full-stack")
 	remoteFiles := fs.Bool("remote", false, "Read PR file content via GitHub API instead of local git (avoids `git fetch`; requires gh)")
 	liveOrigin := fs.String("live-origin", "", "")
+	liveCookie := fs.String("live-cookie", "", "")
 	previewFile := fs.String("preview-file", "", "")
 	fs.Usage = func() {
 		printHelp()
@@ -137,6 +144,7 @@ func parseServerFlags(args []string) serverFlagSet {
 		scopeSpec:   *scopeSpec,
 		remoteFiles: *remoteFiles,
 		liveOrigin:  *liveOrigin,
+		liveCookie:  *liveCookie,
 		previewFile: *previewFile,
 	}
 }
@@ -252,6 +260,7 @@ func resolveServerConfig(args []string) (*serverConfig, error) {
 		focus:              focus,
 		remoteFiles:        sf.remoteFiles,
 		liveOrigin:         sf.liveOrigin,
+		liveCookie:         sf.liveCookie,
 		previewFile:        sf.previewFile,
 	}, nil
 }
@@ -587,7 +596,7 @@ func runServe(args []string) {
 	var proxyLn net.Listener
 	var proxySrv *http.Server
 	if sc.liveOrigin != "" {
-		pl, ps, err := bindProxyServer(sc.liveOrigin, addr.Port)
+		pl, ps, err := bindProxyServer(sc.liveOrigin, addr.Port, sc.liveCookie)
 		if err != nil {
 			daemonFatal(pipe, "Error starting proxy server: %v", err)
 		}

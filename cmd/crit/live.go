@@ -54,8 +54,19 @@ func detectFrameworks(body []byte) []string {
 
 var smokeClient = &http.Client{Timeout: 10 * time.Second}
 
-func runSmokeTest(origin string) smokeResult {
-	resp, err := smokeClient.Get(origin)
+func runSmokeTest(origin, cookies string) smokeResult {
+	req, err := http.NewRequest(http.MethodGet, origin, nil)
+	if err != nil {
+		return smokeResult{
+			kind:    smokeConnRefused,
+			fatal:   true,
+			message: fmt.Sprintf("is your dev server running at %s? (%v)", origin, err),
+		}
+	}
+	if cookies != "" {
+		req.Header.Set("Cookie", cookies)
+	}
+	resp, err := smokeClient.Do(req)
 	if err != nil {
 		return smokeResult{
 			kind:    smokeConnRefused,
@@ -139,8 +150,18 @@ func connectToLiveDaemon(key string) bool {
 	return true
 }
 
-// runLive is the entry point for `crit live <url>`.
-func runLive(args []string) {
+type liveCLIFlags struct {
+	port        int
+	host        string
+	noOpen      bool
+	quiet       bool
+	shareURL    string
+	cookieFlags stringSliceFlag
+	cookieFile  string
+	origin      string
+}
+
+func parseLiveCLIFlags(args []string) liveCLIFlags {
 	fs := flag.NewFlagSet("live", flag.ExitOnError)
 	port := fs.Int("port", 0, "Port to listen on")
 	fs.IntVar(port, "p", 0, "Port (shorthand)")
@@ -149,6 +170,9 @@ func runLive(args []string) {
 	quiet := fs.Bool("quiet", false, "Suppress status output")
 	fs.BoolVar(quiet, "q", false, "Suppress status (shorthand)")
 	shareURL := fs.String("share-url", "", "Share service URL")
+	var cookieFlags stringSliceFlag
+	fs.Var(&cookieFlags, "cookie", "Cookie header value for upstream requests (repeatable)")
+	cookieFile := fs.String("cookie-file", "", "File with upstream cookies (raw header or Netscape jar)")
 	fs.Parse(args)
 
 	rawURL := ""
@@ -171,34 +195,57 @@ func runLive(args []string) {
 	// correct page (e.g. http://localhost:3333/live.html, not just /).
 	u.RawQuery = ""
 	u.Fragment = ""
-	origin := strings.TrimSuffix(u.String(), "/")
+	return liveCLIFlags{
+		port:        *port,
+		host:        *host,
+		noOpen:      *noOpen,
+		quiet:       *quiet,
+		shareURL:    *shareURL,
+		cookieFlags: cookieFlags,
+		cookieFile:  *cookieFile,
+		origin:      strings.TrimSuffix(u.String(), "/"),
+	}
+}
 
-	// 1. Smoke test.
-	checkLiveSmoke(origin)
+func buildLiveDaemonArgs(origin, liveCookies string, f liveCLIFlags, cfg Config, noOpenResolved bool) []string {
+	daemonArgs := []string{"--live-origin", origin}
+	if liveCookies != "" {
+		daemonArgs = append(daemonArgs, "--live-cookie", liveCookies)
+	}
+	return appendCommonDaemonFlags(daemonArgs, commonDaemonFlags{
+		port:     resolvePort(f.port, cfg.Port),
+		host:     resolveHost(f.host, cfg.Host),
+		noOpen:   noOpenResolved,
+		quiet:    f.quiet || cfg.Quiet,
+		shareURL: resolveShareURL(f.shareURL, cfg, ""),
+	})
+}
 
-	// 2. Session key + existing daemon check.
+// runLive is the entry point for `crit live <url>`.
+func runLive(args []string) {
+	f := parseLiveCLIFlags(args)
+
 	cwd, err := resolvedCWD()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	cfg := LoadConfig(cwd)
-	key := liveSessionKey(cwd, origin)
+	liveCookies, err := resolveLiveCookies(f.cookieFlags, f.cookieFile, cfg, cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	checkLiveSmoke(f.origin, liveCookies)
+
+	key := liveSessionKey(cwd, f.origin)
 	if connectToLiveDaemon(key) {
 		return
 	}
 
-	// 3. Spawn daemon via _serve. startDaemon prepends "_serve" itself.
-	noOpenResolved := *noOpen || cfg.NoOpen
-	daemonArgs := []string{"--live-origin", origin}
-	daemonArgs = appendCommonDaemonFlags(daemonArgs, commonDaemonFlags{
-		port:     resolvePort(*port, cfg.Port),
-		host:     resolveHost(*host, cfg.Host),
-		noOpen:   noOpenResolved,
-		quiet:    *quiet || cfg.Quiet,
-		shareURL: resolveShareURL(*shareURL, cfg, ""),
-	})
-	entry, err := startDaemon(key, daemonArgs)
+	noOpenResolved := f.noOpen || cfg.NoOpen
+	entry, err := startDaemon(key, buildLiveDaemonArgs(f.origin, liveCookies, f, cfg, noOpenResolved))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: could not start live daemon: %v\n", err)
 		os.Exit(1)
@@ -210,17 +257,15 @@ func runLive(args []string) {
 
 	installDaemonSignalHandler(entry.PID)
 
-	// 4. Open browser.
 	if !noOpenResolved {
 		go openBrowser(entry.baseURL() + "/live")
 	}
 
-	// 5. Block until review complete.
 	runReviewClient(entry, key)
 }
 
-func checkLiveSmoke(origin string) {
-	result := runSmokeTest(origin)
+func checkLiveSmoke(origin, cookies string) {
+	result := runSmokeTest(origin, cookies)
 	switch result.kind {
 	case smokeConnRefused, smokeNonHTML:
 		fmt.Fprintf(os.Stderr, "Error: %s\n", result.message)

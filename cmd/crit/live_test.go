@@ -153,7 +153,7 @@ func TestLooksLikeLiveArgs(t *testing.T) {
 }
 
 func TestSmokeTest_ConnectionRefused(t *testing.T) {
-	r := runSmokeTest("http://127.0.0.1:19999")
+	r := runSmokeTest("http://127.0.0.1:19999", "")
 	if r.kind != smokeConnRefused {
 		t.Errorf("kind = %v, want smokeConnRefused", r.kind)
 	}
@@ -167,7 +167,7 @@ func TestSmokeTest_Non2xx(t *testing.T) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 	}))
 	defer srv.Close()
-	r := runSmokeTest(srv.URL)
+	r := runSmokeTest(srv.URL, "")
 	if r.kind != smokeNon2xx {
 		t.Errorf("kind = %v, want smokeNon2xx", r.kind)
 	}
@@ -182,7 +182,7 @@ func TestSmokeTest_NonHTML(t *testing.T) {
 		fmt.Fprintln(w, `{"ok":true}`)
 	}))
 	defer srv.Close()
-	r := runSmokeTest(srv.URL)
+	r := runSmokeTest(srv.URL, "")
 	if r.kind != smokeNonHTML {
 		t.Errorf("kind = %v, want smokeNonHTML", r.kind)
 	}
@@ -197,7 +197,7 @@ func TestSmokeTest_MissingBodyTag(t *testing.T) {
 		fmt.Fprintln(w, "<html><head></head><!-- no closing body -->")
 	}))
 	defer srv.Close()
-	r := runSmokeTest(srv.URL)
+	r := runSmokeTest(srv.URL, "")
 	if r.kind != smokeMissingBody {
 		t.Errorf("kind = %v, want smokeMissingBody", r.kind)
 	}
@@ -212,7 +212,7 @@ func TestSmokeTest_OK(t *testing.T) {
 		fmt.Fprintln(w, "<html><body><p>hello</p></body></html>")
 	}))
 	defer srv.Close()
-	r := runSmokeTest(srv.URL)
+	r := runSmokeTest(srv.URL, "")
 	if r.kind != smokeOK {
 		t.Errorf("kind = %v, want smokeOK", r.kind)
 	}
@@ -228,7 +228,7 @@ func TestSmokeTest_CSPFrameAncestors_Informational(t *testing.T) {
 		fmt.Fprintln(w, "<html><body>app</body></html>")
 	}))
 	defer srv.Close()
-	r := runSmokeTest(srv.URL)
+	r := runSmokeTest(srv.URL, "")
 	if r.kind != smokeOK {
 		t.Errorf("kind = %v, want smokeOK (CSP stripped by proxy)", r.kind)
 	}
@@ -426,7 +426,7 @@ func TestCreateLiveSession_EmptyOriginIsFatal(t *testing.T) {
 }
 
 func TestRunLive_SmokeFailFatal(t *testing.T) {
-	result := runSmokeTest("http://127.0.0.1:19999")
+	result := runSmokeTest("http://127.0.0.1:19999", "")
 	if !result.fatal {
 		t.Error("conn refused must be fatal")
 	}

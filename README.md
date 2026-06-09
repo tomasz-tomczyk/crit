@@ -66,6 +66,30 @@ crit http://localhost:3000        # review a running dev server
 crit landing.html                 # review a static HTML file
 ```
 
+### Live mode
+
+`crit live <url>` (or `crit <url>`) proxies a running dev server through Crit's review UI. Crit's iframe loads the app on a different origin/port than your browser tab, so **host-scoped session cookies are not shared automatically**. If the direct URL works but Crit shows a login page or hydration mismatch, forward the upstream cookies:
+
+```bash
+# one-off
+crit live http://localhost:4000/dashboard --cookie "_crit_key=..."
+
+# repeatable (Netscape jar or raw Cookie header lines)
+crit live http://localhost:4000/dashboard --cookie-file .crit/live-cookies.txt
+```
+
+**Getting cookies:** log in to the app in your browser, then copy the session cookie from DevTools (Application → Cookies) or export a cookie jar.
+
+**Config** (global or project `.crit.config.json`; project overrides global):
+
+```json
+{
+  "live_cookie_file": ".crit/live-cookies.txt"
+}
+```
+
+Relative paths resolve from the repo root. Prefer a gitignored file under `.crit/` over committing `live_cookie` inline. Run `crit live --help` for all flags.
+
 ```bash
 crit status                       # show review file path and daemon status
 crit stats                        # show lifetime review statistics
@@ -261,6 +285,8 @@ All keys are optional — omit any you don't need.
 | `no_update_check`      | bool     | `false`                    | Don't check for new versions on startup.                                                                                                                                                |
 | `no_integration_check` | bool     | `false`                    | Skip the integration config freshness check on startup.                                                                                                                                 |
 | `vcs`                  | string   | auto-detected              | Preferred VCS backend: `"git"`, `"sl"`, or `"jj"`. When set, crit uses this VCS instead of auto-detecting. Falls back to git if the configured VCS isn't available. Can also be set via `--vcs` CLI flag (flag takes precedence over config). |
+| `live_cookie`          | string   | `""`                       | Cookie header value forwarded to the upstream app in live mode (e.g. `"_crit_key=..."`). Global or project. Prefer `live_cookie_file` for secrets. |
+| `live_cookie_file`     | string   | `""`                       | Path to a file with upstream cookies for live mode (raw header lines or Netscape jar). Global or project; relative paths resolve from repo root. |
 
 ### Global-only config keys
 
@@ -288,6 +314,13 @@ These keys can only be set in `~/.crit.config.json` (global). Project-level `.cr
 | `--vcs`         |       | `vcs`                 | VCS backend (`git`, `sl`, or `jj`)     |
 | `--no-ignore`   |       |                       | Temporarily bypass all ignore patterns |
 | `--version`     | `-v`  |                       | Print version and exit                 |
+
+**Live mode only** (`crit live <url>` — see `crit live --help`):
+
+| Flag            | Equivalent config key | Description |
+| --------------- | --------------------- | ----------- |
+| `--cookie`      | `live_cookie`         | Upstream cookie value (repeatable) |
+| `--cookie-file` | `live_cookie_file`    | File with upstream cookies |
 
 ### Ignore patterns
 

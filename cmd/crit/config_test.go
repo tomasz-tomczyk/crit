@@ -183,6 +183,15 @@ func TestBaseBranchConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("mergeConfigs: project live_cookie_file overrides global", func(t *testing.T) {
+		global := Config{LiveCookieFile: "~/.crit/global-cookies.txt"}
+		project := Config{LiveCookieFile: ".crit/live-cookies.txt"}
+		merged := mergeConfigs(global, project, configPresence{})
+		if merged.LiveCookieFile != ".crit/live-cookies.txt" {
+			t.Errorf("live_cookie_file = %q, want .crit/live-cookies.txt", merged.LiveCookieFile)
+		}
+	})
+
 	t.Run("LoadConfig: project base_branch wins over global", func(t *testing.T) {
 		homeDir := t.TempDir()
 		setHome(t, homeDir)

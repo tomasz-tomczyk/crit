@@ -33,6 +33,8 @@ type Config struct {
 	DisableStats       bool     `json:"disable_stats,omitempty"`
 	VCS                string   `json:"vcs,omitempty"` // preferred VCS backend: "git", "sl", "jj"
 	ShareConsented     bool     `json:"share_consented,omitempty"`
+	LiveCookie         string   `json:"live_cookie,omitempty"`
+	LiveCookieFile     string   `json:"live_cookie_file,omitempty"`
 }
 
 // needsShareConsent reports whether the user must confirm before sharing.
@@ -203,12 +205,21 @@ func mergeConfigs(global, project Config, projectPresence configPresence) Config
 	if projectPresence.CleanupOnApprove {
 		merged.CleanupOnApprove = project.CleanupOnApprove
 	}
+	if project.LiveCookie != "" {
+		merged.LiveCookie = project.LiveCookie
+	}
+	if project.LiveCookieFile != "" {
+		merged.LiveCookieFile = project.LiveCookieFile
+	}
 	// Security: agent_cmd, auth_token, share_url, and proxy_auth are intentionally
 	// NOT merged from project config. They must remain global-only: agent_cmd to
 	// prevent untrusted repos from hijacking the agent command; auth_token and
 	// share_url to prevent a malicious repo's .crit.config.json from redirecting
 	// share requests (and the bearer token) to an attacker-controlled host;
 	// proxy_auth to prevent a repo from silently changing the transport mode.
+	// live_cookie/live_cookie_file DO merge from project config — common for local
+	// dev auth. Prefer live_cookie_file pointing at a gitignored path (e.g.
+	// .crit/live-cookies.txt) over committing live_cookie inline.
 	// Union ignore patterns
 	merged.IgnorePatterns = append(merged.IgnorePatterns, project.IgnorePatterns...)
 	return merged

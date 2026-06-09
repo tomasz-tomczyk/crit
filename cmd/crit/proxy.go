@@ -21,7 +21,7 @@ import (
 // upstreamOrigin is the target URL, optionally including a path prefix
 // (e.g. "http://localhost:3000" or "http://localhost:3333/live.html").
 // apiPort is the API server's port, used to construct the agent script URL.
-func newLiveProxy(upstreamOrigin string, apiPort int) (http.Handler, error) {
+func newLiveProxy(upstreamOrigin string, apiPort int, upstreamCookies string) (http.Handler, error) {
 	target, err := url.Parse(upstreamOrigin)
 	if err != nil {
 		return nil, fmt.Errorf("parsing upstream origin %q: %w", upstreamOrigin, err)
@@ -48,6 +48,9 @@ func newLiveProxy(upstreamOrigin string, apiPort int) (http.Handler, error) {
 			req.Header.Del("Accept-Encoding")
 			req.Header.Del("If-None-Match")
 			req.Header.Del("If-Modified-Since")
+			if upstreamCookies != "" {
+				req.Header.Set("Cookie", upstreamCookies)
+			}
 			if req.Header.Get("Origin") != "" {
 				req.Header.Set("Origin", target.Scheme+"://"+target.Host)
 			}
@@ -347,13 +350,13 @@ func rewriteCookies(resp *http.Response) {
 // bindProxyServer creates a TCP listener on 127.0.0.1:(apiPort+1) and
 // returns (listener, *http.Server, error). The server is not yet started;
 // caller calls srv.Serve(ln).
-func bindProxyServer(upstreamOrigin string, apiPort int) (net.Listener, *http.Server, error) {
+func bindProxyServer(upstreamOrigin string, apiPort int, upstreamCookies string) (net.Listener, *http.Server, error) {
 	proxyPort := apiPort + 1
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort))
 	if err != nil {
 		return nil, nil, fmt.Errorf("proxy port %d already in use: %w", proxyPort, err)
 	}
-	handler, err := newLiveProxy(upstreamOrigin, apiPort)
+	handler, err := newLiveProxy(upstreamOrigin, apiPort, upstreamCookies)
 	if err != nil {
 		ln.Close()
 		return nil, nil, err
