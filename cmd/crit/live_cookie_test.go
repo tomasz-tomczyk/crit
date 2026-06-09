@@ -99,9 +99,10 @@ func TestParseServerFlags_LiveCookie(t *testing.T) {
 
 func TestResolveCookieFilePath(t *testing.T) {
 	t.Run("absolute unchanged", func(t *testing.T) {
-		got := resolveCookieFilePath("/etc/cookies.txt", "/repo")
-		if got != "/etc/cookies.txt" {
-			t.Fatalf("got %q", got)
+		abs := filepath.Join(t.TempDir(), "cookies.txt")
+		got := resolveCookieFilePath(abs, filepath.Join(t.TempDir(), "repo"))
+		if got != abs {
+			t.Fatalf("got %q, want %q", got, abs)
 		}
 	})
 	t.Run("relative joins config dir", func(t *testing.T) {
