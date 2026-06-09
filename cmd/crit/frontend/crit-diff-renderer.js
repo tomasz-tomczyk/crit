@@ -257,6 +257,25 @@
     return wordDiffMap;
   }
 
+  // Build split-view rows for a del/add run using positional alignment (GitHub-style).
+  // Pairs del[i] with add[i]; surplus dels or adds become single-sided rows.
+  // wordDiffFn(oldContent, newContent) is called for each paired row only.
+  function buildSplitChangeRows(dels, adds, wordDiffFn) {
+    var rows = [];
+    var minLen = Math.min(dels.length, adds.length);
+    for (var i = 0; i < minLen; i++) {
+      var wd = wordDiffFn(dels[i].Content, adds[i].Content);
+      rows.push({ del: dels[i], add: adds[i], wd: wd });
+    }
+    for (var d = minLen; d < dels.length; d++) {
+      rows.push({ del: dels[d], add: null, wd: null });
+    }
+    for (var a = minLen; a < adds.length; a++) {
+      rows.push({ del: null, add: adds[a], wd: null });
+    }
+    return rows;
+  }
+
   var api = {
     lineSimilarity: lineSimilarity,
     bestWordDiffPairing: bestWordDiffPairing,
@@ -265,6 +284,7 @@
     htmlToText: htmlToText,
     applyWordDiffPair: applyWordDiffPair,
     buildHunkWordDiffs: buildHunkWordDiffs,
+    buildSplitChangeRows: buildSplitChangeRows,
   };
   if (typeof window !== 'undefined') {
     window.crit = window.crit || {};

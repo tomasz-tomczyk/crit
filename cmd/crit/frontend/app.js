@@ -2686,6 +2686,7 @@
   const htmlToText = window.crit.diffRenderer.htmlToText;
   const applyWordDiffPair = window.crit.diffRenderer.applyWordDiffPair;
   const buildHunkWordDiffs = window.crit.diffRenderer.buildHunkWordDiffs;
+  const buildSplitChangeRows = window.crit.diffRenderer.buildSplitChangeRows;
 
 
   // ===== Diff Gutter Drag (multi-line comment selection) =====
@@ -3508,34 +3509,8 @@
           appendDiffForm(container, file.path, line.OldNum, 'old');
           appendDiffForm(container, file.path, line.NewNum, '');
         } else {
-          // Pair del/add lines by similarity for word diff (not positionally)
-          const delTexts = [];
-          for (let dt = 0; dt < seg.dels.length; dt++) delTexts.push(seg.dels[dt].Content);
-          const addTexts = [];
-          for (let at = 0; at < seg.adds.length; at++) addTexts.push(seg.adds[at].Content);
-          const pairs = bestWordDiffPairing(delTexts, addTexts);
-
-          // Build reverse mapping: addIdx → delIdx
-          const addToDel = {};
-          const pairedDels = {};
-          for (let p = 0; p < pairs.length; p++) {
-            addToDel[pairs[p][1]] = pairs[p][0];
-            pairedDels[pairs[p][0]] = true;
-          }
-
-          // Build rows: unpaired dels first, then adds in order (paired adds bring their del)
-          const splitRows = [];
-          for (let d = 0; d < seg.dels.length; d++) {
-            if (!pairedDels[d]) splitRows.push({ del: seg.dels[d], add: null, wd: null });
-          }
-          for (let a = 0; a < seg.adds.length; a++) {
-            if (addToDel[a] !== undefined) {
-              const pd = seg.dels[addToDel[a]];
-              splitRows.push({ del: pd, add: seg.adds[a], wd: wordDiff(pd.Content, seg.adds[a].Content) });
-            } else {
-              splitRows.push({ del: null, add: seg.adds[a], wd: null });
-            }
-          }
+          // Positional alignment (GitHub-style): del[i] beside add[i], surplus single-sided.
+          const splitRows = buildSplitChangeRows(seg.dels, seg.adds, wordDiff);
 
           for (let j = 0; j < splitRows.length; j++) {
             const sr = splitRows[j];

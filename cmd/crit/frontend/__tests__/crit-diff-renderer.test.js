@@ -216,3 +216,73 @@ test('wordDiff returns ranges for small changes', function() {
     assert.ok(Array.isArray(result.newRanges));
   }
 });
+
+// --- buildSplitChangeRows ---
+
+function lineNums(rows, side) {
+  return rows.map(function(r) {
+    if (side === 'old') return r.del ? r.del.OldNum : null;
+    return r.add ? r.add.NewNum : null;
+  });
+}
+
+function assertMonotonic(nums, label) {
+  var prev = null;
+  for (var i = 0; i < nums.length; i++) {
+    if (nums[i] == null) continue;
+    if (prev != null && nums[i] < prev) {
+      assert.fail(label + ' not monotonic: ' + JSON.stringify(nums));
+    }
+    prev = nums[i];
+  }
+}
+
+test('buildSplitChangeRows pairs del[i] with add[i] positionally', function() {
+  var dels = [
+    { Type: 'del', Content: 'old loop', OldNum: 268 },
+  ];
+  var adds = [
+    { Type: 'add', Content: 'g, gctx := errgroup.WithContext(ctx)', NewNum: 267 },
+    { Type: 'add', Content: 'g.Go(func() error {', NewNum: 268 },
+    { Type: 'add', Content: 'return g.Wait()', NewNum: 269 },
+  ];
+  var rows = diffRenderer.buildSplitChangeRows(dels, adds, function() { return null; });
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].del.OldNum, 268);
+  assert.equal(rows[0].add.NewNum, 267);
+  assert.equal(rows[1].del, null);
+  assert.equal(rows[1].add.NewNum, 268);
+  assert.equal(rows[2].add.NewNum, 269);
+  assertMonotonic(lineNums(rows, 'new'), 'new line numbers');
+});
+
+test('buildSplitChangeRows keeps old line numbers monotonic for multi-del runs', function() {
+  var dels = [
+    { Type: 'del', Content: 'a', OldNum: 267 },
+    { Type: 'del', Content: 'b', OldNum: 268 },
+    { Type: 'del', Content: 'c', OldNum: 269 },
+  ];
+  var adds = [
+    { Type: 'add', Content: 'a2', NewNum: 267 },
+    { Type: 'add', Content: 'b2', NewNum: 268 },
+  ];
+  var rows = diffRenderer.buildSplitChangeRows(dels, adds, function() { return null; });
+  assert.equal(rows.length, 3);
+  assert.deepEqual(lineNums(rows, 'old'), [267, 268, 269]);
+  assert.deepEqual(lineNums(rows, 'new'), [267, 268, null]);
+});
+
+test('buildSplitChangeRows handles dels-only and adds-only', function() {
+  assert.equal(diffRenderer.buildSplitChangeRows([], [], function() { return null; }).length, 0);
+  var delOnly = diffRenderer.buildSplitChangeRows(
+    [{ Type: 'del', Content: 'x', OldNum: 5 }], [], function() { return null; }
+  );
+  assert.equal(delOnly.length, 1);
+  assert.equal(delOnly[0].del.OldNum, 5);
+  assert.equal(delOnly[0].add, null);
+  var addOnly = diffRenderer.buildSplitChangeRows(
+    [], [{ Type: 'add', Content: 'y', NewNum: 3 }], function() { return null; }
+  );
+  assert.equal(addOnly.length, 1);
+  assert.equal(addOnly[0].add.NewNum, 3);
+});
