@@ -9,10 +9,54 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func critWebURL(t *testing.T) string {
+	t.Helper()
+	if u := os.Getenv("CRIT_WEB_URL"); u != "" {
+		return u
+	}
+	if u := os.Getenv("CRIT_SHARE_URL"); u != "" {
+		return u
+	}
+	return "http://localhost:4000"
+}
+
+func critBinary(t *testing.T) string {
+	t.Helper()
+	if b := os.Getenv("CRIT_BINARY"); b != "" {
+		return b
+	}
+	t.Skip("CRIT_BINARY not set")
+	return ""
+}
+
+func extractToken(t *testing.T, output string) string {
+	t.Helper()
+	lines := strings.Split(output, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.Contains(lines[i], "/r/") {
+			return path.Base(lines[i])
+		}
+	}
+	t.Fatalf("no review URL found in output: %s", output)
+	return ""
+}
+
+func extractURL(t *testing.T, output string) string {
+	t.Helper()
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "/r/") {
+			return strings.TrimSpace(line)
+		}
+	}
+	t.Fatalf("no review URL found in output: %s", output)
+	return ""
+}
 
 // TestShareSyncPreview publishes the test/fixtures/preview fixture to a live
 // crit-web via `crit share --preview` and verifies every asset round-trips

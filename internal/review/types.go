@@ -9,6 +9,7 @@ import (
 type (
 	CritJSON      = session.CritJSON
 	CritJSONFile  = session.CritJSONFile
+	Comment       = session.Comment
 	RoundSnapshot = session.RoundSnapshot
 	SessionEntry  = daemon.SessionEntry
 )

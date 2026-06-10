@@ -59,11 +59,11 @@ func TestShareSyncIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	initialCJ := session.CritJSON{
+	initialCJ := CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{
 						ID: "c1", StartLine: 3, EndLine: 3,
 						Body: "resolved local comment", Resolved: true, ReviewRound: 1,
@@ -193,7 +193,7 @@ func TestShareSyncIntegration(t *testing.T) {
 		t.Error("export missing delete_token")
 	}
 
-	// session.Comment shape must use "author" not "author_display_name"
+	// Comment shape must use "author" not "author_display_name"
 	files, _ := exportBody["files"].(map[string]any)
 	for _, fileEntry := range files {
 		entry, _ := fileEntry.(map[string]any)
@@ -336,9 +336,9 @@ func reviewRoundFromAPI(t *testing.T, baseURL, token string) int {
 	return body.ReviewRound
 }
 
-// writeTestCritJSON writes a session.CritJSON to .crit/review.json in dir.
+// writeTestCritJSON writes a CritJSON to .crit/review.json in dir.
 // NOTE: readCritJSON is defined in github_test.go and shared across test files.
-func writeTestCritJSON(t *testing.T, dir string, cj session.CritJSON) {
+func writeTestCritJSON(t *testing.T, dir string, cj CritJSON) {
 	t.Helper()
 	d, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {
@@ -460,7 +460,7 @@ func TestShareSyncNoComments(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Hello\n\nWorld\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
 
 	output := critShareCmd(t, binary, baseURL, dir, "readme.md")
 	logReview(t, output)
@@ -493,11 +493,11 @@ func TestShareSyncLineComments(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n\nStep 2\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "clarify this step", Scope: "line",
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 					{ID: "c2", StartLine: 5, EndLine: 5, Body: "needs more detail", Scope: "line",
@@ -555,11 +555,11 @@ func TestShareSyncFileComment(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("# Notes\n\nSome content\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"notes.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "fc1", Body: "this file needs restructuring", Scope: "file",
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 				},
@@ -596,9 +596,9 @@ func TestShareSyncReviewLevelComments(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nContent\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
-		ReviewComments: []session.Comment{
+		ReviewComments: []Comment{
 			{ID: "rc1", Body: "overall this plan needs work", Scope: "review",
 				CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 			{ID: "rc2", Body: "consider adding a timeline", Scope: "review",
@@ -638,15 +638,15 @@ func TestShareSyncMixedCommentTypes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
-		ReviewComments: []session.Comment{
+		ReviewComments: []Comment{
 			{ID: "rc1", Body: "review-level comment", Scope: "review",
 				CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 		},
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "lc1", StartLine: 3, EndLine: 3, Body: "line-level comment", Scope: "line",
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 					{ID: "fc1", Body: "file-level comment", Scope: "file",
@@ -695,11 +695,11 @@ func TestShareSyncResolvedExcluded(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nDone\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "resolved comment", Scope: "line",
 						Resolved: true, CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 					{ID: "c2", StartLine: 3, EndLine: 3, Body: "unresolved comment", Scope: "line",
@@ -734,11 +734,11 @@ func TestShareSyncReshareNoDuplicates(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "original comment", Scope: "line",
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 				},
@@ -798,7 +798,7 @@ func TestShareSyncReshareNoChanges(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nContent\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
 
 	output1 := critShareCmd(t, binary, baseURL, dir, "plan.md")
 	logReview(t, output1)
@@ -826,7 +826,7 @@ func TestShareSyncFetchWebComments(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n\nStep 2\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
 
 	output := critShareCmd(t, binary, baseURL, dir, "plan.md")
 	logReview(t, output)
@@ -881,7 +881,7 @@ func TestShareSyncFetchWebCommentsNoDuplicates(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nContent\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
 
 	output := critShareCmd(t, binary, baseURL, dir, "plan.md")
 	logReview(t, output)
@@ -923,11 +923,11 @@ func TestShareSyncMultipleFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("# Notes\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
-			"plan.md":  {Comments: []session.Comment{{ID: "c1", StartLine: 1, EndLine: 1, Body: "plan comment", Scope: "line", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"}}},
-			"notes.md": {Comments: []session.Comment{{ID: "c2", StartLine: 1, EndLine: 1, Body: "notes comment", Scope: "line", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"}}},
+			"plan.md":  {Comments: []Comment{{ID: "c1", StartLine: 1, EndLine: 1, Body: "plan comment", Scope: "line", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"}}},
+			"notes.md": {Comments: []Comment{{ID: "c2", StartLine: 1, EndLine: 1, Body: "notes comment", Scope: "line", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"}}},
 		},
 	})
 
@@ -966,7 +966,7 @@ func TestShareSyncMultipleRounds(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan v1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
 
 	output := critShareCmd(t, binary, baseURL, dir, "plan.md")
 	logReview(t, output)
@@ -1008,11 +1008,11 @@ func TestShareSyncCommentWithReplies(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nContent\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{
 						ID: "c1", StartLine: 3, EndLine: 3, Body: "parent comment", Scope: "line",
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z",
@@ -1051,7 +1051,7 @@ func TestShareSyncUnpublish(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
 
 	output := critShareCmd(t, binary, baseURL, dir, "plan.md")
 	logReview(t, output)
@@ -1101,15 +1101,15 @@ func TestShareSyncExport(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nContent\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
-		ReviewComments: []session.Comment{
+		ReviewComments: []Comment{
 			{ID: "rc1", Body: "review comment for export", Scope: "review",
 				CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 		},
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "lc1", StartLine: 3, EndLine: 3, Body: "line comment for export", Scope: "line",
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 				},
@@ -1168,7 +1168,7 @@ func TestShareSyncFetchReviewLevelWebComment(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nContent\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
 
 	output := critShareCmd(t, binary, baseURL, dir, "plan.md")
 	logReview(t, output)
@@ -1223,7 +1223,7 @@ func TestShareSyncFetchReviewLevelReplies(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
 
 	output := critShareCmd(t, binary, baseURL, dir, "plan.md")
 	logReview(t, output)
@@ -1242,7 +1242,7 @@ func TestShareSyncFetchReviewLevelReplies(t *testing.T) {
 
 	// Verify the review-level comment is in local ReviewComments WITH its replies.
 	cj := readCritJSON(t, dir)
-	var webReview *session.Comment
+	var webReview *Comment
 	for i, c := range cj.ReviewComments {
 		if c.Body == "general feedback from web" {
 			webReview = &cj.ReviewComments[i]
@@ -1285,9 +1285,9 @@ func TestShareSyncFullLifecycle(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n\nStep 2\n\nStep 3\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
-		ReviewComments: []session.Comment{
+		ReviewComments: []Comment{
 			{ID: "rc1", Body: "overall looks good but needs detail", Scope: "review",
 				CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z",
 				Replies: []Reply{
@@ -1296,7 +1296,7 @@ func TestShareSyncFullLifecycle(t *testing.T) {
 		},
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "clarify what step 1 means", Scope: "line",
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z",
 						Replies: []Reply{
@@ -1546,7 +1546,7 @@ func TestShareSyncFetchReplies(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
 
 	output := critShareCmd(t, binary, baseURL, dir, "plan.md")
 	logReview(t, output)
@@ -1565,24 +1565,24 @@ func TestShareSyncFetchReplies(t *testing.T) {
 
 	// Verify the web comment was fetched with its replies
 	cj := readCritJSON(t, dir)
-	var webComment *session.Comment
+	var fetchedComment *Comment
 	for i, c := range cj.Files["plan.md"].Comments {
 		if strings.HasPrefix(c.ID, "web-") && c.Body == "needs more detail" {
-			webComment = &cj.Files["plan.md"].Comments[i]
+			fetchedComment = &cj.Files["plan.md"].Comments[i]
 			break
 		}
 	}
-	if webComment == nil {
+	if fetchedComment == nil {
 		t.Fatal("web comment 'needs more detail' not found in local .crit.json")
 	}
 
 	// This is the core assertion: replies must be present
-	if len(webComment.Replies) != 2 {
-		t.Fatalf("expected 2 replies on web comment, got %d", len(webComment.Replies))
+	if len(fetchedComment.Replies) != 2 {
+		t.Fatalf("expected 2 replies on web comment, got %d", len(fetchedComment.Replies))
 	}
 
 	replyBodies := map[string]bool{}
-	for _, r := range webComment.Replies {
+	for _, r := range fetchedComment.Replies {
 		replyBodies[r.Body] = true
 	}
 	if !replyBodies["first reply from web"] {
@@ -1593,7 +1593,7 @@ func TestShareSyncFetchReplies(t *testing.T) {
 	}
 
 	// Verify reply authors are set
-	for _, r := range webComment.Replies {
+	for _, r := range fetchedComment.Replies {
 		if r.Author == "" {
 			t.Errorf("reply %q has empty author", r.Body)
 		}
@@ -1616,11 +1616,11 @@ func TestShareSyncFetchRepliesOnExistingComments(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "local comment", Scope: "line",
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 				},
@@ -1673,7 +1673,7 @@ func TestShareSyncFetchRepliesOnExistingComments(t *testing.T) {
 
 	// Verify the local comment now has the reply
 	cj := readCritJSON(t, dir)
-	var localComment *session.Comment
+	var localComment *Comment
 	for i, c := range cj.Files["plan.md"].Comments {
 		if c.ID == "c1" {
 			localComment = &cj.Files["plan.md"].Comments[i]
@@ -1734,11 +1734,11 @@ func TestShareSyncResolvedRoundMapping(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "carry-forward", Scope: "line",
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 				},
@@ -2003,7 +2003,7 @@ func TestShareReceiver_HTMLPostReturnsProxyAuthError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
 
 	out, err := runCritCmd(t, binary, dir,
 		"share", "--share-url", ts.URL, "--output", dir, "plan.md")
@@ -2032,7 +2032,7 @@ func TestShareReceiver_FetchHTMLReturnsProxyAuthError(t *testing.T) {
 	}
 	// Pre-seed .crit.json with a share_url pointing at the stub so `crit
 	// fetch` has somewhere to look. tokenFromHostedURL parses /r/<token>.
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		ShareURL:    ts.URL + "/r/sometoken",
 		DeleteToken: "del-x",
@@ -2062,7 +2062,7 @@ func TestShareReceiver_LegacyShareStillWorks(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
 
 	out, err := runCritCmd(t, binary, dir,
 		"share", "--share-url", ts.URL, "--output", dir, "plan.md")
@@ -2078,7 +2078,7 @@ func TestShareReceiver_LegacyShareStillWorks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read .crit.json: %v", err)
 	}
-	var cj session.CritJSON
+	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
 		t.Fatalf("decode .crit.json: %v", err)
 	}
@@ -2102,7 +2102,7 @@ func TestShareSyncOrgShare(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Hello\n\nWorld\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
 
 	output := critShareCmdWithEnv(t, binary, baseURL, dir, []string{"--org", slug}, authEnv, "readme.md")
 	logReview(t, output)
@@ -2130,7 +2130,7 @@ func TestShareSyncOrgVisibility(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Hello\n\nWorld\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
 
 	output := critShareCmdWithEnv(t, binary, baseURL, dir, []string{"--org", slug, "--visibility", "unlisted"}, authEnv, "readme.md")
 	logReview(t, output)
@@ -2155,7 +2155,7 @@ func TestShareSyncPersonalNoOrg(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Hello\n\nWorld\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
 
 	output := critShareCmd(t, binary, baseURL, dir, "readme.md")
 	logReview(t, output)
@@ -2180,7 +2180,7 @@ func TestShareSyncOrgReshare(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Hello\n\nWorld\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
 
 	// First share with org
 	output1 := critShareCmdWithEnv(t, binary, baseURL, dir, []string{"--org", slug}, authEnv, "readme.md")
@@ -2224,7 +2224,7 @@ func TestShareSyncOrgNonMemberError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Hello\n\nWorld\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
 
 	output, err := critShareCmdExpectFail(t, binary, baseURL, dir, []string{"--org", "nonexistent-org-xyz"}, authEnv, []string{"readme.md"})
 	if err == nil {
@@ -2247,7 +2247,7 @@ func TestShareSyncOrgUnpublish(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Unpublish Test\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
 
 	// Share with org
 	output := critShareCmdWithEnv(t, binary, baseURL, dir, []string{"--org", slug}, authEnv, "readme.md")
@@ -2295,7 +2295,7 @@ func TestShareSyncOrgPersistence(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# Persist Test\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"readme.md": {}}})
 
 	// Share with org and visibility
 	critShareCmdWithEnv(t, binary, baseURL, dir, []string{"--org", slug, "--visibility", "organization"}, authEnv, "readme.md")
@@ -2307,7 +2307,7 @@ func TestShareSyncOrgPersistence(t *testing.T) {
 		t.Fatalf("reading review file: %v", err)
 	}
 
-	var cj session.CritJSON
+	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
 		t.Fatalf("parsing review file: %v", err)
 	}

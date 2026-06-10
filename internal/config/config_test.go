@@ -76,6 +76,33 @@ func TestLoadConfigFileMissing(t *testing.T) {
 	}
 }
 
+func TestLoadConfigFile_VCSJJ(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".crit.config.json")
+	if err := os.WriteFile(configPath, []byte(`{"vcs": "jj"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("loadConfigFile: %v", err)
+	}
+	if cfg.VCS != "jj" {
+		t.Errorf("vcs = %q, want jj", cfg.VCS)
+	}
+}
+
+func TestMergeConfigs_AuthorFallback_JJ_PreservesExplicitAuthor(t *testing.T) {
+	global := Config{VCS: "jj", Author: "Explicit Author"}
+	project := Config{}
+	merged := mergeConfigs(global, project, ConfigPresence{})
+	if merged.VCS != "jj" {
+		t.Errorf("merged.VCS = %q, want jj", merged.VCS)
+	}
+	if merged.Author != "Explicit Author" {
+		t.Errorf("merged.Author = %q, want %q", merged.Author, "Explicit Author")
+	}
+}
+
 func TestLoadConfigFileInvalidJSON(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".crit.config.json")

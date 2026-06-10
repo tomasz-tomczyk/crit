@@ -10,9 +10,10 @@ import (
 )
 
 var (
-	resolveHost        = config.ResolveHost
-	randomUUID         = session.RandomUUID
-	maxAttachmentBytes = session.MaxAttachmentBytes
+	resolveHost             = config.ResolveHost
+	randomUUID              = session.RandomUUID
+	maxAttachmentBytes      = session.MaxAttachmentBytes
+	parseDaemonFlagsForTest = parseDaemonFlags
 )
 
 func writeCritJSONForTest(t *testing.T, dir string, cj CritJSON) {

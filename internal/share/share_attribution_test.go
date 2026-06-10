@@ -63,11 +63,11 @@ func TestShareAttributesConfiguredAuthor(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeProjectConfig(t, dir, map[string]any{"author": "Alice Smith"})
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "needs detail", Scope: "line",
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 				},
@@ -105,11 +105,11 @@ func TestShareAuthAttributesUserIdentity(t *testing.T) {
 	// Author config intentionally differs from the verified user name to
 	// confirm the server uses its own value, not the payload's.
 	writeProjectConfig(t, dir, map[string]any{"author": "Mallory"})
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					// UserID stamped at write-time as the real CLI flow does
 					// (session.AddComment uses cfg.AuthUserID). Required for
 					// empty payload user_id under auth → null on server.
@@ -214,11 +214,11 @@ func TestAuthSessionReLoginEndToEnd(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "post-relogin note", Scope: "line",
 						UserID:    userIDB,
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
@@ -322,7 +322,7 @@ func TestShareAuthIgnoresPayloadSpoofedIdentity(t *testing.T) {
 }
 
 // TestShareAttrBackwardsCompatNoUserID verifies that an old `.crit.json`
-// written before this feature shipped (no `user_id` field on session.Comment) still
+// written before this feature shipped (no `user_id` field on Comment) still
 // shares cleanly. The omitted field unmarshals to "" — no migration needed.
 func TestShareAttrBackwardsCompatNoUserID(t *testing.T) {
 	baseURL := critWebURL(t)
@@ -384,11 +384,11 @@ func TestShareAttrRoundtripPreservesUserID(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dirA, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dirA, session.CritJSON{
+	writeTestCritJSON(t, dirA, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					// UserID stamped at write-time as the real CLI flow does
 					// (session.AddComment uses cfg.AuthUserID). Required for
 					// empty payload user_id under auth → null on server.
@@ -502,15 +502,15 @@ func TestShareAttrLoginMidFlow(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n\nStep 2\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
-					// session.Comment 1: written before login → no UserID.
+				Comments: []Comment{
+					// Comment 1: written before login → no UserID.
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "anon comment", Scope: "line",
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
-					// session.Comment 2: written after login → carries UserID.
+					// Comment 2: written after login → carries UserID.
 					{ID: "c2", StartLine: 5, EndLine: 5, Body: "authed comment", Scope: "line",
 						UserID:    userID,
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
@@ -559,11 +559,11 @@ func TestShareAttrMultiUserRoundtripReply(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "alice parent", Scope: "line",
 						UserID:    aliceID,
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
@@ -627,7 +627,7 @@ func TestShareAttrMultiUserRoundtripReply(t *testing.T) {
 	}
 
 	cj := readCritJSON(t, dir)
-	var parent *session.Comment
+	var parent *Comment
 	for i := range cj.Files["plan.md"].Comments {
 		c := &cj.Files["plan.md"].Comments[i]
 		if c.ID == "c1" {
@@ -706,11 +706,11 @@ func TestShareAttrPutAnonExternalIDMismatch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "real comment", Scope: "line",
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
 				},
@@ -795,11 +795,11 @@ func TestShareAttrPutAuthPreservesForeignUserID(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dirB, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dirB, session.CritJSON{
+	writeTestCritJSON(t, dirB, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "bob1", StartLine: 3, EndLine: 3, Body: "bob's comment", Scope: "line",
 						UserID:    bobID,
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
@@ -893,7 +893,7 @@ func TestShareAttrPutAuthExternalIDMismatchDropsSpoof(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files:       map[string]CritJSONFile{"plan.md": {}},
 	})
@@ -973,11 +973,11 @@ func TestShareAttrReplyRoundtripPreservesUserID(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{
 						ID: "c1", StartLine: 3, EndLine: 3, Body: "parent", Scope: "line",
 						UserID:    aliceID,
@@ -1063,7 +1063,7 @@ func TestShareAttr401ClearsCachedIdentity(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
 
 	args := []string{"share", "--share-url", baseURL, "--output", dir, "plan.md"}
 	cmd := exec.Command(binary, args...)
@@ -1119,11 +1119,11 @@ func TestShareAttrCachedIdentityFromConfigOnly(t *testing.T) {
 	// it from the cached config at write-time semantics. For an integration
 	// test we approximate by setting UserID directly (mirrors what `crit
 	// comment` would do at write time when cfg.AuthUserID is set).
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "from cached identity", Scope: "line",
 						UserID:    userID,
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},

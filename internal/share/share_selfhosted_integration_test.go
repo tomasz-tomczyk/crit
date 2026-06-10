@@ -206,7 +206,7 @@ func TestSelfhostedShareRequiresAuthToken(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
 
 	// Use empty fake HOME so the user's real ~/.crit.config.json (which may
 	// hold a valid token) cannot satisfy the share.
@@ -237,11 +237,11 @@ func TestSelfhostedShareSucceedsWithAuthToken(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n\nStep 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "needs detail", Scope: "line",
 						UserID:    userID,
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
@@ -303,11 +303,11 @@ func TestSelfhostedExportWithAuthToken(t *testing.T) {
 		[]byte("# Plan\n\nStep 1\n\nStep 2\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeTestCritJSON(t, dir, session.CritJSON{
+	writeTestCritJSON(t, dir, CritJSON{
 		ReviewRound: 1,
 		Files: map[string]CritJSONFile{
 			"plan.md": {
-				Comments: []session.Comment{
+				Comments: []Comment{
 					{ID: "c1", StartLine: 3, EndLine: 3, Body: "lifecycle check", Scope: "line",
 						UserID:    userID,
 						CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},

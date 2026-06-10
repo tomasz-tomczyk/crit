@@ -1,10 +1,14 @@
 package session
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"os"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/diff"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
@@ -101,4 +105,50 @@ func withDaemonFocus(t *testing.T, f *Focus) {
 		return &out
 	})
 	t.Cleanup(restore)
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	fn()
+	w.Close()
+	os.Stderr = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	return buf.String()
+}
+
+// lineStatsForRound mirrors server.lineStatsForRound for unit tests without
+// importing internal/server (import cycle).
+func lineStatsForRound(sess *Session, n int) (int, int) {
+	if n <= 1 {
+		return 0, 0
+	}
+	var adds, dels int
+	for _, byRound := range sess.RoundSnapshots {
+		curr, ok := byRound[n]
+		if !ok {
+			continue
+		}
+		prev, hasPrev := byRound[n-1]
+		if !hasPrev {
+			adds += len(diff.SplitLines(curr.Content))
+			continue
+		}
+		entries := diff.ComputeLineDiff(prev.Content, curr.Content)
+		for _, e := range entries {
+			switch e.Type {
+			case "added":
+				adds++
+			case "removed":
+				dels++
+			}
+		}
+	}
+	return adds, dels
 }

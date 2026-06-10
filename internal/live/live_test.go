@@ -417,6 +417,13 @@ func TestParseServerFlags_NoLiveOrigin(t *testing.T) {
 	}
 }
 
+func TestParseServerFlags_LiveCookie(t *testing.T) {
+	f := parseServerFlags([]string{"--live-origin", "http://localhost:3000", "--live-cookie", "session=abc"})
+	if f.liveCookie != "session=abc" {
+		t.Fatalf("liveCookie = %q, want session=abc", f.liveCookie)
+	}
+}
+
 func TestCreateLiveSession_EmptyOriginIsFatal(t *testing.T) {
 	_, err := createLiveSession(&serverConfig{liveOrigin: ""})
 	if err == nil {

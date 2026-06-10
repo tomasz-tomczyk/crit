@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strconv"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
 func skipIfNoGH(t *testing.T) {
@@ -52,9 +54,9 @@ func TestPRIntegration_IsStackedPR_RealPR(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !IsStackedPR(info, &GitVCS{}) {
+		if !IsStackedPR(info, &vcs.GitVCS{}) {
 			t.Errorf("PR #%d expected stacked, got not stacked (base=%q, default=%q)",
-				prNum, info.BaseRefName, (&GitVCS{}).DefaultBranch())
+				prNum, info.BaseRefName, (&vcs.GitVCS{}).DefaultBranch())
 		}
 	}
 	if pr := os.Getenv("CRIT_TEST_NONSTACKED_PR"); pr != "" {
@@ -63,9 +65,9 @@ func TestPRIntegration_IsStackedPR_RealPR(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if IsStackedPR(info, &GitVCS{}) {
+		if IsStackedPR(info, &vcs.GitVCS{}) {
 			t.Errorf("PR #%d expected not stacked, got stacked (base=%q, default=%q)",
-				prNum, info.BaseRefName, (&GitVCS{}).DefaultBranch())
+				prNum, info.BaseRefName, (&vcs.GitVCS{}).DefaultBranch())
 		}
 	}
 }

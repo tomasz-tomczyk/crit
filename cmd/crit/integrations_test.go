@@ -675,7 +675,7 @@ func TestConfirmBinaryVersion(t *testing.T) {
 	os.WriteFile(failing, []byte("#!/bin/sh\nexit 1\n"), 0o755)
 
 	old := versionTimeout
-	versionTimeout = 2 * time.Second
+	versionTimeout = 5 * time.Second
 	defer func() { versionTimeout = old }()
 
 	tests := []struct {
