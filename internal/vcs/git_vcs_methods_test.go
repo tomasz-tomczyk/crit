@@ -1,6 +1,7 @@
 package vcs
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -94,10 +95,6 @@ func TestGitVCS_Methods(t *testing.T) {
 	}
 	if len(log) == 0 {
 		t.Error("CommitLog empty")
-	}
-
-	if g.WorkingTreeFingerprint() == "" {
-		t.Error("WorkingTreeFingerprint empty")
 	}
 
 	untracked, err := g.UntrackedFiles(dir)
@@ -246,5 +243,20 @@ func TestLocalBranchTips_Git(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("feat-x not in tips: %+v", got)
+	}
+}
+
+// WorkingTreeFingerprint runs `git status --porcelain` in the process CWD and
+// returns "" for a clean tree, so asserting it from the ambient checkout is
+// nondeterministic (dev machines are dirty, CI runners are clean). Chdir into
+// a repo with an untracked file to make the assertion meaningful.
+func TestGitVCS_WorkingTreeFingerprint(t *testing.T) {
+	dir := InitTestRepo(t)
+	t.Chdir(dir)
+	if err := os.WriteFile(filepath.Join(dir, "dirty.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if (&GitVCS{}).WorkingTreeFingerprint() == "" {
+		t.Error("WorkingTreeFingerprint empty for dirty tree")
 	}
 }

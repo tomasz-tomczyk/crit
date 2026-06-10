@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/session"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func TestFindStaleReviews_FlatFile(t *testing.T) {
@@ -96,7 +97,7 @@ func TestDeleteStaleReviews_FolderForm(t *testing.T) {
 
 func TestRunCleanup_NoStale(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	testutil.SetHome(t, dir)
 	revDir := filepath.Join(dir, ".crit", "reviews")
 	if err := os.MkdirAll(revDir, 0o700); err != nil {
 		t.Fatal(err)

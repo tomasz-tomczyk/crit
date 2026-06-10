@@ -10,6 +10,7 @@ import (
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/session"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 // writeStaleReview writes a review file aged `days` days into a reviews dir so
@@ -60,7 +61,7 @@ func TestRunCleanup_UnknownFlag(t *testing.T) {
 
 func TestRunCleanup_ForceDeletesStale(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testutil.SetHome(t, home)
 	revDir := filepath.Join(home, ".crit", "reviews")
 	staleFile := writeStaleReview(t, revDir, "stale123.json", 30)
 
@@ -74,7 +75,7 @@ func TestRunCleanup_ForceDeletesStale(t *testing.T) {
 
 func TestRunCleanup_AbortKeepsFiles(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testutil.SetHome(t, home)
 	revDir := filepath.Join(home, ".crit", "reviews")
 	staleFile := writeStaleReview(t, revDir, "stale123.json", 30)
 
