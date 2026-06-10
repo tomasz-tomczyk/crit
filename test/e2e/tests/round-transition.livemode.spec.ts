@@ -83,8 +83,22 @@ test.describe('live-mode round transition', () => {
     await expect(replyRow).toBeVisible();
     await expect(replyRow.locator('.reply-body')).toContainText('reply before round bump');
 
+    // Flush the in-memory pin + reply to disk before round-complete; the
+    // carry-forward pipeline reloads PreviousComments from disk in
+    // handleRoundCompleteFiles. Without this, SignalRoundComplete cancels the
+    // debounced write and replies posted just before the bump are dropped
+    // (see rounds.livemode.spec.ts).
+    const finish = await request.post('/api/finish');
+    expect(finish.ok()).toBeTruthy();
+
     // Force a round transition.
     await request.post('/api/round-complete');
+
+    // live-round-start reloads the iframe — clear stale agent-ready so the
+    // poll below observes the post-bump handshake, not the pre-bump one.
+    await page.evaluate(() => {
+      (window as unknown as { __critLiveMessages?: unknown[] }).__critLiveMessages = [];
+    });
 
     // Round counter reflects the bump (>1 → "Round #N"); wait before panel
     // assertions since live-round-start reloads the iframe and re-fetches comments.
@@ -94,14 +108,31 @@ test.describe('live-mode round transition', () => {
       return m ? parseInt(m[1], 10) > 1 : false;
     }, { timeout: 15_000 }).toBe(true);
 
+    // Iframe reload must settle before panel assertions — on Windows the
+    // comment re-render can race with a still-navigating proxy frame.
+    await expect.poll(
+      () => page.evaluate(() => {
+        const log = (window as unknown as { __critLiveMessages?: { type: string }[] })
+          .__critLiveMessages;
+        return Array.isArray(log) && log.some((e) => e.type === 'agent-ready');
+      }),
+      { timeout: 15_000 },
+    ).toBe(true);
+
+    // Canonical list on the server must still carry the reply after bump.
+    await expect.poll(async () => {
+      const r = await request.get('/api/file/comments?path=%2F');
+      if (!r.ok()) return false;
+      const comments = await r.json() as Array<{ replies?: Array<{ body: string }> }>;
+      const pin = comments[0];
+      return pin?.replies?.some((rep) => rep.body.includes('reply before round bump')) ?? false;
+    }, { timeout: 15_000 }).toBe(true);
+
     // Panel still shows the parent + reply post-bump (the chrome re-renders
     // from the canonical comment list after live-round-start).
     await expect(page.locator('#commentsPanelBody .crit-live-comment-row')).toHaveCount(1);
-    await expect.poll(async () => {
-      const body = page.locator('#commentsPanelBody .crit-live-comment-replies .reply-body');
-      if ((await body.count()) === 0) return false;
-      const text = await body.first().textContent();
-      return text?.includes('reply before round bump') ?? false;
-    }, { timeout: 15_000 }).toBe(true);
+    await expect(
+      page.locator('#commentsPanelBody .crit-live-comment-replies .reply-body'),
+    ).toContainText('reply before round bump');
   });
 });
