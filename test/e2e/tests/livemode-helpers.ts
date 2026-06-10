@@ -120,6 +120,7 @@ export async function setViewportPreset(
  * src. Uses URL ctor to avoid regex pitfalls.
  */
 export async function setIframeRoute(page: Page, path: string): Promise<void> {
+  await expect(page.locator('#critLiveIframe')).toBeVisible({ timeout: 15_000 });
   await page.evaluate((p) => {
     const ifr = document.getElementById('critLiveIframe') as HTMLIFrameElement | null;
     if (!ifr) throw new Error('#critLiveIframe not found');

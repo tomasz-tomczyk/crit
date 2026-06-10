@@ -77,21 +77,31 @@ test.describe('live-mode round transition', () => {
     // Confirm the reply landed in the panel via SSE before bumping the
     // round — otherwise we can't tell whether a missing post-bump reply
     // means "carry-forward dropped it" or "SSE never rendered it".
-    await expect(
-      page.locator('#commentsPanelBody .crit-live-comment-replies .reply-body'),
-    ).toContainText('reply before round bump');
+    const replyRow = page.locator(
+      '#commentsPanelBody .crit-live-comment-replies .crit-live-comment-reply',
+    ).first();
+    await expect(replyRow).toBeVisible();
+    await expect(replyRow.locator('.reply-body')).toContainText('reply before round bump');
 
     // Force a round transition.
     await request.post('/api/round-complete');
 
+    // Round counter reflects the bump (>1 → "Round #N"); wait before panel
+    // assertions since live-round-start reloads the iframe and re-fetches comments.
+    await expect.poll(async () => {
+      const text = await page.locator('#liveRoundCounter').textContent();
+      const m = text?.match(/Round #(\d+)/);
+      return m ? parseInt(m[1], 10) > 1 : false;
+    }, { timeout: 15_000 }).toBe(true);
+
     // Panel still shows the parent + reply post-bump (the chrome re-renders
     // from the canonical comment list after live-round-start).
     await expect(page.locator('#commentsPanelBody .crit-live-comment-row')).toHaveCount(1);
-    await expect(
-      page.locator('#commentsPanelBody .crit-live-comment-replies .reply-body'),
-    ).toContainText('reply before round bump');
-
-    // Round counter reflects the bump (>1 → "Round #N").
-    await expect(page.locator('#liveRoundCounter')).toHaveText(/Round #\d+/);
+    await expect.poll(async () => {
+      const body = page.locator('#commentsPanelBody .crit-live-comment-replies .reply-body');
+      if ((await body.count()) === 0) return false;
+      const text = await body.first().textContent();
+      return text?.includes('reply before round bump') ?? false;
+    }, { timeout: 15_000 }).toBe(true);
   });
 });
