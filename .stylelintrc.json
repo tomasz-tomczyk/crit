@@ -7,7 +7,7 @@
   },
   "overrides": [
     {
-      "files": ["cmd/crit/frontend/style.css"],
+      "files": ["web/style.css"],
       "rules": {
         "color-named": "never",
         "declaration-property-value-disallowed-list": {

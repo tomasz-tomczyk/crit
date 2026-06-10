@@ -25,18 +25,18 @@ go test ./...
 
 ## E2E Tests
 
-The `e2e/` directory has a Playwright test suite that runs the full frontend against a real Crit server. Requires Node.js (listed in `mise.toml`).
+The `test/e2e/` directory has a Playwright test suite that runs the full frontend against a real Crit server. Requires Node.js (listed in `mise.toml`).
 
 ```bash
-cd e2e && npm install && npx playwright install chromium
+cd test/e2e && npm install && npx playwright install chromium
 
 make e2e                                              # Run full suite
-cd e2e && npx playwright test tests/comments.spec.ts  # Run one test file
-cd e2e && npx playwright test --headed                # Run with visible browser
+cd test/e2e && npx playwright test tests/comments.spec.ts  # Run one test file
+cd test/e2e && npx playwright test --headed                # Run with visible browser
 make e2e-report                                       # View HTML report
 ```
 
-**If your change touches the frontend, include E2E tests.** See the test organization table in `CLAUDE.md` and the existing specs in `e2e/tests/` for conventions and helpers.
+**If your change touches the frontend, include E2E tests.** See the test organization table in `CLAUDE.md` and the existing specs in `test/e2e/tests/` for conventions and helpers.
 
 ## Local Testing & Seed Fixtures
 
@@ -59,7 +59,7 @@ Each instance binds a consecutive port starting at the one you pass (default `30
 
 The harness seeds comments, swaps in v2 content to simulate agent edits, and signals round-complete, then prints what to look for at each URL. Use it when working on diff rendering, round-to-round state, the resolved-comment UI, carry-forward, range mode, or the stacked-PR toggle.
 
-**Treat these scenarios as living seed fixtures.** When you add or change a review-UI feature, add a new seeded scenario (or extend an existing one) in `test/test-diff.sh` so a reviewer can spin it up and eyeball your change locally. A new scenario typically means starting another server instance on the next port and seeding the comments/content that exercise the feature.
+**Treat these scenarios as living seed fixtures.** When you add or change a review-UI feature, add a new seeded scenario (or extend an existing one) in `test/shell/test-diff.sh` so a reviewer can spin it up and eyeball your change locally. A new scenario typically means starting another server instance on the next port and seeding the comments/content that exercise the feature.
 
 ## Integration Tests
 
@@ -90,7 +90,7 @@ When you change `crit pull` / `crit push`, GitHub comment-bucket logic, or reply
 
 ### Leave a seed behind
 
-When you ship a review-UI feature, leave a seeded scenario in `test/test-diff.sh`; when you ship share or GitHub-sync behavior, leave an integration test case. The next contributor — and you, three months from now — should be able to spin up your feature and verify it without reverse-engineering it first.
+When you ship a review-UI feature, leave a seeded scenario in `test/shell/test-diff.sh`; when you ship share or GitHub-sync behavior, leave an integration test case. The next contributor — and you, three months from now — should be able to spin up your feature and verify it without reverse-engineering it first.
 
 ## Linting
 

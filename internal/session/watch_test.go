@@ -1,0 +1,1559 @@
+package session
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+)
+
+// TestWatchFileMtimes_CommentNotLostOnFileChange verifies that a comment added
+// concurrently with the file watcher detecting a content change is not silently
+// discarded. This exercises the fix for the race where:
+//  1. Watcher reads FileHash under RLock, sees hash differs
+//  2. AddComment runs (acquires Lock, appends comment, releases Lock)
+//  3. Watcher acquires Lock and blindly clears Comments
+//
+// The fix checks the hash under the write lock so step 3 sees the current state.
+func TestWatchFileMtimes_CommentNotLostOnFileChange(t *testing.T) {
+	dir := t.TempDir()
+	mdPath := filepath.Join(dir, "plan.md")
+	content := "# Plan\n\nStep 1\n"
+	writeFile(t, mdPath, content)
+
+	s := &Session{
+		Mode:        "files",
+		RepoRoot:    dir,
+		ReviewRound: 1,
+
+		Files: []*FileEntry{
+			{
+				Path:     "plan.md",
+				AbsPath:  mdPath,
+				Status:   "modified",
+				FileType: "markdown",
+				Content:  content,
+				FileHash: fileHash([]byte(content)),
+				Comments: []Comment{},
+			},
+		},
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	stop := make(chan struct{})
+	defer close(stop)
+
+	// Start the file watcher in the background.
+	go s.watchFileMtimes(stop)
+
+	// Add a comment while the file hasn't changed — this should persist.
+	_, ok := s.AddComment("plan.md", 1, 1, "", "important feedback", "", "tester", "")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+
+	// Give the watcher one tick to confirm it doesn't clear comments
+	// when the file hasn't changed.
+	time.Sleep(1500 * time.Millisecond)
+
+	comments := s.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment before file change, got %d", len(comments))
+	}
+	if comments[0].Body != "important feedback" {
+		t.Errorf("comment body = %q", comments[0].Body)
+	}
+}
+
+// TestWatchFileMtimes_ConcurrentAddDuringChange uses the race detector to verify
+// there is no data race between the watcher clearing comments on file change and
+// concurrent AddComment calls. Run with: go test -race -run TestWatchFileMtimes_ConcurrentAddDuringChange
+func TestWatchFileMtimes_ConcurrentAddDuringChange(t *testing.T) {
+	dir := t.TempDir()
+	mdPath := filepath.Join(dir, "plan.md")
+	content := "# Plan\n\nStep 1\n"
+	writeFile(t, mdPath, content)
+
+	s := &Session{
+		Mode:        "files",
+		RepoRoot:    dir,
+		ReviewRound: 1,
+
+		Files: []*FileEntry{
+			{
+				Path:     "plan.md",
+				AbsPath:  mdPath,
+				Status:   "modified",
+				FileType: "markdown",
+				Content:  content,
+				FileHash: fileHash([]byte(content)),
+				Comments: []Comment{},
+			},
+		},
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	stop := make(chan struct{})
+
+	// Start the file watcher.
+	go s.watchFileMtimes(stop)
+
+	// Concurrently: add comments in a tight loop while modifying the file on disk.
+	var wg sync.WaitGroup
+
+	// Writer goroutine: keep modifying the file to trigger the watcher's change path.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10; i++ {
+			newContent := []byte("# Plan\n\n## Revision " + string(rune('A'+i)) + "\n\nUpdated\n")
+			os.WriteFile(mdPath, newContent, 0644)
+			time.Sleep(200 * time.Millisecond)
+		}
+	}()
+
+	// Comment goroutines: keep adding comments concurrently with file changes.
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				s.AddComment("plan.md", 1, 1, "", "concurrent comment", "", "tester", "")
+				time.Sleep(50 * time.Millisecond)
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(stop)
+
+	// The primary assertion is that the race detector does not fire.
+	// As a secondary check, verify the session is in a consistent state.
+	s.mu.RLock()
+	f := s.fileByPathLocked("plan.md")
+	_ = f.Comments // access under lock — no race
+	_ = f.FileHash
+	s.mu.RUnlock()
+}
+
+// TestCarryForwardAllComments_NoDuplicateOnDisk verifies that carried-forward
+// comments don't produce duplicates when WriteFiles merges with disk state.
+// The old comment ID must be tracked as deleted so mergeFileSnapshotIntoCritJSON
+// skips it, leaving only the new carried-forward copy.
+func TestCarryForwardAllComments_NoDuplicateOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	// v4 folder layout: identity is a folder, review.json lives inside.
+	// Using a flat-file identity worked by accident on POSIX (write failed
+	// silently, leaving the pre-seeded flat file intact) but fails on Windows
+	// where MkdirAll on a path-component-that-is-a-file errors differently.
+	identity := filepath.Join(dir, ".crit")
+	reviewPath := filepath.Join(identity, "review.json")
+
+	s := &Session{
+		Mode:           "git",
+		RepoRoot:       dir,
+		ReviewFilePath: identity,
+		Files: []*FileEntry{
+			{
+				Path:     "main.go",
+				AbsPath:  filepath.Join(dir, "main.go"),
+				Status:   "modified",
+				FileType: "code",
+				Comments: []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old1",
+						StartLine: 10,
+						EndLine:   10,
+						Body:      "Fix this",
+						Author:    "Tomasz",
+						Scope:     "line",
+						CreatedAt: "2026-04-13T10:00:00Z",
+						UpdatedAt: "2026-04-13T10:00:00Z",
+						Resolved:  true,
+						Replies: []Reply{
+							{ID: "rp_1", Body: "Fixed", Author: "Agent", CreatedAt: "2026-04-13T10:01:00Z"},
+						},
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	// Write the "old" version to disk (simulates the state before round-complete).
+	oldCJ := CritJSON{
+		Branch:      "main",
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Status: "modified",
+				Comments: []Comment{
+					{
+						ID:        "c_old1",
+						StartLine: 10,
+						EndLine:   10,
+						Body:      "Fix this",
+						Author:    "Tomasz",
+						Scope:     "line",
+						CreatedAt: "2026-04-13T10:00:00Z",
+						UpdatedAt: "2026-04-13T10:00:00Z",
+						Resolved:  true,
+						Replies: []Reply{
+							{ID: "rp_1", Body: "Fixed", Author: "Agent", CreatedAt: "2026-04-13T10:01:00Z"},
+						},
+					},
+				},
+			},
+		},
+	}
+	data, err := json.MarshalIndent(oldCJ, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(identity, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reviewPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run carry-forward (simulates what handleRoundCompleteGit does).
+	s.mu.Lock()
+	s.carryForwardAllComments()
+	s.mu.Unlock()
+
+	// Verify in-memory state: exactly 1 comment with a NEW id.
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 carried-forward comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if carried.ID == "c_old1" {
+		t.Error("carried-forward comment should have a new ID")
+	}
+	if !carried.CarriedForward {
+		t.Error("expected CarriedForward=true")
+	}
+
+	// Now write to disk (this is where the duplicate appears without the fix).
+	s.WriteFiles()
+
+	diskData, err := os.ReadFile(reviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var diskCJ CritJSON
+	if err := json.Unmarshal(diskData, &diskCJ); err != nil {
+		t.Fatal(err)
+	}
+
+	diskComments := diskCJ.Files["main.go"].Comments
+	if len(diskComments) != 1 {
+		t.Errorf("expected 1 comment on disk after WriteFiles, got %d", len(diskComments))
+		for _, c := range diskComments {
+			t.Logf("  id=%s carried_forward=%v resolved=%v", c.ID, c.CarriedForward, c.Resolved)
+		}
+	}
+}
+
+func TestCarryForwardComments_NoDuplicateOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	// v4 folder layout: identity is a folder, review.json lives inside.
+	identity := filepath.Join(dir, ".crit")
+	reviewPath := filepath.Join(identity, "review.json")
+	mdPath := filepath.Join(dir, "plan.md")
+	os.WriteFile(mdPath, []byte("# Plan\n\nStep 1\n\nStep 2\n"), 0644)
+
+	s := &Session{
+		Mode:           "files",
+		RepoRoot:       dir,
+		ReviewFilePath: identity,
+		Files: []*FileEntry{
+			{
+				Path:            "plan.md",
+				AbsPath:         mdPath,
+				Status:          "modified",
+				FileType:        "markdown",
+				Content:         "# Plan\n\nStep 1\n\nStep 2\n",
+				PreviousContent: "# Plan\n\nStep 1\n",
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old_md",
+						StartLine: 3,
+						EndLine:   3,
+						Body:      "Expand this",
+						Author:    "Tomasz",
+						Scope:     "line",
+						CreatedAt: "2026-04-13T10:00:00Z",
+						UpdatedAt: "2026-04-13T10:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	// Write old version to disk.
+	oldCJ := CritJSON{
+		Branch:      "main",
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Status: "modified",
+				Comments: []Comment{
+					{
+						ID:        "c_old_md",
+						StartLine: 3,
+						EndLine:   3,
+						Body:      "Expand this",
+						Author:    "Tomasz",
+						Scope:     "line",
+						CreatedAt: "2026-04-13T10:00:00Z",
+						UpdatedAt: "2026-04-13T10:00:00Z",
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(oldCJ, "", "  ")
+	if err := os.MkdirAll(identity, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(reviewPath, data, 0644)
+
+	// Run markdown carry-forward.
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 carried-forward comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if carried.ID == "c_old_md" {
+		t.Error("carried-forward comment should have a new ID")
+	}
+	// Line 3 in old content ("Step 1") is still line 3 in new content.
+	if carried.StartLine != 3 || carried.EndLine != 3 {
+		t.Errorf("expected line 3, got start=%d end=%d", carried.StartLine, carried.EndLine)
+	}
+
+	// Write to disk — should not produce duplicates.
+	s.WriteFiles()
+
+	diskData, _ := os.ReadFile(reviewPath)
+	var diskCJ CritJSON
+	json.Unmarshal(diskData, &diskCJ)
+
+	diskComments := diskCJ.Files["plan.md"].Comments
+	if len(diskComments) != 1 {
+		t.Errorf("expected 1 comment on disk, got %d", len(diskComments))
+		for _, c := range diskComments {
+			t.Logf("  id=%s carried_forward=%v", c.ID, c.CarriedForward)
+		}
+	}
+}
+
+func TestCarryForwardComment_PreservesQuote(t *testing.T) {
+	offset := 5
+	old := Comment{
+		ID:          "c_old",
+		StartLine:   10,
+		EndLine:     10,
+		Body:        "Fix this",
+		Quote:       "the quoted text",
+		QuoteOffset: &offset,
+		Author:      "Tomasz",
+		Scope:       "line",
+		CreatedAt:   "2026-04-13T10:00:00Z",
+		UpdatedAt:   "2026-04-13T10:00:00Z",
+		Resolved:    true,
+		ReviewRound: 1,
+		Replies: []Reply{
+			{ID: "rp_1", Body: "Done", Author: "Agent"},
+		},
+	}
+
+	carried := carryForwardComment(old, "c_new", "2026-04-13T11:00:00Z")
+
+	if carried.Quote != "the quoted text" {
+		t.Errorf("Quote not preserved: got %q", carried.Quote)
+	}
+	if carried.QuoteOffset == nil || *carried.QuoteOffset != 5 {
+		t.Error("QuoteOffset not preserved")
+	}
+}
+
+func TestCarryForwardComment_PreservesGitHubID(t *testing.T) {
+	old := Comment{
+		ID:        "c_old",
+		StartLine: 10,
+		EndLine:   10,
+		Body:      "Fix this",
+		Author:    "reviewer",
+		Scope:     "line",
+		CreatedAt: "2026-04-13T10:00:00Z",
+		UpdatedAt: "2026-04-13T10:00:00Z",
+		GitHubID:  12345,
+	}
+
+	carried := carryForwardComment(old, "c_new", "2026-04-13T11:00:00Z")
+
+	if carried.GitHubID != 12345 {
+		t.Errorf("GitHubID = %d, want 12345", carried.GitHubID)
+	}
+}
+
+// TestCarryForwardComment_PreservesResolvedRound guards round-scoped resolve
+// metadata. ResolvedRound records the round during which Resolved flipped
+// false->true and drives the timeline visibility filter; if it is dropped on
+// carry-forward, resolved comments appear at the wrong point in the timeline
+// (the legacy round-1 fallback kicks in).
+func TestCarryForwardComment_PreservesResolvedRound(t *testing.T) {
+	old := Comment{
+		ID:            "c_old",
+		StartLine:     5,
+		EndLine:       5,
+		Body:          "Looks good",
+		Author:        "reviewer",
+		Scope:         "line",
+		CreatedAt:     "2026-04-13T10:00:00Z",
+		UpdatedAt:     "2026-04-13T10:00:00Z",
+		Resolved:      true,
+		ResolvedRound: 3,
+		ReviewRound:   1,
+	}
+
+	carried := carryForwardComment(old, "c_new", "2026-04-13T11:00:00Z")
+
+	if !carried.Resolved {
+		t.Error("Resolved not preserved")
+	}
+	if carried.ResolvedRound != 3 {
+		t.Errorf("ResolvedRound = %d, want 3", carried.ResolvedRound)
+	}
+}
+
+// TestCarryForwardComment_PreservesLastPushedBodyHash guards the GitHub-sync
+// dedup hash. Without it, every already-pushed comment looks "never pushed"
+// after a round bump and `crit push` would re-PATCH (or double-post) bodies
+// that are actually unchanged.
+func TestCarryForwardComment_PreservesLastPushedBodyHash(t *testing.T) {
+	old := Comment{
+		ID:                 "c_old",
+		StartLine:          7,
+		EndLine:            7,
+		Body:               "Nit: rename",
+		Author:             "reviewer",
+		Scope:              "line",
+		CreatedAt:          "2026-04-13T10:00:00Z",
+		UpdatedAt:          "2026-04-13T10:00:00Z",
+		GitHubID:           99,
+		LastPushedBodyHash: "abc123def456",
+	}
+
+	carried := carryForwardComment(old, "c_new", "2026-04-13T11:00:00Z")
+
+	if carried.GitHubID != 99 {
+		t.Errorf("GitHubID = %d, want 99", carried.GitHubID)
+	}
+	if carried.LastPushedBodyHash != "abc123def456" {
+		t.Errorf("LastPushedBodyHash = %q, want %q", carried.LastPushedBodyHash, "abc123def456")
+	}
+}
+
+// TestWatchGit_SkipsGitStatusWhenNotWaiting verifies that watchGit does not
+// detect edits when waitingForAgent is false, and does detect them once
+// waitingForAgent is set to true.
+func TestWatchGit_SkipsGitStatusWhenNotWaiting(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Create a feature branch so we have a known base
+	gitT(t, dir, "checkout", "-b", "feat")
+	writeFile(t, filepath.Join(dir, "file.go"), "package main\n")
+	gitT(t, dir, "add", "file.go")
+	gitT(t, dir, "commit", "-m", "add file")
+
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		Branch:      "feat",
+		BaseRef:     "main",
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{
+				Path:     "file.go",
+				AbsPath:  filepath.Join(dir, "file.go"),
+				Status:   "modified",
+				FileType: "code",
+				Comments: []Comment{},
+			},
+		},
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	stop := make(chan struct{})
+	defer close(stop)
+
+	// Start watchGit with waitingForAgent = false (default).
+	// WorkingTreeFingerprint uses cwd, so chdir before starting.
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+	go s.watchGit(stop)
+
+	// Create an untracked file — this changes git status --porcelain output.
+	time.Sleep(500 * time.Millisecond) // let watcher start
+	writeFile(t, filepath.Join(dir, "untracked1.txt"), "hello\n")
+
+	// Wait for a couple of watcher ticks — should NOT detect edits.
+	time.Sleep(2500 * time.Millisecond)
+	if edits := s.GetPendingEdits(); edits != 0 {
+		t.Errorf("expected 0 edits while not waiting for agent, got %d", edits)
+	}
+
+	// Now set waitingForAgent = true and wait for the baseline tick.
+	s.setWaitingForAgent(true)
+	time.Sleep(1500 * time.Millisecond) // baseline tick
+
+	// Create another new file to change the fingerprint from the baseline.
+	writeFile(t, filepath.Join(dir, "untracked2.txt"), "world\n")
+	time.Sleep(2500 * time.Millisecond)
+
+	if edits := s.GetPendingEdits(); edits == 0 {
+		t.Error("expected edits > 0 after setting waitingForAgent = true")
+	}
+}
+
+func TestRestoreOrphanedComments(t *testing.T) {
+	dir := t.TempDir()
+
+	s := &Session{
+		Mode:     "git",
+		Branch:   "main",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{Path: "existing.md", AbsPath: filepath.Join(dir, "existing.md"), Status: "modified", FileType: "markdown"},
+		},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	// Write a review file with comments on an orphaned path
+	critPath := s.critJSONPath()
+	cj := CritJSON{
+		Branch:      "main",
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"existing.md": {
+				Status:   "modified",
+				Comments: []Comment{{ID: "c1", Body: "still here", Scope: "line", StartLine: 1, EndLine: 1}},
+			},
+			"temp.go": {
+				Status: "added",
+				Comments: []Comment{
+					{ID: "c_temp1", Body: "this will be orphaned", Scope: "file"},
+				},
+			},
+		},
+	}
+	data, err := json.Marshal(cj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(critPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mustMkdirAll(ReviewPathsFor(critPath).Review), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify temp.go is NOT in s.Files
+	for _, f := range s.Files {
+		if f.Path == "temp.go" {
+			t.Fatal("temp.go should not be in session files before restore")
+		}
+	}
+
+	// Restore orphaned comments
+	s.restoreOrphanedComments()
+
+	// temp.go should now be in s.Files as orphaned
+	var orphaned *FileEntry
+	for _, f := range s.Files {
+		if f.Path == "temp.go" {
+			orphaned = f
+			break
+		}
+	}
+	if orphaned == nil {
+		t.Fatal("orphaned file not restored")
+	}
+	if !orphaned.Orphaned {
+		t.Error("expected Orphaned=true")
+	}
+	if orphaned.Status != "removed" {
+		t.Errorf("expected status 'removed', got %q", orphaned.Status)
+	}
+	if len(orphaned.Comments) != 1 {
+		t.Errorf("expected 1 comment, got %d", len(orphaned.Comments))
+	}
+
+	// Calling again should NOT duplicate
+	s.restoreOrphanedComments()
+	count := 0
+	for _, f := range s.Files {
+		if f.Path == "temp.go" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 temp.go entry after double restore, got %d", count)
+	}
+}
+
+func TestCarryForward_AnchorCorrectShift(t *testing.T) {
+	dir := t.TempDir()
+	mdPath := filepath.Join(dir, "plan.md")
+	os.WriteFile(mdPath, []byte("# Plan\n\nStep 1\n\nStep 2\n"), 0644)
+
+	s := &Session{
+		Mode:     "files",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:     "plan.md",
+				AbsPath:  mdPath,
+				Status:   "modified",
+				FileType: "markdown",
+				// New content: two new lines inserted before Step 1
+				Content:         "# Plan\n\nNew line A\nNew line B\nStep 1\n\nStep 2\n",
+				PreviousContent: "# Plan\n\nStep 1\n\nStep 2\n",
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old",
+						StartLine: 3,
+						EndLine:   3,
+						Body:      "Expand this",
+						Anchor:    "Step 1",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if carried.StartLine != 5 || carried.EndLine != 5 {
+		t.Errorf("expected line 5, got start=%d end=%d", carried.StartLine, carried.EndLine)
+	}
+	if carried.Drifted {
+		t.Error("expected Drifted=false when anchor matches")
+	}
+	if carried.Anchor != "Step 1" {
+		t.Errorf("Anchor = %q, want %q", carried.Anchor, "Step 1")
+	}
+}
+
+func TestCarryForward_AnchorDrifted(t *testing.T) {
+	dir := t.TempDir()
+	mdPath := filepath.Join(dir, "plan.md")
+	os.WriteFile(mdPath, []byte("# Plan\n\nSomething else\n"), 0644)
+
+	s := &Session{
+		Mode:     "files",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "plan.md",
+				AbsPath:         mdPath,
+				Status:          "modified",
+				FileType:        "markdown",
+				Content:         "# Plan\n\nSomething else\n",
+				PreviousContent: "# Plan\n\nStep 1\n",
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old",
+						StartLine: 3,
+						EndLine:   3,
+						Body:      "Fix this",
+						Anchor:    "Step 1",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if !carried.Drifted {
+		t.Error("expected Drifted=true when anchor is not found")
+	}
+}
+
+func TestCarryForward_AnchorEditedInPlaceNotDrifted(t *testing.T) {
+	// Old anchor is a clean prefix of the new line — text appended in place.
+	// LCS maps the line to the same position, but exact match fails.
+	// Should be treated as anchored, not drifted.
+	dir := t.TempDir()
+	mdPath := filepath.Join(dir, "plan.md")
+	oldContent := "# Plan\n\n- Don't create a group for just 1 commit — merge it into the closest group\n"
+	newContent := "# Plan\n\n- Don't create a group for just 1 commit — merge it into the closest group (unless it's a single significant feature that warrants its own callout)\n"
+	os.WriteFile(mdPath, []byte(newContent), 0644)
+
+	s := &Session{
+		Mode:     "files",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "plan.md",
+				AbsPath:         mdPath,
+				Status:          "modified",
+				FileType:        "markdown",
+				Content:         newContent,
+				PreviousContent: oldContent,
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old",
+						StartLine: 3,
+						EndLine:   3,
+						Body:      "unless that commit is a single significant change/feature!",
+						Anchor:    "- Don't create a group for just 1 commit — merge it into the closest group",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if carried.Drifted {
+		t.Error("expected Drifted=false when anchor was edited in place but still recognizable")
+	}
+	if carried.StartLine != 3 || carried.EndLine != 3 {
+		t.Errorf("expected line 3, got %d-%d", carried.StartLine, carried.EndLine)
+	}
+}
+
+func TestAnchorSimilar(t *testing.T) {
+	tests := []struct {
+		name      string
+		candidate string
+		anchor    string
+		want      bool
+	}{
+		{"identical", "foo bar", "foo bar", true},
+		{"trim whitespace", "  foo bar  ", "foo bar", true},
+		{"appended text", "foo bar baz qux", "foo bar baz", true},
+		{"trimmed text", "foo bar baz", "foo bar baz qux", true},
+		{"minor edit", "the quick brown fox", "the quick brn fox", true},
+		{"short anchor not trivially contained", "} else {", "}", false},
+		{"short anchor too generic", "x = foo()", "x = 1", false},
+		{"empty candidate", "", "foo bar", false},
+		{"empty anchor", "foo bar", "", false},
+		{"unrelated", "the quick brown fox", "lorem ipsum dolor", false},
+		{"heavy rewrite", "foo bar baz", "completely different text here", false},
+		{"multi-line minor edit", "line one\nline two changed", "line one\nline two", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := anchorSimilar(tt.candidate, tt.anchor); got != tt.want {
+				t.Errorf("anchorSimilar(%q, %q) = %v, want %v",
+					tt.candidate, tt.anchor, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCarryForward_AnchorFindsCorrectPositionWhenLCSWrong(t *testing.T) {
+	dir := t.TempDir()
+	mdPath := filepath.Join(dir, "plan.md")
+
+	// Old content: lines are A B C D E
+	oldContent := "A\nB\nC\nD\nE\n"
+	// New content: lines are X Y C Z A B D E
+	// The comment was on line 1 ("A") in old content.
+	// LCS might map line 1 to some position, but "A" is now at line 5.
+	newContent := "X\nY\nC\nZ\nA\nB\nD\nE\n"
+	os.WriteFile(mdPath, []byte(newContent), 0644)
+
+	s := &Session{
+		Mode:     "files",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "plan.md",
+				AbsPath:         mdPath,
+				Status:          "modified",
+				FileType:        "markdown",
+				Content:         newContent,
+				PreviousContent: oldContent,
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old",
+						StartLine: 1,
+						EndLine:   1,
+						Body:      "Comment on A",
+						Anchor:    "A",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if carried.StartLine != 5 || carried.EndLine != 5 {
+		t.Errorf("expected line 5 (where 'A' now is), got start=%d end=%d", carried.StartLine, carried.EndLine)
+	}
+	if carried.Drifted {
+		t.Error("expected Drifted=false since anchor was found")
+	}
+}
+
+func TestCarryForward_WithoutAnchorBackwardsCompatible(t *testing.T) {
+	dir := t.TempDir()
+	mdPath := filepath.Join(dir, "plan.md")
+	os.WriteFile(mdPath, []byte("# Plan\n\nNew line\nStep 1\n\nStep 2\n"), 0644)
+
+	s := &Session{
+		Mode:     "files",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "plan.md",
+				AbsPath:         mdPath,
+				Status:          "modified",
+				FileType:        "markdown",
+				Content:         "# Plan\n\nNew line\nStep 1\n\nStep 2\n",
+				PreviousContent: "# Plan\n\nStep 1\n\nStep 2\n",
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old",
+						StartLine: 3,
+						EndLine:   3,
+						Body:      "Expand this",
+						// No Anchor field — backwards compatible
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	// LCS should remap line 3 -> 4 (shifted by inserted line).
+	if carried.StartLine != 4 || carried.EndLine != 4 {
+		t.Errorf("expected LCS remap to line 4, got start=%d end=%d", carried.StartLine, carried.EndLine)
+	}
+	if carried.Drifted {
+		t.Error("expected Drifted=false for comments without anchor")
+	}
+}
+
+func TestCarryForwardComment_PreservesAnchor(t *testing.T) {
+	old := Comment{
+		ID:        "c_old",
+		StartLine: 10,
+		EndLine:   12,
+		Body:      "Fix this",
+		Anchor:    "line10\nline11\nline12",
+		Scope:     "line",
+		CreatedAt: "2026-01-01T00:00:00Z",
+		UpdatedAt: "2026-01-01T00:00:00Z",
+	}
+
+	carried := carryForwardComment(old, "c_new", "2026-01-02T00:00:00Z")
+
+	if carried.Anchor != "line10\nline11\nline12" {
+		t.Errorf("Anchor not preserved: got %q", carried.Anchor)
+	}
+	if carried.Drifted {
+		t.Error("Drifted should be false on fresh carry-forward")
+	}
+}
+
+func TestCarryForward_AnchorMultilineRange(t *testing.T) {
+	dir := t.TempDir()
+	mdPath := filepath.Join(dir, "plan.md")
+
+	oldContent := "Header\nLine A\nLine B\nLine C\nFooter\n"
+	// New content: block moved down by 3 lines
+	newContent := "Header\nX\nY\nZ\nLine A\nLine B\nLine C\nFooter\n"
+	os.WriteFile(mdPath, []byte(newContent), 0644)
+
+	s := &Session{
+		Mode:     "files",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "plan.md",
+				AbsPath:         mdPath,
+				Status:          "modified",
+				FileType:        "markdown",
+				Content:         newContent,
+				PreviousContent: oldContent,
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old",
+						StartLine: 2,
+						EndLine:   4,
+						Body:      "Refactor this block",
+						Anchor:    "Line A\nLine B\nLine C",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if carried.StartLine != 5 || carried.EndLine != 7 {
+		t.Errorf("expected lines 5-7, got start=%d end=%d", carried.StartLine, carried.EndLine)
+	}
+	if carried.Drifted {
+		t.Error("expected Drifted=false")
+	}
+}
+
+func TestCarryForward_AnchorLenFromAnchorNotLCS(t *testing.T) {
+	// Regression: anchorLen must come from the anchor text, not the LCS span.
+	// If LCS maps old lines 2-4 to new lines 5-10 (gap lines inserted between),
+	// the end line should still be 5+3-1=7 (3-line anchor), not 5+6-1=10.
+	dir := t.TempDir()
+	mdPath := filepath.Join(dir, "plan.md")
+
+	oldContent := "Header\nLine A\nLine B\nLine C\nFooter\n"
+	// New content: anchor block exists but LCS may map start/end with a gap.
+	// Insert lines between where LCS puts start vs end to create divergence.
+	newContent := "Header\nExtra1\nExtra2\nExtra3\nLine A\nLine B\nLine C\nExtra4\nFooter\n"
+	os.WriteFile(mdPath, []byte(newContent), 0644)
+
+	s := &Session{
+		Mode:     "files",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "plan.md",
+				AbsPath:         mdPath,
+				Status:          "modified",
+				FileType:        "markdown",
+				Content:         newContent,
+				PreviousContent: oldContent,
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old",
+						StartLine: 2,
+						EndLine:   4,
+						Body:      "Review this",
+						Anchor:    "Line A\nLine B\nLine C",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	// Anchor is 3 lines, so end should be start+2 regardless of LCS span.
+	if carried.StartLine != 5 || carried.EndLine != 7 {
+		t.Errorf("expected lines 5-7, got start=%d end=%d", carried.StartLine, carried.EndLine)
+	}
+	if carried.Drifted {
+		t.Error("expected Drifted=false — anchor found in file")
+	}
+}
+
+func TestCarryForwardComments_CodeFileAnchorMoves(t *testing.T) {
+	// Code file with anchor text that moves to a different line between rounds.
+	// carryForwardComments should find the anchor in the new content and remap.
+	dir := t.TempDir()
+	goPath := filepath.Join(dir, "main.go")
+	newContent := "package main\n\nimport \"fmt\"\n\nfunc hello() {\n\tfmt.Println(\"hello\")\n}\n"
+	writeFile(t, goPath, newContent)
+
+	s := &Session{
+		Mode:     "git",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:     "main.go",
+				AbsPath:  goPath,
+				Status:   "modified",
+				FileType: "code",
+				// Content already updated to new version (simulating post-reread)
+				Content: newContent,
+				// PreviousContent: old version before agent edits
+				PreviousContent: "package main\n\nfunc hello() {\n\tfmt.Println(\"hello\")\n}\n",
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_code1",
+						StartLine: 4,
+						EndLine:   4,
+						Body:      "Use log instead of fmt",
+						Anchor:    "\tfmt.Println(\"hello\")",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	// The anchor text "\tfmt.Println(\"hello\")" is now on line 6
+	if carried.StartLine != 6 || carried.EndLine != 6 {
+		t.Errorf("expected line 6 (where anchor moved to), got start=%d end=%d", carried.StartLine, carried.EndLine)
+	}
+	if carried.Drifted {
+		t.Error("expected Drifted=false since anchor was found")
+	}
+	if !carried.CarriedForward {
+		t.Error("expected CarriedForward=true")
+	}
+}
+
+func TestCarryForwardComments_CodeFileAnchorDeleted(t *testing.T) {
+	// Code file where the anchor text was deleted between rounds.
+	// The comment should be marked Drifted=true.
+	dir := t.TempDir()
+	goPath := filepath.Join(dir, "main.go")
+	newContent := "package main\n\nfunc hello() {\n\t// refactored\n}\n"
+	writeFile(t, goPath, newContent)
+
+	s := &Session{
+		Mode:     "git",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "main.go",
+				AbsPath:         goPath,
+				Status:          "modified",
+				FileType:        "code",
+				Content:         newContent,
+				PreviousContent: "package main\n\nfunc hello() {\n\tfmt.Println(\"hello\")\n}\n",
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_code2",
+						StartLine: 4,
+						EndLine:   4,
+						Body:      "Use log instead",
+						Anchor:    "\tfmt.Println(\"hello\")",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if !carried.Drifted {
+		t.Error("expected Drifted=true when anchor text was deleted")
+	}
+	if !carried.CarriedForward {
+		t.Error("expected CarriedForward=true")
+	}
+}
+
+func TestCarryForwardComments_CodeFileNoAnchorUsesLCS(t *testing.T) {
+	// Code file with a comment that has no Anchor (old comment before anchors existed).
+	// With PreviousContent available, carryForwardComments uses LCS to remap
+	// the line position, same as markdown files.
+	dir := t.TempDir()
+	goPath := filepath.Join(dir, "main.go")
+	oldContent := "package main\n\nfunc hello() {}\n"
+	// New content: line inserted before the function
+	newContent := "package main\n\n// greeting\nfunc hello() {}\n"
+	writeFile(t, goPath, newContent)
+
+	s := &Session{
+		Mode:     "git",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "main.go",
+				AbsPath:         goPath,
+				Status:          "modified",
+				FileType:        "code",
+				Content:         newContent,
+				PreviousContent: oldContent,
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_code3",
+						StartLine: 3,
+						EndLine:   3,
+						Body:      "Add docs",
+						// No Anchor — old comment, but LCS still remaps correctly
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	// LCS remaps line 3 ("func hello() {}") to line 4 in the new content.
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if carried.StartLine != 4 || carried.EndLine != 4 {
+		t.Errorf("expected LCS remap to line 4, got start=%d end=%d", carried.StartLine, carried.EndLine)
+	}
+	if !carried.CarriedForward {
+		t.Error("expected CarriedForward=true")
+	}
+}
+
+func TestCarryForwardComments_CodeFileWithPreviousContent(t *testing.T) {
+	// Code file where PreviousContent is set before carryForwardComments runs.
+	// This simulates the handleRoundCompleteGit flow where we snapshot Content
+	// before re-reading. The carry-forward should use anchor search on the
+	// new Content to find the comment's new position.
+	dir := t.TempDir()
+	goPath := filepath.Join(dir, "main.go")
+	newContent := "package main\n\n// Added comment\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n"
+	writeFile(t, goPath, newContent)
+
+	s := &Session{
+		Mode:     "git",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:     "main.go",
+				AbsPath:  goPath,
+				Status:   "modified",
+				FileType: "code",
+				Content:  newContent,
+				// PreviousContent = old version (before the agent's edits)
+				PreviousContent: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n",
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_code4",
+						StartLine: 3,
+						EndLine:   3,
+						Body:      "Use a constant",
+						Anchor:    "import \"fmt\"",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+					{
+						ID:        "c_code5",
+						StartLine: 6,
+						EndLine:   6,
+						Body:      "Add error handling",
+						Anchor:    "\tfmt.Println(\"hello\")",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(s.Files[0].Comments))
+	}
+
+	// Find comments by body
+	var importComment, printComment Comment
+	for _, c := range s.Files[0].Comments {
+		switch c.Body {
+		case "Use a constant":
+			importComment = c
+		case "Add error handling":
+			printComment = c
+		}
+	}
+
+	// "import \"fmt\"" moved from line 3 to line 4
+	if importComment.StartLine != 4 || importComment.EndLine != 4 {
+		t.Errorf("import comment: expected line 4, got start=%d end=%d", importComment.StartLine, importComment.EndLine)
+	}
+
+	// "\tfmt.Println(\"hello\")" moved from line 6 to line 7
+	if printComment.StartLine != 7 || printComment.EndLine != 7 {
+		t.Errorf("print comment: expected line 7, got start=%d end=%d", printComment.StartLine, printComment.EndLine)
+	}
+}
+
+func TestCarryForwardComments_CodeFileFileLevelComment(t *testing.T) {
+	// File-level comments (scope=file) on code files should be carried forward as-is.
+	dir := t.TempDir()
+	goPath := filepath.Join(dir, "main.go")
+	writeFile(t, goPath, "package main\n")
+
+	s := &Session{
+		Mode:     "git",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "main.go",
+				AbsPath:         goPath,
+				Status:          "modified",
+				FileType:        "code",
+				Content:         "package main\n",
+				PreviousContent: "package main\n",
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_file1",
+						Body:      "This file needs refactoring",
+						Scope:     "file",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if carried.Scope != "file" {
+		t.Errorf("expected scope=file, got %q", carried.Scope)
+	}
+	if carried.Body != "This file needs refactoring" {
+		t.Errorf("body not preserved: got %q", carried.Body)
+	}
+	if !carried.CarriedForward {
+		t.Error("expected CarriedForward=true")
+	}
+}
+
+func TestCarryForwardComments_CodeFileOldSidePreservesPosition(t *testing.T) {
+	// Old-side comments have line numbers referencing the base ref, not the
+	// working tree. Their anchor text comes from deleted lines that don't exist
+	// in the working tree. LCS remapping and anchor search against the working
+	// tree would corrupt these comments. They must be carried forward at their
+	// original positions unchanged.
+	dir := t.TempDir()
+	goPath := filepath.Join(dir, "main.go")
+	// Working tree: the old function was replaced.
+	oldContent := "package main\n\nfunc old() {\n\t// legacy\n}\n\nfunc helper() {}\n"
+	newContent := "package main\n\nimport \"fmt\"\n\nfunc new() {\n\tfmt.Println(\"new\")\n}\n\nfunc helper() {}\n"
+	writeFile(t, goPath, newContent)
+
+	s := &Session{
+		Mode:     "git",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "main.go",
+				AbsPath:         goPath,
+				Status:          "modified",
+				FileType:        "code",
+				Content:         newContent,
+				PreviousContent: oldContent,
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old_side",
+						StartLine: 3,
+						EndLine:   3,
+						Side:      "old",
+						Body:      "Why was this removed?",
+						Anchor:    "func old() {",
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	// Old-side comment must keep its original position (line 3 in the base ref).
+	if carried.StartLine != 3 || carried.EndLine != 3 {
+		t.Errorf("old-side comment should stay at original position: expected line 3, got start=%d end=%d",
+			carried.StartLine, carried.EndLine)
+	}
+	if carried.Drifted {
+		t.Error("old-side comment should not be marked Drifted")
+	}
+	if carried.Side != "old" {
+		t.Errorf("Side should be preserved as %q, got %q", "old", carried.Side)
+	}
+}
+
+func TestFindAnchorInLines(t *testing.T) {
+	tests := []struct {
+		name           string
+		lines          []string
+		anchor         string
+		preferredStart int
+		want           int
+	}{
+		{
+			name:           "no match returns 0",
+			lines:          []string{"alpha", "beta", "gamma"},
+			anchor:         "delta",
+			preferredStart: 1,
+			want:           0,
+		},
+		{
+			name:           "single match",
+			lines:          []string{"alpha", "beta", "gamma"},
+			anchor:         "beta",
+			preferredStart: 1,
+			want:           2,
+		},
+		{
+			name:           "multiple matches picks closest to preferred",
+			lines:          []string{"x", "y", "x", "y", "x"},
+			anchor:         "x",
+			preferredStart: 5,
+			want:           5,
+		},
+		{
+			name:           "multiple matches picks closest lower",
+			lines:          []string{"x", "y", "x", "y", "x"},
+			anchor:         "x",
+			preferredStart: 2,
+			want:           1,
+		},
+		{
+			name:           "empty anchor returns 0",
+			lines:          []string{"alpha", "beta"},
+			anchor:         "",
+			preferredStart: 1,
+			want:           0,
+		},
+		{
+			name:           "multi-line anchor",
+			lines:          []string{"a", "b", "c", "a", "b", "d"},
+			anchor:         "a\nb",
+			preferredStart: 4,
+			want:           4,
+		},
+		{
+			name:           "anchor longer than lines returns 0",
+			lines:          []string{"a"},
+			anchor:         "a\nb",
+			preferredStart: 1,
+			want:           0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := findAnchorInLines(tt.lines, tt.anchor, tt.preferredStart)
+			if got != tt.want {
+				t.Errorf("findAnchorInLines() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRemapLines(t *testing.T) {
+	tests := []struct {
+		name     string
+		lineMap  map[int]int
+		oldStart int
+		oldEnd   int
+		maxLine  int
+		wantS    int
+		wantE    int
+	}{
+		{
+			name:     "both lines in map",
+			lineMap:  map[int]int{5: 7, 10: 12},
+			oldStart: 5,
+			oldEnd:   10,
+			maxLine:  20,
+			wantS:    7,
+			wantE:    12,
+		},
+		{
+			name:     "neither in map falls back to original",
+			lineMap:  map[int]int{},
+			oldStart: 3,
+			oldEnd:   8,
+			maxLine:  20,
+			wantS:    3,
+			wantE:    8,
+		},
+		{
+			name:     "start exceeds maxLine gets clamped",
+			lineMap:  map[int]int{},
+			oldStart: 25,
+			oldEnd:   30,
+			maxLine:  10,
+			wantS:    10,
+			wantE:    10,
+		},
+		{
+			name:     "end less than start gets corrected",
+			lineMap:  map[int]int{5: 10, 8: 4},
+			oldStart: 5,
+			oldEnd:   8,
+			maxLine:  20,
+			wantS:    10,
+			wantE:    10,
+		},
+		{
+			name:     "start below 1 gets clamped to 1",
+			lineMap:  map[int]int{1: 0},
+			oldStart: 1,
+			oldEnd:   5,
+			maxLine:  20,
+			wantS:    1,
+			wantE:    5,
+		},
+		{
+			name:     "only start in map",
+			lineMap:  map[int]int{3: 6},
+			oldStart: 3,
+			oldEnd:   7,
+			maxLine:  20,
+			wantS:    6,
+			wantE:    7,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, e := remapLines(tt.lineMap, tt.oldStart, tt.oldEnd, tt.maxLine)
+			if s != tt.wantS || e != tt.wantE {
+				t.Errorf("remapLines() = (%d, %d), want (%d, %d)", s, e, tt.wantS, tt.wantE)
+			}
+		})
+	}
+}
+
+func TestOnLiveRoundStart_OnlyForLiveAndPreviewReviews(t *testing.T) {
+	called := 0
+	hook := func(int, int) { called++ }
+
+	s := &Session{ReviewType: "", ReviewRound: 1}
+	s.SetLiveRoundStart(hook)
+	advanceRoundForTest(s)
+	if called != 0 {
+		t.Fatalf("hook fired for code review (called=%d)", called)
+	}
+
+	s2 := &Session{ReviewType: "live", ReviewRound: 1}
+	s2.SetLiveRoundStart(hook)
+	advanceRoundForTest(s2)
+	if called != 1 {
+		t.Fatalf("hook did not fire for live review (called=%d)", called)
+	}
+	if s2.ReviewRound != 2 {
+		t.Fatalf("ReviewRound = %d, want 2", s2.ReviewRound)
+	}
+
+	s3 := &Session{ReviewType: "preview", ReviewRound: 1}
+	s3.SetLiveRoundStart(hook)
+	advanceRoundForTest(s3)
+	if called != 2 {
+		t.Fatalf("hook did not fire for preview review (called=%d)", called)
+	}
+	if s3.ReviewRound != 2 {
+		t.Fatalf("ReviewRound = %d, want 2", s3.ReviewRound)
+	}
+}

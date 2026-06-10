@@ -14,9 +14,9 @@ coverage:
         target: 80%
 
 ignore:
-  - "cmd/crit/frontend/"
-  - "e2e/"
+  - "web/"
+  - "test/e2e/"
   - "node_modules/"
-  - "cmd/crit/integrations/"
+  - "integrations/"
   - "cmd/crit/gen_integration_hashes.go"
   - "cmd/crit/integration_hashes_gen.go"

@@ -1,0 +1,2765 @@
+package server
+
+import (
+	"bytes"
+	"context"
+	"embed"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"log"
+	"math"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/tomasz-tomczyk/crit/internal/auth"
+	"github.com/tomasz-tomczyk/crit/internal/config"
+	"github.com/tomasz-tomczyk/crit/internal/diff"
+	"github.com/tomasz-tomczyk/crit/internal/review"
+	"github.com/tomasz-tomczyk/crit/internal/session"
+	"github.com/tomasz-tomczyk/crit/internal/share"
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
+	"rsc.io/qr"
+)
+
+// sseHeartbeatInterval is the cadence for SSE keepalive comments. It's a var
+// so tests can shrink it. 30s comfortably under the server's 60s IdleTimeout.
+var sseHeartbeatInterval = 30 * time.Second
+
+// agentScriptFiles lists the JS files injected into live/preview iframes.
+// Used by server.go (route registration), preview.go (relative script tags),
+// and proxy.go (absolute script tags). Order matters: protocol first, then
+// helpers, then the main agent entry point last.
+var AgentScriptFiles = []string{
+	"agent-protocol.js",
+	"agent-anchor-utils.js",
+	"agent-marker-overlay.js",
+	"agent-mutation-batcher.js",
+	"agent-resolution.js",
+	"agent-reanchor-state.js",
+	"crit-agent.js",
+}
+
+// Server handles HTTP requests for the crit review UI.
+type Server struct {
+	session             atomic.Pointer[Session]
+	mux                 *http.ServeMux
+	assets              fs.FS
+	shareURL            string
+	proxyAuth           bool
+	authMu              sync.RWMutex // guards authToken + cfg.Auth* fields
+	authToken           string
+	prInfo              *PRInfo
+	prInfoMu            sync.RWMutex
+	author              string
+	agentCmd            string
+	currentVersion      string
+	latestVersion       string
+	versionMu           sync.RWMutex
+	staleIntegrations   []StaleIntegration
+	missingIntegrations []string
+	githubAPIURL        string // override for testing; defaults to "https://api.github.com"
+	port                int
+	status              *Status
+	initErr             atomic.Pointer[error]
+	projectDir          string
+	homeDir             string
+	cfg                 Config
+	reviewPath          string
+	cliArgs             []string     // positional file args; flags (--pr, --range, etc.) are not preserved
+	prList              *PRListCache // 60s cache for picker "Other PRs"
+
+	// listenHost is the host the server is bound to (e.g. "127.0.0.1" or
+	// "0.0.0.0"). Set via SetListenHost after construction. When set to a
+	// loopback address, ServeHTTP enforces that the request Host header is
+	// also a loopback hostname, blocking DNS-rebinding attacks.
+	listenHost string
+
+	// shutdownCtx is the daemon's signal-handled context; child operations
+	// (e.g. runAgentCmd subprocesses) derive their context from this so a
+	// SIGINT/SIGTERM cancels them instead of leaking. Set via
+	// SetShutdownCtx; nil in tests, in which case a background context is used.
+	shutdownCtx context.Context
+	// bgWG tracks long-running background goroutines (e.g. agent subprocess
+	// runners) that must complete before the daemon writes the review file
+	// during shutdown. The shutdown path Wait()s on this with a timeout.
+	bgWG sync.WaitGroup
+
+	// sessionStartedAt records when the daemon started, used by stats recording.
+	sessionStartedAt time.Time
+	// statsRecorded is set after the first stats write so shutdown doesn't
+	// double-count. Accessed only from handleFinish (serialized by HTTP) and
+	// the shutdown path (after the server has stopped), so no mutex needed.
+	statsRecorded bool
+}
+
+// NewServer creates a Server with the given session and configuration.
+func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth bool, authToken string, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
+	s := &Server{assets: frontendFS, shareURL: shareURL, proxyAuth: proxyAuth, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port, prList: &PRListCache{}}
+	if session != nil {
+		s.session.Store(session)
+	}
+
+	mux := http.NewServeMux()
+
+	// Endpoints that work without a ready session
+	mux.HandleFunc("/api/health", s.handleHealth)
+	mux.HandleFunc("/api/qr", s.handleQR)
+
+	// Preview-mode routes — NOT wrapped in withReady (page loads before session).
+	mux.HandleFunc("/preview", s.serveIndexHTML())
+	mux.HandleFunc("/preview-content/", s.handlePreviewContent)
+	mux.HandleFunc("/preview-content", s.handlePreviewContent)
+
+	// Live-mode routes — NOT wrapped in withReady.
+	mux.HandleFunc("/live", s.serveIndexHTML())
+	for _, f := range AgentScriptFiles {
+		if f == "crit-agent.js" {
+			mux.HandleFunc("/"+f, s.handleCritAgentJS)
+		} else {
+			mux.HandleFunc("/"+f, s.serveEmbeddedJS(f))
+		}
+	}
+	mux.HandleFunc("/agent-marker.css", s.serveEmbeddedCSS("agent-marker.css"))
+	mux.HandleFunc("/live-mode-pin-filter.js", s.serveEmbeddedJS("live-mode-pin-filter.js"))
+	mux.HandleFunc("/live-mode-resolution-gate.js", s.serveEmbeddedJS("live-mode-resolution-gate.js"))
+	mux.HandleFunc("/live-mode-drift-tray.js", s.serveEmbeddedJS("live-mode-drift-tray.js"))
+	mux.HandleFunc("/live-mode-pin-state.js", s.serveEmbeddedJS("live-mode-pin-state.js"))
+	mux.HandleFunc("/live-mode-thread-scroll.js", s.serveEmbeddedJS("live-mode-thread-scroll.js"))
+	mux.HandleFunc("/live-mode-reanchor-click.js", s.serveEmbeddedJS("live-mode-reanchor-click.js"))
+	mux.HandleFunc("/live-mode-reanchor-put.js", s.serveEmbeddedJS("live-mode-reanchor-put.js"))
+	mux.HandleFunc("/live-mode-deeplink.js", s.serveEmbeddedJS("live-mode-deeplink.js"))
+	mux.HandleFunc("/live-mode-round-resolve.js", s.serveEmbeddedJS("live-mode-round-resolve.js"))
+	mux.HandleFunc("/live-mode-round-tooltip.js", s.serveEmbeddedJS("live-mode-round-tooltip.js"))
+	mux.HandleFunc("/live-mode.menu-controller.js", s.serveEmbeddedJS("live-mode.menu-controller.js"))
+
+	// Session-dependent endpoints (guarded by withReady middleware)
+	mux.HandleFunc("/api/review-cycle", s.withReady(s.handleReviewCycle))
+	mux.HandleFunc("/api/config", s.withReady(s.handleConfig))
+	mux.HandleFunc("/api/session", s.withReady(s.handleSession))
+	mux.HandleFunc("/api/share", s.withReady(s.handleShare))
+	mux.HandleFunc("/api/share-consent", s.withReady(s.handleShareConsent))
+	mux.HandleFunc("/api/share/payload", s.withReady(s.handleSharePayload))
+	mux.HandleFunc("/api/share/preview-payload", s.withReady(s.handlePreviewPayload))
+	mux.HandleFunc("/api/share/upsert-payload", s.withReady(s.handleUpsertPayload))
+	mux.HandleFunc("/api/share-url", s.withReady(s.handleShareURL))
+	mux.HandleFunc("/api/comments/merge", s.withReady(s.handleMergeComments))
+	mux.HandleFunc("/api/finish", s.withReady(s.handleFinish))
+	mux.HandleFunc("/api/events", s.withReady(s.handleEvents))
+	mux.HandleFunc("/api/wait-for-event", s.withReady(s.handleWaitForEvent))
+	mux.HandleFunc("/api/round-complete", s.withReady(s.handleRoundComplete))
+	mux.HandleFunc("/api/rounds", s.withReady(s.handleRounds))
+	mux.HandleFunc("/api/focus", s.withReady(s.handleFocus))
+	mux.HandleFunc("/api/picker", s.withReady(s.handlePicker))
+
+	mux.HandleFunc("/api/auth/orgs", s.withReady(s.handleAuthOrgs))
+	mux.HandleFunc("/api/agent/request", s.withReady(s.handleAgentRequest))
+	mux.HandleFunc("/api/branches", s.withReady(s.handleBranches))
+	mux.HandleFunc("/api/base-branch", s.withReady(s.handleBaseBranch))
+	mux.HandleFunc("/api/commits", s.withReady(s.handleCommits))
+	mux.HandleFunc("/api/comments", s.withReady(s.handleReviewComments))
+	mux.HandleFunc("/api/review-comment/", s.withReady(s.handleReviewCommentByID))
+	mux.HandleFunc("/api/files/list", s.withReady(s.handleFilesList))
+
+	// File-scoped endpoints (use ?path= query param)
+	mux.HandleFunc("/api/file", s.withReady(s.handleFile))
+	mux.HandleFunc("/api/file/diff", s.withReady(s.handleFileDiff))
+	mux.HandleFunc("/api/file/comments", s.withReady(s.handleFileComments))
+	mux.HandleFunc("/api/comment/", s.withReady(s.handleCommentByID))
+
+	// Attachment upload (POST) and serving (GET /api/attachments/{filename}).
+	// The trailing slash form ServeMux uses means the bare /api/attachments
+	// path is matched by the same handler; we route on method + presence of
+	// a suffix so both upload and fetch live in one place. Markdown stores
+	// the relative form `attachments/<uuid>.<ext>`; the frontend rewrites
+	// to /api/attachments/<uuid>.<ext> at render time so this URL space is
+	// only ever hit through the rewrite hook (or direct curl).
+	mux.HandleFunc("/api/attachments", s.withReady(s.handleAttachments))
+	mux.HandleFunc("/api/attachments/", s.withReady(s.handleAttachments))
+
+	// Static file serving (repo files need session; embedded assets do not)
+	mux.HandleFunc("/files/", s.withReady(s.handleFiles))
+	mux.Handle("/", http.FileServer(http.FS(frontendFS)))
+
+	s.mux = mux
+	return s, nil
+}
+
+// SetListenHost records the host the server is bound to. Call once after
+// construction, before serving requests. When the host is a loopback address,
+// ServeHTTP rejects requests whose Host header is not also a loopback address,
+// preventing DNS-rebinding attacks. When the host is non-loopback (e.g.
+// "0.0.0.0"), the check is skipped — the user has explicitly opted into
+// network exposure.
+func (s *Server) SetListenHost(host string) {
+	s.listenHost = host
+}
+
+// isLoopbackHost reports whether host (no port) is a loopback address.
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// checkHost returns true if the request is allowed to proceed. When the server
+// is bound to a loopback address, the request's Host header must also resolve
+// to a loopback hostname — this is the canonical DNS-rebinding defense.
+func (s *Server) checkHost(r *http.Request) bool {
+	if s.listenHost == "" || !isLoopbackHost(s.listenHost) {
+		return true
+	}
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	} else {
+		// SplitHostPort fails when there's no port (e.g. "Host: [::1]").
+		// Strip IPv6 brackets so ParseIP can recognise the address.
+		host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	}
+	return isLoopbackHost(host)
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !s.checkHost(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	s.mux.ServeHTTP(w, r)
+}
+
+// requireReady returns false and writes a 503 or 500 response if the server
+// is not yet initialized. Handlers that depend on session data call this first.
+func (s *Server) requireReady(w http.ResponseWriter) bool {
+	if s.session.Load() != nil {
+		return true
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if errPtr := s.initErr.Load(); errPtr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "error",
+			"message": (*errPtr).Error(),
+		})
+		return false
+	}
+	w.Header().Set("Retry-After", "1")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "loading",
+		"message": "Initializing...",
+	})
+	return false
+}
+
+// withReady wraps a handler so that requireReady is checked before the handler
+// runs. Routes that depend on an initialized session use this at registration.
+func (s *Server) withReady(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.requireReady(w) {
+			return
+		}
+		next(w, r)
+	}
+}
+
+// SetShutdownCtx wires the daemon's signal-handled context into the server so
+// background goroutines can react to shutdown. Call this once during daemon
+// startup, before any handler can fire. Tests that don't run a real daemon may
+// leave it unset; effectiveCtx then falls back to context.Background().
+func (s *Server) SetShutdownCtx(ctx context.Context) {
+	s.shutdownCtx = ctx
+}
+
+// effectiveCtx returns the daemon shutdown ctx if set, otherwise a background
+// ctx. Used by background goroutines so test paths (which don't run a real
+// daemon and never call SetShutdownCtx) keep working.
+func (s *Server) effectiveCtx() context.Context {
+	if s.shutdownCtx != nil {
+		return s.shutdownCtx
+	}
+	return context.Background()
+}
+
+// WaitBackground blocks until all tracked background goroutines (currently:
+// agent subprocess runners) have returned, or until timeout elapses. Returns
+// true on clean drain, false on timeout. Called from the daemon shutdown path
+// to give in-flight agent runs a chance to post their replies before
+// session.WriteFiles() persists the final state.
+func (s *Server) WaitBackground(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		s.bgWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+// SetSession attaches a fully initialized session and marks the server as ready.
+// Uses atomic.Pointer to ensure the session pointer is visible to all goroutines
+// immediately after store, which is critical on weakly-ordered architectures (ARM64).
+//
+// Also flips the session's sessionStarted flag so Session.review.LoadCritJSON can
+// enforce its pre-SetSession-only lock contract (see plan v4 §Lock discipline).
+//
+// Ordering matters: sessionStarted MUST be stored BEFORE the session pointer
+// is published. After s.session.Store, withReady (and any goroutine that
+// observes the session pointer) can call session methods immediately. If
+// sessionStarted were still 0 at that moment, a code path that reaches
+// review.LoadCritJSON would falsely believe it's pre-SetSession and skip the guard.
+func (s *Server) SetSession(session *Session) {
+	if session != nil {
+		session.MarkSessionStarted()
+	}
+	s.session.Store(session)
+}
+
+// SetPRInfo updates the PR metadata after the session is already ready.
+func (s *Server) SetPRInfo(prInfo *PRInfo) {
+	s.prInfoMu.Lock()
+	s.prInfo = prInfo
+	s.prInfoMu.Unlock()
+}
+
+// SetInitErr records a fatal initialization error. Subsequent API calls
+// return 500 with the error message instead of retryable 503s.
+func (s *Server) SetInitErr(err error) {
+	e := err
+	s.initErr.Store(&e)
+}
+
+// CheckForUpdates fetches the latest release tag from GitHub and stores
+// it so the frontend can display an update notification. Safe to call
+// from a goroutine — the result is written under versionMu.
+func (s *Server) CheckForUpdates() {
+	if s.currentVersion == "" || s.currentVersion == "dev" {
+		return
+	}
+	base := s.githubAPIURL
+	if base == "" {
+		base = "https://api.github.com"
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(base + "/repos/tomasz-tomczyk/crit/releases/latest")
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return
+	}
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.Unmarshal(body, &release); err != nil || release.TagName == "" {
+		return
+	}
+	s.versionMu.Lock()
+	s.latestVersion = release.TagName
+	s.versionMu.Unlock()
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.versionMu.RLock()
+	latestVersion := s.latestVersion
+	s.versionMu.RUnlock()
+	sess := s.session.Load()
+	shareOrg, shareOrgName, shareVis := sess.GetShareOrgInfo()
+	resp := map[string]interface{}{
+		"share_url":         s.shareURL,
+		"needs_consent":     s.consentNeeded(),
+		"proxy_auth":        s.proxyAuth,
+		"hosted_url":        sess.GetSharedURL(),
+		"hosted_token":      sess.GetToken(),
+		"delete_token":      sess.GetDeleteToken(),
+		"share_org":         shareOrg,
+		"share_org_name":    shareOrgName,
+		"share_visibility":  shareVis,
+		"version":           s.currentVersion,
+		"latest_version":    latestVersion,
+		"author":            s.author,
+		"agent_cmd_enabled": s.agentCmd != "",
+		"agent_name":        agentName(s.agentCmd),
+		"agent_cmd":         s.agentCmd,
+
+		// Auth status
+		"auth_logged_in":  s.authLoggedIn(),
+		"auth_user_name":  s.authUserName(),
+		"auth_user_email": s.authUserEmail(),
+
+		// Review file path
+		"review_path": s.reviewPath,
+
+		// Config pass-throughs for frontend suppression
+		"no_integration_check": s.cfg.NoIntegrationCheck,
+		"no_update_check":      s.cfg.NoUpdateCheck,
+
+		// Available integrations (always included)
+		"integrations_available": availableIntegrations(),
+	}
+
+	// Integration detection
+	s.addIntegrationStatus(resp)
+
+	if sess != nil && sess.ReviewType != "" {
+		resp["review_type"] = sess.ReviewType
+	}
+
+	if len(s.staleIntegrations) > 0 {
+		type staleInfo struct {
+			Agent    string `json:"agent"`
+			Location string `json:"location"`
+			Hint     string `json:"hint"`
+			Hash     string `json:"hash,omitempty"`
+		}
+		var items []staleInfo
+		seen := make(map[string]bool)
+		for _, sf := range s.staleIntegrations {
+			if seen[sf.Hint] {
+				continue
+			}
+			seen[sf.Hint] = true
+			items = append(items, staleInfo(sf))
+		}
+		resp["stale_integrations"] = items
+	}
+	if len(s.missingIntegrations) > 0 {
+		resp["missing_integrations"] = s.missingIntegrations
+	}
+	s.prInfoMu.RLock()
+	prInfo := s.prInfo
+	s.prInfoMu.RUnlock()
+	if prInfo != nil {
+		resp["pr_url"] = prInfo.URL
+		resp["pr_number"] = prInfo.Number
+		resp["pr_title"] = prInfo.Title
+		resp["pr_is_draft"] = prInfo.IsDraft
+		resp["pr_state"] = prInfo.State
+		resp["pr_body"] = prInfo.Body
+		resp["pr_base_ref"] = prInfo.BaseRefName
+		resp["pr_head_ref"] = prInfo.HeadRefName
+		resp["pr_additions"] = prInfo.Additions
+		resp["pr_deletions"] = prInfo.Deletions
+		resp["pr_changed_files"] = prInfo.ChangedFiles
+		resp["pr_author"] = prInfo.AuthorLogin
+		resp["pr_created_at"] = prInfo.CreatedAt
+	}
+	writeJSON(w, resp)
+}
+
+// addIntegrationStatus populates integration detection fields in the config response.
+func (s *Server) addIntegrationStatus(resp map[string]interface{}) {
+	if s.cfg.NoIntegrationCheck {
+		resp["integrations"] = []IntegrationStatus{}
+		resp["any_integration_installed"] = false
+		return
+	}
+	integrations := detectInstalledIntegrations(s.projectDir, s.homeDir)
+	resp["integrations"] = integrations
+	resp["any_integration_installed"] = len(integrations) > 0
+}
+
+// parseRoundParam extracts and validates the ?round=N query parameter.
+//
+// Returns:
+//   - (0, false, true): the parameter is absent or empty — caller should not
+//     apply any round filter (back-compat: pre-feature clients omit it).
+//   - (N, true, true):  parsed round >= 1 — caller may apply the filter.
+//   - (0, false, false): invalid — the function has already written a 400
+//     response and the caller MUST return without writing further.
+//
+// All four round-aware endpoints (/api/session, /api/file, /api/file/diff,
+// /api/file/comments, /api/comments) go through this helper so the contract
+// stays uniform: a malformed value (e.g. "abc", "-1", "0") always yields 400.
+func parseRoundParam(w http.ResponseWriter, r *http.Request) (round int, ok bool, valid bool) {
+	roundStr := r.URL.Query().Get("round")
+	if roundStr == "" {
+		return 0, false, true
+	}
+	n, err := strconv.Atoi(roundStr)
+	if err != nil || n < 1 {
+		http.Error(w, "invalid round", http.StatusBadRequest)
+		return 0, false, false
+	}
+	return n, true, true
+}
+
+// handleSession returns session metadata: mode, branch, file list with stats.
+//
+// GET /api/session[?scope=X&commit=Y&round=N]
+//
+// In files mode, ?round=N filters the file list to files that had a
+// snapshot at that round (so files added in later rounds drop out when
+// viewing an earlier point in the timeline). The round parameter is
+// ignored in git/range mode.
+func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	round, hasRound, valid := parseRoundParam(w, r)
+	if !valid {
+		return
+	}
+	scope := r.URL.Query().Get("scope")
+	commit := r.URL.Query().Get("commit")
+	session := s.session.Load()
+	info := session.GetSessionInfoScoped(scope, commit)
+
+	if hasRound && session != nil && session.Mode == "files" {
+		info.Files = filterFilesAtRound(session, info.Files, round)
+	}
+	type liveSessionResponse struct {
+		SessionInfo
+		ReviewType string `json:"review_type,omitempty"`
+		Origin     string `json:"origin,omitempty"`
+		ProxyPort  int    `json:"proxy_port,omitempty"`
+	}
+	resp := liveSessionResponse{SessionInfo: info}
+	if session != nil {
+		resp.ReviewType = session.ReviewType
+		resp.Origin = session.Origin
+		resp.ProxyPort = session.ProxyPort
+	}
+	writeJSON(w, resp)
+}
+
+// serveIndexHTML returns a handler that serves the embedded index.html shell.
+// Used for routes (such as /live and /preview) that all render the same shell.
+func (s *Server) serveIndexHTML() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		f, err := s.assets.Open("index.html")
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		defer f.Close()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if _, err := io.Copy(w, f); err != nil {
+			log.Printf("serveIndexHTML: %v", err)
+		}
+	}
+}
+
+func (s *Server) handleCritAgentJS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	f, err := s.assets.Open("crit-agent.js")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	io.Copy(w, f)
+}
+
+func (s *Server) serveEmbeddedJS(name string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		f, err := s.assets.Open(name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		io.Copy(w, f)
+	}
+}
+
+func (s *Server) serveEmbeddedCSS(name string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		f, err := s.assets.Open(name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		io.Copy(w, f)
+	}
+}
+
+// filterFilesAtRound returns the subset of files that have a snapshot recorded
+// at the given round. Caller must not hold session.
+func filterFilesAtRound(session *Session, files []SessionFileInfo, round int) []SessionFileInfo {
+	return session.FilterFilesAtRound(files, round)
+}
+
+// handleShareConsent records that the user has consented to sharing with the
+// default crit.md service. Called by the browser before the first share upload.
+// POST /api/share-consent
+func (s *Server) handleShareConsent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := config.SaveGlobalConfig(func(m map[string]json.RawMessage) error {
+		m["share_consented"] = json.RawMessage("true")
+		return nil
+	}); err != nil {
+		http.Error(w, "failed to persist consent", http.StatusInternalServerError)
+		return
+	}
+	s.authMu.Lock()
+	s.cfg.ShareConsented = true
+	s.authMu.Unlock()
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// consentNeeded reports whether the user must still confirm before sharing.
+// It guards reads of s.cfg.ShareConsented under s.authMu and, if the in-memory
+// flag is false, re-checks the on-disk global config so consent granted by the
+// CLI (crit share) on a separate process is picked up by the running daemon.
+func (s *Server) consentNeeded() bool {
+	s.authMu.RLock()
+	consented := s.cfg.ShareConsented
+	s.authMu.RUnlock()
+	if consented {
+		return false
+	}
+	if s.shareURL != config.DefaultShareURL {
+		return false
+	}
+	if globalCfg, _, err := config.LoadConfigFile(config.GlobalConfigPath()); err == nil && globalCfg.ShareConsented {
+		s.authMu.Lock()
+		s.cfg.ShareConsented = true
+		s.authMu.Unlock()
+		return false
+	}
+	return true
+}
+
+func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
+		var body struct {
+			URL         string `json:"url"`
+			DeleteToken string `json:"delete_token"`
+			Org         string `json:"org"`
+			OrgName     string `json:"org_name"`
+			Visibility  string `json:"visibility"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.URL == "" {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+		s.session.Load().SetSharedURLAndToken(body.URL, body.DeleteToken)
+		s.session.Load().SetShareOrgInfo(body.Org, body.OrgName, body.Visibility)
+		// Persist the share scope from the session's file identity (matches the
+		// direct POST /api/share path) so the shared status is restored on
+		// restart in proxy-auth mode too, not just direct mode.
+		s.session.Load().SetShareScope(share.ShareScope(s.session.Load().FilePathsSnapshot()))
+		writeJSON(w, map[string]string{
+			"ok":           "true",
+			"hosted_token": tokenFromHostedURL(body.URL),
+		})
+
+	case http.MethodDelete:
+		// Unpublish from crit-web if we have a share URL and delete token.
+		if s.shareURL != "" {
+			if _, dt := s.session.Load().GetShareState(); dt != "" {
+				if err := share.UnpublishFromWeb(s.shareURL, dt, s.authTokenSnapshot()); err != nil {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadGateway)
+					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+					return
+				}
+			}
+		}
+		s.session.Load().SetSharedURLAndToken("", "")
+		s.session.Load().SetShareOrgInfo("", "", "")
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// shareFilesForSession returns the files to upload for the active session plus
+// the review_type to tag the share with. For preview sessions it crawls the
+// previewed HTML origin and its local assets; otherwise it loads the on-disk
+// review files unchanged. Single source of truth for both the direct Share
+// button path (handleShare) and the proxy-auth relay (handlePreviewPayload).
+func (s *Server) shareFilesForSession() (files []ShareFile, reviewType string, err error) {
+	sess := s.session.Load()
+	if sess != nil && sess.ReviewType == "preview" {
+		files, err = session.CrawlPreview(sess.Origin)
+		if err != nil {
+			return nil, "", fmt.Errorf("crawling preview assets: %w", err)
+		}
+		return files, "preview", nil
+	}
+	return sess.LoadShareFilesFromDisk(), "", nil
+}
+
+// handleShare uploads the current session to crit-web and returns the share URL.
+// POST /api/share
+func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.shareURL == "" {
+		http.Error(w, "share_url not configured", http.StatusBadRequest)
+		return
+	}
+	if s.consentNeeded() {
+		http.Error(w, "share consent required", http.StatusForbidden)
+		return
+	}
+
+	// Idempotent: if already shared, return the existing URL without calling crit-web.
+	// Uses GetShareState() to read both fields under a single lock (avoids TOCTOU race
+	// where a concurrent DELETE /api/share-url could clear the token between two calls).
+	if existingURL, existingToken := s.session.Load().GetShareState(); existingURL != "" {
+		writeJSON(w, map[string]any{
+			"url":          existingURL,
+			"delete_token": existingToken,
+		})
+		return
+	}
+
+	// Read file content for the share. Preview sessions crawl the previewed
+	// HTML origin + assets; other sessions use the on-disk review files (kept
+	// current by review.SaveCritJSON). shareFilesForSession is the single source of
+	// truth shared with the proxy-auth relay path.
+	files, reviewType, err := s.shareFilesForSession()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(files) == 0 {
+		http.Error(w, "no files in session", http.StatusBadRequest)
+		return
+	}
+
+	filePaths := make([]string, len(files))
+	for i, f := range files {
+		filePaths[i] = f.Path
+	}
+
+	// Parse optional org + visibility from request body.
+	var shareReq struct {
+		Org        string `json:"org"`
+		OrgName    string `json:"org_name"`
+		Visibility string `json:"visibility"`
+	}
+	if r.Body != nil && r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&shareReq); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+	}
+
+	critPath := s.session.Load().CritJSONPath()
+
+	// Comments are loaded from the review file by their session path. For a
+	// preview the uploaded files are crawled (keyed "index.html"), but the
+	// comments live under the session's previewed-file path — pass that so they
+	// load, then shareReviewFiles re-keys them to the crawl entry. The scope is
+	// always the session's file identity so restoreShareStateLocked matches it
+	// on restart (it recomputes scope from s.Files, not from the crawled set).
+	scopePaths := s.session.Load().FilePathsSnapshot()
+	commentPaths := filePaths
+	if reviewType == "preview" {
+		commentPaths = scopePaths
+	}
+
+	res, err := share.ShareReviewFiles(critPath, files, commentPaths, s.shareURL, s.authTokenSnapshot(), s.author, shareReq.Org, shareReq.Visibility, reviewType)
+	if err != nil {
+		if errors.Is(err, share.ErrShareUnauthorized) {
+			auth.ClearAuthIdentity()
+			s.clearAuthState()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	s.session.Load().SetSharedURLAndToken(res.URL, res.DeleteToken)
+	s.session.Load().SetShareScope(share.ShareScope(scopePaths))
+	s.session.Load().SetShareOrgInfo(shareReq.Org, shareReq.OrgName, shareReq.Visibility)
+	writeJSON(w, map[string]any{"url": res.URL, "delete_token": res.DeleteToken})
+}
+
+// handleRounds returns the per-round timeline for files-mode sessions. In
+// git/range mode it returns 200 with an empty rounds list (the wire shape
+// stays stable so the frontend doesn't need mode-specific code paths).
+//
+// GET /api/rounds
+func (s *Server) handleRounds(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	session := s.session.Load()
+	if session == nil {
+		writeJSON(w, map[string]any{"current_round": 0, "rounds": []any{}})
+		return
+	}
+
+	type roundEntry struct {
+		N            int    `json:"n"`
+		Additions    int    `json:"additions"`
+		Deletions    int    `json:"deletions"`
+		CommentCount int    `json:"comment_count"`
+		CapturedAt   string `json:"captured_at"`
+	}
+
+	// Span current_round + rounds slice under a single RLock so a
+	// round-complete that lands between the two reads can't yield an
+	// internally inconsistent response (e.g. current=N with rounds ending at N-1).
+	session.RLock()
+	defer session.RUnlock()
+
+	resp := map[string]any{
+		"current_round": session.ReviewRound,
+		"rounds":        []roundEntry{},
+	}
+
+	if session.Mode != "files" {
+		writeJSON(w, resp)
+		return
+	}
+
+	rounds := session.AvailableRounds()
+	if len(rounds) == 0 {
+		writeJSON(w, resp)
+		return
+	}
+
+	// Per-round comment counts (comments where review_round == n).
+	counts := make(map[int]int, len(rounds))
+	for _, f := range session.Files {
+		for _, c := range f.Comments {
+			counts[c.ReviewRound]++
+		}
+	}
+	for _, c := range session.ReviewComments() {
+		counts[c.ReviewRound]++
+	}
+
+	out := make([]roundEntry, 0, len(rounds))
+	for _, r := range rounds {
+		var capturedAt string
+		// Pick the EARLIEST CapturedAt across every file that snapshotted at
+		// this round — Go map iteration order is randomized, so picking "the
+		// first" produced a non-deterministic captured_at across requests.
+		// The earliest is a meaningful representative (the moment the round
+		// began capturing) and stable for any given snapshot map.
+		var earliest time.Time
+		for _, byRound := range session.RoundSnapshots {
+			rs, ok := byRound[r]
+			if !ok {
+				continue
+			}
+			if earliest.IsZero() || rs.CapturedAt.Before(earliest) {
+				earliest = rs.CapturedAt
+			}
+		}
+		if !earliest.IsZero() {
+			capturedAt = earliest.Format(time.RFC3339)
+		}
+		adds, dels := lineStatsForRound(session, r)
+		out = append(out, roundEntry{
+			N:            r,
+			Additions:    adds,
+			Deletions:    dels,
+			CommentCount: counts[r],
+			CapturedAt:   capturedAt,
+		})
+	}
+	resp["rounds"] = out
+	writeJSON(w, resp)
+}
+
+// lineStatsForRound aggregates added/removed line counts across every file
+// with a snapshot at round n, comparing against round n-1. R1 (or any round
+// where no n-1 snapshots exist) returns 0/0. Caller must hold session.mu
+// (RLock is sufficient).
+func lineStatsForRound(session *Session, n int) (int, int) {
+	if n <= 1 {
+		return 0, 0
+	}
+	var adds, dels int
+	for _, byRound := range session.RoundSnapshots {
+		curr, ok := byRound[n]
+		if !ok {
+			continue
+		}
+		prev, hasPrev := byRound[n-1]
+		if !hasPrev {
+			// New file at round n: every line counts as an addition.
+			adds += len(diff.SplitLines(curr.Content))
+			continue
+		}
+		entries := diff.ComputeLineDiff(prev.Content, curr.Content)
+		for _, e := range entries {
+			switch e.Type {
+			case "added":
+				adds++
+			case "removed":
+				dels++
+			}
+		}
+	}
+	return adds, dels
+}
+
+// handleSharePayload returns the JSON payload that would be POSTed to crit-web
+// /api/reviews for a fresh share. Used by the popup-relay path (proxy_auth=
+// true) so the browser can forward it through the authenticated popup
+// instead of the Go server contacting crit-web directly. Same payload shape
+// as POST /api/share would build internally.
+func (s *Server) handleSharePayload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.session.Load()
+	files := sess.LoadShareFilesFromDisk()
+	if len(files) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no files in session"})
+		return
+	}
+	filePaths := make([]string, len(files))
+	for i, f := range files {
+		filePaths[i] = f.Path
+	}
+	critPath := sess.CritJSONPath()
+	comments, reviewRound := share.LoadCommentsForShare(critPath, filePaths, s.author)
+	cliArgs := share.LoadCliArgsFromReviewFile(critPath)
+	writeJSON(w, share.BuildSharePayload(files, comments, reviewRound, cliArgs, "", "", ""))
+}
+
+// handlePreviewPayload returns the share payload for a preview session: it
+// crawls the previewed HTML origin and its local assets, then builds the same
+// POST /api/reviews payload the direct Share path produces, tagged with
+// review_type=preview. Used by the proxy-auth relay so the browser popup can
+// forward the snapshot through an authenticated session (relay is transport,
+// not protocol — same endpoint, same payload shape).
+func (s *Server) handlePreviewPayload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.session.Load()
+	if sess == nil || sess.ReviewType != "preview" {
+		http.Error(w, "not a preview session", http.StatusBadRequest)
+		return
+	}
+	files, err := session.CrawlPreview(sess.Origin)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Include the previewed file's comments, re-keyed to the crawl entry, so the
+	// proxy relay uploads the same payload (files + comments) as the direct
+	// POST /api/share path. Comments span all session paths (DOM pins live on
+	// live-route entries, not the HTML's "code" entry), so load across all of
+	// them — not just the first. Without this, sharing via popup loses comments.
+	comments, reviewRound := share.LoadPreviewShareComments(sess.CritJSONPath(), sess.FilePathsSnapshot(), s.author)
+	if reviewRound == 0 {
+		reviewRound = 1
+	}
+	writeJSON(w, share.BuildSharePayload(files, comments, reviewRound, nil, "", "", "preview"))
+}
+
+// handleUpsertPayload returns the JSON payload that would be PUT to
+// crit-web /api/reviews/:token for a re-share. Used by the popup-relay path.
+func (s *Server) handleUpsertPayload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.session.Load()
+	// Preview sessions have no on-disk review files (the FileEntry has no AbsPath),
+	// so LoadShareFilesFromDisk returns empty → "no files in session". Use
+	// shareFilesForSession, which crawls the preview HTML origin + assets (the same
+	// source as the initial share) and returns on-disk files for other modes.
+	files, reviewType, err := s.shareFilesForSession()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	if len(files) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no files in session"})
+		return
+	}
+	critPath := sess.CritJSONPath()
+	var comments []shareComment
+	var reviewRound int
+	if reviewType == "preview" {
+		// Load comments across all session paths (DOM pins on live-route entries)
+		// and collapse onto the crawl entry, matching the initial-share payload.
+		comments, reviewRound = share.LoadPreviewShareComments(critPath, sess.FilePathsSnapshot(), s.author)
+	} else {
+		filePaths := make([]string, len(files))
+		for i, f := range files {
+			filePaths[i] = f.Path
+		}
+		comments, reviewRound = share.LoadCommentsForShare(critPath, filePaths, s.author)
+	}
+	cliArgs := share.LoadCliArgsFromReviewFile(critPath)
+	deleteToken := sess.GetDeleteToken()
+	writeJSON(w, buildUpsertPayload(files, comments, deleteToken, reviewRound, cliArgs))
+}
+
+// handleMergeComments accepts comments fetched from crit-web (via the popup
+// relay) and merges them into the local review file. The token is derived
+// server-side from the session's hosted URL — the client never supplies it.
+func (s *Server) handleMergeComments(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024)
+	var req struct {
+		Comments []webComment `json:"comments"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// http.MaxBytesError surfaces as a generic error from the decoder; we
+		// translate over-limit explicitly so clients can distinguish.
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+	sess := s.session.Load()
+	if tokenFromHostedURL(sess.GetSharedURL()) == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no shared review in this session"})
+		return
+	}
+	critPath := sess.CritJSONPath()
+	data, err := session.ReadFileShared(review.ReviewPathsFor(critPath).Review)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	newComments, replyUpdates := dedupWebComments(cj, req.Comments)
+	if len(newComments) == 0 && len(replyUpdates) == 0 {
+		writeJSON(w, map[string]any{"merged": 0, "replies_updated": 0})
+		return
+	}
+	if err := mergeWebComments(critPath, newComments, replyUpdates); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"merged": len(newComments), "replies_updated": len(replyUpdates)})
+}
+
+// handleFile returns file content + metadata for a single file.
+// GET /api/file?path=server.go[&round=N]
+//
+// In files mode, ?round=N returns the snapshot recorded for that round. In
+// git/range mode, the round parameter is ignored.
+func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "path query parameter required", http.StatusBadRequest)
+		return
+	}
+
+	if served := serveFileAtRound(w, r, s.session.Load(), path); served {
+		return
+	}
+
+	snapshot, ok := s.session.Load().GetFileSnapshot(path)
+	if !ok {
+		// File not in session (e.g. scoped view showing a file added after startup).
+		// Try to serve it directly from disk.
+		snapshot, ok = s.session.Load().GetFileSnapshotFromDisk(path)
+		if !ok {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+	}
+	writeJSON(w, snapshot)
+}
+
+// serveFileAtRound writes a per-round snapshot response if the request
+// includes a valid ?round=N for a files-mode session that has a snapshot for
+// (path, round). Returns served=true when it has fully written the response
+// (including 400/404). Returns served=false when the caller should fall
+// through to the working-tree code path (no round param, git/range mode, or
+// no snapshot recorded for this round).
+func serveFileAtRound(w http.ResponseWriter, r *http.Request, session *Session, path string) bool {
+	round, hasRound, valid := parseRoundParam(w, r)
+	if !valid {
+		// parseRoundParam wrote 400; signal handled.
+		return true
+	}
+	if !hasRound {
+		return false
+	}
+	if session == nil || session.Mode != "files" {
+		return false
+	}
+	session.RLock()
+	rs, ok := session.RoundSnapshotForFile(path, round)
+	prev, hasPrev := session.RoundSnapshotForFile(path, round-1)
+	session.RUnlock()
+	if !ok {
+		http.Error(w, "file_not_in_round", http.StatusNotFound)
+		return true
+	}
+	resp := map[string]any{
+		"path":     path,
+		"round":    round,
+		"content":  rs.Content,
+		"status":   rs.Status,
+		"position": rs.Position,
+	}
+	if hasPrev {
+		resp["previous_content"] = prev.Content
+	}
+	writeJSON(w, resp)
+	return true
+}
+
+// handleFileDiff returns diff hunks for a file.
+// For code files: git diff hunks. For markdown files: inter-round LCS diff.
+// GET /api/file/diff?path=server.go[&round=N][&w=1]
+//
+// In files mode, ?round=N returns the diff between round N's snapshot and
+// round (N-1)'s snapshot. R1 is the baseline and has no previous content,
+// so the response carries empty hunks. In git/range mode, the round
+// parameter is ignored.
+//
+// ?w=1 recomputes the code diff with whitespace ignored (GitHub's ?w=1 parity);
+// the markdown round diff always renders raw.
+func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "path query parameter required", http.StatusBadRequest)
+		return
+	}
+
+	if served := serveFileDiffAtRound(w, r, s.session.Load(), path); served {
+		return
+	}
+
+	scope := r.URL.Query().Get("scope")
+	commit := r.URL.Query().Get("commit")
+	ignoreWS := r.URL.Query().Get("w") == "1"
+	snapshot, ok := s.session.Load().GetFileDiffSnapshotScoped(path, scope, commit, ignoreWS)
+	if !ok {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, snapshot)
+}
+
+// serveFileDiffAtRound writes a per-round diff response when the request
+// includes a valid ?round=N for a files-mode session. Returns served=true
+// when it has fully written the response (success or 400/404). Returns
+// served=false when the caller should fall through to the working-tree code
+// path (no round param, or git/range mode).
+func serveFileDiffAtRound(w http.ResponseWriter, r *http.Request, session *Session, path string) bool {
+	round, hasRound, valid := parseRoundParam(w, r)
+	if !valid {
+		return true
+	}
+	if !hasRound {
+		return false
+	}
+	if session == nil || session.Mode != "files" {
+		return false
+	}
+	session.RLock()
+	rs, ok := session.RoundSnapshotForFile(path, round)
+	prev, hasPrev := session.RoundSnapshotForFile(path, round-1)
+	session.RUnlock()
+	if !ok {
+		http.Error(w, "file_not_in_round", http.StatusNotFound)
+		return true
+	}
+
+	resp := map[string]any{
+		"hunks":            []diff.DiffHunk{},
+		"previous_content": prev.Content,
+	}
+	if hasPrev && prev.Content != rs.Content {
+		entries := diff.ComputeLineDiff(prev.Content, rs.Content)
+		hunks := diff.DiffEntriesToHunks(entries)
+		if hunks == nil {
+			hunks = []diff.DiffHunk{}
+		}
+		resp["hunks"] = hunks
+	}
+	writeJSON(w, resp)
+	return true
+}
+
+// handleFileComments handles GET (list) and POST (create) for file-scoped comments.
+// GET/POST /api/file/comments?path=server.go
+//
+// In files mode, ?round=N filters the GET response via commentsAtOrBeforeRound:
+// only comments authored at or before round N (and replies authored at or
+// before N) are returned. Note that the Resolved / ResolvedRound fields on
+// each returned comment reflect *current* state, not state-at-round-N — the
+// frontend uses ResolvedRound to compute round-faithful resolution itself.
+// See commentsAtOrBeforeRound for the full Stage 1 vs Stage 2 contract.
+func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "path query parameter required", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		round, hasRound, valid := parseRoundParam(w, r)
+		if !valid {
+			return
+		}
+		comments := s.session.Load().GetComments(path)
+		if hasRound && s.session.Load().Mode == "files" {
+			comments = commentsAtOrBeforeRound(comments, round)
+		}
+		writeJSON(w, comments)
+
+	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
+		var req struct {
+			StartLine int        `json:"start_line"`
+			EndLine   int        `json:"end_line"`
+			Side      string     `json:"side"`
+			Body      string     `json:"body"`
+			Quote     string     `json:"quote"`
+			Author    string     `json:"author"`
+			Scope     string     `json:"scope"`
+			DOMAnchor *DOMAnchor `json:"dom_anchor"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Comment body is required", http.StatusBadRequest)
+			return
+		}
+
+		// Live pin: route to AddLivePin before line validation.
+		if req.DOMAnchor != nil {
+			author := req.Author
+			if author == "" {
+				author = s.author
+			}
+			sess := s.session.Load()
+			c, ok := sess.AddLivePin(path, req.Body, author, s.authUserID(), req.DOMAnchor)
+			if !ok {
+				http.Error(w, "Live pin rejected", http.StatusBadRequest)
+				return
+			}
+			// Fan out to SSE so other tabs (and the originating tab's review
+			// panel) refresh without waiting for the watcher's 1s mtime tick.
+			// The watcher's mergeExternalCritJSON path is suppressed for the
+			// daemon's own writes (lastCritJSONMtime equals disk mtime after
+			// WriteFiles), so cross-tab sync would otherwise stall until an
+			// external mutation. Emitting here closes that gap for live pins.
+			sess.Notify(SSEEvent{Type: "comments-changed"})
+			w.WriteHeader(http.StatusCreated)
+			writeJSON(w, c)
+			return
+		}
+
+		// Ensure the file is registered in the session. Files that appear after
+		// startup (e.g. user creates a new file while reviewing) may be visible in
+		// scoped views but not yet in s.Files.
+		s.session.Load().EnsureFileEntry(path)
+
+		if req.Scope == "file" {
+			c, ok := s.session.Load().AddFileComment(path, req.Body, req.Author, s.authUserID())
+			if !ok {
+				http.Error(w, "File not found", http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			writeJSON(w, c)
+			return
+		}
+
+		if req.StartLine < 1 || req.EndLine < req.StartLine {
+			http.Error(w, "Invalid line range", http.StatusBadRequest)
+			return
+		}
+
+		c, ok := s.session.Load().AddComment(path, req.StartLine, req.EndLine, normalizeCommentSide(req.Side), req.Body, req.Quote, req.Author, s.authUserID())
+		if !ok {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, c)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// normalizeCommentSide canonicalizes the wire `side` field to crit's internal
+// representation: "" for the new (right) side and "old" for the deletion (left)
+// side. Callers may pass GitHub-style "RIGHT"/"LEFT" (e.g. seeded payloads,
+// pulled PR comments, third-party scripts); without normalization, those values
+// flow into Comment.Side unchanged and cause the frontend's diff renderer to
+// miss them when keying by `lineNumber + ':' + side`, falsely flagging fresh
+// comments as "outdated" on first load.
+func normalizeCommentSide(s string) string {
+	switch strings.ToUpper(s) {
+	case "LEFT", "OLD":
+		return "old"
+	case "RIGHT", "NEW", "":
+		return ""
+	default:
+		return s
+	}
+}
+
+// handleCommentByID handles PUT/DELETE for individual comments and CRUD for replies.
+// PUT/DELETE /api/comment/{id}?path=server.go
+// POST       /api/comment/{id}/replies?path=server.go
+// PUT        /api/comment/{id}/replies/{rid}?path=server.go
+// DELETE     /api/comment/{id}/replies/{rid}?path=server.go
+// commentRoute holds the parsed components of a comment-by-ID URL path.
+type commentRoute struct {
+	kind string // "reply", "resolve", or "comment"
+	id   string // the comment ID
+	sub  string // for replies: the reply ID (may be empty for POST)
+}
+
+// routeCommentByID parses a URL suffix like "c5", "c5/replies", "c5/replies/r2",
+// or "c5/resolve" and returns the route components. Returns false if the suffix is empty.
+func routeCommentByID(trimmed string) (commentRoute, bool) {
+	if trimmed == "" {
+		return commentRoute{}, false
+	}
+	if parts := strings.SplitN(trimmed, "/replies", 2); len(parts) == 2 {
+		return commentRoute{
+			kind: "reply",
+			id:   parts[0],
+			sub:  strings.TrimPrefix(parts[1], "/"),
+		}, true
+	}
+	if parts := strings.SplitN(trimmed, "/resolve", 2); len(parts) == 2 && parts[1] == "" {
+		return commentRoute{kind: "resolve", id: parts[0]}, true
+	}
+	return commentRoute{kind: "comment", id: trimmed}, true
+}
+
+func (s *Server) handleCommentByID(w http.ResponseWriter, r *http.Request) {
+	trimmed := strings.TrimPrefix(r.URL.Path, "/api/comment/")
+	route, ok := routeCommentByID(trimmed)
+	if !ok {
+		http.Error(w, "Comment ID required", http.StatusBadRequest)
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "path query parameter required", http.StatusBadRequest)
+		return
+	}
+
+	switch route.kind {
+	case "reply":
+		s.handleReplyRoute(w, r, path, route.id, route.sub)
+	case "resolve":
+		s.handleFileCommentResolve(w, r, path, route.id)
+	case "comment":
+		s.handleFileCommentUpdate(w, r, path, route.id)
+	}
+}
+
+// handleFileCommentResolve handles PUT /api/comment/{id}/resolve?path=X.
+func (s *Server) handleFileCommentResolve(w http.ResponseWriter, r *http.Request, path, commentID string) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Resolved bool `json:"resolved"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	sess := s.session.Load()
+	c, ok := sess.SetCommentResolved(path, commentID, req.Resolved)
+	if !ok {
+		http.Error(w, "Comment not found", http.StatusNotFound)
+		return
+	}
+	// Fan out to SSE so other tabs (and the originating tab's review
+	// panel) reflect the resolved-state flip without waiting for the
+	// watcher's 1s mtime tick. Insert/reply/delete already broadcast;
+	// resolve must too.
+	sess.Notify(SSEEvent{Type: "comments-changed"})
+	writeJSON(w, c)
+}
+
+// handleFileCommentPut decodes the PUT patch and applies body/anchor +
+// live-mode drift patches in one shot. Extracted from handleFileCommentUpdate
+// to keep that switch's cyclomatic complexity within budget.
+func (s *Server) handleFileCommentPut(w http.ResponseWriter, r *http.Request, path, id string) {
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	var req struct {
+		Body           string     `json:"body"`
+		DOMAnchor      *DOMAnchor `json:"dom_anchor"`
+		Drifted        *bool      `json:"drifted,omitempty"`
+		DriftedOnRound *int       `json:"drifted_on_round,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	isDriftPatch := req.Drifted != nil || req.DriftedOnRound != nil
+	if !isDriftPatch && req.Body == "" && req.DOMAnchor == nil {
+		http.Error(w, "Comment body is required", http.StatusBadRequest)
+		return
+	}
+	sess := s.session.Load()
+	if isDriftPatch {
+		c, ok := sess.PatchCommentDrift(path, id, req.Drifted, req.DriftedOnRound)
+		if !ok {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		if req.Body == "" && req.DOMAnchor == nil {
+			writeJSON(w, c)
+			return
+		}
+	}
+	c, ok, reason := sess.UpdateCommentWithAnchor(path, id, req.Body, req.DOMAnchor)
+	if !ok {
+		switch reason {
+		case "not_found":
+			http.Error(w, "Comment not found", http.StatusNotFound)
+		case "anchor_on_code_comment":
+			http.Error(w, "dom_anchor is only valid on live pins", http.StatusBadRequest)
+		default:
+			http.Error(w, "Update failed", http.StatusBadRequest)
+		}
+		return
+	}
+	writeJSON(w, c)
+}
+
+// handleFileCommentUpdate handles PUT and DELETE on /api/comment/{id}?path=X.
+func (s *Server) handleFileCommentUpdate(w http.ResponseWriter, r *http.Request, path, id string) {
+	switch r.Method {
+	case http.MethodPut:
+		s.handleFileCommentPut(w, r, path, id)
+
+	case http.MethodDelete:
+		sess := s.session.Load()
+		// Authorize before delete: when the comment carries a non-empty
+		// UserID, only that user (matched against the daemon's configured
+		// AuthUserID) may delete it. Comments with empty UserID (legacy or
+		// unauthed sessions) remain deletable by anyone — preserving
+		// compatibility with file-mode reviews where AuthUserID is unset.
+		// Replies cascade automatically because they're nested inside the
+		// parent Comment struct.
+		switch sess.DeleteFileCommentAs(path, id, s.authUserID()) {
+		case DeleteResultNotFound:
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		case DeleteResultForbidden:
+			http.Error(w, "Forbidden: only the comment's author may delete it", http.StatusForbidden)
+			return
+		}
+		// Fan out to SSE so other tabs (and the originating tab's review
+		// panel) drop the deleted comment without waiting for the watcher's
+		// 1s mtime tick. Insert and reply paths already broadcast; delete
+		// must too.
+		sess.Notify(SSEEvent{Type: "comments-changed"})
+		writeJSON(w, map[string]string{"status": "deleted"})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	commits := s.session.Load().GetCommits()
+	writeJSON(w, commits)
+}
+
+// handleBranches returns remote branch names for the base-branch picker.
+func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.session.Load()
+	sess.RLock()
+	repoRoot := sess.RepoRoot
+	vcs := sess.VCS
+	sess.RUnlock()
+	if vcs == nil {
+		writeJSON(w, []string{})
+		return
+	}
+	branches, err := vcs.RemoteBranches(repoRoot)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, branches)
+}
+
+// handleBaseBranch changes the diff base branch for the current session.
+func (s *Server) handleBaseBranch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Branch string `json:"branch"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Branch == "" {
+		http.Error(w, "Bad request: branch is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.session.Load().ChangeBaseBranch(body.Branch); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]string{"ok": "true"})
+}
+
+// replyOps abstracts the difference between file-scoped and review-scoped reply operations.
+type replyOps struct {
+	add    func(body, author string) (Reply, bool)
+	update func(replyID, body string) (Reply, bool)
+	delete func(replyID string) bool
+}
+
+// handleReplyCRUD handles POST/PUT/DELETE for reply routes using the provided operations.
+func handleReplyCRUD(w http.ResponseWriter, r *http.Request, replyID string, ops replyOps) {
+	switch {
+	case r.Method == http.MethodPost && replyID == "":
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		var req struct {
+			Body   string `json:"body"`
+			Author string `json:"author"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Reply body is required", http.StatusBadRequest)
+			return
+		}
+		reply, ok := ops.add(req.Body, req.Author)
+		if !ok {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, reply)
+
+	case r.Method == http.MethodPut && replyID != "":
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		var req struct {
+			Body string `json:"body"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Reply body is required", http.StatusBadRequest)
+			return
+		}
+		reply, ok := ops.update(replyID, req.Body)
+		if !ok {
+			http.Error(w, "Reply not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, reply)
+
+	case r.Method == http.MethodDelete && replyID != "":
+		if !ops.delete(replyID) {
+			http.Error(w, "Reply not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleReplyRoute(w http.ResponseWriter, r *http.Request, filePath, commentID, replyID string) {
+	sess := s.session.Load()
+	// Wrap each op so that successful mutations fan out comments-changed to
+	// SSE subscribers. The watcher's mergeExternalCritJSON path is suppressed
+	// for the daemon's own writes (lastCritJSONMtime equals disk mtime after
+	// WriteFiles), so cross-tab sync would otherwise stall on reply CRUD in
+	// live mode until an external mutation arrived.
+	notify := func() { sess.Notify(SSEEvent{Type: "comments-changed"}) }
+	handleReplyCRUD(w, r, replyID, replyOps{
+		add: func(body, author string) (Reply, bool) {
+			rep, ok := sess.AddReply(filePath, commentID, body, author, s.authUserID())
+			if ok {
+				notify()
+			}
+			return rep, ok
+		},
+		update: func(rid, body string) (Reply, bool) {
+			rep, ok := sess.UpdateReply(filePath, commentID, rid, body)
+			if ok {
+				notify()
+			}
+			return rep, ok
+		},
+		delete: func(rid string) bool {
+			ok := sess.DeleteReply(filePath, commentID, rid)
+			if ok {
+				notify()
+			}
+			return ok
+		},
+	})
+}
+
+func (s *Server) handleReviewCommentReplyRoute(w http.ResponseWriter, r *http.Request, commentID, replyID string) {
+	handleReplyCRUD(w, r, replyID, replyOps{
+		add: func(body, author string) (Reply, bool) {
+			return s.session.Load().AddReviewCommentReply(commentID, body, author, s.authUserID())
+		},
+		update: func(rid, body string) (Reply, bool) {
+			return s.session.Load().UpdateReviewCommentReply(commentID, rid, body)
+		},
+		delete: func(rid string) bool {
+			return s.session.Load().DeleteReviewCommentReply(commentID, rid)
+		},
+	})
+}
+
+func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		round, hasRound, valid := parseRoundParam(w, r)
+		if !valid {
+			return
+		}
+		comments := s.session.Load().GetReviewComments()
+		if hasRound && s.session.Load().Mode == "files" {
+			comments = commentsAtOrBeforeRound(comments, round)
+		}
+		writeJSON(w, comments)
+
+	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		var req struct {
+			Body   string `json:"body"`
+			Author string `json:"author"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Comment body is required", http.StatusBadRequest)
+			return
+		}
+		c := s.session.Load().AddReviewComment(req.Body, req.Author, s.authUserID())
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, c)
+
+	case http.MethodDelete:
+		s.session.Load().ClearAllComments()
+		writeJSON(w, map[string]string{"status": "ok"})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleReviewCommentByID(w http.ResponseWriter, r *http.Request) {
+	trimmed := strings.TrimPrefix(r.URL.Path, "/api/review-comment/")
+	route, ok := routeCommentByID(trimmed)
+	if !ok {
+		http.Error(w, "Comment ID required", http.StatusBadRequest)
+		return
+	}
+
+	switch route.kind {
+	case "reply":
+		s.handleReviewCommentReplyRoute(w, r, route.id, route.sub)
+	case "resolve":
+		s.handleReviewCommentResolve(w, r, route.id)
+	case "comment":
+		s.handleReviewCommentUpdate(w, r, route.id)
+	}
+}
+
+// handleReviewCommentResolve handles PUT /api/review-comment/{id}/resolve.
+func (s *Server) handleReviewCommentResolve(w http.ResponseWriter, r *http.Request, commentID string) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Resolved bool `json:"resolved"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	sess := s.session.Load()
+	c, ok := sess.ResolveReviewComment(commentID, req.Resolved)
+	if !ok {
+		http.Error(w, "Comment not found", http.StatusNotFound)
+		return
+	}
+	// Fan out to SSE so other tabs (and the originating tab's review
+	// panel) reflect the resolved-state flip without waiting for the
+	// watcher's 1s mtime tick. Insert/reply/delete already broadcast;
+	// resolve must too.
+	sess.Notify(SSEEvent{Type: "comments-changed"})
+	writeJSON(w, c)
+}
+
+// handleReviewCommentUpdate handles PUT and DELETE on /api/review-comment/{id}.
+func (s *Server) handleReviewCommentUpdate(w http.ResponseWriter, r *http.Request, id string) {
+	switch r.Method {
+	case http.MethodPut:
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		var req struct {
+			Body string `json:"body"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Body == "" {
+			http.Error(w, "Comment body is required", http.StatusBadRequest)
+			return
+		}
+		c, ok := s.session.Load().UpdateReviewComment(id, req.Body)
+		if !ok {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, c)
+
+	case http.MethodDelete:
+		if !s.session.Load().DeleteReviewComment(id) {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleRoundComplete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.session.Load()
+	sess.RLock()
+	isRange := sess.Focus.Kind == FocusRange
+	sess.RUnlock()
+	if isRange {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "round-complete is not meaningful in range mode",
+		})
+		return
+	}
+	sess.SignalRoundComplete()
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// handleFocus accepts POST /api/focus to switch the session's focus.
+// Body is a JSON Focus payload. Rejects full-stack scope without DefaultSHA
+// with HTTP 400. SetFocus emits SSE focus-changed on success.
+func (s *Server) handleFocus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
+	var req Focus
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.session.Load().SetFocus(req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sess := s.session.Load()
+	// Synchronous, serialized flush. The response includes review_file —
+	// CLI clients and the e2e suite read that path verbatim, so the file
+	// must exist on disk before we hand the path back. Bare WriteFiles
+	// races with the debounce timer (both call session.AtomicWriteFile concurrently
+	// on the same target, which has manifested as ENOENT failures on
+	// Windows where the read-after-write window is wider).
+	if err := sess.SyncWriteFiles(); err != nil {
+		http.Error(w, fmt.Sprintf("writing review file: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	newComments := sess.NewCommentCount()
+	unresolvedComments := sess.UnresolvedCommentCount()
+	// In v4 the session identity is a folder (.../<key>/ or .../.crit/); the
+	// agent-facing review payload lives at <identity>/review.json. Surface the
+	// file path, not the folder, so `cat $review_file` works.
+	reviewFile := review.ReviewPathsFor(sess.CritJSONPath()).Review
+	prompt := s.buildFinishPrompt(sess, reviewFile)
+	approved := unresolvedComments == 0
+	if !approved {
+		sess.SetWaitingForAgent(true)
+	}
+
+	stats := s.buildSessionStats(sess)
+
+	writeJSON(w, map[string]any{
+		"status":      "finished",
+		"review_file": reviewFile,
+		"prompt":      prompt,
+		"approved":    approved,
+		"stats":       stats,
+	})
+
+	// Encode approved status into SSE event content as JSON so review-cycle
+	// clients can extract it without string matching on the prompt.
+	eventData, _ := json.Marshal(map[string]any{
+		"prompt":   prompt,
+		"approved": approved,
+		"stats":    stats,
+	})
+	sess.Notify(SSEEvent{
+		Type:    "finish",
+		Content: string(eventData),
+	})
+
+	if s.status != nil {
+		round := sess.GetReviewRound()
+		s.status.RoundFinished(round, newComments, unresolvedComments > 0)
+		if unresolvedComments > 0 {
+			s.status.WaitingForAgent()
+		}
+	}
+
+	if approved && !s.statsRecorded && !s.sessionStartedAt.IsZero() && !s.cfg.DisableStats {
+		recordSessionStats(sess, s.author, s.sessionStartedAt)
+		s.statsRecorded = true
+	}
+
+}
+
+// buildSessionStats returns duration/files/comments for the current session,
+// or nil if the session start time was never recorded.
+func (s *Server) buildSessionStats(sess *Session) map[string]any {
+	if s.sessionStartedAt.IsZero() {
+		return nil
+	}
+	duration := int(math.Round(time.Since(s.sessionStartedAt).Seconds()))
+	files, comments := session.SessionActivity(sess, s.author)
+	return map[string]any{
+		"duration_seconds":   duration,
+		"files_reviewed":     files,
+		"comments_submitted": comments,
+	}
+}
+
+// buildFinishPrompt returns the agent-facing prompt string based on comment state.
+func (s *Server) buildFinishPrompt(sess *Session, reviewFile string) string {
+	totalComments := sess.TotalCommentCount()
+	unresolvedComments := sess.UnresolvedCommentCount()
+	if totalComments > 0 && unresolvedComments > 0 {
+		if sess.Mode == "plan" {
+			return s.buildPlanFeedback(reviewFile)
+		}
+		return fmt.Sprintf(
+			"Review comments are in %s — comments are grouped per file with start_line/end_line referencing the source. "+
+				"Each comment has a scope field: \"line\" for inline comments, \"file\" for file-level comments, or \"review\" for review-level comments. "+
+				"Review-level comments appear in the top-level review_comments array (not tied to any file). "+
+				"Read the file, address each unresolved comment in the relevant file and location. "+
+				"Before acting, check each comment's replies array — if you have already replied, the reviewer may be following up conversationally rather than requesting a new code change. "+
+				"For each comment, reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> \"<explanation>\"`. "+
+				"When done run: `%s`",
+			reviewFile, sess.ReinvokeCommand())
+	}
+	if totalComments > 0 && unresolvedComments == 0 {
+		return "All comments are resolved — no changes needed, please proceed."
+	}
+	return ""
+}
+
+// buildPlanFeedback formats review feedback for plan mode.
+// Points to the review file and hints at crit-cli skill, without inlining every comment.
+func (s *Server) buildPlanFeedback(reviewFile string) string {
+	// Extract slug from PlanDir (last path component)
+	slug := filepath.Base(s.session.Load().PlanDir)
+	return fmt.Sprintf(
+		"Plan review feedback — revise the plan to address the review comments. "+
+			"Comments are in %s — grouped per file with start_line/end_line referencing the source. "+
+			"Each comment has a scope field: \"line\" for inline comments, \"file\" for file-level, or \"review\" for review-level comments. "+
+			"Read the file, revise the plan to address each comment. "+
+			"If you are running under Codex, re-emit the revised plan inside <proposed_plan>...</proposed_plan> so Crit can review the new version. "+
+			"To reply to comments, use `crit comment --plan %s --reply-to <id> --author <your-name> \"<explanation>\"`.",
+		reviewFile, slug)
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	browserClients := false
+	if sess := s.session.Load(); sess != nil {
+		browserClients = sess.HasBrowserClients()
+	}
+	writeJSON(w, map[string]any{
+		"status":          "ok",
+		"browser_clients": browserClients,
+	})
+}
+
+// buildNextCommand renders the command the agent should run to start the
+// next review round, given the args the daemon was launched with.
+func buildNextCommand(args []string) string {
+	if len(args) == 0 {
+		return "crit"
+	}
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, "crit")
+	for _, a := range args {
+		parts = append(parts, shellQuoteArg(a))
+	}
+	return strings.Join(parts, " ")
+}
+
+// shellQuoteArg quotes a single CLI arg using POSIX single-quote syntax when
+// it contains whitespace or shell metacharacters; returns it unchanged
+// otherwise. Single quotes inside the arg are escaped as '\”.
+func shellQuoteArg(a string) string {
+	if a == "" {
+		return `''`
+	}
+	if !strings.ContainsAny(a, " \t\n\"'\\$`*?[]{}();&|<>#~!") {
+		return a
+	}
+	return "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+}
+
+// handleReviewCycle is the unified endpoint for the daemon-client pattern.
+// On first call (awaitingFirstReview=true): just blocks until user finishes review.
+// On subsequent calls: signals round-complete first, then blocks.
+// Returns the same feedback payload as handleFinish.
+func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sess := s.session.Load()
+
+	// Subscribe BEFORE round-complete to avoid missing the finish event
+	// if the user clicks "Finish Review" in the brief window between
+	// SignalRoundComplete and Subscribe.
+	ch := sess.Subscribe()
+	defer sess.Unsubscribe(ch)
+
+	if !sess.IsAwaitingFirstReview() {
+		// Agent finished changes — signal round-complete so browser refreshes
+		sess.SignalRoundComplete()
+	}
+
+	for {
+		select {
+		case event := <-ch:
+			if event.Type == "finish" {
+				sess.SetAwaitingFirstReview(false)
+				// Parse the structured finish event data
+				var finishData struct {
+					Prompt   string         `json:"prompt"`
+					Approved bool           `json:"approved"`
+					Stats    map[string]any `json:"stats"`
+				}
+				json.Unmarshal([]byte(event.Content), &finishData)
+				writeJSON(w, map[string]any{
+					"status":       "finished",
+					"review_file":  review.ReviewPathsFor(sess.CritJSONPath()).Review,
+					"prompt":       finishData.Prompt,
+					"approved":     finishData.Approved,
+					"stats":        finishData.Stats,
+					"next_command": buildNextCommand(s.cliArgs),
+				})
+				return
+			}
+			if event.Type == "server-shutdown" {
+				// Daemon is shutting down before the user finished reviewing.
+				// Tell the client explicitly so it can deny rather than fall
+				// through to the connection-error path and silently approve.
+				// Set Content-Type before WriteHeader — writeJSON sets it
+				// internally, but headers set after WriteHeader are dropped.
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				writeJSON(w, map[string]any{
+					"status":   "shutdown",
+					"approved": false,
+					"prompt":   "crit daemon shut down before review was finished.",
+				})
+				return
+			}
+		case <-r.Context().Done():
+			w.WriteHeader(http.StatusGatewayTimeout)
+			return
+		}
+	}
+}
+
+func (s *Server) handleWaitForEvent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sess := s.session.Load()
+	ch := sess.Subscribe()
+	defer sess.Unsubscribe(ch)
+
+	for {
+		select {
+		case event := <-ch:
+			if event.Type == "finish" {
+				writeJSON(w, event)
+				return
+			}
+		case <-r.Context().Done():
+			w.WriteHeader(http.StatusGatewayTimeout)
+			return
+		}
+	}
+}
+
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher.Flush()
+
+	// Safari won't fire EventSource.onopen until it sees a body byte.
+	fmt.Fprint(w, ":\n\n")
+	flusher.Flush()
+
+	sess := s.session.Load()
+	sess.BrowserConnect()
+	defer sess.BrowserDisconnect()
+
+	ch := sess.Subscribe()
+	defer sess.Unsubscribe(ch)
+
+	heartbeat := time.NewTicker(sseHeartbeatInterval)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-heartbeat.C:
+			fmt.Fprint(w, ":\n\n")
+			flusher.Flush()
+		case event, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, _ := json.Marshal(event)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
+			flusher.Flush()
+		}
+	}
+}
+
+// handleAttachments dispatches both attachment upload (POST /api/attachments)
+// and fetch (GET /api/attachments/{filename}). Storage lives at
+// review.ReviewPathsFor(s.reviewPath).Attachments so the v4 clearReviewFolder pass
+// removes attachments alongside review.json on cleanup.
+func (s *Server) handleAttachments(w http.ResponseWriter, r *http.Request) {
+	if s.reviewPath == "" {
+		http.Error(w, "Attachment storage unavailable (no review path)", http.StatusServiceUnavailable)
+		return
+	}
+
+	suffix := strings.TrimPrefix(r.URL.Path, "/api/attachments")
+	suffix = strings.TrimPrefix(suffix, "/")
+
+	switch r.Method {
+	case http.MethodPost:
+		if suffix != "" {
+			http.Error(w, "POST takes no path suffix", http.StatusBadRequest)
+			return
+		}
+		s.handleAttachmentUpload(w, r)
+	case http.MethodGet:
+		if suffix == "" {
+			http.Error(w, "Filename required", http.StatusBadRequest)
+			return
+		}
+		s.handleAttachmentGet(w, r, suffix)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleAttachmentUpload accepts a single multipart form field named "file"
+// containing image bytes. Validates MIME, persists via saveAttachment, and
+// returns the *relative* URL (`attachments/<uuid>.<ext>`) the frontend
+// should embed verbatim in the comment markdown — the source of truth in
+// review.json is the relative form, with each render target rewriting at
+// its own publish boundary.
+//
+// The original_filename is sanitized server-side and returned so the
+// frontend can use it as alt text without trusting raw upload metadata.
+func (s *Server) handleAttachmentUpload(w http.ResponseWriter, r *http.Request) {
+	// Cap the entire request body. Multipart adds a small overhead beyond
+	// the raw image bytes; a generous +1MB ceiling keeps the math simple.
+	r.Body = http.MaxBytesReader(w, r.Body, MaxAttachmentBytes+(1<<20))
+
+	if err := r.ParseMultipartForm(MaxAttachmentBytes + (1 << 20)); err != nil {
+		http.Error(w, "Invalid multipart form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Missing 'file' field", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Read up to MaxAttachmentBytes+1 so we can detect overflow distinctly
+	// from a successful read at exactly the cap.
+	buf := make([]byte, MaxAttachmentBytes+1)
+	n, err := io.ReadFull(file, buf)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		http.Error(w, "Read upload: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if n > MaxAttachmentBytes {
+		http.Error(w, fmt.Sprintf("Image too large (max %d bytes)", MaxAttachmentBytes), http.StatusRequestEntityTooLarge)
+		return
+	}
+	data := buf[:n]
+
+	filename, err := saveAttachment(s.reviewPath, data)
+	if err != nil {
+		// MIME rejections deserve 415; everything else is 400.
+		if strings.HasPrefix(err.Error(), "unsupported image type") {
+			http.Error(w, err.Error(), http.StatusUnsupportedMediaType)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// header may be nil if FormFile is called creatively in tests; guard.
+	originalFilename := ""
+	if header != nil {
+		originalFilename = sanitizeAttachmentAltText(header.Filename)
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, map[string]string{
+		"filename":          filename,
+		"original_filename": originalFilename,
+		"url":               "attachments/" + filename,
+	})
+}
+
+// handleAttachmentGet serves a previously uploaded attachment by its UUID
+// filename. The filename regex makes path traversal impossible without the
+// caller having to look at r.URL.Path themselves.
+func (s *Server) handleAttachmentGet(w http.ResponseWriter, r *http.Request, filename string) {
+	path, mime, err := attachmentPathFor(s.reviewPath, filename)
+	if err != nil {
+		http.Error(w, "Invalid attachment filename", http.StatusBadRequest)
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		http.Error(w, "Attachment not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		http.Error(w, "Stat failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", mime)
+	// UUIDs are never reused; the bytes behind a URL never change.
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	http.ServeContent(w, r, filename, info.ModTime(), f)
+}
+
+func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	reqPath := strings.TrimPrefix(r.URL.Path, "/files/")
+	if reqPath == "" || strings.Contains(reqPath, "..") {
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
+	}
+
+	baseDir := s.session.Load().RepoRoot
+	fullPath := filepath.Join(baseDir, reqPath)
+	cleanPath, err := filepath.EvalSymlinks(fullPath)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	resolvedBase, err := filepath.EvalSymlinks(baseDir)
+	if err != nil {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+	if !strings.HasPrefix(cleanPath, resolvedBase+string(filepath.Separator)) {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	http.ServeFile(w, r, cleanPath)
+}
+
+func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	url := r.URL.Query().Get("url")
+	if url == "" {
+		http.Error(w, "Missing url parameter", http.StatusBadRequest)
+		return
+	}
+	code, err := qr.Encode(url, qr.L)
+	if err != nil {
+		http.Error(w, "QR generation failed", http.StatusInternalServerError)
+		return
+	}
+
+	size := code.Size
+	scale := 4
+	imgSize := size * scale
+	padding := 16
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d">`, imgSize+padding*2, imgSize+padding*2))
+	for y := 0; y < size; y++ {
+		for x := 0; x < size; x++ {
+			if code.Black(x, y) {
+				b.WriteString(fmt.Sprintf(`<rect x="%d" y="%d" width="%d" height="%d"/>`, x*scale+padding, y*scale+padding, scale, scale))
+			}
+		}
+	}
+	b.WriteString(`</svg>`)
+
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Write([]byte(b.String()))
+}
+
+func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sess := s.session.Load()
+	var paths []string
+	var err error
+
+	// Try VCS first (works in both "git" and "files" mode when inside a repo),
+	// fall back to filesystem walk for non-VCS directories.
+	if sess.VCS != nil {
+		paths, err = sess.VCS.AllTrackedFiles(sess.RepoRoot)
+	} else {
+		err = fmt.Errorf("no VCS")
+	}
+	if err != nil {
+		paths, err = vcs.WalkFiles(sess.RepoRoot)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	paths = filterPathsIgnored(paths, sess.IgnorePatterns)
+
+	query := r.URL.Query().Get("q")
+	const maxResults = 10
+
+	var results []string
+	if query == "" {
+		// No query: return first N paths alphabetically
+		sort.Strings(paths)
+		if len(paths) > maxResults {
+			results = paths[:maxResults]
+		} else {
+			results = paths
+		}
+	} else {
+		results = fuzzyFilterPaths(paths, query, maxResults)
+	}
+
+	if results == nil {
+		results = []string{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+// fuzzyFilterPaths scores each path against query using fuzzy matching and
+// returns the top N results sorted by score (descending).
+func fuzzyFilterPaths(paths []string, query string, limit int) []string {
+	query = strings.ToLower(query)
+
+	type scored struct {
+		path  string
+		score float64
+	}
+	var matches []scored
+
+	for _, p := range paths {
+		s := fuzzyScore(query, p)
+		if s >= 0 {
+			matches = append(matches, scored{p, s})
+		}
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].score > matches[j].score
+	})
+
+	if len(matches) > limit {
+		matches = matches[:limit]
+	}
+
+	result := make([]string, len(matches))
+	for i, m := range matches {
+		result[i] = m.path
+	}
+	return result
+}
+
+// fuzzyScore returns a score >= 0 if all characters in query appear in text
+// in order, or -1 if not. Higher scores indicate better matches.
+func fuzzyScore(query, text string) float64 {
+	textLower := strings.ToLower(text)
+	qi := 0
+	score := 0.0
+	consecutive := 0
+	lastMatchPos := -1
+
+	for ti := 0; ti < len(textLower) && qi < len(query); ti++ {
+		if textLower[ti] == query[qi] {
+			qi++
+			if ti == lastMatchPos+1 {
+				consecutive++
+				score += float64(consecutive) * 2
+			} else {
+				consecutive = 0
+				score += 1
+			}
+			if ti == 0 || text[ti-1] == '/' || text[ti-1] == '.' || text[ti-1] == '-' || text[ti-1] == '_' {
+				score += 5
+			}
+			lastMatchPos = ti
+		}
+	}
+
+	if qi < len(query) {
+		return -1
+	}
+	score -= float64(len(text)) * 0.1
+	return score
+}
+
+// agentRequestBody is the JSON body for POST /api/agent/request.
+type agentRequestBody struct {
+	CommentID string `json:"comment_id"`
+	FilePath  string `json:"file_path"`
+}
+
+// agentName extracts the binary name from the agent command string.
+func agentName(cmd string) string {
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return "agent"
+	}
+	return filepath.Base(parts[0])
+}
+
+// handleAgentRequest dispatches a comment to the configured agent command.
+// POST /api/agent/request
+func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agentCmd == "" {
+		http.Error(w, "agent_cmd not configured", http.StatusBadRequest)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var body agentRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.CommentID == "" {
+		http.Error(w, "Bad request: comment_id required", http.StatusBadRequest)
+		return
+	}
+
+	comment, filePath, found := s.session.Load().FindCommentByID(body.CommentID, body.FilePath)
+	if !found {
+		http.Error(w, "Comment not found", http.StatusNotFound)
+		return
+	}
+
+	s.session.Load().SetCommentLive(filePath, comment.ID)
+
+	prompt := buildAgentPrompt(comment, filePath)
+
+	// Run agent command asynchronously. Tracked via bgWG so the daemon
+	// shutdown path can wait for the reply to be posted before WriteFiles
+	// persists the final review state.
+	s.bgWG.Add(1)
+	go func() {
+		defer s.bgWG.Done()
+		s.runAgentCmd(prompt, comment.ID, filePath)
+	}()
+
+	w.WriteHeader(http.StatusAccepted)
+	writeJSON(w, map[string]any{
+		"status":     "accepted",
+		"comment_id": body.CommentID,
+		"file_path":  filePath,
+	})
+}
+
+// buildAgentPrompt constructs a prompt string from a comment for the agent.
+func buildAgentPrompt(c Comment, filePath string) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("A reviewer left a comment on %s", filePath))
+	if c.StartLine > 0 {
+		if c.EndLine > c.StartLine {
+			b.WriteString(fmt.Sprintf(" (lines %d-%d)", c.StartLine, c.EndLine))
+		} else {
+			b.WriteString(fmt.Sprintf(" (line %d)", c.StartLine))
+		}
+	}
+	b.WriteString(":\n\n")
+	if c.Quote != "" {
+		b.WriteString("Code:\n```\n")
+		b.WriteString(c.Quote)
+		b.WriteString("\n```\n\n")
+	}
+	b.WriteString("Comment:\n> ")
+	b.WriteString(c.Body)
+	b.WriteString("\n\n")
+	for _, reply := range c.Replies {
+		b.WriteString(fmt.Sprintf("Reply from %s:\n> %s\n\n", reply.Author, reply.Body))
+	}
+	b.WriteString("Address this comment. If it requires a code change, make the edit.\n\n" +
+		"IMPORTANT: Do NOT run `crit comment` or `crit` commands. " +
+		"Just print your response to stdout — it will be posted as a reply automatically.\n")
+	return b.String()
+}
+
+// runAgentCmd executes the configured agent command with the given prompt.
+// If agent_cmd contains {prompt}, the placeholder is replaced with the prompt
+// as a single argument. Otherwise, the prompt is piped via stdin.
+func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
+	// Parent on the daemon shutdown ctx so SIGINT/SIGTERM kills
+	// the agent subprocess instead of orphaning it (the subprocess has its
+	// own session id via daemonSysProcAttr). Tests that don't wire a shutdown
+	// ctx fall back to context.Background() — same behavior as before.
+	ctx, cancel := context.WithTimeout(s.effectiveCtx(), 10*time.Minute)
+	defer cancel()
+
+	parts := strings.Fields(s.agentCmd)
+	if len(parts) == 0 {
+		return
+	}
+	log.Printf("agent-request %s: running %q", commentID, s.agentCmd)
+
+	// Replace {prompt} placeholder with the actual prompt as a single argument.
+	hasPlaceholder := false
+	for i, p := range parts {
+		if p == "{prompt}" {
+			parts[i] = prompt
+			hasPlaceholder = true
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	if !hasPlaceholder {
+		cmd.Stdin = strings.NewReader(prompt)
+	}
+	sess := s.session.Load()
+	cmd.Dir = sess.RepoRoot
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		log.Printf("agent-request %s: error: %v\nStderr: %s", commentID, err, stderr.String())
+		return
+	}
+
+	response := strings.TrimSpace(stdout.String())
+	if response == "" {
+		log.Printf("agent-request %s: completed (no output)", commentID)
+		return
+	}
+
+	author := agentName(s.agentCmd)
+	log.Printf("agent-request %s: completed, posting reply (%d bytes)\nResponse: %s\nStderr: %s", commentID, len(response), response, stderr.String())
+	// Try original path first, then search all files (path may have changed during agent run)
+	_, ok := sess.AddReply(filePath, commentID, response, author, "")
+	if !ok {
+		if _, actualPath, found := sess.FindCommentByID(commentID, ""); found {
+			_, ok = sess.AddReply(actualPath, commentID, response, author, "")
+			if ok {
+				filePath = actualPath
+			}
+		}
+	}
+	if !ok {
+		log.Printf("agent-request %s: failed to add reply (comment not found in file %q)", commentID, filePath)
+	} else {
+		// On shutdown, skip the refresh fan-out: the SSE subscribers are gone
+		// and we're about to WriteFiles. The reply is already in the session
+		// (added by AddReply above) and will be persisted.
+		select {
+		case <-s.effectiveCtx().Done():
+			return
+		default:
+		}
+		// Re-read content (and file list/diffs in git mode) so next fetch returns updated data
+		sess.RefreshFileContent()
+		if sess.Mode == "git" {
+			sess.RefreshFileList()
+			sess.RefreshDiffs()
+		}
+		sess.Notify(SSEEvent{Type: "comments-changed"})
+	}
+}
+
+// handleAuthOrgs proxies GET /api/auth/orgs to the configured crit-web service,
+// forwarding the stored auth token. Returns an empty JSON array when the share
+// URL is not configured, the user is not authenticated, or the upstream request
+// fails — so the frontend always receives a valid orgs list.
+func (s *Server) handleAuthOrgs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	emptyArray := func() { writeJSON(w, []any{}) }
+
+	if s.shareURL == "" {
+		emptyArray()
+		return
+	}
+	token := s.authTokenSnapshot()
+	if token == "" {
+		emptyArray()
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.shareURL+"/api/auth/orgs", nil)
+	if err != nil {
+		emptyArray()
+		return
+	}
+	share.SetBearer(req, token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		emptyArray()
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		emptyArray()
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
+}
+
+func (s *Server) authTokenSnapshot() string {
+	s.authMu.RLock()
+	defer s.authMu.RUnlock()
+	return s.authToken
+}
+
+func (s *Server) authLoggedIn() bool {
+	s.authMu.RLock()
+	defer s.authMu.RUnlock()
+	return s.authToken != ""
+}
+
+func (s *Server) authUserID() string {
+	s.authMu.RLock()
+	defer s.authMu.RUnlock()
+	return s.cfg.AuthUserID
+}
+
+func (s *Server) authUserName() string {
+	s.authMu.RLock()
+	defer s.authMu.RUnlock()
+	return s.cfg.AuthUserName
+}
+
+func (s *Server) authUserEmail() string {
+	s.authMu.RLock()
+	defer s.authMu.RUnlock()
+	return s.cfg.AuthUserEmail
+}
+
+func (s *Server) clearAuthState() {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	s.authToken = ""
+	s.cfg.AuthToken = ""
+	s.cfg.AuthUserID = ""
+	s.cfg.AuthUserName = ""
+	s.cfg.AuthUserEmail = ""
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("writeJSON: encode error: %v", err)
+	}
+}

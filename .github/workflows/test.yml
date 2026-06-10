@@ -77,9 +77,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: ESLint
-        run: npx eslint cmd/crit/frontend/app.js
+        run: npx eslint web/app.js
       - name: Stylelint
-        run: npx stylelint "cmd/crit/frontend/*.css"
+        run: npx stylelint "web/*.css"
       - name: CSS variable validation
         run: bash scripts/check-css-vars.sh
 
@@ -202,10 +202,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: e2e/package-lock.json
+          cache-dependency-path: test/e2e/package-lock.json
 
       - name: Install npm dependencies
-        working-directory: e2e
+        working-directory: test/e2e
         run: npm ci
 
       - name: Cache Playwright browsers
@@ -213,16 +213,16 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('test/e2e/package-lock.json') }}
 
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        working-directory: e2e
+        working-directory: test/e2e
         run: npx playwright install chromium
 
       - name: Install Playwright system dependencies
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        working-directory: e2e
+        working-directory: test/e2e
         run: npx playwright install-deps chromium
 
       - name: Build crit with coverage instrumentation
@@ -231,7 +231,7 @@ jobs:
           go build -cover -o /tmp/crit-cover-bin ./cmd/crit
 
       - name: Run E2E tests
-        working-directory: e2e
+        working-directory: test/e2e
         run: bash run.sh
         env:
           CRIT_BIN: /tmp/crit-cover-bin
@@ -257,7 +257,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: e2e-test-results
-          path: e2e/test-results/
+          path: test/e2e/test-results/
           retention-days: 7
 
   e2e-windows:
@@ -284,10 +284,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: e2e/package-lock.json
+          cache-dependency-path: test/e2e/package-lock.json
 
       - name: Install npm dependencies
-        working-directory: e2e
+        working-directory: test/e2e
         run: npm ci
 
       - name: Cache Playwright browsers
@@ -295,11 +295,11 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/AppData/Local/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('test/e2e/package-lock.json') }}
 
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        working-directory: e2e
+        working-directory: test/e2e
         run: npx playwright install chromium
 
       - name: Build crit with coverage instrumentation
@@ -309,7 +309,7 @@ jobs:
           go build -cover -o crit-cover-bin.exe ./cmd/crit
 
       - name: Run E2E tests
-        working-directory: e2e
+        working-directory: test/e2e
         shell: bash
         run: bash run.sh
         env:
@@ -337,7 +337,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: e2e-test-results-windows
-          path: e2e/test-results/
+          path: test/e2e/test-results/
           retention-days: 7
 
       # Some tests spawn `crit.exe` daemons that may outlive the test process

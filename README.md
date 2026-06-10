@@ -8,7 +8,7 @@
 
 Review and comment on plans, code diffs, frontend elements and send feedback directly to your agent.
 
-![Crit UI for "notification-plan.md" showing comment left on "Queue - Redis Streams, SQS, RabbitMQ" line saying "Just use SQS - we're in AWS"](images/demo-overview.png)
+![Crit UI for "notification-plan.md" showing comment left on "Queue - Redis Streams, SQS, RabbitMQ" line saying "Just use SQS - we're in AWS"](docs/images/demo-overview.png)
 
 ## Adaptive UI for each type of output
 
@@ -60,7 +60,7 @@ claude plugin marketplace add tomasz-tomczyk/crit
 claude plugin install crit@crit
 ```
 
-Crit also works with Cursor, GitHub Copilot, OpenCode, Codex, Gemini, Qwen, Hermes, Windsurf, Cline, Grok, Aider, and Pi — any agent that can read a file and run a command. See [`cmd/crit/integrations/`](cmd/crit/integrations/) for all install methods and details.
+Crit also works with Cursor, GitHub Copilot, OpenCode, Codex, Gemini, Qwen, Hermes, Windsurf, Cline, Grok, Aider, and Pi — any agent that can read a file and run a command. See [`integrations/`](integrations/) for all install methods and details.
 
 ### 3. Tell your agent to use `crit`
 
@@ -69,7 +69,7 @@ Agent launches Crit, waits for your review and acts on the feedback.
 Repeat the process until you approve the changes.
 
 Here's a 2-minute demo walkthrough of plan review and branch review:
-[![Crit demo](images/video-thumbnail.png)](https://www.youtube.com/watch?v=LHwfdvePf5A)
+[![Crit demo](docs/images/video-thumbnail.png)](https://www.youtube.com/watch?v=LHwfdvePf5A)
 
 ## Usage
 
@@ -121,17 +121,17 @@ After your agent edits the file, Crit shows a split or unified diff of what chan
 
 #### Split view
 
-![Round-to-round diff - split view](images/diff-split.png)
+![Round-to-round diff - split view](docs/images/diff-split.png)
 
 #### Unified view
 
-![Round-to-round diff - unified view](images/diff-unified.png)
+![Round-to-round diff - unified view](docs/images/diff-unified.png)
 
 ### Inline comments: single lines and ranges
 
 Click a line number to comment. Drag to select a range. Comments are rendered inline after their referenced lines, just like a GitHub PR review.
 
-![Simple comments](images/simple-comments.gif)
+![Simple comments](docs/images/simple-comments.gif)
 
 ### Programmatic comments
 
@@ -204,7 +204,7 @@ Click "Send now" on any comment during a review to get an AI agent response in r
 The agent reads the comment context, addresses it (editing code if needed), and replies
 inline - all while you continue reviewing.
 
-![Send to agent](images/live-mode.png)
+![Send to agent](docs/images/live-mode.png)
 
 Configure in `~/.crit.config.json` (global config only):
 
@@ -410,7 +410,7 @@ WSL: install the Linux binary as you would on Linux (`go install`, `nix run`, or
 
 ### Docker (sandboxed agents)
 
-For running crit alongside an AI agent inside a container, with the review UI reachable from your host browser, see [`cmd/crit/integrations/docker/`](cmd/crit/integrations/docker/). Includes a working `Dockerfile` + `entrypoint.sh` that bridges crit's loopback-bound server via `socat` so `docker -p` forwarding works without changing crit's threat model.
+For running crit alongside an AI agent inside a container, with the review UI reachable from your host browser, see [`integrations/docker/`](integrations/docker/). Includes a working `Dockerfile` + `entrypoint.sh` that bridges crit's loopback-bound server via `socat` so `docker -p` forwarding works without changing crit's threat model.
 
 ## Acknowledgements
 

@@ -1,0 +1,608 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PORT="${1:-3123}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CRIT_SRC="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
+# Resolve to a native (drive-letter-prefixed) path on Git Bash. realpath
+# returns POSIX form (/tmp/...) that Go's filepath.Join silently builds
+# into a drive-less `\tmp\...` (resolved against the calling process's
+# current drive — daemon and Node test then disagree), and Node's spawn
+# cwd rejects POSIX paths with ENOENT. e2e_native_tempdir uses cygpath -m
+# so both runtimes interpret the path consistently.
+DIR=$(e2e_native_tempdir)
+BIN_DIR=$(e2e_native_tempdir)
+trap 'rm -rf "$DIR" "$BIN_DIR" "${FAKE_HOME:-}"' EXIT
+
+cd "$DIR"
+git init -q
+git config user.email "test@test.com"
+git config user.name "Test"
+
+# === Initial commit: files that will be "modified" or "deleted" ===
+
+cat > server.go << 'GOFILE'
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+// respondJSON writes a JSON response with the given status code.
+func respondJSON(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	fmt.Fprint(w, body)
+}
+
+// logRequest logs the incoming request method and path.
+func logRequest(r *http.Request) {
+	fmt.Printf("%s %s\n", r.Method, r.URL.Path)
+}
+
+func main() {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		fmt.Fprintf(w, "Hello, %s!", r.URL.Path[1:])
+	})
+
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
+
+	http.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		respondJSON(w, http.StatusOK, `{"version":"1.0.0"}`)
+	})
+
+	http.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		respondJSON(w, http.StatusOK, `{"ready":true}`)
+	})
+
+	fmt.Println("Server starting on :8080")
+	http.ListenAndServe(":8080", nil)
+}
+GOFILE
+
+# legacy.go — initial version with a long block that will be replaced.
+# The replacement creates a hunk where the old-side line number of a deletion
+# coincides with the new-side line number of a context line further down,
+# exposing the unified comment-highlight overshoot bug.
+cat > legacy.go << 'GOFILE'
+package legacy
+
+// Header comment 1
+// Header comment 2
+// Header comment 3
+// Header comment 4
+
+func Old1() {}
+func Old2() {}
+func Old3() {}
+func Old4() {}
+func Old5() {}
+func Old6() {}
+func Old7() {}
+func Old8() {}
+func Old9() {}
+func Old10() {}
+func Old11() {}
+func Old12() {}
+
+func Keep1() {}
+func Keep2() {}
+func Keep3() {}
+func Keep4() {}
+GOFILE
+
+cat > deleted.txt << 'EOF'
+This file will be deleted.
+It has some content that used to matter.
+But now it's gone.
+EOF
+
+cat > utils.go << 'GOFILE'
+package main
+
+import "strings"
+
+func Capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+GOFILE
+
+# routes.go — will produce a multi-hunk diff with a large gap (>20 unchanged lines)
+# between changed areas, so spacers remain after auto-expansion of small gaps
+# and incremental diff expansion can be tested.
+cat > routes.go << 'GOFILE'
+package main
+
+import "net/http"
+
+func setupRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/users", handleUsers)
+	mux.HandleFunc("/api/posts", handlePosts)
+}
+
+func handleUsers(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handlePosts(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleComments(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleTags(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleCategories(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleSearch(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleNotifications(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleProfile(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleDashboard(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleAnalytics(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+GOFILE
+
+git add -A
+git commit -q -m "initial commit"
+
+# === Feature branch: modifications ===
+
+git checkout -q -b feat/add-auth
+
+# First commit: add notification handler (gives us 2 commits on branch)
+cat > handler.js << 'JSFILE'
+// Request handler for the notification service
+export function handleNotification(req, res) {
+  const { userId, message, channel } = req.body;
+
+  if (!userId || !message) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  const notification = {
+    id: crypto.randomUUID(),
+    userId,
+    message,
+    channel: channel || 'email',
+    createdAt: new Date().toISOString(),
+  };
+
+  queue.push(notification);
+  res.status(201).json(notification);
+}
+JSFILE
+git add handler.js
+git commit -q -m "feat: add notification handler"
+
+# Second commit: auth middleware and plan
+# Modify server.go significantly to produce multi-hunk diff
+# Hunk 1: change imports. Hunk 2: add authMiddleware. Hunk 3: modify main (wraps handler, changes startup).
+# The unchanged helper functions and /version, /ready handlers create gaps between hunks.
+cat > server.go << 'GOFILE'
+package main
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+)
+
+// respondJSON writes a JSON response with the given status code.
+func respondJSON(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	fmt.Fprint(w, body)
+}
+
+// logRequest logs the incoming request method and path.
+func logRequest(r *http.Request) {
+	fmt.Printf("%s %s\n", r.Method, r.URL.Path)
+}
+
+// authMiddleware checks for a valid API key in the Authorization header.
+func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key := r.Header.Get("Authorization")
+		if !strings.HasPrefix(key, "Bearer ") {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	http.HandleFunc("/", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		name := r.URL.Path[1:]
+		if name == "" {
+			name = "world"
+		}
+		fmt.Fprintf(w, "Hello, %s!", name)
+	}))
+
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	})
+
+	http.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		respondJSON(w, http.StatusOK, `{"version":"1.0.0"}`)
+	})
+
+	http.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		logRequest(r)
+		respondJSON(w, http.StatusOK, `{"ready":true}`)
+	})
+
+	log.Printf("Server starting on :%s", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatal(err)
+	}
+}
+GOFILE
+
+# Delete deleted.txt
+rm deleted.txt
+
+# Replace legacy.go's Old1..Old12 block with a small New1..New4 block.
+# This produces: del run (old 8-19), add run (new 8-11), then context line
+# `func Keep1() {}` at new line 13 — which has the same number as old 13
+# (`func Old6() {}`) inside the deletion. Used to test that comment
+# highlight on new-side line 13 stays on Keep1 only.
+cat > legacy.go << 'GOFILE'
+package legacy
+
+// Header comment 1
+// Header comment 2
+// Header comment 3
+// Header comment 4
+
+func New1() {}
+func New2() {}
+func New3() {}
+func New4() {}
+
+func Keep1() {}
+func Keep2() {}
+func Keep3() {}
+func Keep4() {}
+GOFILE
+
+# Modify routes.go to produce a multi-hunk diff with a large gap (>20 unchanged lines)
+# between hunks. This ensures spacers remain visible for testing after auto-expansion
+# and incremental diff expansion can be tested.
+# Hunk 1: change imports (top). Hunk 2: add new route + function (bottom).
+# The 10+ unchanged handler functions in between create a gap >20 lines.
+cat > routes.go << 'GOFILE'
+package main
+
+import (
+	"log"
+	"net/http"
+)
+
+func setupRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/users", handleUsers)
+	mux.HandleFunc("/api/posts", handlePosts)
+	mux.HandleFunc("/api/health", handleHealth)
+}
+
+func handleUsers(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handlePosts(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleComments(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleTags(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleCategories(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleSearch(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleNotifications(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleProfile(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleDashboard(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleAnalytics(w http.ResponseWriter, r *http.Request) {
+	log.Println("analytics endpoint hit")
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+GOFILE
+
+# Add plan.md with comprehensive markdown
+cat > plan.md << 'MDFILE'
+# Authentication Plan
+
+## Overview
+
+We're adding API key authentication to the server. This is phase 1 of the auth system.
+
+## Design Decisions
+
+| Decision | Options | Chosen | Rationale |
+|----------|---------|--------|-----------|
+| Auth method | OAuth, API keys, JWT | API keys | Simplest for M2M |
+| Key storage | Env var, database | Database | Supports rotation |
+| Header format | Basic, Bearer | Bearer | Industry standard |
+
+## Implementation Steps
+
+1. Add auth middleware
+2. Create API key model
+3. Add key validation endpoint
+4. Write integration tests
+
+### Step 1: Auth Middleware
+
+The middleware checks for a `Bearer` token in the `Authorization` header:
+
+```go
+func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        key := r.Header.Get("Authorization")
+        if !strings.HasPrefix(key, "Bearer ") {
+            http.Error(w, "unauthorized", 401)
+            return
+        }
+        next(w, r)
+    }
+}
+```
+
+### Step 2: API Key Model
+
+- [ ] Create migration for `api_keys` table
+- [ ] Add CRUD operations
+- [x] Define key format: `ck_` prefix + 32 random bytes
+
+## Open Questions
+
+> Should we rate-limit by API key or by IP?
+> Leaning toward API key since we want per-tenant limits.
+
+## Timeline
+
+- **Week 1**: Middleware + key model
+- **Week 2**: Validation endpoint + tests
+- **Week 3**: Dashboard UI for key management
+
+## Nested Tasks
+
+- Top alpha
+  - Nested alpha-one
+  - Nested alpha-two
+- Top beta
+  - Nested beta-one
+    - Deep beta-one-a
+  - Nested beta-two
+- Top gamma
+MDFILE
+
+# Modify routes.go: change beginning and end, leave large middle gap (>20 unchanged lines)
+cat > routes.go << 'GOFILE'
+package main
+
+import (
+	"log"
+	"net/http"
+)
+
+func setupRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/users", handleUsers)
+	mux.HandleFunc("/api/posts", handlePosts)
+	mux.HandleFunc("/api/health", handleHealth)
+}
+
+func handleUsers(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handlePosts(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleComments(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleTags(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleCategories(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleSearch(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleNotifications(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleProfile(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleDashboard(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleAnalytics(w http.ResponseWriter, r *http.Request) {
+	log.Println("analytics endpoint hit")
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+GOFILE
+
+git add -A
+git commit -q -m "feat: add auth middleware and plan"
+
+# === Staged changes (not committed) ===
+# Stage a modification to utils.go (adds a Reverse function)
+cat > utils.go << 'GOFILE'
+package main
+
+import "strings"
+
+func Capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// Reverse returns the reverse of a string.
+func Reverse(s string) string {
+	runes := []rune(s)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes)
+}
+GOFILE
+git add utils.go
+
+# Stage a new Gherkin feature file (exercises hljs alias resolution for .feature)
+cat > login.feature << 'GHERKIN'
+Feature: User login
+  As a registered user
+  I want to log in to my account
+  So that I can access my dashboard
+
+  Scenario: Successful login with valid credentials
+    Given I am on the login page
+    When I enter "alice@example.com" and "secret123"
+    And I click the "Sign in" button
+    Then I should see the dashboard
+    And I should see "Welcome back, Alice"
+
+  Scenario: Failed login with invalid password
+    Given I am on the login page
+    When I enter "alice@example.com" and "wrong"
+    Then I should see an error message
+GHERKIN
+git add login.feature
+
+# === Unstaged changes (working tree only) ===
+# Create an untracked file
+cat > config.yaml << 'EOF'
+server:
+  port: 8080
+  host: localhost
+auth:
+  enabled: true
+EOF
+
+# Build crit binary outside the repo (skip if CRIT_BIN is set)
+if [ -z "${CRIT_BIN:-}" ]; then
+  CRIT_BIN="$BIN_DIR/$(e2e_bin_name)"
+  (cd "$CRIT_SRC" && go build -o "$CRIT_BIN" ./cmd/crit)
+fi
+
+# Isolate from user's ~/.crit.config.json — use a separate HOME so config
+# files don't appear as untracked in the git fixture. On Windows this also
+# overrides USERPROFILE (Go's os.UserHomeDir source on Windows).
+FAKE_HOME=$(e2e_native_tempdir)
+e2e_export_fake_home "$FAKE_HOME"
+
+# Write fixture state for E2E tests that need to run CLI commands.
+STATE_FILE="$(e2e_state_file "$PORT")"
+{
+  echo "CRIT_BIN=$CRIT_BIN"
+  echo "CRIT_FIXTURE_DIR=$DIR"
+  echo "FAKE_HOME=$FAKE_HOME"
+} > "$STATE_FILE"
+
+# Configure agent_cmd for E2E testing (echo just prints stdin and exits)
+echo '{"agent_cmd": "echo"}' > "$FAKE_HOME/.crit.config.json"
+
+# Run crit in the fixture repo
+exec "$CRIT_BIN" _serve --no-open --port "$PORT"

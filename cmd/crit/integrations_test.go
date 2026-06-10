@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
 	"time"
 )
 
@@ -221,8 +222,7 @@ func TestCheckInstalledIntegrations_CacheSkipsOldVersions(t *testing.T) {
 			os.WriteFile(filepath.Join(cachePath, "SKILL.md"), []byte("old stale"), 0o644)
 		} else {
 			// Current content — use the real source file to get the correct hash
-			src := filepath.Join("integrations", "claude-code", "skills", "crit", "SKILL.md")
-			data, err := os.ReadFile(src)
+			data, err := integrationsFS.ReadFile("integrations/claude-code/skills/crit/SKILL.md")
 			if err != nil {
 				t.Fatal(err)
 			}

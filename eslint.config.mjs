@@ -1,6 +1,6 @@
 export default [
   {
-    files: ["cmd/crit/frontend/app.js"],
+    files: ["web/app.js"],
     rules: {
       "no-var": "error",
       "prefer-const": "error",

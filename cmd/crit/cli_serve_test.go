@@ -4,16 +4,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/server"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 // TestPreflightCheck_CleanRepo verifies that running crit in a clean
 // repo with no changes returns the user-facing message instead of letting
 // the daemon spawn and crash with a misleading "could not reach daemon" error.
 func TestPreflightCheck_CleanRepo(t *testing.T) {
-	dir := initTestRepo(t)
-	defaultBranchOnce = sync.Once{}
+	dir := testutil.InitTestRepo(t)
+	resetDefaultBranchOnce()
 
 	origDir, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
@@ -21,8 +23,8 @@ func TestPreflightCheck_CleanRepo(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	sc := &serverConfig{}
-	msg := preflightCheck(sc)
+	sc := &server.DaemonCLIConfig{}
+	msg := server.PreflightCheck(sc)
 	if msg == "" {
 		t.Fatal("expected a no-changes message, got empty string")
 	}
@@ -49,11 +51,11 @@ func TestPreflightCheck_CleanRepo(t *testing.T) {
 // TestPreflightCheck_WithChanges verifies the preflight is silent
 // (returns "") when the repo has changes, so the daemon proceeds normally.
 func TestPreflightCheck_WithChanges(t *testing.T) {
-	dir := initTestRepo(t)
-	defaultBranchOnce = sync.Once{}
+	dir := testutil.InitTestRepo(t)
+	resetDefaultBranchOnce()
 
-	gitT(t, dir, "checkout", "-b", "feature")
-	writeFile(t, dir+"/README.md", "# Modified\n")
+	testutil.Git(t, dir, "checkout", "-b", "feature")
+	testutil.WriteFile(t, dir+"/README.md", "# Modified\n")
 
 	origDir, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
@@ -61,8 +63,8 @@ func TestPreflightCheck_WithChanges(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	sc := &serverConfig{}
-	if msg := preflightCheck(sc); msg != "" {
+	sc := &server.DaemonCLIConfig{}
+	if msg := server.PreflightCheck(sc); msg != "" {
 		t.Errorf("expected empty message when repo has changes, got:\n%s", msg)
 	}
 }
@@ -77,8 +79,8 @@ func TestPreflightCheck_NotARepo(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	sc := &serverConfig{}
-	msg := preflightCheck(sc)
+	sc := &server.DaemonCLIConfig{}
+	msg := server.PreflightCheck(sc)
 	if msg == "" {
 		t.Fatal("expected a not-in-repo message, got empty string")
 	}

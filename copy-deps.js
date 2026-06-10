@@ -1,7 +1,7 @@
 import { cpSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { execSync } from "child_process";
 
-const dest = "cmd/crit/frontend";
+const dest = "web";
 
 // markdown-it
 cpSync("node_modules/markdown-it/dist/markdown-it.min.js", `${dest}/markdown-it.min.js`);
@@ -32,4 +32,4 @@ execSync(`npx esbuild ${dmpEntry} --bundle --format=iife --minify --outfile=${de
 // Clean up temporary entry file
 unlinkSync(dmpEntry);
 
-console.log(`Frontend deps copied to cmd/crit/frontend/ (${langFiles.length} highlight.js languages bundled)`);
+console.log(`Frontend deps copied to web/ (${langFiles.length} highlight.js languages bundled)`);

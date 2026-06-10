@@ -1,0 +1,2152 @@
+package share
+
+import (
+	"encoding/json"
+	"image/color"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/config"
+	"github.com/tomasz-tomczyk/crit/internal/review"
+	"github.com/tomasz-tomczyk/crit/internal/session"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
+)
+
+func TestDecodeJSONOrHTMLHint_HTML(t *testing.T) {
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader("<html>login</html>"))}
+	var v map[string]any
+	err := decodeJSONOrHTMLHint(resp, &v)
+	if err == nil || !strings.Contains(err.Error(), "proxy_auth") {
+		t.Errorf("got %v, want error mentioning proxy_auth", err)
+	}
+}
+
+func TestDecodeJSONOrHTMLHint_HTMLWithLeadingWhitespace(t *testing.T) {
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader("\n\n  <!DOCTYPE html><html>x</html>"))}
+	var v map[string]any
+	err := decodeJSONOrHTMLHint(resp, &v)
+	if err == nil || !strings.Contains(err.Error(), "proxy_auth") {
+		t.Errorf("got %v, want proxy_auth hint", err)
+	}
+}
+
+func TestDecodeJSONOrHTMLHint_ValidJSON(t *testing.T) {
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(`{"x":1}`))}
+	var v map[string]any
+	if err := decodeJSONOrHTMLHint(resp, &v); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if v["x"].(float64) != 1 {
+		t.Errorf("decode wrong: %v", v)
+	}
+}
+
+func TestDecodeJSONOrHTMLHint_InvalidJSON(t *testing.T) {
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(`not json at all`))}
+	var v map[string]any
+	err := decodeJSONOrHTMLHint(resp, &v)
+	if err == nil || !strings.Contains(err.Error(), "decode share response") {
+		t.Errorf("got %v, want decode error", err)
+	}
+}
+
+func TestTokenFromHostedURL(t *testing.T) {
+	cases := map[string]string{
+		"https://crit.example/r/abc123":      "abc123",
+		"https://crit.example/r/abc123/":     "abc123",
+		"https://crit.example/r/abc123?x=1":  "abc123",
+		"https://crit.example/r/abc123#frag": "abc123",
+		"https://crit.example/foo/bar":       "",
+		"https://crit.example/":              "",
+		"":                                   "",
+		"not a url at all":                   "",
+	}
+	for input, want := range cases {
+		if got := TokenFromHostedURL(input); got != want {
+			t.Errorf("TokenFromHostedURL(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestComputeShareHash(t *testing.T) {
+	files := []ShareFile{{Path: "plan.md", Content: "hello"}}
+	comments := []shareComment{{ExternalID: "c1", Resolved: false}}
+
+	h1 := computeShareHash(files, comments)
+	if h1 == "" {
+		t.Fatal("expected non-empty hash")
+	}
+
+	// same input → same hash
+	h2 := computeShareHash(files, comments)
+	if h1 != h2 {
+		t.Errorf("same input should produce same hash, got %q vs %q", h1, h2)
+	}
+
+	// changed file content → different hash
+	files2 := []ShareFile{{Path: "plan.md", Content: "changed"}}
+	if h3 := computeShareHash(files2, comments); h3 == h1 {
+		t.Error("changed file content should produce different hash")
+	}
+
+	// changed resolved state → different hash
+	comments2 := []shareComment{{ExternalID: "c1", Resolved: true}}
+	if h4 := computeShareHash(files, comments2); h4 == h1 {
+		t.Error("changed resolved state should produce different hash")
+	}
+}
+
+// writeCritJSONForTest writes a CritJSON to dir/.crit.json for test setup.
+func writeCritJSONForTest(t *testing.T, dir string, cj CritJSON) {
+	t.Helper()
+	data, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		t.Fatalf("marshaling CritJSON: %v", err)
+	}
+	if err := os.WriteFile(session.MustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644); err != nil {
+		t.Fatalf("writing .crit.json: %v", err)
+	}
+}
+
+func TestLoadCommentsForUpsert_ExcludesResolved(t *testing.T) {
+	dir := t.TempDir()
+	cj := CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "open", Resolved: false, ReviewRound: 1},
+					{ID: "c2", StartLine: 2, EndLine: 2, Body: "done", Resolved: true, ReviewRound: 1},
+				},
+			},
+		},
+	}
+	writeCritJSONForTest(t, dir, cj)
+
+	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"plan.md"}, "")
+	if round != 1 {
+		t.Errorf("expected round 1, got %d", round)
+	}
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment (only unresolved), got %d", len(comments))
+	}
+	if comments[0].ExternalID != "c1" {
+		t.Errorf("expected ExternalID c1, got %q", comments[0].ExternalID)
+	}
+	if comments[0].Body != "open" {
+		t.Errorf("expected body 'open', got %q", comments[0].Body)
+	}
+}
+
+func TestLoadCommentsForUpsert_SetsExternalID(t *testing.T) {
+	dir := t.TempDir()
+	cj := CritJSON{
+		ReviewRound: 2,
+		Files: map[string]CritJSONFile{
+			"main.go": {
+				Comments: []Comment{
+					{ID: "abc-123", StartLine: 10, EndLine: 15, Body: "refactor this"},
+				},
+			},
+		},
+	}
+	writeCritJSONForTest(t, dir, cj)
+
+	comments, _ := loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"main.go"}, "")
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if comments[0].ExternalID != "abc-123" {
+		t.Errorf("expected ExternalID abc-123, got %q", comments[0].ExternalID)
+	}
+}
+
+func TestLoadCommentsForUpsert_ReviewLevelComments(t *testing.T) {
+	dir := t.TempDir()
+	cj := CritJSON{
+		ReviewRound: 1,
+		ReviewComments: []Comment{
+			{ID: "r1", Body: "open review note", Resolved: false},
+			{ID: "r2", Body: "resolved review note", Resolved: true},
+		},
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 1, Body: "file comment"},
+				},
+			},
+		},
+	}
+	writeCritJSONForTest(t, dir, cj)
+
+	comments, _ := loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"plan.md"}, "")
+
+	// Should have 2 comments: 1 file-level + 1 unresolved review-level
+	if len(comments) != 2 {
+		t.Fatalf("expected 2 comments (1 file + 1 unresolved review), got %d", len(comments))
+	}
+	var reviewComment *shareComment
+	for i, c := range comments {
+		if c.Scope == "review" {
+			reviewComment = &comments[i]
+		}
+	}
+	if reviewComment == nil {
+		t.Fatal("expected a review-level comment")
+	}
+	if reviewComment.Body != "open review note" {
+		t.Errorf("expected unresolved review comment, got %q", reviewComment.Body)
+	}
+	if reviewComment.ExternalID != "r1" {
+		t.Errorf("expected ExternalID r1, got %q", reviewComment.ExternalID)
+	}
+}
+
+func TestFetchWebComments(t *testing.T) {
+	t.Run("filters local comments by external_id", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"body": "web reviewer note", "file_path": "plan.md",
+					"start_line": 5, "end_line": 5, "review_round": 1,
+					"resolved": false, "external_id": nil,
+				},
+				{
+					"body": "existing local", "file_path": "plan.md",
+					"start_line": 1, "end_line": 1, "review_round": 1,
+					"resolved": false, "external_id": "c1",
+				},
+			})
+		}))
+		defer srv.Close()
+
+		localIDs := map[string]bool{"c1": true}
+		result, err := fetchWebComments(srv.URL+"/r/testtoken", localIDs, nil, nil, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result.NewComments) != 1 {
+			t.Fatalf("expected 1 new comment, got %d", len(result.NewComments))
+		}
+		if result.NewComments[0].Body != "web reviewer note" {
+			t.Errorf("expected body 'web reviewer note', got %q", result.NewComments[0].Body)
+		}
+	})
+
+	t.Run("404 returns no comments without error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		result, err := fetchWebComments(srv.URL+"/r/gone", nil, nil, nil, "")
+		if err != nil {
+			t.Fatalf("unexpected error for 404: %v", err)
+		}
+		if result.NewComments != nil {
+			t.Errorf("expected nil for 404, got %v", result.NewComments)
+		}
+	})
+
+	t.Run("server error propagates", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+
+		if _, err := fetchWebComments(srv.URL+"/r/broken", nil, nil, nil, ""); err == nil {
+			t.Fatal("expected error for 500 response")
+		}
+	})
+}
+
+func TestBuildSharePayload(t *testing.T) {
+	t.Run("single file", func(t *testing.T) {
+		files := []ShareFile{
+			{Path: "plan.md", Content: "# My Plan\n\nStep 1: do the thing"},
+		}
+		payload := buildSharePayload(files, nil, 1, nil, "", "", "")
+
+		pFiles, ok := payload["files"].([]map[string]any)
+		if !ok {
+			t.Fatal("expected files array in payload")
+		}
+		if len(pFiles) != 1 {
+			t.Fatalf("expected 1 file, got %d", len(pFiles))
+		}
+		if pFiles[0]["path"] != "plan.md" {
+			t.Errorf("expected path plan.md, got %s", pFiles[0]["path"])
+		}
+		if pFiles[0]["content"] != "# My Plan\n\nStep 1: do the thing" {
+			t.Errorf("unexpected content: %s", pFiles[0]["content"])
+		}
+		if payload["review_round"] != 1 {
+			t.Errorf("expected review_round 1, got %v", payload["review_round"])
+		}
+		comments, ok := payload["comments"].([]shareComment)
+		if !ok {
+			t.Fatal("expected comments array")
+		}
+		if len(comments) != 0 {
+			t.Errorf("expected 0 comments, got %d", len(comments))
+		}
+	})
+
+	t.Run("multi file", func(t *testing.T) {
+		files := []ShareFile{
+			{Path: "plan.md", Content: "# Plan"},
+			{Path: "src/main.go", Content: "package main"},
+		}
+		payload := buildSharePayload(files, nil, 2, nil, "", "", "")
+
+		pFiles := payload["files"].([]map[string]any)
+		if len(pFiles) != 2 {
+			t.Fatalf("expected 2 files, got %d", len(pFiles))
+		}
+		if payload["review_round"] != 2 {
+			t.Errorf("expected review_round 2, got %v", payload["review_round"])
+		}
+	})
+
+	t.Run("with comments", func(t *testing.T) {
+		files := []ShareFile{
+			{Path: "plan.md", Content: "# Plan"},
+		}
+		comments := []shareComment{
+			{File: "plan.md", StartLine: 1, EndLine: 3, Body: "Needs more detail", Author: "Claude"},
+		}
+		payload := buildSharePayload(files, comments, 1, nil, "", "", "")
+
+		pComments := payload["comments"].([]shareComment)
+		if len(pComments) != 1 {
+			t.Fatalf("expected 1 comment, got %d", len(pComments))
+		}
+		if pComments[0].Author != "Claude" {
+			t.Errorf("expected author Claude, got %s", pComments[0].Author)
+		}
+	})
+}
+
+func TestShareFilesToWeb(t *testing.T) {
+	files := []ShareFile{{Path: "plan.md", Content: "# Plan"}}
+
+	t.Run("success", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				t.Errorf("expected POST, got %s", r.Method)
+			}
+			if r.URL.Path != "/api/reviews" {
+				t.Errorf("expected /api/reviews, got %s", r.URL.Path)
+			}
+			if r.Header.Get("Content-Type") != "application/json" {
+				t.Errorf("expected application/json content type")
+			}
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("failed to decode request body: %v", err)
+			}
+			pf, ok := payload["files"].([]any)
+			if !ok || len(pf) != 1 {
+				t.Fatalf("expected 1 file in payload")
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"url":          "https://crit.md/r/abc123",
+				"delete_token": "tok_secret",
+			})
+		}))
+		defer srv.Close()
+
+		url, token, err := shareFilesToWeb(files, nil, srv.URL, 1, "", nil, "", "", "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if url != "https://crit.md/r/abc123" {
+			t.Errorf("expected url https://crit.md/r/abc123, got %s", url)
+		}
+		if token != "tok_secret" {
+			t.Errorf("expected token tok_secret, got %s", token)
+		}
+	})
+
+	t.Run("server error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "content too large"})
+		}))
+		defer srv.Close()
+
+		if _, _, err := shareFilesToWeb(files, nil, srv.URL, 1, "", nil, "", "", ""); err == nil {
+			t.Fatal("expected error for server error response")
+		}
+	})
+
+	t.Run("network error", func(t *testing.T) {
+		if _, _, err := shareFilesToWeb(files, nil, "http://localhost:1", 1, "", nil, "", "", ""); err == nil {
+			t.Fatal("expected error for unreachable server")
+		}
+	})
+}
+
+func TestUnpublishFromWeb(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    int
+		respBody  map[string]string
+		token     string
+		wantErr   bool
+		assertReq bool // when true, verify method/path/delete_token
+	}{
+		{
+			name:      "success",
+			status:    http.StatusNoContent,
+			token:     "tok_secret",
+			assertReq: true,
+		},
+		{
+			name:     "server error",
+			status:   http.StatusInternalServerError,
+			respBody: map[string]string{"error": "internal error"},
+			token:    "bad_token",
+			wantErr:  true,
+		},
+		{
+			// 404 treated as "already deleted" — idempotent.
+			name:   "already deleted",
+			status: http.StatusNotFound,
+			token:  "old_token",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tt.assertReq {
+					if r.Method != http.MethodDelete {
+						t.Errorf("expected DELETE, got %s", r.Method)
+					}
+					if r.URL.Path != "/api/reviews" {
+						t.Errorf("expected /api/reviews, got %s", r.URL.Path)
+					}
+					var body map[string]string
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					if body["delete_token"] != tt.token {
+						t.Errorf("expected delete_token %q, got %q", tt.token, body["delete_token"])
+					}
+				}
+				w.WriteHeader(tt.status)
+				if tt.respBody != nil {
+					_ = json.NewEncoder(w).Encode(tt.respBody)
+				}
+			}))
+			defer srv.Close()
+
+			err := unpublishFromWeb(srv.URL, tt.token, "")
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadCommentsForFiles(t *testing.T) {
+	dir := t.TempDir()
+	critJSON := CritJSON{
+		ReviewRound: 2,
+		Files: map[string]CritJSONFile{
+			"plan.md": {
+				Comments: []Comment{
+					{ID: "c1", StartLine: 1, EndLine: 3, Body: "Fix this", Author: "Alice"},
+					{ID: "c2", StartLine: 5, EndLine: 5, Body: "Good", Author: "Bob", ReviewRound: 2},
+					{ID: "c3", StartLine: 7, EndLine: 7, Body: "Resolved one", Author: "Alice", Resolved: true},
+				},
+			},
+			"other.go": {
+				Comments: []Comment{
+					{ID: "c4", StartLine: 10, EndLine: 15, Body: "Refactor", Author: "Alice"},
+					{ID: "c5", StartLine: 20, EndLine: 20, Body: "Done", Author: "Bob", Resolved: true},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(critJSON, "", "  ")
+	os.WriteFile(session.MustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
+
+	// Only load unresolved comments for plan.md (c1 and c2, not c3)
+	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"plan.md"}, "")
+	if round != 2 {
+		t.Errorf("expected round 2, got %d", round)
+	}
+	if len(comments) != 2 {
+		t.Fatalf("expected 2 unresolved comments, got %d", len(comments))
+	}
+	if comments[0].File != "plan.md" {
+		t.Errorf("expected file plan.md, got %s", comments[0].File)
+	}
+
+	// Load for both files — 3 unresolved (c1, c2, c4), not 5 total
+	comments, _ = loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"plan.md", "other.go"}, "")
+	if len(comments) != 3 {
+		t.Fatalf("expected 3 unresolved comments, got %d", len(comments))
+	}
+
+	// Load for nonexistent file
+	comments, round = loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"nope.md"}, "")
+	if len(comments) != 0 {
+		t.Errorf("expected 0 comments, got %d", len(comments))
+	}
+	if round != 2 {
+		t.Errorf("expected round 2 even with no matching comments, got %d", round)
+	}
+}
+
+func TestLoadCommentsForFiles_NoCritJSON(t *testing.T) {
+	dir := t.TempDir()
+	comments, round := loadCommentsForShare(filepath.Join(dir, ".crit"), []string{"plan.md"}, "")
+	if len(comments) != 0 {
+		t.Errorf("expected 0 comments, got %d", len(comments))
+	}
+	if round != 1 {
+		t.Errorf("expected default round 1, got %d", round)
+	}
+}
+
+func TestPersistShareState(t *testing.T) {
+	dir := t.TempDir()
+
+	// Persist to new .crit.json
+	err := persistShareState(filepath.Join(dir, ".crit"), "https://crit.md/r/abc", "tok_123", "", "", "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Read back and verify
+	data, _ := os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+	if cj.ShareURL != "https://crit.md/r/abc" {
+		t.Errorf("expected share_url, got %s", cj.ShareURL)
+	}
+	if cj.DeleteToken != "tok_123" {
+		t.Errorf("expected delete_token, got %s", cj.DeleteToken)
+	}
+}
+
+func TestPersistShareState_PreservesExisting(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write initial .crit.json with comments
+	initial := CritJSON{
+		Branch:      "main",
+		ReviewRound: 2,
+		Files: map[string]CritJSONFile{
+			"plan.md": {Comments: []Comment{{ID: "c1", Body: "test"}}},
+		},
+	}
+	data, _ := json.MarshalIndent(initial, "", "  ")
+	os.WriteFile(session.MustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
+
+	// Persist share state
+	err := persistShareState(filepath.Join(dir, ".crit"), "https://crit.md/r/def", "tok_456", "", "", "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Read back — comments and branch should be preserved
+	data, _ = os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
+	var cj CritJSON
+	json.Unmarshal(data, &cj)
+	if cj.ShareURL != "https://crit.md/r/def" {
+		t.Errorf("expected share_url")
+	}
+	if cj.Branch != "main" {
+		t.Errorf("expected branch main preserved, got %s", cj.Branch)
+	}
+	if len(cj.Files["plan.md"].Comments) != 1 {
+		t.Errorf("expected comments preserved")
+	}
+}
+
+func TestUpsertShareToWeb_CallsPUTOnChange(t *testing.T) {
+	putCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			putCalled = true
+			json.NewEncoder(w).Encode(map[string]any{
+				"url": "http://example.com/r/tok", "review_round": 2, "changed": true,
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := CritJSON{
+		ShareURL:      srv.URL + "/r/tok",
+		DeleteToken:   "dt",
+		LastShareHash: "old-hash",
+		ReviewRound:   1,
+	}
+	files := []ShareFile{{Path: "plan.md", Content: "# changed"}}
+	comments := []shareComment{}
+
+	result, err := upsertShareToWeb(cfg, files, comments, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !putCalled {
+		t.Error("expected PUT to be called")
+	}
+	if !result.Changed {
+		t.Error("expected result.Changed to be true")
+	}
+	if result.ReviewRound != 2 {
+		t.Errorf("expected ReviewRound 2, got %d", result.ReviewRound)
+	}
+}
+
+func TestUpsertShareToWeb_SkipsPUTWhenUnchanged(t *testing.T) {
+	putCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			putCalled = true
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	files := []ShareFile{{Path: "plan.md", Content: "same"}}
+	comments := []shareComment{}
+	currentHash := computeShareHash(files, comments)
+
+	cfg := CritJSON{
+		ShareURL:      srv.URL + "/r/tok",
+		DeleteToken:   "dt",
+		LastShareHash: currentHash,
+		ReviewRound:   1,
+	}
+
+	result, err := upsertShareToWeb(cfg, files, comments, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if putCalled {
+		t.Error("expected PUT NOT to be called when hash unchanged")
+	}
+	if result.Changed {
+		t.Error("expected result.Changed to be false")
+	}
+}
+
+func TestClearShareState(t *testing.T) {
+	dir := t.TempDir()
+
+	cj := CritJSON{
+		ShareURL:    "https://crit.md/r/old",
+		DeleteToken: "tok_old",
+		Files:       map[string]CritJSONFile{"plan.md": {Comments: []Comment{{ID: "c1", Body: "test"}}}},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(session.MustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
+
+	err := clearShareState(filepath.Join(dir, ".crit"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, _ = os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
+	var cleared CritJSON
+	json.Unmarshal(data, &cleared)
+	if cleared.ShareURL != "" {
+		t.Errorf("expected share_url cleared, got %s", cleared.ShareURL)
+	}
+	if cleared.DeleteToken != "" {
+		t.Errorf("expected delete_token cleared, got %s", cleared.DeleteToken)
+	}
+	// Comments should still be there
+	if len(cleared.Files["plan.md"].Comments) != 1 {
+		t.Errorf("expected comments preserved after clearing share state")
+	}
+}
+
+func TestLoadExistingShareCfg(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit")
+
+	// Review file without scope — loads unconditionally
+	cj := CritJSON{
+		ShareURL:    "https://crit.md/r/existing",
+		DeleteToken: "del-token-123",
+		Files:       map[string]CritJSONFile{},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(session.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0644)
+
+	cfg, ok, err := loadExistingShareCfg(critPath, []string{"anything.md"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if cfg.ShareURL != "https://crit.md/r/existing" {
+		t.Errorf("expected existing URL, got %q", cfg.ShareURL)
+	}
+	if cfg.DeleteToken != "del-token-123" {
+		t.Errorf("expected existing token, got %q", cfg.DeleteToken)
+	}
+}
+
+func TestLoadExistingShareCfg_NoCritJSON(t *testing.T) {
+	dir := t.TempDir()
+	_, ok, err := loadExistingShareCfg(filepath.Join(dir, ".crit"), []string{"plan.md"})
+	if err != nil {
+		t.Fatalf("missing file should not be an error, got: %v", err)
+	}
+	if ok {
+		t.Error("expected ok=false when no .crit.json exists")
+	}
+}
+
+func TestLoadExistingShareCfg_NoShareState(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit")
+	cj := CritJSON{Files: map[string]CritJSONFile{}}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(session.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0644)
+
+	_, ok, err := loadExistingShareCfg(critPath, []string{"plan.md"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Error("expected ok=false when no share URL set")
+	}
+}
+
+func TestLoadExistingShareCfg_ScopeMismatch(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit")
+
+	cj := CritJSON{
+		ShareURL:    "https://crit.md/r/old",
+		DeleteToken: "old-token",
+		ShareScope:  shareScope([]string{"old-plan.md"}),
+		Files:       map[string]CritJSONFile{},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(session.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0644)
+
+	// Different file set — should NOT return share state
+	_, ok, err := loadExistingShareCfg(critPath, []string{"new-plan.md"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Error("expected ok=false for mismatched scope")
+	}
+
+	// Same file set — should return share state
+	cfg, ok, err := loadExistingShareCfg(critPath, []string{"old-plan.md"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected ok=true for matching scope")
+	}
+	if cfg.ShareURL != "https://crit.md/r/old" {
+		t.Errorf("expected URL for matching scope, got %q", cfg.ShareURL)
+	}
+}
+
+func TestResolveShareURL(t *testing.T) {
+	// Isolate from real ~/.crit.config.json
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+
+	tests := []struct {
+		name     string
+		flag     string
+		env      string
+		expected string
+	}{
+		{
+			name:     "flag takes priority",
+			flag:     "https://custom.example.com",
+			env:      "https://env.example.com",
+			expected: "https://custom.example.com",
+		},
+		{
+			name:     "env var used when no flag",
+			flag:     "",
+			env:      "https://env.example.com",
+			expected: "https://env.example.com",
+		},
+		{
+			name:     "default when nothing set",
+			flag:     "",
+			env:      "",
+			expected: "https://crit.md",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env != "" {
+				t.Setenv("CRIT_SHARE_URL", tt.env)
+			} else {
+				t.Setenv("CRIT_SHARE_URL", "")
+				os.Unsetenv("CRIT_SHARE_URL")
+			}
+			got := resolveShareURL(tt.flag, config.Config{}, DefaultShareURL)
+			if got != tt.expected {
+				t.Errorf("resolveShareURL(%q) = %q, want %q", tt.flag, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestShareScope(t *testing.T) {
+	// Same paths in different order produce same hash
+	h1 := shareScope([]string{"b.md", "a.md"})
+	h2 := shareScope([]string{"a.md", "b.md"})
+	if h1 != h2 {
+		t.Errorf("expected same hash regardless of order, got %q vs %q", h1, h2)
+	}
+
+	// Different paths produce different hash
+	h3 := shareScope([]string{"c.md"})
+	if h1 == h3 {
+		t.Error("different file sets should produce different hashes")
+	}
+
+	// Empty produces a hash (not empty string)
+	h4 := shareScope([]string{})
+	if h4 == "" {
+		t.Error("empty file set should still produce a hash")
+	}
+}
+
+func TestBuildSharePayload_WithStatusAndOrphaned(t *testing.T) {
+	files := []ShareFile{
+		{Path: "active.go", Content: "package main", Status: "modified"},
+		{Path: "removed.go", Content: "", Status: "removed"},
+		{Path: "nostat.md", Content: "# Hello"},
+	}
+	payload := buildSharePayload(files, nil, 1, nil, "", "", "")
+
+	pFiles, ok := payload["files"].([]map[string]any)
+	if !ok {
+		t.Fatal("expected files array in payload")
+	}
+	if len(pFiles) != 3 {
+		t.Fatalf("expected 3 files, got %d", len(pFiles))
+	}
+
+	// File with status set
+	if pFiles[0]["status"] != "modified" {
+		t.Errorf("expected status 'modified', got %v", pFiles[0]["status"])
+	}
+	// Orphaned file — status "removed", no separate orphaned field
+	if pFiles[1]["status"] != "removed" {
+		t.Errorf("expected status 'removed', got %v", pFiles[1]["status"])
+	}
+
+	// File without status — key should be absent
+	if _, hasStatus := pFiles[2]["status"]; hasStatus {
+		t.Error("file without status should not have status key")
+	}
+}
+
+func TestLoadShareFilesFromDisk_OrphanedFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a live file
+	activePath := filepath.Join(dir, "active.go")
+	if err := os.WriteFile(activePath, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &session.Session{
+		Files: []*session.FileEntry{
+			{Path: "active.go", AbsPath: activePath, Status: "modified"},
+			{Path: "removed.go", Status: "removed", Orphaned: true, Comments: []session.Comment{
+				{ID: "c1", Body: "unresolved comment"},
+			}},
+			{Path: "resolved-removed.go", Status: "removed", Orphaned: true, Comments: []session.Comment{
+				{ID: "c2", Body: "resolved comment", Resolved: true},
+			}},
+		},
+	}
+	sess.InitTestChannels()
+
+	files := sess.LoadShareFilesFromDisk()
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+
+	// Find the orphaned file
+	var orphaned *ShareFile
+	var active *ShareFile
+	for i := range files {
+		if files[i].Path == "removed.go" {
+			orphaned = &files[i]
+		}
+		if files[i].Path == "active.go" {
+			active = &files[i]
+		}
+	}
+
+	if orphaned == nil {
+		t.Fatal("orphaned file not found in share files")
+	}
+	if orphaned.Status != "removed" {
+		t.Errorf("expected status 'removed', got %q", orphaned.Status)
+	}
+	if orphaned.Content != "" {
+		t.Errorf("expected empty content for orphaned file, got %q", orphaned.Content)
+	}
+
+	if active == nil {
+		t.Fatal("active file not found in share files")
+	}
+	if active.Status != "modified" {
+		t.Errorf("expected status 'modified', got %q", active.Status)
+	}
+	if active.Content != "package main" {
+		t.Errorf("expected content 'package main', got %q", active.Content)
+	}
+}
+
+func TestBuildSharePayload_WithReplies(t *testing.T) {
+	files := []ShareFile{{Path: "f.md", Content: "hello"}}
+	comments := []shareComment{{
+		File: "f.md", StartLine: 1, EndLine: 1, Body: "fix this", Author: "Alice",
+		Replies: []ShareReply{
+			{Body: "done", Author: "Bob"},
+			{Body: "verified", Author: "Alice"},
+		},
+	}}
+	payload := buildSharePayload(files, comments, 1, nil, "", "", "")
+	cs := payload["comments"].([]shareComment)
+	if len(cs) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(cs))
+	}
+	if len(cs[0].Replies) != 2 {
+		t.Fatalf("expected 2 replies, got %d", len(cs[0].Replies))
+	}
+	if cs[0].Replies[0].Body != "done" {
+		t.Errorf("expected reply body 'done', got %q", cs[0].Replies[0].Body)
+	}
+	if cs[0].Replies[1].Author != "Alice" {
+		t.Errorf("expected reply author 'Alice', got %q", cs[0].Replies[1].Author)
+	}
+}
+
+func TestBuildSharePayload_WithCliArgs(t *testing.T) {
+	files := []ShareFile{{Path: "plan.md", Content: "# Plan"}}
+
+	t.Run("included when provided", func(t *testing.T) {
+		args := []string{"plan.md", "notes.md"}
+		payload := buildSharePayload(files, nil, 1, args, "", "", "")
+		got, ok := payload["cli_args"].([]string)
+		if !ok {
+			t.Fatal("expected cli_args in payload")
+		}
+		if len(got) != 2 || got[0] != "plan.md" || got[1] != "notes.md" {
+			t.Errorf("unexpected cli_args: %v", got)
+		}
+	})
+
+	t.Run("omitted when nil", func(t *testing.T) {
+		payload := buildSharePayload(files, nil, 1, nil, "", "", "")
+		if _, ok := payload["cli_args"]; ok {
+			t.Error("cli_args should be absent when nil")
+		}
+	})
+
+	t.Run("omitted when empty", func(t *testing.T) {
+		payload := buildSharePayload(files, nil, 1, []string{}, "", "", "")
+		if _, ok := payload["cli_args"]; ok {
+			t.Error("cli_args should be absent when empty")
+		}
+	})
+}
+
+func TestBuildSharePayload_OrgVisibility(t *testing.T) {
+	files := []ShareFile{{Path: "test.md", Content: "hello"}}
+
+	t.Run("without org", func(t *testing.T) {
+		p := buildSharePayload(files, nil, 1, nil, "", "", "")
+		if _, ok := p["org"]; ok {
+			t.Fatal("org should not be in payload when empty")
+		}
+		if _, ok := p["visibility"]; ok {
+			t.Fatal("visibility should not be in payload when empty")
+		}
+	})
+
+	t.Run("with org and visibility", func(t *testing.T) {
+		p := buildSharePayload(files, nil, 1, nil, "acme", "organization", "")
+		if p["org"] != "acme" {
+			t.Fatalf("expected org=acme, got %v", p["org"])
+		}
+		if p["visibility"] != "organization" {
+			t.Fatalf("expected visibility=organization, got %v", p["visibility"])
+		}
+	})
+
+	t.Run("with org only", func(t *testing.T) {
+		p := buildSharePayload(files, nil, 1, nil, "acme", "", "")
+		if p["org"] != "acme" {
+			t.Fatal("org should be in payload")
+		}
+		if _, ok := p["visibility"]; ok {
+			t.Fatal("visibility should not be in payload when empty")
+		}
+	})
+}
+
+func TestLoadCliArgsFromReviewFile(t *testing.T) {
+	t.Run("reads args from valid file", func(t *testing.T) {
+		dir := t.TempDir()
+		critPath := filepath.Join(dir, "review.json")
+		cj := CritJSON{
+			Branch:  "main",
+			CliArgs: []string{"plan.md", "design.md"},
+			Files:   map[string]CritJSONFile{},
+		}
+		data, _ := json.Marshal(cj)
+		os.WriteFile(session.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0644)
+
+		got := LoadCliArgsFromReviewFile(critPath)
+		if len(got) != 2 || got[0] != "plan.md" || got[1] != "design.md" {
+			t.Errorf("expected [plan.md design.md], got %v", got)
+		}
+	})
+
+	t.Run("returns nil for missing file", func(t *testing.T) {
+		got := LoadCliArgsFromReviewFile("/nonexistent/path.json")
+		if got != nil {
+			t.Errorf("expected nil, got %v", got)
+		}
+	})
+
+	t.Run("returns nil for file without cli_args", func(t *testing.T) {
+		dir := t.TempDir()
+		critPath := filepath.Join(dir, "review.json")
+		cj := CritJSON{Branch: "main", Files: map[string]CritJSONFile{}}
+		data, _ := json.Marshal(cj)
+		os.WriteFile(session.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0644)
+
+		got := LoadCliArgsFromReviewFile(critPath)
+		if got != nil {
+			t.Errorf("expected nil, got %v", got)
+		}
+	})
+}
+
+func TestShareFilesToWeb_SendsBearerToken(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"url":          "https://crit.md/r/abc123",
+			"delete_token": "tok_secret",
+		})
+	}))
+	defer server.Close()
+
+	files := []ShareFile{{Path: "plan.md", Content: "# Plan"}}
+	shareFilesToWeb(files, nil, server.URL, 1, "crit_testtoken", nil, "", "", "")
+	if gotAuth != "Bearer crit_testtoken" {
+		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
+	}
+}
+
+func TestUnpublishFromWeb_SendsBearerToken(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	unpublishFromWeb(server.URL+"/r/tok", "dt", "crit_testtoken")
+	if gotAuth != "Bearer crit_testtoken" {
+		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
+	}
+}
+
+func TestFetchWebComments_SendsBearerToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		json.NewEncoder(w).Encode([]map[string]any{})
+	}))
+	defer srv.Close()
+
+	fetchWebComments(srv.URL+"/r/tok", nil, nil, nil, "crit_testtoken")
+	if gotAuth != "Bearer crit_testtoken" {
+		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
+	}
+}
+
+func TestUpsertShareToWeb_SendsBearerToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := CritJSON{
+		ShareURL:      srv.URL + "/r/tok",
+		DeleteToken:   "dt",
+		LastShareHash: "same",
+		ReviewRound:   1,
+	}
+	files := []ShareFile{{Path: "plan.md", Content: "same"}}
+	upsertShareToWeb(cfg, files, []shareComment{}, "crit_testtoken")
+	if gotAuth != "Bearer crit_testtoken" {
+		t.Errorf("expected Authorization: Bearer crit_testtoken, got %q", gotAuth)
+	}
+}
+
+func TestSetBearer_SetsHeader(t *testing.T) {
+	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+	SetBearer(req, "crit_abc123")
+	if got := req.Header.Get("Authorization"); got != "Bearer crit_abc123" {
+		t.Errorf("expected Bearer crit_abc123, got %q", got)
+	}
+}
+
+func TestSetBearer_NoopWhenEmpty(t *testing.T) {
+	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+	SetBearer(req, "")
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("expected empty Authorization header, got %q", got)
+	}
+}
+
+func TestBuildLocalIDSet(t *testing.T) {
+	tests := []struct {
+		name    string
+		cj      CritJSON
+		wantIDs []string
+	}{
+		{
+			name: "file comments only",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"plan.md": {Comments: []Comment{
+						{ID: "c1", Body: "a"},
+						{ID: "c2", Body: "b"},
+					}},
+				},
+			},
+			wantIDs: []string{"c1", "c2"},
+		},
+		{
+			name: "review comments only",
+			cj: CritJSON{
+				Files:          map[string]CritJSONFile{},
+				ReviewComments: []Comment{{ID: "r1", Body: "review note"}},
+			},
+			wantIDs: []string{"r1"},
+		},
+		{
+			name: "both file and review comments",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"main.go": {Comments: []Comment{{ID: "c1", Body: "fix"}}},
+				},
+				ReviewComments: []Comment{{ID: "r1", Body: "overall"}},
+			},
+			wantIDs: []string{"c1", "r1"},
+		},
+		{
+			name: "empty",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{},
+			},
+			wantIDs: []string{},
+		},
+		{
+			name: "skips empty IDs",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"f.md": {Comments: []Comment{
+						{ID: "", Body: "no id"},
+						{ID: "c1", Body: "has id"},
+					}},
+				},
+			},
+			wantIDs: []string{"c1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ids := buildLocalIDSet(tt.cj)
+			if len(ids) != len(tt.wantIDs) {
+				t.Fatalf("got %d IDs, want %d", len(ids), len(tt.wantIDs))
+			}
+			for _, id := range tt.wantIDs {
+				if !ids[id] {
+					t.Errorf("expected ID %q in set", id)
+				}
+			}
+		})
+	}
+}
+
+func TestHighestWebIndex(t *testing.T) {
+	tests := []struct {
+		name string
+		cj   CritJSON
+		want int
+	}{
+		{
+			name: "no web IDs",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"f.md": {Comments: []Comment{{ID: "c1"}, {ID: "c2"}}},
+				},
+			},
+			want: 0,
+		},
+		{
+			name: "single web ID in file",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"f.md": {Comments: []Comment{{ID: "web-5"}}},
+				},
+			},
+			want: 5,
+		},
+		{
+			name: "mixed file and review web IDs",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"f.md": {Comments: []Comment{{ID: "web-3"}, {ID: "c1"}}},
+				},
+				ReviewComments: []Comment{{ID: "web-7"}, {ID: "r1"}},
+			},
+			want: 7,
+		},
+		{
+			name: "non-numeric prefix skipped",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{
+					"f.md": {Comments: []Comment{{ID: "web-abc"}, {ID: "web-2"}}},
+				},
+			},
+			want: 2,
+		},
+		{
+			name: "empty",
+			cj: CritJSON{
+				Files: map[string]CritJSONFile{},
+			},
+			want: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := highestWebIndex(tt.cj)
+			if got != tt.want {
+				t.Errorf("highestWebIndex() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMergeRepliesIntoComment(t *testing.T) {
+	t.Run("new reply added", func(t *testing.T) {
+		c := Comment{
+			ID:   "c1",
+			Body: "fix this",
+			Replies: []Reply{
+				{ID: "r1", Body: "done"},
+			},
+		}
+		webReplies := []WebReply{
+			{Body: "verified", AuthorDisplayName: "Alice"},
+		}
+		result := mergeRepliesIntoComment(c, webReplies)
+		if len(result.Replies) != 2 {
+			t.Fatalf("expected 2 replies, got %d", len(result.Replies))
+		}
+		if result.Replies[1].Body != "verified" {
+			t.Errorf("expected reply body 'verified', got %q", result.Replies[1].Body)
+		}
+		if result.Replies[1].Author != "Alice" {
+			t.Errorf("expected author 'Alice', got %q", result.Replies[1].Author)
+		}
+	})
+
+	t.Run("duplicate reply skipped", func(t *testing.T) {
+		c := Comment{
+			ID:   "c1",
+			Body: "fix this",
+			Replies: []Reply{
+				{ID: "r1", Body: "done"},
+			},
+		}
+		webReplies := []WebReply{
+			{Body: "done", AuthorDisplayName: "Bob"},
+		}
+		result := mergeRepliesIntoComment(c, webReplies)
+		if len(result.Replies) != 1 {
+			t.Fatalf("expected 1 reply (duplicate skipped), got %d", len(result.Replies))
+		}
+	})
+
+	t.Run("empty web replies", func(t *testing.T) {
+		c := Comment{
+			ID:      "c1",
+			Body:    "note",
+			Replies: []Reply{{ID: "r1", Body: "existing"}},
+		}
+		result := mergeRepliesIntoComment(c, nil)
+		if len(result.Replies) != 1 {
+			t.Fatalf("expected 1 reply, got %d", len(result.Replies))
+		}
+	})
+
+	t.Run("empty existing replies", func(t *testing.T) {
+		c := Comment{ID: "c1", Body: "note"}
+		webReplies := []WebReply{
+			{Body: "new reply", AuthorDisplayName: "Eve"},
+		}
+		result := mergeRepliesIntoComment(c, webReplies)
+		if len(result.Replies) != 1 {
+			t.Fatalf("expected 1 reply, got %d", len(result.Replies))
+		}
+		if result.Replies[0].Body != "new reply" {
+			t.Errorf("expected body 'new reply', got %q", result.Replies[0].Body)
+		}
+	})
+}
+
+func TestResolveAuthToken(t *testing.T) {
+	tests := []struct {
+		name      string
+		envToken  string
+		envSet    bool
+		cfgToken  string
+		wantToken string
+	}{
+		{
+			name:      "env takes priority over config",
+			envToken:  "env_token",
+			envSet:    true,
+			cfgToken:  "cfg_token",
+			wantToken: "env_token",
+		},
+		{
+			name:      "config used when no env",
+			envSet:    false,
+			cfgToken:  "cfg_token",
+			wantToken: "cfg_token",
+		},
+		{
+			name:      "empty when nothing set",
+			envSet:    false,
+			cfgToken:  "",
+			wantToken: "",
+		},
+		{
+			name:      "empty env string still counts as set",
+			envToken:  "",
+			envSet:    true,
+			cfgToken:  "cfg_token",
+			wantToken: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envSet {
+				t.Setenv("CRIT_AUTH_TOKEN", tt.envToken)
+			} else {
+				t.Setenv("CRIT_AUTH_TOKEN", "")
+				os.Unsetenv("CRIT_AUTH_TOKEN")
+			}
+			cfg := config.Config{AuthToken: tt.cfgToken}
+			got := resolveAuthToken(cfg)
+			if got != tt.wantToken {
+				t.Errorf("resolveAuthToken() = %q, want %q", got, tt.wantToken)
+			}
+		})
+	}
+}
+
+func TestCommentToShareComment(t *testing.T) {
+	t.Run("basic conversion", func(t *testing.T) {
+		c := Comment{
+			ID:          "c1",
+			StartLine:   10,
+			EndLine:     15,
+			Body:        "fix this",
+			Quote:       "old code",
+			Author:      "Alice",
+			ReviewRound: 2,
+		}
+		sc := commentToShareComment(c, "main.go", "line", "", "", false, false)
+		if sc.File != "main.go" {
+			t.Errorf("File = %q, want main.go", sc.File)
+		}
+		if sc.StartLine != 10 || sc.EndLine != 15 {
+			t.Errorf("lines = %d-%d, want 10-15", sc.StartLine, sc.EndLine)
+		}
+		if sc.Body != "fix this" {
+			t.Errorf("Body = %q", sc.Body)
+		}
+		if sc.Quote != "old code" {
+			t.Errorf("Quote = %q", sc.Quote)
+		}
+		if sc.Author != "Alice" {
+			t.Errorf("Author = %q", sc.Author)
+		}
+		if sc.ReviewRound != 2 {
+			t.Errorf("ReviewRound = %d, want 2", sc.ReviewRound)
+		}
+		if sc.Scope != "line" {
+			t.Errorf("Scope = %q, want line", sc.Scope)
+		}
+	})
+
+	t.Run("includes resolved when flag set", func(t *testing.T) {
+		c := Comment{Resolved: true}
+		sc := commentToShareComment(c, "", "", "", "", true, false)
+		if !sc.Resolved {
+			t.Error("expected Resolved=true when includeResolved=true")
+		}
+	})
+
+	t.Run("excludes resolved when flag not set", func(t *testing.T) {
+		c := Comment{Resolved: true}
+		sc := commentToShareComment(c, "", "", "", "", false, false)
+		if sc.Resolved {
+			t.Error("expected Resolved=false when includeResolved=false")
+		}
+	})
+
+	t.Run("sets external ID when flag set", func(t *testing.T) {
+		c := Comment{ID: "c123"}
+		sc := commentToShareComment(c, "", "", "", "", false, true)
+		if sc.ExternalID != "c123" {
+			t.Errorf("ExternalID = %q, want c123", sc.ExternalID)
+		}
+	})
+
+	t.Run("omits external ID when flag not set", func(t *testing.T) {
+		c := Comment{ID: "c123"}
+		sc := commentToShareComment(c, "", "", "", "", false, false)
+		if sc.ExternalID != "" {
+			t.Errorf("ExternalID = %q, want empty", sc.ExternalID)
+		}
+	})
+
+	t.Run("converts replies", func(t *testing.T) {
+		c := Comment{
+			Body: "note",
+			Replies: []Reply{
+				{Body: "done", Author: "Bob"},
+				{Body: "verified", Author: "Alice"},
+			},
+		}
+		sc := commentToShareComment(c, "f.md", "", "", "", false, false)
+		if len(sc.Replies) != 2 {
+			t.Fatalf("expected 2 replies, got %d", len(sc.Replies))
+		}
+		if sc.Replies[0].Body != "done" || sc.Replies[0].Author != "Bob" {
+			t.Errorf("reply[0] = %+v", sc.Replies[0])
+		}
+	})
+
+	t.Run("review round zero omitted", func(t *testing.T) {
+		c := Comment{ReviewRound: 0}
+		sc := commentToShareComment(c, "", "", "", "", false, false)
+		if sc.ReviewRound != 0 {
+			t.Errorf("ReviewRound = %d, want 0 (omitted for round 0)", sc.ReviewRound)
+		}
+	})
+
+	t.Run("inlines local attachments for share when critPath set", func(t *testing.T) {
+		review := newReviewIdentity(t)
+		data := makeTestPNG(t, color.RGBA{50, 100, 150, 255})
+		filename, err := session.SaveAttachment(review, data)
+		if err != nil {
+			t.Fatalf("seed attachment: %v", err)
+		}
+		c := Comment{
+			Body: "look: ![bug.png](attachments/" + filename + ")",
+			Replies: []Reply{
+				{Body: "yes ![](attachments/" + filename + ")"},
+			},
+		}
+		sc := commentToShareComment(c, "main.go", "line", "", review, false, false)
+		if !strings.Contains(sc.Body, "data:image/png;base64,") {
+			t.Errorf("expected inlined data URI in body, got: %q", sc.Body)
+		}
+		if strings.Contains(sc.Body, "](attachments/") {
+			t.Errorf("body still references attachments/: %q", sc.Body)
+		}
+		if !strings.Contains(sc.Body, "![bug.png](") {
+			t.Errorf("alt text dropped during inline: %q", sc.Body)
+		}
+		if len(sc.Replies) != 1 {
+			t.Fatalf("expected 1 reply, got %d", len(sc.Replies))
+		}
+		if !strings.Contains(sc.Replies[0].Body, "data:image/png;base64,") {
+			t.Errorf("reply body not inlined: %q", sc.Replies[0].Body)
+		}
+	})
+
+	t.Run("leaves attachments alone when critPath empty", func(t *testing.T) {
+		uuid, _ := session.RandomUUID()
+		body := "![](attachments/" + uuid + ".png)"
+		c := Comment{Body: body}
+		sc := commentToShareComment(c, "f.md", "line", "", "", false, false)
+		if sc.Body != body {
+			t.Errorf("body should be untouched without critPath, got: %q", sc.Body)
+		}
+	})
+}
+
+func TestMergeWebComments(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit")
+
+	// Setup initial review file
+	cj := CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {Comments: []Comment{
+				{ID: "c1", Body: "existing", StartLine: 1, EndLine: 1},
+			}},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(session.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0644)
+
+	// Merge new comments
+	newComments := []WebComment{
+		{Body: "web comment", FilePath: "main.go", StartLine: 5, EndLine: 5, AuthorDisplayName: "Web User"},
+		{Body: "review note", Scope: "review", AuthorDisplayName: "Reviewer"},
+	}
+	if err := MergeWebComments(critPath, newComments, nil); err != nil {
+		t.Fatalf("MergeWebComments: %v", err)
+	}
+
+	// Read back and verify
+	data, _ = os.ReadFile(review.ReviewPathsFor(critPath).Review)
+	var result CritJSON
+	json.Unmarshal(data, &result)
+
+	mainComments := result.Files["main.go"].Comments
+	if len(mainComments) != 2 {
+		t.Fatalf("expected 2 comments in main.go, got %d", len(mainComments))
+	}
+	if mainComments[1].Body != "web comment" {
+		t.Errorf("new comment body = %q", mainComments[1].Body)
+	}
+	if mainComments[1].ID != "web-1" {
+		t.Errorf("new comment ID = %q, want web-1", mainComments[1].ID)
+	}
+
+	if len(result.ReviewComments) != 1 {
+		t.Fatalf("expected 1 review comment, got %d", len(result.ReviewComments))
+	}
+	if result.ReviewComments[0].Body != "review note" {
+		t.Errorf("review comment body = %q", result.ReviewComments[0].Body)
+	}
+}
+
+func TestBuildLocalFingerprints(t *testing.T) {
+	t.Run("file comments with path body lines", func(t *testing.T) {
+		cj := CritJSON{
+			Files: map[string]CritJSONFile{
+				"plan.md": {Comments: []Comment{
+					{ID: "c1", Body: "fix this", StartLine: 5, EndLine: 10},
+				}},
+			},
+		}
+		fps, _ := buildLocalFingerprintIndex(cj)
+		key := "fix this|plan.md|5|10"
+		if !fps[key] {
+			t.Errorf("expected fingerprint %q in set", key)
+		}
+		if len(fps) != 1 {
+			t.Errorf("expected 1 fingerprint, got %d", len(fps))
+		}
+	})
+
+	t.Run("review comments with body only", func(t *testing.T) {
+		cj := CritJSON{
+			Files:          map[string]CritJSONFile{},
+			ReviewComments: []Comment{{ID: "r1", Body: "overall note"}},
+		}
+		fps, _ := buildLocalFingerprintIndex(cj)
+		key := "overall note||0|0"
+		if !fps[key] {
+			t.Errorf("expected fingerprint %q in set", key)
+		}
+	})
+
+	t.Run("both file and review comments", func(t *testing.T) {
+		cj := CritJSON{
+			Files: map[string]CritJSONFile{
+				"main.go": {Comments: []Comment{
+					{ID: "c1", Body: "refactor", StartLine: 1, EndLine: 3},
+				}},
+			},
+			ReviewComments: []Comment{{ID: "r1", Body: "looks good"}},
+		}
+		fps, _ := buildLocalFingerprintIndex(cj)
+		if len(fps) != 2 {
+			t.Errorf("expected 2 fingerprints, got %d", len(fps))
+		}
+	})
+
+	t.Run("empty CritJSON", func(t *testing.T) {
+		cj := CritJSON{Files: map[string]CritJSONFile{}}
+		fps, _ := buildLocalFingerprintIndex(cj)
+		if len(fps) != 0 {
+			t.Errorf("expected 0 fingerprints, got %d", len(fps))
+		}
+	})
+}
+
+// TestFetchWebComments_FingerprintMatchPreservesReplies guards the bug where a
+// web comment that matched a previously-imported web-N comment by fingerprint
+// silently dropped any new replies attached to it.
+func TestFetchWebComments_FingerprintMatchPreservesReplies(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{
+			{
+				"body":         "web-authored note",
+				"file_path":    "plan.md",
+				"start_line":   3,
+				"end_line":     3,
+				"review_round": 1,
+				"resolved":     false,
+				"external_id":  nil,
+				"replies": []map[string]any{
+					{"body": "follow-up reply", "author_display_name": "Alice"},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	// Local already has the matching comment imported as web-1 (no replies yet).
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"plan.md": {Comments: []Comment{{
+				ID:        "web-1",
+				Body:      "web-authored note",
+				StartLine: 3,
+				EndLine:   3,
+			}}},
+		},
+	}
+	fps, fpIDs := buildLocalFingerprintIndex(cj)
+
+	result, err := fetchWebComments(srv.URL+"/r/tok", buildLocalIDSet(cj), fps, fpIDs, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.NewComments) != 0 {
+		t.Errorf("expected 0 new comments (fingerprint dedupe), got %d", len(result.NewComments))
+	}
+	replies, ok := result.ReplyUpdates["web-1"]
+	if !ok {
+		t.Fatalf("expected ReplyUpdates entry for web-1, got %v", result.ReplyUpdates)
+	}
+	if len(replies) != 1 || replies[0].Body != "follow-up reply" {
+		t.Errorf("unexpected replies for web-1: %+v", replies)
+	}
+}
+
+// TestMergeWebComments_AppliesReplyUpdates ensures that MergeWebComments
+// persists reply updates onto an existing comment matched by ID.
+func TestMergeWebComments_AppliesReplyUpdates(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit")
+
+	cj := CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"main.go": {Comments: []Comment{{
+				ID:        "c1",
+				Body:      "look here",
+				StartLine: 10,
+				EndLine:   10,
+			}}},
+		},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	if err := os.WriteFile(session.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0o644); err != nil {
+		t.Fatalf("write crit json: %v", err)
+	}
+
+	updates := map[string][]WebReply{
+		"c1": {{Body: "thanks", AuthorDisplayName: "Bob"}},
+	}
+	if err := MergeWebComments(critPath, nil, updates); err != nil {
+		t.Fatalf("MergeWebComments: %v", err)
+	}
+
+	out, _ := os.ReadFile(review.ReviewPathsFor(critPath).Review)
+	var got CritJSON
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	comments := got.Files["main.go"].Comments
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if len(comments[0].Replies) != 1 || comments[0].Replies[0].Body != "thanks" {
+		t.Errorf("expected merged reply, got %+v", comments[0].Replies)
+	}
+}
+
+// TestShareReviewFiles_InlinesAttachmentsEndToEnd is a full-stack regression
+// test for the share path: starting from a real review folder on disk (v4
+// layout with review.json and attachments/<uuid>.<ext>), invoke
+// ShareReviewFiles end-to-end, capture the JSON payload sent to the
+// crit-web stub, and assert that comment + reply bodies have their local
+// attachment refs rewritten to data:image/png;base64,... — and do NOT carry
+// raw `attachments/...` refs that crit-web has no way to resolve.
+//
+// This guards against future refactors that bypass commentToShareComment's
+// inlineAttachmentsAsDataURIs call (the only place rewriting happens). The
+// existing TestCommentToShareComment/inlines_local_attachments_for_share_when_critPath_set
+// covers the unit, this covers the wiring above it.
+func TestShareReviewFiles_InlinesAttachmentsEndToEnd(t *testing.T) {
+	// Build a real v4 review folder on disk.
+	reviewDir := newReviewIdentity(t)
+	png := makeTestPNG(t, color.RGBA{12, 34, 56, 255})
+	filename, err := session.SaveAttachment(reviewDir, png)
+	if err != nil {
+		t.Fatalf("session.SaveAttachment: %v", err)
+	}
+
+	cj := CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"README.md": {
+				Comments: []Comment{
+					{
+						ID:        "c_topimg",
+						StartLine: 5,
+						EndLine:   5,
+						Body:      "look at this:\n\n![img.png](attachments/" + filename + ")",
+						Author:    "Alice",
+						Scope:     "line",
+					},
+					{
+						ID:        "c_replyimg",
+						StartLine: 7,
+						EndLine:   7,
+						Body:      "this one too",
+						Author:    "Alice",
+						Scope:     "line",
+						Replies: []Reply{
+							{ID: "rp_1", Body: "in reply:\n\n![img.png](attachments/" + filename + ")", Author: "Bob"},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := review.SaveCritJSON(reviewDir, cj); err != nil {
+		t.Fatalf("review.SaveCritJSON: %v", err)
+	}
+
+	var captured []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"url":"http://stub/r/x","delete_token":"tok"}`))
+	}))
+	defer srv.Close()
+
+	files := []ShareFile{{Path: "README.md", Content: "stub content\n"}}
+	if _, err := ShareReviewFiles(reviewDir, files, []string{"README.md"}, srv.URL, "", "Alice", "", "", ""); err != nil {
+		t.Fatalf("ShareReviewFiles: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(captured, &payload); err != nil {
+		t.Fatalf("decode payload: %v\nbody=%q", err, string(captured))
+	}
+	commentsAny, _ := payload["comments"].([]any)
+	if len(commentsAny) != 2 {
+		t.Fatalf("expected 2 comments in payload, got %d", len(commentsAny))
+	}
+
+	for i, c := range commentsAny {
+		m := c.(map[string]any)
+		body, _ := m["body"].(string)
+		// Top-level comment body — either it had an attachment ref or it didn't.
+		if strings.Contains(body, "attachments/") {
+			t.Errorf("comment[%d] body still contains raw attachments/ ref: %q", i, truncate(body, 200))
+		}
+		hasImg := strings.Contains(body, "![")
+		if hasImg && !strings.Contains(body, "data:image/png;base64,") {
+			t.Errorf("comment[%d] has image syntax but no data URI: %q", i, truncate(body, 200))
+		}
+		replies, _ := m["replies"].([]any)
+		for j, r := range replies {
+			rm := r.(map[string]any)
+			rb, _ := rm["body"].(string)
+			if strings.Contains(rb, "attachments/") {
+				t.Errorf("comment[%d].reply[%d] body still contains raw attachments/ ref: %q", i, j, truncate(rb, 200))
+			}
+			if strings.Contains(rb, "![") && !strings.Contains(rb, "data:image/png;base64,") {
+				t.Errorf("comment[%d].reply[%d] has image syntax but no data URI: %q", i, j, truncate(rb, 200))
+			}
+		}
+	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+// TestShareReviewFiles_PlanMode_InlinesAttachments guards the plan-mode share
+// path. In plan mode the daemon stores review.json under <planDir>/.crit/
+// (because applyPlanOverrides sets session.OutputDir = planDir, and
+// critJSONPath() returns OutputDir/.crit), and the server's attachment
+// upload writes to <srv.reviewPath>/attachments/. Both MUST resolve to the
+// same folder; if a regression reintroduces a split (e.g. by missing a
+// planDir branch when computing srv.reviewPath), the upload handler writes
+// to ~/.crit/reviews/<key>/attachments/ while share inlining looks in
+// <planDir>/.crit/attachments/ — the file isn't found, the regex match
+// returns the body unchanged, and crit-web renders [image: <alt>]
+// placeholders for what should be inlined data: URIs.
+//
+// This test pins the invariant by laying out a plan-style folder
+// (review.json + attachments/<uuid>.<ext> co-located) and asserting that
+// ShareReviewFiles produces a payload with data: URIs.
+func TestShareReviewFiles_PlanMode_InlinesAttachments(t *testing.T) {
+	// Plan-style layout: review folder is <planDir>/.crit/ — review.json
+	// and attachments live there together.
+	planDir := t.TempDir()
+	critPath := filepath.Join(planDir, ".crit")
+	if err := os.MkdirAll(critPath, 0o755); err != nil {
+		t.Fatalf("mkdir critPath: %v", err)
+	}
+
+	png := makeTestPNG(t, color.RGBA{200, 50, 100, 255})
+	filename, err := session.SaveAttachment(critPath, png)
+	if err != nil {
+		t.Fatalf("session.SaveAttachment: %v", err)
+	}
+	// Confirm the attachment is where the inliner will look for it.
+	if _, err := os.Stat(filepath.Join(critPath, "attachments", filename)); err != nil {
+		t.Fatalf("attachment not co-located with review.json: %v", err)
+	}
+
+	planFile := "remove-readme-md-2026-05-11.md"
+	cj := CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			planFile: {
+				Comments: []Comment{
+					{
+						ID:        "c_top",
+						StartLine: 1,
+						EndLine:   1,
+						Body:      "test image\n\n![image.png](attachments/" + filename + ")",
+						Author:    "Samuel Tissot",
+						Scope:     "line",
+						Replies: []Reply{
+							{ID: "rp_1", Body: "sub\n\n![image.png](attachments/" + filename + ")", Author: "Samuel Tissot"},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := review.SaveCritJSON(critPath, cj); err != nil {
+		t.Fatalf("review.SaveCritJSON: %v", err)
+	}
+
+	var captured []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"url":"http://stub/r/plan","delete_token":"tok"}`))
+	}))
+	defer srv.Close()
+
+	files := []ShareFile{{Path: planFile, Content: "stub plan content\n"}}
+	if _, err := ShareReviewFiles(critPath, files, []string{planFile}, srv.URL, "", "Samuel Tissot", "", "", ""); err != nil {
+		t.Fatalf("ShareReviewFiles: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(captured, &payload); err != nil {
+		t.Fatalf("decode payload: %v\nbody=%q", err, string(captured))
+	}
+	commentsAny, _ := payload["comments"].([]any)
+	if len(commentsAny) != 1 {
+		t.Fatalf("expected 1 comment in payload, got %d", len(commentsAny))
+	}
+	m := commentsAny[0].(map[string]any)
+	body, _ := m["body"].(string)
+	if strings.Contains(body, "attachments/") {
+		t.Errorf("plan-mode comment body still contains raw attachments/ ref (inlining failed): %q", truncate(body, 200))
+	}
+	if !strings.Contains(body, "data:image/png;base64,") {
+		t.Errorf("plan-mode comment body missing data URI: %q", truncate(body, 200))
+	}
+	replies, _ := m["replies"].([]any)
+	if len(replies) != 1 {
+		t.Fatalf("expected 1 reply, got %d", len(replies))
+	}
+	rb, _ := replies[0].(map[string]any)["body"].(string)
+	if strings.Contains(rb, "attachments/") {
+		t.Errorf("plan-mode reply body still contains raw attachments/ ref (inlining failed): %q", truncate(rb, 200))
+	}
+	if !strings.Contains(rb, "data:image/png;base64,") {
+		t.Errorf("plan-mode reply body missing data URI: %q", truncate(rb, 200))
+	}
+}
+
+func TestDedupWebComments(t *testing.T) {
+	tests := []struct {
+		name        string
+		existing    CritJSON
+		incoming    []WebComment
+		wantNew     int
+		wantReplies int
+	}{
+		{
+			name: "duplicate by external_id is skipped",
+			existing: CritJSON{
+				Files: map[string]CritJSONFile{
+					"main.go": {Comments: []Comment{{
+						ID: "c_abc", StartLine: 10, EndLine: 10,
+						Body: "fix this",
+					}}},
+				},
+			},
+			incoming: []WebComment{{
+				ExternalID: "c_abc", FilePath: "main.go",
+				StartLine: 10, EndLine: 10, Body: "fix this",
+			}},
+			wantNew: 0, wantReplies: 0,
+		},
+		{
+			name: "duplicate by external_id with new replies merges replies",
+			existing: CritJSON{
+				Files: map[string]CritJSONFile{
+					"main.go": {Comments: []Comment{{
+						ID: "c_abc", StartLine: 10, EndLine: 10,
+						Body: "fix this",
+					}}},
+				},
+			},
+			incoming: []WebComment{{
+				ExternalID: "c_abc", FilePath: "main.go",
+				StartLine: 10, EndLine: 10, Body: "fix this",
+				Replies: []WebReply{{Body: "done", AuthorDisplayName: "reviewer"}},
+			}},
+			wantNew: 0, wantReplies: 1,
+		},
+		{
+			name: "duplicate by fingerprint is skipped",
+			existing: CritJSON{
+				Files: map[string]CritJSONFile{
+					"main.go": {Comments: []Comment{{
+						ID: "web-1", StartLine: 5, EndLine: 5,
+						Body: "typo here",
+					}}},
+				},
+			},
+			incoming: []WebComment{{
+				FilePath: "main.go", StartLine: 5, EndLine: 5,
+				Body: "typo here",
+			}},
+			wantNew: 0, wantReplies: 0,
+		},
+		{
+			name: "genuinely new comment is kept",
+			existing: CritJSON{
+				Files: map[string]CritJSONFile{
+					"main.go": {Comments: []Comment{{
+						ID: "c_abc", StartLine: 10, EndLine: 10,
+						Body: "fix this",
+					}}},
+				},
+			},
+			incoming: []WebComment{{
+				FilePath: "main.go", StartLine: 20, EndLine: 20,
+				Body:              "new issue here",
+				AuthorDisplayName: "reviewer",
+			}},
+			wantNew: 1, wantReplies: 0,
+		},
+		{
+			name: "mix of duplicates and new",
+			existing: CritJSON{
+				Files: map[string]CritJSONFile{
+					"main.go": {Comments: []Comment{{
+						ID: "c_abc", StartLine: 10, EndLine: 10,
+						Body: "existing",
+					}}},
+				},
+			},
+			incoming: []WebComment{
+				{ExternalID: "c_abc", FilePath: "main.go", StartLine: 10, EndLine: 10, Body: "existing"},
+				{FilePath: "main.go", StartLine: 30, EndLine: 30, Body: "brand new"},
+			},
+			wantNew: 1, wantReplies: 0,
+		},
+		{
+			name: "review-level duplicate by fingerprint is skipped",
+			existing: CritJSON{
+				ReviewComments: []Comment{{
+					ID: "web-1", Body: "overall looks good",
+				}},
+			},
+			incoming: []WebComment{{
+				Scope: "review", Body: "overall looks good",
+			}},
+			wantNew: 0, wantReplies: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			newComments, replyUpdates := DedupWebComments(tt.existing, tt.incoming)
+			if len(newComments) != tt.wantNew {
+				t.Errorf("got %d new comments, want %d", len(newComments), tt.wantNew)
+			}
+			if len(replyUpdates) != tt.wantReplies {
+				t.Errorf("got %d reply updates, want %d", len(replyUpdates), tt.wantReplies)
+			}
+		})
+	}
+}
+
+// TestBuildSharePayload_GitHubSynced verifies that comments and replies
+// synced from GitHub carry their GitHubID into the wire payload as
+// "github_id". crit-web reads this signal to badge re-shared reviews
+// (issue #370).
+func TestBuildSharePayload_GitHubSynced(t *testing.T) {
+	c := Comment{
+		ID:        "c1",
+		StartLine: 5,
+		EndLine:   5,
+		Body:      "from GitHub",
+		Author:    "Alice",
+		GitHubID:  12345,
+		Replies: []Reply{
+			{ID: "r1", Body: "reply too", Author: "Bob", GitHubID: 67890},
+		},
+	}
+	sc := commentToShareComment(c, "main.go", "line", "", "", false, true)
+	if sc.GitHubID != 12345 {
+		t.Errorf("shareComment.GitHubID = %d, want 12345", sc.GitHubID)
+	}
+	if len(sc.Replies) != 1 || sc.Replies[0].GitHubID != 67890 {
+		t.Errorf("shareReply.GitHubID = %d, want 67890", sc.Replies[0].GitHubID)
+	}
+
+	payload := buildSharePayload(nil, []shareComment{sc}, 1, nil, "", "", "")
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	js := string(body)
+	if !strings.Contains(js, `"github_id":12345`) {
+		t.Errorf("comment github_id missing from payload JSON: %s", js)
+	}
+	if !strings.Contains(js, `"github_id":67890`) {
+		t.Errorf("reply github_id missing from payload JSON: %s", js)
+	}
+}
+
+// TestBuildSharePayload_NotGitHubSynced verifies that the github_id field is
+// elided entirely when the local comment has no GitHub ID, so locally-authored
+// comments stay byte-equivalent to the pre-#370 wire format.
+func TestBuildSharePayload_NotGitHubSynced(t *testing.T) {
+	c := Comment{
+		ID:        "c1",
+		StartLine: 5,
+		EndLine:   5,
+		Body:      "local only",
+		Author:    "Alice",
+		Replies: []Reply{
+			{ID: "r1", Body: "local reply", Author: "Bob"},
+		},
+	}
+	sc := commentToShareComment(c, "main.go", "line", "", "", false, true)
+	if sc.GitHubID != 0 {
+		t.Errorf("shareComment.GitHubID = %d, want 0", sc.GitHubID)
+	}
+	if len(sc.Replies) != 1 || sc.Replies[0].GitHubID != 0 {
+		t.Errorf("shareReply.GitHubID = %d, want 0", sc.Replies[0].GitHubID)
+	}
+
+	payload := buildSharePayload(nil, []shareComment{sc}, 1, nil, "", "", "")
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	if strings.Contains(string(body), "github_id") {
+		t.Errorf("github_id should be omitted when zero, got: %s", body)
+	}
+}
+
+func TestShareFileEntriesEncoding(t *testing.T) {
+	files := []ShareFile{
+		{Path: "index.html", Content: "<html></html>"},
+		{Path: "logo.png", Content: "AAAA", Encoding: "base64"},
+	}
+
+	entries := shareFileEntries(files)
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	if _, ok := entries[0]["encoding"]; ok {
+		t.Errorf("text file should omit encoding, got %v", entries[0]["encoding"])
+	}
+	if got := entries[1]["encoding"]; got != "base64" {
+		t.Errorf("binary file should have encoding=base64, got %v", got)
+	}
+}
+
+func TestBuildSharePayloadReviewType(t *testing.T) {
+	files := []ShareFile{{Path: "index.html", Content: "<html></html>"}}
+
+	withType := buildSharePayload(files, nil, 1, nil, "", "", "preview")
+	if got := withType["review_type"]; got != "preview" {
+		t.Errorf("expected review_type=preview, got %v", got)
+	}
+
+	withoutType := buildSharePayload(files, nil, 1, nil, "", "", "")
+	if _, ok := withoutType["review_type"]; ok {
+		t.Errorf("empty review_type should be omitted, got %v", withoutType["review_type"])
+	}
+}

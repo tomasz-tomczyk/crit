@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 // These tests cover the destination-routing rules for non-aider integrations.
@@ -203,7 +205,7 @@ func TestInstallIntegration_CodexPluginEndToEnd(t *testing.T) {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	setHome(t, home)
+	testutil.SetHome(t, home)
 	t.Chdir(dir)
 
 	if err := installIntegration("codex-plugin", false); err != nil {
@@ -258,7 +260,7 @@ func TestInstallIntegration_CodexPluginEndToEnd(t *testing.T) {
 
 func TestInstallIntegration_CodexPluginGlobalEndToEnd(t *testing.T) {
 	home := t.TempDir()
-	setHome(t, home)
+	testutil.SetHome(t, home)
 	t.Chdir(home)
 
 	if err := installIntegration("codex-plugin", false); err != nil {
@@ -302,7 +304,7 @@ func TestInstallIntegration_CodexPluginDoesNotActivateExistingProjectFiles(t *te
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	setHome(t, home)
+	testutil.SetHome(t, home)
 	t.Chdir(dir)
 
 	staleHookPath := filepath.Join(dir, "plugins/crit/hooks/hooks.json")

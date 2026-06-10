@@ -19,6 +19,7 @@ var integrationHashes = map[string]string{
 	"integrations/cursor/skills/crit/SKILL.md":                 "a59747a66ca2db01dbefe1d975a5358347401a64d0a47d3fcafdc533c73063f1",
 	"integrations/docker/Dockerfile":                           "5958ca963c45f174aacf415252d902ad26cb39e38317644486111d433963da18",
 	"integrations/docker/entrypoint.sh":                        "f53612f5263323423a8ea1cd8c7a4f514ce2ff03ba6f249ca0cf25cf08395dd1",
+	"integrations/embed.go":                                    "65dbae10a543308cb88225f32cdc505e009132b88612c722e6ff1979558a420b",
 	"integrations/gemini/commands/crit.toml":                   "b5e315bb92862c9931a107b8e94a7da85f254564bb57e0be9a186cd8ecabd4d3",
 	"integrations/gemini/hooks/policy.toml":                    "b846de6e05bdf3de4423e0950d55abbf9641164520fc5d83709869b2d79be363",
 	"integrations/gemini/hooks/settings-snippet.json":          "6f3f931d4ab94c42a4271ee3ea556f129405acbcb1604e14d6e6b012e1c74bf1",

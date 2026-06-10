@@ -19,9 +19,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Error locating gen_integration_hashes.go")
 		os.Exit(1)
 	}
-	base := filepath.Dir(self)
-	integrationsDir := filepath.Join(base, "integrations")
-	outFile := filepath.Join(base, "integration_hashes_gen.go")
+	cmdCritDir := filepath.Dir(self)
+	repoRoot := filepath.Join(cmdCritDir, "..", "..")
+	integrationsDir := filepath.Join(repoRoot, "integrations")
+	outFile := filepath.Join(cmdCritDir, "integration_hashes_gen.go")
 
 	hashes := map[string]string{}
 	err := filepath.Walk(integrationsDir, func(path string, info os.FileInfo, err error) error {
@@ -39,7 +40,7 @@ func main() {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(base, path)
+		rel, err := filepath.Rel(repoRoot, path)
 		if err != nil {
 			return err
 		}

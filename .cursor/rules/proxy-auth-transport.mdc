@@ -17,7 +17,7 @@ When adding a new crit-web interaction:
 1. Add the direct HTTP path in Go (share.go or relevant file)
 2. Add a server endpoint that returns the payload for the popup relay (server.go)
 3. Add a popup handler in `crit-web/assets/js/share_receiver/handlers.js` (note: the directory/route is named `share_receiver` / `/share-receiver` — this describes what the component *does* (receives share data), while `proxy_auth` describes *why* it's needed. Both names are correct at their level.)
-4. Add the relay call in `cmd/crit/frontend/app.js` gated on `proxy_auth`
+4. Add the relay call in `web/app.js` gated on `proxy_auth`
 
 ## Rule 2: Relay is transport, not protocol
 

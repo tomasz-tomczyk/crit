@@ -30,14 +30,14 @@ test:
 	go test ./...
 
 test-frontend:
-	node cmd/crit/frontend/__tests__/markdown-patch.test.mjs
-	node cmd/crit/frontend/test-diff-render.mjs
+	node web/__tests__/markdown-patch.test.mjs
+	node web/test-diff-render.mjs
 
 setup-hooks:
 	git config core.hooksPath .githooks
 
 test-diff:
-	./test/test-diff.sh
+	./test/shell/test-diff.sh
 
 test-share-sync: build
 	go test -tags integration -run TestShareSync -v -count=1 ./...
@@ -52,26 +52,26 @@ e2e-roundtrip: build
 	./scripts/e2e-roundtrip.sh
 
 test-daemon:
-	./test/test-daemon-reuse.sh
+	./test/shell/test-daemon-reuse.sh
 
 test-plan-daemon:
-	./test/test-plan-daemon.sh
+	./test/shell/test-plan-daemon.sh
 
 clean:
 	rm -f crit
 	rm -rf dist
 
 e2e:
-	cd e2e && bash run.sh
+	cd test/e2e && bash run.sh
 
 e2e-failed:
-	cd e2e && npx playwright test --last-failed
+	cd test/e2e && npx playwright test --last-failed
 
 e2e-report:
-	cd e2e && npx playwright show-report
+	cd test/e2e && npx playwright show-report
 
 e2e-live-utils:
-	node --test cmd/crit/frontend/__tests__/*.test.js
+	node --test web/__tests__/*.test.js
 
 test-preview: build
 	@echo "Starting preview mode with sample page..."

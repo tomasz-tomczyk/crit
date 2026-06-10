@@ -61,7 +61,7 @@ fi
 # Check JS linting — npx is mise-managed, so run_tool finds it in agent shells
 if [ -f eslint.config.mjs ]; then
     echo "  Running ESLint..."
-    if ! run_tool npx eslint cmd/crit/frontend/app.js 2>&1; then
+    if ! run_tool npx eslint web/app.js 2>&1; then
         echo "  FAIL: ESLint issues found"
         exit 1
     fi
@@ -69,7 +69,7 @@ fi
 
 # Check for unicode confusables in JS (curly quotes break syntax)
 echo "  Checking for unicode confusables in JS..."
-CURLY=$(grep -rn $’[‘’“”]’ cmd/crit/frontend/*.js 2>/dev/null | grep -v ‘\.min\.js:’ || true)
+CURLY=$(grep -rn $’[‘’“”]’ web/*.js 2>/dev/null | grep -v ‘\.min\.js:’ || true)
 if [ -n "$CURLY" ]; then
     echo "  FAIL: Curly quotes found in JS files (use straight quotes):"
     echo "$CURLY" | sed 's/^/    /'
@@ -79,7 +79,7 @@ fi
 # Check CSS linting
 if [ -f .stylelintrc.json ]; then
     echo "  Running Stylelint..."
-    if ! run_tool npx stylelint "cmd/crit/frontend/*.css" 2>&1; then
+    if ! run_tool npx stylelint "web/*.css" 2>&1; then
         echo "  FAIL: Stylelint issues found"
         exit 1
     fi
