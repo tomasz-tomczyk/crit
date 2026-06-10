@@ -62,9 +62,14 @@ func TestPromptShareURLConfirm(t *testing.T) {
 }
 
 func TestRunUnpublish_NoReviewFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
 	err := RunUnpublish([]string{"--bogus"})
-	if err != nil {
-		t.Fatalf("unknown positional args are treated as file hints; got err %v", err)
+	if err == nil {
+		t.Fatal("expected error when no review file matches path hints")
+	}
+	if !strings.Contains(err.Error(), "no review file found") {
+		t.Fatalf("got %v", err)
 	}
 }
 
