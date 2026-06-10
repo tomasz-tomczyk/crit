@@ -1,11 +1,12 @@
 # Compiled binary
 /crit
 /crit.exe
+*.test
 
 # Review session files (generated at runtime)
 *.comments.json
 *.review.md
-/.crit/
+.crit/
 
 # Dependencies
 node_modules/

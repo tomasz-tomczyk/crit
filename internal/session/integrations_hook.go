@@ -13,5 +13,4 @@ var (
 	ResolveFocusFn             func(prSpec, rangeSpec, scopeSpec string, remoteFiles bool, v vcs.VCS, repoRoot string) (*Focus, error)
 	ResolveReviewPathFn        func(outputDir string) (string, error)
 	LoadCritJSONFromPathFn     func(critPath string) (CritJSON, error)
-	EnsureReviewFolderFn       func(identity string) error
 )

@@ -23,13 +23,25 @@ func readCritJSONFromDisk(critPath string) (CritJSON, error) {
 	return cj, nil
 }
 
-// SaveCritJSON writes review.json for a review identity folder.
+// SaveCritJSON writes review.json for a review identity folder. It is the
+// single write path for review.json: review.SaveCritJSON delegates here, so
+// every writer (share, comment, github, live, preview, cmd/crit) gets the
+// same folder-normalization guard and atomic write.
 func SaveCritJSON(critPath string, cj CritJSON) error {
 	return saveCritJSONToDisk(critPath, cj)
 }
 
 // saveCritJSONToDisk writes review.json for a review identity folder.
 func saveCritJSONToDisk(critPath string, cj CritJSON) error {
+	// Defense-in-depth: if a code path stat-tests <identity> and finds a flat
+	// file (e.g. an external tool dropped one in, or a v3 downgrade
+	// reintroduced the layout), normalize to the folder form before writing.
+	// ensureReviewFolder is a no-op when <identity> is already a directory
+	// (the steady-state v4 case), so this guard adds only a single os.Stat per
+	// save in production. See plan v4 §Folder-format invariants.
+	if err := ensureReviewFolder(critPath); err != nil {
+		return fmt.Errorf("ensuring review folder: %w", err)
+	}
 	data, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling review file: %w", err)
@@ -59,17 +71,6 @@ func loadSnapshotsFromDisk(snapshotsPath string) (SnapshotsFile, error) {
 		sf.RoundSnapshots = map[string]map[int]RoundSnapshot{}
 	}
 	return sf, nil
-}
-
-// ensureReviewFolder delegates to EnsureReviewFolderFn when wired from cmd/crit.
-func ensureReviewFolder(identity string) error {
-	if EnsureReviewFolderFn != nil {
-		return EnsureReviewFolderFn(identity)
-	}
-	if info, err := os.Stat(identity); err == nil && info.IsDir() {
-		return nil
-	}
-	return nil
 }
 
 // ClearReviewFolder removes the entire review identity folder.
