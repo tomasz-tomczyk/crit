@@ -18,23 +18,7 @@ func TestDetectVCS_AutoDetectInTempRepo(t *testing.T) {
 	}
 }
 
-func TestDetectVCS_JJOverrideWithoutBinary(t *testing.T) {
-	dir := InitTestRepo(t)
-	t.Chdir(dir)
-	v := DetectVCS("jj")
-	if v == nil {
-		t.Fatal("expected git fallback when jj missing")
-	}
-	if v.Name() != "git" {
-		t.Errorf("got vcs %q, want git fallback", v.Name())
-	}
-}
-
-func TestDetectVCS_SaplingOverrideWithoutBinary(t *testing.T) {
-	dir := InitTestRepo(t)
-	t.Chdir(dir)
-	v := DetectVCS("sapling")
-	if v == nil || v.Name() != "git" {
-		t.Fatalf("expected git fallback, got %v", v)
-	}
-}
+// JJ/sapling fallback-without-binary paths are covered by
+// TestDetectVCS_JJOverrideFallsBackToGitWhenNotInstalled (jj_detect_test.go)
+// and TestDetectVCS_SaplingOverride (sapling_test.go), which skip when the
+// respective binary is on PATH (as in CI).
