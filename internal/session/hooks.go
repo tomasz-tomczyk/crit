@@ -17,9 +17,6 @@ type CLIReviewConfig struct {
 var (
 	ResolveServerConfigFn func(args []string) (*CLIReviewConfig, error)
 	PreflightCheckFn      func(sc *CLIReviewConfig) string
-	ParsePRSpecFn         func(spec string) (int, error)
-	ParseRangeSpecFn      func(spec string) (base, head string, err error)
-	ParseScopeSpecFn      func(s string) (DiffScope, error)
 )
 
 // FocusKeyArgs returns daemon session key file args for PR/range focus.

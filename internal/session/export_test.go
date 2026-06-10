@@ -2,7 +2,6 @@ package session
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -24,10 +23,6 @@ var (
 	planSessionKey          = PlanSessionKey
 	applyPlanOverrides      = ApplyPlanOverrides
 	buildPlanDaemonArgs     = BuildPlanDaemonArgs
-	parsePRSpec             = parsePRSpecForTest
-	parseRangeSpec          = parseRangeSpecForTest
-	parseScopeSpec          = parseScopeSpecForTest
-	resolveFocus            = resolveFocusForTest
 	commitAt                = vcs.CommitAtForTest
 	isCommitish             = vcs.IsCommitish
 	newProcessGroup         = daemon.NewProcessGroupForTest
@@ -52,34 +47,6 @@ func loadCritJSONForTest(critPath string) (CritJSON, error) {
 		return CritJSON{}, err
 	}
 	return readCritJSONFromDisk(critPath)
-}
-
-func parsePRSpecForTest(spec string) (int, error) {
-	if ParsePRSpecFn != nil {
-		return ParsePRSpecFn(spec)
-	}
-	return 0, fmt.Errorf("ParsePRSpecFn not wired")
-}
-
-func parseRangeSpecForTest(spec string) (base, head string, err error) {
-	if ParseRangeSpecFn != nil {
-		return ParseRangeSpecFn(spec)
-	}
-	return "", "", fmt.Errorf("ParseRangeSpecFn not wired")
-}
-
-func parseScopeSpecForTest(s string) (DiffScope, error) {
-	if ParseScopeSpecFn != nil {
-		return ParseScopeSpecFn(s)
-	}
-	return "", fmt.Errorf("ParseScopeSpecFn not wired")
-}
-
-func resolveFocusForTest(prSpec, rangeSpec, scopeSpec string, remoteFiles bool, v vcs.VCS, repoRoot string) (*Focus, error) {
-	if ResolveFocusFn != nil {
-		return ResolveFocusFn(prSpec, rangeSpec, scopeSpec, remoteFiles, v, repoRoot)
-	}
-	return nil, fmt.Errorf("ResolveFocusFn not wired")
 }
 
 type testServerConfig struct {

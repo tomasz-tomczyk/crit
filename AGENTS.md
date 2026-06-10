@@ -6,7 +6,7 @@ Single-binary Go CLI that opens a browser-based UI for reviewing code changes an
 
 ```
 crit/
-├── cmd/crit/            # package main — thin CLI (main.go, cli_*.go, wire.go, integrations)
+├── cmd/crit/            # package main — thin CLI (main.go, cli_*.go, wire.go)
 ├── internal/            # Core logic packages (daemon, server, session, github, share, vcs, …)
 ├── web/                 # Embedded frontend assets (Go package webassets; embed.go)
 │   ├── index.html       # HTML shell — code-review OR live-mode script fork

@@ -8,7 +8,6 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/github"
 	"github.com/tomasz-tomczyk/crit/internal/live"
 	"github.com/tomasz-tomczyk/crit/internal/preview"
-	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/server"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
@@ -68,12 +67,6 @@ func init() {
 	session.InstalledAgentsFn = installedAgents
 	session.CheckMissingIntegrationsFn = checkMissingIntegrations
 	session.PrintMissingHintsFn = printMissingHints
-	session.ResolveFocusFn = focus.ResolveFocus
-	session.ResolveReviewPathFn = review.ResolveReviewPath
-	session.LoadCritJSONFromPathFn = review.LoadCritJSON
-	session.ParsePRSpecFn = focus.ParsePRSpec
-	session.ParseRangeSpecFn = focus.ParseRangeSpec
-	session.ParseScopeSpecFn = focus.ParseScopeSpec
 	server.AvailableIntegrationsFn = availableIntegrations
 	server.DetectInstalledIntegrationsFn = func(projectDir, homeDir string) []server.IntegrationStatus {
 		statuses := detectInstalledIntegrations(projectDir, homeDir)
