@@ -1,6 +1,11 @@
 package share
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/clicmd"
+)
 
 func TestParseFetchOutputDir(t *testing.T) {
 	cases := []struct {
@@ -24,5 +29,23 @@ func TestParseFetchOutputDir(t *testing.T) {
 				t.Errorf("parseFetchOutputDir(%v) = %q, want %q", c.args, got, c.want)
 			}
 		})
+	}
+}
+
+func TestParseFetchOutputDir_MissingValue(t *testing.T) {
+	_, err := parseFetchOutputDir([]string{"--output"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var exitErr clicmd.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitError, got %T", err)
+	}
+}
+
+func TestParseFetchOutputDir_UnknownArg(t *testing.T) {
+	_, err := parseFetchOutputDir([]string{"--bogus"})
+	if err == nil {
+		t.Fatal("expected error for unknown arg")
 	}
 }
