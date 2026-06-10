@@ -239,22 +239,40 @@ func FindAliveSession(key string) (SessionEntry, bool) {
 }
 
 // ListSessionsForCWD returns all alive sessions whose CWD matches.
-// Cleans up stale session files as a side effect.
+// Cleans up stale session files as a side effect. A missing sessions
+// directory is not an error (no sessions yet); a failure to resolve or read
+// the directory is surfaced so callers can distinguish "no sessions" from "we
+// could not look".
 func ListSessionsForCWD(cwd string) ([]SessionEntry, error) {
-	sessions, _ := listSessionsForCWD(cwd)
-	return sessions, nil
+	sessions, _, err := scanSessionsForCWD(cwd)
+	return sessions, err
 }
 
-// listSessionsForCWD returns all alive sessions whose CWD matches.
-// Cleans up stale session files as a side effect.
+// listSessionsForCWD returns all alive sessions whose CWD matches, along with
+// their registry keys. Cleans up stale session files as a side effect.
+// Errors are discarded here: the callers that need keys (branch/cwd lookups)
+// treat any scan failure as "no match", which is the safe default.
 func listSessionsForCWD(cwd string) ([]SessionEntry, []string) {
+	sessions, keys, _ := scanSessionsForCWD(cwd)
+	return sessions, keys
+}
+
+// scanSessionsForCWD walks the session registry and returns the alive sessions
+// matching cwd plus their keys. Cleans up stale session files as a side
+// effect. A missing registry directory yields an empty result and nil error;
+// a directory-resolution or read failure is returned so the exported
+// ListSessionsForCWD can surface it.
+func scanSessionsForCWD(cwd string) ([]SessionEntry, []string, error) {
 	dir, err := sessionsDir()
 	if err != nil {
-		return nil, nil
+		return nil, nil, fmt.Errorf("resolving sessions dir: %w", err)
 	}
 	dirEntries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, nil
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("reading sessions dir: %w", err)
 	}
 	// Normalize on both sides so a session stored from any path style
 	// matches a probe with another style (matters on Windows where
@@ -285,7 +303,7 @@ func listSessionsForCWD(cwd string) ([]SessionEntry, []string) {
 			RemoveSessionFile(key)
 		}
 	}
-	return alive, keys
+	return alive, keys, nil
 }
 
 // findSessionForCWDBranch scans all alive sessions for the given cwd and branch.
