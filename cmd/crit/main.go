@@ -29,7 +29,7 @@ func main() {
 		handler(os.Args[2:])
 		return
 	}
-	args := os.Args[1:]
+	args := resolveAtPrefixedArgs(os.Args[1:])
 	if live.LooksLikeLiveArgs(args) {
 		runLive(args)
 		return
