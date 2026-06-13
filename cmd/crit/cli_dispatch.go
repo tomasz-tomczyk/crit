@@ -172,6 +172,7 @@ Available keys:
   base_branch       string    Base branch to diff against (overrides auto-detection)
   vcs                    string    Preferred VCS backend: git, sl, or jj (default: auto-detect)
   ignore_patterns        []string  Gitignore-style patterns to exclude files from review
+  auto_viewed_patterns   []string  Patterns whose files are auto-marked viewed once per launch
   no_integration_check   bool      Skip integration staleness check (default: false)
   no_update_check        bool      Disable update check on startup (default: false)
   cleanup_on_approve     bool      Auto-delete review file when approved (default: true)

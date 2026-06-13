@@ -420,6 +420,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"no_integration_check": s.cfg.NoIntegrationCheck,
 		"no_update_check":      s.cfg.NoUpdateCheck,
 
+		// Glob patterns the frontend auto-marks viewed (collapsed) once per launch
+		"auto_viewed_patterns": s.cfg.AutoViewedPatterns,
+
 		// Available integrations (always included)
 		"integrations_available": availableIntegrations(),
 	}

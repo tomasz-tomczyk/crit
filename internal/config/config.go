@@ -30,6 +30,7 @@ type Config struct {
 	Author             string   `json:"author,omitempty"`
 	BaseBranch         string   `json:"base_branch,omitempty"`
 	IgnorePatterns     []string `json:"ignore_patterns,omitempty"`
+	AutoViewedPatterns []string `json:"auto_viewed_patterns,omitempty"`
 	NoIntegrationCheck bool     `json:"no_integration_check,omitempty"`
 	NoUpdateCheck      bool     `json:"no_update_check,omitempty"`
 	AgentCmd           string   `json:"agent_cmd,omitempty"`
@@ -98,9 +99,10 @@ func defaultConfig() generatedConfig {
 			"*.min.css",
 			".crit/",
 		},
-		AgentCmd:         "",
-		CleanupOnApprove: true,
-		VCS:              "",
+		AutoViewedPatterns: []string{},
+		AgentCmd:           "",
+		CleanupOnApprove:   true,
+		VCS:                "",
 	}
 }
 
@@ -118,6 +120,7 @@ type generatedConfig struct {
 	Author             string   `json:"author"`
 	BaseBranch         string   `json:"base_branch"`
 	IgnorePatterns     []string `json:"ignore_patterns"`
+	AutoViewedPatterns []string `json:"auto_viewed_patterns"`
 	NoIntegrationCheck bool     `json:"no_integration_check"`
 	NoUpdateCheck      bool     `json:"no_update_check"`
 	DisableStats       bool     `json:"disable_stats"`
@@ -147,6 +150,7 @@ func DefaultConfig() GeneratedConfig {
 type ConfigPresence struct {
 	ShareURL           bool
 	IgnorePatterns     bool
+	AutoViewedPatterns bool
 	NoOpen             bool
 	Quiet              bool
 	NoIntegrationCheck bool
@@ -175,6 +179,7 @@ func LoadConfigFile(path string) (Config, ConfigPresence, error) {
 	}
 	_, presence.ShareURL = raw["share_url"] // for global config only; project-side ShareURL presence is intentionally ignored by mergeConfigs
 	_, presence.IgnorePatterns = raw["ignore_patterns"]
+	_, presence.AutoViewedPatterns = raw["auto_viewed_patterns"]
 	_, presence.NoOpen = raw["no_open"]
 	_, presence.Quiet = raw["quiet"]
 	_, presence.NoIntegrationCheck = raw["no_integration_check"]
@@ -246,6 +251,8 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	// .crit/live-cookies.txt) over committing live_cookie inline.
 	// Union ignore patterns
 	merged.IgnorePatterns = append(merged.IgnorePatterns, project.IgnorePatterns...)
+	// Union auto-viewed patterns (global + project both apply)
+	merged.AutoViewedPatterns = append(merged.AutoViewedPatterns, project.AutoViewedPatterns...)
 	return merged
 }
 

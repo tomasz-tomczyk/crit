@@ -816,3 +816,61 @@ func TestNeedsShareConsent(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadConfigFile_AutoViewedPatterns(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".crit.config.json")
+	os.WriteFile(configPath, []byte(`{"auto_viewed_patterns": ["*.lock", "generated/", "PLAN.md"]}`), 0644)
+
+	cfg, presence, err := LoadConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.AutoViewedPatterns) != 3 {
+		t.Errorf("auto_viewed_patterns = %v, want 3 entries", cfg.AutoViewedPatterns)
+	}
+	if cfg.AutoViewedPatterns[0] != "*.lock" {
+		t.Errorf("auto_viewed_patterns[0] = %q, want *.lock", cfg.AutoViewedPatterns[0])
+	}
+	if !presence.AutoViewedPatterns {
+		t.Error("presence.AutoViewedPatterns should be true")
+	}
+}
+
+func TestLoadConfigFile_AutoViewedPatternsPresenceEmpty(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".crit.config.json")
+	os.WriteFile(configPath, []byte(`{"auto_viewed_patterns": []}`), 0644)
+
+	cfg, presence, err := LoadConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.AutoViewedPatterns) != 0 {
+		t.Errorf("auto_viewed_patterns = %v, want empty", cfg.AutoViewedPatterns)
+	}
+	if !presence.AutoViewedPatterns {
+		t.Error("presence.AutoViewedPatterns should be true even for empty array")
+	}
+}
+
+func TestMergeConfigs_AutoViewedPatternsUnion(t *testing.T) {
+	global := Config{AutoViewedPatterns: []string{"*.lock"}}
+	project := Config{AutoViewedPatterns: []string{"PLAN.md"}}
+	merged := mergeConfigs(global, project, ConfigPresence{})
+
+	// mergeConfigs appends project patterns to global (straight union)
+	if len(merged.AutoViewedPatterns) != 2 {
+		t.Errorf("expected 2 patterns, got %d: %v", len(merged.AutoViewedPatterns), merged.AutoViewedPatterns)
+	}
+	seen := make(map[string]bool)
+	for _, p := range merged.AutoViewedPatterns {
+		seen[p] = true
+	}
+	if !seen["*.lock"] {
+		t.Error("expected *.lock in merged auto-viewed patterns")
+	}
+	if !seen["PLAN.md"] {
+		t.Error("expected PLAN.md in merged auto-viewed patterns")
+	}
+}
