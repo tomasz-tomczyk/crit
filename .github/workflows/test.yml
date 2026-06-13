@@ -144,7 +144,7 @@ jobs:
           go test -coverprofile=coverage.out -covermode=atomic $PKGS
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: coverage.out
           flags: unit
@@ -248,7 +248,7 @@ jobs:
 
       - name: Upload E2E coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: e2e-coverage.out
           flags: e2e
@@ -328,7 +328,7 @@ jobs:
 
       - name: Upload E2E coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: e2e-coverage.out
           flags: e2e
