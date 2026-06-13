@@ -134,6 +134,13 @@ func (j *JJVCS) MergeBase(ref string) (string, error) {
 	return JJMergeBase("", "@", base)
 }
 
+// MergeBaseOf returns the merge-base of two arbitrary revisions (neither pinned
+// to @). Delegates to JJMergeBase, which resolves both sides and intersects
+// their ancestor sets — symmetric, so argument order does not matter.
+func (j *JJVCS) MergeBaseOf(a, b, dir string) (string, error) {
+	return JJMergeBase(dir, a, b)
+}
+
 func (j *JJVCS) ChangedFilesOnDefaultInDir(dir string) ([]FileChange, error) {
 	out, err := JJCommandInDir(dir, "diff", "--summary", "-r", "@")
 	if err != nil {

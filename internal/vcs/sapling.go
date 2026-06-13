@@ -97,6 +97,17 @@ func (s *SaplingVCS) MergeBase(ref string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// MergeBaseOf returns the common ancestor of two arbitrary revisions (neither
+// pinned to the working copy). ancestor() is symmetric, so order is irrelevant.
+func (s *SaplingVCS) MergeBaseOf(a, b, dir string) (string, error) {
+	revset := fmt.Sprintf("ancestor(%s, %s)", a, b)
+	out, err := SLCommandInDir(dir, "log", "-r", revset, "-T", "{node}")
+	if err != nil {
+		return "", fmt.Errorf("sl ancestor: %w", err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // ChangedFilesOnDefaultInDir returns changed files when on the default branch.
 func (s *SaplingVCS) ChangedFilesOnDefaultInDir(dir string) ([]FileChange, error) {
 	out, err := SLCommandInDir(dir, "status")

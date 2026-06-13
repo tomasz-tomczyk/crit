@@ -172,12 +172,24 @@ func resolveFocusFromPR(prSpec string, scope DiffScope, remoteFiles bool, v vcs.
 		return nil, fmt.Errorf("--scope=full-stack requires a resolvable default branch tip; got none for %q (detached HEAD or no remote?)", defaultBranch)
 	}
 
+	// GitHub renders a PR as base...head (three-dot, from the merge-base).
+	// Using info.BaseRefOid directly would diff base..head (two-dot), folding
+	// in any commits that landed on the base branch since this branch diverged
+	// — surfacing files that aren't part of the PR. Pin the layer diff base to
+	// the merge-base so the diff matches GitHub regardless of rebase state.
+	baseSHA := info.BaseRefOid
+	if v != nil {
+		if mb, err := v.MergeBaseOf(info.BaseRefOid, info.HeadRefOid, repoRoot); err == nil && mb != "" {
+			baseSHA = mb
+		}
+	}
+
 	return &Focus{
 		Kind:        FocusRange,
 		PRNumber:    info.Number,
 		PRURL:       info.URL,
 		Label:       fmt.Sprintf("PR #%d: %s", info.Number, info.Title),
-		BaseSHA:     info.BaseRefOid,
+		BaseSHA:     baseSHA,
 		HeadSHA:     info.HeadRefOid,
 		DefaultSHA:  defaultSHA,
 		ForkURL:     forkURL,

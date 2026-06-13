@@ -240,6 +240,17 @@ func MergeBase(base string) (string, error) {
 	return "", fmt.Errorf("merge-base failed: %w", err)
 }
 
+// MergeBaseOf returns the merge base of two arbitrary commits, run in dir.
+// Neither side is pinned to HEAD (unlike MergeBase), so it can compute a PR's
+// base as merge-base(base, head).
+func MergeBaseOf(a, b, dir string) (string, error) {
+	out, err := runGit(context.Background(), dir, "merge-base", a, b)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // fileContentAtRef returns the content of a file at the given git ref.
 // Returns empty string on any error (file doesn't exist at ref, not a git repo, etc.).
 func FileContentAtRef(path, ref, dir string) string {

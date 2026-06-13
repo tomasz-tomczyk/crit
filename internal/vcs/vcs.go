@@ -33,6 +33,13 @@ type VCS interface {
 	// MergeBase returns the merge-base commit between HEAD and the given ref.
 	MergeBase(ref string) (string, error)
 
+	// MergeBaseOf returns the merge-base (best common ancestor) of two
+	// arbitrary revisions, computed in dir. Unlike MergeBase, neither side is
+	// pinned to the working-tree head — used to derive a PR's diff base as
+	// merge-base(base, head) so the layer diff matches GitHub's three-dot PR
+	// diff regardless of whether the branch is rebased.
+	MergeBaseOf(a, b, dir string) (string, error)
+
 	// DefaultBaseRef returns the best ref to use as the diff base for the
 	// auto-detected default branch. For git, prefers `origin/<branch>` when
 	// the remote-tracking ref exists locally, since the local default branch

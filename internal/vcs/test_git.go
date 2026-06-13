@@ -42,6 +42,28 @@ func IsCommitish(s string) bool {
 	return isCommitish(s)
 }
 
+// ClearGitEnvForTest unsets git's repo-location environment variables for the
+// duration of the test, restoring them on cleanup. Git hooks (e.g. pre-commit)
+// export GIT_DIR / GIT_WORK_TREE, which take precedence over a command's working
+// directory — so a production git-in-dir call would resolve the hook's repo
+// instead of the temp repo under test. Tests that exercise such calls against a
+// temp repo must call this to stay deterministic when run from inside a hook.
+func ClearGitEnvForTest(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{
+		"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+		"GIT_OBJECT_DIRECTORY", "GIT_PREFIX", "GIT_CEILING_DIRECTORIES", "GIT_NAMESPACE",
+	} {
+		if v, ok := os.LookupEnv(k); ok {
+			k, v := k, v
+			if err := os.Unsetenv(k); err != nil {
+				t.Fatalf("unset %s: %v", k, err)
+			}
+			t.Cleanup(func() { os.Setenv(k, v) })
+		}
+	}
+}
+
 func writeFileForTest(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

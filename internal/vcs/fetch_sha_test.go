@@ -20,13 +20,14 @@ func (f *fakeFetchVCS) HasObject(_, _ string) bool {
 	}
 	return false
 }
-func (f *fakeFetchVCS) RepoRoot() (string, error)        { return "", nil }
-func (f *fakeFetchVCS) CurrentBranch() string            { return "main" }
-func (f *fakeFetchVCS) DefaultBranch() string            { return "main" }
-func (f *fakeFetchVCS) SetDefaultBranchOverride(string)  {}
-func (f *fakeFetchVCS) GetDefaultBranchOverride() string { return "" }
-func (f *fakeFetchVCS) DefaultBaseRef() string           { return "main" }
-func (f *fakeFetchVCS) MergeBase(string) (string, error) { return "", nil }
+func (f *fakeFetchVCS) RepoRoot() (string, error)                  { return "", nil }
+func (f *fakeFetchVCS) CurrentBranch() string                      { return "main" }
+func (f *fakeFetchVCS) DefaultBranch() string                      { return "main" }
+func (f *fakeFetchVCS) SetDefaultBranchOverride(string)            {}
+func (f *fakeFetchVCS) GetDefaultBranchOverride() string           { return "" }
+func (f *fakeFetchVCS) DefaultBaseRef() string                     { return "main" }
+func (f *fakeFetchVCS) MergeBase(string) (string, error)           { return "", nil }
+func (f *fakeFetchVCS) MergeBaseOf(_, _, _ string) (string, error) { return "", nil }
 func (f *fakeFetchVCS) ChangedFilesOnDefaultInDir(string) ([]FileChange, error) {
 	return nil, nil
 }

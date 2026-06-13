@@ -98,15 +98,16 @@ func TestEnsureSHAFetchedJJ_PureJJErrorMessages(t *testing.T) {
 // returns zero values to satisfy the interface without doing any real work.
 type fakeJJVCSForFetch struct{}
 
-func (*fakeJJVCSForFetch) Name() string                     { return "jj" }
-func (*fakeJJVCSForFetch) HasObject(string, string) bool    { return false }
-func (*fakeJJVCSForFetch) RepoRoot() (string, error)        { return "", nil }
-func (*fakeJJVCSForFetch) CurrentBranch() string            { return "" }
-func (*fakeJJVCSForFetch) DefaultBranch() string            { return "" }
-func (*fakeJJVCSForFetch) SetDefaultBranchOverride(string)  {}
-func (*fakeJJVCSForFetch) GetDefaultBranchOverride() string { return "" }
-func (*fakeJJVCSForFetch) DefaultBaseRef() string           { return "" }
-func (*fakeJJVCSForFetch) MergeBase(string) (string, error) { return "", nil }
+func (*fakeJJVCSForFetch) Name() string                               { return "jj" }
+func (*fakeJJVCSForFetch) HasObject(string, string) bool              { return false }
+func (*fakeJJVCSForFetch) RepoRoot() (string, error)                  { return "", nil }
+func (*fakeJJVCSForFetch) CurrentBranch() string                      { return "" }
+func (*fakeJJVCSForFetch) DefaultBranch() string                      { return "" }
+func (*fakeJJVCSForFetch) SetDefaultBranchOverride(string)            {}
+func (*fakeJJVCSForFetch) GetDefaultBranchOverride() string           { return "" }
+func (*fakeJJVCSForFetch) DefaultBaseRef() string                     { return "" }
+func (*fakeJJVCSForFetch) MergeBase(string) (string, error)           { return "", nil }
+func (*fakeJJVCSForFetch) MergeBaseOf(_, _, _ string) (string, error) { return "", nil }
 func (*fakeJJVCSForFetch) ChangedFilesOnDefaultInDir(string) ([]FileChange, error) {
 	return nil, nil
 }
