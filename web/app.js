@@ -332,6 +332,7 @@
   let shareURL = '';       // read by the tip-rotation block; share flow gets its own copy
   let authUserName = '';   // read by the tip-rotation block; share flow gets its own copy
   let configAuthor = '';
+  let autoViewedPatterns = [];  // config auto_viewed_patterns; applied once per launch (issue #658)
 
   // Share flow (button + modals + popup relay) lives in crit-share.js
   // (window.crit.share). The controller is created in init() once /api/config
@@ -684,13 +685,51 @@
   }
 
   // ===== Viewed State =====
-  function viewedStorageKey() {
+  // Stable hash of the current file set — identifies this review's localStorage
+  // namespace. Shared by the viewed-state key and the auto-viewed applied marker
+  // so both live under the same identity.
+  function viewedIdentityHash() {
     const paths = files.map(function(f) { return f.path; }).sort().join('\n');
     let hash = 0;
     for (let i = 0; i < paths.length; i++) {
       hash = ((hash << 5) - hash + paths.charCodeAt(i)) | 0;
     }
-    return 'crit-viewed-' + (hash >>> 0).toString(36);
+    return (hash >>> 0).toString(36);
+  }
+
+  function viewedStorageKey() {
+    return 'crit-viewed-' + viewedIdentityHash();
+  }
+
+  // Marker key recording that auto_viewed_patterns were already applied for this
+  // review. localStorage is origin-scoped (incl. port); crit uses random ports,
+  // so a new launch gets a fresh namespace and patterns apply once. A refresh on
+  // the same port sees this marker and skips re-applying — manual un-marks the
+  // user saved via toggleViewed therefore win. (issue #658)
+  function autoViewedMarkerKey() {
+    return 'crit-autoviewed-' + viewedIdentityHash();
+  }
+
+  // Apply auto_viewed_patterns ONCE per launch: mark matching files viewed +
+  // collapsed. Must run AFTER restoreViewedState() (so a prior refresh's manual
+  // un-marks are already loaded and not clobbered) and BEFORE first render.
+  function applyAutoViewedOnce(patterns) {
+    if (!patterns || !patterns.length) return;
+    const globMatch = window.crit && window.crit.globMatch;
+    if (!globMatch) return;
+    try {
+      if (localStorage.getItem(autoViewedMarkerKey())) return; // already applied this launch
+    } catch { return; }
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (f.viewed) continue; // respect existing/restored viewed state
+      if (globMatch.matchAny(f.path, patterns)) {
+        f.viewed = true;
+        f.collapsed = true;
+      }
+    }
+    saveViewedState();
+    try { localStorage.setItem(autoViewedMarkerKey(), '1'); } catch {}
   }
 
   function saveViewedState() {
@@ -807,6 +846,7 @@
 
     // Config
     shareURL = configRes.share_url || '';
+    autoViewedPatterns = Array.isArray(configRes.auto_viewed_patterns) ? configRes.auto_viewed_patterns : [];
     authUserName = configRes.auth_user_name || '';
     configAuthor = configRes.author || '';
     agentEnabled = configRes.agent_cmd_enabled || false;
@@ -1012,6 +1052,7 @@
     files.sort(fileSortComparator);
 
     restoreViewedState();
+    applyAutoViewedOnce(autoViewedPatterns);
     updateDiffModeToggle();
     renderFileTree();
     renderAllFiles();

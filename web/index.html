@@ -426,6 +426,8 @@
       var ic = document.createElement('script'); ic.src = 'crit-icons.js'; ic.async = false; document.body.appendChild(ic);
       // Shared Share flow (window.crit.share). Must load before app.js.
       var shr = document.createElement('script'); shr.src = 'crit-share.js'; shr.async = false; document.body.appendChild(shr);
+      // Glob matcher for auto-viewed-patterns (window.crit.globMatch). Must load before app.js.
+      var gm = document.createElement('script'); gm.src = 'crit-glob-match.js'; gm.async = false; document.body.appendChild(gm);
       var a = document.createElement('script'); a.src = 'app.js'; a.async = false; document.body.appendChild(a);
     }
   })();
