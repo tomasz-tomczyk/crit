@@ -2769,17 +2769,10 @@
     btn.dataset.lineNum = lineNum;
     btn.dataset.side = side || '';
     if (visualIdx !== undefined) btn.dataset.visualIdx = visualIdx;
-    btn.addEventListener('mousedown', function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      const fp = this.dataset.filePath;
-      const ln = parseInt(this.dataset.lineNum);
-      const s = this.dataset.side || '';
-      const vi = this.dataset.visualIdx !== undefined ? parseInt(this.dataset.visualIdx) : undefined;
-      beginDiffCommentDrag(fp, ln, s, vi);
-      document.addEventListener('mousemove', handleDiffDragMove);
-      document.addEventListener('mouseup', handleDiffDragEnd);
-    });
+    // Mouse drag-init is delegated once on the diff container
+    // (attachDiffMouseHandler) rather than attached per-button. A large diff
+    // can contain thousands of these buttons, and one mousedown listener per
+    // button stalled the main thread for several seconds on render (#657).
     col.appendChild(btn);
     return col;
   }
@@ -2824,6 +2817,27 @@
       beginDiffCommentDrag(fp, ln, s, vi);
       document.addEventListener('pointermove', handleDiffDragMove);
       document.addEventListener('pointerup', handleDiffDragEnd);
+    });
+  }
+
+  // Desktop mouse path: delegate a single mousedown on the diff container
+  // instead of attaching one listener per .diff-comment-btn. On a large diff
+  // the per-button approach wired up thousands of listeners and stalled the
+  // main thread for several seconds on render (#657). One delegated handler is
+  // O(1) regardless of diff size. Mirrors attachDiffTouchHandler above.
+  function attachDiffMouseHandler(container) {
+    container.addEventListener('mousedown', function(e) {
+      const btn = e.target.closest('.diff-comment-btn');
+      if (!btn || !container.contains(btn)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const fp = btn.dataset.filePath;
+      const ln = parseInt(btn.dataset.lineNum);
+      const s = btn.dataset.side || '';
+      const vi = btn.dataset.visualIdx !== undefined ? parseInt(btn.dataset.visualIdx) : undefined;
+      beginDiffCommentDrag(fp, ln, s, vi);
+      document.addEventListener('mousemove', handleDiffDragMove);
+      document.addEventListener('mouseup', handleDiffDragEnd);
     });
   }
 
@@ -3320,6 +3334,7 @@
     const container = document.createElement('div');
     container.className = 'diff-container unified';
     attachDiffTouchHandler(container);
+    attachDiffMouseHandler(container);
 
     expandHunksForComments(file);
 
@@ -3449,6 +3464,7 @@
     const container = document.createElement('div');
     container.className = 'diff-container split';
     attachDiffTouchHandler(container);
+    attachDiffMouseHandler(container);
 
     expandHunksForComments(file);
 
