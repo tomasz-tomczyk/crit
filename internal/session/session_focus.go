@@ -445,7 +445,7 @@ func (s *Session) buildFilesForFocus(f Focus, v vcs.VCS, repoRoot string) ([]*Fi
 }
 
 // buildFilesForWorkingTree rebuilds the file list from the VCS for the
-// working-tree focus. Mirrors the eager-load loop in NewSessionFromVCS but
+// working-tree focus. Mirrors the eager-load loop in NewGitSession but
 // does not mutate session state directly.
 func (s *Session) buildFilesForWorkingTree(v vcs.VCS, repoRoot string) ([]*FileEntry, string, error) {
 	if v == nil {

@@ -11,7 +11,6 @@ const MaxAttachmentBytes = maxAttachmentBytes
 type DeleteResult = deleteResult
 
 const (
-	DeleteResultDeleted   = deleteResultDeleted
 	DeleteResultNotFound  = deleteResultNotFound
 	DeleteResultForbidden = deleteResultForbidden
 )

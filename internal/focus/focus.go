@@ -179,6 +179,9 @@ func resolveFocusFromPR(prSpec string, scope DiffScope, remoteFiles bool, v vcs.
 	// the merge-base so the diff matches GitHub regardless of rebase state.
 	baseSHA := info.BaseRefOid
 	if v != nil {
+		// Best-effort: in --remote mode the base/head objects may not be local
+		// (EnsureSHAFetched was skipped above), so merge-base can fail. We then
+		// fall back to BaseRefOid — a two-dot diff (the case #659 fixed locally).
 		if mb, err := v.MergeBaseOf(info.BaseRefOid, info.HeadRefOid, repoRoot); err == nil && mb != "" {
 			baseSHA = mb
 		}

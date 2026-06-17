@@ -2913,8 +2913,8 @@
 
   function handleDiffDragEnd() {
     // Remove both mouse and pointer listeners — desktop attaches mouse
-    // listeners via the .diff-comment-btn mousedown handler, touch
-    // attaches pointer listeners via attachDiffTouchHandler. Cleaning
+    // listeners via the delegated mousedown handler on the diff container,
+    // touch attaches pointer listeners via attachDiffTouchHandler. Cleaning
     // both is safe (removeEventListener is a no-op if not attached).
     document.removeEventListener('mousemove', handleDiffDragMove);
     document.removeEventListener('mouseup', handleDiffDragEnd);

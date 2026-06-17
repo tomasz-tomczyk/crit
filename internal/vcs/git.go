@@ -246,7 +246,7 @@ func MergeBase(base string) (string, error) {
 func MergeBaseOf(a, b, dir string) (string, error) {
 	out, err := runGit(context.Background(), dir, "merge-base", a, b)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("git merge-base: %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
