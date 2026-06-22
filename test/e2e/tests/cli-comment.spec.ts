@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
-import { clearAllComments, addComment, loadPage, mdSection, switchToDocumentView } from './helpers';
+import { clearAllComments, addComment, loadPage, mdSection, switchToDocumentView, getReviewFilePath } from './helpers';
 import { stateFilePath } from './state-file';
 
 // Read fixture state written by setup-fixtures.sh
@@ -85,9 +85,8 @@ test.describe('CLI comment sync — live browser update', () => {
 
     // Wait until review file on disk contains the comment (debounce has fired).
     // Discover the review file path from the finish API.
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const reviewFilePath = finishData.review_file;
+    await request.post('/api/finish');
+    const reviewFilePath = await getReviewFilePath(request);
     await expect(async () => {
       const content = fs.readFileSync(reviewFilePath, 'utf8');
       expect(content).toContain('Comment to be cleared');

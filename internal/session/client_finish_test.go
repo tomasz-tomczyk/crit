@@ -170,9 +170,9 @@ waitLoop:
 	// the /api/review-cycle JSON body verbatim — assert on the stable fields.
 	out := stdout.String()
 	var summary struct {
-		Status     string `json:"status"`
-		ReviewFile string `json:"review_file"`
-		Approved   bool   `json:"approved"`
+		Status   string `json:"status"`
+		Approved bool   `json:"approved"`
+		Comments []any  `json:"comments"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &summary); err != nil {
 		t.Fatalf("stdout is not the review summary JSON: %v\nstdout:\n%s\nstderr:\n%s", err, out, stderr.String())
@@ -183,8 +183,8 @@ waitLoop:
 	if !summary.Approved {
 		t.Errorf("summary.approved = false, want true (no comments were left)")
 	}
-	if summary.ReviewFile == "" {
-		t.Errorf("summary.review_file is empty; agents rely on this path")
+	if summary.Comments == nil {
+		t.Error("summary.comments is nil; want empty array")
 	}
 }
 

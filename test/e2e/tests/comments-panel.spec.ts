@@ -1,6 +1,6 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath } from './helpers';
+import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath, getReviewFilePath } from './helpers';
 
 function commentsPanel(page: Page) {
   return page.locator('#commentsPanel');
@@ -210,9 +210,8 @@ test.describe('Comments Panel — Git Mode', () => {
     await addComment(request, mdPath, 1, 'Will be resolved');
 
     // Finish to write the review file
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const critJsonPath = finishData.review_file;
+    await request.post('/api/finish');
+    const critJsonPath = await getReviewFilePath(request);
 
     // Mark comment as resolved in the review file
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
@@ -244,9 +243,8 @@ test.describe('Comments Panel — Git Mode', () => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Resolve and scroll');
 
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const critJsonPath = finishData.review_file;
+    await request.post('/api/finish');
+    const critJsonPath = await getReviewFilePath(request);
 
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
     for (const fileKey of Object.keys(critJson.files)) {

@@ -43,23 +43,18 @@ If a crit server is already running from earlier in this conversation, `crit` au
 
 ## Step 3: Check the review result
 
-When `crit` completes, inspect its stdout JSON first.
+When `crit` completes, inspect its stdout JSON. Use `approved` for status and read `prompt` for instructions.
 
-If `"approved": true`, the review has no unresolved comments. Tell the user no changes were requested and stop. Do **not** read `review_file` on approval; Crit may delete it immediately when `cleanup_on_approve` is enabled.
+If `"approved": true`, tell the user no changes were requested and stop.
 
-If `"approved": false`, stdout includes `review_file`. Read that file.
+If `"approved": false`, unresolved comments are in the `comments` array (same schema as `crit comments --json`). Address each comment.
 
-The file contains structured JSON. Three comment types:
-- `review_comments` (top-level, `r_`-prefixed IDs) — general feedback
-- File comments (per-file `comments` array, no `start_line`/`end_line`) — about the file as a whole
-- Line comments (per-file `comments` array, with `start_line`/`end_line`) — about specific lines
-
-Identify all comments where `resolved` is `false` or missing. Unresolved comments may have `replies` — read them before acting.
-
-When a comment has these fields:
+When a comment has `quote`, `anchor`, or `drifted`:
 - `quote`: the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range
 - `anchor`: use it to locate the current position of the content; line numbers may be stale after edits
 - `drifted: true`: original content was removed or heavily rewritten — line numbers are approximate at best
+
+**Fallback** (mid-round re-entry, plan hooks, or headless workflows): `crit comments` / `crit comments --json`. Use `crit comments --plan <slug>` for plan-mode reviews.
 
 ## Step 4: Address each review comment
 
@@ -83,8 +78,6 @@ echo '[
   {"reply_to": "c_d4e5f6", "body": "Refactored as suggested"}
 ]' | crit comment --json --author 'Codex'
 ```
-
-If the file has no unresolved comments, inform the user no changes were requested and stop.
 
 ## Step 5: Signal completion and start next round
 

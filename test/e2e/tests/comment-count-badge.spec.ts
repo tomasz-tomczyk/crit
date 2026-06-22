@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath } from './helpers';
+import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath, getReviewFilePath } from './helpers';
 
 // Poll session API until the review round increments past `previousRound`.
 async function waitForRound(request: APIRequestContext, previousRound: number) {
@@ -15,9 +15,8 @@ async function finishAndResolve(request: APIRequestContext) {
   const session = await request.get('/api/session').then(r => r.json());
   const currentRound = session.review_round;
 
-  const finishRes = await request.post('/api/finish');
-  const finishData = await finishRes.json();
-  const critJsonPath = finishData.review_file;
+  await request.post('/api/finish');
+  const critJsonPath = await getReviewFilePath(request);
 
   const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
   for (const fileKey of Object.keys(critJson.files)) {

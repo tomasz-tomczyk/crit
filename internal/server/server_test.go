@@ -493,11 +493,43 @@ func TestFinish_NoComments(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["prompt"] != "" {
-		t.Errorf("expected empty prompt, got %q", resp["prompt"])
+	if resp["prompt"] != approvedNoCommentsPrompt {
+		t.Errorf("expected approval prompt, got %q", resp["prompt"])
 	}
 	if resp["approved"] != true {
 		t.Errorf("expected approved=true with no comments, got %v", resp["approved"])
+	}
+}
+
+func TestFinish_IncludesStructuredComments(t *testing.T) {
+	s, session := newTestServer(t)
+	session.AddComment("test.md", 1, 1, "", "fix this", "", "", "")
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := resp["review_file"]; ok {
+		t.Error("finish response should not include review_file")
+	}
+	comments, ok := resp["comments"].([]any)
+	if !ok || len(comments) != 1 {
+		t.Fatalf("expected 1 comment in comments array, got: %v", resp["comments"])
+	}
+	c0 := comments[0].(map[string]any)
+	if c0["body"] != "fix this" {
+		t.Errorf("comment body = %v, want fix this", c0["body"])
+	}
+	prompt, _ := resp["prompt"].(string)
+	if !strings.Contains(prompt, "comments array") {
+		t.Errorf("expected instructions in prompt, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, "run: `crit`") {
+		t.Errorf("expected reinvoke command in prompt, got: %s", prompt)
 	}
 }
 
@@ -585,8 +617,8 @@ func TestReviewCycle_ApproveReturnsEmptyPrompt(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 			t.Fatal(err)
 		}
-		if resp["prompt"] != "" {
-			t.Errorf("expected empty prompt for approve via review-cycle, got: %s", resp["prompt"])
+		if resp["prompt"] != approvedNoCommentsPrompt {
+			t.Errorf("expected approval prompt for approve via review-cycle, got: %s", resp["prompt"])
 		}
 		if resp["approved"] != true {
 			t.Errorf("expected approved=true via review-cycle, got %v", resp["approved"])
@@ -1899,7 +1931,7 @@ func TestSessionIncludesReviewComments(t *testing.T) {
 	}
 }
 
-func TestFinishPromptMentionsScopes(t *testing.T) {
+func TestFinishPromptIncludesAllScopesInComments(t *testing.T) {
 	srv, sess := newTestServer(t)
 	sess.AddReviewComment("address all issues", "", "")
 	if _, ok := sess.AddFileComment("test.md", "restructure this file", "", ""); !ok {
@@ -1911,18 +1943,32 @@ func TestFinishPromptMentionsScopes(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/finish", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	var result map[string]string
-	json.Unmarshal(w.Body.Bytes(), &result)
-	prompt := result["prompt"]
-	if prompt == "" {
-		t.Fatal("expected non-empty prompt")
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(prompt, "review_comments") {
-		t.Error("prompt should mention review_comments array")
+	comments, ok := resp["comments"].([]any)
+	if !ok || len(comments) != 3 {
+		t.Fatalf("expected 3 comments, got: %v", resp["comments"])
 	}
-	if !strings.Contains(prompt, "scope") {
-		t.Error("prompt should mention scope field")
+	bodies := make([]string, len(comments))
+	for i, c := range comments {
+		bodies[i] = c.(map[string]any)["body"].(string)
 	}
+	for _, want := range []string{"address all issues", "restructure this file", "bug here"} {
+		if !contains(bodies, want) {
+			t.Errorf("comments should include %q, got bodies %v", want, bodies)
+		}
+	}
+}
+
+func contains(ss []string, want string) bool {
+	for _, s := range ss {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestReviewCommentsAPI(t *testing.T) {
@@ -3021,24 +3067,19 @@ func TestHandleEvents_SSEHeaders(t *testing.T) {
 
 // --- buildPlanFeedback tests ---
 
-func TestBuildPlanFeedback(t *testing.T) {
+func TestBuildPlanInstructions(t *testing.T) {
 	session := &Session{
 		Mode:    "plan",
 		PlanDir: "/tmp/plans/my-feature",
 	}
-	session.InitTestChannels()
-	srv, err := NewServer(session, frontendFS, "", false, "", "", "test", 0, "")
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	result := srv.buildPlanFeedback("/home/user/.crit/reviews/abc123.json")
+	result := buildPlanInstructions(session)
 
 	if !strings.Contains(result, "my-feature") {
 		t.Errorf("expected slug 'my-feature' in feedback, got: %s", result)
 	}
-	if !strings.Contains(result, "/home/user/.crit/reviews/abc123.json") {
-		t.Errorf("expected critJSON path in feedback, got: %s", result)
+	if !strings.Contains(result, "comments above") {
+		t.Errorf("expected comments reference in feedback, got: %s", result)
 	}
 	if !strings.Contains(result, "crit comment --plan") {
 		t.Errorf("expected crit comment hint in feedback, got: %s", result)

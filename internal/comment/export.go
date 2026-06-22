@@ -50,3 +50,13 @@ func ProcessBulkReviewEntry(cj *session.CritJSON, i int, e BulkCommentEntry, aut
 func ParseLineSpec(spec string) (start, end int, err error) {
 	return parseLineSpec(spec)
 }
+
+// ListCommentsFromCritJSON returns comments from CritJSON in agent-friendly order.
+func ListCommentsFromCritJSON(cj CritJSON, unresolvedOnly bool) []ListedComment {
+	return listCommentsFromCritJSON(cj, unresolvedOnly)
+}
+
+// FormatCommentsText renders listed comments as human-readable text.
+func FormatCommentsText(entries []ListedComment, unresolvedOnly bool) string {
+	return formatCommentsText(entries, unresolvedOnly)
+}

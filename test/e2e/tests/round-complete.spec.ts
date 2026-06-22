@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage, switchToDocumentView } from './helpers';
+import { clearAllComments, getReviewFilePath, loadPage, switchToDocumentView } from './helpers';
 
 // Find a file path from the session (e.g., plan.md or handler.js)
 async function getTestFilePath(request: APIRequestContext): Promise<string> {
@@ -32,14 +32,15 @@ test.describe('Multi-Round — API', () => {
     expect(session.review_round).toBeGreaterThanOrEqual(1);
   });
 
-  test('POST /api/finish returns status and review_file', async ({ request }) => {
+  test('POST /api/finish returns status and comments array', async ({ request }) => {
     const res = await request.post('/api/finish');
     const data = await res.json();
     expect(data.status).toBe('finished');
-    expect(data.review_file).toMatch(/\.json$/);
+    expect(data.comments).toEqual([]);
+    expect(data.review_file).toBeUndefined();
   });
 
-  test('POST /api/finish with comments returns a prompt', async ({ request }) => {
+  test('POST /api/finish with comments returns structured comments', async ({ request }) => {
     // Add a comment first
     const filePath = await getTestFilePath(request);
 
@@ -49,7 +50,8 @@ test.describe('Multi-Round — API', () => {
 
     const res = await request.post('/api/finish');
     const data = await res.json();
-    expect(data.prompt).toMatch(/\.json/);
+    expect(data.comments).toHaveLength(1);
+    expect(data.comments[0].body).toBe('Test comment for prompt');
     expect(data.prompt).toContain('crit');
   });
 
@@ -72,7 +74,7 @@ test.describe('Multi-Round — API', () => {
     expect(waitRes.ok()).toBeTruthy();
     const event = await waitRes.json();
     expect(event.type).toBe('finish');
-    expect(event.content).toMatch(/\.json/);
+    expect(event.content).toContain('"body":"Wait-for-event test"');
   });
 
   test('GET /api/wait-for-event ignores non-finish events', async ({ request }) => {
@@ -101,10 +103,10 @@ test.describe('Multi-Round — API', () => {
     expect(event.type).toBe('finish');
   });
 
-  test('POST /api/finish with no comments returns empty prompt', async ({ request }) => {
+  test('POST /api/finish with no comments returns approval prompt', async ({ request }) => {
     const res = await request.post('/api/finish');
     const data = await res.json();
-    expect(data.prompt).toBe('');
+    expect(data.prompt).toContain('approved with no comments');
   });
 
   test('POST /api/round-complete increments the round', async ({ request }) => {
@@ -158,9 +160,8 @@ test.describe('Multi-Round — API', () => {
     });
 
     // Finish to write the review file (get the path from response)
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const critJsonPath = finishData.review_file;
+    await request.post('/api/finish');
+    const critJsonPath = await getReviewFilePath(request);
 
     // Simulate agent marking comment as resolved by editing the review file
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
@@ -355,9 +356,8 @@ test.describe('Multi-Round — Frontend', () => {
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
 
     // Finish already wrote the review file; read the path from the finish response
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const critJsonPath = finishData.review_file;
+    await request.post('/api/finish');
+    const critJsonPath = await getReviewFilePath(request);
 
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
     for (const fileKey of Object.keys(critJson.files)) {
@@ -400,9 +400,8 @@ test.describe('Multi-Round — Frontend', () => {
     await page.locator('#finishBtn').click();
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
 
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const critJsonPath = finishData.review_file;
+    await request.post('/api/finish');
+    const critJsonPath = await getReviewFilePath(request);
 
     // Mark only the first comment as resolved
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
@@ -443,9 +442,8 @@ test.describe('Multi-Round — Frontend', () => {
     await page.locator('#finishBtn').click();
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
 
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const critJsonPath = finishData.review_file;
+    await request.post('/api/finish');
+    const critJsonPath = await getReviewFilePath(request);
 
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
     for (const fileKey of Object.keys(critJson.files)) {
@@ -525,9 +523,8 @@ test.describe('Multi-Round — Frontend', () => {
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
 
     // Read review file path and mark comment as resolved
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const critJsonPath = finishData.review_file;
+    await request.post('/api/finish');
+    const critJsonPath = await getReviewFilePath(request);
 
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
     for (const fileKey of Object.keys(critJson.files)) {

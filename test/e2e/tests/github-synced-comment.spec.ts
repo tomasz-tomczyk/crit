@@ -1,14 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import {
-  addComment,
-  clearAllComments,
-  getMdPath,
-  loadPage,
-  mdSection,
-  switchToDocumentView,
-} from './helpers';
+import { addComment, clearAllComments, getMdPath, loadPage, mdSection, switchToDocumentView, getReviewFilePath } from './helpers';
 
 // Poll session API until the review round increments past `previousRound`.
 async function waitForRound(request: APIRequestContext, previousRound: number) {
@@ -33,9 +26,8 @@ test.describe('GitHub-synced comment badge (#370)', () => {
     await addComment(request, mdPath, 1, 'Synced from GitHub');
 
     // 2. Flush to disk to get the review file path.
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const critJsonPath = finishData.review_file as string;
+    await request.post('/api/finish');
+    const critJsonPath = await getReviewFilePath(request);
 
     // 3. Wait for the comment to be persisted, then stamp github_id.
     await expect(async () => {

@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, getReviewFilePath } from './helpers';
 
 // Find a file path from the session
 async function getTestFilePath(request: APIRequestContext): Promise<string> {
@@ -156,9 +156,8 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
 
     // Finish already wrote the review file; read the path from the finish response
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const critJsonPath = finishData.review_file;
+    await request.post('/api/finish');
+    const critJsonPath = await getReviewFilePath(request);
 
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
     for (const fileKey of Object.keys(critJson.files)) {
@@ -201,9 +200,8 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await page.locator('#finishBtn').click();
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
 
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const critJsonPath = finishData.review_file;
+    await request.post('/api/finish');
+    const critJsonPath = await getReviewFilePath(request);
 
     // Mark only the first comment as resolved
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
@@ -244,9 +242,8 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await page.locator('#finishBtn').click();
     await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
 
-    const finishRes = await request.post('/api/finish');
-    const finishData = await finishRes.json();
-    const critJsonPath = finishData.review_file;
+    await request.post('/api/finish');
+    const critJsonPath = await getReviewFilePath(request);
 
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
     for (const fileKey of Object.keys(critJson.files)) {

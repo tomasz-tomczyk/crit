@@ -45,20 +45,19 @@ If a crit server is already running from earlier in this conversation, `crit` au
 
 ## Step 3: Read the review output
 
-When `crit` completes, its stdout includes the path to the review file (e.g. "Review comments are in /path/to/review.json"). Read it.
+When `crit` completes, inspect its stdout JSON. Use `approved` for status and read `prompt` for instructions.
 
-The file contains structured JSON. Three comment types:
-- `review_comments` (top-level, `r_`-prefixed IDs) — general feedback
-- File comments (per-file `comments` array, no `start_line`/`end_line`) — about the file as a whole
-- Line comments (per-file `comments` array, with `start_line`/`end_line`) — about specific lines
+If `"approved": true`, tell the user no changes were requested and stop.
 
-Identify all comments where `resolved` is `false` or missing. Unresolved comments may have `replies` — read them before acting.
+If `"approved": false`, unresolved comments are in the `comments` array (same schema as `crit comments --json`). Address each comment.
 
 <important if="a comment has a quote, anchor, or drifted field">
 - `quote`: the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range
 - `anchor`: use it to locate the current position of the content; line numbers may be stale after edits
 - `drifted: true`: original content was removed or heavily rewritten — line numbers are approximate at best
 </important>
+
+**Fallback** (mid-round re-entry, plan hooks, or headless workflows): `crit comments` / `crit comments --json`. Use `crit comments --plan <slug>` for plan-mode reviews.
 
 ## Step 4: Address each review comment
 
@@ -82,8 +81,6 @@ echo '[
 ]' | crit comment --json --author 'Claude Code'
 ```
 </important>
-
-**If there are zero review comments**: inform the user no changes were requested and stop the background `crit` process.
 
 ## Step 5: Signal completion and start next round
 

@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage, getMdPath, addComment } from './helpers';
+import { clearAllComments, loadPage, getMdPath, addComment, getReviewFilePath } from './helpers';
 
 // Create a resolved comment by finishing a round, marking resolved, and round-completing.
 async function setupResolvedComment(request: APIRequestContext) {
@@ -8,9 +8,8 @@ async function setupResolvedComment(request: APIRequestContext) {
   await addComment(request, mdPath, 1, 'Resolved comment');
 
   // Finish to write the review file
-  const finishRes = await request.post('/api/finish');
-  const finishData = await finishRes.json();
-  const critJsonPath = finishData.review_file;
+  await request.post('/api/finish');
+  const critJsonPath = await getReviewFilePath(request);
 
   // Mark comment as resolved in the review file
   const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));

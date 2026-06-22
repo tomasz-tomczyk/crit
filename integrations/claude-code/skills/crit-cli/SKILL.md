@@ -16,6 +16,23 @@ Comments have three scopes:
 
 The review file path is shown by `crit status`.
 
+## Reading comments
+
+Prefer finish stdout when available: after a review round, unresolved comments are in the `comments` array of `crit`'s JSON stdout (same schema as `crit comments --json`); `prompt` has brief instructions only.
+
+When you need to read comments separately:
+
+```bash
+crit comments            # human-readable, unresolved only (default)
+crit comments --json     # flat JSON for agents
+crit comments --all      # include resolved comments
+crit comments --plan <slug>   # plan reviews
+crit comments [path]     # explicit review.json or .crit directory
+```
+
+Review-level comments are listed first — easy to miss in raw `review.json`. Uses the same review resolution as `crit comment` (`--output`, `--plan`, daemon session).
+
+
 <important if="you are reading or parsing the review file">
 
 ```json
