@@ -6245,7 +6245,8 @@
     window.crit.shared.updateCommentCountIndicator({ totalCount: total, openCount: unresolved });
     renderCommentsPanel();
     if (uiState === 'reviewing') {
-      document.getElementById('finishBtn').textContent = unresolved === 0 ? 'Approve' : 'Finish Review';
+      const openTotal = unresolved + hiddenUnresolved;
+      document.getElementById('finishBtn').textContent = openTotal === 0 ? 'Approve' : 'Finish Review';
     }
   }
 
