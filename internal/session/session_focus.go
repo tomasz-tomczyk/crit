@@ -458,11 +458,12 @@ func (s *Session) buildFilesForWorkingTree(v vcs.VCS, repoRoot string) ([]*FileE
 	}
 	s.mu.RLock()
 	ignorePatterns := s.IgnorePatterns
-	baseRef := s.BaseRef
 	s.mu.RUnlock()
-	var changes []vcs.FileChange
-	var err error
-	changes, err = changedFilesForSession(v, baseRef, repoRoot)
+	baseRef, err := s.baseRefForWorkingTreeDiscovery(v)
+	if err != nil {
+		return nil, "", err
+	}
+	changes, err := changedFilesForSession(v, baseRef, repoRoot)
 	if err != nil {
 		return nil, "", err
 	}

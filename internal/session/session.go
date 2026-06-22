@@ -576,6 +576,26 @@ func changedFilesForSession(v vcs.VCS, baseRef, repoRoot string) ([]vcs.FileChan
 	return v.ChangedFilesOnDefaultInDir(repoRoot)
 }
 
+// baseRefForWorkingTreeDiscovery returns the diff base for rebuilding the
+// working-tree file list. On a feature branch this is always the merge-base
+// with the default branch (not the session's current BaseRef, which may still
+// hold a range-focus SHA). On the default branch it uses the session-pinned
+// start HEAD when set.
+func (s *Session) baseRefForWorkingTreeDiscovery(v vcs.VCS) (string, error) {
+	s.mu.RLock()
+	sessionBase := s.BaseRef
+	branch := s.Branch
+	s.mu.RUnlock()
+
+	if branch != v.DefaultBranch() {
+		return v.MergeBase(v.DefaultBaseRef())
+	}
+	if sessionBase != "" {
+		return sessionBase, nil
+	}
+	return "", nil
+}
+
 // NewGitSession creates a session by auto-detecting changed files using the given VCS backend.
 // This is the VCS-agnostic equivalent of NewSessionFromGit.
 func NewGitSession(v vcs.VCS, ignorePatterns []string) (*Session, error) {
