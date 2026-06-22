@@ -91,11 +91,7 @@ func (s *Session) RefreshFileList() {
 
 	var changes []vcs.FileChange
 	var err error
-	if vc.CurrentBranch() == vc.DefaultBranch() {
-		changes, err = vc.ChangedFilesOnDefaultInDir(repoRoot)
-	} else {
-		changes, err = vc.ChangedFilesFromBaseInDir(baseRef, repoRoot)
-	}
+	changes, err = changedFilesForSession(vc, baseRef, repoRoot)
 	if err != nil {
 		return
 	}

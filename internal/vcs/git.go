@@ -572,6 +572,15 @@ func changedFilesFromBaseInDir(baseRef, dir string) ([]FileChange, error) {
 	return dedup(changes), nil
 }
 
+// HeadSHAInDir returns the full SHA of HEAD in dir.
+func HeadSHAInDir(dir string) (string, error) {
+	out, err := RunGitInDir(dir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse HEAD failed: %w", err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // RunGitInDir runs `git <args...>` in dir and returns the stdout. Mirrors the
 // existing inline exec.Command pattern used elsewhere in git.go.
 func RunGitInDir(dir string, args ...string) (string, error) {
