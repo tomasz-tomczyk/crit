@@ -1912,25 +1912,31 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	stats := s.buildSessionStats(sess)
 
 	prompt, approved, comments := buildFinishFeedback(sess)
+	nextCommand := buildNextCommand(s.cliArgs)
+	copyPrompt := buildCopyPrompt(sess, approved, comments, nextCommand)
 	if !approved {
 		sess.SetWaitingForAgent(true)
 	}
 
 	writeJSON(w, map[string]any{
-		"status":   "finished",
-		"prompt":   prompt,
-		"approved": approved,
-		"comments": comments,
-		"stats":    stats,
+		"status":       "finished",
+		"prompt":       prompt,
+		"copy_prompt":  copyPrompt,
+		"approved":     approved,
+		"comments":     comments,
+		"next_command": nextCommand,
+		"stats":        stats,
 	})
 
 	// Encode approved status into SSE event content as JSON so review-cycle
 	// clients can extract it without string matching on the prompt.
 	eventData, _ := json.Marshal(map[string]any{
-		"prompt":   prompt,
-		"approved": approved,
-		"stats":    stats,
-		"comments": comments,
+		"prompt":       prompt,
+		"copy_prompt":  copyPrompt,
+		"approved":     approved,
+		"stats":        stats,
+		"comments":     comments,
+		"next_command": nextCommand,
 	})
 	sess.Notify(SSEEvent{
 		Type:    "finish",
@@ -2004,20 +2010,62 @@ func buildFinishPrompt(sess *Session, approved bool, totalComments int) string {
 }
 
 func buildUnresolvedInstructions(sess *Session) string {
-	return fmt.Sprintf(
-		"Address each comment in the comments array. "+
-			"For each comment, reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> \"<explanation>\"`. "+
-			"When done run: `%s`",
-		sess.ReinvokeCommand())
+	return buildUnresolvedActions(sess) + fmt.Sprintf(" When done run: `%s`", sess.ReinvokeCommand())
 }
 
-func buildPlanInstructions(sess *Session) string {
+func buildUnresolvedActions(sess *Session) string {
+	return "Address each comment. For each one, reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> \"<explanation>\"`."
+}
+
+func buildPlanActions(sess *Session) string {
 	slug := filepath.Base(sess.PlanDir)
 	return fmt.Sprintf(
-		"Plan review feedback — revise the plan to address the comments above. "+
+		"Revise the plan to address each comment. "+
 			"If you are running under Codex, re-emit the revised plan inside <proposed_plan>...</proposed_plan> so Crit can review the new version. "+
 			"To reply to comments, use `crit comment --plan %s --reply-to <id> --author <your-name> \"<explanation>\"`.",
 		slug)
+}
+
+func buildPlanInstructions(sess *Session) string {
+	return buildPlanActions(sess)
+}
+
+// buildCopyPrompt is pasted directly to the agent from the finish modal.
+func buildCopyPrompt(sess *Session, approved bool, comments []comment.ListedComment, nextCommand string) string {
+	var b strings.Builder
+	if approved {
+		totalComments := sess.TotalCommentCount()
+		switch {
+		case totalComments == 0:
+			b.WriteString("Review approved — no changes requested.")
+		default:
+			b.WriteString("Review approved. All comments are resolved — proceed with implementation.")
+		}
+		return b.String()
+	}
+
+	n := len(comments)
+	if n == 1 {
+		b.WriteString("The review finished with 1 unresolved comment.\n\n")
+	} else {
+		fmt.Fprintf(&b, "The review finished with %d unresolved comments.\n\n", n)
+	}
+	b.WriteString("Load them with:\n\n")
+	fmt.Fprintf(&b, "  %s\n\n", buildCommentsListCommand(sess))
+	if sess.Mode == "plan" {
+		b.WriteString(buildPlanActions(sess))
+	} else {
+		b.WriteString(buildUnresolvedActions(sess))
+	}
+	if nextCommand != "" {
+		b.WriteString("\n\nWhen you're done, run:\n\n  ")
+		b.WriteString(nextCommand)
+	}
+	return b.String()
+}
+
+func buildCommentsListCommand(sess *Session) string {
+	return fmt.Sprintf("crit comments --json %s", shellQuoteArg(sess.CritJSONPath()))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -2098,13 +2146,16 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 					Comments []comment.ListedComment `json:"comments"`
 				}
 				json.Unmarshal([]byte(event.Content), &finishData)
+				nextCommand := buildNextCommand(s.cliArgs)
+				copyPrompt := buildCopyPrompt(sess, finishData.Approved, finishData.Comments, nextCommand)
 				writeJSON(w, map[string]any{
 					"status":       "finished",
 					"prompt":       finishData.Prompt,
+					"copy_prompt":  copyPrompt,
 					"approved":     finishData.Approved,
 					"comments":     finishData.Comments,
 					"stats":        finishData.Stats,
-					"next_command": buildNextCommand(s.cliArgs),
+					"next_command": nextCommand,
 				})
 				return
 			}

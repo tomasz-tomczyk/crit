@@ -525,11 +525,56 @@ func TestFinish_IncludesStructuredComments(t *testing.T) {
 		t.Errorf("comment body = %v, want fix this", c0["body"])
 	}
 	prompt, _ := resp["prompt"].(string)
-	if !strings.Contains(prompt, "comments array") {
+	if !strings.Contains(prompt, "Address each comment") {
 		t.Errorf("expected instructions in prompt, got: %s", prompt)
 	}
 	if !strings.Contains(prompt, "run: `crit`") {
 		t.Errorf("expected reinvoke command in prompt, got: %s", prompt)
+	}
+	copyPrompt, _ := resp["copy_prompt"].(string)
+	if !strings.Contains(copyPrompt, "1 unresolved comment") {
+		t.Errorf("copy_prompt should summarize comment count, got: %s", copyPrompt)
+	}
+	wantCommentsCmd := buildCommentsListCommand(session)
+	if !strings.Contains(copyPrompt, wantCommentsCmd) {
+		t.Errorf("copy_prompt should mention %q, got: %s", wantCommentsCmd, copyPrompt)
+	}
+	if strings.Contains(copyPrompt, "Next review round") {
+		t.Errorf("copy_prompt should not use legacy next review round heading, got: %s", copyPrompt)
+	}
+	if !strings.Contains(copyPrompt, "When you're done, run:") {
+		t.Errorf("copy_prompt should include a single next-command instruction, got: %s", copyPrompt)
+	}
+	if strings.Contains(copyPrompt, "When done run:") {
+		t.Errorf("copy_prompt should not duplicate next-command wording, got: %s", copyPrompt)
+	}
+	nextCmd, _ := resp["next_command"].(string)
+	if nextCmd != "crit" {
+		t.Errorf("next_command = %q, want crit", nextCmd)
+	}
+}
+
+func TestFinish_CopyPromptApproved(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.cliArgs = []string{"preview", "/tmp/page.html"}
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	copyPrompt, _ := resp["copy_prompt"].(string)
+	if !strings.Contains(copyPrompt, "Review approved") {
+		t.Errorf("copy_prompt = %q", copyPrompt)
+	}
+	if strings.Contains(copyPrompt, "Next review round") {
+		t.Errorf("approved copy_prompt should not mention next review round, got: %s", copyPrompt)
+	}
+	if strings.Contains(copyPrompt, "crit comments") {
+		t.Errorf("approved copy_prompt should not mention crit comments, got: %s", copyPrompt)
 	}
 }
 
@@ -3078,7 +3123,7 @@ func TestBuildPlanInstructions(t *testing.T) {
 	if !strings.Contains(result, "my-feature") {
 		t.Errorf("expected slug 'my-feature' in feedback, got: %s", result)
 	}
-	if !strings.Contains(result, "comments above") {
+	if !strings.Contains(result, "each comment") {
 		t.Errorf("expected comments reference in feedback, got: %s", result)
 	}
 	if !strings.Contains(result, "crit comment --plan") {

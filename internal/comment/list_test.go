@@ -87,13 +87,13 @@ func TestFormatCommentsText_Empty(t *testing.T) {
 
 func TestFormatCommentsText_WithReplies(t *testing.T) {
 	path := "main.go"
-	start, end := 10, 12
-	quote := "selected text"
 	entries := []ListedComment{{
-		Scope: "line", ID: "c_1", Path: &path,
-		StartLine: &start, EndLine: &end, Body: "fix this",
-		Quote: &quote, Drifted: true,
-		Replies: []Reply{{ID: "rp_1", Author: "Bot", Body: "on it"}},
+		Scope: "line", Path: &path,
+		Comment: Comment{
+			ID: "c_1", StartLine: 10, EndLine: 12, Body: "fix this",
+			Quote: "selected text", Drifted: true,
+			Replies: []Reply{{ID: "rp_1", Author: "Bot", Body: "on it"}},
+		},
 	}}
 	out := formatCommentsText(entries, true)
 	if !strings.Contains(out, "[c_1] line main.go:10-12 (drifted)") {
@@ -131,6 +131,113 @@ func TestRunComments_JSONOutput(t *testing.T) {
 	if len(entries) != 1 || entries[0].ID != "r_1" {
 		t.Fatalf("got %+v", entries)
 	}
+}
+
+func TestListCommentsFromCritJSON_PreservesPreviewFields(t *testing.T) {
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"/preview-content/": {
+				Comments: []Comment{{
+					ID: "c_pin", Body: "fix heading", StartLine: 0, EndLine: 0,
+					Author: "Alice", CreatedAt: "2026-01-01T00:00:00Z",
+					PinNumber: 3,
+					DOMAnchor: &DOMAnchor{
+						Pathname:       "/preview-content/",
+						CSSSelector:    "#deck > h1",
+						TagChain:       []string{"MAIN", "H1"},
+						AccessibleName: "Give us the reins.",
+						OuterHTML:      "<h1>Give us the reins.</h1>",
+						ViewportWidth:  1280,
+						ViewportHeight: 800,
+					},
+				}},
+			},
+		},
+	}
+
+	entries := listCommentsFromCritJSON(cj, true)
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.PinNumber != 3 {
+		t.Errorf("pin_number = %d, want 3", e.PinNumber)
+	}
+	if e.Author != "Alice" {
+		t.Errorf("author = %q, want Alice", e.Author)
+	}
+	if e.DOMAnchor == nil || e.DOMAnchor.CSSSelector != "#deck > h1" {
+		t.Errorf("dom_anchor = %+v", e.DOMAnchor)
+	}
+
+	data, err := encodeCommentsJSON(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"dom_anchor"`) {
+		t.Fatalf("dom_anchor missing from JSON: %s", data)
+	}
+	var roundtrip []ListedComment
+	if err := json.Unmarshal(data, &roundtrip); err != nil {
+		t.Fatal(err)
+	}
+	if roundtrip[0].DOMAnchor == nil {
+		t.Fatalf("dom_anchor missing after JSON roundtrip: %s", data)
+	}
+}
+
+func TestListedCommentJSONIncludesAllCommentFields(t *testing.T) {
+	offset := 4
+	c := Comment{
+		ID: "c_full", StartLine: 7, EndLine: 9, Side: "RIGHT", Body: "note",
+		Quote: "quoted", QuoteOffset: &offset, Anchor: "anchor-text",
+		Drifted: true, DriftedOnRound: 2, Author: "alice", UserID: "u1",
+		CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-02T00:00:00Z",
+		Resolved: true, ResolvedRound: 2, Live: true, CarriedForward: true,
+		ReviewRound: 1, GitHubID: 99, HeadSHA: "abc", DiffScope: "layer",
+		PinNumber: 5, FocusKey: "pr:42",
+		DOMAnchor: &DOMAnchor{
+			Pathname: "/preview-content/", CSSSelector: "#main", TagChain: []string{"MAIN"},
+			AccessibleName: "title", OuterHTML: "<main/>", ViewportWidth: 100, ViewportHeight: 200,
+		},
+		Replies: []Reply{{ID: "rp_1", Body: "reply", Author: "bob", CreatedAt: "2026-01-03T00:00:00Z"}},
+	}
+
+	commentKeys := jsonObjectKeys(t, c)
+	lc := toListedComment("line", "f.go", c)
+	listedKeys := jsonObjectKeys(t, lc)
+
+	for key := range commentKeys {
+		if key == "scope" {
+			continue // ListedComment.scope is the list location, not Comment.scope
+		}
+		if !listedKeys[key] {
+			t.Errorf("ListedComment JSON missing key %q present on Comment", key)
+		}
+	}
+	if !listedKeys["scope"] {
+		t.Error("ListedComment JSON missing list-specific key scope")
+	}
+	if !listedKeys["path"] {
+		t.Error("ListedComment JSON missing list-specific key path")
+	}
+}
+
+func jsonObjectKeys(t *testing.T, v any) map[string]bool {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		t.Fatal(err)
+	}
+	keys := make(map[string]bool, len(obj))
+	for k := range obj {
+		keys[k] = true
+	}
+	return keys
 }
 
 func TestRunComments_ExplicitReviewJSONPath(t *testing.T) {

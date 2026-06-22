@@ -300,7 +300,7 @@
       if (!resp.ok) throw new Error('Finish review failed: HTTP ' + resp.status);
       var data = await resp.json();
       var approved = !!data.approved;
-      var prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
+      var prompt = data.copy_prompt || data.prompt || 'I reviewed the changes, no feedback, good to go!';
 
       var dialog = document.getElementById('waitingDialog');
       var headingEl = document.getElementById('waitingHeading');

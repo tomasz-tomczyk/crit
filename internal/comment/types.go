@@ -9,6 +9,7 @@ type (
 	CritJSON       = session.CritJSON
 	CritJSONFile   = session.CritJSONFile
 	Comment        = session.Comment
+	DOMAnchor      = session.DOMAnchor
 	Reply          = session.Reply
 	Focus          = session.Focus
 	inheritedScope = session.InheritedScope

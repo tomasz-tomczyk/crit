@@ -7,18 +7,13 @@ import (
 	"strings"
 )
 
-// ListedComment is a flattened comment for CLI output.
+// ListedComment is a comment flattened for CLI/finish output. It embeds Comment
+// so new review.json fields are included automatically; Scope and Path are the
+// only list-specific additions.
 type ListedComment struct {
-	Scope     string  `json:"scope"`
-	ID        string  `json:"id"`
-	Path      *string `json:"path"`
-	StartLine *int    `json:"start_line"`
-	EndLine   *int    `json:"end_line"`
-	Body      string  `json:"body"`
-	Quote     *string `json:"quote,omitempty"`
-	Anchor    *string `json:"anchor,omitempty"`
-	Drifted   bool    `json:"drifted,omitempty"`
-	Replies   []Reply `json:"replies,omitempty"`
+	Scope string  `json:"scope"`
+	Path  *string `json:"path,omitempty"`
+	Comment
 }
 
 func isUnresolved(c Comment) bool {
@@ -77,31 +72,12 @@ func listCommentsFromCritJSON(cj CritJSON, unresolvedOnly bool) []ListedComment 
 }
 
 func toListedComment(scope, path string, c Comment) ListedComment {
-	lc := ListedComment{
-		Scope:   scope,
-		ID:      c.ID,
-		Body:    c.Body,
-		Drifted: c.Drifted,
-		Replies: c.Replies,
-	}
+	lc := ListedComment{Scope: scope, Comment: c}
 	if path != "" {
 		lc.Path = &path
 	}
-	if scope == "line" {
-		start, end := c.StartLine, c.EndLine
-		if end == 0 {
-			end = start
-		}
-		lc.StartLine = &start
-		lc.EndLine = &end
-	}
-	if c.Quote != "" {
-		q := c.Quote
-		lc.Quote = &q
-	}
-	if c.Anchor != "" {
-		a := c.Anchor
-		lc.Anchor = &a
+	if scope == "line" && c.EndLine == 0 {
+		lc.EndLine = c.StartLine
 	}
 	return lc
 }
@@ -123,13 +99,27 @@ func formatCommentsText(entries []ListedComment, unresolvedOnly bool) string {
 	for _, e := range entries {
 		b.WriteByte('\n')
 		b.WriteString(formatCommentHeader(e))
-		if e.Quote != nil && *e.Quote != "" {
+		if e.PinNumber > 0 {
 			b.WriteByte('\n')
-			b.WriteString(indentLines(2, "quote:  "+*e.Quote))
+			fmt.Fprintf(&b, "  pin:    #%d", e.PinNumber)
 		}
-		if e.Anchor != nil && *e.Anchor != "" {
+		if e.Quote != "" {
 			b.WriteByte('\n')
-			b.WriteString(indentLines(2, "anchor: "+*e.Anchor))
+			b.WriteString(indentLines(2, "quote:  "+e.Quote))
+		}
+		if e.Anchor != "" {
+			b.WriteByte('\n')
+			b.WriteString(indentLines(2, "anchor: "+e.Anchor))
+		}
+		if e.DOMAnchor != nil {
+			if e.DOMAnchor.CSSSelector != "" {
+				b.WriteByte('\n')
+				b.WriteString(indentLines(2, "selector: "+e.DOMAnchor.CSSSelector))
+			}
+			if e.DOMAnchor.AccessibleName != "" {
+				b.WriteByte('\n')
+				b.WriteString(indentLines(2, "a11y:     "+e.DOMAnchor.AccessibleName))
+			}
 		}
 		b.WriteByte('\n')
 		b.WriteString(indentLines(2, "body:   "+e.Body))
@@ -150,8 +140,14 @@ func formatCommentsText(entries []ListedComment, unresolvedOnly bool) string {
 
 func formatCommentHeader(e ListedComment) string {
 	header := fmt.Sprintf("[%s] %s", e.ID, e.Scope)
+	if e.PinNumber > 0 {
+		header = fmt.Sprintf("[%s pin #%d] %s", e.ID, e.PinNumber, e.Scope)
+	}
 	if e.Path != nil {
-		header += " " + *e.Path + formatLineLoc(e.StartLine, e.EndLine)
+		header += " " + *e.Path
+		if e.Scope == "line" {
+			header += formatLineLoc(e.StartLine, e.EndLine)
+		}
 	}
 	if e.Drifted {
 		header += " (drifted)"
@@ -159,14 +155,14 @@ func formatCommentHeader(e ListedComment) string {
 	return header
 }
 
-func formatLineLoc(start, end *int) string {
-	if start == nil {
-		return ""
+func formatLineLoc(start, end int) string {
+	if end == 0 {
+		end = start
 	}
-	if end == nil || *end == *start {
-		return fmt.Sprintf(":%d", *start)
+	if end == start {
+		return fmt.Sprintf(":%d", start)
 	}
-	return fmt.Sprintf(":%d-%d", *start, *end)
+	return fmt.Sprintf(":%d-%d", start, end)
 }
 
 func indentLines(spaces int, s string) string {

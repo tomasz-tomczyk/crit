@@ -434,16 +434,30 @@ test('runFinishReview resets copy button via .copy-label span, not textContent (
   assert.ok(els.waitingClipboard.querySelector('.copy-label'), '.copy-label span still accessible');
 });
 
-test('runFinishReview not-approved path: leaves approved class off + uses default prompt fallback', async () => {
-  const fetch = async () => ({ ok: true, json: async () => ({ approved: false }) });
+test('runFinishReview not-approved path: leaves approved class off + uses copy_prompt', async () => {
+  const fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      approved: false,
+      copy_prompt: 'The review finished with 2 unresolved comments.\n\nLoad them with:\n\n  crit comments --json /tmp/review.json\n\nAddress each comment.\n\nWhen you\'re done, run:\n\n  crit test.md',
+    }),
+  });
   const { shared: s, els } = makeFinishSandbox(fetch, { writeText: async () => {} });
   let waitingCalled = false;
   const result = await s.runFinishReview({ onWaiting: () => { waitingCalled = true; } });
   assert.equal(result.approved, false);
-  assert.equal(result.prompt, 'I reviewed the changes, no feedback, good to go!');
+  assert.match(result.prompt, /crit comments --json/);
   assert.equal(els.waitingHeading.textContent, 'Review Complete');
+  assert.match(els.waitingMessage.textContent, /wasn't listening/);
   assert.equal(els.waitingDialog.classList.contains('approved'), false);
   assert.equal(waitingCalled, true);
+});
+
+test('runFinishReview not-approved path: falls back when copy_prompt missing', async () => {
+  const fetch = async () => ({ ok: true, json: async () => ({ approved: false }) });
+  const { shared: s, els } = makeFinishSandbox(fetch, { writeText: async () => {} });
+  const result = await s.runFinishReview({ onWaiting: () => {} });
+  assert.equal(result.prompt, 'I reviewed the changes, no feedback, good to go!');
 });
 
 test('runFinishReview dedup blocks the second concurrent call', async () => {
