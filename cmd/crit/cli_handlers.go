@@ -20,6 +20,7 @@ func runConfig(args []string)    { clicmd.Exit(config.RunConfig(args)) }
 func runPull(args []string)      { clicmd.Exit(github.RunPull(args)) }
 func runPush(args []string)      { clicmd.Exit(github.RunPush(args)) }
 func runComment(args []string)   { clicmd.Exit(comment.RunComment(args)) }
+func runComments(args []string)  { clicmd.Exit(comment.RunComments(args)) }
 func runReview(args []string)    { clicmd.Exit(session.RunReview(args)) }
 func runPlan(args []string)      { clicmd.Exit(session.RunPlan(args)) }
 func runStop(args []string)      { clicmd.Exit(session.RunStop(args)) }

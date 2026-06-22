@@ -23,6 +23,7 @@ var commandDispatch = map[string]func([]string){
 	"pull":      runPull,
 	"push":      runPush,
 	"comment":   runComment,
+	"comments":  runComments,
 	"review":    runReview,
 	"live":      runLive,
 	"preview":   runPreview,
@@ -57,6 +58,7 @@ Comments:
   crit comment --reply-to <id> <body>        Reply to a comment
   crit comment --json                        Bulk add comments from JSON on stdin
   crit comment --clear                       Remove all comments
+  crit comments [--json] [--all] [review]    List unresolved comments (review-level first)
 
 Sharing:
   crit share <file> [file...]                Share files to crit-web, print URL
