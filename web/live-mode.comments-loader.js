@@ -65,10 +65,10 @@
           .then(function (list) {
             if (!Array.isArray(list)) return [];
             return list.map(function (c) {
-              // Use dom_anchor.pathname for live comments; fallback to
-              // file path.
-              var path = (c.dom_anchor && c.dom_anchor.pathname) || p;
-              c.path = path;
+              // file_path is the session file key used by mutation APIs
+              // (?path=). path is the iframe route for panel grouping.
+              c.file_path = p;
+              c.path = (c.dom_anchor && c.dom_anchor.pathname) || p;
               // Stamp _createdInRound from the persisted review_round so
               // the drift guard in handlePinResolutionResult survives
               // reloads (initial boot, SSE refresh,

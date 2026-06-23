@@ -805,7 +805,7 @@
     for (var i = 0; i < all.length; i++) {
       var c = all[i];
       if (!c || c.resolved) continue;
-      var path = (c.dom_anchor && c.dom_anchor.pathname) || c.path || '/';
+      var path = commentStoragePath(c);
       try {
         var rr = await fetch('/api/comment/' + encodeURIComponent(c.id) + '/resolve?path=' + encodeURIComponent(path), {
           method: 'PUT',
@@ -980,6 +980,11 @@
     return (state.comments || []).find(function (x) { return x && x.id === id; });
   }
 
+  function commentStoragePath(c) {
+    if (!c) return '/';
+    return c.file_path || (c.dom_anchor && c.dom_anchor.pathname) || c.path || '/';
+  }
+
   function focusReplyTextareaFor(id) {
     requestAnimationFrame(function () {
       var card = document.querySelector('.crit-live-comment-row[data-comment-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
@@ -1128,7 +1133,7 @@
     if (!commentId || !replyId) return;
     var c = findCommentById(commentId);
     if (!c) return;
-    var pathname = (c.dom_anchor && c.dom_anchor.pathname) || '/';
+    var pathname = commentStoragePath(c);
     var replyEl = document.querySelector('[data-reply-id="' + (window.CSS && CSS.escape ? CSS.escape(replyId) : replyId) + '"]');
     if (!replyEl) return;
     if (replyEl.querySelector('.crit-live-reply-edit-textarea')) return; // already editing
@@ -1215,7 +1220,7 @@
     if (!commentId || !replyId) return;
     var c = findCommentById(commentId);
     if (!c) return;
-    var pathname = (c.dom_anchor && c.dom_anchor.pathname) || '/';
+    var pathname = commentStoragePath(c);
     try {
       var res = await fetch(replyMutationUrl(commentId, replyId, pathname), { method: 'DELETE' });
       if (!res.ok) throw new Error('Server returned ' + res.status);
@@ -1242,7 +1247,7 @@
     if (!commentId) return;
     var c = findCommentById(commentId);
     if (!c) return;
-    var pathname = btn.dataset.pathname || (c.dom_anchor && c.dom_anchor.pathname) || '/';
+    var pathname = btn.dataset.pathname || commentStoragePath(c) || '/';
     try {
       var res = await fetch('/api/comment/' + encodeURIComponent(commentId) + '?path=' + encodeURIComponent(pathname), { method: 'DELETE' });
       if (!res.ok) throw new Error('Server returned ' + res.status);
@@ -1754,8 +1759,8 @@
     try {
       var list = await shared.fetchJSON('/api/file/comments?path=' + encodeURIComponent(pathname));
       var out = (list || []).map(function (c) {
-        var path = (c.dom_anchor && c.dom_anchor.pathname) || pathname;
-        c.path = path;
+        c.file_path = pathname;
+        c.path = (c.dom_anchor && c.dom_anchor.pathname) || pathname;
         // Same _createdInRound stamping as loadAllComments — see comment
         // there. refreshCommentsForRoute fires immediately after a pin POST
         // (saveComposer) and would otherwise wipe the optimistic stamp.

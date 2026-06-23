@@ -1573,6 +1573,37 @@ func TestMergeWebComments(t *testing.T) {
 	}
 }
 
+func TestMergeWebComments_PreviewPinPreservesDOMAnchor(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit")
+	cj := CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{}}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	os.WriteFile(session.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0644)
+
+	anchor := &session.DOMAnchor{Pathname: "/preview-content", CSSSelector: "h1"}
+	newComments := []WebComment{{
+		Body:              "imported pin",
+		FilePath:          session.PreviewMainHTMLKey,
+		DOMAnchor:         anchor,
+		AuthorDisplayName: "Alice",
+	}}
+	if err := MergeWebComments(critPath, newComments, nil); err != nil {
+		t.Fatalf("MergeWebComments: %v", err)
+	}
+
+	data, _ = os.ReadFile(review.ReviewPathsFor(critPath).Review)
+	var result CritJSON
+	json.Unmarshal(data, &result)
+
+	stored := result.Files[session.PreviewMainHTMLKey].Comments
+	if len(stored) != 1 {
+		t.Fatalf("expected 1 comment under %s, got %d", session.PreviewMainHTMLKey, len(stored))
+	}
+	if stored[0].DOMAnchor == nil || stored[0].DOMAnchor.Pathname != "/preview-content" {
+		t.Fatalf("dom_anchor not preserved: %+v", stored[0].DOMAnchor)
+	}
+}
+
 func TestBuildLocalFingerprints(t *testing.T) {
 	t.Run("file comments with path body lines", func(t *testing.T) {
 		cj := CritJSON{

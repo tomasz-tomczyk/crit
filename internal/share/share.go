@@ -124,19 +124,20 @@ type ShareReply struct {
 // If we add other sync sources (GitLab, Gerrit) later, we can introduce a
 // `source` enum at that point.
 type ShareComment struct {
-	File        string       `json:"file,omitempty"`
-	StartLine   int          `json:"start_line,omitempty"`
-	EndLine     int          `json:"end_line,omitempty"`
-	Body        string       `json:"body"`
-	Quote       string       `json:"quote,omitempty"`
-	Author      string       `json:"author_display_name,omitempty"`
-	UserID      string       `json:"user_id,omitempty"`
-	Scope       string       `json:"scope,omitempty"`
-	ReviewRound int          `json:"review_round,omitempty"`
-	Replies     []ShareReply `json:"replies,omitempty"`
-	ExternalID  string       `json:"external_id,omitempty"`
-	Resolved    bool         `json:"resolved,omitempty"`
-	GitHubID    int64        `json:"github_id,omitempty"`
+	File        string             `json:"file,omitempty"`
+	StartLine   int                `json:"start_line,omitempty"`
+	EndLine     int                `json:"end_line,omitempty"`
+	Body        string             `json:"body"`
+	Quote       string             `json:"quote,omitempty"`
+	Author      string             `json:"author_display_name,omitempty"`
+	UserID      string             `json:"user_id,omitempty"`
+	Scope       string             `json:"scope,omitempty"`
+	ReviewRound int                `json:"review_round,omitempty"`
+	Replies     []ShareReply       `json:"replies,omitempty"`
+	ExternalID  string             `json:"external_id,omitempty"`
+	Resolved    bool               `json:"resolved,omitempty"`
+	GitHubID    int64              `json:"github_id,omitempty"`
+	DOMAnchor   *session.DOMAnchor `json:"dom_anchor,omitempty"`
 }
 
 // shareFileEntries serializes ShareFile values into the JSON-friendly maps
@@ -440,6 +441,7 @@ func commentToShareComment(c session.Comment, filePath, scope, fallbackAuthor, c
 		UserID:    c.UserID,
 		Scope:     scope,
 		GitHubID:  c.GitHubID,
+		DOMAnchor: c.DOMAnchor,
 	}
 	if includeResolved {
 		sc.Resolved = c.Resolved
@@ -529,20 +531,21 @@ type WebReply struct {
 // is the verified user id, set when the comment was authored by a logged-in
 // user (either CLI with bearer token or LiveView while signed in).
 type WebComment struct {
-	Body              string     `json:"body"`
-	FilePath          string     `json:"file_path"`
-	StartLine         int        `json:"start_line"`
-	EndLine           int        `json:"end_line"`
-	ReviewRound       int        `json:"review_round"`
-	Resolved          bool       `json:"resolved"`
-	ResolvedRound     int        `json:"resolved_round"`
-	ExternalID        string     `json:"external_id"`
-	AuthorDisplayName string     `json:"author_display_name"`
-	AuthorIdentity    string     `json:"author_identity"`
-	UserID            string     `json:"user_id"`
-	Quote             string     `json:"quote"`
-	Scope             string     `json:"scope"`
-	Replies           []WebReply `json:"replies"`
+	Body              string             `json:"body"`
+	FilePath          string             `json:"file_path"`
+	StartLine         int                `json:"start_line"`
+	EndLine           int                `json:"end_line"`
+	ReviewRound       int                `json:"review_round"`
+	Resolved          bool               `json:"resolved"`
+	ResolvedRound     int                `json:"resolved_round"`
+	ExternalID        string             `json:"external_id"`
+	AuthorDisplayName string             `json:"author_display_name"`
+	AuthorIdentity    string             `json:"author_identity"`
+	UserID            string             `json:"user_id"`
+	Quote             string             `json:"quote"`
+	Scope             string             `json:"scope"`
+	Replies           []WebReply         `json:"replies"`
+	DOMAnchor         *session.DOMAnchor `json:"dom_anchor,omitempty"`
 }
 
 // buildLocalFingerprintIndex returns both the fingerprint set and a map from
@@ -857,18 +860,21 @@ func MergeWebComments(critPath string, newComments []WebComment, replyUpdates ma
 			})
 		}
 		c := session.StampWithFocus(session.Comment{
-			ID:          fmt.Sprintf("web-%d", webCount),
-			StartLine:   wc.StartLine,
-			EndLine:     wc.EndLine,
-			Body:        wc.Body,
-			Quote:       wc.Quote,
-			Author:      wc.AuthorDisplayName,
-			UserID:      wc.UserID,
-			Scope:       wc.Scope,
-			ReviewRound: wc.ReviewRound,
-			Replies:     replies,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			ID:            fmt.Sprintf("web-%d", webCount),
+			StartLine:     wc.StartLine,
+			EndLine:       wc.EndLine,
+			Body:          wc.Body,
+			Quote:         wc.Quote,
+			Author:        wc.AuthorDisplayName,
+			UserID:        wc.UserID,
+			Scope:         wc.Scope,
+			ReviewRound:   wc.ReviewRound,
+			Resolved:      wc.Resolved,
+			ResolvedRound: wc.ResolvedRound,
+			DOMAnchor:     wc.DOMAnchor,
+			Replies:       replies,
+			CreatedAt:     now,
+			UpdatedAt:     now,
 		}, scope.AsFocus())
 		if wc.Scope == "review" {
 			cj.ReviewComments = append(cj.ReviewComments, c)

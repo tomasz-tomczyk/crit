@@ -4501,6 +4501,39 @@ func TestAPIDeleteComment_FansOutSSE(t *testing.T) {
 	}
 }
 
+// TestAPIResolveComment_WrongPathHint covers preview imports: comments merged
+// from crit-web live under index.html but the client sends the iframe route
+// as ?path= when resolving.
+func TestAPIResolveComment_WrongPathHint(t *testing.T) {
+	srv, sess := newTestServer(t)
+	sess.Files = append(sess.Files, &FileEntry{
+		Path: "index.html",
+		Comments: []Comment{{
+			ID:        "web-1",
+			Body:      "imported pin",
+			DOMAnchor: &DOMAnchor{Pathname: "/preview-content", CSSSelector: "h1"},
+		}},
+	})
+
+	body := strings.NewReader(`{"resolved":true}`)
+	req := httptest.NewRequest("PUT", "/api/comment/web-1/resolve?path=/preview-content", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	for _, f := range sess.Files {
+		if f.Path != "index.html" {
+			continue
+		}
+		for _, c := range f.Comments {
+			if c.ID == "web-1" && !c.Resolved {
+				t.Fatal("comment not resolved after PUT with route path hint")
+			}
+		}
+	}
+}
+
 // TestAPIResolveComment_FansOutSSE pins down that PUT
 // /api/comment/{id}/resolve emits a comments-changed SSE event for both
 // resolve and unresolve transitions, on both the file-scoped and

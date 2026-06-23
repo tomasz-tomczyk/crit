@@ -3425,6 +3425,25 @@ func TestSession_SetCommentResolved_NotFound(t *testing.T) {
 	}
 }
 
+func TestSession_SetCommentResolved_WrongPathHint(t *testing.T) {
+	s := newTestSession(t)
+	s.Files = append(s.Files, &FileEntry{
+		Path: "index.html",
+		Comments: []Comment{{
+			ID:        "web-1",
+			Body:      "imported preview pin",
+			DOMAnchor: &DOMAnchor{Pathname: "/preview-content", CSSSelector: "h1"},
+		}},
+	})
+	resolved, ok := s.SetCommentResolved("/preview-content", "web-1", true)
+	if !ok {
+		t.Fatal("SetCommentResolved with route hint should find comment stored under index.html")
+	}
+	if !resolved.Resolved {
+		t.Error("comment not resolved")
+	}
+}
+
 func TestSession_FindCommentByID(t *testing.T) {
 	s := newTestSession(t)
 	c1, _ := s.AddComment("plan.md", 1, 1, "", "md comment", "", "", "")

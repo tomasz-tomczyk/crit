@@ -192,7 +192,8 @@
     // Default author to 'Reviewer' when user_id present but name missing
     if (!c.author && c.user_id) c.author = 'Reviewer';
     var anchor = c.dom_anchor || {};
-    var pathname = anchor.pathname || '';
+    var routePath = anchor.pathname || c.path || '/';
+    var storagePath = c.file_path || routePath;
     var commentId = c.id || '';
 
     var card = window.crit && window.crit.commentCard;
@@ -203,7 +204,7 @@
       fallback.className = 'comment-card crit-live-comment-row';
       fallback.dataset.id = commentId;
       fallback.dataset.commentId = commentId;
-      fallback.dataset.liveRoute = pathname;
+      fallback.dataset.liveRoute = routePath;
       fallback.textContent = c.body || '';
       return fallback;
     }
@@ -216,7 +217,7 @@
       iconDelete: deps.iconDelete || '',
     });
 
-    var parts = card.buildCommentCard(c, pathname, {
+    var parts = card.buildCommentCard(c, routePath, {
       // Include `panel-comment-block` so the row gets the panel's tight
       // 12px padding instead of the 56px left-gutter padding that
       // `.comment-block` applies for inline (under-line) comments in
@@ -271,9 +272,9 @@
     // Mark wrapper + card with the data attributes the existing CSS / event
     // handlers / E2E selectors expect.
     parts.wrapper.dataset.commentId = commentId;
-    parts.wrapper.dataset.liveRoute = pathname;
+    parts.wrapper.dataset.liveRoute = routePath;
     parts.card.dataset.id = commentId;
-    parts.card.dataset.liveRoute = pathname;
+    parts.card.dataset.liveRoute = routePath;
     if (c.resolved) {
       parts.card.dataset.resolved = 'true';
       parts.wrapper.dataset.resolved = 'true';
@@ -311,7 +312,7 @@
     if (c.resolved) resolveCls += ' resolve-btn--active';
     resolveBtn.className = resolveCls;
     resolveBtn.dataset.commentId = commentId;
-    resolveBtn.dataset.pathname = pathname;
+    resolveBtn.dataset.pathname = storagePath;
     var resolveLabel = c.resolved ? 'Unresolve' : 'Resolve';
     resolveBtn.title = resolveLabel;
     resolveBtn.setAttribute('aria-label', resolveLabel + ' thread');
@@ -325,7 +326,7 @@
     editBtn.type = 'button';
     editBtn.className = 'crit-live-comment-edit';
     editBtn.dataset.commentId = commentId;
-    editBtn.dataset.pathname = pathname;
+    editBtn.dataset.pathname = storagePath;
     editBtn.title = 'Edit';
     editBtn.setAttribute('aria-label', 'Edit comment');
     editBtn.innerHTML = deps.iconEdit || '';
@@ -335,7 +336,7 @@
     replyBtn.type = 'button';
     replyBtn.className = 'crit-live-comment-reply';
     replyBtn.dataset.commentId = commentId;
-    replyBtn.dataset.pathname = pathname;
+    replyBtn.dataset.pathname = storagePath;
     replyBtn.title = 'Reply';
     replyBtn.setAttribute('aria-label', 'Reply to comment');
     replyBtn.innerHTML = deps.iconReply || '';
@@ -349,7 +350,7 @@
     deleteBtn.type = 'button';
     deleteBtn.className = 'delete-btn crit-live-comment-delete';
     deleteBtn.dataset.commentId = commentId;
-    deleteBtn.dataset.pathname = pathname;
+    deleteBtn.dataset.pathname = storagePath;
     deleteBtn.title = 'Delete';
     deleteBtn.setAttribute('aria-label', 'Delete comment');
     deleteBtn.innerHTML = deps.iconDelete || '';
@@ -357,7 +358,7 @@
 
     // Inline reply composer when open.
     if (c._replyOpen) {
-      parts.card.appendChild(buildLiveReplyComposer(commentId, pathname, c._replyDraft || ''));
+      parts.card.appendChild(buildLiveReplyComposer(commentId, storagePath, c._replyDraft || ''));
     }
 
     // Inline edit composer — replaces the body when open. Locating the body
@@ -367,7 +368,7 @@
     if (c._editOpen) {
       var bodyEl = parts.card.querySelector('.comment-body');
       var draft = c._editDraft != null ? c._editDraft : (c.body || '');
-      var ec = buildLiveEditComposer(commentId, pathname, draft);
+      var ec = buildLiveEditComposer(commentId, storagePath, draft);
       if (bodyEl && bodyEl.parentNode) {
         bodyEl.parentNode.insertBefore(ec, bodyEl);
         bodyEl.style.display = 'none';

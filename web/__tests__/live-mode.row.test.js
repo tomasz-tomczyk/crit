@@ -106,6 +106,21 @@ test('renderLivePinRow includes a Delete button on top-level comment cards', () 
     assert.equal(del.dataset.pathname, '/p');
     assert.equal(del._attrs['aria-label'], 'Delete comment');
     assert.equal(del._cls.has('delete-btn'), true, 'should reuse shared .delete-btn class');
+
+    // Imported preview pins: API path is the session file key, not the route.
+    renderLivePinRow(
+      {
+        id: 'c-del-2',
+        body: 'imported',
+        file_path: 'index.html',
+        dom_anchor: { pathname: '/preview-content' },
+      },
+      { iconDelete: '<svg/>' },
+    );
+    const importedDel = fakeActions.children.filter(
+      (b) => b._cls && b._cls.has('crit-live-comment-delete'),
+    ).pop();
+    assert.equal(importedDel.dataset.pathname, 'index.html');
   } finally {
     if (origDocument === undefined) delete global.document; else global.document = origDocument;
     if (origWindow === undefined) delete global.window; else global.window = origWindow;

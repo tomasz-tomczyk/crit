@@ -1337,29 +1337,23 @@ func (s *Session) UpdateComment(filePath, id, body string) (Comment, bool) {
 func (s *Session) UpdateCommentWithAnchor(filePath, id, body string, newAnchor *DOMAnchor) (Comment, bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	fe := s.fileByPathLocked(filePath)
+	fe, i := s.locateFileCommentLocked(filePath, id)
 	if fe == nil {
 		return Comment{}, false, "not_found"
 	}
-	for i := range fe.Comments {
-		c := &fe.Comments[i]
-		if c.ID != id {
-			continue
-		}
-		if newAnchor != nil && c.DOMAnchor == nil {
-			return Comment{}, false, "anchor_on_code_comment"
-		}
-		if body != "" {
-			c.Body = body
-		}
-		if newAnchor != nil {
-			c.DOMAnchor = newAnchor
-		}
-		c.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-		s.scheduleWrite()
-		return *c, true, ""
+	c := &fe.Comments[i]
+	if newAnchor != nil && c.DOMAnchor == nil {
+		return Comment{}, false, "anchor_on_code_comment"
 	}
-	return Comment{}, false, "not_found"
+	if body != "" {
+		c.Body = body
+	}
+	if newAnchor != nil {
+		c.DOMAnchor = newAnchor
+	}
+	c.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.scheduleWrite()
+	return *c, true, ""
 }
 
 // PatchCommentDrift partially updates the live-pin drift fields on a
@@ -1369,26 +1363,20 @@ func (s *Session) UpdateCommentWithAnchor(filePath, id, body string, newAnchor *
 func (s *Session) PatchCommentDrift(filePath, id string, drifted *bool, driftedOnRound *int) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	fe := s.fileByPathLocked(filePath)
+	fe, i := s.locateFileCommentLocked(filePath, id)
 	if fe == nil {
 		return Comment{}, false
 	}
-	for i := range fe.Comments {
-		c := &fe.Comments[i]
-		if c.ID != id {
-			continue
-		}
-		if drifted != nil {
-			c.Drifted = *drifted
-		}
-		if driftedOnRound != nil {
-			c.DriftedOnRound = *driftedOnRound
-		}
-		c.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-		s.scheduleWrite()
-		return *c, true
+	c := &fe.Comments[i]
+	if drifted != nil {
+		c.Drifted = *drifted
 	}
-	return Comment{}, false
+	if driftedOnRound != nil {
+		c.DriftedOnRound = *driftedOnRound
+	}
+	c.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.scheduleWrite()
+	return *c, true
 }
 
 // SetCommentResolved sets or clears the resolved flag on a comment.
@@ -1397,42 +1385,32 @@ func (s *Session) PatchCommentDrift(filePath, id string, drifted *bool, driftedO
 func (s *Session) SetCommentResolved(filePath, id string, resolved bool) (Comment, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f := s.fileByPathLocked(filePath)
+	f, i := s.locateFileCommentLocked(filePath, id)
 	if f == nil {
 		return Comment{}, false
 	}
-	for i, c := range f.Comments {
-		if c.ID == id {
-			f.Comments[i].Resolved = resolved
-			if resolved {
-				f.Comments[i].ResolvedRound = s.ReviewRound
-			} else {
-				f.Comments[i].ResolvedRound = 0
-			}
-			f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			s.scheduleWrite()
-			return f.Comments[i], true
-		}
+	f.Comments[i].Resolved = resolved
+	if resolved {
+		f.Comments[i].ResolvedRound = s.ReviewRound
+	} else {
+		f.Comments[i].ResolvedRound = 0
 	}
-	return Comment{}, false
+	f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.scheduleWrite()
+	return f.Comments[i], true
 }
 
 // SetCommentLive marks a comment as live (sent to an agent).
 func (s *Session) SetCommentLive(filePath, id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f := s.fileByPathLocked(filePath)
+	f, i := s.locateFileCommentLocked(filePath, id)
 	if f == nil {
 		return false
 	}
-	for i, c := range f.Comments {
-		if c.ID == id {
-			f.Comments[i].Live = true
-			s.scheduleWrite()
-			return true
-		}
-	}
-	return false
+	f.Comments[i].Live = true
+	s.scheduleWrite()
+	return true
 }
 
 // DeleteComment deletes a comment from a specific file. The record is always
@@ -1459,47 +1437,38 @@ const (
 func (s *Session) DeleteFileCommentAs(filePath, id, requesterID string) deleteResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f := s.fileByPathLocked(filePath)
+	f, i := s.locateFileCommentLocked(filePath, id)
 	if f == nil {
 		return deleteResultNotFound
 	}
-	for i, c := range f.Comments {
-		if c.ID != id {
-			continue
-		}
-		if c.UserID != "" && c.UserID != requesterID {
-			return deleteResultForbidden
-		}
-		if c.GitHubID != 0 {
-			s.appendPendingGHDelete(c.GitHubID)
-		}
-		f.Comments = append(f.Comments[:i], f.Comments[i+1:]...)
-		s.trackDeletedComment(filePath, id)
-		s.scheduleWrite()
-		return deleteResultDeleted
+	c := f.Comments[i]
+	if c.UserID != "" && c.UserID != requesterID {
+		return deleteResultForbidden
 	}
-	return deleteResultNotFound
+	if c.GitHubID != 0 {
+		s.appendPendingGHDelete(c.GitHubID)
+	}
+	f.Comments = append(f.Comments[:i], f.Comments[i+1:]...)
+	s.trackDeletedComment(f.Path, id)
+	s.scheduleWrite()
+	return deleteResultDeleted
 }
 
 func (s *Session) DeleteComment(filePath, id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f := s.fileByPathLocked(filePath)
+	f, i := s.locateFileCommentLocked(filePath, id)
 	if f == nil {
 		return false
 	}
-	for i, c := range f.Comments {
-		if c.ID == id {
-			if c.GitHubID != 0 {
-				s.appendPendingGHDelete(c.GitHubID)
-			}
-			f.Comments = append(f.Comments[:i], f.Comments[i+1:]...)
-			s.trackDeletedComment(filePath, id)
-			s.scheduleWrite()
-			return true
-		}
+	c := f.Comments[i]
+	if c.GitHubID != 0 {
+		s.appendPendingGHDelete(c.GitHubID)
 	}
-	return false
+	f.Comments = append(f.Comments[:i], f.Comments[i+1:]...)
+	s.trackDeletedComment(f.Path, id)
+	s.scheduleWrite()
+	return true
 }
 
 // appendPendingGHDelete adds a GitHub comment ID to the pending-deletes list
@@ -1552,51 +1521,41 @@ func (s *Session) RefreshFileContent() {
 func (s *Session) AddReply(filePath, commentID, body, author, userID string) (Reply, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f := s.fileByPathLocked(filePath)
+	f, i := s.locateFileCommentLocked(filePath, commentID)
 	if f == nil {
 		return Reply{}, false
 	}
-	for i, c := range f.Comments {
-		if c.ID == commentID {
-			now := time.Now().UTC().Format(time.RFC3339)
-			r := Reply{
-				ID:          RandomReplyID(),
-				Body:        body,
-				Author:      author,
-				UserID:      userID,
-				CreatedAt:   now,
-				ReviewRound: s.ReviewRound,
-			}
-			f.Comments[i].Replies = append(f.Comments[i].Replies, r)
-			f.Comments[i].Resolved = false
-			f.Comments[i].ResolvedRound = 0
-			f.Comments[i].UpdatedAt = now
-			s.scheduleWrite()
-			return r, true
-		}
+	now := time.Now().UTC().Format(time.RFC3339)
+	r := Reply{
+		ID:          RandomReplyID(),
+		Body:        body,
+		Author:      author,
+		UserID:      userID,
+		CreatedAt:   now,
+		ReviewRound: s.ReviewRound,
 	}
-	return Reply{}, false
+	f.Comments[i].Replies = append(f.Comments[i].Replies, r)
+	f.Comments[i].Resolved = false
+	f.Comments[i].ResolvedRound = 0
+	f.Comments[i].UpdatedAt = now
+	s.scheduleWrite()
+	return r, true
 }
 
 // UpdateReply updates a reply's body on a specific comment.
 func (s *Session) UpdateReply(filePath, commentID, replyID, body string) (Reply, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f := s.fileByPathLocked(filePath)
+	f, i := s.locateFileCommentLocked(filePath, commentID)
 	if f == nil {
 		return Reply{}, false
 	}
-	for i, c := range f.Comments {
-		if c.ID == commentID {
-			for j, r := range c.Replies {
-				if r.ID == replyID {
-					f.Comments[i].Replies[j].Body = body
-					f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-					s.scheduleWrite()
-					return f.Comments[i].Replies[j], true
-				}
-			}
-			return Reply{}, false
+	for j, r := range f.Comments[i].Replies {
+		if r.ID == replyID {
+			f.Comments[i].Replies[j].Body = body
+			f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			s.scheduleWrite()
+			return f.Comments[i].Replies[j], true
 		}
 	}
 	return Reply{}, false
@@ -1609,24 +1568,19 @@ func (s *Session) UpdateReply(filePath, commentID, replyID, body string) (Reply,
 func (s *Session) DeleteReply(filePath, commentID, replyID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f := s.fileByPathLocked(filePath)
+	f, i := s.locateFileCommentLocked(filePath, commentID)
 	if f == nil {
 		return false
 	}
-	for i, c := range f.Comments {
-		if c.ID == commentID {
-			for j, r := range c.Replies {
-				if r.ID == replyID {
-					if r.GitHubID != 0 {
-						s.appendPendingGHDelete(r.GitHubID)
-					}
-					f.Comments[i].Replies = append(f.Comments[i].Replies[:j], f.Comments[i].Replies[j+1:]...)
-					f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-					s.scheduleWrite()
-					return true
-				}
+	for j, r := range f.Comments[i].Replies {
+		if r.ID == replyID {
+			if r.GitHubID != 0 {
+				s.appendPendingGHDelete(r.GitHubID)
 			}
-			return false
+			f.Comments[i].Replies = append(f.Comments[i].Replies[:j], f.Comments[i].Replies[j+1:]...)
+			f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			s.scheduleWrite()
+			return true
 		}
 	}
 	return false
@@ -1748,6 +1702,30 @@ func (s *Session) UnresolvedCommentCount() int {
 		}
 	}
 	return total
+}
+
+// locateFileCommentLocked finds a file comment by ID. hintPath is the route
+// pathname the client sent (?path=); when it differs from the on-disk file
+// key (e.g. preview pins re-keyed to index.html on crit-web share), the
+// global search still finds the comment.
+func (s *Session) locateFileCommentLocked(hintPath, id string) (*FileEntry, int) {
+	if hintPath != "" {
+		if f := s.fileByPathLocked(hintPath); f != nil {
+			for i, c := range f.Comments {
+				if c.ID == id {
+					return f, i
+				}
+			}
+		}
+	}
+	for _, f := range s.Files {
+		for i, c := range f.Comments {
+			if c.ID == id {
+				return f, i
+			}
+		}
+	}
+	return nil, -1
 }
 
 func (s *Session) fileByPathLocked(path string) *FileEntry {
