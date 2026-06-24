@@ -490,6 +490,13 @@ func TestParseDaemonFlags_RemoteDefaultsFalse(t *testing.T) {
 	}
 }
 
+func TestParseDaemonFlags_Session(t *testing.T) {
+	sf := parseDaemonFlagsForTest([]string{"--session", "839f3b4cd5d6"})
+	if sf.sessionID != "839f3b4cd5d6" {
+		t.Errorf("sessionID = %q", sf.sessionID)
+	}
+}
+
 func TestResolveServerConfig_OutputDir(t *testing.T) {
 	defer resetBranchOverride(t)
 
