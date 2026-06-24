@@ -10,6 +10,8 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 )
 
+var startDaemonForConnect = daemon.StartDaemon
+
 func mustGetwd() string {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -31,7 +33,7 @@ func connectOrStartDaemon(key string, args []string, noOpen bool, openCmd string
 	}
 
 	var err error
-	entry, err = daemon.StartDaemon(key, args)
+	entry, err = startDaemonForConnect(key, args)
 	if err != nil {
 		return daemon.SessionEntry{}, false, err
 	}

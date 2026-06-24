@@ -43,3 +43,37 @@ func TestConnectOrStartDaemon_AliveSession(t *testing.T) {
 		t.Fatalf("stderr = %q, want session id", stderr)
 	}
 }
+
+func TestConnectOrStartDaemon_StartsDaemon(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	key := "839f3b4cd5d6"
+
+	orig := startDaemonForConnect
+	startDaemonForConnect = func(gotKey string, _ []string) (daemon.SessionEntry, error) {
+		if gotKey != key {
+			t.Fatalf("key = %q", gotKey)
+		}
+		return daemon.SessionEntry{PID: 42, Port: 3001}, nil
+	}
+	t.Cleanup(func() { startDaemonForConnect = orig })
+
+	stderr := captureStderr(t, func() {
+		entry, started, err := connectOrStartDaemon(key, nil, true, "")
+		if err != nil {
+			t.Fatalf("connectOrStartDaemon: %v", err)
+		}
+		if !started {
+			t.Fatal("expected new daemon start")
+		}
+		if entry.Port != 3001 {
+			t.Fatalf("port = %d", entry.Port)
+		}
+	})
+	if !strings.Contains(stderr, "Started crit daemon") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	if !strings.Contains(stderr, "session "+key) {
+		t.Fatalf("stderr = %q", stderr)
+	}
+}

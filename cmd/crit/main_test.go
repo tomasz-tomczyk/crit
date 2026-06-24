@@ -21,6 +21,20 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
+func TestPrintHelpMentionsSession(t *testing.T) {
+	var stderr strings.Builder
+	old := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	printHelp()
+	w.Close()
+	os.Stderr = old
+	io.Copy(&stderr, r)
+	if !strings.Contains(stderr.String(), "--session") {
+		t.Fatalf("help missing --session:\n%s", stderr.String())
+	}
+}
+
 // TestSubcommandDispatch_Help verifies that help flags are recognized.
 func TestSubcommandDispatch_Help(t *testing.T) {
 	for _, arg := range []string{"help", "--help", "-h"} {

@@ -142,3 +142,67 @@ func TestRunReview_DefaultKey_ConnectsToAliveDaemon(t *testing.T) {
 		t.Fatalf("stderr = %q, want session id", stderr)
 	}
 }
+
+func TestRunReview_DefaultKey_StartsNewDaemon(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	dir := t.TempDir()
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(resolvedDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/health":
+			json.NewEncoder(w).Encode(map[string]any{"status": "ok", "browser_clients": true})
+		case "/api/session":
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"mode": "files"})
+		case "/api/review-cycle":
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]any{"approved": false})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
+
+	origStart := startDaemonForReview
+	startDaemonForReview = func(string, []string) (daemon.SessionEntry, error) {
+		return daemon.SessionEntry{PID: 999999999, Port: port, ReviewPath: resolvedDir}, nil
+	}
+	t.Cleanup(func() { startDaemonForReview = origStart })
+
+	origClient := runReviewClientForReview
+	runReviewClientForReview = func(daemon.SessionEntry, string) bool { return false }
+	t.Cleanup(func() { runReviewClientForReview = origClient })
+
+	orig := ResolveServerConfigFn
+	t.Cleanup(func() { ResolveServerConfigFn = orig })
+	ResolveServerConfigFn = func(_ []string) (*CLIReviewConfig, error) {
+		return &CLIReviewConfig{
+			Files:              []string{resolvedDir},
+			NoOpen:             true,
+			NoIntegrationCheck: true,
+		}, nil
+	}
+
+	stderr := captureStderr(t, func() {
+		if err := RunReview([]string{resolvedDir}); err != nil {
+			t.Errorf("RunReview: %v", err)
+		}
+	})
+	if !strings.Contains(stderr, "Started crit daemon") {
+		t.Fatalf("stderr = %q, want start message", stderr)
+	}
+	if !strings.Contains(stderr, "Note: scanning") {
+		t.Fatalf("stderr = %q, want file-scan note", stderr)
+	}
+}

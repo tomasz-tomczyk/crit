@@ -13,6 +13,11 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
+var (
+	startDaemonForReview     = daemon.StartDaemon
+	runReviewClientForReview = daemon.RunReviewClient
+)
+
 //nolint:gocyclo // CLI review dispatcher
 func RunReview(args []string) error {
 	go backgroundCleanup()
@@ -73,7 +78,7 @@ func RunReview(args []string) error {
 					return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 				}
 			}
-			entry, err = daemon.StartDaemon(key, args)
+			entry, err = startDaemonForReview(key, args)
 			if err != nil {
 				return err
 			}
@@ -94,7 +99,7 @@ func RunReview(args []string) error {
 		installDaemonSignalHandler(entry.PID)
 	}
 
-	approved := daemon.RunReviewClient(entry, key)
+	approved := runReviewClientForReview(entry, key)
 	killDaemonOnApproval(approved, entry.PID)
 	cleanupOnApproval(approved, entry.ReviewPath, config.LoadConfig(cwd).CleanupOnApproveEnabled())
 	return nil
