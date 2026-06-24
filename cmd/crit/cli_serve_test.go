@@ -129,3 +129,10 @@ func TestResolveServeReviewPath(t *testing.T) {
 		}
 	})
 }
+
+func TestServeSessionKey_Override(t *testing.T) {
+	sc := &server.DaemonCLIConfig{SessionKeyOverride: "839f3b4cd5d6"}
+	if got := serveSessionKey(sc); got != "839f3b4cd5d6" {
+		t.Errorf("serveSessionKey() = %q", got)
+	}
+}

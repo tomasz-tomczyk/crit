@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -40,9 +41,17 @@ func TestHelperProcess_Help(t *testing.T) {
 	}
 	arg := os.Getenv("GO_TEST_HELP_ARG")
 	os.Args = []string{"crit", arg}
-	// printHelp writes to stderr and main() just returns (no os.Exit in the new code)
-	// We just verify it doesn't panic
+	var stderr strings.Builder
+	old := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
 	printHelp()
+	w.Close()
+	os.Stderr = old
+	io.Copy(&stderr, r)
+	if !strings.Contains(stderr.String(), "--session") {
+		t.Fatalf("help missing --session:\n%s", stderr.String())
+	}
 }
 
 // TestSubcommandDispatch_Version verifies the version flag.
