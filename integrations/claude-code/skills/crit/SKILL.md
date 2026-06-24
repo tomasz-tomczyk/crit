@@ -86,7 +86,7 @@ echo '[
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-Run the **exact same `crit` command from Step 2** in the background. The daemon is keyed by arguments — mismatched args spawn a new daemon instead of reconnecting. If Step 2 was `crit plan.md`, this must also be `crit plan.md` (not bare `crit`).
+After a round with feedback, run the command crit printed (`Next round:` on stdout, or in `copy_prompt`) verbatim.
 
 On subsequent calls, `crit` automatically signals round-complete first, then blocks until the next "Finish Review" click.
 

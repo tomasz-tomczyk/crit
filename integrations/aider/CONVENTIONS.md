@@ -73,7 +73,7 @@ crit comment --json --file /tmp/replies.json --author 'Aider'
 
 ## Next round
 
-When done, run the command crit printed after `Next round:` in its previous output. The daemon is keyed by arguments, so this matters — `crit plan.md` and bare `crit` are different sessions.
+After a round with feedback, run the command crit printed (`Next round:` on stdout, or in `copy_prompt`) verbatim.
 
 `crit` automatically signals round-complete, then blocks until the next "Finish Review" click. Only proceed after the user approves (a round finishes with zero comments).
 

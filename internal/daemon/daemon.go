@@ -143,6 +143,20 @@ func LiveSessionKey(cwd, origin string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))[:12]
 }
 
+// ValidSessionKey reports whether key looks like a crit session ID (12 lowercase hex chars).
+func ValidSessionKey(key string) bool {
+	if len(key) != 12 {
+		return false
+	}
+	for _, c := range key {
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 // sessionsDir returns the path to ~/.crit/sessions/.
 func sessionsDir() (string, error) {
 	home, err := os.UserHomeDir()

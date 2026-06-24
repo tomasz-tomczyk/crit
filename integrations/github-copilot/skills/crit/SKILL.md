@@ -83,7 +83,7 @@ echo '[
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-When `crit` exited in Step 2, it printed `Next round: crit <args>` to stdout if more rounds are expected. Run the command crit printed after `Next round:` — verbatim — in the foreground and block until it exits.
+After a round with feedback, run the command crit printed (`Next round:` on stdout, or in `copy_prompt`) verbatim in the foreground and block until it exits.
 
 On subsequent calls, `crit` automatically signals round-complete first, then blocks until the next "Finish Review" click.
 

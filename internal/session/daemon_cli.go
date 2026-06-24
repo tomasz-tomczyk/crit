@@ -23,7 +23,7 @@ func mustGetwd() string {
 func connectOrStartDaemon(key string, args []string, noOpen bool, openCmd string) (daemon.SessionEntry, bool, error) {
 	entry, alive := daemon.FindAliveSession(key)
 	if alive {
-		fmt.Fprintf(os.Stderr, "Connected to crit daemon at %s\n", entry.BaseURL())
+		fmt.Fprintf(os.Stderr, "Connected to crit daemon at %s (session %s)\n", entry.BaseURL(), key)
 		if !noOpen && !daemon.DaemonHasBrowser(entry) {
 			go browser.OpenBrowserWithCommand(entry.BaseURL(), openCmd)
 		}
@@ -35,7 +35,7 @@ func connectOrStartDaemon(key string, args []string, noOpen bool, openCmd string
 	if err != nil {
 		return daemon.SessionEntry{}, false, err
 	}
-	fmt.Fprintf(os.Stderr, "Started crit daemon at %s (PID %d)\n", entry.BaseURL(), entry.PID)
+	fmt.Fprintf(os.Stderr, "Started crit daemon at %s (session %s, PID %d)\n", entry.BaseURL(), key, entry.PID)
 	HintMissingIntegrations()
 	return entry, true, nil
 }

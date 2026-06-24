@@ -13,6 +13,7 @@ type CLIReviewConfig struct {
 	VCSOverride        string
 	BaseBranch         string
 	IgnorePatterns     []string
+	SessionID          string
 }
 
 var (

@@ -22,6 +22,9 @@ import (
 const liveSessionArgsTag = "live"
 
 func serveSessionKey(sc *server.DaemonCLIConfig) string {
+	if sc.SessionKeyOverride != "" {
+		return sc.SessionKeyOverride
+	}
 	cwd, _ := resolvedCWD()
 	if sc.PlanDir != "" {
 		return planSessionKey(cwd, sc.PlanName)
@@ -248,6 +251,7 @@ func runServe(args []string) {
 	default:
 		sess.CLIArgs = sc.Files
 	}
+	sess.SessionKey = key
 
 	checkStaleIntegrations(sc, srv, cwd)
 

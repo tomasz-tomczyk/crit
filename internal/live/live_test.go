@@ -1203,23 +1203,6 @@ func TestLive_PostFileCommentsDropsScreenshot(t *testing.T) {
 		t.Fatalf("persisted review.json must not contain a screenshot key, got:\n%s", data)
 	}
 }
-
-func TestLiveSession_ReinvokeCommandIncludesOrigin(t *testing.T) {
-	sc := &serverConfig{
-		liveOrigin: "http://localhost:4000",
-		reviewPath: filepath.Join(t.TempDir(), "review-reinvoke"),
-	}
-	sess, err := createLiveSession(sc)
-	if err != nil {
-		t.Fatalf("createLiveSession: %v", err)
-	}
-	got := sess.ReinvokeCommand()
-	want := "crit live http://localhost:4000"
-	if got != want {
-		t.Errorf("ReinvokeCommand() = %q, want %q", got, want)
-	}
-}
-
 func TestLiveSession_AuthorFromConfig(t *testing.T) {
 	setHome(t, t.TempDir())
 	s, _ := newTestServer(t)

@@ -35,6 +35,7 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 
 	session := &Session{
 		Mode:        "files",
+		SessionKey:  "abcd1234ef01",
 		RepoRoot:    dir,
 		ReviewRound: 1,
 		Files: []*FileEntry{
@@ -528,7 +529,7 @@ func TestFinish_IncludesStructuredComments(t *testing.T) {
 	if !strings.Contains(prompt, "Address each comment") {
 		t.Errorf("expected instructions in prompt, got: %s", prompt)
 	}
-	if !strings.Contains(prompt, "run: `crit`") {
+	if !strings.Contains(prompt, "run: `crit --session abcd1234ef01`") {
 		t.Errorf("expected reinvoke command in prompt, got: %s", prompt)
 	}
 	copyPrompt, _ := resp["copy_prompt"].(string)
@@ -549,8 +550,8 @@ func TestFinish_IncludesStructuredComments(t *testing.T) {
 		t.Errorf("copy_prompt should not duplicate next-command wording, got: %s", copyPrompt)
 	}
 	nextCmd, _ := resp["next_command"].(string)
-	if nextCmd != "crit" {
-		t.Errorf("next_command = %q, want crit", nextCmd)
+	if nextCmd != "crit --session abcd1234ef01" {
+		t.Errorf("next_command = %q, want crit --session abcd1234ef01", nextCmd)
 	}
 }
 
@@ -592,14 +593,15 @@ func TestFinish_PromptIncludesFileArgs(t *testing.T) {
 		t.Fatal(err)
 	}
 	prompt, _ := resp["prompt"].(string)
-	if !strings.Contains(prompt, "`crit test.md`") {
-		t.Errorf("expected prompt to contain 'crit test.md', got: %s", prompt)
+	if !strings.Contains(prompt, "`crit --session abcd1234ef01`") {
+		t.Errorf("expected prompt to contain session reconnect command, got: %s", prompt)
 	}
 }
 
 func TestFinish_PromptBareGitMode(t *testing.T) {
 	s, session := newTestServer(t)
 	session.Mode = "git"
+	session.SessionKey = ""
 	// CLIArgs stays nil — git mode
 	session.AddComment("test.md", 1, 1, "", "fix this", "", "", "")
 
@@ -710,26 +712,17 @@ func TestReviewCycle_UnresolvedReturnsPrompt(t *testing.T) {
 
 func TestReviewCycle_NextCommand(t *testing.T) {
 	tests := []struct {
-		name string
-		args []string
-		want string
+		name       string
+		sessionKey string
+		want       string
 	}{
-		{"no args (git mode)", nil, "crit"},
-		{"empty slice", []string{}, "crit"},
-		{"single file", []string{"plan.md"}, "crit plan.md"},
-		{"multiple files", []string{"a.md", "b.go"}, "crit a.md b.go"},
-		{"arg with space gets quoted", []string{"my plan.md"}, `crit 'my plan.md'`},
-		// Note: cliArgs holds positional file args only at runtime; this case exercises shellQuoteArg formatting, not a real call shape.
-		{"unknown leading-dash arg formats verbatim", []string{"--pr", "42"}, "crit --pr 42"},
-		{"non-ASCII arg passes through", []string{"résumé.md"}, "crit résumé.md"},
-		{"single quote in arg is escaped", []string{"it's.md"}, `crit 'it'\''s.md'`},
-		{"live mode", []string{"live", "http://localhost:4000"}, "crit live http://localhost:4000"},
-		{"preview mode", []string{"preview", "/tmp/mock.html"}, "crit preview /tmp/mock.html"},
+		{"with session key", "839f3b4cd5d6", "crit --session 839f3b4cd5d6"},
+		{"empty session key falls back", "", "crit"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s, session := newTestServer(t)
-			s.cliArgs = tc.args
+			session.SessionKey = tc.sessionKey
 			session.SetAwaitingFirstReview(true)
 
 			done := make(chan *httptest.ResponseRecorder, 1)
@@ -3128,6 +3121,33 @@ func TestBuildPlanInstructions(t *testing.T) {
 	}
 	if !strings.Contains(result, "crit comment --plan") {
 		t.Errorf("expected crit comment hint in feedback, got: %s", result)
+	}
+}
+
+func TestFinish_PlanModeNextCommand(t *testing.T) {
+	s, session := newTestServer(t)
+	session.Mode = "plan"
+	session.PlanDir = "/tmp/plans/my-feature"
+	session.AddComment("test.md", 1, 1, "", "expand step 2", "", "", "")
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	nextCmd, _ := resp["next_command"].(string)
+	if nextCmd != "crit plan --name my-feature" {
+		t.Errorf("next_command = %q, want crit plan --name my-feature", nextCmd)
+	}
+	copyPrompt, _ := resp["copy_prompt"].(string)
+	if !strings.Contains(copyPrompt, "crit plan --name my-feature") {
+		t.Errorf("copy_prompt should include plan reconnect, got: %s", copyPrompt)
+	}
+	if strings.Contains(copyPrompt, "crit --session") {
+		t.Errorf("copy_prompt should not use --session for plan mode, got: %s", copyPrompt)
 	}
 }
 

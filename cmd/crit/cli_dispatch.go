@@ -52,6 +52,7 @@ Review:
   crit --pr <num|url>                        Review a GitHub pull request
   crit --range <base>..<head>               Review a commit range
   crit plan --name <slug> <file>             Review a plan file
+  crit --session <id>                        Reconnect to an existing review session
 
 Comments:
   crit comment <path>:<line[-end]> <body>    Add a comment (headless, no server needed)
@@ -91,6 +92,7 @@ Options:
       --share-url <url>       Share service URL (e.g. https://crit.md or self-hosted)
       --base-branch <branch>  Base branch to diff against (overrides auto-detection)
       --scope <mode>          Diff scope for PR review: layer (default) or full-stack
+      --session <id>          Reconnect to an existing review session (from stderr or next_command)
       --remote                Read PR files via GitHub API instead of local git
       --qr                    Print QR code of share URL (with crit share)
   -v, --version               Print version

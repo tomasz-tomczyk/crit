@@ -47,30 +47,34 @@ type DaemonCLIConfig struct {
 	LiveOrigin         string
 	LiveCookie         string
 	PreviewFile        string
+	SessionID          string // user-facing reconnect ID from --session
+	SessionKeyOverride string // internal: force session registry key in _serve
 }
 
 type daemonFlagSet struct {
-	port        int
-	host        string
-	noOpen      bool
-	showVersion bool
-	shareURL    string
-	proxyAuth   bool
-	outputDir   string
-	quiet       bool
-	noIgnore    bool
-	baseBranch  string
-	vcsOverride string
-	planDir     string
-	planName    string
-	fileArgs    []string
-	prSpec      string
-	rangeSpec   string
-	scopeSpec   string
-	remoteFiles bool
-	liveOrigin  string
-	liveCookie  string
-	previewFile string
+	port               int
+	host               string
+	noOpen             bool
+	showVersion        bool
+	shareURL           string
+	proxyAuth          bool
+	outputDir          string
+	quiet              bool
+	noIgnore           bool
+	baseBranch         string
+	vcsOverride        string
+	planDir            string
+	planName           string
+	fileArgs           []string
+	prSpec             string
+	rangeSpec          string
+	scopeSpec          string
+	remoteFiles        bool
+	liveOrigin         string
+	liveCookie         string
+	previewFile        string
+	sessionID          string
+	sessionKeyOverride string
 }
 
 func parseDaemonFlags(args []string) daemonFlagSet {
@@ -98,6 +102,8 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 	liveOrigin := fs.String("live-origin", "", "")
 	liveCookie := fs.String("live-cookie", "", "")
 	previewFile := fs.String("preview-file", "", "")
+	sessionID := fs.String("session", "", "Reconnect to an existing review session by ID")
+	sessionKeyOverride := fs.String("session-key", "", "")
 	fs.Usage = func() {
 		if PrintHelpFn != nil {
 			PrintHelpFn()
@@ -106,26 +112,28 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 	fs.Parse(args)
 
 	return daemonFlagSet{
-		port:        *port,
-		host:        *host,
-		noOpen:      *noOpen,
-		showVersion: *showVersion,
-		shareURL:    *shareURL,
-		outputDir:   *outputDir,
-		quiet:       *quiet,
-		noIgnore:    *noIgnore,
-		baseBranch:  *baseBranch,
-		vcsOverride: *vcsFlag,
-		planDir:     *planDir,
-		planName:    *planName,
-		fileArgs:    fs.Args(),
-		prSpec:      *prSpec,
-		rangeSpec:   *rangeSpec,
-		scopeSpec:   *scopeSpec,
-		remoteFiles: *remoteFiles,
-		liveOrigin:  *liveOrigin,
-		liveCookie:  *liveCookie,
-		previewFile: *previewFile,
+		port:               *port,
+		host:               *host,
+		noOpen:             *noOpen,
+		showVersion:        *showVersion,
+		shareURL:           *shareURL,
+		outputDir:          *outputDir,
+		quiet:              *quiet,
+		noIgnore:           *noIgnore,
+		baseBranch:         *baseBranch,
+		vcsOverride:        *vcsFlag,
+		planDir:            *planDir,
+		planName:           *planName,
+		fileArgs:           fs.Args(),
+		prSpec:             *prSpec,
+		rangeSpec:          *rangeSpec,
+		scopeSpec:          *scopeSpec,
+		remoteFiles:        *remoteFiles,
+		liveOrigin:         *liveOrigin,
+		liveCookie:         *liveCookie,
+		previewFile:        *previewFile,
+		sessionID:          *sessionID,
+		sessionKeyOverride: *sessionKeyOverride,
 	}
 }
 
@@ -236,6 +244,8 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) {
 		LiveOrigin:         sf.liveOrigin,
 		LiveCookie:         sf.liveCookie,
 		PreviewFile:        sf.previewFile,
+		SessionID:          sf.sessionID,
+		SessionKeyOverride: sf.sessionKeyOverride,
 	}, nil
 }
 

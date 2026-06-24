@@ -1912,7 +1912,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	stats := s.buildSessionStats(sess)
 
 	prompt, approved, comments := buildFinishFeedback(sess)
-	nextCommand := buildNextCommand(s.cliArgs)
+	nextCommand := session.NextRoundCommand(sess)
 	copyPrompt := buildCopyPrompt(sess, approved, comments, nextCommand)
 	if !approved {
 		sess.SetWaitingForAgent(true)
@@ -2010,7 +2010,7 @@ func buildFinishPrompt(sess *Session, approved bool, totalComments int) string {
 }
 
 func buildUnresolvedInstructions(sess *Session) string {
-	return buildUnresolvedActions(sess) + fmt.Sprintf(" When done run: `%s`", sess.ReinvokeCommand())
+	return buildUnresolvedActions(sess) + fmt.Sprintf(" When done run: `%s`", session.ReconnectCommand(sess.SessionKey))
 }
 
 func buildUnresolvedActions(sess *Session) string {
@@ -2083,20 +2083,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// buildNextCommand renders the command the agent should run to start the
-// next review round, given the args the daemon was launched with.
-func buildNextCommand(args []string) string {
-	if len(args) == 0 {
-		return "crit"
-	}
-	parts := make([]string, 0, len(args)+1)
-	parts = append(parts, "crit")
-	for _, a := range args {
-		parts = append(parts, shellQuoteArg(a))
-	}
-	return strings.Join(parts, " ")
-}
-
 // shellQuoteArg quotes a single CLI arg using POSIX single-quote syntax when
 // it contains whitespace or shell metacharacters; returns it unchanged
 // otherwise. Single quotes inside the arg are escaped as '\”.
@@ -2146,7 +2132,7 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 					Comments []comment.ListedComment `json:"comments"`
 				}
 				json.Unmarshal([]byte(event.Content), &finishData)
-				nextCommand := buildNextCommand(s.cliArgs)
+				nextCommand := session.NextRoundCommand(sess)
 				copyPrompt := buildCopyPrompt(sess, finishData.Approved, finishData.Comments, nextCommand)
 				writeJSON(w, map[string]any{
 					"status":       "finished",

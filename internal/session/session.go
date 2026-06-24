@@ -306,6 +306,7 @@ type Session struct {
 	Files          []*FileEntry
 	Mode           string   // "files" (explicit markdown files) or "git" (auto-detected from git)
 	CLIArgs        []string // original file arguments passed on the command line (empty for git mode)
+	SessionKey     string   // stable ID for reconnect via crit --session (set by daemon)
 	Branch         string
 	BaseRef        string
 	BaseBranchName string // display name of the base branch (e.g. "production", "master")
@@ -2464,15 +2465,6 @@ func (s *Session) HasBrowserClients() bool {
 	return atomic.LoadInt32(&s.browserClients) > 0
 }
 
-// ReinvokeCommand returns the crit command the agent should run to trigger the next round.
-// For file-mode sessions it includes the original file arguments; for git-mode it's bare "crit".
-func (s *Session) ReinvokeCommand() string {
-	if len(s.CLIArgs) == 0 {
-		return "crit"
-	}
-	return "crit " + strings.Join(s.CLIArgs, " ")
-}
-
 // Shutdown sends a server-shutdown event to all SSE subscribers.
 func (s *Session) Shutdown() {
 	s.notify(SSEEvent{Type: "server-shutdown"})
@@ -2620,6 +2612,7 @@ type SessionInfo struct {
 	Files            []SessionFileInfo `json:"files"`
 	ReviewComments   []Comment         `json:"review_comments"`
 	Cwd              string            `json:"cwd,omitempty"`
+	SessionKey       string            `json:"session_key,omitempty"`
 	Focus            Focus             `json:"focus"`
 	LastRangeFocus   *Focus            `json:"last_range_focus,omitempty"`
 	HiddenUnresolved int               `json:"hidden_unresolved"`
@@ -2668,6 +2661,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		ReviewRound:    s.ReviewRound,
 		ReviewComments: reviewComments,
 		Cwd:            s.RepoRoot,
+		SessionKey:     s.SessionKey,
 		Focus:          s.Focus,
 		LastRangeFocus: s.LastRangeFocus,
 	}
