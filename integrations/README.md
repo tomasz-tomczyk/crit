@@ -60,13 +60,32 @@ Both approaches give you the `/crit` slash command. The plugin marketplace addit
 
 ## Codex plugin
 
-For Codex, `crit install codex-plugin` installs both:
+For the full Codex experience, install the plugin. This gives you:
 
-- loose `.agents/skills/crit` and `.agents/skills/crit-cli` skills, so bare `$crit` works directly
-- a local Codex plugin marketplace entry under `.agents/plugins/` or `~/.agents/plugins/`
-- plugin files under `plugins/crit/` for project installs or `~/.codex/plugins/crit/` for global installs
+- A `$crit` skill for the review loop (plus loose copies under `.agents/skills/` so bare `$crit` works even outside the plugin)
+- A `crit-cli` skill that auto-activates when working with review files, `crit comment`, `crit pull/push`, etc.
+- A **proposed-plan review hook** — intercepts Codex's `Stop` hook when the agent proposes a plan in Plan mode, writes it to disk, and opens Crit for inline review before the turn ends
 
-The plugin bundles the same skills plus a Codex `Stop` hook that runs `crit plan-hook --mode codex` for proposed-plan review when plugin hooks are enabled.
+```bash
+cd ~ && crit install codex-plugin    # global (recommended)
+crit install codex-plugin            # per-project (commit plugins/crit/ for the whole team)
+```
+
+`crit install codex-plugin` registers the plugin in a local Codex marketplace (`.agents/plugins/marketplace.json` or `~/.agents/plugins/marketplace.json`), copies plugin files to `plugins/crit/` (project) or `~/.codex/plugins/crit/` (global), enables the plugin in `~/.codex/config.toml`, and turns on `features.plugins`, `features.hooks`, and `features.plugin_hooks`.
+
+Plugin source files live in `integrations/codex/plugin/crit/`. See [`integrations/codex/README.md`](./codex/README.md) for layout and manual setup.
+
+### `crit install codex` vs `crit install codex-plugin`
+
+| | `crit install codex` | `crit install codex-plugin` |
+|---|---|---|
+| **Scope** | Skills only (project or global) | Skills + Codex plugin + plan hook |
+| **What's installed** | `$crit` and `crit-cli` skills under `.agents/skills/` | Same skills, plus `plugins/crit/` (or `~/.codex/plugins/crit/`) with bundled skills and a `Stop` hook |
+| **Plan mode** | Agent must write the plan to a file before `$crit` works | Hook captures in-chat proposed plans (`<proposed_plan>`) and reviews them automatically |
+
+Both approaches give you `$crit` and the `crit-cli` skill. Only `codex-plugin` adds the proposed-plan hook — without it, typing `$crit` on an in-chat plan (e.g. after choosing "No and stay in Plan Mode") does nothing useful because there is no file path for `crit` to open.
+
+Disable the plan hook per-shell or globally: `export CRIT_PLAN_REVIEW=off`
 
 ## What these do
 
