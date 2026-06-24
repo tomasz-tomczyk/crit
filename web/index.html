@@ -25,12 +25,18 @@
     </button>
     <div class="compare-rail" id="compareRail" role="group" aria-label="Diff target">
       <span class="base-branch-picker" id="baseBranchPicker" style="display:none">
-        <button class="header-chip base-branch-btn" id="baseBranchBtn" title="Change base branch" aria-haspopup="listbox" aria-expanded="false">
+        <button class="header-chip base-branch-btn" id="baseBranchBtn" title="Compare against" aria-haspopup="listbox" aria-expanded="false">
+          <span class="compare-target-prefix">against</span>
           <span class="base-branch-label" id="baseBranchLabel"></span>
           <svg class="base-branch-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 3.75 5 6.25 7.5 3.75"/></svg>
         </button>
         <div class="base-branch-menu" id="baseBranchMenu">
-          <input class="base-branch-search" id="baseBranchSearch" type="text" placeholder="Filter branches…" autocomplete="off" aria-label="Filter branches" />
+          <input class="base-branch-search" id="baseBranchSearch" type="text" placeholder="Search refs or rev…" autocomplete="off" aria-label="Search compare targets or enter a revision" />
+          <div class="compare-target-use-custom" id="compareTargetUseCustom" style="display:none"></div>
+          <div class="compare-target-tabs" id="compareTargetTabs">
+            <button type="button" class="compare-target-tab active" data-tab="refs">Refs</button>
+            <button type="button" class="compare-target-tab" data-tab="commits">Commits</button>
+          </div>
           <div class="base-branch-list" id="baseBranchList"></div>
         </div>
       </span>
@@ -128,11 +134,14 @@
     </div>
     <div class="commit-picker" id="commitDropdown" style="display:none">
       <button class="commit-picker-btn" id="commitDropdownBtn">
+        <span class="commit-picker-prefix">commits</span>
         <span class="commit-picker-label" id="commitDropdownLabel">All commits</span>
         <svg class="commit-picker-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 3.75 5 6.25 7.5 3.75"/></svg>
       </button>
       <div class="commit-picker-menu" id="commitDropdownMenu">
+        <div class="commit-picker-hint">Click: from · Alt+click: through</div>
         <div class="commit-picker-item active" data-commit="" role="button" tabindex="0"><span class="commit-picker-item-check-spacer" aria-hidden="true"></span>All commits</div>
+        <button type="button" class="commit-picker-clear-through" id="commitClearThrough" style="display:none">Clear through</button>
         <div class="commit-picker-separator"></div>
         <div class="commit-picker-list" id="commitDropdownList"></div>
       </div>

@@ -119,10 +119,67 @@ body {
   flex-shrink: 0;
 }
 .base-branch-btn {
+  gap: 4px;
   cursor: pointer;
   white-space: nowrap;
   line-height: 1.4;
   transition: background 0.1s, border-color 0.1s;
+}
+.compare-target-prefix {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--crit-editor-fg-muted);
+  flex-shrink: 0;
+}
+.compare-target-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--crit-border);
+}
+.compare-target-tab {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 11px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--crit-editor-fg-muted);
+  cursor: pointer;
+}
+.compare-target-tab:hover { background: var(--crit-editor-bg-hover); }
+.compare-target-tab.active {
+  background: var(--crit-editor-bg-hover);
+  color: var(--crit-editor-fg);
+  font-weight: 500;
+}
+.compare-target-use-custom {
+  border-bottom: 1px solid var(--crit-border);
+}
+.compare-target-use-custom button {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+  color: var(--crit-editor-fg);
+  cursor: pointer;
+}
+.compare-target-use-custom button:hover { background: var(--crit-editor-bg-hover); }
+.compare-target-group-label {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--crit-editor-fg-muted);
+}
+.compare-target-detected {
+  font-size: 10px;
+  color: var(--crit-editor-fg-muted);
+  margin-left: 6px;
 }
 .base-branch-btn:hover {
   background: var(--crit-pill-bg-hover);
@@ -143,7 +200,7 @@ body {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  min-width: 220px;
+  min-width: 260px;
   max-width: 320px;
   max-height: 320px;
   background: var(--crit-bg-card);
@@ -156,6 +213,7 @@ body {
 .base-branch-picker.open .base-branch-menu { display: block; }
 .base-branch-search {
   width: 100%;
+  box-sizing: border-box;
   padding: 8px 10px;
   font-size: 12px;
   font-family: var(--crit-font-mono);
@@ -4093,6 +4151,53 @@ body.sidebar-resizing * {
   font-family: inherit;
   line-height: 1.4;
 }
+.commit-picker-prefix {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--crit-editor-fg-muted);
+  flex-shrink: 0;
+}
+.commit-picker-hint {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  color: var(--crit-editor-fg-muted);
+}
+.commit-picker-clear-through {
+  display: block;
+  margin: 4px 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  border: 1px solid var(--crit-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--crit-editor-fg-muted);
+  cursor: pointer;
+  width: calc(100% - 16px);
+}
+.commit-picker-clear-through:hover {
+  background: var(--crit-editor-bg-hover);
+  color: var(--crit-editor-fg);
+}
+.commit-pin-from,
+.commit-pin-through {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.commit-pin-from {
+  background: var(--crit-brand-bg);
+  color: var(--crit-editor-fg);
+}
+.commit-pin-through {
+  background: color-mix(in srgb, var(--crit-editor-fg-muted) 20%, transparent);
+  color: var(--crit-editor-fg);
+}
+.commit-picker-item.is-from { background: color-mix(in srgb, var(--crit-brand-bg) 60%, transparent); }
+.commit-picker-item.is-through { outline: 1px solid var(--crit-editor-fg-muted); }
 .commit-picker-btn:hover { background: var(--crit-editor-bg-hover); }
 .commit-picker-label {
   overflow: hidden;

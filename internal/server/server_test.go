@@ -17,6 +17,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	sesspkg "github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
 func init() {
@@ -2909,12 +2910,12 @@ func TestHandleBranches_NoVCS(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	var branches []string
-	if err := json.Unmarshal(w.Body.Bytes(), &branches); err != nil {
+	var targets vcs.CompareTargets
+	if err := json.Unmarshal(w.Body.Bytes(), &targets); err != nil {
 		t.Fatalf("JSON decode: %v", err)
 	}
-	if len(branches) != 0 {
-		t.Errorf("expected empty branches for no VCS, got %v", branches)
+	if targets.VCS != "" || targets.Detected != "" || len(targets.Local) != 0 || len(targets.Remote) != 0 {
+		t.Errorf("expected empty compare targets for no VCS, got %+v", targets)
 	}
 }
 
@@ -2952,10 +2953,16 @@ func TestHandleBranches_WithGitVCS(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
-	// No remotes in test repo, so empty list is expected.
-	var branches []string
-	if err := json.Unmarshal(w.Body.Bytes(), &branches); err != nil {
+	// No remotes in test repo; local main is still listed.
+	var targets vcs.CompareTargets
+	if err := json.Unmarshal(w.Body.Bytes(), &targets); err != nil {
 		t.Fatalf("JSON decode: %v", err)
+	}
+	if targets.VCS != "git" {
+		t.Errorf("vcs = %q, want git", targets.VCS)
+	}
+	if len(targets.Local) == 0 {
+		t.Error("expected at least one local branch")
 	}
 }
 

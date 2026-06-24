@@ -1574,7 +1574,7 @@ func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, commits)
 }
 
-// handleBranches returns remote branch names for the base-branch picker.
+// handleBranches returns grouped compare targets for the compare-against picker.
 func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1583,18 +1583,18 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 	sess := s.session.Load()
 	sess.RLock()
 	repoRoot := sess.RepoRoot
-	vcs := sess.VCS
+	vc := sess.VCS
 	sess.RUnlock()
-	if vcs == nil {
-		writeJSON(w, []string{})
+	if vc == nil {
+		writeJSON(w, vcs.CompareTargets{})
 		return
 	}
-	branches, err := vcs.RemoteBranches(repoRoot)
+	targets, err := vcs.CompareTargetsFor(vc, repoRoot)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, branches)
+	writeJSON(w, targets)
 }
 
 // handleBaseBranch changes the diff base branch for the current session.
@@ -1605,12 +1605,21 @@ func (s *Server) handleBaseBranch(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Branch string `json:"branch"`
+		Ref    string `json:"ref"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Branch == "" {
-		http.Error(w, "Bad request: branch is required", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "Bad request: invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if err := s.session.Load().ChangeBaseBranch(body.Branch); err != nil {
+	ref := strings.TrimSpace(body.Ref)
+	if ref == "" {
+		ref = strings.TrimSpace(body.Branch)
+	}
+	if ref == "" {
+		http.Error(w, "Bad request: ref is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.session.Load().ChangeBaseBranch(ref); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

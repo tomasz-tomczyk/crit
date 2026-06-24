@@ -24,12 +24,10 @@ test.describe('Commit Selection', () => {
   test('dropdown opens on click and shows commits', async ({ page }) => {
     await openCommitPicker(page);
 
-    // "All commits" item should be active
     const allItem = page.locator('.commit-picker-item[data-commit=""]');
     await expect(allItem).toBeVisible();
     await expect(allItem).toHaveClass(/active/);
 
-    // Should show at least one commit
     const firstCommit = page.locator('#commitDropdownList .commit-picker-item').first();
     await expect(firstCommit).toBeVisible();
     await expect(firstCommit.locator('.commit-picker-item-sha')).toBeVisible();
@@ -49,7 +47,7 @@ test.describe('Commit Selection', () => {
     await expect(page.locator('#commitDropdown')).not.toHaveClass(/open/);
   });
 
-  test('selecting a commit filters files and updates label', async ({ page }) => {
+  test('clicking a commit sets from pin and filters files', async ({ page }) => {
     await openCommitPicker(page);
 
     const commitItem = page.locator('#commitDropdownList .commit-picker-item').first();
@@ -59,14 +57,10 @@ test.describe('Commit Selection', () => {
     await commitItem.click();
     await responsePromise;
 
-    // Multi-select: the dropdown STAYS OPEN after selecting a commit
     await expect(page.locator('#commitDropdown')).toHaveClass(/open/);
+    await expect(page.locator('#commitDropdownLabel')).toContainText('only');
+    await expect(commitItem).toHaveClass(/is-from/);
 
-    // Label should update to show the selected commit
-    await expect(page.locator('#commitDropdownLabel')).not.toHaveText('All commits');
-
-    // The commit has at most 5 files (server.go, deleted.txt, plan.md, handler.js, legacy.go)
-    // whereas "All" has more (includes staged utils.go and unstaged config.yaml)
     const fileSections = page.locator('.file-section');
     await expect(async () => {
       const count = await fileSections.count();
@@ -76,7 +70,6 @@ test.describe('Commit Selection', () => {
   });
 
   test('selecting "All commits" restores full view', async ({ page }) => {
-    // First select a commit
     await openCommitPicker(page);
     const commitItem = page.locator('#commitDropdownList .commit-picker-item').first();
     const firstResponsePromise = page.waitForResponse(r => r.url().includes('/api/session'));
@@ -84,8 +77,6 @@ test.describe('Commit Selection', () => {
     await firstResponsePromise;
     await expect(page.locator('#commitDropdownLabel')).not.toHaveText('All commits');
 
-    // The dropdown stays open after multi-select; click "All commits" directly
-    // WITHOUT re-opening (re-opening would toggle it closed).
     const allItem = page.locator('.commit-picker-item[data-commit=""]');
     const responsePromise = page.waitForResponse(r =>
       r.url().includes('/api/session') && r.status() === 200
@@ -93,7 +84,6 @@ test.describe('Commit Selection', () => {
     await allItem.click();
     await responsePromise;
 
-    // Label should be back to "All commits"
     await expect(page.locator('#commitDropdownLabel')).toHaveText('All commits');
   });
 
@@ -110,7 +100,6 @@ test.describe('Commit Selection', () => {
   });
 
   test('commit picker reappears when switching back to All scope', async ({ page }) => {
-    // Switch to staged
     let responsePromise = page.waitForResponse(r =>
       r.url().includes('/api/session') && r.status() === 200
     );
@@ -118,7 +107,6 @@ test.describe('Commit Selection', () => {
     await responsePromise;
     await expect(page.locator('#commitDropdown')).toBeHidden();
 
-    // Switch back to all
     responsePromise = page.waitForResponse(r =>
       r.url().includes('/api/session') && r.status() === 200
     );
@@ -129,9 +117,6 @@ test.describe('Commit Selection', () => {
   });
 
   test('commit picker visible on Branch scope', async ({ page }) => {
-    // First switch to staged (which hides the picker), then switch to branch
-    // to verify branch scope shows it. Direct click on branch may be a no-op
-    // if the page already defaults to branch scope (no cookie).
     let responsePromise = page.waitForResponse(r =>
       r.url().includes('/api/session') && r.status() === 200
     );
@@ -149,26 +134,21 @@ test.describe('Commit Selection', () => {
   });
 
   test('selected commit resets on page reload', async ({ page }) => {
-    // Select a commit
     await openCommitPicker(page);
     const commitItem = page.locator('#commitDropdownList .commit-picker-item').first();
     const responsePromise = page.waitForResponse(r => r.url().includes('/api/session'));
     await commitItem.click();
     await responsePromise;
 
-    // Reload — selection should reset (commit selection is session-scoped)
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    // Label should show "All commits" after reload
     await expect(page.locator('#commitDropdownLabel')).toHaveText('All commits');
   });
 
   test('commit picker hidden when only one commit exists', async ({ page }) => {
-    // Precondition: picker is visible with the default 2-commit fixture
     await expect(page.locator('#commitDropdown')).toBeVisible();
 
-    // Intercept /api/commits to return only one commit
     await page.route('**/api/commits', async (route) => {
       const response = await route.fetch();
       const commits = await response.json();
@@ -186,121 +166,83 @@ test.describe('Commit Selection', () => {
     await expect(page.locator('#commitDropdown')).toBeHidden();
   });
 
-  test('selected commit item gets active class, "All" loses it', async ({ page }) => {
-    // Select a commit
+  test('from pin marks selected commit, "All" loses active class', async ({ page }) => {
     await openCommitPicker(page);
     const commitItem = page.locator('#commitDropdownList .commit-picker-item').first();
     const responsePromise = page.waitForResponse(r => r.url().includes('/api/session'));
     await commitItem.click();
     await responsePromise;
 
-    // Dropdown stays open after selection — inspect state directly without
-    // re-opening (re-opening would toggle it closed).
-    // "All commits" should no longer be active
     await expect(page.locator('.commit-picker-item[data-commit=""]')).not.toHaveClass(/active/);
-    // The selected commit should be active
-    await expect(page.locator('#commitDropdownList .commit-picker-item.active')).toHaveCount(1);
+    await expect(page.locator('#commitDropdownList .commit-picker-item.is-from')).toHaveCount(1);
   });
 
-  // ===== Multi-select behavior =====
-
-  test('checking two commits shows "2 commits" label and sends a range param', async ({ page }) => {
+  test('alt+click sets through pin and sends a range param', async ({ page }) => {
     await openCommitPicker(page);
 
     const commits = page.locator('#commitDropdownList .commit-picker-item');
     await expect(commits).toHaveCount(2);
 
-    // Select the first commit (single — full SHA param).
+    // List is newest-first; pick older commit as from, newer as through.
     const firstResponse = page.waitForResponse(r => r.url().includes('/api/session'));
-    await commits.nth(0).click();
+    await commits.nth(1).click();
     await firstResponse;
-    await expect(page.locator('#commitDropdownLabel')).not.toHaveText('All commits');
 
-    // Selecting the second commit derives a git range — the commit param
-    // must contain "..".
     const rangeRequest = page.waitForRequest(
       r => r.url().includes('/api/session') && /[?&]commit=[^&]*\.\.[^&]*/.test(r.url())
     );
-    await commits.nth(1).click();
+    await commits.nth(0).click({ modifiers: ['Alt'] });
     await rangeRequest;
 
-    await expect(page.locator('#commitDropdownLabel')).toHaveText('2 commits');
+    await expect(page.locator('#commitDropdownLabel')).toContainText('\u2192');
+    await expect(commits.nth(1)).toHaveClass(/is-from/);
+    await expect(commits.nth(0)).toHaveClass(/is-through/);
   });
 
-  test('both checkboxes are checked when two commits selected', async ({ page }) => {
+  test('alt+click through again clears the through pin', async ({ page }) => {
     await openCommitPicker(page);
 
     const commits = page.locator('#commitDropdownList .commit-picker-item');
     await expect(commits).toHaveCount(2);
 
     const firstResponse = page.waitForResponse(r => r.url().includes('/api/session'));
-    await commits.nth(0).click();
+    await commits.nth(1).click();
     await firstResponse;
 
-    const secondResponse = page.waitForResponse(r => r.url().includes('/api/session'));
-    await commits.nth(1).click();
-    await secondResponse;
+    const rangeResponse = page.waitForResponse(r => r.url().includes('/api/session'));
+    await commits.nth(0).click({ modifiers: ['Alt'] });
+    await rangeResponse;
+    await expect(page.locator('#commitDropdownLabel')).toContainText('\u2192');
 
-    await expect(
-      page.locator('#commitDropdownList .commit-picker-item input.commit-picker-item-check:checked')
-    ).toHaveCount(2);
-    await expect(page.locator('#commitDropdownList .commit-picker-item.active')).toHaveCount(2);
+    const clearThroughResponse = page.waitForResponse(r => r.url().includes('/api/session'));
+    await commits.nth(0).click({ modifiers: ['Alt'] });
+    await clearThroughResponse;
+
+    await expect(page.locator('#commitDropdownLabel')).toContainText('only');
+    await expect(page.locator('#commitDropdownList .commit-picker-item.is-through')).toHaveCount(0);
   });
 
-  test('unchecking returns toward fewer commits', async ({ page }) => {
+  test('"All commits" row clears from/through pins', async ({ page }) => {
     await openCommitPicker(page);
 
     const commits = page.locator('#commitDropdownList .commit-picker-item');
     await expect(commits).toHaveCount(2);
 
     const firstResponse = page.waitForResponse(r => r.url().includes('/api/session'));
-    await commits.nth(0).click();
+    await commits.nth(1).click();
     await firstResponse;
 
-    const secondResponse = page.waitForResponse(r => r.url().includes('/api/session'));
-    await commits.nth(1).click();
-    await secondResponse;
-    await expect(page.locator('#commitDropdownLabel')).toHaveText('2 commits');
+    const rangeResponse = page.waitForResponse(r => r.url().includes('/api/session'));
+    await commits.nth(0).click({ modifiers: ['Alt'] });
+    await rangeResponse;
 
-    // Uncheck the second commit — back down to a single-commit selection.
-    const uncheckResponse = page.waitForResponse(r => r.url().includes('/api/session'));
-    await commits.nth(1).click();
-    await uncheckResponse;
-
-    // One commit remains, so label is a single-commit label (not "All commits"
-    // and not "2 commits").
-    await expect(page.locator('#commitDropdownLabel')).not.toHaveText('All commits');
-    await expect(page.locator('#commitDropdownLabel')).not.toHaveText('2 commits');
-    await expect(
-      page.locator('#commitDropdownList .commit-picker-item input.commit-picker-item-check:checked')
-    ).toHaveCount(1);
-  });
-
-  test('"All commits" row clears a multi-selection', async ({ page }) => {
-    await openCommitPicker(page);
-
-    const commits = page.locator('#commitDropdownList .commit-picker-item');
-    await expect(commits).toHaveCount(2);
-
-    const firstResponse = page.waitForResponse(r => r.url().includes('/api/session'));
-    await commits.nth(0).click();
-    await firstResponse;
-
-    const secondResponse = page.waitForResponse(r => r.url().includes('/api/session'));
-    await commits.nth(1).click();
-    await secondResponse;
-    await expect(page.locator('#commitDropdownLabel')).toHaveText('2 commits');
-
-    // Click "All commits" — clears the entire selection.
     const clearResponse = page.waitForResponse(r => r.url().includes('/api/session'));
     await page.locator('.commit-picker-item[data-commit=""]').click();
     await clearResponse;
 
     await expect(page.locator('#commitDropdownLabel')).toHaveText('All commits');
-    await expect(page.locator('#commitDropdownList .commit-picker-item.active')).toHaveCount(0);
-    await expect(
-      page.locator('#commitDropdownList .commit-picker-item input.commit-picker-item-check:checked')
-    ).toHaveCount(0);
+    await expect(page.locator('#commitDropdownList .commit-picker-item.is-from')).toHaveCount(0);
+    await expect(page.locator('#commitDropdownList .commit-picker-item.is-through')).toHaveCount(0);
   });
 
   test('dropdown stays open across multiple selections', async ({ page }) => {
@@ -310,36 +252,13 @@ test.describe('Commit Selection', () => {
     await expect(commits).toHaveCount(2);
 
     const firstResponse = page.waitForResponse(r => r.url().includes('/api/session'));
-    await commits.nth(0).click();
+    await commits.nth(1).click();
     await firstResponse;
 
     const secondResponse = page.waitForResponse(r => r.url().includes('/api/session'));
-    await commits.nth(1).click();
+    await commits.nth(0).click({ modifiers: ['Alt'] });
     await secondResponse;
 
     await expect(page.locator('#commitDropdown')).toHaveClass(/open/);
-  });
-
-  test('commit checkboxes are accessible and toggle selection on click', async ({ page }) => {
-    await openCommitPicker(page);
-
-    const checks = page.locator('#commitDropdownList .commit-picker-item input.commit-picker-item-check');
-    await expect(checks).toHaveCount(2);
-
-    // Every checkbox exposes an accessible name for keyboard/AT users.
-    const count = await checks.count();
-    for (let i = 0; i < count; i++) {
-      await expect(checks.nth(i)).toHaveAttribute('aria-label', /^Select commit /);
-    }
-
-    // Clicking the input itself toggles the selection (drives the active row),
-    // with no double-toggle.
-    const firstResponse = page.waitForResponse(r => r.url().includes('/api/session'));
-    await checks.first().click();
-    await firstResponse;
-    await expect(page.locator('#commitDropdownList .commit-picker-item.active')).toHaveCount(1);
-    await expect(
-      page.locator('#commitDropdownList .commit-picker-item input.commit-picker-item-check:checked')
-    ).toHaveCount(1);
   });
 });

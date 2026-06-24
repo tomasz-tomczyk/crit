@@ -416,15 +416,13 @@
     document.body.classList.toggle('hide-resolved', hideResolvedState);
   }
 
-  // diffCommit is the DERIVED backend param string (kept so the existing
-  // &commit= append sites and the reloadForScope key work unchanged):
-  //   0 selected      -> ''                  (all commits)
-  //   exactly 1       -> '<full sha>'         (single-commit path)
-  //   2+ selected     -> '<baseSHA>..<headSHA>' (git range)
-  // selectedCommits holds the user-checked full SHAs; diffCommit is recomputed
-  // from it via recomputeDiffCommit() whenever the selection changes.
+  // diffCommit is the DERIVED backend param for /api/session?commit=:
+  //   no pins          -> ''           (full range)
+  //   from only        -> '<sha>'      (single commit)
+  //   from + through   -> '<from>..<through>'
   let diffCommit = '';
-  const selectedCommits = new Set();
+  let commitFrom = '';
+  let commitThrough = '';
   let commitList = [];
   let diffActive = false; // rendered diff view toggle for file mode
 
@@ -946,10 +944,9 @@
       document.getElementById('branchContext').appendChild(branchCopyBtn);
       // Base branch picker: show in git mode when on a feature branch
       if (session.base_ref) {
-        currentBaseBranch = session.base_branch_name || '';
-        document.getElementById('baseBranchLabel').textContent = currentBaseBranch || 'base';
+        currentCompareTarget = session.base_branch_name || '';
+        document.getElementById('baseBranchLabel').textContent = compareTargetChipLabel(currentCompareTarget) || 'base';
         document.getElementById('baseBranchArrow').style.display = '';
-        fetchBranches();
       }
     } else if (session.mode !== 'git' && session.files && session.files.length === 1) {
       document.getElementById('branchContext').style.display = '';
@@ -1031,14 +1028,7 @@
         b.classList.toggle('active', b.dataset.scope === diffScope);
       });
 
-      // Commit dropdown: visible only for all/branch scope in git mode
-      if (diffScope === 'all' || diffScope === 'branch') {
-        fetchCommits();
-      } else {
-        commitDropdownEl.style.display = 'none';
-        selectedCommits.clear();
-        recomputeDiffCommit();
-      }
+      updateCompareAndCommitChrome();
     }
 
     updateHeaderRound();
@@ -6882,8 +6872,7 @@
         }
 
         // Clear commit filter on round-complete
-        selectedCommits.clear();
-        recomputeDiffCommit();
+        clearCommitPins();
 
         // Re-fetch everything on file-changed (round complete)
         const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(r => r.json());
@@ -7376,186 +7365,556 @@
     renderAllFiles();
   });
 
-  // ===== Commit Picker (sidebar dropdown) =====
+  // ===== Compare chrome (target + commit range) =====
   const commitDropdownEl = document.getElementById('commitDropdown');
+  const baseBranchPickerEl = document.getElementById('baseBranchPicker');
+  const baseBranchBtnEl = document.getElementById('baseBranchBtn');
+  const compareTargetTabsEl = document.getElementById('compareTargetTabs');
+  const compareTargetUseCustomEl = document.getElementById('compareTargetUseCustom');
+  const commitClearThroughEl = document.getElementById('commitClearThrough');
 
-  async function fetchCommits() {
-    try {
-      const res = await fetch('/api/commits');
-      if (!res.ok) { commitDropdownEl.style.display = 'none'; return; }
-      commitList = await res.json();
-      if (!commitList || commitList.length < 2) {
-        commitDropdownEl.style.display = 'none';
-        selectedCommits.clear();
-        recomputeDiffCommit();
-        return;
-      }
-      // Drop any selected SHA that's no longer present in the new commit list,
-      // then recompute the derived backend param.
-      const present = new Set(commitList.map(function(c) { return c.sha; }));
-      selectedCommits.forEach(function(sha) {
-        if (!present.has(sha)) selectedCommits.delete(sha);
-      });
-      recomputeDiffCommit();
-      commitDropdownEl.style.display = '';
-      renderCommitPicker();
-    } catch {
-      commitDropdownEl.style.display = 'none';
-    }
+  let compareTargets = { vcs: 'git', detected: '', local: [], remote: [] };
+  let compareTargetTab = 'refs';
+  let currentCompareTarget = '';
+  const compareTargetPicker = { highlightedIdx: -1 };
+  let compareTargetsFetchGen = 0;
+  let commitsFetchGen = 0;
+
+  function sessionInRangeFocus() {
+    return !!(session && session.focus && session.focus.kind === 'range');
   }
 
-  // Recompute the derived diffCommit backend param from selectedCommits.
-  // commitList is newest-first, so the smallest index is the newest (head)
-  // and the largest index is the oldest. For a 2+ range the base is the
-  // PARENT of the oldest selected commit (commitList[oldestIdx + 1].sha) or
-  // session.base_ref when the oldest selected commit is the first commit.
-  // Emits FULL 40-char SHAs (the backend validates hex 4-40): commitList SHAs
-  // come from /api/commits, and session.base_ref is a merge-base SHA — both are
-  // guaranteed present and hex whenever the picker is interactive, because
-  // GetCommits returns nil (→ commitList empty → picker hidden) when base_ref
-  // is unset. The empty-base guard below is belt-and-suspenders for that
-  // invariant: never emit a malformed "..<head>" range that would silently
-  // fall back to the full unscoped diff on the backend.
+  function compareTargetChromeVisible() {
+    if (!session || session.mode !== 'git') return false;
+    if (sessionInRangeFocus()) return false;
+    return diffScope === 'all' || diffScope === 'branch';
+  }
+
+  function commitRangeChromeVisible() {
+    if (!session || session.mode !== 'git') return false;
+    if (diffScope === 'staged' || diffScope === 'unstaged') return false;
+    return true;
+  }
+
+  function looksLikeShaRef(ref) {
+    return /^[0-9a-f]{4,}$/i.test(ref);
+  }
+
+  function compareTargetChipLabel(ref) {
+    if (!ref) return 'base';
+    return looksLikeShaRef(ref) ? ref.slice(0, 7) : ref;
+  }
+
+  function isRevishQuery(q) {
+    const t = q.trim();
+    if (!t) return false;
+    if (/^[0-9a-f]{4,40}$/i.test(t)) return true;
+    if (/^HEAD(?:[~^]\d+)?$/i.test(t)) return true;
+    if (t === '@' || /^@[-a-z0-9]+$/i.test(t)) return true;
+    return false;
+  }
+
+  function commitIndexForSha(sha) {
+    for (let i = 0; i < commitList.length; i++) {
+      if (commitList[i].sha === sha) return i;
+    }
+    return -1;
+  }
+
+  function normalizeCommitPins() {
+    if (commitFrom && commitThrough && commitFrom === commitThrough) {
+      commitThrough = '';
+    }
+    if (commitFrom && commitThrough) {
+      const fromIdx = commitIndexForSha(commitFrom);
+      const throughIdx = commitIndexForSha(commitThrough);
+      if (fromIdx >= 0 && throughIdx >= 0 && fromIdx < throughIdx) {
+        const tmp = commitFrom;
+        commitFrom = commitThrough;
+        commitThrough = tmp;
+      }
+    }
+    const present = new Set(commitList.map(function(c) { return c.sha; }));
+    if (commitFrom && !present.has(commitFrom)) commitFrom = '';
+    if (commitThrough && !present.has(commitThrough)) commitThrough = '';
+    if (!commitFrom) commitThrough = '';
+  }
+
   function recomputeDiffCommit() {
-    if (selectedCommits.size === 0) {
+    normalizeCommitPins();
+    if (!commitFrom && !commitThrough) {
       diffCommit = '';
       return;
     }
-    if (selectedCommits.size === 1) {
-      diffCommit = selectedCommits.values().next().value;
+    if (commitFrom && !commitThrough) {
+      diffCommit = commitFrom;
       return;
     }
-    let newestIdx = Infinity;
-    let oldestIdx = -1;
-    commitList.forEach(function(c, i) {
-      if (selectedCommits.has(c.sha)) {
-        if (i < newestIdx) newestIdx = i;
-        if (i > oldestIdx) oldestIdx = i;
+    if (commitFrom && commitThrough) {
+      diffCommit = commitFrom + '..' + commitThrough;
+      return;
+    }
+    diffCommit = '';
+  }
+
+  function clearCommitPins() {
+    commitFrom = '';
+    commitThrough = '';
+    recomputeDiffCommit();
+  }
+
+  function updateCompareAndCommitChrome() {
+    if (compareTargetChromeVisible()) {
+      fetchCompareTargets();
+    } else if (baseBranchPickerEl) {
+      baseBranchPickerEl.classList.remove('open');
+      baseBranchPickerEl.style.display = 'none';
+      if (baseBranchArrowEl) baseBranchArrowEl.style.display = 'none';
+    }
+    if (commitRangeChromeVisible()) {
+      fetchCommits();
+    } else if (commitDropdownEl) {
+      commitDropdownEl.style.display = 'none';
+      clearCommitPins();
+    }
+  }
+
+  async function fetchCommits() {
+    if (!commitRangeChromeVisible()) {
+      if (commitDropdownEl) commitDropdownEl.style.display = 'none';
+      return;
+    }
+    const gen = ++commitsFetchGen;
+    try {
+      const res = await fetch('/api/commits');
+      if (gen !== commitsFetchGen || !commitRangeChromeVisible()) return;
+      if (!res.ok) {
+        commitDropdownEl.style.display = 'none';
+        return;
       }
-    });
-    const head = commitList[newestIdx].sha;
-    const base = commitList[oldestIdx + 1]
-      ? commitList[oldestIdx + 1].sha
-      : (session.base_ref || '');
-    // Defensive: if base is somehow unavailable, fall back to the newest
-    // selected commit alone rather than a broken range.
-    diffCommit = base ? base + '..' + head : head;
+      commitList = await res.json();
+      if (gen !== commitsFetchGen || !commitRangeChromeVisible()) return;
+      if (!commitList || commitList.length < 2) {
+        commitDropdownEl.style.display = 'none';
+        const prevDiffCommit = diffCommit;
+        clearCommitPins();
+        if (diffCommit !== prevDiffCommit) reloadForScope();
+        return;
+      }
+      const prevDiffCommit = diffCommit;
+      normalizeCommitPins();
+      recomputeDiffCommit();
+      if (gen !== commitsFetchGen || !commitRangeChromeVisible()) return;
+      commitDropdownEl.style.display = '';
+      renderCommitPicker();
+      if (diffCommit !== prevDiffCommit) reloadForScope();
+    } catch {
+      if (gen !== commitsFetchGen) return;
+      commitDropdownEl.style.display = 'none';
+    }
   }
 
   function renderCommitPicker() {
     const list = document.getElementById('commitDropdownList');
     const allItem = document.querySelector('.commit-picker-item[data-commit=""]');
     const label = document.getElementById('commitDropdownLabel');
+    const clearThroughBtn = commitClearThroughEl;
 
-    // Compute the contiguous in-range span [newestIdx, oldestIdx] so commits
-    // between two checked commits show an "in range" indicator even when not
-    // themselves checked (the diff includes them).
-    let newestIdx = Infinity;
-    let oldestIdx = -1;
-    if (selectedCommits.size >= 2) {
-      commitList.forEach(function(c, i) {
-        if (selectedCommits.has(c.sha)) {
-          if (i < newestIdx) newestIdx = i;
-          if (i > oldestIdx) oldestIdx = i;
-        }
-      });
-    }
-
-    // "All commits" is active when nothing is checked.
-    if (selectedCommits.size === 0) {
+    if (!commitFrom && !commitThrough) {
       if (allItem) allItem.classList.add('active');
       if (label) label.textContent = 'All commits';
     } else {
       if (allItem) allItem.classList.remove('active');
-      if (selectedCommits.size === 1) {
-        const sel = commitList.find(function(c) { return selectedCommits.has(c.sha); });
-        if (sel && label) label.textContent = sel.short_sha + ' ' + (sel.message.length > 30 ? sel.message.slice(0, 30) + '\u2026' : sel.message);
-      } else if (label) {
-        // The diff spans the whole contiguous range, so count commits in the
-        // span (oldestIdx - newestIdx + 1) \u2014 not just the checked ones \u2014 so the
-        // label stays honest when in-between commits are included.
-        const spanCount = oldestIdx - newestIdx + 1;
-        label.textContent = spanCount + ' commits';
+      if (label) {
+        if (commitFrom && !commitThrough) {
+          const sel = commitList.find(function(c) { return c.sha === commitFrom; });
+          label.textContent = sel
+            ? sel.short_sha + ' only'
+            : compareTargetChipLabel(commitFrom) + ' only';
+        } else if (commitFrom && commitThrough) {
+          const a = commitList.find(function(c) { return c.sha === commitFrom; });
+          const b = commitList.find(function(c) { return c.sha === commitThrough; });
+          const aLabel = a ? a.short_sha : compareTargetChipLabel(commitFrom);
+          const bLabel = b ? b.short_sha : compareTargetChipLabel(commitThrough);
+          label.textContent = aLabel + ' \u2192 ' + bLabel;
+        }
       }
     }
 
-    list.innerHTML = commitList.map(function(c, i) {
-      const checked = selectedCommits.has(c.sha);
-      const inRange = !checked && i > newestIdx && i < oldestIdx;
-      const cls = 'commit-picker-item' + (checked ? ' active' : '') + (inRange ? ' in-range' : '');
+    if (clearThroughBtn) {
+      clearThroughBtn.style.display = commitThrough ? '' : 'none';
+    }
+
+    list.innerHTML = commitList.map(function(c) {
+      const isFrom = c.sha === commitFrom;
+      const isThrough = c.sha === commitThrough;
+      let cls = 'commit-picker-item';
+      if (isFrom) cls += ' is-from';
+      if (isThrough) cls += ' is-through';
       const time = c.date ? '<span class="commit-picker-item-time">' + relativeTime(c.date) + '</span>' : '';
-      const rangeHint = inRange ? '<span class="commit-picker-item-range">in range</span>' : '';
-      return '<div class="' + cls + '" data-commit="' + c.sha + '">'
-        + '<input type="checkbox" class="commit-picker-item-check"' + (checked ? ' checked' : '')
-        + ' aria-label="Select commit ' + escapeHtml(c.short_sha) + '">'
+      const fromPin = isFrom ? '<span class="commit-pin-from">from</span>' : '';
+      const throughPin = isThrough ? '<span class="commit-pin-through">through</span>' : '';
+      return '<div class="' + cls + '" data-commit="' + c.sha + '" role="button" tabindex="0">'
+        + fromPin + throughPin
         + '<span class="commit-picker-item-sha">' + escapeHtml(c.short_sha) + '</span>'
         + '<span class="commit-picker-item-msg">' + escapeHtml(c.message.length > 40 ? c.message.slice(0, 40) + '\u2026' : c.message) + '</span>'
-        + rangeHint
         + time
         + '</div>';
     }).join('');
   }
 
-  // Toggle dropdown open/close
   document.getElementById('commitDropdownBtn').addEventListener('click', function() {
     commitDropdownEl.classList.toggle('open');
   });
 
-  // Close on outside click
   document.addEventListener('click', function(e) {
-    if (!commitDropdownEl.contains(e.target)) {
+    if (commitDropdownEl && !commitDropdownEl.contains(e.target)) {
       commitDropdownEl.classList.remove('open');
     }
   });
 
-  // Close on Escape (only when open)
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && commitDropdownEl.classList.contains('open')) {
+    if (e.key === 'Escape' && commitDropdownEl && commitDropdownEl.classList.contains('open')) {
       commitDropdownEl.classList.remove('open');
       e.stopImmediatePropagation();
     }
   });
 
-  // Item selection (delegate from dropdown menu). Multi-select: clicking a row
-  // toggles its checkbox and keeps the dropdown OPEN. Clicking the checkbox
-  // directly is handled by the same path (we drive the Set, not the input's
-  // own checked state) so there's no double-toggle. The "All commits" row
-  // (data-commit="") clears the entire selection.
   document.getElementById('commitDropdownMenu').addEventListener('click', function(e) {
+    if (e.target.closest('#commitClearThrough')) {
+      e.stopPropagation();
+      const prev = diffCommit;
+      commitThrough = '';
+      recomputeDiffCommit();
+      renderCommitPicker();
+      if (diffCommit !== prev) reloadForScope();
+      return;
+    }
     const item = e.target.closest('.commit-picker-item');
     if (!item) return;
-    // renderCommitPicker() below replaces #commitDropdownList's innerHTML,
-    // orphaning the clicked node. Without this, the click bubbles to the
-    // document outside-click handler, where commitDropdownEl.contains(e.target)
-    // is false for the now-detached node and the dropdown closes — defeating
-    // multi-select stay-open. Stop propagation so the menu owns this click.
     e.stopPropagation();
     const sha = item.dataset.commit;
     const prevDiffCommit = diffCommit;
     if (sha === '') {
-      selectedCommits.clear();
-    } else if (selectedCommits.has(sha)) {
-      selectedCommits.delete(sha);
+      clearCommitPins();
+    } else if (e.altKey) {
+      if (commitThrough === sha) {
+        commitThrough = '';
+      } else {
+        commitThrough = sha;
+        if (!commitFrom) commitFrom = sha;
+      }
+    } else if (commitFrom === sha && !commitThrough) {
+      commitFrom = '';
+    } else if (commitFrom === sha) {
+      commitFrom = commitThrough || '';
+      commitThrough = '';
     } else {
-      selectedCommits.add(sha);
+      commitFrom = sha;
     }
     recomputeDiffCommit();
     renderCommitPicker();
-    // Only reload if the derived range actually changed (e.g. checking a commit
-    // already inside the in-range span doesn't change the diff).
     if (diffCommit !== prevDiffCommit) reloadForScope();
   });
 
-  // The "All commits" row (data-commit="") has no focusable child — unlike the
-  // dynamic commit rows, whose checkbox is keyboard-operable — so it carries
-  // role="button" tabindex="0". Route Enter/Space through the same click path
-  // so clearing the selection is keyboard-reachable.
   document.getElementById('commitDropdownMenu').addEventListener('keydown', function(e) {
     if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
-    const item = e.target.closest('.commit-picker-item[data-commit=""]');
+    const item = e.target.closest('.commit-picker-item');
     if (!item) return;
     e.preventDefault();
-    item.click();
+    if (e.altKey) {
+      item.dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true }));
+    } else {
+      item.click();
+    }
+  });
+
+  if (commitClearThroughEl) {
+    commitClearThroughEl.addEventListener('click', function(e) {
+      e.stopPropagation();
+    });
+  }
+
+  async function fetchCompareTargets() {
+    if (!compareTargetChromeVisible()) return;
+    const gen = ++compareTargetsFetchGen;
+    try {
+      const res = await fetch('/api/branches');
+      if (gen !== compareTargetsFetchGen || !compareTargetChromeVisible()) return;
+      if (!res.ok) return;
+      let parsed = await res.json();
+      if (parsed === null || parsed === undefined) {
+        parsed = { vcs: 'git', detected: '', local: [], remote: [] };
+      }
+      if (gen !== compareTargetsFetchGen || !compareTargetChromeVisible()) return;
+      if (Array.isArray(parsed)) {
+        compareTargets = { vcs: 'git', detected: currentCompareTarget, local: [], remote: parsed };
+      } else {
+        compareTargets = {
+          vcs: parsed.vcs || 'git',
+          detected: parsed.detected || '',
+          local: Array.isArray(parsed.local) ? parsed.local : [],
+          remote: Array.isArray(parsed.remote) ? parsed.remote : [],
+        };
+      }
+      if (gen !== compareTargetsFetchGen || !compareTargetChromeVisible()) return;
+      const hasTargets = compareTargets.local.length + compareTargets.remote.length > 0;
+      baseBranchPickerEl.style.display = '';
+      if (baseBranchArrowEl && !sessionInRangeFocus()) baseBranchArrowEl.style.display = '';
+      if (!hasTargets && compareTargetTabsEl) {
+        compareTargetTab = 'refs';
+      }
+      renderCompareTargetList(document.getElementById('baseBranchSearch').value);
+    } catch {
+      if (gen !== compareTargetsFetchGen) return;
+      baseBranchPickerEl.classList.remove('open');
+      baseBranchPickerEl.style.display = 'none';
+      if (baseBranchArrowEl) baseBranchArrowEl.style.display = 'none';
+    }
+  }
+
+  function compareTargetGroupLabel(kind) {
+    if (compareTargets.vcs === 'jj') {
+      return kind === 'local' ? 'Bookmarks' : 'Remote bookmarks';
+    }
+    return kind === 'local' ? 'Local' : 'Remote';
+  }
+
+  function getCompareTargetVisibleItems() {
+    return Array.from(document.getElementById('baseBranchList').querySelectorAll('.base-branch-item'));
+  }
+
+  function updateCompareTargetHighlight() {
+    const items = getCompareTargetVisibleItems();
+    items.forEach(function(el, i) {
+      el.classList.toggle('highlighted', i === compareTargetPicker.highlightedIdx);
+    });
+    if (compareTargetPicker.highlightedIdx >= 0 && compareTargetPicker.highlightedIdx < items.length) {
+      items[compareTargetPicker.highlightedIdx].scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function renderCompareTargetList(filter) {
+    const list = document.getElementById('baseBranchList');
+    const q = (filter || '').trim();
+    const lower = q.toLowerCase();
+
+    if (compareTargetTabsEl) {
+      compareTargetTabsEl.style.display = compareTargetTab === 'commits' ? '' : '';
+    }
+
+    if (compareTargetTab === 'commits') {
+      let commits = commitList;
+      if (lower) {
+        commits = commitList.filter(function(c) {
+          return c.short_sha.toLowerCase().indexOf(lower) !== -1
+            || c.sha.toLowerCase().indexOf(lower) === 0
+            || c.message.toLowerCase().indexOf(lower) !== -1;
+        });
+      }
+      if (commits.length === 0) {
+        list.innerHTML = '<div style="padding: 8px 10px; font-size: 12px; color: var(--crit-editor-fg-muted);">No matching commits</div>';
+      } else {
+        list.innerHTML = commits.map(function(c) {
+          const active = c.sha === currentCompareTarget ? ' active' : '';
+          return '<div class="base-branch-item' + active + '" data-branch="' + escapeHtml(c.sha) + '">'
+            + '<span class="commit-picker-item-sha">' + escapeHtml(c.short_sha) + '</span> '
+            + escapeHtml(c.message.length > 36 ? c.message.slice(0, 36) + '\u2026' : c.message)
+            + '</div>';
+        }).join('');
+      }
+      compareTargetPicker.highlightedIdx = -1;
+      updateCompareTargetUseCustom(q);
+      return;
+    }
+
+    function filterRefs(refs) {
+      if (!lower) return refs;
+      return refs.filter(function(r) { return r.toLowerCase().indexOf(lower) !== -1; });
+    }
+
+    const parts = [];
+    [['local', filterRefs(compareTargets.local)], ['remote', filterRefs(compareTargets.remote)]].forEach(function(pair) {
+      const kind = pair[0];
+      const refs = pair[1];
+      if (refs.length === 0) return;
+      parts.push('<div class="compare-target-group-label">' + escapeHtml(compareTargetGroupLabel(kind)) + '</div>');
+      refs.forEach(function(ref) {
+        const active = ref === currentCompareTarget ? ' active' : '';
+        const detected = ref === compareTargets.detected ? '<span class="compare-target-detected">detected</span>' : '';
+        parts.push('<div class="base-branch-item' + active + '" data-branch="' + escapeHtml(ref) + '">'
+          + escapeHtml(ref) + detected + '</div>');
+      });
+    });
+
+    if (parts.length === 0 && !isRevishQuery(q)) {
+      list.innerHTML = '<div style="padding: 8px 10px; font-size: 12px; color: var(--crit-editor-fg-muted);">No matching refs</div>';
+    } else {
+      list.innerHTML = parts.join('');
+    }
+    compareTargetPicker.highlightedIdx = -1;
+    updateCompareTargetUseCustom(q);
+  }
+
+  function updateCompareTargetUseCustom(q) {
+    if (!compareTargetUseCustomEl) return;
+    const trimmed = (q || '').trim();
+    if (!trimmed || !isRevishQuery(trimmed)) {
+      compareTargetUseCustomEl.style.display = 'none';
+      compareTargetUseCustomEl.innerHTML = '';
+      return;
+    }
+    const inList = compareTargets.local.indexOf(trimmed) !== -1
+      || compareTargets.remote.indexOf(trimmed) !== -1
+      || commitList.some(function(c) { return c.sha === trimmed || c.short_sha === trimmed; });
+    if (inList) {
+      compareTargetUseCustomEl.style.display = 'none';
+      compareTargetUseCustomEl.innerHTML = '';
+      return;
+    }
+    compareTargetUseCustomEl.style.display = '';
+    compareTargetUseCustomEl.innerHTML =
+      '<button type="button" data-rev="' + escapeHtml(trimmed) + '">Use <span style="font-family:var(--crit-mono,monospace)">' + escapeHtml(trimmed) + '</span> as base</button>';
+  }
+
+  async function selectCompareTarget(ref) {
+    if (ref === currentCompareTarget) {
+      baseBranchPickerEl.classList.remove('open');
+      baseBranchBtnEl.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    baseBranchPickerEl.classList.remove('open');
+    baseBranchBtnEl.setAttribute('aria-expanded', 'false');
+    const previous = currentCompareTarget;
+    const previousLabel = document.getElementById('baseBranchLabel').textContent;
+    currentCompareTarget = ref;
+    document.getElementById('baseBranchLabel').textContent = compareTargetChipLabel(ref);
+    try {
+      const res = await fetch('/api/base-branch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ref: ref }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error('Failed to change compare target:', errText);
+        currentCompareTarget = previous;
+        document.getElementById('baseBranchLabel').textContent = previousLabel;
+        return;
+      }
+      clearCommitPins();
+      await reloadForScope();
+      fetchCommits();
+    } catch (err) {
+      console.error('Error changing compare target:', err);
+      currentCompareTarget = previous;
+      document.getElementById('baseBranchLabel').textContent = previousLabel;
+    }
+  }
+
+  if (compareTargetTabsEl) {
+    compareTargetTabsEl.addEventListener('click', function(e) {
+      const tab = e.target.closest('.compare-target-tab');
+      if (!tab) return;
+      compareTargetTab = tab.dataset.tab || 'refs';
+      compareTargetTabsEl.querySelectorAll('.compare-target-tab').forEach(function(btn) {
+        btn.classList.toggle('active', btn === tab);
+      });
+      if (compareTargetTab === 'commits' && commitList.length === 0) fetchCommits();
+      renderCompareTargetList(document.getElementById('baseBranchSearch').value);
+    });
+  }
+
+  if (compareTargetUseCustomEl) {
+    compareTargetUseCustomEl.addEventListener('click', function(e) {
+      const btn = e.target.closest('button[data-rev]');
+      if (!btn) return;
+      selectCompareTarget(btn.getAttribute('data-rev'));
+    });
+  }
+
+  document.getElementById('baseBranchBtn').addEventListener('click', function() {
+    baseBranchPickerEl.classList.toggle('open');
+    const isOpen = baseBranchPickerEl.classList.contains('open');
+    baseBranchBtnEl.setAttribute('aria-expanded', String(isOpen));
+    if (isOpen) {
+      const search = document.getElementById('baseBranchSearch');
+      search.value = '';
+      compareTargetTab = 'refs';
+      if (compareTargetTabsEl) {
+        compareTargetTabsEl.querySelectorAll('.compare-target-tab').forEach(function(btn) {
+          btn.classList.toggle('active', btn.dataset.tab === 'refs');
+        });
+      }
+      compareTargetPicker.highlightedIdx = -1;
+      if (commitList.length === 0) fetchCommits();
+      renderCompareTargetList();
+      search.focus();
+    }
+  });
+
+  document.getElementById('baseBranchSearch').addEventListener('input', function(e) {
+    if (isRevishQuery(e.target.value) && compareTargetTab !== 'commits') {
+      compareTargetTab = 'commits';
+      if (compareTargetTabsEl) {
+        compareTargetTabsEl.querySelectorAll('.compare-target-tab').forEach(function(btn) {
+          btn.classList.toggle('active', btn.dataset.tab === 'commits');
+        });
+      }
+    }
+    renderCompareTargetList(e.target.value);
+  });
+
+  document.getElementById('baseBranchSearch').addEventListener('keydown', function(e) {
+    e.stopPropagation();
+    const items = getCompareTargetVisibleItems();
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      compareTargetPicker.highlightedIdx = Math.min(compareTargetPicker.highlightedIdx + 1, items.length - 1);
+      updateCompareTargetHighlight();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (compareTargetPicker.highlightedIdx > 0) {
+        compareTargetPicker.highlightedIdx--;
+        updateCompareTargetHighlight();
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const customBtn = compareTargetUseCustomEl && compareTargetUseCustomEl.querySelector('button[data-rev]');
+      if (customBtn) {
+        selectCompareTarget(customBtn.getAttribute('data-rev'));
+        return;
+      }
+      if (compareTargetPicker.highlightedIdx >= 0 && compareTargetPicker.highlightedIdx < items.length) {
+        const ref = items[compareTargetPicker.highlightedIdx].dataset.branch;
+        if (ref) selectCompareTarget(ref);
+      }
+    } else if (e.key === 'Escape') {
+      baseBranchPickerEl.classList.remove('open');
+      baseBranchBtnEl.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  document.addEventListener('click', function(e) {
+    if (baseBranchPickerEl && !baseBranchPickerEl.contains(e.target)) {
+      baseBranchPickerEl.classList.remove('open');
+      baseBranchBtnEl.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && baseBranchPickerEl && baseBranchPickerEl.classList.contains('open')) {
+      baseBranchPickerEl.classList.remove('open');
+      baseBranchBtnEl.setAttribute('aria-expanded', 'false');
+      e.stopImmediatePropagation();
+    }
+  });
+
+  document.getElementById('baseBranchList').addEventListener('click', function(e) {
+    const item = e.target.closest('.base-branch-item');
+    if (!item) return;
+    const ref = item.dataset.branch;
+    if (ref) selectCompareTarget(ref);
   });
 
   // ===== Scope Toggle (All / Branch / Staged / Unstaged) =====
@@ -7567,15 +7926,12 @@
     navCommentId = null;
     setSetting('diffScope', scope);
     if (scope !== 'all' && scope !== 'branch') {
-      selectedCommits.clear();
-      recomputeDiffCommit();
-      commitDropdownEl.style.display = 'none';
-    } else {
-      fetchCommits();
+      clearCommitPins();
     }
     document.querySelectorAll('#scopeToggle .toggle-btn').forEach(function(b) {
       b.classList.toggle('active', b.dataset.scope === scope);
     });
+    updateCompareAndCommitChrome();
     await reloadForScope();
   });
 
@@ -7614,8 +7970,8 @@
 
         // Update base branch label if it changed
         if (session.base_branch_name) {
-          currentBaseBranch = session.base_branch_name;
-          document.getElementById('baseBranchLabel').textContent = currentBaseBranch;
+          currentCompareTarget = session.base_branch_name;
+          document.getElementById('baseBranchLabel').textContent = compareTargetChipLabel(currentCompareTarget);
         }
 
         if (!session.files || session.files.length === 0) {
@@ -7644,179 +8000,6 @@
     })();
     return reloadInFlight;
   }
-
-  // ===== Base Branch Picker =====
-  const baseBranchPickerEl = document.getElementById('baseBranchPicker');
-  const baseBranchBtnEl = document.getElementById('baseBranchBtn');
-  let baseBranches = [];
-  let currentBaseBranch = ''; // display name of the current base branch
-  const branchPicker = { highlightedIdx: -1 }; // keyboard-highlighted item index
-
-  async function fetchBranches() {
-    try {
-      const res = await fetch('/api/branches');
-      if (!res.ok) return;
-      // /api/branches returns JSON `null` when the repo has no remote
-      // branches (server marshals a nil Go slice as null). Coerce to [] so
-      // every consumer can rely on baseBranches being array-shaped —
-      // applyFocusToHeader reads baseBranches.length unconditionally on
-      // every focus update, and a null here threw a TypeError that
-      // short-circuited init's promise chain (which silently skipped the
-      // subsequent `.then(connectSSE)` step, leaving the page without any
-      // SSE listeners attached).
-      const parsed = await res.json();
-      baseBranches = Array.isArray(parsed) ? parsed : [];
-      if (baseBranches.length < 2) {
-        baseBranchPickerEl.classList.remove('open');
-        baseBranchPickerEl.style.display = 'none';
-        if (baseBranchArrowEl) baseBranchArrowEl.style.display = 'none';
-        return;
-      }
-      baseBranchPickerEl.style.display = '';
-      renderBaseBranchList();
-    } catch {
-      baseBranchPickerEl.classList.remove('open');
-      baseBranchPickerEl.style.display = 'none';
-      if (baseBranchArrowEl) baseBranchArrowEl.style.display = 'none';
-    }
-  }
-
-  function getVisibleItems() {
-    return Array.from(document.getElementById('baseBranchList').querySelectorAll('.base-branch-item'));
-  }
-
-  function updateHighlight() {
-    const items = getVisibleItems();
-    items.forEach(function(el, i) {
-      el.classList.toggle('highlighted', i === branchPicker.highlightedIdx);
-    });
-    if (branchPicker.highlightedIdx >= 0 && branchPicker.highlightedIdx < items.length) {
-      items[branchPicker.highlightedIdx].scrollIntoView({ block: 'nearest' });
-    }
-  }
-
-  function renderBaseBranchList(filter) {
-    const list = document.getElementById('baseBranchList');
-    let filtered = baseBranches;
-    if (filter) {
-      const lower = filter.toLowerCase();
-      filtered = baseBranches.filter(function(b) { return b.toLowerCase().indexOf(lower) !== -1; });
-    }
-    list.innerHTML = filtered.map(function(b) {
-      const active = b === currentBaseBranch ? ' active' : '';
-      return '<div class="base-branch-item' + active + '" data-branch="' + escapeHtml(b) + '">' + escapeHtml(b) + '</div>';
-    }).join('');
-    if (filtered.length === 0) {
-      list.innerHTML = '<div style="padding: 8px 10px; font-size: 12px; color: var(--crit-editor-fg-muted);">No matching branches</div>';
-    }
-    branchPicker.highlightedIdx = -1;
-  }
-
-  async function selectBaseBranch(branch) {
-    if (branch === currentBaseBranch) {
-      baseBranchPickerEl.classList.remove('open');
-      baseBranchBtnEl.setAttribute('aria-expanded', 'false');
-      return;
-    }
-    baseBranchPickerEl.classList.remove('open');
-    baseBranchBtnEl.setAttribute('aria-expanded', 'false');
-    const previousBranch = currentBaseBranch;
-    const previousLabel = document.getElementById('baseBranchLabel').textContent;
-    document.getElementById('baseBranchLabel').textContent = branch;
-    currentBaseBranch = branch;
-    try {
-      const res = await fetch('/api/base-branch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ branch: branch }),
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        console.error('Failed to change base branch:', errText);
-        currentBaseBranch = previousBranch;
-        document.getElementById('baseBranchLabel').textContent = previousLabel;
-        return;
-      }
-      // Reload immediately for responsiveness; SSE 'base-changed' will also
-      // call reloadForScope() but the dedup guard collapses double-calls.
-      await reloadForScope();
-      fetchCommits();
-    } catch (err) {
-      console.error('Error changing base branch:', err);
-      currentBaseBranch = previousBranch;
-      document.getElementById('baseBranchLabel').textContent = previousLabel;
-    }
-  }
-
-  // Toggle dropdown
-  document.getElementById('baseBranchBtn').addEventListener('click', function() {
-    baseBranchPickerEl.classList.toggle('open');
-    const isOpen = baseBranchPickerEl.classList.contains('open');
-    baseBranchBtnEl.setAttribute('aria-expanded', String(isOpen));
-    if (isOpen) {
-      const search = document.getElementById('baseBranchSearch');
-      search.value = '';
-      branchPicker.highlightedIdx = -1;
-      renderBaseBranchList();
-      search.focus();
-    }
-  });
-
-  // Filter on typing
-  document.getElementById('baseBranchSearch').addEventListener('input', function(e) {
-    renderBaseBranchList(e.target.value);
-  });
-
-  // Keyboard navigation in search input
-  document.getElementById('baseBranchSearch').addEventListener('keydown', function(e) {
-    e.stopPropagation();
-    const items = getVisibleItems();
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      branchPicker.highlightedIdx = Math.min(branchPicker.highlightedIdx + 1, items.length - 1);
-      updateHighlight();
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (branchPicker.highlightedIdx > 0) {
-        branchPicker.highlightedIdx--;
-        updateHighlight();
-      }
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (branchPicker.highlightedIdx >= 0 && branchPicker.highlightedIdx < items.length) {
-        const branch = items[branchPicker.highlightedIdx].dataset.branch;
-        if (branch) selectBaseBranch(branch);
-      }
-    } else if (e.key === 'Escape') {
-      baseBranchPickerEl.classList.remove('open');
-      baseBranchBtnEl.setAttribute('aria-expanded', 'false');
-    }
-  });
-
-  // Close on outside click
-  document.addEventListener('click', function(e) {
-    if (!baseBranchPickerEl.contains(e.target)) {
-      baseBranchPickerEl.classList.remove('open');
-      baseBranchBtnEl.setAttribute('aria-expanded', 'false');
-    }
-  });
-
-  // Close on Escape (only when open)
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && baseBranchPickerEl.classList.contains('open')) {
-      baseBranchPickerEl.classList.remove('open');
-      baseBranchBtnEl.setAttribute('aria-expanded', 'false');
-      e.stopImmediatePropagation();
-    }
-  });
-
-  // Item selection via click
-  document.getElementById('baseBranchList').addEventListener('click', function(e) {
-    const item = e.target.closest('.base-branch-item');
-    if (!item) return;
-    const branch = item.dataset.branch;
-    if (branch) selectBaseBranch(branch);
-  });
 
   // ===== TOC Toggle =====
   document.getElementById('tocToggle').addEventListener('click', function() {
@@ -8971,23 +9154,8 @@
     renderStackChip(focus, stackCache);
     renderStackChipExit(focus, mode);
     renderResumePill(focus, session && session.last_range_focus, mode);
-    // Base-branch picker is meaningful only in working-tree mode — range
-    // mode pins BaseSHA..HeadSHA and ignores Session.BaseRef entirely, so
-    // changing the base branch would be a no-op. Hide it (and its chevron)
-    // when a range focus is active; restore visibility otherwise, but only
-    // if there's actually more than one branch to choose from (the
-    // fetchBranches path already enforces that on initial load).
     const inRange = focus && focus.kind === 'range';
-    if (baseBranchPickerEl) {
-      if (inRange) {
-        baseBranchPickerEl.classList.remove('open');
-        baseBranchPickerEl.style.display = 'none';
-        if (baseBranchArrowEl) baseBranchArrowEl.style.display = 'none';
-      } else if (Array.isArray(baseBranches) && baseBranches.length >= 2) {
-        baseBranchPickerEl.style.display = '';
-        if (baseBranchArrowEl) baseBranchArrowEl.style.display = '';
-      }
-    }
+    updateCompareAndCommitChrome();
     // Toggle compare-rail mode class — drives the segmented-composite
     // visual merge of branch chip + stack chip in stack mode.
     if (compareRailEl) compareRailEl.classList.toggle('is-stack', !!inRange);
