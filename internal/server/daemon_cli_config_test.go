@@ -497,6 +497,27 @@ func TestParseDaemonFlags_Session(t *testing.T) {
 	}
 }
 
+func TestResolveDaemonCLIConfig_SessionID(t *testing.T) {
+	defer resetBranchOverride(t)
+	vcs.SetDefaultBranchOverride("")
+
+	dir := t.TempDir()
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	sc, err := ResolveDaemonCLIConfig([]string{"--session", "839f3b4cd5d6", "--no-open"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sc.SessionID != "839f3b4cd5d6" {
+		t.Errorf("SessionID = %q", sc.SessionID)
+	}
+}
+
 func TestResolveServerConfig_OutputDir(t *testing.T) {
 	defer resetBranchOverride(t)
 

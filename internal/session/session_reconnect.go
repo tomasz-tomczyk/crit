@@ -10,6 +10,9 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 )
 
+// startDaemonForReconnect is daemon.StartDaemon in production; tests may replace it.
+var startDaemonForReconnect = daemon.StartDaemon
+
 // ReconnectCommand returns the crit CLI command to reconnect to an existing review
 // session. Works from any cwd; use for file, git, live, and preview modes.
 func ReconnectCommand(sessionKey string) string {
@@ -83,7 +86,7 @@ func reconnectDeadSession(key string) (daemon.SessionEntry, error) {
 		return daemon.SessionEntry{}, fmt.Errorf("parsing review for session %s: %w", key, err)
 	}
 	daemonArgs := daemonArgsFromCliArgs(key, cj.CliArgs)
-	entry, err := daemon.StartDaemon(key, daemonArgs)
+	entry, err := startDaemonForReconnect(key, daemonArgs)
 	if err != nil {
 		return daemon.SessionEntry{}, err
 	}

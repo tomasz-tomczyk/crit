@@ -1,6 +1,11 @@
 package session
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -42,6 +47,99 @@ func TestReconnectDeadSession_InvalidJSON(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "parsing review") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReconnectDeadSession_RestartsDaemon(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	key := "839f3b4cd5d6"
+
+	revDir, err := daemon.ReviewFilePath(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cj := CritJSON{CliArgs: []string{"a.md"}}
+	if err := SaveCritJSON(revDir, cj); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := startDaemonForReconnect
+	startDaemonForReconnect = func(gotKey string, args []string) (daemon.SessionEntry, error) {
+		if gotKey != key {
+			t.Fatalf("key = %q, want %q", gotKey, key)
+		}
+		want := []string{"--session-key", key, "--quiet", "a.md"}
+		if len(args) != len(want) {
+			t.Fatalf("args = %v, want %v", args, want)
+		}
+		for i := range want {
+			if args[i] != want[i] {
+				t.Fatalf("args = %v, want %v", args, want)
+			}
+		}
+		return daemon.SessionEntry{PID: 42, Port: 3001}, nil
+	}
+	t.Cleanup(func() { startDaemonForReconnect = orig })
+
+	stderr := captureStderr(t, func() {
+		entry, err := reconnectDeadSession(key)
+		if err != nil {
+			t.Fatalf("reconnectDeadSession: %v", err)
+		}
+		if entry.Port != 3001 {
+			t.Fatalf("port = %d, want 3001", entry.Port)
+		}
+	})
+	if !strings.Contains(stderr, "Restarted crit daemon") {
+		t.Fatalf("stderr = %q, want restart message", stderr)
+	}
+}
+
+func TestRunReview_SessionByID_ReconnectsDeadDaemon(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	key := "839f3b4cd5d6"
+
+	revDir, err := daemon.ReviewFilePath(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveCritJSON(revDir, CritJSON{CliArgs: nil}); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/health":
+			json.NewEncoder(w).Encode(map[string]any{"status": "ok", "browser_clients": true})
+		case "/api/session":
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"mode": "git"})
+		case "/api/review-cycle":
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]any{"approved": false})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
+
+	origStart := startDaemonForReconnect
+	startDaemonForReconnect = func(string, []string) (daemon.SessionEntry, error) {
+		return daemon.SessionEntry{PID: os.Getpid(), Port: port}, nil
+	}
+	t.Cleanup(func() { startDaemonForReconnect = origStart })
+
+	orig := ResolveServerConfigFn
+	t.Cleanup(func() { ResolveServerConfigFn = orig })
+	ResolveServerConfigFn = func(_ []string) (*CLIReviewConfig, error) {
+		return &CLIReviewConfig{SessionID: key, NoOpen: true}, nil
+	}
+
+	if err := RunReview(nil); err != nil {
+		t.Fatalf("RunReview: %v", err)
 	}
 }
 
