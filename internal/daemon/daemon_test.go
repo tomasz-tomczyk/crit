@@ -79,6 +79,24 @@ func TestSessionKey_Length(t *testing.T) {
 	}
 }
 
+func TestValidSessionKey(t *testing.T) {
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		{"839f3b4cd5d6", true},
+		{"ABCDEF123456", false},
+		{"839f3b4cd5d", false},
+		{"839f3b4cd5d6x", false},
+		{"", false},
+	}
+	for _, tc := range tests {
+		if got := ValidSessionKey(tc.key); got != tc.want {
+			t.Errorf("ValidSessionKey(%q) = %v, want %v", tc.key, got, tc.want)
+		}
+	}
+}
+
 func TestSessionEntry_DisplayHost(t *testing.T) {
 	tests := []struct {
 		host string

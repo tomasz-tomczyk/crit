@@ -1,10 +1,49 @@
 package session
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
+
+func TestReconnectDeadSession_MissingReview(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+
+	_, err := reconnectDeadSession("839f3b4cd5d6")
+	if err == nil {
+		t.Fatal("expected error for missing review")
+	}
+	if !strings.Contains(err.Error(), "no review found") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReconnectDeadSession_InvalidJSON(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	key := "839f3b4cd5d6"
+
+	revDir, err := daemon.ReviewFilePath(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	critPath := ReviewPathsFor(revDir).Review
+	if err := ensureReviewFolder(critPath); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, critPath, "not json")
+
+	_, err = reconnectDeadSession(key)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "parsing review") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
 func TestReconnectCommand(t *testing.T) {
 	tests := []struct {
@@ -38,6 +77,13 @@ func TestNextRoundCommand(t *testing.T) {
 	file := &Session{Mode: "files", SessionKey: "839f3b4cd5d6"}
 	if got := NextRoundCommand(file); got != "crit --session 839f3b4cd5d6" {
 		t.Errorf("file NextRoundCommand() = %q", got)
+	}
+	if got := NextRoundCommand(nil); got != "crit" {
+		t.Errorf("nil NextRoundCommand() = %q", got)
+	}
+	planNoSlug := &Session{Mode: "plan", PlanDir: ".", SessionKey: "abc123def456"}
+	if got := NextRoundCommand(planNoSlug); got != "crit --session abc123def456" {
+		t.Errorf("plan without slug NextRoundCommand() = %q", got)
 	}
 }
 
