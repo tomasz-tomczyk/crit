@@ -1,6 +1,9 @@
 package vcs
 
-import "testing"
+import (
+	"os/exec"
+	"testing"
+)
 
 func TestCompareTargetsFor_NilVCS(t *testing.T) {
 	got, err := CompareTargetsFor(nil, "")
@@ -23,13 +26,33 @@ func TestLocalBranches_GitRepo(t *testing.T) {
 	}
 }
 
-func TestJJLocalBookmarks_LocalRepo(t *testing.T) {
-	dir := initTestJJRepoWithLocalMain(t)
-	names, err := JJLocalBookmarks(dir)
+func TestCompareTargetsFor_GitRepo(t *testing.T) {
+	dir := initTestRepo(t)
+	got, err := CompareTargetsFor(&GitVCS{}, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(names) == 0 {
-		t.Fatal("expected main bookmark")
+	if got.VCS != "git" {
+		t.Errorf("VCS = %q, want git", got.VCS)
+	}
+	if len(got.Local) == 0 {
+		t.Error("expected at least one local branch")
+	}
+}
+
+func TestCompareTargetsFor_JJRepo(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not installed")
+	}
+	dir := initTestJJRepoWithLocalMain(t)
+	got, err := CompareTargetsFor(&JJVCS{}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.VCS != "jj" {
+		t.Errorf("VCS = %q, want jj", got.VCS)
+	}
+	if len(got.Local) == 0 {
+		t.Error("expected at least one local bookmark")
 	}
 }
