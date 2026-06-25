@@ -71,10 +71,15 @@ func TestHelperProcess_Help(t *testing.T) {
 	old := os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stderr = w
+	done := make(chan struct{})
+	go func() {
+		io.Copy(&stderr, r)
+		close(done)
+	}()
 	printHelp()
 	w.Close()
+	<-done
 	os.Stderr = old
-	io.Copy(&stderr, r)
 	if !strings.Contains(stderr.String(), "--session") {
 		t.Fatalf("help missing --session:\n%s", stderr.String())
 	}
