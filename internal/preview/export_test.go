@@ -5,7 +5,10 @@ import (
 	"testing"
 )
 
-var connectToPreviewDaemonForTest = connectToPreviewDaemon
+var (
+	connectToPreviewDaemonForTest = connectToPreviewDaemon
+	buildPreviewStartArgsForTest  = buildPreviewStartArgs
+)
 
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()

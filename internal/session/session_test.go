@@ -3285,6 +3285,7 @@ func TestDeleteReviewCommentReply_NotReAddedFromDisk(t *testing.T) {
 		Files:       []*FileEntry{},
 		subscribers: make(map[chan SSEEvent]struct{}),
 	}
+	t.Cleanup(func() { quiesceSession(t, s) })
 
 	// Add review comment with a reply, then write to disk
 	rc := s.AddReviewComment("parent review comment", "", "")
@@ -3302,6 +3303,7 @@ func TestDeleteReviewCommentReply_NotReAddedFromDisk(t *testing.T) {
 	// Write again
 	flushWrites(s)
 	s.WriteFiles()
+	quiesceSession(t, s)
 
 	// Read back .crit.json
 	data, err := os.ReadFile(ReviewPathsFor(s.critJSONPath()).Review)

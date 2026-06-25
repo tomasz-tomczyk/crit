@@ -19,6 +19,8 @@ func TestNormalizePublicURL(t *testing.T) {
 		{"http://localhost:8080", "", true},
 		{"https://user:pass@example.com", "", true},
 		{"https://127.0.0.1", "", true},
+		{"https://[::1]", "", true},
+		{"https://example.com:443/path/", "https://example.com:443/path", false},
 		{"ftp://example.com", "", true},
 		{"not-a-url", "", true},
 	}
@@ -48,6 +50,10 @@ func TestPublicURLHost(t *testing.T) {
 		{"", ""},
 		{"https://mymac.tail-scale.ts.net", "mymac.tail-scale.ts.net"},
 		{"https://mymac.ts.net/design", "mymac.ts.net"},
+		{"https://localhost", ""},
+		{"https://127.0.0.1", ""},
+		{"https://[::1]", ""},
+		{"not-a-url", ""},
 		{"http://localhost:3000", ""},
 	}
 	for _, tt := range tests {
