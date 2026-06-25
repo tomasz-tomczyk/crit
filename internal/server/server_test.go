@@ -181,6 +181,29 @@ func TestHostCheckDefaultWiring(t *testing.T) {
 	}
 }
 
+func TestSetPublicURL(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.SetPublicURL("https://mymac.ts.net/design")
+	s.SetListenHost("127.0.0.1")
+
+	req := httptest.NewRequest("GET", "/api/session", nil)
+	req.Host = "mymac.ts.net"
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+
+	s.SetPublicURL("")
+	req2 := httptest.NewRequest("GET", "/api/session", nil)
+	req2.Host = "mymac.ts.net"
+	w2 := httptest.NewRecorder()
+	s.ServeHTTP(w2, req2)
+	if w2.Code != 403 {
+		t.Errorf("after clearing public URL, status = %d, want 403", w2.Code)
+	}
+}
+
 func TestGetSession_MethodNotAllowed(t *testing.T) {
 	s, _ := newTestServer(t)
 	req := httptest.NewRequest("POST", "/api/session", nil)

@@ -17,6 +17,8 @@ func TestNormalizePublicURL(t *testing.T) {
 		{"https://mymac.ts.net/design", "https://mymac.ts.net/design", false},
 		{"https://mymac.ts.net/design/", "https://mymac.ts.net/design", false},
 		{"http://localhost:8080", "", true},
+		{"https://user:pass@example.com", "", true},
+		{"https://127.0.0.1", "", true},
 		{"ftp://example.com", "", true},
 		{"not-a-url", "", true},
 	}

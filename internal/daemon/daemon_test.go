@@ -150,6 +150,8 @@ func TestAdvertisedURL(t *testing.T) {
 		{"", "127.0.0.1", 3000, "/live", "http://localhost:3000/live"},
 		{"https://mymac.ts.net", "127.0.0.1", 3000, "", "https://mymac.ts.net"},
 		{"https://mymac.ts.net/design", "127.0.0.1", 3000, "/live", "https://mymac.ts.net/design/live"},
+		{"https://mymac.ts.net", "127.0.0.1", 3000, "live", "https://mymac.ts.net/live"},
+		{"", "127.0.0.1", 3000, "live", "http://localhost:3000/live"},
 	}
 	for _, tt := range tests {
 		if got := AdvertisedURL(tt.publicURL, tt.listenHost, tt.port, tt.path); got != tt.want {

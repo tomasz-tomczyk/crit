@@ -248,6 +248,25 @@ func TestBuildPlanDaemonArgs(t *testing.T) {
 	}
 }
 
+func TestBuildPlanDaemonArgs_PublicURL(t *testing.T) {
+	args := BuildPlanDaemonArgs("/tmp/current.md", "/tmp/plans", "slug", PlanDaemonFlags{
+		PublicURL: "https://mymac.ts.net",
+	})
+	want := []string{"--public-url", "https://mymac.ts.net"}
+	for _, w := range want {
+		found := false
+		for _, a := range args {
+			if a == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected %q in daemon args: %v", w, args)
+		}
+	}
+}
+
 func TestApplyPlanOverrides(t *testing.T) {
 	dir := t.TempDir()
 	content := "# My Plan\n\nDo things"
