@@ -3251,9 +3251,9 @@ func TestDeleteReply_NotReAddedFromDisk(t *testing.T) {
 		t.Fatal("DeleteReply failed")
 	}
 
-	// Write again
-	flushWrites(s)
-	s.WriteFiles()
+	if err := s.SyncWriteFiles(); err != nil {
+		t.Fatalf("SyncWriteFiles after delete: %v", err)
+	}
 
 	// Read .crit.json and verify the reply is gone
 	data, err := os.ReadFile(ReviewPathsFor(s.critJSONPath()).Review)
@@ -3293,17 +3293,18 @@ func TestDeleteReviewCommentReply_NotReAddedFromDisk(t *testing.T) {
 	if !ok {
 		t.Fatal("AddReviewCommentReply failed")
 	}
-	s.WriteFiles()
+	if err := s.SyncWriteFiles(); err != nil {
+		t.Fatalf("initial SyncWriteFiles: %v", err)
+	}
 
 	// Delete the reply in-memory
 	if !s.DeleteReviewCommentReply(rc.ID, reply.ID) {
 		t.Fatal("DeleteReviewCommentReply failed")
 	}
 
-	// Write again
-	flushWrites(s)
-	s.WriteFiles()
-	quiesceSession(t, s)
+	if err := s.SyncWriteFiles(); err != nil {
+		t.Fatalf("SyncWriteFiles after delete: %v", err)
+	}
 
 	// Read back .crit.json
 	data, err := os.ReadFile(ReviewPathsFor(s.critJSONPath()).Review)
