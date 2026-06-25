@@ -26,12 +26,24 @@ func TestPrintHelpMentionsSession(t *testing.T) {
 	old := os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stderr = w
+	done := make(chan struct{})
+	go func() {
+		io.Copy(&stderr, r)
+		close(done)
+	}()
 	printHelp()
 	w.Close()
+	<-done
 	os.Stderr = old
-	io.Copy(&stderr, r)
-	if !strings.Contains(stderr.String(), "--session") {
-		t.Fatalf("help missing --session:\n%s", stderr.String())
+	out := stderr.String()
+	if !strings.Contains(out, "--session") {
+		t.Fatalf("help missing --session:\n%s", out)
+	}
+	if !strings.Contains(out, "--public-url") {
+		t.Fatalf("help missing --public-url:\n%s", out)
+	}
+	if !strings.Contains(out, "CRIT_PUBLIC_URL") {
+		t.Fatalf("help missing CRIT_PUBLIC_URL:\n%s", out)
 	}
 }
 

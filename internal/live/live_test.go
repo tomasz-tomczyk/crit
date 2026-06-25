@@ -445,6 +445,7 @@ func TestParseLiveCLIFlags(t *testing.T) {
 	f := parseLiveCLIFlags([]string{
 		"-p", "8080",
 		"--host", "0.0.0.0",
+		"--public-url", "https://mymac.ts.net",
 		"--no-open",
 		"-q",
 		"--share-url", "https://share.example",
@@ -456,7 +457,7 @@ func TestParseLiveCLIFlags(t *testing.T) {
 	if f.origin != "https://example.com/app" {
 		t.Fatalf("origin = %q", f.origin)
 	}
-	if f.port != 8080 || f.host != "0.0.0.0" || !f.noOpen || !f.quiet {
+	if f.port != 8080 || f.host != "0.0.0.0" || f.publicURL != "https://mymac.ts.net" || !f.noOpen || !f.quiet {
 		t.Fatalf("flags = %+v", f)
 	}
 	if f.shareURL != "https://share.example" || f.cookieFile != "/tmp/jar.txt" {
@@ -468,8 +469,8 @@ func TestParseLiveCLIFlags(t *testing.T) {
 }
 
 func TestBuildLiveDaemonArgs(t *testing.T) {
-	f := liveCLIFlags{port: 9000, host: "127.0.0.1", quiet: true}
-	cfg := Config{Port: 3000, Quiet: false}
+	f := liveCLIFlags{port: 9000, host: "127.0.0.1", publicURL: "https://mymac.ts.net", quiet: true}
+	cfg := Config{Port: 3000, Quiet: false, PublicURL: "https://ignored.example.com"}
 
 	withCookie := buildLiveDaemonArgs("http://localhost:3000/dashboard", "sess=abc", f, cfg, true)
 	if !containsArgPair(withCookie, "--live-origin", "http://localhost:3000/dashboard") {
@@ -477,6 +478,9 @@ func TestBuildLiveDaemonArgs(t *testing.T) {
 	}
 	if !containsArgPair(withCookie, "--live-cookie", "sess=abc") {
 		t.Fatalf("missing live-cookie: %v", withCookie)
+	}
+	if !containsArgPair(withCookie, "--public-url", "https://mymac.ts.net") {
+		t.Fatalf("missing public-url: %v", withCookie)
 	}
 	if !containsArgPair(withCookie, "--port", "9000") {
 		t.Fatalf("missing port: %v", withCookie)
@@ -493,6 +497,11 @@ func TestBuildLiveDaemonArgs(t *testing.T) {
 		if a == "--live-cookie" {
 			t.Fatalf("unexpected --live-cookie at %d in %v", i, withoutCookie)
 		}
+	}
+
+	fromCfg := buildLiveDaemonArgs("http://localhost:3000", "", liveCLIFlags{}, Config{PublicURL: "https://cfg.ts.net"}, false)
+	if !containsArgPair(fromCfg, "--public-url", "https://cfg.ts.net") {
+		t.Fatalf("missing config public-url: %v", fromCfg)
 	}
 }
 
