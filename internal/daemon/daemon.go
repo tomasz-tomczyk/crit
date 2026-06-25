@@ -19,11 +19,12 @@ import (
 )
 
 type CommonDaemonFlags struct {
-	Port     int
-	Host     string
-	NoOpen   bool
-	Quiet    bool
-	ShareURL string
+	Port      int
+	Host      string
+	PublicURL string
+	NoOpen    bool
+	Quiet     bool
+	ShareURL  string
 }
 
 func AppendCommonDaemonFlags(args []string, f CommonDaemonFlags) []string {
@@ -32,6 +33,9 @@ func AppendCommonDaemonFlags(args []string, f CommonDaemonFlags) []string {
 	}
 	if f.Host != "" && f.Host != "127.0.0.1" {
 		args = append(args, "--host", f.Host)
+	}
+	if f.PublicURL != "" {
+		args = append(args, "--public-url", f.PublicURL)
 	}
 	if f.NoOpen {
 		args = append(args, "--no-open")
@@ -58,6 +62,7 @@ type SessionEntry struct {
 	PID        int      `json:"pid"`
 	Port       int      `json:"port"`
 	Host       string   `json:"host,omitempty"`
+	PublicURL  string   `json:"public_url,omitempty"`
 	CWD        string   `json:"cwd"`
 	Args       []string `json:"args,omitempty"`
 	Branch     string   `json:"branch"`
@@ -72,9 +77,33 @@ func (e SessionEntry) DisplayHost() string {
 	return HostForDisplay(e.Host)
 }
 
-// baseURL returns the user-facing HTTP base URL (browser, stderr).
+// BaseURL returns the user-facing HTTP base URL (browser, stderr).
 func (e SessionEntry) BaseURL() string {
-	return fmt.Sprintf("http://%s:%d", e.DisplayHost(), e.Port)
+	return AdvertisedURL(e.PublicURL, e.Host, e.Port, "")
+}
+
+// AdvertisedURL builds the URL shown to users and opened in the browser.
+// When publicURL is set it is used as-is (optional path prefix included);
+// otherwise the listen host and port are used.
+func AdvertisedURL(publicURL, listenHost string, port int, path string) string {
+	if publicURL != "" {
+		base := strings.TrimSuffix(publicURL, "/")
+		if path == "" {
+			return base
+		}
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		return base + path
+	}
+	dh := HostForDisplay(listenHost)
+	if path == "" {
+		return fmt.Sprintf("http://%s:%d", dh, port)
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return fmt.Sprintf("http://%s:%d%s", dh, port, path)
 }
 
 // connURL returns the HTTP base URL for internal connectivity (health checks, API calls).

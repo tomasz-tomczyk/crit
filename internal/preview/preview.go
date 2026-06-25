@@ -60,6 +60,7 @@ func RunPreview(args []string) {
 	port := fs.Int("port", 0, "Port to listen on")
 	fs.IntVar(port, "p", 0, "Port (shorthand)")
 	host := fs.String("host", "", "Host to listen on")
+	publicURL := fs.String("public-url", "", "Advertised base URL (overrides CRIT_PUBLIC_URL)")
 	quiet := fs.Bool("quiet", false, "Suppress status output")
 	fs.BoolVar(quiet, "q", false, "Suppress status (shorthand)")
 	shareURL := fs.String("share-url", "", "Share service URL")
@@ -105,11 +106,12 @@ func RunPreview(args []string) {
 
 	daemonArgs := []string{"--preview-file", absPath}
 	daemonArgs = daemon.AppendCommonDaemonFlags(daemonArgs, daemon.CommonDaemonFlags{
-		Port:     config.ResolvePort(*port, cfg.Port),
-		Host:     config.ResolveHost(*host, cfg.Host),
-		NoOpen:   noOpenResolved,
-		Quiet:    *quiet || cfg.Quiet,
-		ShareURL: config.ResolveShareURL(*shareURL, cfg, config.DefaultShareURL),
+		Port:      config.ResolvePort(*port, cfg.Port),
+		Host:      config.ResolveHost(*host, cfg.Host),
+		PublicURL: config.ResolvePublicURL(*publicURL, cfg),
+		NoOpen:    noOpenResolved,
+		Quiet:     *quiet || cfg.Quiet,
+		ShareURL:  config.ResolveShareURL(*shareURL, cfg, config.DefaultShareURL),
 	})
 	entry, err := daemon.StartDaemon(key, daemonArgs)
 	if err != nil {

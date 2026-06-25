@@ -102,6 +102,8 @@ func TestHostCheck(t *testing.T) {
 		{"loopback listen, ::1 bare", "127.0.0.1", "[::1]", 200},
 		{"loopback listen, evil.com", "127.0.0.1", "evil.com", 403},
 		{"loopback listen, evil.com no port", "127.0.0.1", "evil.com:80", 403},
+		{"loopback listen, tailscale host allowed with public URL", "127.0.0.1", "mymac.ts.net", 200},
+		{"loopback listen, tailscale host with port", "127.0.0.1", "mymac.ts.net:443", 200},
 
 		// listenHost is non-loopback (user opted into LAN exposure): no check.
 		{"lan listen, evil.com", "0.0.0.0", "evil.com", 200},
@@ -111,6 +113,9 @@ func TestHostCheck(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s, _ := newTestServer(t)
 			s.SetListenHost(tt.listenHost)
+			if strings.Contains(tt.name, "tailscale") {
+				s.SetPublicURL("https://mymac.ts.net")
+			}
 			req := httptest.NewRequest("GET", "/api/session", nil)
 			if tt.reqHost != "" {
 				req.Host = tt.reqHost

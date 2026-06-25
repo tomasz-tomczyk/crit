@@ -93,11 +93,12 @@ func latestPlanVersion(dir string) int {
 
 // PlanDaemonFlags carries daemon CLI flags for plan-mode spawns.
 type PlanDaemonFlags struct {
-	Port     int
-	Host     string
-	NoOpen   bool
-	Quiet    bool
-	ShareURL string
+	Port      int
+	Host      string
+	PublicURL string
+	NoOpen    bool
+	Quiet     bool
+	ShareURL  string
 }
 
 // BuildPlanDaemonArgs builds daemon argv for plan mode.
@@ -115,6 +116,9 @@ func appendPlanDaemonFlags(args []string, f PlanDaemonFlags) []string {
 	}
 	if f.Host != "" && f.Host != "127.0.0.1" {
 		args = append(args, "--host", f.Host)
+	}
+	if f.PublicURL != "" {
+		args = append(args, "--public-url", f.PublicURL)
 	}
 	if f.NoOpen {
 		args = append(args, "--no-open")

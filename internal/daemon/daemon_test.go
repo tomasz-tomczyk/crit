@@ -118,19 +118,42 @@ func TestSessionEntry_DisplayHost(t *testing.T) {
 
 func TestSessionEntry_BaseURL(t *testing.T) {
 	tests := []struct {
-		host string
-		port int
-		want string
+		host      string
+		port      int
+		publicURL string
+		want      string
 	}{
-		{"", 3000, "http://localhost:3000"},
-		{"127.0.0.1", 4567, "http://localhost:4567"},
-		{"0.0.0.0", 8080, "http://0.0.0.0:8080"},
-		{"192.168.1.10", 3000, "http://192.168.1.10:3000"},
+		{"", 3000, "", "http://localhost:3000"},
+		{"127.0.0.1", 4567, "", "http://localhost:4567"},
+		{"0.0.0.0", 8080, "", "http://0.0.0.0:8080"},
+		{"192.168.1.10", 3000, "", "http://192.168.1.10:3000"},
+		{"127.0.0.1", 4567, "https://mymac.ts.net", "https://mymac.ts.net"},
+		{"127.0.0.1", 4567, "https://mymac.ts.net/design", "https://mymac.ts.net/design"},
 	}
 	for _, tt := range tests {
-		e := SessionEntry{Host: tt.host, Port: tt.port}
+		e := SessionEntry{Host: tt.host, Port: tt.port, PublicURL: tt.publicURL}
 		if got := e.BaseURL(); got != tt.want {
-			t.Errorf("baseURL(host=%q, port=%d) = %q, want %q", tt.host, tt.port, got, tt.want)
+			t.Errorf("baseURL(host=%q, port=%d, publicURL=%q) = %q, want %q", tt.host, tt.port, tt.publicURL, got, tt.want)
+		}
+	}
+}
+
+func TestAdvertisedURL(t *testing.T) {
+	tests := []struct {
+		publicURL  string
+		listenHost string
+		port       int
+		path       string
+		want       string
+	}{
+		{"", "127.0.0.1", 3000, "", "http://localhost:3000"},
+		{"", "127.0.0.1", 3000, "/live", "http://localhost:3000/live"},
+		{"https://mymac.ts.net", "127.0.0.1", 3000, "", "https://mymac.ts.net"},
+		{"https://mymac.ts.net/design", "127.0.0.1", 3000, "/live", "https://mymac.ts.net/design/live"},
+	}
+	for _, tt := range tests {
+		if got := AdvertisedURL(tt.publicURL, tt.listenHost, tt.port, tt.path); got != tt.want {
+			t.Errorf("AdvertisedURL(%q, %q, %d, %q) = %q, want %q", tt.publicURL, tt.listenHost, tt.port, tt.path, got, tt.want)
 		}
 	}
 }
@@ -1072,15 +1095,17 @@ func TestAppendCommonDaemonFlags(t *testing.T) {
 		{
 			name: "all flags set",
 			f: commonDaemonFlags{
-				Port:     3456,
-				Host:     "0.0.0.0",
-				NoOpen:   true,
-				Quiet:    true,
-				ShareURL: "https://crit.md",
+				Port:      3456,
+				Host:      "0.0.0.0",
+				PublicURL: "https://mymac.ts.net",
+				NoOpen:    true,
+				Quiet:     true,
+				ShareURL:  "https://crit.md",
 			},
 			want: []string{"--preview-file", "/tmp/x.html",
 				"--port", "3456",
 				"--host", "0.0.0.0",
+				"--public-url", "https://mymac.ts.net",
 				"--no-open",
 				"--quiet",
 				"--share-url", "https://crit.md"},

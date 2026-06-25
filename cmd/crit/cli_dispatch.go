@@ -85,6 +85,7 @@ Setup & management:
 Options:
   -p, --port <port>           Port to listen on (default: random)
       --host <host>           Listen host (default: 127.0.0.1; e.g. 0.0.0.0 for LAN)
+      --public-url <url>      Advertised base URL (e.g. https://machine.ts.net via tailscale serve)
   -o, --output <dir>          Output directory for review file
       --no-open               Don't auto-open browser
       --no-ignore             Disable all file ignore patterns
@@ -99,6 +100,7 @@ Options:
 
 Environment:
   CRIT_SHARE_URL              Override the share service URL
+  CRIT_PUBLIC_URL             Override the advertised review URL (listen address unchanged)
   CRIT_PORT                   Override the default port
   CRIT_HOST                   Override the listen host (default 127.0.0.1)
   CRIT_NO_UPDATE_CHECK        Disable update check on startup

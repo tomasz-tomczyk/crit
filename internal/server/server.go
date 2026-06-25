@@ -84,8 +84,12 @@ type Server struct {
 	// listenHost is the host the server is bound to (e.g. "127.0.0.1" or
 	// "0.0.0.0"). Set via SetListenHost after construction. When set to a
 	// loopback address, ServeHTTP enforces that the request Host header is
-	// also a loopback hostname, blocking DNS-rebinding attacks.
+	// also a loopback hostname, blocking DNS-rebinding attacks — unless
+	// SetPublicURL was called with a reverse-proxy hostname (e.g. tailscale serve).
 	listenHost string
+	// publicURLHost is the hostname from --public-url / CRIT_PUBLIC_URL, allowed
+	// through the DNS-rebinding guard when requests arrive via a reverse proxy.
+	publicURLHost string
 
 	// shutdownCtx is the daemon's signal-handled context; child operations
 	// (e.g. runAgentCmd subprocesses) derive their context from this so a
@@ -207,6 +211,13 @@ func (s *Server) SetListenHost(host string) {
 	s.listenHost = host
 }
 
+// SetPublicURL records the user-facing base URL (e.g. https://machine.ts.net).
+// When set, requests whose Host header matches the URL hostname are allowed even
+// if the server is bound to loopback — needed for tailscale serve and similar proxies.
+func (s *Server) SetPublicURL(publicURL string) {
+	s.publicURLHost = config.PublicURLHost(publicURL)
+}
+
 // isLoopbackHost reports whether host (no port) is a loopback address.
 func isLoopbackHost(host string) bool {
 	if host == "localhost" {
@@ -220,10 +231,18 @@ func isLoopbackHost(host string) bool {
 // is bound to a loopback address, the request's Host header must also resolve
 // to a loopback hostname — this is the canonical DNS-rebinding defense.
 func (s *Server) checkHost(r *http.Request) bool {
+	host := requestHost(r.Host)
+	if s.publicURLHost != "" && strings.EqualFold(host, s.publicURLHost) {
+		return true
+	}
 	if s.listenHost == "" || !isLoopbackHost(s.listenHost) {
 		return true
 	}
-	host := r.Host
+	return isLoopbackHost(host)
+}
+
+func requestHost(hostport string) string {
+	host := hostport
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	} else {
@@ -231,7 +250,7 @@ func (s *Server) checkHost(r *http.Request) bool {
 		// Strip IPv6 brackets so ParseIP can recognise the address.
 		host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 	}
-	return isLoopbackHost(host)
+	return host
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

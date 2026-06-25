@@ -316,6 +316,7 @@ These keys can only be set in `~/.crit.config.json` (global). Project-level `.cr
 | `open_cmd`             | string   | `""`                       | Custom command to open review URLs — receives the URL as its only argument (must be a single executable, no flags). Use when the browser isn't on the machine running crit, e.g. crit runs on a remote host over SSH and a small wrapper script opens the URL on your local machine. When unset, crit uses the platform default opener. |
 | `auth_token`           | string   | `""`                       | Authentication token for crit.md. Set automatically by `crit auth login`. |
 | `share_url`            | string   | `"https://crit.md"`        | Base URL of the share service. Set to `""` to disable sharing entirely. Self-host with [`crit-web`](https://github.com/tomasz-tomczyk/crit-web). |
+| `public_url`           | string   | `""`                       | Advertised base URL for stderr and browser-open (e.g. `https://machine.ts.net` via tailscale serve). Listen address unchanged. |
 | `share_consented`      | bool     | `false`                    | Written automatically to `true` after you confirm the first-time share prompt. Reset to `false` to see the prompt again. Not used when `share_url` is a custom (self-hosted) URL. |
 | `proxy_auth`           | bool     | `false`                    | When `true`, share / pull / unpublish / re-share use the browser popup relay instead of the local Go server contacting crit-web directly. Use when crit-web is behind an SSO reverse proxy that the terminal cannot authenticate against. No flag or env var — this is a property of the deployment, not a per-invocation choice. |
 
@@ -325,6 +326,7 @@ These keys can only be set in `~/.crit.config.json` (global). Project-level `.cr
 | --------------- | ----- | --------------------- | -------------------------------------- |
 | `--port`        | `-p`  | `port`                | Port to listen on                      |
 | `--host`        |       | `host`                | Listen host (default `127.0.0.1`)      |
+| `--public-url`  |       | `public_url`          | Advertised review URL (listen unchanged) |
 | `--no-open`     |       | `no_open`             | Don't auto-open browser                |
 | `--share-url`   |       | `share_url`           | Share service URL                      |
 | `--output`      | `-o`  | `output`              | Output directory for review files      |
@@ -364,6 +366,7 @@ crit --no-ignore
 | --------------------------- | ------------------------------------------------- |
 | `CRIT_PORT`                 | Default port for the local server                 |
 | `CRIT_HOST`                 | Listen host (default `127.0.0.1`)                 |
+| `CRIT_PUBLIC_URL`           | Advertised review URL (e.g. tailscale serve)      |
 | `CRIT_SHARE_URL`            | Override the share service URL                    |
 | `CRIT_AUTH_TOKEN`           | Override the auth token (skips `crit auth login`) |
 | `CRIT_NO_UPDATE_CHECK`      | Disable the update check on startup               |

@@ -281,6 +281,115 @@ func TestResolveServerConfig_HostPrecedence(t *testing.T) {
 	})
 }
 
+func TestResolveServerConfig_PublicURLPrecedence(t *testing.T) {
+	defer resetBranchOverride(t)
+
+	t.Run("CLI flag wins over env and config", func(t *testing.T) {
+		vcs.SetDefaultBranchOverride("")
+
+		homeDir := t.TempDir()
+		testutil.SetHome(t, homeDir)
+		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"public_url": "https://config.example.com"}`), 0644)
+		dir := t.TempDir()
+		t.Setenv("CRIT_PUBLIC_URL", "https://env.example.com")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := ResolveDaemonCLIConfig([]string{"--public-url", "https://cli.example.com"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.PublicURL != "https://cli.example.com" {
+			t.Errorf("publicURL = %q, want CLI value", sc.PublicURL)
+		}
+	})
+
+	t.Run("env var wins over config when no CLI flag", func(t *testing.T) {
+		vcs.SetDefaultBranchOverride("")
+
+		homeDir := t.TempDir()
+		testutil.SetHome(t, homeDir)
+		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"public_url": "https://config.example.com"}`), 0644)
+		dir := t.TempDir()
+		t.Setenv("CRIT_PUBLIC_URL", "https://env.example.com")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := ResolveDaemonCLIConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.PublicURL != "https://env.example.com" {
+			t.Errorf("publicURL = %q, want env value", sc.PublicURL)
+		}
+	})
+
+	t.Run("global config used when no CLI or env", func(t *testing.T) {
+		vcs.SetDefaultBranchOverride("")
+
+		homeDir := t.TempDir()
+		testutil.SetHome(t, homeDir)
+		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"public_url": "https://config.example.com"}`), 0644)
+		dir := t.TempDir()
+		os.Unsetenv("CRIT_PUBLIC_URL")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := ResolveDaemonCLIConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.PublicURL != "https://config.example.com" {
+			t.Errorf("publicURL = %q, want global config value", sc.PublicURL)
+		}
+	})
+
+	t.Run("project config cannot set public_url", func(t *testing.T) {
+		vcs.SetDefaultBranchOverride("")
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"public_url": "https://evil.example.com"}`), 0644)
+		homeDir := t.TempDir()
+		testutil.SetHome(t, homeDir)
+		os.Unsetenv("CRIT_PUBLIC_URL")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := ResolveDaemonCLIConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.PublicURL != "" {
+			t.Errorf("publicURL = %q, want empty (project config must not apply)", sc.PublicURL)
+		}
+	})
+
+	t.Run("invalid public URL rejected", func(t *testing.T) {
+		vcs.SetDefaultBranchOverride("")
+
+		dir := t.TempDir()
+		homeDir := t.TempDir()
+		testutil.SetHome(t, homeDir)
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		_, err := ResolveDaemonCLIConfig([]string{"--public-url", "not-a-url"})
+		if err == nil {
+			t.Fatal("expected error for invalid public URL")
+		}
+	})
+}
+
 func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 	defer resetBranchOverride(t)
 

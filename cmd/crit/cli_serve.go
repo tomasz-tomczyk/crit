@@ -120,6 +120,7 @@ func runServe(args []string) {
 		daemonFatal(pipe, "Error creating server: %v", err)
 	}
 	srv.SetListenHost(sc.Host)
+	srv.SetPublicURL(sc.PublicURL)
 
 	cwd, _ := resolvedCWD()
 	homeDir := ""
@@ -154,6 +155,7 @@ func runServe(args []string) {
 		PID:        os.Getpid(),
 		Port:       addr.Port,
 		Host:       sc.Host,
+		PublicURL:  sc.PublicURL,
 		CWD:        cwd,
 		Args:       sessionArgs,
 		Branch:     branch,
@@ -201,13 +203,13 @@ func runServe(args []string) {
 	signalReadiness(pipe, addr.Port)
 
 	if !sc.NoOpen {
-		dh := hostForDisplay(sc.Host)
-		openURL := fmt.Sprintf("http://%s:%d", dh, addr.Port)
+		openPath := ""
 		if sc.LiveOrigin != "" {
-			openURL = fmt.Sprintf("http://%s:%d/live", dh, addr.Port)
+			openPath = "/live"
 		} else if sc.PreviewFile != "" {
-			openURL = fmt.Sprintf("http://%s:%d/preview", dh, addr.Port)
+			openPath = "/preview"
 		}
+		openURL := advertisedURL(sc.PublicURL, sc.Host, addr.Port, openPath)
 		go openBrowser(openURL, sc.OpenCmd)
 	}
 

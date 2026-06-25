@@ -22,6 +22,7 @@ type planConfig struct {
 	stdinExpected bool
 	port          int
 	host          string
+	publicURL     string
 	noOpen        bool
 	quiet         bool
 	shareURL      string
@@ -33,6 +34,7 @@ func resolvePlanConfig(args []string) planConfig {
 	port := fs.Int("port", 0, "Port to listen on")
 	fs.IntVar(port, "p", 0, "Port (shorthand)")
 	host := fs.String("host", "", "Host to listen on")
+	publicURL := fs.String("public-url", "", "Advertised base URL (overrides CRIT_PUBLIC_URL)")
 	noOpen := fs.Bool("no-open", false, "Don't auto-open browser")
 	quiet := fs.Bool("quiet", false, "Suppress status output")
 	fs.BoolVar(quiet, "q", false, "Suppress status (shorthand)")
@@ -40,12 +42,13 @@ func resolvePlanConfig(args []string) planConfig {
 	fs.Parse(args)
 
 	pc := planConfig{
-		name:     *name,
-		port:     *port,
-		host:     *host,
-		noOpen:   *noOpen,
-		quiet:    *quiet,
-		shareURL: *shareURL,
+		name:      *name,
+		port:      *port,
+		host:      *host,
+		publicURL: *publicURL,
+		noOpen:    *noOpen,
+		quiet:     *quiet,
+		shareURL:  *shareURL,
 	}
 
 	remaining := fs.Args()
@@ -125,11 +128,12 @@ func RunPlan(args []string) error {
 	cfg := config.LoadConfig(cwd)
 	noOpenResolved := pc.noOpen || cfg.NoOpen
 	daemonArgs := BuildPlanDaemonArgs(currentPath, storageDir, slug, PlanDaemonFlags{
-		Port:     config.ResolvePort(pc.port, cfg.Port),
-		Host:     config.ResolveHost(pc.host, cfg.Host),
-		NoOpen:   noOpenResolved,
-		Quiet:    pc.quiet || cfg.Quiet,
-		ShareURL: config.ResolveShareURL(pc.shareURL, cfg, ""),
+		Port:      config.ResolvePort(pc.port, cfg.Port),
+		Host:      config.ResolveHost(pc.host, cfg.Host),
+		PublicURL: config.ResolvePublicURL(pc.publicURL, cfg),
+		NoOpen:    noOpenResolved,
+		Quiet:     pc.quiet || cfg.Quiet,
+		ShareURL:  config.ResolveShareURL(pc.shareURL, cfg, ""),
 	})
 
 	entry, weStartedDaemon, err := connectOrStartDaemon(key, daemonArgs, noOpenResolved, cfg.OpenCmd)
@@ -235,7 +239,9 @@ func runPlanReviewHook(logPrefix, sessionID string, content []byte, emitDecision
 	cfg := config.LoadConfig(cwd)
 	key := PlanSessionKey(cwd, slug)
 	currentPath := filepath.Join(storageDir, "current.md")
-	daemonArgs := BuildPlanDaemonArgs(currentPath, storageDir, slug, PlanDaemonFlags{})
+	daemonArgs := BuildPlanDaemonArgs(currentPath, storageDir, slug, PlanDaemonFlags{
+		PublicURL: config.ResolvePublicURL("", cfg),
+	})
 
 	entry, alive := daemon.FindAliveSession(key)
 	weStartedDaemon := false

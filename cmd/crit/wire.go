@@ -46,6 +46,7 @@ var (
 	daemonFatal       = daemon.DaemonFatal
 	signalReadiness   = daemon.SignalReadiness
 	hostForDisplay    = daemon.HostForDisplay
+	advertisedURL     = daemon.AdvertisedURL
 	shutdownSignals   = daemon.ShutdownSignals
 	openBrowser       = browser.OpenBrowserWithCommand
 
