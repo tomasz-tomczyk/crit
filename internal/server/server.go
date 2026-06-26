@@ -27,6 +27,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/comment"
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/diff"
+	"github.com/tomasz-tomczyk/crit/internal/prompt"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/share"
@@ -155,6 +156,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/api/session", s.withReady(s.handleSession))
 	mux.HandleFunc("/api/share", s.withReady(s.handleShare))
 	mux.HandleFunc("/api/share-consent", s.withReady(s.handleShareConsent))
+	mux.HandleFunc("/api/project-prompts/trust", s.withReady(s.handleProjectPromptTrust))
 	mux.HandleFunc("/api/share/payload", s.withReady(s.handleSharePayload))
 	mux.HandleFunc("/api/share/preview-payload", s.withReady(s.handlePreviewPayload))
 	mux.HandleFunc("/api/share/upsert-payload", s.withReady(s.handleUpsertPayload))
@@ -450,6 +452,13 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	// Integration detection
 	s.addIntegrationStatus(resp)
 
+	for k, v := range s.projectPromptTrustPayload() {
+		resp[k] = v
+	}
+	if sess != nil && s.projectPromptsUntrusted() {
+		resp["project_prompt_preview"] = s.renderProjectPromptPreview(sess)
+	}
+
 	if sess != nil && sess.ReviewType != "" {
 		resp["review_type"] = sess.ReviewType
 	}
@@ -672,6 +681,37 @@ func (s *Server) handleShareConsent(w http.ResponseWriter, r *http.Request) {
 	s.authMu.Lock()
 	s.cfg.ShareConsented = true
 	s.authMu.Unlock()
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleProjectPromptTrust records the user's trust choice for project prompt hooks.
+// POST /api/project-prompts/trust
+// Body: {"mode":"until_change"|"always"|"defaults"}
+func (s *Server) handleProjectPromptTrust(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	switch req.Mode {
+	case prompt.TrustUntilChange, prompt.TrustAlways, prompt.TrustDefaults:
+	default:
+		http.Error(w, "invalid mode", http.StatusBadRequest)
+		return
+	}
+	_, projectPrompts := config.LoadPromptMaps(s.projectDir)
+	hash := prompt.ContentHash(projectPrompts, s.projectDir)
+	if err := prompt.SaveTrustChoice(s.projectDir, req.Mode, hash); err != nil {
+		http.Error(w, "failed to persist trust choice", http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -1925,6 +1965,11 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.projectPromptsUntrusted() {
+		http.Error(w, "project prompt trust required", http.StatusForbidden)
+		return
+	}
+
 	sess := s.session.Load()
 	// Synchronous, serialized flush before building the agent-facing payload.
 	// Bare WriteFiles races with the debounce timer (both call session.AtomicWriteFile
@@ -1939,9 +1984,13 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	unresolvedComments := sess.UnresolvedCommentCount()
 	stats := s.buildSessionStats(sess)
 
-	prompt, approved, comments := buildFinishFeedback(sess)
+	approved := unresolvedComments == 0
+	comments := []comment.ListedComment{}
+	if unresolvedComments > 0 {
+		comments = listUnresolvedComments(sess)
+	}
+	prompt, promptMeta := s.renderFinishPrompts(sess, approved, stats)
 	nextCommand := session.NextRoundCommand(sess)
-	copyPrompt := buildCopyPrompt(sess, approved, comments, nextCommand)
 	if !approved {
 		sess.SetWaitingForAgent(true)
 	}
@@ -1949,22 +1998,22 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"status":       "finished",
 		"prompt":       prompt,
-		"copy_prompt":  copyPrompt,
 		"approved":     approved,
 		"comments":     comments,
 		"next_command": nextCommand,
 		"stats":        stats,
+		"prompt_meta":  promptMeta,
 	})
 
 	// Encode approved status into SSE event content as JSON so review-cycle
 	// clients can extract it without string matching on the prompt.
 	eventData, _ := json.Marshal(map[string]any{
 		"prompt":       prompt,
-		"copy_prompt":  copyPrompt,
 		"approved":     approved,
 		"stats":        stats,
 		"comments":     comments,
 		"next_command": nextCommand,
+		"prompt_meta":  promptMeta,
 	})
 	sess.Notify(SSEEvent{
 		Type:    "finish",
@@ -2003,93 +2052,20 @@ func (s *Server) buildSessionStats(sess *Session) map[string]any {
 
 const approvedNoCommentsPrompt = "Review approved with no comments — no changes requested."
 
-// buildFinishFeedback returns the agent-facing finish payload fields.
-func buildFinishFeedback(sess *Session) (prompt string, approved bool, comments []comment.ListedComment) {
-	totalComments := sess.TotalCommentCount()
-	unresolvedComments := sess.UnresolvedCommentCount()
-	approved = unresolvedComments == 0
-	comments = []comment.ListedComment{}
-	if unresolvedComments > 0 {
-		comments = listUnresolvedComments(sess)
-	}
-	prompt = buildFinishPrompt(sess, approved, totalComments)
-	return prompt, approved, comments
+func listUnresolvedComments(sess *Session) []comment.ListedComment {
+	return listComments(sess, true)
 }
 
-func listUnresolvedComments(sess *Session) []comment.ListedComment {
+func listAllComments(sess *Session) []comment.ListedComment {
+	return listComments(sess, false)
+}
+
+func listComments(sess *Session, unresolvedOnly bool) []comment.ListedComment {
 	cj, err := review.LoadCritJSON(sess.CritJSONPath())
 	if err != nil {
 		return nil
 	}
-	return comment.ListCommentsFromCritJSON(cj, true)
-}
-
-func buildFinishPrompt(sess *Session, approved bool, totalComments int) string {
-	if !approved {
-		if sess.Mode == "plan" {
-			return buildPlanInstructions(sess)
-		}
-		return buildUnresolvedInstructions(sess)
-	}
-	if totalComments > 0 {
-		return "All comments are resolved — no changes needed, please proceed."
-	}
-	return approvedNoCommentsPrompt
-}
-
-func buildUnresolvedInstructions(sess *Session) string {
-	return buildUnresolvedActions(sess) + fmt.Sprintf(" When done run: `%s`", session.ReconnectCommand(sess.SessionKey))
-}
-
-func buildUnresolvedActions(sess *Session) string {
-	return "Address each comment. For each one, reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> \"<explanation>\"`."
-}
-
-func buildPlanActions(sess *Session) string {
-	slug := filepath.Base(sess.PlanDir)
-	return fmt.Sprintf(
-		"Revise the plan to address each comment. "+
-			"If you are running under Codex, re-emit the revised plan inside <proposed_plan>...</proposed_plan> so Crit can review the new version. "+
-			"To reply to comments, use `crit comment --plan %s --reply-to <id> --author <your-name> \"<explanation>\"`.",
-		slug)
-}
-
-func buildPlanInstructions(sess *Session) string {
-	return buildPlanActions(sess)
-}
-
-// buildCopyPrompt is pasted directly to the agent from the finish modal.
-func buildCopyPrompt(sess *Session, approved bool, comments []comment.ListedComment, nextCommand string) string {
-	var b strings.Builder
-	if approved {
-		totalComments := sess.TotalCommentCount()
-		switch {
-		case totalComments == 0:
-			b.WriteString("Review approved — no changes requested.")
-		default:
-			b.WriteString("Review approved. All comments are resolved — proceed with implementation.")
-		}
-		return b.String()
-	}
-
-	n := len(comments)
-	if n == 1 {
-		b.WriteString("The review finished with 1 unresolved comment.\n\n")
-	} else {
-		fmt.Fprintf(&b, "The review finished with %d unresolved comments.\n\n", n)
-	}
-	b.WriteString("Load them with:\n\n")
-	fmt.Fprintf(&b, "  %s\n\n", buildCommentsListCommand(sess))
-	if sess.Mode == "plan" {
-		b.WriteString(buildPlanActions(sess))
-	} else {
-		b.WriteString(buildUnresolvedActions(sess))
-	}
-	if nextCommand != "" {
-		b.WriteString("\n\nWhen you're done, run:\n\n  ")
-		b.WriteString(nextCommand)
-	}
-	return b.String()
+	return comment.ListCommentsFromCritJSON(cj, unresolvedOnly)
 }
 
 func buildCommentsListCommand(sess *Session) string {
@@ -2154,22 +2130,26 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 				sess.SetAwaitingFirstReview(false)
 				// Parse the structured finish event data
 				var finishData struct {
-					Prompt   string                  `json:"prompt"`
-					Approved bool                    `json:"approved"`
-					Stats    map[string]any          `json:"stats"`
-					Comments []comment.ListedComment `json:"comments"`
+					Prompt      string                  `json:"prompt"`
+					Approved    bool                    `json:"approved"`
+					Stats       map[string]any          `json:"stats"`
+					Comments    []comment.ListedComment `json:"comments"`
+					PromptMeta  *prompt.Meta            `json:"prompt_meta"`
+					NextCommand string                  `json:"next_command"`
 				}
 				json.Unmarshal([]byte(event.Content), &finishData)
-				nextCommand := session.NextRoundCommand(sess)
-				copyPrompt := buildCopyPrompt(sess, finishData.Approved, finishData.Comments, nextCommand)
+				nextCommand := finishData.NextCommand
+				if nextCommand == "" {
+					nextCommand = session.NextRoundCommand(sess)
+				}
 				writeJSON(w, map[string]any{
 					"status":       "finished",
 					"prompt":       finishData.Prompt,
-					"copy_prompt":  copyPrompt,
 					"approved":     finishData.Approved,
 					"comments":     finishData.Comments,
 					"stats":        finishData.Stats,
 					"next_command": nextCommand,
+					"prompt_meta":  finishData.PromptMeta,
 				})
 				return
 			}

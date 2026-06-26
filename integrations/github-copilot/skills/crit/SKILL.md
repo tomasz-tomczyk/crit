@@ -43,11 +43,7 @@ If a crit server is already running from earlier in this conversation, `crit` au
 
 ## Step 3: Read the review output
 
-When `crit` completes, inspect its stdout JSON. Use `approved` for status and read `prompt` for instructions.
-
-If `"approved": true`, tell the user no changes were requested and stop.
-
-If `"approved": false`, unresolved comments are in the `comments` array (same schema as `crit comments --json`). Address each comment.
+When `crit` completes, read **stdout** and follow its instructions. Check **stderr** for `approved: true` or `approved: false`.
 
 When a comment has `quote`, `anchor`, or `drifted`:
 - `quote`: the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range
@@ -83,7 +79,7 @@ echo '[
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-After a round with feedback, run the command crit printed (`Next round:` on stdout, or in `copy_prompt`) verbatim in the foreground and block until it exits.
+The finish prompt on stdout includes the command to run again — use it to start a new round.
 
 On subsequent calls, `crit` automatically signals round-complete first, then blocks until the next "Finish Review" click.
 

@@ -28,6 +28,22 @@ test('escapeHTML returns empty string for null/undefined', () => {
   assert.equal(shared.escapeHTML(undefined), '');
 });
 
+test('applyProjectPromptTrustUI re-enables finish button after trust', () => {
+  const btn = { disabled: false, textContent: 'Approve', title: '' };
+  shared.applyProjectPromptTrustUI({ project_prompts_untrusted: true }, btn);
+  assert.equal(btn.disabled, true);
+  assert.equal(btn.title, 'Trust project prompts before finishing');
+  shared.applyProjectPromptTrustUI({ project_prompts_untrusted: false }, btn);
+  assert.equal(btn.disabled, false);
+  assert.equal(btn.title, '');
+});
+
+test('applyProjectPromptTrustUI does not re-enable while waiting', () => {
+  const btn = { disabled: true, textContent: 'Waiting...', title: 'Trust project prompts before finishing' };
+  shared.applyProjectPromptTrustUI({ project_prompts_untrusted: false }, btn);
+  assert.equal(btn.disabled, true);
+});
+
 test('getCookie reads document.cookie and URL-decodes the value', () => {
   sandbox.document.cookie = 'crit-settings=' + encodeURIComponent('{"theme":"dark"}') + '; other=x';
   assert.equal(shared.getCookie('crit-settings'), '{"theme":"dark"}');
@@ -360,6 +376,7 @@ function makeFinishSandbox(fetchImpl, clipboardImpl) {
         contains(c) { return this._set.has(c); },
       },
       querySelector() { return null; },
+      querySelectorAll() { return []; },
     };
   }
   const copyLabel = makeEl();
@@ -434,26 +451,26 @@ test('runFinishReview resets copy button via .copy-label span, not textContent (
   assert.ok(els.waitingClipboard.querySelector('.copy-label'), '.copy-label span still accessible');
 });
 
-test('runFinishReview not-approved path: leaves approved class off + uses copy_prompt', async () => {
+test('runFinishReview not-approved path: leaves approved class off + uses prompt', async () => {
   const fetch = async () => ({
     ok: true,
     json: async () => ({
       approved: false,
-      copy_prompt: 'The review finished with 2 unresolved comments.\n\nLoad them with:\n\n  crit comments --json /tmp/review.json\n\nAddress each comment.\n\nWhen you\'re done, run:\n\n  crit test.md',
+      prompt: 'The review finished with 2 unresolved comments.\n\n[{"body":"fix"}]\n\nAddress each comment.\n\nWhen you\'re done, run:\n\n  crit test.md',
     }),
   });
   const { shared: s, els } = makeFinishSandbox(fetch, { writeText: async () => {} });
   let waitingCalled = false;
   const result = await s.runFinishReview({ onWaiting: () => { waitingCalled = true; } });
   assert.equal(result.approved, false);
-  assert.match(result.prompt, /crit comments --json/);
+  assert.match(result.prompt, /Address each comment/);
   assert.equal(els.waitingHeading.textContent, 'Review Complete');
   assert.match(els.waitingMessage.textContent, /wasn't listening/);
   assert.equal(els.waitingDialog.classList.contains('approved'), false);
   assert.equal(waitingCalled, true);
 });
 
-test('runFinishReview not-approved path: falls back when copy_prompt missing', async () => {
+test('runFinishReview not-approved path: falls back when prompt missing', async () => {
   const fetch = async () => ({ ok: true, json: async () => ({ approved: false }) });
   const { shared: s, els } = makeFinishSandbox(fetch, { writeText: async () => {} });
   const result = await s.runFinishReview({ onWaiting: () => {} });

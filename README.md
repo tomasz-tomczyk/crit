@@ -305,6 +305,13 @@ All keys are optional — omit any you don't need.
 | `vcs`                  | string   | auto-detected              | Preferred VCS backend: `"git"`, `"sl"`, or `"jj"`. When set, crit uses this VCS instead of auto-detecting. Falls back to git if the configured VCS isn't available. Can also be set via `--vcs` CLI flag (flag takes precedence over config). |
 | `live_cookie`          | string   | `""`                       | Cookie header value forwarded to the upstream app in live mode (e.g. `"_crit_key=..."`). Global or project. Prefer `live_cookie_file` for secrets. |
 | `live_cookie_file`     | string   | `""`                       | Path to a file with upstream cookies for live mode (raw header lines or Netscape jar). Global or project; relative paths resolve from repo root. |
+| `prompts`              | object   | `{}`                       | Custom finish-hook templates (project overrides global per key). See [Agent prompts](docs/agent-prompts.md). |
+
+### Agent prompts
+
+Customize what Crit tells your agent when you **Finish Review** or **Approve**. Hooks are templates in global or project config (`prompts` map) and `.crit/prompts/*.md` files.
+
+See the **[agent prompts guide](docs/agent-prompts.md)** for hook reference, template variables, trust flow, and examples.
 
 ### Global-only config keys
 

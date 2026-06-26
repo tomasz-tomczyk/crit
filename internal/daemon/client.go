@@ -43,10 +43,9 @@ func RunReviewClient(entry SessionEntry, sessionKey string) (approved bool) {
 		os.Exit(1)
 	}
 
-	os.Stdout.Write(body)
-
 	var result struct {
 		Approved    bool   `json:"approved"`
+		Prompt      string `json:"prompt"`
 		NextCommand string `json:"next_command"`
 		Stats       *struct {
 			Duration int `json:"duration_seconds"`
@@ -54,16 +53,19 @@ func RunReviewClient(entry SessionEntry, sessionKey string) (approved bool) {
 			Comments int `json:"comments_submitted"`
 		} `json:"stats"`
 	}
-	if json.Unmarshal(body, &result) == nil {
-		if !result.Approved && result.NextCommand != "" {
-			fmt.Fprintf(os.Stdout, "\nNext round: %s\n", result.NextCommand)
-		}
-		if result.Approved && result.Stats != nil {
-			printSessionSummary(result.Stats)
-		}
-		return result.Approved
+	if err := json.Unmarshal(body, &result); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: malformed finish response: %v\n", err)
+		os.Exit(1)
 	}
-	return false
+
+	fmt.Fprintf(os.Stderr, "approved: %v\n", result.Approved)
+	if result.Prompt != "" {
+		fmt.Fprint(os.Stdout, result.Prompt)
+	}
+	if result.Approved && result.Stats != nil {
+		printSessionSummary(result.Stats)
+	}
+	return result.Approved
 }
 
 // RunReviewClientRaw is like RunReviewClient but returns (approved, prompt)

@@ -41,13 +41,9 @@ If a crit server is already running from earlier in this conversation, `crit` au
 
 **Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. Wait for the foreground command to finish — that is how you know the human is done reviewing.
 
-## Step 3: Check the review result
+## Step 3: Read the review output
 
-When `crit` completes, inspect its stdout JSON. Use `approved` for status and read `prompt` for instructions.
-
-If `"approved": true`, tell the user no changes were requested and stop.
-
-If `"approved": false`, unresolved comments are in the `comments` array (same schema as `crit comments --json`). Address each comment.
+When `crit` completes, read **stdout** and follow its instructions. Check **stderr** for `approved: true` or `approved: false`.
 
 When a comment has `quote`, `anchor`, or `drifted`:
 - `quote`: the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range
@@ -68,6 +64,10 @@ For each unresolved comment:
 
 Editing the plan file triggers Crit's live reload — the user sees changes in the browser immediately.
 
+<important if="you are revising in plan mode">
+Re-emit the revised plan inside `<proposed_plan>...</proposed_plan>` so Crit can review the new version.
+</important>
+
 ### When replying to multiple comments
 
 Use `--json` for a single bulk call instead of one invocation per comment:
@@ -83,7 +83,7 @@ echo '[
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-After a round with feedback, run the command crit printed (`Next round:` on stdout, or in `copy_prompt`) verbatim.
+The finish prompt on stdout includes the command to run again — use it to start a new round.
 
 On subsequent calls, `crit` automatically signals round-complete first, then blocks until the next "Finish Review" click.
 

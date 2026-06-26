@@ -39,14 +39,7 @@ If a crit server is already running from earlier in this conversation, `crit` au
 
 ## Step 3: Read the review output
 
-When `crit` completes, its stdout includes the path to the review file (e.g. "Review comments are in /path/to/review.json"). Read it.
-
-The file contains structured JSON. Three comment types:
-- `review_comments` (top-level, `r_`-prefixed IDs) — general feedback
-- File comments (per-file `comments` array, no `start_line`/`end_line`) — about the file as a whole
-- Line comments (per-file `comments` array, with `start_line`/`end_line`) — about specific lines
-
-Identify all comments where `resolved` is `false` or missing.
+When `crit` completes, read **stdout** and follow its instructions. Check **stderr** for `approved: true` or `approved: false`.
 
 When a comment has a `quote`, `anchor`, or `drifted` field:
 - `quote`: the specific text the reviewer selected — focus your changes on the quoted text rather than the entire line range
@@ -97,7 +90,7 @@ crit comment --json --file /tmp/replies.json --author 'OpenCode'
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-After a round with feedback, run the command crit printed (`Next round:` on stdout, or in `copy_prompt`) verbatim in the foreground and block until it exits.
+The finish prompt on stdout includes the command to run again — use it to start a new round.
 
 On subsequent calls, `crit` automatically signals round-complete first, then blocks until the next "Finish Review" click.
 

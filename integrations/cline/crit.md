@@ -73,7 +73,7 @@ crit comment --json --file /tmp/replies.json --author 'Cline'
 
 ## Next round
 
-After a round with feedback, run the command crit printed (`Next round:` on stdout, or in `copy_prompt`) verbatim.
+The finish prompt on stdout includes the command to run again — use it to start a new round.
 
 `crit` automatically signals round-complete, then blocks until the next "Finish Review" click. Only proceed after the user approves (a round finishes with zero comments).
 

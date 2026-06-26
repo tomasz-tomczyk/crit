@@ -300,7 +300,7 @@
       if (!resp.ok) throw new Error('Finish review failed: HTTP ' + resp.status);
       var data = await resp.json();
       var approved = !!data.approved;
-      var prompt = data.copy_prompt || data.prompt || 'I reviewed the changes, no feedback, good to go!';
+      var prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
 
       var dialog = document.getElementById('waitingDialog');
       var headingEl = document.getElementById('waitingHeading');
@@ -758,6 +758,133 @@
     return a.length - b.length;
   }
 
+  // ===== project prompt trust =====
+
+  var AGENT_PROMPTS_GUIDE_URL = 'https://github.com/tomasz-tomczyk/crit/blob/main/docs/agent-prompts.md';
+
+  var activeProjectPromptTrustResolve = null;
+
+  function showProjectPromptTrustDialog(cfg) {
+    return new Promise(function (resolve) {
+      var existing = document.getElementById('projectPromptTrustOverlay');
+      if (existing) {
+        if (activeProjectPromptTrustResolve) {
+          activeProjectPromptTrustResolve(false);
+          activeProjectPromptTrustResolve = null;
+        }
+        existing.remove();
+      }
+      activeProjectPromptTrustResolve = resolve;
+
+      var sources = (cfg && cfg.project_prompt_sources) || [];
+      var preview = (cfg && cfg.project_prompt_preview) || '';
+      var sourcesHtml = sources.length
+        ? '<ul class="ppt-sources">' + sources.map(function (s) {
+            return '<li><code>' + escapeHTML(s) + '</code></li>';
+          }).join('') + '</ul>'
+        : '';
+
+      var overlay = document.createElement('div');
+      overlay.id = 'projectPromptTrustOverlay';
+      overlay.className = 'share-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-labelledby', 'projectPromptTrustTitle');
+      overlay.innerHTML =
+        '<div class="share-dialog share-dialog--consent ppt-dialog">' +
+          '<h3 id="projectPromptTrustTitle" class="share-dialog-headline">Trust project prompts?</h3>' +
+          '<p class="share-dialog-sub">This repository defines custom agent instructions. ' +
+            'Review the rendered previews below before finishing. ' +
+            '<a href="' + escapeHTML(AGENT_PROMPTS_GUIDE_URL) + '" target="_blank" rel="noopener">Agent prompts guide</a>.</p>' +
+          sourcesHtml +
+          '<pre class="ppt-preview" id="projectPromptPreview" aria-label="Rendered prompt previews"></pre>' +
+          '<div class="sd-actions ppt-actions">' +
+            '<button type="button" class="sd-link-btn" id="pptUseDefaultsBtn">Use Crit defaults</button>' +
+            '<button type="button" class="sd-link-btn" id="pptTrustAlwaysBtn">Always trust this project</button>' +
+            '<button type="button" class="sd-org-btn-share" id="pptTrustUntilChangeBtn">Trust until prompts change</button>' +
+          '</div>' +
+        '</div>';
+
+      document.body.appendChild(overlay);
+      var previewEl = overlay.querySelector('#projectPromptPreview');
+      if (previewEl) previewEl.textContent = preview;
+
+      function close(result) {
+        overlay.remove();
+        if (activeProjectPromptTrustResolve === resolve) {
+          activeProjectPromptTrustResolve = null;
+        }
+        resolve(result);
+      }
+
+      function trustButtons() {
+        return [
+          overlay.querySelector('#pptUseDefaultsBtn'),
+          overlay.querySelector('#pptTrustUntilChangeBtn'),
+          overlay.querySelector('#pptTrustAlwaysBtn'),
+        ].filter(Boolean);
+      }
+
+      function setTrustButtonsDisabled(disabled) {
+        trustButtons().forEach(function (btn) { btn.disabled = disabled; });
+      }
+
+      async function postTrust(mode) {
+        try {
+          var r = await fetch('/api/project-prompts/trust', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: mode }),
+          });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          if (cfg) cfg.project_prompts_untrusted = false;
+          return true;
+        } catch (e) {
+          console.error('Failed to record prompt trust:', e);
+          if (window.crit && window.crit.shared && window.crit.shared.showToast) {
+            window.crit.shared.showToast('Failed to save trust choice', { kind: 'error' });
+          }
+          return false;
+        }
+      }
+
+      async function onTrustClick(mode) {
+        setTrustButtonsDisabled(true);
+        if (await postTrust(mode)) close(true);
+        else setTrustButtonsDisabled(false);
+      }
+
+      overlay.querySelector('#pptUseDefaultsBtn').addEventListener('click', function () {
+        onTrustClick('defaults');
+      });
+      overlay.querySelector('#pptTrustUntilChangeBtn').addEventListener('click', function () {
+        onTrustClick('until_change');
+      });
+      overlay.querySelector('#pptTrustAlwaysBtn').addEventListener('click', function () {
+        onTrustClick('always');
+      });
+    });
+  }
+
+  async function ensureProjectPromptTrust(cfg) {
+    if (!cfg || !cfg.project_prompts_untrusted) return true;
+    return showProjectPromptTrustDialog(cfg);
+  }
+
+  function applyProjectPromptTrustUI(cfg, finishBtn) {
+    if (!finishBtn || !cfg) return;
+    if (cfg.project_prompts_untrusted) {
+      finishBtn.disabled = true;
+      finishBtn.title = 'Trust project prompts before finishing';
+      return;
+    }
+    finishBtn.title = '';
+    // Re-enable after trust; skip if finish flow already moved to waiting state.
+    if (finishBtn.textContent !== 'Waiting...') {
+      finishBtn.disabled = false;
+    }
+  }
+
   window.crit = window.crit || {};
   window.crit.shared = {
     pathCompare,
@@ -779,5 +906,7 @@
     showDisconnected,
     startTipRotation,
     stopTipRotation,
+    ensureProjectPromptTrust,
+    applyProjectPromptTrustUI,
   };
 })();

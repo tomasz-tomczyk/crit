@@ -57,6 +57,8 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.projectDir = dir
+	s.homeDir = t.TempDir()
 	return s, session
 }
 
@@ -555,28 +557,30 @@ func TestFinish_IncludesStructuredComments(t *testing.T) {
 		t.Errorf("comment body = %v, want fix this", c0["body"])
 	}
 	prompt, _ := resp["prompt"].(string)
+	if !strings.Contains(prompt, "fix this") {
+		t.Errorf("expected comment body in finish prompt, got: %s", prompt)
+	}
 	if !strings.Contains(prompt, "Address each comment") {
 		t.Errorf("expected instructions in prompt, got: %s", prompt)
 	}
-	if !strings.Contains(prompt, "run: `crit --session abcd1234ef01`") {
-		t.Errorf("expected reinvoke command in prompt, got: %s", prompt)
-	}
-	copyPrompt, _ := resp["copy_prompt"].(string)
-	if !strings.Contains(copyPrompt, "1 unresolved comment") {
-		t.Errorf("copy_prompt should summarize comment count, got: %s", copyPrompt)
+	if !strings.Contains(prompt, "1 unresolved comment") {
+		t.Errorf("prompt should summarize comment count, got: %s", prompt)
 	}
 	wantCommentsCmd := buildCommentsListCommand(session)
-	if !strings.Contains(copyPrompt, wantCommentsCmd) {
-		t.Errorf("copy_prompt should mention %q, got: %s", wantCommentsCmd, copyPrompt)
+	if strings.Contains(prompt, wantCommentsCmd) {
+		t.Errorf("prompt should embed comments inline, not %q, got: %s", wantCommentsCmd, prompt)
 	}
-	if strings.Contains(copyPrompt, "Next review round") {
-		t.Errorf("copy_prompt should not use legacy next review round heading, got: %s", copyPrompt)
+	if strings.Contains(prompt, "Next review round") {
+		t.Errorf("prompt should not use legacy next review round heading, got: %s", prompt)
 	}
-	if !strings.Contains(copyPrompt, "When you're done, run:") {
-		t.Errorf("copy_prompt should include a single next-command instruction, got: %s", copyPrompt)
+	if !strings.Contains(prompt, "When you're done, run:") {
+		t.Errorf("prompt should include a single next-command instruction, got: %s", prompt)
 	}
-	if strings.Contains(copyPrompt, "When done run:") {
-		t.Errorf("copy_prompt should not duplicate next-command wording, got: %s", copyPrompt)
+	if strings.Contains(prompt, "When done run:") {
+		t.Errorf("prompt should not duplicate next-command wording, got: %s", prompt)
+	}
+	if _, ok := resp["copy_prompt"]; ok {
+		t.Error("finish response should not include legacy copy_prompt field")
 	}
 	nextCmd, _ := resp["next_command"].(string)
 	if nextCmd != "crit --session abcd1234ef01" {
@@ -584,7 +588,7 @@ func TestFinish_IncludesStructuredComments(t *testing.T) {
 	}
 }
 
-func TestFinish_CopyPromptApproved(t *testing.T) {
+func TestFinish_PromptApproved(t *testing.T) {
 	s, _ := newTestServer(t)
 	s.cliArgs = []string{"preview", "/tmp/page.html"}
 
@@ -596,15 +600,15 @@ func TestFinish_CopyPromptApproved(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	copyPrompt, _ := resp["copy_prompt"].(string)
-	if !strings.Contains(copyPrompt, "Review approved") {
-		t.Errorf("copy_prompt = %q", copyPrompt)
+	prompt, _ := resp["prompt"].(string)
+	if !strings.Contains(prompt, "Review approved") {
+		t.Errorf("prompt = %q", prompt)
 	}
-	if strings.Contains(copyPrompt, "Next review round") {
-		t.Errorf("approved copy_prompt should not mention next review round, got: %s", copyPrompt)
+	if strings.Contains(prompt, "Next review round") {
+		t.Errorf("approved prompt should not mention next review round, got: %s", prompt)
 	}
-	if strings.Contains(copyPrompt, "crit comments") {
-		t.Errorf("approved copy_prompt should not mention crit comments, got: %s", copyPrompt)
+	if strings.Contains(prompt, "crit comments") {
+		t.Errorf("approved prompt should not mention crit comments, got: %s", prompt)
 	}
 }
 
@@ -622,8 +626,11 @@ func TestFinish_PromptIncludesFileArgs(t *testing.T) {
 		t.Fatal(err)
 	}
 	prompt, _ := resp["prompt"].(string)
-	if !strings.Contains(prompt, "`crit --session abcd1234ef01`") {
+	if !strings.Contains(prompt, "crit --session abcd1234ef01") {
 		t.Errorf("expected prompt to contain session reconnect command, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, "When you're done, run:") {
+		t.Errorf("expected prompt to include reconnect heading, got: %s", prompt)
 	}
 }
 
@@ -643,8 +650,8 @@ func TestFinish_PromptBareGitMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	prompt, _ := resp["prompt"].(string)
-	if !strings.Contains(prompt, "run: `crit`") {
-		t.Errorf("expected prompt to end with 'run: `crit`', got: %s", prompt)
+	if !strings.Contains(prompt, "When you're done, run:") || !strings.Contains(prompt, "crit") {
+		t.Errorf("expected prompt to include bare git reconnect, got: %s", prompt)
 	}
 }
 
@@ -3140,25 +3147,6 @@ func TestHandleEvents_SSEHeaders(t *testing.T) {
 
 // --- buildPlanFeedback tests ---
 
-func TestBuildPlanInstructions(t *testing.T) {
-	session := &Session{
-		Mode:    "plan",
-		PlanDir: "/tmp/plans/my-feature",
-	}
-
-	result := buildPlanInstructions(session)
-
-	if !strings.Contains(result, "my-feature") {
-		t.Errorf("expected slug 'my-feature' in feedback, got: %s", result)
-	}
-	if !strings.Contains(result, "each comment") {
-		t.Errorf("expected comments reference in feedback, got: %s", result)
-	}
-	if !strings.Contains(result, "crit comment --plan") {
-		t.Errorf("expected crit comment hint in feedback, got: %s", result)
-	}
-}
-
 func TestFinish_PlanModeNextCommand(t *testing.T) {
 	s, session := newTestServer(t)
 	session.Mode = "plan"
@@ -3177,12 +3165,12 @@ func TestFinish_PlanModeNextCommand(t *testing.T) {
 	if nextCmd != "crit plan --name my-feature" {
 		t.Errorf("next_command = %q, want crit plan --name my-feature", nextCmd)
 	}
-	copyPrompt, _ := resp["copy_prompt"].(string)
-	if !strings.Contains(copyPrompt, "crit plan --name my-feature") {
-		t.Errorf("copy_prompt should include plan reconnect, got: %s", copyPrompt)
+	prompt, _ := resp["prompt"].(string)
+	if !strings.Contains(prompt, "crit plan --name my-feature") {
+		t.Errorf("prompt should include plan reconnect, got: %s", prompt)
 	}
-	if strings.Contains(copyPrompt, "crit --session") {
-		t.Errorf("copy_prompt should not use --session for plan mode, got: %s", copyPrompt)
+	if strings.Contains(prompt, "crit --session") {
+		t.Errorf("prompt should not use --session for plan mode, got: %s", prompt)
 	}
 }
 

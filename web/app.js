@@ -338,6 +338,7 @@
   // (window.crit.share). The controller is created in init() once /api/config
   // resolves, and stored here so other code can call reveal()/closeModal().
   let shareCtl = null;
+  let promptTrustConfig = { project_prompts_untrusted: false };
 
   let uiState = 'reviewing';
   let waitingNotApproved = false;
@@ -881,6 +882,22 @@
       icons: { clipboard: ICON_CLIPBOARD, check: ICON_CHECK_SMALL },
     });
     shareCtl.reveal();
+
+    promptTrustConfig = {
+      project_prompts_untrusted: !!configRes.project_prompts_untrusted,
+      project_prompt_sources: configRes.project_prompt_sources || [],
+      project_prompt_preview: configRes.project_prompt_preview || '',
+      project_prompt_content_hash: configRes.project_prompt_content_hash || '',
+    };
+    window.crit.shared.applyProjectPromptTrustUI(promptTrustConfig, document.getElementById('finishBtn'));
+    if (promptTrustConfig.project_prompts_untrusted) {
+      window.crit.shared.ensureProjectPromptTrust(promptTrustConfig).then(function (ok) {
+        if (ok) {
+          window.crit.shared.applyProjectPromptTrustUI(promptTrustConfig, document.getElementById('finishBtn'));
+          if (uiState === 'reviewing') setUIState('reviewing');
+        }
+      });
+    }
 
     // Update notifications (brew upgrade + stale integrations)
     pendingUpdates = [];
@@ -6704,7 +6721,9 @@
         unresolvedComments += reviewComments.filter(function(c) { return !c.resolved; }).length;
         unresolvedComments += hiddenUnresolved;
         finishBtn.textContent = unresolvedComments === 0 ? 'Approve' : 'Finish Review';
-        finishBtn.disabled = false;
+        if (!promptTrustConfig.project_prompts_untrusted) {
+          finishBtn.disabled = false;
+        }
         finishBtn.classList.add('btn-primary');
         document.getElementById('waitingEdits').textContent = '';
         waitingOverlay.classList.remove('active');
@@ -6731,6 +6750,15 @@
   // and uiState transition (live-mode wires its own state machine).
   async function doFinishReview() {
     return await window.crit.shared.runFinishReview({
+      checkConsent: function () {
+        return window.crit.shared.ensureProjectPromptTrust(promptTrustConfig).then(function (ok) {
+          if (ok) {
+            window.crit.shared.applyProjectPromptTrustUI(promptTrustConfig, document.getElementById('finishBtn'));
+            if (uiState === 'reviewing') setUIState('reviewing');
+          }
+          return ok;
+        });
+      },
       onApproved: function () { waitingNotApproved = false; setUIState('waiting'); },
       onWaiting: function () { waitingNotApproved = true; setUIState('waiting'); },
       onError: function (err) {

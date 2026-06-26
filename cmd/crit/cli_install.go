@@ -10,11 +10,23 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/tomasz-tomczyk/crit/internal/prompt"
 )
 
 func runInstall(args []string) {
-	target := ""
-	force := false
+	target, force := parseInstallArgs(args)
+	if target == "" {
+		printInstallUsage()
+		os.Exit(1)
+	}
+	if err := runInstallTarget(target, force); err != nil {
+		fmt.Fprintln(os.Stderr, "Error: "+err.Error())
+		os.Exit(1)
+	}
+}
+
+func parseInstallArgs(args []string) (target string, force bool) {
 	for _, a := range args {
 		switch {
 		case a == "--force" || a == "-f":
@@ -24,49 +36,74 @@ func runInstall(args []string) {
 			os.Exit(1)
 		default:
 			if target != "" {
-				fmt.Fprintf(os.Stderr, "Error: only one agent name allowed (got %q and %q)\n", target, a)
+				fmt.Fprintf(os.Stderr, "Error: only one target allowed (got %q and %q)\n", target, a)
 				os.Exit(1)
 			}
 			target = a
 		}
 	}
+	return target, force
+}
 
-	if target == "" {
-		fmt.Fprintln(os.Stderr, "Usage: crit install <agent>")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Available agents:")
-		for _, a := range availableIntegrations() {
-			fmt.Fprintf(os.Stderr, "  %s\n", a)
-		}
-		fmt.Fprintln(os.Stderr, "  all")
-		os.Exit(1)
+func printInstallUsage() {
+	fmt.Fprintln(os.Stderr, "Usage: crit install <agent|prompts>")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Available agents:")
+	for _, a := range availableIntegrations() {
+		fmt.Fprintf(os.Stderr, "  %s\n", a)
 	}
+	fmt.Fprintln(os.Stderr, "  all")
+	fmt.Fprintln(os.Stderr, "  prompts")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Install stock finish templates:")
+	fmt.Fprintln(os.Stderr, "  cd ~ && crit install prompts     # ~/.crit/prompts/")
+	fmt.Fprintln(os.Stderr, "  crit install prompts             # .crit/prompts/ in cwd (from repo root)")
+}
 
+func runInstallTarget(target string, force bool) error {
+	if target == "prompts" {
+		return installPrompts(force)
+	}
 	if target == "all" {
-		cwd := mustGetwd()
-		home, _ := os.UserHomeDir()
-		global := isGlobalInstall(cwd, home)
-		hadErr := false
-		for _, name := range availableIntegrations() {
-			if name == "windsurf" && global {
-				fmt.Fprintln(os.Stderr, "  Skipped: windsurf (no global install supported — run from a project)")
-				continue
-			}
-			if err := installIntegration(name, force); err != nil {
-				fmt.Fprintf(os.Stderr, "  Failed: %s: %v\n", name, err)
-				hadErr = true
-				continue
-			}
-		}
-		if hadErr {
-			os.Exit(1)
-		}
-		return
+		return installAllIntegrations(force)
 	}
-	if err := installIntegration(target, force); err != nil {
-		fmt.Fprintln(os.Stderr, "Error: "+err.Error())
-		os.Exit(1)
+	return installIntegration(target, force)
+}
+
+func installAllIntegrations(force bool) error {
+	cwd := mustGetwd()
+	home, _ := os.UserHomeDir()
+	global := isGlobalInstall(cwd, home)
+	var hadErr bool
+	for _, name := range availableIntegrations() {
+		if name == "windsurf" && global {
+			fmt.Fprintln(os.Stderr, "  Skipped: windsurf (no global install supported — run from a project)")
+			continue
+		}
+		if err := installIntegration(name, force); err != nil {
+			fmt.Fprintf(os.Stderr, "  Failed: %s: %v\n", name, err)
+			hadErr = true
+			continue
+		}
 	}
+	if hadErr {
+		return errors.New("one or more integrations failed to install")
+	}
+	return nil
+}
+
+func installPrompts(force bool) error {
+	cwd := mustGetwd()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dest := filepath.Join(cwd, ".crit", "prompts")
+	if isGlobalInstall(cwd, home) {
+		dest = filepath.Join(home, ".crit", "prompts")
+	}
+	fmt.Printf("Installing stock finish prompts to %s\n", dest)
+	return prompt.InstallPrompts(dest, force)
 }
 
 // globalDestKind selects how an integration's globalDest is interpreted.

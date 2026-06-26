@@ -31,13 +31,7 @@ crit --range <baseSHA>..<headSHA>     # Review a commit range (range mode)
 
 ## After review
 
-`crit` stdout includes the review file path. Read it. Three comment scopes:
-
-- **Line comments** — in `files.<path>.comments` with `start_line`/`end_line`
-- **File comments** — same array, `scope: "file"`, lines are 0
-- **Review comments** — in the top-level `review_comments` array, `scope: "review"`
-
-Address each comment where `resolved` is `false` or missing.
+When `crit` completes, read **stdout** and follow its instructions. Check **stderr** for `approved: true` or `approved: false`.
 
 Field guidance:
 - `quote`: the specific text the reviewer selected — focus changes on the quoted text rather than the whole range.
@@ -73,7 +67,7 @@ crit comment --json --file /tmp/replies.json --author 'Aider'
 
 ## Next round
 
-After a round with feedback, run the command crit printed (`Next round:` on stdout, or in `copy_prompt`) verbatim.
+The finish prompt on stdout includes the command to run again — use it to start a new round.
 
 `crit` automatically signals round-complete, then blocks until the next "Finish Review" click. Only proceed after the user approves (a round finishes with zero comments).
 

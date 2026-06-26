@@ -771,6 +771,30 @@ body {
   padding: 0;
   margin-top: 4px;
 }
+.share-dialog--consent .share-dialog-sub a {
+  color: var(--crit-brand);
+  text-decoration: none;
+}
+.share-dialog--consent .share-dialog-sub a:hover { text-decoration: underline; }
+.share-dialog--consent .ppt-actions {
+  justify-content: space-evenly;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ppt-dialog { max-width: 560px; }
+.ppt-sources { margin: 0; padding-left: 1.2rem; font-size: 12px; color: var(--crit-fg-muted); }
+.ppt-preview {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  background: var(--crit-bg-elevated);
+  border: 1px solid var(--crit-border);
+  border-radius: 8px;
+}
 /* Unpublish confirm (reused) */
 .share-dialog-confirm {
   padding: 16px;

@@ -167,24 +167,13 @@ waitLoop:
 	}
 
 	// Verify the agent-readable summary is on stdout. runReviewClient writes
-	// the /api/review-cycle JSON body verbatim — assert on the stable fields.
+	// the rendered prompt text; approved status is on stderr.
 	out := stdout.String()
-	var summary struct {
-		Status   string `json:"status"`
-		Approved bool   `json:"approved"`
-		Comments []any  `json:"comments"`
+	if !strings.Contains(out, "Review approved with no comments") {
+		t.Errorf("stdout should contain approval prompt, got:\n%s\nstderr:\n%s", out, stderr.String())
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &summary); err != nil {
-		t.Fatalf("stdout is not the review summary JSON: %v\nstdout:\n%s\nstderr:\n%s", err, out, stderr.String())
-	}
-	if summary.Status != "finished" {
-		t.Errorf("summary.status = %q, want \"finished\"", summary.Status)
-	}
-	if !summary.Approved {
-		t.Errorf("summary.approved = false, want true (no comments were left)")
-	}
-	if summary.Comments == nil {
-		t.Error("summary.comments is nil; want empty array")
+	if !strings.Contains(stderr.String(), "approved: true") {
+		t.Errorf("stderr should contain approved status, got:\n%s", stderr.String())
 	}
 }
 
