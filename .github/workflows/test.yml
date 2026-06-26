@@ -35,7 +35,7 @@ jobs:
           sl --version
 
       - name: Cache Go build cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: go-build-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -132,7 +132,7 @@ jobs:
           sl --version
 
       - name: Cache Go build cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: go-build-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -165,7 +165,7 @@ jobs:
       # Best-effort speedup only — a flaky restore must not skip tests.
       - name: Cache Go build cache
         continue-on-error: true
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/AppData/Local/go-build
           key: go-build-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -194,7 +194,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Cache Go build cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: go-build-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -212,7 +212,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('test/e2e/package-lock.json') }}
@@ -276,7 +276,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Cache Go build cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/AppData/Local/go-build
           key: go-build-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -294,7 +294,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/AppData/Local/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('test/e2e/package-lock.json') }}
