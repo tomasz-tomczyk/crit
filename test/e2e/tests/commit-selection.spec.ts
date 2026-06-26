@@ -146,16 +146,17 @@ test.describe('Commit Selection', () => {
     await expect(page.locator('#commitDropdownLabel')).toHaveText('All commits');
   });
 
-  test('commit picker hidden when only one commit exists', async ({ page }) => {
+  test('commit picker hidden when only one commit exists', async ({ page, request }) => {
     await expect(page.locator('#commitDropdown')).toBeVisible();
 
+    const commitsRes = await request.get('/api/commits');
+    const commits = await commitsRes.json();
+
     await page.route('**/api/commits', async (route) => {
-      const response = await route.fetch();
-      const commits = await response.json();
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(commits.slice(0, 1)),
+        body: JSON.stringify(Array.isArray(commits) ? commits.slice(0, 1) : commits),
       });
     });
 
