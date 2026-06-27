@@ -2378,7 +2378,8 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reqPath := strings.TrimPrefix(r.URL.Path, "/files/")
-	if reqPath == "" || strings.Contains(reqPath, "..") {
+	reqPath = filepath.ToSlash(filepath.Clean(reqPath))
+	if reqPath == "" || reqPath == "." || strings.HasPrefix(reqPath, "../") || strings.Contains(reqPath, "/../") {
 		http.Error(w, "Invalid file path", http.StatusBadRequest)
 		return
 	}

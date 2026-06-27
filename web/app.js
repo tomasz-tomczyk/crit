@@ -1218,10 +1218,24 @@
     );
   }
 
-  function rewriteImageSrcs(html) {
+  function resolveImagePath(filePath, src) {
+    const fileDir = filePath.includes('/') ? filePath.replace(/\/[^/]*$/, '') : '';
+    const combined = fileDir ? fileDir + '/' + src : src;
+    const parts = combined.split('/');
+    const stack = [];
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (!p || p === '.') continue;
+      if (p === '..') { if (stack.length) stack.pop(); }
+      else stack.push(p);
+    }
+    return stack.join('/');
+  }
+
+  function rewriteImageSrcs(html, filePath) {
     return html.replace(/(<img\s[^>]*src=")([^"]+)(")/gi, function(match, pre, src, post) {
       if (/^https?:\/\/|^data:|^\//.test(src)) return match;
-      return pre + '/files/' + src + post;
+      return pre + '/files/' + resolveImagePath(filePath || '', src) + post;
     });
   }
 
@@ -2463,7 +2477,7 @@
     contentEl.className = buildContentClasses(block);
     let html = block.wordDiffHtml || block.html;
     html = processTaskLists(html);
-    html = rewriteImageSrcs(html);
+    html = rewriteImageSrcs(html, file.path);
     contentEl.innerHTML = html;
     lineBlockEl.appendChild(contentEl);
 
@@ -2692,7 +2706,7 @@
       content.className = buildContentClasses(block);
       let html = block.html;
       html = processTaskLists(html);
-      html = rewriteImageSrcs(html);
+      html = rewriteImageSrcs(html, file.path);
       content.innerHTML = html;
 
       gutter.appendChild(commentGutter);
