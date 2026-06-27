@@ -141,6 +141,9 @@
         if (!isString(msg.selector) || msg.selector.length === 0) {
           return { ok: false, reason: 'keep-highlight.selector' };
         }
+        if (msg.scroll !== undefined && !isBool(msg.scroll)) {
+          return { ok: false, reason: 'keep-highlight.scroll' };
+        }
         return { ok: true };
       case C2A.CLEAR_HIGHLIGHT:
         return { ok: true };

@@ -234,7 +234,7 @@
       case C2A.FLASH_MARKER: onFlashMarker(msg.pin_id); break;
       case C2A.CANCEL_REANCHOR: onCancelReanchor(); break;
       case C2A.SET_MARKER_TABINDEX: onSetMarkerTabindex(msg.value); break;
-      case C2A.KEEP_HIGHLIGHT: onKeepHighlight(msg.selector); break;
+      case C2A.KEEP_HIGHLIGHT: onKeepHighlight(msg.selector, msg.scroll); break;
       case C2A.CLEAR_HIGHLIGHT: onClearHighlight(); break;
       default: break;
     }
@@ -244,7 +244,7 @@
   // is open so the user can see what they're commenting on. Auto-clears on
   // route change (the element is gone) and on explicit CLEAR_HIGHLIGHT
   // (Save/Cancel/Esc/dismiss).
-  function onKeepHighlight(selector) {
+  function onKeepHighlight(selector, scroll) {
     onClearHighlight(); // ensure only one element highlighted at a time
     if (!selector) return;
     try {
@@ -252,6 +252,13 @@
       if (!el) return;
       el.classList.add('crit-live-pending-highlight');
       state._pendingHighlightEl = el;
+      // When chrome navigates to a comment (clicking its card / a deep-link)
+      // it asks us to scroll the anchored element into view. The compose
+      // path leaves scroll falsy — that element was just clicked and is
+      // already on screen, so re-centring it would be jarring.
+      if (scroll && typeof el.scrollIntoView === 'function') {
+        try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { /* noop */ }
+      }
       // Suppress the dashed hover overlay while the user is composing —
       // chasing the cursor at this point is just visual noise. Overlay
       // resumes on CLEAR_HIGHLIGHT (Save / Cancel / Esc / dismiss).

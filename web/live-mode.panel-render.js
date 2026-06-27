@@ -553,7 +553,7 @@
       if (_highlightTimer) { clearTimeout(_highlightTimer); _highlightTimer = null; }
       var anchor = comment.dom_anchor || comment.domAnchor;
       if (anchor && anchor.css_selector) {
-        state.postToAgent({ type: 'keep-highlight', selector: anchor.css_selector });
+        state.postToAgent({ type: 'keep-highlight', selector: anchor.css_selector, scroll: true });
         _highlightTimer = setTimeout(function () {
           state.postToAgent({ type: 'clear-highlight' });
           _highlightTimer = null;

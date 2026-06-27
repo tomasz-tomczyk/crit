@@ -174,6 +174,10 @@ test('keep-highlight requires non-empty selector', () => {
   assert.equal(validateMessage({ type: 'keep-highlight' }).ok, false);
   assert.equal(validateMessage({ type: 'keep-highlight', selector: '' }).ok, false);
   assert.equal(validateMessage({ type: 'keep-highlight', selector: 42 }).ok, false);
+  // optional scroll flag: must be boolean when present
+  assert.equal(validateMessage({ type: 'keep-highlight', selector: '#foo', scroll: true }).ok, true);
+  assert.equal(validateMessage({ type: 'keep-highlight', selector: '#foo', scroll: false }).ok, true);
+  assert.equal(validateMessage({ type: 'keep-highlight', selector: '#foo', scroll: 'yes' }).ok, false);
 });
 
 test('clear-highlight validates without payload', () => {

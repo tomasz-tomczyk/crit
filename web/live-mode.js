@@ -1977,7 +1977,7 @@
           // does not ack scroll completion.
           return new Promise(function (resolve) {
             try {
-              postToAgent({ type: 'keep-highlight', selector: anchor.selector });
+              postToAgent({ type: 'keep-highlight', selector: anchor.selector, scroll: true });
             } catch (_) { /* noop */ }
             setTimeout(resolve, 500);
           });
@@ -2347,6 +2347,10 @@
     var threadScrollAPI = window.crit && window.crit.live && window.crit.live.threadScroll;
     if (threadScrollAPI && threadScrollAPI.scrollThreadToPin) {
       threadScrollAPI.scrollThreadToPin(document, pin.id);
+    }
+    var anchor = pin.dom_anchor || pin.domAnchor;
+    if (anchor && anchor.css_selector) {
+      try { postToAgent({ type: 'keep-highlight', selector: anchor.css_selector, scroll: true }); } catch (_) { /* noop */ }
     }
     postToAgent({ type: 'flash-marker', pin_id: pin.id });
     state.openPin = pin;
