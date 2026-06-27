@@ -77,6 +77,9 @@ func RunComment(args []string) error { //nolint:gocyclo // CLI dispatcher
 }
 
 func resolveCommentFlags(f *commentFlags) error {
+	if f.json && f.replyTo != "" {
+		return fmt.Errorf("--json and --reply-to cannot be used together; for a single reply use: crit comment --reply-to <id> [--author <name>] <body>")
+	}
 	if f.plan != "" {
 		if f.outputDir != "" {
 			return fmt.Errorf("--plan and --output cannot be used together")

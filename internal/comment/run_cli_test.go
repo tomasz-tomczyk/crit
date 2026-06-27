@@ -139,6 +139,19 @@ func TestRunComment_PlanAndOutputConflict(t *testing.T) {
 	}
 }
 
+func TestRunComment_JSONAndReplyToConflict(t *testing.T) {
+	err := RunComment([]string{"--json", "--reply-to", "c_6ab5c4", "--author", "Cursor", "Added crit install prompts"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--json and --reply-to cannot be used together") {
+		t.Errorf("got %v", err)
+	}
+	if !strings.Contains(err.Error(), "crit comment --reply-to <id>") {
+		t.Errorf("expected reply usage hint, got %v", err)
+	}
+}
+
 func TestRunCommentJSONScoped_CountsCommentsAndReplies(t *testing.T) {
 	tmp := t.TempDir()
 	// Seed a comment to reply to.
