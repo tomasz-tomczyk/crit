@@ -7450,6 +7450,7 @@
   }
 
   function normalizeCommitPins() {
+    if (!commitList) commitList = [];
     if (commitFrom && commitThrough && commitFrom === commitThrough) {
       commitThrough = '';
     }
@@ -7520,7 +7521,7 @@
         commitDropdownEl.style.display = 'none';
         return;
       }
-      commitList = await res.json();
+      commitList = (await res.json()) || [];
       if (gen !== commitsFetchGen || !commitRangeChromeVisible()) return;
       if (!commitList || commitList.length < 2) {
         commitDropdownEl.style.display = 'none';
