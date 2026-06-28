@@ -46,6 +46,7 @@ var sseHeartbeatInterval = 30 * time.Second
 var AgentScriptFiles = []string{
 	"agent-protocol.js",
 	"agent-anchor-utils.js",
+	"agent-scroll-utils.js",
 	"agent-marker-overlay.js",
 	"agent-mutation-batcher.js",
 	"agent-resolution.js",

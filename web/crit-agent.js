@@ -16,6 +16,7 @@
   var validateMessage = protocol.validateMessage;
 
   var utils = window.crit && window.crit.agent && window.crit.agent.anchorUtils;
+  var scrollUtils = window.crit && window.crit.agent && window.crit.agent.scrollUtils;
   var markersAPI = window.crit && window.crit.agent && window.crit.agent.markers;
   var batcherAPI = window.crit && window.crit.agent && window.crit.agent.batcher;
   var resolutionAPI = window.crit && window.crit.agent && window.crit.agent.resolution;
@@ -51,6 +52,9 @@
     observer: null,           // MutationObserver
     reanchor: ReanchorStateCtor ? new ReanchorStateCtor() : null,
     routePathname: typeof location !== 'undefined' ? location.pathname : '',
+    unsafeDocumentScroll: scrollUtils
+      ? scrollUtils.detectUnsafeDocumentScroll(document, window)
+      : false,
   };
   window.__critAgentState = state;
 
@@ -256,8 +260,16 @@
       // it asks us to scroll the anchored element into view. The compose
       // path leaves scroll falsy — that element was just clicked and is
       // already on screen, so re-centring it would be jarring.
-      if (scroll && typeof el.scrollIntoView === 'function') {
-        try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { /* noop */ }
+      // Navigation scroll uses container-aware scrolling + a visibility gate
+      // so we don't disturb scroll-hijacking pages (see PR #590).
+      if (scroll && scrollUtils) {
+        try {
+          scrollUtils.scrollIntoNearestContainer(el, {
+            win: window,
+            doc: document,
+            unsafeDocumentScroll: state.unsafeDocumentScroll,
+          });
+        } catch (_) { /* noop */ }
       }
       // Suppress the dashed hover overlay while the user is composing —
       // chasing the cursor at this point is just visual noise. Overlay

@@ -4110,6 +4110,7 @@ func TestLiveRoutes_NotGatedByWithReady(t *testing.T) {
 	for _, path := range []string{
 		"/live", "/crit-agent.js",
 		"/agent-protocol.js", "/agent-anchor-utils.js",
+		"/agent-scroll-utils.js",
 		"/agent-marker-overlay.js", "/agent-mutation-batcher.js",
 		"/agent-resolution.js", "/agent-reanchor-state.js",
 		"/agent-marker.css",
