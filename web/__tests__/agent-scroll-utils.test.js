@@ -163,6 +163,90 @@ test('scrollIntoNearestContainer scrolls inner panel when document scroll is uns
   assert.ok(panel.scrollTop > 0);
 });
 
+test('findScrollContainerChain collects every scrollable ancestor inner-to-outer', () => {
+  var win = mockWin({
+    styles: {
+      OUTER: { overflowY: 'auto', overflowX: 'visible' },
+      INNER: { overflowY: 'auto', overflowX: 'visible' },
+      HTML: { overflowY: 'visible', overflowX: 'visible' },
+      BODY: { overflowY: 'visible', overflowX: 'visible' },
+    },
+  });
+  var doc = {
+    documentElement: { tagName: 'HTML', _styleKey: 'HTML', parentElement: null },
+    body: { tagName: 'BODY', _styleKey: 'BODY' },
+    scrollingElement: null,
+    defaultView: win,
+  };
+  doc.scrollingElement = doc.documentElement;
+  var outer = mockEl({ top: 0, bottom: 400, left: 0, right: 300, height: 400, width: 300 }, {
+    _styleKey: 'OUTER', scrollHeight: 2000, clientHeight: 400,
+  });
+  var inner = mockEl({ top: 0, bottom: 120, left: 0, right: 300, height: 120, width: 300 }, {
+    _styleKey: 'INNER', scrollHeight: 900, clientHeight: 120,
+  });
+  var target = mockEl({ top: 500, bottom: 550, left: 0, right: 100, height: 50, width: 100 });
+  target.parentElement = inner;
+  inner.parentElement = outer;
+  outer.parentElement = doc.body;
+
+  var chain = scroll.findScrollContainerChain(target, doc);
+  assert.equal(chain.length, 3);
+  assert.equal(chain[0], inner);
+  assert.equal(chain[1], outer);
+  assert.equal(chain[2], doc.documentElement);
+});
+
+test('isMostlyVisibleInChain treats element inside a scrolled-away container as hidden', () => {
+  var win = mockWin({ innerHeight: 800, innerWidth: 600 });
+  var doc = { documentElement: {}, body: {}, scrollingElement: {} };
+  // Element appears fully inside its container rect, but the container itself is
+  // pushed off the bottom of the viewport.
+  var container = mockEl({ top: 900, bottom: 1100, left: 0, right: 300, height: 200, width: 300 }, {
+    _styleKey: 'C',
+  });
+  var el = mockEl({ top: 920, bottom: 970, left: 0, right: 100, height: 50, width: 100 });
+  var chain = [container, doc.documentElement];
+  assert.equal(scroll.isMostlyVisibleInChain(el, win, chain, doc), false);
+});
+
+test('scrollIntoNearestContainer adjusts every level of a nested scroll', () => {
+  var win = mockWin({
+    innerHeight: 800,
+    scrollTo: function () { win._docScrolled = true; },
+    styles: {
+      OUTER: { overflowY: 'auto', overflowX: 'visible' },
+      INNER: { overflowY: 'auto', overflowX: 'visible' },
+      HTML: { overflowY: 'visible', overflowX: 'visible' },
+      BODY: { overflowY: 'visible', overflowX: 'visible' },
+    },
+  });
+  var doc = {
+    documentElement: { tagName: 'HTML', _styleKey: 'HTML', parentElement: null },
+    body: { tagName: 'BODY', _styleKey: 'BODY' },
+    scrollingElement: null,
+    defaultView: win,
+  };
+  doc.scrollingElement = doc.documentElement;
+  // Nested section sits below the fold; both inner containers are scrolled to 0.
+  var outer = mockEl({ top: 1000, bottom: 1400, left: 0, right: 300, height: 400, width: 300 }, {
+    _styleKey: 'OUTER', scrollHeight: 2000, clientHeight: 400, scrollTop: 0,
+  });
+  var inner = mockEl({ top: 1000, bottom: 1120, left: 0, right: 300, height: 120, width: 300 }, {
+    _styleKey: 'INNER', scrollHeight: 900, clientHeight: 120, scrollTop: 0,
+  });
+  var target = mockEl({ top: 1500, bottom: 1550, left: 0, right: 100, height: 50, width: 100 });
+  target.parentElement = inner;
+  inner.parentElement = outer;
+  outer.parentElement = doc.body;
+
+  var ret = scroll.scrollIntoNearestContainer(target, { win: win, doc: doc });
+  assert.equal(ret, true);
+  assert.ok(inner.scrollTop > 0, 'inner container scrolled');
+  assert.ok(outer.scrollTop > 0, 'outer container scrolled');
+  assert.ok(win._docScrolled, 'document centered as final step');
+});
+
 test('detectUnsafeDocumentScroll flags locked root overflow', () => {
   var win = mockWin({
     innerHeight: 800,
