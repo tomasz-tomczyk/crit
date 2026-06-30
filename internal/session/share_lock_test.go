@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -39,5 +40,13 @@ func TestWithShareLock_SerializesConcurrentCallers(t *testing.T) {
 	}
 	if _, err := os.Stat(ReviewPathsFor(identity).ShareLock); err != nil {
 		t.Errorf("share.lock not created: %v", err)
+	}
+}
+
+func TestWithShareLock_PropagatesFnError(t *testing.T) {
+	want := errors.New("boom")
+	got := WithShareLock(t.TempDir(), func() error { return want })
+	if !errors.Is(got, want) {
+		t.Fatalf("WithShareLock() = %v, want %v", got, want)
 	}
 }
