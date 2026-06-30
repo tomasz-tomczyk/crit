@@ -94,7 +94,9 @@ func TestConcurrentShareLock(t *testing.T) {
 func critBinaryForTest(t *testing.T) string {
 	t.Helper()
 	if b := os.Getenv("CRIT_BINARY"); b != "" {
-		return b
+		if _, err := os.Stat(b); err == nil {
+			return b
+		}
 	}
 	wd, err := os.Getwd()
 	if err != nil {
@@ -108,7 +110,14 @@ func critBinaryForTest(t *testing.T) string {
 			return p
 		}
 	}
-	return filepath.Join(wd, "..", "..", "crit")
+	repoRoot := filepath.Join(wd, "..", "..")
+	binary := filepath.Join(t.TempDir(), "crit")
+	cmd := exec.Command("go", "build", "-o", binary, "./cmd/crit")
+	cmd.Dir = repoRoot
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("building crit for test: %v\n%s", err, out)
+	}
+	return binary
 }
 
 func runCritShareCmd(t *testing.T, binary, dir, stubURL, outputDir string) (string, error) {
