@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -112,6 +113,9 @@ func critBinaryForTest(t *testing.T) string {
 	}
 	repoRoot := filepath.Join(wd, "..", "..")
 	binary := filepath.Join(t.TempDir(), "crit")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
 	cmd := exec.Command("go", "build", "-o", binary, "./cmd/crit")
 	cmd.Dir = repoRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
