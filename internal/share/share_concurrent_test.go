@@ -6,21 +6,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
-// TestConcurrentShareLock verifies parallel `crit share` invocations for the
-// same review identity create only one hosted review (single POST).
+// TestConcurrentShareLock verifies parallel share attempts for the same review
+// identity create only one hosted review (single POST).
 func TestConcurrentShareLock(t *testing.T) {
-	binary := critBinaryForTest(t)
-
 	var postCount atomic.Int32
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/reviews" {
@@ -50,6 +47,9 @@ func TestConcurrentShareLock(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "dummy.md"), []byte("# test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	critPath := filepath.Join(dir, ".crit")
+	files := []ShareFile{{Path: "dummy.md", Content: "# test\n"}}
+	sharePaths := []string{"dummy.md"}
 
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
@@ -57,15 +57,16 @@ func TestConcurrentShareLock(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func() {
 			defer wg.Done()
-			_, err := runCritShareCmd(t, binary, dir, stub.URL, dir)
-			errs <- err
+			errs <- session.WithShareLock(critPath, func() error {
+				return runShareUnderLock(critPath, files, sharePaths, stub.URL, "", "", "", "", false)
+			})
 		}()
 	}
 	wg.Wait()
 	close(errs)
 	for err := range errs {
 		if err != nil {
-			t.Fatalf("crit share failed: %v", err)
+			t.Fatalf("share under lock failed: %v", err)
 		}
 	}
 
@@ -73,7 +74,7 @@ func TestConcurrentShareLock(t *testing.T) {
 		t.Fatalf("expected 1 POST to crit-web, got %d", got)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
+	data, err := os.ReadFile(filepath.Join(critPath, "review.json"))
 	if err != nil {
 		t.Fatalf("reading review.json: %v", err)
 	}
@@ -87,62 +88,7 @@ func TestConcurrentShareLock(t *testing.T) {
 	if cj.ShareURL != "http://stub/r/token-1" {
 		t.Errorf("share_url = %q, want http://stub/r/token-1", cj.ShareURL)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".crit", "share.lock")); err != nil {
+	if _, err := os.Stat(session.ReviewPathsFor(critPath).ShareLock); err != nil {
 		t.Errorf("share.lock missing: %v", err)
 	}
-}
-
-func critBinaryForTest(t *testing.T) string {
-	t.Helper()
-	if b := os.Getenv("CRIT_BINARY"); b != "" {
-		if _, err := os.Stat(b); err == nil {
-			return b
-		}
-	}
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range []string{
-		filepath.Join(wd, "..", "..", "crit"),
-		filepath.Join(wd, "crit"),
-	} {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	repoRoot := filepath.Join(wd, "..", "..")
-	binary := filepath.Join(t.TempDir(), "crit")
-	if runtime.GOOS == "windows" {
-		binary += ".exe"
-	}
-	cmd := exec.Command("go", "build", "-o", binary, "./cmd/crit")
-	cmd.Dir = repoRoot
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("building crit for test: %v\n%s", err, out)
-	}
-	return binary
-}
-
-func runCritShareCmd(t *testing.T, binary, dir, stubURL, outputDir string) (string, error) {
-	t.Helper()
-	cmd := exec.Command(binary, "share", "--share-url", stubURL, "--output", outputDir, "dummy.md")
-	cmd.Dir = dir
-	cmd.Env = envWithout("CRIT_AUTH_TOKEN=", "HOME=", "CRIT_SHARE_URL=")
-	out, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out)), err
-}
-
-func envWithout(prefixes ...string) []string {
-	var env []string
-outer:
-	for _, e := range os.Environ() {
-		for _, p := range prefixes {
-			if strings.HasPrefix(e, p) {
-				continue outer
-			}
-		}
-		env = append(env, e)
-	}
-	return env
 }

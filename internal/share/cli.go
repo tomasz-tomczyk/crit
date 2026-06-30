@@ -327,15 +327,19 @@ func RunShare(args []string) error { //nolint:gocyclo // CLI dispatcher
 	}
 
 	return session.WithShareLock(critPath, func() error {
-		lockedCfg, lockedOK, err := LoadExistingShareCfg(critPath, sharePaths)
-		if err != nil {
-			return err
-		}
-		if lockedOK {
-			return runShareExisting(lockedCfg, critPath, files, sharePaths, authToken, cfg.Author, sf.showQR)
-		}
-		return runShareNew(critPath, files, sharePaths, sf.svcURL, authToken, cfg.Author, sf.org, sf.visibility, sf.showQR)
+		return runShareUnderLock(critPath, files, sharePaths, sf.svcURL, authToken, cfg.Author, sf.org, sf.visibility, sf.showQR)
 	})
+}
+
+func runShareUnderLock(critPath string, files []ShareFile, sharePaths []string, svcURL, authToken, author, org, visibility string, showQR bool) error {
+	lockedCfg, lockedOK, err := LoadExistingShareCfg(critPath, sharePaths)
+	if err != nil {
+		return err
+	}
+	if lockedOK {
+		return runShareExisting(lockedCfg, critPath, files, sharePaths, authToken, author, showQR)
+	}
+	return runShareNew(critPath, files, sharePaths, svcURL, authToken, author, org, visibility, showQR)
 }
 
 func parseFetchOutputDir(args []string) (string, error) {
