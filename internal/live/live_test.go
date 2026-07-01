@@ -476,6 +476,7 @@ func TestParseLiveCLIFlags(t *testing.T) {
 		"--cookie", "a=1",
 		"--cookie", "b=2",
 		"--cookie-file", "/tmp/jar.txt",
+		"--cdp-url", "http://127.0.0.1:9222",
 		"https://example.com/app?q=1#frag",
 	})
 	if f.origin != "https://example.com/app" {
@@ -484,8 +485,8 @@ func TestParseLiveCLIFlags(t *testing.T) {
 	if f.port != 8080 || f.host != "0.0.0.0" || f.publicURL != "https://mymac.ts.net" || !f.noOpen || !f.quiet {
 		t.Fatalf("flags = %+v", f)
 	}
-	if f.shareURL != "https://share.example" || f.cookieFile != "/tmp/jar.txt" {
-		t.Fatalf("share/cookie file = %+v", f)
+	if f.shareURL != "https://share.example" || f.cookieFile != "/tmp/jar.txt" || f.cdpURL != "http://127.0.0.1:9222" {
+		t.Fatalf("share/cookie/cdp = %+v", f)
 	}
 	if len(f.cookieFlags) != 2 || f.cookieFlags[0] != "a=1" || f.cookieFlags[1] != "b=2" {
 		t.Fatalf("cookieFlags = %v", f.cookieFlags)

@@ -1,6 +1,7 @@
 package live
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -105,4 +106,35 @@ func parseNetscapeCookieLine(line string) (name, value string, ok bool) {
 		return "", "", false
 	}
 	return name, value, true
+}
+
+// resolveLiveCookiesWithCDP merges manual/config/file cookies with cookies read
+// from a Chrome DevTools endpoint. Explicit manual cookies override CDP cookies
+// with the same name.
+func resolveLiveCookiesWithCDP(
+	ctx context.Context,
+	flagCookies []string,
+	flagCookieFile string,
+	flagCDPURL string,
+	cfg config.Config,
+	configDir string,
+	origin string,
+) (string, error) {
+	manual, err := resolveLiveCookies(flagCookies, flagCookieFile, cfg, configDir)
+	if err != nil {
+		return "", err
+	}
+	cdpURL := resolveCDPURL(flagCDPURL, cfg.LiveCDPURL)
+	if cdpURL == "" {
+		return manual, nil
+	}
+	fromCDP, err := fetchCDPCookies(ctx, cdpURL, origin)
+	if err != nil {
+		if manual != "" {
+			fmt.Fprintf(os.Stderr, "[crit] warning: could not read cookies from Chrome DevTools (%v); using configured cookies\n", err)
+			return manual, nil
+		}
+		return "", err
+	}
+	return mergeCookieHeaders(fromCDP, manual), nil
 }

@@ -46,6 +46,7 @@ type Config struct {
 	ShareConsented     bool              `json:"share_consented,omitempty"`
 	LiveCookie         string            `json:"live_cookie,omitempty"`
 	LiveCookieFile     string            `json:"live_cookie_file,omitempty"`
+	LiveCDPURL         string            `json:"live_cdp_url,omitempty"`
 	Prompts            map[string]string `json:"prompts,omitempty"`
 }
 
@@ -248,6 +249,9 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	if project.LiveCookieFile != "" {
 		merged.LiveCookieFile = project.LiveCookieFile
 	}
+	if project.LiveCDPURL != "" {
+		merged.LiveCDPURL = project.LiveCDPURL
+	}
 	// Security: agent_cmd, auth_token, share_url, public_url, proxy_auth, and open_cmd are intentionally
 	// NOT merged from project config. They must remain global-only: agent_cmd to
 	// prevent untrusted repos from hijacking the agent command; open_cmd to prevent
@@ -256,9 +260,10 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	// redirecting share requests (and the bearer token) or advertised URLs to an
 	// attacker-controlled host;
 	// proxy_auth to prevent a repo from silently changing the transport mode.
-	// live_cookie/live_cookie_file DO merge from project config — common for local
+	// live_cookie/live_cookie_file/live_cdp_url DO merge from project config — common for local
 	// dev auth. Prefer live_cookie_file pointing at a gitignored path (e.g.
-	// .crit/live-cookies.txt) over committing live_cookie inline.
+	// .crit/live-cookies.txt) over committing live_cookie inline. live_cdp_url
+	// reuses cookies from a local Chrome with remote debugging enabled.
 	// Union ignore patterns
 	merged.IgnorePatterns = append(merged.IgnorePatterns, project.IgnorePatterns...)
 	// Union auto-viewed patterns (global + project both apply)

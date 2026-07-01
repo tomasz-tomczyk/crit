@@ -150,6 +150,20 @@ jobs:
           flags: unit
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  live-cdp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: browser-actions/setup-chrome@v1
+
+      - name: Run live CDP integration tests
+        run: go test -tags integration -run TestLiveCDPIntegration -v -count=1 ./internal/live/...
+
   unit-windows:
     runs-on: windows-2025-vs2026
     steps:

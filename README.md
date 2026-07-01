@@ -93,15 +93,19 @@ crit live http://localhost:4000/dashboard --cookie "_crit_key=..."
 
 # repeatable (Netscape jar or raw Cookie header lines)
 crit live http://localhost:4000/dashboard --cookie-file .crit/live-cookies.txt
+
+# reuse cookies from a Chrome session with remote debugging enabled
+crit live http://localhost:4000/dashboard --cdp-url http://127.0.0.1:9222
 ```
 
-**Getting cookies:** log in to the app in your browser, then copy the session cookie from DevTools (Application → Cookies) or export a cookie jar.
+**Getting cookies:** log in to the app in your browser, then copy the session cookie from DevTools (Application → Cookies), export a cookie jar, or start Chrome with `--remote-debugging-port=9222` and pass `--cdp-url` so Crit reads cookies for the target origin automatically.
 
 **Config** (global or project `.crit.config.json`; project overrides global):
 
 ```json
 {
-  "live_cookie_file": ".crit/live-cookies.txt"
+  "live_cookie_file": ".crit/live-cookies.txt",
+  "live_cdp_url": "http://127.0.0.1:9222"
 }
 ```
 
@@ -305,6 +309,7 @@ All keys are optional — omit any you don't need.
 | `vcs`                  | string   | auto-detected              | Preferred VCS backend: `"git"`, `"sl"`, or `"jj"`. When set, crit uses this VCS instead of auto-detecting. Falls back to git if the configured VCS isn't available. Can also be set via `--vcs` CLI flag (flag takes precedence over config). |
 | `live_cookie`          | string   | `""`                       | Cookie header value forwarded to the upstream app in live mode (e.g. `"_crit_key=..."`). Global or project. Prefer `live_cookie_file` for secrets. |
 | `live_cookie_file`     | string   | `""`                       | Path to a file with upstream cookies for live mode (raw header lines or Netscape jar). Global or project; relative paths resolve from repo root. |
+| `live_cdp_url`         | string   | `""`                       | Chrome DevTools URL (e.g. `http://127.0.0.1:9222`) to reuse browser cookies for the live upstream. Global or project. |
 | `prompts`              | object   | `{}`                       | Custom finish-hook templates (project overrides global per key). See [Agent prompts](docs/agent-prompts.md). |
 
 ### Agent prompts
@@ -349,6 +354,7 @@ These keys can only be set in `~/.crit.config.json` (global). Project-level `.cr
 | --------------- | --------------------- | ----------- |
 | `--cookie`      | `live_cookie`         | Upstream cookie value (repeatable) |
 | `--cookie-file` | `live_cookie_file`    | File with upstream cookies |
+| `--cdp-url`     | `live_cdp_url`        | Chrome DevTools URL to reuse browser cookies |
 
 ### Ignore patterns
 

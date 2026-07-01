@@ -2,6 +2,7 @@ package live
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -163,6 +164,7 @@ type liveCLIFlags struct {
 	shareURL    string
 	cookieFlags stringSliceFlag
 	cookieFile  string
+	cdpURL      string
 	origin      string
 }
 
@@ -179,6 +181,7 @@ func parseLiveCLIFlags(args []string) liveCLIFlags {
 	var cookieFlags stringSliceFlag
 	fs.Var(&cookieFlags, "cookie", "Cookie header value for upstream requests (repeatable)")
 	cookieFile := fs.String("cookie-file", "", "File with upstream cookies (raw header or Netscape jar)")
+	cdpURL := fs.String("cdp-url", "", "Chrome DevTools URL (e.g. http://127.0.0.1:9222) to reuse browser cookies")
 	fs.Parse(args)
 
 	rawURL := ""
@@ -208,6 +211,7 @@ func parseLiveCLIFlags(args []string) liveCLIFlags {
 		shareURL:    *shareURL,
 		cookieFlags: cookieFlags,
 		cookieFile:  *cookieFile,
+		cdpURL:      *cdpURL,
 		origin:      strings.TrimSuffix(u.String(), "/"),
 	}
 }
@@ -237,7 +241,12 @@ func RunLive(args []string) {
 		os.Exit(1)
 	}
 	cfg := config.LoadConfig(cwd)
-	liveCookies, err := resolveLiveCookies(f.cookieFlags, f.cookieFile, cfg, cwd)
+	key := daemon.LiveSessionKey(cwd, f.origin)
+	if connectToLiveDaemon(key, cfg.OpenCmd) {
+		return
+	}
+
+	liveCookies, err := resolveLiveCookiesWithCDP(context.Background(), f.cookieFlags, f.cookieFile, f.cdpURL, cfg, cwd, f.origin)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -245,7 +254,6 @@ func RunLive(args []string) {
 
 	checkLiveSmoke(f.origin, liveCookies)
 
-	key := daemon.LiveSessionKey(cwd, f.origin)
 	if connectToLiveDaemon(key, cfg.OpenCmd) {
 		return
 	}
