@@ -199,6 +199,73 @@ func TestFetchCDPCookies_Unreachable(t *testing.T) {
 	}
 }
 
+func TestMergeCookieHeaders_InvalidPairSkipped(t *testing.T) {
+	got := mergeCookieHeaders("valid=1", "invalid-no-equals", "b=2")
+	if got != "valid=1; b=2" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCdpListTargets_BadStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, err := cdpListTargets(context.Background(), srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "listing Chrome targets returned") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCdpNewPageWebSocketURL_BadStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, err := cdpNewPageWebSocketURL(context.Background(), srv.URL, "http://example.com")
+	if err == nil || !strings.Contains(err.Error(), "creating Chrome page target returned") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCdpNetworkGetCookies_CDPServerError(t *testing.T) {
+	var upgrader websocket.Upgrader
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var cmd cdpCommand
+			if err := json.Unmarshal(msg, &cmd); err != nil {
+				continue
+			}
+			if cmd.Method == "Network.enable" {
+				_ = conn.WriteJSON(map[string]any{"id": cmd.ID, "result": map[string]any{}})
+				continue
+			}
+			_ = conn.WriteJSON(map[string]any{
+				"id":    cmd.ID,
+				"error": map[string]any{"message": "boom"},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/cdp"
+	_, err := cdpNetworkGetCookies(context.Background(), wsURL, srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "Network.getCookies") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestResolveLiveCookies_WithCDP(t *testing.T) {
 	orig := fetchCDPCookies
 	t.Cleanup(func() { fetchCDPCookies = orig })

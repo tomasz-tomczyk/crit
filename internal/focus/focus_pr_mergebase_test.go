@@ -51,6 +51,7 @@ func TestResolveFocusFromPR_UsesMergeBaseNotBaseTip(t *testing.T) {
 	}
 	if f == nil {
 		t.Fatal("ResolveFocus returned nil focus")
+		return
 	}
 	if f.BaseSHA != forkpoint {
 		t.Errorf("Focus.BaseSHA = %s, want merge-base %s; base tip %s would reintroduce the bug",
