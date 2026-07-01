@@ -28,15 +28,5 @@ func main() {
 		return
 	}
 	args := resolveAtPrefixedArgs(os.Args[1:])
-	switch routePositionalArgs(args) {
-	case positionalRoutePRReview:
-		prArgs, _ := prReviewArgs(args)
-		clicmd.Exit(session.RunReview(prArgs))
-	case positionalRouteLive:
-		runLive(args)
-	case positionalRoutePreview:
-		runPreview(args)
-	default:
-		clicmd.Exit(session.RunReview(args))
-	}
+	runPositionalCLI(args)
 }
