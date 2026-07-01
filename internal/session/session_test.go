@@ -4875,6 +4875,42 @@ func TestGetFileDiffSnapshotScoped_CommitRangeRename(t *testing.T) {
 	}
 }
 
+// Regression #701: range focus must ignore working-tree scope on /api/file/diff.
+func TestGetFileDiffSnapshotScoped_RangeFocus_IgnoresBranchScope(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	commitAt(t, dir, "changed.go", "line1\nline2\nline3\n", "add file")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{
+		Mode:     "git",
+		RepoRoot: dir,
+		BaseRef:  base,
+		VCS:      &vcs.GitVCS{},
+		Focus: Focus{
+			Kind:    FocusRange,
+			BaseSHA: base,
+			HeadSHA: head,
+		},
+		Files: []*FileEntry{{
+			Path:      "changed.go",
+			Status:    "added",
+			Content:   "line1\nline2\nline3\n",
+			DiffHunks: vcs.FileDiffUnifiedNewFile("line1\nline2\nline3\n"),
+		}},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	result, ok := s.GetFileDiffSnapshotScoped("changed.go", "branch", "", false)
+	if !ok {
+		t.Fatal("expected snapshot")
+	}
+	hunks, _ := result["hunks"].([]DiffHunk)
+	if len(hunks) == 0 {
+		t.Fatal("range focus with scope=branch must return preloaded range hunks, not empty working-tree diff")
+	}
+}
+
 func TestGetFileDiffSnapshotScoped_CommitRangeRename_PreloadedFile(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "old.go", "package x\n", "add old")

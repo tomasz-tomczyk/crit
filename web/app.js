@@ -1023,11 +1023,15 @@
       // correct, and the scope toggle will be hidden once the range chrome
       // renders.
       const inRangeFocus = session.focus && session.focus.kind === 'range';
-      if (diffScope === null) {
+      // Working-tree scopes (branch/staged/unstaged) filter against HEAD;
+      // range focus diffs are pinned to BaseSHA..HeadSHA server-side.
+      if (inRangeFocus) {
+        diffScope = 'all';
+      } else if (diffScope === null) {
         // First launch — prefer "branch" (committed changes only) over "all"
         // (which includes untracked files and can overwhelm large repos).
         diffScope = scopes.indexOf('branch') !== -1 ? 'branch' : 'all';
-        if (diffScope !== 'all' && !inRangeFocus) {
+        if (diffScope !== 'all') {
           const corrected = await fetchWhenReady('/api/session?scope=' + enc(diffScope));
           session = corrected;
           reviewComments = corrected.review_comments || [];
@@ -1053,7 +1057,7 @@
       ? 'Crit — ' + (session.branch || 'review')
       : 'Crit — ' + (session.files || []).map(f => f.path).join(', '));
 
-    files = await loadAllFileData(session.files || [], diffScope);
+    files = await loadAllFileData(session.files || [], effectiveDiffScope());
     hiddenUnresolved = session.hidden_unresolved || 0;
 
     files.sort(fileSortComparator);
@@ -2044,7 +2048,7 @@
           file_type: file.fileType,
           additions: file.additions,
           deletions: file.deletions,
-        }, diffScope).then(function(loaded) {
+        }, effectiveDiffScope()).then(function(loaded) {
           // Copy loaded data into the existing file object
           file.oldPath = loaded.oldPath;
           file.content = loaded.content;
@@ -6922,7 +6926,7 @@
         reviewComments = sessionRes.review_comments || [];
 
         // Reload all files
-        files = await loadAllFileData(session.files || [], diffScope);
+        files = await loadAllFileData(session.files || [], effectiveDiffScope());
         hiddenUnresolved = session.hidden_unresolved || 0;
 
         // Restore per-file user state from previous round
@@ -7056,6 +7060,9 @@
             session.last_range_focus = inner.last_range_focus || null;
           }
           applyFocusToHeader(focus);
+          if (focus.kind === 'range') {
+            diffScope = 'all';
+          }
           // Re-fetch the stack on any range focus transition — the new
           // focus may live in a different stack, and the breadcrumb's
           // visibility uses stack.length (not is_stacked) so we need the
@@ -7424,6 +7431,13 @@
 
   function sessionInRangeFocus() {
     return !!(session && session.focus && session.focus.kind === 'range');
+  }
+
+  // Scope passed to /api/file and /api/file/diff. Working-tree scopes are
+  // meaningless in range (PR) focus — the file list and hunks are pinned to
+  // BaseSHA..HeadSHA server-side.
+  function effectiveDiffScope() {
+    return sessionInRangeFocus() ? 'all' : diffScope;
   }
 
   function compareTargetChromeVisible() {
@@ -8027,7 +8041,7 @@
           return;
         }
 
-        files = await loadAllFileData(session.files, diffScope);
+        files = await loadAllFileData(session.files, effectiveDiffScope());
         hiddenUnresolved = session.hidden_unresolved || 0;
         files.sort(fileSortComparator);
         restoreViewedState();

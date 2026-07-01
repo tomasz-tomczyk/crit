@@ -876,7 +876,10 @@ func computeScopedDiffHunks(path, scope, commit, status, oldPath, content, baseR
 // When commit is non-empty, returns the diff for that single commit.
 // When ignoreWhitespace is true, whitespace-only changes collapse to context (code diffs only).
 func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string, ignoreWhitespace bool) (map[string]any, bool) {
-	if commit == "" && (scope == "" || scope == "all" || s.Mode == "files" || s.Mode == "plan") {
+	s.mu.RLock()
+	inRange := s.Focus.Kind == FocusRange
+	s.mu.RUnlock()
+	if commit == "" && (scope == "" || scope == "all" || s.Mode == "files" || s.Mode == "plan" || inRange) {
 		return s.GetFileDiffSnapshot(path, ignoreWhitespace)
 	}
 
