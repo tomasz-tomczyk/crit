@@ -126,6 +126,69 @@ func TestFetchCDPCookies_FakeServer(t *testing.T) {
 	}
 }
 
+func TestFetchCDPCookies_FakeServer_NewPageFallback(t *testing.T) {
+	var upgrader websocket.Upgrader
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/json/list", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("[]"))
+	})
+
+	mux.HandleFunc("/json/new", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "method", http.StatusMethodNotAllowed)
+			return
+		}
+		scheme := "ws"
+		if r.TLS != nil {
+			scheme = "wss"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"webSocketDebuggerUrl": scheme + "://" + r.Host + "/cdp",
+		})
+	})
+
+	mux.HandleFunc("/cdp", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var cmd cdpCommand
+			if err := json.Unmarshal(msg, &cmd); err != nil {
+				continue
+			}
+			switch cmd.Method {
+			case "Network.enable":
+				_ = conn.WriteJSON(map[string]any{"id": cmd.ID, "result": map[string]any{}})
+			case "Network.getCookies":
+				_ = conn.WriteJSON(cdpResponse{
+					ID: cmd.ID,
+					Result: cdpGetCookiesResult{
+						Cookies: []cdpCookie{{Name: "session", Value: "new_tab"}},
+					},
+				})
+			}
+		}
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	got, err := defaultFetchCDPCookies(context.Background(), srv.URL, srv.URL+"/dashboard")
+	if err != nil {
+		t.Fatalf("fetchCDPCookies: %v", err)
+	}
+	if got != "session=new_tab" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestFetchCDPCookies_Unreachable(t *testing.T) {
 	_, err := defaultFetchCDPCookies(context.Background(), "http://127.0.0.1:1", "http://127.0.0.1:1/")
 	if err == nil {
