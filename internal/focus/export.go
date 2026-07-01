@@ -1,5 +1,10 @@
 package focus
 
+// LooksLikePRURL reports whether spec is a GitHub pull request URL.
+func LooksLikePRURL(spec string) bool {
+	return prURLRe.MatchString(spec)
+}
+
 // ParsePRSpec resolves --pr <num|url> to a numeric PR number.
 func ParsePRSpec(spec string) (int, error) {
 	return parsePRSpec(spec)

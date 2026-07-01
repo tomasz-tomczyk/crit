@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tomasz-tomczyk/crit/internal/focus"
 )
 
 func TestAddLivePin_AssignsMonotonicGlobalPinNumbers(t *testing.T) {
@@ -81,6 +83,10 @@ func testRunLive([]string)   { lastDispatch = "live" }
 func testRunReview([]string) { lastDispatch = "review" }
 
 func dispatchForTest(args []string, liveFn, reviewFn func([]string)) {
+	if len(args) == 1 && focus.LooksLikePRURL(args[0]) {
+		reviewFn([]string{"--pr", args[0]})
+		return
+	}
 	if looksLikeLiveArgs(args) {
 		liveFn(args)
 	} else {
@@ -128,6 +134,22 @@ func TestDispatch_PlainArgNotLive(t *testing.T) {
 	}
 }
 
+func TestDispatch_GitHubPRURLUsesReview(t *testing.T) {
+	lastDispatch = ""
+	var reviewArgs []string
+	dispatchForTest([]string{"https://github.com/a/b/pull/295"}, testRunLive, func(args []string) {
+		lastDispatch = "review"
+		reviewArgs = args
+	})
+	if lastDispatch != "review" {
+		t.Errorf("dispatch = %q, want review", lastDispatch)
+	}
+	want := []string{"--pr", "https://github.com/a/b/pull/295"}
+	if len(reviewArgs) != len(want) || reviewArgs[0] != want[0] || reviewArgs[1] != want[1] {
+		t.Errorf("review args = %v, want %v", reviewArgs, want)
+	}
+}
+
 func TestLooksLikeLiveArgs(t *testing.T) {
 	cases := []struct {
 		args []string
@@ -136,6 +158,8 @@ func TestLooksLikeLiveArgs(t *testing.T) {
 		{[]string{"http://localhost:3000"}, true},
 		{[]string{"https://example.com"}, true},
 		{[]string{"https://localhost:8080/path"}, true},
+		{[]string{"https://github.com/a/b/pull/295"}, false},
+		{[]string{"https://github.com/a/b/pull/295/files"}, false},
 		{[]string{"ftp://x.com"}, false},
 		{[]string{"localhost:3000"}, false},
 		{[]string{"README.md"}, false},

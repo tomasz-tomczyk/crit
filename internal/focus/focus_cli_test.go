@@ -33,6 +33,28 @@ func TestParsePRSpec(t *testing.T) {
 	}
 }
 
+func TestLooksLikePRURL(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"https://github.com/a/b/pull/295", true},
+		{"https://github.com/a/b/pull/295/files", true},
+		{"http://github.com/a/b/pull/1", true},
+		{"https://example.com", false},
+		{"https://github.com/a/b/issues/295", false},
+		{"295", false},
+		{"README.md", false},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			if got := LooksLikePRURL(c.in); got != c.want {
+				t.Errorf("LooksLikePRURL(%q) = %v, want %v", c.in, got, c.want)
+			}
+		})
+	}
+}
+
 func TestParseRangeSpec(t *testing.T) {
 	cases := []struct {
 		in       string

@@ -17,6 +17,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/browser"
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/focus"
 )
 
 type smokeKind int
@@ -123,8 +124,12 @@ func runSmokeTest(origin, cookies string) smokeResult {
 }
 
 // LooksLikeLiveArgs returns true when args is a single http/https URL.
+// GitHub PR URLs are excluded — those route to range mode via --pr.
 func LooksLikeLiveArgs(args []string) bool {
 	if len(args) != 1 {
+		return false
+	}
+	if focus.LooksLikePRURL(args[0]) {
 		return false
 	}
 	u, err := url.Parse(args[0])

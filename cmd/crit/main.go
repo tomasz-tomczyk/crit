@@ -5,8 +5,6 @@ import (
 
 	integrationassets "github.com/tomasz-tomczyk/crit/integrations"
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
-	"github.com/tomasz-tomczyk/crit/internal/live"
-	"github.com/tomasz-tomczyk/crit/internal/preview"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	webassets "github.com/tomasz-tomczyk/crit/web"
 )
@@ -30,13 +28,15 @@ func main() {
 		return
 	}
 	args := resolveAtPrefixedArgs(os.Args[1:])
-	if live.LooksLikeLiveArgs(args) {
+	switch routePositionalArgs(args) {
+	case positionalRoutePRReview:
+		prArgs, _ := prReviewArgs(args)
+		clicmd.Exit(session.RunReview(prArgs))
+	case positionalRouteLive:
 		runLive(args)
-		return
-	}
-	if preview.LooksLikePreviewArgs(args) {
+	case positionalRoutePreview:
 		runPreview(args)
-		return
+	default:
+		clicmd.Exit(session.RunReview(args))
 	}
-	clicmd.Exit(session.RunReview(args))
 }
