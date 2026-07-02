@@ -36,7 +36,7 @@ var integrationHashes = map[string]string{
 	"integrations/opencode/plugin/crit.ts":                       "139a1798dcda408520696f02981569f3188688d8995c77421f66506416fc0115",
 	"integrations/pi/skills/crit-cli/SKILL.md":                   "b8640f3387b556244d379318dba608b77970f2ff62cfd4469f449d2b76f22cc0",
 	"integrations/pi/skills/crit/SKILL.md":                       "25dd375fce11abb516a20f9b3c7f27c6498593a9fe36a2e853971f216b5fbc3b",
-	"integrations/prompts/examples/on_finish_approved.md":        "25ba61757ce2bc5c260b402f9d8ed6b3eb51063395cd87ea810c0938a87ec9c5",
+	"integrations/prompts/examples/on_finish_approved.md":        "d62d9996d95936afd669738d60977dea2641fcf9ddd37c8e9d8d98fae7a7f181",
 	"integrations/prompts/examples/on_finish_unresolved.diff.md": "2c075d2bc2ea69564d40395b46816d23004e199a39db80e483a7cfa700697f2c",
 	"integrations/prompts/on_finish_approved.md":                 "12b79ce1f7251ca00d16bf9a9af295215a55a3d69c8f264d5002404309b0a4e7",
 	"integrations/prompts/on_finish_unresolved.md":               "9be512aad3157948edb6eff08ef9715acd6e1c3f12463d9ca89ebce49278c704",
