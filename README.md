@@ -64,7 +64,7 @@ Crit also works with Cursor, GitHub Copilot, OpenCode, Codex, Gemini, Qwen, Herm
 
 ### 3. Tell your agent to use `crit`
 
-Most integrations include a `/crit` slash command that automates the full review loop. 
+Most integrations include a `/crit` slash command that automates the full review loop.
 Agent launches Crit, waits for your review and acts on the feedback.
 Repeat the process until you approve the changes.
 
@@ -82,6 +82,8 @@ crit plan.md api-spec.md          # review multiple files
 crit http://localhost:3000        # review a running dev server
 crit landing.html                 # review a static HTML file
 ```
+
+If talking to an agent, you can invoke the `/crit` command and optionally provide arguments like the above examples or the agent will try to launch the right thing based on the context of the conversation.
 
 ### Live mode
 
