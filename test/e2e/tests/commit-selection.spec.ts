@@ -6,6 +6,10 @@ async function openCommitPicker(page: Page) {
   await expect(page.locator('#commitDropdown')).toHaveClass(/open/);
 }
 
+function realCommitItems(page: Page) {
+  return page.locator('#commitDropdownList .commit-picker-item:not(.is-virtual)');
+}
+
 
 test.describe('Commit Selection', () => {
   test.beforeEach(async ({ request, page }) => {
@@ -28,7 +32,7 @@ test.describe('Commit Selection', () => {
     await expect(allItem).toBeVisible();
     await expect(allItem).toHaveClass(/active/);
 
-    const firstCommit = page.locator('#commitDropdownList .commit-picker-item').first();
+    const firstCommit = realCommitItems(page).first();
     await expect(firstCommit).toBeVisible();
     await expect(firstCommit.locator('.commit-picker-item-sha')).toBeVisible();
     await expect(firstCommit.locator('.commit-picker-item-msg')).toBeVisible();
@@ -50,7 +54,7 @@ test.describe('Commit Selection', () => {
   test('clicking a commit sets from pin and filters files', async ({ page }) => {
     await openCommitPicker(page);
 
-    const commitItem = page.locator('#commitDropdownList .commit-picker-item').first();
+    const commitItem = realCommitItems(page).first();
     const responsePromise = page.waitForResponse(r =>
       r.url().includes('/api/session') && r.status() === 200
     );
@@ -71,7 +75,7 @@ test.describe('Commit Selection', () => {
 
   test('selecting "All commits" restores full view', async ({ page }) => {
     await openCommitPicker(page);
-    const commitItem = page.locator('#commitDropdownList .commit-picker-item').first();
+    const commitItem = realCommitItems(page).first();
     const firstResponsePromise = page.waitForResponse(r => r.url().includes('/api/session'));
     await commitItem.click();
     await firstResponsePromise;
@@ -135,7 +139,7 @@ test.describe('Commit Selection', () => {
 
   test('selected commit resets on page reload', async ({ page }) => {
     await openCommitPicker(page);
-    const commitItem = page.locator('#commitDropdownList .commit-picker-item').first();
+    const commitItem = realCommitItems(page).first();
     const responsePromise = page.waitForResponse(r => r.url().includes('/api/session'));
     await commitItem.click();
     await responsePromise;
@@ -181,7 +185,7 @@ test.describe('Commit Selection', () => {
   test('alt+click sets through pin and sends a range param', async ({ page }) => {
     await openCommitPicker(page);
 
-    const commits = page.locator('#commitDropdownList .commit-picker-item');
+    const commits = realCommitItems(page);
     await expect(commits).toHaveCount(2);
 
     // List is newest-first; pick older commit as from, newer as through.
@@ -203,7 +207,7 @@ test.describe('Commit Selection', () => {
   test('alt+click through again clears the through pin', async ({ page }) => {
     await openCommitPicker(page);
 
-    const commits = page.locator('#commitDropdownList .commit-picker-item');
+    const commits = realCommitItems(page);
     await expect(commits).toHaveCount(2);
 
     const firstResponse = page.waitForResponse(r => r.url().includes('/api/session'));
@@ -226,7 +230,7 @@ test.describe('Commit Selection', () => {
   test('"All commits" row clears from/through pins', async ({ page }) => {
     await openCommitPicker(page);
 
-    const commits = page.locator('#commitDropdownList .commit-picker-item');
+    const commits = realCommitItems(page);
     await expect(commits).toHaveCount(2);
 
     const firstResponse = page.waitForResponse(r => r.url().includes('/api/session'));
@@ -249,7 +253,7 @@ test.describe('Commit Selection', () => {
   test('dropdown stays open across multiple selections', async ({ page }) => {
     await openCommitPicker(page);
 
-    const commits = page.locator('#commitDropdownList .commit-picker-item');
+    const commits = realCommitItems(page);
     await expect(commits).toHaveCount(2);
 
     const firstResponse = page.waitForResponse(r => r.url().includes('/api/session'));
