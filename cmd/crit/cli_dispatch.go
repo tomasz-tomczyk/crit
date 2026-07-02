@@ -50,7 +50,7 @@ Review:
   crit live <url>                            Review a running web app in live mode
   crit preview <file.html>                   Review a local HTML file in preview mode
   crit --pr <num|url>                        Review a GitHub pull request
-  crit --range <base>..<head>               Review a commit range
+  crit --range <base>..<head>                Review a commit range
   crit plan --name <slug> <file>             Review a plan file
   crit --session <id>                        Reconnect to an existing review session
 
@@ -64,7 +64,7 @@ Comments:
 Sharing:
   crit share <file> [file...]                Share files to crit-web, print URL
   crit fetch [--output <dir>]                Fetch comments from crit-web
-  crit unpublish [file...]                    Remove a shared review from crit-web
+  crit unpublish [file...]                   Remove a shared review from crit-web
 
 GitHub PR sync:
   crit pull [pr-number]                      Fetch PR comments into the review file
@@ -104,7 +104,7 @@ Environment:
   CRIT_PORT                   Override the default port
   CRIT_HOST                   Override the listen host (default 127.0.0.1)
   CRIT_NO_UPDATE_CHECK        Disable update check on startup
-  CRIT_AUTH_TOKEN              Override the auth token (skip login)
+  CRIT_AUTH_TOKEN             Override the auth token (skip login)
   CRIT_NO_INTEGRATION_CHECK   Disable staleness check and agent detection on startup
 
 Configuration:
