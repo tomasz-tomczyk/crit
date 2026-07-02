@@ -173,7 +173,7 @@ test.describe('Commit Selection', () => {
 
   test('from pin marks selected commit, "All" loses active class', async ({ page }) => {
     await openCommitPicker(page);
-    const commitItem = page.locator('#commitDropdownList .commit-picker-item').first();
+    const commitItem = realCommitItems(page).first();
     const responsePromise = page.waitForResponse(r => r.url().includes('/api/session'));
     await commitItem.click();
     await responsePromise;
