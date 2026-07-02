@@ -20,6 +20,10 @@ cd "$DIR"
 git init -q
 git config user.email "test@test.com"
 git config user.name "Test"
+# Keep LF in the repo on Windows CI; otherwise checkout rewrites files to CRLF
+# and leaves a dirty working tree (virtual "Working changes" row in every test).
+git config core.autocrlf false
+git config core.eol lf
 
 # === Initial commit: files that will be "modified" or "deleted" ===
 

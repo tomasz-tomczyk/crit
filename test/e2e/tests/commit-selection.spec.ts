@@ -1,15 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, realCommitItems } from './helpers';
 
 async function openCommitPicker(page: Page) {
   await page.click('#commitDropdownBtn');
   await expect(page.locator('#commitDropdown')).toHaveClass(/open/);
 }
-
-function realCommitItems(page: Page) {
-  return page.locator('#commitDropdownList .commit-picker-item:not(.is-virtual)');
-}
-
 
 test.describe('Commit Selection', () => {
   test.beforeEach(async ({ request, page }) => {
@@ -174,12 +169,14 @@ test.describe('Commit Selection', () => {
   test('from pin marks selected commit, "All" loses active class', async ({ page }) => {
     await openCommitPicker(page);
     const commitItem = realCommitItems(page).first();
-    const responsePromise = page.waitForResponse(r => r.url().includes('/api/session'));
+    const responsePromise = page.waitForResponse(r =>
+      r.url().includes('/api/session') && r.status() === 200
+    );
     await commitItem.click();
     await responsePromise;
 
     await expect(page.locator('.commit-picker-item[data-commit=""]')).not.toHaveClass(/active/);
-    await expect(page.locator('#commitDropdownList .commit-picker-item.is-from')).toHaveCount(1);
+    await expect(commitItem).toHaveClass(/is-from/);
   });
 
   test('alt+click sets through pin and sends a range param', async ({ page }) => {

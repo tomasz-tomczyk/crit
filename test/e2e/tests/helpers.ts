@@ -1,4 +1,4 @@
-import { expect, type Page, type APIRequestContext } from '@playwright/test';
+import { expect, type Page, type APIRequestContext, type Locator } from '@playwright/test';
 import * as path from 'path';
 
 // Return the on-disk review.json path for the running e2e daemon.
@@ -15,6 +15,11 @@ export async function getReviewFilePath(request: APIRequestContext): Promise<str
 }
 export async function clearAllComments(request: APIRequestContext) {
   await request.delete('/api/comments');
+}
+
+/** Commit picker rows excluding the virtual working-tree entry. */
+export function realCommitItems(page: Page): Locator {
+  return page.locator('#commitDropdownList .commit-picker-item:not(.is-virtual)');
 }
 
 // Navigate to the root page and wait for loading to complete.
