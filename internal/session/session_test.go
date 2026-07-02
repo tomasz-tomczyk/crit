@@ -5077,6 +5077,7 @@ func TestSession_GetCommits_RangeMode(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n")
 	gitT(t, dir, "add", "b.go")
 	gitT(t, dir, "commit", "-m", "B")
+	gitT(t, dir, "clean", "-fd")
 	shaB := gitT(t, dir, "rev-parse", "HEAD")
 
 	writeFile(t, filepath.Join(dir, "c.go"), "package main\n\nfunc C() {}\n")
@@ -5124,6 +5125,7 @@ func TestSession_GetCommits_WorkingTreeMode(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n")
 	gitT(t, dir, "add", "b.go")
 	gitT(t, dir, "commit", "-m", "B")
+	gitT(t, dir, "clean", "-fd")
 
 	s := &Session{
 		Mode:        "git",
@@ -5141,6 +5143,87 @@ func TestSession_GetCommits_WorkingTreeMode(t *testing.T) {
 	}
 	if commits[0].Message != "B" || commits[1].Message != "A" {
 		t.Errorf("messages = [%q, %q], want [B, A]", commits[0].Message, commits[1].Message)
+	}
+}
+
+func TestSession_GetCommits_WorkingTreeMode_WithDirtyTreeAddsVirtualTop(t *testing.T) {
+	dir := initTestRepo(t)
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
+
+	gitT(t, dir, "checkout", "-b", "feature/get-commits-wt-virtual")
+	writeFile(t, filepath.Join(dir, "a.go"), "package main\n\nfunc A() {}\n")
+	gitT(t, dir, "add", "a.go")
+	gitT(t, dir, "commit", "-m", "A")
+
+	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n")
+	gitT(t, dir, "add", "b.go")
+	gitT(t, dir, "commit", "-m", "B")
+
+	// Leave an unstaged working-tree change so the synthetic top entry appears.
+	writeFile(t, filepath.Join(dir, "b.go"), "package main\n\nfunc B() {}\n\nfunc Dirty() {}\n")
+
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		BaseRef:     baseRef,
+		VCS:         &vcs.GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Focus:       Focus{Kind: FocusWorkingTree, BaseRef: baseRef},
+	}
+
+	commits := s.GetCommits()
+	if len(commits) != 3 {
+		t.Fatalf("GetCommits() = %d commits, want 3 (virtual, B, A); got %+v", len(commits), commits)
+	}
+	if !commits[0].Virtual {
+		t.Fatalf("expected first entry to be virtual, got %+v", commits[0])
+	}
+	if commits[0].Message != "Working changes" {
+		t.Errorf("virtual message = %q, want %q", commits[0].Message, "Working changes")
+	}
+	if commits[1].Message != "B" || commits[2].Message != "A" {
+		t.Errorf("messages = [%q, %q], want [B, A] after virtual top", commits[1].Message, commits[2].Message)
+	}
+}
+
+func TestSession_GetSessionInfoScoped_VirtualWorkingCommitOnlyShowsUncommitted(t *testing.T) {
+	dir := initTestRepo(t)
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
+
+	gitT(t, dir, "checkout", "-b", "feature/virtual-working-scope")
+	writeFile(t, filepath.Join(dir, "committed.go"), "package main\n\nfunc Committed() {}\n")
+	gitT(t, dir, "add", "committed.go")
+	gitT(t, dir, "commit", "-m", "add committed file")
+
+	// One unstaged modification and one untracked file should appear in virtual scope.
+	writeFile(t, filepath.Join(dir, "committed.go"), "package main\n\nfunc Committed() {}\n\nfunc Dirty() {}\n")
+	writeFile(t, filepath.Join(dir, "untracked.go"), "package main\n\nfunc Untracked() {}\n")
+
+	s := &Session{
+		Mode:           "git",
+		RepoRoot:       dir,
+		BaseRef:        baseRef,
+		BaseBranchName: "main",
+		VCS:            &vcs.GitVCS{},
+		ReviewRound:    1,
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		Focus:          Focus{Kind: FocusWorkingTree, BaseRef: baseRef},
+	}
+
+	info := s.GetSessionInfoScoped("", virtualWorkingTreeCommitSHA)
+	paths := map[string]bool{}
+	for _, f := range info.Files {
+		paths[f.Path] = true
+	}
+	if !paths["committed.go"] {
+		t.Fatalf("expected committed.go (dirty working copy) in virtual scope; got %+v", info.Files)
+	}
+	if !paths["untracked.go"] {
+		t.Fatalf("expected untracked.go in virtual scope; got %+v", info.Files)
+	}
+	if len(info.Files) != 2 {
+		t.Fatalf("expected exactly 2 working-tree files in virtual scope, got %d (%+v)", len(info.Files), info.Files)
 	}
 }
 

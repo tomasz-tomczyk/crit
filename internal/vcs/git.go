@@ -376,6 +376,7 @@ type CommitInfo struct {
 	Message  string `json:"message"`
 	Author   string `json:"author"`
 	Date     string `json:"date"`
+	Virtual  bool   `json:"virtual,omitempty"`
 }
 
 // CommitLog returns the commits between baseRef and headRef, newest first.

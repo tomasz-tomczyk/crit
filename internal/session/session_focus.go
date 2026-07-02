@@ -545,6 +545,19 @@ func availableScopes(baseRef string, v vcs.VCS) []string {
 	return scopes
 }
 
+const virtualWorkingTreeCommitSHA = "__crit_virtual_working_tree__"
+
+// hasWorkingTreeChanges reports whether there are uncommitted local changes.
+// Uses the repo-root-aware in-dir helper so tests and multi-repo daemon usage
+// do not accidentally inspect the process CWD.
+func hasWorkingTreeChanges(v vcs.VCS, repoRoot string) bool {
+	if v == nil {
+		return false
+	}
+	files, err := v.ChangedFilesOnDefaultInDir(repoRoot)
+	return err == nil && len(files) > 0
+}
+
 // GetCommits returns the list of commits between the base ref and the focus's
 // upper bound. In working-tree mode the upper bound is the VCS's HEAD; in range
 // mode it's Focus.HeadSHA so the dropdown doesn't list commits past the focus.
@@ -556,14 +569,23 @@ func (s *Session) GetCommits() []CommitInfo {
 		return nil
 	}
 	baseRef, repoRoot, vc := s.BaseRef, s.RepoRoot, s.VCS
+	focus := s.Focus
 	headRef := ""
-	if s.Focus.Kind == FocusRange && s.Focus.HeadSHA != "" {
-		headRef = s.Focus.HeadSHA
+	if focus.Kind == FocusRange && focus.HeadSHA != "" {
+		headRef = focus.HeadSHA
 	}
 	s.mu.RUnlock()
 	commits, err := vc.CommitLog(baseRef, headRef, repoRoot)
 	if err != nil {
 		return nil
+	}
+	if focus.Kind == FocusWorkingTree && hasWorkingTreeChanges(vc, repoRoot) {
+		commits = append([]CommitInfo{{
+			SHA:      virtualWorkingTreeCommitSHA,
+			ShortSHA: "WT",
+			Message:  "Working changes",
+			Virtual:  true,
+		}}, commits...)
 	}
 	return commits
 }
@@ -641,6 +663,13 @@ func scopedHunks(fc vcs.FileChange, scope, commit, baseRef, repoRoot string, v v
 	if v == nil {
 		return nil
 	}
+	if commit == virtualWorkingTreeCommitSHA {
+		h, err := v.FileDiffUnified(fc.Path, "HEAD", repoRoot, ignoreWhitespace)
+		if err == nil {
+			return h
+		}
+		return nil
+	}
 	if base, head, ok := vcs.SplitCommitRange(commit); ok {
 		h, err := v.FileDiffBetweenSHAs(fc.Path, fc.OldPath, base, head, repoRoot, ignoreWhitespace)
 		if err == nil {
@@ -674,6 +703,19 @@ func scopedHunks(fc vcs.FileChange, scope, commit, baseRef, repoRoot string, v v
 		return h
 	}
 	return nil
+}
+
+func changesForScopeSelection(v vcs.VCS, repoRoot, baseRef, scope, commit string) ([]vcs.FileChange, error) {
+	if commit == virtualWorkingTreeCommitSHA {
+		return v.ChangedFilesOnDefaultInDir(repoRoot)
+	}
+	if base, head, ok := vcs.SplitCommitRange(commit); ok {
+		return v.ChangedFilesBetweenSHAs(base, head, repoRoot)
+	}
+	if commit != "" {
+		return v.ChangedFilesForCommit(commit, repoRoot)
+	}
+	return v.ChangedFilesScoped(scope, baseRef)
 }
 
 func countHunkStats(hunks []vcs.DiffHunk) (additions, deletions int) {
@@ -729,15 +771,7 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 		return info
 	}
 
-	var changes []vcs.FileChange
-	var err error
-	if base, head, ok := vcs.SplitCommitRange(commit); ok {
-		changes, err = snap.vc.ChangedFilesBetweenSHAs(base, head, snap.repoRoot)
-	} else if commit != "" {
-		changes, err = snap.vc.ChangedFilesForCommit(commit, snap.repoRoot)
-	} else {
-		changes, err = snap.vc.ChangedFilesScoped(scope, snap.baseRef)
-	}
+	changes, err := changesForScopeSelection(snap.vc, snap.repoRoot, snap.baseRef, scope, commit)
 	if err != nil || len(changes) == 0 {
 		return info
 	}
@@ -823,15 +857,7 @@ func (s *Session) loadScopedFileState(path, scope, commit string) (status, conte
 		if vc == nil {
 			return
 		}
-		var changes []vcs.FileChange
-		var err error
-		if base, head, ok := vcs.SplitCommitRange(commit); ok {
-			changes, err = vc.ChangedFilesBetweenSHAs(base, head, repoRoot)
-		} else if commit != "" {
-			changes, err = vc.ChangedFilesForCommit(commit, repoRoot)
-		} else {
-			changes, err = vc.ChangedFilesScoped(scope, baseRef)
-		}
+		changes, err := changesForScopeSelection(vc, repoRoot, baseRef, scope, commit)
 		if err == nil {
 			for _, fc := range changes {
 				if fc.Path == path {

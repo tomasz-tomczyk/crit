@@ -421,9 +421,11 @@
   //   no pins          -> ''           (full range)
   //   from only        -> '<sha>'      (single commit)
   //   from + through   -> '<from>..<through>'
+  const VIRTUAL_WORKING_COMMIT = '__crit_virtual_working_tree__';
   let diffCommit = '';
   let commitFrom = '';
   let commitThrough = '';
+  let virtualCommitSelected = false;
   let commitList = [];
   let diffActive = false; // rendered diff view toggle for file mode
 
@@ -7495,10 +7497,18 @@
     if (commitFrom && !present.has(commitFrom)) commitFrom = '';
     if (commitThrough && !present.has(commitThrough)) commitThrough = '';
     if (!commitFrom) commitThrough = '';
+    if (virtualCommitSelected) {
+      const hasVirtual = commitList.some(function(c) { return !!c.virtual; });
+      if (!hasVirtual) virtualCommitSelected = false;
+    }
   }
 
   function recomputeDiffCommit() {
     normalizeCommitPins();
+    if (virtualCommitSelected && !commitFrom && !commitThrough) {
+      diffCommit = VIRTUAL_WORKING_COMMIT;
+      return;
+    }
     if (!commitFrom && !commitThrough) {
       diffCommit = '';
       return;
@@ -7517,6 +7527,7 @@
   function clearCommitPins() {
     commitFrom = '';
     commitThrough = '';
+    virtualCommitSelected = false;
     recomputeDiffCommit();
   }
 
@@ -7578,21 +7589,21 @@
     const clearThroughBtn = commitClearThroughEl;
 
     if (!commitFrom && !commitThrough) {
-      if (allItem) allItem.classList.add('active');
-      if (label) label.textContent = 'All commits';
+      if (allItem) allItem.classList.toggle('active', !virtualCommitSelected);
+      if (label) label.textContent = virtualCommitSelected ? 'Working changes' : 'All commits';
     } else {
       if (allItem) allItem.classList.remove('active');
       if (label) {
         if (commitFrom && !commitThrough) {
           const sel = commitList.find(function(c) { return c.sha === commitFrom; });
           label.textContent = sel
-            ? sel.short_sha + ' only'
+            ? (sel.virtual ? sel.message : (sel.short_sha + ' only'))
             : compareTargetChipLabel(commitFrom) + ' only';
         } else if (commitFrom && commitThrough) {
           const a = commitList.find(function(c) { return c.sha === commitFrom; });
           const b = commitList.find(function(c) { return c.sha === commitThrough; });
-          const aLabel = a ? a.short_sha : compareTargetChipLabel(commitFrom);
-          const bLabel = b ? b.short_sha : compareTargetChipLabel(commitThrough);
+          const aLabel = a ? (a.virtual ? a.message : a.short_sha) : compareTargetChipLabel(commitFrom);
+          const bLabel = b ? (b.virtual ? b.message : b.short_sha) : compareTargetChipLabel(commitThrough);
           label.textContent = aLabel + ' \u2192 ' + bLabel;
         }
       }
@@ -7605,16 +7616,21 @@
     list.innerHTML = commitList.map(function(c) {
       const isFrom = c.sha === commitFrom;
       const isThrough = c.sha === commitThrough;
+      const isVirtualActive = c.virtual && virtualCommitSelected && !commitFrom && !commitThrough;
       let cls = 'commit-picker-item';
       if (isFrom) cls += ' is-from';
       if (isThrough) cls += ' is-through';
+      if (c.virtual) cls += ' is-virtual';
+      if (isVirtualActive) cls += ' active';
       const time = c.date ? '<span class="commit-picker-item-time">' + relativeTime(c.date) + '</span>' : '';
       const fromPin = isFrom ? '<span class="commit-pin-from">from</span>' : '';
       const throughPin = isThrough ? '<span class="commit-pin-through">through</span>' : '';
+      const virtualPill = c.virtual ? '<span class="commit-picker-item-time">virtual</span>' : '';
       return '<div class="' + cls + '" data-commit="' + c.sha + '" role="button" tabindex="0">'
         + fromPin + throughPin
         + '<span class="commit-picker-item-sha">' + escapeHtml(c.short_sha) + '</span>'
         + '<span class="commit-picker-item-msg">' + escapeHtml(c.message.length > 40 ? c.message.slice(0, 40) + '\u2026' : c.message) + '</span>'
+        + virtualPill
         + time
         + '</div>';
     }).join('');
@@ -7652,9 +7668,19 @@
     e.stopPropagation();
     const sha = item.dataset.commit;
     const prevDiffCommit = diffCommit;
+    if (item.classList.contains('is-virtual')) {
+      commitFrom = '';
+      commitThrough = '';
+      virtualCommitSelected = true;
+      recomputeDiffCommit();
+      renderCommitPicker();
+      if (diffCommit !== prevDiffCommit) reloadForScope();
+      return;
+    }
     if (sha === '') {
       clearCommitPins();
     } else if (e.altKey) {
+      virtualCommitSelected = false;
       if (commitThrough === sha) {
         commitThrough = '';
       } else {
@@ -7662,11 +7688,14 @@
         if (!commitFrom) commitFrom = sha;
       }
     } else if (commitFrom === sha && !commitThrough) {
+      virtualCommitSelected = false;
       commitFrom = '';
     } else if (commitFrom === sha) {
+      virtualCommitSelected = false;
       commitFrom = commitThrough || '';
       commitThrough = '';
     } else {
+      virtualCommitSelected = false;
       commitFrom = sha;
     }
     recomputeDiffCommit();
@@ -7773,10 +7802,11 @@
         list.innerHTML = '<div style="padding: 8px 10px; font-size: 12px; color: var(--crit-editor-fg-muted);">No matching commits</div>';
       } else {
         list.innerHTML = commits.map(function(c) {
+          const message = c.virtual ? (c.message + ' (virtual)') : c.message;
           const active = c.sha === currentCompareTarget ? ' active' : '';
           return '<div class="base-branch-item' + active + '" data-branch="' + escapeHtml(c.sha) + '">'
             + '<span class="commit-picker-item-sha">' + escapeHtml(c.short_sha) + '</span> '
-            + escapeHtml(c.message.length > 36 ? c.message.slice(0, 36) + '\u2026' : c.message)
+            + escapeHtml(message.length > 36 ? message.slice(0, 36) + '\u2026' : message)
             + '</div>';
         }).join('');
       }
