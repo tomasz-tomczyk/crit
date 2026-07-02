@@ -95,7 +95,7 @@ test('default branch is rendered ONCE (no ghost duplicate stack entry)', async (
   // doesn't snapshot the empty pre-fetch DOM.
   await expect(page.locator('#stackPopover .stack-popover-item').first()).toBeVisible();
   const allLabels = await page.locator('#stackPopover .stack-popover-label').allTextContents();
-  const mainCount = allLabels.filter((s) => s.trim() === 'base: main').length;
+  const mainCount = allLabels.filter((s) => s.trim() === 'stack root: main').length;
   expect(mainCount).toBe(1);
 });
 
@@ -115,4 +115,37 @@ test('non-current entry click switches focus', async ({ page, request }) => {
     const s = await r.json();
     return s.focus.head_sha;
   }, { timeout: 5_000 }).not.toBe(before.focus.head_sha);
+});
+
+test('popover shows target/base markers and range highlighting in layer scope', async ({ page }) => {
+  await loadPage(page);
+  await page.locator('#stackChipBtn').click();
+  await expect(page.locator('#stackPopover .stack-popover-item').first()).toBeVisible();
+
+  await expect(page.locator('#stackPopover .stack-popover-marker-target')).toHaveCount(1);
+  await expect(page.locator('#stackPopover .stack-popover-marker-base')).toHaveCount(1);
+  await expect(page.locator('#stackPopover .stack-popover-in-range')).toHaveCount(2);
+});
+
+test('full stack mode highlights stack root in compare range', async ({ page, request }) => {
+  await loadPage(page);
+  await page.locator('#stackChipBtn').click();
+  const fullStack = page.locator('#stackPopover [data-action="scope"][data-diff-scope="full_stack"]');
+  await expect(fullStack).toBeVisible();
+  await fullStack.click();
+
+  await expect.poll(async () => {
+    const r = await request.get('/api/session');
+    return (await r.json()).focus.diff_scope;
+  }, { timeout: 5_000 }).toBe('full_stack');
+
+  await page.locator('#stackChipBtn').click();
+  await expect(page.locator('#stackPopover .stack-popover-default')).toHaveClass(/stack-popover-in-range/);
+  await expect(page.locator('#stackPopover .stack-popover-default .stack-popover-marker-base')).toHaveCount(0);
+});
+
+test('stack entries display short commit hashes', async ({ page }) => {
+  await loadPage(page);
+  await page.locator('#stackChipBtn').click();
+  await expect(page.locator('#stackPopover .stack-popover-item .stack-popover-sha').first()).toHaveText(/^[0-9a-f]{7}$/i);
 });

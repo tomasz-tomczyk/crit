@@ -9090,6 +9090,34 @@
 
     const ordered = stack.slice();
     const defaultBranchName = defaultBranchNameCache || (ordered[0] && ordered[0].base_ref_name) || 'main';
+    const activeScope = focus.diff_scope || 'layer';
+    const targetIdx = ordered.findIndex(function(entry) { return entry.head_sha === focus.head_sha; });
+    const baseIdx = ordered.findIndex(function(entry) { return entry.head_sha === focus.base_sha; });
+    const hasRootBase = activeScope === 'full_stack' && !!focus.default_sha;
+    // Layer parent is usually focus.base_sha on a stack entry; when base_sha is a
+    // merge-base off-stack, fall back to the next older stack entry below target.
+    let parentIdx = baseIdx;
+    if (!hasRootBase && parentIdx < 0 && targetIdx >= 0 && targetIdx < ordered.length - 1) {
+      parentIdx = targetIdx + 1;
+    }
+
+    function rangeStateForIndex(i) {
+      // Layer scope marks target + any entries down to base when base is present.
+      // Full stack marks target + all entries down to the root default-base marker.
+      if (targetIdx < 0) {
+        return { inRange: false, isRangeStart: false, isRangeEnd: false };
+      }
+      let start = targetIdx;
+      let end = targetIdx;
+      if (hasRootBase) {
+        end = ordered.length - 1;
+      } else if (baseIdx >= 0) {
+        start = Math.min(targetIdx, baseIdx);
+        end = Math.max(targetIdx, baseIdx);
+      }
+      const inRange = i >= start && i <= end;
+      return { inRange: inRange };
+    }
 
     const parts = [];
     parts.push('<div class="stack-popover-title">Stack</div>');
@@ -9099,11 +9127,22 @@
       const isLast = i === ordered.length - 1;
       const tree = isLast ? '\u2514\u2500 ' : '\u251C\u2500 ';
       const isCurrent = entry.head_sha === focus.head_sha;
+      const isBase = !hasRootBase && parentIdx >= 0 && i === parentIdx;
+      const rangeState = rangeStateForIndex(i);
+      let rowClass = 'stack-popover-item';
+      if (rangeState.inRange) rowClass += ' stack-popover-in-range';
+      if (isBase) rowClass += ' stack-popover-is-base';
+      if (isCurrent) rowClass += ' stack-popover-current stack-popover-is-target';
       const label = entryLabel(entry, 34);
       const shortSha = entry.head_sha ? entry.head_sha.slice(0, 7) : '';
+      const marker = '<span class="stack-popover-marker-wrap" aria-hidden="true">'
+        + (isCurrent ? '<span class="stack-popover-marker stack-popover-marker-target">target</span>' : '')
+        + (isBase ? '<span class="stack-popover-marker stack-popover-marker-base">parent</span>' : '')
+        + '</span>';
       if (isCurrent) {
-        parts.push('<span class="stack-popover-item stack-popover-current" aria-current="page" role="menuitem"' +
+        parts.push('<span class="' + rowClass + '" aria-current="page" role="menuitem"' +
           ' data-head-sha="' + escapeHtml(entry.head_sha || '') + '">' +
+          marker +
           '<span class="stack-popover-tree" aria-hidden="true">' + tree + '</span>' +
           '<span class="stack-popover-label">' + escapeHtml(label) + '</span>' +
           (shortSha ? '<span class="stack-popover-sha">' + escapeHtml(shortSha) + '</span>' : '') +
@@ -9111,11 +9150,12 @@
       } else {
         const payload = focusPayloadFromStackEntry(entry, focus);
         const aria = entry.pr_number ? ('Switch to PR #' + entry.pr_number) : ('Switch to ' + label);
-        parts.push('<button type="button" class="stack-popover-item" role="menuitem"' +
+        parts.push('<button type="button" class="' + rowClass + '" role="menuitem"' +
           ' data-action="switch"' +
           ' data-head-sha="' + escapeHtml(entry.head_sha || '') + '"' +
           ' data-focus-payload="' + escapeHtml(JSON.stringify(payload)) + '"' +
           ' aria-label="' + escapeHtml(aria) + '">' +
+          marker +
           '<span class="stack-popover-tree" aria-hidden="true">' + tree + '</span>' +
           '<span class="stack-popover-label">' + escapeHtml(label) + '</span>' +
           (shortSha ? '<span class="stack-popover-sha">' + escapeHtml(shortSha) + '</span>' : '') +
@@ -9124,9 +9164,11 @@
     });
 
     // Base marker — non-interactive root at the bottom of the tree.
-    parts.push('<span class="stack-popover-item stack-popover-root stack-popover-default" role="presentation">' +
+    parts.push('<span class="stack-popover-item stack-popover-root stack-popover-default' + (hasRootBase ? ' stack-popover-in-range' : '') + '"' +
+      ' role="presentation">' +
+      '<span class="stack-popover-marker-wrap" aria-hidden="true"></span>' +
       '<span class="stack-popover-tree" aria-hidden="true">  </span>' +
-      '<span class="stack-popover-label">base: ' + escapeHtml(defaultBranchName) + '</span>' +
+      '<span class="stack-popover-label">stack root: ' + escapeHtml(defaultBranchName) + '</span>' +
       '</span>');
 
     // "Compare against" radio section. Lives inside the popover so the
@@ -9139,7 +9181,6 @@
     // user understands why they can't reach it rather than wondering
     // where the option went.
     {
-      const activeScope = focus.diff_scope || 'layer';
       const fullStackEnabled = !!focus.default_sha;
       // Subcopy mirrors what full-stack diffs against: the literal
       // default branch tip.

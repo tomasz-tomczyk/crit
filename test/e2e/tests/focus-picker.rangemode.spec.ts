@@ -64,21 +64,21 @@ test('popover renders the default branch as the last entry (base marker)', async
   await page.locator('#stackChipBtn').click();
   const dbItem = page.locator('#stackPopover .stack-popover-default');
   await expect(dbItem).toBeVisible();
-  await expect(dbItem).toContainText(/base:.*main/);
+  await expect(dbItem).toContainText(/stack root:.*main/);
 });
 
-test('popover order is head->base (feat-c, feat-b, feat-a, base: main)', async ({ page }) => {
+test('popover order is head->base (feat-c, feat-b, feat-a, stack root: main)', async ({ page }) => {
   await loadPage(page);
   await openStackPopover(page);
   const items = page.locator('#stackPopover .stack-popover-item');
   await expect(items.first()).toBeVisible();
-  // 4 entries expected: feat-c/b/a + base: main.
+  // 4 entries expected: feat-c/b/a + stack root: main.
   await expect(items).toHaveCount(4);
   const labels = await items.evaluateAll((els) =>
     els.map((el) => (el as HTMLElement).innerText.replace(/\s*\(reviewing\)\s*/i, '').replace(/\s*\(full stack\)\s*/i, '').trim())
   );
-  // Last entry is the base marker.
-  expect(labels[labels.length - 1]).toMatch(/base:.*main/);
+  // Last entry is the stack root marker.
+  expect(labels[labels.length - 1]).toMatch(/stack root:.*main/);
   const feats = labels.filter((s) => /feat-[abc]/.test(s));
   expect(feats.map((s) => (s.match(/feat-[abc]/) || [''])[0])).toEqual(['feat-c', 'feat-b', 'feat-a']);
 });

@@ -5200,6 +5200,7 @@ body.sidebar-resizing * {
 .stack-popover-item {
   display: flex;
   align-items: center;
+  gap: 6px;
   width: 100%;
   padding: 4px 8px;
   border: 0;
@@ -5228,6 +5229,36 @@ body.sidebar-resizing * {
   font-weight: 600;
   cursor: default;
 }
+.stack-popover-marker-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  width: 54px;
+  flex-shrink: 0;
+}
+.stack-popover-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.stack-popover-marker-target {
+  color: var(--crit-brand);
+  background: var(--crit-brand-subtle);
+}
+.stack-popover-marker-base {
+  color: var(--crit-editor-fg-muted);
+  background: color-mix(in srgb, var(--crit-editor-fg-muted) 14%, transparent);
+}
+.stack-popover-in-range:not(.stack-popover-current) {
+  background: color-mix(in srgb, var(--crit-brand-subtle) 45%, transparent);
+}
 .stack-popover-tree {
   font-family: monospace;
   color: var(--crit-editor-fg-muted);
@@ -5255,6 +5286,10 @@ body.sidebar-resizing * {
   color: var(--crit-editor-fg-muted);
 }
 .stack-popover-root:hover { background: transparent; }
+.stack-popover-root.stack-popover-is-base {
+  color: var(--crit-editor-fg);
+  background: color-mix(in srgb, var(--crit-editor-bg-hover) 65%, transparent);
+}
 
 /* Compare-against radio rows. Live inside the stack popover — saves a
    second toolbar bar in the page header for what's a relatively rare
