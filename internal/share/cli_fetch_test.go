@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/review"
@@ -99,6 +100,127 @@ func TestRunFetch_NoShareURL(t *testing.T) {
 	err := RunFetch([]string{"--output", dir})
 	if err == nil {
 		t.Fatal("expected error when share URL missing")
+	}
+}
+
+func TestRunFetch_InvalidReviewFile(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit")
+	if err := os.WriteFile(testutil.MustMkdirAll(review.ReviewPathsFor(critPath).Review), []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := RunFetch([]string{"--output", dir})
+	if err == nil || !strings.Contains(err.Error(), "invalid review file") {
+		t.Fatalf("RunFetch() = %v, want invalid review file error", err)
+	}
+}
+
+func TestRunFetch_ReplyUpdates(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{
+				"body":        "web-authored note",
+				"file_path":   "plan.md",
+				"start_line":  3,
+				"end_line":    3,
+				"resolved":    false,
+				"external_id": nil,
+				"replies": []map[string]any{
+					{"body": "follow-up reply", "author_display_name": "Alice"},
+				},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	tmpDir := t.TempDir()
+	cj := session.CritJSON{
+		ShareURL: ts.URL + "/r/tok",
+		Files: map[string]session.CritJSONFile{
+			"plan.md": {Comments: []session.Comment{{
+				ID:        "web-1",
+				Body:      "web-authored note",
+				StartLine: 3,
+				EndLine:   3,
+			}}},
+		},
+	}
+	data, err := json.Marshal(cj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	critPath := filepath.Join(tmpDir, ".crit")
+	if err := os.WriteFile(testutil.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	err = RunFetch([]string{"--output", tmpDir})
+	w.Close()
+	os.Stdout = old
+	io.Copy(&buf, r)
+	if err != nil {
+		t.Fatalf("RunFetch: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Updated 1 comment(s) with 1 new reply") {
+		t.Fatalf("output = %q, want reply update summary", out)
+	}
+
+	merged, err := os.ReadFile(review.ReviewPathsFor(critPath).Review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after session.CritJSON
+	if err := json.Unmarshal(merged, &after); err != nil {
+		t.Fatal(err)
+	}
+	replies := after.Files["plan.md"].Comments[0].Replies
+	if len(replies) != 1 || replies[0].Body != "follow-up reply" {
+		t.Fatalf("replies = %+v, want follow-up reply", replies)
+	}
+}
+
+func TestConcurrentFetchSameReview(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(nil)
+	}))
+	defer ts.Close()
+
+	tmpDir := t.TempDir()
+	cj := session.CritJSON{
+		ShareURL: ts.URL + "/r/tok",
+		Files:    map[string]session.CritJSONFile{},
+	}
+	data, err := json.Marshal(cj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	critPath := filepath.Join(tmpDir, ".crit")
+	if err := os.WriteFile(testutil.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	wg.Add(2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+			errs <- RunFetch([]string{"--output", tmpDir})
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent fetch: %v", err)
+		}
 	}
 }
 

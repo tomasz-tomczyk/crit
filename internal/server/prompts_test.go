@@ -117,3 +117,39 @@ func TestRenderProjectPromptPreview_SkipsStockFallback(t *testing.T) {
 		t.Fatalf("preview = %q, want project approved text", preview)
 	}
 }
+
+func TestRenderProjectPromptPreview_ConfigPrompts(t *testing.T) {
+	s, session := newTestServer(t)
+	dir := session.RepoRoot
+	os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{
+		"prompts": {
+			"on_finish_approved": "inline:Config approved prompt.",
+			"on_finish_unresolved": "inline:Config unresolved prompt."
+		}
+	}`), 0644)
+
+	preview := s.renderProjectPromptPreview(session)
+	if !strings.Contains(preview, "Config approved prompt.") {
+		t.Fatalf("preview = %q, want approved config text", preview)
+	}
+	if !strings.Contains(preview, "Config unresolved prompt.") {
+		t.Fatalf("preview = %q, want unresolved config text", preview)
+	}
+}
+
+func TestRenderProjectPromptPreview_DiscoveredUnresolved(t *testing.T) {
+	s, session := newTestServer(t)
+	dir := session.RepoRoot
+	promptDir := filepath.Join(dir, ".crit", "prompts")
+	if err := os.MkdirAll(promptDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(promptDir, "on_finish_unresolved.md"), []byte("Discovered unresolved hook."), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	preview := s.renderProjectPromptPreview(session)
+	if !strings.Contains(preview, "Discovered unresolved hook.") {
+		t.Fatalf("preview = %q, want discovered unresolved text", preview)
+	}
+}

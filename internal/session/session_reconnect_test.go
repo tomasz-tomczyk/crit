@@ -277,6 +277,36 @@ func TestAppendReconnectPathFlags_PlanDir(t *testing.T) {
 	assertDaemonFlag(t, args, "--name", "auth-flow")
 }
 
+func TestAppendReconnectPathFlags_DefaultLayout(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	key := "839f3b4cd5d6"
+	defaultDir, err := daemon.ReviewFilePath(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := appendReconnectPathFlags(key, []string{"--session-key", key}, defaultDir)
+	if _, ok := daemonFlagValue(args, "--output"); ok {
+		t.Fatalf("default layout should not add --output: %v", args)
+	}
+	if _, ok := daemonFlagValue(args, "--plan-dir"); ok {
+		t.Fatalf("default layout should not add --plan-dir: %v", args)
+	}
+}
+
+func TestDaemonArgsForReconnect_Host(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	key := "839f3b4cd5d6"
+	defaultDir, err := daemon.ReviewFilePath(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := daemon.SessionEntry{Host: "0.0.0.0"}
+	args := daemonArgsForReconnect(key, nil, stale, defaultDir)
+	assertDaemonFlag(t, args, "--host", "0.0.0.0")
+}
+
 func TestReconnectDeadSession_StalePathMissing(t *testing.T) {
 	home := t.TempDir()
 	testutil.SetHome(t, home)
