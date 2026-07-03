@@ -269,6 +269,9 @@ func RunShare(args []string) error { //nolint:gocyclo // CLI dispatcher
 	if err != nil {
 		return err
 	}
+	if err := checkProxyAuthCLIAllowed("crit share"); err != nil {
+		return err
+	}
 
 	if sf.preview != "" {
 		return runSharePreview(sf)
@@ -382,6 +385,9 @@ func printFetchedComments(webComments []WebComment) {
 
 // RunFetch pulls remote comments from crit-web into the review file.
 func RunFetch(args []string) error {
+	if err := checkProxyAuthCLIAllowed("crit fetch"); err != nil {
+		return err
+	}
 	outputDir, err := parseFetchOutputDir(args)
 	if err != nil {
 		return err
@@ -441,6 +447,9 @@ func RunFetch(args []string) error {
 
 // RunUnpublish removes a shared review from crit-web.
 func RunUnpublish(args []string) error {
+	if err := checkProxyAuthCLIAllowed("crit unpublish"); err != nil {
+		return err
+	}
 	unpubOutputDir := ""
 	unpubSvcURL := ""
 	var unpubFiles []string

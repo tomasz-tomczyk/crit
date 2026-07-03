@@ -1875,13 +1875,17 @@ func jsonShareStub(t *testing.T) *httptest.Server {
 }
 
 // runCritCmd is a thin wrapper over exec.Command that keeps env clean (no
-// CRIT_AUTH_TOKEN, no HOME inheriting global config) and returns combined
-// output + error.
+// CRIT_AUTH_TOKEN, no inherited global config) and returns combined output + error.
 func runCritCmd(t *testing.T, binary, dir string, args ...string) (string, error) {
+	t.Helper()
+	return runCritCmdWithHome(t, binary, dir, t.TempDir(), args...)
+}
+
+func runCritCmdWithHome(t *testing.T, binary, dir, home string, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command(binary, args...)
 	cmd.Dir = dir
-	cmd.Env = envWithout("CRIT_AUTH_TOKEN=", "HOME=", "CRIT_SHARE_URL=")
+	cmd.Env = append(envWithout("CRIT_AUTH_TOKEN=", "HOME=", "CRIT_SHARE_URL="), "HOME="+home)
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
@@ -2013,8 +2017,8 @@ func TestShareReceiver_HTMLPostReturnsProxyAuthError(t *testing.T) {
 	if !strings.Contains(out, "proxy_auth") {
 		t.Errorf("expected error to mention proxy_auth, got: %s", out)
 	}
-	if !strings.Contains(out, "popup") {
-		t.Errorf("expected error to mention popup, got: %s", out)
+	if !strings.Contains(out, "browser UI") {
+		t.Errorf("expected error to mention browser UI, got: %s", out)
 	}
 }
 
@@ -2045,6 +2049,32 @@ func TestShareReceiver_FetchHTMLReturnsProxyAuthError(t *testing.T) {
 	}
 	if !strings.Contains(out, "proxy_auth") {
 		t.Errorf("expected error to mention proxy_auth, got: %s", out)
+	}
+}
+
+// TestShareReceiver_ProxyAuthEnabledBlocksShareCLI verifies that when
+// proxy_auth is already configured, crit share fails immediately with a
+// message pointing at the browser UI — without contacting crit-web.
+func TestShareReceiver_ProxyAuthEnabledBlocksShareCLI(t *testing.T) {
+	binary := critBinary(t)
+	dir := t.TempDir()
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"proxy_auth":true,"share_url":"https://crit.example.com"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+
+	out, err := runCritCmdWithHome(t, binary, dir, home, "share", "--output", dir, "plan.md")
+	if err == nil {
+		t.Fatalf("expected non-zero exit, got success. output: %s", out)
+	}
+	for _, want := range []string{"proxy_auth", "Crit's browser interface"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected output to mention %q, got: %s", want, out)
+		}
 	}
 }
 

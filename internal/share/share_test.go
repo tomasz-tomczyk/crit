@@ -55,6 +55,77 @@ func TestDecodeJSONOrHTMLHint_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestCheckProxyAuthCLIAllowed_Blocked(t *testing.T) {
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+	if err := os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"proxy_auth":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := checkProxyAuthCLIAllowed("crit share")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, want := range []string{"proxy_auth", "Crit's browser interface"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err.Error(), want)
+		}
+	}
+}
+
+func TestCheckProxyAuthCLIAllowed_Allowed(t *testing.T) {
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+	if err := checkProxyAuthCLIAllowed("crit share"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunShare_BlockedByProxyAuth(t *testing.T) {
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+	if err := os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"proxy_auth":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	wd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+
+	err := RunShare([]string{"plan.md"})
+	if err == nil || !strings.Contains(err.Error(), "proxy_auth") {
+		t.Fatalf("got %v, want proxy_auth block error", err)
+	}
+}
+
+func TestRunFetch_BlockedByProxyAuth(t *testing.T) {
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+	if err := os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"proxy_auth":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := RunFetch(nil)
+	if err == nil || !strings.Contains(err.Error(), "proxy_auth") {
+		t.Fatalf("got %v, want proxy_auth block error", err)
+	}
+}
+
+func TestRunUnpublish_BlockedByProxyAuth(t *testing.T) {
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+	if err := os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"proxy_auth":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := RunUnpublish(nil)
+	if err == nil || !strings.Contains(err.Error(), "proxy_auth") {
+		t.Fatalf("got %v, want proxy_auth block error", err)
+	}
+}
+
 func TestTokenFromHostedURL(t *testing.T) {
 	cases := map[string]string{
 		"https://crit.example/r/abc123":      "abc123",

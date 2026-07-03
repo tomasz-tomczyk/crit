@@ -983,6 +983,20 @@ func clearShareState(critPath string) error {
 	return session.SaveCritJSON(critPath, cj)
 }
 
+// checkProxyAuthCLIAllowed returns an error when proxy_auth is enabled in global
+// config. Terminal share/fetch/unpublish cannot authenticate to crit-web behind
+// an SSO reverse proxy — those operations must use the browser UI relay instead.
+func checkProxyAuthCLIAllowed(command string) error {
+	if !loadShareConfig().ProxyAuth {
+		return nil
+	}
+	return fmt.Errorf(`%s is unavailable with proxy_auth enabled
+
+Your crit-web instance is behind an SSO reverse proxy. Terminal commands cannot authenticate there — use Crit's browser interface instead
+
+proxy_auth is set in ~/.crit.config.json (global config only)`, command)
+}
+
 // loadShareConfig loads the merged config.Config from the current directory context.
 // Used by share/fetch/unpublish commands to avoid redundant config parsing.
 func loadShareConfig() config.Config {
