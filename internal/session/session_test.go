@@ -2593,6 +2593,25 @@ func TestAddReviewComment(t *testing.T) {
 	}
 }
 
+func TestGetReviewComments_DedupesByID(t *testing.T) {
+	s := &Session{
+		reviewComments: []Comment{
+			{ID: "r1", Body: "first"},
+			{ID: "r1", Body: "duplicate"},
+			{ID: "r2", Body: "second"},
+		},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	comments := s.GetReviewComments()
+	if len(comments) != 2 {
+		t.Fatalf("expected 2 deduped comments, got %d", len(comments))
+	}
+	if comments[0].ID != "r1" || comments[1].ID != "r2" {
+		t.Fatalf("expected IDs [r1 r2], got [%s %s]", comments[0].ID, comments[1].ID)
+	}
+}
+
 func TestDeleteReviewComment(t *testing.T) {
 	s := newTestSession(t)
 	c := s.AddReviewComment("temp", "", "")
@@ -4753,6 +4772,29 @@ func TestMergeReviewCommentsFromDisk_NewReplies(t *testing.T) {
 	}
 	if len(s.reviewComments[0].Replies) != 2 {
 		t.Errorf("expected 2 replies, got %d", len(s.reviewComments[0].Replies))
+	}
+}
+
+func TestMergeReviewCommentsFromDisk_DedupesDuplicateDiskIDs(t *testing.T) {
+	s := &Session{
+		reviewComments: []Comment{},
+		subscribers:    make(map[chan SSEEvent]struct{}),
+	}
+
+	diskComments := []Comment{
+		{ID: "r1", Body: "from disk"},
+		{ID: "r1", Body: "from disk duplicate"},
+	}
+
+	changed := s.mergeReviewCommentsFromDisk(diskComments)
+	if !changed {
+		t.Error("expected changed=true when adding new comment")
+	}
+	if len(s.reviewComments) != 1 {
+		t.Fatalf("expected 1 comment after dedupe, got %d", len(s.reviewComments))
+	}
+	if s.reviewComments[0].ID != "r1" {
+		t.Errorf("expected r1, got %s", s.reviewComments[0].ID)
 	}
 }
 

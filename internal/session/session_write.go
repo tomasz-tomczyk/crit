@@ -493,6 +493,7 @@ func (s *Session) mergeReviewCommentsFromDisk(diskComments []Comment) bool {
 	for _, dc := range diskComments {
 		if _, exists := memReviewIDs[dc.ID]; !exists {
 			s.reviewComments = append(s.reviewComments, dc)
+			memReviewIDs[dc.ID] = struct{}{}
 			changed = true
 		} else {
 			changed = s.mergeReviewCommentRepliesAndState(dc) || changed

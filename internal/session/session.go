@@ -1195,9 +1195,16 @@ func (s *Session) GetReviewComments() []Comment {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]Comment, 0, len(s.reviewComments))
+	seen := make(map[string]struct{}, len(s.reviewComments))
 	for _, c := range s.reviewComments {
 		if !visibleInFocus(c, s.Focus) {
 			continue
+		}
+		if c.ID != "" {
+			if _, ok := seen[c.ID]; ok {
+				continue
+			}
+			seen[c.ID] = struct{}{}
 		}
 		out = append(out, c)
 	}
