@@ -31,21 +31,16 @@ if [ -n "$UNFORMATTED" ]; then
 fi
 
 # Run golangci-lint (includes gocyclo, staticcheck, misspell, ineffassign)
-# golangci-lint is installed via `go install`, not mise — only run if on PATH.
-if command -v golangci-lint >/dev/null 2>&1; then
-    echo "  Running golangci-lint..."
-    LINT_OUTPUT=$(golangci-lint run ./... 2>/dev/null) || true
-    # Sibling worktrees (crit-mono/crit.<branch>/) share the same module path,
-    # so golangci-lint reports their issues as ../crit.<branch>/file.go paths.
-    # Keep only issue lines for files in the current directory.
-    LINT_LOCAL=$(echo "$LINT_OUTPUT" | grep -E '^[^./][^:]*\.go:[0-9]+:' || true)
-    if [ -n "$LINT_LOCAL" ]; then
-        echo "$LINT_LOCAL"
-        echo "  FAIL: Lint issues found"
-        exit 1
-    fi
-else
-    echo "  Skipping golangci-lint (not on PATH). Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+echo "  Running golangci-lint..."
+LINT_OUTPUT=$(run_tool golangci-lint run ./... 2>/dev/null) || true
+# Sibling worktrees (crit-mono/crit.<branch>/) share the same module path,
+# so golangci-lint reports their issues as ../crit.<branch>/file.go paths.
+# Keep only issue lines for files in the current directory.
+LINT_LOCAL=$(echo "$LINT_OUTPUT" | grep -E '^[^./][^:]*\.go:[0-9]+:' || true)
+if [ -n "$LINT_LOCAL" ]; then
+    echo "$LINT_LOCAL"
+    echo "  FAIL: Lint issues found"
+    exit 1
 fi
 
 # Run tests

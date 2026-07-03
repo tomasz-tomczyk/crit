@@ -1,6 +1,7 @@
 [tools]
 go = "1.26.0"
 node = "22"
+golangci-lint = "2.11.4"
 
 [env]
 PORT = "8080"

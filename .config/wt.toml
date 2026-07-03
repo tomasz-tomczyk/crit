@@ -10,3 +10,4 @@ mise-trust = "mise trust ."
 # `cp -R` of node_modules — copy-ignored handles all gitignored paths.
 [post-start]
 copy = "wt step copy-ignored"
+hooks = "make setup-hooks"
