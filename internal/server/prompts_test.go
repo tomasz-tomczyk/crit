@@ -97,3 +97,23 @@ func TestRenderProjectPromptPreview_DiscoveredOnly(t *testing.T) {
 		t.Fatalf("preview = %q, want discovered prompt text", preview)
 	}
 }
+
+func TestRenderProjectPromptPreview_SkipsStockFallback(t *testing.T) {
+	s, session := newTestServer(t)
+	dir := session.RepoRoot
+	promptDir := filepath.Join(dir, ".crit", "prompts")
+	if err := os.MkdirAll(promptDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(promptDir, "on_finish_approved.md"), []byte("Only project approved."), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	preview := s.renderProjectPromptPreview(session)
+	if strings.Contains(preview, "The review finished with") {
+		t.Fatalf("preview should not include stock unresolved fallback: %q", preview)
+	}
+	if !strings.Contains(preview, "Only project approved.") {
+		t.Fatalf("preview = %q, want project approved text", preview)
+	}
+}
