@@ -103,7 +103,7 @@ Config keys: `port`, `host`, `no_open`, `share_url`, `quiet`, `output`, `author`
 - `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to the configured VCS user name if not set
 - `agent_cmd`, `auth_token`, `share_url`, and `proxy_auth` are **global config only**; project-level config cannot override (security — prevents malicious repos from hijacking the agent command or redirecting share requests to an attacker-controlled host)
-- `proxy_auth` (default: `false`) — when `true`, share/pull/unpublish use browser popup relay instead of direct CLI HTTP. Global-only for security.
+- `proxy_auth` (default: `false`) — when `true`, terminal `crit share` / `crit fetch` / `crit unpublish` are blocked (SSO proxy); the browser UI uses a popup relay instead. Global-only for security. See proxy-auth transport rules.
 - `cleanup_on_approve` (default: `true`) — auto-delete review file when reviewer approves with no unresolved comments
 - `disable_stats` (default: `false`) — disable session stats recording to `~/.crit/stats.json`
 - `ignore_patterns` are unioned (global + project both apply); types: `*.ext`, `dir/`, `exact.file`, `path/*.ext`
@@ -113,6 +113,18 @@ Config keys: `port`, `host`, `no_open`, `share_url`, `quiet`, `output`, `author`
 - `live_cookie` / `live_cookie_file` forward session cookies to the upstream app in live mode (global or project; prefer gitignored `live_cookie_file` e.g. `.crit/live-cookies.txt`). CLI: `crit live --cookie`, `--cookie-file`
 - `live_cdp_url` reuses cookies from a local Chrome DevTools endpoint (global or project). CLI: `crit live --cdp-url`. Explicit `--cookie` values override CDP cookies with the same name.
 - CLI flags override config file values
+</important>
+
+<important if="you are adding or modifying a CLI subcommand that HTTP-calls crit-web (share, fetch, unpublish, or any new crit-web API interaction)">
+
+Self-hosted crit-web behind an SSO reverse proxy cannot be reached from the terminal. When `proxy_auth: true` in global config:
+
+1. **Terminal subcommands** must call `checkProxyAuthCLIAllowed("crit <cmd>")` at the top of the `Run*` entrypoint (`internal/share/cli.go` pattern). Fail fast with the shared message — do not HTTP-call crit-web and get an HTML login page.
+2. **Browser UI** must implement both transports: direct Go HTTP when `proxy_auth` is false; popup relay via `web/crit-share.js` + crit-web `assets/js/share_receiver/handlers.js` when true. See `.claude/rules/proxy-auth-transport.md`.
+3. **New crit-web endpoints**: add a popup handler in crit-web `share_receiver/handlers.js` (same-origin fetch proxy to the existing `/api/...` endpoint — no relay-specific API). Add the relay branch in `web/crit-share.js` / `web/app.js`.
+4. **Integration tests** that exec the `crit` binary must use an isolated temp `HOME` (`runCritCmd` in `share_integration_test.go`) so a developer's `proxy_auth` setting doesn't skew results.
+
+Full rules: `.cursor/rules/proxy-auth-transport.mdc` / `.claude/rules/proxy-auth-transport.md`.
 </important>
 
 <important if="you are working with crit pull, crit push, or GitHub PR sync">
