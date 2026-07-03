@@ -45,6 +45,7 @@ func RunReview(args []string) error {
 			return fmt.Errorf("invalid session ID %q (expected 12-character hex)", sc.SessionID)
 		}
 		key = sc.SessionID
+		staleEntry, _ := daemon.ReadSessionFile(key)
 		entry, alive = daemon.FindAliveSession(key)
 		if alive {
 			fmt.Fprintf(os.Stderr, "Connected to crit daemon at %s (session %s)\n", entry.BaseURL(), key)
@@ -52,7 +53,7 @@ func RunReview(args []string) error {
 				go browser.OpenBrowserWithCommand(entry.BaseURL(), sc.OpenCmd)
 			}
 		} else {
-			entry, err = reconnectDeadSession(key)
+			entry, err = reconnectDeadSession(key, staleEntry)
 			if err != nil {
 				return err
 			}

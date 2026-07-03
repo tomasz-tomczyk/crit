@@ -67,9 +67,64 @@ func daemonArgsFromCliArgs(sessionKey string, cliArgs []string) []string {
 	return append(args, cliArgs...)
 }
 
+// resolveReconnectReviewDir picks the review folder for a dead-daemon reconnect.
+// Prefers the stale session registry's review_path (needed for --output reviews).
+func resolveReconnectReviewDir(key string, stale daemon.SessionEntry) (string, error) {
+	if stale.ReviewPath != "" {
+		critPath := ReviewPathsFor(stale.ReviewPath).Review
+		if _, err := os.Stat(critPath); err != nil {
+			if os.IsNotExist(err) {
+				return "", fmt.Errorf("no review found for session %s at %s", key, stale.ReviewPath)
+			}
+			return "", fmt.Errorf("stat review for session %s: %w", key, err)
+		}
+		return stale.ReviewPath, nil
+	}
+	return daemon.ReviewFilePath(key)
+}
+
+// daemonArgsForReconnect rebuilds _serve argv including flags not stored in cli_args.
+func daemonArgsForReconnect(sessionKey string, cliArgs []string, stale daemon.SessionEntry, reviewDir string) []string {
+	args := daemonArgsFromCliArgs(sessionKey, cliArgs)
+	args = appendReconnectPathFlags(sessionKey, args, reviewDir)
+	args = daemon.AppendCommonDaemonFlags(args, daemon.CommonDaemonFlags{
+		Host:      stale.Host,
+		PublicURL: stale.PublicURL,
+	})
+	return args
+}
+
+// appendReconnectPathFlags adds --output or --plan-dir/--name when the review
+// folder is outside the default ~/.crit/reviews/<key> layout.
+func appendReconnectPathFlags(sessionKey string, args []string, reviewDir string) []string {
+	if !strings.HasSuffix(filepath.ToSlash(reviewDir), "/.crit") {
+		return args
+	}
+	defaultDir, err := daemon.ReviewFilePath(sessionKey)
+	if err == nil && filepath.Clean(reviewDir) == filepath.Clean(defaultDir) {
+		return args
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		plansRoot := filepath.Join(home, ".crit", "plans")
+		parent := filepath.Dir(reviewDir)
+		if strings.HasPrefix(filepath.Clean(parent), filepath.Clean(plansRoot)+string(filepath.Separator)) {
+			slug := filepath.Base(parent)
+			if slug != "" && slug != "." {
+				return append(args, "--plan-dir", parent, "--name", slug)
+			}
+		}
+	}
+	outputDir := filepath.Dir(reviewDir)
+	if outputDir != "" && outputDir != "." {
+		return append(args, "--output", outputDir)
+	}
+	return args
+}
+
 // reconnectDeadSession restarts a daemon for an existing review folder.
-func reconnectDeadSession(key string) (daemon.SessionEntry, error) {
-	revDir, err := daemon.ReviewFilePath(key)
+func reconnectDeadSession(key string, stale daemon.SessionEntry) (daemon.SessionEntry, error) {
+	revDir, err := resolveReconnectReviewDir(key, stale)
 	if err != nil {
 		return daemon.SessionEntry{}, err
 	}
@@ -85,7 +140,7 @@ func reconnectDeadSession(key string) (daemon.SessionEntry, error) {
 	if err := json.Unmarshal(data, &cj); err != nil {
 		return daemon.SessionEntry{}, fmt.Errorf("parsing review for session %s: %w", key, err)
 	}
-	daemonArgs := daemonArgsFromCliArgs(key, cj.CliArgs)
+	daemonArgs := daemonArgsForReconnect(key, cj.CliArgs, stale, revDir)
 	entry, err := startDaemonForReconnect(key, daemonArgs)
 	if err != nil {
 		return daemon.SessionEntry{}, err

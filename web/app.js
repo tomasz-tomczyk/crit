@@ -892,14 +892,6 @@
       project_prompt_content_hash: configRes.project_prompt_content_hash || '',
     };
     window.crit.shared.applyProjectPromptTrustUI(promptTrustConfig, document.getElementById('finishBtn'));
-    if (promptTrustConfig.project_prompts_untrusted) {
-      window.crit.shared.ensureProjectPromptTrust(promptTrustConfig).then(function (ok) {
-        if (ok) {
-          window.crit.shared.applyProjectPromptTrustUI(promptTrustConfig, document.getElementById('finishBtn'));
-          if (uiState === 'reviewing') setUIState('reviewing');
-        }
-      });
-    }
 
     // Update notifications (brew upgrade + stale integrations)
     pendingUpdates = [];
@@ -7061,10 +7053,12 @@
             // server snapshot so renderResumePill sees the latest value.
             session.last_range_focus = inner.last_range_focus || null;
           }
-          applyFocusToHeader(focus);
           if (focus.kind === 'range') {
             diffScope = 'all';
+          } else {
+            restoreWorkingTreeDiffScope();
           }
+          applyFocusToHeader(focus);
           // Re-fetch the stack on any range focus transition — the new
           // focus may live in a different stack, and the breadcrumb's
           // visibility uses stack.length (not is_stacked) so we need the
@@ -7442,6 +7436,23 @@
     return sessionInRangeFocus() ? 'all' : diffScope;
   }
 
+  function restoreWorkingTreeDiffScope() {
+    if (!session || session.mode !== 'git' || sessionInRangeFocus()) return;
+    const scopes = session.available_scopes || ['all', 'staged', 'unstaged'];
+    const saved = getSetting('diffScope');
+    if (saved && scopes.indexOf(saved) !== -1) {
+      diffScope = saved;
+    } else if (scopes.indexOf(diffScope) === -1) {
+      diffScope = scopes.indexOf('branch') !== -1 ? 'branch' : 'all';
+    }
+    const scopeToggle = document.getElementById('scopeToggle');
+    if (scopeToggle) {
+      scopeToggle.querySelectorAll('.toggle-btn').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.scope === diffScope);
+      });
+    }
+  }
+
   function compareTargetChromeVisible() {
     if (!session || session.mode !== 'git') return false;
     if (sessionInRangeFocus()) return false;
@@ -7450,6 +7461,7 @@
 
   function commitRangeChromeVisible() {
     if (!session || session.mode !== 'git') return false;
+    if (sessionInRangeFocus()) return false;
     if (diffScope === 'staged' || diffScope === 'unstaged') return false;
     return true;
   }
@@ -7466,7 +7478,7 @@
   function isRevishQuery(q) {
     const t = q.trim();
     if (!t) return false;
-    if (/^[0-9a-f]{4,40}$/i.test(t)) return true;
+    if (/^[0-9a-f]{7,40}$/i.test(t)) return true;
     if (/^HEAD(?:[~^]\d+)?$/i.test(t)) return true;
     if (t === '@' || /^@[-a-z0-9]+$/i.test(t)) return true;
     return false;
@@ -7785,10 +7797,6 @@
     const q = (filter || '').trim();
     const lower = q.toLowerCase();
 
-    if (compareTargetTabsEl) {
-      compareTargetTabsEl.style.display = compareTargetTab === 'commits' ? '' : '';
-    }
-
     if (compareTargetTab === 'commits') {
       let commits = commitList;
       if (lower) {
@@ -8049,7 +8057,7 @@
         document.getElementById('filesContainer').innerHTML =
           '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>';
 
-        let sessionUrl = '/api/session?scope=' + enc(diffScope);
+        let sessionUrl = '/api/session?scope=' + enc(effectiveDiffScope());
         if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
         const sessionRes = await fetch(sessionUrl).then(function(r) { return r.json(); });
         session = sessionRes;

@@ -936,9 +936,9 @@
     if (!btn) return;
     e.stopPropagation();
     var id = btn.dataset.commentId;
-    var path = btn.dataset.pathname || '/';
     if (!id) return;
     var c = (state.comments || []).find(function (x) { return x && x.id === id; });
+    var path = btn.dataset.pathname || (c && commentStoragePath(c)) || '/';
     var resolved = c ? !c.resolved : true;
     // Dedup: second click (or click on a different button targeting the same
     // pin from the panel vs. a thread row) while the first PUT is in flight
@@ -1092,9 +1092,9 @@
     if (!btn) return;
     e.stopPropagation();
     var id = btn.dataset.commentId;
-    var path = btn.dataset.pathname || '/';
     var c = findCommentById(id);
     if (!c) return;
+    var path = btn.dataset.pathname || commentStoragePath(c) || '/';
     var card = btn.closest('.crit-live-comment-row');
     var ta = card && card.querySelector('.crit-live-reply-textarea');
     var errEl = card && card.querySelector('.crit-live-reply-error');
@@ -1407,9 +1407,9 @@
     if (!btn) return;
     e.stopPropagation();
     var id = btn.dataset.commentId;
-    var path = btn.dataset.pathname || '/';
     var c = findCommentById(id);
     if (!c) return;
+    var path = btn.dataset.pathname || commentStoragePath(c) || '/';
     var card = btn.closest('.crit-live-comment-row');
     var ta = card && card.querySelector('.crit-live-edit-textarea');
     var errEl = card && card.querySelector('.crit-live-edit-error');

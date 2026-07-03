@@ -80,3 +80,20 @@ func TestHandleConfig_ProjectPromptUntrusted(t *testing.T) {
 		t.Fatalf("untrusted = %v", resp["project_prompts_untrusted"])
 	}
 }
+
+func TestRenderProjectPromptPreview_DiscoveredOnly(t *testing.T) {
+	s, session := newTestServer(t)
+	dir := session.RepoRoot
+	promptDir := filepath.Join(dir, ".crit", "prompts")
+	if err := os.MkdirAll(promptDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(promptDir, "on_finish_approved.md"), []byte("Custom discovered approve text."), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	preview := s.renderProjectPromptPreview(session)
+	if !strings.Contains(preview, "Custom discovered approve text.") {
+		t.Fatalf("preview = %q, want discovered prompt text", preview)
+	}
+}

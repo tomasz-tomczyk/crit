@@ -122,10 +122,10 @@ func (s *Server) projectPromptTrustPayload() map[string]any {
 
 func (s *Server) renderProjectPromptPreview(sess *Session) string {
 	_, projectPrompts := config.LoadPromptMaps(s.projectDir)
-	if len(projectPrompts) == 0 {
+	trust, err := prompt.EvaluateTrust(s.projectDir, projectPrompts)
+	if err != nil || !trust.HasProjectPrompts {
 		return ""
 	}
-	mode := prompt.PromptMode(sess.ReviewType, sess.Mode)
 	var sections []string
 	for _, spec := range []struct {
 		hook     string
@@ -134,16 +134,22 @@ func (s *Server) renderProjectPromptPreview(sess *Session) string {
 		{prompt.HookFinishUnresolved, false},
 		{prompt.HookFinishApproved, true},
 	} {
-		value, key := prompt.LookupPrompt(projectPrompts, spec.hook, mode)
-		if value == "" || key == "" {
-			continue
-		}
 		ctx := s.buildPromptContext(sess, spec.approved, nil)
 		if !spec.approved && ctx.UnresolvedCount == 0 {
 			ctx.UnresolvedCount = 1
 		}
 		result := prompt.RenderFinish(nil, projectPrompts, s.projectDir, s.homeDir, true, ctx)
-		sections = append(sections, "=== "+key+" ===\n"+result.Prompt)
+		if result.Prompt == "" || result.Prompt == "Review finished." {
+			continue
+		}
+		if result.Meta == nil || !strings.HasPrefix(result.Meta.TemplateSource, "project:") {
+			continue
+		}
+		label := spec.hook
+		if result.Meta != nil && result.Meta.Hook != "" {
+			label = result.Meta.Hook
+		}
+		sections = append(sections, "=== "+label+" ===\n"+result.Prompt)
 	}
 	return strings.Join(sections, "\n\n")
 }

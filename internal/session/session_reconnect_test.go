@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ func TestReconnectDeadSession_MissingReview(t *testing.T) {
 	home := t.TempDir()
 	testutil.SetHome(t, home)
 
-	_, err := reconnectDeadSession("839f3b4cd5d6")
+	_, err := reconnectDeadSession("839f3b4cd5d6", daemon.SessionEntry{})
 	if err == nil {
 		t.Fatal("expected error for missing review")
 	}
@@ -41,7 +42,7 @@ func TestReconnectDeadSession_InvalidJSON(t *testing.T) {
 	}
 	writeFile(t, critPath, "not json")
 
-	_, err = reconnectDeadSession(key)
+	_, err = reconnectDeadSession(key, daemon.SessionEntry{})
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
@@ -83,7 +84,7 @@ func TestReconnectDeadSession_RestartsDaemon(t *testing.T) {
 	t.Cleanup(func() { startDaemonForReconnect = orig })
 
 	stderr := captureStderr(t, func() {
-		entry, err := reconnectDeadSession(key)
+		entry, err := reconnectDeadSession(key, daemon.SessionEntry{})
 		if err != nil {
 			t.Fatalf("reconnectDeadSession: %v", err)
 		}
@@ -140,6 +141,66 @@ func TestRunReview_SessionByID_ReconnectsDeadDaemon(t *testing.T) {
 
 	if err := RunReview(nil); err != nil {
 		t.Fatalf("RunReview: %v", err)
+	}
+}
+
+func TestReconnectDeadSession_OutputReviewPath(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	key := "839f3b4cd5d6"
+
+	outputDir := filepath.Join(t.TempDir(), "out")
+	revDir := filepath.Join(outputDir, ".crit")
+	cj := CritJSON{CliArgs: []string{"a.md"}}
+	if err := SaveCritJSON(revDir, cj); err != nil {
+		t.Fatal(err)
+	}
+
+	stale := daemon.SessionEntry{ReviewPath: revDir}
+	orig := startDaemonForReconnect
+	startDaemonForReconnect = func(gotKey string, args []string) (daemon.SessionEntry, error) {
+		if gotKey != key {
+			t.Fatalf("key = %q, want %q", gotKey, key)
+		}
+		want := []string{"--session-key", key, "--quiet", "a.md", "--output", outputDir}
+		if len(args) != len(want) {
+			t.Fatalf("args = %v, want %v", args, want)
+		}
+		for i := range want {
+			if args[i] != want[i] {
+				t.Fatalf("args = %v, want %v", args, want)
+			}
+		}
+		return daemon.SessionEntry{PID: 42, Port: 3001}, nil
+	}
+	t.Cleanup(func() { startDaemonForReconnect = orig })
+
+	if _, err := reconnectDeadSession(key, stale); err != nil {
+		t.Fatalf("reconnectDeadSession: %v", err)
+	}
+}
+
+func TestDaemonArgsForReconnect_OutputAndPublicURL(t *testing.T) {
+	key := "839f3b4cd5d6"
+	outputDir := "/tmp/review-out"
+	revDir := filepath.Join(outputDir, ".crit")
+	stale := daemon.SessionEntry{
+		ReviewPath: revDir,
+		PublicURL:  "https://crit.example.com",
+	}
+	args := daemonArgsForReconnect(key, []string{"doc.md"}, stale, revDir)
+	wantSub := []string{"--output", outputDir, "--public-url", "https://crit.example.com", "doc.md"}
+	for _, w := range wantSub {
+		found := false
+		for _, a := range args {
+			if a == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("args %v missing %q", args, w)
+		}
 	}
 }
 

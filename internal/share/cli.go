@@ -392,6 +392,12 @@ func RunFetch(args []string) error {
 		return err
 	}
 
+	return session.WithShareLock(critPath, func() error {
+		return runFetchUnderLock(critPath)
+	})
+}
+
+func runFetchUnderLock(critPath string) error {
 	data, readErr := session.ReadFileShared(session.ReviewPathsFor(critPath).Review)
 	if readErr != nil {
 		return clicmd.Usage("Error: no review file found. Run `crit share` first.")
