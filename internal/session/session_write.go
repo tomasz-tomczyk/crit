@@ -552,6 +552,27 @@ func (s *Session) filterDeletedReviewComments(diskComments []Comment) bool {
 	return false
 }
 
+// SyncCommentsFromDisk reloads file- and review-level comments from review.json
+// on disk into the in-memory session. Call after external writers (e.g.
+// share.MergeWebComments via POST /api/comments/merge) update review.json
+// without going through WriteFiles.
+func (s *Session) SyncCommentsFromDisk() bool {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	s.mu.Lock()
+	if s.writeTimer != nil {
+		s.writeTimer.Stop()
+		s.writeTimer = nil
+	}
+	s.writeGen++
+	s.pendingWrite = false
+	s.lastCritJSONMtime = time.Time{}
+	s.mu.Unlock()
+
+	return s.mergeExternalCritJSON()
+}
+
 func (s *Session) mergeExternalCritJSON() bool {
 	critPath := s.critJSONPath()
 

@@ -5114,6 +5114,13 @@ func TestHandleMergeComments_NewComment(t *testing.T) {
 			"plan.md": {Comments: []Comment{}},
 		},
 	})
+	// Simulate a recent daemon write so mergeExternalCritJSON would skip a
+	// same-second pull unless handleMergeComments forces a disk sync.
+	if info, err := os.Stat(review.ReviewPathsFor(sess.CritJSONPath()).Review); err != nil {
+		t.Fatal(err)
+	} else {
+		sess.SetLastCritJSONMtimeForTest(info.ModTime())
+	}
 
 	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
@@ -5132,6 +5139,13 @@ func TestHandleMergeComments_NewComment(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["merged"].(float64) != 1 {
 		t.Errorf("merged = %v, want 1", resp["merged"])
+	}
+	comments := sess.GetComments("plan.md")
+	if len(comments) != 1 {
+		t.Fatalf("session has %d comments after merge, want 1", len(comments))
+	}
+	if comments[0].Body != "new web comment" {
+		t.Errorf("comment body = %q, want %q", comments[0].Body, "new web comment")
 	}
 }
 

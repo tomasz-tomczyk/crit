@@ -104,6 +104,12 @@ func (s *Session) SetLastCritJSONMtimeForTest(t time.Time) {
 	s.lastCritJSONMtime = t
 }
 
+func (s *Session) PendingWriteForTest() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.pendingWrite
+}
+
 // RemoveStaleReviewPath removes a review identity folder or legacy flat file.
 func RemoveStaleReviewPath(path string) bool {
 	return removeStaleReviewPath(path)
