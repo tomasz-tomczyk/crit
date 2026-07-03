@@ -41,8 +41,8 @@ type cdpCommand struct {
 
 var cdpHTTPClient = &http.Client{Timeout: 5 * time.Second}
 
-// resolveCDPURL picks the CDP endpoint from CLI flag or config, falling back
-// to the default local Chrome debugging port when enabled via bare true-ish values.
+// resolveCDPURL picks the CDP endpoint from the CLI flag first, then the config
+// value, returning an empty string when neither is set.
 func resolveCDPURL(flagCDPURL string, cfgLiveCDPURL string) string {
 	if flagCDPURL != "" {
 		return normalizeCDPBaseURL(flagCDPURL)

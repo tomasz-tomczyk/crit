@@ -7798,9 +7798,9 @@
     const lower = q.toLowerCase();
 
     if (compareTargetTab === 'commits') {
-      let commits = commitList;
+      let commits = commitList.filter(function(c) { return !c.virtual; });
       if (lower) {
-        commits = commitList.filter(function(c) {
+        commits = commits.filter(function(c) {
           return c.short_sha.toLowerCase().indexOf(lower) !== -1
             || c.sha.toLowerCase().indexOf(lower) === 0
             || c.message.toLowerCase().indexOf(lower) !== -1;

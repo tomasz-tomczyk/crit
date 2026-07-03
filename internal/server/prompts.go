@@ -146,7 +146,7 @@ func (s *Server) renderProjectPromptPreview(sess *Session) string {
 			continue
 		}
 		label := spec.hook
-		if result.Meta != nil && result.Meta.Hook != "" {
+		if result.Meta.Hook != "" {
 			label = result.Meta.Hook
 		}
 		sections = append(sections, "=== "+label+" ===\n"+result.Prompt)
