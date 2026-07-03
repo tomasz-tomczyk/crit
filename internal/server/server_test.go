@@ -5149,6 +5149,51 @@ func TestHandleMergeComments_NewComment(t *testing.T) {
 	}
 }
 
+func TestHandleMergeComments_DedupStillSyncsSession(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "plan.md")
+	os.WriteFile(filePath, []byte("# Plan\n"), 0o644)
+
+	sess := &Session{
+		Mode:        "files",
+		OutputDir:   dir,
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		Files:       []*FileEntry{{Path: "plan.md", AbsPath: filePath}},
+	}
+	sess.SetSharedURLAndToken("https://crit.md/r/tok123", "del-tok")
+
+	writeCritJSONForTest(t, dir, CritJSON{
+		Files: map[string]CritJSONFile{
+			"plan.md": {Comments: []Comment{{
+				ID: "web-1", Body: "already on disk", StartLine: 1, EndLine: 1,
+			}}},
+		},
+	})
+	if info, err := os.Stat(review.ReviewPathsFor(sess.CritJSONPath()).Review); err != nil {
+		t.Fatal(err)
+	} else {
+		sess.SetLastCritJSONMtimeForTest(info.ModTime())
+	}
+
+	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload := `{"comments": [{"body": "already on disk", "file_path": "plan.md", "start_line": 1, "end_line": 1, "author_display_name": "Web User"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/comments/merge", strings.NewReader(payload))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if len(sess.GetComments("plan.md")) != 1 {
+		t.Fatalf("session has %d comments after dedup pull, want 1", len(sess.GetComments("plan.md")))
+	}
+}
+
 func TestHandleMergeComments_DuplicateFiltered(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "plan.md")

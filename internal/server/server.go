@@ -1166,15 +1166,6 @@ func (s *Server) handleMergeComments(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	// Flush any debounced session write (e.g. from SetSharedURLAndToken) so
-	// dedup/merge read the latest on-disk state and SyncCommentsFromDisk is
-	// not blocked by pendingWrite.
-	if err := sess.SyncWriteFiles(); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
 	data, err := session.ReadFileShared(review.ReviewPathsFor(critPath).Review)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -1192,6 +1183,9 @@ func (s *Server) handleMergeComments(w http.ResponseWriter, r *http.Request) {
 
 	newComments, replyUpdates := dedupWebComments(cj, req.Comments)
 	if len(newComments) == 0 && len(replyUpdates) == 0 {
+		// Comments may already be on disk from a prior pull while memory is
+		// still stale (e.g. pendingWrite blocked the file watcher).
+		sess.SyncCommentsFromDisk()
 		writeJSON(w, map[string]any{"merged": 0, "replies_updated": 0})
 		return
 	}
