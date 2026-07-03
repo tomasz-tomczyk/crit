@@ -7294,7 +7294,7 @@
     navigator.clipboard.writeText(url).then(function() {
       anchor.classList.add('heading-anchor-copied');
       setTimeout(function() { anchor.classList.remove('heading-anchor-copied'); }, 1500);
-    }).catch(function() {});
+    }).catch(function() { return; });
   });
 
   // ===== Mermaid =====
@@ -9153,8 +9153,8 @@
         start = Math.min(targetIdx, baseIdx);
         end = Math.max(targetIdx, baseIdx);
       }
-      const inRange = i >= start && i <= end;
-      return { inRange: inRange };
+      const isInRange = i >= start && i <= end;
+      return { inRange: isInRange };
     }
 
     const parts = [];
