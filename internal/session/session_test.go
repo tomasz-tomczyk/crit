@@ -4756,6 +4756,51 @@ func TestMergeReviewCommentsFromDisk_NewReplies(t *testing.T) {
 	}
 }
 
+// --- SyncCommentsFromDisk tests ---
+
+func TestSyncCommentsFromDisk_ClearsPendingWrite(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "plan.md")
+	if err := os.WriteFile(filePath, []byte("# Plan\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	critPath := filepath.Join(dir, ".crit")
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"plan.md": {Comments: []Comment{{ID: "web-1", Body: "remote", StartLine: 1, EndLine: 1}}},
+		},
+	}
+	data, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mustMkdirAll(ReviewPathsFor(critPath).Review), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Session{
+		Mode:      "files",
+		OutputDir: dir,
+		RepoRoot:  dir,
+		Files:     []*FileEntry{{Path: "plan.md", AbsPath: filePath}},
+	}
+	s.SetSharedURLAndToken("https://crit.md/r/tok", "del")
+	if !s.PendingWriteForTest() {
+		t.Fatal("expected pendingWrite after SetSharedURLAndToken")
+	}
+
+	if !s.SyncCommentsFromDisk() {
+		t.Fatal("SyncCommentsFromDisk returned false")
+	}
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("want 1 comment in memory, got %d", len(s.Files[0].Comments))
+	}
+	if s.PendingWriteForTest() {
+		t.Fatal("expected pendingWrite cleared after sync")
+	}
+}
+
 // --- filterDeletedReviewComments tests ---
 
 func TestFilterDeletedReviewComments_NoneDeleted(t *testing.T) {
