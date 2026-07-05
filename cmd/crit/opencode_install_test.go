@@ -43,6 +43,16 @@ func TestInstallOpencodePluginEntry(t *testing.T) {
 			expectPlugin: []interface{}{[]interface{}{projectEntry, map[string]interface{}{}}},
 		},
 		{
+			name:         "trailing comma tolerated",
+			initial:      `{"plugin": ["other-plugin"],}`,
+			expectPlugin: []interface{}{"other-plugin", projectEntry},
+		},
+		{
+			name:       "trailing comma with schema key left untouched",
+			initial:    "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n}",
+			expectSkip: true,
+		},
+		{
 			name:      "malformed json errors",
 			initial:   `{"plugin": [`,
 			expectErr: true,
@@ -121,6 +131,31 @@ func TestInstallOpencodePluginEntry(t *testing.T) {
 				if string(gotJSON) != string(wantJSON) {
 					t.Errorf("plugin[%d] = %s want %s", i, gotJSON, wantJSON)
 				}
+			}
+		})
+	}
+}
+
+func TestStripTrailingCommas(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"no trailing comma", `{"plugin":[]}`, `{"plugin":[]}`},
+		{"object trailing comma", `{"plugin":[],}`, `{"plugin":[]}`},
+		{"array trailing comma", `[1,2,3,]`, `[1,2,3]`},
+		{"nested trailing commas", `{"a":[1,],}`, `{"a":[1]}`},
+		{"comma inside string preserved", `{"a":"1,",}`, `{"a":"1,"}`},
+		{"whitespace before close", "{\n  \"plugin\": [],\n}", "{\n  \"plugin\": []}"},
+		{"non-trailing comma preserved", `{"a":1,"b":2}`, `{"a":1,"b":2}`},
+		{"escaped quote inside string", `{"a":"he said \"hello\"","b":[],}`, `{"a":"he said \"hello\"","b":[]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := string(stripTrailingCommas([]byte(tc.in)))
+			if got != tc.want {
+				t.Errorf("stripTrailingCommas(%q) = %q want %q", tc.in, got, tc.want)
 			}
 		})
 	}

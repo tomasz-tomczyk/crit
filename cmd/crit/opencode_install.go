@@ -62,6 +62,7 @@ func installOpencodePluginEntry(path, entry string, force bool) error {
 			printManualPluginInstruction(path, "contains comments", entry)
 			return nil
 		}
+		data = stripTrailingCommas(data)
 		if err := json.Unmarshal(data, &root); err != nil {
 			return fmt.Errorf("%s contains invalid JSON: %w", path, err)
 		}
@@ -154,6 +155,60 @@ func looksLikeJSONC(data []byte) bool {
 	// Strip strings before scanning so `"// not a comment"` doesn't trigger.
 	stripped := stripJSONStrings(data)
 	return strings.Contains(stripped, "//") || strings.Contains(stripped, "/*")
+}
+
+// stripTrailingCommas removes commas that appear immediately before a closing
+// `}` or `]` outside of JSON string literals. This lets us tolerate configs
+// that are otherwise plain JSON but contain a trailing comma, which many
+// editors and JSONC-style configs allow but encoding/json rejects.
+func stripTrailingCommas(data []byte) []byte {
+	var out []byte
+	inString := false
+	escape := false
+	lastComma := -1 // index in out of the most recent unconfirmed comma
+
+	for _, c := range data {
+		if inString {
+			if escape {
+				escape = false
+				out = append(out, c)
+				continue
+			}
+			if c == '\\' {
+				escape = true
+				out = append(out, c)
+				continue
+			}
+			out = append(out, c)
+			if c == '"' {
+				inString = false
+			}
+			continue
+		}
+
+		switch c {
+		case '"':
+			inString = true
+			lastComma = -1 // a value/key follows, so the comma was not trailing
+			out = append(out, c)
+		case ',':
+			lastComma = len(out)
+			out = append(out, c)
+		case ' ', '\t', '\n', '\r':
+			out = append(out, c)
+		case '}', ']':
+			if lastComma >= 0 {
+				out = out[:lastComma]
+				lastComma = -1
+			}
+			out = append(out, c)
+		default:
+			lastComma = -1 // any other token means the comma was not trailing
+			out = append(out, c)
+		}
+	}
+
+	return out
 }
 
 // stripJSONStrings replaces every JSON string literal in data with empty
