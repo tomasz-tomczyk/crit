@@ -151,9 +151,9 @@ var integrationMap = map[string][]integration{
 		// opencode does NOT read ~/.opencode/skills/ globally — redirect to ~/.agents/skills/
 		{source: "integrations/opencode/SKILL.md", dest: ".opencode/skills/crit/SKILL.md", globalDest: ".agents/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit skill is available to OpenCode agents when needed"},
 		// Plugin file auto-loaded from project `.opencode/plugins/` or global
-		// `~/.config/opencode/plugins/`. Conditionally injects sharing instructions
-		// only when share_url is set in crit config.
-		{source: "integrations/opencode/plugin/crit.ts", dest: ".opencode/plugins/crit.ts", globalDest: ".config/opencode/plugins/crit.ts", globalDestKind: globalDestRelHome, hint: "Crit's opencode plugin gates sharing instructions on share_url being set"},
+		// `~/.config/opencode/plugins/`. Injects sharing instructions by default
+		// (share_url defaults to https://crit.md); docs cover how to disable.
+		{source: "integrations/opencode/plugin/crit.ts", dest: ".opencode/plugins/crit.ts", globalDest: ".config/opencode/plugins/crit.ts", globalDestKind: globalDestRelHome},
 	},
 	"windsurf": {
 		// windsurf has no per-tool global rules dir — global install rejected in installIntegration.
