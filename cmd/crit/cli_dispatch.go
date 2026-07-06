@@ -29,6 +29,7 @@ var commandDispatch = map[string]func([]string){
 	"preview":   runPreview,
 	"plan":      runPlan,
 	"plan-hook": runPlanHookCommand,
+	"story":     runStory,
 	"auth":      runAuth,
 	"stop":      runStop,
 	"status":    runStatus,

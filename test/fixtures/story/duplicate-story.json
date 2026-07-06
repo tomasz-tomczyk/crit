@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "chapters": [
+    {
+      "id": "ch1",
+      "title": "First",
+      "hunk_refs": [{ "file_path": "app.go", "old_start": 0 }]
+    },
+    {
+      "id": "ch2",
+      "title": "Second (claims the same hunk)",
+      "hunk_refs": [{ "file_path": "app.go", "old_start": 0 }]
+    }
+  ]
+}
