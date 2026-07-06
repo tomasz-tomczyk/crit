@@ -362,6 +362,50 @@ func TestPostStoryToDaemon_BodyShape(t *testing.T) {
 	}
 }
 
+// TestPostStoryToDaemon_PollsReadinessThenPosts verifies the readiness poll:
+// the daemon 503s on /api/session N times (session init not done), and
+// postStoryToDaemon must NOT POST the story until /api/session stops 503ing.
+func TestPostStoryToDaemon_PollsReadinessThenPosts(t *testing.T) {
+	const notReadyTimes = 3
+	var sessionHits int
+	var posted bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/session":
+			sessionHits++
+			if sessionHits <= notReadyTimes {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		case "/api/story":
+			// The story must only be posted AFTER readiness (session no longer 503).
+			if sessionHits <= notReadyTimes {
+				t.Errorf("posted story before daemon was ready (session hits=%d)", sessionHits)
+			}
+			posted = true
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	u, _ := url.Parse(srv.URL)
+	port, _ := strconv.Atoi(u.Port())
+	entry := daemon.SessionEntry{Host: u.Hostname(), Port: port}
+
+	if err := postStoryToDaemon(entry, &session.Story{Version: 1}); err != nil {
+		t.Fatalf("postStoryToDaemon should succeed after the daemon becomes ready: %v", err)
+	}
+	if sessionHits < notReadyTimes+1 {
+		t.Errorf("expected the readiness poll to retry through %d 503s, got %d /api/session hits", notReadyTimes, sessionHits)
+	}
+	if !posted {
+		t.Error("story was never POSTed after the daemon became ready")
+	}
+}
+
 // TestPostStoryToDaemon_ErrorOnNon2xx verifies a non-2xx daemon response is a
 // returned error (so postIngest logs it as a note rather than silently
 // succeeding).

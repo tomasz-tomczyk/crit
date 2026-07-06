@@ -717,15 +717,22 @@ func postIngest(f storyFlags, st *session.Story) {
 }
 
 // postStoryToDaemon POSTs the story to a running daemon's /api/story endpoint
-// (body shape matches handleStoryPost: {"story": ...}). It polls readiness
-// first so a just-started daemon that hasn't finished session init doesn't 503.
+// (body shape matches handleStoryPost: {"story": ...}). /api/story is
+// withReady-gated (503 until session init completes), and FindAliveSession
+// only probes the ungated /api/health, so "alive" does not imply "ready". It
+// therefore polls /api/session until it stops returning 503 first — the
+// canonical readiness loop from daemon.RunReviewClient (waitForDaemonReady).
 func postStoryToDaemon(entry daemon.SessionEntry, st *session.Story) error {
+	base := entry.ConnURL()
+	if err := waitDaemonReady(base); err != nil {
+		return err
+	}
+
 	body, err := json.Marshal(map[string]any{"story": st})
 	if err != nil {
 		return err
 	}
-	url := entry.ConnURL() + "/api/story"
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	resp, err := http.Post(base+"/api/story", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -735,6 +742,28 @@ func postStoryToDaemon(entry daemon.SessionEntry, st *session.Story) error {
 		return fmt.Errorf("daemon returned %s: %s", resp.Status, strings.TrimSpace(string(msg)))
 	}
 	return nil
+}
+
+// waitDaemonReady polls GET base+"/api/session" until it stops returning 503
+// (session init done) or a bounded deadline elapses. Mirrors the canonical
+// readiness loop in daemon.RunReviewClient. base is a ConnURL (scheme+host+port).
+func waitDaemonReady(base string) error {
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		resp, err := http.Get(base + "/api/session")
+		if err != nil {
+			return fmt.Errorf("could not reach daemon: %w", err)
+		}
+		status := resp.StatusCode
+		resp.Body.Close()
+		if status != http.StatusServiceUnavailable {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New("daemon did not become ready within 30s")
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 // storyDaemonArgs strips story-only flags from the scope args so the spawned
