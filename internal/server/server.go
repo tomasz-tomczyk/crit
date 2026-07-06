@@ -180,6 +180,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/api/comments", s.withReady(s.handleReviewComments))
 	mux.HandleFunc("/api/review-comment/", s.withReady(s.handleReviewCommentByID))
 	mux.HandleFunc("/api/files/list", s.withReady(s.handleFilesList))
+	mux.HandleFunc("/api/story", s.withReady(s.handleStory))
 
 	// File-scoped endpoints (use ?path= query param)
 	mux.HandleFunc("/api/file", s.withReady(s.handleFile))

@@ -25,6 +25,7 @@ type (
 	ShareFile       = session.ShareFile
 	DiffHunk        = session.DiffHunk
 	DOMAnchor       = session.DOMAnchor
+	Story           = session.Story
 	PRListCache     = github.PRListCache
 	GitVCS          = vcs.GitVCS
 	CommitInfo      = vcs.CommitInfo

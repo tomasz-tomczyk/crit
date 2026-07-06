@@ -62,6 +62,11 @@ type writeFilesSnapshot struct {
 	shareVisibility string
 	reviewComments  []Comment
 	cliArgs         []string
+	// story is the session's in-memory narrative (nil if none). Carried into
+	// CritJSON like the other daemon-managed fields above so `crit story`'s
+	// daemon-side mutators (set via s.SetStory) are actually persisted —
+	// buildCritJSON otherwise only preserves whatever was already on disk.
+	story *Story
 	// pendingGHDeletes is the snapshot of session.pendingGitHubDeletes; carried
 	// into CritJSON so the next push can drain DELETE intents that were never
 	// flushed (e.g. user deleted, then quit before pushing).
@@ -159,6 +164,7 @@ func buildCritJSON(snap writeFilesSnapshot) CritJSON {
 	cj.ShareVisibility = snap.shareVisibility
 	cj.ReviewComments = snap.reviewComments
 	cj.CliArgs = snap.cliArgs
+	cj.Story = snap.story
 	cj.PendingGitHubDeletes = reconcilePendingGHDeletes(
 		snap.pendingGHDeletes, cj.PendingGitHubDeletes, snap.lastLoadedGHDeletes,
 	)
@@ -252,7 +258,8 @@ func mergeFileSnapshotIntoCritJSON(cj *CritJSON, fs writeFileSnapshot) {
 
 func critJSONIsEmpty(cj CritJSON) bool {
 	return len(cj.Files) == 0 && len(cj.ReviewComments) == 0 &&
-		cj.ShareURL == "" && cj.DeleteToken == "" && cj.ShareScope == ""
+		cj.ShareURL == "" && cj.DeleteToken == "" && cj.ShareScope == "" &&
+		cj.Story == nil
 }
 
 // WriteFiles writes the review file to disk.
@@ -379,6 +386,7 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 		shareVisibility:     s.shareVisibility,
 		reviewComments:      rc,
 		cliArgs:             s.CLIArgs,
+		story:               s.story,
 		pendingGHDeletes:    pendDeletes,
 		lastLoadedGHDeletes: lastLoaded,
 		files:               make([]writeFileSnapshot, len(s.Files)),
