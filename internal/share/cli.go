@@ -180,6 +180,20 @@ func printQR(url string, showQR bool) {
 	}
 }
 
+// noteStoryNotShared prints a one-line notice (spec §10 "crit share interplay")
+// when the review has a story: crit-web has no story surface yet, so a shared
+// review silently lacks it. Best-effort — a missing/unreadable review file is
+// not an error here.
+func noteStoryNotShared(critPath string) {
+	cj, err := review.LoadCritJSON(critPath)
+	if err != nil {
+		return
+	}
+	if cj.Story != nil {
+		fmt.Fprintln(os.Stderr, "note: the story is not included in the shared view (crit-web story support is planned)")
+	}
+}
+
 func handleShareAuthError() {
 	auth.ClearAuthIdentity()
 	fmt.Fprintln(os.Stderr, "Auth token rejected by server; cleared local credentials. Run 'crit auth login' to re-authenticate.")
@@ -315,6 +329,7 @@ func RunShare(args []string) error { //nolint:gocyclo // CLI dispatcher
 	if err := CheckShareAllowed(critPath); err != nil {
 		return err
 	}
+	noteStoryNotShared(critPath)
 
 	sharePaths := make([]string, len(files))
 	for i, f := range files {

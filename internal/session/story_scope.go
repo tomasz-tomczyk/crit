@@ -1,6 +1,8 @@
 package session
 
 import (
+	"strings"
+
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
@@ -37,10 +39,17 @@ type StoryScopeFile struct {
 // package needs to build prep text and run coverage: base/head SHAs, commit
 // messages, and the changed files (indexed) plus the ignored files (pre-placed
 // into support[] by ingest).
+//
+// BaseSHA/HeadSHA are resolved to stable commit SHAs (not branch refs) so they
+// can be persisted on the Story and interpolated into the on_story_generate
+// prompt. HeadSHA stays empty for working-tree scopes (the tree is the head).
 type StoryScope struct {
 	BaseSHA        string
 	HeadSHA        string
+	MergeBaseSHA   string
 	CommitMessages []string
+	PRNumber       int              // >0 only for --pr scopes
+	PRURL          string           // populated only for --pr scopes
 	Files          []StoryScopeFile // Ignored=false: indexed; Ignored=true: pre-placed
 }
 
@@ -60,14 +69,32 @@ func (s *Session) StoryScope(ignorePatterns []string) StoryScope {
 	if s.Focus.Kind == FocusRange {
 		scope.BaseSHA = s.Focus.BaseSHA
 		scope.HeadSHA = s.Focus.HeadSHA
+		scope.PRNumber = s.Focus.PRNumber
+		scope.PRURL = s.Focus.PRURL
 	}
 
+	// CommitLog runs against the (possibly symbolic) base ref before we resolve
+	// it below, so the range is unchanged whether or not rev-parse succeeds.
 	if s.VCS != nil {
 		headRef := scope.HeadSHA // "" => working-tree HEAD
 		if commits, err := s.VCS.CommitLog(scope.BaseSHA, headRef, s.RepoRoot); err == nil {
 			for _, c := range commits {
 				scope.CommitMessages = append(scope.CommitMessages, c.Message)
 			}
+		}
+	}
+
+	// Resolve base (and, for ranges, head) to stable commit SHAs. In git mode
+	// BaseRef is often a branch ref like "main"; the persisted Story and the
+	// prompt variables want a pinned SHA. rev-parse failures leave the ref
+	// as-is rather than blocking the scope.
+	scope.BaseSHA = resolveSHA(s.RepoRoot, scope.BaseSHA)
+	if scope.HeadSHA != "" {
+		scope.HeadSHA = resolveSHA(s.RepoRoot, scope.HeadSHA)
+	}
+	if scope.HeadSHA != "" {
+		if mb, err := vcs.MergeBaseOf(scope.BaseSHA, scope.HeadSHA, s.RepoRoot); err == nil {
+			scope.MergeBaseSHA = mb
 		}
 	}
 
@@ -100,6 +127,23 @@ func (s *Session) StoryScope(ignorePatterns []string) StoryScope {
 	}
 
 	return scope
+}
+
+// resolveSHA turns a ref (branch, tag, "HEAD~2") into a full commit SHA. On
+// any failure (empty ref, not a git repo, unknown ref) it returns ref
+// unchanged — the caller treats the raw ref as a best-effort scope marker.
+func resolveSHA(repoRoot, ref string) string {
+	if ref == "" {
+		return ref
+	}
+	out, err := vcs.RunGitInDir(repoRoot, "rev-parse", ref)
+	if err != nil {
+		return ref
+	}
+	if sha := strings.TrimSpace(out); sha != "" {
+		return sha
+	}
+	return ref
 }
 
 func matchesAny(path string, patterns []string) bool {

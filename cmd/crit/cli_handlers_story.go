@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,10 +36,26 @@ type storyFlags struct {
 	refresh   bool   // --refresh
 	noSpend   bool   // --no-spend
 	guide     bool   // --guide
+	noOpen    bool   // --no-open (post-ingest: don't open the browser)
 	// scopeArgs are the flags forwarded to the daemon config resolver
 	// (everything that isn't a story-only flag).
 	scopeArgs []string
 }
+
+// storyStartDaemon spawns the review daemon for the post-ingest flow. It is a
+// package var so tests can stub the spawn without launching a real process.
+var storyStartDaemon = daemon.StartDaemon
+
+// storyPostStory POSTs the story to a running daemon. Package var for tests.
+var storyPostStory = postStoryToDaemon
+
+// storyDaemonAlive reports whether a daemon for the session key is running.
+// Package var so tests can force the "no daemon" or "daemon present" branch.
+var storyDaemonAlive = daemon.FindAliveSession
+
+// storyDaemonHasBrowser reports whether the daemon already has a browser
+// client attached (so we don't open a second tab). Package var for tests.
+var storyDaemonHasBrowser = daemon.DaemonHasBrowser
 
 // storyValueFlags are story-only flags that take a value.
 var storyValueFlags = map[string]func(*storyFlags, string){
@@ -49,6 +70,7 @@ var storyBoolFlags = map[string]func(*storyFlags){
 	"--refresh":  func(f *storyFlags) { f.refresh = true },
 	"--no-spend": func(f *storyFlags) { f.noSpend = true },
 	"--guide":    func(f *storyFlags) { f.guide = true },
+	"--no-open":  func(f *storyFlags) { f.noOpen = true },
 }
 
 // scopeValueFlags take a value and are forwarded to the daemon config resolver.
@@ -162,8 +184,7 @@ func runStoryE(args []string) error {
 		}
 		return clicmd.ExitError{Code: 1, Err: errors.New("no story and --no-spend set")}
 	default:
-		// Default LLM path (exec agent_cmd) lands in a later task.
-		return clicmd.ExitError{Code: 1, Err: errors.New("story generation via agent_cmd is not wired yet (coming in this branch); use --story-file or --skip-llm")}
+		return runStoryLLM(f, critPath, cj)
 	}
 }
 
@@ -285,19 +306,17 @@ const storySchemaJSON = `{
   ]
 }`
 
-// runStoryGuide prints the resolved on_story_generate guide followed by
-// "\n\n---\n\n" and the JSON schema in a fenced code block, then exits 0
-// (spec §11 decision 1). It resolves the guide through the same 5-level
-// prompt-override precedence as other hooks, gated on project prompt trust.
-func runStoryGuide(f storyFlags, critPath string) error {
-	scope, err := buildStoryScope(f.scopeArgs)
-	if err != nil {
-		return err
-	}
-
+// resolveStoryGuide resolves the on_story_generate guide through the same
+// 5-level prompt-override precedence as other hooks, interpolating the §4.4
+// StoryContext variables (prep file PATH, schema, SHAs, PR vars, session key,
+// review path). It fires the SAME project-prompt trust gate the --guide path
+// uses, so the LLM path and --guide never diverge on trust. prepPath is the
+// on-disk prep file the guide instructs the agent to READ; sessionKey is the
+// review session key (empty for --guide, which has no scope resolution).
+func resolveStoryGuide(scope session.StoryScope, critPath, prepPath, sessionKey string) (string, error) {
 	projectDir, err := daemon.ResolvedCWD()
 	if err != nil {
-		return clicmd.ExitError{Code: 1, Err: err}
+		return "", clicmd.ExitError{Code: 1, Err: err}
 	}
 	homeDir, _ := os.UserHomeDir()
 
@@ -307,7 +326,7 @@ func runStoryGuide(f storyFlags, critPath string) error {
 		fmt.Fprintf(os.Stderr, "Warning: evaluating project prompt trust: %v\n", err)
 	}
 	if trust.Untrusted {
-		return clicmd.ExitError{Code: 1, Err: errors.New("project prompts are not trusted yet; run crit and choose a trust option, or use --story-file/--skip-llm")}
+		return "", clicmd.ExitError{Code: 1, Err: errors.New("project prompts are not trusted yet; run crit and choose a trust option, or use --story-file/--skip-llm")}
 	}
 
 	diffScopeKind := "workingTree"
@@ -316,24 +335,49 @@ func runStoryGuide(f storyFlags, critPath string) error {
 	}
 
 	ctx := prompt.StoryContext{
-		PrepPath:        f.prep,
+		PrepPath:        prepPath,
 		StorySchemaJSON: storySchemaJSON,
 		CommitMessages:  strings.Join(scope.CommitMessages, "\n"),
 		DiffScopeKind:   diffScopeKind,
 		BaseSHA:         scope.BaseSHA,
 		HeadSHA:         scope.HeadSHA,
+		MergeBaseSHA:    scope.MergeBaseSHA,
+		SessionKey:      sessionKey,
 		ReviewPath:      critPath,
 	}
+	if scope.PRNumber > 0 {
+		ctx.PRNumber = strconv.Itoa(scope.PRNumber)
+	}
+	ctx.PRURL = scope.PRURL
+	// TODO(story): PRTitle/PRBody require a `gh pr view` call that the story
+	// scope doesn't currently make; the template variables exist but stay
+	// empty until PR metadata is threaded through the daemon config resolver.
 	if ctx.PrepPath == "" {
 		ctx.PrepPath = "<run `crit story --prep <path>` first, then pass that path here>"
 	}
 
 	result, err := prompt.RenderHook(globalPrompts, projectPrompts, projectDir, homeDir, trust.UseProject, prompt.HookStoryGenerate, ctx.TemplateData())
 	if err != nil {
-		return clicmd.ExitError{Code: 1, Err: err}
+		return "", clicmd.ExitError{Code: 1, Err: err}
+	}
+	return result.Text, nil
+}
+
+// runStoryGuide prints the resolved on_story_generate guide followed by
+// "\n\n---\n\n" and the JSON schema in a fenced code block, then exits 0
+// (spec §11 decision 1).
+func runStoryGuide(f storyFlags, critPath string) error {
+	scope, err := buildStoryScope(f.scopeArgs)
+	if err != nil {
+		return err
 	}
 
-	fmt.Println(strings.TrimRight(result.Text, "\n"))
+	guide, err := resolveStoryGuide(scope, critPath, f.prep, "")
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(strings.TrimRight(guide, "\n"))
 	fmt.Println()
 	fmt.Println("---")
 	fmt.Println()
@@ -378,7 +422,7 @@ func runStoryIngestFile(f storyFlags, critPath string, cj review.CritJSON) error
 		return clicmd.ExitError{Code: 1, Err: ingestErr}
 	}
 
-	return saveStory(critPath, cj, &st)
+	return saveStory(f, critPath, cj, &st)
 }
 
 // runStorySkipLLM writes a stub story with all hunks in a single support entry
@@ -416,19 +460,299 @@ func runStorySkipLLM(f storyFlags, critPath string, cj review.CritJSON) error {
 		},
 	}
 	printCoverage(st.Coverage)
-	return saveStory(critPath, cj, &st)
+	return saveStory(f, critPath, cj, &st)
 }
 
-// saveStory sets the story on the review JSON and persists it via SaveCritJSON.
-func saveStory(critPath string, cj review.CritJSON, st *session.Story) error {
+// runStoryLLM is the default path: exec agent_cmd with a prompt-by-reference
+// prompt (the guide points the agent at the on-disk prep file), extract the
+// JSON per §4.3 (fence-strip / brace-substring, strict parse, one retry with
+// the parse error fed back), ingest against the live diff, save, then run the
+// post-ingest flow.
+func runStoryLLM(f storyFlags, critPath string, cj review.CritJSON) error {
+	if cj.Story != nil && !f.refresh {
+		fmt.Fprintln(os.Stderr, "story already present (use --refresh to regenerate)")
+		return nil
+	}
+
+	agentCmd := config.LoadConfig(mustCWD()).AgentCmd
+	if strings.TrimSpace(agentCmd) == "" {
+		return clicmd.ExitError{Code: 1, Err: errors.New("no agent_cmd configured; set agent_cmd in ~/.crit.config.json, or use --story-file/--skip-llm/--guide")}
+	}
+
+	scope, err := buildStoryScope(f.scopeArgs)
+	if err != nil {
+		return err
+	}
+
+	// Write the full, untrimmed prep to a temp file the agent reads (§4.3).
+	prepIn, _, _ := story.FromScope(scope)
+	prep := story.BuildPrep(prepIn)
+	prepFile, err := os.CreateTemp("", "crit-story-prep-*.txt")
+	if err != nil {
+		return clicmd.ExitError{Code: 1, Err: err}
+	}
+	prepPath := prepFile.Name()
+	defer os.Remove(prepPath)
+	if _, err := prepFile.WriteString(prep.Text); err != nil {
+		prepFile.Close()
+		return clicmd.ExitError{Code: 1, Err: err}
+	}
+	prepFile.Close()
+
+	guide, err := resolveStoryGuide(scope, critPath, prepPath, resolveStorySessionKey(f.scopeArgs))
+	if err != nil {
+		return err
+	}
+
+	st, err := generateStory(agentCmd, guide)
+	if err != nil {
+		return err
+	}
+
+	// Ingest against the live diff scope (same validation as --story-file).
+	_, indexed, ignored := story.FromScope(scope)
+	res, ingestErr := story.Run(story.Ingest{
+		Story:           st,
+		Indexed:         indexed,
+		Ignored:         ignored,
+		LiveFingerprint: story.Fingerprint(indexed),
+	})
+	printCoverage(res.Coverage)
+	if ingestErr != nil {
+		return clicmd.ExitError{Code: 1, Err: ingestErr}
+	}
+
+	return saveStory(f, critPath, cj, st)
+}
+
+// generateStory execs agent_cmd with the story prompt, extracts+parses the JSON
+// per §4.3, and retries EXACTLY ONCE on a parse failure with the parse error
+// appended. On a second parse failure it saves the raw stdout to a temp file
+// and returns an error naming that file (exit 1).
+func generateStory(agentCmd, guide string) (*session.Story, error) {
+	firstPrompt := story.BuildStoryPrompt(guide, storySchemaJSON, "")
+
+	out, err := execAgentCmd(agentCmd, firstPrompt)
+	if err != nil {
+		return nil, clicmd.ExitError{Code: 1, Err: fmt.Errorf("agent_cmd failed: %w", err)}
+	}
+	st, parseErr := parseStoryJSON(out)
+	if parseErr == nil {
+		return st, nil
+	}
+
+	// One retry with the parse error fed back (§4.3).
+	fmt.Fprintf(os.Stderr, "agent output was not valid story JSON (%v); retrying once...\n", parseErr)
+	retryPrompt := story.BuildStoryPrompt(guide, storySchemaJSON, story.RetryFeedback(parseErr))
+	retryOut, err := execAgentCmd(agentCmd, retryPrompt)
+	if err != nil {
+		return nil, clicmd.ExitError{Code: 1, Err: fmt.Errorf("agent_cmd failed on retry: %w", err)}
+	}
+	st, parseErr = parseStoryJSON(retryOut)
+	if parseErr == nil {
+		return st, nil
+	}
+
+	rawPath := saveRawAgentOutput(retryOut)
+	return nil, clicmd.ExitError{Code: 1, Err: fmt.Errorf("agent output was not valid story JSON after one retry (raw output saved to %s): %w", rawPath, parseErr)}
+}
+
+// parseStoryJSON extracts the JSON candidate from agent stdout and unmarshals
+// it into a Story. "Strict" here (§4.3) means the candidate must be valid JSON
+// that unmarshals into the Story shape — extra keys the agent volunteers (e.g.
+// "agent") are ignored, matching the --story-file ingest path.
+func parseStoryJSON(out string) (*session.Story, error) {
+	candidate := story.ExtractJSON(out)
+	if strings.TrimSpace(candidate) == "" {
+		return nil, errors.New("empty agent output")
+	}
+	var st session.Story
+	if err := json.Unmarshal([]byte(candidate), &st); err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+// execAgentCmd runs agent_cmd exactly like the server's runAgentCmd
+// (internal/server/server.go): split on whitespace, replace a {prompt}
+// placeholder with the prompt as a single arg, else pipe the prompt on stdin;
+// cmd.Dir = repo root. A 5-minute deadline bounds each attempt (§10).
+func execAgentCmd(agentCmd, promptText string) (string, error) {
+	parts := strings.Fields(agentCmd)
+	if len(parts) == 0 {
+		return "", errors.New("agent_cmd is empty")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	hasPlaceholder := false
+	for i, p := range parts {
+		if p == "{prompt}" {
+			parts[i] = promptText
+			hasPlaceholder = true
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	if !hasPlaceholder {
+		cmd.Stdin = strings.NewReader(promptText)
+	}
+	repoRoot, err := vcs.RepoRoot()
+	if err == nil {
+		cmd.Dir = repoRoot
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("timed out after 5m: %w", err)
+		}
+		return "", fmt.Errorf("%w\nstderr: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return stdout.String(), nil
+}
+
+// saveRawAgentOutput writes the agent's raw stdout to a temp file so the user
+// can inspect what the agent actually produced after a parse failure. Returns
+// the path (or a placeholder note if writing fails).
+func saveRawAgentOutput(out string) string {
+	tmp, err := os.CreateTemp("", "crit-story-agent-output-*.txt")
+	if err != nil {
+		return "(could not write temp file)"
+	}
+	defer tmp.Close()
+	_, _ = tmp.WriteString(out)
+	return tmp.Name()
+}
+
+// mustCWD resolves the working directory, falling back to "." so config lookup
+// degrades gracefully rather than panicking.
+func mustCWD() string {
+	if cwd, err := daemon.ResolvedCWD(); err == nil {
+		return cwd
+	}
+	return "."
+}
+
+// resolveStorySessionKey computes the review session key for the scope so the
+// prompt can carry {{.session_key}}. Best-effort: returns "" on any failure.
+func resolveStorySessionKey(scopeArgs []string) string {
+	reviewCfg, err := storyReviewConfig(scopeArgs)
+	if err != nil {
+		return ""
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		return ""
+	}
+	branch := ""
+	if v := vcs.DetectVCS(reviewCfg.VCSOverride); v != nil {
+		branch = v.CurrentBranch()
+	}
+	return daemon.SessionKey(cwd, branch, session.FocusKeyArgs(reviewCfg))
+}
+
+// saveStory sets the story on the review JSON, persists it via SaveCritJSON,
+// then runs the post-ingest flow (§4.1): notify a running daemon so the open
+// review re-renders, or spawn the daemon detached and open the browser. It
+// never blocks — the post-ingest step is best-effort and returns exit 0.
+func saveStory(f storyFlags, critPath string, cj review.CritJSON, st *session.Story) error {
 	cj.Story = st
 	if err := review.SaveCritJSON(critPath, cj); err != nil {
 		return clicmd.ExitError{Code: 1, Err: err}
 	}
 	fmt.Fprintln(os.Stderr, "Story saved.")
-	// TODO(story): post-ingest daemon notify (later task) — POST /api/story to a
-	// running daemon, or spawn the daemon detached + open the browser.
+	postIngest(f, st)
 	return nil
+}
+
+// postIngest connects the freshly-saved story to a review surface (§4.1). If a
+// daemon for this session key is already running, it POSTs the story so the
+// open page live-updates via the story-updated SSE event. Otherwise it spawns
+// the daemon detached (same path as first-run `crit`) and opens the browser,
+// respecting --no-open / config. Any failure is logged, not fatal: the story
+// is already on disk, so the next `crit story`/`crit` will pick it up.
+func postIngest(f storyFlags, st *session.Story) {
+	reviewCfg, err := storyReviewConfig(f.scopeArgs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "note: could not resolve session for the review UI: %v\n", err)
+		return
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "note: could not resolve cwd for the review UI: %v\n", err)
+		return
+	}
+	branch := ""
+	if v := vcs.DetectVCS(reviewCfg.VCSOverride); v != nil {
+		branch = v.CurrentBranch()
+	}
+	key := daemon.SessionKey(cwd, branch, session.FocusKeyArgs(reviewCfg))
+
+	if entry, alive := storyDaemonAlive(key); alive {
+		if err := storyPostStory(entry, st); err != nil {
+			fmt.Fprintf(os.Stderr, "note: could not notify the running review daemon: %v\n", err)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "Updated the open review at %s\n", entry.BaseURL())
+		return
+	}
+
+	// No daemon: spawn one detached (same args flow as `crit review`) and open
+	// the browser. crit review's args are the scope args; --no-open is honored
+	// via config + flag.
+	entry, err := storyStartDaemon(key, storyDaemonArgs(f.scopeArgs))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "note: could not start the review daemon: %v\n", err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Started crit daemon at %s (session %s, PID %d)\n", entry.BaseURL(), key, entry.PID)
+	if !storyNoOpen(f, cwd) && !storyDaemonHasBrowser(entry) {
+		openBrowser(entry.BaseURL(), config.LoadConfig(cwd).OpenCmd)
+	}
+}
+
+// postStoryToDaemon POSTs the story to a running daemon's /api/story endpoint
+// (body shape matches handleStoryPost: {"story": ...}). It polls readiness
+// first so a just-started daemon that hasn't finished session init doesn't 503.
+func postStoryToDaemon(entry daemon.SessionEntry, st *session.Story) error {
+	body, err := json.Marshal(map[string]any{"story": st})
+	if err != nil {
+		return err
+	}
+	url := entry.ConnURL() + "/api/story"
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("daemon returned %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	return nil
+}
+
+// storyDaemonArgs strips story-only flags from the scope args so the spawned
+// daemon runs a plain review over the same diff scope. The scope args are
+// already free of story-only flags (parseStoryFlags separates them), so this
+// is currently a passthrough — kept as a seam in case the daemon needs a
+// dedicated story flag later.
+func storyDaemonArgs(scopeArgs []string) []string {
+	return scopeArgs
+}
+
+// storyNoOpen reports whether the browser must NOT be opened: the CLI/config
+// no_open setting. Mirrors how crit review resolves NoOpen from config.
+func storyNoOpen(f storyFlags, cwd string) bool {
+	if f.noOpen {
+		return true
+	}
+	return config.LoadConfig(cwd).NoOpen
 }
 
 func printCoverage(c *session.StoryCoverage) {
