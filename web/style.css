@@ -5921,7 +5921,7 @@ body.crit-story-active #fileTreeResizer { display: none !important; }
   color: var(--crit-fg-muted); background: var(--crit-l-surface-2);
 }
 .crit-story-row.active .crit-story-row__index { color: var(--crit-story-accent); background: var(--crit-story-num-bg); }
-.crit-story-row__body { flex: 1; min-width: 0; }
+.crit-story-row__body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .crit-story-row__name { display: block; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crit-story-row.active .crit-story-row__name { font-weight: 600; }
 .crit-story-row__sub { display: block; font-size: 11px; color: var(--crit-fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

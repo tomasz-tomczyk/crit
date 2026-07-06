@@ -9569,8 +9569,17 @@
     return page.id || ('ch' + (page.idx + 1));
   }
 
+  function storyHasContent(story) {
+    if (!story) return false;
+    const chapters = Array.isArray(story.chapters) ? story.chapters : [];
+    const support = Array.isArray(story.support) ? story.support : [];
+    return chapters.length > 0 || support.length > 0;
+  }
+
   function buildStoryState(story) {
-    if (!story || !Array.isArray(story.chapters)) return null;
+    // Accept a support-only story (chapters: [] or absent) — the --skip-llm
+    // stub places every hunk in one support entry to exercise the renderer.
+    if (!storyHasContent(story)) return null;
     const pages = [];
     const hunkOwner = new Map();
     const fileChapters = new Map();
@@ -9592,7 +9601,7 @@
       return byFile;
     }
 
-    story.chapters.forEach(function (ch, i) {
+    (Array.isArray(story.chapters) ? story.chapters : []).forEach(function (ch, i) {
       const page = { kind: 'chapter', idx: i, id: ch.id || ('ch' + (i + 1)), title: ch.title || ('Chapter ' + (i + 1)), summary: ch.summary || '', diagram: ch.diagram || '', refsByFile: null };
       page.refsByFile = addRefsToPage(ch.hunk_refs || ch.hunkRefs, pages.length);
       pages.push(page);
@@ -9609,6 +9618,18 @@
     }
 
     return { story: story, pages: pages, hunkOwner: hunkOwner, fileChapters: fileChapters };
+  }
+
+  // Display label for the support page. Falls back to a friendly label when
+  // the only reason is an internal ingest sentinel (stub / auto-repaired /
+  // ignored) or when no reason was authored.
+  function supportPageLabel(page) {
+    const reason = page && page.entries && page.entries[0] && page.entries[0].reason;
+    if (!reason) return 'Support';
+    if (reason === 'stub') return 'All changes';
+    if (reason === 'auto-repaired') return 'Auto-repaired changes';
+    if (reason === 'ignored') return 'Ignored files';
+    return reason;
   }
 
   function storyPageById(id) {
@@ -9714,7 +9735,13 @@
 
     const meta = document.createElement('div');
     meta.className = 'crit-story-rail__meta';
-    meta.textContent = totalHunks + ' hunk' + (totalHunks === 1 ? '' : 's') + ' across ' + chapters.length + ' chapter' + (chapters.length === 1 ? '' : 's') + (support.length ? ' · support' : '');
+    const hunkLbl = totalHunks + ' hunk' + (totalHunks === 1 ? '' : 's');
+    if (chapters.length) {
+      meta.textContent = hunkLbl + ' across ' + chapters.length + ' chapter' + (chapters.length === 1 ? '' : 's') + (support.length ? ' · support' : '');
+    } else {
+      // Support-only story (e.g. the --skip-llm stub).
+      meta.textContent = hunkLbl + ' · support only';
+    }
     rail.appendChild(meta);
 
     function railRow(page, isOverview) {
@@ -9733,7 +9760,7 @@
       } else if (page.kind === 'support') {
         indexLabel = 'S';
         const prog = storyPageProgress(page);
-        name = escapeHtml(page.entries && page.entries[0] && page.entries[0].reason ? page.entries[0].reason : 'Support');
+        name = escapeHtml(supportPageLabel(page));
         sub = prog.total + ' file' + (prog.total === 1 ? '' : 's');
         statusHtml = railStatusHtml(page);
       } else {
@@ -9813,11 +9840,20 @@
 
     const story = storyState.story;
     const prologue = story.prologue || {};
+    const chapterPages = storyState.pages.filter(function (p) { return p.kind === 'chapter'; });
+    const hasPrologueContent = !!(prologue.summary || prologue.motivation || prologue.diagram ||
+      (Array.isArray(prologue.focus_areas) && prologue.focus_areas.length));
 
     const prologueEl = document.createElement('div');
     prologueEl.className = 'crit-story-prologue';
     let ph = '<div class="crit-story-prologue__eyebrow"><span class="dot"></span> Prologue</div>';
-    if (prologue.summary) ph += '<h2>' + commentMd.renderInline(prologue.summary) + '</h2>';
+    if (prologue.summary) {
+      ph += '<h2>' + commentMd.renderInline(prologue.summary) + '</h2>';
+    } else if (!hasPrologueContent) {
+      // Support-only / stub story with no authored prologue — give the page a
+      // heading so it doesn't read as a bare eyebrow.
+      ph += '<h2>' + (chapterPages.length ? 'Story overview' : 'Changes grouped for review') + '</h2>';
+    }
     prologueEl.innerHTML = ph;
     if (prologue.motivation) {
       const mot = document.createElement('div');
@@ -9852,7 +9888,7 @@
 
     const divider = document.createElement('div');
     divider.className = 'crit-story-divider';
-    divider.textContent = 'Read in order';
+    divider.textContent = chapterPages.length ? 'Read in order' : 'Changes';
     view.appendChild(divider);
 
     const toc = document.createElement('div');
@@ -9866,9 +9902,7 @@
       const prog = storyPageProgress(page);
       const nh = countHunksForPage(page);
       const indexLabel = page.kind === 'support' ? 'S' : String(page.idx + 1);
-      const title = page.kind === 'support'
-        ? (page.entries && page.entries[0] && page.entries[0].reason ? page.entries[0].reason : 'Support')
-        : page.title;
+      const title = page.kind === 'support' ? supportPageLabel(page) : page.title;
       const summaryHtml = page.kind === 'support'
         ? 'Mechanical or repaired changes — skimmable.'
         : (page.summary ? commentMd.renderInline(page.summary) : '');
@@ -9907,9 +9941,7 @@
     top.className = 'crit-story-chapter__top';
     const eyebrow = isSupport ? 'Support · mechanical' : ('Chapter ' + (page.idx + 1) + ' of ' + chapters.length);
     const indexLabel = isSupport ? 'S' : String(page.idx + 1);
-    const title = isSupport
-      ? (page.entries && page.entries[0] && page.entries[0].reason ? page.entries[0].reason : 'Support')
-      : page.title;
+    const title = isSupport ? supportPageLabel(page) : page.title;
     top.innerHTML =
       '<span class="crit-story-chapter__index' + (isSupport ? ' support' : '') + '">' + indexLabel + '</span>' +
       '<div class="crit-story-chapter__heading">' +
@@ -9976,9 +10008,7 @@
     if (nextPage) {
       const nid = storyPageId(nextPage);
       const nLabel = nextPage.kind === 'support' ? 'S' : String(nextPage.idx + 1);
-      const nTitle = nextPage.kind === 'support'
-        ? (nextPage.entries && nextPage.entries[0] && nextPage.entries[0].reason ? nextPage.entries[0].reason : 'Support')
-        : nextPage.title;
+      const nTitle = nextPage.kind === 'support' ? supportPageLabel(nextPage) : nextPage.title;
       nextCard.innerHTML =
         '<span class="idx">' + nLabel + '</span>' +
         '<span class="body"><span class="lbl">Next</span><span class="nm">' + escapeHtml(nTitle) + '</span></span>' +
@@ -10129,7 +10159,7 @@
 
   // Activate/deactivate the whole story layout.
   function applyStoryPresence() {
-    const present = !!(session && session.story && Array.isArray(session.story.chapters) && session.story.chapters.length);
+    const present = !!(session && storyHasContent(session.story));
     if (present) {
       storyState = buildStoryState(session.story);
       pruneStoryViewed();
