@@ -1067,6 +1067,8 @@
     restoreDrafts();
     applyHideResolved();
     scrollToHashHeading();
+    // Story layer (opt-in). No-op when session.story is absent.
+    applyStoryPresence();
   }
 
   // Show/hide the Toggle Diff button and Split/Unified toggle in file mode
@@ -1509,13 +1511,36 @@
         innerHtml += '<span class="tree-comment-badge">' + unresolvedCount + '</span>';
       }
 
+      // Story chapter chip(s): show which chapter(s) own this file's hunks.
+      let storyChipPage = null;
+      if (storyState && storyState.fileChapters.has(f.path)) {
+        const owners = Array.from(storyState.fileChapters.get(f.path));
+        const first = storyState.pages[owners[0]];
+        storyChipPage = storyPageId(first);
+        const label = first.kind === 'support' ? 'S' : ('Ch ' + (first.idx + 1));
+        const extra = owners.length > 1 ? ' +' + (owners.length - 1) : '';
+        const chipCls = 'crit-story-chip' + (first.kind === 'support' ? ' support' : '');
+        innerHtml += '<span class="' + chipCls + '" title="In ' + escapeHtml(label) + '">' + escapeHtml(label + extra) + '</span>';
+      }
+
       fileEl.innerHTML = innerHtml;
 
-      (function(path) {
+      (function(path, chipPage) {
         fileEl.addEventListener('click', function() {
+          // In story view, clicking a file activates its owning chapter and
+          // scrolls to its hunk group; otherwise use the flat-view scroll.
+          if (storyActive() && chipPage) {
+            showStory(chipPage);
+            requestAnimationFrame(function () {
+              const pane = document.getElementById('storyPane');
+              const group = pane && pane.querySelector('.crit-story-file-group[data-story-file="' + CSS.escape(path) + '"]');
+              if (group) group.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+            return;
+          }
           scrollToFile(path);
         });
-      })(f.path);
+      })(f.path, storyChipPage);
 
       container.appendChild(fileEl);
     }
@@ -6531,27 +6556,45 @@
   }
 
 
-  function scrollToComment(commentId, filePath) {
-    // 1. Find the file section and expand if collapsed
-    const section = document.getElementById('file-section-' + filePath);
-    if (!section) return;
-    if (!section.open) section.open = true;
-
-    // 2. Find the inline comment card by comment ID
-    const commentCard = section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
-    if (!commentCard) return;
-
-    // 3. Scroll into view
+  function flashCommentCard(commentCard) {
     commentCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-    // 4. Flash highlight
     commentCard.classList.remove('comment-card-highlight');
     void commentCard.offsetWidth;
     commentCard.classList.add('comment-card-highlight');
     commentCard.addEventListener('animationend', function() {
       commentCard.classList.remove('comment-card-highlight');
     }, { once: true });
+  }
 
+  function scrollToComment(commentId, filePath) {
+    // Story view: the comment renders inside its owning chapter, not a
+    // file-section. Activate that chapter first (chapter-aware navigation),
+    // then locate + flash the card within the story pane on the next frame.
+    if (storyActive()) {
+      const file = getFileByPath(filePath);
+      let line = null;
+      if (file && file.comments) {
+        const c = file.comments.find(function (x) { return x.id === commentId; });
+        if (c) line = c.end_line;
+      }
+      const navigated = line !== null ? storyActivatePageForLine(filePath, line) : false;
+      const locate = function () {
+        const pane = document.getElementById('storyPane');
+        if (!pane) return;
+        const card = pane.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
+        if (card) flashCommentCard(card);
+      };
+      if (navigated) requestAnimationFrame(locate); else locate();
+      return;
+    }
+
+    // Flat view: original behavior.
+    const section = document.getElementById('file-section-' + filePath);
+    if (!section) return;
+    if (!section.open) section.open = true;
+    const commentCard = section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
+    if (!commentCard) return;
+    flashCommentCard(commentCard);
   }
 
   // ===== PR Overview Panel =====
@@ -6961,6 +7004,10 @@
         updateCommentCount();
         updateViewedCount();
         updateTreeViewedState();
+        // Re-render the story layer against the fresh file data (or tear it
+        // down if the round dropped the story). Preserves position when the
+        // current chapter still exists (storyFromHash re-reads the hash).
+        applyStoryPresence();
         setUIState('reviewing');
         // Signal "ready" in the tab bar if the user has tabbed away.
         // Cleared by the visibilitychange listener when they return.
@@ -7019,6 +7066,9 @@
           saveOpenFormContent(files[i].path);
         }
         renderAllFiles();
+        // Comments changed but file content/hunks didn't — re-render the story
+        // views so new/removed comment cards appear in their owning chapter.
+        if (storyActive()) renderStory();
         updateCommentCount();
         updateTreeCommentBadges();
         // Restore focus
@@ -7074,6 +7124,17 @@
       // Reuse the same refresh path as base-changed.
       reloadForScope();
       fetchCommits();
+      },
+      'story-updated': function(data) {
+      try {
+        // Envelope: {type, filename, content} where content is JSON {story:...}.
+        const envelope = data || {};
+        const inner = envelope.content ? JSON.parse(envelope.content) : envelope;
+        if (session) session.story = (inner && 'story' in inner) ? inner.story : null;
+        applyStoryPresence();
+      } catch (err) {
+        console.error('story-updated parse:', err);
+      }
       },
       'server-shutdown': function() {
       conn.close();
@@ -8648,6 +8709,11 @@
 
     if (e.metaKey || e.ctrlKey || e.altKey) return;
 
+    // Story navigation keys (chapter nav / overview / jump / help). Scoped to
+    // when the story view is active; uses uppercase J/K so lowercase j/k keep
+    // their in-page block navigation below. Returns early if consumed.
+    if (handleStoryKey(e)) return;
+
     switch (e.key) {
       case 'j': case 'k': {
         e.preventDefault();
@@ -9478,6 +9544,736 @@
     });
   }
 
+  // ===== Story mode =====
+  // Opt-in editorial layer: session.story groups the diff's hunks into
+  // chapters. When absent, storyState stays null and every branch below is
+  // skipped — flat file/diff rendering is byte-identical to before. The
+  // chapter body reuses the SAME diff renderer (renderDiffHunks) via a
+  // shallow file clone whose diffHunks are filtered to the chapter's hunks;
+  // comments follow their hunk with no duplicated comment logic.
+  //
+  // storyState (rebuilt on session.story change):
+  //   { story, pages: [{kind:'chapter'|'support', idx, id, title, summary,
+  //                      groups: [{filePath, hunks:[hunkObj]}] }],
+  //     hunkOwner: Map("<path>\0<oldStart>" -> pageIndex),
+  //     fileChapters: Map(path -> Set(pageIndex)) }
+  // storyView: 'overview' | page id ('ch1' | 'support' | chapter id).
+  let storyState = null;
+  let storyView = 'overview';
+
+  function hunkKey(filePath, oldStart) { return filePath + '\0' + oldStart; }
+
+  // Stable page id: chapters use their author id (or 'chN'); support is 'support'.
+  function storyPageId(page) {
+    if (page.kind === 'support') return 'support';
+    return page.id || ('ch' + (page.idx + 1));
+  }
+
+  function buildStoryState(story) {
+    if (!story || !Array.isArray(story.chapters)) return null;
+    const pages = [];
+    const hunkOwner = new Map();
+    const fileChapters = new Map();
+
+    function addRefsToPage(refs, pageIndex) {
+      const byFile = new Map();
+      (refs || []).forEach(function (ref) {
+        const fp = ref.file_path || ref.filePath;
+        if (fp === undefined || fp === null) return;
+        let oldStart = 0;
+        if (ref.old_start !== undefined && ref.old_start !== null) oldStart = ref.old_start;
+        else if (ref.oldStart !== undefined && ref.oldStart !== null) oldStart = ref.oldStart;
+        hunkOwner.set(hunkKey(fp, oldStart), pageIndex);
+        if (!byFile.has(fp)) byFile.set(fp, []);
+        byFile.get(fp).push(oldStart);
+        if (!fileChapters.has(fp)) fileChapters.set(fp, new Set());
+        fileChapters.get(fp).add(pageIndex);
+      });
+      return byFile;
+    }
+
+    story.chapters.forEach(function (ch, i) {
+      const page = { kind: 'chapter', idx: i, id: ch.id || ('ch' + (i + 1)), title: ch.title || ('Chapter ' + (i + 1)), summary: ch.summary || '', diagram: ch.diagram || '', refsByFile: null };
+      page.refsByFile = addRefsToPage(ch.hunk_refs || ch.hunkRefs, pages.length);
+      pages.push(page);
+    });
+
+    if (Array.isArray(story.support) && story.support.length) {
+      // Support is a single page; concatenate every support entry's refs, but
+      // keep each entry's reason for display.
+      const supportPage = { kind: 'support', idx: 0, id: 'support', title: 'Support', summary: '', entries: story.support, refsByFile: null };
+      const allRefs = [];
+      story.support.forEach(function (e) { (e.hunk_refs || e.hunkRefs || []).forEach(function (r) { allRefs.push(r); }); });
+      supportPage.refsByFile = addRefsToPage(allRefs, pages.length);
+      pages.push(supportPage);
+    }
+
+    return { story: story, pages: pages, hunkOwner: hunkOwner, fileChapters: fileChapters };
+  }
+
+  function storyPageById(id) {
+    if (!storyState) return null;
+    for (let i = 0; i < storyState.pages.length; i++) {
+      if (storyPageId(storyState.pages[i]) === id) return storyState.pages[i];
+    }
+    return null;
+  }
+
+  // ----- Story-scoped viewed state (per chapter,file group) -----
+  // Kept in a SEPARATE localStorage key from flat-view viewed state so the two
+  // never clobber each other. Keyed "<pageId>\0<filePath>".
+  function storyViewedKey() { return 'crit-story-viewed-' + viewedIdentityHash(); }
+  function loadStoryViewed() {
+    try { return JSON.parse(localStorage.getItem(storyViewedKey()) || '{}'); } catch { return {}; }
+  }
+  function saveStoryViewed(obj) {
+    try { localStorage.setItem(storyViewedKey(), JSON.stringify(obj)); } catch {}
+  }
+  function isGroupViewed(pageId, filePath) {
+    return !!loadStoryViewed()[pageId + '\0' + filePath];
+  }
+  function setGroupViewed(pageId, filePath, viewed) {
+    const obj = loadStoryViewed();
+    const k = pageId + '\0' + filePath;
+    if (viewed) obj[k] = true; else delete obj[k];
+    saveStoryViewed(obj);
+  }
+  // Drop keys whose chapter id no longer exists on the current story.
+  function pruneStoryViewed() {
+    if (!storyState) return;
+    const valid = new Set(storyState.pages.map(storyPageId));
+    const obj = loadStoryViewed();
+    let changed = false;
+    Object.keys(obj).forEach(function (k) {
+      const pid = k.split('\0')[0];
+      if (!valid.has(pid)) { delete obj[k]; changed = true; }
+    });
+    if (changed) saveStoryViewed(obj);
+  }
+
+  // Progress for a page: {done, total} over its file groups.
+  function storyPageProgress(page) {
+    const pid = storyPageId(page);
+    const groupFiles = Array.from(page.refsByFile.keys());
+    let done = 0;
+    groupFiles.forEach(function (fp) { if (isGroupViewed(pid, fp)) done++; });
+    return { done: done, total: groupFiles.length };
+  }
+
+  function storyStatusClass(page) {
+    const p = storyPageProgress(page);
+    if (p.total === 0) return '';
+    if (p.done >= p.total) return 'done';
+    if (p.done > 0) return 'partial';
+    return '';
+  }
+  function storyStatusPercent(page) {
+    const p = storyPageProgress(page);
+    return p.total ? Math.round((p.done / p.total) * 100) : 0;
+  }
+
+  // Build a shallow file clone whose diffHunks are just the referenced ones,
+  // preserving comments/path so the existing diff+comment renderer works
+  // unchanged. Returns null if the file isn't loaded or has no matching hunks.
+  function cloneFileForHunks(filePath, oldStarts) {
+    const file = getFileByPath(filePath);
+    if (!file) return null;
+    const wanted = new Set(oldStarts);
+    const allHunks = file.diffHunks || [];
+    const filtered = allHunks.filter(function (h) { return wanted.has(h.OldStart); });
+    // Deep-copy hunks so renderer-side expansion (expandHunksForComments /
+    // autoExpandSmallGaps) mutates the clone, never the real file's hunks.
+    const copiedHunks = filtered.map(function (h) {
+      return Object.assign({}, h, { Lines: (h.Lines || []).slice() });
+    });
+    const clone = Object.assign({}, file, {
+      diffHunks: copiedHunks,
+      _autoExpandDone: false,
+      // Force diff view for the group body regardless of markdown viewMode.
+      viewMode: 'diff',
+    });
+    return { clone: clone, total: allHunks.length, shown: copiedHunks.length };
+  }
+
+  // ----- Rail -----
+  function renderStoryRail() {
+    const rail = document.getElementById('storyRail');
+    if (!rail || !storyState) return;
+    const story = storyState.story;
+    const chapters = storyState.pages.filter(function (p) { return p.kind === 'chapter'; });
+    const support = storyState.pages.filter(function (p) { return p.kind === 'support'; });
+    const totalHunks = storyState.hunkOwner.size;
+
+    rail.innerHTML = '';
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'crit-story-rail__title';
+    const complexity = story.prologue && story.prologue.complexity ? story.prologue.complexity : '';
+    titleRow.innerHTML = '<h2>Story</h2>' + (complexity ? '<span class="crit-story-rail__complexity">' + escapeHtml(complexity) + '</span>' : '');
+    rail.appendChild(titleRow);
+
+    const meta = document.createElement('div');
+    meta.className = 'crit-story-rail__meta';
+    meta.textContent = totalHunks + ' hunk' + (totalHunks === 1 ? '' : 's') + ' across ' + chapters.length + ' chapter' + (chapters.length === 1 ? '' : 's') + (support.length ? ' · support' : '');
+    rail.appendChild(meta);
+
+    function railRow(page, isOverview) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'crit-story-row' + (page && page.kind === 'support' ? ' support' : '');
+      const targetId = isOverview ? 'overview' : storyPageId(page);
+      row.dataset.storyTarget = targetId;
+      if (storyView === targetId) row.classList.add('active');
+
+      let indexLabel, name, sub, statusHtml = '';
+      if (isOverview) {
+        indexLabel = '◇';
+        name = 'Prologue &amp; index';
+        sub = 'Why this change exists';
+      } else if (page.kind === 'support') {
+        indexLabel = 'S';
+        const prog = storyPageProgress(page);
+        name = escapeHtml(page.entries && page.entries[0] && page.entries[0].reason ? page.entries[0].reason : 'Support');
+        sub = prog.total + ' file' + (prog.total === 1 ? '' : 's');
+        statusHtml = railStatusHtml(page);
+      } else {
+        indexLabel = String(page.idx + 1);
+        name = escapeHtml(page.title);
+        const prog = storyPageProgress(page);
+        const nh = countHunksForPage(page);
+        sub = prog.total + ' file' + (prog.total === 1 ? '' : 's') + ' · ' + nh + ' hunk' + (nh === 1 ? '' : 's');
+        statusHtml = railStatusHtml(page);
+      }
+      row.innerHTML =
+        '<span class="crit-story-row__index">' + indexLabel + '</span>' +
+        '<span class="crit-story-row__body">' +
+          '<span class="crit-story-row__name">' + name + '</span>' +
+          '<span class="crit-story-row__sub">' + escapeHtml(sub) + '</span>' +
+        '</span>' + statusHtml;
+      row.addEventListener('click', function () { showStory(targetId); });
+      return row;
+    }
+
+    const ovLabel = document.createElement('div');
+    ovLabel.className = 'crit-story-rail__label';
+    ovLabel.textContent = 'Overview';
+    rail.appendChild(ovLabel);
+    rail.appendChild(railRow(null, true));
+
+    if (chapters.length) {
+      const chLabel = document.createElement('div');
+      chLabel.className = 'crit-story-rail__label';
+      chLabel.textContent = 'Chapters';
+      rail.appendChild(chLabel);
+      chapters.forEach(function (p) { rail.appendChild(railRow(p, false)); });
+    }
+
+    if (support.length) {
+      const sLabel = document.createElement('div');
+      sLabel.className = 'crit-story-rail__label';
+      sLabel.textContent = 'Support';
+      rail.appendChild(sLabel);
+      support.forEach(function (p) { rail.appendChild(railRow(p, false)); });
+    }
+
+    const spacer = document.createElement('div');
+    spacer.className = 'crit-story-rail__spacer';
+    rail.appendChild(spacer);
+
+    const hint = document.createElement('div');
+    hint.className = 'crit-story-rail__hint';
+    hint.innerHTML =
+      '<button type="button" id="storyHelpBtn"><span class="crit-story-kbd">?</span> Shortcuts</button>' +
+      '<button type="button" id="storyHideBtn" title="Return to flat file view">Hide story view</button>';
+    rail.appendChild(hint);
+    rail.querySelector('#storyHelpBtn').addEventListener('click', function () { toggleStoryHelp(true); });
+    rail.querySelector('#storyHideBtn').addEventListener('click', hideStoryView);
+  }
+
+  function railStatusHtml(page) {
+    const cls = storyStatusClass(page);
+    const pct = storyStatusPercent(page);
+    const style = cls === 'partial' ? ' style="--p:' + pct + '%"' : '';
+    const title = cls === 'done' ? 'Reviewed' : (cls === 'partial' ? pct + '% reviewed' : 'Not reviewed');
+    return '<span class="crit-story-status ' + cls + '"' + style + ' title="' + title + '"></span>';
+  }
+
+  function countHunksForPage(page) {
+    let n = 0;
+    page.refsByFile.forEach(function (arr) { n += arr.length; });
+    return n;
+  }
+
+  // ----- Overview -----
+  function renderStoryOverview() {
+    const inner = document.getElementById('storyPaneInner');
+    const view = document.createElement('section');
+    view.className = 'crit-story-view active';
+    view.id = 'crit-story-view-overview';
+
+    const story = storyState.story;
+    const prologue = story.prologue || {};
+
+    const prologueEl = document.createElement('div');
+    prologueEl.className = 'crit-story-prologue';
+    let ph = '<div class="crit-story-prologue__eyebrow"><span class="dot"></span> Prologue</div>';
+    if (prologue.summary) ph += '<h2>' + commentMd.renderInline(prologue.summary) + '</h2>';
+    prologueEl.innerHTML = ph;
+    if (prologue.motivation) {
+      const mot = document.createElement('div');
+      mot.className = 'crit-story-prologue__motivation';
+      mot.innerHTML = commentMd.render(prologue.motivation);
+      prologueEl.appendChild(mot);
+    }
+    if (prologue.diagram) {
+      const dia = document.createElement('div');
+      dia.className = 'crit-story-chapter__diagram';
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      code.className = 'language-mermaid';
+      code.textContent = prologue.diagram;
+      pre.appendChild(code);
+      dia.appendChild(pre);
+      prologueEl.appendChild(dia);
+    }
+    if (Array.isArray(prologue.focus_areas) && prologue.focus_areas.length) {
+      const focus = document.createElement('div');
+      focus.className = 'crit-story-focus';
+      prologue.focus_areas.forEach(function (fa) {
+        const chip = document.createElement('span');
+        const warn = fa.severity && (fa.severity === 'high' || fa.severity === 'warn');
+        chip.className = 'crit-story-focus-chip' + (warn ? ' warn' : '');
+        chip.textContent = fa.area || '';
+        focus.appendChild(chip);
+      });
+      prologueEl.appendChild(focus);
+    }
+    view.appendChild(prologueEl);
+
+    const divider = document.createElement('div');
+    divider.className = 'crit-story-divider';
+    divider.textContent = 'Read in order';
+    view.appendChild(divider);
+
+    const toc = document.createElement('div');
+    toc.className = 'crit-story-toc';
+    storyState.pages.forEach(function (page) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'crit-story-toc__item' + (page.kind === 'support' ? ' support' : '');
+      const pid = storyPageId(page);
+      item.dataset.storyTarget = pid;
+      const prog = storyPageProgress(page);
+      const nh = countHunksForPage(page);
+      const indexLabel = page.kind === 'support' ? 'S' : String(page.idx + 1);
+      const title = page.kind === 'support'
+        ? (page.entries && page.entries[0] && page.entries[0].reason ? page.entries[0].reason : 'Support')
+        : page.title;
+      const summaryHtml = page.kind === 'support'
+        ? 'Mechanical or repaired changes — skimmable.'
+        : (page.summary ? commentMd.renderInline(page.summary) : '');
+      item.innerHTML =
+        '<span class="crit-story-toc__index">' + indexLabel + '</span>' +
+        '<span class="crit-story-toc__main">' +
+          '<span class="crit-story-toc__title">' + escapeHtml(title) + '</span>' +
+          (summaryHtml ? '<span class="crit-story-toc__summary">' + summaryHtml + '</span>' : '') +
+        '</span>' +
+        '<span class="crit-story-toc__meta">' +
+          railStatusHtml(page) +
+          '<span>' + prog.total + 'f · ' + nh + 'h</span>' +
+          '<span class="crit-story-toc__go">→</span>' +
+        '</span>';
+      item.addEventListener('click', function () { showStory(pid); });
+      toc.appendChild(item);
+    });
+    view.appendChild(toc);
+
+    inner.appendChild(view);
+  }
+
+  // ----- Chapter / Support page -----
+  function renderStoryPage(page) {
+    const inner = document.getElementById('storyPaneInner');
+    const isSupport = page.kind === 'support';
+    const pid = storyPageId(page);
+    const chapters = storyState.pages.filter(function (p) { return p.kind === 'chapter'; });
+
+    const view = document.createElement('section');
+    view.className = 'crit-story-view active';
+    view.id = 'crit-story-view-' + pid;
+
+    // Heading
+    const top = document.createElement('div');
+    top.className = 'crit-story-chapter__top';
+    const eyebrow = isSupport ? 'Support · mechanical' : ('Chapter ' + (page.idx + 1) + ' of ' + chapters.length);
+    const indexLabel = isSupport ? 'S' : String(page.idx + 1);
+    const title = isSupport
+      ? (page.entries && page.entries[0] && page.entries[0].reason ? page.entries[0].reason : 'Support')
+      : page.title;
+    top.innerHTML =
+      '<span class="crit-story-chapter__index' + (isSupport ? ' support' : '') + '">' + indexLabel + '</span>' +
+      '<div class="crit-story-chapter__heading">' +
+        '<div class="crit-story-chapter__eyebrow">' + escapeHtml(eyebrow) + '</div>' +
+        '<h2>' + escapeHtml(title) + '</h2>' +
+      '</div>';
+    const markBtn = document.createElement('button');
+    markBtn.type = 'button';
+    markBtn.className = 'crit-story-chapter__mark';
+    const prog = storyPageProgress(page);
+    const allViewed = prog.total > 0 && prog.done >= prog.total;
+    markBtn.textContent = allViewed ? 'Chapter viewed' : 'Mark chapter viewed';
+    markBtn.addEventListener('click', function () { markPageViewed(page, !allViewed); });
+    top.appendChild(markBtn);
+    view.appendChild(top);
+
+    // Summary
+    if (isSupport) {
+      const sum = document.createElement('p');
+      sum.className = 'crit-story-chapter__summary';
+      sum.textContent = 'Skimmable — nothing here changes behaviour.';
+      view.appendChild(sum);
+    } else if (page.summary) {
+      const sum = document.createElement('div');
+      sum.className = 'crit-story-chapter__summary';
+      sum.innerHTML = commentMd.render(page.summary);
+      view.appendChild(sum);
+    }
+    if (!isSupport && page.diagram) {
+      const dia = document.createElement('div');
+      dia.className = 'crit-story-chapter__diagram';
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      code.className = 'language-mermaid';
+      code.textContent = page.diagram;
+      pre.appendChild(code);
+      dia.appendChild(pre);
+      view.appendChild(dia);
+    }
+
+    // Per-file hunk groups
+    const supportReasonByFile = new Map();
+    if (isSupport && page.entries) {
+      page.entries.forEach(function (e) {
+        (e.hunk_refs || e.hunkRefs || []).forEach(function (r) {
+          const fp = r.file_path || r.filePath;
+          if (fp && !supportReasonByFile.has(fp)) supportReasonByFile.set(fp, e.reason || '');
+        });
+      });
+    }
+
+    page.refsByFile.forEach(function (oldStarts, filePath) {
+      view.appendChild(renderStoryFileGroup(page, filePath, oldStarts, supportReasonByFile.get(filePath)));
+    });
+
+    // Footer: next chapter / back to overview
+    const footer = document.createElement('div');
+    footer.className = 'crit-story-footer';
+    const nextCard = document.createElement('button');
+    nextCard.type = 'button';
+    nextCard.className = 'crit-story-next';
+    const pageIndexInPages = storyState.pages.indexOf(page);
+    const nextPage = storyState.pages[pageIndexInPages + 1];
+    if (nextPage) {
+      const nid = storyPageId(nextPage);
+      const nLabel = nextPage.kind === 'support' ? 'S' : String(nextPage.idx + 1);
+      const nTitle = nextPage.kind === 'support'
+        ? (nextPage.entries && nextPage.entries[0] && nextPage.entries[0].reason ? nextPage.entries[0].reason : 'Support')
+        : nextPage.title;
+      nextCard.innerHTML =
+        '<span class="idx">' + nLabel + '</span>' +
+        '<span class="body"><span class="lbl">Next</span><span class="nm">' + escapeHtml(nTitle) + '</span></span>' +
+        '<span class="go">→</span>';
+      nextCard.addEventListener('click', function () { showStory(nid); });
+    } else {
+      nextCard.className += ' done';
+      nextCard.innerHTML =
+        '<span class="idx">✓</span>' +
+        '<span class="body"><span class="lbl">End of story</span><span class="nm">Back to overview</span></span>' +
+        '<span class="go">→</span>';
+      nextCard.addEventListener('click', function () { showStory('overview'); });
+    }
+    footer.appendChild(nextCard);
+    view.appendChild(footer);
+
+    inner.appendChild(view);
+  }
+
+  function renderStoryFileGroup(page, filePath, oldStarts, supportReason) {
+    const pid = storyPageId(page);
+    const group = document.createElement('div');
+    group.className = 'crit-story-file-group';
+    group.dataset.storyFile = filePath;
+    if (isGroupViewed(pid, filePath)) group.classList.add('viewed');
+
+    const built = cloneFileForHunks(filePath, oldStarts);
+    const file = getFileByPath(filePath);
+
+    // Head
+    const head = document.createElement('div');
+    head.className = 'crit-story-file-group__head';
+    const shown = built ? built.shown : 0;
+    const total = built ? built.total : 0;
+    let statText;
+    if (supportReason) statText = escapeHtml(supportReason);
+    else if (total > 1 && shown < total) statText = 'hunk' + (shown === 1 ? ' ' : 's ') + shown + ' of ' + total;
+    else statText = shown + ' hunk' + (shown === 1 ? '' : 's');
+    const adds = file ? (file.additions || 0) : 0;
+    const dels = file ? (file.deletions || 0) : 0;
+    head.innerHTML =
+      '<span class="crit-story-file-group__path">' + escapeHtml(filePath) + '</span>' +
+      '<span class="crit-story-file-group__stat">' + statText +
+        (adds ? ' · <span class="add">+' + adds + '</span>' : '') +
+        (dels ? ' <span class="del">−' + dels + '</span>' : '') +
+      '</span>';
+
+    // Elsewhere hint: this file's other hunks live in other pages.
+    const owners = storyState.fileChapters.get(filePath);
+    if (owners && owners.size > 1) {
+      const others = [];
+      owners.forEach(function (pi) { if (pi !== storyState.pages.indexOf(page)) others.push(pi); });
+      if (others.length) {
+        const first = storyState.pages[others[0]];
+        const hint = document.createElement('button');
+        hint.type = 'button';
+        hint.className = 'crit-story-elsewhere';
+        const lbl = first.kind === 'support' ? 'Support' : ('Ch ' + (first.idx + 1));
+        hint.textContent = 'also in ' + lbl + (others.length > 1 ? ' +' + (others.length - 1) : '');
+        hint.title = 'This file has hunks in other chapters';
+        hint.addEventListener('click', function () { showStory(storyPageId(first)); });
+        head.appendChild(hint);
+      }
+    }
+
+    const spacer = document.createElement('span');
+    spacer.className = 'spacer';
+    head.appendChild(spacer);
+
+    const viewedLabel = document.createElement('label');
+    viewedLabel.className = 'crit-story-viewed-toggle';
+    viewedLabel.title = 'Viewed';
+    viewedLabel.innerHTML = '<input type="checkbox"' + (isGroupViewed(pid, filePath) ? ' checked' : '') + '> Viewed';
+    viewedLabel.querySelector('input').addEventListener('change', function (e) {
+      setGroupViewed(pid, filePath, e.target.checked);
+      group.classList.toggle('viewed', e.target.checked);
+      renderStoryRail();
+    });
+    head.appendChild(viewedLabel);
+    group.appendChild(head);
+
+    // Body: reuse the existing diff renderer via the filtered file clone.
+    if (built && built.clone.diffHunks.length) {
+      group.appendChild(renderDiffHunks(built.clone));
+    } else {
+      const empty = document.createElement('div');
+      empty.className = 'crit-story-file-group__empty';
+      empty.textContent = file ? 'These hunks are no longer in the diff.' : 'File not loaded.';
+      group.appendChild(empty);
+    }
+    return group;
+  }
+
+  function markPageViewed(page, viewed) {
+    const pid = storyPageId(page);
+    page.refsByFile.forEach(function (_starts, filePath) {
+      setGroupViewed(pid, filePath, viewed);
+    });
+    renderStory();
+  }
+
+  // ----- Router -----
+  function renderStory() {
+    if (!storyState) return;
+    const inner = document.getElementById('storyPaneInner');
+    inner.innerHTML = '';
+    if (storyView === 'overview' || !storyPageById(storyView)) {
+      storyView = storyPageById(storyView) ? storyView : 'overview';
+      if (storyView === 'overview') {
+        renderStoryOverview();
+      } else {
+        renderStoryPage(storyPageById(storyView));
+      }
+    } else {
+      renderStoryPage(storyPageById(storyView));
+    }
+    renderStoryRail();
+    renderMermaidBlocks();
+    rebuildNavList();
+    applyHideResolved();
+    const pane = document.getElementById('storyPane');
+    if (pane) pane.scrollTop = 0;
+    // Keep active rail row visible.
+    const activeRow = document.querySelector('.crit-story-row.active');
+    if (activeRow) activeRow.scrollIntoView({ block: 'nearest' });
+  }
+
+  function showStory(target) {
+    if (!storyState) return;
+    if (target !== 'overview' && !storyPageById(target)) target = 'overview';
+    storyView = target;
+    const hash = target === 'overview' ? '#story' : '#story/' + target;
+    if (location.hash !== hash) history.replaceState(null, '', hash);
+    document.body.classList.remove('crit-story-rail-open');
+    renderStory();
+  }
+
+  function storyFromHash() {
+    const h = location.hash || '';
+    if (h.indexOf('#story') !== 0) return;
+    if (h.indexOf('/') > -1) {
+      const target = h.split('/')[1];
+      storyView = storyPageById(target) ? target : 'overview';
+    } else {
+      storyView = 'overview';
+    }
+  }
+
+  // Activate/deactivate the whole story layout.
+  function applyStoryPresence() {
+    const present = !!(session && session.story && Array.isArray(session.story.chapters) && session.story.chapters.length);
+    if (present) {
+      storyState = buildStoryState(session.story);
+      pruneStoryViewed();
+      document.body.classList.add('crit-story-active');
+      storyFromHash();
+      renderStory();
+    } else {
+      storyState = null;
+      document.body.classList.remove('crit-story-active');
+      document.body.classList.remove('crit-story-rail-open');
+      const inner = document.getElementById('storyPaneInner');
+      if (inner) inner.innerHTML = '';
+      const rail = document.getElementById('storyRail');
+      if (rail) rail.innerHTML = '';
+    }
+  }
+
+  function hideStoryView() {
+    fetch('/api/story', { method: 'DELETE' })
+      .then(function (r) {
+        if (!r.ok && r.status !== 204) throw new Error('delete failed');
+        // SSE story-updated will clear the layout; do it optimistically too.
+        if (session) session.story = null;
+        applyStoryPresence();
+      })
+      .catch(function () { showMiniToast('Could not hide story view'); });
+  }
+
+  // Chapter that owns the hunk containing a given (filePath, line). Returns
+  // the story page id, or null. Used to make comment/anchor navigation
+  // cross chapter boundaries.
+  function storyPageForLine(filePath, line) {
+    if (!storyState) return null;
+    const file = getFileByPath(filePath);
+    if (!file || !file.diffHunks) return null;
+    // Find which hunk contains the line, then which page owns that hunk.
+    for (let i = 0; i < file.diffHunks.length; i++) {
+      const h = file.diffHunks[i];
+      const lines = h.Lines || [];
+      let hit = false;
+      for (let li = 0; li < lines.length; li++) {
+        const ln = lines[li];
+        if (ln.NewNum === line || ln.OldNum === line) { hit = true; break; }
+      }
+      if (hit) {
+        const owner = storyState.hunkOwner.get(hunkKey(filePath, h.OldStart));
+        if (owner !== undefined) return storyPageId(storyState.pages[owner]);
+      }
+    }
+    // Fallback: any page that references this file.
+    const owners = storyState.fileChapters.get(filePath);
+    if (owners && owners.size) {
+      const first = Array.from(owners)[0];
+      return storyPageId(storyState.pages[first]);
+    }
+    return null;
+  }
+
+  // Ensure the chapter owning (filePath, line) is active; returns true if a
+  // navigation happened (caller should defer scroll to next frame).
+  function storyActivatePageForLine(filePath, line) {
+    if (!storyState) return false;
+    const pid = storyPageForLine(filePath, line);
+    if (pid && pid !== storyView) { showStory(pid); return true; }
+    return false;
+  }
+
+  // ----- Keyboard help overlay -----
+  function toggleStoryHelp(force) {
+    const overlay = document.getElementById('storyKbdOverlay');
+    if (!overlay) return;
+    const open = typeof force === 'boolean' ? force : !overlay.classList.contains('open');
+    overlay.classList.toggle('open', open);
+  }
+
+  function storyActive() { return !!storyState; }
+
+  // Handle a keydown when story view is active. Returns true if consumed.
+  // Uppercase J/K (Shift) drive chapter nav so lowercase j/k keep their
+  // existing in-page block navigation. Scoped keys don't fire when typing.
+  function handleStoryKey(e) {
+    if (!storyActive()) return false;
+    const overlay = document.getElementById('storyKbdOverlay');
+    if (overlay && overlay.classList.contains('open')) {
+      if (e.key === 'Escape') { e.preventDefault(); toggleStoryHelp(false); return true; }
+    }
+    const pages = storyState.pages;
+    const curIdx = storyView === 'overview' ? -1 : pages.indexOf(storyPageById(storyView));
+    switch (e.key) {
+      case 'J':
+        e.preventDefault();
+        if (curIdx === -1) { if (pages.length) showStory(storyPageId(pages[0])); }
+        else if (curIdx < pages.length - 1) showStory(storyPageId(pages[curIdx + 1]));
+        return true;
+      case 'K':
+        e.preventDefault();
+        if (curIdx <= 0) showStory('overview');
+        else showStory(storyPageId(pages[curIdx - 1]));
+        return true;
+      case 'O':
+        e.preventDefault(); showStory('overview'); return true;
+      case 'S':
+        e.preventDefault();
+        { const sp = storyPageById('support'); if (sp) showStory('support'); }
+        return true;
+      case '1': case '2': case '3': case '4': case '5':
+      case '6': case '7': case '8': case '9': {
+        const n = parseInt(e.key, 10) - 1;
+        const chs = pages.filter(function (p) { return p.kind === 'chapter'; });
+        if (n < chs.length) { e.preventDefault(); showStory(storyPageId(chs[n])); return true; }
+        return false;
+      }
+      case '\\':
+        e.preventDefault();
+        document.body.classList.toggle('crit-story-rail-open');
+        return true;
+      case '?':
+        e.preventDefault(); toggleStoryHelp(); return true;
+      case 'Escape':
+        if (document.body.classList.contains('crit-story-rail-open')) {
+          e.preventDefault(); document.body.classList.remove('crit-story-rail-open'); return true;
+        }
+        return false;
+    }
+    return false;
+  }
+
+  // Rail toggle + scrim + overlay backdrop wiring (safe when elements absent).
+  (function wireStoryChrome() {
+    const toggle = document.getElementById('storyRailToggle');
+    if (toggle) toggle.addEventListener('click', function () { document.body.classList.toggle('crit-story-rail-open'); });
+    const scrim = document.getElementById('storyRailScrim');
+    if (scrim) scrim.addEventListener('click', function () { document.body.classList.remove('crit-story-rail-open'); });
+    const overlay = document.getElementById('storyKbdOverlay');
+    if (overlay) overlay.addEventListener('click', function (e) { if (e.target === overlay) toggleStoryHelp(false); });
+    window.addEventListener('hashchange', function () {
+      if (!storyActive()) return;
+      const h = location.hash || '';
+      if (h.indexOf('#story') !== 0) return;
+      storyFromHash();
+      renderStory();
+    });
+  })();
+
   // ===== Start =====
   init()
     .then(function() {
@@ -9501,6 +10297,20 @@
         window.crit.renderer.register({
           scrollToAnchor: function (anchor) {
             if (anchor.type !== 'line') return Promise.resolve();
+            // Story view: activate the owning chapter, then scroll to the
+            // matching diff line inside the story pane.
+            if (storyActive()) {
+              const navigated = storyActivatePageForLine(anchor.filePath, anchor.endLine);
+              const locate = function () {
+                const pane = document.getElementById('storyPane');
+                if (!pane) return;
+                const el = pane.querySelector('[data-diff-file-path="' + CSS.escape(anchor.filePath) + '"][data-diff-line-num="' + anchor.endLine + '"]') ||
+                  pane.querySelector('.line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"][data-end-line="' + anchor.endLine + '"]');
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              };
+              if (navigated) requestAnimationFrame(locate); else locate();
+              return Promise.resolve();
+            }
             const section = document.getElementById('file-section-' + anchor.filePath);
             if (!section) return Promise.resolve();
             if (!section.open) section.open = true;
@@ -9511,6 +10321,7 @@
 
           highlightAnchor: function (anchor) {
             if (anchor.type !== 'line') return Promise.resolve();
+            if (storyActive()) return Promise.resolve();
             const section = document.getElementById('file-section-' + anchor.filePath);
             if (!section) return Promise.resolve();
             const blocks = section.querySelectorAll('.line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"]');

@@ -23,6 +23,9 @@
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0l-3-3m3 3l3-3"/><path d="M2.5 11v1.75c0 .69.56 1.25 1.25 1.25h8.5c.69 0 1.25-.56 1.25-1.25V11"/></svg>
       <span class="update-btn-label">Update</span>
     </button>
+    <button class="theme-toggle crit-story-rail-toggle" id="storyRailToggle" title="Toggle chapters" aria-label="Toggle chapters">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke-linecap="round"/></svg>
+    </button>
     <div class="compare-rail" id="compareRail" role="group" aria-label="Diff target">
       <span class="base-branch-picker" id="baseBranchPicker" style="display:none">
         <button class="header-chip base-branch-btn" id="baseBranchBtn" title="Compare against" aria-haspopup="listbox" aria-expanded="false">
@@ -154,6 +157,15 @@
     <div id="filesContainer">
       <div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>
     </div>
+    <!-- Story mode root: rail + paginated pane. Hidden (display:none) unless
+         session.story is present; populated by app.js renderStory* functions. -->
+    <div id="storyRoot" class="crit-story-root">
+      <nav class="crit-story-rail" id="storyRail" aria-label="Story chapters"></nav>
+      <div class="crit-story-rail-scrim" id="storyRailScrim"></div>
+      <main class="crit-story-pane" id="storyPane">
+        <div class="crit-story-pane__inner" id="storyPaneInner"></div>
+      </main>
+    </div>
   </div>
   <div class="sidebar-resize-handle" id="commentsPanelResizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize comments panel" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100"></div>
   <div class="comments-panel comments-panel-hidden" id="commentsPanel">
@@ -259,6 +271,22 @@
       <div class="settings-pane active" data-pane="settings" id="settingsPane" role="tabpanel" aria-labelledby="tab-settings"></div>
       <div class="settings-pane" data-pane="shortcuts" id="shortcutsPane" role="tabpanel" aria-labelledby="tab-shortcuts"></div>
       <div class="settings-pane" data-pane="about" id="aboutPane" role="tabpanel" aria-labelledby="tab-about"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Story keyboard help overlay (press ? in story view) -->
+<div class="crit-story-kbd-overlay" id="storyKbdOverlay" role="dialog" aria-modal="true" aria-label="Story keyboard shortcuts">
+  <div class="crit-story-kbd-sheet">
+    <h3>Keyboard <span class="esc">Esc to close</span></h3>
+    <div class="crit-story-kbd-list">
+      <div class="crit-story-kbd-item"><span>Next chapter</span><span class="keys"><span class="crit-story-kbd">J</span></span></div>
+      <div class="crit-story-kbd-item"><span>Previous chapter</span><span class="keys"><span class="crit-story-kbd">K</span></span></div>
+      <div class="crit-story-kbd-item"><span>Jump to chapter</span><span class="keys"><span class="crit-story-kbd">1</span>&ndash;<span class="crit-story-kbd">9</span></span></div>
+      <div class="crit-story-kbd-item"><span>Overview</span><span class="keys"><span class="crit-story-kbd">O</span></span></div>
+      <div class="crit-story-kbd-item"><span>Support page</span><span class="keys"><span class="crit-story-kbd">S</span></span></div>
+      <div class="crit-story-kbd-item"><span>Toggle chapters</span><span class="keys"><span class="crit-story-kbd">\</span></span></div>
+      <div class="crit-story-kbd-item"><span>This help</span><span class="keys"><span class="crit-story-kbd">?</span></span></div>
     </div>
   </div>
 </div>
