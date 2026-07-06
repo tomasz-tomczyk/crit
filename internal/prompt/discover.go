@@ -43,7 +43,13 @@ func DiscoverPromptFile(baseDir, hook, mode string, layer Layer) (text, sourceLa
 	return "", "", false
 }
 
-// ListDiscoveredProjectPromptFiles returns on_finish_*.md paths under project/.crit/prompts/.
+// discoveredHookPrefixes are the conventional filename prefixes recognized
+// under .crit/prompts/ for trust hashing and source listing. Extend this
+// list when a new hook family is added.
+var discoveredHookPrefixes = []string{"on_finish_", "on_story_"}
+
+// ListDiscoveredProjectPromptFiles returns on_finish_*.md / on_story_*.md
+// paths under project/.crit/prompts/.
 func ListDiscoveredProjectPromptFiles(projectDir string) []string {
 	dir := filepath.Join(projectDir, promptsSubdir)
 	entries, err := os.ReadDir(dir)
@@ -55,10 +61,19 @@ func ListDiscoveredProjectPromptFiles(projectDir string) []string {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}
-		if !strings.HasPrefix(e.Name(), "on_finish_") {
+		if !hasAnyPrefix(e.Name(), discoveredHookPrefixes) {
 			continue
 		}
 		out = append(out, filepath.Join(dir, e.Name()))
 	}
 	return out
+}
+
+func hasAnyPrefix(name string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
 }

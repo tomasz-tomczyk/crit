@@ -13,12 +13,26 @@ var stockPromptFiles = []string{
 	"on_finish_unresolved.md",
 }
 
+var stockStoryPromptFiles = []string{
+	"on_story_generate.md",
+}
+
 // InstallPrompts copies stock finish templates into destDir (typically ~/.crit/prompts or .crit/prompts).
 func InstallPrompts(destDir string, force bool) error {
+	return installStockFiles(destDir, force, stockPromptFiles)
+}
+
+// InstallStoryPrompt copies the stock on_story_generate template into destDir
+// (typically ~/.crit/prompts or .crit/prompts).
+func InstallStoryPrompt(destDir string, force bool) error {
+	return installStockFiles(destDir, force, stockStoryPromptFiles)
+}
+
+func installStockFiles(destDir string, force bool, names []string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", destDir, err)
 	}
-	for _, name := range stockPromptFiles {
+	for _, name := range names {
 		src := "integrations/prompts/" + name
 		data, err := integrationassets.FS.ReadFile(src)
 		if err != nil {

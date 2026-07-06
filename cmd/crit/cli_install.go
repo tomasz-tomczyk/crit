@@ -46,7 +46,7 @@ func parseInstallArgs(args []string) (target string, force bool) {
 }
 
 func printInstallUsage() {
-	fmt.Fprintln(os.Stderr, "Usage: crit install <agent|prompts>")
+	fmt.Fprintln(os.Stderr, "Usage: crit install <agent|prompts|story-prompts>")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Available agents:")
 	for _, a := range availableIntegrations() {
@@ -54,15 +54,23 @@ func printInstallUsage() {
 	}
 	fmt.Fprintln(os.Stderr, "  all")
 	fmt.Fprintln(os.Stderr, "  prompts")
+	fmt.Fprintln(os.Stderr, "  story-prompts")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Install stock finish templates:")
 	fmt.Fprintln(os.Stderr, "  cd ~ && crit install prompts     # ~/.crit/prompts/")
 	fmt.Fprintln(os.Stderr, "  crit install prompts             # .crit/prompts/ in cwd (from repo root)")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Install the stock on_story_generate template:")
+	fmt.Fprintln(os.Stderr, "  cd ~ && crit install story-prompts   # ~/.crit/prompts/")
+	fmt.Fprintln(os.Stderr, "  crit install story-prompts           # .crit/prompts/ in cwd (from repo root)")
 }
 
 func runInstallTarget(target string, force bool) error {
 	if target == "prompts" {
 		return installPrompts(force)
+	}
+	if target == "story-prompts" {
+		return installStoryPrompts(force)
 	}
 	if target == "all" {
 		return installAllIntegrations(force)
@@ -106,6 +114,20 @@ func installPrompts(force bool) error {
 	return prompt.InstallPrompts(dest, force)
 }
 
+func installStoryPrompts(force bool) error {
+	cwd := mustGetwd()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dest := filepath.Join(cwd, ".crit", "prompts")
+	if isGlobalInstall(cwd, home) {
+		dest = filepath.Join(home, ".crit", "prompts")
+	}
+	fmt.Printf("Installing stock story prompt to %s\n", dest)
+	return prompt.InstallStoryPrompt(dest, force)
+}
+
 // globalDestKind selects how an integration's globalDest is interpreted.
 type globalDestKind int
 
@@ -137,6 +159,7 @@ var integrationMap = map[string][]integration{
 	"claude-code": {
 		{source: "integrations/claude-code/skills/crit/SKILL.md", dest: ".claude/skills/crit/SKILL.md", hint: "Run /crit in Claude Code to start a review loop"},
 		{source: "integrations/claude-code/skills/crit-cli/SKILL.md", dest: ".claude/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Claude Code agents when needed"},
+		{source: "integrations/claude-code/skills/crit-story/SKILL.md", dest: ".claude/skills/crit-story/SKILL.md", hint: "Run /crit-story in Claude Code to author a story for a diff review"},
 	},
 	"cursor": {
 		{source: "integrations/cursor/skills/crit/SKILL.md", dest: ".cursor/skills/crit/SKILL.md", hint: "Run /crit in Cursor to start a review loop"},
@@ -171,6 +194,7 @@ var integrationMap = map[string][]integration{
 	"codex": {
 		{source: "integrations/codex/skills/crit/SKILL.md", dest: ".agents/skills/crit/SKILL.md", hint: "Use $crit in Codex to start a review loop"},
 		{source: "integrations/codex/skills/crit-cli/SKILL.md", dest: ".agents/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Codex agents when needed"},
+		{source: "integrations/codex/skills/crit-story/SKILL.md", dest: ".agents/skills/crit-story/SKILL.md", hint: "Use $crit-story in Codex to author a story for a diff review"},
 	},
 	"codex-plugin": {
 		{source: "integrations/codex/plugin/crit/.codex-plugin/plugin.json", dest: "plugins/crit/.codex-plugin/plugin.json", globalDest: ".codex/plugins/crit/.codex-plugin/plugin.json", globalDestKind: globalDestRelHome, hint: "The Crit plugin is registered in the local Codex plugin marketplace"},

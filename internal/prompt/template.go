@@ -37,12 +37,18 @@ func LoadTemplate(value, baseDir string) (string, error) {
 
 // Render executes a Go text/template with the given context.
 func Render(tmplText string, ctx Context) (string, error) {
+	return RenderData(tmplText, ctx.TemplateData())
+}
+
+// RenderData executes a Go text/template against a raw snake_case data map
+// (used by hooks that don't have a dedicated Context type, e.g. on_story_generate).
+func RenderData(tmplText string, data map[string]any) (string, error) {
 	tmpl, err := template.New("prompt").Parse(tmplText)
 	if err != nil {
 		return "", fmt.Errorf("parsing template: %w", err)
 	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, ctx.TemplateData()); err != nil {
+	if err := tmpl.Execute(&buf, data); err != nil {
 		return "", fmt.Errorf("executing template: %w", err)
 	}
 	return buf.String(), nil

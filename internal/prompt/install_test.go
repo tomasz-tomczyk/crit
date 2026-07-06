@@ -30,3 +30,24 @@ func TestLoadStockTemplate(t *testing.T) {
 		t.Fatalf("LoadStockTemplate = %q %q %v", text, source, ok)
 	}
 }
+
+func TestInstallStoryPrompt(t *testing.T) {
+	dir := t.TempDir()
+	if err := prompt.InstallStoryPrompt(dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "on_story_generate.md")); err != nil {
+		t.Fatalf("missing on_story_generate.md: %v", err)
+	}
+	// Second install without force skips.
+	if err := prompt.InstallStoryPrompt(dir, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadStockTemplate_StoryGenerate(t *testing.T) {
+	text, source, ok := prompt.LoadStockTemplate(prompt.HookStoryGenerate, "")
+	if !ok || text == "" || source != "stock:on_story_generate.md" {
+		t.Fatalf("LoadStockTemplate = %q %q %v", text, source, ok)
+	}
+}

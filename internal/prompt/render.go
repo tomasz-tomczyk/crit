@@ -103,6 +103,32 @@ func RenderFinish(globalPrompts, projectPrompts map[string]string, projectDir, h
 	}
 }
 
+// HookResult holds a rendered non-finish hook (e.g. on_story_generate).
+type HookResult struct {
+	Text string
+	Meta *Meta
+}
+
+// RenderHook resolves and renders a mode-less hook (no :mode split) through
+// the same 5-level precedence as finish hooks: project config -> global
+// config -> project .crit/prompts/ file -> global ~/.crit/prompts/ file ->
+// stock. data supplies the template variables (snake_case keys, as returned
+// by a TemplateData()-shaped map).
+func RenderHook(globalPrompts, projectPrompts map[string]string, projectDir, homeDir string, useProject bool, hook string, data map[string]any) (HookResult, error) {
+	text, source, hookKey := resolveTemplateText(globalPrompts, projectPrompts, projectDir, homeDir, hook, "", useProject)
+	if text == "" {
+		return HookResult{}, fmt.Errorf("no template found for hook %q", hook)
+	}
+	rendered, err := RenderData(text, data)
+	if err != nil {
+		return HookResult{}, fmt.Errorf("rendering prompt %s: %w", hookKey, err)
+	}
+	return HookResult{
+		Text: rendered,
+		Meta: &Meta{Hook: hookKey, TemplateSource: source},
+	}, nil
+}
+
 func resolveTemplateText(globalPrompts, projectPrompts map[string]string, projectDir, homeDir, hook, mode string, useProject bool) (text, source, hookKey string) {
 	if resolved, _ := ResolveFinishTemplate(globalPrompts, projectPrompts, projectDir, homeDir, hook, mode, useProject); resolved != nil {
 		return resolved.Text, resolved.Source, resolved.Hook

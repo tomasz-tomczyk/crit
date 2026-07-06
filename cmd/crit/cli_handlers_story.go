@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/prompt"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/server"
 	"github.com/tomasz-tomczyk/crit/internal/session"
@@ -102,8 +105,9 @@ func (f *storyFlags) appendScopeArg(args []string, i *int) error {
 }
 
 // RunStory implements `crit story`. Phase 1 surface: --story-file, --prep,
-// --skip-llm, --clear (+ --refresh/--no-spend semantics against a present
-// story). The default LLM path and --guide are wired in later tasks.
+// --skip-llm, --clear, --guide (+ --refresh/--no-spend semantics against a
+// present story). The default LLM path (exec agent_cmd) is wired in a later
+// task.
 func runStory(args []string) { clicmd.Exit(runStoryE(args)) }
 
 func runStoryE(args []string) error {
@@ -139,9 +143,10 @@ func runStoryE(args []string) error {
 		return runStoryPrep(f)
 	}
 
-	// --guide and the default LLM path are not wired in this task.
+	// --guide: print the resolved on_story_generate guide, then the JSON
+	// schema for the agent-authored fields, to stdout. Exit 0.
 	if f.guide {
-		return clicmd.ExitError{Code: 1, Err: errors.New("story --guide is not wired yet (coming in this branch); use --story-file or --skip-llm")}
+		return runStoryGuide(f, critPath)
 	}
 
 	switch {
@@ -243,6 +248,98 @@ func runStoryPrep(f storyFlags) error {
 		return clicmd.ExitError{Code: 1, Err: err}
 	}
 	fmt.Println(f.prep)
+	return nil
+}
+
+// storySchemaJSON is the JSON shape the agent must emit: only prologue,
+// chapters, and support (crit fills version/generated_at/base_sha/head_sha/
+// scope_fingerprint/coverage after ingest — see internal/session.Story).
+const storySchemaJSON = `{
+  "prologue": {
+    "summary": "string, 1-3 sentences, stands alone",
+    "motivation": "string, optional",
+    "diagram": "string, optional Mermaid diagram, default \"\"",
+    "focus_areas": [
+      {"area": "string", "severity": "string, optional"}
+    ],
+    "complexity": "one of: low, medium, high"
+  },
+  "chapters": [
+    {
+      "id": "string, e.g. \"ch1\"",
+      "title": "string, <=24 chars recommended",
+      "summary": "string, one-liner, must stand alone",
+      "hunk_refs": [
+        {"file_path": "string", "old_start": "int, 0 for new files"}
+      ],
+      "diagram": "string, optional Mermaid diagram, default \"\""
+    }
+  ],
+  "support": [
+    {
+      "hunk_refs": [
+        {"file_path": "string", "old_start": "int, 0 for new files"}
+      ],
+      "reason": "string, e.g. \"Lockfile churn.\""
+    }
+  ]
+}`
+
+// runStoryGuide prints the resolved on_story_generate guide followed by
+// "\n\n---\n\n" and the JSON schema in a fenced code block, then exits 0
+// (spec §11 decision 1). It resolves the guide through the same 5-level
+// prompt-override precedence as other hooks, gated on project prompt trust.
+func runStoryGuide(f storyFlags, critPath string) error {
+	scope, err := buildStoryScope(f.scopeArgs)
+	if err != nil {
+		return err
+	}
+
+	projectDir, err := daemon.ResolvedCWD()
+	if err != nil {
+		return clicmd.ExitError{Code: 1, Err: err}
+	}
+	homeDir, _ := os.UserHomeDir()
+
+	globalPrompts, projectPrompts := config.LoadPromptMaps(projectDir)
+	trust, err := prompt.EvaluateTrust(projectDir, projectPrompts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: evaluating project prompt trust: %v\n", err)
+	}
+	if trust.Untrusted {
+		return clicmd.ExitError{Code: 1, Err: errors.New("project prompts are not trusted yet; run crit and choose a trust option, or use --story-file/--skip-llm")}
+	}
+
+	diffScopeKind := "workingTree"
+	if scope.HeadSHA != "" {
+		diffScopeKind = "committed"
+	}
+
+	ctx := prompt.StoryContext{
+		PrepPath:        f.prep,
+		StorySchemaJSON: storySchemaJSON,
+		CommitMessages:  strings.Join(scope.CommitMessages, "\n"),
+		DiffScopeKind:   diffScopeKind,
+		BaseSHA:         scope.BaseSHA,
+		HeadSHA:         scope.HeadSHA,
+		ReviewPath:      critPath,
+	}
+	if ctx.PrepPath == "" {
+		ctx.PrepPath = "<run `crit story --prep <path>` first, then pass that path here>"
+	}
+
+	result, err := prompt.RenderHook(globalPrompts, projectPrompts, projectDir, homeDir, trust.UseProject, prompt.HookStoryGenerate, ctx.TemplateData())
+	if err != nil {
+		return clicmd.ExitError{Code: 1, Err: err}
+	}
+
+	fmt.Println(strings.TrimRight(result.Text, "\n"))
+	fmt.Println()
+	fmt.Println("---")
+	fmt.Println()
+	fmt.Println("```json")
+	fmt.Println(storySchemaJSON)
+	fmt.Println("```")
 	return nil
 }
 
