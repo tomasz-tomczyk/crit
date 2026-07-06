@@ -336,6 +336,10 @@ type Session struct {
 
 	reviewComments []Comment
 
+	// story is the loaded narrative from review.json (nil unless `crit story`
+	// ingested one). Read/write under s.mu; surfaced via GetSessionInfo.
+	story *Story
+
 	// RoundSnapshots is in-memory state populated from <folder>/snapshots.json
 	// at boot. Persisted via SaveSnapshotsFile; never written into review.json.
 	//
@@ -455,6 +459,81 @@ type CritJSON struct {
 	// Origin is the upstream URL for live reviews (e.g. "http://localhost:3000").
 	// Empty for code reviews.
 	Origin string `json:"origin,omitempty"`
+
+	// Story is the optional LLM-authored narrative grouping of diff hunks into
+	// chapters. Nil unless `crit story` has ingested one. Preserved across the
+	// daemon's read-merge-modify write cycle by being a field on CritJSON (see
+	// buildCritJSON): as long as the field exists here, an externally-set story
+	// survives the debounced writes.
+	Story *Story `json:"story,omitempty"`
+}
+
+// Story is the LLM-authored narrative for a review: a prologue, an ordered set
+// of chapters grouping diff hunks by theme, and a second-class Support bucket
+// for mechanical/ignored/back-filled hunks. It is an explainer, not a reviewer.
+type Story struct {
+	Version          int                 `json:"version"`                     // 1
+	GeneratedAt      string              `json:"generated_at,omitempty"`      // RFC3339 timestamp
+	Agent            string              `json:"agent,omitempty"`             // e.g. "claude-sonnet-4-6"
+	BaseSHA          string              `json:"base_sha,omitempty"`          // diff scope snapshot, set at prep time
+	HeadSHA          string              `json:"head_sha,omitempty"`          // empty for working-tree scopes
+	ScopeFingerprint string              `json:"scope_fingerprint,omitempty"` // sha256 over sorted prep hunk ids+headers; detects working-tree drift
+	Prologue         *StoryPrologue      `json:"prologue,omitempty"`
+	Chapters         []StoryChapter      `json:"chapters"`           // array order IS display order
+	Support          []StorySupportEntry `json:"support,omitempty"`  // second-class bucket for mechanical hunks
+	Coverage         *StoryCoverage      `json:"coverage,omitempty"` // post-validation report
+}
+
+// StoryPrologue is the story's opening overview. Guard rails: it is an
+// explainer, so there is deliberately no key_changes / verdict / risks field.
+type StoryPrologue struct {
+	Summary    string       `json:"summary,omitempty"` // 1-3 sentences
+	Motivation string       `json:"motivation,omitempty"`
+	Diagram    string       `json:"diagram,omitempty"` // Mermaid or empty
+	FocusAreas []StoryFocus `json:"focus_areas,omitempty"`
+	Complexity string       `json:"complexity,omitempty"` // "low"|"medium"|"high"
+}
+
+// StoryChapter is one thematic grouping of hunks. Chapters array position is
+// the canonical display order — there is intentionally no Order field.
+type StoryChapter struct {
+	ID       string         `json:"id"`                // "ch1"
+	Title    string         `json:"title"`             // <= ~24 chars recommended
+	Summary  string         `json:"summary,omitempty"` // one-liner; must stand alone
+	HunkRefs []StoryHunkRef `json:"hunk_refs"`
+	Diagram  string         `json:"diagram,omitempty"` // Mermaid, mostly empty
+}
+
+// StoryHunkRef points at a diff hunk by (file_path, old_start). old_start is 0
+// for new files (stage-cli convention).
+type StoryHunkRef struct {
+	FilePath string `json:"file_path"`
+	OldStart int    `json:"old_start"` // 0 for new files
+}
+
+// StorySupportEntry is a group of hunks the story treats as second-class:
+// mechanical churn, ignored files, or auto-repaired omissions. Reason explains
+// why (free text, or the sentinels "auto-repaired" / "ignored" / "stub").
+type StorySupportEntry struct {
+	HunkRefs []StoryHunkRef `json:"hunk_refs"`
+	Reason   string         `json:"reason"`
+}
+
+// StoryFocus is a prologue focus area with an optional severity.
+type StoryFocus struct {
+	Area     string `json:"area"`
+	Severity string `json:"severity,omitempty"`
+}
+
+// StoryCoverage is the post-validation report. OK is true only when the story
+// saved with zero repairs; saved-with-repairs is ok:false, auto_repaired:true.
+type StoryCoverage struct {
+	OK           bool     `json:"ok"`
+	Indexed      int      `json:"indexed"` // total hunks in diff
+	Placed       int      `json:"placed"`
+	Missing      []string `json:"missing,omitempty"` // human "(file, oldStart)" ids
+	Duplicated   []string `json:"duplicated,omitempty"`
+	AutoRepaired bool     `json:"auto_repaired,omitempty"` // back-fill into Support triggered
 }
 
 // CritJSONFile is the per-file section in review files.
@@ -2325,6 +2404,9 @@ func (s *Session) loadCritJSONLocked() {
 	// Restore review-level comments.
 	s.reviewComments = cj.ReviewComments
 
+	// Restore the story (nil if none), so GetSessionInfo can surface it.
+	s.story = cj.Story
+
 	// Restore pending DELETE intents so they survive across daemon restarts.
 	s.pendingGitHubDeletes = cj.PendingGitHubDeletes
 	s.lastLoadedPendingGHDeletes = make(map[int64]struct{}, len(cj.PendingGitHubDeletes))
@@ -2623,6 +2705,7 @@ type SessionInfo struct {
 	Focus            Focus             `json:"focus"`
 	LastRangeFocus   *Focus            `json:"last_range_focus,omitempty"`
 	HiddenUnresolved int               `json:"hidden_unresolved"`
+	Story            *Story            `json:"story,omitempty"`
 }
 
 // SessionFileInfo is a summary of a file for the session API response.
@@ -2671,6 +2754,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		SessionKey:     s.SessionKey,
 		Focus:          s.Focus,
 		LastRangeFocus: s.LastRangeFocus,
+		Story:          s.story,
 	}
 
 	info.AvailableScopes = cachedAvailableScopes(info.BaseRef, vc)
