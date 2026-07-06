@@ -214,10 +214,31 @@ func TestStoryLLM_RetryAppendsError(t *testing.T) {
 
 func TestStoryLLM_StoryPresentWithoutRefresh(t *testing.T) {
 	_, scratch := setupStoryRepoLLM(t)
-	stubPostIngest(t)
-	// A never-succeeding agent: it must not be called when a story is present.
-	agent := fakeAgentScript(t, scratch, "garbage")
+
+	// Sentinel agent: writes a marker file if ever invoked. Story-present resume
+	// must NOT exec agent_cmd, so the marker must be absent afterwards.
+	marker := filepath.Join(t.TempDir(), "agent-ran")
+	agent := writeSentinelAgent(t, scratch, marker)
 	setAgentCmd(t, agent)
+
+	// Capture the resume flow's browser open + spawn seams (no daemon running).
+	origAlive := storyDaemonAlive
+	origStart := storyStartDaemon
+	origOpen := openBrowser
+	origHasBrowser := storyDaemonHasBrowser
+	t.Cleanup(func() {
+		storyDaemonAlive = origAlive
+		storyStartDaemon = origStart
+		openBrowser = origOpen
+		storyDaemonHasBrowser = origHasBrowser
+	})
+	var openedURL string
+	storyDaemonAlive = func(string) (daemon.SessionEntry, bool) { return daemon.SessionEntry{}, false }
+	storyStartDaemon = func(string, []string) (daemon.SessionEntry, error) {
+		return daemon.SessionEntry{Port: 5555}, nil
+	}
+	storyDaemonHasBrowser = func(daemon.SessionEntry) bool { return false }
+	openBrowser = func(u, _ string) { openedURL = u }
 
 	critPath, _ := resolveStoryReviewPath(nil)
 	cj, _ := review.LoadCritJSON(critPath)
@@ -226,14 +247,128 @@ func TestStoryLLM_StoryPresentWithoutRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Without --refresh: no-op exit 0, agent untouched.
+	// Without --refresh: resume (exit 0), agent untouched, story untouched.
 	if err := runStoryE(nil); err != nil {
-		t.Fatalf("story-present no-op should exit 0, got: %v", err)
+		t.Fatalf("story-present resume should exit 0, got: %v", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("agent_cmd must NOT be invoked when a story is already present")
 	}
 	reloaded, _ := review.LoadCritJSON(critPath)
 	if reloaded.Story == nil || reloaded.Story.Version != 42 {
 		t.Fatal("existing story must be left untouched without --refresh")
 	}
+	if !strings.HasSuffix(openedURL, "#story") {
+		t.Fatalf("resume must open the browser at the story view (#story), got %q", openedURL)
+	}
+}
+
+// writeSentinelAgent writes an executable agent script that touches markerPath
+// when invoked (so tests can assert agent_cmd was NOT called). dir must be
+// OUTSIDE the repo. Returns the script path (usable as agent_cmd).
+func writeSentinelAgent(t *testing.T, dir, markerPath string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("sentinel shell script not portable to Windows")
+	}
+	script := "#!/usr/bin/env bash\ntouch " + strconv.Quote(markerPath) + "\n"
+	path := filepath.Join(dir, "sentinel-agent.sh")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("writing sentinel agent: %v", err)
+	}
+	return path
+}
+
+// TestStoryResume_OpensBrowserAtStoryView covers the two resume branches: an
+// already-running daemon (open a tab at #story, no spawn) and no daemon (spawn
+// + open at #story), plus --no-open suppression in both.
+func TestStoryResume_OpensBrowserAtStoryView(t *testing.T) {
+	setupStoryRepoLLM(t)
+
+	origAlive := storyDaemonAlive
+	origStart := storyStartDaemon
+	origPost := storyPostStory
+	origOpen := openBrowser
+	origHasBrowser := storyDaemonHasBrowser
+	t.Cleanup(func() {
+		storyDaemonAlive = origAlive
+		storyStartDaemon = origStart
+		storyPostStory = origPost
+		openBrowser = origOpen
+		storyDaemonHasBrowser = origHasBrowser
+	})
+	storyDaemonHasBrowser = func(daemon.SessionEntry) bool { return false }
+	storyPostStory = func(daemon.SessionEntry, *session.Story) error {
+		t.Error("resume must NOT re-POST the story to the daemon")
+		return nil
+	}
+
+	t.Run("running daemon opens tab at #story without spawning", func(t *testing.T) {
+		var spawned bool
+		var openedURL string
+		storyDaemonAlive = func(string) (daemon.SessionEntry, bool) {
+			return daemon.SessionEntry{Port: 4321}, true
+		}
+		storyStartDaemon = func(string, []string) (daemon.SessionEntry, error) { spawned = true; return daemon.SessionEntry{}, nil }
+		openBrowser = func(u, _ string) { openedURL = u }
+
+		if err := resumeStory(storyFlags{}); err != nil {
+			t.Fatalf("resume returned error: %v", err)
+		}
+		if spawned {
+			t.Error("must NOT spawn a daemon when one is already running")
+		}
+		if !strings.HasSuffix(openedURL, "#story") {
+			t.Fatalf("expected browser open at #story, got %q", openedURL)
+		}
+	})
+
+	t.Run("no daemon spawns and opens at #story", func(t *testing.T) {
+		var spawned bool
+		var openedURL string
+		storyDaemonAlive = func(string) (daemon.SessionEntry, bool) { return daemon.SessionEntry{}, false }
+		storyStartDaemon = func(string, []string) (daemon.SessionEntry, error) {
+			spawned = true
+			return daemon.SessionEntry{Port: 4322}, nil
+		}
+		openBrowser = func(u, _ string) { openedURL = u }
+
+		if err := resumeStory(storyFlags{}); err != nil {
+			t.Fatalf("resume returned error: %v", err)
+		}
+		if !spawned {
+			t.Error("expected a daemon spawn when none is running")
+		}
+		if !strings.HasSuffix(openedURL, "#story") {
+			t.Fatalf("expected browser open at #story, got %q", openedURL)
+		}
+	})
+
+	t.Run("--no-open suppresses the browser on resume", func(t *testing.T) {
+		var opened bool
+		storyDaemonAlive = func(string) (daemon.SessionEntry, bool) {
+			return daemon.SessionEntry{Port: 4323}, true
+		}
+		openBrowser = func(string, string) { opened = true }
+		if err := resumeStory(storyFlags{noOpen: true}); err != nil {
+			t.Fatalf("resume returned error: %v", err)
+		}
+		if opened {
+			t.Error("--no-open must suppress the browser on resume (running daemon)")
+		}
+
+		opened = false
+		storyDaemonAlive = func(string) (daemon.SessionEntry, bool) { return daemon.SessionEntry{}, false }
+		storyStartDaemon = func(string, []string) (daemon.SessionEntry, error) {
+			return daemon.SessionEntry{Port: 4324}, nil
+		}
+		if err := resumeStory(storyFlags{noOpen: true}); err != nil {
+			t.Fatalf("resume returned error: %v", err)
+		}
+		if opened {
+			t.Error("--no-open must suppress the browser on resume (spawn path)")
+		}
+	})
 }
 
 func TestStoryLLM_RefreshRegenerates(t *testing.T) {
@@ -483,21 +618,25 @@ func TestPostIngest_SpawnsWhenNoDaemon(t *testing.T) {
 	})
 
 	var spawned, opened bool
+	var openedURL string
 	storyDaemonAlive = func(string) (daemon.SessionEntry, bool) { return daemon.SessionEntry{}, false }
 	storyStartDaemon = func(string, []string) (daemon.SessionEntry, error) {
 		spawned = true
 		return daemon.SessionEntry{Port: 6789}, nil
 	}
 	storyDaemonHasBrowser = func(daemon.SessionEntry) bool { return false }
-	openBrowser = func(string, string) { opened = true }
+	openBrowser = func(u, _ string) { opened = true; openedURL = u }
 
-	// Default flags (no --no-open): browser opens.
+	// Default flags (no --no-open): browser opens at the story view.
 	postIngest(storyFlags{}, sessionStoryStub())
 	if !spawned {
 		t.Error("expected a daemon to be spawned when none is running")
 	}
 	if !opened {
 		t.Error("expected the browser to open on spawn")
+	}
+	if !strings.HasSuffix(openedURL, "#story") {
+		t.Fatalf("fresh-ingest spawn must open the browser at #story, got %q", openedURL)
 	}
 
 	// --no-open: no browser.

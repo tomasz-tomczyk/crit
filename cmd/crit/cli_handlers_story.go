@@ -180,7 +180,7 @@ func runStoryE(args []string) error {
 		// Never call agent_cmd: exit 0 if a story is present, else exit 1.
 		if cj.Story != nil {
 			fmt.Fprintln(os.Stderr, "Story present.")
-			return nil
+			return resumeStory(f)
 		}
 		return clicmd.ExitError{Code: 1, Err: errors.New("no story and --no-spend set")}
 	default:
@@ -393,7 +393,7 @@ func runStoryGuide(f storyFlags, critPath string) error {
 func runStoryIngestFile(f storyFlags, critPath string, cj review.CritJSON) error {
 	if cj.Story != nil && !f.refresh {
 		fmt.Fprintln(os.Stderr, "story already present (use --refresh to regenerate)")
-		return nil
+		return resumeStory(f)
 	}
 
 	raw, err := readStoryFile(f.storyFile)
@@ -430,7 +430,7 @@ func runStoryIngestFile(f storyFlags, critPath string, cj review.CritJSON) error
 func runStorySkipLLM(f storyFlags, critPath string, cj review.CritJSON) error {
 	if cj.Story != nil && !f.refresh {
 		fmt.Fprintln(os.Stderr, "story already present (use --refresh or --clear then re-run)")
-		return nil
+		return resumeStory(f)
 	}
 	scope, err := buildStoryScope(f.scopeArgs)
 	if err != nil {
@@ -471,7 +471,7 @@ func runStorySkipLLM(f storyFlags, critPath string, cj review.CritJSON) error {
 func runStoryLLM(f storyFlags, critPath string, cj review.CritJSON) error {
 	if cj.Story != nil && !f.refresh {
 		fmt.Fprintln(os.Stderr, "story already present (use --refresh to regenerate)")
-		return nil
+		return resumeStory(f)
 	}
 
 	agentCmd := config.LoadConfig(mustCWD()).AgentCmd
@@ -670,28 +670,42 @@ func saveStory(f storyFlags, critPath string, cj review.CritJSON, st *session.St
 	return nil
 }
 
-// postIngest connects the freshly-saved story to a review surface (§4.1). If a
-// daemon for this session key is already running, it POSTs the story so the
-// open page live-updates via the story-updated SSE event. Otherwise it spawns
-// the daemon detached (same path as first-run `crit`) and opens the browser,
-// respecting --no-open / config. Any failure is logged, not fatal: the story
-// is already on disk, so the next `crit story`/`crit` will pick it up.
-func postIngest(f storyFlags, st *session.Story) {
+// storyURLFragment is appended to the review URL so the browser lands directly
+// on the rendered story view (the frontend reads `#story` on load) instead of
+// the flat review root.
+const storyURLFragment = "#story"
+
+// storyReviewSessionKey resolves the review session key for the current scope
+// (cwd + branch + focus args), matching how crit review keys its daemon.
+func storyReviewSessionKey(f storyFlags) (key, cwd string, err error) {
 	reviewCfg, err := storyReviewConfig(f.scopeArgs)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "note: could not resolve session for the review UI: %v\n", err)
-		return
+		return "", "", fmt.Errorf("could not resolve session for the review UI: %w", err)
 	}
-	cwd, err := daemon.ResolvedCWD()
+	cwd, err = daemon.ResolvedCWD()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "note: could not resolve cwd for the review UI: %v\n", err)
-		return
+		return "", "", fmt.Errorf("could not resolve cwd for the review UI: %w", err)
 	}
 	branch := ""
 	if v := vcs.DetectVCS(reviewCfg.VCSOverride); v != nil {
 		branch = v.CurrentBranch()
 	}
-	key := daemon.SessionKey(cwd, branch, session.FocusKeyArgs(reviewCfg))
+	return daemon.SessionKey(cwd, branch, session.FocusKeyArgs(reviewCfg)), cwd, nil
+}
+
+// postIngest connects the freshly-saved story to a review surface (§4.1). If a
+// daemon for this session key is already running, it POSTs the story so the
+// open page live-updates via the story-updated SSE event. Otherwise it spawns
+// the daemon detached (same path as first-run `crit`) and opens the browser at
+// the story view, respecting --no-open / config. Any failure is logged, not
+// fatal: the story is already on disk, so the next `crit story`/`crit` picks it
+// up.
+func postIngest(f storyFlags, st *session.Story) {
+	key, cwd, err := storyReviewSessionKey(f)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "note: %v\n", err)
+		return
+	}
 
 	if entry, alive := storyDaemonAlive(key); alive {
 		if err := storyPostStory(entry, st); err != nil {
@@ -702,9 +716,42 @@ func postIngest(f storyFlags, st *session.Story) {
 		return
 	}
 
-	// No daemon: spawn one detached (same args flow as `crit review`) and open
-	// the browser. crit review's args are the scope args; --no-open is honored
-	// via config + flag.
+	spawnStoryDaemonAndOpen(f, key, cwd)
+}
+
+// resumeStory reopens an existing story review without regenerating it (Task 7
+// user-feedback fix): `crit story` with a story already present re-launches the
+// review just as re-running `crit` reconnects a review. If a daemon is already
+// running for this scope it opens a browser tab at the story view; otherwise it
+// spawns the daemon detached and opens the browser. No agent_cmd exec, no
+// re-ingest — the on-disk story is untouched. Never blocks; failures are logged
+// (the story is on disk, so the next invocation can still pick it up). Takes no
+// *Story: the daemon loads it from disk on start, so resume never re-POSTs it.
+func resumeStory(f storyFlags) error {
+	key, cwd, err := storyReviewSessionKey(f)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "note: %v\n", err)
+		return nil
+	}
+
+	if entry, alive := storyDaemonAlive(key); alive {
+		// Daemon already serving this scope: it loaded the story from disk on
+		// start (or already has it), so just surface the story view in a tab.
+		if !storyNoOpen(f, cwd) && !storyDaemonHasBrowser(entry) {
+			openBrowser(entry.BaseURL()+storyURLFragment, config.LoadConfig(cwd).OpenCmd)
+		}
+		fmt.Fprintf(os.Stderr, "Resumed the review at %s\n", entry.BaseURL())
+		return nil
+	}
+
+	spawnStoryDaemonAndOpen(f, key, cwd)
+	return nil
+}
+
+// spawnStoryDaemonAndOpen spawns the review daemon detached (same args flow as
+// `crit review`) and opens the browser at the story view, honoring --no-open /
+// config. Failures are logged, not fatal.
+func spawnStoryDaemonAndOpen(f storyFlags, key, cwd string) {
 	entry, err := storyStartDaemon(key, storyDaemonArgs(f.scopeArgs))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "note: could not start the review daemon: %v\n", err)
@@ -712,7 +759,7 @@ func postIngest(f storyFlags, st *session.Story) {
 	}
 	fmt.Fprintf(os.Stderr, "Started crit daemon at %s (session %s, PID %d)\n", entry.BaseURL(), key, entry.PID)
 	if !storyNoOpen(f, cwd) && !storyDaemonHasBrowser(entry) {
-		openBrowser(entry.BaseURL(), config.LoadConfig(cwd).OpenCmd)
+		openBrowser(entry.BaseURL()+storyURLFragment, config.LoadConfig(cwd).OpenCmd)
 	}
 }
 

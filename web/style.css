@@ -5869,6 +5869,28 @@ body.crit-story-active #reviewConversation,
 body.crit-story-active .file-tree-panel,
 body.crit-story-active #fileTreeResizer { display: none !important; }
 
+/* "Show story view" re-entry affordance: a pill at the top of the file tree,
+   shown only when a story exists but is hidden (body.crit-story-hidden). */
+.crit-story-show-bar { display: none; }
+body.crit-story-hidden .crit-story-show-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 12px 4px;
+  padding: 5px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--crit-brand);
+  background: var(--crit-brand-subtle);
+  border: 1px solid var(--crit-l-hairline);
+  border-radius: var(--crit-r-md);
+  cursor: pointer;
+}
+body.crit-story-hidden .crit-story-show-bar:hover {
+  background: var(--crit-brand-bg);
+  color: var(--crit-brand-hover);
+}
+
 .crit-story-root {
   grid-template-columns: var(--crit-story-rail-w) minmax(0, 1fr);
   min-height: 0;

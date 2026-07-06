@@ -119,10 +119,14 @@ function storyView(page: Page, pageId: string) {
   return page.locator(`#crit-story-view-${pageId}`);
 }
 
-async function ingestStory(critBin: string, fixtureDir: string, fakeHome: string) {
+async function ingestStory(critBin: string, fixtureDir: string, fakeHome: string, opts: { refresh?: boolean } = {}) {
   const storyFile = writeStoryFixtureFile();
+  // --refresh forces a re-ingest (and a story-updated SSE to a running daemon)
+  // even when a story is already present, where a bare `crit story` would
+  // instead resume the existing one.
+  const refreshFlag = opts.refresh ? ' --refresh' : '';
   try {
-    execSync(`"${critBin}" story --story-file "${storyFile}"`, execOptsFor(fixtureDir, fakeHome));
+    execSync(`"${critBin}" story --story-file "${storyFile}"${refreshFlag}`, execOptsFor(fixtureDir, fakeHome));
   } finally {
     fs.rmSync(storyFile, { force: true });
   }
@@ -262,20 +266,71 @@ test.describe('Story mode', () => {
     );
   });
 
-  test('Hide story view returns to flat layout, and re-ingest brings story back live via SSE', async ({ page, request }) => {
+  test('Hide story view is non-destructive: flat layout + "Show story view" restores it without re-ingest', async ({ page }) => {
     await ingestStory(critBin, fixtureDir, fakeHome);
     await loadPage(page);
     await expect(page.locator('body')).toHaveClass(/crit-story-active/);
 
+    // Hide: flat layout, story root gone, re-entry affordance appears. This
+    // must NOT delete the story (that's DELETE /api/story / --clear), so no
+    // network round-trip is needed — the story stays in session.story.
     await page.locator('#storyHideBtn').click();
     await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
+    await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
     await expect(page.locator('#storyRoot')).toBeHidden();
     await expect(goSection(page)).toBeVisible();
+    await expect(page.locator('#storyShowBtn')).toBeVisible();
 
-    // Re-ingest while the page stays open — story-updated SSE should bring
-    // the story UI back without a reload.
+    // Show: story view returns with the SAME story (no re-ingest happened).
+    await page.locator('#storyShowBtn').click();
+    await expect(page.locator('body')).toHaveClass(/crit-story-active/);
+    await expect(page.locator('body')).not.toHaveClass(/crit-story-hidden/);
+    await expect(storyOverview(page)).toBeVisible();
+    await expect(page.locator('#storyShowBtn')).toBeHidden();
+  });
+
+  test('#story hash un-hides a hidden story', async ({ page }) => {
     await ingestStory(critBin, fixtureDir, fakeHome);
+    await loadPage(page);
+    await page.locator('#storyHideBtn').click();
+    await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
+
+    // Navigating to the #story hash restores the story view (same affordance a
+    // deep link into a chapter would hit).
+    await page.evaluate(() => { window.location.hash = '#story'; });
+    await expect(page.locator('body')).toHaveClass(/crit-story-active/);
+    await expect(storyOverview(page)).toBeVisible();
+  });
+
+  test('DELETE /api/story fully removes the story: no re-entry affordance remains', async ({ page, request }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome);
+    await loadPage(page);
+    await page.locator('#storyHideBtn').click();
+    await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
+    await expect(page.locator('#storyShowBtn')).toBeVisible();
+
+    // Real removal via the API (the --clear path). The story-updated SSE with a
+    // null story must tear everything down, including the re-entry affordance.
+    const resp = await request.delete('/api/story');
+    expect(resp.ok()).toBeTruthy();
+    await expect(page.locator('body')).not.toHaveClass(/crit-story-hidden/);
+    await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
+    await expect(page.locator('#storyShowBtn')).toBeHidden();
+    await expect(goSection(page)).toBeVisible();
+  });
+
+  test('a fresh story via SSE brings the story back live and un-hides after Hide', async ({ page }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome);
+    await loadPage(page);
+    await page.locator('#storyHideBtn').click();
+    await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
+
+    // Re-ingest (with --refresh, since a story is present) while the page stays
+    // open — the story-updated SSE must resurface the story view, clearing the
+    // hidden state without a reload.
+    await ingestStory(critBin, fixtureDir, fakeHome, { refresh: true });
     await expect(page.locator('body')).toHaveClass(/crit-story-active/, { timeout: 5000 });
+    await expect(page.locator('body')).not.toHaveClass(/crit-story-hidden/);
     await expect(storyOverview(page)).toBeVisible();
   });
 

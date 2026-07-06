@@ -130,6 +130,13 @@
 
 <div class="main-layout">
   <div class="file-tree-panel" id="fileTreePanel">
+    <!-- Re-entry affordance: shown (via body.crit-story-hidden) only when a
+         story exists but the reviewer chose "Hide story view". Restores the
+         story layout without re-ingesting. -->
+    <button type="button" class="crit-story-show-bar" id="storyShowBtn" title="Return to the story view">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3.5h9M2 8h9M2 12.5h6"/><path d="M13.5 6.5 15 8l-1.5 1.5"/></svg>
+      Show story view
+    </button>
     <div class="tree-section--conversation" id="treeConversationSection"></div>
     <div class="file-tree-header">
       <span class="file-tree-title">Files</span>

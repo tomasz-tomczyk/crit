@@ -7130,7 +7130,12 @@
         // Envelope: {type, filename, content} where content is JSON {story:...}.
         const envelope = data || {};
         const inner = envelope.content ? JSON.parse(envelope.content) : envelope;
-        if (session) session.story = (inner && 'story' in inner) ? inner.story : null;
+        const nextStory = (inner && 'story' in inner) ? inner.story : null;
+        if (session) session.story = nextStory;
+        // A fresh ingest must always surface the story view — clear any prior
+        // "Hide story view" state. (A null story clears storyHidden inside
+        // applyStoryPresence via the no-story branch.)
+        if (nextStory) storyHidden = false;
         applyStoryPresence();
       } catch (err) {
         console.error('story-updated parse:', err);
@@ -9560,6 +9565,12 @@
   // storyView: 'overview' | page id ('ch1' | 'support' | chapter id).
   let storyState = null;
   let storyView = 'overview';
+  // storyHidden: per-page-session escape hatch. "Hide story view" sets this
+  // (non-destructive — the story stays on disk and in session.story); the flat
+  // file layout renders instead, with a "Show story view" re-entry affordance.
+  // NOT persisted: a reload with a story present shows the story view again. A
+  // fresh story via SSE resets it to false; a null story clears it entirely.
+  let storyHidden = false;
 
   function hunkKey(filePath, oldStart) { return filePath + '\0' + oldStart; }
 
@@ -10157,18 +10168,31 @@
     }
   }
 
-  // Activate/deactivate the whole story layout.
+  // Activate/deactivate the whole story layout. Respects storyHidden: when a
+  // story is present but the reviewer chose "Hide story view", the flat layout
+  // renders and a "Show story view" re-entry affordance is surfaced instead.
   function applyStoryPresence() {
     const present = !!(session && storyHasContent(session.story));
     if (present) {
       storyState = buildStoryState(session.story);
       pruneStoryViewed();
-      document.body.classList.add('crit-story-active');
-      storyFromHash();
-      renderStory();
+      if (storyHidden) {
+        // Present but hidden: flat layout + re-entry affordance. Navigating to
+        // a #story hash un-hides (handled in the hashchange listener).
+        document.body.classList.remove('crit-story-active');
+        document.body.classList.remove('crit-story-rail-open');
+        document.body.classList.add('crit-story-hidden');
+      } else {
+        document.body.classList.remove('crit-story-hidden');
+        document.body.classList.add('crit-story-active');
+        storyFromHash();
+        renderStory();
+      }
     } else {
       storyState = null;
+      storyHidden = false;
       document.body.classList.remove('crit-story-active');
+      document.body.classList.remove('crit-story-hidden');
       document.body.classList.remove('crit-story-rail-open');
       const inner = document.getElementById('storyPaneInner');
       if (inner) inner.innerHTML = '';
@@ -10177,15 +10201,21 @@
     }
   }
 
+  // "Hide story view" is a non-destructive view toggle (Task 7 user-feedback
+  // fix): it does NOT delete the story. It flips into the flat file layout for
+  // this page session and surfaces a "Show story view" re-entry affordance. The
+  // story stays on disk and in session.story; a reload restores the story view.
+  // Real removal is `crit story --clear` / DELETE /api/story.
   function hideStoryView() {
-    fetch('/api/story', { method: 'DELETE' })
-      .then(function (r) {
-        if (!r.ok && r.status !== 204) throw new Error('delete failed');
-        // SSE story-updated will clear the layout; do it optimistically too.
-        if (session) session.story = null;
-        applyStoryPresence();
-      })
-      .catch(function () { showMiniToast('Could not hide story view'); });
+    storyHidden = true;
+    applyStoryPresence();
+  }
+
+  // Restore the story view after "Hide story view". Un-hides and renders at the
+  // overview (or the page named by the current #story hash, if any).
+  function showStoryView() {
+    storyHidden = false;
+    applyStoryPresence();
   }
 
   // Chapter that owns the hunk containing a given (filePath, line). Returns
@@ -10293,12 +10323,16 @@
     if (toggle) toggle.addEventListener('click', function () { document.body.classList.toggle('crit-story-rail-open'); });
     const scrim = document.getElementById('storyRailScrim');
     if (scrim) scrim.addEventListener('click', function () { document.body.classList.remove('crit-story-rail-open'); });
+    const showBtn = document.getElementById('storyShowBtn');
+    if (showBtn) showBtn.addEventListener('click', showStoryView);
     const overlay = document.getElementById('storyKbdOverlay');
     if (overlay) overlay.addEventListener('click', function (e) { if (e.target === overlay) toggleStoryHelp(false); });
     window.addEventListener('hashchange', function () {
-      if (!storyActive()) return;
       const h = location.hash || '';
       if (h.indexOf('#story') !== 0) return;
+      // Navigating to a #story hash un-hides a hidden-but-present story.
+      if (storyHidden && storyState) { showStoryView(); return; }
+      if (!storyActive()) return;
       storyFromHash();
       renderStory();
     });
