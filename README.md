@@ -313,12 +313,29 @@ All keys are optional — omit any you don't need.
 | `live_cookie_file`     | string   | `""`                       | Path to a file with upstream cookies for live mode (raw header lines or Netscape jar). Global or project; relative paths resolve from repo root. |
 | `live_cdp_url`         | string   | `""`                       | Chrome DevTools URL (e.g. `http://127.0.0.1:9222`) to reuse browser cookies for the live upstream. Global or project. |
 | `prompts`              | object   | `{}`                       | Custom finish-hook templates (project overrides global per key). See [Agent prompts](docs/agent-prompts.md). |
+| `hooks`                | object   | `{}`                       | Custom finish-hook **commands** executed at Finish/Approve (project overrides global per key). Deterministic side effects — `crit` pipes a JSON payload to stdin and sets `CRIT_*` env vars. See [Command hooks](docs/agent-hooks.md). |
 
 ### Agent prompts
 
 Customize what Crit tells your agent when you **Finish Review** or **Approve**. Hooks are templates in global or project config (`prompts` map) and `.crit/prompts/*.md` files.
 
 See the **[agent prompts guide](docs/agent-prompts.md)** for hook reference, template variables, trust flow, and examples.
+
+### Command hooks
+
+Run your own scripts when you **Finish Review** or **Approve** — deterministic side effects, no LLM in the loop. Crit pipes a JSON payload to the hook's stdin and sets `CRIT_*` env vars (review path, session key, mode, unresolved count, files-with-comments, …). Keys and resolution mirror the prompt system (`on_finish_unresolved` / `on_finish_approved`, optionally `:files` / `:diff` / `:live` / `:preview`), and project hooks go through the same trust gate as project prompts.
+
+```bash
+# ~/.crit.config.json
+{
+  "hooks": {
+    "on_finish_unresolved": "inline:rsync -a \"$CRIT_REVIEW_PATH\" ~/reviews/$CRIT_SESSION_KEY.json",
+    "on_finish_approved":   "file:~/.crit/hooks/approved.sh"
+  }
+}
+```
+
+See the **[command hooks guide](docs/agent-hooks.md)** for the full env-var/stdin reference, trust flow, and examples (including the “snapshot commented-on files” recipe). Reference example hook scripts live under [`docs/example-hooks/`](https://github.com/tomasz-tomczyk/crit/tree/main/docs/example-hooks) in the repo — they're documentation, not installed by `crit install` and not tracked among the integrations (hooks are opt-in and not used by default).
 
 ### Global-only config keys
 

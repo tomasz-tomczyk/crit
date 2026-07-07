@@ -708,7 +708,8 @@ func (s *Server) handleProjectPromptTrust(w http.ResponseWriter, r *http.Request
 		return
 	}
 	_, projectPrompts := config.LoadPromptMaps(s.projectDir)
-	hash := prompt.ContentHash(projectPrompts, s.projectDir)
+	_, projectHooks := config.LoadHookMaps(s.projectDir)
+	hash := prompt.ContentHash(projectPrompts, projectHooks, s.projectDir)
 	if err := prompt.SaveTrustChoice(s.projectDir, req.Mode, hash); err != nil {
 		http.Error(w, "failed to persist trust choice", http.StatusInternalServerError)
 		return
@@ -2013,6 +2014,11 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	if !approved {
 		sess.SetWaitingForAgent(true)
 	}
+
+	// Run the configured command hook (if any) for this finish state. Hooks run
+	// synchronously after the review file is persisted so scripts can read
+	// $CRIT_REVIEW_PATH; failures/timeouts are logged and never block finish.
+	s.runFinishHooks(sess, approved, stats)
 
 	writeJSON(w, map[string]any{
 		"status":       "finished",

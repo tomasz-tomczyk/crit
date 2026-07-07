@@ -136,9 +136,9 @@ func TestEvaluateTrust_UntilChange(t *testing.T) {
 	projectPrompts := map[string]string{
 		"on_finish_approved": "inline:Approved custom",
 	}
-	hash := prompt.ContentHash(projectPrompts, projectDir)
+	hash := prompt.ContentHash(projectPrompts, nil, projectDir)
 
-	st, err := prompt.EvaluateTrust(projectDir, projectPrompts)
+	st, err := prompt.EvaluateTrust(projectDir, projectPrompts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestEvaluateTrust_UntilChange(t *testing.T) {
 	if err := prompt.SaveTrustChoice(projectDir, prompt.TrustUntilChange, hash); err != nil {
 		t.Fatal(err)
 	}
-	st, err = prompt.EvaluateTrust(projectDir, projectPrompts)
+	st, err = prompt.EvaluateTrust(projectDir, projectPrompts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestEvaluateTrust_UntilChange(t *testing.T) {
 	}
 
 	projectPrompts["on_finish_approved"] = "inline:changed"
-	st, err = prompt.EvaluateTrust(projectDir, projectPrompts)
+	st, err = prompt.EvaluateTrust(projectDir, projectPrompts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestEvaluateTrust_DefaultsIgnoresProject(t *testing.T) {
 	if err := prompt.SaveTrustChoice(projectDir, prompt.TrustDefaults, ""); err != nil {
 		t.Fatal(err)
 	}
-	st, err := prompt.EvaluateTrust(projectDir, projectPrompts)
+	st, err := prompt.EvaluateTrust(projectDir, projectPrompts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

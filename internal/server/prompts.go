@@ -3,18 +3,22 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
+	"github.com/tomasz-tomczyk/crit/internal/hooks"
 	"github.com/tomasz-tomczyk/crit/internal/prompt"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
 func (s *Server) promptTrustState() (prompt.TrustState, error) {
 	_, projectPrompts := config.LoadPromptMaps(s.projectDir)
-	return prompt.EvaluateTrust(s.projectDir, projectPrompts)
+	_, projectHooks := config.LoadHookMaps(s.projectDir)
+	return prompt.EvaluateTrust(s.projectDir, projectPrompts, projectHooks)
 }
 
 func (s *Server) buildPromptContext(sess *Session, approved bool, stats map[string]any) prompt.Context {
@@ -88,7 +92,8 @@ func filesWithUnresolvedComments(sess *Session) []string {
 
 func (s *Server) renderFinishPrompts(sess *Session, approved bool, stats map[string]any) (promptStr string, meta *prompt.Meta) {
 	globalPrompts, projectPrompts := config.LoadPromptMaps(s.projectDir)
-	trust, err := prompt.EvaluateTrust(s.projectDir, projectPrompts)
+	_, projectHooks := config.LoadHookMaps(s.projectDir)
+	trust, err := prompt.EvaluateTrust(s.projectDir, projectPrompts, projectHooks)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: evaluating project prompt trust: %v\n", err)
 	}
@@ -122,7 +127,8 @@ func (s *Server) projectPromptTrustPayload() map[string]any {
 
 func (s *Server) renderProjectPromptPreview(sess *Session) string {
 	_, projectPrompts := config.LoadPromptMaps(s.projectDir)
-	trust, err := prompt.EvaluateTrust(s.projectDir, projectPrompts)
+	_, projectHooks := config.LoadHookMaps(s.projectDir)
+	trust, err := prompt.EvaluateTrust(s.projectDir, projectPrompts, projectHooks)
 	if err != nil || !trust.HasProjectPrompts {
 		return ""
 	}
@@ -152,4 +158,66 @@ func (s *Server) renderProjectPromptPreview(sess *Session) string {
 		sections = append(sections, "=== "+label+" ===\n"+result.Prompt)
 	}
 	return strings.Join(sections, "\n\n")
+}
+
+// runFinishHooks resolves and executes the configured command hook for the
+// current finish state (on_finish_unresolved / on_finish_approved, mode-suffix
+// resolved like prompt templates). Hooks run synchronously with the finish
+// flow so the review file is already on disk when they read it; a hook timeout
+// or non-zero exit is logged as a warning and never blocks finish.
+func (s *Server) runFinishHooks(sess *Session, approved bool, stats map[string]any) {
+	hook := prompt.HookForFinish(approved)
+	mode := prompt.PromptMode(sess.ReviewType, sess.Mode)
+
+	globalHooks, projectHooks := config.LoadHookMaps(s.projectDir)
+	trust, err := prompt.EvaluateTrust(s.projectDir, nil, projectHooks)
+	if err != nil {
+		log.Printf("finish-hook: evaluating project trust: %v", err)
+		return
+	}
+	ec, err := hooks.ResolveFinishCommand(globalHooks, projectHooks, s.projectDir, s.homeDir, hook, mode, trust.UseProject)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: resolving finish hook %s: %v\n", hook, err)
+		return
+	}
+	if ec == nil {
+		return
+	}
+
+	ctx := s.buildPromptContext(sess, approved, stats)
+	in := hooks.Input{
+		Stdin:   hooks.JSONPayload(ctx),
+		Env:     hooks.EnvMap(ctx),
+		Dir:     sess.RepoRoot,
+		Timeout: s.hookTimeout(),
+	}
+	out, err := hooks.Run(s.effectiveCtx(), *ec, in)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: finish hook %s failed: %v\n", ec.Hook, err)
+		if out != nil && len(out.Stderr) > 0 {
+			fmt.Fprintf(os.Stderr, "  hook stderr:\n%s\n", trimLog(out.Stderr))
+		}
+		return
+	}
+	log.Printf("finish-hook %s (%s): exit=%d stdout=%dB stderr=%dB",
+		ec.Hook, ec.Source, out.ExitCode, len(out.Stdout), len(out.Stderr))
+	if len(out.Stderr) > 0 {
+		fmt.Fprintf(os.Stderr, "%s\n", trimLog(out.Stderr))
+	}
+}
+
+func (s *Server) hookTimeout() time.Duration {
+	// A hard cap so a hung hook cannot pin the daemon's finish flow. Generous
+	// enough for snapshot/dataset-collection scripts, short enough that the
+	// user isn't left staring at the finish UI.
+	return 60 * time.Second
+}
+
+func trimLog(b []byte) string {
+	s := strings.TrimRight(string(b), "\n")
+	const max = 4 << 10 // 4 KiB
+	if len(s) > max {
+		return s[:max] + "\n...[truncated]"
+	}
+	return s
 }

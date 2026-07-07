@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,16 +36,45 @@ func RepoRootHash(projectDir string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// ContentHash fingerprints project prompt config and referenced files.
-func ContentHash(projectPrompts map[string]string, projectDir string) string {
+// ContentHash fingerprints project prompt AND hook config plus referenced
+// files, so changing either prompts or hooks invalidates a "trust until
+// change" decision. Hooks are included because project hooks run arbitrary code
+// and must be gated by the same trust flow as project prompts.
+func ContentHash(projectPrompts, projectHooks map[string]string, projectDir string) string {
 	h := sha256.New()
-	keys := make([]string, 0, len(projectPrompts))
-	for k := range projectPrompts {
+	hashConfigMap(h, "prompt:", projectPrompts, projectDir)
+	for _, path := range ListDiscoveredProjectPromptFiles(projectDir) {
+		h.Write([]byte("discovered-prompt:"))
+		h.Write([]byte(filepath.Base(path)))
+		h.Write([]byte{0})
+		if data, err := os.ReadFile(path); err == nil {
+			h.Write(data)
+		}
+	}
+	hashConfigMap(h, "hook:", projectHooks, projectDir)
+	for _, path := range listDiscoveredProjectHookFiles(projectDir) {
+		h.Write([]byte("discovered-hook:"))
+		h.Write([]byte(filepath.Base(path)))
+		h.Write([]byte{0})
+		if data, err := os.ReadFile(path); err == nil {
+			h.Write(data)
+		}
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+// hashConfigMap writes a sorted key/value section into the hash, and for file:
+// values it folds the referenced file's contents (resolved relative to
+// projectDir). inline: values contribute only their key+value (no file).
+func hashConfigMap(h hash.Hash, section string, m map[string]string, projectDir string) {
+	keys := make([]string, 0, len(m))
+	for k := range m {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		v := projectPrompts[k]
+		v := m[k]
+		h.Write([]byte(section))
 		h.Write([]byte(k))
 		h.Write([]byte{0})
 		h.Write([]byte(v))
@@ -59,15 +89,6 @@ func ContentHash(projectPrompts map[string]string, projectDir string) string {
 			}
 		}
 	}
-	for _, path := range ListDiscoveredProjectPromptFiles(projectDir) {
-		h.Write([]byte("discovered:"))
-		h.Write([]byte(filepath.Base(path)))
-		h.Write([]byte{0})
-		if data, err := os.ReadFile(path); err == nil {
-			h.Write(data)
-		}
-	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
 // LoadTrustedProjectPrompts reads trusted_project_prompts from global config.
@@ -132,18 +153,29 @@ type TrustState struct {
 	Sources           []string
 }
 
-// EvaluateTrust decides if project prompts are trusted for finish.
-func EvaluateTrust(projectDir string, projectPrompts map[string]string) (TrustState, error) {
+// EvaluateTrust decides if project prompts AND hooks are trusted for finish.
+// The trust gate now covers both: project hooks run arbitrary code, so a
+// checked-in .crit/hooks/*.sh or `hooks` config map triggers Finish blocking
+// exactly like project prompt config does.
+func EvaluateTrust(projectDir string, projectPrompts, projectHooks map[string]string) (TrustState, error) {
 	st := TrustState{
-		ContentHash: ContentHash(projectPrompts, projectDir),
+		ContentHash: ContentHash(projectPrompts, projectHooks, projectDir),
 		Sources:     ListProjectPromptSources(projectPrompts, projectDir),
 	}
-	discovered := ListDiscoveredProjectPromptFiles(projectDir)
-	for _, path := range discovered {
+	st.Sources = append(st.Sources, listProjectHookSources(projectHooks, projectDir)...)
+
+	discoveredPrompts := ListDiscoveredProjectPromptFiles(projectDir)
+	for _, path := range discoveredPrompts {
 		label := "project:" + filepath.ToSlash(filepath.Join(promptsSubdir, filepath.Base(path)))
 		st.Sources = append(st.Sources, label)
 	}
-	if len(projectPrompts) == 0 && len(discovered) == 0 {
+	discoveredHooks := listDiscoveredProjectHookFiles(projectDir)
+	for _, path := range discoveredHooks {
+		label := "project:" + filepath.ToSlash(filepath.Join(hooksSubdir, filepath.Base(path)))
+		st.Sources = append(st.Sources, label)
+	}
+
+	if len(projectPrompts) == 0 && len(projectHooks) == 0 && len(discoveredPrompts) == 0 && len(discoveredHooks) == 0 {
 		st.UseProject = false
 		return st, nil
 	}
@@ -176,4 +208,55 @@ func EvaluateTrust(projectDir string, projectPrompts map[string]string) (TrustSt
 		st.Untrusted = true
 		return st, nil
 	}
+}
+
+// listDiscoveredProjectHookFiles returns on_finish_*.sh paths under
+// project/.crit/hooks/. Mirrors ListDiscoveredProjectPromptFiles for the hook
+// half of the trust gate. Defined here (not in internal/hooks) to avoid an
+// import cycle: internal/hooks already imports internal/prompt for resolution.
+func listDiscoveredProjectHookFiles(projectDir string) []string {
+	dir := filepath.Join(projectDir, hooksSubdir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sh") {
+			continue
+		}
+		if !strings.HasPrefix(e.Name(), "on_finish_") {
+			continue
+		}
+		out = append(out, filepath.Join(dir, e.Name()))
+	}
+	return out
+}
+
+// listProjectHookSources returns human-readable source paths for project hook
+// config. Mirrors ListProjectPromptSources for the hook half of the trust gate.
+func listProjectHookSources(projectHooks map[string]string, projectDir string) []string {
+	if len(projectHooks) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	configPath := filepath.Join(projectDir, ".crit.config.json")
+	if _, err := os.Stat(configPath); err == nil {
+		out = append(out, "project:.crit.config.json")
+		seen["project:.crit.config.json"] = struct{}{}
+	}
+	for _, v := range projectHooks {
+		if !strings.HasPrefix(v, prefixFile) {
+			continue
+		}
+		rel := strings.TrimPrefix(v, prefixFile)
+		label := "project:" + filepath.ToSlash(rel)
+		if _, ok := seen[label]; ok {
+			continue
+		}
+		seen[label] = struct{}{}
+		out = append(out, label)
+	}
+	return out
 }

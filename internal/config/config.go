@@ -48,6 +48,13 @@ type Config struct {
 	LiveCookieFile     string            `json:"live_cookie_file,omitempty"`
 	LiveCDPURL         string            `json:"live_cdp_url,omitempty"`
 	Prompts            map[string]string `json:"prompts,omitempty"`
+	// Hooks are shell commands/scripts executed at the same finish lifecycle
+	// points as prompt templates (on_finish_unresolved / on_finish_approved,
+	// optionally mode-suffixed :files/:diff/:live/:preview). Values use the
+	// inline:/file: forms like prompts, but resolve to an executable instead of
+	// template text. Project-level hooks are gated by the same trust flow as
+	// project prompts (they run arbitrary code).
+	Hooks map[string]string `json:"hooks,omitempty"`
 }
 
 // needsShareConsent reports whether the user must confirm before sharing.
@@ -109,6 +116,7 @@ func defaultConfig() generatedConfig {
 		CleanupOnApprove:   true,
 		VCS:                "",
 		Prompts:            map[string]string{},
+		Hooks:              map[string]string{},
 	}
 }
 
@@ -136,6 +144,7 @@ type generatedConfig struct {
 	CleanupOnApprove   bool              `json:"cleanup_on_approve"`
 	VCS                string            `json:"vcs"`
 	Prompts            map[string]string `json:"prompts"`
+	Hooks              map[string]string `json:"hooks"`
 }
 
 func (c generatedConfig) String() string {
@@ -269,6 +278,7 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	// Union auto-viewed patterns (global + project both apply)
 	merged.AutoViewedPatterns = append(merged.AutoViewedPatterns, project.AutoViewedPatterns...)
 	mergeProjectPrompts(&merged, project)
+	mergeProjectHooks(&merged, project)
 	return merged
 }
 
@@ -281,6 +291,20 @@ func mergeProjectPrompts(merged *Config, project Config) {
 	}
 	for k, v := range project.Prompts {
 		merged.Prompts[k] = v
+	}
+}
+
+// mergeProjectHooks unions project hook config onto merged (project overrides
+// per key), mirroring mergeProjectPrompts.
+func mergeProjectHooks(merged *Config, project Config) {
+	if len(project.Hooks) == 0 {
+		return
+	}
+	if merged.Hooks == nil {
+		merged.Hooks = make(map[string]string, len(project.Hooks))
+	}
+	for k, v := range project.Hooks {
+		merged.Hooks[k] = v
 	}
 }
 
@@ -367,6 +391,29 @@ func LoadPromptMaps(projectDir string) (global, project map[string]string) {
 			fmt.Fprintf(os.Stderr, "Warning: reading project config: %v\n", err)
 		} else {
 			project = projectCfg.Prompts
+		}
+	}
+	return global, project
+}
+
+// LoadHookMaps reads hooks from global and project config without merging,
+// mirroring LoadPromptMaps for command hooks.
+func LoadHookMaps(projectDir string) (global, project map[string]string) {
+	globalCfg, _, err := LoadConfigFile(GlobalConfigPath())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: reading global config: %v\n", err)
+	}
+	global = globalCfg.Hooks
+
+	projectConfigPath := filepath.Join(projectDir, ".crit.config.json")
+	globalAbs, _ := filepath.Abs(GlobalConfigPath())
+	projectAbs, _ := filepath.Abs(projectConfigPath)
+	if globalAbs != projectAbs {
+		projectCfg, _, err := LoadConfigFile(projectConfigPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: reading project config: %v\n", err)
+		} else {
+			project = projectCfg.Hooks
 		}
 	}
 	return global, project

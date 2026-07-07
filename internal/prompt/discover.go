@@ -8,6 +8,11 @@ import (
 
 const promptsSubdir = ".crit/prompts"
 
+// hooksSubdir is the conventional on-disk directory for discovered hook
+// scripts, parallel to promptsSubdir. Kept in the prompt package (alongside
+// the trust gate) to avoid an import cycle with internal/hooks.
+const hooksSubdir = ".crit/hooks"
+
 // PromptFilenames returns conventional on-disk names for hook+mode (mode-specific first).
 func PromptFilenames(hook, mode string) []string {
 	specific, generic := ResolveHookKey(hook, mode)
