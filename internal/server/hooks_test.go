@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -226,5 +227,81 @@ func addUnresolvedComment(t *testing.T, s *Server, sess *Session, dir string) {
 	}
 	if err := sess.SyncWriteFiles(); err != nil {
 		t.Fatalf("SyncWriteFiles: %v", err)
+	}
+}
+
+// TestHandleFinish_HookFailureStillReturns200 verifies a failing hook is logged
+// but never blocks the finish response.
+func TestHandleFinish_HookFailureStillReturns200(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh -c inline hook tested on unix")
+	}
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	s, _ := newTestServer(t)
+	s.homeDir = home
+
+	writeFileGlobal(t, home, `{"hooks":{"on_finish_approved":"inline:exit 7"}}`)
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleConfig_ProjectHookSources lists hook config and discovered scripts
+// in the trust payload shown before the user trusts a project.
+func TestHandleConfig_ProjectHookSources(t *testing.T) {
+	s, session := newTestServer(t)
+	dir := session.RepoRoot
+	hooksDir := filepath.Join(dir, ".crit", "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooksDir, "on_finish_approved.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"hooks":{"on_finish_unresolved":"file:.crit/hooks/notify.sh"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["project_prompts_untrusted"] != true {
+		t.Fatalf("untrusted = %v", resp["project_prompts_untrusted"])
+	}
+	raw, ok := resp["project_prompt_sources"].([]any)
+	if !ok {
+		t.Fatalf("sources = %T %v", resp["project_prompt_sources"], resp["project_prompt_sources"])
+	}
+	sources := make([]string, len(raw))
+	for i, v := range raw {
+		sources[i], _ = v.(string)
+	}
+	hasConfig := false
+	hasFile := false
+	hasDiscovered := false
+	for _, src := range sources {
+		switch src {
+		case "project:.crit.config.json":
+			hasConfig = true
+		case "project:.crit/hooks/notify.sh":
+			hasFile = true
+		case "project:.crit/hooks/on_finish_approved.sh":
+			hasDiscovered = true
+		}
+	}
+	if !hasConfig || !hasFile || !hasDiscovered {
+		t.Fatalf("sources = %v, want config + file + discovered hook paths", sources)
 	}
 }

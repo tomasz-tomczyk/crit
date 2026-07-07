@@ -263,3 +263,107 @@ func TestEnvMapAndJSONPayload(t *testing.T) {
 		t.Fatalf("payload missing empty array: %s", payload)
 	}
 }
+
+func TestEnvMapAndJSONPayload_WithSessionStats(t *testing.T) {
+	ctx := prompt.Context{
+		ReviewPath: "/tmp/r.json",
+		SessionKey: "sk1",
+		SessionStats: &prompt.SessionStats{
+			DurationSeconds:   42,
+			FilesReviewed:     3,
+			CommentsSubmitted: 7,
+		},
+		CommentsUnresolvedJSON: `[{"id":"c1"}]`,
+		CommentsJSON:           `[{"id":"c1"},{"id":"c2"}]`,
+	}
+	env := hooks.EnvMap(ctx)
+	if env["CRIT_SESSION_DURATION_SECONDS"] != "42" {
+		t.Fatalf("duration env = %q", env["CRIT_SESSION_DURATION_SECONDS"])
+	}
+	if env["CRIT_SESSION_FILES_REVIEWED"] != "3" {
+		t.Fatalf("files reviewed env = %q", env["CRIT_SESSION_FILES_REVIEWED"])
+	}
+	if env["CRIT_SESSION_COMMENTS_SUBMITTED"] != "7" {
+		t.Fatalf("comments submitted env = %q", env["CRIT_SESSION_COMMENTS_SUBMITTED"])
+	}
+	if env["CRIT_COMMENTS_UNRESOLVED_JSON"] != `[{"id":"c1"}]` {
+		t.Fatalf("unresolved json env = %q", env["CRIT_COMMENTS_UNRESOLVED_JSON"])
+	}
+	payload := string(hooks.JSONPayload(ctx))
+	if !strings.Contains(payload, `"duration_seconds": 42`) {
+		t.Fatalf("payload missing session_stats: %s", payload)
+	}
+	if !strings.Contains(payload, `"comments_json": [`) || !strings.Contains(payload, `"c2"`) {
+		t.Fatalf("payload missing comments_json array: %s", payload)
+	}
+}
+
+func TestResolveFinishCommand_GlobalDiscoveredFile(t *testing.T) {
+	home := t.TempDir()
+	hooksDir := filepath.Join(home, ".crit", "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(hooksDir, "on_finish_approved.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho hi\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ec, err := hooks.ResolveFinishCommand(nil, nil, t.TempDir(), home, prompt.HookFinishApproved, "files", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ec == nil || ec.Kind != "file" || ec.Arg != script {
+		t.Fatalf("ec = %+v", ec)
+	}
+	if ec.Source != "global:.crit/hooks/on_finish_approved.sh" {
+		t.Fatalf("source = %q", ec.Source)
+	}
+}
+
+func TestResolveFinishCommand_ModeSpecificDiscoveredWins(t *testing.T) {
+	dir := t.TempDir()
+	hooksDir := filepath.Join(dir, ".crit", "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	generic := filepath.Join(hooksDir, "on_finish_unresolved.sh")
+	specific := filepath.Join(hooksDir, "on_finish_unresolved.diff.sh")
+	for _, path := range []string{generic, specific} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\necho ok\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ec, err := hooks.ResolveFinishCommand(nil, nil, dir, t.TempDir(), prompt.HookFinishUnresolved, "diff", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ec == nil || ec.Arg != specific {
+		t.Fatalf("ec = %+v want mode-specific %q", ec, specific)
+	}
+	if ec.Hook != "on_finish_unresolved:diff" {
+		t.Fatalf("hook = %q", ec.Hook)
+	}
+}
+
+func TestResolveFinishCommand_ProjectBlockedFallsBackToGlobal(t *testing.T) {
+	global := map[string]string{"on_finish_approved": "inline:global"}
+	project := map[string]string{"on_finish_approved": "inline:project"}
+	ec, err := hooks.ResolveFinishCommand(global, project, "/unused", t.TempDir(), prompt.HookFinishApproved, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ec == nil || ec.Arg != "global" || ec.Layer != hooks.LayerGlobal {
+		t.Fatalf("ec = %+v", ec)
+	}
+}
+
+func TestResolveFinishCommand_LoadCommandError(t *testing.T) {
+	project := map[string]string{"on_finish_approved": "file:missing.sh"}
+	_, err := hooks.ResolveFinishCommand(nil, project, t.TempDir(), t.TempDir(), prompt.HookFinishApproved, "", true)
+	if err == nil {
+		t.Fatal("expected error for missing file: hook")
+	}
+	if !strings.Contains(err.Error(), "missing.sh") {
+		t.Fatalf("err = %v", err)
+	}
+}

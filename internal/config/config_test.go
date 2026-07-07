@@ -895,3 +895,34 @@ func TestMergeConfigs_AutoViewedPatternsUnion(t *testing.T) {
 		t.Error("expected PLAN.md in merged auto-viewed patterns")
 	}
 }
+
+func TestLoadHookMaps(t *testing.T) {
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+	if err := os.WriteFile(filepath.Join(homeDir, ".crit.config.json"),
+		[]byte(`{"hooks":{"on_finish_approved":"inline:global"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, ".crit.config.json"),
+		[]byte(`{"hooks":{"on_finish_unresolved":"inline:project"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	global, project := LoadHookMaps(projectDir)
+	if global["on_finish_approved"] != "inline:global" {
+		t.Fatalf("global hooks = %v", global)
+	}
+	if project["on_finish_unresolved"] != "inline:project" {
+		t.Fatalf("project hooks = %v", project)
+	}
+}
+
+func TestMergeConfigs_ProjectHooksOverride(t *testing.T) {
+	global := Config{Hooks: map[string]string{"on_finish_approved": "inline:global"}}
+	project := Config{Hooks: map[string]string{"on_finish_approved": "inline:project"}}
+	merged := mergeConfigs(global, project, ConfigPresence{})
+	if merged.Hooks["on_finish_approved"] != "inline:project" {
+		t.Fatalf("hooks = %v", merged.Hooks)
+	}
+}

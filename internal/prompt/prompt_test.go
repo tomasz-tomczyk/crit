@@ -183,3 +183,173 @@ func TestEvaluateTrust_DefaultsIgnoresProject(t *testing.T) {
 		t.Fatalf("defaults mode: %+v", st)
 	}
 }
+
+func TestEvaluateTrust_HooksOnlyConfig(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	projectDir := t.TempDir()
+	projectHooks := map[string]string{
+		"on_finish_approved": "inline:echo approved",
+	}
+
+	st, err := prompt.EvaluateTrust(projectDir, nil, projectHooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.HasProjectPrompts {
+		t.Fatal("expected HasProjectPrompts for hooks-only project")
+	}
+	if !st.Untrusted {
+		t.Fatal("expected untrusted initially")
+	}
+}
+
+func TestEvaluateTrust_HookUntilChangeInvalidatedByDiscoveredScriptEdit(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	projectDir := t.TempDir()
+	hooksDir := filepath.Join(projectDir, ".crit", "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(hooksDir, "on_finish_approved.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho v1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	hash := prompt.ContentHash(nil, nil, projectDir)
+	if err := prompt.SaveTrustChoice(projectDir, prompt.TrustUntilChange, hash); err != nil {
+		t.Fatal(err)
+	}
+	st, err := prompt.EvaluateTrust(projectDir, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Untrusted || !st.UseProject {
+		t.Fatalf("expected trusted after save: %+v", st)
+	}
+
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho v2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	st, err = prompt.EvaluateTrust(projectDir, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Untrusted {
+		t.Fatal("expected re-block after discovered hook script body change")
+	}
+}
+
+func TestEvaluateTrust_HookUntilChangeInvalidatedByFileHookEdit(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	projectDir := t.TempDir()
+	script := filepath.Join(projectDir, ".crit", "hooks", "custom.sh")
+	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho v1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projectHooks := map[string]string{
+		"on_finish_approved": "file:.crit/hooks/custom.sh",
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".crit.config.json"), []byte(`{"hooks":{"on_finish_approved":"file:.crit/hooks/custom.sh"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hash := prompt.ContentHash(nil, projectHooks, projectDir)
+	if err := prompt.SaveTrustChoice(projectDir, prompt.TrustUntilChange, hash); err != nil {
+		t.Fatal(err)
+	}
+	st, err := prompt.EvaluateTrust(projectDir, nil, projectHooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Untrusted || !st.UseProject {
+		t.Fatalf("expected trusted after save: %+v", st)
+	}
+
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho v2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	st, err = prompt.EvaluateTrust(projectDir, nil, projectHooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Untrusted {
+		t.Fatal("expected re-block after file: hook body change")
+	}
+}
+
+func TestEvaluateTrust_DiscoveredHookSourcesFilterNonFinishScripts(t *testing.T) {
+	projectDir := t.TempDir()
+	hooksDir := filepath.Join(projectDir, ".crit", "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"foo.sh":                "#!/bin/sh\n",
+		"on_finish_approved.sh": "#!/bin/sh\necho ok\n",
+		"on_finish_other.txt":   "nope\n",
+	} {
+		if err := os.WriteFile(filepath.Join(hooksDir, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	st, err := prompt.EvaluateTrust(projectDir, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.HasProjectPrompts {
+		t.Fatal("expected hooks-only project")
+	}
+	want := "project:.crit/hooks/on_finish_approved.sh"
+	found := false
+	for _, src := range st.Sources {
+		if src == want {
+			found = true
+		}
+		if strings.Contains(src, "foo.sh") || strings.Contains(src, "other.txt") {
+			t.Fatalf("unexpected hook source %q in %v", src, st.Sources)
+		}
+	}
+	if !found {
+		t.Fatalf("sources = %v, want %q", st.Sources, want)
+	}
+}
+
+func TestEvaluateTrust_HookFileSourcesInConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	script := filepath.Join(projectDir, ".crit", "hooks", "notify.sh")
+	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".crit.config.json"), []byte(`{"hooks":{"on_finish_approved":"file:.crit/hooks/notify.sh"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projectHooks := map[string]string{"on_finish_approved": "file:.crit/hooks/notify.sh"}
+
+	st, err := prompt.EvaluateTrust(projectDir, nil, projectHooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasConfig := false
+	hasFile := false
+	for _, src := range st.Sources {
+		if src == "project:.crit.config.json" {
+			hasConfig = true
+		}
+		if src == "project:.crit/hooks/notify.sh" {
+			hasFile = true
+		}
+	}
+	if !hasConfig || !hasFile {
+		t.Fatalf("sources = %v, want config + file hook paths", st.Sources)
+	}
+}
