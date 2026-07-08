@@ -682,6 +682,27 @@ func TestUpsertShareToWeb_CallsPUTOnChange(t *testing.T) {
 	}
 }
 
+func TestUpsertShareToWeb_RemoteDeleted(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/api/reviews/tok" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	cfg := CritJSON{
+		ShareURL:      srv.URL + "/r/tok",
+		DeleteToken:   "dt",
+		LastShareHash: "old-hash",
+		ReviewRound:   1,
+	}
+	_, err := upsertShareToWeb(cfg, []ShareFile{{Path: "plan.md", Content: "# changed"}}, []shareComment{}, "")
+	if !errors.Is(err, ErrShareNotFound) {
+		t.Fatalf("err = %v, want ErrShareNotFound", err)
+	}
+}
+
 func TestUpsertShareToWeb_SkipsPUTWhenUnchanged(t *testing.T) {
 	putCalled := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -914,6 +935,85 @@ func TestRunShareExisting_RemoteDeletedCreatesFreshShare(t *testing.T) {
 	}
 	if updated.DeleteToken != "new-delete-token" {
 		t.Fatalf("delete_token = %q, want fresh token", updated.DeleteToken)
+	}
+}
+
+func TestRunShareExisting_UpsertRemoteDeletedCreatesFreshShare(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, ".crit")
+
+	var putCount int
+	var postCount int
+	var baseURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/reviews/oldtoken/comments":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("[]"))
+		case r.Method == http.MethodPut && r.URL.Path == "/api/reviews/oldtoken":
+			putCount++
+			http.NotFound(w, r)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/reviews":
+			postCount++
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"url":          baseURL + "/r/newtoken",
+				"delete_token": "new-delete-token",
+			})
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	baseURL = srv.URL
+
+	cj := CritJSON{
+		ShareURL:      srv.URL + "/r/oldtoken",
+		DeleteToken:   "old-delete-token",
+		ShareScope:    ShareScope([]string{"plan.md"}),
+		LastShareHash: "old-hash",
+		ReviewRound:   1,
+		Files:         map[string]CritJSONFile{"plan.md": {}},
+	}
+	data, _ := json.MarshalIndent(cj, "", "  ")
+	if err := os.WriteFile(session.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runShareExisting(
+		cj,
+		critPath,
+		[]ShareFile{{Path: "plan.md", Content: "# changed\n"}},
+		[]string{"plan.md"},
+		srv.URL,
+		"",
+		"",
+		"",
+		"",
+		false,
+	)
+	if err != nil {
+		t.Fatalf("runShareExisting: %v", err)
+	}
+	if putCount != 1 {
+		t.Fatalf("PUT /api/reviews/oldtoken count = %d, want 1", putCount)
+	}
+	if postCount != 1 {
+		t.Fatalf("POST /api/reviews count = %d, want 1", postCount)
+	}
+
+	updated, ok, err := loadExistingShareCfg(critPath, []string{"plan.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected fresh share state")
+	}
+	if updated.ShareURL != srv.URL+"/r/newtoken" {
+		t.Fatalf("share_url = %q, want fresh URL", updated.ShareURL)
 	}
 }
 
