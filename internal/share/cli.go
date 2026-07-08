@@ -185,13 +185,20 @@ func handleShareAuthError() {
 	fmt.Fprintln(os.Stderr, "Auth token rejected by server; cleared local credentials. Run 'crit auth login' to re-authenticate.")
 }
 
-func runShareExisting(existingCfg session.CritJSON, critPath string, files []ShareFile, sharePaths []string, authToken, fallbackAuthor string, showQR bool) error {
+func runShareExisting(existingCfg session.CritJSON, critPath string, files []ShareFile, sharePaths []string, svcURL, authToken, fallbackAuthor, org, visibility string, showQR bool) error {
 	localIDs := BuildLocalIDSet(existingCfg)
 	localFingerprints, localFingerprintIDs := BuildLocalFingerprintIndex(existingCfg)
 	if fetched, err := FetchWebComments(existingCfg.ShareURL, localIDs, localFingerprints, localFingerprintIDs, authToken); err != nil {
 		if errors.Is(err, ErrShareUnauthorized) {
 			handleShareAuthError()
 			return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
+		}
+		if errors.Is(err, ErrShareNotFound) {
+			fmt.Fprintln(os.Stderr, "warning: previous shared review no longer exists; creating a new share")
+			if err := ClearShareState(critPath); err != nil {
+				return err
+			}
+			return runShareNew(critPath, files, sharePaths, svcURL, authToken, fallbackAuthor, org, visibility, showQR)
 		}
 		fmt.Fprintf(os.Stderr, "warning: could not pull remote comments: %v\n", err)
 	} else if len(fetched.NewComments) > 0 || len(fetched.ReplyUpdates) > 0 {
@@ -206,6 +213,13 @@ func runShareExisting(existingCfg session.CritJSON, critPath string, files []Sha
 	if err != nil {
 		if errors.Is(err, ErrShareUnauthorized) {
 			handleShareAuthError()
+		}
+		if errors.Is(err, ErrShareNotFound) {
+			fmt.Fprintln(os.Stderr, "warning: previous shared review no longer exists; creating a new share")
+			if err := ClearShareState(critPath); err != nil {
+				return err
+			}
+			return runShareNew(critPath, files, sharePaths, svcURL, authToken, fallbackAuthor, org, visibility, showQR)
 		}
 		return err
 	}
@@ -340,7 +354,7 @@ func runShareUnderLock(critPath string, files []ShareFile, sharePaths []string, 
 		return err
 	}
 	if lockedOK {
-		return runShareExisting(lockedCfg, critPath, files, sharePaths, authToken, author, showQR)
+		return runShareExisting(lockedCfg, critPath, files, sharePaths, svcURL, authToken, author, org, visibility, showQR)
 	}
 	return runShareNew(critPath, files, sharePaths, svcURL, authToken, author, org, visibility, showQR)
 }

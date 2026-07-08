@@ -109,8 +109,21 @@ func TestHandleShare_NoShareURL(t *testing.T) {
 }
 
 func TestHandleShare_AlreadyShared(t *testing.T) {
-	s, sess := newShareTestServer(t, "https://example.com", true)
-	sess.SetSharedURLAndToken("https://crit.md/r/existing", "tok_existing")
+	var getCount int
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/reviews/existing/comments" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		getCount++
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]"))
+	}))
+	defer critWeb.Close()
+
+	s, sess := newShareTestServer(t, critWeb.URL, true)
+	sess.SetSharedURLAndToken(critWeb.URL+"/r/existing", "tok_existing")
 	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -119,8 +132,11 @@ func TestHandleShare_AlreadyShared(t *testing.T) {
 	}
 	var result map[string]any
 	json.NewDecoder(w.Body).Decode(&result)
-	if result["url"] != "https://crit.md/r/existing" {
+	if result["url"] != critWeb.URL+"/r/existing" {
 		t.Errorf("url = %v", result["url"])
+	}
+	if getCount != 1 {
+		t.Errorf("GET comments count = %d, want 1", getCount)
 	}
 }
 

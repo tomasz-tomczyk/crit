@@ -804,6 +804,32 @@ func (s *Server) shareFilesForSession() (files []ShareFile, reviewType string, e
 	return sess.LoadShareFilesFromDisk(), "", nil
 }
 
+func (s *Server) writeExistingShareIfPresent(w http.ResponseWriter) (bool, error) {
+	// Uses GetShareState() to read both fields under a single lock (avoids TOCTOU race
+	// where a concurrent DELETE /api/share-url could clear the token between two calls).
+	existingURL, existingToken := s.session.Load().GetShareState()
+	if existingURL == "" {
+		return false, nil
+	}
+
+	_, err := share.FetchWebComments(existingURL, map[string]bool{}, map[string]bool{}, map[string]string{}, s.authTokenSnapshot())
+	if errors.Is(err, share.ErrShareNotFound) {
+		s.session.Load().SetSharedURLAndToken("", "")
+		s.session.Load().SetShareScope("")
+		s.session.Load().SetShareOrgInfo("", "", "")
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	writeJSON(w, map[string]any{
+		"url":          existingURL,
+		"delete_token": existingToken,
+	})
+	return true, nil
+}
+
 // handleShare uploads the current session to crit-web and returns the share URL.
 // POST /api/share
 func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
@@ -820,14 +846,15 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Idempotent: if already shared, return the existing URL without calling crit-web.
-	// Uses GetShareState() to read both fields under a single lock (avoids TOCTOU race
-	// where a concurrent DELETE /api/share-url could clear the token between two calls).
-	if existingURL, existingToken := s.session.Load().GetShareState(); existingURL != "" {
-		writeJSON(w, map[string]any{
-			"url":          existingURL,
-			"delete_token": existingToken,
-		})
+	// Idempotent: if already shared and still present on crit-web, return the
+	// existing URL without uploading. If the remote review was deleted, clear the
+	// stale local state and create a fresh share below.
+	if handled, err := s.writeExistingShareIfPresent(w); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	} else if handled {
 		return
 	}
 

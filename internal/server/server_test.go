@@ -1218,6 +1218,61 @@ func TestPostShareURL(t *testing.T) {
 	}
 }
 
+func TestPostShare_RemoteDeletedCreatesFreshShare(t *testing.T) {
+	s, session := newTestServer(t)
+
+	var postCount int
+	var baseURL string
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/reviews/oldtoken/comments":
+			http.NotFound(w, r)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/reviews":
+			postCount++
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"url":          baseURL + "/r/newtoken",
+				"delete_token": "new-delete-token",
+			})
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer critWeb.Close()
+	baseURL = critWeb.URL
+
+	s.shareURL = critWeb.URL
+	session.SetSharedURLAndToken(critWeb.URL+"/r/oldtoken", "old-delete-token")
+	session.SetShareScope("old-scope")
+	session.SetShareOrgInfo("old-org", "Old Org", "organization")
+
+	req := httptest.NewRequest("POST", "/api/share", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if postCount != 1 {
+		t.Fatalf("POST /api/reviews count = %d, want 1", postCount)
+	}
+
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["url"] != critWeb.URL+"/r/newtoken" {
+		t.Fatalf("url = %q, want fresh share URL", resp["url"])
+	}
+	if got := session.GetSharedURL(); got != critWeb.URL+"/r/newtoken" {
+		t.Fatalf("session shared URL = %q, want fresh share URL", got)
+	}
+	if got := session.GetDeleteToken(); got != "new-delete-token" {
+		t.Fatalf("session delete token = %q, want fresh delete token", got)
+	}
+}
+
 func TestPostShareURL_MethodNotAllowed(t *testing.T) {
 	s, _ := newTestServer(t)
 	req := httptest.NewRequest("PUT", "/api/share-url", nil)

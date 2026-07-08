@@ -58,6 +58,7 @@ func checkGitHubSyncAllowed(cj session.CritJSON, op string) error {
 }
 
 var ErrShareUnauthorized = errors.New("auth token rejected by share service")
+var ErrShareNotFound = errors.New("shared review not found")
 
 // shareScope computes a hash of sorted file paths, used to detect when
 // share state belongs to a different file set.
@@ -613,7 +614,7 @@ func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprin
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return result, nil // review gone
+		return result, ErrShareNotFound
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		return result, ErrShareUnauthorized
@@ -715,6 +716,9 @@ func upsertShareToWeb(cfg session.CritJSON, files []ShareFile, comments []ShareC
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		return result, ErrShareUnauthorized
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return result, ErrShareNotFound
 	}
 	if resp.StatusCode >= 400 {
 		return result, fmt.Errorf("upsert failed with status %d", resp.StatusCode)
