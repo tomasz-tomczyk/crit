@@ -10,6 +10,8 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
+var stopDaemonByKey = daemon.StopDaemon
+
 func RunStop(args []string) error {
 	all := false
 	var fileArgs []string
@@ -24,7 +26,9 @@ func RunStop(args []string) error {
 	cwd, _ := daemon.ResolvedCWD()
 
 	if all {
-		daemon.StopAllDaemonsForCWD(cwd)
+		if err := stopAllDaemons(cwd); err != nil {
+			return err
+		}
 		fmt.Println("All daemons stopped.")
 		return nil
 	}
@@ -37,7 +41,7 @@ func RunStop(args []string) error {
 	// If file args were given, use the exact key (user knows which session).
 	if len(fileArgs) > 0 {
 		key := daemon.SessionKey(cwd, branch, fileArgs)
-		if err := daemon.StopDaemon(key); err != nil {
+		if err := stopDaemonByKey(key); err != nil {
 			return err
 		}
 		fmt.Println("Daemon stopped.")
@@ -47,7 +51,7 @@ func RunStop(args []string) error {
 	// No file args: try exact key first (git-mode session with no args).
 	key := daemon.SessionKey(cwd, branch, nil)
 	if entry, _ := daemon.ReadSessionFile(key); entry.PID > 0 {
-		if err := daemon.StopDaemon(key); err != nil {
+		if err := stopDaemonByKey(key); err != nil {
 			return err
 		}
 		fmt.Println("Daemon stopped.")
@@ -65,9 +69,24 @@ func RunStop(args []string) error {
 		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 	}
 
-	if err := daemon.StopDaemon(foundKey); err != nil {
+	if err := stopDaemonByKey(foundKey); err != nil {
 		return err
 	}
 	fmt.Println("Daemon stopped.")
 	return nil
+}
+
+func stopAllDaemons(cwd string) error {
+	_, keys := daemon.ListAllSessions()
+	if len(keys) == 0 {
+		daemon.StopAllDaemonsForCWD(cwd)
+		return nil
+	}
+	var stopErrs []error
+	for _, key := range keys {
+		if err := stopDaemonByKey(key); err != nil {
+			stopErrs = append(stopErrs, fmt.Errorf("%s: %w", key, err))
+		}
+	}
+	return errors.Join(stopErrs...)
 }

@@ -675,6 +675,72 @@ func TestListSessionsForRepoRoot_NoPartialMatch(t *testing.T) {
 	}
 }
 
+func TestListAllSessions_FiltersAndCleans(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+
+	ts1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts1.Close()
+	port1, _ := strconv.Atoi(ts1.URL[strings.LastIndex(ts1.URL, ":")+1:])
+
+	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts2.Close()
+	port2, _ := strconv.Atoi(ts2.URL[strings.LastIndex(ts2.URL, ":")+1:])
+
+	pid := os.Getpid()
+	WriteSessionFile("repo1", SessionEntry{PID: pid, Port: port1, CWD: "/tmp/repo1", Branch: "main"})
+	WriteSessionFile("repo2", SessionEntry{PID: pid, Port: port2, CWD: "/tmp/repo2/sub", Branch: "feat"})
+	WriteSessionFile("dead", SessionEntry{PID: 999999999, Port: 3333, CWD: "/tmp/dead", Branch: "main"})
+
+	sessDir := filepath.Join(home, ".crit", "sessions")
+	if err := os.WriteFile(filepath.Join(sessDir, "notes.txt"), []byte("not a session"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessDir, "bad.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, keys := ListAllSessions()
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 alive sessions, got %d", len(entries))
+	}
+
+	foundKeys := map[string]bool{}
+	for _, key := range keys {
+		foundKeys[key] = true
+	}
+	if !foundKeys["repo1"] || !foundKeys["repo2"] {
+		t.Fatalf("expected repo1 and repo2 keys, got %v", keys)
+	}
+	if foundKeys["dead"] || foundKeys["bad"] {
+		t.Fatalf("dead or malformed session should not be returned, got %v", keys)
+	}
+	if _, err := os.Stat(filepath.Join(sessDir, "dead.json")); !os.IsNotExist(err) {
+		t.Fatalf("dead session file should be cleaned up, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sessDir, "notes.txt")); err != nil {
+		t.Fatalf("non-json file should be left alone: %v", err)
+	}
+}
+
+func TestListAllSessions_NoHomeReturnsEmpty(t *testing.T) {
+	t.Setenv("HOME", "")
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", "")
+		t.Setenv("HOMEDRIVE", "")
+		t.Setenv("HOMEPATH", "")
+	}
+
+	entries, keys := ListAllSessions()
+	if len(entries) != 0 || len(keys) != 0 {
+		t.Fatalf("ListAllSessions without home = %d entries, %d keys; want empty", len(entries), len(keys))
+	}
+}
+
 func TestAtomicWriteFile_Success(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "test.txt")

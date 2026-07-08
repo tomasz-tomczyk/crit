@@ -67,7 +67,7 @@ crit <file|dir> [...]         # Review specific files or directories (falls thro
 crit review [...]             # Explicit review invocation (same as default)
 crit live <url>               # Review a running web app in live mode (also: crit <url>)
 crit preview <file.html>      # Review a local HTML file in preview mode (also: crit <file.html>)
-crit stop [--all]             # Stop daemon(s) for current directory
+crit stop [--all]             # Stop daemon for current directory; --all stops every daemon
 crit status [--json]          # Show review file path, daemon status, comment stats
 crit cleanup [--days N] [--force]  # Delete stale review files from ~/.crit/reviews/
 crit pull [pr-number]         # Fetch GitHub PR comments into the review file
@@ -338,7 +338,7 @@ When the agent runs `crit` again (or calls `POST /api/round-complete`):
 2. **Subsequent `crit`**: connects to existing daemon (same cwd + args), signals round-complete, blocks
 3. **`crit plan.md`**: looks up daemon by hash(cwd + "plan.md") — reuses if alive, starts new if dead
 4. **Ctrl+C**: kills the daemon the client started
-5. **`crit stop`**: kills daemon for current cwd; `crit stop --all` kills all daemons for cwd
+5. **`crit stop`**: kills daemon for current cwd; `crit stop --all` kills every daemon
 6. **Lifetime**: daemon runs until killed (Ctrl+C, `crit stop`, or SIGINT/SIGTERM/SIGHUP). No idle timeout — walking away from a review session is fine.
 
 ### Deferred initialization & readiness

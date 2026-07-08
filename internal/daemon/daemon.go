@@ -300,6 +300,43 @@ func listSessionsForCWD(cwd string) ([]SessionEntry, []string) {
 	return sessions, keys
 }
 
+// ListAllSessions returns all alive registered sessions and their registry
+// keys, regardless of working directory. It cleans up stale session files as a
+// side effect.
+func ListAllSessions() ([]SessionEntry, []string) {
+	dir, err := sessionsDir()
+	if err != nil {
+		return nil, nil
+	}
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, nil
+	}
+	var alive []SessionEntry
+	var keys []string
+	for _, de := range dirEntries {
+		if !strings.HasSuffix(de.Name(), ".json") {
+			continue
+		}
+		key := strings.TrimSuffix(de.Name(), ".json")
+		data, err := os.ReadFile(filepath.Join(dir, de.Name()))
+		if err != nil {
+			continue
+		}
+		var entry SessionEntry
+		if err := json.Unmarshal(data, &entry); err != nil {
+			continue
+		}
+		if isDaemonAlive(entry) {
+			alive = append(alive, entry)
+			keys = append(keys, key)
+		} else {
+			RemoveSessionFile(key)
+		}
+	}
+	return alive, keys
+}
+
 // scanSessionsForCWD walks the session registry and returns the alive sessions
 // matching cwd plus their keys. Cleans up stale session files as a side
 // effect. A missing registry directory yields an empty result and nil error;
