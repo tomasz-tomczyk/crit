@@ -161,6 +161,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/api/share/payload", s.withReady(s.handleSharePayload))
 	mux.HandleFunc("/api/share/preview-payload", s.withReady(s.handlePreviewPayload))
 	mux.HandleFunc("/api/share/upsert-payload", s.withReady(s.handleUpsertPayload))
+	mux.HandleFunc("/api/share-policy", s.withReady(s.handleSharePolicy))
 	mux.HandleFunc("/api/share-url", s.withReady(s.handleShareURL))
 	mux.HandleFunc("/api/comments/merge", s.withReady(s.handleMergeComments))
 	mux.HandleFunc("/api/finish", s.withReady(s.handleFinish))
@@ -2822,6 +2823,53 @@ func (s *Server) handleAuthOrgs(w http.ResponseWriter, r *http.Request) {
 
 	if resp.StatusCode != http.StatusOK {
 		emptyArray()
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
+}
+
+// handleSharePolicy proxies GET /api/share-policy to the configured crit-web
+// service. Older self-hosted instances do not expose it, so every failure falls
+// back to the historical client behaviour: all current share options allowed.
+func (s *Server) handleSharePolicy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	defaultPolicy := func() {
+		writeJSON(w, map[string]any{
+			"allowed_comment_policies":    []string{"open", "logged_in_only", "disallowed"},
+			"allowed_review_visibilities": []string{"organization", "unlisted", "public"},
+		})
+	}
+
+	if s.shareURL == "" {
+		defaultPolicy()
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.shareURL+"/api/share-policy", nil)
+	if err != nil {
+		defaultPolicy()
+		return
+	}
+	share.SetBearer(req, s.authTokenSnapshot())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		defaultPolicy()
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		defaultPolicy()
 		return
 	}
 

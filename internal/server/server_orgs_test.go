@@ -123,3 +123,105 @@ func TestHandleAuthOrgs_MethodNotAllowed(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
 	}
 }
+
+func TestHandleSharePolicy(t *testing.T) {
+	defaultBody := `{"allowed_comment_policies":["open","logged_in_only","disallowed"],"allowed_review_visibilities":["organization","unlisted","public"]}`
+
+	tests := []struct {
+		name           string
+		shareURL       string
+		authToken      string
+		upstreamStatus int
+		upstreamBody   string
+		wantBody       string
+	}{
+		{
+			name:           "proxies upstream response",
+			shareURL:       "UPSTREAM",
+			authToken:      "valid-token",
+			upstreamStatus: http.StatusOK,
+			upstreamBody:   `{"allowed_comment_policies":["logged_in_only"],"allowed_review_visibilities":["unlisted"]}`,
+			wantBody:       `{"allowed_comment_policies":["logged_in_only"],"allowed_review_visibilities":["unlisted"]}`,
+		},
+		{
+			name:     "default policy when share_url not set",
+			shareURL: "",
+			wantBody: defaultBody,
+		},
+		{
+			name:           "default policy when upstream does not support endpoint",
+			shareURL:       "UPSTREAM",
+			upstreamStatus: http.StatusNotFound,
+			upstreamBody:   `{"error":"not found"}`,
+			wantBody:       defaultBody,
+		},
+		{
+			name:           "default policy when upstream returns error",
+			shareURL:       "UPSTREAM",
+			upstreamStatus: http.StatusInternalServerError,
+			upstreamBody:   `{"error":"boom"}`,
+			wantBody:       defaultBody,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotBearer string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotBearer = r.Header.Get("Authorization")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.upstreamStatus)
+				w.Write([]byte(tt.upstreamBody))
+			}))
+			defer upstream.Close()
+
+			s, _ := newTestServer(t)
+			if tt.shareURL == "UPSTREAM" {
+				s.shareURL = upstream.URL
+			} else {
+				s.shareURL = tt.shareURL
+			}
+			s.authMu.Lock()
+			s.authToken = tt.authToken
+			s.authMu.Unlock()
+
+			req := httptest.NewRequest(http.MethodGet, "/api/share-policy", nil)
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+			}
+
+			var got, want any
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("unmarshal response: %v (body: %s)", err, w.Body.String())
+			}
+			if err := json.Unmarshal([]byte(tt.wantBody), &want); err != nil {
+				t.Fatalf("unmarshal want: %v", err)
+			}
+			gotJSON, _ := json.Marshal(got)
+			wantJSON, _ := json.Marshal(want)
+			if string(gotJSON) != string(wantJSON) {
+				t.Errorf("body = %s, want %s", gotJSON, wantJSON)
+			}
+
+			if tt.authToken != "" && tt.upstreamStatus == http.StatusOK {
+				if want := "Bearer " + tt.authToken; gotBearer != want {
+					t.Errorf("Authorization = %q, want %q", gotBearer, want)
+				}
+			}
+		})
+	}
+}
+
+func TestHandleSharePolicy_MethodNotAllowed(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/share-policy", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+	}
+}

@@ -861,6 +861,8 @@ body {
 .sd-org-vis-option { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; transition: background 100ms; border: 0; background: transparent; text-align: left; font: inherit; color: inherit; width: 100%; }
 .sd-org-vis-option:hover { background: var(--crit-option-hover); }
 .sd-org-vis-option[aria-checked="true"] { background: var(--crit-option-selected-bg); }
+.sd-org-vis-option[aria-disabled="true"] { opacity: 0.42; cursor: not-allowed; }
+.sd-org-vis-option[aria-disabled="true"]:hover { background: transparent; }
 .sd-org-vis-option .sd-org-radio { margin-top: 1px; }
 .sd-org-vis-icon { flex-shrink: 0; color: var(--crit-fg-muted); margin-top: 1px; transition: color 120ms; }
 .sd-org-vis-option[aria-checked="true"] .sd-org-vis-icon { color: var(--crit-fg-secondary); }

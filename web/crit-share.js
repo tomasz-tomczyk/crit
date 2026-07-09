@@ -64,6 +64,8 @@
     // ---- internal share state ----
     var cachedOrgs = null;
     var fetchOrgsPromise = null;
+    var cachedSharePolicy = null;
+    var fetchSharePolicyPromise = null;
     var shareInFlight = false;
     var shareModalEl = null;
 
@@ -232,6 +234,71 @@
       return fetchOrgsPromise;
     }
 
+    const DEFAULT_SHARE_POLICY = {
+      allowed_comment_policies: ['open', 'logged_in_only', 'disallowed'],
+      allowed_review_visibilities: ['organization', 'unlisted', 'public'],
+    };
+
+    function normalizeSharePolicy(raw) {
+      const validVisibilities = DEFAULT_SHARE_POLICY.allowed_review_visibilities;
+      const rawVisibilities = raw && Array.isArray(raw.allowed_review_visibilities)
+        ? raw.allowed_review_visibilities
+        : validVisibilities;
+      const allowedVisibilities = rawVisibilities.filter(function(v) {
+        return validVisibilities.indexOf(v) !== -1;
+      });
+
+      const rawCommentPolicies = raw && Array.isArray(raw.allowed_comment_policies)
+        ? raw.allowed_comment_policies
+        : DEFAULT_SHARE_POLICY.allowed_comment_policies;
+
+      return {
+        allowed_comment_policies: rawCommentPolicies,
+        allowed_review_visibilities: allowedVisibilities.length > 0 ? allowedVisibilities : validVisibilities,
+      };
+    }
+
+    async function fetchSharePolicy() {
+      if (cachedSharePolicy !== null) return cachedSharePolicy;
+      if (fetchSharePolicyPromise) return fetchSharePolicyPromise;
+      fetchSharePolicyPromise = (async function() {
+        try {
+          const resp = await fetch('/api/share-policy');
+          if (!resp.ok) {
+            cachedSharePolicy = normalizeSharePolicy(null);
+            return cachedSharePolicy;
+          }
+          cachedSharePolicy = normalizeSharePolicy(await resp.json());
+        } catch {
+          cachedSharePolicy = normalizeSharePolicy(null);
+        }
+        fetchSharePolicyPromise = null;
+        return cachedSharePolicy;
+      })();
+      return fetchSharePolicyPromise;
+    }
+
+    function sharePolicyAllowsVisibility(policy, visibility) {
+      const normalized = normalizeSharePolicy(policy);
+      return normalized.allowed_review_visibilities.indexOf(visibility) !== -1;
+    }
+
+    function isSharePolicyRejection(err) {
+      const msg = (err && err.message ? err.message : String(err || '')).toLowerCase();
+      return msg.indexOf('visibility') !== -1 ||
+        msg.indexOf('comment_policy') !== -1 ||
+        msg.indexOf('comment policy') !== -1 ||
+        msg.indexOf('not allowed') !== -1 ||
+        msg.indexOf('disallowed') !== -1;
+    }
+
+    function shareErrorMessage(err) {
+      if (isSharePolicyRejection(err)) {
+        return 'That sharing option is not allowed by this Crit instance. Choose another option and try again.';
+      }
+      return err && err.message ? err.message : String(err || 'unknown error');
+    }
+
     async function performShare(org, visibility, orgMeta, popupSession) {
       if (shareInFlight) return;
       shareInFlight = true;
@@ -314,8 +381,9 @@
       }
     }
 
-    function showOrgShareModal(orgs) {
+    function showOrgShareModal(orgs, sharePolicy) {
       closeShareModal();
+      sharePolicy = normalizeSharePolicy(sharePolicy);
       const overlay = document.createElement('div');
       overlay.className = 'share-overlay';
       overlay.setAttribute('role', 'dialog');
@@ -334,11 +402,13 @@
       const ICON_VIS_PUBLIC = '<svg class="sd-org-vis-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>';
 
       const isPersonalSelected = !savedOrg || !orgs.some(function(o) { return o.slug === savedOrg; });
+      const initialPersonalVis = sharePolicyAllowsVisibility(sharePolicy, 'unlisted') ? 'unlisted' : sharePolicy.allowed_review_visibilities[0];
+      const initialOrgVis = sharePolicyAllowsVisibility(sharePolicy, 'organization') ? 'organization' : sharePolicy.allowed_review_visibilities[0];
 
       // Build owner rows using sd-org-owner-option (custom radio, no native input)
       let ownerRows = '';
       ownerRows +=
-        '<div class="sd-org-owner-option" role="radio" aria-checked="' + isPersonalSelected + '" tabindex="' + (isPersonalSelected ? '0' : '-1') + '" data-owner="" data-default-vis="unlisted">' +
+        '<div class="sd-org-owner-option" role="radio" aria-checked="' + isPersonalSelected + '" tabindex="' + (isPersonalSelected ? '0' : '-1') + '" data-owner="" data-default-vis="' + escapeHtml(initialPersonalVis) + '">' +
           '<span class="sd-org-radio"><span class="sd-org-radio-dot"></span></span>' +
           '<span class="sd-org-avatar sd-org-avatar--personal">' + escapeHtml(initials || '?') + '</span>' +
           '<span class="sd-org-owner-info"><span class="sd-org-owner-name">' + escapeHtml(authUserName || 'Personal') + '</span><span class="sd-org-owner-slug">Personal</span></span>' +
@@ -347,7 +417,7 @@
         const org = orgs[oi];
         const isSelected = savedOrg === org.slug;
         ownerRows +=
-          '<div class="sd-org-owner-option" role="radio" aria-checked="' + isSelected + '" tabindex="' + (isSelected ? '0' : '-1') + '" data-owner="' + escapeHtml(org.slug) + '" data-default-vis="organization">' +
+          '<div class="sd-org-owner-option" role="radio" aria-checked="' + isSelected + '" tabindex="' + (isSelected ? '0' : '-1') + '" data-owner="' + escapeHtml(org.slug) + '" data-default-vis="' + escapeHtml(initialOrgVis) + '">' +
             '<span class="sd-org-radio"><span class="sd-org-radio-dot"></span></span>' +
             '<span class="sd-org-avatar sd-org-avatar--org">' + ICON_ORG + '</span>' +
             '<span class="sd-org-owner-info"><span class="sd-org-owner-name">' + escapeHtml(org.name) + '</span><span class="sd-org-owner-slug">' + escapeHtml(org.slug) + '</span></span>' +
@@ -404,6 +474,33 @@
       const orgVisOption = visOptions.querySelector('[data-vis="organization"]');
       const orgVisDesc = overlay.querySelector('#orgVisOrgDesc');
       const unlistedVisDesc = overlay.querySelector('#orgVisUnlistedDesc');
+      const shareButton = overlay.querySelector('#orgShareBtn');
+
+      function isVisAvailable(el) {
+        return !!el && el.style.display !== 'none' && el.getAttribute('aria-disabled') !== 'true';
+      }
+
+      function firstAvailableVis() {
+        return Array.from(visOptions.querySelectorAll('.sd-org-vis-option')).find(isVisAvailable) || null;
+      }
+
+      function applyPolicyToVisOptions() {
+        visOptions.querySelectorAll('.sd-org-vis-option').forEach(function(el) {
+          const visibility = el.getAttribute('data-vis');
+          const allowed = sharePolicyAllowsVisibility(sharePolicy, visibility);
+          el.setAttribute('aria-disabled', allowed ? 'false' : 'true');
+          if (!allowed) {
+            el.setAttribute('tabindex', '-1');
+            el.setAttribute('title', 'Disabled by this Crit instance');
+          } else {
+            el.removeAttribute('title');
+          }
+        });
+      }
+
+      function syncShareButtonState() {
+        if (shareButton) shareButton.disabled = !firstAvailableVis();
+      }
 
       function selectOwner(el) {
         ownerList.querySelectorAll('.sd-org-owner-option').forEach(function(o) {
@@ -426,11 +523,13 @@
             selectVis(visOptions.querySelector('[data-vis="unlisted"]'));
           }
         }
-        selectVis(visOptions.querySelector('[data-vis="' + el.getAttribute('data-default-vis') + '"]'));
+        const defaultVis = visOptions.querySelector('[data-vis="' + el.getAttribute('data-default-vis') + '"]');
+        selectVis(isVisAvailable(defaultVis) ? defaultVis : firstAvailableVis());
+        syncShareButtonState();
       }
 
       function selectVis(el) {
-        if (!el || el.style.display === 'none') return;
+        if (!isVisAvailable(el)) return;
         visOptions.querySelectorAll('.sd-org-vis-option').forEach(function(o) {
           o.setAttribute('aria-checked', 'false');
           o.setAttribute('tabindex', '-1');
@@ -441,7 +540,10 @@
 
       function radioKeyNav(container, selector, selectFn) {
         container.addEventListener('keydown', function(e) {
-          const items = Array.from(container.querySelectorAll(selector)).filter(function(o) { return o.style.display !== 'none'; });
+          const items = Array.from(container.querySelectorAll(selector)).filter(function(o) {
+            return o.style.display !== 'none' && o.getAttribute('aria-disabled') !== 'true';
+          });
+          if (items.length === 0) return;
           const current = e.target.closest(selector);
           if (!current) return;
           const idx = items.indexOf(current);
@@ -463,11 +565,12 @@
 
       visOptions.addEventListener('click', function(e) {
         const opt = e.target.closest('.sd-org-vis-option');
-        if (opt && opt.style.display !== 'none') { selectVis(opt); opt.focus(); }
+        if (isVisAvailable(opt)) { selectVis(opt); opt.focus(); }
       });
       radioKeyNav(visOptions, '.sd-org-vis-option', function(el) { selectVis(el); el.focus(); });
 
       // Apply initial selection
+      applyPolicyToVisOptions();
       const initialOwner = ownerList.querySelector('[aria-checked="true"]');
       if (initialOwner) {
         const owner = initialOwner.getAttribute('data-owner');
@@ -479,12 +582,14 @@
         }
         const defVis = savedVis || initialOwner.getAttribute('data-default-vis');
         const visEl = visOptions.querySelector('[data-vis="' + defVis + '"]');
-        if (visEl && visEl.style.display !== 'none') {
+        if (isVisAvailable(visEl)) {
           selectVis(visEl);
         } else {
-          selectVis(visOptions.querySelector('[data-vis="' + initialOwner.getAttribute('data-default-vis') + '"]'));
+          const defaultVis = visOptions.querySelector('[data-vis="' + initialOwner.getAttribute('data-default-vis') + '"]');
+          selectVis(isVisAvailable(defaultVis) ? defaultVis : firstAvailableVis());
         }
       }
+      syncShareButtonState();
 
       // Close handlers
       overlay.addEventListener('click', function(e) { if (e.target === overlay) closeShareModal(); });
@@ -988,7 +1093,7 @@
 
     function showShareError(err) {
       const el = showToast('share', 'error',
-        '<span>Share failed: ' + escapeHtml(err.message) + '</span>' +
+        '<span>Share failed: ' + escapeHtml(shareErrorMessage(err)) + '</span>' +
         '<div class="toast-actions">' +
           '<button class="toast-btn toast-btn-filled" id="shareRetryBtn">Retry</button>' +
           '<button class="toast-btn toast-btn-ghost" data-dismiss-toast="share">Dismiss</button>' +
@@ -1021,11 +1126,13 @@
       // If user has orgs, show org share modal (handles consent inline)
       if (authUserName) {
         shareBtnEl.disabled = true;
-        const orgs = await fetchOrgs();
+        const results = await Promise.all([fetchOrgs(), fetchSharePolicy()]);
+        const orgs = results[0];
+        const sharePolicy = results[1];
         shareBtnEl.disabled = false;
         if (orgs.length > 0) {
           if (popupSession) popupSession.close();
-          showOrgShareModal(orgs);
+          showOrgShareModal(orgs, sharePolicy);
           return;
         }
       }

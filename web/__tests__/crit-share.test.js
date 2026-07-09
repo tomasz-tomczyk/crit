@@ -13,6 +13,8 @@
 
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 function makeButton() {
   return {
@@ -142,4 +144,20 @@ test('setButtonState toggles label/disabled/btn-success for sharing/shared/defau
   assert.equal(btn.textContent, 'Share');
   assert.equal(btn.disabled, false);
   assert.equal(btn.classList.contains('btn-success'), false);
+});
+
+test('share policy fetch falls back to historical allowed visibility options', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'crit-share.js'), 'utf8');
+
+  assert.match(src, /DEFAULT_SHARE_POLICY[\s\S]*allowed_review_visibilities:\s*\['organization', 'unlisted', 'public'\]/);
+  assert.match(src, /fetch\('\/api\/share-policy'\)/);
+  assert.match(src, /cachedSharePolicy = normalizeSharePolicy\(null\)/);
+});
+
+test('share modal disables policy-blocked visibility options', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'crit-share.js'), 'utf8');
+
+  assert.match(src, /setAttribute\('aria-disabled', allowed \? 'false' : 'true'\)/);
+  assert.match(src, /getAttribute\('aria-disabled'\) !== 'true'/);
+  assert.match(src, /That sharing option is not allowed by this Crit instance/);
 });
