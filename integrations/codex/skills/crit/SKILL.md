@@ -22,11 +22,11 @@ If no arguments, check conversation context:
 1. A plan file was written earlier in this conversation → `crit <plan-file>`
 2. Otherwise → bare `crit` (branch diff)
 
-## Step 2: Launch crit and block until review completes
+## Step 2: Launch crit and wait for review completion
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
 
-Run `crit` in the foreground and block until it exits:
+Run `crit` and wait until it exits:
 
 ```bash
 crit <plan-file>   # specific file
@@ -39,7 +39,9 @@ If a crit server is already running from earlier in this conversation, `crit` au
 
 > **"Crit is open at http://localhost:<port>. Leave inline comments, then click Finish Review."**
 
-**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. Wait for the foreground command to finish — that is how you know the human is done reviewing.
+**Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. Wait for the command to finish — that is how you know the human is done reviewing.
+
+While `crit` is still running, do not send user-facing progress updates. Treat the wait loop as internal state.
 
 ## Step 3: Read the review output
 
@@ -89,7 +91,7 @@ On subsequent calls, `crit` automatically signals round-complete first, then blo
 
 Tell the user: **"Changes applied. Review the diff in your browser and click Finish Review when ready."**
 
-**Do NOT proceed until `crit` completes.** When it does, return to Step 3. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
+**Do NOT proceed until the background `crit` task completes.** When it does, return to Step 3. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
 
 ## Sharing
 
