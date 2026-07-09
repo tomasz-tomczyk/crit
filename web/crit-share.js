@@ -258,17 +258,26 @@
       };
     }
 
-    async function fetchSharePolicy() {
+    function clearSharePolicyCache() {
+      cachedSharePolicy = null;
+      fetchSharePolicyPromise = null;
+    }
+
+    async function fetchSharePolicy(popupSession) {
       if (cachedSharePolicy !== null) return cachedSharePolicy;
       if (fetchSharePolicyPromise) return fetchSharePolicyPromise;
       fetchSharePolicyPromise = (async function() {
         try {
-          const resp = await fetch('/api/share-policy');
-          if (!resp.ok) {
-            cachedSharePolicy = normalizeSharePolicy(null);
-            return cachedSharePolicy;
+          if (popupSession) {
+            cachedSharePolicy = normalizeSharePolicy(await popupSession.run('sharePolicy', {}, 30000));
+          } else {
+            const resp = await fetch('/api/share-policy');
+            if (!resp.ok) {
+              cachedSharePolicy = normalizeSharePolicy(null);
+              return cachedSharePolicy;
+            }
+            cachedSharePolicy = normalizeSharePolicy(await resp.json());
           }
-          cachedSharePolicy = normalizeSharePolicy(await resp.json());
         } catch {
           cachedSharePolicy = normalizeSharePolicy(null);
         }
@@ -1092,6 +1101,7 @@
     }
 
     function showShareError(err) {
+      if (isSharePolicyRejection(err)) clearSharePolicyCache();
       const el = showToast('share', 'error',
         '<span>Share failed: ' + escapeHtml(shareErrorMessage(err)) + '</span>' +
         '<div class="toast-actions">' +
@@ -1126,7 +1136,7 @@
       // If user has orgs, show org share modal (handles consent inline)
       if (authUserName) {
         shareBtnEl.disabled = true;
-        const results = await Promise.all([fetchOrgs(), fetchSharePolicy()]);
+        const results = await Promise.all([fetchOrgs(), fetchSharePolicy(popupSession)]);
         const orgs = results[0];
         const sharePolicy = results[1];
         shareBtnEl.disabled = false;

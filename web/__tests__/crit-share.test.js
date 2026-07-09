@@ -151,6 +151,7 @@ test('share policy fetch falls back to historical allowed visibility options', (
 
   assert.match(src, /DEFAULT_SHARE_POLICY[\s\S]*allowed_review_visibilities:\s*\['organization', 'unlisted', 'public'\]/);
   assert.match(src, /fetch\('\/api\/share-policy'\)/);
+  assert.match(src, /popupSession\.run\('sharePolicy'/);
   assert.match(src, /cachedSharePolicy = normalizeSharePolicy\(null\)/);
 });
 
@@ -159,5 +160,6 @@ test('share modal disables policy-blocked visibility options', () => {
 
   assert.match(src, /setAttribute\('aria-disabled', allowed \? 'false' : 'true'\)/);
   assert.match(src, /getAttribute\('aria-disabled'\) !== 'true'/);
+  assert.match(src, /if \(isSharePolicyRejection\(err\)\) clearSharePolicyCache\(\)/);
   assert.match(src, /That sharing option is not allowed by this Crit instance/);
 });
