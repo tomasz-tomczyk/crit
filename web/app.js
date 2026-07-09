@@ -1105,6 +1105,7 @@
     md: 'markdown',    // normalize: callers compare lang against 'markdown'
     heex: 'heex',
     leex: 'heex',
+    rake: 'ruby',      // hljs has no .rake alias (Rakefiles are Ruby)
   };
   // Files identified by basename rather than extension.
   const BASENAME_LANG = {
