@@ -555,6 +555,8 @@ func runStoryLLM(f storyFlags, critPath string, cj review.CritJSON) error {
 		return clicmd.ExitError{Code: 1, Err: errors.New("no agent_cmd configured; set agent_cmd in ~/.crit.config.json, or use --story-file/--skip-llm/--guide")}
 	}
 
+	fmt.Fprintln(os.Stderr, "Generating story. This can take a minute, please wait...")
+
 	scope, err := buildStoryScope(f.scopeArgs)
 	if err != nil {
 		return err
@@ -580,6 +582,7 @@ func runStoryLLM(f storyFlags, critPath string, cj review.CritJSON) error {
 		return err
 	}
 
+	fmt.Fprintln(os.Stderr, "asking agent_cmd to write the story...")
 	st, err := generateStory(agentCmd, guide)
 	if err != nil {
 		return err

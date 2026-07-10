@@ -5986,8 +5986,7 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
   color: var(--crit-fg-muted);
 }
 .crit-story-prologue__eyebrow .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--crit-brand); }
-.crit-story-prologue h2,
-.crit-story-pr__prologue h2 {
+.crit-story-prologue h2 {
   font-size: 22px; font-weight: 650; line-height: 1.3;
   margin-bottom: 12px; max-width: none;
 }
@@ -5999,6 +5998,50 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 }
 .crit-story-prologue__overview p { margin: 0 0 8px; }
 .crit-story-prologue__overview p:last-child { margin-bottom: 0; }
+.crit-story-pane a {
+  color: var(--crit-brand);
+  text-decoration: none;
+  border-bottom: 1px solid var(--crit-brand-subtle);
+}
+.crit-story-pane a:hover {
+  color: var(--crit-brand-hover);
+  border-bottom-color: var(--crit-brand-hover);
+}
+.crit-story-prologue__overview h1,
+.crit-story-prologue__overview h2,
+.crit-story-prologue__overview h3 {
+  color: var(--crit-fg-primary);
+  font-size: 14px;
+  font-weight: 650;
+  margin: 14px 0 6px;
+}
+.crit-story-prologue__overview h1:first-child,
+.crit-story-prologue__overview h2:first-child,
+.crit-story-prologue__overview h3:first-child { margin-top: 0; }
+.crit-story-prologue__overview ul,
+.crit-story-prologue__overview ol {
+  margin: 6px 0 10px;
+  padding-left: 20px;
+}
+.crit-story-prologue__overview li { margin: 3px 0; }
+.crit-story-prologue__overview code {
+  font-family: var(--crit-font-mono);
+  font-size: 0.88em;
+  padding: 1px 5px;
+  background: var(--crit-editor-bg-elevated);
+  border-radius: 3px;
+}
+.crit-story-prologue__overview pre {
+  background: var(--crit-editor-bg-elevated);
+  border-radius: var(--crit-r-sm);
+  padding: 8px 10px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.crit-story-prologue__overview pre code {
+  padding: 0;
+  background: none;
+}
 .crit-story-prologue__bullets {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6037,38 +6080,7 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
   border-radius: 50%;
   background: var(--crit-brand);
 }
-.crit-story-pr {
-  margin: 0 0 24px;
-}
-.crit-story-pr__tabs {
-  display: flex;
-  gap: 14px;
-  border-bottom: 1px solid var(--crit-l-hairline);
-}
-.crit-story-pr__tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--crit-fg-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12.5px;
-  padding: 7px 0 8px;
-}
-.crit-story-pr__tab.active { color: var(--crit-fg-primary); border-bottom-color: var(--crit-brand); }
-.crit-story-pr__tab:disabled { opacity: 0.45; cursor: default; }
-.crit-story-pr__panel { display: none; padding: 16px 0 0; color: var(--crit-fg-secondary); font-size: 13px; }
-.crit-story-pr__panel.active { display: block; }
-.crit-story-pr__title { color: var(--crit-fg-primary); font-weight: 600; text-decoration: none; }
-.crit-story-pr__title:hover { color: var(--crit-brand); }
-.crit-story-prologue h2 span,
-.crit-story-pr__prologue h2 span { color: var(--crit-fg-muted); font-weight: 400; }
-.crit-story-pr__github { width: 14px; height: 14px; flex: none; }
-.crit-story-pr__meta { margin: -4px 0 14px; color: var(--crit-fg-muted); font-size: 12px; }
-.crit-story-pr__description { margin-top: 0; }
+.crit-story-prologue h2 span { color: var(--crit-fg-muted); font-weight: 400; }
 .crit-story-divider {
   display: flex; align-items: center; gap: 10px; margin: 4px 0 14px;
   font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
@@ -6142,7 +6154,7 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 .crit-story-file-group.viewed { opacity: 0.62; transition: opacity 140ms; }
 .crit-story-file-group.viewed:hover { opacity: 1; }
 .crit-story-file-header {
-  top: var(--header-height, 49px);
+  top: 0;
   border-left: 1px solid var(--crit-border);
   border-right: 1px solid var(--crit-border);
   border-radius: var(--crit-r-md) var(--crit-r-md) 0 0;

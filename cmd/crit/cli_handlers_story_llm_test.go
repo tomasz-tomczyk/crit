@@ -124,6 +124,38 @@ func TestStoryLLM_HappyPath(t *testing.T) {
 	}
 }
 
+func TestStoryLLM_PrintsProgressWhileGenerating(t *testing.T) {
+	_, scratch := setupStoryRepoLLM(t)
+	stubPostIngest(t)
+	agent := fakeAgentScript(t, scratch, validCannedStory)
+	setAgentCmd(t, agent)
+
+	var stderr strings.Builder
+	old := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&stderr, r)
+		close(done)
+	}()
+
+	err := runStoryE(nil)
+	w.Close()
+	<-done
+	os.Stderr = old
+
+	if err != nil {
+		t.Fatalf("expected clean generation, got: %v", err)
+	}
+	out := stderr.String()
+	for _, want := range []string{"Generating story", "please wait", "asking agent_cmd"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("story generation stderr missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestStoryLLM_FencedOutput(t *testing.T) {
 	_, scratch := setupStoryRepoLLM(t)
 	stubPostIngest(t)

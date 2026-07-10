@@ -51,7 +51,7 @@ const STORY = {
   agent: 'e2e-test',
   prologue: {
     title: 'Route registration story',
-    overview: 'Reworks route registration and documents the plan.',
+    overview: 'Reworks route registration and documents the [plan](https://example.com/plan).',
     key_changes: [
       'routes.go adds the health-check route and grouped imports.',
       'Dashboard logging and plan.md document the route behavior.',
@@ -90,9 +90,40 @@ const STORY = {
   ],
 };
 
-function writeStoryFixtureFile(): string {
+const MERGED_HUNK_STORY = {
+  version: 1,
+  agent: 'e2e-test',
+  prologue: {
+    title: 'Merged hunk story',
+    overview: 'Exercises story rendering for small-gap hunk clusters.',
+    key_changes: ['server.go raw hunks render as one small-gap cluster.'],
+    risks: ['Missing nearby raw hunks would hide part of the logical change.'],
+  },
+  chapters: [
+    {
+      id: 'ch1',
+      title: 'Server auth cluster',
+      summary: 'The first server.go hunk should render the full small-gap cluster.',
+      hunk_refs: [{ file_path: 'server.go', old_start: 2 }],
+    },
+  ],
+  support: [
+    {
+      hunk_refs: [
+        { file_path: 'server.go', old_start: 17 },
+        { file_path: 'server.go', old_start: 39 },
+        { file_path: 'routes.go', old_start: 1 },
+        { file_path: 'routes.go', old_start: 48 },
+        { file_path: 'plan.md', old_start: 0 },
+      ],
+      reason: 'Additional fixture hunks keep the story above ingestion coverage requirements.',
+    },
+  ],
+};
+
+function writeStoryFixtureFile(story: Record<string, unknown> = STORY): string {
   const file = path.join(os.tmpdir(), `crit-e2e-story-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
-  fs.writeFileSync(file, JSON.stringify(STORY));
+  fs.writeFileSync(file, JSON.stringify(story));
   return file;
 }
 
@@ -124,8 +155,8 @@ function storyView(page: Page, pageId: string) {
   return page.locator(`#crit-story-view-${pageId}`);
 }
 
-async function ingestStory(critBin: string, fixtureDir: string, fakeHome: string, opts: { refresh?: boolean } = {}) {
-  const storyFile = writeStoryFixtureFile();
+async function ingestStory(critBin: string, fixtureDir: string, fakeHome: string, opts: { refresh?: boolean; story?: Record<string, unknown> } = {}) {
+  const storyFile = writeStoryFixtureFile(opts.story || STORY);
   // --refresh forces a re-ingest (and a story-updated SSE to a running daemon)
   // even when a story is already present, where a bare `crit story` would
   // instead resume the existing one.
@@ -169,37 +200,17 @@ test.describe('Story mode', () => {
 
   test('ingesting a story activates the overview with prologue and chapter TOC', async ({ page, request }) => {
     await ingestStory(critBin, fixtureDir, fakeHome);
-    await page.route('**/api/config', async route => {
-      const res = await route.fetch();
-      const body = await res.json();
-      await route.fulfill({
-        response: res,
-        json: {
-          ...body,
-          pr_number: 735,
-          pr_url: 'https://github.com/tomasz-tomczyk/crit/pull/735',
-          pr_title: 'feat: add story review mode',
-          pr_body: 'PR description from GitHub.',
-          pr_head_ref: 'story-mode',
-          pr_base_ref: 'main',
-        },
-      });
-    });
     await loadPage(page);
 
     await expect(page.locator('body')).toHaveClass(/crit-story-active/);
     await expect(storyOverview(page)).toBeVisible();
-    const tabs = storyOverview(page).locator('.crit-story-pr__tabs');
-    await expect(tabs.locator('.crit-story-pr__tab', { hasText: 'Story' })).toHaveClass(/active/);
     await expect(storyOverview(page).locator('.crit-story-prologue')).toContainText('Reworks route registration');
     await expect(storyOverview(page).locator('.crit-story-prologue')).toContainText('Key changes');
     await expect(storyOverview(page).locator('.crit-story-prologue')).toContainText('Dashboard logging and plan.md');
     await expect(storyOverview(page).locator('.crit-story-prologue')).toContainText('Risks');
-    await tabs.locator('.crit-story-pr__tab', { hasText: 'PR' }).click();
-    await expect(storyOverview(page).locator('.crit-story-pr__panel.active')).toContainText('feat: add story review mode');
-    await expect(storyOverview(page).locator('.crit-story-pr__panel.active')).toContainText('#735');
-    await expect(storyOverview(page).locator('.crit-story-pr__panel.active')).toContainText('story-mode -> main');
-    await expect(storyOverview(page).locator('.crit-story-pr__panel.active')).toContainText('PR description from GitHub.');
+    const overviewLink = storyOverview(page).locator('.crit-story-prologue__overview a', { hasText: 'plan' });
+    await expect(overviewLink).toBeVisible();
+    await expect(overviewLink).not.toHaveCSS('color', 'rgb(0, 0, 238)');
 
     await expect(tocItem(page, 'ch1')).toContainText('Route imports + health check');
     await expect(tocItem(page, 'ch2')).toContainText('Dashboard logging + docs');
@@ -219,6 +230,7 @@ test.describe('Story mode', () => {
     const ch1View = storyView(page, 'ch1');
     await expect(ch1View).toBeVisible();
     await expect(ch1View.locator('.crit-story-file-group[data-story-file="routes.go"]')).toBeVisible();
+    await expect(ch1View.locator('.crit-story-file-header')).toHaveCSS('top', '0px');
     // Only ch1's hunk group renders — plan.md and handler.js belong to other pages.
     await expect(ch1View.locator('.crit-story-file-group')).toHaveCount(1);
     await expect(ch1View.locator('.crit-story-chapter__top .crit-story-chapter__mark')).toHaveCount(0);
@@ -362,6 +374,29 @@ test.describe('Story mode', () => {
       const rowsAfter = await group.locator('.diff-split-row').count();
       expect(rowsAfter).toBeGreaterThan(rowsBefore);
     }).toPass();
+  });
+
+  test('story chapter refs render the full small-gap hunk cluster', async ({ page, request }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome, { story: MERGED_HUNK_STORY });
+    const comment = await addComment(request, 'server.go', 68, 'Story E2E: merged cluster support comment');
+    await loadPage(page);
+
+    await tocItem(page, 'ch1').click();
+    const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="server.go"]');
+    await expect(group).toBeVisible();
+
+    await expect(group.locator('.diff-spacer').first()).toContainText('@@ -2,43 +2,70 @@');
+    await expect(group).toContainText('authMiddleware');
+    await expect(group).toContainText('Server starting on :%s');
+
+    await page.keyboard.press('Shift+C');
+    const panel = page.locator('#commentsPanel');
+    await expect(panel).not.toHaveClass(/comments-panel-hidden/);
+    const panelCard = panel.locator('.comment-card', { hasText: 'Story E2E: merged cluster support comment' });
+    await expect(panelCard).toBeVisible();
+    await panelCard.click();
+    await expect(page).toHaveURL(/#story\/support$/);
+    await expect(storyView(page, 'support').locator(`.comment-card[data-comment-id="${comment.id}"]`)).toBeVisible();
   });
 
   test('story chapter rail fills the viewport and uses the shared resize handle', async ({ page }) => {

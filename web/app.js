@@ -3425,11 +3425,11 @@
         const merged = {
           OldStart: hunks[i].OldStart,
           NewStart: hunks[i].NewStart,
-          Header: hunks[i].Header,
           Lines: hunks[i].Lines.concat(contextLines, hunks[i + 1].Lines)
         };
         merged.OldCount = (hunks[i + 1].OldStart + hunks[i + 1].OldCount) - merged.OldStart;
         merged.NewCount = (hunks[i + 1].NewStart + hunks[i + 1].NewCount) - merged.NewStart;
+        merged.Header = buildHunkHeader(merged.OldStart, merged.OldCount, merged.NewStart, merged.NewCount, hunks[i].Header);
         // Replace both with merged — don't increment i to check merged against next
         hunks.splice(i, 2, merged);
       } else {
@@ -8160,9 +8160,11 @@
   // the new scope is never requested. Surfaced as a Windows-only e2e flake:
   // slower file I/O made loadAllFileData() outlast the next click handler, so
   // clicks that swapped scope returned the previous scope's in-flight promise.
+  // Story/Diff also changes the effective fetch/file-data scopes without
+  // changing diffScope itself, so include those derived scopes in the key.
   let reloadInFlightKey = null;
   async function reloadForScope() {
-    const key = diffScope + '\0' + diffCommit;
+    const key = currentSessionFetchScope() + '\0' + currentFileDataScope() + '\0' + diffCommit;
     if (reloadInFlight && reloadInFlightKey === key) return reloadInFlight;
     if (reloadInFlight) {
       // Different inputs — chain after the in-flight reload finishes so we
@@ -9827,6 +9829,17 @@
     return pageId + '\0' + filePath + '\0' + (oldStarts || []).join(',');
   }
 
+  function copyDiffHunk(hunk) {
+    return Object.assign({}, hunk, { Lines: (hunk.Lines || []).slice() });
+  }
+
+  function hunkContainsOldStart(hunk, oldStart) {
+    if (!hunk) return false;
+    if (hunk.OldStart === oldStart) return true;
+    if (hunk.OldCount <= 0) return false;
+    return oldStart >= hunk.OldStart && oldStart < hunk.OldStart + hunk.OldCount;
+  }
+
   function syncStoryCloneFromFile(clone, file) {
     clone.oldPath = file.oldPath;
     clone.status = file.status;
@@ -9863,23 +9876,36 @@
     const cached = storyExpandedFileCache.get(key);
     if (cached && cached.fileHash === file.fileHash) {
       syncStoryCloneFromFile(cached.clone, file);
-      return { clone: cached.clone, total: allHunks.length, shown: cached.clone.diffHunks.length };
+      return { clone: cached.clone, total: cached.total, shown: cached.clone.diffHunks.length };
     }
 
-    const filtered = allHunks.filter(function (h) { return wanted.has(h.OldStart); });
-    // Deep-copy hunks so renderer-side expansion (expandHunksForComments /
-    // autoExpandSmallGaps) mutates the clone, never the real file's hunks.
-    const copiedHunks = filtered.map(function (h) {
-      return Object.assign({}, h, { Lines: (h.Lines || []).slice() });
+    // Deep-copy and apply the same small-gap coalescing that normal diff
+    // rendering applies before filtering. Story refs are generated from the
+    // reviewer-facing hunk starts, while the raw git diff can split a logical
+    // GitHub-style hunk into several close zero-context hunks. Filtering first
+    // drops the later pieces of that visual hunk.
+    const expandedFile = Object.assign({}, file, {
+      diffHunks: allHunks.map(copyDiffHunk),
+      _autoExpandDone: false,
+      viewMode: 'diff',
     });
+    autoExpandSmallGaps(expandedFile);
+    const expandedHunks = expandedFile.diffHunks || [];
+    const filtered = expandedHunks.filter(function (h) {
+      for (const oldStart of wanted) {
+        if (hunkContainsOldStart(h, oldStart)) return true;
+      }
+      return false;
+    });
+    const copiedHunks = filtered.map(copyDiffHunk);
     const clone = Object.assign({}, file, {
       diffHunks: copiedHunks,
       _autoExpandDone: false,
       // Force diff view for the group body regardless of markdown viewMode.
       viewMode: 'diff',
     });
-    storyExpandedFileCache.set(key, { fileHash: file.fileHash, clone: clone });
-    return { clone: clone, total: allHunks.length, shown: copiedHunks.length };
+    storyExpandedFileCache.set(key, { fileHash: file.fileHash, clone: clone, total: expandedHunks.length });
+    return { clone: clone, total: expandedHunks.length, shown: copiedHunks.length };
   }
 
   // ----- Rail -----
@@ -9987,73 +10013,6 @@
     return n;
   }
 
-  function renderStoryOverviewTabs(prologueEl) {
-    const pr = prData;
-    if (!pr || !pr.pr_number || !(pr.pr_title || (pr.pr_body && pr.pr_body.trim()))) return prologueEl;
-    const githubIcon = '<svg class="crit-story-pr__github" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.63 5.47 7.71.4.08.55-.18.55-.39 0-.19-.01-.83-.01-1.5-2.01.38-2.53-.5-2.69-.96-.09-.24-.48-.96-.82-1.15-.28-.15-.68-.53-.01-.54.63-.01 1.08.59 1.23.83.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-.21-3.64-.91-3.64-4.02 0-.89.31-1.62.82-2.19-.08-.2-.36-1.04.08-2.16 0 0 .67-.22 2.2.84A7.42 7.42 0 0 1 8 3.92c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.96.08 2.16.51.57.82 1.3.82 2.19 0 3.12-1.87 3.81-3.65 4.02.29.25.54.74.54 1.5 0 1.08-.01 1.95-.01 2.22 0 .22.15.47.55.39A8.08 8.08 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z"/></svg>';
-
-    const box = document.createElement('section');
-    box.className = 'crit-story-pr';
-
-    const tabs = document.createElement('div');
-    tabs.className = 'crit-story-pr__tabs';
-    const storyBtn = document.createElement('button');
-    storyBtn.type = 'button';
-    storyBtn.className = 'crit-story-pr__tab active';
-    storyBtn.dataset.storyPrTab = 'story';
-    storyBtn.textContent = 'Story';
-    tabs.appendChild(storyBtn);
-    const summaryBtn = document.createElement('button');
-    summaryBtn.type = 'button';
-    summaryBtn.className = 'crit-story-pr__tab';
-    summaryBtn.dataset.storyPrTab = 'summary';
-    summaryBtn.innerHTML = githubIcon + '<span>PR</span>';
-    tabs.appendChild(summaryBtn);
-    box.appendChild(tabs);
-
-    const storyPanel = document.createElement('div');
-    storyPanel.className = 'crit-story-pr__panel active';
-    storyPanel.dataset.storyPrPanel = 'story';
-    storyPanel.appendChild(prologueEl);
-    box.appendChild(storyPanel);
-
-    const summaryPanel = document.createElement('div');
-    summaryPanel.className = 'crit-story-pr__panel crit-story-pr__prologue';
-    summaryPanel.dataset.storyPrPanel = 'summary';
-    const prHref = pr.pr_url ? escapeHtml(pr.pr_url) : '#';
-    const meta = (pr.pr_head_ref || pr.pr_base_ref)
-      ? '<div class="crit-story-pr__meta">' + escapeHtml(pr.pr_head_ref || '') + ' -> ' + escapeHtml(pr.pr_base_ref || '') + '</div>'
-      : '';
-    summaryPanel.innerHTML =
-      '<div class="crit-story-prologue__eyebrow">' + githubIcon + ' Pull Request</div>' +
-      '<h2><a class="crit-story-pr__title" href="' + prHref + '" target="_blank" rel="noopener noreferrer">' +
-        escapeHtml(pr.pr_title || 'Pull Request') + '</a> <span>#' + escapeHtml(String(pr.pr_number)) + '</span></h2>' +
-      meta;
-    const body = document.createElement('div');
-    body.className = 'crit-story-prologue__overview crit-story-pr__description';
-    if (pr.pr_body && pr.pr_body.trim()) {
-      body.innerHTML = commentMd.render(pr.pr_body);
-      linkifyCommentRefsInDom(body);
-    } else {
-      body.textContent = 'No PR description.';
-    }
-    summaryPanel.appendChild(body);
-    box.appendChild(summaryPanel);
-
-    tabs.addEventListener('click', function (e) {
-      const btn = e.target.closest('.crit-story-pr__tab');
-      if (!btn || btn.disabled) return;
-      const tab = btn.dataset.storyPrTab;
-      tabs.querySelectorAll('.crit-story-pr__tab').forEach(function (b) {
-        b.classList.toggle('active', b === btn);
-      });
-      box.querySelectorAll('.crit-story-pr__panel').forEach(function (panel) {
-        panel.classList.toggle('active', panel.dataset.storyPrPanel === tab);
-      });
-    });
-    return box;
-  }
-
   // ----- Overview -----
   function renderStoryOverview() {
     const inner = document.getElementById('storyPaneInner');
@@ -10099,7 +10058,7 @@
       dia.appendChild(pre);
       prologueEl.appendChild(dia);
     }
-    view.appendChild(renderStoryOverviewTabs(prologueEl));
+    view.appendChild(prologueEl);
 
     const divider = document.createElement('div');
     divider.className = 'crit-story-divider';
@@ -10599,7 +10558,17 @@
         if (ln.NewNum === line || ln.OldNum === line) { hit = true; break; }
       }
       if (hit) {
-        const owner = storyState.hunkOwner.get(hunkKey(filePath, h.OldStart));
+        let owner;
+        const ownedStarts = storyOwnedStartsInHunk(filePath, h);
+        if (ownedStarts.length) {
+          let chosen = ownedStarts[0];
+          for (let s = 0; s < ownedStarts.length; s++) {
+            if (ownedStarts[s] <= line) chosen = ownedStarts[s];
+          }
+          owner = storyState.hunkOwner.get(hunkKey(filePath, chosen));
+        } else {
+          owner = storyState.hunkOwner.get(hunkKey(filePath, h.OldStart));
+        }
         if (owner !== undefined) return storyPageId(storyState.pages[owner]);
       }
     }
@@ -10610,6 +10579,23 @@
       return storyPageId(storyState.pages[first]);
     }
     return null;
+  }
+
+  function storyOwnedStartsInHunk(filePath, hunk) {
+    if (!storyState || !hunk) return [];
+    const starts = [];
+    const oldEnd = hunk.OldStart + Math.max(1, hunk.OldCount || 0);
+    storyState.pages.forEach(function (page) {
+      const refs = page.refsByFile && page.refsByFile.get(filePath);
+      (refs || []).forEach(function (oldStart) {
+        const inRange = hunk.OldCount <= 0
+          ? oldStart === hunk.OldStart
+          : oldStart >= hunk.OldStart && oldStart < oldEnd;
+        if (inRange) starts.push(oldStart);
+      });
+    });
+    starts.sort(function (a, b) { return a - b; });
+    return starts;
   }
 
   // Ensure the chapter owning (filePath, line) is active; returns true if a
