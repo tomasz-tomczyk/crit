@@ -305,6 +305,18 @@ func TestStoryClearFallsBackWhenDaemonDies(t *testing.T) {
 	}
 }
 
+func TestStoryClearReturnsErrorWhileDaemonStillAlive(t *testing.T) {
+	setupStoryRepo(t)
+	origAlive, origDelete := storyDaemonAlive, storyDeleteStory
+	t.Cleanup(func() { storyDaemonAlive, storyDeleteStory = origAlive, origDelete })
+	storyDaemonAlive = func(string) (daemon.SessionEntry, bool) { return daemon.SessionEntry{}, true }
+	storyDeleteStory = func(daemon.SessionEntry) error { return errors.New("delete failed") }
+	err := runStoryE([]string{"--clear"})
+	if err == nil || !strings.Contains(err.Error(), "delete failed") {
+		t.Fatalf("expected live daemon delete error, got %v", err)
+	}
+}
+
 func TestResolveStoryReviewPathIgnoresOtherScopedDaemon(t *testing.T) {
 	setupStoryRepo(t)
 	origAlive := storyDaemonAlive

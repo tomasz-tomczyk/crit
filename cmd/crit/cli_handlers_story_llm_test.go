@@ -600,6 +600,50 @@ func TestPostStoryToDaemon_RejectsNonReadinessError(t *testing.T) {
 	}
 }
 
+func TestDeleteStoryFromDaemon(t *testing.T) {
+	deleted := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/session":
+			w.WriteHeader(http.StatusOK)
+		case "/api/story":
+			if r.Method != http.MethodDelete {
+				t.Errorf("method = %s, want DELETE", r.Method)
+			}
+			deleted = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	port, _ := strconv.Atoi(u.Port())
+	if err := deleteStoryFromDaemon(daemon.SessionEntry{Host: u.Hostname(), Port: port}); err != nil {
+		t.Fatalf("deleteStoryFromDaemon: %v", err)
+	}
+	if !deleted {
+		t.Fatal("DELETE /api/story was not called")
+	}
+}
+
+func TestDeleteStoryFromDaemonRejectsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/session" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Error(w, "could not clear", http.StatusConflict)
+	}))
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	port, _ := strconv.Atoi(u.Port())
+	err := deleteStoryFromDaemon(daemon.SessionEntry{Host: u.Hostname(), Port: port})
+	if err == nil || !strings.Contains(err.Error(), "could not clear") {
+		t.Fatalf("expected daemon error body, got %v", err)
+	}
+}
+
 // TestPostStoryToDaemon_ErrorOnNon2xx verifies a non-2xx daemon response is a
 // returned error (so postIngest logs it as a note rather than silently
 // succeeding).
