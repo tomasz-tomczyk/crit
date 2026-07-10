@@ -163,6 +163,38 @@ func TestHandleFinish_ProjectHookRunsAfterTrust(t *testing.T) {
 	}
 }
 
+func TestHandleFinish_ProjectHookRunsWithPromptUntilChangeTrust(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh -c inline hook tested on unix")
+	}
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	s, session := newTestServer(t)
+	s.homeDir = home
+	dir := session.RepoRoot
+	s.projectDir = dir
+	_, marker := markerCmd(t)
+	configBody := `{"prompts":{"on_finish_approved":"inline:Approved."},"hooks":{"on_finish_approved":"inline:printf p > '` + marker + `'"}}`
+	if err := os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(configBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	trustReq := httptest.NewRequest("POST", "/api/project-prompts/trust", strings.NewReader(`{"mode":"until_change"}`))
+	trustReq.Header.Set("Content-Type", "application/json")
+	tw := httptest.NewRecorder()
+	s.ServeHTTP(tw, trustReq)
+	if tw.Code != http.StatusOK {
+		t.Fatalf("trust status = %d body=%s", tw.Code, tw.Body.String())
+	}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("POST", "/api/finish", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("finish status = %d body=%s", w.Code, w.Body.String())
+	}
+	if _, err := os.ReadFile(marker); err != nil {
+		t.Fatalf("project hook did not run with prompt+hook until_change trust: %v", err)
+	}
+}
+
 // TestHandleFinish_DiscoveredFileHook runs a discovered .crit/hooks/*.sh script.
 func TestHandleFinish_DiscoveredFileHook(t *testing.T) {
 	if runtime.GOOS == "windows" {

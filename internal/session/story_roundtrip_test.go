@@ -5,7 +5,29 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
+
+func TestStoryScopeRangeIncludesIgnoredHunks(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	commitAt(t, dir, "visible.go", "package visible\n", "add visible")
+	commitAt(t, dir, "ignored.go", "package ignored\n", "add ignored")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+	s := &Session{
+		Mode: "git", RepoRoot: dir, BaseRef: base, VCS: &vcs.GitVCS{},
+		Focus: Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer},
+		Files: []*FileEntry{{Path: "visible.go", Status: "added", Content: "package visible\n", DiffHunks: vcs.FileDiffUnifiedNewFile("package visible\n")}},
+	}
+	scope := s.StoryScope([]string{"ignored.go"})
+	for _, file := range scope.Files {
+		if file.Path == "ignored.go" && file.Ignored && len(file.Hunks) > 0 {
+			return
+		}
+	}
+	t.Fatalf("range story scope omitted ignored hunks: %+v", scope.Files)
+}
 
 // TestBuildCritJSONPreservesStory verifies that an externally-set story on
 // review.json survives the daemon's read-merge-modify write cycle, because

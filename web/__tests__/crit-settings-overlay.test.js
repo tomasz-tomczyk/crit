@@ -339,10 +339,10 @@ test('? toggles shortcuts tab when overlay is open; closes when already on short
   var ctl = api.install({ overlay: dom.overlay, document: doc });
   ctl.open('settings');
 
-  doc.fire('keydown', { key: '?', preventDefault: function () {} });
+  doc.fire('keydown', { key: '?', preventDefault: function () {}, stopImmediatePropagation: function () {} });
   assert.equal(ctl.getActiveTab(), 'shortcuts');
 
-  doc.fire('keydown', { key: '?', preventDefault: function () {} });
+  doc.fire('keydown', { key: '?', preventDefault: function () {}, stopImmediatePropagation: function () {} });
   assert.equal(ctl.isOpen(), false, 'second ? closes overlay when on shortcuts');
 });
 

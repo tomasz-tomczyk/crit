@@ -50,6 +50,9 @@ var storyStartDaemon = daemon.StartDaemon
 // storyPostStory POSTs the story to a running daemon. Package var for tests.
 var storyPostStory = postStoryToDaemon
 
+// storyDeleteStory removes the story from a running daemon. Package var for tests.
+var storyDeleteStory = deleteStoryFromDaemon
+
 // storyDaemonAlive reports whether a daemon for the session key is running.
 // Package var so tests can force the "no daemon" or "daemon present" branch.
 var storyDaemonAlive = daemon.FindAliveSession
@@ -191,14 +194,7 @@ func runStoryE(args []string) error {
 
 	// --clear: drop the story and save. No-op if none present.
 	if f.clear {
-		cj.Story = nil
-		if err := review.SaveCritJSON(critPath, cj); err != nil {
-			return clicmd.ExitError{Code: 1, Err: err}
-		}
-		fmt.Fprintln(os.Stderr, "Cleared story from review.")
-		// TODO(story): post-ingest daemon notify (later task) — signal the
-		// daemon to re-render in flat file layout.
-		return nil
+		return clearStory(f, critPath, cj)
 	}
 
 	// --prep: write the prep text + snapshot scope, print path, exit 0.
@@ -222,6 +218,26 @@ func runStoryE(args []string) error {
 	default:
 		return runStoryLLM(f, critPath, cj)
 	}
+}
+
+func clearStory(f storyFlags, critPath string, cj review.CritJSON) error {
+	key, _, keyErr := storyReviewSessionKey(f)
+	if keyErr == nil {
+		if entry, alive := storyDaemonAlive(key); alive {
+			if err := storyDeleteStory(entry); err == nil {
+				fmt.Fprintln(os.Stderr, "Cleared story from review.")
+				return nil
+			} else if _, stillAlive := storyDaemonAlive(key); stillAlive {
+				return clicmd.ExitError{Code: 1, Err: fmt.Errorf("clearing story from running review: %w", err)}
+			}
+		}
+	}
+	cj.Story = nil
+	if err := review.SaveCritJSON(critPath, cj); err != nil {
+		return clicmd.ExitError{Code: 1, Err: err}
+	}
+	fmt.Fprintln(os.Stderr, "Cleared story from review.")
+	return nil
 }
 
 func wantsStoryHelp(args []string) bool {
@@ -257,16 +273,14 @@ func resolveStoryReviewPath(scopeArgs []string) (string, error) {
 		return "", clicmd.ExitError{Code: 1, Err: err}
 	}
 
-	// Prefer a running daemon's review path (matches crit review reconnect).
-	if path := review.ResolveReviewPathFromDaemon(cwd); path != "" {
-		return path, nil
-	}
-
 	branch := ""
 	if v := vcs.DetectVCS(reviewCfg.VCSOverride); v != nil {
 		branch = v.CurrentBranch()
 	}
 	key := daemon.SessionKey(cwd, branch, session.FocusKeyArgs(reviewCfg))
+	if entry, alive := storyDaemonAlive(key); alive && entry.ReviewPath != "" {
+		return entry.ReviewPath, nil
+	}
 	path, err := daemon.ReviewFilePath(key)
 	if err != nil {
 		return "", clicmd.ExitError{Code: 1, Err: err}
@@ -873,6 +887,27 @@ func postStoryToDaemon(entry daemon.SessionEntry, st *session.Story) error {
 	return nil
 }
 
+func deleteStoryFromDaemon(entry daemon.SessionEntry) error {
+	base := entry.ConnURL()
+	if err := waitDaemonReady(base); err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodDelete, base+"/api/story", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("daemon returned %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	return nil
+}
+
 // waitDaemonReady polls GET base+"/api/session" until it stops returning 503
 // (session init done) or a bounded deadline elapses. Mirrors the canonical
 // readiness loop in daemon.RunReviewClient. base is a ConnURL (scheme+host+port).
@@ -885,8 +920,11 @@ func waitDaemonReady(base string) error {
 		}
 		status := resp.StatusCode
 		resp.Body.Close()
-		if status != http.StatusServiceUnavailable {
+		if status >= 200 && status < 300 {
 			return nil
+		}
+		if status != http.StatusServiceUnavailable {
+			return fmt.Errorf("daemon readiness check returned HTTP %d", status)
 		}
 		if time.Now().After(deadline) {
 			return errors.New("daemon did not become ready within 30s")

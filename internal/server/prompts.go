@@ -178,7 +178,8 @@ func (s *Server) runFinishHooks(sess *Session, approved bool, stats map[string]a
 	mode := prompt.PromptMode(sess.ReviewType, sess.Mode)
 
 	globalHooks, projectHooks := config.LoadHookMaps(s.projectDir)
-	trust, err := prompt.EvaluateTrust(s.projectDir, nil, projectHooks)
+	_, projectPrompts := config.LoadPromptMaps(s.projectDir)
+	trust, err := prompt.EvaluateTrust(s.projectDir, projectPrompts, projectHooks)
 	if err != nil {
 		log.Printf("finish-hook: evaluating project trust: %v", err)
 		return

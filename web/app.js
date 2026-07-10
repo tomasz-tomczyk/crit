@@ -6981,7 +6981,7 @@
         clearCommitPins();
 
         // Re-fetch everything on file-changed (round complete)
-        let sessionRes = await hydrateStoryIfMissing(await fetch('/api/session?scope=' + enc(currentSessionFetchScope())).then(r => r.json()));
+        let sessionRes = await hydrateStoryIfMissing(await fetchWhenReady('/api/session?scope=' + enc(currentSessionFetchScope())));
         sessionRes = await hydrateFullSessionForStoryIfNeeded(sessionRes);
         session = sessionRes;
         reviewComments = sessionRes.review_comments || [];
@@ -8183,7 +8183,7 @@
 
         let sessionUrl = '/api/session?scope=' + enc(currentSessionFetchScope());
         if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
-        let sessionRes = await fetch(sessionUrl).then(function(r) { return r.json(); });
+        let sessionRes = await fetchWhenReady(sessionUrl);
         if (!storyHasContent(sessionRes.story) && storyHasContent(session && session.story)) {
           sessionRes.story = session.story;
         } else {

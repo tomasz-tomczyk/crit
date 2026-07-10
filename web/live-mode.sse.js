@@ -105,6 +105,7 @@
     }
 
     function showLiveDisconnected() {
+      if (typeof window === 'undefined') return;
       var shared = window.crit && window.crit.shared;
       if (shared && typeof shared.showDisconnected === 'function') {
         shared.showDisconnected();
@@ -112,6 +113,7 @@
     }
 
     function install() {
+      if (typeof window === 'undefined') return;
       if (!window.crit || !window.crit.sse) return;
       var conn = window.crit.sse.createSSE('/api/events', {
         'live-round-start': function (data) {

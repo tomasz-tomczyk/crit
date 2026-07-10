@@ -492,9 +492,16 @@ func DaemonHasBrowser(s SessionEntry) bool {
 	}
 	defer resp.Body.Close()
 	var result struct {
-		BrowserClients *bool `json:"browser_clients"`
+		Status         string `json:"status"`
+		BrowserClients *bool  `json:"browser_clients"`
+	}
+	if resp.StatusCode != http.StatusOK {
+		return true
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return true
+	}
+	if result.Status != "ok" {
 		return true
 	}
 	if result.BrowserClients == nil {

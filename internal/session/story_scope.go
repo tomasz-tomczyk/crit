@@ -111,24 +111,39 @@ func (s *Session) StoryScope(ignorePatterns []string) StoryScope {
 
 	// Re-derive ignored files: the session filtered them out, but ingest needs
 	// to pre-place their hunks into support[]. Only meaningful in a git scope.
-	if s.VCS != nil && len(ignorePatterns) > 0 && s.Focus.Kind != FocusRange {
-		if all, err := s.VCS.ChangedFilesFromBaseInDir(s.BaseRef, s.RepoRoot); err == nil {
-			for _, fc := range all {
-				if !matchesAny(fc.Path, ignorePatterns) {
-					continue
-				}
-				hunks, _ := diffHunksForFile(fc.Path, fc.OldPath, fc.Status, s.BaseRef, s.RepoRoot, false, s.VCS)
-				scope.Files = append(scope.Files, StoryScopeFile{
-					Path:    fc.Path,
-					Status:  fc.Status,
-					Hunks:   convertHunks(hunks),
-					Ignored: true,
-				})
-			}
-		}
-	}
+	scope.Files = append(scope.Files, s.ignoredStoryScopeFiles(ignorePatterns)...)
 
 	return scope
+}
+
+func (s *Session) ignoredStoryScopeFiles(ignorePatterns []string) []StoryScopeFile {
+	if s.VCS == nil || len(ignorePatterns) == 0 {
+		return nil
+	}
+	var all []vcs.FileChange
+	var err error
+	if s.Focus.Kind == FocusRange {
+		all, err = s.VCS.ChangedFilesBetweenSHAs(s.Focus.DiffBaseSHA(), s.Focus.HeadSHA, s.RepoRoot)
+	} else {
+		all, err = s.VCS.ChangedFilesFromBaseInDir(s.BaseRef, s.RepoRoot)
+	}
+	if err != nil {
+		return nil
+	}
+	var out []StoryScopeFile
+	for _, fc := range all {
+		if !matchesAny(fc.Path, ignorePatterns) {
+			continue
+		}
+		var hunks []vcs.DiffHunk
+		if s.Focus.Kind == FocusRange {
+			hunks, _ = s.VCS.FileDiffBetweenSHAs(fc.Path, fc.OldPath, s.Focus.DiffBaseSHA(), s.Focus.HeadSHA, s.RepoRoot, false)
+		} else {
+			hunks, _ = diffHunksForFile(fc.Path, fc.OldPath, fc.Status, s.BaseRef, s.RepoRoot, false, s.VCS)
+		}
+		out = append(out, StoryScopeFile{Path: fc.Path, Status: fc.Status, Hunks: convertHunks(hunks), Ignored: true})
+	}
+	return out
 }
 
 // resolveSHA turns a ref (branch, tag, "HEAD~2") into a full commit SHA. On

@@ -82,10 +82,11 @@ type Result struct {
 
 // Sentinel errors so callers can distinguish rejection reasons if needed.
 var (
-	ErrInvalidPrologue = errors.New("story prologue must include title, overview, key_changes, and risks")
-	ErrDrift           = errors.New("diff changed since prep — re-run `crit story --prep` and re-author")
-	ErrDuplicate       = errors.New("story places the same hunk in more than one chapter/support entry")
-	ErrBelowFloor      = errors.New("story places fewer than half of the diff's hunks")
+	ErrInvalidPrologue  = errors.New("story prologue must include title, overview, key_changes, and risks")
+	ErrInvalidChapterID = errors.New("story chapter IDs must be unique URL-safe names and cannot be overview or support")
+	ErrDrift            = errors.New("diff changed since prep — re-run `crit story --prep` and re-author")
+	ErrDuplicate        = errors.New("story places the same hunk in more than one chapter/support entry")
+	ErrBelowFloor       = errors.New("story places fewer than half of the diff's hunks")
 )
 
 // Fingerprint computes a stable sha256 over the sorted hunk IDs. It is used
@@ -181,7 +182,30 @@ func ValidateShape(st *session.Story) error {
 		!hasNonEmptyBullet(prologue.Risks) {
 		return ErrInvalidPrologue
 	}
+	seen := make(map[string]struct{}, len(st.Chapters))
+	for _, chapter := range st.Chapters {
+		id := chapter.ID
+		if !validChapterID(id) || id == "overview" || id == "support" {
+			return ErrInvalidChapterID
+		}
+		if _, exists := seen[id]; exists {
+			return ErrInvalidChapterID
+		}
+		seen[id] = struct{}{}
+	}
 	return nil
+}
+
+func validChapterID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 func hasNonEmptyBullet(items []string) bool {

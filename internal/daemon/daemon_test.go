@@ -453,6 +453,13 @@ func TestDaemonHasBrowser(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name: "returns true when health status is not ok",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(map[string]any{"status": "starting", "browser_clients": false})
+			},
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {

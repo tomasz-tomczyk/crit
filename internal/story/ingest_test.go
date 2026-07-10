@@ -68,6 +68,26 @@ func TestIngest_InvalidPrologueReject(t *testing.T) {
 	}
 }
 
+func TestIngest_InvalidChapterIDsReject(t *testing.T) {
+	tests := []struct {
+		name     string
+		chapters []session.StoryChapter
+	}{
+		{"duplicate", []session.StoryChapter{chapter("same", "One"), chapter("same", "Two")}},
+		{"reserved", []session.StoryChapter{chapter("support", "Support")}},
+		{"slash", []session.StoryChapter{chapter("part/one", "Part")}},
+		{"empty", []session.StoryChapter{chapter("", "Empty")}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := &session.Story{Prologue: validPrologue(), Chapters: tt.chapters}
+			if _, err := Run(baseScope(t, st, nil)); !errors.Is(err, ErrInvalidChapterID) {
+				t.Fatalf("expected ErrInvalidChapterID, got %v", err)
+			}
+		})
+	}
+}
+
 func TestIngest_DriftReject(t *testing.T) {
 	indexed := []HunkID{hunk("a.go", 1), hunk("b.go", 10)}
 	story := &session.Story{

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -250,6 +251,77 @@ func TestStoryClearRemovesStory(t *testing.T) {
 	reloaded, _ := review.LoadCritJSON(critPath)
 	if reloaded.Story != nil {
 		t.Fatal("--clear did not remove the story")
+	}
+}
+
+func TestStoryClearUsesExactRunningDaemon(t *testing.T) {
+	setupStoryRepo(t)
+	origAlive, origDelete := storyDaemonAlive, storyDeleteStory
+	t.Cleanup(func() { storyDaemonAlive, storyDeleteStory = origAlive, origDelete })
+	wantKey := storySessionKey(t, nil)
+	var gotKey string
+	deleted := false
+	storyDaemonAlive = func(key string) (daemon.SessionEntry, bool) {
+		gotKey = key
+		return daemon.SessionEntry{ReviewPath: "exact-review"}, true
+	}
+	storyDeleteStory = func(entry daemon.SessionEntry) error {
+		deleted = entry.ReviewPath == "exact-review"
+		return nil
+	}
+	if err := runStoryE([]string{"--clear"}); err != nil {
+		t.Fatalf("clear failed: %v", err)
+	}
+	if gotKey != wantKey || !deleted {
+		t.Fatalf("clear targeted key %q (want %q), deleted=%v", gotKey, wantKey, deleted)
+	}
+}
+
+func TestStoryClearFallsBackWhenDaemonDies(t *testing.T) {
+	setupStoryRepo(t)
+	critPath, err := resolveStoryReviewPath(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cj, _ := review.LoadCritJSON(critPath)
+	cj.Story = &session.Story{Version: 1}
+	if err := review.SaveCritJSON(critPath, cj); err != nil {
+		t.Fatal(err)
+	}
+	origAlive, origDelete := storyDaemonAlive, storyDeleteStory
+	t.Cleanup(func() { storyDaemonAlive, storyDeleteStory = origAlive, origDelete })
+	checks := 0
+	storyDaemonAlive = func(string) (daemon.SessionEntry, bool) {
+		checks++
+		return daemon.SessionEntry{}, checks <= 2
+	}
+	storyDeleteStory = func(daemon.SessionEntry) error { return errors.New("connection refused") }
+	if err := runStoryE([]string{"--clear"}); err != nil {
+		t.Fatalf("clear should fall back after daemon exits: %v", err)
+	}
+	reloaded, _ := review.LoadCritJSON(critPath)
+	if reloaded.Story != nil {
+		t.Fatal("fallback clear left story on disk")
+	}
+}
+
+func TestResolveStoryReviewPathIgnoresOtherScopedDaemon(t *testing.T) {
+	setupStoryRepo(t)
+	origAlive := storyDaemonAlive
+	t.Cleanup(func() { storyDaemonAlive = origAlive })
+	wantKey := storySessionKey(t, nil)
+	storyDaemonAlive = func(key string) (daemon.SessionEntry, bool) {
+		if key != wantKey {
+			return daemon.SessionEntry{ReviewPath: "wrong-review"}, true
+		}
+		return daemon.SessionEntry{ReviewPath: "exact-review"}, true
+	}
+	path, err := resolveStoryReviewPath(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "exact-review" {
+		t.Fatalf("path = %q, want exact scoped daemon path", path)
 	}
 }
 

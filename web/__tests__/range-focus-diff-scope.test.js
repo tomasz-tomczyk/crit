@@ -18,7 +18,7 @@ test('range focus forces diffScope to all on init', () => {
   );
 });
 
-test('file diff loads use effectiveDiffScope helper', () => {
+test('file diff loads use the story-aware file data scope helper', () => {
   assert.match(
     appJs,
     /function effectiveDiffScope\(\)\s*\{\s*return sessionInRangeFocus\(\) \? 'all' : diffScope;/,
@@ -26,7 +26,7 @@ test('file diff loads use effectiveDiffScope helper', () => {
   );
   assert.match(
     appJs,
-    /loadAllFileData\(session\.files[^)]*effectiveDiffScope\(\)/,
-    'loadAllFileData must use effectiveDiffScope'
+    /loadAllFileData\(session\.files[^)]*currentFileDataScope\(\)/,
+    'loadAllFileData must use currentFileDataScope so story and range scopes agree'
   );
 });
