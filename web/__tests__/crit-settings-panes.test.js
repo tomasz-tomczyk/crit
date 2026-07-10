@@ -334,6 +334,12 @@ test('renderShortcutsPane: code-review mode shows code-review-only shortcuts', (
   assert.match(html, /Shift<\/kbd>\+<kbd>F/);
   assert.match(html, /Shift<\/kbd>\+<kbd>C/);
   assert.match(html, /Switch scope/);
+  assert.match(html, /Next story chapter/);
+  assert.match(html, /Previous story chapter/);
+  assert.match(html, /Story prologue/);
+  assert.match(html, /Story support/);
+  assert.match(html, /Jump to story chapter/);
+  assert.match(html, /Toggle story chapter list/);
   // Shared bindings present
   assert.match(html, /<kbd>Esc<\/kbd>/);
   assert.match(html, /<kbd>\?<\/kbd>/);
@@ -365,6 +371,8 @@ test('renderShortcutsPane: live mode omits code-review-only shortcuts', () => {
   assert.match(html, /Shift<\/kbd>\+<kbd>F/);
   assert.doesNotMatch(html, /Toggle comments panel/);
   assert.doesNotMatch(html, /Switch scope/);
+  assert.doesNotMatch(html, /Next story chapter/);
+  assert.doesNotMatch(html, /Story prologue/);
   // Shared bindings present
   assert.match(html, /<kbd>Esc<\/kbd>/);
   assert.match(html, /<kbd>\?<\/kbd>/);

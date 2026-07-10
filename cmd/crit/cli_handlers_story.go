@@ -17,6 +17,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/github"
 	"github.com/tomasz-tomczyk/crit/internal/prompt"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/server"
@@ -71,6 +72,41 @@ var storyBoolFlags = map[string]func(*storyFlags){
 	"--no-spend": func(f *storyFlags) { f.noSpend = true },
 	"--guide":    func(f *storyFlags) { f.guide = true },
 	"--no-open":  func(f *storyFlags) { f.noOpen = true },
+}
+
+func printStoryUsage() {
+	fmt.Fprintln(os.Stderr, `Usage: crit story [options]
+
+Generate or load a story-mode chapter view for the current diff.
+
+Examples:
+  crit story                                  Generate a story with agent_cmd and open it
+  crit story --refresh                        Regenerate an existing story
+  crit story --range main..HEAD               Generate for a commit range
+  crit story --pr 123                         Generate for a GitHub PR
+  crit story --prep /tmp/story-prep.txt       Write the full prep file for manual authoring
+  crit story --guide                          Print the story authoring guide and JSON schema
+  crit story --story-file /tmp/story.json     Ingest a pre-authored story JSON
+  crit story --skip-llm                       Create a stub support-only story
+
+Story options:
+      --story-file <path|->  Ingest story JSON from a file or stdin
+      --prep <path>          Write the story prep file and exit
+      --guide                Print the resolved story guide and schema
+      --skip-llm             Create a stub story without calling agent_cmd
+      --refresh              Replace an existing story
+      --no-spend             Resume only if a story already exists
+      --clear                Remove the story from the review
+      --no-open              Do not open the browser after saving
+
+Diff scope options:
+      --pr <num|url>         Generate for a GitHub pull request
+      --range <base>..<head> Generate for a commit range
+      --base-branch <branch> Override auto-detected base branch
+      --output, -o <dir>     Output directory for the review file
+
+Default generation uses global agent_cmd from ~/.crit.config.json. The agent
+must be able to read the generated prep file and print raw story JSON.`)
 }
 
 // scopeValueFlags take a value and are forwarded to the daemon config resolver.
@@ -133,6 +169,11 @@ func (f *storyFlags) appendScopeArg(args []string, i *int) error {
 func runStory(args []string) { clicmd.Exit(runStoryE(args)) }
 
 func runStoryE(args []string) error {
+	if wantsStoryHelp(args) {
+		printStoryUsage()
+		return nil
+	}
+
 	f, err := parseStoryFlags(args)
 	if err != nil {
 		return err
@@ -177,15 +218,28 @@ func runStoryE(args []string) error {
 	case f.skipLLM:
 		return runStorySkipLLM(f, critPath, cj)
 	case f.noSpend:
-		// Never call agent_cmd: exit 0 if a story is present, else exit 1.
-		if cj.Story != nil {
-			fmt.Fprintln(os.Stderr, "Story present.")
-			return resumeStory(f)
-		}
-		return clicmd.ExitError{Code: 1, Err: errors.New("no story and --no-spend set")}
+		return runStoryNoSpend(f, cj)
 	default:
 		return runStoryLLM(f, critPath, cj)
 	}
+}
+
+func wantsStoryHelp(args []string) bool {
+	for _, arg := range args {
+		if arg == "help" || arg == "--help" || arg == "-h" {
+			return true
+		}
+	}
+	return false
+}
+
+func runStoryNoSpend(f storyFlags, cj review.CritJSON) error {
+	// Never call agent_cmd: exit 0 if a story is present, else exit 1.
+	if cj.Story != nil {
+		fmt.Fprintln(os.Stderr, "Story present.")
+		return resumeStory(f)
+	}
+	return clicmd.ExitError{Code: 1, Err: errors.New("no story and --no-spend set")}
 }
 
 // resolveStoryReviewPath resolves the review.json path for the current diff
@@ -255,7 +309,31 @@ func buildStoryScope(scopeArgs []string) (session.StoryScope, error) {
 		return session.StoryScope{}, clicmd.ExitError{Code: 1, Err: err}
 	}
 	server.ApplySessionOverrides(sess, dsc)
-	return sess.StoryScope(dsc.IgnorePatterns), nil
+	scope := sess.StoryScope(dsc.IgnorePatterns)
+	fillStoryPRContext(&scope)
+	return scope, nil
+}
+
+func fillStoryPRContext(scope *session.StoryScope) {
+	if scope == nil {
+		return
+	}
+	var info *github.PRInfo
+	if scope.PRNumber > 0 {
+		fetched, err := github.FetchPRByNumber(scope.PRNumber)
+		if err == nil {
+			info = fetched
+		}
+	} else {
+		info = github.DetectPRInfo()
+	}
+	if info == nil {
+		return
+	}
+	scope.PRNumber = info.Number
+	scope.PRURL = info.URL
+	scope.PRTitle = info.Title
+	scope.PRBody = info.Body
 }
 
 func runStoryPrep(f storyFlags) error {
@@ -277,18 +355,16 @@ func runStoryPrep(f storyFlags) error {
 // scope_fingerprint/coverage after ingest — see internal/session.Story).
 const storySchemaJSON = `{
   "prologue": {
-    "summary": "string, 1-3 sentences, stands alone",
-    "motivation": "string, optional",
-    "diagram": "string, optional Mermaid diagram, default \"\"",
-    "focus_areas": [
-      {"area": "string", "severity": "string, optional"}
-    ],
-    "complexity": "one of: low, medium, high"
+    "title": "string, <=48 chars",
+    "overview": "string, required, 1-3 sentences, stands alone",
+    "key_changes": ["string, required concise bullet"],
+    "risks": ["string, required concise bullet"],
+    "diagram": "string, optional Mermaid diagram, default \"\""
   },
   "chapters": [
     {
       "id": "string, e.g. \"ch1\"",
-      "title": "string, <=24 chars recommended",
+      "title": "string, <=48 chars",
       "summary": "string, one-liner, must stand alone",
       "hunk_refs": [
         {"file_path": "string", "old_start": "int, 0 for new files"}
@@ -321,7 +397,8 @@ func resolveStoryGuide(scope session.StoryScope, critPath, prepPath, sessionKey 
 	homeDir, _ := os.UserHomeDir()
 
 	globalPrompts, projectPrompts := config.LoadPromptMaps(projectDir)
-	trust, err := prompt.EvaluateTrust(projectDir, projectPrompts)
+	_, projectHooks := config.LoadHookMaps(projectDir)
+	trust, err := prompt.EvaluateTrust(projectDir, projectPrompts, projectHooks)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: evaluating project prompt trust: %v\n", err)
 	}
@@ -342,6 +419,8 @@ func resolveStoryGuide(scope session.StoryScope, critPath, prepPath, sessionKey 
 		BaseSHA:         scope.BaseSHA,
 		HeadSHA:         scope.HeadSHA,
 		MergeBaseSHA:    scope.MergeBaseSHA,
+		PRTitle:         scope.PRTitle,
+		PRBody:          scope.PRBody,
 		SessionKey:      sessionKey,
 		ReviewPath:      critPath,
 	}
@@ -349,9 +428,6 @@ func resolveStoryGuide(scope session.StoryScope, critPath, prepPath, sessionKey 
 		ctx.PRNumber = strconv.Itoa(scope.PRNumber)
 	}
 	ctx.PRURL = scope.PRURL
-	// TODO(story): PRTitle/PRBody require a `gh pr view` call that the story
-	// scope doesn't currently make; the template variables exist but stay
-	// empty until PR metadata is threaded through the daemon config resolver.
 	if ctx.PrepPath == "" {
 		ctx.PrepPath = "<run `crit story --prep <path>` first, then pass that path here>"
 	}
@@ -568,6 +644,9 @@ func parseStoryJSON(out string) (*session.Story, error) {
 	}
 	var st session.Story
 	if err := json.Unmarshal([]byte(candidate), &st); err != nil {
+		return nil, err
+	}
+	if err := story.ValidateShape(&st); err != nil {
 		return nil, err
 	}
 	return &st, nil

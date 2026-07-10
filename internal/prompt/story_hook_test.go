@@ -151,11 +151,11 @@ func TestContentHash_IncludesStoryGenerateFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("v1"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	h1 := prompt.ContentHash(nil, dir)
+	h1 := prompt.ContentHash(nil, nil, dir)
 	if err := os.WriteFile(path, []byte("v2"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	h2 := prompt.ContentHash(nil, dir)
+	h2 := prompt.ContentHash(nil, nil, dir)
 	if h1 == h2 {
 		t.Fatal("expected content hash to change when on_story_generate.md changes")
 	}

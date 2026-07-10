@@ -304,12 +304,12 @@ func bucketsToGHComments(postable []scopedComment, rewrite bodyRewriter) []map[s
 		comment := map[string]any{
 			"path": sc.Path,
 			"line": c.EndLine,
-			"side": "RIGHT",
+			"side": githubReviewSide(c.Side),
 			"body": rewrite(c.Body),
 		}
 		if c.StartLine != c.EndLine && c.StartLine > 0 {
 			comment["start_line"] = c.StartLine
-			comment["start_side"] = "RIGHT"
+			comment["start_side"] = githubReviewSide(c.Side)
 		}
 		out = append(out, comment)
 	}

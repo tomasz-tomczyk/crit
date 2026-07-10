@@ -194,7 +194,6 @@ var integrationMap = map[string][]integration{
 	"codex": {
 		{source: "integrations/codex/skills/crit/SKILL.md", dest: ".agents/skills/crit/SKILL.md", hint: "Use $crit in Codex to start a review loop"},
 		{source: "integrations/codex/skills/crit-cli/SKILL.md", dest: ".agents/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Codex agents when needed"},
-		{source: "integrations/codex/skills/crit-story/SKILL.md", dest: ".agents/skills/crit-story/SKILL.md", hint: "Use $crit-story in Codex to author a story for a diff review"},
 	},
 	"codex-plugin": {
 		{source: "integrations/codex/plugin/crit/.codex-plugin/plugin.json", dest: "plugins/crit/.codex-plugin/plugin.json", globalDest: ".codex/plugins/crit/.codex-plugin/plugin.json", globalDestKind: globalDestRelHome, hint: "The Crit plugin is registered in the local Codex plugin marketplace"},

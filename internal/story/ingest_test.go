@@ -1,6 +1,7 @@
 package story
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/session"
@@ -24,12 +25,46 @@ func chapter(id, title string, refs ...session.StoryHunkRef) session.StoryChapte
 // matches the live diff, so drift never trips unless a test opts in.
 func baseScope(t *testing.T, story *session.Story, indexed []HunkID) Ingest {
 	t.Helper()
+	if story.Prologue == nil {
+		story.Prologue = validPrologue()
+	}
 	fp := Fingerprint(indexed)
 	story.ScopeFingerprint = fp
 	return Ingest{
 		Story:           story,
 		Indexed:         indexed,
 		LiveFingerprint: fp,
+	}
+}
+
+func validPrologue() *session.StoryPrologue {
+	return &session.StoryPrologue{
+		Title:      "Test story",
+		Overview:   "A test story.",
+		KeyChanges: []string{"A key change."},
+		Risks:      []string{"A test risk."},
+	}
+}
+
+func TestIngest_InvalidPrologueReject(t *testing.T) {
+	indexed := []HunkID{hunk("a.go", 1)}
+	story := &session.Story{
+		Version:  1,
+		Chapters: []session.StoryChapter{chapter("ch1", "All", ref("a.go", 1))},
+	}
+	fp := Fingerprint(indexed)
+	story.ScopeFingerprint = fp
+
+	res, err := Run(Ingest{
+		Story:           story,
+		Indexed:         indexed,
+		LiveFingerprint: fp,
+	})
+	if !errors.Is(err, ErrInvalidPrologue) {
+		t.Fatalf("expected invalid prologue rejection, got %v", err)
+	}
+	if res.Saved {
+		t.Fatal("invalid prologue must not save")
 	}
 }
 
@@ -196,6 +231,42 @@ func TestIngest_CleanPass(t *testing.T) {
 	}
 	if res.Coverage.Placed != 2 || res.Coverage.Indexed != 2 {
 		t.Fatalf("unexpected counts: %+v", res.Coverage)
+	}
+}
+
+func TestIngest_CapsStoryTitles(t *testing.T) {
+	indexed := []HunkID{hunk("a.go", 1)}
+	longTitle := "This is a deliberately long chapter title that should not fit in the story rail"
+	story := &session.Story{
+		Version: 1,
+		Prologue: &session.StoryPrologue{
+			Title:      longTitle,
+			Overview:   "A test story.",
+			KeyChanges: []string{"A key change."},
+			Risks:      []string{"A test risk."},
+		},
+		Chapters: []session.StoryChapter{chapter("ch1", longTitle, ref("a.go", 1))},
+	}
+	in := baseScope(t, story, indexed)
+
+	res, err := Run(in)
+	if err != nil {
+		t.Fatalf("expected clean save, got error: %v", err)
+	}
+	if !res.Saved {
+		t.Fatal("story must save")
+	}
+	if got := len([]rune(story.Chapters[0].Title)); got != MaxChapterTitleRunes {
+		t.Fatalf("chapter title length = %d, want %d; title=%q", got, MaxChapterTitleRunes, story.Chapters[0].Title)
+	}
+	if got := len([]rune(story.Prologue.Title)); got != MaxChapterTitleRunes {
+		t.Fatalf("prologue title length = %d, want %d; title=%q", got, MaxChapterTitleRunes, story.Prologue.Title)
+	}
+	if story.Chapters[0].Title == longTitle {
+		t.Fatal("long chapter title was not capped")
+	}
+	if story.Prologue.Title == longTitle {
+		t.Fatal("long prologue title was not capped")
 	}
 }
 

@@ -75,6 +75,14 @@
         { key: '<kbd>Shift</kbd>+<kbd>C</kbd>', action: 'Toggle comments panel', modes: CODE_REVIEW_ONLY },
         { key: '<kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd>', action: 'Switch scope', mode: 'vcs mode', modes: CODE_REVIEW_ONLY },
       ]},
+      { label: 'Story', shortcuts: [
+        { key: '<kbd>Shift</kbd>+<kbd>J</kbd>', action: 'Next story chapter', mode: 'story mode', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>Shift</kbd>+<kbd>K</kbd>', action: 'Previous story chapter', mode: 'story mode', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>Shift</kbd>+<kbd>O</kbd>', action: 'Story prologue', mode: 'story mode', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>Shift</kbd>+<kbd>S</kbd>', action: 'Story support', mode: 'story mode', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>1</kbd>-<kbd>9</kbd>', action: 'Jump to story chapter', mode: 'story mode', modes: CODE_REVIEW_ONLY },
+        { key: '<kbd>\\</kbd>', action: 'Toggle story chapter list', mode: 'story mode', modes: CODE_REVIEW_ONLY },
+      ]},
       { label: 'Live', shortcuts: [
         { key: '<kbd>p</kbd>', action: 'Toggle pin mode', modes: LIVE_ONLY },
       ]},

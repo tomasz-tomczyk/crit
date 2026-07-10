@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/tomasz-tomczyk/crit/internal/session"
 )
@@ -24,6 +25,10 @@ const (
 // omissions to be auto-repaired rather than rejected. Below it, the story is
 // treated as drift or hallucination (§8).
 const placedFloor = 0.5
+
+// MaxChapterTitleRunes is the persisted hard cap for chapter titles. It keeps
+// rail/footer labels stable while leaving enough room for useful review themes.
+const MaxChapterTitleRunes = 48
 
 // HunkID identifies a diff hunk by (file_path, old_start). old_start is 0 for
 // new files (stage-cli convention). It is the ingest-side mirror of
@@ -77,9 +82,10 @@ type Result struct {
 
 // Sentinel errors so callers can distinguish rejection reasons if needed.
 var (
-	ErrDrift      = errors.New("diff changed since prep — re-run `crit story --prep` and re-author")
-	ErrDuplicate  = errors.New("story places the same hunk in more than one chapter/support entry")
-	ErrBelowFloor = errors.New("story places fewer than half of the diff's hunks")
+	ErrInvalidPrologue = errors.New("story prologue must include title, overview, key_changes, and risks")
+	ErrDrift           = errors.New("diff changed since prep — re-run `crit story --prep` and re-author")
+	ErrDuplicate       = errors.New("story places the same hunk in more than one chapter/support entry")
+	ErrBelowFloor      = errors.New("story places fewer than half of the diff's hunks")
 )
 
 // Fingerprint computes a stable sha256 over the sorted hunk IDs. It is used
@@ -106,6 +112,10 @@ func Fingerprint(hunks []HunkID) string {
 // always carries a Coverage report.
 func Run(in Ingest) (Result, error) {
 	coverage := &session.StoryCoverage{Indexed: len(in.Indexed)}
+	normalizeStory(in.Story)
+	if err := ValidateShape(in.Story); err != nil {
+		return Result{Coverage: coverage}, err
+	}
 
 	// 1. Drift check first. A mismatch means the working tree moved since prep.
 	if in.Story.ScopeFingerprint != "" && in.LiveFingerprint != "" &&
@@ -156,6 +166,57 @@ func Run(in Ingest) (Result, error) {
 	coverage.OK = !coverage.AutoRepaired
 	in.Story.Coverage = coverage
 	return Result{Saved: true, Coverage: coverage}, nil
+}
+
+// ValidateShape enforces the greenfield story contract before a story is
+// persisted. Coverage validation still happens separately in Run.
+func ValidateShape(st *session.Story) error {
+	if st == nil || st.Prologue == nil {
+		return ErrInvalidPrologue
+	}
+	prologue := st.Prologue
+	if strings.TrimSpace(prologue.Title) == "" ||
+		strings.TrimSpace(prologue.Overview) == "" ||
+		!hasNonEmptyBullet(prologue.KeyChanges) ||
+		!hasNonEmptyBullet(prologue.Risks) {
+		return ErrInvalidPrologue
+	}
+	return nil
+}
+
+func hasNonEmptyBullet(items []string) bool {
+	for _, item := range items {
+		if strings.TrimSpace(item) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeStory(st *session.Story) {
+	if st == nil {
+		return
+	}
+	if st.Prologue != nil {
+		st.Prologue.Title = truncateRunes(strings.TrimSpace(st.Prologue.Title), MaxChapterTitleRunes)
+	}
+	for i := range st.Chapters {
+		st.Chapters[i].Title = truncateRunes(strings.TrimSpace(st.Chapters[i].Title), MaxChapterTitleRunes)
+	}
+}
+
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	if max <= 3 {
+		return string(r[:max])
+	}
+	return string(r[:max-3]) + "..."
 }
 
 // prePlaceIgnored appends the ignored-file hunks to support[] under the

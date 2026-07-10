@@ -11,10 +11,11 @@ Prompt hooks are **templates** (Go `text/template`), not shell commands. They fe
 | `on_finish_unresolved` | Finish review with open comments (fallback for all modes) |
 | `on_finish_unresolved:files` | Unresolved finish — single-file or plan review |
 | `on_finish_unresolved:diff` | Unresolved finish — branch / PR / range review |
+| `on_finish_unresolved:story` | Unresolved finish — branch / PR / range review with story mode present |
 | `on_finish_unresolved:live` | Unresolved finish — live URL review |
 | `on_finish_unresolved:preview` | Unresolved finish — static HTML preview |
 | `on_finish_approved` | Approve with zero unresolved comments (fallback) |
-| `on_finish_approved:files` / `:diff` / `:live` / `:preview` | Mode-specific approve hooks |
+| `on_finish_approved:files` / `:diff` / `:story` / `:live` / `:preview` | Mode-specific approve hooks |
 | `on_story_generate` | Before `crit story` builds the prompt sent to `agent_cmd` to author a story, and when `crit story --guide` resolves the guide to print |
 
 Resolution order for e.g. `on_finish_unresolved` in a PR review:
@@ -23,6 +24,18 @@ Resolution order for e.g. `on_finish_unresolved` in a PR review:
 2. `on_finish_unresolved` (fallback)
 
 Internally, git, Sapling, and JJ branch/PR/range reviews use mode `diff`; plan and file-based reviews use `files`.
+
+When a diff review has a saved story, finish prompts use mode `story`, not
+`diff`. Story finish resolution is intentionally different:
+
+1. `on_finish_unresolved:story` (if set)
+2. Stock Crit `on_finish_unresolved.story.md`
+3. `on_finish_unresolved` (fallback)
+4. Stock Crit `on_finish_unresolved.md`
+
+The same order applies to `on_finish_approved:story`. Crit does not fall back
+from story mode to `:diff`, because story mode is a generated editorial view
+over the diff and needs different agent instructions.
 
 `on_story_generate` has **no `:mode` split** — `crit story` only operates on diff scopes (git / `--pr` / `--range`), so there's nothing to disambiguate. See [Story generation prompt](#story-generation-prompt-on_story_generate) below.
 
@@ -41,6 +54,9 @@ Internally, git, Sapling, and JJ branch/PR/range reviews use mode `diff`; plan a
 4. **Global** conventional file under `~/.crit/prompts/` (same naming)
 5. **Stock Crit** built-in defaults (when nothing above matches)
 
+Story mode is the exception: project/global `:story` overrides are checked
+first, then Crit's stock story template is used before generic user prompts.
+
 Config `file:` paths and conventional filenames both use `.` instead of `:` for mode suffixes (`on_finish_unresolved:diff` → `on_finish_unresolved.diff.md`).
 
 You do **not** need a `prompts` map entry when the file already lives at the conventional path. Install stock templates the same way as agent integrations:
@@ -56,6 +72,7 @@ Explicit `prompts` config still wins over conventional files and is useful for n
 | ---------- | -------------------- |
 | `on_finish_unresolved` | `.crit/prompts/on_finish_unresolved.md` |
 | `on_finish_unresolved:diff` | `.crit/prompts/on_finish_unresolved.diff.md` |
+| `on_finish_unresolved:story` | `.crit/prompts/on_finish_unresolved.story.md` |
 | `on_finish_approved` | `.crit/prompts/on_finish_approved.md` |
 | `on_finish_approved:files` | `.crit/prompts/on_finish_approved.files.md` |
 
@@ -68,7 +85,9 @@ Config keys use `:` for mode suffixes; filenames use `.` instead (e.g. `on_finis
 | Path | Purpose |
 | ---- | ------- |
 | [`integrations/prompts/on_finish_approved.md`](../integrations/prompts/on_finish_approved.md) | Stock approve message |
+| [`integrations/prompts/on_finish_approved.story.md`](../integrations/prompts/on_finish_approved.story.md) | Stock story-mode approve message |
 | [`integrations/prompts/on_finish_unresolved.md`](../integrations/prompts/on_finish_unresolved.md) | Stock unresolved finish (count, embedded comments, actions, reconnect) |
+| [`integrations/prompts/on_finish_unresolved.story.md`](../integrations/prompts/on_finish_unresolved.story.md) | Stock story-mode unresolved finish with instructions to edit source files, not saved story JSON |
 | [`integrations/prompts/on_story_generate.md`](../integrations/prompts/on_story_generate.md) | Stock story authoring guide — the **entire** prompt sent to `agent_cmd` for `crit story`, principles + JSON shape included |
 | [`integrations/prompts/examples/`](../integrations/prompts/examples/) | Optional playbooks (large-PR batching, AGENTS.md extraction, etc.) |
 
@@ -78,7 +97,7 @@ Copy the defaults with `cd ~ && crit install prompts` (global) or `crit install 
 
 | Command | Copies |
 | ------- | ------ |
-| `crit install prompts` | `on_finish_approved.md` + `on_finish_unresolved.md` |
+| `crit install prompts` | `on_finish_approved.md` + `on_finish_approved.story.md` + `on_finish_unresolved.md` + `on_finish_unresolved.story.md` |
 | `crit install story-prompts` | `on_story_generate.md` |
 
 Both follow the same global-vs-project rule: run from `$HOME` to install to
@@ -238,5 +257,6 @@ Custom templates choose what to include. Omit `{{.comments_unresolved_json}}` / 
 ## See also
 
 - [Configuration](../README.md#configuration) — `crit config --generate`, global vs project keys
+- [Story mode](story-mode.md) — feature overview, manual story authoring, and custom story prompts
 - [crit skill](../integrations/) — how agents consume finish JSON
 - [crit-story skill](../integrations/claude-code/skills/crit-story/SKILL.md) — the thin shim that invokes `crit story --guide` / `--prep` / `--story-file`

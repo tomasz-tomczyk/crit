@@ -20,9 +20,9 @@ the file/diff view around your chapters instead of a flat file-by-file list.
 4. **`support[]` is for noise.** Lockfiles, generated code, large data dumps,
    dependency bumps, and other mechanical hunks that don't deserve editorial
    attention belong in `support[]` with a short `reason`, not in a chapter.
-5. **The prologue summary stands alone.** A reader who reads only `summary`
-   should understand the shape of the change without opening a single
-   chapter.
+5. **The prologue overview stands alone.** A reader who reads only
+   `title`, `overview`, `key_changes`, and `risks` should understand the
+   shape of the change without opening a single chapter.
 6. **Diagram default is empty.** Leave `diagram` as `""` unless a Mermaid
    diagram genuinely clarifies a non-obvious structure (e.g. a new class
    hierarchy or a request flow). At most one diagram per story; most stories
@@ -74,7 +74,12 @@ Additional context for this review:
 2. Cluster hunks by cause, not by file. Ask: which hunks together realize one
    capability or concern?
 3. Write `prologue`, `chapters[]` (2–6 typical, 8 max), and `support[]`.
-   - Each chapter title should be short (aim for ≤24 characters).
+   - `prologue.title` must be short (48 characters max).
+   - `prologue.overview` is 1–3 sentences and must stand alone.
+   - `prologue.key_changes` and `prologue.risks` are required arrays of concise
+     bullets. Keep risks concrete and scannable; do not use them for verdicts
+     or pass/fail review commentary.
+   - Each chapter title must be short (48 characters max).
    - Each chapter needs a one-line `summary` that stands alone.
    - Decide per chapter whether a Mermaid diagram adds real value; default to
      `""`.

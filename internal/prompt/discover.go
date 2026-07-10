@@ -43,6 +43,23 @@ func DiscoverPromptFile(baseDir, hook, mode string, layer Layer) (text, sourceLa
 	return "", "", false
 }
 
+// DiscoverPromptFileSpecific loads exactly hook+mode from a conventional
+// prompt file. Pass mode="" to load only the generic hook file.
+func DiscoverPromptFileSpecific(baseDir, hook, mode string, layer Layer) (text, sourceLabel string, ok bool) {
+	key := hook
+	if mode != "" {
+		key, _ = ResolveHookKey(hook, mode)
+	}
+	name := hookKeyToFilename(key)
+	path := filepath.Join(baseDir, promptsSubdir, name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", false
+	}
+	label := string(layer) + ":" + filepath.ToSlash(filepath.Join(promptsSubdir, name))
+	return string(data), label, true
+}
+
 // discoveredHookPrefixes are the conventional filename prefixes recognized
 // under .crit/prompts/ for trust hashing and source listing. Extend this
 // list when a new hook family is added.

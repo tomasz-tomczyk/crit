@@ -85,6 +85,11 @@ crit landing.html                 # review a static HTML file
 
 If talking to an agent, you can invoke the `/crit` command and optionally provide arguments like the above examples or the agent will try to launch the right thing based on the context of the conversation.
 
+For larger branch, PR, or range reviews, `crit story` can generate an optional
+chaptered overview of the diff before you review it. See the
+**[story mode guide](docs/story-mode.md)** for the workflow and custom prompt
+setup.
+
 ### Live mode
 
 `crit live <url>` (or `crit <url>`) proxies a running dev server through Crit's review UI. Crit's iframe loads the app on a different origin/port than your browser tab, so **host-scoped session cookies are not shared automatically**. If the direct URL works but Crit shows a login page or hydration mismatch, forward the upstream cookies:

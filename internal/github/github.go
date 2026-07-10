@@ -1196,17 +1196,26 @@ func critJSONToGHComments(cj session.CritJSON) []map[string]any {
 			comment := map[string]any{
 				"path": path,
 				"line": c.EndLine,
-				"side": "RIGHT",
+				"side": githubReviewSide(c.Side),
 				"body": session.StripBodyRewriter(c.Body),
 			}
 			if c.StartLine != c.EndLine {
 				comment["start_line"] = c.StartLine
-				comment["start_side"] = "RIGHT"
+				comment["start_side"] = githubReviewSide(c.Side)
 			}
 			result = append(result, comment)
 		}
 	}
 	return result
+}
+
+func githubReviewSide(side string) string {
+	switch strings.ToUpper(side) {
+	case "LEFT", "OLD":
+		return "LEFT"
+	default:
+		return "RIGHT"
+	}
 }
 
 // parsePushEvent maps a user-facing event flag value to the GitHub API event string.

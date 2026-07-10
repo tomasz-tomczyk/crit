@@ -350,10 +350,11 @@ func TestBucketsToGHComments_ShapesCorrectly(t *testing.T) {
 	postable := []scopedComment{
 		{Path: "a.go", Comment: Comment{StartLine: 3, EndLine: 3, Body: "single"}},
 		{Path: "b.go", Comment: Comment{StartLine: 5, EndLine: 8, Body: "range"}},
+		{Path: "c.go", Comment: Comment{StartLine: 7, EndLine: 9, Side: "old", Body: "old side"}},
 	}
 	got := bucketsToGHComments(postable, nil)
-	if len(got) != 2 {
-		t.Fatalf("len=%d want 2", len(got))
+	if len(got) != 3 {
+		t.Fatalf("len=%d want 3", len(got))
 	}
 	// Single-line: no start_line.
 	if _, ok := got[0]["start_line"]; ok {
@@ -365,6 +366,9 @@ func TestBucketsToGHComments_ShapesCorrectly(t *testing.T) {
 	// Multi-line: start_line + start_side.
 	if got[1]["start_line"] != 5 || got[1]["start_side"] != "RIGHT" {
 		t.Errorf("multi-line comment missing start_line/start_side: %+v", got[1])
+	}
+	if got[2]["side"] != "LEFT" || got[2]["start_side"] != "LEFT" {
+		t.Errorf("old-side comment should become LEFT-side GitHub comment: %+v", got[2])
 	}
 }
 

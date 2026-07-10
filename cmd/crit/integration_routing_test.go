@@ -110,7 +110,7 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 	expected := map[string][]want{
 		"claude-code":    {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
 		"cursor":         {{"", globalDestNone}, {"", globalDestNone}},
-		"codex":          {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
+		"codex":          {{"", globalDestNone}, {"", globalDestNone}},
 		"qwen":           {{"", globalDestNone}, {"", globalDestNone}},
 		"opencode":       {{".config/opencode/commands/crit.md", globalDestRelHome}, {".agents/skills/crit/SKILL.md", globalDestRelHome}, {".config/opencode/plugins/crit.ts", globalDestRelHome}},
 		"github-copilot": {{".agents/skills/crit/SKILL.md", globalDestRelHome}, {".agents/skills/crit-cli/SKILL.md", globalDestRelHome}},

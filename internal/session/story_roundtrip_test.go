@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// TestBuildCritJSONPreservesStory is the back-compat property from spec §3.3 /
-// §3.4: an externally-set story on review.json survives the daemon's
-// read-merge-modify write cycle, because Story is a field on CritJSON and
-// buildCritJSON only overwrites known daemon-managed fields.
+// TestBuildCritJSONPreservesStory verifies that an externally-set story on
+// review.json survives the daemon's read-merge-modify write cycle, because
+// Story is a field on CritJSON and buildCritJSON only overwrites known
+// daemon-managed fields.
 func TestBuildCritJSONPreservesStory(t *testing.T) {
 	dir := t.TempDir()
 	critPath := filepath.Join(dir, "review")
@@ -141,7 +141,7 @@ func TestSyncWriteFilesPersistsClearedStory(t *testing.T) {
 // TestStorySchemaJSONRoundTrip verifies the schema marshals and unmarshals
 // losslessly, including omitempty behavior on the optional field.
 func TestStorySchemaJSONRoundTrip(t *testing.T) {
-	// No story -> "story" key absent (omitempty), so old readers see no change.
+	// No story -> "story" key absent (omitempty).
 	empty := CritJSON{Files: map[string]CritJSONFile{}}
 	b, err := json.Marshal(empty)
 	if err != nil {
@@ -155,7 +155,7 @@ func TestStorySchemaJSONRoundTrip(t *testing.T) {
 		Files: map[string]CritJSONFile{},
 		Story: &Story{
 			Version:  1,
-			Prologue: &StoryPrologue{Summary: "s", Complexity: "low", FocusAreas: []StoryFocus{{Area: "auth", Severity: "high"}}},
+			Prologue: &StoryPrologue{Title: "T", Overview: "s", KeyChanges: []string{"k"}, Risks: []string{"r"}},
 			Chapters: []StoryChapter{{ID: "ch1", Title: "T", HunkRefs: []StoryHunkRef{{FilePath: "f", OldStart: 0}}}},
 			Support:  []StorySupportEntry{{HunkRefs: []StoryHunkRef{{FilePath: "g", OldStart: 9}}, Reason: "ignored"}},
 			Coverage: &StoryCoverage{OK: false, Indexed: 2, Placed: 1, AutoRepaired: true},
@@ -169,7 +169,7 @@ func TestStorySchemaJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(fb, &back); err != nil {
 		t.Fatal(err)
 	}
-	if back.Story == nil || back.Story.Prologue == nil || back.Story.Prologue.FocusAreas[0].Area != "auth" {
+	if back.Story == nil || back.Story.Prologue == nil || back.Story.Prologue.Overview != "s" || len(back.Story.Prologue.KeyChanges) != 1 || len(back.Story.Prologue.Risks) != 1 {
 		t.Fatalf("story round-trip lost data: %+v", back.Story)
 	}
 	if back.Story.Support[0].Reason != "ignored" {

@@ -7,7 +7,7 @@ import (
 )
 
 func TestExtractJSON(t *testing.T) {
-	obj := `{"prologue":{"summary":"s"},"chapters":[]}`
+	obj := `{"prologue":{"title":"t","overview":"s"},"chapters":[]}`
 
 	tests := []struct {
 		name string
@@ -42,7 +42,7 @@ func TestExtractJSON(t *testing.T) {
 // TestExtractJSON_FenceAndStrayProse is the self-review case: a response with
 // BOTH a fence and stray prose around it must still extract the inner JSON.
 func TestExtractJSON_FenceAndStrayProse(t *testing.T) {
-	obj := `{"prologue":{"summary":"ok"}}`
+	obj := `{"prologue":{"title":"t","overview":"ok"}}`
 	in := "Let me think...\n\n```json\n" + obj + "\n```\n\nHope that helps!"
 	got := ExtractJSON(in)
 	if got != obj {

@@ -832,11 +832,15 @@
     document.getElementById('filesContainer').innerHTML =
       '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>';
 
-    const [sessionRes, configRes] = await Promise.all([
+    const initialResponses = await Promise.all([
       fetchWhenReady('/api/session' + (diffScope ? '?scope=' + enc(diffScope) : '')),
       fetchWhenReady('/api/config'),
     ]);
+    let sessionRes = initialResponses[0];
+    const configRes = initialResponses[1];
 
+    sessionRes = await hydrateStoryIfMissing(sessionRes);
+    sessionRes = await hydrateFullSessionForStoryIfNeeded(sessionRes);
     session = sessionRes;
     reviewComments = sessionRes.review_comments || [];
 
@@ -1026,7 +1030,8 @@
         // (which includes untracked files and can overwhelm large repos).
         diffScope = scopes.indexOf('branch') !== -1 ? 'branch' : 'all';
         if (diffScope !== 'all') {
-          const corrected = await fetchWhenReady('/api/session?scope=' + enc(diffScope));
+          let corrected = await hydrateStoryIfMissing(await fetchWhenReady('/api/session?scope=' + enc(diffScope)));
+          corrected = await hydrateFullSessionForStoryIfNeeded(corrected);
           session = corrected;
           reviewComments = corrected.review_comments || [];
         }
@@ -1035,7 +1040,7 @@
         setSetting('diffScope', 'all');
         // Re-fetch session with corrected scope — the initial fetch used the
         // stale cookie value and may have returned an empty file list.
-        const corrected = await fetchWhenReady('/api/session?scope=all');
+        const corrected = await hydrateStoryIfMissing(await fetchWhenReady('/api/session?scope=all'));
         session = corrected;
         reviewComments = corrected.review_comments || [];
       }
@@ -1051,7 +1056,7 @@
       ? 'Crit — ' + (session.branch || 'review')
       : 'Crit — ' + (session.files || []).map(f => f.path).join(', '));
 
-    files = await loadAllFileData(session.files || [], effectiveDiffScope());
+    files = await loadAllFileData(session.files || [], currentFileDataScope());
     hiddenUnresolved = session.hidden_unresolved || 0;
 
     files.sort(fileSortComparator);
@@ -1069,10 +1074,18 @@
     scrollToHashHeading();
     // Story layer (opt-in). No-op when session.story is absent.
     applyStoryPresence();
+    updateDiffModeToggle();
   }
 
   // Show/hide the Toggle Diff button and Split/Unified toggle in file mode
   function updateDiffModeToggle() {
+    if (storyActive()) {
+      document.getElementById('diffModeToggle').style.display = '';
+      document.querySelectorAll('#diffModeToggle .toggle-btn').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.mode === diffMode);
+      });
+      return;
+    }
     if (session.mode === 'git') return; // git mode handles this in init
     const hasDiffs = files.some(function(f) {
       return f.fileType === 'markdown' && f.previousLineBlocks && f.previousLineBlocks.length > 0;
@@ -1511,24 +1524,15 @@
         innerHtml += '<span class="tree-comment-badge">' + unresolvedCount + '</span>';
       }
 
-      // Story chapter chip(s): show which chapter(s) own this file's hunks.
-      let storyChipPage = null;
-      if (storyState && storyState.fileChapters.has(f.path)) {
-        const owners = Array.from(storyState.fileChapters.get(f.path));
-        const first = storyState.pages[owners[0]];
-        storyChipPage = storyPageId(first);
-        const label = first.kind === 'support' ? 'S' : ('Ch ' + (first.idx + 1));
-        const extra = owners.length > 1 ? ' +' + (owners.length - 1) : '';
-        const chipCls = 'crit-story-chip' + (first.kind === 'support' ? ' support' : '');
-        innerHtml += '<span class="' + chipCls + '" title="In ' + escapeHtml(label) + '">' + escapeHtml(label + extra) + '</span>';
-      }
-
       fileEl.innerHTML = innerHtml;
 
-      (function(path, chipPage) {
+      (function(path) {
         fileEl.addEventListener('click', function() {
           // In story view, clicking a file activates its owning chapter and
           // scrolls to its hunk group; otherwise use the flat-view scroll.
+          const chipPage = storyState && storyState.fileChapters.has(path)
+            ? storyPageId(storyState.pages[Array.from(storyState.fileChapters.get(path))[0]])
+            : null;
           if (storyActive() && chipPage) {
             showStory(chipPage);
             requestAnimationFrame(function () {
@@ -1540,7 +1544,7 @@
           }
           scrollToFile(path);
         });
-      })(f.path, storyChipPage);
+      })(f.path);
 
       container.appendChild(fileEl);
     }
@@ -2013,12 +2017,30 @@
     const file = getFileByPath(filePath);
     if (!file) return;
     saveOpenFormContent(filePath);
+    if (storyActive()) {
+      if (!renderStoryFileByPath(filePath)) renderStory();
+      return;
+    }
     const oldSection = document.getElementById('file-section-' + file.path);
     if (!oldSection) { renderAllFiles(); return; }
     oldSection.replaceWith(renderFileSection(file));
     renderMermaidBlocks();
     rebuildNavList();
     applyHideResolved();
+  }
+
+  function currentRenderedFileSection(filePath) {
+    if (storyActive()) {
+      const page = storyPageById(storyView);
+      if (page) {
+        const view = document.getElementById('crit-story-view-' + storyPageId(page));
+        if (view) {
+          const storySection = view.querySelector('.crit-story-file-group[data-story-file="' + CSS.escape(filePath) + '"]');
+          if (storySection) return storySection;
+        }
+      }
+    }
+    return document.getElementById('file-section-' + filePath);
   }
 
   function renderFileSection(file) {
@@ -4048,7 +4070,7 @@
   // Update drag selection CSS classes on existing DOM without full re-render.
   // Handles both markdown line blocks and diff gutter elements.
   function updateDragSelectionVisuals(filePath) {
-    const section = document.getElementById('file-section-' + filePath);
+    const section = currentRenderedFileSection(filePath);
     if (!section) return;
 
     // Markdown line blocks: toggle .selected on line-block, update comment gutter drag classes
@@ -6959,12 +6981,13 @@
         clearCommitPins();
 
         // Re-fetch everything on file-changed (round complete)
-        const sessionRes = await fetch('/api/session?scope=' + enc(diffScope)).then(r => r.json());
+        let sessionRes = await hydrateStoryIfMissing(await fetch('/api/session?scope=' + enc(currentSessionFetchScope())).then(r => r.json()));
+        sessionRes = await hydrateFullSessionForStoryIfNeeded(sessionRes);
         session = sessionRes;
         reviewComments = sessionRes.review_comments || [];
 
         // Reload all files
-        files = await loadAllFileData(session.files || [], effectiveDiffScope());
+        files = await loadAllFileData(session.files || [], currentFileDataScope());
         hiddenUnresolved = session.hidden_unresolved || 0;
 
         // Restore per-file user state from previous round
@@ -7037,6 +7060,10 @@
       try {
         // Only re-fetch comments data, not file content or diffs (those only
         // change on file-changed events). This reduces O(3N) to O(N) requests.
+        const previousCommentSignatures = new Map();
+        for (let i = 0; i < files.length; i++) {
+          previousCommentSignatures.set(files[i].path, JSON.stringify(files[i].comments || []));
+        }
         await Promise.all(files.map(async function(f) {
           return fetch('/api/file/comments?path=' + enc(f.path))
             .then(function(r) { return r.ok ? r.json() : []; })
@@ -7065,12 +7092,18 @@
           checkAgentReplies(files[i].comments);
           saveOpenFormContent(files[i].path);
         }
-        renderAllFiles();
-        // Comments changed but file content/hunks didn't — re-render the story
-        // views so new/removed comment cards appear in their owning chapter.
-        if (storyActive()) renderStory();
+        if (storyActive()) {
+          for (let i = 0; i < files.length; i++) {
+            const before = previousCommentSignatures.get(files[i].path) || '[]';
+            const after = JSON.stringify(files[i].comments || []);
+            if (before !== after) renderStoryFileByPath(files[i].path);
+          }
+        } else {
+          renderAllFiles();
+        }
         updateCommentCount();
         updateTreeCommentBadges();
+        renderCommentsPanel();
         // Restore focus
         if (focusedFormKey) {
           const ta = document.querySelector('.comment-form[data-form-key="' + focusedFormKey + '"] textarea');
@@ -7135,8 +7168,17 @@
         // A fresh ingest must always surface the story view — clear any prior
         // "Hide story view" state. (A null story clears storyHidden inside
         // applyStoryPresence via the no-story branch.)
-        if (nextStory) storyHidden = false;
-        applyStoryPresence();
+        if (nextStory) {
+          storyCleared = false;
+          storyHidden = false;
+          storyExpandedFileCache.clear();
+          reloadForScope();
+        } else {
+          storyCleared = true;
+          storyHidden = false;
+          storyExpandedFileCache.clear();
+          applyStoryPresence();
+        }
       } catch (err) {
         console.error('story-updated parse:', err);
       }
@@ -7429,6 +7471,7 @@
   // and overflow just adds a horizontal scrollbar.
   const SIDEBAR_RESIZE = [
     { handleId: 'fileTreeResizer',     targetId: 'fileTreePanel',  settingKey: 'fileTreeWidth',     min: 180, edge: 'right' },
+    { handleId: 'storyRailResizer',    targetId: 'storyRail',      settingKey: 'storyRailWidth',    min: 180, edge: 'right' },
     { handleId: 'commentsPanelResizer', targetId: 'commentsPanel', settingKey: 'commentsPanelWidth', min: 300, edge: 'left'  },
   ];
 
@@ -7466,7 +7509,7 @@
       document.querySelectorAll('#diffModeToggle .toggle-btn').forEach(function(b) {
         b.classList.toggle('active', b.dataset.mode === mode);
       });
-      renderAllFiles();
+      if (storyActive()) renderStory(); else renderAllFiles();
     });
   });
 
@@ -7501,6 +7544,18 @@
   // BaseSHA..HeadSHA server-side.
   function effectiveDiffScope() {
     return sessionInRangeFocus() ? 'all' : diffScope;
+  }
+
+  function sessionFocusIsRange(s) {
+    return !!(s && s.focus && s.focus.kind === 'range');
+  }
+
+  function currentFileDataScope() {
+    return storyHasContent(session && session.story) && !storyHidden ? 'all' : effectiveDiffScope();
+  }
+
+  function currentSessionFetchScope() {
+    return storyHasContent(session && session.story) && !storyHidden ? 'all' : effectiveDiffScope();
   }
 
   function restoreWorkingTreeDiffScope() {
@@ -8124,9 +8179,15 @@
         document.getElementById('filesContainer').innerHTML =
           '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>';
 
-        let sessionUrl = '/api/session?scope=' + enc(effectiveDiffScope());
+        let sessionUrl = '/api/session?scope=' + enc(currentSessionFetchScope());
         if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
-        const sessionRes = await fetch(sessionUrl).then(function(r) { return r.json(); });
+        let sessionRes = await fetch(sessionUrl).then(function(r) { return r.json(); });
+        if (!storyHasContent(sessionRes.story) && storyHasContent(session && session.story)) {
+          sessionRes.story = session.story;
+        } else {
+          sessionRes = await hydrateStoryIfMissing(sessionRes);
+        }
+        sessionRes = await hydrateFullSessionForStoryIfNeeded(sessionRes);
         session = sessionRes;
         reviewComments = sessionRes.review_comments || [];
 
@@ -8143,10 +8204,12 @@
           renderFileTree();
           updateCommentCount();
           updateViewedCount();
+          if (storyCleared && session) delete session.story;
+          applyStoryPresence();
           return;
         }
 
-        files = await loadAllFileData(session.files, effectiveDiffScope());
+        files = await loadAllFileData(session.files, currentFileDataScope());
         hiddenUnresolved = session.hidden_unresolved || 0;
         files.sort(fileSortComparator);
         restoreViewedState();
@@ -8155,6 +8218,8 @@
         buildToc();
         updateCommentCount();
         updateViewedCount();
+        if (storyCleared && session) delete session.story;
+        applyStoryPresence();
       } finally {
         reloadInFlight = null;
         reloadInFlightKey = null;
@@ -8848,6 +8913,7 @@
       }
       case 'C': {
         e.preventDefault();
+        if (storyActive() && tryOpenFormFromSelection()) return;
         toggleCommentsPanel();
         break;
       }
@@ -9571,6 +9637,8 @@
   // NOT persisted: a reload with a story present shows the story view again. A
   // fresh story via SSE resets it to false; a null story clears it entirely.
   let storyHidden = false;
+  let storyCleared = false;
+  const storyExpandedFileCache = new Map();
 
   function hunkKey(filePath, oldStart) { return filePath + '\0' + oldStart; }
 
@@ -9585,6 +9653,82 @@
     const chapters = Array.isArray(story.chapters) ? story.chapters : [];
     const support = Array.isArray(story.support) ? story.support : [];
     return chapters.length > 0 || support.length > 0;
+  }
+
+  async function hydrateStoryIfMissing(nextSession) {
+    if (storyCleared) {
+      if (nextSession) delete nextSession.story;
+      return nextSession;
+    }
+    if (!nextSession || storyHasContent(nextSession.story)) return nextSession;
+    if (storyHasContent(session && session.story)) {
+      nextSession.story = session.story;
+      return nextSession;
+    }
+    try {
+      const res = await fetch('/api/story');
+      if (!res.ok || res.status === 204) return nextSession;
+      const story = await res.json();
+      if (storyHasContent(story)) nextSession.story = story;
+    } catch {
+      // Story mode is additive; a failed side fetch should not block diff review.
+    }
+    return nextSession;
+  }
+
+  function storyReferencedFilePaths(story) {
+    const paths = new Set();
+    function addRefs(refs) {
+      (refs || []).forEach(function (ref) {
+        const fp = ref.file_path || ref.filePath;
+        if (fp !== undefined && fp !== null) paths.add(fp);
+      });
+    }
+    (Array.isArray(story && story.chapters) ? story.chapters : []).forEach(function (chapter) {
+      addRefs(chapter.hunk_refs || chapter.hunkRefs);
+    });
+    (Array.isArray(story && story.support) ? story.support : []).forEach(function (entry) {
+      addRefs(entry.hunk_refs || entry.hunkRefs);
+    });
+    return paths;
+  }
+
+  function sessionIsMissingStoryFiles(nextSession) {
+    if (!nextSession || !storyHasContent(nextSession.story)) return false;
+    const sessionPaths = new Set((nextSession.files || []).map(function (fileInfo) { return fileInfo.path; }));
+    const storyPaths = storyReferencedFilePaths(nextSession.story);
+    for (const filePath of storyPaths) {
+      if (!sessionPaths.has(filePath)) return true;
+    }
+    return false;
+  }
+
+  async function hydrateFullSessionForStoryIfNeeded(nextSession) {
+    if (storyCleared) {
+      if (nextSession) delete nextSession.story;
+      return nextSession;
+    }
+    if (!nextSession || nextSession.mode !== 'git' || storyHidden || sessionFocusIsRange(nextSession)) return nextSession;
+    if (!sessionIsMissingStoryFiles(nextSession)) return nextSession;
+    try {
+      let fullSession = await fetchWhenReady('/api/session?scope=all');
+      if (!storyHasContent(fullSession.story)) fullSession.story = nextSession.story;
+      fullSession = await hydrateStoryIfMissing(fullSession);
+      return fullSession;
+    } catch {
+      return nextSession;
+    }
+  }
+
+  function updateStoryViewToggle() {
+    const toggle = document.getElementById('storyViewToggle');
+    if (!toggle) return;
+    const present = !!(session && storyHasContent(session.story));
+    toggle.style.display = present ? '' : 'none';
+    toggle.querySelectorAll('.toggle-btn').forEach(function (btn) {
+      const active = storyHidden ? btn.dataset.storyView === 'diff' : btn.dataset.storyView === 'story';
+      btn.classList.toggle('active', active);
+    });
   }
 
   function buildStoryState(story) {
@@ -9651,44 +9795,19 @@
     return null;
   }
 
-  // ----- Story-scoped viewed state (per chapter,file group) -----
-  // Kept in a SEPARATE localStorage key from flat-view viewed state so the two
-  // never clobber each other. Keyed "<pageId>\0<filePath>".
-  function storyViewedKey() { return 'crit-story-viewed-' + viewedIdentityHash(); }
-  function loadStoryViewed() {
-    try { return JSON.parse(localStorage.getItem(storyViewedKey()) || '{}'); } catch { return {}; }
-  }
-  function saveStoryViewed(obj) {
-    try { localStorage.setItem(storyViewedKey(), JSON.stringify(obj)); } catch {}
-  }
-  function isGroupViewed(pageId, filePath) {
-    return !!loadStoryViewed()[pageId + '\0' + filePath];
-  }
-  function setGroupViewed(pageId, filePath, viewed) {
-    const obj = loadStoryViewed();
-    const k = pageId + '\0' + filePath;
-    if (viewed) obj[k] = true; else delete obj[k];
-    saveStoryViewed(obj);
-  }
-  // Drop keys whose chapter id no longer exists on the current story.
-  function pruneStoryViewed() {
-    if (!storyState) return;
-    const valid = new Set(storyState.pages.map(storyPageId));
-    const obj = loadStoryViewed();
-    let changed = false;
-    Object.keys(obj).forEach(function (k) {
-      const pid = k.split('\0')[0];
-      if (!valid.has(pid)) { delete obj[k]; changed = true; }
-    });
-    if (changed) saveStoryViewed(obj);
+  // ----- Story progress -----
+  // Story mode uses the same file.viewed state and localStorage key as the
+  // regular diff. A file marked viewed in a chapter is viewed everywhere.
+  function isStoryFileViewed(filePath) {
+    const file = getFileByPath(filePath);
+    return !!(file && file.viewed);
   }
 
   // Progress for a page: {done, total} over its file groups.
   function storyPageProgress(page) {
-    const pid = storyPageId(page);
     const groupFiles = Array.from(page.refsByFile.keys());
     let done = 0;
-    groupFiles.forEach(function (fp) { if (isGroupViewed(pid, fp)) done++; });
+    groupFiles.forEach(function (fp) { if (isStoryFileViewed(fp)) done++; });
     return { done: done, total: groupFiles.length };
   }
 
@@ -9704,14 +9823,49 @@
     return p.total ? Math.round((p.done / p.total) * 100) : 0;
   }
 
+  function storyExpandedFileKey(pageId, filePath, oldStarts) {
+    return pageId + '\0' + filePath + '\0' + (oldStarts || []).join(',');
+  }
+
+  function syncStoryCloneFromFile(clone, file) {
+    clone.oldPath = file.oldPath;
+    clone.status = file.status;
+    clone.fileType = file.fileType;
+    clone.content = file.content;
+    clone.previousContent = file.previousContent;
+    clone.comments = file.comments;
+    clone.lineBlocks = file.lineBlocks;
+    clone.previousLineBlocks = file.previousLineBlocks;
+    clone.tocItems = file.tocItems;
+    clone.collapsed = file.collapsed;
+    clone.viewed = file.viewed;
+    clone.additions = file.additions;
+    clone.deletions = file.deletions;
+    clone.lazy = file.lazy;
+    clone.generated = file.generated;
+    clone.diffTooLarge = file.diffTooLarge;
+    clone.diffLoaded = file.diffLoaded;
+    clone.fileHash = file.fileHash;
+    clone.highlightCache = file.highlightCache;
+    clone.lang = file.lang;
+    clone.viewMode = 'diff';
+  }
+
   // Build a shallow file clone whose diffHunks are just the referenced ones,
   // preserving comments/path so the existing diff+comment renderer works
   // unchanged. Returns null if the file isn't loaded or has no matching hunks.
-  function cloneFileForHunks(filePath, oldStarts) {
+  function cloneFileForHunks(filePath, oldStarts, pageId) {
     const file = getFileByPath(filePath);
     if (!file) return null;
     const wanted = new Set(oldStarts);
     const allHunks = file.diffHunks || [];
+    const key = storyExpandedFileKey(pageId, filePath, oldStarts);
+    const cached = storyExpandedFileCache.get(key);
+    if (cached && cached.fileHash === file.fileHash) {
+      syncStoryCloneFromFile(cached.clone, file);
+      return { clone: cached.clone, total: allHunks.length, shown: cached.clone.diffHunks.length };
+    }
+
     const filtered = allHunks.filter(function (h) { return wanted.has(h.OldStart); });
     // Deep-copy hunks so renderer-side expansion (expandHunksForComments /
     // autoExpandSmallGaps) mutates the clone, never the real file's hunks.
@@ -9724,6 +9878,7 @@
       // Force diff view for the group body regardless of markdown viewMode.
       viewMode: 'diff',
     });
+    storyExpandedFileCache.set(key, { fileHash: file.fileHash, clone: clone });
     return { clone: clone, total: allHunks.length, shown: copiedHunks.length };
   }
 
@@ -9731,7 +9886,6 @@
   function renderStoryRail() {
     const rail = document.getElementById('storyRail');
     if (!rail || !storyState) return;
-    const story = storyState.story;
     const chapters = storyState.pages.filter(function (p) { return p.kind === 'chapter'; });
     const support = storyState.pages.filter(function (p) { return p.kind === 'support'; });
     const totalHunks = storyState.hunkOwner.size;
@@ -9740,8 +9894,7 @@
 
     const titleRow = document.createElement('div');
     titleRow.className = 'crit-story-rail__title';
-    const complexity = story.prologue && story.prologue.complexity ? story.prologue.complexity : '';
-    titleRow.innerHTML = '<h2>Story</h2>' + (complexity ? '<span class="crit-story-rail__complexity">' + escapeHtml(complexity) + '</span>' : '');
+    titleRow.innerHTML = '<h2>Story</h2>';
     rail.appendChild(titleRow);
 
     const meta = document.createElement('div');
@@ -9818,14 +9971,6 @@
     spacer.className = 'crit-story-rail__spacer';
     rail.appendChild(spacer);
 
-    const hint = document.createElement('div');
-    hint.className = 'crit-story-rail__hint';
-    hint.innerHTML =
-      '<button type="button" id="storyHelpBtn"><span class="crit-story-kbd">?</span> Shortcuts</button>' +
-      '<button type="button" id="storyHideBtn" title="Return to flat file view">Hide story view</button>';
-    rail.appendChild(hint);
-    rail.querySelector('#storyHelpBtn').addEventListener('click', function () { toggleStoryHelp(true); });
-    rail.querySelector('#storyHideBtn').addEventListener('click', hideStoryView);
   }
 
   function railStatusHtml(page) {
@@ -9842,6 +9987,73 @@
     return n;
   }
 
+  function renderStoryOverviewTabs(prologueEl) {
+    const pr = prData;
+    if (!pr || !pr.pr_number || !(pr.pr_title || (pr.pr_body && pr.pr_body.trim()))) return prologueEl;
+    const githubIcon = '<svg class="crit-story-pr__github" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.63 5.47 7.71.4.08.55-.18.55-.39 0-.19-.01-.83-.01-1.5-2.01.38-2.53-.5-2.69-.96-.09-.24-.48-.96-.82-1.15-.28-.15-.68-.53-.01-.54.63-.01 1.08.59 1.23.83.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-.21-3.64-.91-3.64-4.02 0-.89.31-1.62.82-2.19-.08-.2-.36-1.04.08-2.16 0 0 .67-.22 2.2.84A7.42 7.42 0 0 1 8 3.92c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.96.08 2.16.51.57.82 1.3.82 2.19 0 3.12-1.87 3.81-3.65 4.02.29.25.54.74.54 1.5 0 1.08-.01 1.95-.01 2.22 0 .22.15.47.55.39A8.08 8.08 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z"/></svg>';
+
+    const box = document.createElement('section');
+    box.className = 'crit-story-pr';
+
+    const tabs = document.createElement('div');
+    tabs.className = 'crit-story-pr__tabs';
+    const storyBtn = document.createElement('button');
+    storyBtn.type = 'button';
+    storyBtn.className = 'crit-story-pr__tab active';
+    storyBtn.dataset.storyPrTab = 'story';
+    storyBtn.textContent = 'Story';
+    tabs.appendChild(storyBtn);
+    const summaryBtn = document.createElement('button');
+    summaryBtn.type = 'button';
+    summaryBtn.className = 'crit-story-pr__tab';
+    summaryBtn.dataset.storyPrTab = 'summary';
+    summaryBtn.innerHTML = githubIcon + '<span>PR</span>';
+    tabs.appendChild(summaryBtn);
+    box.appendChild(tabs);
+
+    const storyPanel = document.createElement('div');
+    storyPanel.className = 'crit-story-pr__panel active';
+    storyPanel.dataset.storyPrPanel = 'story';
+    storyPanel.appendChild(prologueEl);
+    box.appendChild(storyPanel);
+
+    const summaryPanel = document.createElement('div');
+    summaryPanel.className = 'crit-story-pr__panel crit-story-pr__prologue';
+    summaryPanel.dataset.storyPrPanel = 'summary';
+    const prHref = pr.pr_url ? escapeHtml(pr.pr_url) : '#';
+    const meta = (pr.pr_head_ref || pr.pr_base_ref)
+      ? '<div class="crit-story-pr__meta">' + escapeHtml(pr.pr_head_ref || '') + ' -> ' + escapeHtml(pr.pr_base_ref || '') + '</div>'
+      : '';
+    summaryPanel.innerHTML =
+      '<div class="crit-story-prologue__eyebrow">' + githubIcon + ' Pull Request</div>' +
+      '<h2><a class="crit-story-pr__title" href="' + prHref + '" target="_blank" rel="noopener noreferrer">' +
+        escapeHtml(pr.pr_title || 'Pull Request') + '</a> <span>#' + escapeHtml(String(pr.pr_number)) + '</span></h2>' +
+      meta;
+    const body = document.createElement('div');
+    body.className = 'crit-story-prologue__overview crit-story-pr__description';
+    if (pr.pr_body && pr.pr_body.trim()) {
+      body.innerHTML = commentMd.render(pr.pr_body);
+      linkifyCommentRefsInDom(body);
+    } else {
+      body.textContent = 'No PR description.';
+    }
+    summaryPanel.appendChild(body);
+    box.appendChild(summaryPanel);
+
+    tabs.addEventListener('click', function (e) {
+      const btn = e.target.closest('.crit-story-pr__tab');
+      if (!btn || btn.disabled) return;
+      const tab = btn.dataset.storyPrTab;
+      tabs.querySelectorAll('.crit-story-pr__tab').forEach(function (b) {
+        b.classList.toggle('active', b === btn);
+      });
+      box.querySelectorAll('.crit-story-pr__panel').forEach(function (panel) {
+        panel.classList.toggle('active', panel.dataset.storyPrPanel === tab);
+      });
+    });
+    return box;
+  }
+
   // ----- Overview -----
   function renderStoryOverview() {
     const inner = document.getElementById('storyPaneInner');
@@ -9852,26 +10064,30 @@
     const story = storyState.story;
     const prologue = story.prologue || {};
     const chapterPages = storyState.pages.filter(function (p) { return p.kind === 'chapter'; });
-    const hasPrologueContent = !!(prologue.summary || prologue.motivation || prologue.diagram ||
-      (Array.isArray(prologue.focus_areas) && prologue.focus_areas.length));
+    const hasPrologueContent = !!(prologue.title || prologue.overview ||
+      (Array.isArray(prologue.key_changes) && prologue.key_changes.length) ||
+      (Array.isArray(prologue.risks) && prologue.risks.length) ||
+      prologue.diagram);
 
     const prologueEl = document.createElement('div');
     prologueEl.className = 'crit-story-prologue';
     let ph = '<div class="crit-story-prologue__eyebrow"><span class="dot"></span> Prologue</div>';
-    if (prologue.summary) {
-      ph += '<h2>' + commentMd.renderInline(prologue.summary) + '</h2>';
+    if (prologue.title) {
+      ph += '<h2>' + escapeHtml(prologue.title) + '</h2>';
     } else if (!hasPrologueContent) {
       // Support-only / stub story with no authored prologue — give the page a
       // heading so it doesn't read as a bare eyebrow.
       ph += '<h2>' + (chapterPages.length ? 'Story overview' : 'Changes grouped for review') + '</h2>';
     }
     prologueEl.innerHTML = ph;
-    if (prologue.motivation) {
-      const mot = document.createElement('div');
-      mot.className = 'crit-story-prologue__motivation';
-      mot.innerHTML = commentMd.render(prologue.motivation);
-      prologueEl.appendChild(mot);
+    if (prologue.overview) {
+      const overview = document.createElement('div');
+      overview.className = 'crit-story-prologue__overview';
+      overview.innerHTML = commentMd.render(prologue.overview);
+      prologueEl.appendChild(overview);
     }
+    const bullets = renderStoryPrologueBullets(prologue);
+    if (bullets) prologueEl.appendChild(bullets);
     if (prologue.diagram) {
       const dia = document.createElement('div');
       dia.className = 'crit-story-chapter__diagram';
@@ -9883,19 +10099,7 @@
       dia.appendChild(pre);
       prologueEl.appendChild(dia);
     }
-    if (Array.isArray(prologue.focus_areas) && prologue.focus_areas.length) {
-      const focus = document.createElement('div');
-      focus.className = 'crit-story-focus';
-      prologue.focus_areas.forEach(function (fa) {
-        const chip = document.createElement('span');
-        const warn = fa.severity && (fa.severity === 'high' || fa.severity === 'warn');
-        chip.className = 'crit-story-focus-chip' + (warn ? ' warn' : '');
-        chip.textContent = fa.area || '';
-        focus.appendChild(chip);
-      });
-      prologueEl.appendChild(focus);
-    }
-    view.appendChild(prologueEl);
+    view.appendChild(renderStoryOverviewTabs(prologueEl));
 
     const divider = document.createElement('div');
     divider.className = 'crit-story-divider';
@@ -9936,6 +10140,33 @@
     inner.appendChild(view);
   }
 
+  function renderStoryPrologueBullets(prologue) {
+    const groups = [
+      { label: 'Key changes', items: prologue.key_changes || [] },
+      { label: 'Risks', items: prologue.risks || [] },
+    ].filter(function (group) { return Array.isArray(group.items) && group.items.length; });
+    if (!groups.length) return null;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'crit-story-prologue__bullets';
+    groups.forEach(function (group) {
+      const section = document.createElement('section');
+      section.className = 'crit-story-prologue__bullet-group';
+      const heading = document.createElement('h3');
+      heading.textContent = group.label;
+      section.appendChild(heading);
+      const list = document.createElement('ul');
+      group.items.forEach(function (item) {
+        const li = document.createElement('li');
+        li.innerHTML = commentMd.renderInline(String(item || ''));
+        list.appendChild(li);
+      });
+      section.appendChild(list);
+      wrap.appendChild(section);
+    });
+    return wrap;
+  }
+
   // ----- Chapter / Support page -----
   function renderStoryPage(page) {
     const inner = document.getElementById('storyPaneInner');
@@ -9959,14 +10190,6 @@
         '<div class="crit-story-chapter__eyebrow">' + escapeHtml(eyebrow) + '</div>' +
         '<h2>' + escapeHtml(title) + '</h2>' +
       '</div>';
-    const markBtn = document.createElement('button');
-    markBtn.type = 'button';
-    markBtn.className = 'crit-story-chapter__mark';
-    const prog = storyPageProgress(page);
-    const allViewed = prog.total > 0 && prog.done >= prog.total;
-    markBtn.textContent = allViewed ? 'Chapter viewed' : 'Mark chapter viewed';
-    markBtn.addEventListener('click', function () { markPageViewed(page, !allViewed); });
-    top.appendChild(markBtn);
     view.appendChild(top);
 
     // Summary
@@ -10008,13 +10231,40 @@
       view.appendChild(renderStoryFileGroup(page, filePath, oldStarts, supportReasonByFile.get(filePath)));
     });
 
-    // Footer: next chapter / back to overview
+    const prog = storyPageProgress(page);
+    const allViewed = prog.total > 0 && prog.done >= prog.total;
+    const markRow = document.createElement('div');
+    markRow.className = 'crit-story-chapter__mark-row';
+    const markBtn = document.createElement('button');
+    markBtn.type = 'button';
+    markBtn.className = 'crit-story-chapter__mark';
+    markBtn.textContent = allViewed ? 'Chapter viewed' : 'Mark chapter viewed';
+    markBtn.addEventListener('click', function () { markPageViewed(page, !allViewed); });
+    markRow.appendChild(markBtn);
+    view.appendChild(markRow);
+
+    // Footer: previous/next chapter navigation.
     const footer = document.createElement('div');
     footer.className = 'crit-story-footer';
+    const pageIndexInPages = storyState.pages.indexOf(page);
+    const prevPage = storyState.pages[pageIndexInPages - 1];
+    if (prevPage || pageIndexInPages === 0) {
+      const prevCard = document.createElement('button');
+      prevCard.type = 'button';
+      prevCard.className = 'crit-story-next prev';
+      const pidPrev = prevPage ? storyPageId(prevPage) : 'overview';
+      const pLabel = prevPage ? (prevPage.kind === 'support' ? 'S' : String(prevPage.idx + 1)) : 'P';
+      const pTitle = prevPage ? (prevPage.kind === 'support' ? supportPageLabel(prevPage) : prevPage.title) : 'Prologue';
+      prevCard.innerHTML =
+        '<span class="go">←</span>' +
+        '<span class="idx">' + pLabel + '</span>' +
+        '<span class="body"><span class="lbl">Previous</span><span class="nm">' + escapeHtml(pTitle) + '</span></span>';
+      prevCard.addEventListener('click', function () { showStory(pidPrev); });
+      footer.appendChild(prevCard);
+    }
     const nextCard = document.createElement('button');
     nextCard.type = 'button';
     nextCard.className = 'crit-story-next';
-    const pageIndexInPages = storyState.pages.indexOf(page);
     const nextPage = storyState.pages[pageIndexInPages + 1];
     if (nextPage) {
       const nid = storyPageId(nextPage);
@@ -10041,17 +10291,33 @@
 
   function renderStoryFileGroup(page, filePath, oldStarts, supportReason) {
     const pid = storyPageId(page);
-    const group = document.createElement('div');
-    group.className = 'crit-story-file-group';
-    group.dataset.storyFile = filePath;
-    if (isGroupViewed(pid, filePath)) group.classList.add('viewed');
-
-    const built = cloneFileForHunks(filePath, oldStarts);
+    const built = cloneFileForHunks(filePath, oldStarts, pid);
     const file = getFileByPath(filePath);
+    const section = document.createElement('details');
+    section.className = 'file-section crit-story-file-group';
+    section.id = 'story-file-section-' + pid + '-' + filePath;
+    section.dataset.storyFile = filePath;
+    if (file && file.viewed) section.classList.add('viewed');
+    if (!file || !file.collapsed) section.open = true;
 
-    // Head
-    const head = document.createElement('div');
-    head.className = 'crit-story-file-group__head';
+    const header = document.createElement('summary');
+    header.className = 'file-header crit-story-file-header';
+    header.addEventListener('click', function (e) {
+      if (e.target.closest('.file-header-toggle') || e.target.closest('.file-header-viewed') || e.target.closest('.file-comment-btn') || e.target.closest('.file-header-copy-path') || e.target.closest('.crit-story-elsewhere')) {
+        e.preventDefault();
+        return;
+      }
+      if (file && section.open) {
+        e.preventDefault();
+        if (section.getBoundingClientRect().top < 0) section.scrollIntoView({ behavior: 'instant' });
+        section.open = false;
+        file.collapsed = true;
+      }
+    });
+    section.addEventListener('toggle', function () {
+      if (file) file.collapsed = !section.open;
+    });
+
     const shown = built ? built.shown : 0;
     const total = built ? built.total : 0;
     let statText;
@@ -10060,12 +10326,36 @@
     else statText = shown + ' hunk' + (shown === 1 ? '' : 's');
     const adds = file ? (file.additions || 0) : 0;
     const dels = file ? (file.deletions || 0) : 0;
-    head.innerHTML =
-      '<span class="crit-story-file-group__path">' + escapeHtml(filePath) + '</span>' +
+    const dirParts = filePath.split('/');
+    const fileName = dirParts.pop();
+    const dirPath = dirParts.length > 0 ? dirParts.join('/') + '/' : '';
+    header.innerHTML =
+      '<div class="file-header-chevron"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z"/></svg></div>' +
+      '<svg class="file-header-icon" viewBox="0 0 16 16" fill="var(--crit-editor-fg-muted)"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>' +
+      '<span class="file-header-name"><span class="dir">' + escapeHtml(dirPath) + '</span><span class="filename">' + escapeHtml(fileName || filePath) + '</span>' +
+        '<button type="button" class="file-header-copy-path" aria-label="Copy file path">' + ICON_COPY_PATH + '</button>' +
+      '</span>' +
       '<span class="crit-story-file-group__stat">' + statText +
         (adds ? ' · <span class="add">+' + adds + '</span>' : '') +
-        (dels ? ' <span class="del">−' + dels + '</span>' : '') +
+        (dels ? ' <span class="del">-' + dels + '</span>' : '') +
       '</span>';
+
+    const copyPathBtn = header.querySelector('.file-header-copy-path');
+    if (copyPathBtn) {
+      copyPathBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const originalLabel = copyPathBtn.getAttribute('aria-label');
+        const abs = session.cwd ? session.cwd + '/' + filePath : filePath;
+        navigator.clipboard.writeText(abs).then(function() {
+          copyPathBtn.innerHTML = ICON_COPY_PATH_CHECK;
+          copyPathBtn.setAttribute('aria-label', 'Copied!');
+          setTimeout(function() { copyPathBtn.innerHTML = ICON_COPY_PATH; copyPathBtn.setAttribute('aria-label', originalLabel); }, 1500);
+        }).catch(function() {
+          // Clipboard access is best-effort.
+        });
+      });
+    }
 
     // Elsewhere hint: this file's other hunks live in other pages.
     const owners = storyState.fileChapters.get(filePath);
@@ -10081,43 +10371,108 @@
         hint.textContent = 'also in ' + lbl + (others.length > 1 ? ' +' + (others.length - 1) : '');
         hint.title = 'This file has hunks in other chapters';
         hint.addEventListener('click', function () { showStory(storyPageId(first)); });
-        head.appendChild(hint);
+        header.appendChild(hint);
       }
     }
 
-    const spacer = document.createElement('span');
-    spacer.className = 'spacer';
-    head.appendChild(spacer);
+    if (file && !file.orphaned) {
+      const fileCommentBtn = document.createElement('button');
+      fileCommentBtn.className = 'file-comment-btn';
+      fileCommentBtn.title = 'Add file-level comment';
+      fileCommentBtn.setAttribute('aria-label', 'Add file-level comment');
+      fileCommentBtn.innerHTML = ICON_COMMENT;
+      fileCommentBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        openFileCommentForm(file.path);
+      });
+      header.appendChild(fileCommentBtn);
+    }
 
     const viewedLabel = document.createElement('label');
-    viewedLabel.className = 'crit-story-viewed-toggle';
+    viewedLabel.className = 'file-header-viewed';
     viewedLabel.title = 'Viewed';
-    viewedLabel.innerHTML = '<input type="checkbox"' + (isGroupViewed(pid, filePath) ? ' checked' : '') + '> Viewed';
-    viewedLabel.querySelector('input').addEventListener('change', function (e) {
-      setGroupViewed(pid, filePath, e.target.checked);
-      group.classList.toggle('viewed', e.target.checked);
+    viewedLabel.innerHTML = '<input type="checkbox"' + (file && file.viewed ? ' checked' : '') + '><span>Viewed</span>';
+    viewedLabel.addEventListener('click', function(e) { e.stopPropagation(); });
+    viewedLabel.querySelector('input').addEventListener('change', function () {
+      toggleViewed(filePath);
+      if (file && file.viewed && section.open) section.open = false;
+      section.classList.toggle('viewed', !!(file && file.viewed));
       renderStoryRail();
     });
-    head.appendChild(viewedLabel);
-    group.appendChild(head);
+    header.appendChild(viewedLabel);
+    section.appendChild(header);
+
+    if (file) {
+      const fileComments = file.comments.filter(function(c) { return c.scope === 'file'; });
+      const fileForm = getFormsForFile(file.path).find(function(f) { return f.scope === 'file'; });
+      if (fileComments.length > 0 || fileForm) {
+        const fileCommentsContainer = document.createElement('div');
+        fileCommentsContainer.className = 'file-comments';
+        fileComments.forEach(function(comment) {
+          fileCommentsContainer.appendChild(comment.resolved ? createResolvedElement(comment, file.path) : createCommentElement(comment, file.path));
+        });
+        if (fileForm) fileCommentsContainer.appendChild(createFileCommentForm(fileForm));
+        section.appendChild(fileCommentsContainer);
+      }
+    }
 
     // Body: reuse the existing diff renderer via the filtered file clone.
+    const body = document.createElement('div');
+    body.className = 'file-body';
     if (built && built.clone.diffHunks.length) {
-      group.appendChild(renderDiffHunks(built.clone));
+      body.appendChild(renderDiffHunks(built.clone));
     } else {
       const empty = document.createElement('div');
       empty.className = 'crit-story-file-group__empty';
       empty.textContent = file ? 'These hunks are no longer in the diff.' : 'File not loaded.';
-      group.appendChild(empty);
+      body.appendChild(empty);
     }
-    return group;
+    section.appendChild(body);
+    if (built && built.clone) highlightQuotesInSection(section, built.clone);
+    return section;
+  }
+
+  function storySupportReasonForFile(page, filePath) {
+    if (!page || page.kind !== 'support' || !page.entries) return undefined;
+    for (let i = 0; i < page.entries.length; i++) {
+      const entry = page.entries[i];
+      const refs = entry.hunk_refs || entry.hunkRefs || [];
+      for (let r = 0; r < refs.length; r++) {
+        const fp = refs[r].file_path || refs[r].filePath;
+        if (fp === filePath) return entry.reason || '';
+      }
+    }
+    return undefined;
+  }
+
+  function renderStoryFileByPath(filePath) {
+    if (!storyState || storyView === 'overview') return false;
+    const page = storyPageById(storyView);
+    if (!page || !page.refsByFile || !page.refsByFile.has(filePath)) return false;
+    const view = document.getElementById('crit-story-view-' + storyPageId(page));
+    if (!view) return false;
+    const oldSection = view.querySelector('.crit-story-file-group[data-story-file="' + CSS.escape(filePath) + '"]');
+    if (!oldSection) return false;
+    const replacement = renderStoryFileGroup(page, filePath, page.refsByFile.get(filePath), storySupportReasonForFile(page, filePath));
+    oldSection.replaceWith(replacement);
+    renderMermaidBlocks();
+    rebuildNavList();
+    applyHideResolved();
+    renderStoryRail();
+    return true;
   }
 
   function markPageViewed(page, viewed) {
-    const pid = storyPageId(page);
     page.refsByFile.forEach(function (_starts, filePath) {
-      setGroupViewed(pid, filePath, viewed);
+      const file = getFileByPath(filePath);
+      if (!file || file.viewed === viewed) return;
+      file.viewed = viewed;
+      if (viewed) file.collapsed = true;
     });
+    saveViewedState();
+    updateViewedCount();
+    updateTreeViewedState();
     renderStory();
   }
 
@@ -10140,11 +10495,17 @@
     renderMermaidBlocks();
     rebuildNavList();
     applyHideResolved();
-    const pane = document.getElementById('storyPane');
-    if (pane) pane.scrollTop = 0;
     // Keep active rail row visible.
     const activeRow = document.querySelector('.crit-story-row.active');
     if (activeRow) activeRow.scrollIntoView({ block: 'nearest' });
+  }
+
+  function resetStoryScroll() {
+    const pane = document.getElementById('storyPane');
+    if (pane) pane.scrollTop = 0;
+    const scrollingEl = document.scrollingElement || document.documentElement;
+    if (scrollingEl) scrollingEl.scrollTop = 0;
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }
 
   function showStory(target) {
@@ -10155,6 +10516,7 @@
     if (location.hash !== hash) history.replaceState(null, '', hash);
     document.body.classList.remove('crit-story-rail-open');
     renderStory();
+    resetStoryScroll();
   }
 
   function storyFromHash() {
@@ -10175,7 +10537,6 @@
     const present = !!(session && storyHasContent(session.story));
     if (present) {
       storyState = buildStoryState(session.story);
-      pruneStoryViewed();
       if (storyHidden) {
         // Present but hidden: flat layout + re-entry affordance. Navigating to
         // a #story hash un-hides (handled in the hashchange listener).
@@ -10199,6 +10560,8 @@
       const rail = document.getElementById('storyRail');
       if (rail) rail.innerHTML = '';
     }
+    updateStoryViewToggle();
+    updateDiffModeToggle();
   }
 
   // "Hide story view" is a non-destructive view toggle (Task 7 user-feedback
@@ -10206,16 +10569,17 @@
   // this page session and surfaces a "Show story view" re-entry affordance. The
   // story stays on disk and in session.story; a reload restores the story view.
   // Real removal is `crit story --clear` / DELETE /api/story.
-  function hideStoryView() {
+  async function hideStoryView() {
     storyHidden = true;
     applyStoryPresence();
+    await reloadForScope();
   }
 
   // Restore the story view after "Hide story view". Un-hides and renders at the
   // overview (or the page named by the current #story hash, if any).
-  function showStoryView() {
+  async function showStoryView() {
     storyHidden = false;
-    applyStoryPresence();
+    await reloadForScope();
   }
 
   // Chapter that owns the hunk containing a given (filePath, line). Returns
@@ -10257,25 +10621,13 @@
     return false;
   }
 
-  // ----- Keyboard help overlay -----
-  function toggleStoryHelp(force) {
-    const overlay = document.getElementById('storyKbdOverlay');
-    if (!overlay) return;
-    const open = typeof force === 'boolean' ? force : !overlay.classList.contains('open');
-    overlay.classList.toggle('open', open);
-  }
-
-  function storyActive() { return !!storyState; }
+  function storyActive() { return !!storyState && document.body.classList.contains('crit-story-active'); }
 
   // Handle a keydown when story view is active. Returns true if consumed.
   // Uppercase J/K (Shift) drive chapter nav so lowercase j/k keep their
   // existing in-page block navigation. Scoped keys don't fire when typing.
   function handleStoryKey(e) {
     if (!storyActive()) return false;
-    const overlay = document.getElementById('storyKbdOverlay');
-    if (overlay && overlay.classList.contains('open')) {
-      if (e.key === 'Escape') { e.preventDefault(); toggleStoryHelp(false); return true; }
-    }
     const pages = storyState.pages;
     const curIdx = storyView === 'overview' ? -1 : pages.indexOf(storyPageById(storyView));
     switch (e.key) {
@@ -10306,8 +10658,6 @@
         e.preventDefault();
         document.body.classList.toggle('crit-story-rail-open');
         return true;
-      case '?':
-        e.preventDefault(); toggleStoryHelp(); return true;
       case 'Escape':
         if (document.body.classList.contains('crit-story-rail-open')) {
           e.preventDefault(); document.body.classList.remove('crit-story-rail-open'); return true;
@@ -10317,16 +10667,21 @@
     return false;
   }
 
-  // Rail toggle + scrim + overlay backdrop wiring (safe when elements absent).
+  // Rail toggle + scrim wiring (safe when elements absent).
   (function wireStoryChrome() {
     const toggle = document.getElementById('storyRailToggle');
     if (toggle) toggle.addEventListener('click', function () { document.body.classList.toggle('crit-story-rail-open'); });
     const scrim = document.getElementById('storyRailScrim');
     if (scrim) scrim.addEventListener('click', function () { document.body.classList.remove('crit-story-rail-open'); });
-    const showBtn = document.getElementById('storyShowBtn');
-    if (showBtn) showBtn.addEventListener('click', showStoryView);
-    const overlay = document.getElementById('storyKbdOverlay');
-    if (overlay) overlay.addEventListener('click', function (e) { if (e.target === overlay) toggleStoryHelp(false); });
+    const storyViewToggle = document.getElementById('storyViewToggle');
+    if (storyViewToggle) {
+      storyViewToggle.addEventListener('click', function (e) {
+        const btn = e.target.closest('.toggle-btn');
+        if (!btn || !storyViewToggle.contains(btn)) return;
+        if (btn.dataset.storyView === 'diff') hideStoryView();
+        else showStoryView();
+      });
+    }
     window.addEventListener('hashchange', function () {
       const h = location.hash || '';
       if (h.indexOf('#story') !== 0) return;

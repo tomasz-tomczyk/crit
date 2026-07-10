@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/github"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
@@ -108,11 +110,58 @@ func TestStorySessionKeyInvariant_PRArgs(t *testing.T) {
 	}
 }
 
+func TestFillStoryPRContext_ExplicitPR(t *testing.T) {
+	restore := github.SwapFetchPRByNumberForTest(func(n int) (*github.PRInfo, error) {
+		return &github.PRInfo{
+			Number: n,
+			URL:    "https://github.com/acme/widget/pull/75",
+			Title:  "Story mode polish",
+			Body:   "Use PR description as generation context.",
+		}, nil
+	})
+	defer restore()
+
+	scope := session.StoryScope{PRNumber: 75}
+	fillStoryPRContext(&scope)
+
+	if scope.PRTitle != "Story mode polish" || scope.PRBody != "Use PR description as generation context." {
+		t.Fatalf("PR context not filled: %+v", scope)
+	}
+	if scope.PRURL != "https://github.com/acme/widget/pull/75" {
+		t.Fatalf("PR URL = %q", scope.PRURL)
+	}
+}
+
 func TestStoryRejectsPositionalFileArgs(t *testing.T) {
 	setupStoryRepo(t)
 	err := runStoryE([]string{"plan.md"})
 	if err == nil {
 		t.Fatal("expected rejection of positional file args")
+	}
+}
+
+func TestStoryHelpMentionsStoryCommands(t *testing.T) {
+	var stderr strings.Builder
+	old := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	done := make(chan struct{})
+	go func() {
+		io.Copy(&stderr, r)
+		close(done)
+	}()
+	err := runStoryE([]string{"--help"})
+	w.Close()
+	<-done
+	os.Stderr = old
+	if err != nil {
+		t.Fatalf("story help returned error: %v", err)
+	}
+	out := stderr.String()
+	for _, want := range []string{"Usage: crit story", "--story-file", "--prep", "--guide", "--skip-llm", "--refresh", "--clear", "--no-spend"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("story help missing %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -122,6 +171,12 @@ func TestStoryStoryFileEndToEnd(t *testing.T) {
 	// Author a story covering app.go's single hunk. New file => old_start 0.
 	st := session.Story{
 		Version: 1,
+		Prologue: &session.StoryPrologue{
+			Title:      "App entry point",
+			Overview:   "Adds an app function and wires it up.",
+			KeyChanges: []string{"Introduce app.A()."},
+			Risks:      []string{"Coverage depends on the app.go new-file hunk."},
+		},
 		Chapters: []session.StoryChapter{
 			{ID: "ch1", Title: "New app fn", HunkRefs: []session.StoryHunkRef{{FilePath: "app.go", OldStart: 0}}},
 		},

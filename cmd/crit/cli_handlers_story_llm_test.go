@@ -89,7 +89,12 @@ func fakeAgentScript(t *testing.T, dir, out string) string {
 const validCannedStory = `{
   "version": 1,
   "agent": "fake-agent",
-  "prologue": {"summary": "A canned story for tests.", "complexity": "low"},
+  "prologue": {
+    "title": "Canned story",
+    "overview": "A canned story for tests.",
+    "key_changes": ["Covers the fixture hunk."],
+    "risks": ["Fixture coverage depends on the app.go new-file hunk."]
+  },
   "chapters": [
     {"id": "ch1", "title": "Canned", "summary": "Covers the fixture hunk.",
      "hunk_refs": [{"file_path": "app.go", "old_start": 0}]}

@@ -104,6 +104,51 @@ func TestRenderFinish_DefaultUnchanged(t *testing.T) {
 	}
 }
 
+func TestRenderFinish_StoryUsesUserStoryPromptFirst(t *testing.T) {
+	project := map[string]string{
+		"on_finish_unresolved":       "inline:GENERIC",
+		"on_finish_unresolved:diff":  "inline:DIFF",
+		"on_finish_unresolved:story": "inline:STORY {{.unresolved_count}}",
+	}
+	ctx := prompt.Context{
+		Mode:                "story",
+		UnresolvedCount:     2,
+		InternalSessionMode: "git",
+		Approved:            false,
+	}
+	result := prompt.RenderFinish(nil, project, t.TempDir(), "", true, ctx)
+	if result.Prompt != "STORY 2" {
+		t.Fatalf("prompt = %q", result.Prompt)
+	}
+	if result.Meta == nil || result.Meta.Hook != "on_finish_unresolved:story" {
+		t.Fatalf("meta = %+v", result.Meta)
+	}
+}
+
+func TestRenderFinish_StoryUsesStockBeforeGenericUserPrompt(t *testing.T) {
+	project := map[string]string{
+		"on_finish_unresolved":      "inline:GENERIC",
+		"on_finish_unresolved:diff": "inline:DIFF",
+	}
+	ctx := prompt.Context{
+		Mode:                   "story",
+		UnresolvedCount:        1,
+		CommentsUnresolvedJSON: `[{"id":"c_1","body":"fix"}]`,
+		InternalSessionMode:    "git",
+		Approved:               false,
+	}
+	result := prompt.RenderFinish(nil, project, t.TempDir(), "", true, ctx)
+	if !strings.Contains(result.Prompt, "story-mode review finished with 1 unresolved comment") {
+		t.Fatalf("prompt = %q", result.Prompt)
+	}
+	if strings.Contains(result.Prompt, "GENERIC") || strings.Contains(result.Prompt, "DIFF") {
+		t.Fatalf("story mode must not fall back to generic/diff before stock story: %q", result.Prompt)
+	}
+	if result.Meta == nil || result.Meta.Hook != "on_finish_unresolved:story" || result.Meta.TemplateSource != "stock:on_finish_unresolved.story.md" {
+		t.Fatalf("meta = %+v", result.Meta)
+	}
+}
+
 func TestRenderFinish_CustomTemplate(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "custom.md")

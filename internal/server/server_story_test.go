@@ -38,6 +38,12 @@ func validStoryBody(t *testing.T) []byte {
 	body := map[string]any{
 		"story": map[string]any{
 			"version": 1,
+			"prologue": map[string]any{
+				"title":       "Test story",
+				"overview":    "A test story.",
+				"key_changes": []string{"Covers the fabricated hunk."},
+				"risks":       []string{"Fixture coverage depends on test.md old_start 1."},
+			},
 			"chapters": []map[string]any{
 				{
 					"id":    "ch1",
@@ -120,6 +126,12 @@ func TestHandleStory_PostRejected_DuplicateHunk_ReturnsCoverageAndDoesNotSave(t 
 	body := map[string]any{
 		"story": map[string]any{
 			"version": 1,
+			"prologue": map[string]any{
+				"title":       "Duplicate story",
+				"overview":    "A duplicate story.",
+				"key_changes": []string{"Places the fabricated hunk."},
+				"risks":       []string{"The same hunk is intentionally duplicated."},
+			},
 			"chapters": []map[string]any{
 				{
 					"id":    "ch1",

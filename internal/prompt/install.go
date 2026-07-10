@@ -10,7 +10,9 @@ import (
 
 var stockPromptFiles = []string{
 	"on_finish_approved.md",
+	"on_finish_approved.story.md",
 	"on_finish_unresolved.md",
+	"on_finish_unresolved.story.md",
 }
 
 var stockStoryPromptFiles = []string{

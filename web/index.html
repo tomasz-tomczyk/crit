@@ -92,6 +92,10 @@
       <button class="toggle-btn" data-scope="staged" title="Staged changes">Staged</button>
       <button class="toggle-btn" data-scope="unstaged" title="Unstaged changes">Unstaged</button>
     </div>
+    <div class="scope-toggle crit-story-view-toggle" id="storyViewToggle" style="display:none">
+      <button class="toggle-btn active" data-story-view="story" title="Show story view">Story</button>
+      <button class="toggle-btn" data-story-view="diff" title="Show diff view">Diff</button>
+    </div>
     <button class="btn btn-sm" id="diffToggle" style="display:none">Toggle Diff</button>
     <div class="diff-mode-toggle" id="diffModeToggle" style="display:none">
       <button class="toggle-btn active" data-mode="split" title="Split diff">Split</button>
@@ -130,13 +134,6 @@
 
 <div class="main-layout">
   <div class="file-tree-panel" id="fileTreePanel">
-    <!-- Re-entry affordance: shown (via body.crit-story-hidden) only when a
-         story exists but the reviewer chose "Hide story view". Restores the
-         story layout without re-ingesting. -->
-    <button type="button" class="crit-story-show-bar" id="storyShowBtn" title="Return to the story view">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3.5h9M2 8h9M2 12.5h6"/><path d="M13.5 6.5 15 8l-1.5 1.5"/></svg>
-      Show story view
-    </button>
     <div class="tree-section--conversation" id="treeConversationSection"></div>
     <div class="file-tree-header">
       <span class="file-tree-title">Files</span>
@@ -168,6 +165,7 @@
          session.story is present; populated by app.js renderStory* functions. -->
     <div id="storyRoot" class="crit-story-root">
       <nav class="crit-story-rail" id="storyRail" aria-label="Story chapters"></nav>
+      <div class="sidebar-resize-handle crit-story-rail-resizer" id="storyRailResizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize story chapter list" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100"></div>
       <div class="crit-story-rail-scrim" id="storyRailScrim"></div>
       <main class="crit-story-pane" id="storyPane">
         <div class="crit-story-pane__inner" id="storyPaneInner"></div>
@@ -278,22 +276,6 @@
       <div class="settings-pane active" data-pane="settings" id="settingsPane" role="tabpanel" aria-labelledby="tab-settings"></div>
       <div class="settings-pane" data-pane="shortcuts" id="shortcutsPane" role="tabpanel" aria-labelledby="tab-shortcuts"></div>
       <div class="settings-pane" data-pane="about" id="aboutPane" role="tabpanel" aria-labelledby="tab-about"></div>
-    </div>
-  </div>
-</div>
-
-<!-- Story keyboard help overlay (press ? in story view) -->
-<div class="crit-story-kbd-overlay" id="storyKbdOverlay" role="dialog" aria-modal="true" aria-label="Story keyboard shortcuts">
-  <div class="crit-story-kbd-sheet">
-    <h3>Keyboard <span class="esc">Esc to close</span></h3>
-    <div class="crit-story-kbd-list">
-      <div class="crit-story-kbd-item"><span>Next chapter</span><span class="keys"><span class="crit-story-kbd">J</span></span></div>
-      <div class="crit-story-kbd-item"><span>Previous chapter</span><span class="keys"><span class="crit-story-kbd">K</span></span></div>
-      <div class="crit-story-kbd-item"><span>Jump to chapter</span><span class="keys"><span class="crit-story-kbd">1</span>&ndash;<span class="crit-story-kbd">9</span></span></div>
-      <div class="crit-story-kbd-item"><span>Overview</span><span class="keys"><span class="crit-story-kbd">O</span></span></div>
-      <div class="crit-story-kbd-item"><span>Support page</span><span class="keys"><span class="crit-story-kbd">S</span></span></div>
-      <div class="crit-story-kbd-item"><span>Toggle chapters</span><span class="keys"><span class="crit-story-kbd">\</span></span></div>
-      <div class="crit-story-kbd-item"><span>This help</span><span class="keys"><span class="crit-story-kbd">?</span></span></div>
     </div>
   </div>
 </div>

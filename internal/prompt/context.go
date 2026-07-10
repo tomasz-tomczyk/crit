@@ -14,7 +14,7 @@ type Context struct {
 	CommentsAllCmd         string
 	NextRoundCmd           string
 	SessionKey             string
-	Mode                   string // files | diff | live | preview
+	Mode                   string // files | diff | story | live | preview
 	UnresolvedCount        int
 	TotalCount             int
 	FilesWithComments      []string

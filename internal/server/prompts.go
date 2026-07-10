@@ -23,6 +23,9 @@ func (s *Server) promptTrustState() (prompt.TrustState, error) {
 
 func (s *Server) buildPromptContext(sess *Session, approved bool, stats map[string]any) prompt.Context {
 	mode := prompt.PromptMode(sess.ReviewType, sess.Mode)
+	if mode == "diff" && sess.GetStory() != nil {
+		mode = "story"
+	}
 	reviewPath := sess.CritJSONPath()
 	quoted := shellQuoteArg(reviewPath)
 	ctx := prompt.Context{
@@ -52,25 +55,30 @@ func (s *Server) buildPromptContext(sess *Session, approved bool, stats map[stri
 			ctx.CommentsJSON = string(b)
 		}
 	}
-	if stats != nil {
-		ctx.SessionStats = &prompt.SessionStats{}
-		if v, ok := stats["duration_seconds"].(int); ok {
-			ctx.SessionStats.DurationSeconds = v
-		} else if v, ok := stats["duration_seconds"].(float64); ok {
-			ctx.SessionStats.DurationSeconds = int(v)
-		}
-		if v, ok := stats["files_reviewed"].(int); ok {
-			ctx.SessionStats.FilesReviewed = v
-		} else if v, ok := stats["files_reviewed"].(float64); ok {
-			ctx.SessionStats.FilesReviewed = int(v)
-		}
-		if v, ok := stats["comments_submitted"].(int); ok {
-			ctx.SessionStats.CommentsSubmitted = v
-		} else if v, ok := stats["comments_submitted"].(float64); ok {
-			ctx.SessionStats.CommentsSubmitted = int(v)
-		}
-	}
+	ctx.SessionStats = promptStats(stats)
 	return ctx
+}
+
+func promptStats(stats map[string]any) *prompt.SessionStats {
+	if stats == nil {
+		return nil
+	}
+	return &prompt.SessionStats{
+		DurationSeconds:   promptIntStat(stats, "duration_seconds"),
+		FilesReviewed:     promptIntStat(stats, "files_reviewed"),
+		CommentsSubmitted: promptIntStat(stats, "comments_submitted"),
+	}
+}
+
+func promptIntStat(stats map[string]any, key string) int {
+	switch v := stats[key].(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
 }
 
 func filesWithUnresolvedComments(sess *Session) []string {

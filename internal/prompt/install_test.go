@@ -13,7 +13,7 @@ func TestInstallPrompts(t *testing.T) {
 	if err := prompt.InstallPrompts(dir, false); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"on_finish_approved.md", "on_finish_unresolved.md"} {
+	for _, name := range []string{"on_finish_approved.md", "on_finish_approved.story.md", "on_finish_unresolved.md", "on_finish_unresolved.story.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Fatalf("missing %s: %v", name, err)
 		}

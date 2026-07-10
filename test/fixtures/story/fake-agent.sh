@@ -23,8 +23,10 @@ cat <<'JSON'
   "version": 1,
   "agent": "fake-agent",
   "prologue": {
-    "summary": "A canned story for tests.",
-    "complexity": "low"
+    "title": "Canned story",
+    "overview": "A canned story for tests.",
+    "key_changes": ["Covers the fixture hunk."],
+    "risks": ["Fixture coverage depends on the app.go new-file hunk."]
   },
   "chapters": [
     {

@@ -45,6 +45,9 @@ func TestPrintHelpMentionsSession(t *testing.T) {
 	if !strings.Contains(out, "CRIT_PUBLIC_URL") {
 		t.Fatalf("help missing CRIT_PUBLIC_URL:\n%s", out)
 	}
+	if !strings.Contains(out, "crit story") {
+		t.Fatalf("help missing crit story:\n%s", out)
+	}
 }
 
 // TestSubcommandDispatch_Help verifies that help flags are recognized.

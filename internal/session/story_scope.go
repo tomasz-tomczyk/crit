@@ -50,6 +50,8 @@ type StoryScope struct {
 	CommitMessages []string
 	PRNumber       int              // >0 only for --pr scopes
 	PRURL          string           // populated only for --pr scopes
+	PRTitle        string           // populated when the branch/scope has a corresponding PR
+	PRBody         string           // populated when the branch/scope has a corresponding PR
 	Files          []StoryScopeFile // Ignored=false: indexed; Ignored=true: pre-placed
 }
 

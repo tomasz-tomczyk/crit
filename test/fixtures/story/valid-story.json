@@ -2,10 +2,10 @@
   "version": 1,
   "agent": "fake-agent",
   "prologue": {
-    "summary": "Adds an app function and wires it up.",
-    "motivation": "Introduce the first public entry point.",
-    "complexity": "low",
-    "focus_areas": [{ "area": "api", "severity": "low" }]
+    "title": "App entry point",
+    "overview": "Adds an app function and wires it up.",
+    "key_changes": ["Introduce app.A()."],
+    "risks": ["Fixture coverage depends on the app.go new-file hunk."]
   },
   "chapters": [
     {

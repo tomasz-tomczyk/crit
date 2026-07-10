@@ -50,10 +50,15 @@ const STORY = {
   version: 1,
   agent: 'e2e-test',
   prologue: {
-    summary: 'Reworks route registration and documents the plan.',
-    motivation: 'Establish the health-check route and dashboard logging before wiring auth.',
-    complexity: 'medium',
-    focus_areas: [{ area: 'routing', severity: 'high' }, { area: 'docs', severity: 'low' }],
+    title: 'Route registration story',
+    overview: 'Reworks route registration and documents the plan.',
+    key_changes: [
+      'routes.go adds the health-check route and grouped imports.',
+      'Dashboard logging and plan.md document the route behavior.',
+    ],
+    risks: [
+      'Auth middleware is support plumbing, so routing review should still scan the support page.',
+    ],
   },
   chapters: [
     {
@@ -164,11 +169,37 @@ test.describe('Story mode', () => {
 
   test('ingesting a story activates the overview with prologue and chapter TOC', async ({ page, request }) => {
     await ingestStory(critBin, fixtureDir, fakeHome);
+    await page.route('**/api/config', async route => {
+      const res = await route.fetch();
+      const body = await res.json();
+      await route.fulfill({
+        response: res,
+        json: {
+          ...body,
+          pr_number: 735,
+          pr_url: 'https://github.com/tomasz-tomczyk/crit/pull/735',
+          pr_title: 'feat: add story review mode',
+          pr_body: 'PR description from GitHub.',
+          pr_head_ref: 'story-mode',
+          pr_base_ref: 'main',
+        },
+      });
+    });
     await loadPage(page);
 
     await expect(page.locator('body')).toHaveClass(/crit-story-active/);
     await expect(storyOverview(page)).toBeVisible();
+    const tabs = storyOverview(page).locator('.crit-story-pr__tabs');
+    await expect(tabs.locator('.crit-story-pr__tab', { hasText: 'Story' })).toHaveClass(/active/);
     await expect(storyOverview(page).locator('.crit-story-prologue')).toContainText('Reworks route registration');
+    await expect(storyOverview(page).locator('.crit-story-prologue')).toContainText('Key changes');
+    await expect(storyOverview(page).locator('.crit-story-prologue')).toContainText('Dashboard logging and plan.md');
+    await expect(storyOverview(page).locator('.crit-story-prologue')).toContainText('Risks');
+    await tabs.locator('.crit-story-pr__tab', { hasText: 'PR' }).click();
+    await expect(storyOverview(page).locator('.crit-story-pr__panel.active')).toContainText('feat: add story review mode');
+    await expect(storyOverview(page).locator('.crit-story-pr__panel.active')).toContainText('#735');
+    await expect(storyOverview(page).locator('.crit-story-pr__panel.active')).toContainText('story-mode -> main');
+    await expect(storyOverview(page).locator('.crit-story-pr__panel.active')).toContainText('PR description from GitHub.');
 
     await expect(tocItem(page, 'ch1')).toContainText('Route imports + health check');
     await expect(tocItem(page, 'ch2')).toContainText('Dashboard logging + docs');
@@ -190,6 +221,16 @@ test.describe('Story mode', () => {
     await expect(ch1View.locator('.crit-story-file-group[data-story-file="routes.go"]')).toBeVisible();
     // Only ch1's hunk group renders — plan.md and handler.js belong to other pages.
     await expect(ch1View.locator('.crit-story-file-group')).toHaveCount(1);
+    await expect(ch1View.locator('.crit-story-chapter__top .crit-story-chapter__mark')).toHaveCount(0);
+    await expect(ch1View.locator('.crit-story-chapter__mark-row .crit-story-chapter__mark')).toBeVisible();
+    await expect.poll(async () => ch1View.evaluate((el) => {
+      const fileGroup = el.querySelector('.crit-story-file-group');
+      const markRow = el.querySelector('.crit-story-chapter__mark-row');
+      const footer = el.querySelector('.crit-story-footer');
+      if (!fileGroup || !markRow || !footer) return false;
+      return !!(fileGroup.compareDocumentPosition(markRow) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+        !!(markRow.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING);
+    })).toBe(true);
 
     // Rail highlights the active chapter.
     await expect(railRow(page, 'ch1')).toHaveClass(/active/);
@@ -233,7 +274,7 @@ test.describe('Story mode', () => {
     await expect(storyView(page, 'ch1')).toBeVisible();
 
     const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
-    const viewedLabel = group.locator('.crit-story-viewed-toggle');
+    const viewedLabel = group.locator('.file-header-viewed');
     await viewedLabel.scrollIntoViewIfNeeded();
     // Click the label, not .check() on the hidden-pattern checkbox — repo
     // convention for toggle-style controls (see comments-panel-switch).
@@ -251,6 +292,134 @@ test.describe('Story mode', () => {
     await expect(storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]')).toHaveClass(/viewed/);
   });
 
+  test('chapter file headers reuse collapse and selected-text comment affordances', async ({ page }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome);
+    await loadPage(page);
+
+    await tocItem(page, 'ch1').scrollIntoViewIfNeeded();
+    await tocItem(page, 'ch1').click();
+    const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
+    await expect(group).toBeVisible();
+    await expect(group).toHaveAttribute('open', '');
+    await expect(group.locator('.diff-container.split')).toBeVisible();
+    await expect(group.locator('.file-header-toggle')).toHaveCount(0);
+
+    const firstBtn = group.locator('.diff-split-side.right .diff-comment-btn').first();
+    const secondBtn = group.locator('.diff-split-side.right .diff-comment-btn').nth(1);
+    const firstBox = await firstBtn.boundingBox();
+    const secondBox = await secondBtn.boundingBox();
+    if (!firstBox || !secondBox) throw new Error('expected diff comment gutter buttons');
+    await firstBtn.dispatchEvent('mousedown', {
+      button: 0,
+      bubbles: true,
+      cancelable: true,
+      clientX: firstBox.x + firstBox.width / 2,
+      clientY: firstBox.y + firstBox.height / 2,
+    });
+    await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2);
+    await expect.poll(async () => group.locator('.diff-comment-gutter.drag-range').count()).toBeGreaterThan(0);
+    await page.mouse.up();
+    await expect(group.locator('.comment-form textarea')).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
+    await expect(group.locator('.diff-container.unified')).toBeVisible();
+
+    const firstContent = group.locator('.diff-content').first();
+    await firstContent.evaluate((el) => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const text = walker.nextNode();
+      if (!text) throw new Error('expected text in diff content');
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, Math.min(5, text.textContent?.length || 0));
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    });
+    await page.keyboard.press('Shift+C');
+    await expect(group.locator('.comment-form textarea')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await group.locator('.file-header').click();
+    await expect(group).not.toHaveAttribute('open', '');
+  });
+
+  test('chapter diff gap expand controls reveal more context', async ({ page }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome);
+    await loadPage(page);
+
+    await tocItem(page, 'ch1').click();
+    const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
+    await expect(group).toBeVisible();
+
+    const rowsBefore = await group.locator('.diff-split-row').count();
+    const trailingSpacer = group.locator('.diff-spacer-trailing').first();
+    await expect(trailingSpacer).toBeVisible();
+    await trailingSpacer.locator('[aria-label^="Expand "]').click();
+
+    await expect(async () => {
+      const rowsAfter = await group.locator('.diff-split-row').count();
+      expect(rowsAfter).toBeGreaterThan(rowsBefore);
+    }).toPass();
+  });
+
+  test('story chapter rail fills the viewport and uses the shared resize handle', async ({ page }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome);
+    await loadPage(page);
+
+    const rail = page.locator('#storyRail');
+    const resizer = page.locator('#storyRailResizer');
+    await expect(rail).toBeVisible();
+    await expect(resizer).toBeVisible();
+
+    const railBox = await rail.boundingBox();
+    const viewport = page.viewportSize();
+    if (!railBox || !viewport) throw new Error('expected visible story rail and viewport');
+    expect(Math.abs((railBox.y + railBox.height) - viewport.height)).toBeLessThanOrEqual(2);
+
+    const widthBefore = railBox.width;
+    await resizer.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(async () => {
+      const box = await rail.boundingBox();
+      return box ? Math.round(box.width) : 0;
+    }).toBe(Math.round(widthBefore + 16));
+  });
+
+  test('chapter navigation resets scroll to the top of the story page', async ({ page }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome);
+    await loadPage(page);
+
+    await tocItem(page, 'ch2').scrollIntoViewIfNeeded();
+    await tocItem(page, 'ch2').click();
+    await expect(storyView(page, 'ch2')).toBeVisible();
+
+    await page.evaluate(() => {
+      window.scrollTo(0, 500);
+      const pane = document.getElementById('storyPane');
+      if (pane) pane.scrollTop = 500;
+    });
+    await railRow(page, 'ch1').click();
+    await expect(storyView(page, 'ch1')).toBeVisible();
+    await expect(storyView(page, 'ch1').locator('.crit-story-next.prev')).toContainText('Prologue');
+    await expect.poll(async () => page.evaluate(() => {
+      const pane = document.getElementById('storyPane');
+      return {
+        windowTop: window.scrollY || document.documentElement.scrollTop || 0,
+        paneTop: pane ? pane.scrollTop : 0,
+      };
+    })).toEqual({ windowTop: 0, paneTop: 0 });
+
+    await railRow(page, 'ch2').click();
+    await expect(storyView(page, 'ch2')).toBeVisible();
+    await storyView(page, 'ch2').locator('.crit-story-next.prev').click();
+    await expect(storyView(page, 'ch1')).toBeVisible();
+
+    await storyView(page, 'ch1').locator('.crit-story-next.prev').click();
+    await expect(storyOverview(page)).toBeVisible();
+  });
+
   test('support page renders with reasons', async ({ page }) => {
     await ingestStory(critBin, fixtureDir, fakeHome);
     await loadPage(page);
@@ -266,33 +435,100 @@ test.describe('Story mode', () => {
     );
   });
 
-  test('Hide story view is non-destructive: flat layout + "Show story view" restores it without re-ingest', async ({ page }) => {
+  test('Story/Diff toggle is non-destructive: diff layout + story restore without re-ingest', async ({ page }) => {
     await ingestStory(critBin, fixtureDir, fakeHome);
     await loadPage(page);
     await expect(page.locator('body')).toHaveClass(/crit-story-active/);
 
-    // Hide: flat layout, story root gone, re-entry affordance appears. This
+    // Diff: flat layout, story root gone, navbar toggle remains. This
     // must NOT delete the story (that's DELETE /api/story / --clear), so no
     // network round-trip is needed — the story stays in session.story.
-    await page.locator('#storyHideBtn').click();
+    await page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]').click();
     await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
     await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
     await expect(page.locator('#storyRoot')).toBeHidden();
     await expect(goSection(page)).toBeVisible();
-    await expect(page.locator('#storyShowBtn')).toBeVisible();
+    await expect(page.locator('.tree-file .crit-story-chip')).toHaveCount(0);
+    await expect(page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]')).toHaveClass(/active/);
 
     // Show: story view returns with the SAME story (no re-ingest happened).
-    await page.locator('#storyShowBtn').click();
+    await page.locator('#storyViewToggle .toggle-btn[data-story-view="story"]').click();
     await expect(page.locator('body')).toHaveClass(/crit-story-active/);
     await expect(page.locator('body')).not.toHaveClass(/crit-story-hidden/);
     await expect(storyOverview(page)).toBeVisible();
-    await expect(page.locator('#storyShowBtn')).toBeHidden();
+    await expect(page.locator('#storyViewToggle .toggle-btn[data-story-view="story"]')).toHaveClass(/active/);
+  });
+
+  test('Story/Diff toggle survives switching diff scope while in Diff view', async ({ page }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome);
+    await loadPage(page);
+    await expect(page.locator('#storyViewToggle')).toBeVisible();
+
+    await page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]').click();
+    await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
+    await expect(page.locator('#scopeToggle')).toBeVisible();
+
+    await page.locator('#scopeToggle .toggle-btn[data-scope="unstaged"]').click();
+    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="unstaged"]')).toHaveClass(/active/);
+    await expect(page.locator('#storyViewToggle')).toBeVisible();
+    await expect(page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]')).toHaveClass(/active/);
+
+    await page.locator('#storyViewToggle .toggle-btn[data-story-view="story"]').click();
+    await expect(page.locator('body')).toHaveClass(/crit-story-active/);
+    await expect(page.locator('#storyViewToggle .toggle-btn[data-story-view="story"]')).toHaveClass(/active/);
+    await expect(storyOverview(page)).toBeVisible();
+
+    await tocItem(page, 'ch1').click();
+    const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
+    await expect(group).toBeVisible();
+    await expect(group.locator('.diff-container')).toBeVisible();
+    await expect(group).not.toContainText('File not loaded.');
+  });
+
+  test('Story/Diff toggle survives initial load from a persisted scoped diff view', async ({ page }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome);
+    await page.context().addCookies([{
+      name: 'crit-settings',
+      value: encodeURIComponent(JSON.stringify({ diffScope: 'unstaged' })),
+      domain: 'localhost',
+      path: '/',
+    }]);
+
+    let storySideFetch = 0;
+    let fullSessionFetch = 0;
+    await page.route('**/api/session*', async route => {
+      const response = await route.fetch();
+      const json = await response.json();
+      const scope = new URL(route.request().url()).searchParams.get('scope');
+      if (scope === 'all') fullSessionFetch++;
+      if (scope === 'unstaged') delete json.story;
+      await route.fulfill({ json });
+    });
+    await page.route('**/api/story', async route => {
+      storySideFetch++;
+      await route.continue();
+    });
+
+    await loadPage(page);
+
+    expect(storySideFetch).toBeGreaterThan(0);
+    expect(fullSessionFetch).toBeGreaterThan(0);
+    await expect(page.locator('#storyViewToggle')).toBeVisible();
+    await expect(page.locator('#storyViewToggle .toggle-btn[data-story-view="story"]')).toHaveClass(/active/);
+    await expect(page.locator('body')).toHaveClass(/crit-story-active/);
+    await expect(storyOverview(page)).toBeVisible();
+
+    await tocItem(page, 'ch1').click();
+    const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
+    await expect(group).toBeVisible();
+    await expect(group.locator('.diff-container')).toBeVisible();
+    await expect(group).not.toContainText('File not loaded.');
   });
 
   test('#story hash un-hides a hidden story', async ({ page }) => {
     await ingestStory(critBin, fixtureDir, fakeHome);
     await loadPage(page);
-    await page.locator('#storyHideBtn').click();
+    await page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]').click();
     await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
 
     // Navigating to the #story hash restores the story view (same affordance a
@@ -305,9 +541,9 @@ test.describe('Story mode', () => {
   test('DELETE /api/story fully removes the story: no re-entry affordance remains', async ({ page, request }) => {
     await ingestStory(critBin, fixtureDir, fakeHome);
     await loadPage(page);
-    await page.locator('#storyHideBtn').click();
+    await page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]').click();
     await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
-    await expect(page.locator('#storyShowBtn')).toBeVisible();
+    await expect(page.locator('#storyViewToggle')).toBeVisible();
 
     // Real removal via the API (the --clear path). The story-updated SSE with a
     // null story must tear everything down, including the re-entry affordance.
@@ -315,14 +551,14 @@ test.describe('Story mode', () => {
     expect(resp.ok()).toBeTruthy();
     await expect(page.locator('body')).not.toHaveClass(/crit-story-hidden/);
     await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
-    await expect(page.locator('#storyShowBtn')).toBeHidden();
+    await expect(page.locator('#storyViewToggle')).toBeHidden();
     await expect(goSection(page)).toBeVisible();
   });
 
   test('a fresh story via SSE brings the story back live and un-hides after Hide', async ({ page }) => {
     await ingestStory(critBin, fixtureDir, fakeHome);
     await loadPage(page);
-    await page.locator('#storyHideBtn').click();
+    await page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]').click();
     await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
 
     // Re-ingest (with --refresh, since a story is present) while the page stays

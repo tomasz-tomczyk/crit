@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
@@ -59,6 +60,17 @@ func TestHandleFinish_CustomProjectPrompt(t *testing.T) {
 	}
 	if resp["prompt"] != "Proceed with the custom playbook." {
 		t.Fatalf("prompt = %v", resp["prompt"])
+	}
+}
+
+func TestBuildPromptContext_StoryModeWhenSessionHasStory(t *testing.T) {
+	s, sess := newTestServer(t)
+	sess.Mode = "git"
+	sess.SetStory(&session.Story{Version: 1})
+
+	ctx := s.buildPromptContext(sess, false, nil)
+	if ctx.Mode != "story" {
+		t.Fatalf("mode = %q, want story", ctx.Mode)
 	}
 }
 

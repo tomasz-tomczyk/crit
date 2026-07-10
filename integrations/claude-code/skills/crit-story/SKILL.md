@@ -1,6 +1,6 @@
 ---
 name: crit-story
-description: "Author a crit story: group a diff's changed hunks into editorial chapters (themes) with a prologue, so the crit reviewer shows a narrated overview instead of a flat file list. Use when asked to add a story to a review, narrate a diff, or generate chapters for a PR."
+description: "Author a crit story only when the user explicitly invokes /crit-story or directly asks you to generate a crit story. Do not infer this skill from generic review, PR, or diff-review requests."
 allowed-tools: Bash(crit story:*), Read
 argument-hint: ""
 ---
@@ -8,8 +8,8 @@ argument-hint: ""
 # Author a crit story with `crit story`
 
 This is a sibling skill to `/crit` — it does not run inside the normal review
-loop. Invoke it deliberately when asked to add a narrated story to a diff
-review.
+loop. Invoke it deliberately only when the user explicitly asks for story
+generation; do not infer it from generic review, PR, or diff-review requests.
 
 ## Step 1: Fetch the guide
 

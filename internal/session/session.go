@@ -485,20 +485,20 @@ type Story struct {
 }
 
 // StoryPrologue is the story's opening overview. Guard rails: it is an
-// explainer, so there is deliberately no key_changes / verdict / risks field.
+// explainer, so there is deliberately no verdict field.
 type StoryPrologue struct {
-	Summary    string       `json:"summary,omitempty"` // 1-3 sentences
-	Motivation string       `json:"motivation,omitempty"`
-	Diagram    string       `json:"diagram,omitempty"` // Mermaid or empty
-	FocusAreas []StoryFocus `json:"focus_areas,omitempty"`
-	Complexity string       `json:"complexity,omitempty"` // "low"|"medium"|"high"
+	Title      string   `json:"title,omitempty"`       // <= 48 chars
+	Overview   string   `json:"overview,omitempty"`    // 1-3 sentences
+	KeyChanges []string `json:"key_changes,omitempty"` // concise bullets
+	Risks      []string `json:"risks,omitempty"`       // concise bullets
+	Diagram    string   `json:"diagram,omitempty"`     // Mermaid or empty
 }
 
 // StoryChapter is one thematic grouping of hunks. Chapters array position is
 // the canonical display order — there is intentionally no Order field.
 type StoryChapter struct {
 	ID       string         `json:"id"`                // "ch1"
-	Title    string         `json:"title"`             // <= ~24 chars recommended
+	Title    string         `json:"title"`             // <= 48 chars
 	Summary  string         `json:"summary,omitempty"` // one-liner; must stand alone
 	HunkRefs []StoryHunkRef `json:"hunk_refs"`
 	Diagram  string         `json:"diagram,omitempty"` // Mermaid, mostly empty
@@ -517,12 +517,6 @@ type StoryHunkRef struct {
 type StorySupportEntry struct {
 	HunkRefs []StoryHunkRef `json:"hunk_refs"`
 	Reason   string         `json:"reason"`
-}
-
-// StoryFocus is a prologue focus area with an optional severity.
-type StoryFocus struct {
-	Area     string `json:"area"`
-	Severity string `json:"severity,omitempty"`
 }
 
 // StoryCoverage is the post-validation report. OK is true only when the story

@@ -14,3 +14,19 @@ func LoadStockTemplate(hook, mode string) (text, source string, ok bool) {
 	}
 	return "", "", false
 }
+
+// LoadStockTemplateSpecific reads one built-in prompt template without
+// falling back from a mode-specific hook to the generic hook.
+func LoadStockTemplateSpecific(hook, mode string) (text, source string, ok bool) {
+	key := hook
+	if mode != "" {
+		key, _ = ResolveHookKey(hook, mode)
+	}
+	name := hookKeyToFilename(key)
+	path := "integrations/prompts/" + name
+	data, err := integrationassets.FS.ReadFile(path)
+	if err != nil {
+		return "", "", false
+	}
+	return string(data), "stock:" + name, true
+}
