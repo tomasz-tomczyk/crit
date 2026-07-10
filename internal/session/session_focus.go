@@ -659,6 +659,15 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 	}
 }
 
+// addedFileRendersWhole reports whether a file that is "added" relative to the
+// merge-base (committed on the branch, new vs base) should render as an entire
+// new file for the given scope. A branch-added file already exists in HEAD, so
+// the "staged"/"unstaged" scopes must show the real index/working-tree delta —
+// not the whole file. Every other scope (branch/all/"") renders it whole.
+func addedFileRendersWhole(scope string) bool {
+	return scope != "staged" && scope != "unstaged"
+}
+
 func scopedHunks(fc vcs.FileChange, scope, commit, baseRef, repoRoot string, v vcs.VCS, ignoreWhitespace bool) []vcs.DiffHunk {
 	if v == nil {
 		return nil
@@ -686,7 +695,7 @@ func scopedHunks(fc vcs.FileChange, scope, commit, baseRef, repoRoot string, v v
 	}
 	showWholeFile := fc.Status == "untracked"
 	if fc.Status == "added" {
-		showWholeFile = scope != "unstaged"
+		showWholeFile = addedFileRendersWhole(scope)
 	}
 	if showWholeFile {
 		absPath := filepath.Join(repoRoot, fc.Path)
@@ -895,7 +904,7 @@ func computeScopedDiffHunks(path, scope, commit, status, oldPath, content, baseR
 	if status == "untracked" && (scope == "unstaged" || scope == "all" || scope == "") {
 		return vcs.FileDiffUnifiedNewFile(content)
 	}
-	if status == "added" && scope != "unstaged" {
+	if status == "added" && addedFileRendersWhole(scope) {
 		return vcs.FileDiffUnifiedNewFile(content)
 	}
 	return scopedHunks(vcs.FileChange{Path: path, OldPath: oldPath, Status: status}, scope, commit, baseRef, repoRoot, v, ignoreWhitespace)

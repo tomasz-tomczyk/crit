@@ -906,6 +906,54 @@ func TestGetFileDiffSnapshotScoped_AddedFileUnstagedScope(t *testing.T) {
 	}
 }
 
+func TestGetFileDiffSnapshotScoped_AddedFileStagedScope(t *testing.T) {
+	// Twin of the unstaged case: a file committed on the branch (status "added"
+	// vs merge-base) that is modified AND staged must show the real index-vs-HEAD
+	// delta in "staged" scope, not the entire file as newly added.
+	dir := initTestRepo(t)
+	gitT(t, dir, "checkout", "-b", "feature")
+	path := filepath.Join(dir, "main.go")
+	committedContent := "package main\n\nfunc main() {}\n"
+	stagedContent := "package main\n\nfunc renamed() {}\n"
+	writeFile(t, path, committedContent)
+	gitT(t, dir, "add", "main.go")
+	gitT(t, dir, "commit", "-m", "add main")
+	writeFile(t, path, stagedContent)
+	gitT(t, dir, "add", "main.go")
+
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		BaseRef:     "main",
+		VCS:         &vcs.GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files: []*FileEntry{{
+			Path:     "main.go",
+			AbsPath:  path,
+			Status:   "added",
+			FileType: "code",
+			Content:  stagedContent,
+			Comments: []Comment{},
+		}},
+	}
+
+	result, ok := s.GetFileDiffSnapshotScoped("main.go", "staged", "", false)
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	hunks := result["hunks"].([]vcs.DiffHunk)
+
+	additions, deletions := countHunkStats(hunks)
+	if additions != 1 || deletions != 1 {
+		t.Errorf(
+			"staged diff for branch-added file = +%d/-%d, want +1/-1",
+			additions,
+			deletions,
+		)
+	}
+}
+
 func TestGetFileDiffSnapshotScoped_UntrackedFileUnstagedScope(t *testing.T) {
 	// Truly untracked files should still show the full file as added in unstaged scope
 	s := newTestSession(t)
