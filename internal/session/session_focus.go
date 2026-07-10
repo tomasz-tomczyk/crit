@@ -684,7 +684,11 @@ func scopedHunks(fc vcs.FileChange, scope, commit, baseRef, repoRoot string, v v
 		}
 		return nil
 	}
-	if fc.Status == "added" || fc.Status == "untracked" {
+	showWholeFile := fc.Status == "untracked"
+	if fc.Status == "added" {
+		showWholeFile = scope != "unstaged"
+	}
+	if showWholeFile {
 		absPath := filepath.Join(repoRoot, fc.Path)
 		if data, err := os.ReadFile(absPath); err == nil {
 			return vcs.FileDiffUnifiedNewFile(string(data))

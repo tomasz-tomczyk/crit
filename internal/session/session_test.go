@@ -863,13 +863,32 @@ func TestSession_LoadCritJSON_OutputDir(t *testing.T) {
 }
 
 func TestGetFileDiffSnapshotScoped_AddedFileUnstagedScope(t *testing.T) {
-	// Issue #25: When a file has status "added" (committed on branch, new relative
-	// to merge-base) and the user switches to "unstaged" scope, we should NOT show
-	// the entire file as a diff. Only truly untracked files should get that treatment.
-	s := newTestSession(t)
-	// Simulate a file that is "added" relative to merge-base (committed on branch)
-	s.Files[1].Status = "added"
-	s.Files[1].Content = "package main\n\nfunc main() {}\n"
+	dir := initTestRepo(t)
+	gitT(t, dir, "checkout", "-b", "feature")
+	path := filepath.Join(dir, "main.go")
+	committedContent := "package main\n\nfunc main() {}\n"
+	workingContent := "package main\n\nfunc renamed() {}\n"
+	writeFile(t, path, committedContent)
+	gitT(t, dir, "add", "main.go")
+	gitT(t, dir, "commit", "-m", "add main")
+	writeFile(t, path, workingContent)
+
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		BaseRef:     "main",
+		VCS:         &vcs.GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files: []*FileEntry{{
+			Path:     "main.go",
+			AbsPath:  path,
+			Status:   "added",
+			FileType: "code",
+			Content:  workingContent,
+			Comments: []Comment{},
+		}},
+	}
 
 	result, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged", "", false)
 	if !ok {
@@ -877,15 +896,13 @@ func TestGetFileDiffSnapshotScoped_AddedFileUnstagedScope(t *testing.T) {
 	}
 	hunks := result["hunks"].([]vcs.DiffHunk)
 
-	// With "added" status + "unstaged" scope, the bug would show the entire file
-	// as added lines (3 lines). The fix should return empty hunks because there
-	// are no actual unstaged changes.
-	if len(hunks) != 0 {
-		totalLines := 0
-		for _, h := range hunks {
-			totalLines += len(h.Lines)
-		}
-		t.Errorf("expected 0 hunks for committed 'added' file in unstaged scope, got %d hunks with %d lines", len(hunks), totalLines)
+	additions, deletions := countHunkStats(hunks)
+	if additions != 1 || deletions != 1 {
+		t.Errorf(
+			"unstaged diff for branch-added file = +%d/-%d, want +1/-1",
+			additions,
+			deletions,
+		)
 	}
 }
 
