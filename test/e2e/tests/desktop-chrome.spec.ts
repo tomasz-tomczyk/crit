@@ -27,9 +27,12 @@ test.describe('Desktop chrome invariants', () => {
     // rule leaking to desktop viewport.
     await expect(page.locator('#branchContext')).toBeVisible();
     await expect(page.locator('#diffModeToggle')).toBeVisible();
-    // .scope-toggle only shows in git mode with commits — the git-mode fixture
-    // satisfies that; if it's hidden on desktop something else went wrong.
-    await expect(page.locator('.scope-toggle')).toBeVisible();
+    // The commit-scope toggle only shows in git mode with commits — the
+    // git-mode fixture satisfies that; if it's hidden on desktop something else
+    // went wrong. Target #scopeToggle specifically: the story Diff/Story toggle
+    // (#storyViewToggle) reuses the .scope-toggle pill styling, so the bare
+    // class matches two elements.
+    await expect(page.locator('#scopeToggle')).toBeVisible();
   });
 
   test('diff defaults to split on desktop', async ({ page }) => {

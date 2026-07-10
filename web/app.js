@@ -10495,9 +10495,13 @@
     renderMermaidBlocks();
     rebuildNavList();
     applyHideResolved();
-    // Keep active rail row visible.
+    // Keep active rail row visible. Use instant behavior: the page sets
+    // scroll-behavior:smooth globally (style.css), so an animated scrollIntoView
+    // here would nudge the window and keep animating past the synchronous
+    // resetStoryScroll() that showStory() runs immediately after — leaving the
+    // window a few px off the top (a CI-only race; see story.spec scroll test).
     const activeRow = document.querySelector('.crit-story-row.active');
-    if (activeRow) activeRow.scrollIntoView({ block: 'nearest' });
+    if (activeRow) activeRow.scrollIntoView({ block: 'nearest', behavior: 'instant' });
   }
 
   function resetStoryScroll() {

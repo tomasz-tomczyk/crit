@@ -63,8 +63,12 @@ test.describe('Settings Panel', () => {
   test('shortcuts pane shows grouped keyboard shortcuts', async ({ page }) => {
     await page.keyboard.press('?');
     const pane = page.locator('.settings-pane[data-pane="shortcuts"]');
-    await expect(pane.locator('.shortcuts-group-label')).toHaveCount(4);
+    // Code-review mode shows five groups: Navigation, Comments, Review, Story,
+    // View (the Live group is filtered out; Story shortcuts carry a "story mode"
+    // badge and always render, like the "file mode"/"vcs mode" badged entries).
+    await expect(pane.locator('.shortcuts-group-label')).toHaveCount(5);
     await expect(pane.locator('.shortcuts-group-label').first()).toHaveText('Navigation');
+    await expect(pane.locator('.shortcuts-group-label').nth(3)).toHaveText('Story');
   });
 
   test('settings pane shows display section with theme and width', async ({ page }) => {
