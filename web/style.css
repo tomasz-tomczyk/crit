@@ -5861,7 +5861,18 @@ body.sidebar-resizing * {
    #storyRoot is display:none otherwise → zero flat-view regression.
    ============================================================ */
 #storyRoot { display: none; }
-body.crit-story-active #storyRoot { display: flex; }
+/* Lock the story shell to the viewport so the content pane (#storyPane,
+   overflow-y:auto) is the scroll region — not the window. Without a bounded
+   height the flex row grows with content, the document overflows the viewport,
+   and the window becomes scrollable; a stray scroll (scroll-anchoring, an
+   animated scrollIntoView, focus) then leaves it a few px off the top on
+   chapter nav (see story.spec "resets scroll" — flaky only where content
+   overflows, e.g. CI). Bounding the row keeps scrolling inside the pane. */
+body.crit-story-active #storyRoot {
+  display: flex;
+  height: calc(100vh - var(--header-height, 49px));
+  overflow: hidden;
+}
 /* When story view is active, hide the flat file layout + its tree,
    but keep header, comments panel, PR panel functional. */
 body.crit-story-active #filesContainer,

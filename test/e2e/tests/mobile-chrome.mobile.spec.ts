@@ -25,7 +25,9 @@ test.describe('Mobile chrome layout (F1)', () => {
     // mobile breakpoint uses !important to win.
     await expect(page.locator('#branchContext')).toBeHidden();
     await expect(page.locator('#diffModeToggle')).toBeHidden();
-    await expect(page.locator('.scope-toggle')).toBeHidden();
+    // #scopeToggle specifically: the story Diff/Story toggle (#storyViewToggle)
+    // reuses the .scope-toggle pill styling, so the bare class matches two.
+    await expect(page.locator('#scopeToggle')).toBeHidden();
   });
 
   test('mobile file picker is visible when sidebar is hidden', async ({ page }) => {
