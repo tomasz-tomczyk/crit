@@ -35,7 +35,7 @@ brew install crit
 
 Go:
 ```bash
-go install github.com/tomasz-tomczyk/crit@latest
+go install github.com/tomasz-tomczyk/crit/cmd/crit@latest
 ```
 
 Nix:
