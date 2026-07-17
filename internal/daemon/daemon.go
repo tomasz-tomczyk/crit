@@ -742,28 +742,29 @@ func sessionLogPath(key string) (string, error) {
 	return filepath.Join(dir, key+".log"), nil
 }
 
-func daemonFailurePath(key string, pid int) (string, error) {
+func daemonFailurePath(key, generation string) (string, error) {
 	dir, err := sessionsDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, fmt.Sprintf("%s-%d.error", key, pid)), nil
+	digest := sha256.Sum256([]byte(generation))
+	return filepath.Join(dir, fmt.Sprintf("%s-%x.error", key, digest[:8])), nil
 }
 
 // WriteDaemonFailure preserves a fatal post-readiness initialization error for
-// the client that started this daemon. Failure records are PID-scoped so a
-// subsequent daemon using the same session key cannot replace its diagnosis.
-func WriteDaemonFailure(key string, pid int, err error) error {
-	path, pathErr := daemonFailurePath(key, pid)
+// the client that started this daemon. Failure records are generation-scoped
+// so a reused PID cannot be mistaken for an earlier daemon with the same key.
+func WriteDaemonFailure(key, generation string, err error) error {
+	path, pathErr := daemonFailurePath(key, generation)
 	if pathErr != nil {
 		return pathErr
 	}
 	return config.AtomicWriteFile(path, []byte(err.Error()), 0600)
 }
 
-// ReadDaemonFailure returns the fatal initialization error for one daemon PID.
-func ReadDaemonFailure(key string, pid int) string {
-	path, err := daemonFailurePath(key, pid)
+// ReadDaemonFailure returns the fatal initialization error for one daemon generation.
+func ReadDaemonFailure(key, generation string) string {
+	path, err := daemonFailurePath(key, generation)
 	if err != nil {
 		return ""
 	}

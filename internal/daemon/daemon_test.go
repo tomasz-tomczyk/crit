@@ -996,10 +996,11 @@ func TestCleanOrphanedSessions_ExpiresOldDaemonFailures(t *testing.T) {
 	testutil.SetHome(t, home)
 
 	key := "expirederror"
-	if err := WriteDaemonFailure(key, 123, fmt.Errorf("initialization failed")); err != nil {
+	generation := "2026-07-17T12:00:00.123456789Z"
+	if err := WriteDaemonFailure(key, generation, fmt.Errorf("initialization failed")); err != nil {
 		t.Fatal(err)
 	}
-	path, err := daemonFailurePath(key, 123)
+	path, err := daemonFailurePath(key, generation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1009,8 +1010,23 @@ func TestCleanOrphanedSessions_ExpiresOldDaemonFailures(t *testing.T) {
 	}
 
 	cleanOrphanedSessions()
-	if got := ReadDaemonFailure(key, 123); got != "" {
+	if got := ReadDaemonFailure(key, generation); got != "" {
 		t.Errorf("ReadDaemonFailure = %q, want expired failure removed", got)
+	}
+}
+
+func TestDaemonFailure_GenerationScoped(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+
+	key := "generation12"
+	firstGeneration := "2026-07-17T12:00:00.123456789Z"
+	secondGeneration := "2026-07-17T12:00:00.987654321Z"
+	if err := WriteDaemonFailure(key, firstGeneration, fmt.Errorf("first failure")); err != nil {
+		t.Fatal(err)
+	}
+	if got := ReadDaemonFailure(key, secondGeneration); got != "" {
+		t.Errorf("ReadDaemonFailure for another generation = %q, want empty", got)
 	}
 }
 
