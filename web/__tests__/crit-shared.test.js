@@ -28,11 +28,11 @@ test('escapeHTML returns empty string for null/undefined', () => {
   assert.equal(shared.escapeHTML(undefined), '');
 });
 
-test('applyProjectPromptTrustUI re-enables finish button after trust', () => {
+test('applyProjectPromptTrustUI keeps finish button enabled so trust dialog can open', () => {
   const btn = { disabled: false, textContent: 'Approve', title: '' };
   shared.applyProjectPromptTrustUI({ project_prompts_untrusted: true }, btn);
-  assert.equal(btn.disabled, true);
-  assert.equal(btn.title, 'Trust project prompts before finishing');
+  assert.equal(btn.disabled, false);
+  assert.equal(btn.title, 'Review project prompts before finishing');
   shared.applyProjectPromptTrustUI({ project_prompts_untrusted: false }, btn);
   assert.equal(btn.disabled, false);
   assert.equal(btn.title, '');
@@ -42,6 +42,13 @@ test('applyProjectPromptTrustUI does not re-enable while waiting', () => {
   const btn = { disabled: true, textContent: 'Waiting...', title: 'Trust project prompts before finishing' };
   shared.applyProjectPromptTrustUI({ project_prompts_untrusted: false }, btn);
   assert.equal(btn.disabled, true);
+});
+
+test('applyProjectPromptTrustUI keeps waiting button disabled when prompts become untrusted', () => {
+  const btn = { disabled: true, textContent: 'Waiting...', title: '' };
+  shared.applyProjectPromptTrustUI({ project_prompts_untrusted: true }, btn);
+  assert.equal(btn.disabled, true);
+  assert.equal(btn.title, 'Review project prompts before finishing');
 });
 
 test('getCookie reads document.cookie and URL-decodes the value', () => {

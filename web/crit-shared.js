@@ -874,8 +874,13 @@
   function applyProjectPromptTrustUI(cfg, finishBtn) {
     if (!finishBtn || !cfg) return;
     if (cfg.project_prompts_untrusted) {
-      finishBtn.disabled = true;
-      finishBtn.title = 'Trust project prompts before finishing';
+      // The trust dialog is opened by the finish button's click handler.
+      // Keep the button actionable so the user can make that trust choice;
+      // /api/finish remains guarded server-side until they do.
+      finishBtn.title = 'Review project prompts before finishing';
+      if (finishBtn.textContent !== 'Waiting...') {
+        finishBtn.disabled = false;
+      }
       return;
     }
     finishBtn.title = '';
