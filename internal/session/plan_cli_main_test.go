@@ -1,8 +1,11 @@
 package session
 
 import (
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -49,4 +52,106 @@ func TestResolvePlanSlug_DerivesFromContent(t *testing.T) {
 	if !strings.Contains(slug, "auth-flow") {
 		t.Errorf("slug = %q, expected to contain 'auth-flow'", slug)
 	}
+}
+
+func TestEmitHookDecision_ApprovalEchoesCompleteToolInput(t *testing.T) {
+	toolInput := json.RawMessage(`{
+		"plan": "# Auth Flow\n\nImplement the auth flow.",
+		"planFilePath": "/tmp/auth-flow.md",
+		"futureOption": {"enabled": true}
+	}`)
+
+	output := captureHookDecision(t, func() {
+		emitHookDecision(true, "", toolInput)
+	})
+
+	var response struct {
+		HookSpecificOutput struct {
+			HookEventName string `json:"hookEventName"`
+			Decision      struct {
+				Behavior     string         `json:"behavior"`
+				UpdatedInput map[string]any `json:"updatedInput"`
+			} `json:"decision"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(output, &response); err != nil {
+		t.Fatalf("decode hook response: %v", err)
+	}
+	if response.HookSpecificOutput.HookEventName != "PermissionRequest" {
+		t.Errorf("hookEventName = %q, want PermissionRequest", response.HookSpecificOutput.HookEventName)
+	}
+	if response.HookSpecificOutput.Decision.Behavior != "allow" {
+		t.Errorf("behavior = %q, want allow", response.HookSpecificOutput.Decision.Behavior)
+	}
+
+	var expectedInput map[string]any
+	if err := json.Unmarshal(toolInput, &expectedInput); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(response.HookSpecificOutput.Decision.UpdatedInput, expectedInput) {
+		t.Fatalf(
+			"decision.updatedInput = %#v, want complete original tool_input %#v",
+			response.HookSpecificOutput.Decision.UpdatedInput,
+			expectedInput,
+		)
+	}
+}
+
+func TestEmitHookDecision_DenyBehaviorUnchanged(t *testing.T) {
+	toolInput := json.RawMessage(`{"plan":"# Auth Flow","futureOption":true}`)
+	output := captureHookDecision(t, func() {
+		emitHookDecision(false, "Address the review comments.", toolInput)
+	})
+
+	var response struct {
+		HookSpecificOutput struct {
+			HookEventName string `json:"hookEventName"`
+			Decision      struct {
+				Behavior     string          `json:"behavior"`
+				Message      string          `json:"message"`
+				UpdatedInput json.RawMessage `json:"updatedInput"`
+			} `json:"decision"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(output, &response); err != nil {
+		t.Fatalf("decode hook response: %v", err)
+	}
+
+	if response.HookSpecificOutput.HookEventName != "PermissionRequest" {
+		t.Errorf("hookEventName = %q, want PermissionRequest", response.HookSpecificOutput.HookEventName)
+	}
+	if response.HookSpecificOutput.Decision.Behavior != "deny" {
+		t.Errorf("behavior = %q, want deny", response.HookSpecificOutput.Decision.Behavior)
+	}
+	if response.HookSpecificOutput.Decision.Message != "Address the review comments." {
+		t.Errorf("message = %q, want review feedback", response.HookSpecificOutput.Decision.Message)
+	}
+	if response.HookSpecificOutput.Decision.UpdatedInput != nil {
+		t.Errorf("deny response unexpectedly included updatedInput: %s", response.HookSpecificOutput.Decision.UpdatedInput)
+	}
+}
+
+func captureHookDecision(t *testing.T, emit func()) []byte {
+	t.Helper()
+
+	previousStdout := os.Stdout
+	stdoutReader, stdoutWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = stdoutWriter
+	t.Cleanup(func() {
+		os.Stdout = previousStdout
+	})
+
+	emit()
+
+	if err := stdoutWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	output, err := io.ReadAll(stdoutReader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return output
 }
