@@ -24,11 +24,21 @@ describe('crit-renderer', () => {
   });
 
   it('anchorFromComment with line anchor', () => {
-    const a = renderer.anchorFromComment({ file_path: 'a.go', start_line: 1, end_line: 5 });
+    const a = renderer.anchorFromComment({ file_path: 'a.go', start_line: 1, end_line: 5, side: 'old', scope: 'line' });
     assert.equal(a.type, 'line');
     assert.equal(a.filePath, 'a.go');
     assert.equal(a.startLine, 1);
     assert.equal(a.endLine, 5);
+    assert.equal(a.side, 'old');
+    assert.equal(a.scope, 'line');
+  });
+
+  it('anchorFromComment preserves file scope without inventing a side', () => {
+    const a = renderer.anchorFromComment({ file_path: 'a.go', start_line: 0, end_line: 0, scope: 'file' });
+    assert.equal(a.type, 'line');
+    assert.equal(a.filePath, 'a.go');
+    assert.equal(a.scope, 'file');
+    assert.equal(a.side, undefined);
   });
 
   it('anchorFromComment with DOM anchor', () => {

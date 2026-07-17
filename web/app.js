@@ -3045,7 +3045,9 @@
         OldStart: prevHunk.OldStart,
         NewStart: prevHunk.NewStart,
         Header: prevHunk.Header,
-        Lines: prevHunk.Lines.concat(contextLines, nextHunk.Lines)
+        Lines: prevHunk.Lines.concat(contextLines, nextHunk.Lines),
+        _StoryRawHunks: storyRawHunksWithTrailingContext(prevHunk, contextLines)
+          .concat(storyRawHunks(nextHunk))
       };
       merged.OldCount = (nextHunk.OldStart + nextHunk.OldCount) - merged.OldStart;
       merged.NewCount = (nextHunk.NewStart + nextHunk.NewCount) - merged.NewStart;
@@ -3400,6 +3402,25 @@
   // Pre-process diffHunks: merge adjacent hunks where the gap between them
   // is ≤ 8 unchanged lines. This removes visual noise from tiny spacers.
   // Mutates file.diffHunks in place so it only runs once per file.
+  function storyRawHunks(hunk) {
+    if (hunk && Array.isArray(hunk._StoryRawHunks)) return hunk._StoryRawHunks;
+    return hunk ? [{ OldStart: hunk.OldStart, Lines: hunk.Lines || [] }] : [];
+  }
+
+  // Context synthesized between visual hunks historically belongs to the
+  // preceding Story hunk. Preserve that ownership while keeping the original
+  // raw hunk objects immutable for other render passes.
+  function storyRawHunksWithTrailingContext(hunk, contextLines) {
+    const rawHunks = storyRawHunks(hunk).map(function(rawHunk) {
+      return { OldStart: rawHunk.OldStart, Lines: (rawHunk.Lines || []).slice() };
+    });
+    if (rawHunks.length && contextLines.length) {
+      const last = rawHunks[rawHunks.length - 1];
+      last.Lines = last.Lines.concat(contextLines);
+    }
+    return rawHunks;
+  }
+
   function autoExpandSmallGaps(file) {
     if (!file.content || !file.diffHunks || file.diffHunks.length < 2) return;
     if (file._autoExpandDone) return;
@@ -3425,7 +3446,12 @@
         const merged = {
           OldStart: hunks[i].OldStart,
           NewStart: hunks[i].NewStart,
-          Lines: hunks[i].Lines.concat(contextLines, hunks[i + 1].Lines)
+          Lines: hunks[i].Lines.concat(contextLines, hunks[i + 1].Lines),
+          // Story refs identify raw hunks by OldStart. Keep that identity when
+          // nearby hunks become one visual hunk so comment navigation can
+          // still select the chapter that owns the matched raw line.
+          _StoryRawHunks: storyRawHunksWithTrailingContext(hunks[i], contextLines)
+            .concat(storyRawHunks(hunks[i + 1]))
         };
         merged.OldCount = (hunks[i + 1].OldStart + hunks[i + 1].OldCount) - merged.OldStart;
         merged.NewCount = (hunks[i + 1].NewStart + hunks[i + 1].NewCount) - merged.NewStart;
@@ -6595,11 +6621,23 @@
     if (storyActive()) {
       const file = getFileByPath(filePath);
       let line = null;
+      let side;
+      let fileScope = false;
       if (file && file.comments) {
         const c = file.comments.find(function (x) { return x.id === commentId; });
-        if (c) line = c.end_line;
+        if (c) {
+          fileScope = c.scope === 'file';
+          if (!fileScope) {
+            line = c.end_line;
+            side = c.side === 'old'
+              ? 'old'
+              : (c.side === undefined || c.side === null ? undefined : 'new');
+          }
+        }
       }
-      const navigated = line !== null ? storyActivatePageForLine(filePath, line) : false;
+      const navigated = fileScope
+        ? storyActivatePageForFile(filePath)
+        : (line !== null ? storyActivatePageForLine(filePath, line, side) : false);
       const locate = function () {
         const pane = document.getElementById('storyPane');
         if (!pane) return;
@@ -8178,6 +8216,10 @@
     reloadInFlight = (async function() {
       try {
         activeReplyForms.clear();
+        // Scope/base/commit changes can replace diff hunks without changing
+        // the final file content hash. Cached Story clones are keyed by that
+        // hash, so invalidate them before loading the new scoped file data.
+        storyExpandedFileCache.clear();
         document.getElementById('filesContainer').innerHTML =
           '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>';
 
@@ -10544,41 +10586,97 @@
   // Chapter that owns the hunk containing a given (filePath, line). Returns
   // the story page id, or null. Used to make comment/anchor navigation
   // cross chapter boundaries.
-  function storyPageForLine(filePath, line) {
+  function storyRawHunkForLine(hunks, line, side) {
+    const candidates = [];
+    (hunks || []).forEach(function (hunk) {
+      storyRawHunks(hunk).forEach(function (rawHunk) {
+        candidates.push({ hunk: hunk, rawHunk: rawHunk });
+      });
+    });
+
+    // Preserve the anchor's coordinate space when it is known. A deletion can
+    // shift a later NewNum onto an earlier hunk's OldNum (and an old-side
+    // deletion can collide with a NewNum elsewhere), so crossing sides for an
+    // explicit anchor can select the wrong chapter. Side-less legacy anchors
+    // retain the historical new-then-old fallback.
+    const fields = side === 'old'
+      ? ['OldNum']
+      : (side === 'new' || side === '' ? ['NewNum'] : ['NewNum', 'OldNum']);
+    for (let fi = 0; fi < fields.length; fi++) {
+      const field = fields[fi];
+      for (let i = 0; i < candidates.length; i++) {
+        const lines = candidates[i].rawHunk.Lines || [];
+        for (let li = 0; li < lines.length; li++) {
+          if (lines[li][field] === line) return candidates[i];
+        }
+      }
+    }
+    return null;
+  }
+
+  // Translate a Story anchor's review coordinate into the row identity used
+  // by the active renderer. Ownership always stays in the anchor's true
+  // old/new coordinate space; only unified context rows need translation
+  // because they are represented once, using NewNum and the new-side DOM tag.
+  function storyDisplayAnchorForLine(hunks, line, side, mode) {
+    let normalizedSide = side === 'old'
+      ? 'old'
+      : (side === 'new' || side === '' ? 'new' : undefined);
+    const match = storyRawHunkForLine(hunks, line, normalizedSide);
+    if (!match) return null;
+    if (normalizedSide === undefined) {
+      const lines = match.rawHunk.Lines || [];
+      normalizedSide = lines.some(function (rawLine) { return rawLine.NewNum === line; })
+        ? 'new'
+        : 'old';
+    }
+    const field = normalizedSide === 'old' ? 'OldNum' : 'NewNum';
+    const lines = match.rawHunk.Lines || [];
+    let rawLine = null;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i][field] === line) { rawLine = lines[i]; break; }
+    }
+    if (!rawLine) return null;
+    if (mode === 'unified' && normalizedSide === 'old' &&
+        rawLine.Type === 'context' && rawLine.NewNum > 0) {
+      return { line: rawLine.NewNum, side: '' };
+    }
+    return { line: line, side: normalizedSide === 'old' ? 'old' : '' };
+  }
+
+  function storyPageForLine(filePath, line, side) {
     if (!storyState) return null;
     const file = getFileByPath(filePath);
     if (!file || !file.diffHunks) return null;
-    // Find which hunk contains the line, then which page owns that hunk.
-    for (let i = 0; i < file.diffHunks.length; i++) {
-      const h = file.diffHunks[i];
-      const lines = h.Lines || [];
-      let hit = false;
-      for (let li = 0; li < lines.length; li++) {
-        const ln = lines[li];
-        if (ln.NewNum === line || ln.OldNum === line) { hit = true; break; }
-      }
-      if (hit) {
-        let owner;
-        const ownedStarts = storyOwnedStartsInHunk(filePath, h);
+    const match = storyRawHunkForLine(file.diffHunks, line, side);
+    if (match) {
+      let owner = storyState.hunkOwner.get(hunkKey(filePath, match.rawHunk.OldStart));
+      if (owner === undefined) {
+        const ownedStarts = storyOwnedStartsInHunk(filePath, match.hunk);
         if (ownedStarts.length) {
           let chosen = ownedStarts[0];
           for (let s = 0; s < ownedStarts.length; s++) {
-            if (ownedStarts[s] <= line) chosen = ownedStarts[s];
+            if (ownedStarts[s] <= match.rawHunk.OldStart) chosen = ownedStarts[s];
           }
           owner = storyState.hunkOwner.get(hunkKey(filePath, chosen));
-        } else {
-          owner = storyState.hunkOwner.get(hunkKey(filePath, h.OldStart));
         }
-        if (owner !== undefined) return storyPageId(storyState.pages[owner]);
       }
+      if (owner !== undefined) return storyPageId(storyState.pages[owner]);
     }
-    // Fallback: any page that references this file.
-    const owners = storyState.fileChapters.get(filePath);
-    if (owners && owners.size) {
-      const first = Array.from(owners)[0];
-      return storyPageId(storyState.pages[first]);
+    // Only side-less legacy callers get the historical file-level fallback.
+    // An explicit-side miss must not jump to an unrelated chapter.
+    if (side === undefined || side === null) {
+      return storyPageForFile(filePath);
     }
     return null;
+  }
+
+  function storyPageForFile(filePath) {
+    if (!storyState) return null;
+    const owners = storyState.fileChapters.get(filePath);
+    if (!owners || !owners.size) return null;
+    const first = Array.from(owners)[0];
+    return storyPageId(storyState.pages[first]);
   }
 
   function storyOwnedStartsInHunk(filePath, hunk) {
@@ -10600,9 +10698,16 @@
 
   // Ensure the chapter owning (filePath, line) is active; returns true if a
   // navigation happened (caller should defer scroll to next frame).
-  function storyActivatePageForLine(filePath, line) {
+  function storyActivatePageForLine(filePath, line, side) {
     if (!storyState) return false;
-    const pid = storyPageForLine(filePath, line);
+    const pid = storyPageForLine(filePath, line, side);
+    if (pid && pid !== storyView) { showStory(pid); return true; }
+    return false;
+  }
+
+  function storyActivatePageForFile(filePath) {
+    if (!storyState) return false;
+    const pid = storyPageForFile(filePath);
     if (pid && pid !== storyView) { showStory(pid); return true; }
     return false;
   }
@@ -10705,12 +10810,30 @@
             // Story view: activate the owning chapter, then scroll to the
             // matching diff line inside the story pane.
             if (storyActive()) {
-              const navigated = storyActivatePageForLine(anchor.filePath, anchor.endLine);
+              const side = anchor.side === 'old'
+                ? 'old'
+                : (anchor.side === undefined || anchor.side === null ? undefined : 'new');
+              const file = getFileByPath(anchor.filePath);
+              if (anchor.scope === 'file') {
+                const navigated = storyActivatePageForFile(anchor.filePath);
+                const locateFile = function () {
+                  const pane = document.getElementById('storyPane');
+                  if (!pane) return;
+                  const group = pane.querySelector('.crit-story-file-group[data-story-file="' + CSS.escape(anchor.filePath) + '"]');
+                  if (group) group.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                };
+                if (navigated) requestAnimationFrame(locateFile); else locateFile();
+                return Promise.resolve();
+              }
+              const displayAnchor = file
+                ? storyDisplayAnchorForLine(file.diffHunks, anchor.endLine, side, diffMode)
+                : null;
+              const navigated = storyActivatePageForLine(anchor.filePath, anchor.endLine, side);
               const locate = function () {
                 const pane = document.getElementById('storyPane');
-                if (!pane) return;
-                const el = pane.querySelector('[data-diff-file-path="' + CSS.escape(anchor.filePath) + '"][data-diff-line-num="' + anchor.endLine + '"]') ||
-                  pane.querySelector('.line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"][data-end-line="' + anchor.endLine + '"]');
+                if (!pane || !displayAnchor) return;
+                const el = pane.querySelector('[data-diff-file-path="' + CSS.escape(anchor.filePath) + '"][data-diff-line-num="' + displayAnchor.line + '"][data-diff-side="' + displayAnchor.side + '"]') ||
+                  (side !== 'old' ? pane.querySelector('.line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"][data-end-line="' + anchor.endLine + '"]') : null);
                 if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
               };
               if (navigated) requestAnimationFrame(locate); else locate();

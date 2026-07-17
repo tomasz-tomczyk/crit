@@ -22,6 +22,7 @@
       startLine: comment.startLine || comment.start_line,
       endLine: comment.endLine || comment.end_line,
       side: comment.side,
+      scope: comment.scope,
     };
   }
 
