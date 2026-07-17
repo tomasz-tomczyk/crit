@@ -83,16 +83,18 @@ func bindListener(host string, port int) (net.Listener, error) {
 // resolveServeReviewPath computes the daemon's review folder so that
 // srv.reviewPath, the session-registry entry, session.ReviewFilePath, and
 // session.critJSONPath() all agree on one folder.
+var serveAbsPath = filepath.Abs
+
 func resolveServeReviewPath(outputDir, planDir, sessionKey string) (string, error) {
 	switch {
 	case outputDir != "":
-		abs, err := filepath.Abs(outputDir)
+		abs, err := serveAbsPath(outputDir)
 		if err != nil {
 			return "", err
 		}
 		return filepath.Join(abs, ".crit"), nil
 	case planDir != "":
-		abs, err := filepath.Abs(planDir)
+		abs, err := serveAbsPath(planDir)
 		if err != nil {
 			return "", err
 		}

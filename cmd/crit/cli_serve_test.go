@@ -151,6 +151,32 @@ func TestResolveServeReviewPath(t *testing.T) {
 			t.Fatalf("expected centralized path error, got %v", err)
 		}
 	})
+
+	t.Run("absolute output path errors are preserved", func(t *testing.T) {
+		orig := serveAbsPath
+		t.Cleanup(func() { serveAbsPath = orig })
+		serveAbsPath = func(string) (string, error) {
+			return "", errors.New("working directory unavailable")
+		}
+
+		if _, err := resolveServeReviewPath("output", "", "deadbeef123"); err == nil ||
+			!strings.Contains(err.Error(), "working directory unavailable") {
+			t.Fatalf("expected output path error, got %v", err)
+		}
+	})
+
+	t.Run("absolute plan path errors are preserved", func(t *testing.T) {
+		orig := serveAbsPath
+		t.Cleanup(func() { serveAbsPath = orig })
+		serveAbsPath = func(string) (string, error) {
+			return "", errors.New("working directory unavailable")
+		}
+
+		if _, err := resolveServeReviewPath("", "plan", "deadbeef123"); err == nil ||
+			!strings.Contains(err.Error(), "working directory unavailable") {
+			t.Fatalf("expected plan path error, got %v", err)
+		}
+	})
 }
 
 func TestServeSessionKey_Override(t *testing.T) {

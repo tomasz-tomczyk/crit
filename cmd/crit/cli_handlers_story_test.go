@@ -387,6 +387,26 @@ func TestResolveStoryReviewPathUsesConfiguredOutputWithoutDaemon(t *testing.T) {
 	}
 }
 
+func TestResolveStoryReviewPathPreservesOutputPathError(t *testing.T) {
+	setupStoryRepo(t)
+	origAlive, origAbsPath := storyDaemonAlive, serveAbsPath
+	t.Cleanup(func() {
+		storyDaemonAlive = origAlive
+		serveAbsPath = origAbsPath
+	})
+	storyDaemonAlive = func(string) (daemon.SessionEntry, bool) {
+		return daemon.SessionEntry{}, false
+	}
+	serveAbsPath = func(string) (string, error) {
+		return "", errors.New("working directory unavailable")
+	}
+
+	_, err := resolveStoryReviewPath([]string{"--output", "review-output"})
+	if err == nil || !strings.Contains(err.Error(), "resolve story review path: working directory unavailable") {
+		t.Fatalf("expected wrapped output path error, got %v", err)
+	}
+}
+
 func TestStorySkipLLMWritesStub(t *testing.T) {
 	setupStoryRepo(t)
 	if err := runStoryE([]string{"--skip-llm"}); err != nil {
