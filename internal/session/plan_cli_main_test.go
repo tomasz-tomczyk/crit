@@ -64,7 +64,11 @@ func TestRunPlanHook_ApprovalEchoesCompleteToolInput(t *testing.T) {
 		"tool_input": {
 			"plan": "# Auth Flow\n\nImplement the auth flow.",
 			"planFilePath": "/tmp/auth-flow.md",
-			"futureOption": {"enabled": true}
+			"futureOption": {
+				"enabled": true,
+				"largeNumber": 9007199254740993,
+				"escaped": "\u003cfuture\u003e"
+			}
 		}
 	}`)
 	setPlanHookStdin(t, hookInput)
@@ -93,8 +97,8 @@ func TestRunPlanHook_ApprovalEchoesCompleteToolInput(t *testing.T) {
 		HookSpecificOutput struct {
 			HookEventName string `json:"hookEventName"`
 			Decision      struct {
-				Behavior     string         `json:"behavior"`
-				UpdatedInput map[string]any `json:"updatedInput"`
+				Behavior     string          `json:"behavior"`
+				UpdatedInput json.RawMessage `json:"updatedInput"`
 			} `json:"decision"`
 		} `json:"hookSpecificOutput"`
 	}
@@ -108,23 +112,33 @@ func TestRunPlanHook_ApprovalEchoesCompleteToolInput(t *testing.T) {
 		t.Errorf("behavior = %q, want allow", response.HookSpecificOutput.Decision.Behavior)
 	}
 
-	var expectedInput map[string]any
 	var event struct {
 		ToolInput json.RawMessage `json:"tool_input"`
 	}
 	if err := json.Unmarshal(hookInput, &event); err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(event.ToolInput, &expectedInput); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(response.HookSpecificOutput.Decision.UpdatedInput, expectedInput) {
+	expectedInput := decodeJSONUseNumber(t, event.ToolInput)
+	actualInput := decodeJSONUseNumber(t, response.HookSpecificOutput.Decision.UpdatedInput)
+	if !reflect.DeepEqual(actualInput, expectedInput) {
 		t.Fatalf(
 			"decision.updatedInput = %#v, want complete original tool_input %#v",
-			response.HookSpecificOutput.Decision.UpdatedInput,
+			actualInput,
 			expectedInput,
 		)
 	}
+}
+
+func decodeJSONUseNumber(t *testing.T, input []byte) any {
+	t.Helper()
+
+	decoder := json.NewDecoder(strings.NewReader(string(input)))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		t.Fatal(err)
+	}
+	return decoded
 }
 
 func setPlanHookStdin(t *testing.T, input []byte) {

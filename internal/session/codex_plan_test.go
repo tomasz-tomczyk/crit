@@ -210,6 +210,15 @@ func TestRunCodexPlanHookBlocksOnMalformedInput(t *testing.T) {
 	}
 }
 
+func TestEmitCodexStopDecision_ApprovalRemainsSilent(t *testing.T) {
+	output := captureHookDecision(t, func() {
+		emitCodexStopDecision(true, "")
+	})
+	if len(output) != 0 {
+		t.Fatalf("approved Codex hook output = %q, want no output", output)
+	}
+}
+
 func runCodexPlanHookWithInput(t *testing.T, event codexStopHookEvent) {
 	t.Helper()
 
