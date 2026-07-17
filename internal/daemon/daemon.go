@@ -748,7 +748,7 @@ func daemonFailurePath(key, generation string) (string, error) {
 		return "", err
 	}
 	digest := sha256.Sum256([]byte(generation))
-	return filepath.Join(dir, fmt.Sprintf("%s-%x.error", key, digest[:8])), nil
+	return filepath.Join(dir, fmt.Sprintf("%s-%x.error", key, digest)), nil
 }
 
 // WriteDaemonFailure preserves a fatal post-readiness initialization error for
