@@ -218,6 +218,10 @@ var runCodexPlanReviewHook = func(sessionID string, content []byte) {
 	runPlanReviewHook("crit plan-hook --mode codex", sessionID, content, emitCodexStopDecision)
 }
 
+var runClaudePlanReviewHook = func(sessionID string, content []byte, emitDecision func(bool, string)) {
+	runPlanReviewHook("crit plan-hook", sessionID, content, emitDecision)
+}
+
 func runPlanReviewHook(logPrefix, sessionID string, content []byte, emitDecision func(bool, string)) {
 	slug := resolveHookSlug(sessionID, content)
 
@@ -302,7 +306,7 @@ func RunPlanHook() error {
 	emitDecision := func(approved bool, prompt string) {
 		emitHookDecision(approved, prompt, event.ToolInput)
 	}
-	runPlanReviewHook("crit plan-hook", event.SessionID, []byte(toolInput.Plan), emitDecision)
+	runClaudePlanReviewHook(event.SessionID, []byte(toolInput.Plan), emitDecision)
 	return nil
 }
 

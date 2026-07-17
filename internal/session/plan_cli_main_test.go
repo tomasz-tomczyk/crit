@@ -54,15 +54,39 @@ func TestResolvePlanSlug_DerivesFromContent(t *testing.T) {
 	}
 }
 
-func TestEmitHookDecision_ApprovalEchoesCompleteToolInput(t *testing.T) {
-	toolInput := json.RawMessage(`{
-		"plan": "# Auth Flow\n\nImplement the auth flow.",
-		"planFilePath": "/tmp/auth-flow.md",
-		"futureOption": {"enabled": true}
+func TestRunPlanHook_ApprovalEchoesCompleteToolInput(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	hookInput := json.RawMessage(`{
+		"session_id": "session-737",
+		"hook_event_name": "PermissionRequest",
+		"tool_name": "ExitPlanMode",
+		"tool_input": {
+			"plan": "# Auth Flow\n\nImplement the auth flow.",
+			"planFilePath": "/tmp/auth-flow.md",
+			"futureOption": {"enabled": true}
+		}
 	}`)
+	setPlanHookStdin(t, hookInput)
+
+	previousReviewHook := runClaudePlanReviewHook
+	runClaudePlanReviewHook = func(sessionID string, content []byte, emitDecision func(bool, string)) {
+		if sessionID != "session-737" {
+			t.Errorf("sessionID = %q, want session-737", sessionID)
+		}
+		if got, want := string(content), "# Auth Flow\n\nImplement the auth flow."; got != want {
+			t.Errorf("plan content = %q, want %q", got, want)
+		}
+		emitDecision(true, "")
+	}
+	t.Cleanup(func() {
+		runClaudePlanReviewHook = previousReviewHook
+	})
 
 	output := captureHookDecision(t, func() {
-		emitHookDecision(true, "", toolInput)
+		if err := RunPlanHook(); err != nil {
+			t.Fatalf("RunPlanHook() error = %v", err)
+		}
 	})
 
 	var response struct {
@@ -85,7 +109,13 @@ func TestEmitHookDecision_ApprovalEchoesCompleteToolInput(t *testing.T) {
 	}
 
 	var expectedInput map[string]any
-	if err := json.Unmarshal(toolInput, &expectedInput); err != nil {
+	var event struct {
+		ToolInput json.RawMessage `json:"tool_input"`
+	}
+	if err := json.Unmarshal(hookInput, &event); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(event.ToolInput, &expectedInput); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(response.HookSpecificOutput.Decision.UpdatedInput, expectedInput) {
@@ -95,6 +125,27 @@ func TestEmitHookDecision_ApprovalEchoesCompleteToolInput(t *testing.T) {
 			expectedInput,
 		)
 	}
+}
+
+func setPlanHookStdin(t *testing.T, input []byte) {
+	t.Helper()
+
+	previousStdin := os.Stdin
+	stdinReader, stdinWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stdinWriter.Write(input); err != nil {
+		t.Fatal(err)
+	}
+	if err := stdinWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin = stdinReader
+	t.Cleanup(func() {
+		os.Stdin = previousStdin
+		stdinReader.Close()
+	})
 }
 
 func TestEmitHookDecision_DenyBehaviorUnchanged(t *testing.T) {
