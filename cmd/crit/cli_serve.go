@@ -238,7 +238,9 @@ func runServe(args []string) {
 		srv.SetInitErr(initErr)
 		stop()
 		<-ctx.Done()
-		removeSessionFile(key)
+		// Keep the session entry and log until stale-session cleanup. The client
+		// may already have received the entry and needs the log to report this
+		// fatal initialization error after the server stops.
 		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		_ = httpServer.Shutdown(shutCtx)

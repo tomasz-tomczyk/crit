@@ -603,6 +603,14 @@ func setupDaemonCmd(key string, args []string) (*exec.Cmd, *os.File, *os.File, *
 	return cmd, readEnd, writeEnd, logFile, nil
 }
 
+// prepareDaemonCmd removes stale session state before creating the log that
+// the new daemon inherits. This keeps fatal initialization errors readable by
+// the client after the daemon exits.
+func prepareDaemonCmd(key string, args []string) (*exec.Cmd, *os.File, *os.File, *os.File, error) {
+	RemoveSessionFile(key)
+	return setupDaemonCmd(key, args)
+}
+
 func readPortFromPipe(readEnd *os.File) (portCh chan int, errCh chan error) {
 	portCh = make(chan int, 1)
 	errCh = make(chan error, 1)
@@ -680,12 +688,10 @@ func StartDaemon(key string, args []string) (SessionEntry, error) {
 		return entry, nil
 	}
 
-	cmd, readEnd, writeEnd, logFile, err := setupDaemonCmd(key, args)
+	cmd, readEnd, writeEnd, logFile, err := prepareDaemonCmd(key, args)
 	if err != nil {
 		return SessionEntry{}, err
 	}
-
-	RemoveSessionFile(key)
 
 	if err := cmd.Start(); err != nil {
 		logFile.Close()

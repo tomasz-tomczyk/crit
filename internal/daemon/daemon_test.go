@@ -990,6 +990,39 @@ func TestReadDaemonLog(t *testing.T) {
 	})
 }
 
+func TestPrepareDaemonCmd_KeepsNewLogAvailable(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+
+	key := "newdaemonlog"
+	sessDir := filepath.Join(home, ".crit", "sessions")
+	if err := os.MkdirAll(sessDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessDir, key+".json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessDir, key+".log"), []byte("old error"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, readEnd, writeEnd, logFile, err := prepareDaemonCmd(key, nil)
+	if err != nil {
+		t.Fatalf("prepareDaemonCmd: %v", err)
+	}
+	readEnd.Close()
+	writeEnd.Close()
+	logFile.Close()
+
+	logPath := filepath.Join(sessDir, key+".log")
+	if _, err := os.Stat(logPath); err != nil {
+		t.Fatalf("new daemon log should remain accessible: %v", err)
+	}
+	if got := ReadDaemonLog(key); got != "" {
+		t.Errorf("ReadDaemonLog = %q, want cleared new log", got)
+	}
+}
+
 func TestOpenReadyPipe_NoEnvVar(t *testing.T) {
 	t.Setenv("_CRIT_READY_STDOUT", "")
 	os.Unsetenv("_CRIT_READY_STDOUT")
