@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,7 +107,10 @@ func TestPreflightCheck_NotARepo(t *testing.T) {
 func TestResolveServeReviewPath(t *testing.T) {
 	t.Run("outputDir wins", func(t *testing.T) {
 		dir := t.TempDir()
-		got := resolveServeReviewPath(dir, "/some/plan/dir", "deadbeef")
+		got, err := resolveServeReviewPath(dir, "/some/plan/dir", "deadbeef")
+		if err != nil {
+			t.Fatal(err)
+		}
 		want := filepath.Join(dir, ".crit")
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -115,7 +119,10 @@ func TestResolveServeReviewPath(t *testing.T) {
 
 	t.Run("planDir used when outputDir empty", func(t *testing.T) {
 		planDir := t.TempDir()
-		got := resolveServeReviewPath("", planDir, "deadbeef")
+		got, err := resolveServeReviewPath("", planDir, "deadbeef")
+		if err != nil {
+			t.Fatal(err)
+		}
 		want := filepath.Join(planDir, ".crit")
 		if got != want {
 			t.Errorf("plan-mode review path: got %q, want %q (must co-locate with review.json so attachments/ inlining can find them)", got, want)
@@ -123,9 +130,25 @@ func TestResolveServeReviewPath(t *testing.T) {
 	})
 
 	t.Run("centralized path when neither outputDir nor planDir set", func(t *testing.T) {
-		got := resolveServeReviewPath("", "", "deadbeef123")
+		got, err := resolveServeReviewPath("", "", "deadbeef123")
+		if err != nil {
+			t.Fatal(err)
+		}
 		if !strings.Contains(got, "deadbeef123") {
 			t.Errorf("centralized path should embed session key; got %q", got)
+		}
+	})
+
+	t.Run("centralized path errors are preserved", func(t *testing.T) {
+		orig := reviewFilePath
+		t.Cleanup(func() { reviewFilePath = orig })
+		reviewFilePath = func(string) (string, error) {
+			return "", errors.New("home unavailable")
+		}
+
+		if _, err := resolveServeReviewPath("", "", "deadbeef123"); err == nil ||
+			!strings.Contains(err.Error(), "home unavailable") {
+			t.Fatalf("expected centralized path error, got %v", err)
 		}
 	})
 }

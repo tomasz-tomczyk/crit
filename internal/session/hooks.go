@@ -6,6 +6,7 @@ import "fmt"
 type CLIReviewConfig struct {
 	Files              []string
 	Focus              *Focus
+	OutputDir          string
 	PlanDir            string
 	NoOpen             bool
 	OpenCmd            string

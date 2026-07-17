@@ -91,6 +91,7 @@ func init() {
 		return &session.CLIReviewConfig{
 			Files:              sc.Files,
 			Focus:              sc.Focus,
+			OutputDir:          sc.OutputDir,
 			PlanDir:            sc.PlanDir,
 			NoOpen:             sc.NoOpen,
 			OpenCmd:            sc.OpenCmd,

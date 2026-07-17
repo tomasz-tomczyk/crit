@@ -337,6 +337,56 @@ func TestResolveStoryReviewPathIgnoresOtherScopedDaemon(t *testing.T) {
 	}
 }
 
+func TestResolveStoryReviewPathUsesExplicitOutputWithoutDaemon(t *testing.T) {
+	setupStoryRepo(t)
+	origAlive := storyDaemonAlive
+	t.Cleanup(func() { storyDaemonAlive = origAlive })
+	storyDaemonAlive = func(string) (daemon.SessionEntry, bool) {
+		return daemon.SessionEntry{}, false
+	}
+
+	for _, flag := range []string{"--output", "-o"} {
+		t.Run(flag, func(t *testing.T) {
+			outputDir := filepath.Join(t.TempDir(), "review-output")
+			path, err := resolveStoryReviewPath([]string{flag, outputDir})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := filepath.Join(outputDir, ".crit")
+			if path != want {
+				t.Fatalf("path = %q, want %q", path, want)
+			}
+		})
+	}
+}
+
+func TestResolveStoryReviewPathUsesConfiguredOutputWithoutDaemon(t *testing.T) {
+	repoDir, _, _ := setupStoryRepo(t)
+	origAlive := storyDaemonAlive
+	t.Cleanup(func() { storyDaemonAlive = origAlive })
+	storyDaemonAlive = func(string) (daemon.SessionEntry, bool) {
+		return daemon.SessionEntry{}, false
+	}
+
+	outputDir := filepath.Join(t.TempDir(), "configured-output")
+	configJSON, err := json.Marshal(map[string]string{"output": outputDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, ".crit.config.json"), configJSON, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := resolveStoryReviewPath(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(outputDir, ".crit")
+	if path != want {
+		t.Fatalf("path = %q, want %q", path, want)
+	}
+}
+
 func TestStorySkipLLMWritesStub(t *testing.T) {
 	setupStoryRepo(t)
 	if err := runStoryE([]string{"--skip-llm"}); err != nil {

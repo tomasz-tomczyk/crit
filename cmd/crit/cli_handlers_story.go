@@ -281,9 +281,9 @@ func resolveStoryReviewPath(scopeArgs []string) (string, error) {
 	if entry, alive := storyDaemonAlive(key); alive && entry.ReviewPath != "" {
 		return entry.ReviewPath, nil
 	}
-	path, err := daemon.ReviewFilePath(key)
+	path, err := resolveServeReviewPath(reviewCfg.OutputDir, reviewCfg.PlanDir, key)
 	if err != nil {
-		return "", clicmd.ExitError{Code: 1, Err: err}
+		return "", clicmd.ExitError{Code: 1, Err: fmt.Errorf("resolve story review path: %w", err)}
 	}
 	return path, nil
 }

@@ -2,12 +2,21 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"time"
 )
+
+type daemonInitializationError struct {
+	message string
+}
+
+func (e *daemonInitializationError) Error() string {
+	return e.message
+}
 
 // RunReviewClient connects to a running daemon, blocks until the user finishes
 // reviewing, prints feedback to stdout, and returns whether the review was approved.
@@ -69,6 +78,10 @@ func RunReviewClientRaw(entry SessionEntry, sessionKey string) (approved bool, p
 	statusCode, body, err := waitForDaemonReady(client, entry.Host, entry.Port, sessionKey, entry.StartedAt)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "crit plan-hook: %v\n", err)
+		var initErr *daemonInitializationError
+		if errors.As(err, &initErr) {
+			return false, "crit daemon failed to initialize: " + initErr.Error()
+		}
 		return false, "crit daemon was unreachable; plan was not reviewed."
 	}
 	if statusCode == http.StatusInternalServerError {
@@ -118,7 +131,7 @@ func waitForDaemonReady(client *http.Client, host string, port int, sessionKey, 
 		if reqErr != nil {
 			if sessionKey != "" {
 				if msg := ReadDaemonFailure(sessionKey, daemonGeneration); msg != "" {
-					return 0, nil, fmt.Errorf("%s", msg)
+					return 0, nil, &daemonInitializationError{message: msg}
 				}
 				if msg := ReadDaemonLog(sessionKey); msg != "" {
 					return 0, nil, fmt.Errorf("%s", msg)

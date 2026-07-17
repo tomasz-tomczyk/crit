@@ -307,3 +307,65 @@ func TestRunReviewClientRaw_ReturnsInitializationError(t *testing.T) {
 		t.Fatalf("expected initialization error in prompt, got %q", prompt)
 	}
 }
+
+func TestRunReviewClientRaw_ReturnsPreservedDaemonFailure(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	testutil.SetHome(t, t.TempDir())
+	key := "planhookfail"
+	generation := "2026-07-17T12:00:00.123456789Z"
+	cause := "repository initialization failed: invalid base branch"
+	if err := WriteDaemonFailure(key, generation, fmt.Errorf("%s", cause)); err != nil {
+		t.Fatal(err)
+	}
+
+	approved, prompt := RunReviewClientRaw(SessionEntry{
+		Port:      port,
+		StartedAt: generation,
+	}, key)
+	if approved {
+		t.Fatal("expected approved=false")
+	}
+	if !strings.Contains(prompt, cause) {
+		t.Fatalf("expected preserved daemon failure in prompt, got %q", prompt)
+	}
+}
+
+func TestRunReviewClientRaw_DoesNotExposeFallbackDaemonLog(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	testutil.SetHome(t, t.TempDir())
+	key := "planhooklog"
+	sessDir, err := sessionsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logContents := "internal daemon detail that must stay on stderr"
+	if err := os.WriteFile(filepath.Join(sessDir, key+".log"), []byte(logContents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	approved, prompt := RunReviewClientRaw(SessionEntry{Port: port}, key)
+	if approved {
+		t.Fatal("expected approved=false")
+	}
+	if strings.Contains(prompt, logContents) {
+		t.Fatalf("agent-facing prompt exposed daemon log: %q", prompt)
+	}
+	if prompt != "crit daemon was unreachable; plan was not reviewed." {
+		t.Fatalf("unexpected fallback prompt: %q", prompt)
+	}
+}

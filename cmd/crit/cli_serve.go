@@ -83,17 +83,22 @@ func bindListener(host string, port int) (net.Listener, error) {
 // resolveServeReviewPath computes the daemon's review folder so that
 // srv.reviewPath, the session-registry entry, session.ReviewFilePath, and
 // session.critJSONPath() all agree on one folder.
-func resolveServeReviewPath(outputDir, planDir, sessionKey string) string {
+func resolveServeReviewPath(outputDir, planDir, sessionKey string) (string, error) {
 	switch {
 	case outputDir != "":
-		abs, _ := filepath.Abs(outputDir)
-		return filepath.Join(abs, ".crit")
+		abs, err := filepath.Abs(outputDir)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(abs, ".crit"), nil
 	case planDir != "":
-		abs, _ := filepath.Abs(planDir)
-		return filepath.Join(abs, ".crit")
+		abs, err := filepath.Abs(planDir)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(abs, ".crit"), nil
 	default:
-		path, _ := reviewFilePath(sessionKey)
-		return path
+		return reviewFilePath(sessionKey)
 	}
 }
 
@@ -132,7 +137,10 @@ func runServe(args []string) {
 	if vcs := DetectVCS(sc.VCSOverride); vcs != nil {
 		branch = vcs.CurrentBranch()
 	}
-	sc.ReviewPath = resolveServeReviewPath(sc.OutputDir, sc.PlanDir, key)
+	sc.ReviewPath, err = resolveServeReviewPath(sc.OutputDir, sc.PlanDir, key)
+	if err != nil {
+		daemonFatal(pipe, "Error: resolve review path: %v", err)
+	}
 	var cliArgs []string
 	switch {
 	case sc.LiveOrigin != "":
