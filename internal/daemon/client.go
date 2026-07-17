@@ -14,7 +14,7 @@ import (
 func RunReviewClient(entry SessionEntry, sessionKey string) (approved bool) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 
-	statusCode, body, err := waitForDaemonReady(client, entry.Host, entry.Port, sessionKey)
+	statusCode, body, err := waitForDaemonReady(client, entry.Host, entry.Port, sessionKey, entry.PID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -73,7 +73,7 @@ func RunReviewClient(entry SessionEntry, sessionKey string) (approved bool) {
 func RunReviewClientRaw(entry SessionEntry, sessionKey string) (approved bool, prompt string) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 
-	if _, _, err := waitForDaemonReady(client, entry.Host, entry.Port, sessionKey); err != nil {
+	if _, _, err := waitForDaemonReady(client, entry.Host, entry.Port, sessionKey, entry.PID); err != nil {
 		fmt.Fprintf(os.Stderr, "crit plan-hook: %v\n", err)
 		return false, "crit daemon was unreachable; plan was not reviewed."
 	}
@@ -107,7 +107,7 @@ func RunReviewClientRaw(entry SessionEntry, sessionKey string) (approved bool, p
 	return result.Approved, result.Prompt
 }
 
-func waitForDaemonReady(client *http.Client, host string, port int, sessionKey string) (statusCode int, body []byte, err error) {
+func waitForDaemonReady(client *http.Client, host string, port int, sessionKey string, daemonPID int) (statusCode int, body []byte, err error) {
 	connHost := host
 	if connHost == "" {
 		connHost = "127.0.0.1"
@@ -118,6 +118,9 @@ func waitForDaemonReady(client *http.Client, host string, port int, sessionKey s
 		resp, reqErr := client.Get(base + "/api/session")
 		if reqErr != nil {
 			if sessionKey != "" {
+				if msg := ReadDaemonFailure(sessionKey, daemonPID); msg != "" {
+					return 0, nil, fmt.Errorf("%s", msg)
+				}
 				if msg := ReadDaemonLog(sessionKey); msg != "" {
 					return 0, nil, fmt.Errorf("%s", msg)
 				}

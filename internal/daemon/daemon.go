@@ -57,6 +57,8 @@ var aliveClient = &http.Client{Timeout: time.Second}
 // daemon lifecycle and can tolerate a longer timeout.
 var browserClient = &http.Client{Timeout: 2 * time.Second}
 
+const daemonFailureRetention = 10 * time.Minute
+
 // SessionEntry tracks a running daemon process in ~/.crit/sessions/.
 type SessionEntry struct {
 	PID        int      `json:"pid"`
@@ -740,6 +742,38 @@ func sessionLogPath(key string) (string, error) {
 	return filepath.Join(dir, key+".log"), nil
 }
 
+func daemonFailurePath(key string, pid int) (string, error) {
+	dir, err := sessionsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, fmt.Sprintf("%s-%d.error", key, pid)), nil
+}
+
+// WriteDaemonFailure preserves a fatal post-readiness initialization error for
+// the client that started this daemon. Failure records are PID-scoped so a
+// subsequent daemon using the same session key cannot replace its diagnosis.
+func WriteDaemonFailure(key string, pid int, err error) error {
+	path, pathErr := daemonFailurePath(key, pid)
+	if pathErr != nil {
+		return pathErr
+	}
+	return config.AtomicWriteFile(path, []byte(err.Error()), 0600)
+}
+
+// ReadDaemonFailure returns the fatal initialization error for one daemon PID.
+func ReadDaemonFailure(key string, pid int) string {
+	path, err := daemonFailurePath(key, pid)
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 // ReadDaemonLog reads and returns the trimmed contents of a daemon log file.
 func ReadDaemonLog(key string) string {
 	logPath, err := sessionLogPath(key)
@@ -751,6 +785,23 @@ func ReadDaemonLog(key string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+func cleanExpiredDaemonFailures(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-daemonFailureRetention)
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".error") {
+			continue
+		}
+		info, err := entry.Info()
+		if err == nil && info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, entry.Name()))
+		}
+	}
 }
 
 // OpenReadyPipe returns the readiness pipe (the inherited stdout) if this
@@ -852,6 +903,7 @@ func cleanOrphanedSessions() {
 	if err != nil {
 		return
 	}
+	cleanExpiredDaemonFailures(sessDir)
 	for _, de := range entries {
 		if !strings.HasSuffix(de.Name(), ".json") {
 			continue

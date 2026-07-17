@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
@@ -988,6 +989,29 @@ func TestReadDaemonLog(t *testing.T) {
 			t.Errorf("ReadDaemonLog = %q, want empty", msg)
 		}
 	})
+}
+
+func TestCleanOrphanedSessions_ExpiresOldDaemonFailures(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+
+	key := "expirederror"
+	if err := WriteDaemonFailure(key, 123, fmt.Errorf("initialization failed")); err != nil {
+		t.Fatal(err)
+	}
+	path, err := daemonFailurePath(key, 123)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expired := time.Now().Add(-daemonFailureRetention - time.Second)
+	if err := os.Chtimes(path, expired, expired); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanOrphanedSessions()
+	if got := ReadDaemonFailure(key, 123); got != "" {
+		t.Errorf("ReadDaemonFailure = %q, want expired failure removed", got)
+	}
 }
 
 func TestPrepareDaemonCmd_KeepsNewLogAvailable(t *testing.T) {

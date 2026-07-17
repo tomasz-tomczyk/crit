@@ -223,7 +223,7 @@ func TestWaitForDaemonReady_SurfacesDaemonLog(t *testing.T) {
 		os.WriteFile(filepath.Join(sessDir, "testkey123.log"), []byte("Error: not in a git repository"), 0600)
 
 		client := &http.Client{Timeout: 1 * time.Second}
-		_, _, err = waitForDaemonReady(client, "", port, "testkey123")
+		_, _, err = waitForDaemonReady(client, "", port, "testkey123", 0)
 		if err == nil {
 			t.Fatal("expected error for unreachable daemon")
 		}
@@ -241,7 +241,7 @@ func TestWaitForDaemonReady_SurfacesDaemonLog(t *testing.T) {
 		ln.Close()
 
 		client := &http.Client{Timeout: 1 * time.Second}
-		_, _, err = waitForDaemonReady(client, "", port, "")
+		_, _, err = waitForDaemonReady(client, "", port, "", 0)
 		if err == nil {
 			t.Fatal("expected error for unreachable daemon")
 		}
@@ -249,4 +249,35 @@ func TestWaitForDaemonReady_SurfacesDaemonLog(t *testing.T) {
 			t.Errorf("expected 'could not reach daemon' fallback, got: %v", err)
 		}
 	})
+}
+
+func TestWaitForDaemonReady_SurfacesFailureAfterSameKeyCleanup(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	key := "fatalinit123"
+	pid := 999999999
+	if err := WriteSessionFile(key, SessionEntry{PID: pid, Port: port}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteDaemonFailure(key, pid, fmt.Errorf("not in a version-controlled repository and no files specified")); err != nil {
+		t.Fatal(err)
+	}
+
+	// A concurrent same-key invocation removes the stale session and its log.
+	if _, alive := FindAliveSession(key); alive {
+		t.Fatal("dead daemon should not be considered alive")
+	}
+
+	client := &http.Client{Timeout: time.Second}
+	_, _, err = waitForDaemonReady(client, "", port, key, pid)
+	if err == nil || !strings.Contains(err.Error(), "not in a version-controlled repository") {
+		t.Fatalf("expected preserved initialization error, got %v", err)
+	}
 }

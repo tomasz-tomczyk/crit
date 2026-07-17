@@ -236,6 +236,9 @@ func runServe(args []string) {
 	if initErr != nil {
 		log.Printf("Error: %v", initErr)
 		srv.SetInitErr(initErr)
+		if err := writeDaemonFailure(key, os.Getpid(), initErr); err != nil {
+			log.Printf("Warning: could not preserve daemon initialization error: %v", err)
+		}
 		stop()
 		<-ctx.Done()
 		// Keep the session entry and log until stale-session cleanup. The client
