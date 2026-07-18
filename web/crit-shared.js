@@ -339,7 +339,7 @@
         // If the tab is still open (window.close() is a no-op on tabs the
         // browser didn't open via script), tell the user how to proceed.
         var closedCheckId = setTimeout(function () {
-          if (cancelled) return;
+          if (cancelled || window.closed) return;
           if (messageEl) {
             messageEl.style.display = '';
             messageEl.textContent = 'Approved — you can close this tab';

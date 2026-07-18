@@ -626,7 +626,11 @@ function makeAutoCloseSandbox(fetchImpl) {
     }
   }
 
-  const win = { close: () => { win.closeCalls = (win.closeCalls || 0) + 1; }, closeCalls: 0 };
+  const win = {
+    closed: false,
+    close: () => { win.closeCalls = (win.closeCalls || 0) + 1; },
+    closeCalls: 0,
+  };
   win.navigator = { clipboard: { writeText: async () => {} } };
   const fn = new Function(
     'window', 'document', 'setTimeout', 'clearTimeout',
@@ -695,6 +699,16 @@ test('scheduleAutoClose: after window.close(), shows "you can close this tab" if
   flush(1000); // triggers window.close() (a no-op in this stub — tab "stays open")
   flush(50);   // the post-close fallback message tick
   assert.equal(els.messageEl.textContent, 'Approved — you can close this tab');
+});
+
+test('scheduleAutoClose: after window.close(), skips fallback message when the tab actually closed', () => {
+  const { shared: s, win, els, flush } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  win.close = () => { win.closeCalls = (win.closeCalls || 0) + 1; win.closed = true; };
+  s.scheduleAutoClose(1000, els.messageEl);
+  flush(1000);
+  flush(50);
+  assert.equal(win.closeCalls, 1);
+  assert.notEqual(els.messageEl.textContent, 'Approved — you can close this tab');
 });
 
 test('runFinishReview: approved + close_on_approve_after_ms set schedules the countdown and eventual close', async () => {
