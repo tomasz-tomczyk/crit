@@ -2413,6 +2413,60 @@ func TestHandleConfig_AuthNotLoggedIn(t *testing.T) {
 	}
 }
 
+func TestHandleConfig_CloseOnApproveAfterMs_OmittedWhenUnset(t *testing.T) {
+	s, _ := newTestServer(t)
+	// s.cfg.CloseOnApproveAfterMs is nil by default (zero value Config).
+
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := resp["close_on_approve_after_ms"]; ok {
+		t.Errorf("close_on_approve_after_ms = %v, want omitted when unset", resp["close_on_approve_after_ms"])
+	}
+}
+
+func TestHandleConfig_CloseOnApproveAfterMs_IncludedWhenSet(t *testing.T) {
+	s, _ := newTestServer(t)
+	ms := 2500
+	s.cfg = Config{CloseOnApproveAfterMs: &ms}
+
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := resp["close_on_approve_after_ms"].(float64)
+	if !ok || int(got) != 2500 {
+		t.Errorf("close_on_approve_after_ms = %v, want 2500", resp["close_on_approve_after_ms"])
+	}
+}
+
+func TestHandleConfig_CloseOnApproveAfterMs_OmittedWhenNegative(t *testing.T) {
+	s, _ := newTestServer(t)
+	ms := -1
+	s.cfg = Config{CloseOnApproveAfterMs: &ms}
+
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := resp["close_on_approve_after_ms"]; ok {
+		t.Errorf("close_on_approve_after_ms = %v, want omitted for negative value", resp["close_on_approve_after_ms"])
+	}
+}
+
 func TestHandleConfig_NoIntegrationCheck(t *testing.T) {
 	s, _ := newTestServer(t)
 	s.cfg = Config{NoIntegrationCheck: true}

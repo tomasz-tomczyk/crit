@@ -267,6 +267,99 @@
     }
   }
 
+  // ===== Auto-close after approve =====
+  // When `close_on_approve_after_ms` is configured (global-only, see
+  // internal/config/config.go), runFinishReview counts down on the waiting
+  // dialog's message line and calls window.close() once the delay elapses.
+  // A Cancel button (created lazily, reused across approvals) stops the
+  // countdown and leaves the Approved dialog as-is. Ticks once per second
+  // via chained setTimeout so tests can drive it with a fake clock (only
+  // setTimeout/clearTimeout are needed, matching the showToast sandbox).
+  var CLOSE_COUNTDOWN_TICK_MS = 1000;
+  var _autoCloseTimers = null; // array of pending timer ids, or null when idle
+
+  function clearAutoCloseTimers() {
+    if (!_autoCloseTimers) return;
+    _autoCloseTimers.forEach(function (id) { clearTimeout(id); });
+    _autoCloseTimers = null;
+  }
+
+  // Creates (once) or reuses the Cancel button, inserted right after
+  // messageEl so it shows up under the "Closing in Ns…" text. Dynamic
+  // creation avoids template churn across index.html / live-mode markup.
+  function ensureCloseCancelBtn(messageEl) {
+    var existing = document.getElementById('waitingCloseCancel');
+    if (existing) return existing;
+    if (!messageEl || !messageEl.parentNode || typeof messageEl.parentNode.insertBefore !== 'function') return null;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'waitingCloseCancel';
+    btn.className = 'btn btn-sm waiting-close-cancel';
+    btn.textContent = 'Cancel';
+    messageEl.parentNode.insertBefore(btn, messageEl.nextSibling);
+    return btn;
+  }
+
+  // Starts (or no-ops) the auto-close countdown for this approval. `ms` is
+  // the resolved `close_on_approve_after_ms` value — undefined/negative
+  // means disabled (matches CloseOnApproveAfterMsEnabled on the Go side).
+  function scheduleAutoClose(ms, messageEl) {
+    clearAutoCloseTimers();
+    if (typeof ms !== 'number' || !isFinite(ms) || ms < 0) return;
+
+    var cancelled = false;
+    var remaining = ms;
+    var timers = [];
+    _autoCloseTimers = timers;
+    var cancelBtn = ensureCloseCancelBtn(messageEl);
+
+    function showCountdown() {
+      if (!messageEl) return;
+      messageEl.style.display = '';
+      messageEl.textContent = 'Closing in ' + Math.ceil(remaining / 1000) + 's…';
+    }
+
+    function onCancel() {
+      if (cancelled) return;
+      cancelled = true;
+      clearAutoCloseTimers();
+      if (cancelBtn) cancelBtn.style.display = 'none';
+      if (messageEl) { messageEl.style.display = 'none'; messageEl.textContent = ''; }
+    }
+
+    if (cancelBtn) {
+      cancelBtn.style.display = '';
+      cancelBtn.onclick = onCancel;
+    }
+
+    function tick() {
+      if (cancelled) return;
+      if (remaining <= 0) {
+        try { window.close(); } catch (_) {}
+        // If the tab is still open (window.close() is a no-op on tabs the
+        // browser didn't open via script), tell the user how to proceed.
+        var closedCheckId = setTimeout(function () {
+          if (cancelled) return;
+          if (messageEl) {
+            messageEl.style.display = '';
+            messageEl.textContent = 'Approved — you can close this tab';
+          }
+          if (cancelBtn) cancelBtn.style.display = 'none';
+        }, 50);
+        timers.push(closedCheckId);
+        return;
+      }
+      showCountdown();
+      var nextId = setTimeout(function () {
+        remaining -= CLOSE_COUNTDOWN_TICK_MS;
+        tick();
+      }, Math.min(CLOSE_COUNTDOWN_TICK_MS, remaining));
+      timers.push(nextId);
+    }
+
+    tick();
+  }
+
   // ===== runFinishReview =====
   // Shared finish-review flow used by both code-review (app.js) and
   // live-mode (live-mode.js). POSTs /api/finish, parses
@@ -365,6 +458,22 @@
       }
 
       try { await navigator.clipboard.writeText(prompt); } catch (_) {}
+
+      if (approved) {
+        // close_on_approve_after_ms is global-only and off by default; read
+        // it fresh from /api/config rather than requiring every caller to
+        // thread a cached copy through. Best-effort — a config fetch failure
+        // just means no auto-close, never blocks the approval itself.
+        var closeMs;
+        try {
+          var cfgResp = await fetch('/api/config');
+          if (cfgResp && cfgResp.ok) {
+            var cfgData = await cfgResp.json();
+            closeMs = cfgData && cfgData.close_on_approve_after_ms;
+          }
+        } catch (_) { /* best effort */ }
+        scheduleAutoClose(closeMs, messageEl);
+      }
 
       if (approved && typeof o.onApproved === 'function') o.onApproved(prompt);
       else if (!approved && typeof o.onWaiting === 'function') o.onWaiting();
@@ -904,6 +1013,7 @@
     updateCommentCountIndicator,
     showToast,
     runFinishReview,
+    scheduleAutoClose,
     waitForSession,
     installSidebarResize,
     computeResizeDelta,

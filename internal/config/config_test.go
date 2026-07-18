@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
@@ -924,5 +925,100 @@ func TestMergeConfigs_ProjectHooksOverride(t *testing.T) {
 	merged := mergeConfigs(global, project, ConfigPresence{})
 	if merged.Hooks["on_finish_approved"] != "inline:project" {
 		t.Fatalf("hooks = %v", merged.Hooks)
+	}
+}
+
+func TestCloseOnApproveAfterMsEnabled(t *testing.T) {
+	ms500 := 500
+	msZero := 0
+	msNegative := -1
+
+	tests := []struct {
+		name       string
+		cfg        Config
+		wantMs     int
+		wantEnable bool
+	}{
+		{"nil pointer disables", Config{CloseOnApproveAfterMs: nil}, 0, false},
+		{"positive value enables", Config{CloseOnApproveAfterMs: &ms500}, 500, true},
+		{"zero enables (close immediately)", Config{CloseOnApproveAfterMs: &msZero}, 0, true},
+		{"negative value treated as disabled", Config{CloseOnApproveAfterMs: &msNegative}, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotMs, gotEnabled := tt.cfg.CloseOnApproveAfterMsEnabled()
+			if gotEnabled != tt.wantEnable || gotMs != tt.wantMs {
+				t.Errorf("CloseOnApproveAfterMsEnabled() = (%d, %v), want (%d, %v)", gotMs, gotEnabled, tt.wantMs, tt.wantEnable)
+			}
+		})
+	}
+}
+
+func TestLoadConfigFile_CloseOnApproveAfterMs(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".crit.config.json")
+	if err := os.WriteFile(configPath, []byte(`{"close_on_approve_after_ms": 3000}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadConfigFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CloseOnApproveAfterMs == nil || *cfg.CloseOnApproveAfterMs != 3000 {
+		t.Errorf("CloseOnApproveAfterMs = %v, want 3000", cfg.CloseOnApproveAfterMs)
+	}
+}
+
+func TestMergeConfigs_CloseOnApproveAfterMsGlobalOnly(t *testing.T) {
+	// Project config must not be able to force a reviewer's tab to auto-close.
+	globalMs := 2000
+	projectMs := 0
+	global := Config{CloseOnApproveAfterMs: &globalMs}
+	project := Config{CloseOnApproveAfterMs: &projectMs}
+	merged := mergeConfigs(global, project, ConfigPresence{})
+	if merged.CloseOnApproveAfterMs == nil || *merged.CloseOnApproveAfterMs != 2000 {
+		t.Errorf("CloseOnApproveAfterMs = %v, want global value 2000 (project must not override)", merged.CloseOnApproveAfterMs)
+	}
+}
+
+func TestLoadConfig_CloseOnApproveAfterMs_ProjectCannotEnable(t *testing.T) {
+	// Only global config may set close_on_approve_after_ms — a project-level
+	// .crit.config.json setting it must be ignored entirely.
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, ".crit.config.json"),
+		[]byte(`{"close_on_approve_after_ms": 1500}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := LoadConfig(projectDir)
+	if ms, enabled := cfg.CloseOnApproveAfterMsEnabled(); enabled {
+		t.Errorf("close_on_approve_after_ms enabled from project config (ms=%d), want disabled", ms)
+	}
+}
+
+func TestLoadConfig_CloseOnApproveAfterMs_GlobalWorks(t *testing.T) {
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+	if err := os.WriteFile(filepath.Join(homeDir, ".crit.config.json"),
+		[]byte(`{"close_on_approve_after_ms": 4000}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projectDir := t.TempDir()
+
+	cfg := LoadConfig(projectDir)
+	ms, enabled := cfg.CloseOnApproveAfterMsEnabled()
+	if !enabled || ms != 4000 {
+		t.Errorf("CloseOnApproveAfterMsEnabled() = (%d, %v), want (4000, true)", ms, enabled)
+	}
+}
+
+func TestDefaultConfig_DoesNotIncludeCloseOnApproveAfterMs(t *testing.T) {
+	// Scaffolding (`crit config --generate`) must not accidentally enable
+	// auto-close — the generated template omits this key entirely.
+	s := DefaultConfigString()
+	if strings.Contains(s, "close_on_approve_after_ms") {
+		t.Errorf("DefaultConfigString() contains close_on_approve_after_ms, want omitted:\n%s", s)
 	}
 }

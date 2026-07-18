@@ -452,6 +452,12 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"integrations_available": availableIntegrations(),
 	}
 
+	// Auto-close-after-approve delay, in ms. Omitted entirely when unset (or
+	// negative) so the frontend's "key absent" check stays simple.
+	if ms, enabled := s.cfg.CloseOnApproveAfterMsEnabled(); enabled {
+		resp["close_on_approve_after_ms"] = ms
+	}
+
 	// Integration detection
 	s.addIntegrationStatus(resp)
 

@@ -2384,6 +2384,13 @@ textarea.drag-active {
   margin-top: 12px;
 }
 
+/* Cancel button for the auto-close-after-approve countdown (close_on_approve_after_ms).
+   Created dynamically in crit-shared.js right after #waitingMessage. */
+.waiting-close-cancel {
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
 /* -- Prompt copy row -- */
 .prompt-copy-row {
   margin: 16px 24px 0;

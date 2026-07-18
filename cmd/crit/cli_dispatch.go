@@ -188,9 +188,11 @@ Available keys:
   open_cmd               string    Custom browser/open command
   agent_cmd              string    Shell command to send comments to an AI agent (e.g. "claude -p")
   auth_token             string    Authentication token for crit-web share service
+  close_on_approve_after_ms int    Auto-close the review tab N ms after Approve (default: unset/disabled)
 
-Note: agent_cmd, auth_token, host, open_cmd, and share_url are global-only (~/.crit.config.json).
-Project-level .crit.config.json cannot override them for security reasons.
+Note: agent_cmd, auth_token, host, open_cmd, share_url, and close_on_approve_after_ms
+are global-only (~/.crit.config.json). Project-level .crit.config.json cannot
+override them for security reasons.
 
 Ignore pattern syntax:
   *.lock            Match files by extension (anywhere in tree)

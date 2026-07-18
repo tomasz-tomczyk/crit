@@ -516,6 +516,232 @@ test('runFinishReview onError catches and returns null', async () => {
   assert.match(String(captured), /HTTP 500/);
 });
 
+// ----- close_on_approve_after_ms (auto-close after approve) -----
+// A richer DOM stub than makeFinishSandbox: elements form a real parent/child
+// tree (so ensureCloseCancelBtn's `messageEl.parentNode.insertBefore(...)`
+// works, and a dynamically-inserted #waitingCloseCancel can be found by a
+// later document.getElementById lookup) plus fake setTimeout/clearTimeout so
+// the countdown can be driven deterministically without real delays.
+function makeAutoCloseSandbox(fetchImpl) {
+  function makeNode(tag) {
+    return {
+      tagName: (tag || 'div').toUpperCase(),
+      id: '',
+      style: {},
+      _attrs: {},
+      _children: [],
+      textContent: '',
+      innerHTML: '',
+      offsetWidth: 0,
+      onclick: null,
+      parentNode: null,
+      nextSibling: null,
+      classList: {
+        _set: new Set(),
+        add(...c) { c.forEach((x) => this._set.add(x)); },
+        remove(...c) { c.forEach((x) => this._set.delete(x)); },
+        contains(c) { return this._set.has(c); },
+      },
+      setAttribute(k, v) { this._attrs[k] = v; },
+      getAttribute(k) { return Object.prototype.hasOwnProperty.call(this._attrs, k) ? this._attrs[k] : null; },
+      querySelector() { return null; },
+      querySelectorAll() { return []; },
+      appendChild(child) {
+        child.parentNode = this;
+        this._children.push(child);
+        relink(this);
+        return child;
+      },
+      insertBefore(newNode, referenceNode) {
+        let idx = this._children.indexOf(referenceNode);
+        if (idx === -1) idx = this._children.length;
+        this._children.splice(idx, 0, newNode);
+        newNode.parentNode = this;
+        relink(this);
+        return newNode;
+      },
+    };
+  }
+  function relink(parent) {
+    const kids = parent._children;
+    for (let i = 0; i < kids.length; i++) kids[i].nextSibling = kids[i + 1] || null;
+  }
+  function findById(node, id) {
+    if (!node) return null;
+    if (node.id === id) return node;
+    for (const child of node._children || []) {
+      const found = findById(child, id);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  const messageEl = makeNode('p'); messageEl.id = 'waitingMessage';
+  const headingEl = makeNode('h3'); headingEl.id = 'waitingHeading';
+  const header = makeNode('div'); header.id = 'waitingHeader';
+  header.appendChild(headingEl);
+  header.appendChild(messageEl);
+
+  const copyLabel = makeNode('span'); copyLabel.textContent = 'Copy';
+  const clipEl = makeNode('button'); clipEl.id = 'waitingClipboard';
+  clipEl._attrs['aria-label'] = 'Copy prompt to clipboard';
+  clipEl.querySelector = (sel) => (sel === '.copy-label' ? copyLabel : null);
+
+  const dialog = makeNode('div'); dialog.id = 'waitingDialog';
+  dialog.appendChild(header);
+
+  const promptEl = makeNode('div'); promptEl.id = 'waitingPrompt';
+  const previewEl = makeNode('span'); previewEl.id = 'promptPreview';
+
+  const root = makeNode('body');
+  root.appendChild(dialog);
+  root.appendChild(promptEl);
+  root.appendChild(previewEl);
+  root.appendChild(clipEl);
+
+  const doc = {
+    cookie: '',
+    getElementById: (id) => findById(root, id),
+    createElement: (tag) => makeNode(tag),
+  };
+
+  // Deterministic fake clock: setTimeout/clearTimeout only (matches
+  // scheduleAutoClose, which never uses setInterval).
+  const timers = [];
+  let now = 0;
+  const fakeSetTimeout = (cb, ms) => { const t = { at: now + (ms || 0), cb, fired: false, cancelled: false }; timers.push(t); return t; };
+  const fakeClearTimeout = (t) => { if (t) t.cancelled = true; };
+  function flush(ms) {
+    now += (ms || 0);
+    let progress = true;
+    while (progress) {
+      progress = false;
+      for (const t of timers) {
+        if (!t.cancelled && !t.fired && t.at <= now) {
+          t.fired = true;
+          progress = true;
+          t.cb();
+        }
+      }
+    }
+  }
+
+  const win = { close: () => { win.closeCalls = (win.closeCalls || 0) + 1; }, closeCalls: 0 };
+  win.navigator = { clipboard: { writeText: async () => {} } };
+  const fn = new Function(
+    'window', 'document', 'setTimeout', 'clearTimeout',
+    src + '\nreturn window;',
+  );
+  fn(win, doc, fakeSetTimeout, fakeClearTimeout);
+  globalThis.fetch = fetchImpl;
+  globalThis.navigator = win.navigator;
+  return { shared: win.crit.shared, win, doc, els: { messageEl, headingEl, dialog, promptEl, previewEl, clipEl }, flush };
+}
+
+test('scheduleAutoClose: counts down then calls window.close() after the configured delay', () => {
+  const { shared: s, win, els, flush } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  s.scheduleAutoClose(3000, els.messageEl);
+  assert.equal(els.messageEl.textContent, 'Closing in 3s…');
+  assert.equal(win.closeCalls, 0);
+  flush(1000);
+  assert.equal(els.messageEl.textContent, 'Closing in 2s…');
+  flush(1000);
+  assert.equal(els.messageEl.textContent, 'Closing in 1s…');
+  assert.equal(win.closeCalls, 0);
+  flush(1000);
+  assert.equal(win.closeCalls, 1, 'window.close() called once the countdown reaches zero');
+});
+
+test('scheduleAutoClose: negative or non-numeric ms is a no-op (disabled)', () => {
+  const { shared: s, win, els, flush } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  s.scheduleAutoClose(-1, els.messageEl);
+  s.scheduleAutoClose(undefined, els.messageEl);
+  s.scheduleAutoClose('not-a-number', els.messageEl);
+  flush(60000);
+  assert.equal(win.closeCalls, 0);
+  assert.equal(els.messageEl.textContent, '');
+});
+
+test('scheduleAutoClose: Cancel button stops the countdown, hides itself, and no close happens', () => {
+  const { shared: s, win, els, doc, flush } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  s.scheduleAutoClose(3000, els.messageEl);
+  const cancelBtn = doc.getElementById('waitingCloseCancel');
+  assert.ok(cancelBtn, 'Cancel button was created');
+  assert.equal(cancelBtn.style.display, '');
+
+  flush(1000); // one tick in, then cancel
+  cancelBtn.onclick();
+
+  assert.equal(cancelBtn.style.display, 'none');
+  assert.equal(els.messageEl.style.display, 'none');
+  assert.equal(els.messageEl.textContent, '');
+
+  flush(60000); // no further scheduled close, even well past the original delay
+  assert.equal(win.closeCalls, 0);
+});
+
+test('scheduleAutoClose: reuses the same Cancel button across approvals instead of duplicating it', () => {
+  const { shared: s, doc } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  s.scheduleAutoClose(5000, doc.getElementById('waitingMessage'));
+  const first = doc.getElementById('waitingCloseCancel');
+  s.scheduleAutoClose(5000, doc.getElementById('waitingMessage'));
+  const second = doc.getElementById('waitingCloseCancel');
+  assert.equal(first, second, 'Cancel button element is reused, not recreated');
+});
+
+test('scheduleAutoClose: after window.close(), shows "you can close this tab" if the tab is still open', () => {
+  const { shared: s, els, flush } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  s.scheduleAutoClose(1000, els.messageEl);
+  flush(1000); // triggers window.close() (a no-op in this stub — tab "stays open")
+  flush(50);   // the post-close fallback message tick
+  assert.equal(els.messageEl.textContent, 'Approved — you can close this tab');
+});
+
+test('runFinishReview: approved + close_on_approve_after_ms set schedules the countdown and eventual close', async () => {
+  const fetch = async (url) => {
+    if (url === '/api/finish') return { ok: true, json: async () => ({ approved: true, prompt: 'ok' }) };
+    if (url === '/api/config') return { ok: true, json: async () => ({ close_on_approve_after_ms: 2000 }) };
+    throw new Error('unexpected fetch ' + url);
+  };
+  const { shared: s, win, els, flush } = makeAutoCloseSandbox(fetch);
+  const result = await s.runFinishReview({});
+  assert.equal(result.approved, true);
+  assert.equal(els.messageEl.textContent, 'Closing in 2s…');
+  // Ticks chain one setTimeout at a time (each scheduled relative to "now"
+  // at fire time), so advance the fake clock one tick at a time rather than
+  // jumping straight to the total delay.
+  flush(1000);
+  assert.equal(els.messageEl.textContent, 'Closing in 1s…');
+  flush(1000);
+  assert.equal(win.closeCalls, 1);
+});
+
+test('runFinishReview: approved + no close_on_approve_after_ms in config skips auto-close entirely', async () => {
+  const fetch = async (url) => {
+    if (url === '/api/finish') return { ok: true, json: async () => ({ approved: true, prompt: 'ok' }) };
+    if (url === '/api/config') return { ok: true, json: async () => ({}) }; // key absent
+    throw new Error('unexpected fetch ' + url);
+  };
+  const { shared: s, win, els, flush } = makeAutoCloseSandbox(fetch);
+  await s.runFinishReview({});
+  // approved path already hides the message when auto-close is disabled.
+  assert.equal(els.messageEl.style.display, 'none');
+  flush(60000);
+  assert.equal(win.closeCalls, 0);
+});
+
+test('runFinishReview: not-approved path never schedules an auto-close, regardless of config', async () => {
+  const fetch = async (url) => {
+    if (url === '/api/finish') return { ok: true, json: async () => ({ approved: false, prompt: 'p' }) };
+    if (url === '/api/config') return { ok: true, json: async () => ({ close_on_approve_after_ms: 500 }) };
+    throw new Error('unexpected fetch ' + url);
+  };
+  const { shared: s, win, flush } = makeAutoCloseSandbox(fetch);
+  await s.runFinishReview({ onWaiting: () => {} });
+  flush(60000);
+  assert.equal(win.closeCalls, 0, '/api/config is never even consulted on the not-approved path');
+});
+
 // ----- waitForSession -----
 test('waitForSession: 503 then 200 resolves with payload, fires onProgress', async () => {
   let n = 0;

@@ -20,34 +20,39 @@ const defaultShareURL = DefaultShareURL
 
 // Config holds all configuration values from config files.
 type Config struct {
-	Port               int               `json:"port,omitempty"`
-	Host               string            `json:"host,omitempty"`       // listen host (default 127.0.0.1)
-	PublicURL          string            `json:"public_url,omitempty"` // advertised base URL (global-only; e.g. tailscale serve)
-	NoOpen             bool              `json:"no_open,omitempty"`
-	OpenCmd            string            `json:"open_cmd,omitempty"`
-	ShareURL           string            `json:"share_url,omitempty"`
-	ProxyAuth          bool              `json:"proxy_auth,omitempty"`
-	Quiet              bool              `json:"quiet,omitempty"`
-	Output             string            `json:"output,omitempty"`
-	Author             string            `json:"author,omitempty"`
-	BaseBranch         string            `json:"base_branch,omitempty"`
-	IgnorePatterns     []string          `json:"ignore_patterns,omitempty"`
-	AutoViewedPatterns []string          `json:"auto_viewed_patterns,omitempty"`
-	NoIntegrationCheck bool              `json:"no_integration_check,omitempty"`
-	NoUpdateCheck      bool              `json:"no_update_check,omitempty"`
-	AgentCmd           string            `json:"agent_cmd,omitempty"`
-	AuthToken          string            `json:"auth_token,omitempty"`
-	AuthUserName       string            `json:"auth_user_name,omitempty"`
-	AuthUserEmail      string            `json:"auth_user_email,omitempty"`
-	AuthUserID         string            `json:"auth_user_id,omitempty"`
-	CleanupOnApprove   *bool             `json:"cleanup_on_approve,omitempty"`
-	DisableStats       bool              `json:"disable_stats,omitempty"`
-	VCS                string            `json:"vcs,omitempty"` // preferred VCS backend: "git", "sl", "jj"
-	ShareConsented     bool              `json:"share_consented,omitempty"`
-	LiveCookie         string            `json:"live_cookie,omitempty"`
-	LiveCookieFile     string            `json:"live_cookie_file,omitempty"`
-	LiveCDPURL         string            `json:"live_cdp_url,omitempty"`
-	Prompts            map[string]string `json:"prompts,omitempty"`
+	Port               int      `json:"port,omitempty"`
+	Host               string   `json:"host,omitempty"`       // listen host (default 127.0.0.1)
+	PublicURL          string   `json:"public_url,omitempty"` // advertised base URL (global-only; e.g. tailscale serve)
+	NoOpen             bool     `json:"no_open,omitempty"`
+	OpenCmd            string   `json:"open_cmd,omitempty"`
+	ShareURL           string   `json:"share_url,omitempty"`
+	ProxyAuth          bool     `json:"proxy_auth,omitempty"`
+	Quiet              bool     `json:"quiet,omitempty"`
+	Output             string   `json:"output,omitempty"`
+	Author             string   `json:"author,omitempty"`
+	BaseBranch         string   `json:"base_branch,omitempty"`
+	IgnorePatterns     []string `json:"ignore_patterns,omitempty"`
+	AutoViewedPatterns []string `json:"auto_viewed_patterns,omitempty"`
+	NoIntegrationCheck bool     `json:"no_integration_check,omitempty"`
+	NoUpdateCheck      bool     `json:"no_update_check,omitempty"`
+	AgentCmd           string   `json:"agent_cmd,omitempty"`
+	AuthToken          string   `json:"auth_token,omitempty"`
+	AuthUserName       string   `json:"auth_user_name,omitempty"`
+	AuthUserEmail      string   `json:"auth_user_email,omitempty"`
+	AuthUserID         string   `json:"auth_user_id,omitempty"`
+	CleanupOnApprove   *bool    `json:"cleanup_on_approve,omitempty"`
+	DisableStats       bool     `json:"disable_stats,omitempty"`
+	// CloseOnApproveAfterMs, when set, auto-closes the review tab this many
+	// milliseconds after an Approve. Global-only (like open_cmd/agent_cmd) so
+	// a project repo cannot force tabs to close. Nil means disabled; the CLI
+	// treats negative values as disabled too (see CloseOnApproveAfterMsEnabled).
+	CloseOnApproveAfterMs *int              `json:"close_on_approve_after_ms,omitempty"`
+	VCS                   string            `json:"vcs,omitempty"` // preferred VCS backend: "git", "sl", "jj"
+	ShareConsented        bool              `json:"share_consented,omitempty"`
+	LiveCookie            string            `json:"live_cookie,omitempty"`
+	LiveCookieFile        string            `json:"live_cookie_file,omitempty"`
+	LiveCDPURL            string            `json:"live_cdp_url,omitempty"`
+	Prompts               map[string]string `json:"prompts,omitempty"`
 	// Hooks are shell commands/scripts executed at the same finish lifecycle
 	// points as prompt templates (on_finish_unresolved / on_finish_approved,
 	// optionally mode-suffixed :files/:diff/:live/:preview). Values use the
@@ -76,6 +81,19 @@ func (c Config) CleanupOnApproveEnabled() bool {
 		return *c.CleanupOnApprove
 	}
 	return true
+}
+
+// CloseOnApproveAfterMsEnabled reports whether auto-close-after-approve is
+// enabled and, if so, the configured delay in milliseconds. Disabled when the
+// key is absent (nil) or set to a negative value.
+func (c Config) CloseOnApproveAfterMsEnabled() (ms int, enabled bool) {
+	if c.CloseOnApproveAfterMs == nil {
+		return 0, false
+	}
+	if *c.CloseOnApproveAfterMs < 0 {
+		return 0, false
+	}
+	return *c.CloseOnApproveAfterMs, true
 }
 
 // String returns a human-readable JSON representation of the resolved config.
@@ -261,14 +279,17 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	if project.LiveCDPURL != "" {
 		merged.LiveCDPURL = project.LiveCDPURL
 	}
-	// Security: agent_cmd, auth_token, share_url, public_url, proxy_auth, and open_cmd are intentionally
-	// NOT merged from project config. They must remain global-only: agent_cmd to
+	// Security: agent_cmd, auth_token, share_url, public_url, proxy_auth, open_cmd,
+	// and close_on_approve_after_ms are intentionally NOT merged from project
+	// config. They must remain global-only: agent_cmd to
 	// prevent untrusted repos from hijacking the agent command; open_cmd to prevent
 	// untrusted repos from hijacking browser launches; auth_token and
 	// share_url and public_url to prevent a malicious repo's .crit.config.json from
 	// redirecting share requests (and the bearer token) or advertised URLs to an
 	// attacker-controlled host;
-	// proxy_auth to prevent a repo from silently changing the transport mode.
+	// proxy_auth to prevent a repo from silently changing the transport mode;
+	// close_on_approve_after_ms so a project repo cannot force the reviewer's
+	// tab to auto-close — that's a personal preference, not a repo policy.
 	// live_cookie/live_cookie_file/live_cdp_url DO merge from project config — common for local
 	// dev auth. Prefer live_cookie_file pointing at a gitignored path (e.g.
 	// .crit/live-cookies.txt) over committing live_cookie inline. live_cdp_url
