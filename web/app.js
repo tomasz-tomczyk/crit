@@ -188,8 +188,9 @@
   const setDocumentTitle = tabReady
     ? function(nextBase) { tabReady.setDocumentTitle(nextBase); }
     : function(nextBase) { document.title = nextBase; };
-  const setTabBadge = tabReady ? tabReady.setTabBadge : function() {};
-  const clearTabBadge = tabReady ? tabReady.clearTabBadge : function() {};
+  const noop = function() {};
+  const setTabBadge = tabReady ? tabReady.setTabBadge : noop;
+  const clearTabBadge = tabReady ? tabReady.clearTabBadge : noop;
   const notifyRoundReady = tabReady
     ? function() {
         tabReady.notifyRoundReady({
