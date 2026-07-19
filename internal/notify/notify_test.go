@@ -1,7 +1,10 @@
 package notify
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -59,6 +62,13 @@ func TestDesktopCommandSpecs(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("unknown GOOS returns nil", func(t *testing.T) {
+		specs := desktopCommandSpecs("plan9", title, body, url, func(string) bool { return true })
+		if specs != nil {
+			t.Fatalf("got %#v, want nil", specs)
+		}
+	})
 }
 
 func TestTryDesktopStopsOnFirstSuccess(t *testing.T) {
@@ -89,5 +99,46 @@ func TestRoundReadyMessage(t *testing.T) {
 	}
 	if !strings.Contains(got, "http://127.0.0.1:9") {
 		t.Fatalf("body missing url: %q", got)
+	}
+}
+
+func TestCommandExists(t *testing.T) {
+	if !commandExists("go") {
+		t.Fatal("expected go on PATH")
+	}
+	if commandExists("crit-notify-missing-binary-xyz") {
+		t.Fatal("expected missing binary to be false")
+	}
+}
+
+func TestRoundReadyRunsDesktopCommand(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("PATH stub only exercised on darwin/linux")
+	}
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "ran.log")
+	bin := "osascript"
+	if runtime.GOOS == "linux" {
+		bin = "notify-send"
+	}
+	stub := filepath.Join(dir, bin)
+	script := "#!/bin/sh\necho ok > " + logPath + "\nexit 0\n"
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	RoundReady(2, "http://127.0.0.1:9")
+	Desktop("", "body only", "")
+
+	if _, err := os.Stat(logPath); err != nil {
+		t.Fatalf("expected stub %s to run: %v", bin, err)
+	}
+}
+
+func TestRunCommandMissingBinary(t *testing.T) {
+	err := runCommand(commandSpec{name: "crit-notify-missing-binary-xyz", args: nil})
+	if err == nil {
+		t.Fatal("expected error for missing binary")
 	}
 }

@@ -671,3 +671,30 @@ func TestResolveServerConfig_OutputDir(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveDaemonCLIConfig_NotifyOnRoundReady(t *testing.T) {
+	vcs.SetDefaultBranchOverride("")
+	dir := t.TempDir()
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(origDir) })
+
+	sc, err := ResolveDaemonCLIConfig([]string{"--no-open"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sc.NotifyOnRoundReady {
+		t.Fatal("NotifyOnRoundReady should default to false")
+	}
+
+	os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"notify_on_round_ready": true}`), 0644)
+	sc, err = ResolveDaemonCLIConfig([]string{"--no-open"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !sc.NotifyOnRoundReady {
+		t.Fatal("NotifyOnRoundReady should be true when set in global config")
+	}
+}
