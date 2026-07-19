@@ -17,8 +17,22 @@ test('isCritWaitCommand rejects non-wait subcommands', () => {
   assert.equal(isCritWaitCommand('crit config'), false);
   assert.equal(isCritWaitCommand('crit share plan.md'), false);
   assert.equal(isCritWaitCommand('crit install opencode'), false);
+  assert.equal(isCritWaitCommand('crit status'), false);
+  assert.equal(isCritWaitCommand('crit stop'), false);
+  assert.equal(isCritWaitCommand('crit check'), false);
+  assert.equal(isCritWaitCommand('crit stats'), false);
+  assert.equal(isCritWaitCommand('crit cleanup'), false);
+  assert.equal(isCritWaitCommand('crit auth login'), false);
+  assert.equal(isCritWaitCommand('crit fetch abc'), false);
   assert.equal(isCritWaitCommand('echo crit'), false);
   assert.equal(isCritWaitCommand(''), false);
+});
+
+test('isCritWaitCommand accepts live/preview/review/plan waits', () => {
+  assert.equal(isCritWaitCommand('crit live http://127.0.0.1:3000'), true);
+  assert.equal(isCritWaitCommand('crit preview ./dist'), true);
+  assert.equal(isCritWaitCommand('crit review'), true);
+  assert.equal(isCritWaitCommand('crit plan my-plan'), true);
 });
 
 test('roundReadyToast includes URL when provided', () => {

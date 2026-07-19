@@ -18,27 +18,41 @@ function isCritWaitCommand(command) {
   const rest = withoutEnv.replace(/^(?:\.\/)?crit\s*/, '').trim();
   if (rest === '') return true;
 
-  // First token is a subcommand or flag that is NOT a wait invocation.
+  // First token is a known non-wait subcommand (see commandDispatch in
+  // cmd/crit/cli_dispatch.go). Wait entrypoints are bare `crit`, path args,
+  // review flags (--pr/--range/...), and live/preview/review/plan.
   const first = rest.split(/\s+/)[0];
   const nonWait = new Set([
-    'comment',
-    'comments',
-    'config',
-    'share',
-    'unpublish',
-    'pull',
-    'push',
-    'install',
-    'version',
     'help',
-    'story',
     '--help',
     '-h',
     '--version',
+    '-v',
+    'version',
+    'share',
+    'fetch',
+    'unpublish',
+    'install',
+    'config',
+    'check',
+    'pr',
+    'pull',
+    'push',
+    'comment',
+    'comments',
+    'plan-hook',
+    'story',
+    'auth',
+    'stop',
+    'status',
+    'stats',
+    'cleanup',
+    '_serve',
   ]);
   if (nonWait.has(first)) return false;
 
   // Flags that still start a review wait are fine (e.g. --pr, --range).
+  // Subcommands live/preview/review/plan are waits.
   return true;
 }
 
