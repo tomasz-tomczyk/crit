@@ -450,6 +450,12 @@ func (s *Session) finishRoundComplete(edits int) {
 		Type:    "file-changed",
 		Content: "session",
 	})
+	if s.onRoundReady != nil {
+		s.mu.RLock()
+		round := s.ReviewRound
+		s.mu.RUnlock()
+		s.onRoundReady(round)
+	}
 }
 
 // handleRoundCompleteGit handles round completion in git mode.

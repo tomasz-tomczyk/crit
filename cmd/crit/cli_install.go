@@ -173,10 +173,14 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/opencode/crit.md", dest: ".opencode/commands/crit.md", globalDest: ".config/opencode/commands/crit.md", globalDestKind: globalDestRelHome, hint: "Run /crit in OpenCode to start a review loop"},
 		// opencode does NOT read ~/.opencode/skills/ globally — redirect to ~/.agents/skills/
 		{source: "integrations/opencode/SKILL.md", dest: ".opencode/skills/crit/SKILL.md", globalDest: ".agents/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit skill is available to OpenCode agents when needed"},
-		// Plugin file auto-loaded from project `.opencode/plugins/` or global
+		// Plugin files auto-loaded from project `.opencode/plugins/` or global
 		// `~/.config/opencode/plugins/`. Injects sharing instructions by default
 		// (share_url defaults to https://crit.md); docs cover how to disable.
+		// Also toasts when the agent starts a blocking crit wait.
 		{source: "integrations/opencode/plugin/crit.ts", dest: ".opencode/plugins/crit.ts", globalDest: ".config/opencode/plugins/crit.ts", globalDestKind: globalDestRelHome},
+		// Helper (not a plugin entrypoint) — kept under plugins/lib so OpenCode
+		// does not auto-load it as a separate plugin module.
+		{source: "integrations/opencode/plugin/lib/crit-wait-notify.js", dest: ".opencode/plugins/lib/crit-wait-notify.js", globalDest: ".config/opencode/plugins/lib/crit-wait-notify.js", globalDestKind: globalDestRelHome},
 	},
 	"windsurf": {
 		// windsurf has no per-tool global rules dir — global install rejected in installIntegration.

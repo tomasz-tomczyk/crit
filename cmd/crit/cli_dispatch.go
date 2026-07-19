@@ -184,6 +184,7 @@ Available keys:
   no_integration_check   bool      Skip integration staleness check (default: false)
   no_update_check        bool      Disable update check on startup (default: false)
   cleanup_on_approve     bool      Auto-delete review file when approved (default: true)
+  notify_on_round_ready  bool      Desktop notification when a round is ready (default: false)
   disable_stats          bool      Disable session stats recording (default: false)
   open_cmd               string    Custom browser/open command
   agent_cmd              string    Shell command to send comments to an AI agent (e.g. "claude -p")

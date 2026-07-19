@@ -56,29 +56,27 @@
   var inflightAPI = (window.crit && window.crit.live && window.crit.live.inflight) || null;
 
   // ===== Tab-Ready Indicator =====
-  // Same pattern as app.js: prepends ● to document.title when a new round
-  // starts while the tab is hidden. Clears on visibilitychange → visible.
-  var BADGE_PREFIX = '\u25CF ';
-  var baseTitle = document.title;
-  var badgeActive = false;
-
+  // Same pattern as app.js: ● in the title + browser Notification when a new
+  // round starts while the tab is hidden.
+  var tabReady = (window.crit && window.crit.createTabReady)
+    ? window.crit.createTabReady()
+    : null;
   function setDocumentTitle(nextBase) {
-    baseTitle = nextBase;
-    document.title = badgeActive ? BADGE_PREFIX + baseTitle : baseTitle;
+    if (tabReady) tabReady.setDocumentTitle(nextBase);
+    else document.title = nextBase;
   }
-
   function setTabBadge() {
-    if (badgeActive) return;
-    badgeActive = true;
-    if (!document.title.startsWith(BADGE_PREFIX)) {
-      document.title = BADGE_PREFIX + baseTitle;
-    }
+    if (tabReady) tabReady.setTabBadge();
   }
-
   function clearTabBadge() {
-    if (!badgeActive) return;
-    badgeActive = false;
-    document.title = baseTitle;
+    if (tabReady) tabReady.clearTabBadge();
+  }
+  function notifyRoundReady() {
+    if (tabReady) {
+      tabReady.notifyRoundReady({ title: 'Crit', body: 'A review round is ready' });
+    } else {
+      setTabBadge();
+    }
   }
 
   document.addEventListener('visibilitychange', function () {
@@ -86,12 +84,13 @@
   });
 
   state.setTabBadge = setTabBadge;
+  state.notifyRoundReady = notifyRoundReady;
 
-  if (location.search.includes('test')) {
+  if (location.search.includes('test') && tabReady) {
     window.__critTabBadge = {
       set: setTabBadge,
       clear: clearTabBadge,
-      isActive: function () { return badgeActive; },
+      isActive: function () { return tabReady.isBadgeActive(); },
     };
   }
 

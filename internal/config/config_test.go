@@ -780,6 +780,41 @@ func TestCleanupOnApproveEnabled(t *testing.T) {
 	}
 }
 
+func TestNotifyOnRoundReadyEnabled(t *testing.T) {
+	trueVal := true
+	falseVal := false
+
+	tests := []struct {
+		name string
+		cfg  Config
+		want bool
+	}{
+		{
+			name: "nil pointer defaults to false",
+			cfg:  Config{NotifyOnRoundReady: nil},
+			want: false,
+		},
+		{
+			name: "explicit true",
+			cfg:  Config{NotifyOnRoundReady: &trueVal},
+			want: true,
+		},
+		{
+			name: "explicit false",
+			cfg:  Config{NotifyOnRoundReady: &falseVal},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.NotifyOnRoundReadyEnabled()
+			if got != tt.want {
+				t.Errorf("NotifyOnRoundReadyEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := defaultConfig()
 
@@ -794,6 +829,9 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if !cfg.CleanupOnApprove {
 		t.Error("CleanupOnApprove should be true")
+	}
+	if cfg.NotifyOnRoundReady {
+		t.Error("NotifyOnRoundReady should be false")
 	}
 	if len(cfg.IgnorePatterns) != 4 {
 		t.Fatalf("IgnorePatterns has %d entries, want 4", len(cfg.IgnorePatterns))

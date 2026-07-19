@@ -98,7 +98,7 @@ Two-level JSON config files, merged (project overrides global):
 - **Global**: `~/.crit.config.json` — user-wide defaults
 - **Project**: `.crit.config.json` in repo root — per-project overrides
 
-Config keys: `port`, `host`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `auto_viewed_patterns`, `agent_cmd`, `auth_token`, `auth_user_name`, `auth_user_email`, `auth_user_id`, `cleanup_on_approve`, `disable_stats`, `no_update_check`, `no_integration_check`, `vcs`, `proxy_auth`, `live_cookie`, `live_cookie_file`, `live_cdp_url`, `close_on_approve_after_ms`.
+Config keys: `port`, `host`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `auto_viewed_patterns`, `agent_cmd`, `auth_token`, `auth_user_name`, `auth_user_email`, `auth_user_id`, `cleanup_on_approve`, `notify_on_round_ready`, `disable_stats`, `no_update_check`, `no_integration_check`, `vcs`, `proxy_auth`, `live_cookie`, `live_cookie_file`, `live_cdp_url`, `close_on_approve_after_ms`.
 
 - `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to the configured VCS user name if not set
@@ -106,6 +106,7 @@ Config keys: `port`, `host`, `no_open`, `share_url`, `quiet`, `output`, `author`
 - `close_on_approve_after_ms` (default: unset/disabled) — auto-close the review tab N ms after Approve with no unresolved comments; negative values are treated as unset. Not included in `crit config --generate` scaffolding.
 - `proxy_auth` (default: `false`) — when `true`, terminal `crit share` / `crit fetch` / `crit unpublish` are blocked (SSO proxy); the browser UI uses a popup relay instead. Global-only for security. See proxy-auth transport rules.
 - `cleanup_on_approve` (default: `true`) — auto-delete review file when reviewer approves with no unresolved comments
+- `notify_on_round_ready` (default: `false`) — opt in to a desktop notification when a review round becomes ready for the human
 - `disable_stats` (default: `false`) — disable session stats recording to `~/.crit/stats.json`
 - `ignore_patterns` are unioned (global + project both apply); types: `*.ext`, `dir/`, `exact.file`, `path/*.ext`
 - `auto_viewed_patterns` are unioned (global + project both apply); matched client-side against file paths and applied once per launch to auto-mark matching files viewed (collapsed). No runtime default (empty). Plumbed through `/api/config` only — Go does no glob matching.

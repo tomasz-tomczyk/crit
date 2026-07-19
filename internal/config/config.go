@@ -41,7 +41,10 @@ type Config struct {
 	AuthUserEmail      string   `json:"auth_user_email,omitempty"`
 	AuthUserID         string   `json:"auth_user_id,omitempty"`
 	CleanupOnApprove   *bool    `json:"cleanup_on_approve,omitempty"`
-	DisableStats       bool     `json:"disable_stats,omitempty"`
+	// NotifyOnRoundReady controls desktop notifications when a review round
+	// becomes ready for the human. Defaults to false when unset (opt-in).
+	NotifyOnRoundReady *bool `json:"notify_on_round_ready,omitempty"`
+	DisableStats       bool  `json:"disable_stats,omitempty"`
 	// CloseOnApproveAfterMs, when set, auto-closes the review tab this many
 	// milliseconds after an Approve. Global-only (like open_cmd/agent_cmd) so
 	// a project repo cannot force tabs to close. Nil means disabled; the CLI
@@ -96,6 +99,15 @@ func (c Config) CloseOnApproveAfterMsEnabled() (ms int, enabled bool) {
 	return *c.CloseOnApproveAfterMs, true
 }
 
+// NotifyOnRoundReadyEnabled returns whether desktop notifications should fire
+// when a review round becomes ready. Defaults to false if not explicitly set.
+func (c Config) NotifyOnRoundReadyEnabled() bool {
+	if c.NotifyOnRoundReady != nil {
+		return *c.NotifyOnRoundReady
+	}
+	return false
+}
+
 // String returns a human-readable JSON representation of the resolved config.
 func (c Config) String() string {
 	data, err := json.MarshalIndent(c, "", "  ")
@@ -132,6 +144,7 @@ func defaultConfig() generatedConfig {
 		AutoViewedPatterns: []string{},
 		AgentCmd:           "",
 		CleanupOnApprove:   true,
+		NotifyOnRoundReady: false,
 		VCS:                "",
 		Prompts:            map[string]string{},
 		Hooks:              map[string]string{},
@@ -160,6 +173,7 @@ type generatedConfig struct {
 	DisableStats       bool              `json:"disable_stats"`
 	AgentCmd           string            `json:"agent_cmd"`
 	CleanupOnApprove   bool              `json:"cleanup_on_approve"`
+	NotifyOnRoundReady bool              `json:"notify_on_round_ready"`
 	VCS                string            `json:"vcs"`
 	Prompts            map[string]string `json:"prompts"`
 	Hooks              map[string]string `json:"hooks"`
@@ -192,6 +206,7 @@ type ConfigPresence struct {
 	NoIntegrationCheck bool
 	NoUpdateCheck      bool
 	CleanupOnApprove   bool
+	NotifyOnRoundReady bool
 	ShareConsented     bool
 }
 
@@ -221,6 +236,7 @@ func LoadConfigFile(path string) (Config, ConfigPresence, error) {
 	_, presence.NoIntegrationCheck = raw["no_integration_check"]
 	_, presence.NoUpdateCheck = raw["no_update_check"]
 	_, presence.CleanupOnApprove = raw["cleanup_on_approve"]
+	_, presence.NotifyOnRoundReady = raw["notify_on_round_ready"]
 	_, presence.ShareConsented = raw["share_consented"]
 
 	if err := json.Unmarshal(data, &cfg); err != nil {
@@ -269,6 +285,9 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	}
 	if projectPresence.CleanupOnApprove {
 		merged.CleanupOnApprove = project.CleanupOnApprove
+	}
+	if projectPresence.NotifyOnRoundReady {
+		merged.NotifyOnRoundReady = project.NotifyOnRoundReady
 	}
 	if project.LiveCookie != "" {
 		merged.LiveCookie = project.LiveCookie

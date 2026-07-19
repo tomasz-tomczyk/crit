@@ -1526,6 +1526,27 @@ func TestRemapLines(t *testing.T) {
 	}
 }
 
+func TestFinishRoundComplete_InvokesOnRoundReady(t *testing.T) {
+	s := &Session{ReviewRound: 3}
+	var got int
+	var calls int
+	s.SetOnRoundReady(func(round int) {
+		calls++
+		got = round
+	})
+	s.finishRoundComplete(0)
+	if calls != 1 {
+		t.Fatalf("onRoundReady calls = %d, want 1", calls)
+	}
+	if got != 3 {
+		t.Fatalf("onRoundReady round = %d, want 3", got)
+	}
+
+	// Nil callback must not panic.
+	s2 := &Session{ReviewRound: 1}
+	s2.finishRoundComplete(0)
+}
+
 func TestOnLiveRoundStart_OnlyForLiveAndPreviewReviews(t *testing.T) {
 	called := 0
 	hook := func(int, int) { called++ }

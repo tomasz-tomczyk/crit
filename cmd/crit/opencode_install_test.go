@@ -222,10 +222,15 @@ func TestInstallOpencodeIncludesPluginFile(t *testing.T) {
 	if !ok {
 		t.Fatal("opencode integration missing from map")
 	}
-	var foundSource string
+	wantSources := map[string]bool{
+		"integrations/opencode/plugin/crit.ts":                 false,
+		"integrations/opencode/plugin/lib/crit-wait-notify.js": false,
+	}
 	for _, f := range files {
+		if _, ok := wantSources[f.source]; ok {
+			wantSources[f.source] = true
+		}
 		if f.source == "integrations/opencode/plugin/crit.ts" {
-			foundSource = f.source
 			if f.dest != ".opencode/plugins/crit.ts" {
 				t.Errorf("project dest = %q want .opencode/plugins/crit.ts", f.dest)
 			}
@@ -234,14 +239,21 @@ func TestInstallOpencodeIncludesPluginFile(t *testing.T) {
 			}
 		}
 	}
-	if foundSource == "" {
-		t.Fatal("plugin file not registered in opencode integration map")
-	}
-	data, err := integrationsFS.ReadFile(foundSource)
-	if err != nil {
-		t.Fatalf("read embedded %s: %v", foundSource, err)
-	}
-	if !strings.Contains(string(data), "experimental.chat.system.transform") {
-		t.Error("embedded plugin does not reference the system-prompt hook")
+	for src, found := range wantSources {
+		if !found {
+			t.Fatalf("plugin file %s not registered in opencode integration map", src)
+		}
+		data, err := integrationsFS.ReadFile(src)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", src, err)
+		}
+		if src == "integrations/opencode/plugin/crit.ts" {
+			if !strings.Contains(string(data), "experimental.chat.system.transform") {
+				t.Error("embedded plugin does not reference the system-prompt hook")
+			}
+			if !strings.Contains(string(data), "tool.execute.before") {
+				t.Error("embedded plugin does not reference the wait-notify hook")
+			}
+		}
 	}
 }

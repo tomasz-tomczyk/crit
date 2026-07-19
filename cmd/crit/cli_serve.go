@@ -286,6 +286,14 @@ func runServe(args []string) {
 			sess.Notify(SSEEvent{Type: "live-round-start", Round: next})
 		})
 	}
+	// Desktop notify is independent of Quiet: the daemon always sets Quiet so
+	// status goes through the client pipe, but AFK notifications should still fire.
+	if sc.NotifyOnRoundReady {
+		reviewURL := advertisedURL(sc.PublicURL, sc.Host, addr.Port, "")
+		sess.SetOnRoundReady(func(round int) {
+			go notifyRoundReady(round, reviewURL)
+		})
+	}
 	srv.SetSession(sess)
 
 	if sess.Mode == "git" {

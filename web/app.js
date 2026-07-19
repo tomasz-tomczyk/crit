@@ -180,42 +180,35 @@
   }
 
   // ===== Tab-Ready Indicator =====
-  // Prepends a bullet to document.title when a review round completes while
-  // the tab is hidden. Clears on visibilitychange → visible.
-  const BADGE_PREFIX = '\u25CF ';
-  let baseTitle = document.title;
-  let badgeActive = false;
-
-  // Set the page title, preserving the badge prefix if currently active.
-  function setDocumentTitle(nextBase) {
-    baseTitle = nextBase;
-    document.title = badgeActive ? BADGE_PREFIX + baseTitle : baseTitle;
-  }
-
-  function setTabBadge() {
-    if (badgeActive) return;
-    badgeActive = true;
-    if (!document.title.startsWith(BADGE_PREFIX)) {
-      document.title = BADGE_PREFIX + baseTitle;
-    }
-  }
-
-  function clearTabBadge() {
-    if (!badgeActive) return;
-    badgeActive = false;
-    document.title = baseTitle;
-  }
+  // Prepends a bullet to document.title (and optionally a browser Notification)
+  // when a review round completes while the tab is hidden.
+  const tabReady = (window.crit && window.crit.createTabReady)
+    ? window.crit.createTabReady()
+    : null;
+  const setDocumentTitle = tabReady
+    ? function(nextBase) { tabReady.setDocumentTitle(nextBase); }
+    : function(nextBase) { document.title = nextBase; };
+  const setTabBadge = tabReady ? tabReady.setTabBadge : function() {};
+  const clearTabBadge = tabReady ? tabReady.clearTabBadge : function() {};
+  const notifyRoundReady = tabReady
+    ? function() {
+        tabReady.notifyRoundReady({
+          title: 'Crit',
+          body: 'A review round is ready',
+        });
+      }
+    : setTabBadge;
 
   document.addEventListener('visibilitychange', function() {
     if (document.visibilityState === 'visible') clearTabBadge();
   });
 
   // Expose for tests — only when ?test query param is present.
-  if (location.search.includes('test')) {
+  if (location.search.includes('test') && tabReady) {
     window.__critTabBadge = {
       set: setTabBadge,
       clear: clearTabBadge,
-      isActive: function() { return badgeActive; },
+      isActive: function() { return tabReady.isBadgeActive(); },
     };
   }
 
@@ -7070,9 +7063,9 @@
         // current chapter still exists (storyFromHash re-reads the hash).
         applyStoryPresence();
         setUIState('reviewing');
-        // Signal "ready" in the tab bar if the user has tabbed away.
-        // Cleared by the visibilitychange listener when they return.
-        if (document.visibilityState !== 'visible') setTabBadge();
+        // Signal "ready" in the tab bar (and browser Notification if granted)
+        // if the user has tabbed away. Cleared on visibilitychange → visible.
+        if (document.visibilityState !== 'visible') notifyRoundReady();
       } catch (err) {
         console.error('Error handling file-changed:', err);
       }

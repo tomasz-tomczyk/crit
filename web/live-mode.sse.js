@@ -98,8 +98,9 @@
       // now because round transitions are agent-driven, not user-driven.
       reloadIframe();
       scheduleResolutionForPath(state.currentRoute || '/');
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible' && state.setTabBadge) {
-        state.setTabBadge();
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        if (state.notifyRoundReady) state.notifyRoundReady();
+        else if (state.setTabBadge) state.setTabBadge();
       }
       announceLive('Round ' + roundN + ' started.');
     }

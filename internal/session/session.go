@@ -334,6 +334,12 @@ type Session struct {
 	// starts — read-only after.
 	liveRoundStart func(prevRound, newRound int)
 
+	// onRoundReady, when non-nil, is invoked from finishRoundComplete after a
+	// review round becomes ready for the human. Production wires desktop
+	// notifications here. Must be installed before the watcher starts —
+	// read-only after.
+	onRoundReady func(round int)
+
 	reviewComments []Comment
 
 	// story is the loaded narrative from review.json (nil unless `crit story`

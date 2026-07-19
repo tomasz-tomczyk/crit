@@ -65,6 +65,12 @@ func (s *Session) SetLiveRoundStart(fn func(prevRound, newRound int)) {
 	s.liveRoundStart = fn
 }
 
+// SetOnRoundReady installs a callback invoked when a review round becomes ready
+// for the human (after agent edits are applied and the UI reloads).
+func (s *Session) SetOnRoundReady(fn func(round int)) {
+	s.onRoundReady = fn
+}
+
 // SetWaitingForAgent marks the session as waiting for an agent round to finish.
 func (s *Session) SetWaitingForAgent(v bool) { s.setWaitingForAgent(v) }
 

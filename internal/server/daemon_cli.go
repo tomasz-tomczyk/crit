@@ -27,6 +27,7 @@ type DaemonCLIConfig struct {
 	NoOpen             bool
 	OpenCmd            string
 	Quiet              bool
+	NotifyOnRoundReady bool
 	ShareURL           string
 	ProxyAuth          bool
 	AuthToken          string
@@ -238,6 +239,7 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) {
 		NoOpen:             sf.noOpen,
 		OpenCmd:            cfg.OpenCmd,
 		Quiet:              sf.quiet,
+		NotifyOnRoundReady: cfg.NotifyOnRoundReadyEnabled(),
 		ShareURL:           sf.shareURL,
 		ProxyAuth:          sf.proxyAuth,
 		AuthToken:          cfg.AuthToken,

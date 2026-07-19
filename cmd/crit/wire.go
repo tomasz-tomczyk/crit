@@ -7,6 +7,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/focus"
 	"github.com/tomasz-tomczyk/crit/internal/github"
 	"github.com/tomasz-tomczyk/crit/internal/live"
+	"github.com/tomasz-tomczyk/crit/internal/notify"
 	"github.com/tomasz-tomczyk/crit/internal/preview"
 	"github.com/tomasz-tomczyk/crit/internal/server"
 	"github.com/tomasz-tomczyk/crit/internal/session"
@@ -50,6 +51,7 @@ var (
 	advertisedURL      = daemon.AdvertisedURL
 	shutdownSignals    = daemon.ShutdownSignals
 	openBrowser        = browser.OpenBrowserWithCommand
+	notifyRoundReady   = notify.RoundReady
 
 	reviewPathsFor = session.ReviewPathsFor
 	detectPRInfo   = github.DetectPRInfo
