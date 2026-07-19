@@ -570,7 +570,7 @@ func TestMergeConfigs_AgentCmd(t *testing.T) {
 	}
 
 	// project-level agent_cmd must be ignored — only global config may set it
-	project2 := Config{AgentCmd: "opencode ask"}
+	project2 := Config{AgentCmd: "opencode run"}
 	merged2 := mergeConfigs(global, project2, ConfigPresence{})
 	if merged2.AgentCmd != "claude -p" {
 		t.Fatalf("expected project agent_cmd to be ignored, got %q", merged2.AgentCmd)

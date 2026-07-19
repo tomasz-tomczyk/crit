@@ -255,7 +255,7 @@ After the first agent interaction, the comment becomes a **live thread**:
 | Agent                 | `agent_cmd` value        |
 | --------------------- | ------------------------ |
 | Claude Code           | `claude -p`              |
-| OpenCode              | `opencode ask`           |
+| OpenCode              | `opencode run`           |
 | Cline                 | `cline --pipe`           |
 | Aider                 | `aider --message-file -` |
 | Cursor (experimental) | `cursor --pipe`          |
