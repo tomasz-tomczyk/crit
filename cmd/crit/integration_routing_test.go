@@ -178,6 +178,23 @@ func TestCleanupLegacyIntegrationFiles_RemovesOnlyKnownContent(t *testing.T) {
 		"test-modified": {
 			{dest: "modified/crit.md", hash: computeFileHash(known)},
 		},
+		"test-missing": {
+			{dest: "missing/crit.md", hash: computeFileHash(known)},
+		},
+		"test-global": {
+			{
+				dest:           "project/crit.md",
+				globalDest:     ".agents/legacy/crit.md",
+				globalDestKind: globalDestRelHome,
+				hash:           computeFileHash(known),
+			},
+		},
+		"test-global-empty": {
+			{
+				dest: ".windsurf/rules/crit.md",
+				hash: computeFileHash(known),
+			},
+		},
 	}
 
 	if err := os.MkdirAll("old", 0o755); err != nil {
@@ -204,6 +221,94 @@ func TestCleanupLegacyIntegrationFiles_RemovesOnlyKnownContent(t *testing.T) {
 	}
 	if string(got) != string(modified) {
 		t.Fatalf("modified legacy file changed: got %q", got)
+	}
+
+	cleanupLegacyIntegrationFiles("test-missing", false, dir) // missing dest is a no-op
+
+	home := t.TempDir()
+	globalPath := filepath.Join(home, ".agents", "legacy", "crit.md")
+	if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(globalPath, known, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cleanupLegacyIntegrationFiles("test-global", true, home)
+	if _, err := os.Stat(globalPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("known global legacy file should be removed, stat error = %v", err)
+	}
+
+	// Windsurf-style entries have no globalDest; global cleanup must skip them.
+	if err := os.MkdirAll(".windsurf/rules", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(".windsurf/rules/crit.md", known, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cleanupLegacyIntegrationFiles("test-global-empty", true, home)
+	if _, err := os.Stat(".windsurf/rules/crit.md"); err != nil {
+		t.Fatalf("project-only legacy file must remain during global cleanup: %v", err)
+	}
+}
+
+func TestInstallIntegration_ClineAndWindsurfManualWorkflows(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "project")
+	home := filepath.Join(root, "home")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.SetHome(t, home)
+	t.Chdir(dir)
+
+	knownCline := []byte("old always-on cline rule")
+	knownWindsurf := []byte("old model_decision windsurf rule")
+	old := legacyIntegrationFiles
+	t.Cleanup(func() { legacyIntegrationFiles = old })
+	legacyIntegrationFiles = map[string][]legacyIntegrationFile{
+		"cline": {
+			{dest: ".clinerules/crit.md", hash: computeFileHash(knownCline)},
+		},
+		"windsurf": {
+			{dest: ".windsurf/rules/crit.md", hash: computeFileHash(knownWindsurf)},
+		},
+	}
+	for _, path := range []string{".clinerules/crit.md", ".windsurf/rules/crit.md"} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(".clinerules/crit.md", knownCline, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(".windsurf/rules/crit.md", knownWindsurf, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installIntegration("cline", false); err != nil {
+		t.Fatalf("install cline: %v", err)
+	}
+	if err := installIntegration("windsurf", false); err != nil {
+		t.Fatalf("install windsurf: %v", err)
+	}
+
+	for _, path := range []string{
+		".clinerules/workflows/crit.md",
+		".cline/skills/crit-cli/SKILL.md",
+		".windsurf/workflows/crit.md",
+		".windsurf/skills/crit-cli/SKILL.md",
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s: %v", path, err)
+		}
+	}
+	for _, path := range []string{".clinerules/crit.md", ".windsurf/rules/crit.md"} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("obsolete %s should be removed, stat error = %v", path, err)
+		}
 	}
 }
 
