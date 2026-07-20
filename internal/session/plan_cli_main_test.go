@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func TestResolvePlanConfig_NameAndFile(t *testing.T) {
@@ -55,7 +57,7 @@ func TestResolvePlanSlug_DerivesFromContent(t *testing.T) {
 }
 
 func TestRunPlanHook_ApprovalEchoesCompleteToolInput(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 
 	hookInput := json.RawMessage(`{
 		"session_id": "session-737",
@@ -138,7 +140,7 @@ func TestRunPlanHook_ApprovalEchoesCompleteToolInput(t *testing.T) {
 
 func TestRunPlanHook_ApprovalSetsConfiguredMode(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.SetHome(t, homeDir)
 	if err := os.WriteFile(
 		filepath.Join(homeDir, ".crit.config.json"),
 		[]byte(`{"plan_approve_mode":"auto"}`),
@@ -200,6 +202,55 @@ func TestRunPlanHook_ApprovalSetsConfiguredMode(t *testing.T) {
 	if got, want := decodeJSONUseNumber(t, response.HookSpecificOutput.Decision.UpdatedInput),
 		decodeJSONUseNumber(t, event.ToolInput); !reflect.DeepEqual(got, want) {
 		t.Errorf("updatedInput = %#v, want full original tool_input %#v", got, want)
+	}
+}
+
+func TestRunPlanHook_ApprovalUsesLatestConfiguredMode(t *testing.T) {
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+	configPath := filepath.Join(homeDir, ".crit.config.json")
+	if err := os.WriteFile(configPath, []byte(`{"plan_approve_mode":"auto"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	setPlanHookStdin(t, []byte(`{
+		"session_id": "session-latest-mode",
+		"tool_input": {"plan": "# Long-running review"}
+	}`))
+
+	previousReviewHook := runClaudePlanReviewHook
+	runClaudePlanReviewHook = func(_ string, _ []byte, emitDecision func(bool, string)) {
+		if err := os.WriteFile(configPath, []byte(`{"plan_approve_mode":"acceptEdits"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		emitDecision(true, "")
+	}
+	t.Cleanup(func() {
+		runClaudePlanReviewHook = previousReviewHook
+	})
+
+	output := captureHookDecision(t, func() {
+		if err := RunPlanHook(); err != nil {
+			t.Fatalf("RunPlanHook() error = %v", err)
+		}
+	})
+
+	var response struct {
+		HookSpecificOutput struct {
+			Decision struct {
+				UpdatedPermissions []map[string]string `json:"updatedPermissions"`
+			} `json:"decision"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(output, &response); err != nil {
+		t.Fatalf("decode hook response: %v", err)
+	}
+	if got, want := response.HookSpecificOutput.Decision.UpdatedPermissions, []map[string]string{{
+		"type":        "setMode",
+		"mode":        "acceptEdits",
+		"destination": "session",
+	}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("updatedPermissions = %#v, want %#v", got, want)
 	}
 }
 

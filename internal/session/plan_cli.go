@@ -328,9 +328,14 @@ func RunPlanHook() error {
 		return nil
 	}
 
-	cwd, _ := daemon.ResolvedCWD()
-	planApproveMode := config.LoadConfig(cwd).PlanApproveMode
 	emitDecision := func(approved bool, prompt string) {
+		planApproveMode := ""
+		if approved {
+			cwd, _ := daemon.ResolvedCWD()
+			// Resolve at approval time because a plan review can stay open for
+			// hours and the user may update their global preference meanwhile.
+			planApproveMode = config.LoadConfig(cwd).PlanApproveMode
+		}
 		emitHookDecision(approved, prompt, event.ToolInput, planApproveMode)
 	}
 	runClaudePlanReviewHook(event.SessionID, []byte(toolInput.Plan), emitDecision)
