@@ -7,8 +7,6 @@ agent: build
 
 Review and revise code changes or a plan using `crit` for inline comment review.
 
-If the `crit` skill is available, load it first.
-
 ## Step 1: Determine review mode
 
 Pick whichever applies — don't ask for confirmation:
@@ -97,4 +95,3 @@ On subsequent calls, `crit` automatically signals round-complete first, then blo
 Tell the user: **"Changes applied. Review the diff in your browser and click Finish Review when ready."**
 
 **Do NOT proceed until `crit` completes.** When it does, return to Step 3. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
-

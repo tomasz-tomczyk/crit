@@ -1,18 +1,12 @@
-# Crit - Review Agent Output
+# Crit - Manual Review Workflow
 
-Before implementing any non-trivial feature, write an implementation plan as a markdown file.
-
-## Writing plans
-
-When asked to implement a feature, first create a plan file that covers:
-- What will be built
-- Which files will be created or modified
-- Key design decisions and trade-offs
-- Step-by-step implementation order
+Use this workflow only when the user explicitly asks to use Crit. A generic
+request to review code, a plan, a diff, a PR, or a page does not authorize
+launching Crit.
 
 ## Review with Crit
 
-After writing a plan or code, launch Crit:
+After the user explicitly asks to use Crit, launch it:
 
 ```bash
 crit $PLAN_FILE                       # Review a specific file

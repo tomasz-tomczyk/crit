@@ -1,38 +1,12 @@
 ---
-name: crit
-description: "Review code changes, a plan, a live page (running dev server), or a local HTML file with crit inline comments. Use when asked to review code, a plan, a diff, a running web app, or when you want structured human feedback on your work. Also covers programmatic comment authoring, crit share/unpublish, GitHub PR sync, and review file interpretation."
+name: crit-cli
+description: Use when an agent needs to author or reply to crit inline comments programmatically (including multi-agent workflows commenting on shared code/plans/docs/proposals), publish or unpublish a crit review with crit share, sync a crit review to or from a GitHub PR, or read/interpret a crit review JSON file. Covers crit comment, crit share, crit unpublish, crit pull, crit push, review file format, and resolution workflow. Not for invoking an interactive review loop — that's the `/crit` command.
 compatibility: opencode
 ---
 
-## What I do
+# Crit CLI Reference
 
-- Launch Crit for a plan file, the current git diff, a live page (URL to a running dev server or staging site), or a local HTML file.
-- Wait for the user to review changes in the browser.
-- Read the review file and address unresolved inline comments.
-- Signal the next review round with `crit` when edits are done.
-- Leave inline review comments programmatically with `crit comment`.
-- Sync reviews with GitHub PRs via `crit pull` and `crit push`.
-
-## When to use me
-
-Use this when the user asks to review a plan, spec, code changes, a live page (running dev server, staging URL), or a local HTML file in Crit, when project instructions require a Crit pass before accepting non-trivial changes, when leaving inline comments on code, or when syncing reviews with GitHub PRs.
-
-## Launching `crit`
-
-The CLI auto-detects the review mode from its arguments. **Do not ask the user which mode to use.** Pass arguments through:
-
-```
-crit <arguments>               # file, dir, URL, .html — CLI auto-detects mode
-crit --pr <num|url>            # GitHub PR (range mode)
-crit --range <base>..<head>    # commit range (range mode)
-crit                           # no args → branch diff
-```
-If no arguments, check conversation context:
-
-1. A plan file was written earlier in this conversation → `crit <plan-file>`
-2. Otherwise → bare `crit` (branch diff)
-
-## Review file format
+> If a plan was just written and the user said `/crit` or `crit`, invoke the `/crit` command — do not use this reference skill. This skill covers CLI operations like `crit comment`, `crit pull/push`, and `crit share`.
 
 Comments have three scopes:
 
@@ -41,6 +15,25 @@ Comments have three scopes:
 - **Review comments** (`scope: "review"`) — general feedback, stored in the top-level `review_comments` array
 
 The review file path is shown by `crit status`.
+
+## Reading comments
+
+Prefer finish stdout when available: after a review round, unresolved comments are in the `comments` array of `crit`'s JSON stdout (same schema as `crit comments --json`); `prompt` has brief instructions only.
+
+When you need to read comments separately:
+
+```bash
+crit comments            # human-readable, unresolved only (default)
+crit comments --json     # flat JSON for agents
+crit comments --all      # include resolved comments
+crit comments --plan <slug>   # plan reviews
+crit comments [path]     # explicit review.json or .crit directory
+```
+
+Review-level comments are listed first — easy to miss in raw `review.json`. Uses the same review resolution as `crit comment` (`--output`, `--plan`, daemon session).
+
+
+## Review file format
 
 ```json
 {
@@ -85,7 +78,7 @@ Field rules:
 - `drifted: true`: original content was removed or heavily rewritten — line numbers are approximate at best.
 - Unresolved comments may have `replies` — read them before acting.
 
-## Authoring and replying with `crit comment`
+## Authoring comments
 
 ```bash
 # Review-level (general feedback)
@@ -107,14 +100,14 @@ Hard rules:
 - **Always single-quote the body** — double quotes break on backticks and shell metachars.
 - **Line numbers reference the file on disk** (1-indexed), not diff line numbers.
 - **Reply bodies support markdown** — use code fences and inline code where helpful.
-- **Only pass `--resolve` when the user explicitly asks.** Never resolve proactively.
+- **Only pass `--resolve` when the user explicitly asks.** Never resolve proactively. Same rule applies to the `resolve` field in `--json` mode.
 
-## Bulk commenting with `--json`
+## Bulk commenting (3+ comments)
 
-When leaving 3+ comments, use `--json` for atomicity (single write, no partial state) and speed (one process). The JSON can come from stdin or `--file <path>`:
+Use `--json` for atomicity (single write, no partial state) and speed (one process). The JSON can come from stdin or `--file <path>`:
 
 ```bash
-# stdin works for short, single-line bodies:
+# stdin — fine for short, single-line bodies:
 echo '[
   {"body": "overall feedback", "scope": "review"},
   {"path": "session.go", "body": "restructure", "scope": "file"},
@@ -125,18 +118,13 @@ echo '[
 ]' | crit comment --json --author 'OpenCode'
 ```
 
-**Prefer `--file <path>` when any body spans multiple paragraphs.** A raw newline inside a JSON `"body"` string is invalid, and shell-quoted heredocs make that easy to introduce by accident. Write the JSON to a temp file, then:
+**For multi-paragraph bodies, prefer `--file`.** A literal newline inside a `"body"` string breaks JSON parsing, and shell-quoted heredocs make this easy to introduce by accident. Write the JSON to a temp file (use your file-edit tool), then:
 
 ```bash
-cat > /tmp/crit-bulk.json <<'EOF'
-[
-  {"file": "src/auth.go", "line": 42, "body": "Para 1.\n\nPara 2."}
-]
-EOF
 crit comment --json --file /tmp/crit-bulk.json --author 'OpenCode'
 ```
 
-`--file -` is shorthand for stdin.
+`--file -` is an explicit "read stdin" if you ever need it.
 
 Per-entry schema:
 
@@ -155,7 +143,7 @@ Scope inference (when `scope` omitted): has `reply_to` → reply; no `file`/`pat
 
 ## Multi-file disambiguation
 
-If `crit comment` errors with "comment found in multiple files", IDs collided across files. Disambiguate with `--path`:
+Comment IDs are unique per session, but the same ID can collide across files. If `crit comment` errors with "comment found in multiple files", disambiguate with `--path`:
 
 ```bash
 crit comment --reply-to c_a1b2c3 --path src/auth.go --author 'OpenCode' 'Fixed the null check'
@@ -171,7 +159,7 @@ Plan reviews (via `crit plan` or the ExitPlanMode hook) store the review file in
 crit comment --plan my-plan-2026-03-23 --reply-to c_a1b2c3 --author 'OpenCode' 'Updated the plan'
 ```
 
-## GitHub PR sync
+## GitHub PR Integration
 
 ```bash
 crit pull [pr-number]                                    # Fetch PR review comments into the review file
@@ -182,8 +170,18 @@ Requires `gh` CLI installed and authenticated. PR number is auto-detected from t
 
 `--event` values: `comment` (default), `approve`, `request-changes`. `-m` adds a review-level body message.
 
-## Guardrails
+## Sharing
 
-- Do not continue past the review step until the user confirms they are done.
-- Treat the review file as the source of truth for line references and comment status.
-- If there are no unresolved comments, tell the user no changes were requested and stop.
+```bash
+crit share <file> [file...]                          # Upload and print URL
+crit share --qr <file>                               # Also print QR code (terminal only)
+crit share --org <slug> <file>                       # Share under an organization
+crit share --org <slug> --visibility unlisted <file> # Org share with explicit visibility
+crit unpublish [file...]                              # Remove shared review
+```
+
+- **Always relay the output** — copy the URL (and QR if used) into your response. Don't make the user dig through tool output.
+- **`--qr` is terminal-only** — skip in mobile apps, web chat UIs, or anywhere Unicode block characters won't render correctly.
+- **`--org <slug>`** shares under an organization. Visibility defaults to `organization` (members only). Override with `--visibility` (`organization`, `unlisted`, `public`).
+- If a review file exists, comments for the shared files are included automatically.
+- **Unpublish uses the persisted delete token** in the review file — no extra args needed.

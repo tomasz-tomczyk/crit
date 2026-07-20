@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -47,7 +48,8 @@ func TestDestFor_GlobalMode(t *testing.T) {
 		{"claude-code", 0, ".claude/skills/crit/SKILL.md"},
 		{"claude-code", 1, ".claude/skills/crit-cli/SKILL.md"},
 		{"codex", 0, ".agents/skills/crit/SKILL.md"},
-		{"codex", 1, ".agents/skills/crit-cli/SKILL.md"},
+		{"codex", 1, ".agents/skills/crit/agents/openai.yaml"},
+		{"codex", 2, ".agents/skills/crit-cli/SKILL.md"},
 		{"qwen", 0, ".qwen/skills/crit/SKILL.md"},
 		{"qwen", 1, ".qwen/skills/crit-cli/SKILL.md"},
 		{"cursor", 0, ".cursor/skills/crit/SKILL.md"},
@@ -57,7 +59,7 @@ func TestDestFor_GlobalMode(t *testing.T) {
 		{"grok", 1, ".grok/skills/crit-cli/SKILL.md"},
 		// opencode: command redirects to ~/.config/opencode/commands/; skill redirects to ~/.agents/skills/.
 		{"opencode", 0, filepath.Join(home, ".config/opencode/commands/crit.md")},
-		{"opencode", 1, filepath.Join(home, ".agents/skills/crit/SKILL.md")},
+		{"opencode", 1, filepath.Join(home, ".agents/skills/crit-cli/SKILL.md")},
 		// github-copilot: both skills redirect to ~/.agents/skills/.
 		{"github-copilot", 0, filepath.Join(home, ".agents/skills/crit/SKILL.md")},
 		{"github-copilot", 1, filepath.Join(home, ".agents/skills/crit-cli/SKILL.md")},
@@ -67,6 +69,12 @@ func TestDestFor_GlobalMode(t *testing.T) {
 		// pi: both skills redirect to ~/.pi/agent/skills/.
 		{"pi", 0, filepath.Join(home, ".pi/agent/skills/crit/SKILL.md")},
 		{"pi", 1, filepath.Join(home, ".pi/agent/skills/crit-cli/SKILL.md")},
+		// Cline: manual workflow and model-discoverable CLI reference.
+		{"cline", 0, filepath.Join(home, ".cline/data/workflows/crit.md")},
+		{"cline", 1, filepath.Join(home, ".cline/skills/crit-cli/SKILL.md")},
+		// Windsurf: manual workflow and model-discoverable CLI reference.
+		{"windsurf", 0, filepath.Join(home, ".codeium/windsurf/global_workflows/crit.md")},
+		{"windsurf", 1, filepath.Join(home, ".codeium/windsurf/skills/crit-cli/SKILL.md")},
 	}
 	for _, tc := range cases {
 		f := integrationMap[tc.tool][tc.fileIdx]
@@ -77,25 +85,13 @@ func TestDestFor_GlobalMode(t *testing.T) {
 	}
 }
 
-func TestDestFor_ClineGlobalUsesDocuments(t *testing.T) {
-	// Cline's globalDest uses the platform Documents directory, not $HOME directly.
-	prev := xdgUserDirFn
-	t.Cleanup(func() { xdgUserDirFn = prev })
-	xdgUserDirFn = func(string) (string, error) { return "", nil }
-
+func TestDestFor_ClineGlobalUsesPrimaryConfigDirectory(t *testing.T) {
 	home := "/home/me"
 	f := integrationMap["cline"][0]
 	got := destFor(f, true, home, "cline")
-	want := filepath.Join(documentsDir(home), "Cline/Rules/crit.md")
+	want := filepath.Join(home, ".cline/data/workflows/crit.md")
 	if got != want {
 		t.Errorf("cline global: got %q, want %q", got, want)
-	}
-	// On non-Linux, this should always be $HOME/Documents/Cline/Rules/crit.md.
-	if runtime.GOOS != "linux" {
-		expected := filepath.Join(home, "Documents/Cline/Rules/crit.md")
-		if got != expected {
-			t.Errorf("cline global on %s: got %q, want %q", runtime.GOOS, got, expected)
-		}
 	}
 }
 
@@ -110,15 +106,15 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 	expected := map[string][]want{
 		"claude-code":    {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
 		"cursor":         {{"", globalDestNone}, {"", globalDestNone}},
-		"codex":          {{"", globalDestNone}, {"", globalDestNone}},
+		"codex":          {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
 		"qwen":           {{"", globalDestNone}, {"", globalDestNone}},
-		"opencode":       {{".config/opencode/commands/crit.md", globalDestRelHome}, {".agents/skills/crit/SKILL.md", globalDestRelHome}, {".config/opencode/plugins/crit.ts", globalDestRelHome}, {".config/opencode/plugins/lib/crit-wait-notify.js", globalDestRelHome}},
+		"opencode":       {{".config/opencode/commands/crit.md", globalDestRelHome}, {".agents/skills/crit-cli/SKILL.md", globalDestRelHome}, {".config/opencode/plugins/crit.ts", globalDestRelHome}, {".config/opencode/plugins/lib/crit-wait-notify.js", globalDestRelHome}},
 		"github-copilot": {{".agents/skills/crit/SKILL.md", globalDestRelHome}, {".agents/skills/crit-cli/SKILL.md", globalDestRelHome}},
-		"windsurf":       {{"", globalDestNone}},
-		"cline":          {{"Cline/Rules/crit.md", globalDestDocuments}},
+		"windsurf":       {{".codeium/windsurf/global_workflows/crit.md", globalDestRelHome}, {".codeium/windsurf/skills/crit-cli/SKILL.md", globalDestRelHome}},
+		"cline":          {{".cline/data/workflows/crit.md", globalDestRelHome}, {".cline/skills/crit-cli/SKILL.md", globalDestRelHome}},
 		"gemini":         {{".gemini/skills/crit-cli/SKILL.md", globalDestRelHome}, {".gemini/commands/crit.toml", globalDestRelHome}, {".gemini/policies/crit.toml", globalDestRelHome}},
 		"grok":           {{"", globalDestNone}, {"", globalDestNone}},
-		"codex-plugin":   {{".codex/plugins/crit/.codex-plugin/plugin.json", globalDestRelHome}, {".codex/plugins/crit/skills/crit/SKILL.md", globalDestRelHome}, {".codex/plugins/crit/skills/crit-cli/SKILL.md", globalDestRelHome}, {".codex/plugins/crit/hooks/hooks.json", globalDestRelHome}},
+		"codex-plugin":   {{".codex/plugins/crit/.codex-plugin/plugin.json", globalDestRelHome}, {".codex/plugins/crit/skills/crit/SKILL.md", globalDestRelHome}, {".codex/plugins/crit/skills/crit/agents/openai.yaml", globalDestRelHome}, {".codex/plugins/crit/skills/crit-cli/SKILL.md", globalDestRelHome}, {".codex/plugins/crit/hooks/hooks.json", globalDestRelHome}},
 		"hermes":         {{".hermes/skills/crit/SKILL.md", globalDestRelHome}, {".hermes/skills/crit-cli/SKILL.md", globalDestRelHome}},
 		"pi":             {{".pi/agent/skills/crit/SKILL.md", globalDestRelHome}, {".pi/agent/skills/crit-cli/SKILL.md", globalDestRelHome}},
 	}
@@ -164,6 +160,50 @@ func TestInstallOneFile_WritesAndSkips(t *testing.T) {
 	got, _ = os.ReadFile(dest)
 	if string(got) == "hand-edited" {
 		t.Errorf("force should overwrite; file still has hand-edited content")
+	}
+}
+
+func TestCleanupLegacyIntegrationFiles_RemovesOnlyKnownContent(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	known := []byte("known Crit-managed content")
+	modified := []byte("user-modified content")
+	old := legacyIntegrationFiles
+	t.Cleanup(func() { legacyIntegrationFiles = old })
+	legacyIntegrationFiles = map[string][]legacyIntegrationFile{
+		"test-known": {
+			{dest: "old/crit.md", hash: computeFileHash(known)},
+		},
+		"test-modified": {
+			{dest: "modified/crit.md", hash: computeFileHash(known)},
+		},
+	}
+
+	if err := os.MkdirAll("old", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("old/crit.md", known, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cleanupLegacyIntegrationFiles("test-known", false, dir)
+	if _, err := os.Stat("old/crit.md"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("known legacy file should be removed, stat error = %v", err)
+	}
+
+	if err := os.MkdirAll("modified", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("modified/crit.md", modified, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cleanupLegacyIntegrationFiles("test-modified", false, dir)
+	got, err := os.ReadFile("modified/crit.md")
+	if err != nil {
+		t.Fatalf("modified legacy file should be preserved: %v", err)
+	}
+	if string(got) != string(modified) {
+		t.Fatalf("modified legacy file changed: got %q", got)
 	}
 }
 
@@ -214,9 +254,11 @@ func TestInstallIntegration_CodexPluginEndToEnd(t *testing.T) {
 
 	for _, path := range []string{
 		".agents/skills/crit/SKILL.md",
+		".agents/skills/crit/agents/openai.yaml",
 		".agents/skills/crit-cli/SKILL.md",
 		"plugins/crit/.codex-plugin/plugin.json",
 		"plugins/crit/skills/crit/SKILL.md",
+		"plugins/crit/skills/crit/agents/openai.yaml",
 		"plugins/crit/skills/crit-cli/SKILL.md",
 		"plugins/crit/hooks/hooks.json",
 	} {

@@ -1,6 +1,7 @@
 ---
 name: crit
 description: "Review code changes, a plan, a live page (running dev server), or a local HTML file with crit inline comments. Use when asked to review code, a plan, a diff, a running web app, or when you want structured human feedback on your work."
+disable-model-invocation: true
 ---
 
 # Review with Crit

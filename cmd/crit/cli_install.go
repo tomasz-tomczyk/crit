@@ -79,15 +79,8 @@ func runInstallTarget(target string, force bool) error {
 }
 
 func installAllIntegrations(force bool) error {
-	cwd := mustGetwd()
-	home, _ := os.UserHomeDir()
-	global := isGlobalInstall(cwd, home)
 	var hadErr bool
 	for _, name := range availableIntegrations() {
-		if name == "windsurf" && global {
-			fmt.Fprintln(os.Stderr, "  Skipped: windsurf (no global install supported — run from a project)")
-			continue
-		}
 		if err := installIntegration(name, force); err != nil {
 			fmt.Fprintf(os.Stderr, "  Failed: %s: %v\n", name, err)
 			hadErr = true
@@ -172,7 +165,7 @@ var integrationMap = map[string][]integration{
 		// opencode never scans, so `/crit` silently never appears.
 		{source: "integrations/opencode/crit.md", dest: ".opencode/commands/crit.md", globalDest: ".config/opencode/commands/crit.md", globalDestKind: globalDestRelHome, hint: "Run /crit in OpenCode to start a review loop"},
 		// opencode does NOT read ~/.opencode/skills/ globally — redirect to ~/.agents/skills/
-		{source: "integrations/opencode/SKILL.md", dest: ".opencode/skills/crit/SKILL.md", globalDest: ".agents/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit skill is available to OpenCode agents when needed"},
+		{source: "integrations/opencode/skills/crit-cli/SKILL.md", dest: ".opencode/skills/crit-cli/SKILL.md", globalDest: ".agents/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to OpenCode agents when needed"},
 		// Plugin files auto-loaded from project `.opencode/plugins/` or global
 		// `~/.config/opencode/plugins/`. Injects sharing instructions by default
 		// (share_url defaults to https://crit.md); docs cover how to disable.
@@ -183,8 +176,8 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/opencode/plugin/lib/crit-wait-notify.js", dest: ".opencode/plugins/lib/crit-wait-notify.js", globalDest: ".config/opencode/plugins/lib/crit-wait-notify.js", globalDestKind: globalDestRelHome},
 	},
 	"windsurf": {
-		// windsurf has no per-tool global rules dir — global install rejected in installIntegration.
-		{source: "integrations/windsurf/crit.md", dest: ".windsurf/rules/crit.md", hint: "Windsurf will suggest Crit when writing plans"},
+		{source: "integrations/windsurf/crit.md", dest: ".windsurf/workflows/crit.md", globalDest: ".codeium/windsurf/global_workflows/crit.md", globalDestKind: globalDestRelHome, hint: "Run /crit in Windsurf to start a review loop"},
+		{source: "integrations/windsurf/skills/crit-cli/SKILL.md", dest: ".windsurf/skills/crit-cli/SKILL.md", globalDest: ".codeium/windsurf/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Windsurf agents when needed"},
 	},
 	"github-copilot": {
 		// Copilot does NOT read ~/.github/skills/ globally — redirect to ~/.agents/skills/
@@ -192,16 +185,18 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/github-copilot/skills/crit-cli/SKILL.md", dest: ".github/skills/crit-cli/SKILL.md", globalDest: ".agents/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to GitHub Copilot agents when needed"},
 	},
 	"cline": {
-		// Cline does NOT read ~/.clinerules/ globally — redirect to platform Documents dir.
-		{source: "integrations/cline/crit.md", dest: ".clinerules/crit.md", globalDest: "Cline/Rules/crit.md", globalDestKind: globalDestDocuments, hint: "Cline will suggest Crit when writing plans"},
+		{source: "integrations/cline/crit.md", dest: ".clinerules/workflows/crit.md", globalDest: ".cline/data/workflows/crit.md", globalDestKind: globalDestRelHome, hint: "Run /crit.md in Cline to start a review loop"},
+		{source: "integrations/cline/skills/crit-cli/SKILL.md", dest: ".cline/skills/crit-cli/SKILL.md", globalDest: ".cline/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Cline agents when needed"},
 	},
 	"codex": {
 		{source: "integrations/codex/skills/crit/SKILL.md", dest: ".agents/skills/crit/SKILL.md", hint: "Use $crit in Codex to start a review loop"},
+		{source: "integrations/codex/skills/crit/agents/openai.yaml", dest: ".agents/skills/crit/agents/openai.yaml"},
 		{source: "integrations/codex/skills/crit-cli/SKILL.md", dest: ".agents/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Codex agents when needed"},
 	},
 	"codex-plugin": {
 		{source: "integrations/codex/plugin/crit/.codex-plugin/plugin.json", dest: "plugins/crit/.codex-plugin/plugin.json", globalDest: ".codex/plugins/crit/.codex-plugin/plugin.json", globalDestKind: globalDestRelHome, hint: "The Crit plugin is registered in the local Codex plugin marketplace"},
 		{source: "integrations/codex/plugin/crit/skills/crit/SKILL.md", dest: "plugins/crit/skills/crit/SKILL.md", globalDest: ".codex/plugins/crit/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "The plugin-packaged crit skill is available to Codex as $crit:crit"},
+		{source: "integrations/codex/plugin/crit/skills/crit/agents/openai.yaml", dest: "plugins/crit/skills/crit/agents/openai.yaml", globalDest: ".codex/plugins/crit/skills/crit/agents/openai.yaml", globalDestKind: globalDestRelHome},
 		{source: "integrations/codex/plugin/crit/skills/crit-cli/SKILL.md", dest: "plugins/crit/skills/crit-cli/SKILL.md", globalDest: ".codex/plugins/crit/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The plugin-packaged crit-cli skill is available to Codex agents when needed"},
 		{source: "integrations/codex/plugin/crit/hooks/hooks.json", dest: "plugins/crit/hooks/hooks.json", globalDest: ".codex/plugins/crit/hooks/hooks.json", globalDestKind: globalDestRelHome, hint: "The Crit plugin includes a Codex Stop hook for proposed-plan review"},
 	},
@@ -215,7 +210,7 @@ var integrationMap = map[string][]integration{
 		// Pi auto-discovers skills in both .pi/skills/ (project-local) and
 		// ~/.pi/agent/skills/ (global). Different shape between modes, so
 		// globalDest redirects the global install to the agent/skills path.
-		{source: "integrations/pi/skills/crit/SKILL.md", dest: ".pi/skills/crit/SKILL.md", globalDest: ".pi/agent/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /crit in Pi to start a review loop"},
+		{source: "integrations/pi/skills/crit/SKILL.md", dest: ".pi/skills/crit/SKILL.md", globalDest: ".pi/agent/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /skill:crit in Pi to start a review loop"},
 		{source: "integrations/pi/skills/crit-cli/SKILL.md", dest: ".pi/skills/crit-cli/SKILL.md", globalDest: ".pi/agent/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Pi agents when needed"},
 	},
 	"hermes": {
@@ -235,6 +230,41 @@ var integrationMap = map[string][]integration{
 		// Same shape in both cases, so no globalDest redirect is needed.
 		{source: "integrations/grok/skills/crit/SKILL.md", dest: ".grok/skills/crit/SKILL.md", hint: "Run /crit in Grok to start a review loop"},
 		{source: "integrations/grok/skills/crit-cli/SKILL.md", dest: ".grok/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Grok agents when needed"},
+	},
+}
+
+// legacyIntegrationFile describes an obsolete destination that could keep
+// auto-invoking Crit after an upgrade. Cleanup only removes byte-for-byte known
+// Crit-managed content; user-edited files are preserved with a warning.
+type legacyIntegrationFile struct {
+	dest           string
+	globalDest     string
+	globalDestKind globalDestKind
+	hash           string
+}
+
+var legacyIntegrationFiles = map[string][]legacyIntegrationFile{
+	"cline": {
+		{
+			dest:           ".clinerules/crit.md",
+			globalDest:     "Cline/Rules/crit.md",
+			globalDestKind: globalDestDocuments,
+			hash:           "1dd945643385c93d5f64f723808ff6aa4bcf80dc80e58804d07db926782d6a6f",
+		},
+	},
+	"opencode": {
+		{
+			dest:           ".opencode/skills/crit/SKILL.md",
+			globalDest:     ".agents/skills/crit/SKILL.md",
+			globalDestKind: globalDestRelHome,
+			hash:           "f5e50b2db106a09cd6818f4ee8124ed31c05072dd8a2692f814a1540c185c48b",
+		},
+	},
+	"windsurf": {
+		{
+			dest: ".windsurf/rules/crit.md",
+			hash: "ad2c053399d1d0c1ed1fde03e2a7985446e02bf84114718b26c3a6b34eaafbd2",
+		},
 	},
 }
 
@@ -344,13 +374,6 @@ func installIntegration(name string, force bool) error {
 	home, _ := os.UserHomeDir()
 	global := isGlobalInstall(cwd, home)
 
-	if name == "windsurf" && global {
-		return errors.New("windsurf does not support a global per-tool install. " +
-			"Windsurf only loads a single ~/.codeium/windsurf/memories/global_rules.md (6k char cap), " +
-			"not a per-tool rules directory. Run `crit install windsurf` from a project directory " +
-			"instead, which writes .windsurf/rules/crit.md (workspace-scoped)")
-	}
-
 	var hints []string
 	codexMarketplaceName := ""
 	if name == "codex-plugin" {
@@ -374,6 +397,7 @@ func installIntegration(name string, force bool) error {
 			hints = append(hints, f.hint)
 		}
 	}
+	cleanupLegacyIntegrationFiles(name, global, home)
 	if name == "gemini" {
 		settingsPath := filepath.Join(".gemini", "settings.json")
 		if global {
@@ -403,6 +427,41 @@ func installIntegration(name string, force bool) error {
 	printUniqueHints(hints)
 	fmt.Println()
 	return nil
+}
+
+func cleanupLegacyIntegrationFiles(name string, global bool, home string) {
+	for _, legacy := range legacyIntegrationFiles[name] {
+		dest := legacy.dest
+		if global {
+			if legacy.globalDest == "" {
+				continue
+			}
+			var err error
+			dest, err = resolveGlobalDest(legacy.globalDestKind, legacy.globalDest, home)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not resolve obsolete %s integration path: %v\n", name, err)
+				continue
+			}
+		}
+
+		data, err := os.ReadFile(dest)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not inspect obsolete Crit integration %s: %v\n", dest, err)
+			continue
+		}
+		if computeFileHash(data) != legacy.hash {
+			fmt.Fprintf(os.Stderr, "Warning: preserving modified obsolete Crit integration %s; remove it manually to prevent automatic invocation\n", dest)
+			continue
+		}
+		if err := os.Remove(dest); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not remove obsolete Crit integration %s: %v\n", dest, err)
+			continue
+		}
+		fmt.Printf("  Removed:   %s (obsolete auto-invoked integration)\n", dest)
+	}
 }
 
 // destFor returns the destination path for an integration file, accounting

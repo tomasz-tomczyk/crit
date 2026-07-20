@@ -11,21 +11,21 @@ crit install all        # Install for all supported tools
 
 Safe to re-run. Existing files are skipped (use `--force` to overwrite).
 
-**Global install**: run `cd ~ && crit install <tool>` to install to your home directory. The integration is then available across all projects without per-project setup. Each tool reads from a different global path; `crit install` routes the files to the right place automatically. Windsurf is the one exception (no per-tool global config dir) and rejects global install with a clear error.
+**Global install**: run `cd ~ && crit install <tool>` to install to your home directory. The integration is then available across all projects without per-project setup. Each tool reads from a different global path; `crit install` routes the files to the right place automatically.
 
 | Tool | Install command | Project destination | Global destination |
 |------|----------------|---------------------|--------------------|
 | Claude Code | `crit install claude-code` | `.claude/skills/crit/SKILL.md` + `.claude/skills/crit-cli/SKILL.md` | `~/.claude/skills/crit/SKILL.md` + `~/.claude/skills/crit-cli/SKILL.md` |
 | Cursor | `crit install cursor` | `.cursor/skills/crit/SKILL.md` + `.cursor/skills/crit-cli/SKILL.md` | (project only — Cursor has no stable user-level config dir) |
 | GitHub Copilot | `crit install github-copilot` | `.github/skills/crit/SKILL.md` + `.github/skills/crit-cli/SKILL.md` | `~/.agents/skills/crit/SKILL.md` + `~/.agents/skills/crit-cli/SKILL.md` |
-| OpenCode | `crit install opencode` | `.opencode/commands/crit.md` + `.opencode/skills/crit/SKILL.md` + `.opencode/plugins/crit.ts` (+ registers the plugin in `opencode.jsonc`) | `~/.config/opencode/commands/crit.md` + `~/.agents/skills/crit/SKILL.md` + `~/.config/opencode/plugins/crit.ts` (+ registers the plugin in `~/.config/opencode/opencode.jsonc`) |
+| OpenCode | `crit install opencode` | `.opencode/commands/crit.md` + `.opencode/skills/crit-cli/SKILL.md` + `.opencode/plugins/crit.ts` (+ registers the plugin in `opencode.jsonc`) | `~/.config/opencode/commands/crit.md` + `~/.agents/skills/crit-cli/SKILL.md` + `~/.config/opencode/plugins/crit.ts` (+ registers the plugin in `~/.config/opencode/opencode.jsonc`) |
 | Codex | `crit install codex` | `.agents/skills/crit/SKILL.md` + `.agents/skills/crit-cli/SKILL.md` | `~/.agents/skills/crit/SKILL.md` + `~/.agents/skills/crit-cli/SKILL.md` |
 | Codex plugin | `crit install codex-plugin` | `.agents/skills/*` loose `$crit` skills + `.agents/plugins/marketplace.json` + `plugins/crit/` | loose skills and marketplace under `~/.agents/`, plugin under `~/.codex/plugins/crit/` |
 | Pi | `crit install pi` | `.pi/skills/crit/SKILL.md` + `.pi/skills/crit-cli/SKILL.md` | `~/.pi/agent/skills/crit/SKILL.md` + `~/.pi/agent/skills/crit-cli/SKILL.md` |
 | Qwen Code | `crit install qwen` | `.qwen/skills/crit/SKILL.md` + `.qwen/skills/crit-cli/SKILL.md` | `~/.qwen/skills/crit/SKILL.md` + `~/.qwen/skills/crit-cli/SKILL.md` |
 | Hermes | `crit install hermes` | `.hermes/skills/crit/SKILL.md` + `.hermes/skills/crit-cli/SKILL.md` (requires adding `.hermes/skills` to `external_dirs` in `~/.hermes/config.yaml`) | `~/.hermes/skills/crit/SKILL.md` + `~/.hermes/skills/crit-cli/SKILL.md` |
-| Windsurf | `crit install windsurf` | `.windsurf/rules/crit.md` | (not supported — Windsurf only allows a single shared `global_rules.md`) |
-| Cline | `crit install cline` | `.clinerules/crit.md` | `~/Documents/Cline/Rules/crit.md` (Linux uses `xdg-user-dir DOCUMENTS`; Windows uses `%USERPROFILE%\Documents\Cline\Rules\`) |
+| Windsurf | `crit install windsurf` | `.windsurf/workflows/crit.md` + `.windsurf/skills/crit-cli/SKILL.md` | `~/.codeium/windsurf/global_workflows/crit.md` + `~/.codeium/windsurf/skills/crit-cli/SKILL.md` |
+| Cline | `crit install cline` | `.clinerules/workflows/crit.md` + `.cline/skills/crit-cli/SKILL.md` | `~/.cline/data/workflows/crit.md` + `~/.cline/skills/crit-cli/SKILL.md` |
 | Aider | `crit install aider` | `.crit/aider-conventions.md` + adds entry under `read:` in `.aider.conf.yml` | `~/.crit-conventions.md` + adds entry under `read:` in `~/.aider.conf.yml` |
 | Gemini CLI | `crit install gemini` | `.gemini/skills/crit-cli/SKILL.md` + `.gemini/commands/crit.toml` + `.gemini/policies/crit.toml` + `.gemini/settings.json` (merged) | `~/.gemini/skills/crit-cli/SKILL.md` + `~/.gemini/commands/crit.toml` + `~/.gemini/policies/crit.toml` + `~/.gemini/settings.json` (merged) |
 | Grok | `crit install grok` | `.grok/skills/crit/SKILL.md` + `.grok/skills/crit-cli/SKILL.md` | `~/.grok/skills/crit/SKILL.md` + `~/.grok/skills/crit-cli/SKILL.md` |
@@ -34,7 +34,7 @@ Safe to re-run. Existing files are skipped (use `--force` to overwrite).
 
 For the full experience, install via the plugin marketplace. This gives you:
 - A `/crit` slash command for the review loop
-- A `crit` skill that auto-activates when working with review files, `crit comment`, `crit pull/push`, etc.
+- A model-discoverable `crit-cli` skill for review files, `crit comment`, `crit pull/push`, etc.
 
 ```
 claude plugin marketplace add tomasz-tomczyk/crit
@@ -52,7 +52,7 @@ The marketplace manifest lives at the repo root (`.claude-plugin/marketplace.jso
 | **Good for** | Teams — everyone gets the integration | Individual users — works across all projects |
 | **Setup** | Run once per project | Install once, works everywhere |
 
-Both approaches give you the `/crit` slash command. The plugin marketplace additionally installs the `crit-cli` skill which auto-teaches the agent about `crit comment`, review file format, `crit pull/push`, and resolution workflow.
+Both approaches give you the user-invoked `/crit` review cycle. The plugin marketplace additionally installs the `crit-cli` skill, which can auto-teach the agent about `crit comment`, review file format, `crit pull/push`, and resolution workflow without starting the interactive browser loop.
 
 ## OpenCode plugin: conditional sharing instructions
 
@@ -86,6 +86,25 @@ Plugin source files live in `integrations/codex/plugin/crit/`. See [`integration
 Both approaches give you `$crit` and the `crit-cli` skill. Only `codex-plugin` adds the proposed-plan hook — without it, typing `$crit` on an in-chat plan (e.g. after choosing "No and stay in Plan Mode") does nothing useful because there is no file path for `crit` to open.
 
 Disable the plan hook per-shell or globally: `export CRIT_PLAN_REVIEW=off`
+
+## Invocation policy
+
+The interactive `crit` review cycle is manual by default. A normal request to
+review code, a plan, a diff, a PR, or a page does not start Crit. Invoke the
+platform command explicitly (`/crit`, `$crit`, `/skill:crit`, `/crit.md`, or
+Windsurf's `/crit`, as appropriate) or directly ask the agent to use Crit.
+
+`crit-cli` is intentionally model-discoverable. It teaches agents how to leave
+and reply to Crit comments, interpret review JSON, share reviews, and synchronize
+GitHub PR feedback, but it does not start the interactive review cycle.
+
+The only automatic interactive path is a lifecycle hook immediately after
+planning mode. The Claude Code plugin, Codex plugin, and Gemini CLI integration
+retain their existing plan-exit hooks.
+
+When upgrading Cline, OpenCode, or Windsurf, `crit install` removes the obsolete
+auto-invoked path only when it still exactly matches a previously shipped Crit
+file. Modified files are preserved with a warning and must be removed manually.
 
 ## What these do
 
