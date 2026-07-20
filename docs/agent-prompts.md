@@ -252,7 +252,11 @@ Custom templates choose what to include. Omit `{{.comments_unresolved_json}}` / 
 ## Limitations
 
 - Prompt text is not executed as shell, but a malicious project template could still social-engineer an agent. Trust project prompts deliberately.
-- Crit cannot reliably switch harness permission modes (e.g. Claude auto-edit). Use `on_finish_approved` to *instruct* the agent if you want a mode hint.
+- Prompt text cannot reliably switch harness permission modes. For Claude Code
+  plan-hook approvals, use the global `plan_approve_mode` setting for a
+  deterministic session-only switch; the approve hook decision does not forward
+  `on_finish_approved` text to Claude Code. Other harnesses still require their
+  own permission controls.
 
 ## See also
 

@@ -97,8 +97,9 @@ func TestRunPlanHook_ApprovalEchoesCompleteToolInput(t *testing.T) {
 		HookSpecificOutput struct {
 			HookEventName string `json:"hookEventName"`
 			Decision      struct {
-				Behavior     string          `json:"behavior"`
-				UpdatedInput json.RawMessage `json:"updatedInput"`
+				Behavior           string          `json:"behavior"`
+				UpdatedInput       json.RawMessage `json:"updatedInput"`
+				UpdatedPermissions json.RawMessage `json:"updatedPermissions"`
 			} `json:"decision"`
 		} `json:"hookSpecificOutput"`
 	}
@@ -126,6 +127,147 @@ func TestRunPlanHook_ApprovalEchoesCompleteToolInput(t *testing.T) {
 			actualInput,
 			expectedInput,
 		)
+	}
+	if response.HookSpecificOutput.Decision.UpdatedPermissions != nil {
+		t.Errorf(
+			"unset plan_approve_mode unexpectedly emitted updatedPermissions: %s",
+			response.HookSpecificOutput.Decision.UpdatedPermissions,
+		)
+	}
+}
+
+func TestRunPlanHook_ApprovalSetsConfiguredMode(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	if err := os.WriteFile(
+		filepath.Join(homeDir, ".crit.config.json"),
+		[]byte(`{"plan_approve_mode":"auto"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	hookInput := json.RawMessage(`{
+		"session_id": "session-mode",
+		"tool_input": {
+			"plan": "# Mode switch",
+			"planFilePath": "/tmp/mode-switch.md",
+			"futureOption": true
+		}
+	}`)
+	setPlanHookStdin(t, hookInput)
+
+	previousReviewHook := runClaudePlanReviewHook
+	runClaudePlanReviewHook = func(_ string, _ []byte, emitDecision func(bool, string)) {
+		emitDecision(true, "")
+	}
+	t.Cleanup(func() {
+		runClaudePlanReviewHook = previousReviewHook
+	})
+
+	output := captureHookDecision(t, func() {
+		if err := RunPlanHook(); err != nil {
+			t.Fatalf("RunPlanHook() error = %v", err)
+		}
+	})
+
+	var response struct {
+		HookSpecificOutput struct {
+			Decision struct {
+				UpdatedInput       json.RawMessage  `json:"updatedInput"`
+				UpdatedPermissions []map[string]any `json:"updatedPermissions"`
+			} `json:"decision"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(output, &response); err != nil {
+		t.Fatalf("decode hook response: %v", err)
+	}
+
+	if got, want := response.HookSpecificOutput.Decision.UpdatedPermissions, []map[string]any{{
+		"type":        "setMode",
+		"mode":        "auto",
+		"destination": "session",
+	}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("updatedPermissions = %#v, want %#v", got, want)
+	}
+
+	var event struct {
+		ToolInput json.RawMessage `json:"tool_input"`
+	}
+	if err := json.Unmarshal(hookInput, &event); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := decodeJSONUseNumber(t, response.HookSpecificOutput.Decision.UpdatedInput),
+		decodeJSONUseNumber(t, event.ToolInput); !reflect.DeepEqual(got, want) {
+		t.Errorf("updatedInput = %#v, want full original tool_input %#v", got, want)
+	}
+}
+
+func TestEmitHookDecision_InvalidPlanApproveModeWarnsAndPreservesOutput(t *testing.T) {
+	toolInput := json.RawMessage(`{"plan":"# Auth Flow","futureOption":true}`)
+
+	previousStderr := os.Stderr
+	stderrReader, stderrWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = stderrWriter
+	t.Cleanup(func() {
+		os.Stderr = previousStderr
+		stderrReader.Close()
+	})
+
+	output := captureHookDecision(t, func() {
+		emitHookDecision(true, "", toolInput, "unrestricted")
+	})
+	if err := stderrWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stderr, err := io.ReadAll(stderrReader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var response struct {
+		HookSpecificOutput struct {
+			Decision struct {
+				Behavior           string          `json:"behavior"`
+				UpdatedInput       json.RawMessage `json:"updatedInput"`
+				UpdatedPermissions json.RawMessage `json:"updatedPermissions"`
+			} `json:"decision"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(output, &response); err != nil {
+		t.Fatalf("decode hook response: %v", err)
+	}
+	if response.HookSpecificOutput.Decision.Behavior != "allow" {
+		t.Errorf("behavior = %q, want allow", response.HookSpecificOutput.Decision.Behavior)
+	}
+	if response.HookSpecificOutput.Decision.UpdatedPermissions != nil {
+		t.Errorf("invalid mode unexpectedly emitted updatedPermissions: %s", response.HookSpecificOutput.Decision.UpdatedPermissions)
+	}
+	if got, want := decodeJSONUseNumber(t, response.HookSpecificOutput.Decision.UpdatedInput),
+		decodeJSONUseNumber(t, toolInput); !reflect.DeepEqual(got, want) {
+		t.Errorf("updatedInput = %#v, want %#v", got, want)
+	}
+	if !strings.Contains(string(stderr), `ignoring invalid plan_approve_mode "unrestricted"`) {
+		t.Errorf("stderr = %q, want invalid-mode warning", stderr)
+	}
+}
+
+func TestPlanApproveModePermissionUpdate_ValidModes(t *testing.T) {
+	for _, mode := range []string{
+		"default", "manual", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions",
+	} {
+		t.Run(mode, func(t *testing.T) {
+			update, valid := planApproveModePermissionUpdate(mode)
+			if !valid {
+				t.Fatalf("mode %q rejected", mode)
+			}
+			if update["type"] != "setMode" || update["mode"] != mode || update["destination"] != "session" {
+				t.Errorf("update = %#v", update)
+			}
+		})
 	}
 }
 
@@ -165,7 +307,7 @@ func setPlanHookStdin(t *testing.T, input []byte) {
 func TestEmitHookDecision_DenyBehaviorUnchanged(t *testing.T) {
 	toolInput := json.RawMessage(`{"plan":"# Auth Flow","futureOption":true}`)
 	output := captureHookDecision(t, func() {
-		emitHookDecision(false, "Address the review comments.", toolInput)
+		emitHookDecision(false, "Address the review comments.", toolInput, "bypassPermissions")
 	})
 
 	var response struct {

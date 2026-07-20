@@ -40,7 +40,11 @@ type Config struct {
 	AuthUserName       string   `json:"auth_user_name,omitempty"`
 	AuthUserEmail      string   `json:"auth_user_email,omitempty"`
 	AuthUserID         string   `json:"auth_user_id,omitempty"`
-	CleanupOnApprove   *bool    `json:"cleanup_on_approve,omitempty"`
+	// PlanApproveMode selects the Claude Code permission mode after a plan-hook
+	// approval. Global-only so a repository cannot weaken a user's permission
+	// policy. Empty leaves Claude Code's current behavior unchanged.
+	PlanApproveMode  string `json:"plan_approve_mode,omitempty"`
+	CleanupOnApprove *bool  `json:"cleanup_on_approve,omitempty"`
 	// NotifyOnRoundReady controls desktop notifications when a review round
 	// becomes ready for the human. Defaults to false when unset (opt-in).
 	NotifyOnRoundReady *bool `json:"notify_on_round_ready,omitempty"`
@@ -143,6 +147,7 @@ func defaultConfig() generatedConfig {
 		},
 		AutoViewedPatterns: []string{},
 		AgentCmd:           "",
+		PlanApproveMode:    "",
 		CleanupOnApprove:   true,
 		NotifyOnRoundReady: false,
 		VCS:                "",
@@ -172,6 +177,7 @@ type generatedConfig struct {
 	NoUpdateCheck      bool              `json:"no_update_check"`
 	DisableStats       bool              `json:"disable_stats"`
 	AgentCmd           string            `json:"agent_cmd"`
+	PlanApproveMode    string            `json:"plan_approve_mode"`
 	CleanupOnApprove   bool              `json:"cleanup_on_approve"`
 	NotifyOnRoundReady bool              `json:"notify_on_round_ready"`
 	VCS                string            `json:"vcs"`
@@ -299,7 +305,7 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 		merged.LiveCDPURL = project.LiveCDPURL
 	}
 	// Security: agent_cmd, auth_token, share_url, public_url, proxy_auth, open_cmd,
-	// and close_on_approve_after_ms are intentionally NOT merged from project
+	// plan_approve_mode, and close_on_approve_after_ms are intentionally NOT merged from project
 	// config. They must remain global-only: agent_cmd to
 	// prevent untrusted repos from hijacking the agent command; open_cmd to prevent
 	// untrusted repos from hijacking browser launches; auth_token and
@@ -307,6 +313,8 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	// redirecting share requests (and the bearer token) or advertised URLs to an
 	// attacker-controlled host;
 	// proxy_auth to prevent a repo from silently changing the transport mode;
+	// plan_approve_mode to prevent a repo from weakening the user's Claude Code
+	// permission policy after plan approval;
 	// close_on_approve_after_ms so a project repo cannot force the reviewer's
 	// tab to auto-close — that's a personal preference, not a repo policy.
 	// live_cookie/live_cookie_file/live_cdp_url DO merge from project config — common for local

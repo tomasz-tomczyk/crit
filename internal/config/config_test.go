@@ -698,6 +698,47 @@ func TestMergeConfigs_AgentCmdProjectIgnored(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_PlanApproveModeGlobalOnly(t *testing.T) {
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+	if err := os.WriteFile(
+		filepath.Join(homeDir, ".crit.config.json"),
+		[]byte(`{"plan_approve_mode":"acceptEdits"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	projectDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(projectDir, ".crit.config.json"),
+		[]byte(`{"plan_approve_mode":"bypassPermissions"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := LoadConfig(projectDir).PlanApproveMode; got != "acceptEdits" {
+		t.Errorf("PlanApproveMode = %q, want global value acceptEdits", got)
+	}
+}
+
+func TestLoadConfig_PlanApproveModeProjectCannotEnable(t *testing.T) {
+	homeDir := t.TempDir()
+	testutil.SetHome(t, homeDir)
+	projectDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(projectDir, ".crit.config.json"),
+		[]byte(`{"plan_approve_mode":"auto"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := LoadConfig(projectDir).PlanApproveMode; got != "" {
+		t.Errorf("PlanApproveMode = %q, want empty when only project config sets it", got)
+	}
+}
+
 func TestMergeConfigs_ShareURLProjectIgnored(t *testing.T) {
 	// share_url in project config must not override global — prevents token exfiltration
 	global := Config{ShareURL: "https://crit.md"}

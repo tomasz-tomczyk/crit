@@ -54,6 +54,45 @@ The marketplace manifest lives at the repo root (`.claude-plugin/marketplace.jso
 
 Both approaches give you the user-invoked `/crit` review cycle. The plugin marketplace additionally installs the `crit-cli` skill, which can auto-teach the agent about `crit comment`, review file format, `crit pull/push`, and resolution workflow without starting the interactive browser loop.
 
+## Claude Code plan approval mode
+
+The Claude Code plugin intercepts `ExitPlanMode` with a narrowly matched
+`PermissionRequest` hook. By default, approving in Crit allows the plan exit and
+leaves Claude Code to restore its existing permission mode. To choose the mode
+deterministically, set `plan_approve_mode` in your global Crit config:
+
+```json
+{
+  "plan_approve_mode": "acceptEdits"
+}
+```
+
+Supported values are `default`, `manual`, `acceptEdits`, `plan`, `auto`,
+`dontAsk`, and `bypassPermissions`. The `manual` alias requires Claude Code
+2.1.200 or newer. On approval, Crit returns Claude Code's documented
+`decision.updatedPermissions` entry:
+
+```json
+{
+  "type": "setMode",
+  "mode": "acceptEdits",
+  "destination": "session"
+}
+```
+
+`destination: "session"` keeps the change in memory for the current Claude Code
+session only. The setting is global-only (`~/.crit.config.json`); a repository's
+`.crit.config.json` cannot change your permission policy. Unset preserves the
+default hook behavior, and invalid values are ignored with a warning.
+
+The hook approval and mode switch do not override matching deny or ask rules.
+Claude Code can also disable `auto` through `permissions.disableAutoMode`.
+`bypassPermissions` is intentionally dangerous and should only be used in an
+isolated environment. Claude Code applies it only when the session started with
+bypass mode available (for example `--allow-dangerously-skip-permissions` or
+`--dangerously-skip-permissions`) and managed settings have not disabled it;
+otherwise Claude Code treats the update as a no-op.
+
 ## OpenCode plugin: conditional sharing instructions
 
 `crit install opencode` also writes a small TypeScript plugin (`crit.ts`) and registers it in `opencode.jsonc`. The plugin shells out to `crit config` on each chat turn and appends sharing instructions to the system prompt only when `share_url` is set. With `share_url: ""` the sharing block is omitted entirely — useful in environments with strict information-sharing policies, and saves tokens otherwise. opencode auto-loads `.ts` files dropped into the plugin directory, so the registration entry is informational.

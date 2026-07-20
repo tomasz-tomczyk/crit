@@ -170,15 +170,40 @@ func resolveHookSlug(sessionID string, content []byte) string {
 	return ResolveSlug(content)
 }
 
-func emitHookDecision(approved bool, prompt string, toolInput json.RawMessage) {
+func planApproveModePermissionUpdate(mode string) (map[string]string, bool) {
+	switch mode {
+	case "default", "manual", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions":
+		return map[string]string{
+			"type":        "setMode",
+			"mode":        mode,
+			"destination": "session",
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+func emitHookDecision(approved bool, prompt string, toolInput json.RawMessage, planApproveMode string) {
 	if approved {
+		decision := map[string]any{
+			"behavior":     "allow",
+			"updatedInput": toolInput,
+		}
+		if planApproveMode != "" {
+			if update, valid := planApproveModePermissionUpdate(planApproveMode); valid {
+				decision["updatedPermissions"] = []map[string]string{update}
+			} else {
+				fmt.Fprintf(
+					os.Stderr,
+					"crit plan-hook: warning: ignoring invalid plan_approve_mode %q; expected default, manual, acceptEdits, plan, auto, dontAsk, or bypassPermissions\n",
+					planApproveMode,
+				)
+			}
+		}
 		out, _ := json.Marshal(map[string]any{
 			"hookSpecificOutput": map[string]any{
 				"hookEventName": "PermissionRequest",
-				"decision": map[string]any{
-					"behavior":     "allow",
-					"updatedInput": toolInput,
-				},
+				"decision":      decision,
 			},
 		})
 		fmt.Println(string(out))
@@ -284,7 +309,7 @@ func RunPlanHook() error {
 	var event planHookEvent
 	if err := json.NewDecoder(os.Stdin).Decode(&event); err != nil {
 		fmt.Fprintf(os.Stderr, "crit plan-hook: could not parse stdin: %v\n", err)
-		emitHookDecision(false, "Crit could not parse the plan hook input; plan was not reviewed.", nil)
+		emitHookDecision(false, "Crit could not parse the plan hook input; plan was not reviewed.", nil, "")
 		return nil
 	}
 	if len(event.ToolInput) == 0 {
@@ -296,15 +321,17 @@ func RunPlanHook() error {
 	}
 	if err := json.Unmarshal(event.ToolInput, &toolInput); err != nil {
 		fmt.Fprintf(os.Stderr, "crit plan-hook: could not parse tool input: %v\n", err)
-		emitHookDecision(false, "Crit could not parse the plan hook input; plan was not reviewed.", nil)
+		emitHookDecision(false, "Crit could not parse the plan hook input; plan was not reviewed.", nil, "")
 		return nil
 	}
 	if strings.TrimSpace(toolInput.Plan) == "" {
 		return nil
 	}
 
+	cwd, _ := daemon.ResolvedCWD()
+	planApproveMode := config.LoadConfig(cwd).PlanApproveMode
 	emitDecision := func(approved bool, prompt string) {
-		emitHookDecision(approved, prompt, event.ToolInput)
+		emitHookDecision(approved, prompt, event.ToolInput, planApproveMode)
 	}
 	runClaudePlanReviewHook(event.SessionID, []byte(toolInput.Plan), emitDecision)
 	return nil
