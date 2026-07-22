@@ -469,6 +469,7 @@ var agentProbes = []agentProbe{
 	{"hermes", []string{"hermes"}, []string{".hermes"}, "hermes-ai"},
 	{"gemini", []string{"gemini"}, []string{".gemini"}, "google"},
 	{"grok", []string{"grok"}, []string{".grok"}, "xai"},
+	{"ampcode", []string{"amp"}, []string{".config/amp"}, ""},
 }
 
 // detectPresentAgents returns the names of AI coding tools that appear to be

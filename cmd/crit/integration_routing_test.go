@@ -57,6 +57,8 @@ func TestDestFor_GlobalMode(t *testing.T) {
 		// grok: same-shape .grok/skills/ project-locally and ~/.grok/skills/ globally (no globalDest redirect needed).
 		{"grok", 0, ".grok/skills/crit/SKILL.md"},
 		{"grok", 1, ".grok/skills/crit-cli/SKILL.md"},
+		{"ampcode", 0, filepath.Join(home, ".config/agents/skills/crit/SKILL.md")},
+		{"ampcode", 1, filepath.Join(home, ".config/agents/skills/crit-cli/SKILL.md")},
 		// opencode: command redirects to ~/.config/opencode/commands/; skill redirects to ~/.agents/skills/.
 		{"opencode", 0, filepath.Join(home, ".config/opencode/commands/crit.md")},
 		{"opencode", 1, filepath.Join(home, ".agents/skills/crit-cli/SKILL.md")},
@@ -114,6 +116,7 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 		"cline":          {{".cline/data/workflows/crit.md", globalDestRelHome}, {".cline/skills/crit-cli/SKILL.md", globalDestRelHome}},
 		"gemini":         {{".gemini/skills/crit-cli/SKILL.md", globalDestRelHome}, {".gemini/commands/crit.toml", globalDestRelHome}, {".gemini/policies/crit.toml", globalDestRelHome}},
 		"grok":           {{"", globalDestNone}, {"", globalDestNone}},
+		"ampcode":        {{".config/agents/skills/crit/SKILL.md", globalDestRelHome}, {".config/agents/skills/crit-cli/SKILL.md", globalDestRelHome}},
 		"codex-plugin":   {{".codex/plugins/crit/.codex-plugin/plugin.json", globalDestRelHome}, {".codex/plugins/crit/skills/crit/SKILL.md", globalDestRelHome}, {".codex/plugins/crit/skills/crit/agents/openai.yaml", globalDestRelHome}, {".codex/plugins/crit/skills/crit-cli/SKILL.md", globalDestRelHome}, {".codex/plugins/crit/hooks/hooks.json", globalDestRelHome}},
 		"hermes":         {{".hermes/skills/crit/SKILL.md", globalDestRelHome}, {".hermes/skills/crit-cli/SKILL.md", globalDestRelHome}},
 		"pi":             {{".pi/agent/skills/crit/SKILL.md", globalDestRelHome}, {".pi/agent/skills/crit-cli/SKILL.md", globalDestRelHome}},

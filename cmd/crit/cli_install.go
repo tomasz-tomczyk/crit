@@ -231,6 +231,13 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/grok/skills/crit/SKILL.md", dest: ".grok/skills/crit/SKILL.md", hint: "Run /crit in Grok to start a review loop"},
 		{source: "integrations/grok/skills/crit-cli/SKILL.md", dest: ".grok/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Grok agents when needed"},
 	},
+	"ampcode": {
+		// Amp discovers project skills in .agents/skills/ and global skills in
+		// ~/.config/agents/skills/ (highest priority per Amp's skill precedence).
+		// Different paths between modes, so globalDest redirects the global install.
+		{source: "integrations/ampcode/skills/crit/SKILL.md", dest: ".agents/skills/crit/SKILL.md", globalDest: ".config/agents/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "Ask Amp to use crit to start a review loop"},
+		{source: "integrations/ampcode/skills/crit-cli/SKILL.md", dest: ".agents/skills/crit-cli/SKILL.md", globalDest: ".config/agents/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Amp agents when needed"},
+	},
 }
 
 // legacyIntegrationFile describes an obsolete destination that could keep

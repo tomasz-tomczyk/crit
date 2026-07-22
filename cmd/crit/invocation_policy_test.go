@@ -20,6 +20,7 @@ func TestInteractiveSkillsDisableModelInvocationWhereSupported(t *testing.T) {
 		"integrations/cursor/skills/crit/SKILL.md",
 		"integrations/github-copilot/skills/crit/SKILL.md",
 		"integrations/grok/skills/crit/SKILL.md",
+		"integrations/ampcode/skills/crit/SKILL.md",
 		"integrations/pi/skills/crit/SKILL.md",
 		"integrations/qwen/skills/crit/SKILL.md",
 	}
@@ -68,6 +69,7 @@ func TestCritCLIStaysModelDiscoverableWithoutStartingInteractiveCrit(t *testing.
 		"integrations/gemini/skills/crit-cli/SKILL.md",
 		"integrations/github-copilot/skills/crit-cli/SKILL.md",
 		"integrations/grok/skills/crit-cli/SKILL.md",
+		"integrations/ampcode/skills/crit-cli/SKILL.md",
 		"integrations/hermes/skills/crit-cli/SKILL.md",
 		"integrations/opencode/skills/crit-cli/SKILL.md",
 		"integrations/pi/skills/crit-cli/SKILL.md",

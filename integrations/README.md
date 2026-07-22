@@ -29,6 +29,7 @@ Safe to re-run. Existing files are skipped (use `--force` to overwrite).
 | Aider | `crit install aider` | `.crit/aider-conventions.md` + adds entry under `read:` in `.aider.conf.yml` | `~/.crit-conventions.md` + adds entry under `read:` in `~/.aider.conf.yml` |
 | Gemini CLI | `crit install gemini` | `.gemini/skills/crit-cli/SKILL.md` + `.gemini/commands/crit.toml` + `.gemini/policies/crit.toml` + `.gemini/settings.json` (merged) | `~/.gemini/skills/crit-cli/SKILL.md` + `~/.gemini/commands/crit.toml` + `~/.gemini/policies/crit.toml` + `~/.gemini/settings.json` (merged) |
 | Grok | `crit install grok` | `.grok/skills/crit/SKILL.md` + `.grok/skills/crit-cli/SKILL.md` | `~/.grok/skills/crit/SKILL.md` + `~/.grok/skills/crit-cli/SKILL.md` |
+| Amp | `crit install ampcode` | `.agents/skills/crit/SKILL.md` + `.agents/skills/crit-cli/SKILL.md` | `~/.config/agents/skills/crit/SKILL.md` + `~/.config/agents/skills/crit-cli/SKILL.md` |
 
 ## Plugin marketplace (Claude Code)
 
