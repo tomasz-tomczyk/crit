@@ -531,7 +531,7 @@ func TestBuildLiveDaemonArgs(t *testing.T) {
 	}
 }
 
-func TestRunLive_ColdStartLeavesBrowserOpeningToDaemon(t *testing.T) {
+func TestRunLive_ColdStartBrowserOwnership(t *testing.T) {
 	originalStart := startLiveDaemon
 	originalRunClient := runLiveClient
 	originalInstallSignalHandler := installLiveDaemonSignalHandler
@@ -553,38 +553,58 @@ func TestRunLive_ColdStartLeavesBrowserOpeningToDaemon(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	var daemonArgs []string
-	startLiveDaemon = func(_ string, args []string) (daemon.SessionEntry, error) {
-		daemonArgs = append([]string(nil), args...)
-		return daemon.SessionEntry{PID: os.Getpid(), Port: 43123}, nil
-	}
-	clientRan := false
-	runLiveClient = func(daemon.SessionEntry, string) bool {
-		clientRan = true
-		return false
-	}
-	signalHandlerInstalled := false
-	installLiveDaemonSignalHandler = func(int) {
-		signalHandlerInstalled = true
-	}
-	browserOpenCalls := 0
-	launchLiveBrowser = func(string, string) {
-		browserOpenCalls++
+	tests := []struct {
+		name             string
+		args             []string
+		wantDaemonNoOpen bool
+	}{
+		{
+			name: "default leaves opening to daemon",
+			args: []string{upstream.URL},
+		},
+		{
+			name:             "no-open disables daemon opening",
+			args:             []string{"--no-open", upstream.URL},
+			wantDaemonNoOpen: true,
+		},
 	}
 
-	RunLive([]string{upstream.URL})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var daemonArgs []string
+			startLiveDaemon = func(_ string, args []string) (daemon.SessionEntry, error) {
+				daemonArgs = append([]string(nil), args...)
+				return daemon.SessionEntry{PID: os.Getpid(), Port: 43123}, nil
+			}
+			clientRan := false
+			runLiveClient = func(daemon.SessionEntry, string) bool {
+				clientRan = true
+				return false
+			}
+			signalHandlerInstalled := false
+			installLiveDaemonSignalHandler = func(int) {
+				signalHandlerInstalled = true
+			}
+			browserOpenCalls := 0
+			launchLiveBrowser = func(string, string) {
+				browserOpenCalls++
+			}
 
-	if !signalHandlerInstalled {
-		t.Fatal("daemon signal handler was not installed")
-	}
-	if !clientRan {
-		t.Fatal("review client did not run")
-	}
-	if containsArgPair(daemonArgs, "--no-open", "") {
-		t.Fatalf("cold-start daemon args unexpectedly disable browser opening: %v", daemonArgs)
-	}
-	if browserOpenCalls != 0 {
-		t.Fatalf("cold-start client launched the browser %d times; the daemon owns the initial browser open", browserOpenCalls)
+			RunLive(tt.args)
+
+			if !signalHandlerInstalled {
+				t.Fatal("daemon signal handler was not installed")
+			}
+			if !clientRan {
+				t.Fatal("review client did not run")
+			}
+			if got := containsArgPair(daemonArgs, "--no-open", ""); got != tt.wantDaemonNoOpen {
+				t.Fatalf("daemon --no-open = %v, want %v; args: %v", got, tt.wantDaemonNoOpen, daemonArgs)
+			}
+			if browserOpenCalls != 0 {
+				t.Fatalf("cold-start client launched the browser %d times; the daemon owns the initial browser open", browserOpenCalls)
+			}
+		})
 	}
 }
 
