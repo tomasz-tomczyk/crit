@@ -1,10 +1,20 @@
 package comment
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func outputConfigJSON(t *testing.T, output string) []byte {
+	t.Helper()
+	data, err := json.Marshal(map[string]string{"output": output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
 
 func TestParseCommentFlags(t *testing.T) {
 	tests := []struct {
@@ -114,7 +124,7 @@ func TestResolveCommentFlagsOutputPrecedence(t *testing.T) {
 	t.Chdir(projectDir)
 
 	configuredOutput := filepath.Join(projectDir, "reviews")
-	configData := []byte(`{"output":` + `"` + configuredOutput + `"` + `}`)
+	configData := outputConfigJSON(t, configuredOutput)
 	if err := os.WriteFile(filepath.Join(projectDir, ".crit.config.json"), configData, 0o644); err != nil {
 		t.Fatal(err)
 	}

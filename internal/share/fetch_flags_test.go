@@ -1,6 +1,7 @@
 package share
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -57,21 +58,26 @@ func TestResolveFetchOutputDirOutputPrecedence(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(projectDir)
 	configuredOutput := filepath.Join(projectDir, "configured")
+	configData, err := json.Marshal(map[string]string{"output": configuredOutput})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(
 		filepath.Join(projectDir, ".crit.config.json"),
-		[]byte(`{"output":"`+configuredOutput+`"}`),
+		configData,
 		0o644,
 	); err != nil {
 		t.Fatal(err)
 	}
 
+	explicitOutput := t.TempDir()
 	tests := []struct {
 		name string
 		args []string
 		want string
 	}{
 		{name: "configured output", want: configuredOutput},
-		{name: "explicit output wins", args: []string{"--output", "/explicit"}, want: "/explicit"},
+		{name: "explicit output wins", args: []string{"--output", explicitOutput}, want: explicitOutput},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -84,5 +90,11 @@ func TestResolveFetchOutputDirOutputPrecedence(t *testing.T) {
 				t.Fatalf("review path = %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+func TestResolveFetchReviewPathParseError(t *testing.T) {
+	if _, err := resolveFetchReviewPath([]string{"--output"}); err == nil {
+		t.Fatal("expected missing output value error")
 	}
 }

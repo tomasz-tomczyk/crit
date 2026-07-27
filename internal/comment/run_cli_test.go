@@ -118,6 +118,37 @@ func TestRunComment_Clear(t *testing.T) {
 	}
 }
 
+func TestRunComment_ReplyUsesResolvedReviewPath(t *testing.T) {
+	outputDir := t.TempDir()
+	reviewPath := filepath.Join(outputDir, ".crit")
+	if err := saveCritJSON(reviewPath, CritJSON{
+		ReviewComments: []Comment{{ID: "r_reply", Body: "parent", Scope: "review"}},
+		Files:          map[string]CritJSONFile{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RunComment([]string{
+		"--output", outputDir,
+		"--reply-to", "r_reply",
+		"--author", "bot",
+		"done",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cj, err := loadCritJSON(reviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cj.ReviewComments) != 1 || len(cj.ReviewComments[0].Replies) != 1 {
+		t.Fatalf("review comments = %+v, want one reply", cj.ReviewComments)
+	}
+	if cj.ReviewComments[0].Replies[0].Body != "done" {
+		t.Fatalf("reply body = %q, want done", cj.ReviewComments[0].Replies[0].Body)
+	}
+}
+
 func TestRunComment_ReplyMissingBody(t *testing.T) {
 	err := RunComment([]string{"--reply-to", "c_abc"})
 	if err == nil {

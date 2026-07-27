@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -46,9 +47,14 @@ func TestCurrentConfigOutputPrecedence(t *testing.T) {
 	t.Setenv("HOME", homeDir)
 	t.Chdir(projectDir)
 
+	globalOutput := filepath.Join(t.TempDir(), "global")
+	globalData, err := json.Marshal(map[string]string{"output": globalOutput})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(
 		filepath.Join(homeDir, ".crit.config.json"),
-		[]byte(`{"output":"/global"}`),
+		globalData,
 		0o644,
 	); err != nil {
 		t.Fatal(err)
@@ -58,13 +64,18 @@ func TestCurrentConfigOutputPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ResolveOutputDir("", cfg); got != "/global" {
-		t.Fatalf("global output = %q, want /global", got)
+	if got := ResolveOutputDir("", cfg); got != globalOutput {
+		t.Fatalf("global output = %q, want %q", got, globalOutput)
 	}
 
+	projectOutput := filepath.Join(t.TempDir(), "project")
+	projectData, err := json.Marshal(map[string]string{"output": projectOutput})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(
 		filepath.Join(projectDir, ".crit.config.json"),
-		[]byte(`{"output":"/project"}`),
+		projectData,
 		0o644,
 	); err != nil {
 		t.Fatal(err)
@@ -73,11 +84,12 @@ func TestCurrentConfigOutputPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ResolveOutputDir("", cfg); got != "/project" {
-		t.Fatalf("project output = %q, want /project", got)
+	if got := ResolveOutputDir("", cfg); got != projectOutput {
+		t.Fatalf("project output = %q, want %q", got, projectOutput)
 	}
-	if got := ResolveOutputDir("/explicit", cfg); got != "/explicit" {
-		t.Fatalf("explicit output = %q, want /explicit", got)
+	explicitOutput := t.TempDir()
+	if got := ResolveOutputDir(explicitOutput, cfg); got != explicitOutput {
+		t.Fatalf("explicit output = %q, want %q", got, explicitOutput)
 	}
 }
 

@@ -53,6 +53,17 @@ func resolvePullFlags(f *pullFlags) error {
 	return nil
 }
 
+func parseResolvedPullFlags(args []string) (pullFlags, error) {
+	f, err := parsePullFlags(args)
+	if err != nil {
+		return pullFlags{}, err
+	}
+	if err := resolvePullFlags(&f); err != nil {
+		return pullFlags{}, err
+	}
+	return f, nil
+}
+
 func shouldRedirectReviewForPR(prFlag int, pinnedOutput bool) bool {
 	return prFlag != 0 && !pinnedOutput
 }
@@ -62,11 +73,8 @@ func RunPull(args []string) error { //nolint:gocyclo
 		return err
 	}
 
-	f, err := parsePullFlags(args)
+	f, err := parseResolvedPullFlags(args)
 	if err != nil {
-		return err
-	}
-	if err := resolvePullFlags(&f); err != nil {
 		return err
 	}
 

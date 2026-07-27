@@ -278,7 +278,7 @@ func TestResolveCommentsListFlagsOutputPrecedence(t *testing.T) {
 	t.Chdir(projectDir)
 
 	configuredOutput := filepath.Join(projectDir, "reviews")
-	configData := []byte(`{"output":` + `"` + configuredOutput + `"` + `}`)
+	configData := outputConfigJSON(t, configuredOutput)
 	if err := os.WriteFile(filepath.Join(projectDir, ".crit.config.json"), configData, 0o644); err != nil {
 		t.Fatal(err)
 	}

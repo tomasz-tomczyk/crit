@@ -76,6 +76,14 @@ func TestRunUnpublish_NoReviewFile(t *testing.T) {
 	}
 }
 
+func TestRunUnpublish_ParseError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	if err := RunUnpublish([]string{"--output"}); err == nil {
+		t.Fatal("expected missing output value error")
+	}
+}
+
 func TestParseShareFlags(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -162,13 +170,14 @@ func TestParseShareFlags(t *testing.T) {
 
 func TestApplyShareConfigDefaultsOutputPrecedence(t *testing.T) {
 	cfg := config.Config{Output: "/configured", ShareURL: "https://configured.example"}
+	explicitOutput := t.TempDir()
 	tests := []struct {
 		name string
 		in   string
 		want string
 	}{
 		{name: "configured output", want: "/configured"},
-		{name: "explicit output wins", in: "/explicit", want: "/explicit"},
+		{name: "explicit output wins", in: explicitOutput, want: explicitOutput},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -187,13 +196,14 @@ func TestApplyShareConfigDefaultsOutputPrecedence(t *testing.T) {
 
 func TestApplyUnpublishConfigDefaultsOutputPrecedence(t *testing.T) {
 	cfg := config.Config{Output: "/configured", ShareURL: "https://configured.example"}
+	explicitOutput := t.TempDir()
 	tests := []struct {
 		name string
 		in   string
 		want string
 	}{
 		{name: "configured output", want: "/configured"},
-		{name: "explicit output wins", in: "/explicit", want: "/explicit"},
+		{name: "explicit output wins", in: explicitOutput, want: explicitOutput},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -205,6 +215,49 @@ func TestApplyUnpublishConfigDefaultsOutputPrecedence(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Fatalf("resolved output = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseUnpublishFlags(t *testing.T) {
+	outputDir := t.TempDir()
+	tests := []struct {
+		name    string
+		args    []string
+		want    unpublishFlags
+		wantErr bool
+	}{
+		{name: "empty"},
+		{
+			name: "all values",
+			args: []string{"--output", outputDir, "--share-url", "https://example.test", "one.md", "two.md"},
+			want: unpublishFlags{
+				outputDir: outputDir,
+				svcURL:    "https://example.test",
+				files:     []string{"one.md", "two.md"},
+			},
+		},
+		{name: "missing output", args: []string{"--output"}, wantErr: true},
+		{name: "missing share URL", args: []string{"--share-url"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseUnpublishFlags(tt.args)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.outputDir != tt.want.outputDir || got.svcURL != tt.want.svcURL {
+				t.Fatalf("flags = %+v, want %+v", got, tt.want)
+			}
+			if strings.Join(got.files, ",") != strings.Join(tt.want.files, ",") {
+				t.Fatalf("files = %v, want %v", got.files, tt.want.files)
 			}
 		})
 	}

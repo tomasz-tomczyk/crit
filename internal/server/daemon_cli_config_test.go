@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,17 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
+
+func writeDaemonOutputConfig(t *testing.T, dir, output string) {
+	t.Helper()
+	data, err := json.Marshal(map[string]string{"output": output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".crit.config.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func resetBranchOverride(t *testing.T) {
 	t.Helper()
@@ -654,7 +666,8 @@ func TestResolveServerConfig_OutputDir(t *testing.T) {
 		vcs.SetDefaultBranchOverride("")
 
 		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"output": "/tmp/cfg-out"}`), 0644)
+		configuredOutput := t.TempDir()
+		writeDaemonOutputConfig(t, dir, configuredOutput)
 		homeDir := t.TempDir()
 		testutil.SetHome(t, homeDir)
 
@@ -666,8 +679,8 @@ func TestResolveServerConfig_OutputDir(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if sc.OutputDir != "/tmp/cfg-out" {
-			t.Errorf("outputDir = %q, want /tmp/cfg-out (from config)", sc.OutputDir)
+		if sc.OutputDir != configuredOutput {
+			t.Errorf("outputDir = %q, want %q (from config)", sc.OutputDir, configuredOutput)
 		}
 	})
 
@@ -675,7 +688,7 @@ func TestResolveServerConfig_OutputDir(t *testing.T) {
 		vcs.SetDefaultBranchOverride("")
 
 		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"output": "/tmp/cfg-out"}`), 0644)
+		writeDaemonOutputConfig(t, dir, t.TempDir())
 		homeDir := t.TempDir()
 		testutil.SetHome(t, homeDir)
 
@@ -700,7 +713,7 @@ func TestResolveServerConfig_OutputDir(t *testing.T) {
 		vcs.SetDefaultBranchOverride("")
 
 		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"output": "/tmp/cfg-out"}`), 0644)
+		writeDaemonOutputConfig(t, dir, t.TempDir())
 		homeDir := t.TempDir()
 		testutil.SetHome(t, homeDir)
 
@@ -708,12 +721,14 @@ func TestResolveServerConfig_OutputDir(t *testing.T) {
 		os.Chdir(dir)
 		defer os.Chdir(origDir)
 
-		sc, err := ResolveDaemonCLIConfig([]string{"--output", "/tmp/explicit", "--plan-dir", "/tmp/plan"})
+		explicitOutput := t.TempDir()
+		planDir := t.TempDir()
+		sc, err := ResolveDaemonCLIConfig([]string{"--output", explicitOutput, "--plan-dir", planDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if sc.OutputDir != "/tmp/explicit" {
-			t.Errorf("outputDir = %q, want /tmp/explicit", sc.OutputDir)
+		if sc.OutputDir != explicitOutput {
+			t.Errorf("outputDir = %q, want %q", sc.OutputDir, explicitOutput)
 		}
 	})
 }

@@ -53,13 +53,14 @@ func TestParsePushFlags(t *testing.T) {
 
 func TestResolvePushFlagsOutputPrecedence(t *testing.T) {
 	configuredOutput := configureOutputForTest(t)
+	explicitOutput := t.TempDir()
 	tests := []struct {
 		name string
 		in   string
 		want string
 	}{
 		{name: "configured output", want: configuredOutput},
-		{name: "explicit output wins", in: "/explicit", want: "/explicit"},
+		{name: "explicit output wins", in: explicitOutput, want: explicitOutput},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -76,6 +77,29 @@ func TestResolvePushFlagsOutputPrecedence(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseResolvedPushFlags(t *testing.T) {
+	configuredOutput := configureOutputForTest(t)
+
+	t.Run("success loads configured output", func(t *testing.T) {
+		f, err := parseResolvedPushFlags([]string{"--dry-run", "42"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !f.dryRun || f.prFlag != 42 {
+			t.Fatalf("flags = %+v, want dry-run PR 42", f)
+		}
+		if f.configuredOutput != configuredOutput {
+			t.Fatalf("configuredOutput = %q, want %q", f.configuredOutput, configuredOutput)
+		}
+	})
+
+	t.Run("parse error", func(t *testing.T) {
+		if _, err := parseResolvedPushFlags([]string{"--output"}); err == nil {
+			t.Fatal("expected missing output value error")
+		}
+	})
 }
 
 func TestParsePushFlags_NonNumericExitCode(t *testing.T) {

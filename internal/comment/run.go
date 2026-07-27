@@ -197,14 +197,6 @@ func commentUsageError() error {
 	return clicmd.Usage("invalid comment usage")
 }
 
-func runCommentLineLevelScoped(loc string, commentArgs []string, author, userID, outputDir string, scope session.InheritedScope) error {
-	critPath, err := review.ResolveReviewPath(outputDir)
-	if err != nil {
-		return err
-	}
-	return runCommentLineLevelAtPath(loc, commentArgs, author, userID, critPath, scope)
-}
-
 func runCommentLineLevelAtPath(loc string, commentArgs []string, author, userID, critPath string, scope session.InheritedScope) error {
 	colonIdx := strings.LastIndex(loc, ":")
 	lineSpec := loc[colonIdx+1:]

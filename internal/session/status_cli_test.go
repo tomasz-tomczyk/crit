@@ -87,6 +87,29 @@ func TestRunStatusUsesConfiguredOutputWithoutDaemon(t *testing.T) {
 	}
 }
 
+func TestResolveStatusReviewPathCentralizedFallback(t *testing.T) {
+	cwd := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(cwd)
+	resolvedCWD, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := resolveStatusReviewPath(resolvedCWD, "feature", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := daemon.SessionKey(resolvedCWD, "feature", nil)
+	want, err := daemon.ReviewFilePath(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("review path = %q, want centralized path %q", got, want)
+	}
+}
+
 func TestRunStatusLiveSessionWinsOverConfiguredOutput(t *testing.T) {
 	projectDir := t.TempDir()
 	configuredOutput := filepath.Join(projectDir, "configured-output")

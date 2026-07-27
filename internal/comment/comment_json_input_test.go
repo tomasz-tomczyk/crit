@@ -11,6 +11,13 @@ import (
 	"testing"
 )
 
+func TestBulkAddCommentsAtPathEmptyInput(t *testing.T) {
+	err := bulkAddCommentsToCritJSONAtPath(nil, "", "", filepath.Join(t.TempDir(), ".crit"), inheritedScope{})
+	if err == nil || !strings.Contains(err.Error(), "no comment entries") {
+		t.Fatalf("error = %v, want no comment entries", err)
+	}
+}
+
 func TestReadCommentJSONInputFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bulk.json")
