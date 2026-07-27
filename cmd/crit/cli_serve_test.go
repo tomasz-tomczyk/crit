@@ -181,7 +181,7 @@ func TestResolveServeReviewPath(t *testing.T) {
 
 func TestResolveServeReviewPathPlanBeatsConfiguredOutput(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	t.Chdir(dir)
 	if err := os.WriteFile(
 		filepath.Join(dir, ".crit.config.json"),

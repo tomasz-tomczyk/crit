@@ -77,7 +77,7 @@ func TestRunUnpublish_NoReviewFile(t *testing.T) {
 }
 
 func TestRunUnpublish_ParseError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	t.Chdir(t.TempDir())
 	if err := RunUnpublish([]string{"--output"}); err == nil {
 		t.Fatal("expected missing output value error")
@@ -265,7 +265,7 @@ func TestParseUnpublishFlags(t *testing.T) {
 
 func TestLoadShareConfigRelativeOutputAnchoredToRepoRoot(t *testing.T) {
 	repoDir := testutil.InitTestRepo(t)
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	if err := os.WriteFile(
 		filepath.Join(repoDir, ".crit.config.json"),
 		[]byte(`{"output":"reviews"}`),

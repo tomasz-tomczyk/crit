@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func configureOutputForTest(t *testing.T) string {
 	t.Helper()
 	projectDir := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	t.Chdir(projectDir)
 	configuredOutput := filepath.Join(projectDir, "configured")
 	data, err := json.Marshal(map[string]string{"output": configuredOutput})

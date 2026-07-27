@@ -44,7 +44,7 @@ func TestRunConfig_ShowResolved(t *testing.T) {
 func TestCurrentConfigOutputPrecedence(t *testing.T) {
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.SetHome(t, homeDir)
 	t.Chdir(projectDir)
 
 	globalOutput := filepath.Join(t.TempDir(), "global")
@@ -95,7 +95,7 @@ func TestCurrentConfigOutputPrecedence(t *testing.T) {
 
 func TestCurrentConfigRelativeOutputAnchoredToRepoRoot(t *testing.T) {
 	repoDir := testutil.InitTestRepo(t)
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	if err := os.WriteFile(
 		filepath.Join(repoDir, ".crit.config.json"),
 		[]byte(`{"output":"reviews"}`),

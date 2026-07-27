@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func TestParseFetchOutputDir(t *testing.T) {
@@ -55,7 +56,7 @@ func TestParseFetchOutputDir_UnknownArg(t *testing.T) {
 
 func TestResolveFetchOutputDirOutputPrecedence(t *testing.T) {
 	projectDir := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	t.Chdir(projectDir)
 	configuredOutput := filepath.Join(projectDir, "configured")
 	configData, err := json.Marshal(map[string]string{"output": configuredOutput})

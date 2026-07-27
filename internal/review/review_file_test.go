@@ -275,7 +275,7 @@ func TestResolveCommandReviewPathExplicitRelativeOutputUsesCurrentDirectory(t *t
 
 func TestResolveCommandReviewPathPrecedence(t *testing.T) {
 	cwd := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	t.Chdir(cwd)
 	resolvedCWD, err := daemon.ResolvedCWD()
 	if err != nil {

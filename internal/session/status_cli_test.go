@@ -66,7 +66,7 @@ func writeStatusReview(t *testing.T, reviewPath string) {
 func TestRunStatusUsesConfiguredOutputWithoutDaemon(t *testing.T) {
 	projectDir := t.TempDir()
 	outputDir := filepath.Join(projectDir, "configured-output")
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	t.Chdir(projectDir)
 	if err := os.WriteFile(
 		filepath.Join(projectDir, ".crit.config.json"),
@@ -89,7 +89,7 @@ func TestRunStatusUsesConfiguredOutputWithoutDaemon(t *testing.T) {
 
 func TestResolveStatusReviewPathCentralizedFallback(t *testing.T) {
 	cwd := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	t.Chdir(cwd)
 	resolvedCWD, err := daemon.ResolvedCWD()
 	if err != nil {
@@ -114,7 +114,7 @@ func TestRunStatusLiveSessionWinsOverConfiguredOutput(t *testing.T) {
 	projectDir := t.TempDir()
 	configuredOutput := filepath.Join(projectDir, "configured-output")
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.SetHome(t, homeDir)
 	t.Chdir(projectDir)
 	if err := os.WriteFile(
 		filepath.Join(projectDir, ".crit.config.json"),
@@ -164,7 +164,7 @@ func TestRunStatusLiveSessionWinsOverConfiguredOutput(t *testing.T) {
 func TestRunStatusFindsRepoRootSessionFromNestedDirectory(t *testing.T) {
 	repoDir := testutil.InitTestRepo(t)
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.SetHome(t, homeDir)
 	configuredOutput := filepath.Join(repoDir, "configured-output")
 	if err := os.WriteFile(
 		filepath.Join(repoDir, ".crit.config.json"),

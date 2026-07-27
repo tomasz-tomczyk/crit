@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func writeTestReview(t *testing.T, dir string, cj CritJSON) string {
@@ -274,7 +276,7 @@ func TestRunComments_PlanAndOutputConflict(t *testing.T) {
 
 func TestResolveCommentsListFlagsOutputPrecedence(t *testing.T) {
 	projectDir := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	t.Chdir(projectDir)
 
 	configuredOutput := filepath.Join(projectDir, "reviews")
@@ -321,7 +323,7 @@ func TestResolveCommentsListFlagsOutputPrecedence(t *testing.T) {
 
 func TestResolveCommentsCritPathExplicitPathWinsConfiguredOutput(t *testing.T) {
 	projectDir := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	t.Chdir(projectDir)
 	if err := os.WriteFile(
 		filepath.Join(projectDir, ".crit.config.json"),

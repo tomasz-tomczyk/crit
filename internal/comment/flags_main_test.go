@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func outputConfigJSON(t *testing.T, output string) []byte {
@@ -120,7 +122,7 @@ func TestParseCommentFlags(t *testing.T) {
 
 func TestResolveCommentFlagsOutputPrecedence(t *testing.T) {
 	projectDir := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	t.Chdir(projectDir)
 
 	configuredOutput := filepath.Join(projectDir, "reviews")

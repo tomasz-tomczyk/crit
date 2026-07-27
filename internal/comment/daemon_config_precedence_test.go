@@ -13,13 +13,14 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func TestRunCommentDaemonThenConfiguredOutputPrecedence(t *testing.T) {
 	projectDir := t.TempDir()
 	daemonOutput := filepath.Join(projectDir, "daemon-output")
 	configuredOutput := filepath.Join(projectDir, "configured-output")
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHome(t, t.TempDir())
 	t.Chdir(projectDir)
 	if err := os.WriteFile(
 		filepath.Join(projectDir, ".crit.config.json"),
