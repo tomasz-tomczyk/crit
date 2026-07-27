@@ -179,6 +179,33 @@ func TestResolveServeReviewPath(t *testing.T) {
 	})
 }
 
+func TestResolveServeReviewPathPlanBeatsConfiguredOutput(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(dir)
+	if err := os.WriteFile(
+		filepath.Join(dir, ".crit.config.json"),
+		[]byte(`{"output":"/tmp/configured"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	planDir := filepath.Join(dir, "plan")
+	sc, err := server.ResolveDaemonCLIConfig([]string{"--plan-dir", planDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveServeReviewPath(sc.OutputDir, sc.PlanDir, "deadbeef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(planDir, ".crit")
+	if got != want {
+		t.Fatalf("review path = %q, want plan review path %q", got, want)
+	}
+}
+
 func TestServeSessionKey_Override(t *testing.T) {
 	sc := &server.DaemonCLIConfig{SessionKeyOverride: "839f3b4cd5d6"}
 	if got := serveSessionKey(sc); got != "839f3b4cd5d6" {

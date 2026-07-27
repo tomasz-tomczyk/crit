@@ -670,6 +670,52 @@ func TestResolveServerConfig_OutputDir(t *testing.T) {
 			t.Errorf("outputDir = %q, want /tmp/cfg-out (from config)", sc.OutputDir)
 		}
 	})
+
+	t.Run("plan dir wins over config output", func(t *testing.T) {
+		vcs.SetDefaultBranchOverride("")
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"output": "/tmp/cfg-out"}`), 0644)
+		homeDir := t.TempDir()
+		testutil.SetHome(t, homeDir)
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		planDir := filepath.Join(dir, "plan")
+		sc, err := ResolveDaemonCLIConfig([]string{"--plan-dir", planDir})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.OutputDir != "" {
+			t.Errorf("outputDir = %q, want empty so plan dir remains authoritative", sc.OutputDir)
+		}
+		if sc.PlanDir != planDir {
+			t.Errorf("planDir = %q, want %q", sc.PlanDir, planDir)
+		}
+	})
+
+	t.Run("explicit output wins over plan dir and config", func(t *testing.T) {
+		vcs.SetDefaultBranchOverride("")
+
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"output": "/tmp/cfg-out"}`), 0644)
+		homeDir := t.TempDir()
+		testutil.SetHome(t, homeDir)
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := ResolveDaemonCLIConfig([]string{"--output", "/tmp/explicit", "--plan-dir", "/tmp/plan"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.OutputDir != "/tmp/explicit" {
+			t.Errorf("outputDir = %q, want /tmp/explicit", sc.OutputDir)
+		}
+	})
 }
 
 func TestResolveDaemonCLIConfig_NotifyOnRoundReady(t *testing.T) {

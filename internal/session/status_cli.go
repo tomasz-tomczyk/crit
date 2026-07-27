@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/reviewpath"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
@@ -41,12 +43,9 @@ func RunStatus(args []string) error {
 		}
 	}
 
-	var revPath string
-	if matchedSession != nil && matchedSession.ReviewPath != "" {
-		revPath = matchedSession.ReviewPath
-	} else {
-		key := daemon.SessionKey(cwd, branch, nil)
-		revPath, _ = daemon.ReviewFilePath(key)
+	revPath, err := resolveStatusReviewPath(cwd, branch, matchedSession)
+	if err != nil {
+		return err
 	}
 
 	revExists := false
@@ -61,6 +60,21 @@ func RunStatus(args []string) error {
 
 	printStatusHuman(vcsName, branch, revPath, revExists, matchedSession)
 	return nil
+}
+
+func resolveStatusReviewPath(cwd, branch string, matchedSession *daemon.SessionEntry) (string, error) {
+	if matchedSession != nil && matchedSession.ReviewPath != "" {
+		return matchedSession.ReviewPath, nil
+	}
+	cfg, err := config.LoadCurrentConfig()
+	if err != nil {
+		return "", err
+	}
+	if cfg.Output != "" {
+		return reviewpath.FromOutputDir(cfg.Output)
+	}
+	key := daemon.SessionKey(cwd, branch, nil)
+	return daemon.ReviewFilePath(key)
 }
 
 func printStatusJSON(vcsName, branch, revPath string, revExists bool, session *daemon.SessionEntry) {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/reviewpath"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
@@ -35,11 +36,7 @@ var errReviewFileAmbiguousForBranch = errors.New("multiple review files match br
 //  5. If no daemon found, compute the centralized path: ~/.crit/reviews/<key>
 func ResolveReviewPath(outputDir string) (string, error) {
 	if outputDir != "" {
-		abs, err := filepath.Abs(outputDir)
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(abs, ".crit"), nil
+		return reviewpath.FromOutputDir(outputDir)
 	}
 
 	cwd, err := daemon.ResolvedCWD()
@@ -72,11 +69,7 @@ func ResolveReviewPathWithArgs(outputDir string, fileArgs []string) (string, err
 		return ResolveReviewPath(outputDir)
 	}
 	if outputDir != "" {
-		abs, err := filepath.Abs(outputDir)
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(abs, ".crit"), nil
+		return reviewpath.FromOutputDir(outputDir)
 	}
 
 	cwd, err := daemon.ResolvedCWD()
