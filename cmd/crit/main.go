@@ -23,8 +23,8 @@ func main() {
 		clicmd.Exit(session.RunReview(nil))
 		return
 	}
-	if handler, ok := commandDispatch[os.Args[1]]; ok {
-		handler(os.Args[2:])
+	if handled, err := dispatchCLI(os.Args[1:]); handled {
+		clicmd.Exit(err)
 		return
 	}
 	args := resolveAtPrefixedArgs(os.Args[1:])

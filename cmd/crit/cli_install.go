@@ -46,7 +46,10 @@ func parseInstallArgs(args []string) (target string, force bool) {
 }
 
 func printInstallUsage() {
-	fmt.Fprintln(os.Stderr, "Usage: crit install <agent|prompts|story-prompts>")
+	fmt.Fprintln(os.Stderr, "Usage: crit install [--force|-f] <agent|all|prompts|story-prompts>")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Options:")
+	fmt.Fprintln(os.Stderr, "  -f, --force  Overwrite existing integration files")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Available agents:")
 	for _, a := range availableIntegrations() {
