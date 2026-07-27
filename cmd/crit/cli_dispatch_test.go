@@ -246,17 +246,37 @@ func captureStderr(t *testing.T, fn func()) string {
 		t.Fatal(err)
 	}
 	os.Stderr = w
+	var out strings.Builder
+	done := make(chan error, 1)
+	go func() {
+		_, copyErr := io.Copy(&out, r)
+		done <- copyErr
+	}()
+	writerClosed := false
+	copyDone := false
+	defer func() {
+		os.Stderr = old
+		if !writerClosed {
+			_ = w.Close()
+		}
+		if !copyDone {
+			<-done
+		}
+		_ = r.Close()
+	}()
+
 	fn()
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
+	writerClosed = true
 	os.Stderr = old
-	out, err := io.ReadAll(r)
-	if err != nil {
+	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
+	copyDone = true
 	if err := r.Close(); err != nil {
 		t.Fatal(err)
 	}
-	return string(out)
+	return out.String()
 }
