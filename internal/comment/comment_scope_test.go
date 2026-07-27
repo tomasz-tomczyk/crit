@@ -28,6 +28,16 @@ func writeReviewFileWithScope(t *testing.T, dir, scope string) {
 	}
 }
 
+func TestLoadCritJSONForOutputDir(t *testing.T) {
+	outputDir := t.TempDir()
+	writeReviewFileWithScope(t, outputDir, "layer")
+
+	cj, ok := loadCritJSONForOutputDir(outputDir)
+	if !ok || cj.ActiveDiffScope != "layer" {
+		t.Fatalf("review = %+v, ok = %v; want layer scope", cj, ok)
+	}
+}
+
 func TestResolveCommentScope(t *testing.T) {
 	cases := []struct {
 		name        string

@@ -249,6 +249,15 @@ func TestRunShare_MissingFiles(t *testing.T) {
 	}
 }
 
+func TestRunShare_MissingFile(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(t.TempDir())
+	err := RunShare([]string{"missing.md"})
+	if err == nil || !strings.Contains(err.Error(), "reading missing.md") {
+		t.Fatalf("error = %v, want missing file error", err)
+	}
+}
+
 func TestRunShare_OutputFlagMissingValue(t *testing.T) {
 	err := RunShare([]string{"--output"})
 	if err == nil {

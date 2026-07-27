@@ -149,6 +149,61 @@ func TestRunComment_ReplyUsesResolvedReviewPath(t *testing.T) {
 	}
 }
 
+func TestRunComment_InvalidReviewReturnsErrors(t *testing.T) {
+	projectDir := t.TempDir()
+	t.Chdir(projectDir)
+	if err := os.WriteFile(filepath.Join(projectDir, "file.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outputDir := filepath.Join(projectDir, "output")
+	reviewPath := filepath.Join(outputDir, ".crit")
+	if err := os.MkdirAll(reviewPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(reviewPath, "review.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "review comment", args: []string{"body"}},
+		{name: "file comment", args: []string{"file.go", "body"}},
+		{name: "line comment", args: []string{"file.go:1", "body"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := append([]string{"--output", outputDir}, tt.args...)
+			if err := RunComment(args); err == nil {
+				t.Fatal("expected invalid review error")
+			}
+		})
+	}
+}
+
+func TestRunCommentLineLevelRejectsLiveReview(t *testing.T) {
+	reviewPath := filepath.Join(t.TempDir(), ".crit")
+	if err := saveCritJSON(reviewPath, CritJSON{
+		ReviewType: "live",
+		Files:      map[string]CritJSONFile{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runCommentLineLevelAtPath(
+		"file.go:1",
+		[]string{"file.go:1", "body"},
+		"bot",
+		"",
+		reviewPath,
+		inheritedScope{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "not supported for live reviews") {
+		t.Fatalf("error = %v, want live review rejection", err)
+	}
+}
+
 func TestRunComment_ReplyMissingBody(t *testing.T) {
 	err := RunComment([]string{"--reply-to", "c_abc"})
 	if err == nil {
