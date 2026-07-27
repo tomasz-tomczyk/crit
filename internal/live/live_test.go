@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/focus"
 )
 
@@ -527,6 +528,56 @@ func TestBuildLiveDaemonArgs(t *testing.T) {
 	fromCfg := buildLiveDaemonArgs("http://localhost:3000", "", liveCLIFlags{}, Config{PublicURL: "https://cfg.ts.net"}, false)
 	if !containsArgPair(fromCfg, "--public-url", "https://cfg.ts.net") {
 		t.Fatalf("missing config public-url: %v", fromCfg)
+	}
+}
+
+func TestRunLive_ColdStartLeavesBrowserOpeningToDaemon(t *testing.T) {
+	originalStart := startLiveDaemon
+	originalRunClient := runLiveClient
+	originalOpenBrowser := openLiveBrowser
+	t.Cleanup(func() {
+		startLiveDaemon = originalStart
+		runLiveClient = originalRunClient
+		openLiveBrowser = originalOpenBrowser
+	})
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body>ok</body></html>")
+	}))
+	defer upstream.Close()
+
+	var daemonArgs []string
+	startLiveDaemon = func(_ string, args []string) (daemon.SessionEntry, error) {
+		daemonArgs = append([]string(nil), args...)
+		return daemon.SessionEntry{PID: os.Getpid(), Port: 43123}, nil
+	}
+	clientRan := false
+	runLiveClient = func(daemon.SessionEntry, string) bool {
+		clientRan = true
+		return false
+	}
+	browserOpened := make(chan string, 1)
+	openLiveBrowser = func(url, _ string) {
+		browserOpened <- url
+	}
+
+	RunLive([]string{upstream.URL})
+
+	if !clientRan {
+		t.Fatal("review client did not run")
+	}
+	if containsArgPair(daemonArgs, "--no-open", "") {
+		t.Fatalf("cold-start daemon args unexpectedly disable browser opening: %v", daemonArgs)
+	}
+	select {
+	case openedURL := <-browserOpened:
+		t.Fatalf("cold-start client opened %s; the daemon owns the initial browser open", openedURL)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 
