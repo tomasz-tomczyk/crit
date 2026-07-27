@@ -250,6 +250,24 @@ func TestResolveReviewPathWithArgs(t *testing.T) {
 	})
 }
 
+func TestResolveCommandReviewPathExplicitRelativeOutputUsesCurrentDirectory(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "pkg")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(nested)
+
+	got, err := ResolveCommandReviewPath("reviews", filepath.Join(root, "configured"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(nested, "reviews", ".crit")
+	if got != want {
+		t.Fatalf("review path = %q, want explicit CWD-relative path %q", got, want)
+	}
+}
+
 func withFetchPRHeadInfo(t *testing.T, fn func(int) (*PRHeadInfo, error)) {
 	t.Helper()
 	prev := FetchPRHeadInfoFn

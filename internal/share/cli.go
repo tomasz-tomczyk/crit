@@ -23,19 +23,21 @@ import (
 )
 
 type shareFlags struct {
-	outputDir  string
-	svcURL     string
-	showQR     bool
-	org        string
-	visibility string
-	preview    string
-	files      []string
+	outputDir        string
+	configuredOutput string
+	svcURL           string
+	showQR           bool
+	org              string
+	visibility       string
+	preview          string
+	files            []string
 }
 
 type unpublishFlags struct {
-	outputDir string
-	svcURL    string
-	files     []string
+	outputDir        string
+	configuredOutput string
+	svcURL           string
+	files            []string
 }
 
 func postPreviewShare(htmlPath, svcURL, authToken string) (string, error) {
@@ -126,7 +128,7 @@ func parseShareFlags(args []string) (shareFlags, error) {
 }
 
 func applyShareConfigDefaults(sf *shareFlags, cfg config.Config) {
-	sf.outputDir = config.ResolveOutputDir(sf.outputDir, cfg)
+	sf.configuredOutput = cfg.Output
 	sf.svcURL = ResolveShareURL(sf.svcURL, cfg, config.DefaultShareURL)
 }
 
@@ -333,7 +335,7 @@ func RunShare(args []string) error { //nolint:gocyclo // CLI dispatcher
 		return err
 	}
 
-	critPath, err := review.ResolveReviewPath(sf.outputDir)
+	critPath, err := review.ResolveCommandReviewPath(sf.outputDir, sf.configuredOutput)
 	if err != nil {
 		return err
 	}
@@ -407,12 +409,13 @@ func parseFetchOutputDir(args []string) (string, error) {
 	return outputDir, nil
 }
 
-func resolveFetchOutputDir(args []string) (string, error) {
+func resolveFetchReviewPath(args []string) (string, error) {
 	outputDir, err := parseFetchOutputDir(args)
 	if err != nil {
 		return "", err
 	}
-	return config.ResolveOutputDir(outputDir, LoadShareConfig()), nil
+	cfg := LoadShareConfig()
+	return review.ResolveCommandReviewPath(outputDir, cfg.Output)
 }
 
 func printFetchedComments(webComments []WebComment) {
@@ -436,12 +439,7 @@ func RunFetch(args []string) error {
 	if err := checkProxyAuthCLIAllowed("crit fetch"); err != nil {
 		return err
 	}
-	outputDir, err := resolveFetchOutputDir(args)
-	if err != nil {
-		return err
-	}
-
-	critPath, err := review.ResolveReviewPath(outputDir)
+	critPath, err := resolveFetchReviewPath(args)
 	if err != nil {
 		return err
 	}
@@ -524,7 +522,7 @@ func parseUnpublishFlags(args []string) (unpublishFlags, error) {
 }
 
 func applyUnpublishConfigDefaults(f *unpublishFlags, cfg config.Config) {
-	f.outputDir = config.ResolveOutputDir(f.outputDir, cfg)
+	f.configuredOutput = cfg.Output
 	f.svcURL = ResolveShareURL(f.svcURL, cfg, config.DefaultShareURL)
 }
 
@@ -542,7 +540,7 @@ func RunUnpublish(args []string) error {
 	applyUnpublishConfigDefaults(&f, unpubCfg)
 	unpubAuthToken := ResolveAuthToken(unpubCfg)
 
-	critPath, err := review.ResolveReviewPathWithArgs(f.outputDir, f.files)
+	critPath, err := review.ResolveCommandReviewPathWithArgs(f.outputDir, f.configuredOutput, f.files)
 	if err != nil {
 		return err
 	}

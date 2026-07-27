@@ -62,6 +62,37 @@ func ResolveReviewPath(outputDir string) (string, error) {
 	return path, nil
 }
 
+// ResolveCommandReviewPath resolves a headless command's review identity.
+// Explicit output belongs to the current invocation and wins first. A live
+// daemon then preserves the identity selected when the review was launched,
+// followed by configured output and finally centralized storage.
+func ResolveCommandReviewPath(explicitOutput, configuredOutput string) (string, error) {
+	return resolveCommandReviewPathWithArgs(explicitOutput, configuredOutput, nil)
+}
+
+// ResolveCommandReviewPathWithArgs applies command-path precedence while
+// retaining file arguments for the centralized fallback session key.
+func ResolveCommandReviewPathWithArgs(explicitOutput, configuredOutput string, fileArgs []string) (string, error) {
+	return resolveCommandReviewPathWithArgs(explicitOutput, configuredOutput, fileArgs)
+}
+
+func resolveCommandReviewPathWithArgs(explicitOutput, configuredOutput string, fileArgs []string) (string, error) {
+	if explicitOutput != "" {
+		return reviewpath.FromOutputDir(explicitOutput)
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		return "", err
+	}
+	if path := ResolveReviewPathFromDaemon(cwd); path != "" {
+		return path, nil
+	}
+	if configuredOutput != "" {
+		return reviewpath.FromOutputDir(configuredOutput)
+	}
+	return ResolveReviewPathWithArgs("", fileArgs)
+}
+
 // resolveReviewPathWithArgs is like ResolveReviewPath but includes file args
 // in the session key, matching the key that file-mode sessions use.
 func ResolveReviewPathWithArgs(outputDir string, fileArgs []string) (string, error) {

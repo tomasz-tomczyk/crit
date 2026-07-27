@@ -25,6 +25,11 @@ func ClearCritJSON(outputDir string) error {
 	return clearCritJSON(outputDir)
 }
 
+// ClearReviewPath removes a resolved review identity folder.
+func ClearReviewPath(reviewPath string) error {
+	return clearReviewFolder(reviewPath)
+}
+
 // LoadSnapshotsFile reads snapshots.json from the given path.
 func LoadSnapshotsFile(snapshotsPath string) (SnapshotsFile, error) {
 	return loadSnapshotsFile(snapshotsPath)

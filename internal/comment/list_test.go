@@ -284,13 +284,14 @@ func TestResolveCommentsListFlagsOutputPrecedence(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		args       []string
-		wantOutput string
-		wantPlan   bool
+		name           string
+		args           []string
+		wantOutput     string
+		wantConfigured string
+		wantPlan       bool
 	}{
-		{name: "configured output", args: []string{"--json"}, wantOutput: configuredOutput},
-		{name: "explicit output wins", args: []string{"--output", "explicit", "--json"}, wantOutput: "explicit"},
+		{name: "configured output", args: []string{"--json"}, wantConfigured: configuredOutput},
+		{name: "explicit output wins", args: []string{"--output", "explicit", "--json"}, wantOutput: "explicit", wantConfigured: configuredOutput},
 		{name: "plan storage wins without conflict", args: []string{"--plan", "my-plan", "--json"}, wantPlan: true},
 	}
 	for _, tt := range tests {
@@ -308,6 +309,9 @@ func TestResolveCommentsListFlagsOutputPrecedence(t *testing.T) {
 				}
 				return
 			}
+			if f.configuredOutput != tt.wantConfigured {
+				t.Fatalf("configuredOutput = %q, want %q", f.configuredOutput, tt.wantConfigured)
+			}
 			if f.outputDir != tt.wantOutput {
 				t.Fatalf("outputDir = %q, want %q", f.outputDir, tt.wantOutput)
 			}
@@ -316,10 +320,26 @@ func TestResolveCommentsListFlagsOutputPrecedence(t *testing.T) {
 }
 
 func TestResolveCommentsCritPathExplicitPathWinsConfiguredOutput(t *testing.T) {
+	projectDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(projectDir)
+	if err := os.WriteFile(
+		filepath.Join(projectDir, ".crit.config.json"),
+		[]byte(`{"output":"configured"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
 	explicitPath := writeTestReview(t, t.TempDir(), CritJSON{})
-	f := commentsListFlags{
-		outputDir:    filepath.Join(t.TempDir(), "configured"),
-		explicitPath: explicitPath,
+	f, err := parseCommentsListFlags([]string{filepath.Join(explicitPath, "review.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resolveCommentsListFlags(&f); err != nil {
+		t.Fatal(err)
+	}
+	if f.configuredOutput != "" {
+		t.Fatalf("configured output was loaded despite explicit review path: %q", f.configuredOutput)
 	}
 	got, err := resolveCommentsCritPath(f)
 	if err != nil {

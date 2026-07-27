@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func TestRunConfig_Help(t *testing.T) {
@@ -76,6 +78,46 @@ func TestCurrentConfigOutputPrecedence(t *testing.T) {
 	}
 	if got := ResolveOutputDir("/explicit", cfg); got != "/explicit" {
 		t.Fatalf("explicit output = %q, want /explicit", got)
+	}
+}
+
+func TestCurrentConfigRelativeOutputAnchoredToRepoRoot(t *testing.T) {
+	repoDir := testutil.InitTestRepo(t)
+	t.Setenv("HOME", t.TempDir())
+	if err := os.WriteFile(
+		filepath.Join(repoDir, ".crit.config.json"),
+		[]byte(`{"output":"reviews"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(repoDir)
+	rootCfg, err := LoadCurrentConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nestedDir := filepath.Join(repoDir, "pkg")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(nestedDir)
+	nestedCfg, err := LoadCurrentConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	canonicalRepo, err := filepath.EvalSymlinks(repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(canonicalRepo, "reviews")
+	if rootCfg.Output != want {
+		t.Fatalf("root output = %q, want %q", rootCfg.Output, want)
+	}
+	if nestedCfg.Output != want {
+		t.Fatalf("nested output = %q, want %q", nestedCfg.Output, want)
 	}
 }
 

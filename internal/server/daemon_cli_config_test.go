@@ -718,6 +718,38 @@ func TestResolveServerConfig_OutputDir(t *testing.T) {
 	})
 }
 
+func TestResolveDaemonCLIConfigRelativeOutputAnchoredToRepoRoot(t *testing.T) {
+	defer resetBranchOverride(t)
+	vcs.SetDefaultBranchOverride("")
+	repoDir := testutil.InitTestRepo(t)
+	testutil.SetHome(t, t.TempDir())
+	if err := os.WriteFile(
+		filepath.Join(repoDir, ".crit.config.json"),
+		[]byte(`{"output":"reviews"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	nestedDir := filepath.Join(repoDir, "pkg")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(nestedDir)
+
+	sc, err := ResolveDaemonCLIConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalRepo, err := filepath.EvalSymlinks(repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(canonicalRepo, "reviews")
+	if sc.OutputDir != want {
+		t.Fatalf("outputDir = %q, want repo-relative %q", sc.OutputDir, want)
+	}
+}
+
 func TestResolveDaemonCLIConfig_NotifyOnRoundReady(t *testing.T) {
 	vcs.SetDefaultBranchOverride("")
 	dir := t.TempDir()

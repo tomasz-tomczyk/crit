@@ -204,7 +204,7 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) {
 	if configDir == "" {
 		configDir = daemonMustGetwd()
 	}
-	cfg := config.LoadConfig(configDir)
+	cfg := config.LoadConfigForCommands(configDir)
 
 	applyDaemonConfigDefaults(&sf, cfg)
 

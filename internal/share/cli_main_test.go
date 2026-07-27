@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func TestPromptShareConsent(t *testing.T) {
@@ -173,8 +174,12 @@ func TestApplyShareConfigDefaultsOutputPrecedence(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			sf := shareFlags{outputDir: tt.in}
 			applyShareConfigDefaults(&sf, cfg)
-			if sf.outputDir != tt.want {
-				t.Fatalf("outputDir = %q, want %q", sf.outputDir, tt.want)
+			got := sf.configuredOutput
+			if sf.outputDir != "" {
+				got = sf.outputDir
+			}
+			if got != tt.want {
+				t.Fatalf("resolved output = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -194,10 +199,41 @@ func TestApplyUnpublishConfigDefaultsOutputPrecedence(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := unpublishFlags{outputDir: tt.in}
 			applyUnpublishConfigDefaults(&f, cfg)
-			if f.outputDir != tt.want {
-				t.Fatalf("outputDir = %q, want %q", f.outputDir, tt.want)
+			got := f.configuredOutput
+			if f.outputDir != "" {
+				got = f.outputDir
+			}
+			if got != tt.want {
+				t.Fatalf("resolved output = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoadShareConfigRelativeOutputAnchoredToRepoRoot(t *testing.T) {
+	repoDir := testutil.InitTestRepo(t)
+	t.Setenv("HOME", t.TempDir())
+	if err := os.WriteFile(
+		filepath.Join(repoDir, ".crit.config.json"),
+		[]byte(`{"output":"reviews"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	nestedDir := filepath.Join(repoDir, "pkg")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(nestedDir)
+
+	cfg := LoadShareConfig()
+	canonicalRepo, err := filepath.EvalSymlinks(repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(canonicalRepo, "reviews")
+	if cfg.Output != want {
+		t.Fatalf("share output = %q, want repo-relative %q", cfg.Output, want)
 	}
 }
 

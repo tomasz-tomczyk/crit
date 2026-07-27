@@ -193,7 +193,10 @@ func addCommentToCritJSONScoped(filePath string, startLine, endLine int, body, a
 	if err != nil {
 		return err
 	}
+	return addCommentToCritJSONAtPath(filePath, startLine, endLine, body, author, userID, critPath, scope)
+}
 
+func addCommentToCritJSONAtPath(filePath string, startLine, endLine int, body, author, userID, critPath string, scope session.InheritedScope) error {
 	if isAbsoluteOrTraversal(filePath) {
 		return fmt.Errorf("path %q must be relative and within the repository", filePath)
 	}
@@ -218,7 +221,10 @@ func addReplyToCritJSON(commentID, body, author, userID string, resolve bool, ou
 	if err != nil {
 		return err
 	}
+	return addReplyToCritJSONAtPath(commentID, body, author, userID, resolve, critPath, filterPath)
+}
 
+func addReplyToCritJSONAtPath(commentID, body, author, userID string, resolve bool, critPath string, filterPath string) error {
 	cj, err := review.LoadCritJSON(critPath)
 	if err != nil {
 		return err
@@ -427,15 +433,17 @@ func parseLineSpec(spec string) (start, end int, err error) {
 //
 //nolint:unparam // globalUserID is part of the public contract; tests don't exercise it
 func bulkAddCommentsToCritJSONScoped(entries []BulkCommentEntry, globalAuthor, globalUserID string, outputDir string, scope session.InheritedScope) error {
-	if len(entries) == 0 {
-		return fmt.Errorf("no comment entries provided")
-	}
-
 	primaryPath, err := review.ResolveReviewPath(outputDir)
 	if err != nil {
 		return err
 	}
+	return bulkAddCommentsToCritJSONAtPath(entries, globalAuthor, globalUserID, primaryPath, scope)
+}
 
+func bulkAddCommentsToCritJSONAtPath(entries []BulkCommentEntry, globalAuthor, globalUserID, primaryPath string, scope session.InheritedScope) error {
+	if len(entries) == 0 {
+		return fmt.Errorf("no comment entries provided")
+	}
 	primary, err := review.LoadCritJSON(primaryPath)
 	if err != nil {
 		return err
@@ -531,7 +539,10 @@ func addReviewCommentToCritJSONScoped(body, author, userID, outputDir string, sc
 	if err != nil {
 		return err
 	}
+	return addReviewCommentToCritJSONAtPath(body, author, userID, critPath, scope)
+}
 
+func addReviewCommentToCritJSONAtPath(body, author, userID, critPath string, scope session.InheritedScope) error {
 	cj, err := review.LoadCritJSON(critPath)
 	if err != nil {
 		return err
@@ -548,7 +559,10 @@ func addFileCommentToCritJSONScoped(filePath, body, author, userID, outputDir st
 	if err != nil {
 		return err
 	}
+	return addFileCommentToCritJSONAtPath(filePath, body, author, userID, critPath, scope)
+}
 
+func addFileCommentToCritJSONAtPath(filePath, body, author, userID, critPath string, scope session.InheritedScope) error {
 	if isAbsoluteOrTraversal(filePath) {
 		return fmt.Errorf("path %q must be relative and within the repository", filePath)
 	}

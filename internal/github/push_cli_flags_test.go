@@ -67,8 +67,12 @@ func TestResolvePushFlagsOutputPrecedence(t *testing.T) {
 			if err := resolvePushFlags(&f); err != nil {
 				t.Fatal(err)
 			}
-			if f.outputDir != tt.want {
-				t.Fatalf("outputDir = %q, want %q", f.outputDir, tt.want)
+			got := f.configuredOutput
+			if f.outputDir != "" {
+				got = f.outputDir
+			}
+			if got != tt.want {
+				t.Fatalf("resolved output = %q, want %q", got, tt.want)
 			}
 		})
 	}

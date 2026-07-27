@@ -72,8 +72,12 @@ func TestResolvePullFlagsOutputPrecedence(t *testing.T) {
 			if err := resolvePullFlags(&f); err != nil {
 				t.Fatal(err)
 			}
-			if f.outputDir != tt.want {
-				t.Fatalf("outputDir = %q, want %q", f.outputDir, tt.want)
+			got := f.configuredOutput
+			if f.outputDir != "" {
+				got = f.outputDir
+			}
+			if got != tt.want {
+				t.Fatalf("resolved output = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -81,19 +85,19 @@ func TestResolvePullFlagsOutputPrecedence(t *testing.T) {
 
 func TestShouldRedirectReviewForPR(t *testing.T) {
 	tests := []struct {
-		name      string
-		prFlag    int
-		outputDir string
-		want      bool
+		name         string
+		prFlag       int
+		pinnedOutput bool
+		want         bool
 	}{
 		{name: "explicit PR without pinned output redirects", prFlag: 42, want: true},
 		{name: "auto-detected PR does not redirect", want: false},
-		{name: "explicit PR with CLI or configured output stays pinned", prFlag: 42, outputDir: "/pinned", want: false},
+		{name: "explicit PR with CLI or configured output stays pinned", prFlag: 42, pinnedOutput: true, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldRedirectReviewForPR(tt.prFlag, tt.outputDir); got != tt.want {
-				t.Fatalf("shouldRedirectReviewForPR(%d, %q) = %v, want %v", tt.prFlag, tt.outputDir, got, tt.want)
+			if got := shouldRedirectReviewForPR(tt.prFlag, tt.pinnedOutput); got != tt.want {
+				t.Fatalf("shouldRedirectReviewForPR(%d, %v) = %v, want %v", tt.prFlag, tt.pinnedOutput, got, tt.want)
 			}
 		})
 	}

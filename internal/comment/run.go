@@ -21,7 +21,7 @@ func RunComment(args []string) error { //nolint:gocyclo // CLI dispatcher
 		return err
 	}
 
-	scope, err := ResolveCommentScope(f.scope, f.outputDir)
+	scope, err := resolveCommentScopeAtPath(f.scope, f.reviewPath)
 	if err != nil {
 		return err
 	}
@@ -35,7 +35,7 @@ func RunComment(args []string) error { //nolint:gocyclo // CLI dispatcher
 	}
 
 	if len(f.args) >= 1 && f.args[0] == "--clear" {
-		return runCommentClear(f.outputDir)
+		return runCommentClear(f.reviewPath)
 	}
 
 	if len(f.args) < 1 {
@@ -44,7 +44,7 @@ func RunComment(args []string) error { //nolint:gocyclo // CLI dispatcher
 
 	if len(f.args) == 1 {
 		body := f.args[0]
-		if err := addReviewCommentToCritJSONScoped(body, f.author, f.userID, f.outputDir, scope); err != nil {
+		if err := addReviewCommentToCritJSONAtPath(body, f.author, f.userID, f.reviewPath, scope); err != nil {
 			return err
 		}
 		fmt.Println("Added review comment")
@@ -54,14 +54,14 @@ func RunComment(args []string) error { //nolint:gocyclo // CLI dispatcher
 	loc := f.args[0]
 	colonIdx := strings.LastIndex(loc, ":")
 	if colonIdx > 0 && looksLikeLineSpec(loc[colonIdx+1:]) {
-		return runCommentLineLevelScoped(loc, f.args, f.author, f.userID, f.outputDir, scope)
+		return runCommentLineLevelAtPath(loc, f.args, f.author, f.userID, f.reviewPath, scope)
 	}
 
 	if len(f.args) >= 2 {
 		candidatePath := f.args[0]
-		if fileExistsOnDiskOrSession(candidatePath, f.outputDir) {
+		if fileExistsOnDiskOrReview(candidatePath, f.reviewPath) {
 			body := strings.Join(f.args[1:], " ")
-			if err := addFileCommentToCritJSONScoped(candidatePath, body, f.author, f.userID, f.outputDir, scope); err != nil {
+			if err := addFileCommentToCritJSONAtPath(candidatePath, body, f.author, f.userID, f.reviewPath, scope); err != nil {
 				return err
 			}
 			fmt.Printf("Added file comment on %s\n", candidatePath)
@@ -94,7 +94,11 @@ func resolveCommentFlags(f *commentFlags) error {
 	if err != nil {
 		return err
 	}
-	f.outputDir = config.ResolveOutputDir(f.outputDir, cfg)
+	f.configuredOutput = cfg.Output
+	f.reviewPath, err = review.ResolveCommandReviewPath(f.outputDir, f.configuredOutput)
+	if err != nil {
+		return err
+	}
 	if f.author == "" {
 		f.author = cfg.Author
 	}
@@ -115,7 +119,7 @@ func runCommentJSONScoped(f commentFlags, scope session.InheritedScope) error {
 		return err
 	}
 
-	if err := bulkAddCommentsToCritJSONScoped(entries, f.author, f.userID, f.outputDir, scope); err != nil {
+	if err := bulkAddCommentsToCritJSONAtPath(entries, f.author, f.userID, f.reviewPath, scope); err != nil {
 		return err
 	}
 
@@ -148,7 +152,7 @@ func runCommentReply(f commentFlags) error {
 		return clicmd.Usage("Usage: crit comment --reply-to <comment-id> [--resolve] <body>")
 	}
 	replyBody := strings.Join(f.args, " ")
-	if err := addReplyToCritJSON(f.replyTo, replyBody, f.author, f.userID, f.resolve, f.outputDir, f.path); err != nil {
+	if err := addReplyToCritJSONAtPath(f.replyTo, replyBody, f.author, f.userID, f.resolve, f.reviewPath, f.path); err != nil {
 		return err
 	}
 	if f.resolve {
@@ -159,8 +163,8 @@ func runCommentReply(f commentFlags) error {
 	return nil
 }
 
-func runCommentClear(outputDir string) error {
-	if err := review.ClearCritJSON(outputDir); err != nil {
+func runCommentClear(reviewPath string) error {
+	if err := review.ClearReviewPath(reviewPath); err != nil {
 		return err
 	}
 	fmt.Println("Cleared review file")
@@ -194,6 +198,14 @@ func commentUsageError() error {
 }
 
 func runCommentLineLevelScoped(loc string, commentArgs []string, author, userID, outputDir string, scope session.InheritedScope) error {
+	critPath, err := review.ResolveReviewPath(outputDir)
+	if err != nil {
+		return err
+	}
+	return runCommentLineLevelAtPath(loc, commentArgs, author, userID, critPath, scope)
+}
+
+func runCommentLineLevelAtPath(loc string, commentArgs []string, author, userID, critPath string, scope session.InheritedScope) error {
 	colonIdx := strings.LastIndex(loc, ":")
 	lineSpec := loc[colonIdx+1:]
 	filePath := loc[:colonIdx]
@@ -202,12 +214,10 @@ func runCommentLineLevelScoped(loc string, commentArgs []string, author, userID,
 		return fmt.Errorf("invalid line spec in %q", loc)
 	}
 	body := strings.Join(commentArgs[1:], " ")
-	if critPath, pathErr := review.ResolveReviewPath(outputDir); pathErr == nil {
-		if guardErr := checkCommentCLIAllowed(critPath); guardErr != nil {
-			return guardErr
-		}
+	if guardErr := checkCommentCLIAllowed(critPath); guardErr != nil {
+		return guardErr
 	}
-	if err := addCommentToCritJSONScoped(filePath, startLine, endLine, body, author, userID, outputDir, scope); err != nil {
+	if err := addCommentToCritJSONAtPath(filePath, startLine, endLine, body, author, userID, critPath, scope); err != nil {
 		return err
 	}
 	fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
@@ -235,6 +245,17 @@ func fileExistsOnDiskOrSession(path string, outputDir string) bool {
 	if err != nil {
 		return false
 	}
+	return fileExistsInReview(path, critPath)
+}
+
+func fileExistsOnDiskOrReview(path, critPath string) bool {
+	if _, err := os.Stat(path); err == nil {
+		return true
+	}
+	return fileExistsInReview(path, critPath)
+}
+
+func fileExistsInReview(path, critPath string) bool {
 	cj, err := review.LoadCritJSON(critPath)
 	if err != nil {
 		return false

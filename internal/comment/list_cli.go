@@ -12,11 +12,12 @@ import (
 )
 
 type commentsListFlags struct {
-	outputDir    string
-	plan         string
-	jsonOutput   bool
-	all          bool
-	explicitPath string
+	outputDir        string
+	configuredOutput string
+	plan             string
+	jsonOutput       bool
+	all              bool
+	explicitPath     string
 }
 
 func parseCommentsListFlags(args []string) (commentsListFlags, error) {
@@ -69,11 +70,14 @@ func resolveCommentsListFlags(f *commentsListFlags) error {
 			return err
 		}
 	}
+	if f.explicitPath != "" {
+		return nil
+	}
 	cfg, err := config.LoadCurrentConfig()
 	if err != nil {
 		return err
 	}
-	f.outputDir = config.ResolveOutputDir(f.outputDir, cfg)
+	f.configuredOutput = cfg.Output
 	return nil
 }
 
@@ -81,7 +85,7 @@ func resolveCommentsCritPath(f commentsListFlags) (string, error) {
 	if f.explicitPath != "" {
 		return resolveExplicitReviewPath(f.explicitPath)
 	}
-	return review.ResolveReviewPath(f.outputDir)
+	return review.ResolveCommandReviewPath(f.outputDir, f.configuredOutput)
 }
 
 func resolveExplicitReviewPath(path string) (string, error) {

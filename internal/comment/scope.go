@@ -58,6 +58,10 @@ func loadCritJSONForOutputDir(outputDir string) (session.CritJSON, bool) {
 		fmt.Fprintf(os.Stderr, "Warning: cannot resolve review path: %v\n", err)
 		return session.CritJSON{}, false
 	}
+	return loadCritJSONForPath(critPath)
+}
+
+func loadCritJSONForPath(critPath string) (session.CritJSON, bool) {
 	cj, err := review.LoadCritJSON(critPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -73,24 +77,32 @@ func loadCritJSONForOutputDir(outputDir string) (session.CritJSON, bool) {
 // based on the --scope flag, a running daemon's Focus, and the on-disk
 // ActiveDiffScope.
 func ResolveCommentScope(override CommentFocusOverride, outputDir string) (session.InheritedScope, error) {
+	critPath, err := review.ResolveReviewPath(outputDir)
+	if err != nil {
+		return session.InheritedScope{}, err
+	}
+	return resolveCommentScopeAtPath(override, critPath)
+}
+
+func resolveCommentScopeAtPath(override CommentFocusOverride, critPath string) (session.InheritedScope, error) {
 	daemonFocus := session.ProbeDaemonFocus()
 
 	switch override {
 	case ScopeOverrideWorkingTree:
 		return session.InheritedScope{}, nil
 	case ScopeOverrideFullStack:
-		return resolveExplicitCommentScope(daemonFocus, outputDir, session.DiffScopeFullStack, "full_stack",
+		return resolveExplicitCommentScope(daemonFocus, critPath, session.DiffScopeFullStack, "full_stack",
 			"--scope=full-stack: no active full-stack focus to attach to (start `crit --pr <n> --scope=full-stack` first)")
 	case ScopeOverrideLayer:
-		return resolveExplicitCommentScope(daemonFocus, outputDir, session.DiffScopeLayer, "layer",
+		return resolveExplicitCommentScope(daemonFocus, critPath, session.DiffScopeLayer, "layer",
 			"--scope=layer: no active layer focus to attach to (start `crit --pr <n>` first)")
 	case ScopeOverrideUnset:
-		return resolveAutoCommentScope(daemonFocus, outputDir), nil
+		return resolveAutoCommentScope(daemonFocus, critPath), nil
 	}
 	return session.InheritedScope{}, fmt.Errorf("invalid --scope value %q", override)
 }
 
-func resolveExplicitCommentScope(daemonFocus *session.Focus, outputDir string, want session.DiffScope, wantStr, errMsg string) (session.InheritedScope, error) {
+func resolveExplicitCommentScope(daemonFocus *session.Focus, critPath string, want session.DiffScope, wantStr, errMsg string) (session.InheritedScope, error) {
 	if daemonFocus != nil && daemonFocus.Kind == session.FocusRange && daemonFocus.DiffScope == want {
 		return session.InheritedScope{
 			HeadSHA:   daemonFocus.HeadSHA,
@@ -99,13 +111,13 @@ func resolveExplicitCommentScope(daemonFocus *session.Focus, outputDir string, w
 			DiffScope: wantStr,
 		}, nil
 	}
-	if cj, ok := loadCritJSONForOutputDir(outputDir); ok && cj.ActiveDiffScope == wantStr {
+	if cj, ok := loadCritJSONForPath(critPath); ok && cj.ActiveDiffScope == wantStr {
 		return session.InheritedScope{DiffScope: wantStr}, nil
 	}
 	return session.InheritedScope{}, fmt.Errorf("%s", errMsg)
 }
 
-func resolveAutoCommentScope(daemonFocus *session.Focus, outputDir string) session.InheritedScope {
+func resolveAutoCommentScope(daemonFocus *session.Focus, critPath string) session.InheritedScope {
 	if daemonFocus != nil && daemonFocus.Kind == session.FocusRange {
 		return session.InheritedScope{
 			HeadSHA:   daemonFocus.HeadSHA,
@@ -114,7 +126,7 @@ func resolveAutoCommentScope(daemonFocus *session.Focus, outputDir string) sessi
 			DiffScope: string(daemonFocus.DiffScope),
 		}
 	}
-	if cj, ok := loadCritJSONForOutputDir(outputDir); ok && cj.ActiveDiffScope != "" {
+	if cj, ok := loadCritJSONForPath(critPath); ok && cj.ActiveDiffScope != "" {
 		fmt.Fprintf(os.Stderr,
 			"Note: stamping comment with diff_scope=%q from review file (no daemon running; head_sha unknown)\n",
 			cj.ActiveDiffScope)

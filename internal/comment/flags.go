@@ -5,17 +5,19 @@ import (
 )
 
 type commentFlags struct {
-	outputDir string
-	author    string
-	userID    string
-	replyTo   string
-	resolve   bool
-	path      string
-	json      bool
-	file      string
-	plan      string
-	scope     CommentFocusOverride
-	args      []string
+	outputDir        string
+	configuredOutput string
+	reviewPath       string
+	author           string
+	userID           string
+	replyTo          string
+	resolve          bool
+	path             string
+	json             bool
+	file             string
+	plan             string
+	scope            CommentFocusOverride
+	args             []string
 }
 
 func parseCommentFlags(args []string) (commentFlags, error) { //nolint:gocyclo // CLI flag parser

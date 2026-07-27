@@ -16,11 +16,12 @@ import (
 )
 
 type pushFlags struct {
-	prFlag    int
-	dryRun    bool
-	message   string
-	outputDir string
-	eventFlag string
+	prFlag           int
+	dryRun           bool
+	message          string
+	outputDir        string
+	configuredOutput string
+	eventFlag        string
 }
 
 func parsePushFlags(args []string) (pushFlags, error) {
@@ -70,8 +71,19 @@ func resolvePushFlags(f *pushFlags) error {
 	if err != nil {
 		return err
 	}
-	f.outputDir = config.ResolveOutputDir(f.outputDir, cfg)
+	f.configuredOutput = cfg.Output
 	return nil
+}
+
+func parseResolvedPushFlags(args []string) (pushFlags, error) {
+	f, err := parsePushFlags(args)
+	if err != nil {
+		return pushFlags{}, err
+	}
+	if err := resolvePushFlags(&f); err != nil {
+		return pushFlags{}, err
+	}
+	return f, nil
 }
 
 // postPushReplies posts each reply via `gh api`. On the first auth-rotation
@@ -125,11 +137,8 @@ func loadPushContext(args []string) (pushContext, error) {
 		return pushContext{}, err
 	}
 
-	f, err := parsePushFlags(args)
+	f, err := parseResolvedPushFlags(args)
 	if err != nil {
-		return pushContext{}, err
-	}
-	if err := resolvePushFlags(&f); err != nil {
 		return pushContext{}, err
 	}
 
@@ -147,7 +156,7 @@ func loadPushContext(args []string) (pushContext, error) {
 		return pushContext{}, err
 	}
 
-	critPath, err := review.ResolveReviewPath(f.outputDir)
+	critPath, err := review.ResolveCommandReviewPath(f.outputDir, f.configuredOutput)
 	if err != nil {
 		return pushContext{}, err
 	}
@@ -171,7 +180,7 @@ func loadPushContext(args []string) (pushContext, error) {
 	// review file is for a different branch (or is missing) — pushing the wrong
 	// comments to a PR is destructive, so honor the explicit intent first. Same
 	// pattern as PR #424's findReviewFileByCommentID fallback for `crit comment`.
-	if shouldRedirectReviewForPR(f.prFlag, f.outputDir) {
+	if shouldRedirectReviewForPR(f.prFlag, f.outputDir != "" || f.configuredOutput != "") {
 		if altPath, altCJ, ok := review.RedirectReviewPathForPR(prNumber, cj.Branch, critPath); ok {
 			critPath = altPath
 			cj = altCJ

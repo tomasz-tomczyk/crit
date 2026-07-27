@@ -127,8 +127,11 @@ func TestResolveCommentFlagsOutputPrecedence(t *testing.T) {
 		if err := resolveCommentFlags(&f); err != nil {
 			t.Fatal(err)
 		}
-		if f.outputDir != configuredOutput {
-			t.Fatalf("outputDir = %q, want configured output %q", f.outputDir, configuredOutput)
+		if f.configuredOutput != configuredOutput {
+			t.Fatalf("configuredOutput = %q, want %q", f.configuredOutput, configuredOutput)
+		}
+		if f.reviewPath != filepath.Join(configuredOutput, ".crit") {
+			t.Fatalf("reviewPath = %q, want configured review path", f.reviewPath)
 		}
 	})
 
@@ -144,6 +147,9 @@ func TestResolveCommentFlagsOutputPrecedence(t *testing.T) {
 		if f.outputDir != explicitOutput {
 			t.Fatalf("outputDir = %q, want explicit output %q", f.outputDir, explicitOutput)
 		}
+		if f.reviewPath != filepath.Join(explicitOutput, ".crit") {
+			t.Fatalf("reviewPath = %q, want explicit review path", f.reviewPath)
+		}
 	})
 
 	t.Run("plan storage wins without conflict", func(t *testing.T) {
@@ -156,6 +162,9 @@ func TestResolveCommentFlagsOutputPrecedence(t *testing.T) {
 		}
 		if f.outputDir == "" || f.outputDir == configuredOutput {
 			t.Fatalf("outputDir = %q, want plan storage", f.outputDir)
+		}
+		if f.reviewPath != filepath.Join(f.outputDir, ".crit") {
+			t.Fatalf("reviewPath = %q, want plan review path", f.reviewPath)
 		}
 	})
 }
